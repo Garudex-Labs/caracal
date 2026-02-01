@@ -127,6 +127,12 @@ def ledger():
     pass
 
 
+# Import and register ledger commands
+from caracal.cli.ledger import query, summary
+ledger.add_command(query)
+ledger.add_command(summary)
+
+
 @cli.group()
 def pricebook():
     """Manage resource prices."""
