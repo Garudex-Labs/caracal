@@ -140,7 +140,7 @@ Caracal Core follows a modular architecture:
 
 ## License
 
-Apache License 2.0 - See LICENSE file for details.
+GNU AFFERO GENERAL PUBLIC LICENSE v3 - See LICENSE file for details.
 
 ## Contributing
 
