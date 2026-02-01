@@ -21,6 +21,7 @@ from caracal.exceptions import (
     FileWriteError,
 )
 from caracal.logging_config import get_logger
+from caracal.core.retry import retry_on_transient_failure
 
 logger = get_logger(__name__)
 
@@ -160,6 +161,7 @@ class AgentRegistry:
         """
         return list(self._agents.values())
 
+    @retry_on_transient_failure(max_retries=3, base_delay=0.1, backoff_factor=2.0)
     def _persist(self) -> None:
         """
         Persist registry to disk using atomic write strategy.
@@ -170,8 +172,13 @@ class AgentRegistry:
         3. Flush to disk (fsync)
         4. Atomically rename to target file
         
+        Implements retry logic with exponential backoff:
+        - Retries up to 3 times on transient failures (OSError, IOError)
+        - Uses exponential backoff: 0.1s, 0.2s, 0.4s
+        - Fails permanently after max retries
+        
         Raises:
-            FileWriteError: If write operation fails
+            FileWriteError: If write operation fails after all retries
         """
         try:
             # Create backup before writing

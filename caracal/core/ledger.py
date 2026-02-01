@@ -23,6 +23,7 @@ from caracal.exceptions import (
     LedgerWriteError,
 )
 from caracal.logging_config import get_logger
+from caracal.core.retry import retry_on_transient_failure
 
 logger = get_logger(__name__)
 
@@ -194,6 +195,7 @@ class LedgerWriter:
                 f"Failed to append event to ledger {self.ledger_path}: {e}"
             ) from e
 
+    @retry_on_transient_failure(max_retries=3, base_delay=0.1, backoff_factor=2.0)
     def _atomic_append(self, event: LedgerEvent) -> None:
         """
         Perform atomic append operation with file locking.
@@ -205,11 +207,16 @@ class LedgerWriter:
         4. Force OS to write to physical disk (fsync)
         5. Release file lock
         
+        Implements retry logic with exponential backoff:
+        - Retries up to 3 times on transient failures (OSError, IOError)
+        - Uses exponential backoff: 0.1s, 0.2s, 0.4s
+        - Fails permanently after max retries
+        
         Args:
             event: LedgerEvent to append
             
         Raises:
-            LedgerWriteError: If write operation fails
+            LedgerWriteError: If write operation fails after all retries
         """
         try:
             # Open file in append mode
