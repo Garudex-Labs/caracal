@@ -1,0 +1,142 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "caracal-core"
+version = "0.1.0"
+description = "Economic control plane for AI agents"
+readme = "README.md"
+requires-python = ">=3.10"
+license = {file = "LICENSE"}
+authors = [
+    {name = "Caracal Contributors"}
+]
+keywords = ["ai", "agents", "economics", "budgeting", "metering", "ledger"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+
+dependencies = [
+    "click>=8.1.0",
+    "pyyaml>=6.0",
+    "hypothesis>=6.0.0",
+    "ase-protocol>=1.0.1",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-cov>=4.0.0",
+    "black>=23.0.0",
+    "ruff>=0.1.0",
+    "mypy>=1.0.0",
+]
+
+[project.scripts]
+caracal = "caracal.cli.main:cli"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["caracal*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = [
+    "-v",
+    "--strict-markers",
+    "--tb=short",
+    "--cov=caracal",
+    "--cov-report=term-missing",
+    "--cov-report=html",
+]
+markers = [
+    "unit: Unit tests",
+    "integration: Integration tests",
+    "property: Property-based tests",
+]
+
+[tool.coverage.run]
+source = ["caracal"]
+omit = [
+    "*/tests/*",
+    "*/__pycache__/*",
+    "*/site-packages/*",
+]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+    "if TYPE_CHECKING:",
+    "@abstractmethod",
+]
+
+[tool.black]
+line-length = 100
+target-version = ["py310", "py311", "py312"]
+include = '\.pyi?$'
+exclude = '''
+/(
+    \.git
+  | \.venv
+  | \.pytest_cache
+  | __pycache__
+  | build
+  | dist
+)/
+'''
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort
+    "B",   # flake8-bugbear
+    "C4",  # flake8-comprehensions
+    "UP",  # pyupgrade
+]
+ignore = [
+    "E501",  # line too long (handled by black)
+    "B008",  # do not perform function calls in argument defaults
+]
+
+[tool.ruff.per-file-ignores]
+"__init__.py" = ["F401"]  # unused imports in __init__.py
+
+[tool.mypy]
+python_version = "3.10"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = false
+disallow_incomplete_defs = false
+check_untyped_defs = true
+no_implicit_optional = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_no_return = true
+strict_equality = true
+
+[[tool.mypy.overrides]]
+module = [
+    "hypothesis.*",
+    "click.*",
+    "yaml.*",
+]
+ignore_missing_imports = true
