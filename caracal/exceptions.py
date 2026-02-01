@@ -177,3 +177,30 @@ class SDKConfigurationError(SDKError):
 class ProvisionalChargeError(CaracalError):
     """Base exception for provisional charge-related errors."""
     pass
+
+
+# Delegation Token Errors
+class DelegationTokenError(CaracalError):
+    """Base exception for delegation token-related errors."""
+    pass
+
+
+class InvalidDelegationTokenError(DelegationTokenError):
+    """Raised when a delegation token is invalid or malformed."""
+    pass
+
+
+class TokenExpiredError(DelegationTokenError):
+    """Raised when a delegation token has expired."""
+    pass
+
+
+class TokenValidationError(DelegationTokenError):
+    """Raised when delegation token validation fails."""
+    pass
+
+
+class SpendingLimitExceededError(DelegationTokenError):
+    """Raised when spending exceeds delegation token limit."""
+    pass
+

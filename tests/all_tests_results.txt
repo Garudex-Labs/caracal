@@ -1,0 +1,13 @@
+============================= test session starts ==============================
+platform linux -- Python 3.14.2, pytest-9.0.2, pluggy-1.6.0 -- /usr/bin/python3
+cachedir: .pytest_cache
+hypothesis profile 'caracal'
+rootdir: /home/raw/Documents/workspace/caracalEcosystem/Caracal
+configfile: pyproject.toml
+plugins: hypothesis-6.151.4, cov-7.0.0, anyio-4.12.1
+collecting ... ERROR: file or directory not found: tests/unit/
+
+collected 0 items
+
+============================ no tests ran in 0.00s =============================
+Exit code: 4
