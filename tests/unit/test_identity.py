@@ -265,3 +265,197 @@ class TestAgentRegistry:
         )
         
         assert agent.metadata == {}
+
+    def test_register_agent_with_parent(self, temp_dir):
+        """Test registering a child agent with a parent."""
+        registry_path = temp_dir / "agents.json"
+        registry = AgentRegistry(str(registry_path))
+        
+        # Register parent agent
+        parent = registry.register_agent(
+            name="parent-agent",
+            owner="parent@example.com"
+        )
+        
+        # Register child agent
+        child = registry.register_agent(
+            name="child-agent",
+            owner="child@example.com",
+            parent_agent_id=parent.agent_id
+        )
+        
+        assert child.parent_agent_id == parent.agent_id
+        assert child.name == "child-agent"
+
+    def test_register_agent_with_nonexistent_parent(self, temp_dir):
+        """Test that registering with non-existent parent fails."""
+        from caracal.exceptions import AgentNotFoundError
+        
+        registry_path = temp_dir / "agents.json"
+        registry = AgentRegistry(str(registry_path))
+        
+        # Attempt to register child with non-existent parent
+        with pytest.raises(AgentNotFoundError) as exc_info:
+            registry.register_agent(
+                name="child-agent",
+                owner="child@example.com",
+                parent_agent_id="non-existent-id"
+            )
+        
+        assert "non-existent-id" in str(exc_info.value)
+
+    def test_get_children(self, temp_dir):
+        """Test getting direct children of an agent."""
+        registry_path = temp_dir / "agents.json"
+        registry = AgentRegistry(str(registry_path))
+        
+        # Register parent agent
+        parent = registry.register_agent(
+            name="parent-agent",
+            owner="parent@example.com"
+        )
+        
+        # Register child agents
+        child1 = registry.register_agent(
+            name="child-1",
+            owner="child1@example.com",
+            parent_agent_id=parent.agent_id
+        )
+        child2 = registry.register_agent(
+            name="child-2",
+            owner="child2@example.com",
+            parent_agent_id=parent.agent_id
+        )
+        
+        # Register unrelated agent
+        registry.register_agent(
+            name="unrelated-agent",
+            owner="unrelated@example.com"
+        )
+        
+        # Get children
+        children = registry.get_children(parent.agent_id)
+        
+        assert len(children) == 2
+        child_ids = {c.agent_id for c in children}
+        assert child1.agent_id in child_ids
+        assert child2.agent_id in child_ids
+
+    def test_get_children_no_children(self, temp_dir):
+        """Test getting children when agent has none."""
+        registry_path = temp_dir / "agents.json"
+        registry = AgentRegistry(str(registry_path))
+        
+        # Register agent without children
+        agent = registry.register_agent(
+            name="lonely-agent",
+            owner="lonely@example.com"
+        )
+        
+        children = registry.get_children(agent.agent_id)
+        assert len(children) == 0
+
+    def test_get_descendants(self, temp_dir):
+        """Test getting all descendants recursively."""
+        registry_path = temp_dir / "agents.json"
+        registry = AgentRegistry(str(registry_path))
+        
+        # Create hierarchy: grandparent -> parent -> child
+        grandparent = registry.register_agent(
+            name="grandparent",
+            owner="gp@example.com"
+        )
+        
+        parent = registry.register_agent(
+            name="parent",
+            owner="parent@example.com",
+            parent_agent_id=grandparent.agent_id
+        )
+        
+        child = registry.register_agent(
+            name="child",
+            owner="child@example.com",
+            parent_agent_id=parent.agent_id
+        )
+        
+        # Get descendants of grandparent
+        descendants = registry.get_descendants(grandparent.agent_id)
+        
+        assert len(descendants) == 2
+        descendant_ids = {d.agent_id for d in descendants}
+        assert parent.agent_id in descendant_ids
+        assert child.agent_id in descendant_ids
+
+    def test_get_descendants_multiple_branches(self, temp_dir):
+        """Test getting descendants with multiple branches."""
+        registry_path = temp_dir / "agents.json"
+        registry = AgentRegistry(str(registry_path))
+        
+        # Create hierarchy with multiple branches
+        root = registry.register_agent(
+            name="root",
+            owner="root@example.com"
+        )
+        
+        # First branch
+        child1 = registry.register_agent(
+            name="child-1",
+            owner="child1@example.com",
+            parent_agent_id=root.agent_id
+        )
+        grandchild1 = registry.register_agent(
+            name="grandchild-1",
+            owner="gc1@example.com",
+            parent_agent_id=child1.agent_id
+        )
+        
+        # Second branch
+        child2 = registry.register_agent(
+            name="child-2",
+            owner="child2@example.com",
+            parent_agent_id=root.agent_id
+        )
+        grandchild2 = registry.register_agent(
+            name="grandchild-2",
+            owner="gc2@example.com",
+            parent_agent_id=child2.agent_id
+        )
+        
+        # Get all descendants
+        descendants = registry.get_descendants(root.agent_id)
+        
+        assert len(descendants) == 4
+        descendant_ids = {d.agent_id for d in descendants}
+        assert child1.agent_id in descendant_ids
+        assert child2.agent_id in descendant_ids
+        assert grandchild1.agent_id in descendant_ids
+        assert grandchild2.agent_id in descendant_ids
+
+    def test_parent_child_persistence(self, temp_dir):
+        """Test that parent-child relationships are persisted."""
+        registry_path = temp_dir / "agents.json"
+        
+        # Create first registry and register agents
+        registry1 = AgentRegistry(str(registry_path))
+        parent = registry1.register_agent(
+            name="parent",
+            owner="parent@example.com"
+        )
+        child = registry1.register_agent(
+            name="child",
+            owner="child@example.com",
+            parent_agent_id=parent.agent_id
+        )
+        
+        # Create second registry (should load from disk)
+        registry2 = AgentRegistry(str(registry_path))
+        
+        # Verify parent-child relationship was loaded
+        loaded_child = registry2.get_agent(child.agent_id)
+        assert loaded_child is not None
+        assert loaded_child.parent_agent_id == parent.agent_id
+        
+        # Verify get_children works after loading
+        children = registry2.get_children(parent.agent_id)
+        assert len(children) == 1
+        assert children[0].agent_id == child.agent_id

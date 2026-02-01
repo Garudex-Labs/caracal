@@ -37,12 +37,14 @@ class AgentIdentity:
         owner: Owner identifier (email or username)
         created_at: Timestamp when agent was registered
         metadata: Extensible metadata dictionary
+        parent_agent_id: Optional parent agent ID for hierarchical relationships
     """
     agent_id: str
     name: str
     owner: str
     created_at: str  # ISO 8601 format
     metadata: Dict[str, Any]
+    parent_agent_id: Optional[str] = None
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for JSON serialization."""
@@ -89,7 +91,8 @@ class AgentRegistry:
         self, 
         name: str, 
         owner: str, 
-        metadata: Optional[Dict[str, Any]] = None
+        metadata: Optional[Dict[str, Any]] = None,
+        parent_agent_id: Optional[str] = None
     ) -> AgentIdentity:
         """
         Register a new agent with unique identity.
@@ -98,12 +101,14 @@ class AgentRegistry:
             name: Human-readable agent name (must be unique)
             owner: Owner identifier
             metadata: Optional extensible metadata
+            parent_agent_id: Optional parent agent ID for hierarchical relationships
             
         Returns:
             AgentIdentity: The newly created agent identity
             
         Raises:
             DuplicateAgentNameError: If agent name already exists
+            AgentNotFoundError: If parent_agent_id is provided but parent doesn't exist
         """
         # Validate unique name
         if name in self._names:
@@ -111,6 +116,15 @@ class AgentRegistry:
             raise DuplicateAgentNameError(
                 f"Agent with name '{name}' already exists"
             )
+        
+        # Validate parent existence if provided
+        if parent_agent_id is not None:
+            parent = self.get_agent(parent_agent_id)
+            if parent is None:
+                logger.warning(f"Attempted to register agent with non-existent parent: {parent_agent_id}")
+                raise AgentNotFoundError(
+                    f"Parent agent with ID '{parent_agent_id}' does not exist"
+                )
         
         # Generate UUID v4 for agent ID
         agent_id = str(uuid.uuid4())
@@ -121,7 +135,8 @@ class AgentRegistry:
             name=name,
             owner=owner,
             created_at=datetime.utcnow().isoformat() + "Z",
-            metadata=metadata or {}
+            metadata=metadata or {},
+            parent_agent_id=parent_agent_id
         )
         
         # Add to registry
@@ -137,7 +152,7 @@ class AgentRegistry:
                 f"Failed to persist agent registry to {self.registry_path}: {e}"
             ) from e
         
-        logger.info(f"Registered agent: id={agent_id}, name={name}, owner={owner}")
+        logger.info(f"Registered agent: id={agent_id}, name={name}, owner={owner}, parent_id={parent_agent_id}")
         
         return agent
 
@@ -166,6 +181,48 @@ class AgentRegistry:
             List of all AgentIdentity objects
         """
         return list(self._agents.values())
+
+    def get_children(self, agent_id: str) -> List[AgentIdentity]:
+        """
+        Get all direct children of an agent.
+        
+        Args:
+            agent_id: The parent agent's unique identifier
+            
+        Returns:
+            List of AgentIdentity objects that are direct children of the agent
+        """
+        children = [
+            agent for agent in self._agents.values()
+            if agent.parent_agent_id == agent_id
+        ]
+        logger.debug(f"Found {len(children)} direct children for agent {agent_id}")
+        return children
+
+    def get_descendants(self, agent_id: str) -> List[AgentIdentity]:
+        """
+        Get all descendants (children, grandchildren, etc.) recursively.
+        
+        Args:
+            agent_id: The ancestor agent's unique identifier
+            
+        Returns:
+            List of all AgentIdentity objects in the descendant tree
+        """
+        descendants = []
+        
+        # Get direct children
+        children = self.get_children(agent_id)
+        
+        # Add children to descendants
+        descendants.extend(children)
+        
+        # Recursively get descendants of each child
+        for child in children:
+            descendants.extend(self.get_descendants(child.agent_id))
+        
+        logger.debug(f"Found {len(descendants)} total descendants for agent {agent_id}")
+        return descendants
 
     @retry_on_transient_failure(max_retries=3, base_delay=0.1, backoff_factor=2.0)
     def _persist(self) -> None:
