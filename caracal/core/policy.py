@@ -245,18 +245,18 @@ class PolicyStore:
             return
         
         try:
-            # Rotate existing backups
+            # Delete oldest backup if it exists
+            oldest_backup = Path(f"{self.policy_path}.bak.{self.backup_count}")
+            if oldest_backup.exists():
+                oldest_backup.unlink()
+            
+            # Rotate existing backups (from newest to oldest)
             for i in range(self.backup_count - 1, 0, -1):
                 old_backup = Path(f"{self.policy_path}.bak.{i}")
                 new_backup = Path(f"{self.policy_path}.bak.{i + 1}")
                 
                 if old_backup.exists():
-                    if i == self.backup_count - 1:
-                        # Delete oldest backup
-                        old_backup.unlink()
-                    else:
-                        # Rotate backup
-                        old_backup.rename(new_backup)
+                    old_backup.rename(new_backup)
             
             # Create new backup
             backup_path = Path(f"{self.policy_path}.bak.1")
