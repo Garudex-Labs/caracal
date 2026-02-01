@@ -1,0 +1,48 @@
+============================= test session starts ==============================
+platform linux -- Python 3.14.2, pytest-9.0.2, pluggy-1.6.0 -- /usr/bin/python3
+cachedir: .pytest_cache
+hypothesis profile 'caracal'
+rootdir: /home/raw/Documents/workspace/caracalEcosystem/Caracal
+configfile: pyproject.toml
+plugins: hypothesis-6.151.4, cov-7.0.0, anyio-4.12.1
+collecting ... collected 8 items
+
+tests/unit/test_cli_init.py::TestCLIInit::test_init_creates_directory_structure PASSED [ 12%]
+tests/unit/test_cli_init.py::TestCLIInit::test_init_creates_config_yaml PASSED [ 25%]
+tests/unit/test_cli_init.py::TestCLIInit::test_init_creates_empty_agents_json PASSED [ 37%]
+tests/unit/test_cli_init.py::TestCLIInit::test_init_creates_empty_policies_json PASSED [ 50%]
+tests/unit/test_cli_init.py::TestCLIInit::test_init_creates_empty_ledger_jsonl PASSED [ 62%]
+tests/unit/test_cli_init.py::TestCLIInit::test_init_creates_sample_pricebook_csv PASSED [ 75%]
+tests/unit/test_cli_init.py::TestCLIInit::test_init_is_idempotent PASSED [ 87%]
+tests/unit/test_cli_init.py::TestCLIInit::test_init_success_message PASSED [100%]
+
+================================ tests coverage ================================
+_______________ coverage: platform linux, python 3.14.2-final-0 ________________
+
+Name                         Stmts   Miss  Cover   Missing
+----------------------------------------------------------
+caracal/__init__.py              1      0   100%
+caracal/cli/__init__.py          0      0   100%
+caracal/cli/agent.py           113     91    19%   31-33, 69-117, 141-196, 226-264
+caracal/cli/ledger.py          177    151    15%   30-31, 53-64, 138-241, 298-480
+caracal/cli/main.py            180     78    57%   68-73, 89-94, 101, 114, 127, 139, 153, 249-251, 270-280, 298-308, 326-334, 352-360, 378-387, 405-411, 426-439
+caracal/cli/policy.py          136    111    18%   32-39, 85-153, 185-258, 288-331
+caracal/cli/pricebook.py       163    136    17%   32-34, 58-125, 155-196, 233-307, 344-404
+caracal/config/__init__.py       2      0   100%
+caracal/config/settings.py     119     32    73%   152-159, 165-166, 174-176, 201-202, 281-282, 284-285, 287-288, 290-291, 293-294, 298, 304, 309, 316, 323, 330, 335, 340, 345
+caracal/core/__init__.py         0      0   100%
+caracal/core/identity.py       100     74    26%   49, 54, 73-86, 109-136, 148-153, 162, 183-207, 221-247, 256-278
+caracal/core/ledger.py         200    167    16%   60-64, 69, 73, 97-112, 147-194, 221-243, 254-256, 265-308, 322-348, 367-374, 401-475, 500-522, 543-568
+caracal/core/metering.py        54     54     0%   8-219
+caracal/core/policy.py         157    123    22%   56, 61, 65, 90-104, 130-181, 193-203, 212, 233-257, 271-297, 306-332, 371-373, 394-475
+caracal/core/pricebook.py      142    114    20%   49, 59, 86-97, 112-119, 139-167, 179, 195-257, 269-343, 366-404, 418-442
+caracal/core/retry.py           38     25    34%   46-72, 111-138
+caracal/exceptions.py           64      0   100%
+caracal/logging_config.py       25      1    96%   27
+caracal/sdk/__init__.py          3      3     0%   7-10
+caracal/sdk/client.py           76     76     0%   8-335
+caracal/sdk/context.py          28     28     0%   8-119
+----------------------------------------------------------
+TOTAL                         1778   1264    29%
+Coverage HTML written to dir htmlcov
+============================== 8 passed in 0.29s ===============================

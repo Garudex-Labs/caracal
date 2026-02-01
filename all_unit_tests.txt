@@ -1,0 +1,664 @@
+============================= test session starts ==============================
+platform linux -- Python 3.14.2, pytest-9.0.2, pluggy-1.6.0 -- /usr/bin/python3
+cachedir: .pytest_cache
+hypothesis profile 'caracal'
+rootdir: /home/raw/Documents/workspace/caracalEcosystem/Caracal
+configfile: pyproject.toml
+plugins: hypothesis-6.151.4, cov-7.0.0, anyio-4.12.1
+collecting ... collected 248 items
+
+tests/unit/test_cli_init.py::TestCLIInit::test_init_creates_directory_structure PASSED [  0%]
+tests/unit/test_cli_init.py::TestCLIInit::test_init_creates_config_yaml PASSED [  0%]
+tests/unit/test_cli_init.py::TestCLIInit::test_init_creates_empty_agents_json PASSED [  1%]
+tests/unit/test_cli_init.py::TestCLIInit::test_init_creates_empty_policies_json PASSED [  1%]
+tests/unit/test_cli_init.py::TestCLIInit::test_init_creates_empty_ledger_jsonl PASSED [  2%]
+tests/unit/test_cli_init.py::TestCLIInit::test_init_creates_sample_pricebook_csv PASSED [  2%]
+tests/unit/test_cli_init.py::TestCLIInit::test_init_is_idempotent PASSED [  2%]
+tests/unit/test_cli_init.py::TestCLIInit::test_init_success_message PASSED [  3%]
+tests/unit/test_cli_ledger.py::TestLedgerCLI::test_ledger_query_help PASSED [  3%]
+tests/unit/test_cli_ledger.py::TestLedgerCLI::test_ledger_summary_help PASSED [  4%]
+tests/unit/test_cli_ledger.py::TestLedgerCLI::test_query_all_events_table PASSED [  4%]
+tests/unit/test_cli_ledger.py::TestLedgerCLI::test_query_all_events_json PASSED [  4%]
+tests/unit/test_cli_ledger.py::TestLedgerCLI::test_query_filter_by_agent PASSED [  5%]
+tests/unit/test_cli_ledger.py::TestLedgerCLI::test_query_filter_by_date_range PASSED [  5%]
+tests/unit/test_cli_ledger.py::TestLedgerCLI::test_query_filter_by_resource_type PASSED [  6%]
+tests/unit/test_cli_ledger.py::TestLedgerCLI::test_query_combined_filters PASSED [  6%]
+tests/unit/test_cli_ledger.py::TestLedgerCLI::test_query_no_results PASSED [  6%]
+tests/unit/test_cli_ledger.py::TestLedgerCLI::test_query_invalid_date_format PASSED [  7%]
+tests/unit/test_cli_ledger.py::TestLedgerCLI::test_query_invalid_date_range PASSED [  7%]
+tests/unit/test_cli_ledger.py::TestLedgerCLI::test_summary_single_agent_table PASSED [  8%]
+tests/unit/test_cli_ledger.py::TestLedgerCLI::test_summary_single_agent_json PASSED [  8%]
+tests/unit/test_cli_ledger.py::TestLedgerCLI::test_summary_multi_agent_table PASSED [  8%]
+tests/unit/test_cli_ledger.py::TestLedgerCLI::test_summary_multi_agent_json PASSED [  9%]
+tests/unit/test_cli_ledger.py::TestLedgerCLI::test_summary_no_spending PASSED [  9%]
+tests/unit/test_cli_ledger.py::TestLedgerCLI::test_summary_missing_time_range PASSED [ 10%]
+tests/unit/test_cli_ledger.py::TestLedgerCLI::test_summary_single_agent_missing_time_range PASSED [ 10%]
+tests/unit/test_cli_main.py::TestCLIMain::test_cli_help PASSED           [ 10%]
+tests/unit/test_cli_main.py::TestCLIMain::test_cli_version PASSED        [ 11%]
+tests/unit/test_cli_main.py::TestCLIMain::test_cli_with_config_path PASSED [ 11%]
+tests/unit/test_cli_main.py::TestCLIMain::test_cli_with_nonexistent_config PASSED [ 12%]
+tests/unit/test_cli_main.py::TestCLIMain::test_cli_with_log_level PASSED [ 12%]
+tests/unit/test_cli_main.py::TestCLIMain::test_cli_with_verbose PASSED   [ 12%]
+tests/unit/test_cli_main.py::TestCLIMain::test_agent_command_group PASSED [ 13%]
+tests/unit/test_cli_main.py::TestCLIMain::test_policy_command_group PASSED [ 13%]
+tests/unit/test_cli_main.py::TestCLIMain::test_ledger_command_group PASSED [ 14%]
+tests/unit/test_cli_main.py::TestCLIMain::test_pricebook_command_group PASSED [ 14%]
+tests/unit/test_cli_main.py::TestCLIMain::test_backup_command_group PASSED [ 14%]
+tests/unit/test_cli_main.py::TestCLIMain::test_init_command PASSED       [ 15%]
+tests/unit/test_cli_main.py::TestInputValidation::test_validate_positive_decimal_valid PASSED [ 15%]
+tests/unit/test_cli_main.py::TestInputValidation::test_validate_positive_decimal_zero PASSED [ 16%]
+tests/unit/test_cli_main.py::TestInputValidation::test_validate_positive_decimal_negative PASSED [ 16%]
+tests/unit/test_cli_main.py::TestInputValidation::test_validate_positive_decimal_invalid PASSED [ 16%]
+tests/unit/test_cli_main.py::TestInputValidation::test_validate_positive_decimal_none PASSED [ 17%]
+tests/unit/test_cli_main.py::TestInputValidation::test_validate_non_negative_decimal_valid PASSED [ 17%]
+tests/unit/test_cli_main.py::TestInputValidation::test_validate_non_negative_decimal_negative PASSED [ 18%]
+tests/unit/test_cli_main.py::TestInputValidation::test_validate_uuid_valid PASSED [ 18%]
+tests/unit/test_cli_main.py::TestInputValidation::test_validate_uuid_invalid PASSED [ 18%]
+tests/unit/test_cli_main.py::TestInputValidation::test_validate_uuid_none PASSED [ 19%]
+tests/unit/test_cli_main.py::TestInputValidation::test_validate_time_window_valid PASSED [ 19%]
+tests/unit/test_cli_main.py::TestInputValidation::test_validate_time_window_invalid PASSED [ 20%]
+tests/unit/test_cli_main.py::TestInputValidation::test_validate_currency_valid PASSED [ 20%]
+tests/unit/test_cli_main.py::TestInputValidation::test_validate_currency_invalid PASSED [ 20%]
+tests/unit/test_cli_main.py::TestInputValidation::test_validate_resource_type_valid PASSED [ 21%]
+tests/unit/test_cli_main.py::TestInputValidation::test_validate_resource_type_empty PASSED [ 21%]
+tests/unit/test_cli_main.py::TestInputValidation::test_validate_resource_type_none PASSED [ 22%]
+tests/unit/test_cli_policy.py::TestPolicyCLI::test_policy_help PASSED    [ 22%]
+tests/unit/test_cli_policy.py::TestPolicyCLI::test_policy_create_success PASSED [ 22%]
+tests/unit/test_cli_policy.py::TestPolicyCLI::test_policy_create_with_options PASSED [ 23%]
+tests/unit/test_cli_policy.py::TestPolicyCLI::test_policy_create_invalid_agent PASSED [ 23%]
+tests/unit/test_cli_policy.py::TestPolicyCLI::test_policy_create_negative_limit PASSED [ 24%]
+tests/unit/test_cli_policy.py::TestPolicyCLI::test_policy_create_zero_limit PASSED [ 24%]
+tests/unit/test_cli_policy.py::TestPolicyCLI::test_policy_create_invalid_limit PASSED [ 25%]
+tests/unit/test_cli_policy.py::TestPolicyCLI::test_policy_create_invalid_window PASSED [ 25%]
+tests/unit/test_cli_policy.py::TestPolicyCLI::test_policy_create_invalid_currency PASSED [ 25%]
+tests/unit/test_cli_policy.py::TestPolicyCLI::test_policy_list_empty PASSED [ 26%]
+tests/unit/test_cli_policy.py::TestPolicyCLI::test_policy_list_table_format PASSED [ 26%]
+tests/unit/test_cli_policy.py::TestPolicyCLI::test_policy_list_json_format FAILED [ 27%]
+tests/unit/test_cli_policy.py::TestPolicyCLI::test_policy_list_filter_by_agent PASSED [ 27%]
+tests/unit/test_cli_policy.py::TestPolicyCLI::test_policy_get_success PASSED [ 27%]
+tests/unit/test_cli_policy.py::TestPolicyCLI::test_policy_get_no_policies PASSED [ 28%]
+tests/unit/test_cli_policy.py::TestPolicyCLI::test_policy_get_json_format FAILED [ 28%]
+tests/unit/test_cli_policy.py::TestPolicyCLI::test_policy_get_multiple_policies PASSED [ 29%]
+tests/unit/test_cli_pricebook.py::TestPricebookCLI::test_pricebook_help PASSED [ 29%]
+tests/unit/test_cli_pricebook.py::TestPricebookCLI::test_pricebook_list_empty PASSED [ 29%]
+tests/unit/test_cli_pricebook.py::TestPricebookCLI::test_pricebook_list_table_format PASSED [ 30%]
+tests/unit/test_cli_pricebook.py::TestPricebookCLI::test_pricebook_list_json_format PASSED [ 30%]
+tests/unit/test_cli_pricebook.py::TestPricebookCLI::test_pricebook_get_success PASSED [ 31%]
+tests/unit/test_cli_pricebook.py::TestPricebookCLI::test_pricebook_get_not_found PASSED [ 31%]
+tests/unit/test_cli_pricebook.py::TestPricebookCLI::test_pricebook_get_json_format PASSED [ 31%]
+tests/unit/test_cli_pricebook.py::TestPricebookCLI::test_pricebook_set_new_resource PASSED [ 32%]
+tests/unit/test_cli_pricebook.py::TestPricebookCLI::test_pricebook_set_update_existing PASSED [ 32%]
+tests/unit/test_cli_pricebook.py::TestPricebookCLI::test_pricebook_set_with_currency PASSED [ 33%]
+tests/unit/test_cli_pricebook.py::TestPricebookCLI::test_pricebook_set_negative_price PASSED [ 33%]
+tests/unit/test_cli_pricebook.py::TestPricebookCLI::test_pricebook_set_invalid_price PASSED [ 33%]
+tests/unit/test_cli_pricebook.py::TestPricebookCLI::test_pricebook_set_too_many_decimals PASSED [ 34%]
+tests/unit/test_cli_pricebook.py::TestPricebookCLI::test_pricebook_set_empty_resource PASSED [ 34%]
+tests/unit/test_cli_pricebook.py::TestPricebookCLI::test_pricebook_set_invalid_currency PASSED [ 35%]
+tests/unit/test_cli_pricebook.py::TestPricebookCLI::test_pricebook_import_success PASSED [ 35%]
+tests/unit/test_cli_pricebook.py::TestPricebookCLI::test_pricebook_import_invalid_json PASSED [ 35%]
+tests/unit/test_cli_pricebook.py::TestPricebookCLI::test_pricebook_import_empty_json PASSED [ 36%]
+tests/unit/test_cli_pricebook.py::TestPricebookCLI::test_pricebook_import_invalid_price PASSED [ 36%]
+tests/unit/test_cli_pricebook.py::TestPricebookCLI::test_pricebook_import_missing_price_field PASSED [ 37%]
+tests/unit/test_cli_pricebook.py::TestPricebookCLI::test_pricebook_import_nonexistent_file PASSED [ 37%]
+tests/unit/test_config.py::TestDefaultConfiguration::test_get_default_config_returns_valid_config PASSED [ 37%]
+tests/unit/test_config.py::TestDefaultConfiguration::test_default_config_has_sensible_values PASSED [ 38%]
+tests/unit/test_config.py::TestConfigurationLoading::test_load_config_returns_defaults_when_file_missing PASSED [ 38%]
+tests/unit/test_config.py::TestConfigurationLoading::test_load_config_from_valid_yaml PASSED [ 39%]
+tests/unit/test_config.py::TestConfigurationLoading::test_load_config_merges_with_defaults PASSED [ 39%]
+tests/unit/test_config.py::TestConfigurationLoading::test_load_config_expands_home_directory PASSED [ 39%]
+tests/unit/test_config.py::TestConfigurationValidation::test_load_config_rejects_malformed_yaml PASSED [ 40%]
+tests/unit/test_config.py::TestConfigurationValidation::test_load_config_rejects_missing_storage_section PASSED [ 40%]
+tests/unit/test_config.py::TestConfigurationValidation::test_validation_rejects_invalid_time_window PASSED [ 41%]
+tests/unit/test_config.py::TestConfigurationValidation::test_validation_rejects_negative_default_budget PASSED [ 41%]
+tests/unit/test_config.py::TestConfigurationValidation::test_validation_rejects_invalid_log_level PASSED [ 41%]
+tests/unit/test_config.py::TestConfigurationValidation::test_validation_rejects_invalid_backup_count PASSED [ 42%]
+tests/unit/test_config.py::TestConfigurationValidation::test_validation_rejects_negative_timeouts PASSED [ 42%]
+tests/unit/test_config.py::TestConfigurationValidation::test_load_config_handles_empty_file PASSED [ 43%]
+tests/unit/test_exceptions.py::TestExceptionHierarchy::test_base_exception PASSED [ 43%]
+tests/unit/test_exceptions.py::TestExceptionHierarchy::test_identity_errors_inherit_from_base PASSED [ 43%]
+tests/unit/test_exceptions.py::TestExceptionHierarchy::test_policy_errors_inherit_from_base PASSED [ 44%]
+tests/unit/test_exceptions.py::TestExceptionHierarchy::test_ledger_errors_inherit_from_base PASSED [ 44%]
+tests/unit/test_exceptions.py::TestExceptionHierarchy::test_metering_errors_inherit_from_base PASSED [ 45%]
+tests/unit/test_exceptions.py::TestExceptionHierarchy::test_pricebook_errors_inherit_from_base PASSED [ 45%]
+tests/unit/test_exceptions.py::TestExceptionHierarchy::test_configuration_errors_inherit_from_base PASSED [ 45%]
+tests/unit/test_exceptions.py::TestExceptionHierarchy::test_storage_errors_inherit_from_base PASSED [ 46%]
+tests/unit/test_exceptions.py::TestExceptionHierarchy::test_sdk_errors_inherit_from_base PASSED [ 46%]
+tests/unit/test_exceptions.py::TestExceptionHierarchy::test_exception_can_be_raised_and_caught PASSED [ 47%]
+tests/unit/test_identity.py::TestAgentIdentity::test_agent_identity_creation PASSED [ 47%]
+tests/unit/test_identity.py::TestAgentIdentity::test_agent_identity_to_dict PASSED [ 47%]
+tests/unit/test_identity.py::TestAgentIdentity::test_agent_identity_from_dict PASSED [ 48%]
+tests/unit/test_identity.py::TestAgentRegistry::test_registry_initialization PASSED [ 48%]
+tests/unit/test_identity.py::TestAgentRegistry::test_register_agent PASSED [ 49%]
+tests/unit/test_identity.py::TestAgentRegistry::test_register_agent_duplicate_name PASSED [ 49%]
+tests/unit/test_identity.py::TestAgentRegistry::test_get_agent PASSED    [ 50%]
+tests/unit/test_identity.py::TestAgentRegistry::test_get_agent_not_found PASSED [ 50%]
+tests/unit/test_identity.py::TestAgentRegistry::test_list_agents PASSED  [ 50%]
+tests/unit/test_identity.py::TestAgentRegistry::test_persistence PASSED  [ 51%]
+tests/unit/test_identity.py::TestAgentRegistry::test_load_from_disk PASSED [ 51%]
+tests/unit/test_identity.py::TestAgentRegistry::test_backup_creation PASSED [ 52%]
+tests/unit/test_identity.py::TestAgentRegistry::test_backup_rotation PASSED [ 52%]
+tests/unit/test_identity.py::TestAgentRegistry::test_empty_metadata PASSED [ 52%]
+tests/unit/test_ledger_writer.py::TestLedgerEvent::test_ledger_event_creation PASSED [ 53%]
+tests/unit/test_ledger_writer.py::TestLedgerEvent::test_ledger_event_to_dict PASSED [ 53%]
+tests/unit/test_ledger_writer.py::TestLedgerEvent::test_ledger_event_to_json_line PASSED [ 54%]
+tests/unit/test_ledger_writer.py::TestLedgerWriter::test_ledger_writer_initialization PASSED [ 54%]
+tests/unit/test_ledger_writer.py::TestLedgerWriter::test_append_event PASSED [ 54%]
+tests/unit/test_ledger_writer.py::TestLedgerWriter::test_append_multiple_events PASSED [ 55%]
+tests/unit/test_ledger_writer.py::TestLedgerWriter::test_ledger_writer_loads_existing_ledger PASSED [ 55%]
+tests/unit/test_ledger_writer.py::TestLedgerWriter::test_invalid_agent_id PASSED [ 56%]
+tests/unit/test_ledger_writer.py::TestLedgerWriter::test_invalid_resource_type PASSED [ 56%]
+tests/unit/test_ledger_writer.py::TestLedgerWriter::test_negative_quantity PASSED [ 56%]
+tests/unit/test_ledger_writer.py::TestLedgerWriter::test_negative_cost PASSED [ 57%]
+tests/unit/test_ledger_writer.py::TestLedgerWriter::test_backup_creation PASSED [ 57%]
+tests/unit/test_ledger_writer.py::TestLedgerWriter::test_json_lines_format PASSED [ 58%]
+tests/unit/test_ledger_writer.py::TestLedgerQuery::test_ledger_query_initialization PASSED [ 58%]
+tests/unit/test_ledger_writer.py::TestLedgerQuery::test_get_events_empty_ledger PASSED [ 58%]
+tests/unit/test_ledger_writer.py::TestLedgerQuery::test_get_events_all PASSED [ 59%]
+tests/unit/test_ledger_writer.py::TestLedgerQuery::test_get_events_filter_by_agent_id PASSED [ 59%]
+tests/unit/test_ledger_writer.py::TestLedgerQuery::test_get_events_filter_by_resource_type PASSED [ 60%]
+tests/unit/test_ledger_writer.py::TestLedgerQuery::test_get_events_filter_by_time_range PASSED [ 60%]
+tests/unit/test_ledger_writer.py::TestLedgerQuery::test_get_events_combined_filters PASSED [ 60%]
+tests/unit/test_ledger_writer.py::TestLedgerQuery::test_sum_spending PASSED [ 61%]
+tests/unit/test_ledger_writer.py::TestLedgerQuery::test_sum_spending_empty_result PASSED [ 61%]
+tests/unit/test_ledger_writer.py::TestLedgerQuery::test_aggregate_by_agent PASSED [ 62%]
+tests/unit/test_ledger_writer.py::TestLedgerQuery::test_aggregate_by_agent_empty_result PASSED [ 62%]
+tests/unit/test_ledger_writer.py::TestLedgerQuery::test_get_events_handles_malformed_json PASSED [ 62%]
+tests/unit/test_logging_config.py::TestLoggingConfiguration::test_setup_logging_default PASSED [ 63%]
+tests/unit/test_logging_config.py::TestLoggingConfiguration::test_setup_logging_with_level PASSED [ 63%]
+tests/unit/test_logging_config.py::TestLoggingConfiguration::test_setup_logging_with_file PASSED [ 64%]
+tests/unit/test_logging_config.py::TestLoggingConfiguration::test_setup_logging_with_custom_format PASSED [ 64%]
+tests/unit/test_logging_config.py::TestLoggingConfiguration::test_get_logger PASSED [ 64%]
+tests/unit/test_logging_config.py::TestLoggingConfiguration::test_logging_output PASSED [ 65%]
+tests/unit/test_persistence_retry.py::TestAgentRegistryRetry::test_agent_registry_persist_with_transient_failure FAILED [ 65%]
+tests/unit/test_persistence_retry.py::TestAgentRegistryRetry::test_agent_registry_persist_permanent_failure PASSED [ 66%]
+tests/unit/test_persistence_retry.py::TestPolicyStoreRetry::test_policy_store_persist_with_transient_failure FAILED [ 66%]
+tests/unit/test_persistence_retry.py::TestLedgerWriterRetry::test_ledger_writer_append_with_transient_failure FAILED [ 66%]
+tests/unit/test_persistence_retry.py::TestPricebookRetry::test_pricebook_persist_with_transient_failure FAILED [ 67%]
+tests/unit/test_policy.py::TestBudgetPolicy::test_budget_policy_creation PASSED [ 67%]
+tests/unit/test_policy.py::TestBudgetPolicy::test_budget_policy_to_dict PASSED [ 68%]
+tests/unit/test_policy.py::TestBudgetPolicy::test_budget_policy_from_dict PASSED [ 68%]
+tests/unit/test_policy.py::TestBudgetPolicy::test_get_limit_decimal PASSED [ 68%]
+tests/unit/test_policy.py::TestPolicyStore::test_policy_store_initialization PASSED [ 69%]
+tests/unit/test_policy.py::TestPolicyStore::test_create_policy PASSED    [ 69%]
+tests/unit/test_policy.py::TestPolicyStore::test_create_policy_with_agent_validation PASSED [ 70%]
+tests/unit/test_policy.py::TestPolicyStore::test_create_policy_nonexistent_agent PASSED [ 70%]
+tests/unit/test_policy.py::TestPolicyStore::test_create_policy_zero_limit PASSED [ 70%]
+tests/unit/test_policy.py::TestPolicyStore::test_create_policy_negative_limit PASSED [ 71%]
+tests/unit/test_policy.py::TestPolicyStore::test_create_policy_invalid_time_window PASSED [ 71%]
+tests/unit/test_policy.py::TestPolicyStore::test_get_policies PASSED     [ 72%]
+tests/unit/test_policy.py::TestPolicyStore::test_get_policies_no_policies PASSED [ 72%]
+tests/unit/test_policy.py::TestPolicyStore::test_get_policies_multiple_agents PASSED [ 72%]
+tests/unit/test_policy.py::TestPolicyStore::test_list_all_policies PASSED [ 73%]
+tests/unit/test_policy.py::TestPolicyStore::test_persistence PASSED      [ 73%]
+tests/unit/test_policy.py::TestPolicyStore::test_load_from_disk PASSED   [ 74%]
+tests/unit/test_policy.py::TestPolicyStore::test_backup_creation PASSED  [ 74%]
+tests/unit/test_policy.py::TestPolicyStore::test_decimal_precision PASSED [ 75%]
+tests/unit/test_policy.py::TestPolicyDecision::test_policy_decision_allowed PASSED [ 75%]
+tests/unit/test_policy.py::TestPolicyDecision::test_policy_decision_denied PASSED [ 75%]
+tests/unit/test_policy.py::TestPolicyEvaluator::test_policy_evaluator_initialization PASSED [ 76%]
+tests/unit/test_policy.py::TestPolicyEvaluator::test_check_budget_no_policy PASSED [ 76%]
+tests/unit/test_policy.py::TestPolicyEvaluator::test_check_budget_within_budget PASSED [ 77%]
+tests/unit/test_policy.py::TestPolicyEvaluator::test_check_budget_exceeded PASSED [ 77%]
+tests/unit/test_policy.py::TestPolicyEvaluator::test_check_budget_at_limit PASSED [ 77%]
+tests/unit/test_policy.py::TestPolicyEvaluator::test_check_budget_daily_window PASSED [ 78%]
+tests/unit/test_policy.py::TestPolicyEvaluator::test_check_budget_multiple_events PASSED [ 78%]
+tests/unit/test_policy.py::TestPolicyEvaluator::test_check_budget_zero_spending PASSED [ 79%]
+tests/unit/test_policy.py::TestPolicyEvaluator::test_check_budget_custom_time PASSED [ 79%]
+tests/unit/test_policy.py::TestPolicyEvaluator::test_check_budget_fail_closed_on_error PASSED [ 79%]
+tests/unit/test_pricebook.py::TestPriceEntry::test_price_entry_creation PASSED [ 80%]
+tests/unit/test_pricebook.py::TestPriceEntry::test_price_entry_to_dict PASSED [ 80%]
+tests/unit/test_pricebook.py::TestPriceEntry::test_price_entry_from_dict PASSED [ 81%]
+tests/unit/test_pricebook.py::TestPricebook::test_pricebook_initialization_empty PASSED [ 81%]
+tests/unit/test_pricebook.py::TestPricebook::test_pricebook_initialization_with_file PASSED [ 81%]
+tests/unit/test_pricebook.py::TestPricebook::test_get_price_existing_resource PASSED [ 82%]
+tests/unit/test_pricebook.py::TestPricebook::test_get_price_unknown_resource PASSED [ 82%]
+tests/unit/test_pricebook.py::TestPricebook::test_set_price_new_resource PASSED [ 83%]
+tests/unit/test_pricebook.py::TestPricebook::test_set_price_update_existing PASSED [ 83%]
+tests/unit/test_pricebook.py::TestPricebook::test_set_price_negative_rejected PASSED [ 83%]
+tests/unit/test_pricebook.py::TestPricebook::test_set_price_too_many_decimals PASSED [ 84%]
+tests/unit/test_pricebook.py::TestPricebook::test_set_price_six_decimals_allowed PASSED [ 84%]
+tests/unit/test_pricebook.py::TestPricebook::test_get_all_prices PASSED  [ 85%]
+tests/unit/test_pricebook.py::TestPricebook::test_import_from_json_valid PASSED [ 85%]
+tests/unit/test_pricebook.py::TestPricebook::test_import_from_json_default_currency PASSED [ 85%]
+tests/unit/test_pricebook.py::TestPricebook::test_import_from_json_invalid_price PASSED [ 86%]
+tests/unit/test_pricebook.py::TestPricebook::test_import_from_json_negative_price PASSED [ 86%]
+tests/unit/test_pricebook.py::TestPricebook::test_import_from_json_missing_price PASSED [ 87%]
+tests/unit/test_pricebook.py::TestPricebook::test_import_from_json_atomic PASSED [ 87%]
+tests/unit/test_pricebook.py::TestPricebook::test_persistence PASSED     [ 87%]
+tests/unit/test_pricebook.py::TestPricebook::test_load_from_disk PASSED  [ 88%]
+tests/unit/test_pricebook.py::TestPricebook::test_backup_creation PASSED [ 88%]
+tests/unit/test_pricebook.py::TestPricebook::test_backup_rotation PASSED [ 89%]
+tests/unit/test_pricebook.py::TestPricebook::test_malformed_csv_missing_columns PASSED [ 89%]
+tests/unit/test_pricebook.py::TestPricebook::test_malformed_csv_invalid_price PASSED [ 89%]
+tests/unit/test_pricebook.py::TestPricebook::test_malformed_csv_negative_price PASSED [ 90%]
+tests/unit/test_pricebook.py::TestPricebook::test_csv_empty_resource_type_skipped PASSED [ 90%]
+tests/unit/test_pricebook.py::TestPricebook::test_decimal_precision_preserved PASSED [ 91%]
+tests/unit/test_retry.py::TestRetryDecorator::test_successful_operation_no_retry PASSED [ 91%]
+tests/unit/test_retry.py::TestRetryDecorator::test_transient_failure_with_retry PASSED [ 91%]
+tests/unit/test_retry.py::TestRetryDecorator::test_permanent_failure_after_max_retries PASSED [ 92%]
+tests/unit/test_retry.py::TestRetryDecorator::test_non_transient_exception_not_retried PASSED [ 92%]
+tests/unit/test_retry.py::TestRetryDecorator::test_exponential_backoff PASSED [ 93%]
+tests/unit/test_retry.py::TestRetryWriteOperation::test_successful_operation_no_retry PASSED [ 93%]
+tests/unit/test_retry.py::TestRetryWriteOperation::test_transient_failure_with_retry PASSED [ 93%]
+tests/unit/test_retry.py::TestRetryWriteOperation::test_permanent_failure_after_max_retries PASSED [ 94%]
+tests/unit/test_sdk_client.py::TestCaracalClient::test_client_initialization_with_config PASSED [ 94%]
+tests/unit/test_sdk_client.py::TestCaracalClient::test_client_initialization_with_default_config PASSED [ 95%]
+tests/unit/test_sdk_client.py::TestCaracalClient::test_emit_event PASSED [ 95%]
+tests/unit/test_sdk_client.py::TestCaracalClient::test_check_budget_no_policy PASSED [ 95%]
+tests/unit/test_sdk_client.py::TestCaracalClient::test_check_budget_within_limit PASSED [ 96%]
+tests/unit/test_sdk_client.py::TestCaracalClient::test_check_budget_exceeded PASSED [ 96%]
+tests/unit/test_sdk_client.py::TestCaracalClient::test_get_remaining_budget PASSED [ 97%]
+tests/unit/test_sdk_client.py::TestCaracalClient::test_get_remaining_budget_no_policy FAILED [ 97%]
+tests/unit/test_sdk_client.py::TestCaracalClient::test_emit_event_with_metadata PASSED [ 97%]
+tests/unit/test_sdk_client.py::TestBudgetCheckContext::test_budget_check_context_success PASSED [ 98%]
+tests/unit/test_sdk_client.py::TestBudgetCheckContext::test_budget_check_context_exceeded PASSED [ 98%]
+tests/unit/test_sdk_client.py::TestBudgetCheckContext::test_budget_check_context_no_policy PASSED [ 99%]
+tests/unit/test_sdk_client.py::TestBudgetCheckContext::test_budget_check_context_with_exception PASSED [ 99%]
+tests/unit/test_sdk_client.py::TestBudgetCheckContext::test_budget_check_method_returns_context PASSED [100%]
+
+=================================== FAILURES ===================================
+__________________ TestPolicyCLI.test_policy_list_json_format __________________
+tests/unit/test_cli_policy.py:258: in test_policy_list_json_format
+    policies = json.loads(result.output)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/lib64/python3.14/json/__init__.py:352: in loads
+    return _default_decoder.decode(s)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/lib64/python3.14/json/decoder.py:348: in decode
+    raise JSONDecodeError("Extra data", s, end)
+E   json.decoder.JSONDecodeError: Extra data: line 1 column 5 (char 4)
+------------------------------ Captured log setup ------------------------------
+INFO     caracal.caracal.core.identity:identity.py:86 Initialized new agent registry at /tmp/tmpq9gj6sd9/agents.json
+INFO     caracal.caracal.core.identity:identity.py:134 Registered agent: id=1ffb4416-b89f-4576-921e-7e1e90ee4d81, name=test-agent, owner=test@example.com
+------------------------------ Captured log call -------------------------------
+INFO     caracal.caracal.config.settings:settings.py:172 Successfully loaded and validated configuration from /tmp/tmpq9gj6sd9/config.yaml
+INFO     caracal.caracal.core.identity:identity.py:84 Loaded 1 agents from /tmp/tmpq9gj6sd9/agents.json
+INFO     caracal.caracal.core.policy:policy.py:104 Initialized new policy store at /tmp/tmpq9gj6sd9/policies.json
+INFO     caracal.caracal.core.policy:policy.py:176 Created policy: id=dda7e016-c24d-41d4-a474-828118da30ea, agent_id=1ffb4416-b89f-4576-921e-7e1e90ee4d81, limit=100.00 USD, window=daily
+INFO     caracal.caracal.config.settings:settings.py:172 Successfully loaded and validated configuration from /tmp/tmpq9gj6sd9/config.yaml
+INFO     caracal.caracal.core.identity:identity.py:84 Loaded 1 agents from /tmp/tmpq9gj6sd9/agents.json
+INFO     caracal.caracal.core.policy:policy.py:102 Loaded 1 policies from /tmp/tmpq9gj6sd9/policies.json
+__________________ TestPolicyCLI.test_policy_get_json_format ___________________
+tests/unit/test_cli_policy.py:368: in test_policy_get_json_format
+    policies = json.loads(result.output)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/lib64/python3.14/json/__init__.py:352: in loads
+    return _default_decoder.decode(s)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/lib64/python3.14/json/decoder.py:348: in decode
+    raise JSONDecodeError("Extra data", s, end)
+E   json.decoder.JSONDecodeError: Extra data: line 1 column 5 (char 4)
+------------------------------ Captured log setup ------------------------------
+INFO     caracal.caracal.core.identity:identity.py:86 Initialized new agent registry at /tmp/tmp424no6j7/agents.json
+INFO     caracal.caracal.core.identity:identity.py:134 Registered agent: id=b80e99ca-6c43-476f-bf53-7699ef8978f1, name=test-agent, owner=test@example.com
+------------------------------ Captured log call -------------------------------
+INFO     caracal.caracal.config.settings:settings.py:172 Successfully loaded and validated configuration from /tmp/tmp424no6j7/config.yaml
+INFO     caracal.caracal.core.identity:identity.py:84 Loaded 1 agents from /tmp/tmp424no6j7/agents.json
+INFO     caracal.caracal.core.policy:policy.py:104 Initialized new policy store at /tmp/tmp424no6j7/policies.json
+INFO     caracal.caracal.core.policy:policy.py:176 Created policy: id=bc02b242-aa65-4e10-825c-5bd1bb6df1ce, agent_id=b80e99ca-6c43-476f-bf53-7699ef8978f1, limit=100.00 USD, window=daily
+INFO     caracal.caracal.config.settings:settings.py:172 Successfully loaded and validated configuration from /tmp/tmp424no6j7/config.yaml
+INFO     caracal.caracal.core.identity:identity.py:84 Loaded 1 agents from /tmp/tmp424no6j7/agents.json
+INFO     caracal.caracal.core.policy:policy.py:102 Loaded 1 policies from /tmp/tmp424no6j7/policies.json
+__ TestAgentRegistryRetry.test_agent_registry_persist_with_transient_failure ___
+tests/unit/test_persistence_retry.py:35: in mock_open
+    if call_count <= 2 and args[0].endswith('.tmp'):
+                           ^^^^^^^^^^^^^^^^
+E   AttributeError: 'PosixPath' object has no attribute 'endswith'
+
+The above exception was the direct cause of the following exception:
+tests/unit/test_persistence_retry.py:41: in test_agent_registry_persist_with_transient_failure
+    agent = registry.register_agent("test-agent", "owner@example.com")
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+caracal/core/identity.py:132: in register_agent
+    self._persist()
+caracal/core/retry.py:50: in wrapper
+    return func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^
+caracal/core/identity.py:207: in _persist
+    raise FileWriteError(
+E   caracal.exceptions.FileWriteError: Failed to persist agent registry to /tmp/tmps7g5iq6z/agents.json: 'PosixPath' object has no attribute 'endswith'
+----------------------------- Captured stdout call -----------------------------
+2026-02-01 17:06:38,179 - caracal.caracal.core.identity - INFO - Initialized new agent registry at /tmp/tmps7g5iq6z/agents.json
+2026-02-01 17:06:38,180 - caracal.caracal.core.identity - ERROR - Failed to persist agent registry to /tmp/tmps7g5iq6z/agents.json: 'PosixPath' object has no attribute 'endswith'
+Traceback (most recent call last):
+  File "/home/raw/Documents/workspace/caracalEcosystem/Caracal/caracal/core/identity.py", line 192, in _persist
+    with open(tmp_path, 'w') as f:
+         ~~~~^^^^^^^^^^^^^^^
+  File "/usr/lib64/python3.14/unittest/mock.py", line 1175, in __call__
+    return self._mock_call(*args, **kwargs)
+           ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "/usr/lib64/python3.14/unittest/mock.py", line 1179, in _mock_call
+    return self._execute_mock_call(*args, **kwargs)
+           ~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "/usr/lib64/python3.14/unittest/mock.py", line 1240, in _execute_mock_call
+    result = effect(*args, **kwargs)
+  File "/home/raw/Documents/workspace/caracalEcosystem/Caracal/tests/unit/test_persistence_retry.py", line 35, in mock_open
+    if call_count <= 2 and args[0].endswith('.tmp'):
+                           ^^^^^^^^^^^^^^^^
+AttributeError: 'PosixPath' object has no attribute 'endswith'
+------------------------------ Captured log call -------------------------------
+INFO     caracal.caracal.core.identity:identity.py:86 Initialized new agent registry at /tmp/tmps7g5iq6z/agents.json
+ERROR    caracal.caracal.core.identity:identity.py:206 Failed to persist agent registry to /tmp/tmps7g5iq6z/agents.json: 'PosixPath' object has no attribute 'endswith'
+Traceback (most recent call last):
+  File "/home/raw/Documents/workspace/caracalEcosystem/Caracal/caracal/core/identity.py", line 192, in _persist
+    with open(tmp_path, 'w') as f:
+         ~~~~^^^^^^^^^^^^^^^
+  File "/usr/lib64/python3.14/unittest/mock.py", line 1175, in __call__
+    return self._mock_call(*args, **kwargs)
+           ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "/usr/lib64/python3.14/unittest/mock.py", line 1179, in _mock_call
+    return self._execute_mock_call(*args, **kwargs)
+           ~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "/usr/lib64/python3.14/unittest/mock.py", line 1240, in _execute_mock_call
+    result = effect(*args, **kwargs)
+  File "/home/raw/Documents/workspace/caracalEcosystem/Caracal/tests/unit/test_persistence_retry.py", line 35, in mock_open
+    if call_count <= 2 and args[0].endswith('.tmp'):
+                           ^^^^^^^^^^^^^^^^
+AttributeError: 'PosixPath' object has no attribute 'endswith'
+____ TestPolicyStoreRetry.test_policy_store_persist_with_transient_failure _____
+tests/unit/test_persistence_retry.py:86: in mock_open
+    if args[0].endswith('.tmp') and 'policies' in str(args[0]):
+       ^^^^^^^^^^^^^^^^
+E   AttributeError: 'PosixPath' object has no attribute 'endswith'
+
+The above exception was the direct cause of the following exception:
+tests/unit/test_persistence_retry.py:94: in test_policy_store_persist_with_transient_failure
+    policy = policy_store.create_policy(
+caracal/core/policy.py:174: in create_policy
+    self._persist()
+caracal/core/retry.py:50: in wrapper
+    return func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^
+caracal/core/policy.py:257: in _persist
+    raise FileWriteError(
+E   caracal.exceptions.FileWriteError: Failed to persist policy store to /tmp/tmpvbp7kt0f/policies.json: 'PosixPath' object has no attribute 'endswith'
+----------------------------- Captured stdout call -----------------------------
+2026-02-01 17:06:38,195 - caracal.caracal.core.identity - INFO - Initialized new agent registry at /tmp/tmpvbp7kt0f/agents.json
+2026-02-01 17:06:38,196 - caracal.caracal.core.identity - INFO - Registered agent: id=7b2b498d-bd0b-471d-ab85-4df38e79e879, name=test-agent, owner=owner@example.com
+2026-02-01 17:06:38,196 - caracal.caracal.core.policy - INFO - Initialized new policy store at /tmp/tmpvbp7kt0f/policies.json
+2026-02-01 17:06:38,196 - caracal.caracal.core.policy - ERROR - Failed to persist policy store to /tmp/tmpvbp7kt0f/policies.json: 'PosixPath' object has no attribute 'endswith'
+Traceback (most recent call last):
+  File "/home/raw/Documents/workspace/caracalEcosystem/Caracal/caracal/core/policy.py", line 242, in _persist
+    with open(tmp_path, 'w') as f:
+         ~~~~^^^^^^^^^^^^^^^
+  File "/usr/lib64/python3.14/unittest/mock.py", line 1175, in __call__
+    return self._mock_call(*args, **kwargs)
+           ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "/usr/lib64/python3.14/unittest/mock.py", line 1179, in _mock_call
+    return self._execute_mock_call(*args, **kwargs)
+           ~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "/usr/lib64/python3.14/unittest/mock.py", line 1240, in _execute_mock_call
+    result = effect(*args, **kwargs)
+  File "/home/raw/Documents/workspace/caracalEcosystem/Caracal/tests/unit/test_persistence_retry.py", line 86, in mock_open
+    if args[0].endswith('.tmp') and 'policies' in str(args[0]):
+       ^^^^^^^^^^^^^^^^
+AttributeError: 'PosixPath' object has no attribute 'endswith'
+------------------------------ Captured log call -------------------------------
+INFO     caracal.caracal.core.identity:identity.py:86 Initialized new agent registry at /tmp/tmpvbp7kt0f/agents.json
+INFO     caracal.caracal.core.identity:identity.py:134 Registered agent: id=7b2b498d-bd0b-471d-ab85-4df38e79e879, name=test-agent, owner=owner@example.com
+INFO     caracal.caracal.core.policy:policy.py:104 Initialized new policy store at /tmp/tmpvbp7kt0f/policies.json
+ERROR    caracal.caracal.core.policy:policy.py:256 Failed to persist policy store to /tmp/tmpvbp7kt0f/policies.json: 'PosixPath' object has no attribute 'endswith'
+Traceback (most recent call last):
+  File "/home/raw/Documents/workspace/caracalEcosystem/Caracal/caracal/core/policy.py", line 242, in _persist
+    with open(tmp_path, 'w') as f:
+         ~~~~^^^^^^^^^^^^^^^
+  File "/usr/lib64/python3.14/unittest/mock.py", line 1175, in __call__
+    return self._mock_call(*args, **kwargs)
+           ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "/usr/lib64/python3.14/unittest/mock.py", line 1179, in _mock_call
+    return self._execute_mock_call(*args, **kwargs)
+           ~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "/usr/lib64/python3.14/unittest/mock.py", line 1240, in _execute_mock_call
+    result = effect(*args, **kwargs)
+  File "/home/raw/Documents/workspace/caracalEcosystem/Caracal/tests/unit/test_persistence_retry.py", line 86, in mock_open
+    if args[0].endswith('.tmp') and 'policies' in str(args[0]):
+       ^^^^^^^^^^^^^^^^
+AttributeError: 'PosixPath' object has no attribute 'endswith'
+____ TestLedgerWriterRetry.test_ledger_writer_append_with_transient_failure ____
+tests/unit/test_persistence_retry.py:122: in mock_open
+    raise OSError("Simulated transient failure")
+E   OSError: Simulated transient failure
+
+The above exception was the direct cause of the following exception:
+caracal/core/ledger.py:183: in append_event
+    self._atomic_append(event)
+caracal/core/retry.py:50: in wrapper
+    return func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^
+caracal/core/ledger.py:243: in _atomic_append
+    raise LedgerWriteError(
+E   caracal.exceptions.LedgerWriteError: Failed to perform atomic append to /tmp/tmpiylus60l/ledger.jsonl: Simulated transient failure
+
+The above exception was the direct cause of the following exception:
+tests/unit/test_persistence_retry.py:127: in test_ledger_writer_append_with_transient_failure
+    event = writer.append_event(
+caracal/core/ledger.py:194: in append_event
+    raise LedgerWriteError(
+E   caracal.exceptions.LedgerWriteError: Failed to append event to ledger /tmp/tmpiylus60l/ledger.jsonl: Failed to perform atomic append to /tmp/tmpiylus60l/ledger.jsonl: Simulated transient failure
+----------------------------- Captured stdout call -----------------------------
+2026-02-01 17:06:38,210 - caracal.caracal.core.ledger - INFO - Created new ledger file at /tmp/tmpiylus60l/ledger.jsonl
+2026-02-01 17:06:38,210 - caracal.caracal.core.ledger - ERROR - Failed to append event to ledger /tmp/tmpiylus60l/ledger.jsonl: Failed to perform atomic append to /tmp/tmpiylus60l/ledger.jsonl: Simulated transient failure
+Traceback (most recent call last):
+  File "/home/raw/Documents/workspace/caracalEcosystem/Caracal/caracal/core/ledger.py", line 223, in _atomic_append
+    with open(self.ledger_path, 'a') as f:
+         ~~~~^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib64/python3.14/unittest/mock.py", line 1175, in __call__
+    return self._mock_call(*args, **kwargs)
+           ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "/usr/lib64/python3.14/unittest/mock.py", line 1179, in _mock_call
+    return self._execute_mock_call(*args, **kwargs)
+           ~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "/usr/lib64/python3.14/unittest/mock.py", line 1240, in _execute_mock_call
+    result = effect(*args, **kwargs)
+  File "/home/raw/Documents/workspace/caracalEcosystem/Caracal/tests/unit/test_persistence_retry.py", line 122, in mock_open
+    raise OSError("Simulated transient failure")
+OSError: Simulated transient failure
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/home/raw/Documents/workspace/caracalEcosystem/Caracal/caracal/core/ledger.py", line 183, in append_event
+    self._atomic_append(event)
+    ~~~~~~~~~~~~~~~~~~~^^^^^^^
+  File "/home/raw/Documents/workspace/caracalEcosystem/Caracal/caracal/core/retry.py", line 50, in wrapper
+    return func(*args, **kwargs)
+  File "/home/raw/Documents/workspace/caracalEcosystem/Caracal/caracal/core/ledger.py", line 243, in _atomic_append
+    raise LedgerWriteError(
+        f"Failed to perform atomic append to {self.ledger_path}: {e}"
+    ) from e
+caracal.exceptions.LedgerWriteError: Failed to perform atomic append to /tmp/tmpiylus60l/ledger.jsonl: Simulated transient failure
+------------------------------ Captured log call -------------------------------
+INFO     caracal.caracal.core.ledger:ledger.py:108 Created new ledger file at /tmp/tmpiylus60l/ledger.jsonl
+ERROR    caracal.caracal.core.ledger:ledger.py:190 Failed to append event to ledger /tmp/tmpiylus60l/ledger.jsonl: Failed to perform atomic append to /tmp/tmpiylus60l/ledger.jsonl: Simulated transient failure
+Traceback (most recent call last):
+  File "/home/raw/Documents/workspace/caracalEcosystem/Caracal/caracal/core/ledger.py", line 223, in _atomic_append
+    with open(self.ledger_path, 'a') as f:
+         ~~~~^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib64/python3.14/unittest/mock.py", line 1175, in __call__
+    return self._mock_call(*args, **kwargs)
+           ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "/usr/lib64/python3.14/unittest/mock.py", line 1179, in _mock_call
+    return self._execute_mock_call(*args, **kwargs)
+           ~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "/usr/lib64/python3.14/unittest/mock.py", line 1240, in _execute_mock_call
+    result = effect(*args, **kwargs)
+  File "/home/raw/Documents/workspace/caracalEcosystem/Caracal/tests/unit/test_persistence_retry.py", line 122, in mock_open
+    raise OSError("Simulated transient failure")
+OSError: Simulated transient failure
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/home/raw/Documents/workspace/caracalEcosystem/Caracal/caracal/core/ledger.py", line 183, in append_event
+    self._atomic_append(event)
+    ~~~~~~~~~~~~~~~~~~~^^^^^^^
+  File "/home/raw/Documents/workspace/caracalEcosystem/Caracal/caracal/core/retry.py", line 50, in wrapper
+    return func(*args, **kwargs)
+  File "/home/raw/Documents/workspace/caracalEcosystem/Caracal/caracal/core/ledger.py", line 243, in _atomic_append
+    raise LedgerWriteError(
+        f"Failed to perform atomic append to {self.ledger_path}: {e}"
+    ) from e
+caracal.exceptions.LedgerWriteError: Failed to perform atomic append to /tmp/tmpiylus60l/ledger.jsonl: Simulated transient failure
+_______ TestPricebookRetry.test_pricebook_persist_with_transient_failure _______
+tests/unit/test_persistence_retry.py:159: in mock_open
+    if args[0].endswith('.tmp'):
+       ^^^^^^^^^^^^^^^^
+E   AttributeError: 'PosixPath' object has no attribute 'endswith'
+
+The above exception was the direct cause of the following exception:
+tests/unit/test_persistence_retry.py:167: in test_pricebook_persist_with_transient_failure
+    pricebook.set_price("new.resource", Decimal("0.002"))
+caracal/core/pricebook.py:165: in set_price
+    self._persist()
+caracal/core/retry.py:50: in wrapper
+    return func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^
+caracal/core/pricebook.py:404: in _persist
+    raise FileWriteError(
+E   caracal.exceptions.FileWriteError: Failed to persist pricebook to /tmp/tmpaovi6ipx/pricebook.csv: 'PosixPath' object has no attribute 'endswith'
+----------------------------- Captured stdout call -----------------------------
+2026-02-01 17:06:38,227 - caracal.caracal.core.pricebook - INFO - Loaded 1 prices from /tmp/tmpaovi6ipx/pricebook.csv
+2026-02-01 17:06:38,228 - caracal.caracal.core.pricebook - WARNING - Failed to create backup of pricebook: 'PosixPath' object has no attribute 'endswith'
+------------------------------ Captured log call -------------------------------
+INFO     caracal.caracal.core.pricebook:pricebook.py:328 Loaded 1 prices from /tmp/tmpaovi6ipx/pricebook.csv
+WARNING  caracal.caracal.core.pricebook:pricebook.py:442 Failed to create backup of pricebook: 'PosixPath' object has no attribute 'endswith'
+____________ TestCaracalClient.test_get_remaining_budget_no_policy _____________
+tests/unit/test_sdk_client.py:308: in test_get_remaining_budget_no_policy
+    assert remaining is None
+E   AssertionError: assert Decimal('0') is None
+----------------------------- Captured stdout call -----------------------------
+2026-02-01 17:06:39,250 - caracal.caracal.sdk.client - INFO - Initializing Caracal SDK client
+2026-02-01 17:06:39,250 - caracal.caracal.config.settings - INFO - Successfully loaded and validated configuration from /tmp/tmpxeewxm6b/config.yaml
+2026-02-01 17:06:39,250 - caracal.caracal.core.identity - INFO - Initialized new agent registry at /tmp/tmpxeewxm6b/agents.json
+2026-02-01 17:06:39,250 - caracal.caracal.core.policy - INFO - Initialized new policy store at /tmp/tmpxeewxm6b/policies.json
+2026-02-01 17:06:39,251 - caracal.caracal.core.pricebook - INFO - Loaded 4 prices from /tmp/tmpxeewxm6b/pricebook.csv
+2026-02-01 17:06:39,251 - caracal.caracal.core.ledger - INFO - Created new ledger file at /tmp/tmpxeewxm6b/ledger.jsonl
+2026-02-01 17:06:39,251 - caracal.caracal.core.policy - INFO - PolicyEvaluator initialized
+2026-02-01 17:06:39,251 - caracal.caracal.core.metering - INFO - MeteringCollector initialized
+2026-02-01 17:06:39,251 - caracal.caracal.sdk.client - INFO - Caracal SDK client initialized successfully
+2026-02-01 17:06:39,251 - caracal.caracal.core.identity - INFO - Registered agent: id=f97b5d85-2bfe-497f-aafa-2709193b79bc, name=test-agent, owner=test@example.com
+2026-02-01 17:06:39,251 - caracal.caracal.core.policy - INFO - Budget check denied for agent f97b5d85-2bfe-497f-aafa-2709193b79bc: No active policy found
+------------------------------ Captured log call -------------------------------
+INFO     caracal.caracal.sdk.client:client.py:67 Initializing Caracal SDK client
+INFO     caracal.caracal.config.settings:settings.py:172 Successfully loaded and validated configuration from /tmp/tmpxeewxm6b/config.yaml
+INFO     caracal.caracal.core.identity:identity.py:86 Initialized new agent registry at /tmp/tmpxeewxm6b/agents.json
+INFO     caracal.caracal.core.policy:policy.py:104 Initialized new policy store at /tmp/tmpxeewxm6b/policies.json
+INFO     caracal.caracal.core.pricebook:pricebook.py:328 Loaded 4 prices from /tmp/tmpxeewxm6b/pricebook.csv
+INFO     caracal.caracal.core.ledger:ledger.py:108 Created new ledger file at /tmp/tmpxeewxm6b/ledger.jsonl
+INFO     caracal.caracal.core.policy:policy.py:373 PolicyEvaluator initialized
+INFO     caracal.caracal.core.metering:metering.py:73 MeteringCollector initialized
+INFO     caracal.caracal.sdk.client:client.py:74 Caracal SDK client initialized successfully
+INFO     caracal.caracal.core.identity:identity.py:134 Registered agent: id=f97b5d85-2bfe-497f-aafa-2709193b79bc, name=test-agent, owner=test@example.com
+INFO     caracal.caracal.core.policy:policy.py:402 Budget check denied for agent f97b5d85-2bfe-497f-aafa-2709193b79bc: No active policy found
+=============================== warnings summary ===============================
+tests/unit/test_cli_policy.py: 15 warnings
+tests/unit/test_identity.py: 15 warnings
+tests/unit/test_persistence_retry.py: 3 warnings
+tests/unit/test_policy.py: 1 warning
+tests/unit/test_sdk_client.py: 12 warnings
+  /home/raw/Documents/workspace/caracalEcosystem/Caracal/caracal/core/identity.py:123: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    created_at=datetime.utcnow().isoformat() + "Z",
+
+tests/unit/test_cli_policy.py: 10 warnings
+tests/unit/test_persistence_retry.py: 1 warning
+tests/unit/test_policy.py: 20 warnings
+tests/unit/test_sdk_client.py: 6 warnings
+  /home/raw/Documents/workspace/caracalEcosystem/Caracal/caracal/core/policy.py:161: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    created_at=datetime.utcnow().isoformat() + "Z",
+
+tests/unit/test_cli_pricebook.py: 21 warnings
+tests/unit/test_persistence_retry.py: 1 warning
+tests/unit/test_pricebook.py: 14 warnings
+  /home/raw/Documents/workspace/caracalEcosystem/Caracal/caracal/core/pricebook.py:159: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    updated_at=datetime.utcnow().isoformat() + "Z",
+
+tests/unit/test_cli_pricebook.py::TestPricebookCLI::test_pricebook_import_success
+tests/unit/test_cli_pricebook.py::TestPricebookCLI::test_pricebook_import_success
+tests/unit/test_pricebook.py::TestPricebook::test_import_from_json_valid
+tests/unit/test_pricebook.py::TestPricebook::test_import_from_json_valid
+tests/unit/test_pricebook.py::TestPricebook::test_import_from_json_default_currency
+tests/unit/test_pricebook.py::TestPricebook::test_import_from_json_atomic
+  /home/raw/Documents/workspace/caracalEcosystem/Caracal/caracal/core/pricebook.py:247: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    updated_at=datetime.utcnow().isoformat() + "Z",
+
+tests/unit/test_ledger_writer.py: 20 warnings
+tests/unit/test_persistence_retry.py: 1 warning
+  /home/raw/Documents/workspace/caracalEcosystem/Caracal/caracal/core/ledger.py:167: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    timestamp = datetime.utcnow()
+
+tests/unit/test_policy.py: 8 warnings
+tests/unit/test_sdk_client.py: 9 warnings
+  /home/raw/Documents/workspace/caracalEcosystem/Caracal/caracal/core/policy.py:397: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    current_time = datetime.utcnow()
+
+tests/unit/test_policy.py::TestPolicyEvaluator::test_check_budget_within_budget
+  /home/raw/Documents/workspace/caracalEcosystem/Caracal/tests/unit/test_policy.py:480: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    timestamp=datetime.utcnow()
+
+tests/unit/test_policy.py::TestPolicyEvaluator::test_check_budget_exceeded
+  /home/raw/Documents/workspace/caracalEcosystem/Caracal/tests/unit/test_policy.py:516: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    timestamp=datetime.utcnow()
+
+tests/unit/test_policy.py::TestPolicyEvaluator::test_check_budget_at_limit
+  /home/raw/Documents/workspace/caracalEcosystem/Caracal/tests/unit/test_policy.py:554: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    timestamp=datetime.utcnow()
+
+tests/unit/test_policy.py::TestPolicyEvaluator::test_check_budget_daily_window
+  /home/raw/Documents/workspace/caracalEcosystem/Caracal/tests/unit/test_policy.py:585: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    yesterday = datetime.utcnow() - timedelta(days=1)
+
+tests/unit/test_policy.py::TestPolicyEvaluator::test_check_budget_daily_window
+  /home/raw/Documents/workspace/caracalEcosystem/Caracal/tests/unit/test_policy.py:600: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    timestamp=datetime.utcnow()
+
+tests/unit/test_policy.py::TestPolicyEvaluator::test_check_budget_multiple_events
+  /home/raw/Documents/workspace/caracalEcosystem/Caracal/tests/unit/test_policy.py:630: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    now = datetime.utcnow()
+
+tests/unit/test_sdk_client.py::TestCaracalClient::test_emit_event
+tests/unit/test_sdk_client.py::TestCaracalClient::test_check_budget_exceeded
+tests/unit/test_sdk_client.py::TestCaracalClient::test_get_remaining_budget
+tests/unit/test_sdk_client.py::TestCaracalClient::test_emit_event_with_metadata
+tests/unit/test_sdk_client.py::TestBudgetCheckContext::test_budget_check_context_exceeded
+  /home/raw/Documents/workspace/caracalEcosystem/Caracal/caracal/core/metering.py:48: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    self.timestamp = datetime.utcnow()
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+================================ tests coverage ================================
+_______________ coverage: platform linux, python 3.14.2-final-0 ________________
+
+Name                         Stmts   Miss  Cover   Missing
+----------------------------------------------------------
+caracal/__init__.py              1      0   100%
+caracal/cli/__init__.py          0      0   100%
+caracal/cli/agent.py           113     91    19%   31-33, 69-117, 141-196, 226-264
+caracal/cli/ledger.py          177     27    85%   156-158, 234-235, 237-238, 240-241, 309-311, 316-318, 322-326, 360, 363-364, 409, 473-474, 476-477, 479-480
+caracal/cli/main.py            180     34    81%   68-73, 89-94, 101, 153, 249-251, 299, 308, 353, 379, 426-439
+caracal/cli/policy.py          136     19    86%   146-147, 149-150, 152-153, 200, 253-258, 326-331
+caracal/cli/pricebook.py       163     25    85%   120-125, 192-193, 195-196, 300-301, 303-304, 306-307, 358-363, 367-371, 400-401, 403-404
+caracal/config/__init__.py       2      0   100%
+caracal/config/settings.py     119     17    86%   157-159, 281-282, 284-285, 287-288, 290-291, 293-294, 304, 335, 340, 345
+caracal/core/__init__.py         0      0   100%
+caracal/core/identity.py       100      9    91%   200, 244-247, 271-278
+caracal/core/ledger.py         200     23    88%   300-308, 323, 329, 345-348, 409, 456-460, 470-475, 512-516, 557-561
+caracal/core/metering.py        54     15    72%   116-124, 148-149, 155-156, 162-165, 170-171, 177-181
+caracal/core/policy.py         157     15    90%   250, 278, 286, 294-297, 325-332, 418, 469-475
+caracal/core/pricebook.py      142      8    94%   199-203, 236, 281, 333, 337, 343, 400
+caracal/core/retry.py           38      0   100%
+caracal/exceptions.py           64      0   100%
+caracal/logging_config.py       25      0   100%
+caracal/sdk/__init__.py          3      0   100%
+caracal/sdk/client.py           76     17    78%   76-79, 141-142, 197-203, 245-258, 293-299
+caracal/sdk/context.py          28      6    79%   79-94
+----------------------------------------------------------
+TOTAL                         1778    306    83%
+Coverage HTML written to dir htmlcov
+=========================== short test summary info ============================
+FAILED tests/unit/test_cli_policy.py::TestPolicyCLI::test_policy_list_json_format - json.decoder.JSONDecodeError: Extra data: line 1 column 5 (char 4)
+FAILED tests/unit/test_cli_policy.py::TestPolicyCLI::test_policy_get_json_format - json.decoder.JSONDecodeError: Extra data: line 1 column 5 (char 4)
+FAILED tests/unit/test_persistence_retry.py::TestAgentRegistryRetry::test_agent_registry_persist_with_transient_failure - caracal.exceptions.FileWriteError: Failed to persist agent registry to /tmp/tmps7g5iq6z/agents.json: 'PosixPath' object has no attribute 'endswith'
+FAILED tests/unit/test_persistence_retry.py::TestPolicyStoreRetry::test_policy_store_persist_with_transient_failure - caracal.exceptions.FileWriteError: Failed to persist policy store to /tmp/tmpvbp7kt0f/policies.json: 'PosixPath' object has no attribute 'endswith'
+FAILED tests/unit/test_persistence_retry.py::TestLedgerWriterRetry::test_ledger_writer_append_with_transient_failure - caracal.exceptions.LedgerWriteError: Failed to append event to ledger /tmp/tmpiylus60l/ledger.jsonl: Failed to perform atomic append to /tmp/tmpiylus60l/ledger.jsonl: Simulated transient failure
+FAILED tests/unit/test_persistence_retry.py::TestPricebookRetry::test_pricebook_persist_with_transient_failure - caracal.exceptions.FileWriteError: Failed to persist pricebook to /tmp/tmpaovi6ipx/pricebook.csv: 'PosixPath' object has no attribute 'endswith'
+FAILED tests/unit/test_sdk_client.py::TestCaracalClient::test_get_remaining_budget_no_policy - AssertionError: assert Decimal('0') is None
+================= 7 failed, 241 passed, 174 warnings in 2.08s ==================
