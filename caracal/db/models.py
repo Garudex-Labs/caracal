@@ -59,7 +59,7 @@ class AgentIdentity(Base):
     )
     
     # Metadata and authentication
-    metadata = Column(JSONB, nullable=True)
+    agent_metadata = Column("metadata", JSONB, nullable=True)
     api_key_hash = Column(String(255), nullable=True)
     
     # Relationships
@@ -161,7 +161,7 @@ class LedgerEvent(Base):
     currency = Column(String(3), nullable=False, default="USD")
     
     # Metadata and provisional charge tracking
-    metadata = Column(JSONB, nullable=True)
+    event_metadata = Column("metadata", JSONB, nullable=True)
     provisional_charge_id = Column(PG_UUID(as_uuid=True), nullable=True)
     
     # Relationships
