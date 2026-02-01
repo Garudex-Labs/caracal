@@ -31,6 +31,21 @@ def get_ledger_query(config) -> LedgerQuery:
     return LedgerQuery(str(ledger_path))
 
 
+def get_agent_registry(config):
+    """
+    Create AgentRegistry instance from configuration.
+    
+    Args:
+        config: Configuration object
+        
+    Returns:
+        AgentRegistry instance
+    """
+    from caracal.core.identity import AgentRegistry
+    registry_path = Path(config.storage.agent_registry).expanduser()
+    return AgentRegistry(str(registry_path))
+
+
 def parse_datetime(date_str: str) -> datetime:
     """
     Parse datetime string in various formats.

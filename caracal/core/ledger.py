@@ -558,3 +558,167 @@ class LedgerQuery:
         )
         
         return aggregation
+
+    def sum_spending_with_children(
+        self,
+        agent_id: str,
+        start_time: datetime,
+        end_time: datetime,
+        agent_registry=None,
+    ) -> Dict[str, Decimal]:
+        """
+        Calculate spending for agent and all descendants.
+        
+        This method aggregates spending across a parent agent and all its children,
+        grandchildren, etc. It returns a dictionary mapping each agent ID to their
+        individual spending, allowing the caller to sum for total or analyze breakdown.
+        
+        Args:
+            agent_id: Parent agent identifier
+            start_time: Start of time window (inclusive)
+            end_time: End of time window (inclusive)
+            agent_registry: Optional AgentRegistry for hierarchy lookup (required for children)
+            
+        Returns:
+            Dictionary mapping agent_id to spending (includes parent and all descendants)
+            
+        Raises:
+            LedgerReadError: If ledger file cannot be read
+            ValueError: If agent_registry not provided when needed
+        """
+        # Start with the parent agent's spending
+        spending_breakdown: Dict[str, Decimal] = {}
+        
+        # Get parent's spending
+        parent_spending = self.sum_spending(agent_id, start_time, end_time)
+        spending_breakdown[agent_id] = parent_spending
+        
+        # If no agent registry provided, can only return parent's spending
+        if agent_registry is None:
+            logger.debug(
+                f"No agent_registry provided, returning only parent spending for {agent_id}"
+            )
+            return spending_breakdown
+        
+        # Get all descendants
+        try:
+            descendants = agent_registry.get_descendants(agent_id)
+        except Exception as e:
+            logger.warning(
+                f"Failed to get descendants for agent {agent_id}: {e}. "
+                f"Returning only parent spending."
+            )
+            return spending_breakdown
+        
+        # Calculate spending for each descendant
+        for descendant in descendants:
+            descendant_spending = self.sum_spending(
+                descendant.agent_id,
+                start_time,
+                end_time
+            )
+            spending_breakdown[descendant.agent_id] = descendant_spending
+        
+        total_spending = sum(spending_breakdown.values())
+        logger.debug(
+            f"Aggregated spending for agent {agent_id} with {len(descendants)} descendants: "
+            f"{total_spending} (parent: {parent_spending})"
+        )
+        
+        return spending_breakdown
+
+    def get_spending_breakdown(
+        self,
+        agent_id: str,
+        start_time: datetime,
+        end_time: datetime,
+        agent_registry=None,
+    ) -> Dict[str, any]:
+        """
+        Get hierarchical spending breakdown with parent-child structure.
+        
+        Returns a structured breakdown showing the agent's spending and each child's
+        spending separately, organized hierarchically. This is useful for displaying
+        spending in a tree view or indented format.
+        
+        Args:
+            agent_id: Parent agent identifier
+            start_time: Start of time window (inclusive)
+            end_time: End of time window (inclusive)
+            agent_registry: Optional AgentRegistry for hierarchy lookup
+            
+        Returns:
+            Dictionary with structure:
+            {
+                "agent_id": str,
+                "agent_name": str (if registry available),
+                "spending": Decimal,
+                "children": [
+                    {
+                        "agent_id": str,
+                        "agent_name": str,
+                        "spending": Decimal,
+                        "children": [...]
+                    },
+                    ...
+                ],
+                "total_with_children": Decimal
+            }
+            
+        Raises:
+            LedgerReadError: If ledger file cannot be read
+        """
+        # Get agent's own spending
+        agent_spending = self.sum_spending(agent_id, start_time, end_time)
+        
+        # Build breakdown structure
+        breakdown = {
+            "agent_id": agent_id,
+            "spending": agent_spending,
+            "children": [],
+            "total_with_children": agent_spending
+        }
+        
+        # Add agent name if registry available
+        if agent_registry is not None:
+            try:
+                agent = agent_registry.get_agent(agent_id)
+                if agent:
+                    breakdown["agent_name"] = agent.name
+            except Exception as e:
+                logger.warning(f"Failed to get agent name for {agent_id}: {e}")
+        
+        # If no agent registry, can't get children
+        if agent_registry is None:
+            return breakdown
+        
+        # Get direct children
+        try:
+            children = agent_registry.get_children(agent_id)
+        except Exception as e:
+            logger.warning(f"Failed to get children for agent {agent_id}: {e}")
+            return breakdown
+        
+        # Recursively build breakdown for each child
+        total_children_spending = Decimal('0')
+        for child in children:
+            child_breakdown = self.get_spending_breakdown(
+                child.agent_id,
+                start_time,
+                end_time,
+                agent_registry
+            )
+            breakdown["children"].append(child_breakdown)
+            total_children_spending += child_breakdown["total_with_children"]
+        
+        # Update total to include all descendants
+        breakdown["total_with_children"] = agent_spending + total_children_spending
+        
+        logger.debug(
+            f"Built spending breakdown for agent {agent_id}: "
+            f"own={agent_spending}, children={total_children_spending}, "
+            f"total={breakdown['total_with_children']}"
+        )
+        
+        return breakdown
+
