@@ -12,16 +12,18 @@ license = {file = "LICENSE"}
 authors = [
     {name = "Caracal Contributors"}
 ]
-keywords = ["ai", "agents", "economics", "budgeting", "metering", "ledger"]
+keywords = ["ai", "agents", "economics", "budgeting", "metering", "ledger", "ase", "spending", "policy", "enforcement"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
-    "License :: OSI Approved :: Apache Software License",
+    "License :: OSI Approved :: GNU Affero General Public License v3",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: Office/Business :: Financial",
+    "Topic :: System :: Monitoring",
 ]
 
 dependencies = [
@@ -30,6 +32,12 @@ dependencies = [
     "hypothesis>=6.0.0",
     "ase-protocol>=1.0.1",
 ]
+
+[project.urls]
+Homepage = "https://github.com/Garudex-Labs/caracal"
+Documentation = "https://github.com/Garudex-Labs/caracal/blob/main/README.md"
+Repository = "https://github.com/Garudex-Labs/caracal"
+Issues = "https://github.com/Garudex-Labs/caracal/issues"
 
 [project.optional-dependencies]
 dev = [

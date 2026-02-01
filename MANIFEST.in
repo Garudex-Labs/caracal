@@ -1,0 +1,7 @@
+include README.md
+include LICENSE
+include pyproject.toml
+include setup.py
+recursive-include caracal *.py
+recursive-exclude * __pycache__
+recursive-exclude * *.py[co]
