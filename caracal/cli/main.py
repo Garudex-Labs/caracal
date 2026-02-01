@@ -174,6 +174,17 @@ delegation.add_command(list_tokens, name='list')
 delegation.add_command(validate)
 
 
+@cli.group(name='mcp-service')
+def mcp_service():
+    """Manage MCP Adapter Service."""
+    pass
+
+
+# Import and register MCP service commands
+from caracal.cli.mcp_service import mcp_service_group
+cli.add_command(mcp_service_group)
+
+
 @cli.command()
 @pass_context
 def init(ctx: CLIContext):
