@@ -396,3 +396,259 @@ class TestGatewayProxyHealthCheck:
         assert data["status"] == "healthy"
         assert data["service"] == "caracal-gateway-proxy"
         assert data["version"] == "0.2.0"
+
+
+class TestGatewayProxyPolicyEvaluation:
+    """Test policy evaluation integration (Task 8.2)."""
+    
+    @pytest.mark.asyncio
+    async def test_policy_check_allowed_with_provisional_charge(
+        self,
+        gateway_proxy,
+        mock_authenticator,
+        mock_policy_evaluator,
+        mock_replay_protection,
+        sample_agent
+    ):
+        """Test policy check that allows request and creates provisional charge."""
+        from fastapi.testclient import TestClient
+        from uuid import uuid4
+        
+        # Mock authentication success
+        mock_authenticator.authenticate_jwt = AsyncMock(
+            return_value=AuthenticationResult(
+                success=True,
+                agent_identity=sample_agent,
+                method=AuthenticationMethod.JWT
+            )
+        )
+        
+        # Mock replay protection success
+        mock_replay_protection.check_request = AsyncMock(
+            return_value=ReplayCheckResult(allowed=True)
+        )
+        
+        # Mock policy evaluation success with provisional charge
+        provisional_charge_id = str(uuid4())
+        mock_policy_evaluator.check_budget.return_value = PolicyDecision(
+            allowed=True,
+            reason="Within budget",
+            remaining_budget=Decimal("50.00"),
+            provisional_charge_id=provisional_charge_id
+        )
+        
+        # Mock HTTP client for forwarding
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_response.content = b'{"result": "success"}'
+        mock_response.headers = {"content-type": "application/json"}
+        gateway_proxy.http_client.request = AsyncMock(return_value=mock_response)
+        
+        # Create test client
+        client = TestClient(gateway_proxy.app)
+        
+        # Make request
+        response = client.post(
+            "/api/test",
+            headers={
+                "Authorization": "Bearer test-token",
+                "X-Caracal-Target-URL": "https://api.example.com/test",
+                "X-Caracal-Estimated-Cost": "10.00"
+            },
+            json={"test": "data"}
+        )
+        
+        # Verify response
+        assert response.status_code == 200
+        
+        # Verify policy evaluator was called with correct parameters
+        mock_policy_evaluator.check_budget.assert_called_once()
+        call_args = mock_policy_evaluator.check_budget.call_args
+        assert call_args[1]["agent_id"] == str(sample_agent.agent_id)
+        assert call_args[1]["estimated_cost"] == Decimal("10.00")
+        
+        # Verify statistics
+        assert gateway_proxy._allowed_count == 1
+        assert gateway_proxy._denied_count == 0
+    
+    @pytest.mark.asyncio
+    async def test_policy_check_denied_returns_403(
+        self,
+        gateway_proxy,
+        mock_authenticator,
+        mock_policy_evaluator,
+        mock_replay_protection,
+        sample_agent
+    ):
+        """Test policy check that denies request returns 403 (Requirement 1.5)."""
+        from fastapi.testclient import TestClient
+        
+        # Mock authentication success
+        mock_authenticator.authenticate_jwt = AsyncMock(
+            return_value=AuthenticationResult(
+                success=True,
+                agent_identity=sample_agent,
+                method=AuthenticationMethod.JWT
+            )
+        )
+        
+        # Mock replay protection success
+        mock_replay_protection.check_request = AsyncMock(
+            return_value=ReplayCheckResult(allowed=True)
+        )
+        
+        # Mock policy evaluation denial
+        mock_policy_evaluator.check_budget.return_value = PolicyDecision(
+            allowed=False,
+            reason="Insufficient budget: need 100.00, available 50.00 USD",
+            remaining_budget=Decimal("0")
+        )
+        
+        # Create test client
+        client = TestClient(gateway_proxy.app)
+        
+        # Make request
+        response = client.post(
+            "/api/test",
+            headers={
+                "Authorization": "Bearer test-token",
+                "X-Caracal-Target-URL": "https://api.example.com/test",
+                "X-Caracal-Estimated-Cost": "100.00"
+            },
+            json={"test": "data"}
+        )
+        
+        # Verify response is 403 Forbidden
+        assert response.status_code == 403
+        data = response.json()
+        assert data["error"] == "budget_exceeded"
+        assert "Insufficient budget" in data["message"]
+        assert data["remaining_budget"] == "0"
+        
+        # Verify policy evaluator was called
+        mock_policy_evaluator.check_budget.assert_called_once()
+        
+        # Verify statistics
+        assert gateway_proxy._denied_count == 1
+        assert gateway_proxy._allowed_count == 0
+        
+        # Verify request was NOT forwarded
+        gateway_proxy.http_client.request.assert_not_called()
+    
+    @pytest.mark.asyncio
+    async def test_policy_check_without_estimated_cost(
+        self,
+        gateway_proxy,
+        mock_authenticator,
+        mock_policy_evaluator,
+        mock_replay_protection,
+        sample_agent
+    ):
+        """Test policy check without estimated cost header."""
+        from fastapi.testclient import TestClient
+        
+        # Mock authentication success
+        mock_authenticator.authenticate_jwt = AsyncMock(
+            return_value=AuthenticationResult(
+                success=True,
+                agent_identity=sample_agent,
+                method=AuthenticationMethod.JWT
+            )
+        )
+        
+        # Mock replay protection success
+        mock_replay_protection.check_request = AsyncMock(
+            return_value=ReplayCheckResult(allowed=True)
+        )
+        
+        # Mock policy evaluation success without provisional charge
+        mock_policy_evaluator.check_budget.return_value = PolicyDecision(
+            allowed=True,
+            reason="Within budget",
+            remaining_budget=Decimal("100.00"),
+            provisional_charge_id=None
+        )
+        
+        # Mock HTTP client for forwarding
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_response.content = b'{"result": "success"}'
+        mock_response.headers = {"content-type": "application/json"}
+        gateway_proxy.http_client.request = AsyncMock(return_value=mock_response)
+        
+        # Create test client
+        client = TestClient(gateway_proxy.app)
+        
+        # Make request without estimated cost
+        response = client.post(
+            "/api/test",
+            headers={
+                "Authorization": "Bearer test-token",
+                "X-Caracal-Target-URL": "https://api.example.com/test"
+            },
+            json={"test": "data"}
+        )
+        
+        # Verify response
+        assert response.status_code == 200
+        
+        # Verify policy evaluator was called with None estimated cost
+        mock_policy_evaluator.check_budget.assert_called_once()
+        call_args = mock_policy_evaluator.check_budget.call_args
+        assert call_args[1]["estimated_cost"] is None
+    
+    @pytest.mark.asyncio
+    async def test_policy_evaluation_error_returns_500(
+        self,
+        gateway_proxy,
+        mock_authenticator,
+        mock_policy_evaluator,
+        mock_replay_protection,
+        sample_agent
+    ):
+        """Test policy evaluation error returns 500."""
+        from fastapi.testclient import TestClient
+        from caracal.exceptions import PolicyEvaluationError
+        
+        # Mock authentication success
+        mock_authenticator.authenticate_jwt = AsyncMock(
+            return_value=AuthenticationResult(
+                success=True,
+                agent_identity=sample_agent,
+                method=AuthenticationMethod.JWT
+            )
+        )
+        
+        # Mock replay protection success
+        mock_replay_protection.check_request = AsyncMock(
+            return_value=ReplayCheckResult(allowed=True)
+        )
+        
+        # Mock policy evaluation error
+        mock_policy_evaluator.check_budget.side_effect = PolicyEvaluationError(
+            "Failed to query spending"
+        )
+        
+        # Create test client
+        client = TestClient(gateway_proxy.app)
+        
+        # Make request
+        response = client.post(
+            "/api/test",
+            headers={
+                "Authorization": "Bearer test-token",
+                "X-Caracal-Target-URL": "https://api.example.com/test",
+                "X-Caracal-Estimated-Cost": "10.00"
+            },
+            json={"test": "data"}
+        )
+        
+        # Verify response is 500 Internal Server Error
+        assert response.status_code == 500
+        data = response.json()
+        assert data["error"] == "policy_evaluation_failed"
+        assert "Failed to query spending" in data["message"]
+        
+        # Verify request was NOT forwarded
+        gateway_proxy.http_client.request.assert_not_called()
+

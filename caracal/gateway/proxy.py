@@ -246,9 +246,10 @@ class GatewayProxy:
                 except Exception as e:
                     logger.warning(f"Invalid estimated cost header: {estimated_cost_str}, error: {e}")
             
+            # Call PolicyEvaluator to check budget
             try:
                 policy_decision = self.policy_evaluator.check_budget(
-                    agent_id=agent.agent_id,
+                    agent_id=str(agent.agent_id),
                     estimated_cost=estimated_cost
                 )
             except PolicyEvaluationError as e:
@@ -261,6 +262,7 @@ class GatewayProxy:
                     }
                 )
             
+            # Return 403 on budget denial (Requirement 1.5)
             if not policy_decision.allowed:
                 self._denied_count += 1
                 logger.info(
@@ -275,6 +277,7 @@ class GatewayProxy:
                     }
                 )
             
+            # Budget check passed - provisional charge created if manager available (Requirement 1.3, 1.4)
             logger.info(
                 f"Budget check allowed for agent {agent.agent_id}, "
                 f"remaining={policy_decision.remaining_budget}, "
