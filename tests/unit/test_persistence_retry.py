@@ -53,7 +53,9 @@ class TestAgentRegistryRetry:
             
             # Mock open to always fail
             def mock_open(*args, **kwargs):
-                if args[0].endswith('.tmp'):
+                # Convert Path to string for comparison
+                path_str = str(args[0]) if hasattr(args[0], '__fspath__') else args[0]
+                if path_str.endswith('.tmp'):
                     raise OSError("Permanent failure")
                 return open(*args, **kwargs)
             

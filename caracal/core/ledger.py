@@ -186,7 +186,7 @@ class LedgerWriter:
                 f"resource={resource_type}, cost={cost} {currency}"
             )
             return event
-        except Exception as e:
+        except (OSError, IOError) as e:
             logger.error(
                 f"Failed to append event to ledger {self.ledger_path}: {e}",
                 exc_info=True
@@ -216,33 +216,27 @@ class LedgerWriter:
             event: LedgerEvent to append
             
         Raises:
-            LedgerWriteError: If write operation fails after all retries
+            OSError: If write operation fails after all retries
         """
-        try:
-            # Open file in append mode
-            with open(self.ledger_path, 'a') as f:
-                # Acquire exclusive lock (blocks until available)
-                fcntl.flock(f.fileno(), fcntl.LOCK_EX)
+        # Open file in append mode
+        with open(self.ledger_path, 'a') as f:
+            # Acquire exclusive lock (blocks until available)
+            fcntl.flock(f.fileno(), fcntl.LOCK_EX)
+            
+            try:
+                # Write event as JSON line
+                json_line = event.to_json_line()
+                f.write(json_line + '\n')
                 
-                try:
-                    # Write event as JSON line
-                    json_line = event.to_json_line()
-                    f.write(json_line + '\n')
-                    
-                    # Flush write buffer to OS
-                    f.flush()
-                    
-                    # Force OS to write to physical disk
-                    os.fsync(f.fileno())
-                    
-                finally:
-                    # Release lock (automatically released on close, but explicit is better)
-                    fcntl.flock(f.fileno(), fcntl.LOCK_UN)
-                    
-        except Exception as e:
-            raise LedgerWriteError(
-                f"Failed to perform atomic append to {self.ledger_path}: {e}"
-            ) from e
+                # Flush write buffer to OS
+                f.flush()
+                
+                # Force OS to write to physical disk
+                os.fsync(f.fileno())
+                
+            finally:
+                # Release lock (automatically released on close, but explicit is better)
+                fcntl.flock(f.fileno(), fcntl.LOCK_UN)
 
     def _get_next_event_id(self) -> int:
         """

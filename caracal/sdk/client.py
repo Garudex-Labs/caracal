@@ -261,13 +261,13 @@ class CaracalClient:
         """
         Get the remaining budget for an agent.
         
-        Returns None if budget check fails (fail-closed).
+        Returns None if no policy exists or budget check fails (fail-closed).
         
         Args:
             agent_id: Agent identifier
             
         Returns:
-            Remaining budget as Decimal, or None if check fails
+            Remaining budget as Decimal, or None if no policy or check fails
             
         Example:
             >>> client = CaracalClient()
@@ -285,10 +285,11 @@ class CaracalClient:
                 )
                 return decision.remaining_budget
             else:
+                # No policy or budget exceeded - return None (fail-closed)
                 logger.debug(
-                    f"Agent {agent_id} has no remaining budget: {decision.reason}"
+                    f"Agent {agent_id} budget check denied: {decision.reason}"
                 )
-                return Decimal('0')
+                return None
             
         except Exception as e:
             # Fail closed: log and return None

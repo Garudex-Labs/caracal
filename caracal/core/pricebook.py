@@ -162,7 +162,13 @@ class Pricebook:
         self._prices[resource_type] = entry
         
         # Persist to disk
-        self._persist()
+        try:
+            self._persist()
+        except (OSError, IOError) as e:
+            logger.error(f"Failed to persist pricebook to {self.csv_path}: {e}", exc_info=True)
+            raise FileWriteError(
+                f"Failed to persist pricebook to {self.csv_path}: {e}"
+            ) from e
         
         logger.info(
             f"Updated price for '{resource_type}': "
@@ -252,7 +258,13 @@ class Pricebook:
             self._prices[resource_type] = entry
         
         # Persist to disk
-        self._persist()
+        try:
+            self._persist()
+        except (OSError, IOError) as e:
+            logger.error(f"Failed to persist pricebook to {self.csv_path}: {e}", exc_info=True)
+            raise FileWriteError(
+                f"Failed to persist pricebook to {self.csv_path}: {e}"
+            ) from e
         
         logger.info(f"Imported {len(validated_entries)} prices from JSON")
 
@@ -361,49 +373,43 @@ class Pricebook:
         - Fails permanently after max retries
         
         Raises:
-            FileWriteError: If write operation fails after all retries
+            OSError: If write operation fails after all retries
         """
-        try:
-            # Create backup before writing
-            self._create_backup()
+        # Create backup before writing
+        self._create_backup()
+        
+        # Write to temporary file
+        tmp_path = self.csv_path.with_suffix('.tmp')
+        with open(tmp_path, 'w', newline='') as f:
+            writer = csv.DictWriter(
+                f,
+                fieldnames=[
+                    "resource_type",
+                    "price_per_unit",
+                    "currency",
+                    "updated_at"
+                ]
+            )
+            writer.writeheader()
             
-            # Write to temporary file
-            tmp_path = self.csv_path.with_suffix('.tmp')
-            with open(tmp_path, 'w', newline='') as f:
-                writer = csv.DictWriter(
-                    f,
-                    fieldnames=[
-                        "resource_type",
-                        "price_per_unit",
-                        "currency",
-                        "updated_at"
-                    ]
-                )
-                writer.writeheader()
-                
-                # Write price entries sorted by resource_type for consistency
-                for resource_type in sorted(self._prices.keys()):
-                    entry = self._prices[resource_type]
-                    writer.writerow({
-                        "resource_type": entry.resource_type,
-                        "price_per_unit": str(entry.price_per_unit),
-                        "currency": entry.currency,
-                        "updated_at": entry.updated_at,
-                    })
-                
-                f.flush()
-                os.fsync(f.fileno())  # Force write to disk
+            # Write price entries sorted by resource_type for consistency
+            for resource_type in sorted(self._prices.keys()):
+                entry = self._prices[resource_type]
+                writer.writerow({
+                    "resource_type": entry.resource_type,
+                    "price_per_unit": str(entry.price_per_unit),
+                    "currency": entry.currency,
+                    "updated_at": entry.updated_at,
+                })
             
-            # Atomic rename (POSIX guarantees atomicity)
-            # On Windows, may need to remove target first
-            if os.name == 'nt' and self.csv_path.exists():
-                self.csv_path.unlink()
-            tmp_path.rename(self.csv_path)
-            
-        except Exception as e:
-            raise FileWriteError(
-                f"Failed to persist pricebook to {self.csv_path}: {e}"
-            ) from e
+            f.flush()
+            os.fsync(f.fileno())  # Force write to disk
+        
+        # Atomic rename (POSIX guarantees atomicity)
+        # On Windows, may need to remove target first
+        if os.name == 'nt' and self.csv_path.exists():
+            self.csv_path.unlink()
+        tmp_path.rename(self.csv_path)
 
     def _create_backup(self) -> None:
         """
