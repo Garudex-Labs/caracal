@@ -5,4 +5,4 @@ Caracal Core provides economic identity, budgeting, enforcement, ledger,
 and metering capabilities for AI agents.
 """
 
-__version__ = "0.1.0"
+__version__ = "0.1.1"
