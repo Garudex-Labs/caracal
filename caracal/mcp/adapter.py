@@ -460,3 +460,203 @@ class MCPAdapter:
             return "s3"
         else:
             return "unknown"
+
+    def as_decorator(self):
+        """
+        Return Python decorator for in-process integration.
+        
+        This decorator wraps MCP tool functions to automatically handle:
+        - Budget checks before execution
+        - Metering events after execution
+        - Error handling and logging
+        
+        Usage:
+            @mcp_adapter.as_decorator()
+            async def my_mcp_tool(agent_id: str, **kwargs):
+                # Tool implementation
+                return result
+        
+        The decorated function must accept agent_id as the first parameter
+        or in kwargs. All other parameters are passed as tool_args.
+        
+        Returns:
+            Decorator function that wraps MCP tool functions
+            
+        Requirements: 18.4
+        """
+        def decorator(func):
+            """
+            Decorator that wraps an MCP tool function.
+            
+            Args:
+                func: The MCP tool function to wrap
+                
+            Returns:
+                Wrapped function with budget enforcement
+            """
+            import functools
+            import inspect
+            
+            @functools.wraps(func)
+            async def wrapper(*args, **kwargs):
+                """
+                Wrapper that handles budget checks and metering.
+                
+                Args:
+                    *args: Positional arguments for the tool
+                    **kwargs: Keyword arguments for the tool
+                    
+                Returns:
+                    Tool execution result
+                    
+                Raises:
+                    BudgetExceededError: If budget check fails
+                    CaracalError: If agent_id not provided or other errors
+                """
+                # Extract agent_id from arguments
+                agent_id = None
+                tool_args = {}
+                
+                # Get function signature to understand parameters
+                sig = inspect.signature(func)
+                param_names = list(sig.parameters.keys())
+                
+                # Check if agent_id is in kwargs
+                if 'agent_id' in kwargs:
+                    agent_id = kwargs.pop('agent_id')
+                    tool_args = kwargs
+                # Check if first positional arg is agent_id
+                elif len(args) > 0 and len(param_names) > 0 and param_names[0] == 'agent_id':
+                    agent_id = args[0]
+                    # Remaining args become tool_args
+                    for i, arg in enumerate(args[1:], start=1):
+                        if i < len(param_names):
+                            tool_args[param_names[i]] = arg
+                    tool_args.update(kwargs)
+                else:
+                    # Try to find agent_id in kwargs with different names
+                    for key in ['agent_id', 'agent', 'caracal_agent_id']:
+                        if key in kwargs:
+                            agent_id = kwargs.pop(key)
+                            tool_args = kwargs
+                            break
+                
+                if not agent_id:
+                    logger.error(
+                        f"agent_id not provided to decorated MCP tool '{func.__name__}'"
+                    )
+                    raise CaracalError(
+                        f"agent_id is required for MCP tool '{func.__name__}'. "
+                        "Pass it as the first argument or as a keyword argument."
+                    )
+                
+                # Get tool name from function name
+                tool_name = func.__name__
+                
+                # Create MCP context
+                mcp_context = MCPContext(
+                    agent_id=agent_id,
+                    metadata={
+                        "tool_name": tool_name,
+                        "decorator_mode": True,
+                    }
+                )
+                
+                logger.debug(
+                    f"Decorator intercepting MCP tool: tool={tool_name}, agent={agent_id}"
+                )
+                
+                try:
+                    # 1. Estimate cost based on tool and args
+                    estimated_cost = await self.cost_calculator.estimate_tool_cost(
+                        tool_name, tool_args
+                    )
+                    logger.debug(
+                        f"Estimated cost for tool '{tool_name}': {estimated_cost} USD"
+                    )
+                    
+                    # 2. Check budget via Policy Evaluator
+                    policy_decision = self.policy_evaluator.check_budget(
+                        agent_id, estimated_cost
+                    )
+                    
+                    if not policy_decision.allowed:
+                        logger.warning(
+                            f"Budget check denied for agent {agent_id}: {policy_decision.reason}"
+                        )
+                        raise BudgetExceededError(
+                            f"Budget check failed: {policy_decision.reason}"
+                        )
+                    
+                    logger.info(
+                        f"Budget check passed for agent {agent_id}: "
+                        f"remaining={policy_decision.remaining_budget} USD, "
+                        f"provisional_charge_id={policy_decision.provisional_charge_id}"
+                    )
+                    
+                    # 3. Execute the actual tool function
+                    if inspect.iscoroutinefunction(func):
+                        # Reconstruct original call with agent_id
+                        if len(args) > 0 and len(param_names) > 0 and param_names[0] == 'agent_id':
+                            # agent_id was first positional arg
+                            tool_result = await func(agent_id, **tool_args)
+                        else:
+                            # agent_id should be passed as kwarg
+                            tool_result = await func(agent_id=agent_id, **tool_args)
+                    else:
+                        # Synchronous function
+                        if len(args) > 0 and len(param_names) > 0 and param_names[0] == 'agent_id':
+                            tool_result = func(agent_id, **tool_args)
+                        else:
+                            tool_result = func(agent_id=agent_id, **tool_args)
+                    
+                    # 4. Calculate actual cost from result
+                    actual_cost = await self.cost_calculator.calculate_actual_tool_cost(
+                        tool_name, tool_args, tool_result
+                    )
+                    logger.debug(
+                        f"Actual cost for tool '{tool_name}': {actual_cost} USD"
+                    )
+                    
+                    # 5. Emit metering event with actual cost
+                    metering_event = MeteringEvent(
+                        agent_id=agent_id,
+                        resource_type=f"mcp.tool.{tool_name}",
+                        quantity=Decimal("1"),  # One tool invocation
+                        timestamp=datetime.utcnow(),
+                        metadata={
+                            "tool_name": tool_name,
+                            "tool_args": tool_args,
+                            "estimated_cost": str(estimated_cost),
+                            "actual_cost": str(actual_cost),
+                            "decorator_mode": True,
+                        }
+                    )
+                    
+                    self.metering_collector.collect_event(
+                        metering_event,
+                        provisional_charge_id=policy_decision.provisional_charge_id
+                    )
+                    
+                    logger.info(
+                        f"MCP tool call completed (decorator): tool={tool_name}, "
+                        f"agent={agent_id}, cost={actual_cost} USD"
+                    )
+                    
+                    return tool_result
+                    
+                except BudgetExceededError:
+                    # Re-raise budget errors
+                    raise
+                except Exception as e:
+                    logger.error(
+                        f"Failed to execute decorated MCP tool '{tool_name}' for agent {agent_id}: {e}",
+                        exc_info=True
+                    )
+                    raise CaracalError(
+                        f"MCP tool execution failed: {e}"
+                    ) from e
+            
+            return wrapper
+        
+        return decorator

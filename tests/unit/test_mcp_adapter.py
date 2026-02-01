@@ -286,3 +286,163 @@ class TestMCPCostCalculator:
         assert cost_calculator._is_api_tool("tool", {"endpoint": "/api/v1"}) is True
         assert cost_calculator._is_api_tool("tool", {"url": "https://api.com"}) is True
         assert cost_calculator._is_api_tool("tool", {"method": "POST"}) is True
+
+
+class TestMCPAdapterDecorator:
+    """Test suite for MCPAdapter decorator functionality."""
+
+    @pytest.mark.asyncio
+    async def test_decorator_with_async_function(self, mcp_adapter):
+        """Test decorator with async function."""
+        @mcp_adapter.as_decorator()
+        async def test_tool(agent_id: str, param1: str, param2: int):
+            """Test MCP tool."""
+            return {"result": f"{param1}_{param2}"}
+        
+        agent_id = str(uuid4())
+        result = await test_tool(agent_id=agent_id, param1="test", param2=42)
+        
+        assert result == {"result": "test_42"}
+
+    @pytest.mark.asyncio
+    async def test_decorator_with_positional_agent_id(self, mcp_adapter):
+        """Test decorator with agent_id as first positional argument."""
+        @mcp_adapter.as_decorator()
+        async def test_tool(agent_id: str, param1: str):
+            """Test MCP tool."""
+            return {"result": param1}
+        
+        agent_id = str(uuid4())
+        result = await test_tool(agent_id, param1="test")
+        
+        assert result == {"result": "test"}
+
+    @pytest.mark.asyncio
+    async def test_decorator_budget_check(
+        self, mcp_adapter, mock_policy_evaluator, mock_metering_collector
+    ):
+        """Test that decorator performs budget check."""
+        @mcp_adapter.as_decorator()
+        async def test_tool(agent_id: str, param1: str):
+            """Test MCP tool."""
+            return {"result": param1}
+        
+        agent_id = str(uuid4())
+        await test_tool(agent_id=agent_id, param1="test")
+        
+        # Verify budget check was called
+        assert mock_policy_evaluator.check_budget.called
+
+    @pytest.mark.asyncio
+    async def test_decorator_emits_metering_event(
+        self, mcp_adapter, mock_metering_collector
+    ):
+        """Test that decorator emits metering event."""
+        @mcp_adapter.as_decorator()
+        async def test_tool(agent_id: str, param1: str):
+            """Test MCP tool."""
+            return {"result": param1}
+        
+        agent_id = str(uuid4())
+        await test_tool(agent_id=agent_id, param1="test")
+        
+        # Verify metering event was collected
+        assert mock_metering_collector.collect_event.called
+        call_args = mock_metering_collector.collect_event.call_args
+        event = call_args[0][0]
+        
+        assert event.agent_id == agent_id
+        assert event.resource_type == "mcp.tool.test_tool"
+        assert event.quantity == Decimal("1")
+
+    @pytest.mark.asyncio
+    async def test_decorator_budget_exceeded(
+        self, mcp_adapter, mock_policy_evaluator
+    ):
+        """Test decorator when budget is exceeded."""
+        # Configure policy evaluator to deny
+        mock_policy_evaluator.check_budget = Mock(return_value=PolicyDecision(
+            allowed=False,
+            reason="Budget exceeded",
+            remaining_budget=Decimal("0")
+        ))
+        
+        @mcp_adapter.as_decorator()
+        async def test_tool(agent_id: str, param1: str):
+            """Test MCP tool."""
+            return {"result": param1}
+        
+        agent_id = str(uuid4())
+        
+        with pytest.raises(BudgetExceededError):
+            await test_tool(agent_id=agent_id, param1="test")
+
+    @pytest.mark.asyncio
+    async def test_decorator_missing_agent_id(self, mcp_adapter):
+        """Test decorator when agent_id is missing."""
+        from caracal.exceptions import CaracalError
+        
+        @mcp_adapter.as_decorator()
+        async def test_tool(param1: str):
+            """Test MCP tool without agent_id."""
+            return {"result": param1}
+        
+        with pytest.raises(CaracalError, match="agent_id is required"):
+            await test_tool(param1="test")
+
+    @pytest.mark.asyncio
+    async def test_decorator_with_sync_function(self, mcp_adapter):
+        """Test decorator with synchronous function."""
+        @mcp_adapter.as_decorator()
+        def test_tool(agent_id: str, param1: str):
+            """Test synchronous MCP tool."""
+            return {"result": param1}
+        
+        agent_id = str(uuid4())
+        result = await test_tool(agent_id=agent_id, param1="test")
+        
+        assert result == {"result": "test"}
+
+    @pytest.mark.asyncio
+    async def test_decorator_preserves_function_metadata(self, mcp_adapter):
+        """Test that decorator preserves function name and docstring."""
+        @mcp_adapter.as_decorator()
+        async def my_custom_tool(agent_id: str, param1: str):
+            """Custom tool docstring."""
+            return {"result": param1}
+        
+        assert my_custom_tool.__name__ == "my_custom_tool"
+        assert "Custom tool docstring" in my_custom_tool.__doc__
+
+    @pytest.mark.asyncio
+    async def test_decorator_with_alternative_agent_id_names(self, mcp_adapter):
+        """Test decorator with alternative agent_id parameter names."""
+        @mcp_adapter.as_decorator()
+        async def test_tool(param1: str):
+            """Test MCP tool."""
+            return {"result": param1}
+        
+        agent_id = str(uuid4())
+        
+        # Test with 'agent' parameter name
+        result = await test_tool(agent=agent_id, param1="test")
+        assert result == {"result": "test"}
+        
+        # Test with 'caracal_agent_id' parameter name
+        result = await test_tool(caracal_agent_id=agent_id, param1="test")
+        assert result == {"result": "test"}
+
+    @pytest.mark.asyncio
+    async def test_decorator_error_handling(self, mcp_adapter):
+        """Test decorator error handling when tool execution fails."""
+        from caracal.exceptions import CaracalError
+        
+        @mcp_adapter.as_decorator()
+        async def failing_tool(agent_id: str):
+            """Tool that raises an error."""
+            raise ValueError("Tool execution failed")
+        
+        agent_id = str(uuid4())
+        
+        with pytest.raises(CaracalError, match="MCP tool execution failed"):
+            await failing_tool(agent_id=agent_id)
