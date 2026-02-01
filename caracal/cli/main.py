@@ -153,6 +153,13 @@ def backup():
     pass
 
 
+# Import and register backup commands
+from caracal.cli.backup import backup_create, backup_restore, backup_list
+backup.add_command(backup_create, name='create')
+backup.add_command(backup_restore, name='restore')
+backup.add_command(backup_list, name='list')
+
+
 @cli.command()
 @pass_context
 def init(ctx: CLIContext):

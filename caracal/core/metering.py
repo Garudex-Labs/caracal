@@ -10,6 +10,7 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Any, Dict, Optional
 
+from ase.protocol import MeteringEvent
 from caracal.core.ledger import LedgerWriter
 from caracal.core.pricebook import Pricebook
 from caracal.exceptions import (
@@ -21,31 +22,6 @@ from caracal.logging_config import get_logger
 logger = get_logger(__name__)
 
 
-@dataclass
-class MeteringEvent:
-    """
-    Represents a metering event for resource usage.
-    
-    This is a simplified ASE-compatible structure for v0.1 MVP.
-    In future versions, this will be replaced with full ASE protocol types.
-    
-    Attributes:
-        agent_id: Agent identifier
-        resource_type: Type of resource consumed (e.g., "openai.gpt4.input_tokens")
-        quantity: Amount of resource consumed
-        timestamp: Event timestamp (defaults to current UTC time)
-        metadata: Optional additional context
-    """
-    agent_id: str
-    resource_type: str
-    quantity: Decimal
-    timestamp: Optional[datetime] = None
-    metadata: Optional[Dict[str, Any]] = None
-
-    def __post_init__(self):
-        """Set default timestamp if not provided."""
-        if self.timestamp is None:
-            self.timestamp = datetime.utcnow()
 
 
 class MeteringCollector:

@@ -30,7 +30,7 @@ dependencies = [
     "click>=8.1.0",
     "pyyaml>=6.0",
     "hypothesis>=6.0.0",
-    "ase-protocol>=1.0.1",
+    "ase-protocol==1.0.8",
 ]
 
 [project.urls]

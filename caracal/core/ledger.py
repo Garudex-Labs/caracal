@@ -33,25 +33,14 @@ class LedgerEvent:
     """
     Represents a single event in the immutable ledger.
     
-    This is compatible with ASE protocol ChargeEvent structure but simplified
-    for v0.1 MVP with file-based storage.
-    
-    Attributes:
-        event_id: Monotonically increasing event ID
-        agent_id: Agent identifier
-        timestamp: ISO 8601 timestamp
-        resource_type: Type of resource consumed (e.g., "openai.gpt4.input_tokens")
-        quantity: Amount of resource consumed (as string for precision)
-        cost: Calculated cost (as string for precision)
-        currency: Currency code (e.g., "USD")
-        metadata: Optional additional context
+    This structure is designed to be compatible with ASE ChargeEvent.
     """
     event_id: int
     agent_id: str
     timestamp: str  # ISO 8601 format
     resource_type: str
-    quantity: str  # Decimal as string for precision
-    cost: str  # Decimal as string for precision
+    quantity: str  # Decimal as string
+    cost: str  # Decimal as string
     currency: str
     metadata: Optional[Dict[str, Any]] = None
 
