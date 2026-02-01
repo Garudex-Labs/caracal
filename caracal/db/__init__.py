@@ -18,6 +18,10 @@ from caracal.db.models import (
     LedgerEvent,
     ProvisionalCharge,
 )
+from caracal.db.schema_version import (
+    SchemaVersionManager,
+    check_schema_version_on_startup,
+)
 
 __all__ = [
     # Models
@@ -32,4 +36,7 @@ __all__ = [
     "get_connection_manager",
     "initialize_connection_manager",
     "close_connection_manager",
+    # Schema version management
+    "SchemaVersionManager",
+    "check_schema_version_on_startup",
 ]
