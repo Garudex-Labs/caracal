@@ -51,7 +51,7 @@ Caracal Core v0.2.0 follows a modular design:
 
 ## Documentation
 
-For full documentation, standard compliance details, and API reference, please visit our [official documentation](https://docs.caracal.dev).
+For full documentation, standard compliance details, and API reference, please visit our [official documentation](https://www.garudexlabs.com).
 
 ## License
 
