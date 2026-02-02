@@ -284,3 +284,43 @@ class AuditLog(Base):
     
     def __repr__(self):
         return f"<AuditLog(log_id={self.log_id}, event_type={self.event_type}, event_id={self.event_id})>"
+
+
+class MerkleRoot(Base):
+    """
+    Merkle roots for cryptographic ledger integrity.
+    
+    Stores signed Merkle roots for batches of ledger events, enabling
+    cryptographic verification of ledger integrity.
+    
+    Requirements: 3.4, 3.5, 4.2
+    """
+    
+    __tablename__ = "merkle_roots"
+    
+    # Primary key
+    root_id = Column(PG_UUID(as_uuid=True), primary_key=True, default=uuid4)
+    
+    # Batch identification
+    batch_id = Column(PG_UUID(as_uuid=True), nullable=False, unique=True, index=True)
+    
+    # Merkle tree data
+    merkle_root = Column(String(64), nullable=False)  # Hex-encoded SHA-256 hash
+    signature = Column(String(512), nullable=False)  # Hex-encoded ECDSA signature
+    
+    # Batch metadata
+    event_count = Column(BigInteger, nullable=False)
+    first_event_id = Column(BigInteger, nullable=False, index=True)
+    last_event_id = Column(BigInteger, nullable=False, index=True)
+    
+    # Timestamp
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow, index=True)
+    
+    # Composite index for event range queries
+    __table_args__ = (
+        Index("ix_merkle_roots_event_range", "first_event_id", "last_event_id"),
+    )
+    
+    def __repr__(self):
+        return f"<MerkleRoot(root_id={self.root_id}, batch_id={self.batch_id}, events={self.first_event_id}-{self.last_event_id})>"
+

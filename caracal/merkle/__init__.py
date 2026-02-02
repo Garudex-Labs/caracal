@@ -14,6 +14,11 @@ from caracal.merkle.signer import (
     create_merkle_signer,
 )
 from caracal.merkle.key_management import KeyManager, generate_merkle_signing_key
+from caracal.merkle.verifier import (
+    MerkleVerifier,
+    VerificationResult,
+    VerificationSummary,
+)
 
 __all__ = [
     "MerkleTree",
@@ -26,5 +31,9 @@ __all__ = [
     "create_merkle_signer",
     "KeyManager",
     "generate_merkle_signing_key",
+    "MerkleVerifier",
+    "VerificationResult",
+    "VerificationSummary",
 ]
+
 
