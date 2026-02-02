@@ -35,6 +35,7 @@ from caracal.exceptions import (
     PolicyEvaluationError,
 )
 from caracal.logging_config import get_logger
+from caracal.monitoring.metrics import get_metrics_registry, PolicyDecisionType
 
 logger = get_logger(__name__)
 
@@ -173,6 +174,23 @@ class GatewayProxy:
                 "version": "0.2.0"
             }
         
+        @self.app.get("/metrics")
+        async def metrics():
+            """Prometheus metrics endpoint."""
+            try:
+                metrics_registry = get_metrics_registry()
+                metrics_data = metrics_registry.generate_metrics()
+                return Response(
+                    content=metrics_data,
+                    media_type=metrics_registry.get_content_type()
+                )
+            except RuntimeError:
+                # Metrics not initialized - return empty response
+                return Response(
+                    content=b"# Metrics not initialized\n",
+                    media_type="text/plain"
+                )
+        
         @self.app.get("/stats")
         async def get_stats():
             """Get gateway statistics."""
@@ -233,16 +251,45 @@ class GatewayProxy:
         start_time = time.time()
         self._request_count += 1
         
+        # Get metrics registry (if available)
+        try:
+            metrics = get_metrics_registry()
+        except RuntimeError:
+            metrics = None
+        
+        # Track in-flight requests
+        if metrics:
+            metrics.gateway_requests_in_flight.inc()
+        
         try:
             # 1. Authenticate agent
             auth_result = await self.authenticate_agent(request)
             
             if not auth_result.success:
                 self._auth_failures += 1
+                
+                # Record auth failure metric
+                if metrics:
+                    metrics.record_auth_failure(
+                        auth_method=auth_result.method.value,
+                        reason=auth_result.error or "unknown"
+                    )
+                
                 logger.warning(
                     f"Authentication failed: {auth_result.error}, "
                     f"method={auth_result.method}"
                 )
+                
+                # Record request metric
+                if metrics:
+                    duration = time.time() - start_time
+                    metrics.record_gateway_request(
+                        method=request.method,
+                        status_code=401,
+                        auth_method=auth_result.method.value,
+                        duration_seconds=duration
+                    )
+                
                 return JSONResponse(
                     status_code=status.HTTP_401_UNAUTHORIZED,
                     content={
@@ -264,9 +311,25 @@ class GatewayProxy:
                 
                 if not replay_result.allowed:
                     self._replay_blocks += 1
+                    
+                    # Record replay block metric
+                    if metrics:
+                        metrics.record_replay_block(reason=replay_result.reason or "unknown")
+                    
                     logger.warning(
                         f"Replay attack blocked for agent {agent.agent_id}: {replay_result.reason}"
                     )
+                    
+                    # Record request metric
+                    if metrics:
+                        duration = time.time() - start_time
+                        metrics.record_gateway_request(
+                            method=request.method,
+                            status_code=403,
+                            auth_method=auth_result.method.value,
+                            duration_seconds=duration
+                        )
+                    
                     return JSONResponse(
                         status_code=status.HTTP_403_FORBIDDEN,
                         content={
@@ -292,11 +355,24 @@ class GatewayProxy:
             used_cache = False
             cache_age_seconds = None
             
+            # Time policy evaluation
+            policy_eval_start = time.time()
+            
             try:
                 policy_decision = self.policy_evaluator.check_budget(
                     agent_id=str(agent.agent_id),
                     estimated_cost=estimated_cost
                 )
+                
+                # Record policy evaluation metric
+                if metrics:
+                    policy_eval_duration = time.time() - policy_eval_start
+                    decision_type = PolicyDecisionType.ALLOWED if policy_decision.allowed else PolicyDecisionType.DENIED
+                    metrics.record_policy_evaluation(
+                        decision=decision_type,
+                        agent_id=str(agent.agent_id),
+                        duration_seconds=policy_eval_duration
+                    )
                 
                 # Cache the policy decision for future degraded mode use
                 if self.policy_cache and policy_decision.allowed:
@@ -315,6 +391,15 @@ class GatewayProxy:
                     f"attempting degraded mode with cache"
                 )
                 
+                # Record policy evaluation error metric
+                if metrics:
+                    policy_eval_duration = time.time() - policy_eval_start
+                    metrics.record_policy_evaluation(
+                        decision=PolicyDecisionType.ERROR,
+                        agent_id=str(agent.agent_id),
+                        duration_seconds=policy_eval_duration
+                    )
+                
                 if self.policy_cache:
                     cached_policy = await self.policy_cache.get(str(agent.agent_id))
                     
@@ -323,6 +408,10 @@ class GatewayProxy:
                         used_cache = True
                         self._degraded_mode_count += 1
                         cache_age_seconds = (datetime.utcnow() - cached_policy.cached_at).total_seconds()
+                        
+                        # Record degraded mode metric
+                        if metrics:
+                            metrics.record_degraded_mode_request()
                         
                         logger.warning(
                             f"Using cached policy for agent {agent.agent_id} in degraded mode, "
@@ -356,6 +445,17 @@ class GatewayProxy:
                             f"Policy evaluation failed and no cached policy available for agent {agent.agent_id}, "
                             f"failing closed"
                         )
+                        
+                        # Record request metric
+                        if metrics:
+                            duration = time.time() - start_time
+                            metrics.record_gateway_request(
+                                method=request.method,
+                                status_code=503,
+                                auth_method=auth_result.method.value,
+                                duration_seconds=duration
+                            )
+                        
                         return JSONResponse(
                             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                             content={
@@ -369,6 +469,17 @@ class GatewayProxy:
                         f"Policy evaluation failed for agent {agent.agent_id} and policy cache not enabled, "
                         f"failing closed"
                     )
+                    
+                    # Record request metric
+                    if metrics:
+                        duration = time.time() - start_time
+                        metrics.record_gateway_request(
+                            method=request.method,
+                            status_code=503,
+                            auth_method=auth_result.method.value,
+                            duration_seconds=duration
+                        )
+                    
                     return JSONResponse(
                         status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                         content={
@@ -383,6 +494,17 @@ class GatewayProxy:
                 logger.info(
                     f"Budget check denied for agent {agent.agent_id}: {policy_decision.reason}"
                 )
+                
+                # Record request metric
+                if metrics:
+                    duration = time.time() - start_time
+                    metrics.record_gateway_request(
+                        method=request.method,
+                        status_code=403,
+                        auth_method=auth_result.method.value,
+                        duration_seconds=duration
+                    )
+                
                 return JSONResponse(
                     status_code=status.HTTP_403_FORBIDDEN,
                     content={
@@ -403,6 +525,17 @@ class GatewayProxy:
             target_url = request.headers.get("X-Caracal-Target-URL")
             if not target_url:
                 logger.warning(f"Missing X-Caracal-Target-URL header for agent {agent.agent_id}")
+                
+                # Record request metric
+                if metrics:
+                    duration = time.time() - start_time
+                    metrics.record_gateway_request(
+                        method=request.method,
+                        status_code=400,
+                        auth_method=auth_result.method.value,
+                        duration_seconds=duration
+                    )
+                
                 return JSONResponse(
                     status_code=status.HTTP_400_BAD_REQUEST,
                     content={
@@ -415,6 +548,17 @@ class GatewayProxy:
                 response = await self.forward_request(request, target_url)
             except Exception as e:
                 logger.error(f"Failed to forward request for agent {agent.agent_id}: {e}", exc_info=True)
+                
+                # Record request metric
+                if metrics:
+                    duration = time.time() - start_time
+                    metrics.record_gateway_request(
+                        method=request.method,
+                        status_code=502,
+                        auth_method=auth_result.method.value,
+                        duration_seconds=duration
+                    )
+                
                 return JSONResponse(
                     status_code=status.HTTP_502_BAD_GATEWAY,
                     content={
@@ -497,6 +641,16 @@ class GatewayProxy:
                 f"degraded_mode={used_cache}"
             )
             
+            # Record request metric
+            if metrics:
+                duration = time.time() - start_time
+                metrics.record_gateway_request(
+                    method=request.method,
+                    status_code=response.status_code,
+                    auth_method=auth_result.method.value,
+                    duration_seconds=duration
+                )
+            
             # Prepare response headers
             response_headers = dict(response.headers)
             
@@ -515,6 +669,17 @@ class GatewayProxy:
             
         except Exception as e:
             logger.error(f"Unexpected error handling request: {e}", exc_info=True)
+            
+            # Record request metric
+            if metrics:
+                duration = time.time() - start_time
+                metrics.record_gateway_request(
+                    method=request.method,
+                    status_code=500,
+                    auth_method="unknown",
+                    duration_seconds=duration
+                )
+            
             return JSONResponse(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 content={
@@ -522,6 +687,10 @@ class GatewayProxy:
                     "message": "An unexpected error occurred"
                 }
             )
+        finally:
+            # Decrement in-flight requests
+            if metrics:
+                metrics.gateway_requests_in_flight.dec()
     
     async def authenticate_agent(self, request: Request) -> AuthenticationResult:
         """
