@@ -11,8 +11,19 @@ from caracal.monitoring.metrics import (
     initialize_metrics_registry,
 )
 
+from caracal.monitoring.http_server import (
+    PrometheusMetricsServer,
+    get_metrics_server,
+    start_metrics_server,
+    stop_metrics_server,
+)
+
 __all__ = [
     "MetricsRegistry",
     "get_metrics_registry",
     "initialize_metrics_registry",
+    "PrometheusMetricsServer",
+    "get_metrics_server",
+    "start_metrics_server",
+    "stop_metrics_server",
 ]
