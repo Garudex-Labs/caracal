@@ -134,3 +134,145 @@ Potential improvements for future versions:
 - Sparse Merkle trees for efficient updates
 - Parallel tree construction for large batches
 - Proof compression for storage efficiency
+
+
+## Merkle Batcher and Signer (v0.3)
+
+### MerkleBatcher
+
+Accumulates events into batches and triggers Merkle tree computation.
+
+```python
+from caracal.merkle import MerkleBatcher, SoftwareSigner
+
+# Create signer
+signer = SoftwareSigner("/path/to/private_key.pem")
+
+# Create batcher with configurable thresholds
+batcher = MerkleBatcher(
+    merkle_signer=signer,
+    batch_size_limit=1000,  # Max events per batch
+    batch_timeout_seconds=300,  # Max time before batch closes (5 minutes)
+)
+
+# Add events
+await batcher.add_event(event_id=1, event_hash=hash1)
+await batcher.add_event(event_id=2, event_hash=hash2)
+
+# Batch automatically closes when threshold reached
+```
+
+**Batch Configuration Trade-offs**:
+
+- **Smaller batches** (more frequent signing):
+  - Pros: Faster tamper detection, finer-grained audit trails
+  - Cons: Higher storage costs, more signature operations
+  
+- **Larger batches** (less frequent signing):
+  - Pros: Lower storage costs, better throughput
+  - Cons: Slower tamper detection, coarser audit trails
+
+**Recommended configurations**:
+- High-compliance: 1000 events / 5 minutes
+- Standard: 10000 events / 1 hour
+- Low-volume: 50000 events / 24 hours
+
+### MerkleSigner
+
+Pluggable signing backend for Merkle roots.
+
+**SoftwareSigner** (OSS default):
+```python
+from caracal.merkle import SoftwareSigner
+
+# Create signer with private key
+signer = SoftwareSigner("/path/to/private_key.pem")
+
+# Sign Merkle root
+signature = await signer.sign_root(merkle_root, batch)
+
+# Verify signature
+is_valid = await signer.verify_signature(merkle_root, signature.signature)
+```
+
+### KeyManager
+
+Manages cryptographic keys for Merkle signing.
+
+```python
+from caracal.merkle import KeyManager
+
+key_manager = KeyManager(audit_log_path="/var/log/caracal/keys.log")
+
+# Generate new key pair
+key_manager.generate_key_pair(
+    "/path/to/private.pem",
+    "/path/to/public.pem",
+    passphrase="secure_passphrase"
+)
+
+# Verify key
+is_valid = key_manager.verify_key("/path/to/private.pem", passphrase="secure_passphrase")
+
+# Rotate key
+key_manager.rotate_key(
+    "/path/to/old.pem",
+    "/path/to/new.pem",
+    "/path/to/new.pub",
+    passphrase="secure_passphrase"
+)
+```
+
+## CLI Commands
+
+### Generate Key Pair
+
+```bash
+# Generate key without passphrase
+caracal merkle generate-key \
+  -k /etc/caracal/keys/merkle-signing-key.pem \
+  -p /etc/caracal/keys/merkle-signing-key.pub
+
+# Generate key with passphrase
+caracal merkle generate-key \
+  -k /etc/caracal/keys/merkle-signing-key.pem \
+  -p /etc/caracal/keys/merkle-signing-key.pub \
+  -P "secure_passphrase"
+```
+
+### Verify Key
+
+```bash
+caracal merkle verify-key -k /etc/caracal/keys/merkle-signing-key.pem
+```
+
+### Rotate Key
+
+```bash
+caracal merkle rotate-key \
+  -o /etc/caracal/keys/old.pem \
+  -n /etc/caracal/keys/new.pem \
+  -p /etc/caracal/keys/new.pub
+```
+
+## Configuration
+
+Add Merkle configuration to your `config.yaml`:
+
+```yaml
+merkle:
+  batch_size_limit: 1000
+  batch_timeout_seconds: 300
+  signing_algorithm: ES256
+  signing_backend: software
+  private_key_path: /etc/caracal/keys/merkle-signing-key.pem
+  key_encryption_passphrase: ${MERKLE_KEY_PASSPHRASE}
+```
+
+## Security Best Practices
+
+1. **Key Storage**: Store private keys with restricted permissions (600)
+2. **Key Backup**: Backup private keys to secure offline storage
+3. **Key Rotation**: Rotate keys periodically (e.g., annually)
+4. **Environment Variables**: Use environment variables for passphrases
+5. **Audit Logging**: Enable audit logging for all key operations

@@ -222,6 +222,15 @@ except ImportError:
     pass
 
 
+# Import and register Merkle commands (v0.3)
+try:
+    from caracal.cli.merkle import merkle
+    cli.add_command(merkle)
+except ImportError:
+    # Merkle commands not available if cryptography not installed
+    pass
+
+
 @cli.command()
 @pass_context
 def init(ctx: CLIContext):

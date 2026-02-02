@@ -153,6 +153,20 @@ class ASEConfig:
 
 
 @dataclass
+class MerkleConfig:
+    """Merkle tree configuration for v0.3."""
+    
+    batch_size_limit: int = 1000  # Max events per batch
+    batch_timeout_seconds: int = 300  # Max time before batch closes (5 minutes)
+    signing_algorithm: str = "ES256"  # ECDSA P-256
+    signing_backend: str = "software"  # "software" (default) or "hsm" (Enterprise only)
+    private_key_path: str = ""  # Path to private key for software signing
+    key_encryption_passphrase: str = ""  # Passphrase for encrypted key (from env var)
+    # HSM configuration (Enterprise only, ignored if signing_backend=software)
+    hsm_config: dict = field(default_factory=dict)
+
+
+@dataclass
 class DefaultsConfig:
     """Default values configuration."""
     
@@ -193,6 +207,7 @@ class CaracalConfig:
     policy_cache: PolicyCacheConfig = field(default_factory=PolicyCacheConfig)
     mcp_adapter: MCPAdapterConfig = field(default_factory=MCPAdapterConfig)
     ase: ASEConfig = field(default_factory=ASEConfig)
+    merkle: MerkleConfig = field(default_factory=MerkleConfig)
 
 
 def get_default_config_path() -> str:
@@ -456,6 +471,18 @@ def _build_config_from_dict(config_data: Dict[str, Any]) -> CaracalConfig:
         provisional_charges=provisional_charges,
     )
     
+    # Parse Merkle configuration (optional, for v0.3)
+    merkle_data = config_data.get('merkle', {})
+    merkle = MerkleConfig(
+        batch_size_limit=merkle_data.get('batch_size_limit', default_config.merkle.batch_size_limit),
+        batch_timeout_seconds=merkle_data.get('batch_timeout_seconds', default_config.merkle.batch_timeout_seconds),
+        signing_algorithm=merkle_data.get('signing_algorithm', default_config.merkle.signing_algorithm),
+        signing_backend=merkle_data.get('signing_backend', default_config.merkle.signing_backend),
+        private_key_path=os.path.expanduser(merkle_data.get('private_key_path', default_config.merkle.private_key_path)),
+        key_encryption_passphrase=merkle_data.get('key_encryption_passphrase', default_config.merkle.key_encryption_passphrase),
+        hsm_config=merkle_data.get('hsm_config', default_config.merkle.hsm_config),
+    )
+    
     return CaracalConfig(
         storage=storage,
         defaults=defaults,
@@ -466,6 +493,7 @@ def _build_config_from_dict(config_data: Dict[str, Any]) -> CaracalConfig:
         policy_cache=policy_cache,
         mcp_adapter=mcp_adapter,
         ase=ase,
+        merkle=merkle,
     )
 
 
@@ -656,3 +684,35 @@ def _validate_config(config: CaracalConfig) -> None:
             f"ase provisional_charges cleanup_batch_size must be at least 1, "
             f"got {config.ase.provisional_charges.cleanup_batch_size}"
         )
+    
+    # Validate Merkle configuration (v0.3)
+    if config.merkle.batch_size_limit < 1:
+        raise InvalidConfigurationError(
+            f"merkle batch_size_limit must be at least 1, got {config.merkle.batch_size_limit}"
+        )
+    if config.merkle.batch_timeout_seconds < 1:
+        raise InvalidConfigurationError(
+            f"merkle batch_timeout_seconds must be at least 1, got {config.merkle.batch_timeout_seconds}"
+        )
+    
+    valid_signing_algorithms = ["ES256"]
+    if config.merkle.signing_algorithm not in valid_signing_algorithms:
+        raise InvalidConfigurationError(
+            f"merkle signing_algorithm must be one of {valid_signing_algorithms}, "
+            f"got '{config.merkle.signing_algorithm}'"
+        )
+    
+    valid_signing_backends = ["software", "hsm"]
+    if config.merkle.signing_backend not in valid_signing_backends:
+        raise InvalidConfigurationError(
+            f"merkle signing_backend must be one of {valid_signing_backends}, "
+            f"got '{config.merkle.signing_backend}'"
+        )
+    
+    # Validate software signing configuration
+    if config.merkle.signing_backend == "software":
+        if not config.merkle.private_key_path:
+            raise InvalidConfigurationError(
+                "merkle private_key_path is required when signing_backend is 'software'"
+            )
+
