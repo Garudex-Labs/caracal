@@ -213,6 +213,15 @@ db.add_command(migrate)
 db.add_command(db_status, name='status')
 
 
+# Import and register Kafka commands (v0.3)
+try:
+    from caracal.cli.kafka import kafka_group
+    cli.add_command(kafka_group)
+except ImportError:
+    # Kafka commands not available if kafka-python not installed
+    pass
+
+
 @cli.command()
 @pass_context
 def init(ctx: CLIContext):
