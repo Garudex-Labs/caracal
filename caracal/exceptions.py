@@ -221,3 +221,14 @@ class KafkaConsumerError(KafkaError):
     pass
 
 
+# Redis Errors
+class RedisError(CaracalError):
+    """Base exception for Redis-related errors."""
+    pass
+
+
+class RedisConnectionError(RedisError):
+    """Raised when Redis connection or operations fail."""
+    pass
+
+
