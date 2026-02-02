@@ -30,6 +30,7 @@ from caracal.gateway.replay_protection import ReplayProtection, ReplayCheckResul
 from caracal.gateway.cache import PolicyCache, PolicyCacheConfig, CachedPolicy
 from caracal.core.policy import PolicyEvaluator, PolicyDecision
 from caracal.core.metering import MeteringCollector
+from caracal.kafka.producer import KafkaEventProducer
 from caracal.core.error_handling import (
     get_error_handler,
     handle_error_with_denial,
@@ -69,6 +70,7 @@ class GatewayConfig:
         enable_policy_cache: Enable policy cache for degraded mode (default: True)
         policy_cache_ttl: TTL for cached policies in seconds (default: 60)
         policy_cache_max_size: Maximum number of cached policies (default: 10000)
+        enable_kafka: Enable Kafka event publishing (default: False for v0.2 compatibility)
     """
     listen_address: str = "0.0.0.0:8443"
     tls_cert_file: Optional[str] = None
@@ -86,6 +88,7 @@ class GatewayConfig:
     enable_policy_cache: bool = True
     policy_cache_ttl: int = 60
     policy_cache_max_size: int = 10000
+    enable_kafka: bool = False
 
 
 class GatewayProxy:
@@ -107,7 +110,8 @@ class GatewayProxy:
         metering_collector: MeteringCollector,
         replay_protection: Optional[ReplayProtection] = None,
         policy_cache: Optional[PolicyCache] = None,
-        db_connection_manager: Optional[Any] = None
+        db_connection_manager: Optional[Any] = None,
+        kafka_producer: Optional[KafkaEventProducer] = None
     ):
         """
         Initialize Gateway Proxy.
@@ -120,6 +124,7 @@ class GatewayProxy:
             replay_protection: Optional ReplayProtection for replay attack prevention
             policy_cache: Optional PolicyCache for degraded mode operation
             db_connection_manager: Optional DatabaseConnectionManager for health checks
+            kafka_producer: Optional KafkaEventProducer for v0.3 event publishing
         """
         self.config = config
         self.authenticator = authenticator
@@ -127,6 +132,7 @@ class GatewayProxy:
         self.metering_collector = metering_collector
         self.replay_protection = replay_protection
         self.db_connection_manager = db_connection_manager
+        self.kafka_producer = kafka_producer
         
         # Initialize policy cache if enabled and not provided
         if config.enable_policy_cache and policy_cache is None:
@@ -169,7 +175,8 @@ class GatewayProxy:
         logger.info(
             f"Initialized GatewayProxy with auth_mode={config.auth_mode}, "
             f"replay_protection={replay_protection is not None}, "
-            f"policy_cache={self.policy_cache is not None}"
+            f"policy_cache={self.policy_cache is not None}, "
+            f"kafka_enabled={config.enable_kafka}"
         )
     
     def _register_routes(self):
@@ -710,30 +717,105 @@ class GatewayProxy:
                 response_size_bytes = len(response.content)
                 quantity = Decimal(str(response_size_bytes)) if actual_cost == Decimal("0") else Decimal("1")
                 
-                # Create metering event with comprehensive metadata
-                metering_event = MeteringEvent(
-                    agent_id=str(agent.agent_id),
-                    resource_type=resource_type,
-                    quantity=quantity,
-                    timestamp=datetime.utcnow(),
-                    metadata={
-                        "method": request.method,
-                        "path": path,
-                        "target_url": target_url,
-                        "status_code": response.status_code,
-                        "response_size_bytes": response_size_bytes,
-                        "estimated_cost": str(estimated_cost) if estimated_cost else None,
-                        "actual_cost": str(actual_cost),
-                        "provisional_charge_id": str(policy_decision.provisional_charge_id) if policy_decision.provisional_charge_id else None
-                    }
-                )
-                
-                # Collect event with provisional charge ID for reconciliation
-                # This will release the provisional charge and adjust budget if costs differ
-                self.metering_collector.collect_event(
-                    metering_event,
-                    provisional_charge_id=str(policy_decision.provisional_charge_id) if policy_decision.provisional_charge_id else None
-                )
+                # v0.3: Publish metering event to Kafka if enabled
+                if self.config.enable_kafka and self.kafka_producer:
+                    try:
+                        await self.kafka_producer.publish_metering_event(
+                            agent_id=str(agent.agent_id),
+                            resource_type=resource_type,
+                            quantity=quantity,
+                            cost=actual_cost,
+                            currency="USD",
+                            provisional_charge_id=str(policy_decision.provisional_charge_id) if policy_decision.provisional_charge_id else None,
+                            metadata={
+                                "method": request.method,
+                                "path": path,
+                                "target_url": target_url,
+                                "status_code": str(response.status_code),
+                                "response_size_bytes": str(response_size_bytes),
+                                "estimated_cost": str(estimated_cost) if estimated_cost else None,
+                                "actual_cost": str(actual_cost),
+                            },
+                            timestamp=datetime.utcnow()
+                        )
+                        
+                        logger.info(
+                            f"Published metering event to Kafka for agent {agent.agent_id}, "
+                            f"resource={resource_type}, quantity={quantity}, cost={actual_cost}"
+                        )
+                        
+                        # Also publish policy decision event
+                        await self.kafka_producer.publish_policy_decision(
+                            agent_id=str(agent.agent_id),
+                            decision="allowed",
+                            reason=policy_decision.reason,
+                            estimated_cost=estimated_cost,
+                            remaining_budget=policy_decision.remaining_budget,
+                            metadata={
+                                "method": request.method,
+                                "path": path,
+                                "target_url": target_url,
+                            },
+                            timestamp=datetime.utcnow()
+                        )
+                        
+                    except Exception as kafka_error:
+                        logger.error(
+                            f"Failed to publish events to Kafka for agent {agent.agent_id}: {kafka_error}",
+                            exc_info=True
+                        )
+                        # Fall back to direct ledger write if Kafka fails
+                        logger.warning("Falling back to direct ledger write due to Kafka failure")
+                        
+                        # Create metering event for direct write
+                        metering_event = MeteringEvent(
+                            agent_id=str(agent.agent_id),
+                            resource_type=resource_type,
+                            quantity=quantity,
+                            timestamp=datetime.utcnow(),
+                            metadata={
+                                "method": request.method,
+                                "path": path,
+                                "target_url": target_url,
+                                "status_code": response.status_code,
+                                "response_size_bytes": response_size_bytes,
+                                "estimated_cost": str(estimated_cost) if estimated_cost else None,
+                                "actual_cost": str(actual_cost),
+                                "provisional_charge_id": str(policy_decision.provisional_charge_id) if policy_decision.provisional_charge_id else None
+                            }
+                        )
+                        
+                        # Collect event with provisional charge ID for reconciliation
+                        self.metering_collector.collect_event(
+                            metering_event,
+                            provisional_charge_id=str(policy_decision.provisional_charge_id) if policy_decision.provisional_charge_id else None
+                        )
+                else:
+                    # v0.2 compatibility: Direct ledger write
+                    # Create metering event with comprehensive metadata
+                    metering_event = MeteringEvent(
+                        agent_id=str(agent.agent_id),
+                        resource_type=resource_type,
+                        quantity=quantity,
+                        timestamp=datetime.utcnow(),
+                        metadata={
+                            "method": request.method,
+                            "path": path,
+                            "target_url": target_url,
+                            "status_code": response.status_code,
+                            "response_size_bytes": response_size_bytes,
+                            "estimated_cost": str(estimated_cost) if estimated_cost else None,
+                            "actual_cost": str(actual_cost),
+                            "provisional_charge_id": str(policy_decision.provisional_charge_id) if policy_decision.provisional_charge_id else None
+                        }
+                    )
+                    
+                    # Collect event with provisional charge ID for reconciliation
+                    # This will release the provisional charge and adjust budget if costs differ
+                    self.metering_collector.collect_event(
+                        metering_event,
+                        provisional_charge_id=str(policy_decision.provisional_charge_id) if policy_decision.provisional_charge_id else None
+                    )
                 
                 logger.info(
                     f"Emitted final charge for agent {agent.agent_id}, "
