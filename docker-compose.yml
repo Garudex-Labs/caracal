@@ -1,0 +1,244 @@
+# Docker Compose configuration for Caracal Core v0.2
+# Requirements: 17.3
+#
+# This compose file sets up the complete Caracal Core v0.2 stack:
+# - PostgreSQL database for persistent storage
+# - Caracal Gateway Proxy for network-enforced policy enforcement
+# - Caracal MCP Adapter for Model Context Protocol integration
+#
+# Usage:
+#   # Start all services
+#   docker-compose up -d
+#
+#   # View logs
+#   docker-compose logs -f
+#   docker-compose logs -f gateway
+#   docker-compose logs -f mcp-adapter
+#
+#   # Stop all services
+#   docker-compose down
+#
+#   # Stop and remove volumes (WARNING: deletes database data)
+#   docker-compose down -v
+#
+# Prerequisites:
+#   1. Create ./certs directory with TLS certificates:
+#      - server.crt, server.key (for gateway TLS)
+#      - ca.crt (for mTLS client authentication)
+#      - jwt_public.pem (for JWT authentication)
+#   2. Create .env file with required environment variables (see .env.example)
+#   3. Optionally create ./config directory with custom configuration files
+
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  # Provides persistent storage for agent identities, policies, ledger events, and provisional charges
+  postgres:
+    image: postgres:14-alpine
+    container_name: caracal-postgres
+    environment:
+      POSTGRES_DB: ${DB_NAME:-caracal}
+      POSTGRES_USER: ${DB_USER:-caracal}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-caracal_dev_password}
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=en_US.UTF-8"
+    volumes:
+      # Persistent database storage
+      - postgres_data:/var/lib/postgresql/data
+      # Optional: Mount initialization scripts
+      # - ./init-scripts:/docker-entrypoint-initdb.d:ro
+    ports:
+      # Expose PostgreSQL port (default: 5432)
+      # Change DB_PORT in .env to use a different port
+      - "${DB_PORT:-5432}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-caracal}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - caracal-network
+    restart: unless-stopped
+    # Resource limits (adjust based on your workload)
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+
+  # Caracal Gateway Proxy
+  # Network-enforced policy enforcement for AI agents
+  gateway:
+    build:
+      context: .
+      dockerfile: Dockerfile.gateway
+    image: caracal-gateway:latest
+    container_name: caracal-gateway
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      # Gateway HTTPS port (default: 8443)
+      - "${GATEWAY_PORT:-8443}:8443"
+      # Prometheus metrics port (default: 9090)
+      - "${METRICS_PORT:-9090}:9090"
+    volumes:
+      # Mount TLS certificates (required for HTTPS and mTLS)
+      # Create ./certs directory with:
+      #   - server.crt: Gateway TLS certificate
+      #   - server.key: Gateway TLS private key
+      #   - ca.crt: CA certificate for mTLS client authentication
+      #   - jwt_public.pem: JWT public key for JWT authentication
+      - ./certs:/etc/caracal/tls:ro
+      
+      # Optional: Mount custom configuration
+      # - ./config:/etc/caracal/config:ro
+      
+      # Optional: Mount logs directory for persistent logging
+      # - ./logs/gateway:/var/log/caracal
+    environment:
+      # Database Configuration
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: ${DB_NAME:-caracal}
+      DB_USER: ${DB_USER:-caracal}
+      DB_PASSWORD: ${DB_PASSWORD:-caracal_dev_password}
+      DB_POOL_SIZE: ${DB_POOL_SIZE:-10}
+      DB_MAX_OVERFLOW: ${DB_MAX_OVERFLOW:-5}
+      DB_POOL_TIMEOUT: ${DB_POOL_TIMEOUT:-30}
+      
+      # Gateway Configuration
+      LISTEN_ADDRESS: "0.0.0.0:8443"
+      AUTH_MODE: ${AUTH_MODE:-jwt}  # Options: mtls, jwt, api_key
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      REQUEST_TIMEOUT: ${REQUEST_TIMEOUT:-30}
+      MAX_REQUEST_SIZE_MB: ${MAX_REQUEST_SIZE_MB:-10}
+      
+      # TLS Configuration
+      TLS_CERT_FILE: /etc/caracal/tls/server.crt
+      TLS_KEY_FILE: /etc/caracal/tls/server.key
+      TLS_CA_FILE: /etc/caracal/tls/ca.crt
+      
+      # JWT Configuration (when AUTH_MODE=jwt)
+      JWT_PUBLIC_KEY_PATH: /etc/caracal/tls/jwt_public.pem
+      JWT_ALGORITHM: ${JWT_ALGORITHM:-RS256}
+      
+      # Replay Protection
+      ENABLE_REPLAY_PROTECTION: ${ENABLE_REPLAY_PROTECTION:-true}
+      NONCE_CACHE_TTL: ${NONCE_CACHE_TTL:-300}
+      NONCE_CACHE_SIZE: ${NONCE_CACHE_SIZE:-100000}
+      TIMESTAMP_WINDOW: ${TIMESTAMP_WINDOW:-300}
+      
+      # Policy Cache (Degraded Mode)
+      ENABLE_POLICY_CACHE: ${ENABLE_POLICY_CACHE:-true}
+      POLICY_CACHE_TTL: ${POLICY_CACHE_TTL:-60}
+      POLICY_CACHE_MAX_SIZE: ${POLICY_CACHE_MAX_SIZE:-10000}
+      
+      # Provisional Charges
+      PROVISIONAL_CHARGE_EXPIRATION: ${PROVISIONAL_CHARGE_EXPIRATION:-300}
+      PROVISIONAL_CHARGE_MAX_TIMEOUT: ${PROVISIONAL_CHARGE_MAX_TIMEOUT:-60}
+      PROVISIONAL_CHARGE_CLEANUP_INTERVAL: ${PROVISIONAL_CHARGE_CLEANUP_INTERVAL:-60}
+      PROVISIONAL_CHARGE_CLEANUP_BATCH_SIZE: ${PROVISIONAL_CHARGE_CLEANUP_BATCH_SIZE:-1000}
+    networks:
+      - caracal-network
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8443/health').read()"]
+      interval: 30s
+      timeout: 10s
+      start_period: 40s
+      retries: 3
+    restart: unless-stopped
+    # Resource limits (adjust based on your workload)
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 1G
+        reservations:
+          cpus: '0.25'
+          memory: 256M
+
+  # Caracal MCP Adapter
+  # Budget enforcement for Model Context Protocol
+  mcp-adapter:
+    build:
+      context: .
+      dockerfile: Dockerfile.mcp
+    image: caracal-mcp-adapter:latest
+    container_name: caracal-mcp-adapter
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      # MCP Adapter HTTP port (default: 8080)
+      - "${MCP_ADAPTER_PORT:-8080}:8080"
+    volumes:
+      # Optional: Mount custom configuration
+      # - ./config:/etc/caracal/config:ro
+      
+      # Optional: Mount logs directory for persistent logging
+      # - ./logs/mcp-adapter:/var/log/caracal
+    environment:
+      # Database Configuration
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: ${DB_NAME:-caracal}
+      DB_USER: ${DB_USER:-caracal}
+      DB_PASSWORD: ${DB_PASSWORD:-caracal_dev_password}
+      DB_POOL_SIZE: ${DB_POOL_SIZE:-10}
+      DB_MAX_OVERFLOW: ${DB_MAX_OVERFLOW:-5}
+      DB_POOL_TIMEOUT: ${DB_POOL_TIMEOUT:-30}
+      
+      # MCP Adapter Configuration
+      LISTEN_ADDRESS: "0.0.0.0:8080"
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      REQUEST_TIMEOUT: ${REQUEST_TIMEOUT:-30}
+      MAX_REQUEST_SIZE_MB: ${MAX_REQUEST_SIZE_MB:-10}
+      
+      # MCP Server Configuration
+      # Format: name1:url1,name2:url2
+      # Example: MCP_SERVERS=local:http://localhost:3000,remote:http://mcp-server:3001
+      MCP_SERVERS: ${MCP_SERVERS:-}
+      MCP_SERVER_TIMEOUT: ${MCP_SERVER_TIMEOUT:-30}
+      
+      # Provisional Charges
+      PROVISIONAL_CHARGE_EXPIRATION: ${PROVISIONAL_CHARGE_EXPIRATION:-300}
+      PROVISIONAL_CHARGE_MAX_TIMEOUT: ${PROVISIONAL_CHARGE_MAX_TIMEOUT:-60}
+      PROVISIONAL_CHARGE_CLEANUP_INTERVAL: ${PROVISIONAL_CHARGE_CLEANUP_INTERVAL:-60}
+      PROVISIONAL_CHARGE_CLEANUP_BATCH_SIZE: ${PROVISIONAL_CHARGE_CLEANUP_BATCH_SIZE:-1000}
+    networks:
+      - caracal-network
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/health').read()"]
+      interval: 30s
+      timeout: 10s
+      start_period: 40s
+      retries: 3
+    restart: unless-stopped
+    # Resource limits (adjust based on your workload)
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 1G
+        reservations:
+          cpus: '0.25'
+          memory: 256M
+
+# Networks
+networks:
+  caracal-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.28.0.0/16
+
+# Volumes
+volumes:
+  # PostgreSQL persistent storage
+  postgres_data:
+    driver: local
