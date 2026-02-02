@@ -121,7 +121,8 @@ class MCPAdapterService:
         config: MCPServiceConfig,
         mcp_adapter: MCPAdapter,
         policy_evaluator: PolicyEvaluator,
-        metering_collector: MeteringCollector
+        metering_collector: MeteringCollector,
+        db_connection_manager: Optional[Any] = None
     ):
         """
         Initialize MCP Adapter Service.
@@ -131,11 +132,13 @@ class MCPAdapterService:
             mcp_adapter: MCPAdapter for budget enforcement
             policy_evaluator: PolicyEvaluator for budget checks
             metering_collector: MeteringCollector for metering events
+            db_connection_manager: Optional DatabaseConnectionManager for health checks
         """
         self.config = config
         self.mcp_adapter = mcp_adapter
         self.policy_evaluator = policy_evaluator
         self.metering_collector = metering_collector
+        self.db_connection_manager = db_connection_manager
         
         # Create FastAPI app
         self.app = FastAPI(
@@ -176,9 +179,15 @@ class MCPAdapterService:
             """
             Health check endpoint for liveness/readiness probes.
             
-            Returns service status and MCP server connectivity status.
+            Checks:
+            - Database connectivity (if db_connection_manager provided)
+            - MCP server connectivity
             
-            Requirements: 18.3
+            Returns:
+            - 200 OK: Service is healthy and all dependencies are available
+            - 503 Service Unavailable: Service is in degraded mode (some dependencies unavailable)
+            
+            Requirements: 18.3, 17.4, 22.5
             """
             mcp_server_statuses = {}
             
@@ -199,15 +208,52 @@ class MCPAdapterService:
                 except Exception as e:
                     mcp_server_statuses[server_name] = f"unhealthy ({type(e).__name__})"
             
-            # Determine overall status
-            all_healthy = all(status == "healthy" for status in mcp_server_statuses.values())
-            overall_status = "healthy" if all_healthy else "degraded"
+            # Check database connectivity
+            db_healthy = True
+            db_status = "not_configured"
+            if self.db_connection_manager:
+                try:
+                    db_healthy = self.db_connection_manager.health_check()
+                    db_status = "healthy" if db_healthy else "unhealthy"
+                except Exception as e:
+                    db_healthy = False
+                    db_status = f"unhealthy ({type(e).__name__})"
+                    logger.error(f"Database health check failed: {e}")
             
-            return HealthCheckResponse(
+            # Add database status to response
+            mcp_server_statuses["database"] = db_status
+            
+            # Determine overall status
+            # Service is healthy only if database AND all MCP servers are healthy
+            all_mcp_healthy = all(
+                status == "healthy" 
+                for name, status in mcp_server_statuses.items() 
+                if name != "database"
+            )
+            overall_healthy = db_healthy and all_mcp_healthy
+            
+            # Return 503 if any dependency is unhealthy (degraded mode)
+            if not overall_healthy:
+                overall_status = "degraded"
+                status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+                logger.warning(
+                    f"MCP Adapter in degraded mode: db_healthy={db_healthy}, "
+                    f"mcp_servers_healthy={all_mcp_healthy}"
+                )
+            else:
+                overall_status = "healthy"
+                status_code = status.HTTP_200_OK
+            
+            response_data = HealthCheckResponse(
                 status=overall_status,
                 service="caracal-mcp-adapter",
                 version="0.2.0",
                 mcp_servers=mcp_server_statuses
+            )
+            
+            return JSONResponse(
+                status_code=status_code,
+                content=response_data.dict()
             )
         
         @self.app.get("/stats")
@@ -680,7 +726,8 @@ async def main():
         config=config,
         mcp_adapter=mcp_adapter,
         policy_evaluator=policy_evaluator,
-        metering_collector=metering_collector
+        metering_collector=metering_collector,
+        db_connection_manager=db_manager
     )
     
     # Start service

@@ -99,7 +99,8 @@ class GatewayProxy:
         policy_evaluator: PolicyEvaluator,
         metering_collector: MeteringCollector,
         replay_protection: Optional[ReplayProtection] = None,
-        policy_cache: Optional[PolicyCache] = None
+        policy_cache: Optional[PolicyCache] = None,
+        db_connection_manager: Optional[Any] = None
     ):
         """
         Initialize Gateway Proxy.
@@ -111,12 +112,14 @@ class GatewayProxy:
             metering_collector: MeteringCollector for final charges
             replay_protection: Optional ReplayProtection for replay attack prevention
             policy_cache: Optional PolicyCache for degraded mode operation
+            db_connection_manager: Optional DatabaseConnectionManager for health checks
         """
         self.config = config
         self.authenticator = authenticator
         self.policy_evaluator = policy_evaluator
         self.metering_collector = metering_collector
         self.replay_protection = replay_protection
+        self.db_connection_manager = db_connection_manager
         
         # Initialize policy cache if enabled and not provided
         if config.enable_policy_cache and policy_cache is None:
@@ -167,12 +170,71 @@ class GatewayProxy:
         
         @self.app.get("/health")
         async def health_check():
-            """Health check endpoint for liveness/readiness probes."""
-            return {
-                "status": "healthy",
+            """
+            Health check endpoint for liveness/readiness probes.
+            
+            Checks:
+            - Database connectivity (if db_connection_manager provided)
+            - Policy cache status (if enabled)
+            
+            Returns:
+            - 200 OK: Service is healthy and all dependencies are available
+            - 503 Service Unavailable: Service is in degraded mode (database unavailable but cache available)
+            
+            Requirements: 17.4, 22.5
+            """
+            status_code = status.HTTP_200_OK
+            health_status = "healthy"
+            checks = {}
+            
+            # Check database connectivity
+            db_healthy = True
+            if self.db_connection_manager:
+                try:
+                    db_healthy = self.db_connection_manager.health_check()
+                    checks["database"] = "healthy" if db_healthy else "unhealthy"
+                except Exception as e:
+                    db_healthy = False
+                    checks["database"] = f"unhealthy ({type(e).__name__})"
+                    logger.error(f"Database health check failed: {e}")
+            else:
+                checks["database"] = "not_configured"
+            
+            # Check policy cache status
+            if self.policy_cache:
+                cache_stats = self.policy_cache.get_stats()
+                checks["policy_cache"] = {
+                    "status": "enabled",
+                    "size": cache_stats.size,
+                    "max_size": cache_stats.max_size,
+                    "hit_rate": cache_stats.hit_rate
+                }
+            else:
+                checks["policy_cache"] = {"status": "disabled"}
+            
+            # Determine overall health status
+            # If database is unhealthy but policy cache is available, return degraded mode (503)
+            if not db_healthy:
+                if self.policy_cache and self.config.enable_policy_cache:
+                    health_status = "degraded"
+                    status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+                    logger.warning("Gateway in degraded mode: database unavailable, using policy cache")
+                else:
+                    health_status = "unhealthy"
+                    status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+                    logger.error("Gateway unhealthy: database unavailable and no policy cache")
+            
+            response_data = {
+                "status": health_status,
                 "service": "caracal-gateway-proxy",
-                "version": "0.2.0"
+                "version": "0.2.0",
+                "checks": checks
             }
+            
+            return JSONResponse(
+                status_code=status_code,
+                content=response_data
+            )
         
         @self.app.get("/metrics")
         async def metrics():

@@ -1225,3 +1225,109 @@ class TestGatewayProxyFinalChargeEmission:
         call_args = mock_metering_collector.collect_event.call_args
         metering_event = call_args[0][0]
         assert metering_event.resource_type == "llm_inference"
+
+
+
+class TestGatewayProxyHealthCheck:
+    """Test Gateway Proxy health check endpoint."""
+    
+    @pytest.mark.asyncio
+    async def test_health_check_healthy_without_db(self, gateway_proxy):
+        """Test health check returns healthy when no database configured."""
+        from fastapi.testclient import TestClient
+        
+        client = TestClient(gateway_proxy.app)
+        response = client.get("/health")
+        
+        assert response.status_code == 200
+        data = response.json()
+        assert data["status"] == "healthy"
+        assert data["service"] == "caracal-gateway-proxy"
+        assert data["version"] == "0.2.0"
+        assert "checks" in data
+        assert data["checks"]["database"] == "not_configured"
+    
+    @pytest.mark.asyncio
+    async def test_health_check_healthy_with_db(self, gateway_proxy):
+        """Test health check returns healthy when database is healthy."""
+        from fastapi.testclient import TestClient
+        
+        # Mock database connection manager
+        mock_db_manager = Mock()
+        mock_db_manager.health_check.return_value = True
+        gateway_proxy.db_connection_manager = mock_db_manager
+        
+        client = TestClient(gateway_proxy.app)
+        response = client.get("/health")
+        
+        assert response.status_code == 200
+        data = response.json()
+        assert data["status"] == "healthy"
+        assert data["checks"]["database"] == "healthy"
+        mock_db_manager.health_check.assert_called_once()
+    
+    @pytest.mark.asyncio
+    async def test_health_check_degraded_with_cache(self, gateway_proxy):
+        """Test health check returns 503 degraded when database unhealthy but cache available."""
+        from fastapi.testclient import TestClient
+        from caracal.gateway.cache import PolicyCache, PolicyCacheConfig
+        
+        # Mock database connection manager (unhealthy)
+        mock_db_manager = Mock()
+        mock_db_manager.health_check.return_value = False
+        gateway_proxy.db_connection_manager = mock_db_manager
+        
+        # Enable policy cache
+        cache_config = PolicyCacheConfig(ttl_seconds=60, max_size=100)
+        gateway_proxy.policy_cache = PolicyCache(cache_config)
+        gateway_proxy.config.enable_policy_cache = True
+        
+        client = TestClient(gateway_proxy.app)
+        response = client.get("/health")
+        
+        assert response.status_code == 503
+        data = response.json()
+        assert data["status"] == "degraded"
+        assert data["checks"]["database"] == "unhealthy"
+        assert data["checks"]["policy_cache"]["status"] == "enabled"
+    
+    @pytest.mark.asyncio
+    async def test_health_check_unhealthy_without_cache(self, gateway_proxy):
+        """Test health check returns 503 unhealthy when database unhealthy and no cache."""
+        from fastapi.testclient import TestClient
+        
+        # Mock database connection manager (unhealthy)
+        mock_db_manager = Mock()
+        mock_db_manager.health_check.return_value = False
+        gateway_proxy.db_connection_manager = mock_db_manager
+        
+        # Disable policy cache
+        gateway_proxy.policy_cache = None
+        gateway_proxy.config.enable_policy_cache = False
+        
+        client = TestClient(gateway_proxy.app)
+        response = client.get("/health")
+        
+        assert response.status_code == 503
+        data = response.json()
+        assert data["status"] == "unhealthy"
+        assert data["checks"]["database"] == "unhealthy"
+        assert data["checks"]["policy_cache"]["status"] == "disabled"
+    
+    @pytest.mark.asyncio
+    async def test_health_check_db_exception(self, gateway_proxy):
+        """Test health check handles database exceptions gracefully."""
+        from fastapi.testclient import TestClient
+        
+        # Mock database connection manager that raises exception
+        mock_db_manager = Mock()
+        mock_db_manager.health_check.side_effect = Exception("Connection failed")
+        gateway_proxy.db_connection_manager = mock_db_manager
+        
+        client = TestClient(gateway_proxy.app)
+        response = client.get("/health")
+        
+        assert response.status_code == 503
+        data = response.json()
+        assert data["status"] == "unhealthy"
+        assert "Exception" in data["checks"]["database"]
