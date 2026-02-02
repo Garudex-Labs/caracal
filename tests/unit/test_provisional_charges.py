@@ -2,7 +2,6 @@
 Unit tests for provisional charge management.
 """
 
-import asyncio
 from datetime import datetime, timedelta
 from decimal import Decimal
 from uuid import uuid4
@@ -55,10 +54,8 @@ class TestProvisionalChargeManager:
         agent_id = uuid4()
         amount = Decimal("10.50")
         
-        # Run async method
-        charge = asyncio.run(
-            manager.create_provisional_charge(agent_id, amount)
-        )
+        # Call synchronous method
+        charge = manager.create_provisional_charge(agent_id, amount)
         
         assert charge.agent_id == agent_id
         assert charge.amount == amount
@@ -73,9 +70,7 @@ class TestProvisionalChargeManager:
         amount = Decimal("10.50")
         expiration_seconds = 600  # 10 minutes
         
-        charge = asyncio.run(
-            manager.create_provisional_charge(agent_id, amount, expiration_seconds)
-        )
+        charge = manager.create_provisional_charge(agent_id, amount, expiration_seconds)
         
         # Check expiration is approximately correct (within 5 seconds)
         expected_expiration = datetime.utcnow() + timedelta(seconds=expiration_seconds)
@@ -88,9 +83,7 @@ class TestProvisionalChargeManager:
         amount = Decimal("10.50")
         expiration_seconds = 7200  # 2 hours (exceeds 60 minute max)
         
-        charge = asyncio.run(
-            manager.create_provisional_charge(agent_id, amount, expiration_seconds)
-        )
+        charge = manager.create_provisional_charge(agent_id, amount, expiration_seconds)
         
         # Check expiration is capped at 60 minutes
         max_expiration = datetime.utcnow() + timedelta(minutes=60)
@@ -103,14 +96,10 @@ class TestProvisionalChargeManager:
         amount = Decimal("10.50")
         
         # Create charge
-        charge = asyncio.run(
-            manager.create_provisional_charge(agent_id, amount)
-        )
+        charge = manager.create_provisional_charge(agent_id, amount)
         
         # Release charge
-        asyncio.run(
-            manager.release_provisional_charge(charge.charge_id, final_charge_event_id=123)
-        )
+        manager.release_provisional_charge(charge.charge_id, final_charge_event_id=123)
         
         # Verify charge is released
         manager.db_session.refresh(charge)
@@ -123,13 +112,11 @@ class TestProvisionalChargeManager:
         amount = Decimal("10.50")
         
         # Create charge
-        charge = asyncio.run(
-            manager.create_provisional_charge(agent_id, amount)
-        )
+        charge = manager.create_provisional_charge(agent_id, amount)
         
         # Release charge twice
-        asyncio.run(manager.release_provisional_charge(charge.charge_id))
-        asyncio.run(manager.release_provisional_charge(charge.charge_id))
+        manager.release_provisional_charge(charge.charge_id)
+        manager.release_provisional_charge(charge.charge_id)
         
         # Verify charge is released
         manager.db_session.refresh(charge)
@@ -140,23 +127,15 @@ class TestProvisionalChargeManager:
         agent_id = uuid4()
         
         # Create multiple charges
-        charge1 = asyncio.run(
-            manager.create_provisional_charge(agent_id, Decimal("10.00"))
-        )
-        charge2 = asyncio.run(
-            manager.create_provisional_charge(agent_id, Decimal("20.00"))
-        )
+        charge1 = manager.create_provisional_charge(agent_id, Decimal("10.00"))
+        charge2 = manager.create_provisional_charge(agent_id, Decimal("20.00"))
         
         # Create a released charge (should not be returned)
-        charge3 = asyncio.run(
-            manager.create_provisional_charge(agent_id, Decimal("30.00"))
-        )
-        asyncio.run(manager.release_provisional_charge(charge3.charge_id))
+        charge3 = manager.create_provisional_charge(agent_id, Decimal("30.00"))
+        manager.release_provisional_charge(charge3.charge_id)
         
         # Get active charges
-        active_charges = asyncio.run(
-            manager.get_active_provisional_charges(agent_id)
-        )
+        active_charges = manager.get_active_provisional_charges(agent_id)
         
         assert len(active_charges) == 2
         charge_ids = [c.charge_id for c in active_charges]
@@ -169,12 +148,12 @@ class TestProvisionalChargeManager:
         agent_id = uuid4()
         
         # Create multiple charges
-        asyncio.run(manager.create_provisional_charge(agent_id, Decimal("10.00")))
-        asyncio.run(manager.create_provisional_charge(agent_id, Decimal("20.00")))
-        asyncio.run(manager.create_provisional_charge(agent_id, Decimal("15.50")))
+        manager.create_provisional_charge(agent_id, Decimal("10.00"))
+        manager.create_provisional_charge(agent_id, Decimal("20.00"))
+        manager.create_provisional_charge(agent_id, Decimal("15.50"))
         
         # Calculate reserved budget
-        reserved = asyncio.run(manager.calculate_reserved_budget(agent_id))
+        reserved = manager.calculate_reserved_budget(agent_id)
         
         assert reserved == Decimal("45.50")
 
@@ -196,12 +175,10 @@ class TestProvisionalChargeManager:
         db_session.commit()
         
         # Create a non-expired charge
-        active_charge = asyncio.run(
-            manager.create_provisional_charge(agent_id, Decimal("20.00"))
-        )
+        active_charge = manager.create_provisional_charge(agent_id, Decimal("20.00"))
         
         # Run cleanup
-        released_count = asyncio.run(manager.cleanup_expired_charges())
+        released_count = manager.cleanup_expired_charges()
         
         assert released_count == 1
         
@@ -232,9 +209,9 @@ class TestProvisionalChargeManager:
         db_session.commit()
         
         # Create active charge
-        asyncio.run(manager.create_provisional_charge(agent_id, Decimal("20.00")))
+        manager.create_provisional_charge(agent_id, Decimal("20.00"))
         
         # Get expired count
-        count = asyncio.run(manager.get_expired_charge_count(agent_id))
+        count = manager.get_expired_charge_count(agent_id)
         
         assert count == 3

@@ -86,12 +86,28 @@ def setup_logging(
     # Convert string level to logging constant
     numeric_level = getattr(logging, level.upper(), logging.INFO)
     
-    # Configure standard library logging to work with structlog
-    logging.basicConfig(
-        format="%(message)s",
-        stream=sys.stderr,
-        level=numeric_level,
-    )
+    # Get root logger and set level
+    root_logger = logging.getLogger()
+    root_logger.setLevel(numeric_level)
+    
+    # Clear existing handlers to avoid duplicates
+    root_logger.handlers.clear()
+    
+    # Configure file handler if specified
+    if log_file is not None:
+        log_file = Path(log_file)
+        log_file.parent.mkdir(parents=True, exist_ok=True)
+        
+        file_handler = logging.FileHandler(log_file)
+        file_handler.setLevel(numeric_level)
+        file_handler.setFormatter(logging.Formatter("%(message)s"))
+        root_logger.addHandler(file_handler)
+    else:
+        # Add stderr handler if no file specified
+        stderr_handler = logging.StreamHandler(sys.stderr)
+        stderr_handler.setLevel(numeric_level)
+        stderr_handler.setFormatter(logging.Formatter("%(message)s"))
+        root_logger.addHandler(stderr_handler)
     
     # Build processor chain
     processors: list = [
@@ -127,18 +143,6 @@ def setup_logging(
         logger_factory=structlog.stdlib.LoggerFactory(),
         cache_logger_on_first_use=True,
     )
-    
-    # Configure file handler if specified
-    if log_file is not None:
-        log_file = Path(log_file)
-        log_file.parent.mkdir(parents=True, exist_ok=True)
-        
-        file_handler = logging.FileHandler(log_file)
-        file_handler.setLevel(numeric_level)
-        
-        # Get root logger and add file handler
-        root_logger = logging.getLogger()
-        root_logger.addHandler(file_handler)
 
 
 def get_logger(name: str) -> structlog.stdlib.BoundLogger:

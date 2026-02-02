@@ -47,9 +47,12 @@ class TestMetricsRegistry:
         
         # Verify metric was recorded
         metric_families = list(registry.collect())
-        request_metrics = [m for m in metric_families if m.name == "caracal_gateway_requests_total"]
+        request_metrics = [m for m in metric_families if m.name == "caracal_gateway_requests"]
         assert len(request_metrics) == 1
-        assert request_metrics[0].samples[0].value == 1.0
+        # Find the _total sample
+        total_samples = [s for s in request_metrics[0].samples if s.name == "caracal_gateway_requests_total"]
+        assert len(total_samples) == 1
+        assert total_samples[0].value == 1.0
     
     def test_record_auth_failure(self):
         """Test recording authentication failures."""
@@ -64,9 +67,12 @@ class TestMetricsRegistry:
         
         # Verify metric was recorded
         metric_families = list(registry.collect())
-        auth_metrics = [m for m in metric_families if m.name == "caracal_gateway_auth_failures_total"]
+        auth_metrics = [m for m in metric_families if m.name == "caracal_gateway_auth_failures"]
         assert len(auth_metrics) == 1
-        assert auth_metrics[0].samples[0].value == 1.0
+        # Find the _total sample
+        total_samples = [s for s in auth_metrics[0].samples if s.name == "caracal_gateway_auth_failures_total"]
+        assert len(total_samples) == 1
+        assert total_samples[0].value == 1.0
     
     def test_record_policy_evaluation(self):
         """Test recording policy evaluations."""
@@ -82,9 +88,12 @@ class TestMetricsRegistry:
         
         # Verify metric was recorded
         metric_families = list(registry.collect())
-        policy_metrics = [m for m in metric_families if m.name == "caracal_policy_evaluations_total"]
+        policy_metrics = [m for m in metric_families if m.name == "caracal_policy_evaluations"]
         assert len(policy_metrics) == 1
-        assert policy_metrics[0].samples[0].value == 1.0
+        # Find the _total sample
+        total_samples = [s for s in policy_metrics[0].samples if s.name == "caracal_policy_evaluations_total"]
+        assert len(total_samples) == 1
+        assert total_samples[0].value == 1.0
     
     def test_record_database_query(self):
         """Test recording database queries."""
@@ -101,9 +110,12 @@ class TestMetricsRegistry:
         
         # Verify metric was recorded
         metric_families = list(registry.collect())
-        db_metrics = [m for m in metric_families if m.name == "caracal_database_queries_total"]
+        db_metrics = [m for m in metric_families if m.name == "caracal_database_queries"]
         assert len(db_metrics) == 1
-        assert db_metrics[0].samples[0].value == 1.0
+        # Find the _total sample
+        total_samples = [s for s in db_metrics[0].samples if s.name == "caracal_database_queries_total"]
+        assert len(total_samples) == 1
+        assert total_samples[0].value == 1.0
     
     def test_record_provisional_charge_created(self):
         """Test recording provisional charge creation."""
@@ -115,9 +127,12 @@ class TestMetricsRegistry:
         
         # Verify metric was recorded
         metric_families = list(registry.collect())
-        charge_metrics = [m for m in metric_families if m.name == "caracal_provisional_charges_created_total"]
+        charge_metrics = [m for m in metric_families if m.name == "caracal_provisional_charges_created"]
         assert len(charge_metrics) == 1
-        assert charge_metrics[0].samples[0].value == 1.0
+        # Find the _total sample
+        total_samples = [s for s in charge_metrics[0].samples if s.name == "caracal_provisional_charges_created_total"]
+        assert len(total_samples) == 1
+        assert total_samples[0].value == 1.0
     
     def test_set_circuit_breaker_state(self):
         """Test setting circuit breaker state."""
@@ -261,8 +276,8 @@ class TestMetricsContextManagers:
         
         # Verify metric was recorded with error status
         metric_families = list(registry.collect())
-        query_metrics = [m for m in metric_families if m.name == "caracal_database_queries_total"]
+        query_metrics = [m for m in metric_families if m.name == "caracal_database_queries"]
         assert len(query_metrics) == 1
-        # Find the error sample
-        error_samples = [s for s in query_metrics[0].samples if 'error' in str(s.labels)]
-        assert len(error_samples) > 0
+        # Find the _total sample with error status
+        total_samples = [s for s in query_metrics[0].samples if s.name == "caracal_database_queries_total" and 'error' in str(s.labels)]
+        assert len(total_samples) > 0

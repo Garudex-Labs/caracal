@@ -492,22 +492,12 @@ class PolicyEvaluator:
                 try:
                     # Import here to avoid circular dependency
                     from uuid import UUID
-                    import asyncio
                     
                     # Convert agent_id string to UUID for v0.2
                     agent_uuid = UUID(agent_id)
                     
-                    # Run async method in sync context
-                    loop = asyncio.get_event_loop()
-                    if loop.is_running():
-                        # If we're already in an async context, create a new task
-                        reserved_budget = asyncio.create_task(
-                            self.provisional_charge_manager.calculate_reserved_budget(agent_uuid)
-                        ).result()
-                    else:
-                        reserved_budget = loop.run_until_complete(
-                            self.provisional_charge_manager.calculate_reserved_budget(agent_uuid)
-                        )
+                    # Call synchronous method
+                    reserved_budget = self.provisional_charge_manager.calculate_reserved_budget(agent_uuid)
                     
                     logger.debug(
                         f"Reserved budget for agent {agent_id}: {reserved_budget} {policy.currency}"
@@ -557,24 +547,13 @@ class PolicyEvaluator:
             if self.provisional_charge_manager is not None and estimated_cost is not None:
                 try:
                     from uuid import UUID
-                    import asyncio
                     
                     agent_uuid = UUID(agent_id)
                     
-                    # Run async method in sync context
-                    loop = asyncio.get_event_loop()
-                    if loop.is_running():
-                        provisional_charge = asyncio.create_task(
-                            self.provisional_charge_manager.create_provisional_charge(
-                                agent_uuid, estimated_cost
-                            )
-                        ).result()
-                    else:
-                        provisional_charge = loop.run_until_complete(
-                            self.provisional_charge_manager.create_provisional_charge(
-                                agent_uuid, estimated_cost
-                            )
-                        )
+                    # Call synchronous method
+                    provisional_charge = self.provisional_charge_manager.create_provisional_charge(
+                        agent_uuid, estimated_cost
+                    )
                     
                     provisional_charge_id = str(provisional_charge.charge_id)
                     logger.debug(

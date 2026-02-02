@@ -68,7 +68,7 @@ class ProvisionalChargeManager:
             f"max_timeout={self.config.timeout_minutes}m"
         )
 
-    async def create_provisional_charge(
+    def create_provisional_charge(
         self,
         agent_id: UUID,
         amount: Decimal,
@@ -144,7 +144,7 @@ class ProvisionalChargeManager:
                 f"Failed to create provisional charge for agent {agent_id}: {e}"
             ) from e
 
-    async def release_provisional_charge(
+    def release_provisional_charge(
         self,
         charge_id: UUID,
         final_charge_event_id: Optional[int] = None
@@ -199,7 +199,7 @@ class ProvisionalChargeManager:
                 f"Failed to release provisional charge {charge_id}: {e}"
             ) from e
 
-    async def get_active_provisional_charges(self, agent_id: UUID) -> List[ProvisionalCharge]:
+    def get_active_provisional_charges(self, agent_id: UUID) -> List[ProvisionalCharge]:
         """
         Get all active (not released, not expired) provisional charges for agent.
         
@@ -237,7 +237,7 @@ class ProvisionalChargeManager:
                 f"Failed to query active provisional charges for agent {agent_id}: {e}"
             ) from e
 
-    async def calculate_reserved_budget(self, agent_id: UUID) -> Decimal:
+    def calculate_reserved_budget(self, agent_id: UUID) -> Decimal:
         """
         Calculate total budget currently reserved by active provisional charges.
         
@@ -249,7 +249,7 @@ class ProvisionalChargeManager:
         Requirements: 14.6
         """
         try:
-            charges = await self.get_active_provisional_charges(agent_id)
+            charges = self.get_active_provisional_charges(agent_id)
             
             total = Decimal('0')
             for charge in charges:
@@ -271,7 +271,7 @@ class ProvisionalChargeManager:
                 f"Failed to calculate reserved budget for agent {agent_id}: {e}"
             ) from e
 
-    async def cleanup_expired_charges(self) -> int:
+    def cleanup_expired_charges(self) -> int:
         """
         Background job to release expired provisional charges.
         
@@ -331,7 +331,7 @@ class ProvisionalChargeManager:
             # Don't raise - cleanup failures shouldn't crash the system
             return 0
 
-    async def get_expired_charge_count(self, agent_id: Optional[UUID] = None) -> int:
+    def get_expired_charge_count(self, agent_id: Optional[UUID] = None) -> int:
         """
         Get count of expired but not yet cleaned up charges.
         
@@ -424,7 +424,7 @@ class ProvisionalChargeCleanupJob:
         
         while self.running:
             try:
-                released_count = await self.manager.cleanup_expired_charges()
+                released_count = self.manager.cleanup_expired_charges()
                 if released_count > 0:
                     logger.info(
                         f"Cleanup job released {released_count} expired provisional charges"

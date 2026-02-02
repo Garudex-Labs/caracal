@@ -101,25 +101,14 @@ class MeteringCollector:
             if self.provisional_charge_manager is not None and provisional_charge_id is not None:
                 try:
                     from uuid import UUID
-                    import asyncio
                     
                     # Convert provisional_charge_id string to UUID
                     charge_uuid = UUID(provisional_charge_id)
                     
-                    # Run async method in sync context
-                    loop = asyncio.get_event_loop()
-                    if loop.is_running():
-                        asyncio.create_task(
-                            self.provisional_charge_manager.release_provisional_charge(
-                                charge_uuid, ledger_event.event_id
-                            )
-                        ).result()
-                    else:
-                        loop.run_until_complete(
-                            self.provisional_charge_manager.release_provisional_charge(
-                                charge_uuid, ledger_event.event_id
-                            )
-                        )
+                    # Call synchronous method
+                    self.provisional_charge_manager.release_provisional_charge(
+                        charge_uuid, ledger_event.event_id
+                    )
                     
                     logger.info(
                         f"Released provisional charge {provisional_charge_id} for final charge {ledger_event.event_id}"

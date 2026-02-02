@@ -131,9 +131,7 @@ class TestProvisionalChargeFlow:
         
         # 4. Verify provisional charge was created
         from uuid import UUID
-        reserved = asyncio.run(
-            provisional_charge_manager.calculate_reserved_budget(UUID(agent_id))
-        )
+        reserved = provisional_charge_manager.calculate_reserved_budget(UUID(agent_id))
         assert reserved == Decimal("10.00")
         
         # 5. Emit metering event (creates final charge and releases provisional)
@@ -147,9 +145,7 @@ class TestProvisionalChargeFlow:
         metering_collector.collect_event(event, provisional_charge_id=provisional_charge_id)
         
         # 6. Verify provisional charge was released
-        reserved_after = asyncio.run(
-            provisional_charge_manager.calculate_reserved_budget(UUID(agent_id))
-        )
+        reserved_after = provisional_charge_manager.calculate_reserved_budget(UUID(agent_id))
         assert reserved_after == Decimal("0")
         
         # 7. Verify final charge was recorded in ledger

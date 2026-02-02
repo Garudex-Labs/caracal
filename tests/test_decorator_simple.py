@@ -9,6 +9,8 @@ from decimal import Decimal
 from uuid import uuid4
 from unittest.mock import Mock
 
+import pytest
+
 # Add parent directory to path
 sys.path.insert(0, '.')
 
@@ -51,6 +53,7 @@ def create_test_adapter():
     return adapter, mock_policy_evaluator, mock_metering_collector
 
 
+@pytest.mark.asyncio
 async def test_decorator_basic():
     """Test basic decorator functionality."""
     print("Test 1: Basic decorator functionality")
@@ -72,6 +75,7 @@ async def test_decorator_basic():
     print("✓ Test 1 passed")
 
 
+@pytest.mark.asyncio
 async def test_decorator_positional_agent_id():
     """Test decorator with positional agent_id."""
     print("Test 2: Decorator with positional agent_id")
@@ -92,6 +96,7 @@ async def test_decorator_positional_agent_id():
     print("✓ Test 2 passed")
 
 
+@pytest.mark.asyncio
 async def test_decorator_budget_exceeded():
     """Test decorator when budget is exceeded."""
     print("Test 3: Decorator with budget exceeded")
@@ -121,6 +126,7 @@ async def test_decorator_budget_exceeded():
     print("✓ Test 3 passed")
 
 
+@pytest.mark.asyncio
 async def test_decorator_missing_agent_id():
     """Test decorator when agent_id is missing."""
     print("Test 4: Decorator with missing agent_id")
@@ -141,6 +147,7 @@ async def test_decorator_missing_agent_id():
     print("✓ Test 4 passed")
 
 
+@pytest.mark.asyncio
 async def test_decorator_sync_function():
     """Test decorator with synchronous function."""
     print("Test 5: Decorator with synchronous function")
