@@ -14,6 +14,12 @@ from caracal.kafka.producer import (
     PolicyChangeEvent,
 )
 
+from caracal.kafka.consumer import (
+    BaseKafkaConsumer,
+    ConsumerConfig,
+    KafkaMessage,
+)
+
 __all__ = [
     "KafkaEventProducer",
     "KafkaConfig",
@@ -22,4 +28,7 @@ __all__ = [
     "PolicyDecisionEvent",
     "AgentLifecycleEvent",
     "PolicyChangeEvent",
+    "BaseKafkaConsumer",
+    "ConsumerConfig",
+    "KafkaMessage",
 ]
