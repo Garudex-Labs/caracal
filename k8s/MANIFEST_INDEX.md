@@ -132,23 +132,6 @@ This document provides an index of all Kubernetes manifests and their purposes.
   - Dry-run mode
   - Status checking
 
-## Documentation
-
-### 13. README.md
-- **Purpose**: Comprehensive deployment guide
-- **Contents**:
-  - Architecture overview
-  - Prerequisites
-  - Quick start guide
-  - Configuration options
-  - Monitoring setup
-  - Troubleshooting
-  - Production checklist
-
-### 14. MANIFEST_INDEX.md (this file)
-- **Purpose**: Index of all manifests
-- **Contents**: Description of each manifest file
-
 ## Deployment Order
 
 For manual deployment, follow this order:
