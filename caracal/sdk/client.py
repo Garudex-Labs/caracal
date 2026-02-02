@@ -68,6 +68,9 @@ class CaracalClient:
             self.config = load_config(config_path)
             logger.debug(f"Loaded configuration from {config_path or 'default path'}")
             
+            # Check if using file-based storage (v0.1) and emit deprecation warning
+            self._check_for_deprecated_features()
+            
             # Initialize core components
             self._initialize_components()
             
@@ -143,6 +146,67 @@ class CaracalClient:
                 f"Failed to initialize Caracal Core components: {e}"
             ) from e
 
+    def _check_for_deprecated_features(self) -> None:
+        """
+        Check for deprecated v0.1 features and emit warnings.
+        
+        This method checks if the configuration uses file-based storage
+        (v0.1 feature) and emits deprecation warnings for features that
+        will be removed in v0.3.
+        
+        Requirements: 20.7
+        """
+        import warnings
+        
+        # Check if using file-based storage (v0.1)
+        # In v0.2, PostgreSQL is the recommended backend
+        # File-based storage will be deprecated in v0.3
+        
+        # Check if agent_registry points to a .json file (file-based)
+        if self.config.storage.agent_registry.endswith('.json'):
+            warnings.warn(
+                "File-based storage for agent registry is deprecated and will be removed in v0.3. "
+                "Please migrate to PostgreSQL backend. "
+                "See migration guide: https://caracal.dev/docs/migration/v0.1-to-v0.2",
+                DeprecationWarning,
+                stacklevel=3
+            )
+            logger.warning(
+                "Using deprecated file-based agent registry. "
+                "This feature will be removed in v0.3. "
+                "Please migrate to PostgreSQL."
+            )
+        
+        # Check if policy_store points to a .json file (file-based)
+        if self.config.storage.policy_store.endswith('.json'):
+            warnings.warn(
+                "File-based storage for policy store is deprecated and will be removed in v0.3. "
+                "Please migrate to PostgreSQL backend. "
+                "See migration guide: https://caracal.dev/docs/migration/v0.1-to-v0.2",
+                DeprecationWarning,
+                stacklevel=3
+            )
+            logger.warning(
+                "Using deprecated file-based policy store. "
+                "This feature will be removed in v0.3. "
+                "Please migrate to PostgreSQL."
+            )
+        
+        # Check if ledger points to a .jsonl file (file-based)
+        if self.config.storage.ledger.endswith('.jsonl'):
+            warnings.warn(
+                "File-based storage for ledger is deprecated and will be removed in v0.3. "
+                "Please migrate to PostgreSQL backend. "
+                "See migration guide: https://caracal.dev/docs/migration/v0.1-to-v0.2",
+                DeprecationWarning,
+                stacklevel=3
+            )
+            logger.warning(
+                "Using deprecated file-based ledger. "
+                "This feature will be removed in v0.3. "
+                "Please migrate to PostgreSQL."
+            )
+
     def emit_event(
         self,
         agent_id: str,
@@ -178,11 +242,15 @@ class CaracalClient:
             ... )
         """
         try:
-            # Create metering event
+            # Import datetime here to avoid circular imports
+            from datetime import datetime
+            
+            # Create metering event with timestamp
             event = MeteringEvent(
                 agent_id=agent_id,
                 resource_type=resource_type,
                 quantity=quantity,
+                timestamp=datetime.utcnow(),
                 metadata=metadata,
             )
             
