@@ -204,3 +204,20 @@ class SpendingLimitExceededError(DelegationTokenError):
     """Raised when spending exceeds delegation token limit."""
     pass
 
+
+# Kafka Errors
+class KafkaError(CaracalError):
+    """Base exception for Kafka-related errors."""
+    pass
+
+
+class KafkaPublishError(KafkaError):
+    """Raised when publishing to Kafka fails."""
+    pass
+
+
+class KafkaConsumerError(KafkaError):
+    """Raised when Kafka consumer operations fail."""
+    pass
+
+
