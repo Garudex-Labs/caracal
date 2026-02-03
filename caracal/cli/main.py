@@ -292,6 +292,34 @@ except Exception as e:
     logging.getLogger(__name__).warning(f"Failed to register DLQ commands: {e}")
 
 
+# Import and register Key Management commands (v0.3)
+try:
+    from caracal.cli.key_management import keys_group
+    cli.add_command(keys_group)
+except ImportError as e:
+    # Key management commands not available
+    import logging
+    logging.getLogger(__name__).debug(f"Key management commands not available: {e}")
+except Exception as e:
+    # Log any other errors
+    import logging
+    logging.getLogger(__name__).warning(f"Failed to register key management commands: {e}")
+
+
+# Import and register Configuration Encryption commands (v0.3)
+try:
+    from caracal.cli.config_encryption import config_encrypt_group
+    cli.add_command(config_encrypt_group)
+except ImportError as e:
+    # Config encryption commands not available
+    import logging
+    logging.getLogger(__name__).debug(f"Config encryption commands not available: {e}")
+except Exception as e:
+    # Log any other errors
+    import logging
+    logging.getLogger(__name__).warning(f"Failed to register config encryption commands: {e}")
+
+
 @cli.command()
 @pass_context
 def init(ctx: CLIContext):

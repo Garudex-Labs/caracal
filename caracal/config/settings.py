@@ -3,6 +3,7 @@ Configuration management for Caracal Core.
 
 Loads YAML configuration from file with sensible defaults and validation.
 Supports environment variable substitution using ${ENV_VAR} syntax.
+Supports encrypted configuration values using ENC[...] syntax.
 """
 
 import os
@@ -52,6 +53,72 @@ def _expand_env_vars(value: Any) -> Any:
         return [_expand_env_vars(item) for item in value]
     else:
         return value
+
+
+def _decrypt_config_values(config_data: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Recursively decrypt encrypted configuration values.
+    
+    Encrypted values use the format: ENC[base64_encoded_ciphertext]
+    Requires CARACAL_MASTER_PASSWORD environment variable to be set.
+    
+    Args:
+        config_data: Configuration dictionary
+    
+    Returns:
+        Configuration dictionary with decrypted values
+    """
+    # Check if any values are encrypted
+    has_encrypted = _has_encrypted_values(config_data)
+    
+    if not has_encrypted:
+        return config_data
+    
+    # Import encryption module (lazy import to avoid circular dependency)
+    try:
+        from caracal.config.encryption import ConfigEncryption
+        
+        # Initialize encryptor (will use CARACAL_MASTER_PASSWORD env var)
+        encryptor = ConfigEncryption()
+        
+        # Decrypt all encrypted values
+        decrypted_config = encryptor.decrypt_config(config_data)
+        
+        logger.debug("Decrypted configuration values")
+        
+        return decrypted_config
+        
+    except ImportError:
+        logger.error("Encryption module not available, cannot decrypt configuration")
+        raise InvalidConfigurationError(
+            "Configuration contains encrypted values but encryption module is not available"
+        )
+    except ValueError as e:
+        logger.error(f"Failed to decrypt configuration: {e}")
+        raise InvalidConfigurationError(
+            f"Failed to decrypt configuration: {e}. "
+            "Ensure CARACAL_MASTER_PASSWORD environment variable is set correctly."
+        )
+
+
+def _has_encrypted_values(value: Any) -> bool:
+    """
+    Check if configuration contains any encrypted values.
+    
+    Args:
+        value: Configuration value (string, dict, list, or other)
+    
+    Returns:
+        True if any encrypted values found, False otherwise
+    """
+    if isinstance(value, str):
+        return value.startswith("ENC[") and value.endswith("]")
+    elif isinstance(value, dict):
+        return any(_has_encrypted_values(v) for v in value.values())
+    elif isinstance(value, list):
+        return any(_has_encrypted_values(item) for item in value)
+    else:
+        return False
 
 
 @dataclass
@@ -396,6 +463,10 @@ def load_config(config_path: Optional[str] = None) -> CaracalConfig:
     # Expand environment variables in configuration
     config_data = _expand_env_vars(config_data)
     logger.debug("Expanded environment variables in configuration")
+    
+    # Decrypt encrypted configuration values
+    config_data = _decrypt_config_values(config_data)
+    logger.debug("Decrypted encrypted configuration values")
     
     # Validate and build configuration
     try:
