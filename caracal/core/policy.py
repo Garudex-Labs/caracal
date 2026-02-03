@@ -73,13 +73,15 @@ class PolicyStore:
     
     Provides methods to create, retrieve, and list policies.
     Implements atomic write operations and rolling backups.
+    Integrates with PolicyVersionManager for audit trails (v0.3).
     """
 
     def __init__(
         self, 
         policy_path: str, 
         agent_registry=None,
-        backup_count: int = 3
+        backup_count: int = 3,
+        policy_version_manager=None
     ):
         """
         Initialize PolicyStore.
@@ -88,10 +90,12 @@ class PolicyStore:
             policy_path: Path to the policy store JSON file
             agent_registry: Optional AgentRegistry for validating agent existence
             backup_count: Number of rolling backups to maintain (default: 3)
+            policy_version_manager: Optional PolicyVersionManager for v0.3 versioning
         """
         self.policy_path = Path(policy_path)
         self.agent_registry = agent_registry
         self.backup_count = backup_count
+        self.policy_version_manager = policy_version_manager
         self._policies: Dict[str, BudgetPolicy] = {}
         self._agent_policies: Dict[str, List[str]] = {}  # agent_id -> [policy_ids]
         
