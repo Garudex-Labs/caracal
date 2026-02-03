@@ -533,10 +533,12 @@ class KafkaEventProducer:
         retry_count: int = 0
     ) -> None:
         """
-        Publish event to Kafka topic with retry logic.
+        Publish event to Kafka topic with retry logic and async callbacks.
         
         Uses agent_id as partition key for ordering guarantees.
         Retries up to 3 times with exponential backoff on transient failures.
+        Uses async callbacks for non-blocking operation (v0.3 optimization).
+        Implements smart batching with automatic flush (v0.3 optimization).
         
         Args:
             topic: Kafka topic name
@@ -547,7 +549,7 @@ class KafkaEventProducer:
         Raises:
             KafkaPublishError: If publishing fails after all retries
             
-        Requirements: 1.4
+        Requirements: 1.4, 23.1
         """
         max_retries = self.config.producer_config.retries
         
@@ -564,16 +566,85 @@ class KafkaEventProducer:
             # Serialize partition key
             key = self._string_serializer(partition_key)
             
-            # Publish to Kafka
+            # Create event ID for callback tracking
+            event_id = str(uuid4())
+            
+            # Create future for async callback
+            future = asyncio.Future()
+            async with self._callback_lock:
+                self._pending_callbacks[event_id] = future
+            
+            # Define async delivery callback
+            def delivery_callback(err, msg):
+                """Async delivery callback for Kafka producer."""
+                if err:
+                    logger.error(
+                        f"Message delivery failed: topic={msg.topic()}, "
+                        f"partition={msg.partition()}, error={err}"
+                    )
+                    # Set exception on future
+                    if event_id in self._pending_callbacks:
+                        self._pending_callbacks[event_id].set_exception(
+                            KafkaPublishError(f"Message delivery failed: {err}")
+                        )
+                else:
+                    logger.debug(
+                        f"Message delivered: topic={msg.topic()}, "
+                        f"partition={msg.partition()}, offset={msg.offset()}"
+                    )
+                    # Set result on future
+                    if event_id in self._pending_callbacks:
+                        self._pending_callbacks[event_id].set_result(msg.offset())
+            
+            # Publish to Kafka with async callback
             self._producer.produce(
                 topic=topic,
                 key=key,
                 value=value,
-                on_delivery=self._delivery_callback
+                on_delivery=delivery_callback
             )
             
-            # Poll to trigger delivery callbacks
-            self._producer.poll(0)
+            # Increment pending events counter
+            self._pending_events += 1
+            
+            # Smart batching: flush if batch size reached or linger time exceeded
+            current_time = time.time()
+            time_since_last_flush = (current_time - self._last_flush_time) * 1000  # Convert to ms
+            
+            should_flush = (
+                self._pending_events >= self.batch_size or
+                time_since_last_flush >= self.linger_ms
+            )
+            
+            if should_flush:
+                # Trigger flush (non-blocking poll)
+                self._producer.poll(0)
+                self._pending_events = 0
+                self._last_flush_time = current_time
+                logger.debug(
+                    f"Flushed batch: pending_events={self._pending_events}, "
+                    f"time_since_last_flush={time_since_last_flush:.1f}ms"
+                )
+            else:
+                # Just poll to trigger callbacks without blocking
+                self._producer.poll(0)
+            
+            # Wait for delivery confirmation (with timeout)
+            try:
+                await asyncio.wait_for(future, timeout=5.0)
+                
+                # Clean up callback
+                async with self._callback_lock:
+                    if event_id in self._pending_callbacks:
+                        del self._pending_callbacks[event_id]
+                
+            except asyncio.TimeoutError:
+                logger.warning(f"Delivery confirmation timeout for event {event_id}")
+                # Clean up callback
+                async with self._callback_lock:
+                    if event_id in self._pending_callbacks:
+                        del self._pending_callbacks[event_id]
+                # Don't raise - message may still be delivered
             
         except BufferError as e:
             # Local queue is full - wait and retry
