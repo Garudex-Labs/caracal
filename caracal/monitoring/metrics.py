@@ -1,5 +1,5 @@
 """
-Prometheus metrics for Caracal Core v0.2.
+Prometheus metrics for Caracal Core v0.3.
 
 This module provides comprehensive metrics for monitoring:
 - Gateway request metrics (count, duration, status)
@@ -7,8 +7,13 @@ This module provides comprehensive metrics for monitoring:
 - Database query metrics (count, duration, operation)
 - Provisional charge metrics (active, expired)
 - Circuit breaker metrics (state)
+- Kafka consumer metrics (lag, processing time) [v0.3]
+- Merkle tree metrics (batch processing, signing) [v0.3]
+- Snapshot metrics (creation, size) [v0.3]
+- Allowlist metrics (checks, matches, misses) [v0.3]
+- Dead letter queue metrics (size) [v0.3]
 
-Requirements: 17.7, 22.1
+Requirements: 17.7, 22.1, 24.1, 24.2, 24.3, 24.4, 24.5
 """
 
 import time
