@@ -177,8 +177,17 @@ class LedgerEvent(Base):
     event_metadata = Column("metadata", JSON().with_variant(JSONB, "postgresql"), nullable=True)
     provisional_charge_id = Column(PG_UUID(as_uuid=True), nullable=True)
     
+    # Merkle tree integration (v0.3)
+    merkle_root_id = Column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("merkle_roots.root_id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    
     # Relationships
     agent = relationship("AgentIdentity", back_populates="ledger_events")
+    merkle_root = relationship("MerkleRoot", back_populates="ledger_events")
     
     # Composite index for time-range queries
     __table_args__ = (
@@ -314,8 +323,21 @@ class MerkleRoot(Base):
     first_event_id = Column(BigInteger, nullable=False, index=True)
     last_event_id = Column(BigInteger, nullable=False, index=True)
     
+    # Source tracking (v0.3 backfill support)
+    source = Column(
+        String(50),
+        nullable=False,
+        default="live",
+        server_default="live",
+        index=True,
+        comment='Source of the batch: "live" for real-time batches, "migration" for backfilled v0.2 events'
+    )
+    
     # Timestamp
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow, index=True)
+    
+    # Relationships
+    ledger_events = relationship("LedgerEvent", back_populates="merkle_root")
     
     # Composite index for event range queries
     __table_args__ = (
@@ -323,7 +345,7 @@ class MerkleRoot(Base):
     )
     
     def __repr__(self):
-        return f"<MerkleRoot(root_id={self.root_id}, batch_id={self.batch_id}, events={self.first_event_id}-{self.last_event_id})>"
+        return f"<MerkleRoot(root_id={self.root_id}, batch_id={self.batch_id}, events={self.first_event_id}-{self.last_event_id}, source={self.source})>"
 
 
 class PolicyVersion(Base):

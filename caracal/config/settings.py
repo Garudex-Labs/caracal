@@ -167,6 +167,17 @@ class MerkleConfig:
 
 
 @dataclass
+class CompatibilityConfig:
+    """Backward compatibility configuration for v0.2 deployments."""
+    
+    mode: str = "v0.3"  # "v0.2" or "v0.3"
+    enable_kafka: bool = True  # If False, use direct PostgreSQL writes (v0.2 mode)
+    enable_merkle: bool = True  # If False, skip Merkle tree computation (v0.2 mode)
+    enable_redis: bool = True  # If False, skip Redis caching (v0.2 mode)
+    warn_on_v02_mode: bool = True  # Log warnings when running in v0.2 compatibility mode
+
+
+@dataclass
 class DefaultsConfig:
     """Default values configuration."""
     
@@ -208,6 +219,7 @@ class CaracalConfig:
     mcp_adapter: MCPAdapterConfig = field(default_factory=MCPAdapterConfig)
     ase: ASEConfig = field(default_factory=ASEConfig)
     merkle: MerkleConfig = field(default_factory=MerkleConfig)
+    compatibility: CompatibilityConfig = field(default_factory=CompatibilityConfig)
 
 
 def get_default_config_path() -> str:
@@ -483,6 +495,26 @@ def _build_config_from_dict(config_data: Dict[str, Any]) -> CaracalConfig:
         hsm_config=merkle_data.get('hsm_config', default_config.merkle.hsm_config),
     )
     
+    # Parse compatibility configuration (optional, for v0.2 compatibility)
+    compatibility_data = config_data.get('compatibility', {})
+    compatibility = CompatibilityConfig(
+        mode=compatibility_data.get('mode', default_config.compatibility.mode),
+        enable_kafka=compatibility_data.get('enable_kafka', default_config.compatibility.enable_kafka),
+        enable_merkle=compatibility_data.get('enable_merkle', default_config.compatibility.enable_merkle),
+        enable_redis=compatibility_data.get('enable_redis', default_config.compatibility.enable_redis),
+        warn_on_v02_mode=compatibility_data.get('warn_on_v02_mode', default_config.compatibility.warn_on_v02_mode),
+    )
+    
+    # Log warnings if running in v0.2 compatibility mode
+    if compatibility.mode == "v0.2" and compatibility.warn_on_v02_mode:
+        logger.warning("Running in v0.2 compatibility mode - some v0.3 features are disabled")
+        if not compatibility.enable_kafka:
+            logger.warning("Kafka event streaming is disabled - using direct PostgreSQL writes")
+        if not compatibility.enable_merkle:
+            logger.warning("Merkle tree ledger is disabled - no cryptographic tamper-evidence")
+        if not compatibility.enable_redis:
+            logger.warning("Redis caching is disabled - using PostgreSQL for all queries")
+    
     return CaracalConfig(
         storage=storage,
         defaults=defaults,
@@ -494,6 +526,7 @@ def _build_config_from_dict(config_data: Dict[str, Any]) -> CaracalConfig:
         mcp_adapter=mcp_adapter,
         ase=ase,
         merkle=merkle,
+        compatibility=compatibility,
     )
 
 
@@ -716,3 +749,11 @@ def _validate_config(config: CaracalConfig) -> None:
                 "merkle private_key_path is required when signing_backend is 'software'"
             )
 
+    
+    # Validate compatibility configuration (v0.3)
+    valid_compatibility_modes = ["v0.2", "v0.3"]
+    if config.compatibility.mode not in valid_compatibility_modes:
+        raise InvalidConfigurationError(
+            f"compatibility mode must be one of {valid_compatibility_modes}, "
+            f"got '{config.compatibility.mode}'"
+        )
