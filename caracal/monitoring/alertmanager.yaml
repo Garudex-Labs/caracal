@@ -1,0 +1,256 @@
+# AlertManager Configuration for Caracal Core v0.3
+#
+# This file configures alert routing, grouping, and notification channels.
+# Deploy to AlertManager using:
+#   kubectl create configmap alertmanager-config --from-file=alertmanager.yaml
+#
+# Requirements: 24.1, 24.5, Deployment
+
+global:
+  # Global configuration
+  resolve_timeout: 5m
+  
+  # SMTP configuration for email notifications
+  smtp_smarthost: 'smtp.example.com:587'
+  smtp_from: 'caracal-alerts@example.com'
+  smtp_auth_username: 'caracal-alerts@example.com'
+  smtp_auth_password: 'SMTP_PASSWORD'  # Replace with actual password or use secret
+  smtp_require_tls: true
+
+# Templates for alert notifications
+templates:
+  - '/etc/alertmanager/templates/*.tmpl'
+
+# Route tree for alert routing
+route:
+  # Default receiver for all alerts
+  receiver: 'default'
+  
+  # Group alerts by these labels
+  group_by: ['alertname', 'component', 'severity']
+  
+  # Wait time before sending initial notification
+  group_wait: 30s
+  
+  # Wait time before sending notification about new alerts in same group
+  group_interval: 5m
+  
+  # Wait time before re-sending notification for same alert
+  repeat_interval: 4h
+  
+  # Child routes for specific alert types
+  routes:
+    # Critical alerts - immediate notification
+    - match:
+        severity: critical
+      receiver: 'critical-alerts'
+      group_wait: 10s
+      group_interval: 1m
+      repeat_interval: 30m
+      continue: true  # Also send to default receiver
+    
+    # Security alerts - immediate notification to security team
+    - match:
+        security: 'true'
+      receiver: 'security-team'
+      group_wait: 0s
+      group_interval: 30s
+      repeat_interval: 15m
+      continue: true
+    
+    # Kafka alerts
+    - match:
+        component: kafka-consumer
+      receiver: 'kafka-team'
+      group_wait: 1m
+      group_interval: 5m
+      repeat_interval: 2h
+    
+    # Database alerts
+    - match:
+        component: database
+      receiver: 'database-team'
+      group_wait: 1m
+      group_interval: 5m
+      repeat_interval: 2h
+    
+    # Merkle tree alerts
+    - match:
+        component: merkle-tree
+      receiver: 'platform-team'
+      group_wait: 1m
+      group_interval: 5m
+      repeat_interval: 2h
+    
+    # DLQ alerts
+    - match:
+        component: dlq
+      receiver: 'platform-team'
+      group_wait: 5m
+      group_interval: 10m
+      repeat_interval: 4h
+    
+    # Info alerts - low priority
+    - match:
+        severity: info
+      receiver: 'info-alerts'
+      group_wait: 10m
+      group_interval: 30m
+      repeat_interval: 12h
+
+# Inhibition rules - suppress alerts when other alerts are firing
+inhibit_rules:
+  # Inhibit warning alerts if critical alert is firing for same component
+  - source_match:
+      severity: 'critical'
+    target_match:
+      severity: 'warning'
+    equal: ['component', 'alertname']
+  
+  # Inhibit database alerts if database connection is down
+  - source_match:
+      alertname: 'DatabaseConnectionFailures'
+    target_match:
+      component: 'database'
+    equal: ['component']
+  
+  # Inhibit consumer lag alerts if consumer has high error rate
+  - source_match:
+      alertname: 'KafkaConsumerErrorRateHigh'
+    target_match:
+      alertname: 'KafkaConsumerLagHigh'
+    equal: ['consumer_group', 'topic']
+
+# Receivers - notification channels
+receivers:
+  # Default receiver - email to ops team
+  - name: 'default'
+    email_configs:
+      - to: 'ops-team@example.com'
+        headers:
+          Subject: '[Caracal] {{ .GroupLabels.alertname }} - {{ .GroupLabels.severity }}'
+        html: |
+          <h2>Caracal Alert: {{ .GroupLabels.alertname }}</h2>
+          <p><strong>Severity:</strong> {{ .GroupLabels.severity }}</p>
+          <p><strong>Component:</strong> {{ .GroupLabels.component }}</p>
+          <p><strong>Summary:</strong> {{ range .Alerts }}{{ .Annotations.summary }}{{ end }}</p>
+          <p><strong>Description:</strong> {{ range .Alerts }}{{ .Annotations.description }}{{ end }}</p>
+          <p><strong>Runbook:</strong> {{ range .Alerts }}{{ .Annotations.runbook }}{{ end }}</p>
+          <p><strong>Firing Alerts:</strong> {{ .Alerts.Firing | len }}</p>
+          <p><strong>Resolved Alerts:</strong> {{ .Alerts.Resolved | len }}</p>
+  
+  # Critical alerts - PagerDuty + email + Slack
+  - name: 'critical-alerts'
+    pagerduty_configs:
+      - service_key: 'PAGERDUTY_SERVICE_KEY'  # Replace with actual key
+        description: '{{ .GroupLabels.alertname }}: {{ range .Alerts }}{{ .Annotations.summary }}{{ end }}'
+        details:
+          severity: '{{ .GroupLabels.severity }}'
+          component: '{{ .GroupLabels.component }}'
+          description: '{{ range .Alerts }}{{ .Annotations.description }}{{ end }}'
+          runbook: '{{ range .Alerts }}{{ .Annotations.runbook }}{{ end }}'
+    
+    email_configs:
+      - to: 'oncall@example.com'
+        headers:
+          Subject: '[CRITICAL] Caracal Alert: {{ .GroupLabels.alertname }}'
+        html: |
+          <h1 style="color: red;">CRITICAL ALERT</h1>
+          <h2>{{ .GroupLabels.alertname }}</h2>
+          <p><strong>Component:</strong> {{ .GroupLabels.component }}</p>
+          <p><strong>Summary:</strong> {{ range .Alerts }}{{ .Annotations.summary }}{{ end }}</p>
+          <p><strong>Description:</strong> {{ range .Alerts }}{{ .Annotations.description }}{{ end }}</p>
+          <p><strong>Runbook:</strong> {{ range .Alerts }}{{ .Annotations.runbook }}{{ end }}</p>
+          <p><strong>Time:</strong> {{ .Alerts.Firing | len }} alerts firing</p>
+    
+    slack_configs:
+      - api_url: 'SLACK_WEBHOOK_URL'  # Replace with actual webhook
+        channel: '#caracal-critical-alerts'
+        title: 'CRITICAL: {{ .GroupLabels.alertname }}'
+        text: |
+          *Component:* {{ .GroupLabels.component }}
+          *Summary:* {{ range .Alerts }}{{ .Annotations.summary }}{{ end }}
+          *Description:* {{ range .Alerts }}{{ .Annotations.description }}{{ end }}
+          *Runbook:* {{ range .Alerts }}{{ .Annotations.runbook }}{{ end }}
+        color: 'danger'
+  
+  # Security team - immediate notification
+  - name: 'security-team'
+    email_configs:
+      - to: 'security@example.com'
+        headers:
+          Subject: '[SECURITY] Caracal Alert: {{ .GroupLabels.alertname }}'
+        html: |
+          <h1 style="color: red;">SECURITY ALERT</h1>
+          <h2>{{ .GroupLabels.alertname }}</h2>
+          <p><strong>Component:</strong> {{ .GroupLabels.component }}</p>
+          <p><strong>Summary:</strong> {{ range .Alerts }}{{ .Annotations.summary }}{{ end }}</p>
+          <p><strong>Description:</strong> {{ range .Alerts }}{{ .Annotations.description }}{{ end }}</p>
+          <p><strong>Runbook:</strong> {{ range .Alerts }}{{ .Annotations.runbook }}{{ end }}</p>
+          <p><strong>IMMEDIATE ACTION REQUIRED</strong></p>
+    
+    slack_configs:
+      - api_url: 'SLACK_WEBHOOK_URL'
+        channel: '#security-incidents'
+        title: 'SECURITY ALERT: {{ .GroupLabels.alertname }}'
+        text: |
+          *Component:* {{ .GroupLabels.component }}
+          *Summary:* {{ range .Alerts }}{{ .Annotations.summary }}{{ end }}
+          *Description:* {{ range .Alerts }}{{ .Annotations.description }}{{ end }}
+          *Runbook:* {{ range .Alerts }}{{ .Annotations.runbook }}{{ end }}
+          @security-oncall IMMEDIATE ACTION REQUIRED
+        color: 'danger'
+  
+  # Kafka team
+  - name: 'kafka-team'
+    email_configs:
+      - to: 'kafka-team@example.com'
+        headers:
+          Subject: '[Caracal Kafka] {{ .GroupLabels.alertname }}'
+    
+    slack_configs:
+      - api_url: 'SLACK_WEBHOOK_URL'
+        channel: '#caracal-kafka-alerts'
+        title: '{{ .GroupLabels.alertname }}'
+        text: |
+          *Summary:* {{ range .Alerts }}{{ .Annotations.summary }}{{ end }}
+          *Description:* {{ range .Alerts }}{{ .Annotations.description }}{{ end }}
+  
+  # Database team
+  - name: 'database-team'
+    email_configs:
+      - to: 'dba@example.com'
+        headers:
+          Subject: '[Caracal Database] {{ .GroupLabels.alertname }}'
+    
+    slack_configs:
+      - api_url: 'SLACK_WEBHOOK_URL'
+        channel: '#caracal-database-alerts'
+        title: '{{ .GroupLabels.alertname }}'
+        text: |
+          *Summary:* {{ range .Alerts }}{{ .Annotations.summary }}{{ end }}
+          *Description:* {{ range .Alerts }}{{ .Annotations.description }}{{ end }}
+  
+  # Platform team
+  - name: 'platform-team'
+    email_configs:
+      - to: 'platform@example.com'
+        headers:
+          Subject: '[Caracal Platform] {{ .GroupLabels.alertname }}'
+    
+    slack_configs:
+      - api_url: 'SLACK_WEBHOOK_URL'
+        channel: '#caracal-platform-alerts'
+        title: '{{ .GroupLabels.alertname }}'
+        text: |
+          *Component:* {{ .GroupLabels.component }}
+          *Summary:* {{ range .Alerts }}{{ .Annotations.summary }}{{ end }}
+          *Description:* {{ range .Alerts }}{{ .Annotations.description }}{{ end }}
+  
+  # Info alerts - low priority
+  - name: 'info-alerts'
+    email_configs:
+      - to: 'caracal-info@example.com'
+        headers:
+          Subject: '[Caracal Info] {{ .GroupLabels.alertname }}'
+        send_resolved: false  # Don't send resolved notifications for info alerts
