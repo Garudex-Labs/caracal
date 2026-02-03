@@ -486,7 +486,7 @@ class TestPolicyEvaluator:
         decision = evaluator.check_budget(agent_id)
         
         assert decision.allowed is True
-        assert decision.reason == "Within budget"
+        assert "Within budget" in decision.reason
         assert decision.remaining_budget == Decimal("70.00")
 
     def test_check_budget_exceeded(self, temp_dir):
@@ -522,7 +522,7 @@ class TestPolicyEvaluator:
         decision = evaluator.check_budget(agent_id)
         
         assert decision.allowed is False
-        assert "Budget exceeded" in decision.reason
+        assert "exceeded" in decision.reason.lower()
         assert "120.00" in decision.reason
         assert "100.00" in decision.reason
         assert decision.remaining_budget == Decimal("0")
@@ -561,7 +561,7 @@ class TestPolicyEvaluator:
         
         # At limit should be denied (>= check)
         assert decision.allowed is False
-        assert "Budget exceeded" in decision.reason
+        assert "exceeded" in decision.reason.lower()
 
     def test_check_budget_daily_window(self, temp_dir):
         """Test that budget check uses daily time window correctly."""

@@ -106,7 +106,7 @@ class TestConfigurationLoading:
                 },
                 'kafka': {
                     'brokers': ['kafka1:9092', 'kafka2:9092'],
-                    'security_protocol': 'SASL_SSL',
+                    'security_protocol': 'PLAINTEXT',  # Use PLAINTEXT to avoid SASL credential requirements
                 },
                 'redis': {
                     'host': 'redis.example.com',
@@ -216,6 +216,7 @@ class TestConfigurationValidation:
     def test_validate_merkle_batch_size(self):
         """Test that Merkle batch size is validated."""
         config = get_default_config()
+        config.compatibility.enable_merkle = True  # Enable merkle validation
         config.merkle.batch_size_limit = 0
         
         with pytest.raises(InvalidConfigurationError, match="merkle batch_size_limit must be at least 1"):
@@ -224,6 +225,7 @@ class TestConfigurationValidation:
     def test_validate_merkle_signing_algorithm(self):
         """Test that Merkle signing algorithm is validated."""
         config = get_default_config()
+        config.compatibility.enable_merkle = True  # Enable merkle validation
         config.merkle.signing_algorithm = "INVALID"
         
         with pytest.raises(InvalidConfigurationError, match="merkle signing_algorithm must be one of"):
