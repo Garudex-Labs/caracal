@@ -130,10 +130,22 @@ def ledger():
 
 
 # Import and register ledger commands
-from caracal.cli.ledger import query, summary, delegation_chain
+from caracal.cli.ledger import (
+    query, 
+    summary, 
+    delegation_chain,
+    list_partitions,
+    create_partitions,
+    archive_partitions,
+    refresh_views
+)
 ledger.add_command(query)
 ledger.add_command(summary)
 ledger.add_command(delegation_chain)
+ledger.add_command(list_partitions, name='list-partitions')
+ledger.add_command(create_partitions, name='create-partitions')
+ledger.add_command(archive_partitions, name='archive-partitions')
+ledger.add_command(refresh_views, name='refresh-views')
 
 
 @cli.group()
