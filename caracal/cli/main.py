@@ -278,6 +278,20 @@ except Exception as e:
     logging.getLogger(__name__).warning(f"Failed to register replay commands: {e}")
 
 
+# Import and register DLQ commands (v0.3)
+try:
+    from caracal.cli.dlq import dlq_group
+    cli.add_command(dlq_group)
+except ImportError as e:
+    # DLQ commands not available
+    import logging
+    logging.getLogger(__name__).debug(f"DLQ commands not available: {e}")
+except Exception as e:
+    # Log any other errors
+    import logging
+    logging.getLogger(__name__).warning(f"Failed to register DLQ commands: {e}")
+
+
 @cli.command()
 @pass_context
 def init(ctx: CLIContext):

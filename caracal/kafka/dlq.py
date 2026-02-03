@@ -99,7 +99,7 @@ class DLQHandler:
     
     def __init__(
         self,
-        brokers: list[str],
+        brokers: List[str],
         security_protocol: str = "PLAINTEXT",
         sasl_mechanism: Optional[str] = None,
         sasl_username: Optional[str] = None,
