@@ -3,6 +3,8 @@ Ledger management for Caracal Core.
 
 This module provides the LedgerWriter for appending events to an immutable ledger
 and LedgerQuery for querying ledger events.
+
+v0.3: Integrated with Redis cache for fast recent spending queries.
 """
 
 import fcntl
@@ -10,7 +12,7 @@ import json
 import os
 import shutil
 from dataclasses import asdict, dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
 from typing import Any, Dict, List, Optional
