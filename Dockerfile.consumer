@@ -1,0 +1,55 @@
+# Dockerfile for Caracal Kafka Consumers (v0.3)
+# Supports: LedgerWriter, MetricsAggregator, AuditLogger
+#
+# Build arguments:
+#   CONSUMER_TYPE: Type of consumer to run (ledger-writer, metrics-aggregator, audit-logger)
+#
+# Usage:
+#   docker build -f Dockerfile.consumer --build-arg CONSUMER_TYPE=ledger-writer -t caracal-consumer:v0.3 .
+#   docker run -e KAFKA_BOOTSTRAP_SERVERS=kafka:9092 caracal-consumer:v0.3
+
+FROM python:3.10-slim
+
+# Build argument for consumer type
+ARG CONSUMER_TYPE=ledger-writer
+
+# Set environment variables
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    CONSUMER_TYPE=${CONSUMER_TYPE}
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc \
+    libpq-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create app directory
+WORKDIR /app
+
+# Copy requirements and install Python dependencies
+COPY pyproject.toml setup.py ./
+COPY caracal/ ./caracal/
+RUN pip install -e .
+
+# Create non-root user
+RUN useradd -m -u 1000 caracal && \
+    chown -R caracal:caracal /app
+
+# Switch to non-root user
+USER caracal
+
+# Expose metrics port (if applicable)
+EXPOSE 9091
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
+    CMD python -c "import sys; sys.exit(0)"
+
+# Entry point script
+COPY --chown=caracal:caracal docker-entrypoint-consumer.sh /usr/local/bin/
+RUN chmod +x /usr/local/bin/docker-entrypoint-consumer.sh
+
+ENTRYPOINT ["/usr/local/bin/docker-entrypoint-consumer.sh"]

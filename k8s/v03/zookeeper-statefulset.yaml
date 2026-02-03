@@ -1,0 +1,140 @@
+# Kubernetes StatefulSet for Zookeeper (v0.3)
+# Requirements: 1.7
+#
+# This StatefulSet runs a 3-node Zookeeper ensemble for Kafka coordination.
+#
+# Usage:
+#   kubectl apply -f zookeeper-statefulset.yaml
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: caracal-zookeeper
+  namespace: caracal
+  labels:
+    app.kubernetes.io/name: caracal
+    app.kubernetes.io/version: "0.3.0"
+    app.kubernetes.io/component: zookeeper
+spec:
+  type: ClusterIP
+  clusterIP: None  # Headless service
+  ports:
+    - name: client
+      port: 2181
+      targetPort: 2181
+      protocol: TCP
+    - name: follower
+      port: 2888
+      targetPort: 2888
+      protocol: TCP
+    - name: election
+      port: 3888
+      targetPort: 3888
+      protocol: TCP
+  selector:
+    app.kubernetes.io/name: caracal
+    app.kubernetes.io/component: zookeeper
+
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: caracal-zookeeper
+  namespace: caracal
+  labels:
+    app.kubernetes.io/name: caracal
+    app.kubernetes.io/version: "0.3.0"
+    app.kubernetes.io/component: zookeeper
+spec:
+  serviceName: caracal-zookeeper
+  replicas: 3
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: caracal
+      app.kubernetes.io/component: zookeeper
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: caracal
+        app.kubernetes.io/version: "0.3.0"
+        app.kubernetes.io/component: zookeeper
+    spec:
+      securityContext:
+        fsGroup: 1000
+      containers:
+        - name: zookeeper
+          image: confluentinc/cp-zookeeper:7.5.0
+          ports:
+            - name: client
+              containerPort: 2181
+              protocol: TCP
+            - name: follower
+              containerPort: 2888
+              protocol: TCP
+            - name: election
+              containerPort: 3888
+              protocol: TCP
+          env:
+            - name: ZOOKEEPER_SERVER_ID
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: ZOOKEEPER_CLIENT_PORT
+              value: "2181"
+            - name: ZOOKEEPER_TICK_TIME
+              value: "2000"
+            - name: ZOOKEEPER_INIT_LIMIT
+              value: "5"
+            - name: ZOOKEEPER_SYNC_LIMIT
+              value: "2"
+            - name: ZOOKEEPER_SERVERS
+              value: "caracal-zookeeper-0.caracal-zookeeper:2888:3888;caracal-zookeeper-1.caracal-zookeeper:2888:3888;caracal-zookeeper-2.caracal-zookeeper:2888:3888"
+          volumeMounts:
+            - name: zookeeper-data
+              mountPath: /var/lib/zookeeper/data
+            - name: zookeeper-log
+              mountPath: /var/lib/zookeeper/log
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              cpu: 1000m
+              memory: 1Gi
+          livenessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - echo ruok | nc localhost 2181 | grep imok
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - echo ruok | nc localhost 2181 | grep imok
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+  volumeClaimTemplates:
+    - metadata:
+        name: zookeeper-data
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 10Gi
+    - metadata:
+        name: zookeeper-log
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 10Gi

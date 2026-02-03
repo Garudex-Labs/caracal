@@ -1,0 +1,129 @@
+# Kubernetes StatefulSet for Redis (v0.3)
+# Requirements: 21.4, 25.6
+#
+# This StatefulSet runs a single Redis instance with persistent storage.
+# For production, consider Redis Sentinel or Redis Cluster.
+#
+# Usage:
+#   kubectl apply -f redis-statefulset.yaml
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: caracal-redis
+  namespace: caracal
+  labels:
+    app.kubernetes.io/name: caracal
+    app.kubernetes.io/version: "0.3.0"
+    app.kubernetes.io/component: redis
+spec:
+  type: ClusterIP
+  ports:
+    - name: redis
+      port: 6379
+      targetPort: 6379
+      protocol: TCP
+  selector:
+    app.kubernetes.io/name: caracal
+    app.kubernetes.io/component: redis
+
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: caracal-redis
+  namespace: caracal
+  labels:
+    app.kubernetes.io/name: caracal
+    app.kubernetes.io/version: "0.3.0"
+    app.kubernetes.io/component: redis
+spec:
+  serviceName: caracal-redis
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: caracal
+      app.kubernetes.io/component: redis
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: caracal
+        app.kubernetes.io/version: "0.3.0"
+        app.kubernetes.io/component: redis
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+        fsGroup: 999
+      containers:
+        - name: redis
+          image: redis:7-alpine
+          command:
+            - redis-server
+            - --requirepass
+            - $(REDIS_PASSWORD)
+            - --appendonly
+            - "yes"
+            - --appendfsync
+            - everysec
+            - --save
+            - "900 1"
+            - --save
+            - "300 10"
+            - --save
+            - "60 10000"
+            - --maxmemory
+            - 512mb
+            - --maxmemory-policy
+            - allkeys-lru
+          ports:
+            - name: redis
+              containerPort: 6379
+              protocol: TCP
+          env:
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: caracal-secrets
+                  key: REDIS_PASSWORD
+          volumeMounts:
+            - name: redis-data
+              mountPath: /data
+          resources:
+            requests:
+              cpu: 250m
+              memory: 256Mi
+            limits:
+              cpu: 1000m
+              memory: 512Mi
+          livenessProbe:
+            exec:
+              command:
+                - redis-cli
+                - --raw
+                - incr
+                - ping
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            exec:
+              command:
+                - redis-cli
+                - --raw
+                - incr
+                - ping
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+  volumeClaimTemplates:
+    - metadata:
+        name: redis-data
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 10Gi

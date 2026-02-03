@@ -1,0 +1,136 @@
+# Kubernetes StatefulSet for Kafka (v0.3)
+# Requirements: 1.7, 25.1, 25.2
+#
+# This StatefulSet runs a 3-node Kafka cluster with persistent storage.
+# For production, use a dedicated Kafka operator (Strimzi, Confluent Operator).
+#
+# Usage:
+#   kubectl apply -f zookeeper-statefulset.yaml  # Deploy Zookeeper first
+#   kubectl apply -f kafka-statefulset.yaml
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: caracal-kafka
+  namespace: caracal
+  labels:
+    app.kubernetes.io/name: caracal
+    app.kubernetes.io/version: "0.3.0"
+    app.kubernetes.io/component: kafka
+spec:
+  type: ClusterIP
+  clusterIP: None  # Headless service
+  ports:
+    - name: broker
+      port: 9092
+      targetPort: 9092
+      protocol: TCP
+  selector:
+    app.kubernetes.io/name: caracal
+    app.kubernetes.io/component: kafka
+
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: caracal-kafka
+  namespace: caracal
+  labels:
+    app.kubernetes.io/name: caracal
+    app.kubernetes.io/version: "0.3.0"
+    app.kubernetes.io/component: kafka
+spec:
+  serviceName: caracal-kafka
+  replicas: 3
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: caracal
+      app.kubernetes.io/component: kafka
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: caracal
+        app.kubernetes.io/version: "0.3.0"
+        app.kubernetes.io/component: kafka
+    spec:
+      securityContext:
+        fsGroup: 1000
+      containers:
+        - name: kafka
+          image: confluentinc/cp-kafka:7.5.0
+          ports:
+            - name: broker
+              containerPort: 9092
+              protocol: TCP
+          env:
+            - name: KAFKA_BROKER_ID
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: KAFKA_ZOOKEEPER_CONNECT
+              value: "caracal-zookeeper-0.caracal-zookeeper:2181,caracal-zookeeper-1.caracal-zookeeper:2181,caracal-zookeeper-2.caracal-zookeeper:2181"
+            - name: KAFKA_LISTENERS
+              value: "PLAINTEXT://0.0.0.0:9092"
+            - name: KAFKA_ADVERTISED_LISTENERS
+              value: "PLAINTEXT://$(POD_NAME).caracal-kafka:9092"
+            - name: KAFKA_LISTENER_SECURITY_PROTOCOL_MAP
+              value: "PLAINTEXT:PLAINTEXT"
+            - name: KAFKA_INTER_BROKER_LISTENER_NAME
+              value: "PLAINTEXT"
+            - name: KAFKA_DEFAULT_REPLICATION_FACTOR
+              value: "3"
+            - name: KAFKA_MIN_INSYNC_REPLICAS
+              value: "2"
+            - name: KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR
+              value: "3"
+            - name: KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR
+              value: "3"
+            - name: KAFKA_TRANSACTION_STATE_LOG_MIN_ISR
+              value: "2"
+            - name: KAFKA_LOG_RETENTION_HOURS
+              value: "720"
+            - name: KAFKA_COMPRESSION_TYPE
+              value: "snappy"
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+          volumeMounts:
+            - name: kafka-data
+              mountPath: /var/lib/kafka/data
+          resources:
+            requests:
+              cpu: 500m
+              memory: 1Gi
+            limits:
+              cpu: 2000m
+              memory: 2Gi
+          livenessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - kafka-broker-api-versions --bootstrap-server localhost:9092
+            initialDelaySeconds: 60
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 3
+          readinessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - kafka-broker-api-versions --bootstrap-server localhost:9092
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+  volumeClaimTemplates:
+    - metadata:
+        name: kafka-data
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 20Gi

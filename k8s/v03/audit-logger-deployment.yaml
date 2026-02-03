@@ -1,0 +1,124 @@
+# Kubernetes Deployment for Caracal AuditLogger Consumer (v0.3)
+# Requirements: 17.1, 17.2, 17.3, 17.4
+#
+# This Deployment runs the AuditLogger consumer that processes all events
+# and writes them to the append-only audit log.
+#
+# Usage:
+#   kubectl apply -f audit-logger-deployment.yaml
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: caracal-audit-logger
+  namespace: caracal
+  labels:
+    app.kubernetes.io/name: caracal
+    app.kubernetes.io/version: "0.3.0"
+    app.kubernetes.io/component: audit-logger
+    app.kubernetes.io/part-of: consumers
+spec:
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: caracal
+      app.kubernetes.io/component: audit-logger
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: caracal
+        app.kubernetes.io/version: "0.3.0"
+        app.kubernetes.io/component: audit-logger
+        app.kubernetes.io/part-of: consumers
+      annotations:
+        prometheus.io/scrape: "false"
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+      
+      initContainers:
+        - name: wait-for-kafka
+          image: confluentinc/cp-kafka:7.5.0
+          command:
+            - sh
+            - -c
+            - |
+              until kafka-broker-api-versions --bootstrap-server caracal-kafka:9092; do
+                echo "Waiting for Kafka to be ready..."
+                sleep 5
+              done
+              echo "Kafka is ready!"
+      
+      containers:
+        - name: audit-logger
+          image: caracal-consumer:v0.3
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: CONSUMER_TYPE
+              value: "audit-logger"
+            - name: KAFKA_BOOTSTRAP_SERVERS
+              valueFrom:
+                configMapKeyRef:
+                  name: caracal-config-v03
+                  key: KAFKA_BOOTSTRAP_SERVERS
+            - name: KAFKA_CONSUMER_GROUP
+              value: "audit-logger-group"
+            - name: KAFKA_TOPICS
+              value: "caracal.metering.events,caracal.policy.decisions,caracal.agent.lifecycle,caracal.policy.changes"
+            - name: DB_HOST
+              valueFrom:
+                configMapKeyRef:
+                  name: caracal-config-v03
+                  key: DB_HOST
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: caracal-secrets
+                  key: DB_PASSWORD
+            - name: SCHEMA_REGISTRY_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: caracal-config-v03
+                  key: SCHEMA_REGISTRY_URL
+          envFrom:
+            - configMapRef:
+                name: caracal-config-v03
+          resources:
+            requests:
+              cpu: 250m
+              memory: 256Mi
+            limits:
+              cpu: 1000m
+              memory: 512Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: false
+            runAsNonRoot: true
+            runAsUser: 1000
+            capabilities:
+              drop:
+                - ALL
+      
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: app.kubernetes.io/component
+                      operator: In
+                      values:
+                        - audit-logger
+                topologyKey: kubernetes.io/hostname
+      
+      restartPolicy: Always
+      dnsPolicy: ClusterFirst
+      terminationGracePeriodSeconds: 30

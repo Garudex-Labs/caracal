@@ -1,0 +1,441 @@
+# Default values for Caracal Core v0.3
+# This is a YAML-formatted file.
+# Declare variables to be passed into your templates.
+
+# Global settings
+global:
+  # Namespace to deploy into
+  namespace: caracal
+  
+  # Image pull secrets
+  imagePullSecrets: []
+  
+  # Storage class for persistent volumes
+  storageClass: ""
+
+# PostgreSQL configuration
+postgresql:
+  enabled: true
+  image:
+    repository: postgres
+    tag: "14-alpine"
+    pullPolicy: IfNotPresent
+  
+  # Database credentials
+  auth:
+    database: caracal
+    username: caracal
+    password: "caracal_dev_password_CHANGE_ME"
+  
+  # Persistence
+  persistence:
+    enabled: true
+    size: 10Gi
+    storageClass: ""
+  
+  # Resources
+  resources:
+    requests:
+      cpu: 500m
+      memory: 512Mi
+    limits:
+      cpu: 2000m
+      memory: 2Gi
+  
+  # Service
+  service:
+    type: ClusterIP
+    port: 5432
+
+# Redis configuration
+redis:
+  enabled: true
+  image:
+    repository: redis
+    tag: "7-alpine"
+    pullPolicy: IfNotPresent
+  
+  # Redis password
+  auth:
+    password: "caracal_redis_password_CHANGE_ME"
+  
+  # Persistence
+  persistence:
+    enabled: true
+    size: 10Gi
+    storageClass: ""
+  
+  # Resources
+  resources:
+    requests:
+      cpu: 250m
+      memory: 256Mi
+    limits:
+      cpu: 1000m
+      memory: 512Mi
+  
+  # Service
+  service:
+    type: ClusterIP
+    port: 6379
+
+# Zookeeper configuration
+zookeeper:
+  enabled: true
+  image:
+    repository: confluentinc/cp-zookeeper
+    tag: "7.5.0"
+    pullPolicy: IfNotPresent
+  
+  # Number of Zookeeper nodes
+  replicaCount: 3
+  
+  # Persistence
+  persistence:
+    enabled: true
+    dataSize: 10Gi
+    logSize: 10Gi
+    storageClass: ""
+  
+  # Resources
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+  
+  # Service
+  service:
+    type: ClusterIP
+    clientPort: 2181
+    followerPort: 2888
+    electionPort: 3888
+
+# Kafka configuration
+kafka:
+  enabled: true
+  image:
+    repository: confluentinc/cp-kafka
+    tag: "7.5.0"
+    pullPolicy: IfNotPresent
+  
+  # Number of Kafka brokers
+  replicaCount: 3
+  
+  # Kafka configuration
+  config:
+    defaultReplicationFactor: 3
+    minInsyncReplicas: 2
+    offsetsTopicReplicationFactor: 3
+    transactionStateLogReplicationFactor: 3
+    transactionStateLogMinIsr: 2
+    logRetentionHours: 720
+    compressionType: snappy
+  
+  # Persistence
+  persistence:
+    enabled: true
+    size: 20Gi
+    storageClass: ""
+  
+  # Resources
+  resources:
+    requests:
+      cpu: 500m
+      memory: 1Gi
+    limits:
+      cpu: 2000m
+      memory: 2Gi
+  
+  # Service
+  service:
+    type: ClusterIP
+    port: 9092
+
+# Schema Registry configuration
+schemaRegistry:
+  enabled: true
+  image:
+    repository: confluentinc/cp-schema-registry
+    tag: "7.5.0"
+    pullPolicy: IfNotPresent
+  
+  # Number of replicas
+  replicaCount: 2
+  
+  # Schema Registry configuration
+  config:
+    compatibilityLevel: backward
+    kafkastoreTopicReplicationFactor: 3
+  
+  # Resources
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+  
+  # Service
+  service:
+    type: ClusterIP
+    port: 8081
+
+# Gateway Proxy configuration
+gateway:
+  enabled: true
+  image:
+    repository: caracal-gateway
+    tag: "v0.3"
+    pullPolicy: IfNotPresent
+  
+  # Number of replicas
+  replicaCount: 3
+  
+  # Service configuration
+  service:
+    type: LoadBalancer
+    httpsPort: 8443
+    metricsPort: 9090
+    annotations: {}
+  
+  # Authentication mode (jwt, mtls, api_key)
+  authMode: jwt
+  
+  # TLS configuration
+  tls:
+    enabled: true
+    # Provide your own certificates via secret
+    secretName: caracal-tls
+  
+  # Replay protection
+  replayProtection:
+    enabled: true
+    nonceCacheTTL: 300
+    nonceCacheSize: 100000
+    timestampWindow: 300
+  
+  # Policy cache
+  policyCache:
+    enabled: true
+    ttl: 60
+    maxSize: 10000
+  
+  # Provisional charges
+  provisionalCharges:
+    expiration: 300
+    maxTimeout: 60
+    cleanupInterval: 60
+    cleanupBatchSize: 1000
+  
+  # Resources
+  resources:
+    requests:
+      cpu: 250m
+      memory: 256Mi
+    limits:
+      cpu: 2000m
+      memory: 1Gi
+  
+  # Autoscaling
+  autoscaling:
+    enabled: true
+    minReplicas: 3
+    maxReplicas: 10
+    targetCPUUtilizationPercentage: 70
+    targetMemoryUtilizationPercentage: 80
+  
+  # Pod disruption budget
+  podDisruptionBudget:
+    enabled: true
+    minAvailable: 2
+
+# MCP Adapter configuration
+mcpAdapter:
+  enabled: true
+  image:
+    repository: caracal-mcp-adapter
+    tag: "v0.3"
+    pullPolicy: IfNotPresent
+  
+  # Number of replicas
+  replicaCount: 2
+  
+  # Service configuration
+  service:
+    type: ClusterIP
+    port: 8080
+  
+  # MCP servers (comma-separated: name1:url1,name2:url2)
+  mcpServers: ""
+  mcpServerTimeout: 30
+  
+  # Resources
+  resources:
+    requests:
+      cpu: 250m
+      memory: 256Mi
+    limits:
+      cpu: 2000m
+      memory: 1Gi
+  
+  # Autoscaling
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 8
+    targetCPUUtilizationPercentage: 70
+    targetMemoryUtilizationPercentage: 80
+  
+  # Pod disruption budget
+  podDisruptionBudget:
+    enabled: true
+    minAvailable: 1
+
+# Kafka Consumers configuration
+consumers:
+  # LedgerWriter consumer
+  ledgerWriter:
+    enabled: true
+    image:
+      repository: caracal-consumer
+      tag: "v0.3"
+      pullPolicy: IfNotPresent
+    
+    replicaCount: 2
+    
+    # Merkle tree configuration
+    merkle:
+      batchSizeLimit: 1000
+      batchTimeoutSeconds: 300
+      signingAlgorithm: ECDSA-P256
+      # Provide signing key via secret
+      signingKeySecretName: caracal-merkle-keys
+    
+    resources:
+      requests:
+        cpu: 250m
+        memory: 256Mi
+      limits:
+        cpu: 1000m
+        memory: 512Mi
+  
+  # MetricsAggregator consumer
+  metricsAggregator:
+    enabled: true
+    image:
+      repository: caracal-consumer
+      tag: "v0.3"
+      pullPolicy: IfNotPresent
+    
+    replicaCount: 2
+    
+    # Metrics configuration
+    metricsPort: 9091
+    anomalyDetectionThreshold: 2.0
+    
+    resources:
+      requests:
+        cpu: 250m
+        memory: 256Mi
+      limits:
+        cpu: 1000m
+        memory: 512Mi
+  
+  # AuditLogger consumer
+  auditLogger:
+    enabled: true
+    image:
+      repository: caracal-consumer
+      tag: "v0.3"
+      pullPolicy: IfNotPresent
+    
+    replicaCount: 2
+    
+    # Audit configuration
+    auditLogRetentionDays: 2555  # 7 years
+    
+    resources:
+      requests:
+        cpu: 250m
+        memory: 256Mi
+      limits:
+        cpu: 1000m
+        memory: 512Mi
+
+# Monitoring configuration
+monitoring:
+  # Prometheus metrics
+  prometheus:
+    enabled: true
+    serviceMonitor:
+      enabled: false  # Requires Prometheus Operator
+  
+  # Grafana dashboards
+  grafana:
+    enabled: false
+    dashboards: []
+
+# Logging configuration
+logging:
+  level: INFO
+  structuredLogging: true
+
+# Security configuration
+security:
+  # Pod security context
+  podSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 1000
+    fsGroup: 1000
+  
+  # Container security context
+  containerSecurityContext:
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: false
+    runAsNonRoot: true
+    runAsUser: 1000
+    capabilities:
+      drop:
+        - ALL
+
+# Network policies
+networkPolicy:
+  enabled: false
+  policyTypes:
+    - Ingress
+    - Egress
+
+# Ingress configuration
+ingress:
+  enabled: false
+  className: nginx
+  annotations: {}
+  hosts:
+    - host: caracal.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+
+# Service account
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+# RBAC
+rbac:
+  create: true
+
+# Node selector
+nodeSelector: {}
+
+# Tolerations
+tolerations: []
+
+# Affinity
+affinity: {}

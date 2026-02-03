@@ -1,0 +1,29 @@
+apiVersion: v2
+name: caracal
+description: A Helm chart for Caracal Core v0.3 - Budget enforcement for AI agents
+type: application
+version: 0.3.0
+appVersion: "0.3.0"
+
+keywords:
+  - ai
+  - agents
+  - budget
+  - policy
+  - metering
+  - kafka
+  - event-streaming
+
+home: https://caracal.dev
+sources:
+  - https://github.com/caracal/caracal-core
+
+maintainers:
+  - name: Caracal Team
+    email: team@caracal.dev
+
+dependencies: []
+
+annotations:
+  category: AI/ML
+  licenses: Apache-2.0
