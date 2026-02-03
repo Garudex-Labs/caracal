@@ -24,9 +24,13 @@ class TestAuditLoggerConsumer:
     
     def test_consumer_initialization(self):
         """Test audit logger consumer initializes correctly."""
+        # Mock database connection manager
+        mock_connection_manager = MagicMock()
+        
         consumer = AuditLoggerConsumer(
             brokers=["localhost:9092"],
-            security_protocol="PLAINTEXT"
+            security_protocol="PLAINTEXT",
+            db_connection_manager=mock_connection_manager
         )
         
         assert consumer.brokers == ["localhost:9092"]
@@ -41,8 +45,15 @@ class TestAuditLoggerConsumer:
     @pytest.mark.asyncio
     async def test_process_metering_event(self):
         """Test processing metering event."""
+        # Mock database connection manager
+        mock_session = MagicMock()
+        mock_connection_manager = MagicMock()
+        mock_connection_manager.session_scope.return_value.__enter__ = Mock(return_value=mock_session)
+        mock_connection_manager.session_scope.return_value.__exit__ = Mock(return_value=False)
+        
         consumer = AuditLoggerConsumer(
-            brokers=["localhost:9092"]
+            brokers=["localhost:9092"],
+            db_connection_manager=mock_connection_manager
         )
         
         # Create test event
@@ -68,14 +79,6 @@ class TestAuditLoggerConsumer:
             timestamp=int(datetime.utcnow().timestamp() * 1000)
         )
         
-        # Mock database connection manager
-        mock_session = MagicMock()
-        mock_connection_manager = MagicMock()
-        mock_connection_manager.session_scope.return_value.__enter__ = Mock(return_value=mock_session)
-        mock_connection_manager.session_scope.return_value.__exit__ = Mock(return_value=False)
-        
-        consumer.db_connection_manager = mock_connection_manager
-        
         # Process message
         await consumer.process_message(message)
         
@@ -96,8 +99,15 @@ class TestAuditLoggerConsumer:
     @pytest.mark.asyncio
     async def test_process_policy_decision_event(self):
         """Test processing policy decision event."""
+        # Mock database connection manager
+        mock_session = MagicMock()
+        mock_connection_manager = MagicMock()
+        mock_connection_manager.session_scope.return_value.__enter__ = Mock(return_value=mock_session)
+        mock_connection_manager.session_scope.return_value.__exit__ = Mock(return_value=False)
+        
         consumer = AuditLoggerConsumer(
-            brokers=["localhost:9092"]
+            brokers=["localhost:9092"],
+            db_connection_manager=mock_connection_manager
         )
         
         # Create test event
@@ -121,14 +131,6 @@ class TestAuditLoggerConsumer:
             headers={"correlation_id": b"header-correlation-456"}
         )
         
-        # Mock database connection manager
-        mock_session = MagicMock()
-        mock_connection_manager = MagicMock()
-        mock_connection_manager.session_scope.return_value.__enter__ = Mock(return_value=mock_session)
-        mock_connection_manager.session_scope.return_value.__exit__ = Mock(return_value=False)
-        
-        consumer.db_connection_manager = mock_connection_manager
-        
         # Process message
         await consumer.process_message(message)
         
@@ -143,8 +145,15 @@ class TestAuditLoggerConsumer:
     @pytest.mark.asyncio
     async def test_process_event_without_agent_id(self):
         """Test processing event without agent_id."""
+        # Mock database connection manager
+        mock_session = MagicMock()
+        mock_connection_manager = MagicMock()
+        mock_connection_manager.session_scope.return_value.__enter__ = Mock(return_value=mock_session)
+        mock_connection_manager.session_scope.return_value.__exit__ = Mock(return_value=False)
+        
         consumer = AuditLoggerConsumer(
-            brokers=["localhost:9092"]
+            brokers=["localhost:9092"],
+            db_connection_manager=mock_connection_manager
         )
         
         # Create test event without agent_id
@@ -163,14 +172,6 @@ class TestAuditLoggerConsumer:
             value=json.dumps(event_data).encode('utf-8'),
             timestamp=int(datetime.utcnow().timestamp() * 1000)
         )
-        
-        # Mock database connection manager
-        mock_session = MagicMock()
-        mock_connection_manager = MagicMock()
-        mock_connection_manager.session_scope.return_value.__enter__ = Mock(return_value=mock_session)
-        mock_connection_manager.session_scope.return_value.__exit__ = Mock(return_value=False)
-        
-        consumer.db_connection_manager = mock_connection_manager
         
         # Process message
         await consumer.process_message(message)
