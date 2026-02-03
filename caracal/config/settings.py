@@ -995,43 +995,44 @@ def _validate_config(config: CaracalConfig) -> None:
             f"got {config.ase.provisional_charges.cleanup_batch_size}"
         )
     
-    # Validate Merkle configuration (v0.3)
-    if config.merkle.batch_size_limit < 1:
-        raise InvalidConfigurationError(
-            f"merkle batch_size_limit must be at least 1, got {config.merkle.batch_size_limit}"
-        )
-    if config.merkle.batch_timeout_seconds < 1:
-        raise InvalidConfigurationError(
-            f"merkle batch_timeout_seconds must be at least 1, got {config.merkle.batch_timeout_seconds}"
-        )
-    
-    valid_signing_algorithms = ["ES256"]
-    if config.merkle.signing_algorithm not in valid_signing_algorithms:
-        raise InvalidConfigurationError(
-            f"merkle signing_algorithm must be one of {valid_signing_algorithms}, "
-            f"got '{config.merkle.signing_algorithm}'"
-        )
-    
-    valid_signing_backends = ["software", "hsm"]
-    if config.merkle.signing_backend not in valid_signing_backends:
-        raise InvalidConfigurationError(
-            f"merkle signing_backend must be one of {valid_signing_backends}, "
-            f"got '{config.merkle.signing_backend}'"
-        )
-    
-    # Validate software signing configuration
-    if config.merkle.signing_backend == "software":
-        if not config.merkle.private_key_path:
+    # Validate Merkle configuration (v0.3) - only validate fully when merkle is enabled
+    if config.compatibility.enable_merkle:
+        if config.merkle.batch_size_limit < 1:
             raise InvalidConfigurationError(
-                "merkle private_key_path is required when signing_backend is 'software'"
+                f"merkle batch_size_limit must be at least 1, got {config.merkle.batch_size_limit}"
             )
-    
-    # Validate key rotation configuration
-    if config.merkle.key_rotation_enabled:
-        if config.merkle.key_rotation_days < 1:
+        if config.merkle.batch_timeout_seconds < 1:
             raise InvalidConfigurationError(
-                f"merkle key_rotation_days must be at least 1, got {config.merkle.key_rotation_days}"
+                f"merkle batch_timeout_seconds must be at least 1, got {config.merkle.batch_timeout_seconds}"
             )
+        
+        valid_signing_algorithms = ["ES256"]
+        if config.merkle.signing_algorithm not in valid_signing_algorithms:
+            raise InvalidConfigurationError(
+                f"merkle signing_algorithm must be one of {valid_signing_algorithms}, "
+                f"got '{config.merkle.signing_algorithm}'"
+            )
+        
+        valid_signing_backends = ["software", "hsm"]
+        if config.merkle.signing_backend not in valid_signing_backends:
+            raise InvalidConfigurationError(
+                f"merkle signing_backend must be one of {valid_signing_backends}, "
+                f"got '{config.merkle.signing_backend}'"
+            )
+        
+        # Validate software signing configuration
+        if config.merkle.signing_backend == "software":
+            if not config.merkle.private_key_path:
+                raise InvalidConfigurationError(
+                    "merkle private_key_path is required when signing_backend is 'software'"
+                )
+        
+        # Validate key rotation configuration
+        if config.merkle.key_rotation_enabled:
+            if config.merkle.key_rotation_days < 1:
+                raise InvalidConfigurationError(
+                    f"merkle key_rotation_days must be at least 1, got {config.merkle.key_rotation_days}"
+                )
     
     # Validate Kafka configuration (v0.3)
     if config.compatibility.enable_kafka:
