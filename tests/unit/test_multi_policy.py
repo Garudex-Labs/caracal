@@ -33,11 +33,10 @@ class TestMultiPolicySupport:
         
         # Create agent
         agent_registry = AgentRegistry(str(registry_path))
-        agent_registry.register_agent(
+        agent = agent_registry.register_agent(
             name="Test Agent",
             owner="test@example.com"
         )
-        agent = agent_registry.get_agent_by_name("Test Agent")
         agent_id = agent.agent_id
         
         # Create policy store with agent registry
@@ -100,11 +99,10 @@ class TestMultiPolicySupport:
         
         # Create agent
         agent_registry = AgentRegistry(str(registry_path))
-        agent_registry.register_agent(
+        agent = agent_registry.register_agent(
             name="Test Agent",
             owner="test@example.com"
         )
-        agent = agent_registry.get_agent_by_name("Test Agent")
         agent_id = agent.agent_id
         
         # Create policy store with agent registry
@@ -170,11 +168,10 @@ class TestMultiPolicySupport:
         
         # Create agent
         agent_registry = AgentRegistry(str(registry_path))
-        agent_registry.register_agent(
+        agent = agent_registry.register_agent(
             name="Test Agent",
             owner="test@example.com"
         )
-        agent = agent_registry.get_agent_by_name("Test Agent")
         agent_id = agent.agent_id
         
         # Create policy store with agent registry
@@ -232,11 +229,10 @@ class TestMultiPolicySupport:
         
         # Create agent
         agent_registry = AgentRegistry(str(registry_path))
-        agent_registry.register_agent(
+        agent = agent_registry.register_agent(
             name="Test Agent",
             owner="test@example.com"
         )
-        agent = agent_registry.get_agent_by_name("Test Agent")
         agent_id = agent.agent_id
         
         # Create policy store with agent registry
@@ -271,11 +267,10 @@ class TestMultiPolicySupport:
         
         # Create agent
         agent_registry = AgentRegistry(str(registry_path))
-        agent_registry.register_agent(
+        agent = agent_registry.register_agent(
             name="Test Agent",
             owner="test@example.com"
         )
-        agent = agent_registry.get_agent_by_name("Test Agent")
         agent_id = agent.agent_id
         
         # Create policy store with agent registry
@@ -307,11 +302,10 @@ class TestMultiPolicySupport:
         
         # Create agent
         agent_registry = AgentRegistry(str(registry_path))
-        agent_registry.register_agent(
+        agent = agent_registry.register_agent(
             name="Test Agent",
             owner="test@example.com"
         )
-        agent = agent_registry.get_agent_by_name("Test Agent")
         agent_id = agent.agent_id
         
         # Create policy store with agent registry
