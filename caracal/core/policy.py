@@ -25,6 +25,7 @@ from caracal.exceptions import (
 )
 from caracal.logging_config import get_logger
 from caracal.core.retry import retry_on_transient_failure
+from caracal.core.time_windows import TimeWindowCalculator
 
 logger = get_logger(__name__)
 
@@ -406,9 +407,21 @@ class PolicyEvaluator:
     4. Comparing spending + reserved budget against policy limits
     5. Creating provisional charge if allowed
     6. Implementing fail-closed semantics (deny on error or missing policy)
+    
+    v0.3 enhancements:
+    - Uses TimeWindowCalculator for flexible time window calculations
+    - Supports hourly, daily, weekly, monthly windows
+    - Supports rolling and calendar window types
     """
 
-    def __init__(self, policy_store: PolicyStore, ledger_query, provisional_charge_manager=None, delegation_token_manager=None):
+    def __init__(
+        self, 
+        policy_store: PolicyStore, 
+        ledger_query, 
+        provisional_charge_manager=None, 
+        delegation_token_manager=None,
+        time_window_calculator: Optional[TimeWindowCalculator] = None
+    ):
         """
         Initialize PolicyEvaluator.
         
@@ -417,12 +430,14 @@ class PolicyEvaluator:
             ledger_query: LedgerQuery instance for querying spending
             provisional_charge_manager: Optional ProvisionalChargeManager for v0.2 provisional charges
             delegation_token_manager: Optional DelegationTokenManager for delegation token validation
+            time_window_calculator: Optional TimeWindowCalculator for v0.3 extended time windows
         """
         self.policy_store = policy_store
         self.ledger_query = ledger_query
         self.provisional_charge_manager = provisional_charge_manager
         self.delegation_token_manager = delegation_token_manager
-        logger.info("PolicyEvaluator initialized")
+        self.time_window_calculator = time_window_calculator or TimeWindowCalculator()
+        logger.info("PolicyEvaluator initialized with TimeWindowCalculator")
 
     def check_budget(self, agent_id: str, estimated_cost: Optional[Decimal] = None, current_time: Optional[datetime] = None) -> PolicyDecision:
         """
@@ -434,6 +449,11 @@ class PolicyEvaluator:
         - Denies if spending + reserved budget exceeds limit
         - Creates provisional charge if allowed (v0.2 with ProvisionalChargeManager)
         
+        v0.3 enhancements:
+        - Uses TimeWindowCalculator for flexible time window calculations
+        - Supports hourly, daily, weekly, monthly windows
+        - Supports rolling and calendar window types
+        
         Args:
             agent_id: Agent identifier
             estimated_cost: Estimated cost for provisional charge (v0.2 only)
@@ -444,6 +464,8 @@ class PolicyEvaluator:
             
         Raises:
             PolicyEvaluationError: If evaluation fails critically (fail-closed)
+            
+        Requirements: 9.7
         """
         try:
             # Use current UTC time if not provided
@@ -462,18 +484,31 @@ class PolicyEvaluator:
             # 2. Use the first active policy (v0.1 supports single policy per agent)
             policy = policies[0]
             
-            # 3. Calculate time window bounds based on policy time_window
-            if policy.time_window == "daily":
-                # Start of current day (00:00:00)
-                window_start = current_time.replace(hour=0, minute=0, second=0, microsecond=0)
-                window_end = current_time
-            else:
-                # Should not happen due to validation in create_policy, but fail closed
-                raise PolicyEvaluationError(
-                    f"Unsupported time window '{policy.time_window}' in policy {policy.policy_id}"
-                )
+            # 3. Get window_type from policy (default to 'calendar' for v0.2 compatibility)
+            window_type = getattr(policy, 'window_type', 'calendar')
             
-            # 4. Query ledger for spending in window
+            # 4. Calculate time window bounds using TimeWindowCalculator
+            try:
+                window_start, window_end = self.time_window_calculator.calculate_window_bounds(
+                    time_window=policy.time_window,
+                    window_type=window_type,
+                    reference_time=current_time
+                )
+                logger.debug(
+                    f"Calculated {window_type} {policy.time_window} window for agent {agent_id}: "
+                    f"{window_start.isoformat()} to {window_end.isoformat()}"
+                )
+            except InvalidPolicyError as e:
+                # Fail closed on invalid time window configuration
+                logger.error(
+                    f"Invalid time window configuration for policy {policy.policy_id}: {e}",
+                    exc_info=True
+                )
+                raise PolicyEvaluationError(
+                    f"Invalid time window configuration: {e}"
+                ) from e
+            
+            # 5. Query ledger for spending in window
             try:
                 spending = self.ledger_query.sum_spending(agent_id, window_start, window_end)
                 logger.debug(
@@ -490,7 +525,7 @@ class PolicyEvaluator:
                     f"Failed to query spending for agent '{agent_id}': {e}"
                 ) from e
             
-            # 5. Query active provisional charges (v0.2 only)
+            # 6. Query active provisional charges (v0.2 only)
             reserved_budget = Decimal('0')
             if self.provisional_charge_manager is not None:
                 try:
@@ -516,13 +551,13 @@ class PolicyEvaluator:
                         f"Failed to query reserved budget for agent '{agent_id}': {e}"
                     ) from e
             
-            # 6. Get policy limit as Decimal
+            # 7. Get policy limit as Decimal
             limit = policy.get_limit_decimal()
             
-            # 7. Calculate available budget (limit - spending - reserved)
+            # 8. Calculate available budget (limit - spending - reserved)
             available = limit - spending - reserved_budget
             
-            # 8. Check if estimated cost fits (if provided)
+            # 9. Check if estimated cost fits (if provided)
             if estimated_cost is not None and estimated_cost > available:
                 logger.info(
                     f"Budget check denied for agent {agent_id}: "
@@ -534,7 +569,7 @@ class PolicyEvaluator:
                     remaining_budget=Decimal('0')
                 )
             
-            # 9. Check if already exceeded (even without estimated cost)
+            # 10. Check if already exceeded (even without estimated cost)
             if available <= 0:
                 logger.info(
                     f"Budget check denied for agent {agent_id}: "
@@ -546,7 +581,7 @@ class PolicyEvaluator:
                     remaining_budget=Decimal('0')
                 )
             
-            # 10. Create provisional charge if manager available and estimated cost provided
+            # 11. Create provisional charge if manager available and estimated cost provided
             provisional_charge_id = None
             if self.provisional_charge_manager is not None and estimated_cost is not None:
                 try:
@@ -574,7 +609,7 @@ class PolicyEvaluator:
                         f"Failed to create provisional charge for agent '{agent_id}': {e}"
                     ) from e
             
-            # 11. Allow with remaining budget
+            # 12. Allow with remaining budget
             remaining = available - (estimated_cost if estimated_cost is not None else Decimal('0'))
             logger.info(
                 f"Budget check allowed for agent {agent_id}: "
@@ -693,9 +728,19 @@ class PolicyEvaluator:
                 )
             
             # 5. Query current spending for agent
-            # Calculate time window bounds (use daily for delegation tokens)
-            window_start = current_time.replace(hour=0, minute=0, second=0, microsecond=0)
-            window_end = current_time
+            # Calculate time window bounds using TimeWindowCalculator
+            # Use daily calendar window for delegation tokens
+            try:
+                window_start, window_end = self.time_window_calculator.calculate_window_bounds(
+                    time_window='daily',
+                    window_type='calendar',
+                    reference_time=current_time
+                )
+            except InvalidPolicyError as e:
+                logger.error(f"Failed to calculate time window: {e}", exc_info=True)
+                raise PolicyEvaluationError(
+                    f"Failed to calculate time window: {e}"
+                ) from e
             
             try:
                 spending = self.ledger_query.sum_spending(agent_id, window_start, window_end)
