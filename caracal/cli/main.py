@@ -51,7 +51,7 @@ pass_context = click.make_pass_decorator(CLIContext, ensure=True)
     is_flag=True,
     help='Enable verbose output',
 )
-@click.version_option(version='0.2.0', prog_name='caracal')
+@click.version_option(version='0.3.0', prog_name='caracal')
 @pass_context
 def cli(ctx: CLIContext, config: Optional[Path], log_level: str, verbose: bool):
     """

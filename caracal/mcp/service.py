@@ -144,7 +144,7 @@ class MCPAdapterService:
         self.app = FastAPI(
             title="Caracal MCP Adapter Service",
             description="HTTP API for MCP request proxying with budget enforcement",
-            version="0.2.0"
+            version="0.3.0"
         )
         
         # Register routes
@@ -247,7 +247,7 @@ class MCPAdapterService:
             response_data = HealthCheckResponse(
                 status=overall_status,
                 service="caracal-mcp-adapter",
-                version="0.2.0",
+                version="0.3.0",
                 mcp_servers=mcp_server_statuses
             )
             

@@ -41,7 +41,7 @@ caracal gateway start
 
 ## Architecture
 
-Caracal Core v0.2.0 follows a modular design:
+Caracal Core v0.3.0 follows a modular design:
 
 *   **Gateway Proxy**: High-performance HTTP/gRPC reverse proxy for interception.
 *   **Policy Engine**: Stateless decision engine for real-time budget enforcement.
@@ -51,7 +51,36 @@ Caracal Core v0.2.0 follows a modular design:
 
 ## Documentation
 
+### Quick Start Guides
+- [Docker Compose Quickstart](docs/DOCKER_COMPOSE_QUICKSTART.md) - Get started with Docker Compose
+- [Docker Quickstart](docs/DOCKER_QUICKSTART.md) - Basic Docker setup
+- [Docker MCP Quickstart](docs/DOCKER_MCP_QUICKSTART.md) - MCP integration with Docker
+- [Kubernetes Quickstart](docs/KUBERNETES_QUICKSTART.md) - Deploy on Kubernetes
+
+### Deployment & Operations
+- [Deployment Guide](docs/DEPLOYMENT_GUIDE.md) - Complete deployment instructions
+- [Production Guide](docs/PRODUCTION_GUIDE.md) - Production best practices
+- [Operational Runbook](docs/OPERATIONAL_RUNBOOK.md) - Day-to-day operations
+
+### Configuration
+- [Configuration Example](config.example.yaml) - Complete configuration reference
+- [Environment Variables](.env.example) - Environment variable reference
+
+### Development & Release
+- [Scripts Documentation](scripts/README.md) - Version management and release scripts
+- [Release Notes](RELEASE_NOTES.md) - Latest release information
+
 For full documentation, standard compliance details, and API reference, please visit our [official documentation](https://www.garudexlabs.com).
+
+## Version Management
+
+Caracal Core uses a single `VERSION` file as the source of truth for all version references. To update the version:
+
+1. Edit the `VERSION` file with the new version number
+2. Run `./scripts/update-version.sh` to update all references
+3. Use `./scripts/release.sh` for automated release process
+
+See [scripts/README.md](scripts/README.md) for detailed documentation.
 
 ## License
 

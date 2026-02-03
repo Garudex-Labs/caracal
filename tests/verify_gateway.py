@@ -119,7 +119,7 @@ assert response.status_code == 200
 data = response.json()
 assert data["status"] == "healthy"
 assert data["service"] == "caracal-gateway-proxy"
-assert data["version"] == "0.2.0"
+assert data["version"] == "0.3.0"
 print("✓ Health check endpoint works correctly")
 
 # Test 5: Statistics endpoint

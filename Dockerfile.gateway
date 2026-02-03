@@ -37,7 +37,7 @@ FROM python:3.10-slim
 # Set metadata
 LABEL maintainer="Caracal Contributors"
 LABEL description="Caracal Gateway Proxy - Network-enforced policy enforcement for AI agents"
-LABEL version="0.2.0"
+LABEL version="0.3.0"
 
 # Create non-root user for security
 RUN groupadd -r caracal && useradd -r -g caracal caracal
@@ -100,7 +100,7 @@ async def main():
     setup_logging(log_level=log_level)
     
     print("=" * 60)
-    print("Caracal Gateway Proxy v0.2.0")
+    print("Caracal Gateway Proxy v0.3.0")
     print("=" * 60)
     
     # Initialize metrics

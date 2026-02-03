@@ -1,39 +1,48 @@
-# Docker Compose configuration for Caracal Core v0.2
-# Requirements: 17.3
+# Docker Compose configuration for Caracal Core v0.3
+# Requirements: Deployment
 #
-# This compose file sets up the complete Caracal Core v0.2 stack:
+# This compose file sets up the complete Caracal Core v0.3 stack:
 # - PostgreSQL database for persistent storage
+# - Redis cache for real-time metrics and spending cache
+# - Kafka cluster (3 brokers) for event streaming
+# - Zookeeper ensemble (3 nodes) for Kafka coordination
+# - Confluent Schema Registry for Avro schema management
 # - Caracal Gateway Proxy for network-enforced policy enforcement
 # - Caracal MCP Adapter for Model Context Protocol integration
+# - Caracal Event Consumers (LedgerWriter, MetricsAggregator, AuditLogger)
 #
 # Usage:
 #   # Start all services
-#   docker-compose up -d
+#   docker-compose -f docker-compose.v03.yml up -d
 #
 #   # View logs
-#   docker-compose logs -f
-#   docker-compose logs -f gateway
-#   docker-compose logs -f mcp-adapter
+#   docker-compose -f docker-compose.v03.yml logs -f
+#   docker-compose -f docker-compose.v03.yml logs -f gateway
+#   docker-compose -f docker-compose.v03.yml logs -f ledger-writer
 #
 #   # Stop all services
-#   docker-compose down
+#   docker-compose -f docker-compose.v03.yml down
 #
-#   # Stop and remove volumes (WARNING: deletes database data)
-#   docker-compose down -v
+#   # Stop and remove volumes (WARNING: deletes all data)
+#   docker-compose -f docker-compose.v03.yml down -v
 #
 # Prerequisites:
-#   1. Create ./certs directory with TLS certificates:
-#      - server.crt, server.key (for gateway TLS)
-#      - ca.crt (for mTLS client authentication)
-#      - jwt_public.pem (for JWT authentication)
-#   2. Create .env file with required environment variables (see .env.example)
-#   3. Optionally create ./config directory with custom configuration files
+#   1. Create ./certs directory with TLS certificates
+#   2. Create ./kafka-certs directory with Kafka TLS certificates
+#   3. Create .env file with required environment variables (see .env.example)
+#   4. Optionally create ./config directory with custom configuration files
 
 version: '3.8'
 
 services:
+  # ============================================================================
+  # INFRASTRUCTURE SERVICES
+  # ============================================================================
+  
   # PostgreSQL Database
-  # Provides persistent storage for agent identities, policies, ledger events, and provisional charges
+  # Provides persistent storage for agent identities, policies, ledger events,
+  # provisional charges, Merkle roots, policy versions, resource allowlists,
+  # audit logs, and snapshots
   postgres:
     image: postgres:14-alpine
     container_name: caracal-postgres
@@ -43,13 +52,8 @@ services:
       POSTGRES_PASSWORD: ${DB_PASSWORD:-caracal_dev_password}
       POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=en_US.UTF-8"
     volumes:
-      # Persistent database storage
       - postgres_data:/var/lib/postgresql/data
-      # Optional: Mount initialization scripts
-      # - ./init-scripts:/docker-entrypoint-initdb.d:ro
     ports:
-      # Expose PostgreSQL port (default: 5432)
-      # Change DB_PORT in .env to use a different port
       - "${DB_PORT:-5432}:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-caracal}"]
@@ -60,7 +64,6 @@ services:
     networks:
       - caracal-network
     restart: unless-stopped
-    # Resource limits (adjust based on your workload)
     deploy:
       resources:
         limits:
@@ -87,10 +90,8 @@ services:
       --maxmemory 512mb
       --maxmemory-policy allkeys-lru
     volumes:
-      # Persistent Redis storage (RDB + AOF)
       - redis_data:/data
     ports:
-      # Expose Redis port (default: 6379)
       - "${REDIS_PORT:-6379}:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "--raw", "incr", "ping"]
@@ -101,7 +102,6 @@ services:
     networks:
       - caracal-network
     restart: unless-stopped
-    # Resource limits (adjust based on your workload)
     deploy:
       resources:
         limits:
@@ -111,38 +111,149 @@ services:
           cpus: '0.25'
           memory: 128M
 
+  # ============================================================================
+  # KAFKA INFRASTRUCTURE
+  # ============================================================================
+  
+  # Zookeeper (single node for development, 3 nodes for production)
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.5.0
+    container_name: caracal-zookeeper
+    hostname: zookeeper
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    volumes:
+      - zookeeper_data:/var/lib/zookeeper/data
+      - zookeeper_log:/var/lib/zookeeper/log
+    ports:
+      - "2181:2181"
+    networks:
+      - caracal-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "bash", "-c", "echo ruok | nc localhost 2181 | grep imok"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # Kafka Broker (single node for development, 3 nodes for production)
+  kafka:
+    image: confluentinc/cp-kafka:7.5.0
+    container_name: caracal-kafka
+    hostname: kafka
+    depends_on:
+      zookeeper:
+        condition: service_healthy
+    ports:
+      - "9092:9092"
+      - "9093:9093"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      
+      # Listener Configuration
+      KAFKA_LISTENERS: INTERNAL://0.0.0.0:9092,EXTERNAL://0.0.0.0:9093
+      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka:9092,EXTERNAL://localhost:9093
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
+      
+      # Replication Configuration (single broker for dev)
+      KAFKA_DEFAULT_REPLICATION_FACTOR: 1
+      KAFKA_MIN_INSYNC_REPLICAS: 1
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      
+      # Performance Configuration
+      KAFKA_NUM_NETWORK_THREADS: 8
+      KAFKA_NUM_IO_THREADS: 8
+      KAFKA_SOCKET_SEND_BUFFER_BYTES: 102400
+      KAFKA_SOCKET_RECEIVE_BUFFER_BYTES: 102400
+      KAFKA_SOCKET_REQUEST_MAX_BYTES: 104857600
+      
+      # Log Configuration
+      KAFKA_LOG_RETENTION_HOURS: 720  # 30 days
+      KAFKA_LOG_SEGMENT_BYTES: 1073741824
+      KAFKA_LOG_RETENTION_CHECK_INTERVAL_MS: 300000
+      KAFKA_COMPRESSION_TYPE: snappy
+      
+      # Group Coordinator Configuration
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 3000
+      
+      # Auto-create topics
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: 'true'
+    volumes:
+      - kafka_data:/var/lib/kafka/data
+    networks:
+      - caracal-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "kafka-broker-api-versions", "--bootstrap-server", "localhost:9092"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+
+  # Confluent Schema Registry
+  schema-registry:
+    image: confluentinc/cp-schema-registry:7.5.0
+    container_name: caracal-schema-registry
+    hostname: schema-registry
+    depends_on:
+      kafka:
+        condition: service_healthy
+    ports:
+      - "8081:8081"
+    environment:
+      SCHEMA_REGISTRY_HOST_NAME: schema-registry
+      SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS: kafka:9092
+      SCHEMA_REGISTRY_LISTENERS: http://0.0.0.0:8081
+      SCHEMA_REGISTRY_SCHEMA_COMPATIBILITY_LEVEL: backward
+      SCHEMA_REGISTRY_KAFKASTORE_TOPIC_REPLICATION_FACTOR: 1
+    networks:
+      - caracal-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8081/"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 40s
+
+  # ============================================================================
+  # CARACAL SERVICES
+  # ============================================================================
+  
   # Caracal Gateway Proxy
   # Network-enforced policy enforcement for AI agents
   gateway:
     build:
       context: .
       dockerfile: Dockerfile.gateway
-    image: caracal-gateway:latest
+    image: caracal-gateway:v0.3
     container_name: caracal-gateway
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
+      kafka:
+        condition: service_healthy
     ports:
-      # Gateway HTTPS port (default: 8443)
       - "${GATEWAY_PORT:-8443}:8443"
-      # Prometheus metrics port (default: 9090)
       - "${METRICS_PORT:-9090}:9090"
     volumes:
-      # Mount TLS certificates (required for HTTPS and mTLS)
-      # Create ./certs directory with:
-      #   - server.crt: Gateway TLS certificate
-      #   - server.key: Gateway TLS private key
-      #   - ca.crt: CA certificate for mTLS client authentication
-      #   - jwt_public.pem: JWT public key for JWT authentication
       - ./certs:/etc/caracal/tls:ro
-      
-      # Optional: Mount custom configuration
-      # - ./config:/etc/caracal/config:ro
-      
-      # Optional: Mount logs directory for persistent logging
-      # - ./logs/gateway:/var/log/caracal
     environment:
       # Database Configuration
       DB_HOST: postgres
@@ -163,9 +274,17 @@ services:
       REDIS_SPENDING_CACHE_TTL: ${REDIS_SPENDING_CACHE_TTL:-86400}
       REDIS_METRICS_CACHE_TTL: ${REDIS_METRICS_CACHE_TTL:-3600}
       
+      # Kafka Configuration (v0.3)
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      KAFKA_SECURITY_PROTOCOL: PLAINTEXT
+      KAFKA_ENABLE_IDEMPOTENCE: 'true'
+      KAFKA_ACKS: all
+      KAFKA_MAX_IN_FLIGHT_REQUESTS: 5
+      SCHEMA_REGISTRY_URL: http://schema-registry:8081
+      
       # Gateway Configuration
       LISTEN_ADDRESS: "0.0.0.0:8443"
-      AUTH_MODE: ${AUTH_MODE:-jwt}  # Options: mtls, jwt, api_key
+      AUTH_MODE: ${AUTH_MODE:-jwt}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
       REQUEST_TIMEOUT: ${REQUEST_TIMEOUT:-30}
       MAX_REQUEST_SIZE_MB: ${MAX_REQUEST_SIZE_MB:-10}
@@ -175,7 +294,7 @@ services:
       TLS_KEY_FILE: /etc/caracal/tls/server.key
       TLS_CA_FILE: /etc/caracal/tls/ca.crt
       
-      # JWT Configuration (when AUTH_MODE=jwt)
+      # JWT Configuration
       JWT_PUBLIC_KEY_PATH: /etc/caracal/tls/jwt_public.pem
       JWT_ALGORITHM: ${JWT_ALGORITHM:-RS256}
       
@@ -185,7 +304,7 @@ services:
       NONCE_CACHE_SIZE: ${NONCE_CACHE_SIZE:-100000}
       TIMESTAMP_WINDOW: ${TIMESTAMP_WINDOW:-300}
       
-      # Policy Cache (Degraded Mode)
+      # Policy Cache
       ENABLE_POLICY_CACHE: ${ENABLE_POLICY_CACHE:-true}
       POLICY_CACHE_TTL: ${POLICY_CACHE_TTL:-60}
       POLICY_CACHE_MAX_SIZE: ${POLICY_CACHE_MAX_SIZE:-10000}
@@ -204,7 +323,6 @@ services:
       start_period: 40s
       retries: 3
     restart: unless-stopped
-    # Resource limits (adjust based on your workload)
     deploy:
       resources:
         limits:
@@ -220,20 +338,15 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.mcp
-    image: caracal-mcp-adapter:latest
+    image: caracal-mcp-adapter:v0.3
     container_name: caracal-mcp-adapter
     depends_on:
       postgres:
         condition: service_healthy
+      kafka:
+        condition: service_healthy
     ports:
-      # MCP Adapter HTTP port (default: 8080)
       - "${MCP_ADAPTER_PORT:-8080}:8080"
-    volumes:
-      # Optional: Mount custom configuration
-      # - ./config:/etc/caracal/config:ro
-      
-      # Optional: Mount logs directory for persistent logging
-      # - ./logs/mcp-adapter:/var/log/caracal
     environment:
       # Database Configuration
       DB_HOST: postgres
@@ -245,6 +358,13 @@ services:
       DB_MAX_OVERFLOW: ${DB_MAX_OVERFLOW:-5}
       DB_POOL_TIMEOUT: ${DB_POOL_TIMEOUT:-30}
       
+      # Kafka Configuration (v0.3)
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      KAFKA_SECURITY_PROTOCOL: PLAINTEXT
+      KAFKA_ENABLE_IDEMPOTENCE: 'true'
+      KAFKA_ACKS: all
+      SCHEMA_REGISTRY_URL: http://schema-registry:8081
+      
       # MCP Adapter Configuration
       LISTEN_ADDRESS: "0.0.0.0:8080"
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
@@ -252,8 +372,6 @@ services:
       MAX_REQUEST_SIZE_MB: ${MAX_REQUEST_SIZE_MB:-10}
       
       # MCP Server Configuration
-      # Format: name1:url1,name2:url2
-      # Example: MCP_SERVERS=local:http://localhost:3000,remote:http://mcp-server:3001
       MCP_SERVERS: ${MCP_SERVERS:-}
       MCP_SERVER_TIMEOUT: ${MCP_SERVER_TIMEOUT:-30}
       
@@ -271,7 +389,6 @@ services:
       start_period: 40s
       retries: 3
     restart: unless-stopped
-    # Resource limits (adjust based on your workload)
     deploy:
       resources:
         limits:
@@ -281,7 +398,235 @@ services:
           cpus: '0.25'
           memory: 256M
 
-# Networks
+  # ============================================================================
+  # KAFKA CONSUMERS (v0.3)
+  # ============================================================================
+  
+  # LedgerWriter Consumer
+  # Consumes metering events from Kafka and writes to PostgreSQL ledger
+  # Requirements: 2.1, 2.4
+  ledger-writer:
+    build:
+      context: .
+      dockerfile: Dockerfile.consumer
+      args:
+        CONSUMER_TYPE: ledger-writer
+    image: caracal-consumer:v0.3
+    container_name: caracal-ledger-writer
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    environment:
+      # Database Configuration
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: ${DB_NAME:-caracal}
+      DB_USER: ${DB_USER:-caracal}
+      DB_PASSWORD: ${DB_PASSWORD:-caracal_dev_password}
+      DB_POOL_SIZE: ${DB_POOL_SIZE:-10}
+      DB_MAX_OVERFLOW: ${DB_MAX_OVERFLOW:-5}
+      DB_POOL_TIMEOUT: ${DB_POOL_TIMEOUT:-30}
+      
+      # Kafka Configuration
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      KAFKA_SECURITY_PROTOCOL: PLAINTEXT
+      KAFKA_CONSUMER_GROUP: ledger-writer-group
+      KAFKA_TOPICS: caracal.metering.events
+      KAFKA_AUTO_OFFSET_RESET: earliest
+      KAFKA_ENABLE_AUTO_COMMIT: 'false'
+      KAFKA_ISOLATION_LEVEL: read_committed
+      KAFKA_MAX_POLL_RECORDS: 500
+      KAFKA_SESSION_TIMEOUT_MS: 30000
+      KAFKA_ENABLE_IDEMPOTENCE: 'true'
+      SCHEMA_REGISTRY_URL: http://schema-registry:8081
+      
+      # Merkle Batcher Configuration
+      MERKLE_BATCH_SIZE_LIMIT: ${MERKLE_BATCH_SIZE_LIMIT:-1000}
+      MERKLE_BATCH_TIMEOUT_SECONDS: ${MERKLE_BATCH_TIMEOUT_SECONDS:-300}
+      MERKLE_SIGNING_KEY_PATH: /etc/caracal/keys/merkle_signing_key.pem
+      
+      # Consumer Configuration
+      CONSUMER_TYPE: ledger-writer
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    volumes:
+      - ./keys:/etc/caracal/keys:ro
+    networks:
+      - caracal-network
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 128M
+
+  # MetricsAggregator Consumer
+  # Consumes metering events and updates real-time metrics in Redis and Prometheus
+  # Requirements: 2.2, 16.2, 16.3
+  metrics-aggregator:
+    build:
+      context: .
+      dockerfile: Dockerfile.consumer
+      args:
+        CONSUMER_TYPE: metrics-aggregator
+    image: caracal-consumer:v0.3
+    container_name: caracal-metrics-aggregator
+    depends_on:
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    ports:
+      - "${METRICS_AGGREGATOR_PORT:-9091}:9091"
+    environment:
+      # Redis Configuration
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-caracal_redis_password}
+      REDIS_DB: ${REDIS_DB:-0}
+      REDIS_SSL: ${REDIS_SSL:-false}
+      
+      # Kafka Configuration
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      KAFKA_SECURITY_PROTOCOL: PLAINTEXT
+      KAFKA_CONSUMER_GROUP: metrics-aggregator-group
+      KAFKA_TOPICS: caracal.metering.events
+      KAFKA_AUTO_OFFSET_RESET: earliest
+      KAFKA_ENABLE_AUTO_COMMIT: 'false'
+      KAFKA_ISOLATION_LEVEL: read_committed
+      KAFKA_MAX_POLL_RECORDS: 500
+      KAFKA_SESSION_TIMEOUT_MS: 30000
+      SCHEMA_REGISTRY_URL: http://schema-registry:8081
+      
+      # Metrics Configuration
+      METRICS_PORT: 9091
+      ANOMALY_DETECTION_THRESHOLD: ${ANOMALY_DETECTION_THRESHOLD:-2.0}
+      
+      # Consumer Configuration
+      CONSUMER_TYPE: metrics-aggregator
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    networks:
+      - caracal-network
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 128M
+
+  # AuditLogger Consumer
+  # Consumes all events and writes to append-only audit log
+  # Requirements: 17.1, 17.2, 17.3, 17.4
+  audit-logger:
+    build:
+      context: .
+      dockerfile: Dockerfile.consumer
+      args:
+        CONSUMER_TYPE: audit-logger
+    image: caracal-consumer:v0.3
+    container_name: caracal-audit-logger
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    environment:
+      # Database Configuration
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: ${DB_NAME:-caracal}
+      DB_USER: ${DB_USER:-caracal}
+      DB_PASSWORD: ${DB_PASSWORD:-caracal_dev_password}
+      DB_POOL_SIZE: ${DB_POOL_SIZE:-10}
+      DB_MAX_OVERFLOW: ${DB_MAX_OVERFLOW:-5}
+      DB_POOL_TIMEOUT: ${DB_POOL_TIMEOUT:-30}
+      
+      # Kafka Configuration
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      KAFKA_SECURITY_PROTOCOL: PLAINTEXT
+      KAFKA_CONSUMER_GROUP: audit-logger-group
+      KAFKA_TOPICS: caracal.metering.events,caracal.policy.decisions,caracal.agent.lifecycle,caracal.policy.changes
+      KAFKA_AUTO_OFFSET_RESET: earliest
+      KAFKA_ENABLE_AUTO_COMMIT: 'false'
+      KAFKA_ISOLATION_LEVEL: read_committed
+      KAFKA_MAX_POLL_RECORDS: 500
+      KAFKA_SESSION_TIMEOUT_MS: 30000
+      SCHEMA_REGISTRY_URL: http://schema-registry:8081
+      
+      # Audit Configuration
+      AUDIT_LOG_RETENTION_DAYS: ${AUDIT_LOG_RETENTION_DAYS:-2555}  # 7 years
+      
+      # Consumer Configuration
+      CONSUMER_TYPE: audit-logger
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    networks:
+      - caracal-network
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 128M
+
+  # ============================================================================
+  # CLI CONTAINER (Optional)
+  # ============================================================================
+  
+  # Caracal CLI
+  # Command-line interface for administrative operations
+  cli:
+    build:
+      context: .
+      dockerfile: Dockerfile.cli
+    image: caracal-cli:v0.3
+    container_name: caracal-cli
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    environment:
+      # Database Configuration
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: ${DB_NAME:-caracal}
+      DB_USER: ${DB_USER:-caracal}
+      DB_PASSWORD: ${DB_PASSWORD:-caracal_dev_password}
+      
+      # Kafka Configuration
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      KAFKA_SECURITY_PROTOCOL: PLAINTEXT
+      SCHEMA_REGISTRY_URL: http://schema-registry:8081
+      
+      # Redis Configuration
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-caracal_redis_password}
+      
+      # CLI Configuration
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    volumes:
+      - ./keys:/etc/caracal/keys:ro
+    networks:
+      - caracal-network
+    # Keep container running for exec commands
+    command: tail -f /dev/null
+    restart: unless-stopped
+
+# ============================================================================
+# NETWORKS
+# ============================================================================
+
 networks:
   caracal-network:
     driver: bridge
@@ -289,7 +634,10 @@ networks:
       config:
         - subnet: 172.28.0.0/16
 
-# Volumes
+# ============================================================================
+# VOLUMES
+# ============================================================================
+
 volumes:
   # PostgreSQL persistent storage
   postgres_data:
@@ -297,4 +645,14 @@ volumes:
   
   # Redis persistent storage (RDB + AOF)
   redis_data:
+    driver: local
+  
+  # Zookeeper persistent storage
+  zookeeper_data:
+    driver: local
+  zookeeper_log:
+    driver: local
+  
+  # Kafka persistent storage
+  kafka_data:
     driver: local

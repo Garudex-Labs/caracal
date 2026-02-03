@@ -66,7 +66,7 @@ def test_wheel_install():
             caracal_exe = venv_path / 'bin' / 'caracal'
         
         # Install from wheel
-        wheel_path = Path('dist/caracal_core-0.2.0-py3-none-any.whl').absolute()
+        wheel_path = Path('dist/caracal_core-0.3.0-py3-none-any.whl').absolute()
         if not run_command(
             [str(python_exe), '-m', 'pip', 'install', str(wheel_path)],
             "Installing from wheel"
@@ -121,7 +121,7 @@ def test_sdist_install():
             caracal_exe = venv_path / 'bin' / 'caracal'
         
         # Install from sdist
-        sdist_path = Path('dist/caracal_core-0.2.0.tar.gz').absolute()
+        sdist_path = Path('dist/caracal_core-0.3.0.tar.gz').absolute()
         if not run_command(
             [str(python_exe), '-m', 'pip', 'install', str(sdist_path)],
             "Installing from source distribution"

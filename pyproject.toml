@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "caracal-core"
-version = "0.2.0"
+dynamic = ["version"]
 description = "Economic control plane for AI agents"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -69,6 +69,9 @@ caracal = "caracal.cli.main:cli"
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["caracal*"]
+
+[tool.setuptools.dynamic]
+version = {file = ["VERSION"]}
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

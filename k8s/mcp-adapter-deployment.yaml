@@ -14,7 +14,7 @@ metadata:
   namespace: caracal
   labels:
     app.kubernetes.io/name: caracal
-    app.kubernetes.io/version: "0.2.0"
+    app.kubernetes.io/version: "0.3.0"
     app.kubernetes.io/component: mcp-adapter
 spec:
   replicas: 2
@@ -31,7 +31,7 @@ spec:
     metadata:
       labels:
         app.kubernetes.io/name: caracal
-        app.kubernetes.io/version: "0.2.0"
+        app.kubernetes.io/version: "0.3.0"
         app.kubernetes.io/component: mcp-adapter
       annotations:
         prometheus.io/scrape: "true"
@@ -177,7 +177,7 @@ metadata:
   namespace: caracal
   labels:
     app.kubernetes.io/name: caracal
-    app.kubernetes.io/version: "0.2.0"
+    app.kubernetes.io/version: "0.3.0"
     app.kubernetes.io/component: mcp-adapter
 spec:
   type: ClusterIP
