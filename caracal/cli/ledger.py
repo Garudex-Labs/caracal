@@ -791,3 +791,293 @@ def delegation_chain(
     except Exception as e:
         click.echo(f"Unexpected error: {e}", err=True)
         sys.exit(1)
+
+
+
+@click.command('list-partitions')
+@click.option(
+    '--format',
+    '-f',
+    type=click.Choice(['table', 'json'], case_sensitive=False),
+    default='table',
+    help='Output format (default: table)',
+)
+@click.pass_context
+def list_partitions(ctx, format: str):
+    """
+    List all ledger_events table partitions.
+    
+    Shows all existing partitions with their date ranges, sizes, and row counts.
+    
+    Examples:
+    
+        # List all partitions
+        caracal ledger list-partitions
+        
+        # JSON output
+        caracal ledger list-partitions --format json
+    """
+    try:
+        from caracal.db.connection import get_session
+        from caracal.db.partition_manager import PartitionManager
+        
+        # Get database session
+        session = get_session()
+        manager = PartitionManager(session)
+        
+        # List partitions
+        partitions = manager.list_partitions()
+        
+        if not partitions:
+            click.echo("No partitions found. The ledger_events table may not be partitioned.")
+            return
+        
+        if format.lower() == 'json':
+            # JSON output
+            output = {
+                "total_partitions": len(partitions),
+                "partitions": [
+                    {
+                        "name": name,
+                        "start_date": start_date.isoformat(),
+                        "end_date": end_date.isoformat(),
+                        "size_bytes": manager.get_partition_size(name),
+                        "row_count": manager.get_partition_row_count(name)
+                    }
+                    for name, start_date, end_date in partitions
+                ]
+            }
+            click.echo(json.dumps(output, indent=2))
+        else:
+            # Table output
+            click.echo(f"Ledger Events Partitions")
+            click.echo("=" * 100)
+            click.echo()
+            click.echo(f"Total Partitions: {len(partitions)}")
+            click.echo()
+            
+            # Print header
+            click.echo(f"{'Partition Name':<40}  {'Start Date':<12}  {'End Date':<12}  {'Rows':>10}  {'Size':>10}")
+            click.echo("-" * 100)
+            
+            # Print partitions
+            for name, start_date, end_date in partitions:
+                row_count = manager.get_partition_row_count(name) or 0
+                size_bytes = manager.get_partition_size(name) or 0
+                
+                # Format size in human-readable format
+                if size_bytes < 1024:
+                    size_str = f"{size_bytes}B"
+                elif size_bytes < 1024 * 1024:
+                    size_str = f"{size_bytes / 1024:.1f}KB"
+                elif size_bytes < 1024 * 1024 * 1024:
+                    size_str = f"{size_bytes / (1024 * 1024):.1f}MB"
+                else:
+                    size_str = f"{size_bytes / (1024 * 1024 * 1024):.1f}GB"
+                
+                click.echo(
+                    f"{name:<40}  "
+                    f"{start_date.date()!s:<12}  "
+                    f"{end_date.date()!s:<12}  "
+                    f"{row_count:>10}  "
+                    f"{size_str:>10}"
+                )
+        
+        session.close()
+    
+    except Exception as e:
+        click.echo(f"Error: {e}", err=True)
+        sys.exit(1)
+
+
+@click.command('create-partitions')
+@click.option(
+    '--months-ahead',
+    '-m',
+    type=int,
+    default=3,
+    help='Number of months ahead to create partitions for (default: 3)',
+)
+@click.pass_context
+def create_partitions(ctx, months_ahead: int):
+    """
+    Create partitions for upcoming months.
+    
+    Creates partitions for the current month and specified number of months ahead.
+    This command should be run periodically (e.g., monthly) to ensure partitions
+    exist for future data.
+    
+    Examples:
+    
+        # Create partitions for next 3 months
+        caracal ledger create-partitions
+        
+        # Create partitions for next 6 months
+        caracal ledger create-partitions --months-ahead 6
+    """
+    try:
+        from caracal.db.connection import get_session
+        from caracal.db.partition_manager import PartitionManager
+        
+        # Get database session
+        session = get_session()
+        manager = PartitionManager(session)
+        
+        click.echo(f"Creating partitions for next {months_ahead} months...")
+        
+        # Create partitions
+        created_partitions = manager.create_upcoming_partitions(months_ahead=months_ahead)
+        
+        if created_partitions:
+            click.echo(f"\nSuccessfully created {len(created_partitions)} partitions:")
+            for partition_name in created_partitions:
+                click.echo(f"  - {partition_name}")
+        else:
+            click.echo("\nNo new partitions created (all partitions already exist)")
+        
+        session.close()
+    
+    except Exception as e:
+        click.echo(f"Error: {e}", err=True)
+        sys.exit(1)
+
+
+@click.command('archive-partitions')
+@click.option(
+    '--months-to-keep',
+    '-m',
+    type=int,
+    default=12,
+    help='Number of months of data to keep online (default: 12)',
+)
+@click.option(
+    '--dry-run',
+    is_flag=True,
+    help='Show which partitions would be archived without actually archiving them',
+)
+@click.pass_context
+def archive_partitions(ctx, months_to_keep: int, dry_run: bool):
+    """
+    Archive old partitions to cold storage.
+    
+    Detaches partitions older than the specified number of months from the
+    ledger_events table. Detached partitions become standalone tables that
+    can be backed up and dropped independently.
+    
+    IMPORTANT: This command only detaches partitions. You must:
+    1. Back up the detached partitions to cold storage
+    2. Manually drop the detached tables after backup is confirmed
+    
+    Examples:
+    
+        # Dry run to see which partitions would be archived
+        caracal ledger archive-partitions --dry-run
+        
+        # Archive partitions older than 12 months
+        caracal ledger archive-partitions
+        
+        # Archive partitions older than 6 months
+        caracal ledger archive-partitions --months-to-keep 6
+    """
+    try:
+        from caracal.db.connection import get_session
+        from caracal.db.partition_manager import PartitionManager
+        
+        # Get database session
+        session = get_session()
+        manager = PartitionManager(session)
+        
+        if dry_run:
+            click.echo(f"DRY RUN: Checking for partitions older than {months_to_keep} months...")
+        else:
+            click.echo(f"Archiving partitions older than {months_to_keep} months...")
+            click.echo("\nWARNING: This will detach old partitions from the ledger_events table.")
+            click.echo("Make sure to back up detached partitions before dropping them!")
+            
+            if not click.confirm("\nDo you want to continue?"):
+                click.echo("Aborted.")
+                return
+        
+        # Archive old partitions
+        archived_partitions = manager.archive_old_partitions(
+            months_to_keep=months_to_keep,
+            dry_run=dry_run
+        )
+        
+        if archived_partitions:
+            if dry_run:
+                click.echo(f"\nWould archive {len(archived_partitions)} partitions:")
+            else:
+                click.echo(f"\nSuccessfully archived {len(archived_partitions)} partitions:")
+            
+            for partition_name in archived_partitions:
+                click.echo(f"  - {partition_name}")
+            
+            if not dry_run:
+                click.echo("\nNext steps:")
+                click.echo("1. Back up the detached partitions to cold storage")
+                click.echo("2. Verify backups are complete and accessible")
+                click.echo("3. Drop the detached tables manually:")
+                for partition_name in archived_partitions:
+                    click.echo(f"   DROP TABLE {partition_name};")
+        else:
+            click.echo("\nNo partitions to archive (all partitions are within retention period)")
+        
+        session.close()
+    
+    except Exception as e:
+        click.echo(f"Error: {e}", err=True)
+        sys.exit(1)
+
+
+@click.command('refresh-views')
+@click.option(
+    '--concurrent/--no-concurrent',
+    default=True,
+    help='Use concurrent refresh to avoid blocking reads (default: concurrent)',
+)
+@click.pass_context
+def refresh_views(ctx, concurrent: bool):
+    """
+    Refresh materialized views for ledger query optimization.
+    
+    Refreshes the spending_by_agent_mv and spending_by_time_window_mv
+    materialized views. These views provide fast lookups for spending
+    aggregations and are used by the policy evaluator.
+    
+    By default, uses CONCURRENTLY to avoid blocking reads during refresh.
+    
+    Examples:
+    
+        # Refresh views concurrently (recommended)
+        caracal ledger refresh-views
+        
+        # Refresh views without concurrent mode (faster but blocks reads)
+        caracal ledger refresh-views --no-concurrent
+    """
+    try:
+        from caracal.db.connection import get_session
+        from caracal.db.materialized_views import MaterializedViewManager
+        
+        # Get database session
+        session = get_session()
+        manager = MaterializedViewManager(session)
+        
+        click.echo("Refreshing materialized views...")
+        
+        # Refresh all views
+        manager.refresh_all(concurrent=concurrent)
+        
+        # Get refresh times
+        spending_by_agent_time = manager.get_view_refresh_time('spending_by_agent_mv')
+        spending_by_time_window_time = manager.get_view_refresh_time('spending_by_time_window_mv')
+        
+        click.echo("\nSuccessfully refreshed all materialized views:")
+        click.echo(f"  - spending_by_agent_mv (refreshed at: {spending_by_agent_time})")
+        click.echo(f"  - spending_by_time_window_mv (refreshed at: {spending_by_time_window_time})")
+        
+        session.close()
+    
+    except Exception as e:
+        click.echo(f"Error: {e}", err=True)
+        sys.exit(1)
