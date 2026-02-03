@@ -58,10 +58,18 @@ def get_policy_store(config) -> PolicyStore:
     help='Maximum spending limit (e.g., 100.00)',
 )
 @click.option(
-    '--window',
+    '--time-window',
     '-w',
+    type=click.Choice(['hourly', 'daily', 'weekly', 'monthly'], case_sensitive=False),
     default='daily',
     help='Time window for budget (default: daily)',
+)
+@click.option(
+    '--window-type',
+    '-t',
+    type=click.Choice(['rolling', 'calendar'], case_sensitive=False),
+    default='calendar',
+    help='Window type: rolling (sliding) or calendar (aligned to boundaries, default: calendar)',
 )
 @click.option(
     '--currency',
@@ -70,17 +78,31 @@ def get_policy_store(config) -> PolicyStore:
     help='Currency code (default: USD)',
 )
 @click.pass_context
-def create(ctx, agent_id: str, limit: str, window: str, currency: str):
+def create(ctx, agent_id: str, limit: str, time_window: str, window_type: str, currency: str):
     """
     Create a new budget policy for an agent.
     
     Creates a policy that constrains agent spending within a time window.
     
+    v0.3 enhancements:
+    - Supports hourly, daily, weekly, monthly time windows
+    - Supports rolling (sliding) and calendar (aligned) window types
+    
     Examples:
     
+        # Daily calendar window (default)
         caracal policy create --agent-id 550e8400-e29b-41d4-a716-446655440000 --limit 100.00
         
-        caracal policy create -a 550e8400-e29b-41d4-a716-446655440000 -l 50.00 -w daily -c USD
+        # Hourly rolling window
+        caracal policy create -a 550e8400-e29b-41d4-a716-446655440000 -l 50.00 -w hourly -t rolling
+        
+        # Weekly calendar window
+        caracal policy create -a 550e8400-e29b-41d4-a716-446655440000 -l 1000.00 -w weekly -t calendar
+        
+        # Monthly rolling window
+        caracal policy create -a 550e8400-e29b-41d4-a716-446655440000 -l 5000.00 -w monthly -t rolling
+    
+    Requirements: 9.1, 9.2, 9.3, 9.4
     """
     try:
         # Get CLI context
@@ -102,21 +124,9 @@ def create(ctx, agent_id: str, limit: str, window: str, currency: str):
             )
             sys.exit(1)
         
-        # Validate time window (v0.1 only supports daily)
-        if window != 'daily':
-            click.echo(
-                f"Error: Only 'daily' time window is supported in v0.1, got '{window}'",
-                err=True
-            )
-            sys.exit(1)
-        
-        # Validate currency (v0.1 only supports USD)
-        if currency.upper() != 'USD':
-            click.echo(
-                f"Error: Only 'USD' currency is supported in v0.1, got '{currency}'",
-                err=True
-            )
-            sys.exit(1)
+        # Normalize time_window and window_type to lowercase
+        time_window = time_window.lower()
+        window_type = window_type.lower()
         
         # Create policy store
         policy_store = get_policy_store(cli_ctx.config)
@@ -125,7 +135,7 @@ def create(ctx, agent_id: str, limit: str, window: str, currency: str):
         policy = policy_store.create_policy(
             agent_id=agent_id,
             limit_amount=limit_amount,
-            time_window=window,
+            time_window=time_window,
             currency=currency.upper()
         )
         
@@ -135,7 +145,7 @@ def create(ctx, agent_id: str, limit: str, window: str, currency: str):
         click.echo(f"Policy ID:    {policy.policy_id}")
         click.echo(f"Agent ID:     {policy.agent_id}")
         click.echo(f"Limit:        {policy.limit_amount} {policy.currency}")
-        click.echo(f"Time Window:  {policy.time_window}")
+        click.echo(f"Time Window:  {policy.time_window} ({window_type})")
         click.echo(f"Created:      {policy.created_at}")
         click.echo(f"Active:       {policy.active}")
         
@@ -215,19 +225,28 @@ def list_policies(ctx, agent_id: str, format: str):
             # Calculate column widths
             max_policy_id_len = max(len(policy.policy_id) for policy in policies)
             max_agent_id_len = max(len(policy.agent_id) for policy in policies)
+            
+            # Format window display with type
+            window_displays = []
+            for policy in policies:
+                window_type = getattr(policy, 'window_type', 'calendar')
+                window_displays.append(f"{policy.time_window} ({window_type})")
+            
             max_limit_len = max(len(f"{policy.limit_amount} {policy.currency}") for policy in policies)
+            max_window_len = max(len(wd) for wd in window_displays)
             
             # Ensure minimum widths for headers
             policy_id_width = max(max_policy_id_len, len("Policy ID"))
             agent_id_width = max(max_agent_id_len, len("Agent ID"))
             limit_width = max(max_limit_len, len("Limit"))
+            window_width = max(max_window_len, len("Time Window"))
             
             # Print header
             header = (
                 f"{'Policy ID':<{policy_id_width}}  "
                 f"{'Agent ID':<{agent_id_width}}  "
                 f"{'Limit':<{limit_width}}  "
-                f"{'Window':<8}  "
+                f"{'Time Window':<{window_width}}  "
                 f"{'Active':<6}  "
                 f"Created"
             )
@@ -235,17 +254,18 @@ def list_policies(ctx, agent_id: str, format: str):
             click.echo("-" * len(header))
             
             # Print policies
-            for policy in policies:
+            for i, policy in enumerate(policies):
                 # Format created_at to be more readable
                 created = policy.created_at.replace('T', ' ').replace('Z', '')
                 limit_str = f"{policy.limit_amount} {policy.currency}"
                 active_str = "Yes" if policy.active else "No"
+                window_display = window_displays[i]
                 
                 click.echo(
                     f"{policy.policy_id:<{policy_id_width}}  "
                     f"{policy.agent_id:<{agent_id_width}}  "
                     f"{limit_str:<{limit_width}}  "
-                    f"{policy.time_window:<8}  "
+                    f"{window_display:<{window_width}}  "
                     f"{active_str:<6}  "
                     f"{created}"
                 )
@@ -316,10 +336,12 @@ def get(ctx, agent_id: str, format: str):
                     click.echo("-" * 70)
                     click.echo()
                 
+                window_type = getattr(policy, 'window_type', 'calendar')
+                
                 click.echo(f"Policy #{i}")
                 click.echo(f"  Policy ID:    {policy.policy_id}")
                 click.echo(f"  Limit:        {policy.limit_amount} {policy.currency}")
-                click.echo(f"  Time Window:  {policy.time_window}")
+                click.echo(f"  Time Window:  {policy.time_window} ({window_type})")
                 click.echo(f"  Active:       {'Yes' if policy.active else 'No'}")
                 click.echo(f"  Created:      {policy.created_at}")
         
