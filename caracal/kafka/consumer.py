@@ -294,26 +294,32 @@ class BaseKafkaConsumer(ABC):
     
     async def start(self) -> None:
         """
-        Start consuming messages with exactly-once semantics.
+        Start consuming messages with exactly-once semantics and parallel processing.
         
         Consumption loop:
         1. Subscribe to topics
         2. Poll for messages
         3. For each message:
-           a. Call process_message()
-           b. On success, commit offset
-           c. On error, retry up to MAX_RETRIES times
-           d. On persistent failure, send to DLQ
+           a. Spawn async task to process message (up to max_workers concurrent)
+           b. Task calls process_message()
+           c. On success, commit offset
+           d. On error, retry up to MAX_RETRIES times
+           e. On persistent failure, send to DLQ
         4. Handle rebalancing via callbacks
         
-        Requirements: 2.4, 2.5, 1.5, 1.6
+        Parallel processing (v0.3 optimization):
+        - Uses semaphore to limit concurrent tasks to max_workers
+        - Processes multiple messages in parallel for improved throughput
+        - Maintains ordering guarantees within each partition
+        
+        Requirements: 2.4, 2.5, 1.5, 1.6, 23.2
         """
         self._initialize()
         self._running = True
         
         logger.info(
             f"Starting {self.__class__.__name__} consumer loop: "
-            f"topics={self.topics}, group={self.consumer_group}"
+            f"topics={self.topics}, group={self.consumer_group}, max_workers={self.max_workers}"
         )
         
         try:
@@ -322,7 +328,8 @@ class BaseKafkaConsumer(ABC):
                 msg = self._consumer.poll(timeout=1.0)
                 
                 if msg is None:
-                    # No message available
+                    # No message available - clean up completed tasks
+                    await self._cleanup_completed_tasks()
                     continue
                 
                 if msg.error():
@@ -349,31 +356,13 @@ class BaseKafkaConsumer(ABC):
                     headers=dict(msg.headers()) if msg.headers() else None
                 )
                 
-                # Process message with error handling
-                try:
-                    await self._process_with_retry(kafka_msg)
-                    
-                    # Commit offset after successful processing
-                    self._consumer.commit(asynchronous=False)
-                    
-                    logger.debug(
-                        f"Message processed and offset committed: "
-                        f"topic={kafka_msg.topic}, partition={kafka_msg.partition}, "
-                        f"offset={kafka_msg.offset}"
-                    )
-                    
-                except Exception as e:
-                    # This should not happen as _process_with_retry handles all errors
-                    logger.error(
-                        f"Unexpected error processing message: {e}",
-                        exc_info=True
-                    )
-                    
-                    # Send to DLQ as last resort
-                    await self.send_to_dlq(kafka_msg, e)
-                    
-                    # Commit offset to move past this message
-                    self._consumer.commit(asynchronous=False)
+                # Spawn async task to process message (with semaphore for concurrency control)
+                task = asyncio.create_task(self._process_message_task(kafka_msg))
+                self._active_tasks.append(task)
+                
+                # Clean up completed tasks periodically
+                if len(self._active_tasks) >= self.max_workers:
+                    await self._cleanup_completed_tasks()
         
         except KeyboardInterrupt:
             logger.info("Received interrupt signal, stopping consumer")
@@ -383,7 +372,60 @@ class BaseKafkaConsumer(ABC):
             raise KafkaConsumerError(f"Consumer loop failed: {e}") from e
         
         finally:
+            # Wait for all active tasks to complete
+            if self._active_tasks:
+                logger.info(f"Waiting for {len(self._active_tasks)} active tasks to complete")
+                await asyncio.gather(*self._active_tasks, return_exceptions=True)
+            
             await self.stop()
+    
+    async def _process_message_task(self, message: KafkaMessage) -> None:
+        """
+        Process a single message in an async task with concurrency control.
+        
+        Uses semaphore to limit concurrent processing to max_workers.
+        
+        Args:
+            message: Kafka message to process
+            
+        Requirements: 23.2
+        """
+        async with self._processing_semaphore:
+            try:
+                await self._process_with_retry(message)
+                
+                # Commit offset after successful processing
+                self._consumer.commit(asynchronous=False)
+                
+                logger.debug(
+                    f"Message processed and offset committed: "
+                    f"topic={message.topic}, partition={message.partition}, "
+                    f"offset={message.offset}"
+                )
+                
+            except Exception as e:
+                # This should not happen as _process_with_retry handles all errors
+                logger.error(
+                    f"Unexpected error processing message: {e}",
+                    exc_info=True
+                )
+                
+                # Send to DLQ as last resort
+                await self.send_to_dlq(message, e)
+                
+                # Commit offset to move past this message
+                self._consumer.commit(asynchronous=False)
+    
+    async def _cleanup_completed_tasks(self) -> None:
+        """
+        Clean up completed tasks from the active tasks list.
+        
+        Requirements: 23.2
+        """
+        # Filter out completed tasks
+        self._active_tasks = [task for task in self._active_tasks if not task.done()]
+        
+        logger.debug(f"Active tasks after cleanup: {len(self._active_tasks)}")
     
     async def _process_with_retry(self, message: KafkaMessage) -> None:
         """

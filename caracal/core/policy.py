@@ -8,6 +8,7 @@ including creation, retrieval, and persistence.
 import json
 import os
 import shutil
+import time
 import uuid
 from dataclasses import asdict, dataclass
 from datetime import datetime
@@ -75,6 +76,10 @@ class PolicyStore:
     Provides methods to create, retrieve, and list policies.
     Implements atomic write operations and rolling backups.
     Integrates with PolicyVersionManager for audit trails (v0.3).
+    
+    v0.3 optimizations:
+    - Policy query caching with TTL
+    - Target sub-second evaluation for 100k agents
     """
 
     def __init__(
@@ -82,7 +87,8 @@ class PolicyStore:
         policy_path: str, 
         agent_registry=None,
         backup_count: int = 3,
-        policy_version_manager=None
+        policy_version_manager=None,
+        cache_ttl_seconds: int = 60
     ):
         """
         Initialize PolicyStore.
@@ -92,13 +98,20 @@ class PolicyStore:
             agent_registry: Optional AgentRegistry for validating agent existence
             backup_count: Number of rolling backups to maintain (default: 3)
             policy_version_manager: Optional PolicyVersionManager for v0.3 versioning
+            cache_ttl_seconds: TTL for policy query cache (default: 60 seconds)
         """
         self.policy_path = Path(policy_path)
         self.agent_registry = agent_registry
         self.backup_count = backup_count
         self.policy_version_manager = policy_version_manager
+        self.cache_ttl_seconds = cache_ttl_seconds
         self._policies: Dict[str, BudgetPolicy] = {}
         self._agent_policies: Dict[str, List[str]] = {}  # agent_id -> [policy_ids]
+        
+        # Policy query cache (v0.3 optimization)
+        self._policy_cache: Dict[str, tuple[List[BudgetPolicy], float]] = {}  # agent_id -> (policies, timestamp)
+        self._cache_hits = 0
+        self._cache_misses = 0
         
         # Ensure parent directory exists
         self.policy_path.parent.mkdir(parents=True, exist_ok=True)
@@ -225,6 +238,9 @@ class PolicyStore:
             self._agent_policies[agent_id] = []
         self._agent_policies[agent_id].append(policy_id)
         
+        # Invalidate policy cache for this agent (v0.3 optimization)
+        self.invalidate_policy_cache(agent_id)
+        
         # Persist to disk
         try:
             self._persist()
@@ -315,12 +331,36 @@ class PolicyStore:
         """
         Get all active policies for an agent.
         
+        Uses caching with TTL for improved performance (v0.3 optimization).
+        
         Args:
             agent_id: The agent's unique identifier
             
         Returns:
             List of active BudgetPolicy objects for the agent
+            
+        Requirements: 23.7
         """
+        # Check cache first (v0.3 optimization)
+        if agent_id in self._policy_cache:
+            cached_policies, cached_time = self._policy_cache[agent_id]
+            age_seconds = time.time() - cached_time
+            
+            if age_seconds < self.cache_ttl_seconds:
+                self._cache_hits += 1
+                logger.debug(
+                    f"Policy cache hit for agent {agent_id}: "
+                    f"{len(cached_policies)} policies (age={age_seconds:.1f}s)"
+                )
+                return cached_policies
+            else:
+                # Cache expired
+                del self._policy_cache[agent_id]
+                logger.debug(f"Policy cache expired for agent {agent_id} (age={age_seconds:.1f}s)")
+        
+        # Cache miss - query policies
+        self._cache_misses += 1
+        
         policy_ids = self._agent_policies.get(agent_id, [])
         policies = []
         
@@ -329,9 +369,30 @@ class PolicyStore:
             if policy and policy.active:
                 policies.append(policy)
         
-        logger.debug(f"Retrieved {len(policies)} active policies for agent {agent_id}")
+        # Cache the result (v0.3 optimization)
+        self._policy_cache[agent_id] = (policies, time.time())
+        
+        logger.debug(
+            f"Retrieved {len(policies)} active policies for agent {agent_id} "
+            f"(cache_hits={self._cache_hits}, cache_misses={self._cache_misses})"
+        )
         
         return policies
+    
+    def invalidate_policy_cache(self, agent_id: str) -> None:
+        """
+        Invalidate policy cache for an agent.
+        
+        Should be called when policies are created, modified, or deleted.
+        
+        Args:
+            agent_id: Agent identifier
+            
+        Requirements: 23.7
+        """
+        if agent_id in self._policy_cache:
+            del self._policy_cache[agent_id]
+            logger.debug(f"Invalidated policy cache for agent {agent_id}")
 
     def list_all_policies(self) -> List[BudgetPolicy]:
         """

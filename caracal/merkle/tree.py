@@ -6,9 +6,11 @@ creating tamper-evident ledger batches. It supports:
 - Tree construction from leaf hashes
 - Merkle proof generation for any leaf
 - Merkle proof verification
+- Parallel tree construction for improved performance (v0.3 optimization)
 """
 
 import hashlib
+import concurrent.futures
 from dataclasses import dataclass
 from typing import List, Optional
 
@@ -32,11 +34,17 @@ class MerkleProof:
 
 class MerkleTree:
     """
-    Binary Merkle tree implementation using SHA-256.
+    Binary Merkle tree implementation using SHA-256 with parallel computation.
     
     The tree is built bottom-up from leaf hashes. Each internal node's hash
     is computed by concatenating and hashing its two children. If there's an
     odd number of nodes at any level, the last node is duplicated.
+    
+    v0.3 optimizations:
+    - Parallel hashing of leaves using ThreadPoolExecutor
+    - Parallel tree level computation for large batches
+    - Proof caching for frequently verified proofs
+    - Target: < 100ms for 1000-event batches, < 5ms verification time
     
     Example:
         >>> leaves = [b"data1", b"data2", b"data3"]
@@ -44,14 +52,23 @@ class MerkleTree:
         >>> root = tree.get_root()
         >>> proof = tree.generate_proof(0)
         >>> assert MerkleTree.verify_proof(leaves[0], proof, root)
+    
+    Requirements: 3.2, 3.3, 23.3, 23.4
     """
     
-    def __init__(self, leaves: List[bytes]):
+    # Threshold for parallel processing (use parallel for batches larger than this)
+    PARALLEL_THRESHOLD = 100
+    
+    # Proof cache size limit
+    MAX_PROOF_CACHE_SIZE = 1000
+    
+    def __init__(self, leaves: List[bytes], use_parallel: bool = True):
         """
         Build Merkle tree from leaf data.
         
         Args:
             leaves: List of leaf data (will be hashed with SHA-256)
+            use_parallel: Enable parallel processing for large batches (default: True)
         
         Raises:
             ValueError: If leaves list is empty
@@ -59,12 +76,24 @@ class MerkleTree:
         if not leaves:
             raise ValueError("Cannot create Merkle tree from empty leaves list")
         
-        # Hash each leaf using SHA-256
-        self.leaves = [self._hash(leaf) for leaf in leaves]
+        self.use_parallel = use_parallel and len(leaves) >= self.PARALLEL_THRESHOLD
+        
+        # Hash each leaf using SHA-256 (parallel for large batches)
+        if self.use_parallel:
+            self.leaves = self._hash_leaves_parallel(leaves)
+        else:
+            self.leaves = [self._hash(leaf) for leaf in leaves]
+        
         self.leaf_count = len(self.leaves)
         
         # Build tree structure (list of levels, bottom to top)
         self.tree = self._build_tree()
+        
+        # Proof cache for frequently verified proofs (v0.3 optimization)
+        self._proof_cache: dict[int, MerkleProof] = {}
+        
+        # Verification cache for (leaf_hash, root_hash) pairs (v0.3 optimization)
+        self._verification_cache: dict[tuple[bytes, bytes], bool] = {}
     
     def _hash(self, data: bytes) -> bytes:
         """
@@ -77,6 +106,21 @@ class MerkleTree:
             SHA-256 hash of data
         """
         return hashlib.sha256(data).digest()
+    
+    def _hash_leaves_parallel(self, leaves: List[bytes]) -> List[bytes]:
+        """
+        Hash leaves in parallel using ThreadPoolExecutor.
+        
+        Args:
+            leaves: List of leaf data to hash
+        
+        Returns:
+            List of hashed leaves
+            
+        Requirements: 23.3
+        """
+        with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
+            return list(executor.map(self._hash, leaves))
     
     def _hash_pair(self, left: bytes, right: bytes) -> bytes:
         """
@@ -91,6 +135,33 @@ class MerkleTree:
         """
         return self._hash(left + right)
     
+    def _build_tree_level_parallel(self, current_level: List[bytes]) -> List[bytes]:
+        """
+        Build next tree level in parallel.
+        
+        Args:
+            current_level: Current level of hashes
+        
+        Returns:
+            Next level of hashes
+            
+        Requirements: 23.3
+        """
+        # Create pairs for parallel processing
+        pairs = []
+        for i in range(0, len(current_level), 2):
+            left = current_level[i]
+            # If odd number of nodes, duplicate the last one
+            if i + 1 < len(current_level):
+                right = current_level[i + 1]
+            else:
+                right = current_level[i]
+            pairs.append((left, right))
+        
+        # Hash pairs in parallel
+        with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
+            return list(executor.map(lambda p: self._hash_pair(p[0], p[1]), pairs))
+    
     def _build_tree(self) -> List[List[bytes]]:
         """
         Build Merkle tree bottom-up by hashing pairs.
@@ -102,29 +173,37 @@ class MerkleTree:
         If a level has an odd number of nodes, the last node is duplicated
         to create a pair.
         
+        Uses parallel processing for large batches (v0.3 optimization).
+        
         Returns:
             List of levels, each level is a list of hashes
+            
+        Requirements: 23.3
         """
         tree = [self.leaves]
         current_level = self.leaves
         
         # Build tree level by level until we reach the root
         while len(current_level) > 1:
-            next_level = []
-            
-            # Process pairs of nodes
-            for i in range(0, len(current_level), 2):
-                left = current_level[i]
+            # Use parallel processing for large levels
+            if self.use_parallel and len(current_level) >= self.PARALLEL_THRESHOLD:
+                next_level = self._build_tree_level_parallel(current_level)
+            else:
+                next_level = []
                 
-                # If odd number of nodes, duplicate the last one
-                if i + 1 < len(current_level):
-                    right = current_level[i + 1]
-                else:
-                    right = current_level[i]
-                
-                # Hash the pair and add to next level
-                parent_hash = self._hash_pair(left, right)
-                next_level.append(parent_hash)
+                # Process pairs of nodes
+                for i in range(0, len(current_level), 2):
+                    left = current_level[i]
+                    
+                    # If odd number of nodes, duplicate the last one
+                    if i + 1 < len(current_level):
+                        right = current_level[i + 1]
+                    else:
+                        right = current_level[i]
+                    
+                    # Hash the pair and add to next level
+                    parent_hash = self._hash_pair(left, right)
+                    next_level.append(parent_hash)
             
             tree.append(next_level)
             current_level = next_level
@@ -148,6 +227,8 @@ class MerkleTree:
         along with directions indicating whether each sibling is on the left
         or right.
         
+        Uses caching for frequently requested proofs (v0.3 optimization).
+        
         Args:
             leaf_index: Index of the leaf (0-based)
         
@@ -156,9 +237,15 @@ class MerkleTree:
         
         Raises:
             ValueError: If leaf_index is out of range
+            
+        Requirements: 3.6, 23.4
         """
         if leaf_index < 0 or leaf_index >= self.leaf_count:
             raise ValueError(f"Leaf index {leaf_index} out of range [0, {self.leaf_count})")
+        
+        # Check cache first (v0.3 optimization)
+        if leaf_index in self._proof_cache:
+            return self._proof_cache[leaf_index]
         
         proof_hashes = []
         proof_directions = []
@@ -191,28 +278,39 @@ class MerkleTree:
             # Move to parent index for next level
             current_index = current_index // 2
         
-        return MerkleProof(
+        proof = MerkleProof(
             leaf_hash=self.leaves[leaf_index],
             proof_hashes=proof_hashes,
             proof_directions=proof_directions,
             root_hash=self.get_root()
         )
+        
+        # Cache the proof (v0.3 optimization)
+        if len(self._proof_cache) < self.MAX_PROOF_CACHE_SIZE:
+            self._proof_cache[leaf_index] = proof
+        
+        return proof
     
     @staticmethod
-    def verify_proof(leaf: bytes, proof: MerkleProof, expected_root: bytes) -> bool:
+    def verify_proof(leaf: bytes, proof: MerkleProof, expected_root: bytes, use_cache: bool = True) -> bool:
         """
         Verify a Merkle proof.
         
         Recomputes the root hash from the leaf and proof, then compares
         with the expected root.
         
+        Uses caching for frequently verified (leaf, root) pairs (v0.3 optimization).
+        
         Args:
             leaf: Original leaf data (will be hashed)
             proof: Merkle proof to verify
             expected_root: Expected root hash
+            use_cache: Enable verification caching (default: True)
         
         Returns:
             True if proof is valid, False otherwise
+            
+        Requirements: 3.7, 23.4
         """
         # Hash the leaf
         current_hash = hashlib.sha256(leaf).digest()
@@ -220,6 +318,16 @@ class MerkleTree:
         # Verify leaf hash matches proof
         if current_hash != proof.leaf_hash:
             return False
+        
+        # Check cache first (v0.3 optimization)
+        # Note: This is a class-level cache, so we use a global dict
+        if use_cache:
+            cache_key = (current_hash, expected_root)
+            if hasattr(MerkleTree, '_global_verification_cache'):
+                if cache_key in MerkleTree._global_verification_cache:
+                    return MerkleTree._global_verification_cache[cache_key]
+            else:
+                MerkleTree._global_verification_cache = {}
         
         # Recompute root by hashing with siblings
         for sibling_hash, direction in zip(proof.proof_hashes, proof.proof_directions):
@@ -231,4 +339,11 @@ class MerkleTree:
                 current_hash = hashlib.sha256(current_hash + sibling_hash).digest()
         
         # Compare computed root with expected root
-        return current_hash == expected_root
+        result = current_hash == expected_root
+        
+        # Cache the result (v0.3 optimization)
+        if use_cache and len(MerkleTree._global_verification_cache) < 10000:
+            cache_key = (proof.leaf_hash, expected_root)
+            MerkleTree._global_verification_cache[cache_key] = result
+        
+        return result
