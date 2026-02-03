@@ -131,6 +131,12 @@ class ConfigurationLoadError(ConfigurationError):
     pass
 
 
+# Database Errors
+class DatabaseError(CaracalError):
+    """Base exception for database-related errors."""
+    pass
+
+
 # Storage and Persistence Errors
 class StorageError(CaracalError):
     """Base exception for storage-related errors."""
@@ -236,4 +242,24 @@ class RedisConnectionError(RedisError):
 # Event Replay Errors
 class EventReplayError(CaracalError):
     """Base exception for event replay-related errors."""
+    pass
+
+# Merkle Tree and Backfill Errors
+class MerkleError(CaracalError):
+    """Base exception for Merkle tree-related errors."""
+    pass
+
+
+class MerkleVerificationError(MerkleError):
+    """Raised when Merkle proof verification fails."""
+    pass
+
+
+class TamperDetectedError(MerkleError):
+    """Raised when ledger tampering is detected."""
+    pass
+
+
+class BackfillError(MerkleError):
+    """Raised when ledger backfill operations fail."""
     pass
