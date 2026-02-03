@@ -1,0 +1,305 @@
+# Caracal Core v0.3 Configuration Example
+# This file demonstrates all available configuration options for v0.3
+# 
+# v0.3 introduces:
+# - Kafka event streaming for scalable event handling
+# - Merkle tree ledger for cryptographic tamper-evidence
+# - Policy versioning for complete audit trails
+# - Resource allowlists for fine-grained access control
+# - Extended time windows for flexible budgeting
+# - Redis caching for performance optimization
+# - Ledger snapshots for fast recovery
+# - Event replay for state reconstruction
+
+# ============================================================================
+# STORAGE CONFIGURATION (v0.1 compatibility - file-based storage)
+# ============================================================================
+storage:
+  agent_registry: ~/.caracal/agents.json
+  policy_store: ~/.caracal/policies.json
+  ledger: ~/.caracal/ledger.jsonl
+  pricebook: ~/.caracal/pricebook.csv
+  backup_dir: ~/.caracal/backups
+  backup_count: 3
+
+# ============================================================================
+# DATABASE CONFIGURATION (v0.2 - PostgreSQL backend)
+# ============================================================================
+database:
+  host: ${DATABASE_HOST:localhost}
+  port: ${DATABASE_PORT:5432}
+  database: ${DATABASE_NAME:caracal}
+  user: ${DATABASE_USER:caracal}
+  password: ${DATABASE_PASSWORD}
+  pool_size: ${DATABASE_POOL_SIZE:10}
+  max_overflow: ${DATABASE_MAX_OVERFLOW:5}
+  pool_timeout: ${DATABASE_POOL_TIMEOUT:30}
+
+# ============================================================================
+# KAFKA CONFIGURATION (v0.3 - Event streaming)
+# ============================================================================
+kafka:
+  # Kafka broker addresses (comma-separated list)
+  brokers:
+    - ${KAFKA_BROKER_1:localhost:9092}
+    - ${KAFKA_BROKER_2:localhost:9093}
+    - ${KAFKA_BROKER_3:localhost:9094}
+  
+  # Security protocol: PLAINTEXT, SSL, SASL_PLAINTEXT, SASL_SSL
+  security_protocol: ${KAFKA_SECURITY_PROTOCOL:SASL_SSL}
+  
+  # SASL authentication (when using SASL_PLAINTEXT or SASL_SSL)
+  sasl_mechanism: ${KAFKA_SASL_MECHANISM:SCRAM-SHA-512}  # PLAIN, SCRAM-SHA-256, SCRAM-SHA-512, GSSAPI
+  sasl_username: ${KAFKA_SASL_USERNAME}
+  sasl_password: ${KAFKA_SASL_PASSWORD}
+  
+  # SSL/TLS configuration (when using SSL or SASL_SSL)
+  ssl_ca_location: ${KAFKA_SSL_CA_LOCATION:/etc/caracal/kafka/ca-cert.pem}
+  ssl_cert_location: ${KAFKA_SSL_CERT_LOCATION:/etc/caracal/kafka/client-cert.pem}
+  ssl_key_location: ${KAFKA_SSL_KEY_LOCATION:/etc/caracal/kafka/client-key.pem}
+  ssl_key_password: ${KAFKA_SSL_KEY_PASSWORD}
+  
+  # Producer configuration
+  producer:
+    acks: all  # Wait for all replicas (strongest durability)
+    retries: 3
+    max_in_flight_requests: 5
+    compression_type: snappy  # Options: none, gzip, snappy, lz4, zstd
+    enable_idempotence: true  # Required for exactly-once semantics
+    transactional_id_prefix: caracal-producer
+  
+  # Consumer configuration
+  consumer:
+    auto_offset_reset: earliest  # Options: earliest, latest, none
+    enable_auto_commit: false  # MUST be False for exactly-once semantics
+    isolation_level: read_committed  # Read only committed messages (EOS)
+    max_poll_records: 500
+    session_timeout_ms: 30000
+    enable_idempotence: true
+    transactional_id_prefix: caracal-consumer
+  
+  # Processing configuration
+  processing:
+    guarantee: exactly_once  # Options: exactly_once, at_least_once
+    enable_transactions: true  # Enable Kafka transactions for EOS
+    idempotency_check: true  # Enable idempotency checks (fallback)
+
+# ============================================================================
+# REDIS CONFIGURATION (v0.3 - Caching and metrics)
+# ============================================================================
+redis:
+  host: ${REDIS_HOST:localhost}
+  port: ${REDIS_PORT:6379}
+  password: ${REDIS_PASSWORD}
+  db: ${REDIS_DB:0}
+  
+  # SSL/TLS configuration
+  ssl: ${REDIS_SSL:true}
+  ssl_ca_certs: ${REDIS_SSL_CA_CERTS:/etc/caracal/redis/ca-cert.pem}
+  ssl_certfile: ${REDIS_SSL_CERTFILE:/etc/caracal/redis/client-cert.pem}
+  ssl_keyfile: ${REDIS_SSL_KEYFILE:/etc/caracal/redis/client-key.pem}
+  
+  # Cache TTL settings (in seconds)
+  spending_cache_ttl: ${REDIS_SPENDING_CACHE_TTL:86400}  # 24 hours
+  metrics_cache_ttl: ${REDIS_METRICS_CACHE_TTL:3600}  # 1 hour
+  allowlist_cache_ttl: ${REDIS_ALLOWLIST_CACHE_TTL:60}  # 1 minute
+
+# ============================================================================
+# MERKLE TREE CONFIGURATION (v0.3 - Cryptographic ledger)
+# ============================================================================
+merkle:
+  # Batch thresholds - batch closes when EITHER threshold is reached
+  batch_size_limit: ${MERKLE_BATCH_SIZE_LIMIT:1000}  # Max events per batch
+  batch_timeout_seconds: ${MERKLE_BATCH_TIMEOUT_SECONDS:300}  # 5 minutes
+  
+  # Signing configuration
+  signing_algorithm: ES256  # ECDSA P-256 (only supported algorithm)
+  signing_backend: software  # Options: software (OSS), hsm (Enterprise)
+  
+  # Software signing configuration (when signing_backend=software)
+  private_key_path: ${MERKLE_PRIVATE_KEY_PATH:/etc/caracal/merkle/signing-key.pem}
+  key_encryption_passphrase: ${MERKLE_KEY_PASSPHRASE}
+  
+  # Key rotation configuration
+  key_rotation_enabled: ${MERKLE_KEY_ROTATION_ENABLED:false}
+  key_rotation_days: ${MERKLE_KEY_ROTATION_DAYS:90}
+  
+  # HSM configuration (Enterprise only, ignored if signing_backend=software)
+  hsm_config: {}
+
+# ============================================================================
+# SNAPSHOT CONFIGURATION (v0.3 - Ledger snapshots)
+# ============================================================================
+snapshot:
+  enabled: ${SNAPSHOT_ENABLED:true}
+  
+  # Snapshot schedule (cron format: minute hour day month weekday)
+  schedule_cron: ${SNAPSHOT_SCHEDULE_CRON:0 0 * * *}  # Daily at midnight UTC
+  
+  # Retention policy
+  retention_days: ${SNAPSHOT_RETENTION_DAYS:90}  # Retain for 90 days
+  
+  # Storage configuration
+  storage_path: ${SNAPSHOT_STORAGE_PATH:~/.caracal/snapshots}
+  compression_enabled: ${SNAPSHOT_COMPRESSION_ENABLED:true}
+  auto_cleanup_enabled: ${SNAPSHOT_AUTO_CLEANUP_ENABLED:true}
+
+# ============================================================================
+# ALLOWLIST CONFIGURATION (v0.3 - Resource access control)
+# ============================================================================
+allowlist:
+  enabled: ${ALLOWLIST_ENABLED:true}
+  
+  # Default behavior when no allowlist is defined for an agent
+  # Options: allow (permit all resources), deny (deny all resources)
+  default_behavior: ${ALLOWLIST_DEFAULT_BEHAVIOR:allow}
+  
+  # Cache configuration
+  cache_ttl: ${ALLOWLIST_CACHE_TTL:60}  # Cache compiled patterns for 60 seconds
+  max_patterns_per_agent: ${ALLOWLIST_MAX_PATTERNS_PER_AGENT:1000}
+
+# ============================================================================
+# EVENT REPLAY CONFIGURATION (v0.3 - State reconstruction)
+# ============================================================================
+event_replay:
+  batch_size: ${EVENT_REPLAY_BATCH_SIZE:1000}  # Events per batch
+  parallelism: ${EVENT_REPLAY_PARALLELISM:4}  # Parallel workers
+  max_replay_duration_hours: ${EVENT_REPLAY_MAX_DURATION_HOURS:24}
+  validation_enabled: ${EVENT_REPLAY_VALIDATION_ENABLED:true}
+
+# ============================================================================
+# GATEWAY PROXY CONFIGURATION (v0.2)
+# ============================================================================
+gateway:
+  enabled: ${GATEWAY_ENABLED:false}
+  listen_address: ${GATEWAY_LISTEN_ADDRESS:0.0.0.0:8443}
+  auth_mode: ${GATEWAY_AUTH_MODE:mtls}  # Options: mtls, jwt, api_key
+  
+  # TLS configuration
+  tls:
+    enabled: ${GATEWAY_TLS_ENABLED:true}
+    cert_file: ${GATEWAY_TLS_CERT_FILE:/etc/caracal/tls/server.crt}
+    key_file: ${GATEWAY_TLS_KEY_FILE:/etc/caracal/tls/server.key}
+    ca_file: ${GATEWAY_TLS_CA_FILE:/etc/caracal/tls/ca.crt}
+  
+  # JWT authentication (when auth_mode is jwt)
+  jwt_public_key: ${GATEWAY_JWT_PUBLIC_KEY:/etc/caracal/jwt/public.pem}
+  
+  # Replay protection
+  replay_protection_enabled: ${GATEWAY_REPLAY_PROTECTION_ENABLED:true}
+  nonce_cache_ttl: ${GATEWAY_NONCE_CACHE_TTL:300}  # 5 minutes
+
+# ============================================================================
+# POLICY CACHE CONFIGURATION (v0.2 - Degraded mode)
+# ============================================================================
+policy_cache:
+  enabled: ${POLICY_CACHE_ENABLED:true}
+  ttl_seconds: ${POLICY_CACHE_TTL_SECONDS:60}
+  max_size: ${POLICY_CACHE_MAX_SIZE:10000}
+
+# ============================================================================
+# MCP ADAPTER CONFIGURATION (v0.2)
+# ============================================================================
+mcp_adapter:
+  enabled: ${MCP_ADAPTER_ENABLED:false}
+  listen_address: ${MCP_ADAPTER_LISTEN_ADDRESS:0.0.0.0:8080}
+  health_check_enabled: ${MCP_ADAPTER_HEALTH_CHECK_ENABLED:true}
+  
+  # MCP server URLs (list of MCP servers to connect to)
+  mcp_server_urls:
+    - http://localhost:3000
+    - http://localhost:3001
+  
+  # Cost calculation rules for MCP operations
+  cost_rules:
+    - resource_type: "tool_call"
+      cost_per_unit: 0.01
+      unit: "operation"
+    - resource_type: "resource_read"
+      cost_per_unit: 0.001
+      unit: "kb"
+
+# ============================================================================
+# ASE PROTOCOL CONFIGURATION (v0.2)
+# ============================================================================
+ase:
+  version: ${ASE_VERSION:1.0.8}
+  delegation_token_expiration_seconds: ${ASE_DELEGATION_TOKEN_EXPIRATION_SECONDS:86400}  # 24 hours
+  key_algorithm: ${ASE_KEY_ALGORITHM:RS256}  # Options: RS256, ES256
+  
+  # Provisional charge configuration
+  provisional_charges:
+    default_expiration_seconds: ${ASE_PROVISIONAL_CHARGE_DEFAULT_EXPIRATION_SECONDS:300}  # 5 minutes
+    timeout_minutes: ${ASE_PROVISIONAL_CHARGE_TIMEOUT_MINUTES:60}  # 1 hour maximum
+    cleanup_interval_seconds: ${ASE_PROVISIONAL_CHARGE_CLEANUP_INTERVAL_SECONDS:60}
+    cleanup_batch_size: ${ASE_PROVISIONAL_CHARGE_CLEANUP_BATCH_SIZE:1000}
+
+# ============================================================================
+# COMPATIBILITY CONFIGURATION (v0.3 - Backward compatibility)
+# ============================================================================
+compatibility:
+  # Compatibility mode: v0.2 (legacy) or v0.3 (full features)
+  mode: ${COMPATIBILITY_MODE:v0.3}
+  
+  # Feature flags for v0.2 compatibility mode
+  enable_kafka: ${COMPATIBILITY_ENABLE_KAFKA:true}
+  enable_merkle: ${COMPATIBILITY_ENABLE_MERKLE:true}
+  enable_redis: ${COMPATIBILITY_ENABLE_REDIS:true}
+  
+  # Logging
+  warn_on_v02_mode: ${COMPATIBILITY_WARN_ON_V02_MODE:true}
+
+# ============================================================================
+# DEFAULT VALUES
+# ============================================================================
+defaults:
+  currency: USD
+  time_window: daily  # Options: hourly, daily, weekly, monthly (v0.3)
+  default_budget: 100.00
+
+# ============================================================================
+# LOGGING CONFIGURATION
+# ============================================================================
+logging:
+  level: ${LOG_LEVEL:INFO}  # Options: DEBUG, INFO, WARNING, ERROR, CRITICAL
+  file: ${LOG_FILE:~/.caracal/caracal.log}
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+
+# ============================================================================
+# PERFORMANCE TUNING
+# ============================================================================
+performance:
+  policy_eval_timeout_ms: 100
+  ledger_write_timeout_ms: 10
+  file_lock_timeout_s: 5
+  max_retries: 3
+
+# ============================================================================
+# CONFIGURATION NOTES
+# ============================================================================
+#
+# Environment Variable Substitution:
+#   Use ${VAR_NAME} to substitute environment variables
+#   Use ${VAR_NAME:default} to provide default values
+#
+# Encrypted Values:
+#   Use ENC[base64_encoded_ciphertext] for encrypted values
+#   Requires CARACAL_MASTER_PASSWORD environment variable
+#
+# Production Recommendations:
+#   - Use SASL_SSL for Kafka security
+#   - Enable Redis SSL/TLS
+#   - Use exactly_once processing guarantee
+#   - Enable Merkle tree signing
+#   - Configure appropriate batch thresholds based on compliance needs
+#   - Set up regular snapshots for fast recovery
+#   - Monitor Kafka consumer lag and DLQ size
+#
+# Batch Threshold Recommendations:
+#   - High-compliance: 1000 events / 300 seconds (5 minutes)
+#   - Standard: 10000 events / 3600 seconds (1 hour)
+#   - Low-volume: 50000 events / 86400 seconds (24 hours)
+#
+# For more information, see:
+#   - Documentation: https://github.com/caracal-cloud/caracal-core/docs
+#   - Migration Guide: https://github.com/caracal-cloud/caracal-core/docs/migration-v0.2-to-v0.3.md
