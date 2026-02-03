@@ -349,16 +349,21 @@ class LedgerQuery:
     
     Provides filtering and aggregation capabilities for ledger events.
     Uses sequential scan of JSON Lines file (v0.1 approach).
+    
+    v0.3: Integrated with Redis cache for fast recent spending queries.
+    Requirements: 20.3, 20.4
     """
 
-    def __init__(self, ledger_path: str):
+    def __init__(self, ledger_path: str, redis_cache=None):
         """
         Initialize LedgerQuery.
         
         Args:
             ledger_path: Path to the ledger file (JSON Lines format)
+            redis_cache: Optional RedisSpendingCache for fast recent queries (v0.3)
         """
         self.ledger_path = Path(ledger_path)
+        self.redis_cache = redis_cache
         
         # Ensure ledger file exists
         if not self.ledger_path.exists():
@@ -366,6 +371,11 @@ class LedgerQuery:
             self.ledger_path.parent.mkdir(parents=True, exist_ok=True)
             self.ledger_path.touch()
             logger.info(f"Created empty ledger file at {self.ledger_path}")
+        
+        if redis_cache:
+            logger.info("LedgerQuery initialized with Redis cache integration")
+        else:
+            logger.info("LedgerQuery initialized without Redis cache (v0.1/v0.2 mode)")
 
     def get_events(
         self,
