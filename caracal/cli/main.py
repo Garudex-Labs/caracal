@@ -231,6 +231,15 @@ except ImportError:
     pass
 
 
+# Import and register Allowlist commands (v0.3)
+try:
+    from caracal.cli.allowlist import allowlist_group
+    cli.add_command(allowlist_group)
+except ImportError:
+    # Allowlist commands not available
+    pass
+
+
 @cli.command()
 @pass_context
 def init(ctx: CLIContext):
