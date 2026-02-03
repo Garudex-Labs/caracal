@@ -888,6 +888,14 @@ def _validate_config(config: CaracalConfig) -> None:
         )
     
     # Validate database configuration (v0.2)
+    try:
+        config.database.port = int(config.database.port)
+        config.database.pool_size = int(config.database.pool_size)
+        config.database.max_overflow = int(config.database.max_overflow)
+        config.database.pool_timeout = int(config.database.pool_timeout)
+    except (ValueError, TypeError):
+        raise InvalidConfigurationError("Database numeric configuration values must be integers")
+
     if config.database.port < 1 or config.database.port > 65535:
         raise InvalidConfigurationError(
             f"database port must be between 1 and 65535, got {config.database.port}"
@@ -995,8 +1003,16 @@ def _validate_config(config: CaracalConfig) -> None:
             f"got {config.ase.provisional_charges.cleanup_batch_size}"
         )
     
-    # Validate Merkle configuration (v0.3) - only validate fully when merkle is enabled
+    # Validate Merkle configuration (v0.3)
     if config.compatibility.enable_merkle:
+        # Cast to int to handle env var string values
+        try:
+            config.merkle.batch_size_limit = int(config.merkle.batch_size_limit)
+            config.merkle.batch_timeout_seconds = int(config.merkle.batch_timeout_seconds)
+            if config.merkle.key_rotation_enabled:
+                 config.merkle.key_rotation_days = int(config.merkle.key_rotation_days)
+        except (ValueError, TypeError):
+            raise InvalidConfigurationError("Merkle numeric configuration values must be integers")
         if config.merkle.batch_size_limit < 1:
             raise InvalidConfigurationError(
                 f"merkle batch_size_limit must be at least 1, got {config.merkle.batch_size_limit}"
@@ -1158,6 +1174,16 @@ def _validate_config(config: CaracalConfig) -> None:
     if config.compatibility.enable_redis:
         if not config.redis.host:
             raise InvalidConfigurationError("redis host cannot be empty when Redis is enabled")
+        
+        # Cast to int to handle env var string values
+        try:
+            config.redis.port = int(config.redis.port)
+            config.redis.db = int(config.redis.db)
+            config.redis.spending_cache_ttl = int(config.redis.spending_cache_ttl)
+            config.redis.metrics_cache_ttl = int(config.redis.metrics_cache_ttl)
+            config.redis.allowlist_cache_ttl = int(config.redis.allowlist_cache_ttl)
+        except (ValueError, TypeError):
+            raise InvalidConfigurationError("Redis numeric configuration values must be integers")
         
         if config.redis.port < 1 or config.redis.port > 65535:
             raise InvalidConfigurationError(

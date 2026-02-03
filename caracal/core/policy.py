@@ -191,6 +191,12 @@ class PolicyStore:
                 f"Only 'daily' time window is supported in v0.1, got '{time_window}'"
             )
         
+        # Validate currency (v0.1 only supports USD)
+        if currency != "USD":
+            raise InvalidPolicyError(
+                f"Only 'USD' currency is supported in v0.1, got '{currency}'"
+            )
+        
         # Validate policy conflicts if requested (v0.3)
         if validate_conflicts:
             existing_policies = self.get_policies(agent_id)

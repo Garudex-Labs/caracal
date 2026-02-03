@@ -4,6 +4,7 @@ Unit tests for v0.3 monitoring features.
 Tests Prometheus metrics and structured logging for v0.3 features.
 """
 
+import logging
 import pytest
 from prometheus_client import CollectorRegistry
 
@@ -49,9 +50,9 @@ class TestV03Metrics:
         
         assert "caracal_kafka_consumer_lag" in metric_names
         assert "caracal_kafka_consumer_offset" in metric_names
-        assert "caracal_kafka_messages_consumed_total" in metric_names
-        assert "caracal_kafka_consumer_errors_total" in metric_names
-        assert "caracal_kafka_consumer_rebalances_total" in metric_names
+        assert "caracal_kafka_messages_consumed" in metric_names
+        assert "caracal_kafka_consumer_errors" in metric_names
+        assert "caracal_kafka_consumer_rebalances" in metric_names
     
     def test_merkle_tree_metrics(self):
         """Test Merkle tree metrics."""
@@ -79,12 +80,12 @@ class TestV03Metrics:
         metric_families = list(registry.collect())
         metric_names = [m.name for m in metric_families]
         
-        assert "caracal_merkle_batches_created_total" in metric_names
+        assert "caracal_merkle_batches_created" in metric_names
         assert "caracal_merkle_batch_size" in metric_names
         assert "caracal_merkle_tree_computation_duration_seconds" in metric_names
         assert "caracal_merkle_signing_duration_seconds" in metric_names
         assert "caracal_merkle_verification_duration_seconds" in metric_names
-        assert "caracal_merkle_verification_failures_total" in metric_names
+        assert "caracal_merkle_verification_failures" in metric_names
         assert "caracal_merkle_events_in_current_batch" in metric_names
     
     def test_snapshot_metrics(self):
@@ -107,7 +108,7 @@ class TestV03Metrics:
         metric_families = list(registry.collect())
         metric_names = [m.name for m in metric_families]
         
-        assert "caracal_snapshots_created_total" in metric_names
+        assert "caracal_snapshots_created" in metric_names
         assert "caracal_snapshot_creation_duration_seconds" in metric_names
         assert "caracal_snapshot_size_bytes" in metric_names
         assert "caracal_snapshot_event_count" in metric_names
@@ -133,11 +134,11 @@ class TestV03Metrics:
         metric_families = list(registry.collect())
         metric_names = [m.name for m in metric_families]
         
-        assert "caracal_allowlist_checks_total" in metric_names
-        assert "caracal_allowlist_matches_total" in metric_names
-        assert "caracal_allowlist_misses_total" in metric_names
+        assert "caracal_allowlist_checks" in metric_names
+        assert "caracal_allowlist_matches" in metric_names
+        assert "caracal_allowlist_misses" in metric_names
         assert "caracal_allowlist_check_duration_seconds" in metric_names
-        assert "caracal_allowlist_cache_hits_total" in metric_names
+        assert "caracal_allowlist_cache_hits" in metric_names
         assert "caracal_allowlist_patterns_active" in metric_names
     
     def test_dlq_metrics(self):
@@ -158,7 +159,7 @@ class TestV03Metrics:
         metric_families = list(registry.collect())
         metric_names = [m.name for m in metric_families]
         
-        assert "caracal_dlq_messages_total" in metric_names
+        assert "caracal_dlq_messages" in metric_names
         assert "caracal_dlq_size" in metric_names
         assert "caracal_dlq_oldest_message_age_seconds" in metric_names
     
@@ -177,8 +178,8 @@ class TestV03Metrics:
         metric_families = list(registry.collect())
         metric_names = [m.name for m in metric_families]
         
-        assert "caracal_policy_versions_created_total" in metric_names
-        assert "caracal_policy_version_queries_total" in metric_names
+        assert "caracal_policy_versions_created" in metric_names
+        assert "caracal_policy_version_queries" in metric_names
     
     def test_event_replay_metrics(self):
         """Test event replay metrics."""
@@ -198,7 +199,7 @@ class TestV03Metrics:
         metric_families = list(registry.collect())
         metric_names = [m.name for m in metric_families]
         
-        assert "caracal_event_replay_started_total" in metric_names
+        assert "caracal_event_replay_started" in metric_names
         assert "caracal_event_replay_events_processed" in metric_names
         assert "caracal_event_replay_duration_seconds" in metric_names
 
@@ -206,7 +207,7 @@ class TestV03Metrics:
 class TestV03StructuredLogging:
     """Test v0.3 structured logging functions."""
     
-    def test_log_merkle_root_computation(self, caplog):
+    def test_log_merkle_root_computation(self, capsys):
         """Test Merkle root computation logging."""
         logger = get_logger(__name__)
         
@@ -219,9 +220,11 @@ class TestV03StructuredLogging:
         )
         
         # Verify log was created (basic check)
-        assert len(caplog.records) > 0
+        captured = capsys.readouterr()
+        assert "merkle_root_computation" in captured.out
+        assert "batch_id=batch-123" in captured.out
     
-    def test_log_policy_version_change(self, caplog):
+    def test_log_policy_version_change(self, capsys):
         """Test policy version change logging."""
         logger = get_logger(__name__)
         
@@ -237,9 +240,11 @@ class TestV03StructuredLogging:
             after_values={"limit_amount": "200.00"}
         )
         
-        assert len(caplog.records) > 0
+        captured = capsys.readouterr()
+        assert "policy_version_change" in captured.out
+        assert "policy_id=policy-456" in captured.out
     
-    def test_log_allowlist_check(self, caplog):
+    def test_log_allowlist_check(self, capsys):
         """Test allowlist check logging."""
         logger = get_logger(__name__)
         
@@ -253,9 +258,11 @@ class TestV03StructuredLogging:
             duration_ms=0.8
         )
         
-        assert len(caplog.records) > 0
+        captured = capsys.readouterr()
+        assert "allowlist_check" in captured.out
+        assert "agent_id=agent-123" in captured.out
     
-    def test_log_event_replay(self, caplog):
+    def test_log_event_replay(self, capsys):
         """Test event replay logging."""
         logger = get_logger(__name__)
         
@@ -269,9 +276,11 @@ class TestV03StructuredLogging:
             status="completed"
         )
         
-        assert len(caplog.records) > 0
+        captured = capsys.readouterr()
+        assert "event_replay" in captured.out
+        assert "replay_id=replay-789" in captured.out
     
-    def test_log_snapshot_operation(self, caplog):
+    def test_log_snapshot_operation(self, capsys):
         """Test snapshot operation logging."""
         logger = get_logger(__name__)
         
@@ -286,9 +295,11 @@ class TestV03StructuredLogging:
             status="completed"
         )
         
-        assert len(caplog.records) > 0
+        captured = capsys.readouterr()
+        assert "snapshot_operation" in captured.out
+        assert "snapshot_id=snapshot-101" in captured.out
     
-    def test_log_kafka_consumer_event(self, caplog):
+    def test_log_kafka_consumer_event(self, capsys):
         """Test Kafka consumer event logging."""
         logger = get_logger(__name__)
         
@@ -303,9 +314,11 @@ class TestV03StructuredLogging:
             duration_ms=5.2
         )
         
-        assert len(caplog.records) > 0
+        captured = capsys.readouterr()
+        assert "kafka_consumer_event" in captured.out
+        assert "consumer_group=ledger-writer-group" in captured.out
     
-    def test_log_dlq_event(self, caplog):
+    def test_log_dlq_event(self, capsys):
         """Test DLQ event logging."""
         logger = get_logger(__name__)
         
@@ -319,7 +332,9 @@ class TestV03StructuredLogging:
             retry_count=3
         )
         
-        assert len(caplog.records) > 0
+        captured = capsys.readouterr()
+        assert "dlq_event" in captured.out
+        assert "error_type=processing_error" in captured.out
 
 
 class TestMetricsContextManagers:

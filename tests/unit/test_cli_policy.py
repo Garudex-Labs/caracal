@@ -101,7 +101,7 @@ logging:
             'policy', 'create',
             '--agent-id', agent_id,
             '--limit', '50.00',
-            '--window', 'daily',
+            '--time-window', 'daily',
             '--currency', 'USD'
         ])
         
@@ -173,7 +173,7 @@ logging:
             'policy', 'create',
             '--agent-id', agent_id,
             '--limit', '100.00',
-            '--window', 'hourly'
+            '--time-window', 'hourly'
         ])
         
         assert result.exit_code == 1
