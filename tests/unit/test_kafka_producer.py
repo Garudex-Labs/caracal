@@ -20,6 +20,9 @@ from caracal.kafka.producer import (
 )
 from caracal.exceptions import KafkaPublishError
 
+# Mark all async tests in this module to use asyncio
+pytestmark = pytest.mark.asyncio(loop_scope="function")
+
 
 @pytest.fixture
 def kafka_config():
