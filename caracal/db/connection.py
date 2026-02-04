@@ -135,16 +135,53 @@ class DatabaseConnectionManager:
                 echo=self.config.echo,
             )
         else:
-            # PostgreSQL with connection pooling
-            self._engine = create_engine(
-                connection_url,
-                poolclass=QueuePool,
-                pool_size=self.config.pool_size,
-                max_overflow=self.config.max_overflow,
-                pool_timeout=self.config.pool_timeout,
-                pool_recycle=self.config.pool_recycle,
-                echo=self.config.echo,
-            )
+            try:
+                # PostgreSQL with connection pooling
+                self._engine = create_engine(
+                    connection_url,
+                    poolclass=QueuePool,
+                    pool_size=self.config.pool_size,
+                    max_overflow=self.config.max_overflow,
+                    pool_timeout=self.config.pool_timeout,
+                    pool_recycle=self.config.pool_recycle,
+                    echo=self.config.echo,
+                )
+                
+                # Verify connection
+                with self._engine.connect() as conn:
+                    conn.execute(text("SELECT 1"))
+                    
+            except OperationalError as e:
+                if self.config.type == "postgres":
+                    logger.warning(f"Failed to connect to PostgreSQL: {e}")
+                    logger.warning("Falling back to File-based SQLite...")
+                    
+                    # Switch to SQLite
+                    self.config.type = "sqlite"
+                    if not self.config.file_path:
+                        # Determine default sqlite path relative to CWD or config dir
+                        import os
+                        from pathlib import Path
+                        
+                        # Try to put it in .caracal dir if possible
+                        base_dir = Path(os.environ.get("HOME", ".")) / ".caracal"
+                        base_dir.mkdir(exist_ok=True)
+                        self.config.file_path = str(base_dir / "caracal.db")
+                    
+                    logger.info(f"Using SQLite database at {self.config.file_path}")
+                    
+                    connection_url = self.config.get_connection_url()
+                    from sqlalchemy.pool import StaticPool
+                    connect_args = {"check_same_thread": False}
+                    
+                    self._engine = create_engine(
+                        connection_url,
+                        connect_args=connect_args,
+                        poolclass=StaticPool if self.config.file_path == ":memory:" else None,
+                        echo=self.config.echo,
+                    )
+                else:
+                    raise e
         
         # Create session factory
         self._session_factory = sessionmaker(
