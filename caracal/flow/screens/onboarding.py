@@ -164,9 +164,8 @@ def _step_database(wizard: Wizard) -> Any:
     database = prompt.text("Database name", default="caracal")
     username = prompt.text("Username", default="caracal")
     
-    # Password is sensitive, use simple input
-    console.print(f"  [{Colors.HINT}]{Icons.ARROW_RIGHT}[/] Password: ", end="")
-    password = input()
+    # Password is sensitive, use secure input with toggle
+    password = prompt.password("Password")
     
     wizard.context["database"] = {
         "type": "postgresql",
@@ -318,6 +317,68 @@ def run_onboarding(
     # Show summary
     wizard.show_summary()
     
+    # Persist changes
+    try:
+        from decimal import Decimal
+        from caracal.config import load_config
+        from caracal.core.identity import AgentRegistry
+        from caracal.core.policy import PolicyStore
+        
+        # Load fresh config (in case it was just initialized)
+        config = load_config()
+        
+        # Initialize registry
+        registry = AgentRegistry(config.storage.agent_registry)
+        
+        # Handle Agent Registration
+        agent_data = results.get("agent")
+        if agent_data:
+            console.print()
+            console.print(f"  [{Colors.INFO}]{Icons.INFO} Finalizing setup...[/]")
+            
+            # Clear existing/dummy agents as requested
+            registry._agents = {}
+            registry._names = {}
+            registry._persist()
+            
+            try:
+                agent = registry.register_agent(
+                    name=agent_data["name"],
+                    owner=agent_data["owner"],
+                )
+                results["agent_id"] = agent.agent_id
+                console.print(f"  [{Colors.SUCCESS}]{Icons.SUCCESS} Agent registered successfully.[/]")
+            except Exception as e:
+                console.print(f"  [{Colors.ERROR}]{Icons.ERROR} Failed to register agent: {e}[/]")
+        
+        # Handle Policy Creation
+        policy_data = results.get("policy")
+        if policy_data and results.get("agent_id"):
+            try:
+                # Initialize PolicyStore with agent registry for validation
+                policy_store = PolicyStore(
+                    policy_path=config.storage.policy_store,
+                    agent_registry=registry
+                )
+                
+                # Clear existing policies to start fresh (matching user intent)
+                policy_store._policies = {}
+                policy_store._agent_policies = {}
+                policy_store._persist()
+                
+                policy_store.create_policy(
+                    agent_id=results["agent_id"],
+                    limit_amount=Decimal(str(policy_data["limit"])),
+                    time_window=policy_data["time_window"],
+                    currency=policy_data["currency"]
+                )
+                console.print(f"  [{Colors.SUCCESS}]{Icons.SUCCESS} Policy created successfully.[/]")
+            except Exception as e:
+                console.print(f"  [{Colors.ERROR}]{Icons.ERROR} Failed to create policy: {e}[/]")
+                
+    except Exception as e:
+        console.print(f"  [{Colors.ERROR}]{Icons.ERROR} Error saving configuration: {e}[/]")
+
     # Update state
     if state:
         state.onboarding.mark_complete()

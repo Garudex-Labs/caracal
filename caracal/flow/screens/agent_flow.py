@@ -34,6 +34,7 @@ def run_agent_flow(console: Optional[Console] = None, state: Optional[FlowState]
                 ("list", "List Agents", "View all registered agents"),
                 ("get", "Get Agent Details", "View details for a specific agent"),
                 ("child", "Create Child Agent", "Register a child with delegation"),
+                ("assign", "Assign Parent Agent", "Assign existing agent to a parent"),
             ],
             subtitle="Manage AI agent identities",
         )
@@ -51,6 +52,8 @@ def run_agent_flow(console: Optional[Console] = None, state: Optional[FlowState]
             _get_agent(console)
         elif action == "child":
             _create_child_agent(console, state)
+        elif action == "assign":
+            _assign_parent(console, state)
         
         # Pause before returning to menu
         console.print()
@@ -304,6 +307,56 @@ def _create_child_agent(console: Console, state: Optional[FlowState] = None) -> 
     except ImportError:
         _show_cli_command(console, "agent", "register",
                          "--name <name> --owner <email> --parent-id <uuid> --delegated-budget <amount>")
+    except Exception as e:
+        console.print(f"  [{Colors.ERROR}]{Icons.ERROR} Error: {e}[/]")
+
+
+def _assign_parent(console: Console, state: Optional[FlowState] = None) -> None:
+    """Assign a parent to an existing agent."""
+    prompt = FlowPrompt(console)
+    
+    console.print(Panel(
+        f"[{Colors.NEUTRAL}]Assign an existing agent to a parent agent[/]",
+        title=f"[bold {Colors.INFO}]Assign Parent[/]",
+        border_style=Colors.PRIMARY,
+    ))
+    console.print()
+    
+    try:
+        from caracal.cli.agent import get_agent_registry
+        from caracal.config import load_config
+        
+        config = load_config()
+        registry = get_agent_registry(config)
+        agents = registry.list_agents()
+        
+        if len(agents) < 2:
+            console.print(f"  [{Colors.DIM}]Need at least 2 agents to create a relationship.[/]")
+            return
+            
+        # Select Child
+        items = [(a.agent_id, a.name) for a in agents]
+        child_id = prompt.uuid("Select Child Agent (Tab for suggestions)", items)
+        
+        # Select Parent (exclude child)
+        parent_items = [(a.agent_id, a.name) for a in agents if a.agent_id != child_id]
+        if not parent_items:
+             console.print(f"  [{Colors.WARNING}]No valid parents available.[/]")
+             return
+             
+        parent_id = prompt.uuid("Select Parent Agent", parent_items)
+        
+        console.print()
+        if not prompt.confirm("Assign relationship?", default=True):
+             return
+             
+        # Execute
+        try:
+            registry.update_agent(child_id, parent_agent_id=parent_id)
+            console.print(f"  [{Colors.SUCCESS}]{Icons.SUCCESS} Relationship assigned![/]")
+        except ValueError as e:
+            console.print(f"  [{Colors.ERROR}]{Icons.ERROR} Invalid assignment: {e}[/]")
+            
     except Exception as e:
         console.print(f"  [{Colors.ERROR}]{Icons.ERROR} Error: {e}[/]")
 

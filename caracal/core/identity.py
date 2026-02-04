@@ -175,6 +175,55 @@ class AgentRegistry:
         
         return agent
 
+    def update_agent(
+        self,
+        agent_id: str,
+        parent_agent_id: Optional[str] = None,
+    ) -> AgentIdentity:
+        """
+        Update an existing agent.
+        
+        Args:
+            agent_id: ID of agent to update
+            parent_agent_id: New parent agent ID (optional)
+            
+        Returns:
+            Updated AgentIdentity
+            
+        Raises:
+            AgentNotFoundError: If agent doesn't exist
+            ValueError: If invalid parent assignment (self-parenting, cycles)
+        """
+        agent = self.get_agent(agent_id)
+        if not agent:
+             raise AgentNotFoundError(f"Agent {agent_id} not found")
+             
+        if parent_agent_id:
+            if parent_agent_id == agent_id:
+                raise ValueError("Agent cannot be its own parent")
+            
+            parent = self.get_agent(parent_agent_id)
+            if not parent:
+                raise AgentNotFoundError(f"Parent agent {parent_agent_id} not found")
+                
+            # Cycle detection
+            curr = parent
+            seen = {agent_id}
+            while curr and curr.parent_agent_id:
+                if curr.parent_agent_id in seen:
+                    raise ValueError("Detected cycle in parent-child relationship")
+                seen.add(curr.agent_id)
+                curr = self.get_agent(curr.parent_agent_id)
+        
+        # Update fields
+        agent.parent_agent_id = parent_agent_id
+        
+        # Persist
+        self._persist()
+        
+        logger.info(f"Updated agent {agent_id}: parent_id={parent_agent_id}")
+        return agent
+
     def get_agent(self, agent_id: str) -> Optional[AgentIdentity]:
         """
         Retrieve agent by ID.

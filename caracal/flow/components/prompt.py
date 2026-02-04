@@ -253,3 +253,51 @@ class FlowPrompt:
         )
         
         return float(result)
+    def password(self, message: str) -> str:
+        """
+        Prompt for a password with visibility toggle.
+        
+        Args:
+            message: Prompt message
+            
+        Returns:
+            The entered password
+        """
+        from prompt_toolkit.filters import Condition
+        from prompt_toolkit.key_binding import KeyBindings
+        
+        # Variable to track visibility state (Hidden by default)
+        hidden = [True]
+        
+        @Condition
+        def is_hidden():
+            return hidden[0]
+            
+        # Key bindings to toggle visibility
+        bindings = KeyBindings()
+        
+        @bindings.add('f2')
+        def _(event):
+            hidden[0] = not hidden[0]
+            
+        prompt_text = FormattedText([
+            (Colors.HINT, f"  {Icons.ARROW_RIGHT} "),
+            (Colors.NEUTRAL, message),
+            ("", ": "),
+        ])
+        
+        # Bottom toolbar to show instructions
+        def get_toolbar():
+            if hidden[0]:
+                return FormattedText([("", "Press F2 to show password")])
+            else:
+                return FormattedText([("", "Press F2 to hide password")])
+            
+        result = pt_prompt(
+            prompt_text,
+            is_password=is_hidden,
+            key_bindings=bindings,
+            bottom_toolbar=get_toolbar,
+        )
+        
+        return result
