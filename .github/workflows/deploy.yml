@@ -4,8 +4,7 @@ on:
   push:
     branches:
       - main
-    paths:
-      - 'docs/**' # Only run when files in the docs folder change
+  workflow_dispatch: # Allow manual triggering
 
 jobs:
   deploy:
