@@ -18,7 +18,7 @@ from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 
-from caracal.flow.components.menu import show_submenu
+
 from caracal.flow.screens.main_menu import show_submenu # Correct import
 from caracal.flow.components.prompt import FlowPrompt
 from caracal.flow.theme import Colors, Icons
