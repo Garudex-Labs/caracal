@@ -18,6 +18,9 @@ from caracal.flow.components.menu import show_menu
 from caracal.flow.components.prompt import FlowPrompt
 from caracal.flow.theme import Colors, Icons
 from caracal.flow.state import FlowState, RecentAction
+from caracal.logging_config import get_logger
+
+logger = get_logger(__name__)
 
 
 def run_policy_flow(console: Optional[Console] = None, state: Optional[FlowState] = None) -> None:
@@ -292,22 +295,70 @@ def _policy_history(console: Console) -> None:
         items = [(p.policy_id, f"Agent {p.agent_id[:8]}... - ${float(p.limit_amount):.2f}") for p in policies]
         policy_id = prompt.uuid("Policy ID (Tab for suggestions)", items)
         
-        # Get history
-        history = store.get_policy_history(policy_id)
+        # Check if database is configured for history
+        # Simple check: if host is default localhost and password is empty, likely not configured
+        # But better to try to connect if user wants history
         
-        if not history:
-            console.print(f"  [{Colors.DIM}]No history for this policy.[/]")
-            return
-        
-        console.print()
-        console.print(f"  [{Colors.INFO}]Change History:[/]")
-        console.print()
-        
-        for entry in history[-10:]:  # Last 10 entries
-            console.print(f"  [{Colors.DIM}]{entry.changed_at}[/]")
-            console.print(f"    {entry.change_type}: {entry.description}")
+        try:
+            from caracal.db.connection import DatabaseConfig, DatabaseConnectionManager
+            from caracal.core.policy_versions import PolicyVersionManager
+            from uuid import UUID
+            
+            # Create database connection manager
+            db_config = DatabaseConfig(
+                host=config.database.host,
+                port=config.database.port,
+                database=config.database.database,
+                user=config.database.user,
+                password=config.database.password
+            )
+            
+            # Check if we should even try to connect (basic validation)
+            if not config.database.password and config.database.host == "localhost":
+                # Assume default config without DB
+                raise ImportError("Database not configured")
+
+            console.print(f"  [{Colors.DIM}]Connecting to database to fetch history...[/]")
+            db_manager = DatabaseConnectionManager(db_config)
+            db_manager.initialize()
+            
+            # Get database session
+            with db_manager.session_scope() as db_session:
+                # Create version manager
+                version_manager = PolicyVersionManager(db_session)
+                
+                # Get policy history
+                history = version_manager.get_policy_history(UUID(policy_id))
+            
+            db_manager.close()
+            
+            if not history:
+                console.print(f"  [{Colors.DIM}]No history found for this policy.[/]")
+                return
+            
             console.print()
-        
+            console.print(f"  [{Colors.INFO}]Change History:[/]")
+            console.print()
+            
+            for entry in history[-10:]:  # Last 10 entries
+                console.print(f"  [{Colors.DIM}]{entry.changed_at}[/]")
+                console.print(f"    {entry.change_type}: {entry.description}")
+                console.print()
+                
+        except (ImportError, Exception) as e:
+            # Fallback for file-based storage or connection error
+            logger.debug(f"Could not fetch history from DB: {e}")
+            
+            console.print(f"  [{Colors.WARNING}]{Icons.WARNING} Full history requires database storage.[/]")
+            console.print(f"  [{Colors.DIM}]Current policy state:[/]")
+            
+            # Show current state from file store
+            policy = store._policies.get(policy_id)
+            if policy:
+                console.print(f"    Created: {policy.created_at}")
+                console.print(f"    Limit: {policy.limit_amount} {policy.currency}")
+                console.print(f"    Status: {'Active' if policy.active else 'Inactive'}")
+            
     except ImportError:
         policy_id = prompt.text("Enter policy ID")
         _show_cli_command(console, "policy", "history", f"--policy-id {policy_id}")
