@@ -126,10 +126,9 @@ def _create_policy(console: Console, state: Optional[FlowState] = None) -> None:
         store = get_policy_store(config)
         policy = store.create_policy(
             agent_id=agent_id,
-            limit=Decimal(str(limit)),
+            limit_amount=Decimal(str(limit)),
             currency="USD",
             time_window=time_window,
-            window_type=window_type,
         )
         
         console.print(f"  [{Colors.SUCCESS}]{Icons.SUCCESS} Policy created![/]")
@@ -177,13 +176,13 @@ def _list_policies(console: Console) -> None:
         table.add_column("Status", style=Colors.NEUTRAL)
         
         for policy in policies:
-            status_style = Colors.SUCCESS if policy.is_active else Colors.DIM
+            status_style = Colors.SUCCESS if policy.active else Colors.DIM
             table.add_row(
                 policy.policy_id[:8] + "...",
                 policy.agent_id[:8] + "...",
-                f"${float(policy.limit):.2f}",
+                f"${float(policy.limit_amount):.2f}",
                 policy.time_window,
-                f"[{status_style}]{'Active' if policy.is_active else 'Inactive'}[/]",
+                f"[{status_style}]{'Active' if policy.active else 'Inactive'}[/]",
             )
         
         console.print(table)
@@ -227,7 +226,7 @@ def _policy_status(console: Console) -> None:
         from caracal.cli.ledger import get_ledger_query
         
         store = get_policy_store(config)
-        policies = store.get_policies_for_agent(agent_id)
+        policies = store.get_policies(agent_id)
         
         if not policies:
             console.print(f"  [{Colors.DIM}]No policies for this agent.[/]")
@@ -238,7 +237,7 @@ def _policy_status(console: Console) -> None:
         console.print()
         
         for policy in policies:
-            limit = float(policy.limit)
+            limit = float(policy.limit_amount)
             # Simplified - in reality would calculate actual spending
             spent = 0.0  # Placeholder
             remaining = limit - spent
@@ -290,7 +289,7 @@ def _policy_history(console: Console) -> None:
             console.print(f"  [{Colors.DIM}]No policies exist.[/]")
             return
         
-        items = [(p.policy_id, f"Agent {p.agent_id[:8]}... - ${float(p.limit):.2f}") for p in policies]
+        items = [(p.policy_id, f"Agent {p.agent_id[:8]}... - ${float(p.limit_amount):.2f}") for p in policies]
         policy_id = prompt.uuid("Policy ID (Tab for suggestions)", items)
         
         # Get history
