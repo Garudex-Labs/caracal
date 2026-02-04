@@ -86,7 +86,7 @@ def _generate_token(console: Console) -> None:
     console.print()
     
     try:
-        registry, _, _ = _get_managers()
+        registry, _, delegation_manager = _get_managers()
         
         # Get agents for selection
         agents = registry.list_agents()
