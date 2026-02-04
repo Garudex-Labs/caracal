@@ -37,9 +37,9 @@ if client.check_budget("my-agent-id"):
     # Emit metering event
     client.emit_event(
         agent_id="my-agent-id",
-        resource_type="openai.gpt4.input_tokens",
-        quantity=Decimal("1000"),
-        metadata={"model": "gpt-4"}
+        resource_type="openai.gpt-5.2.input_tokens",
+        quantity=Decimal("1"),
+        metadata={"model": "gpt-5.2"}
     )
 ```
 
@@ -75,7 +75,7 @@ Emit a metering event directly.
 
 **Parameters:**
 - `agent_id`: Agent identifier
-- `resource_type`: Type of resource consumed (e.g., "openai.gpt4.input_tokens")
+- `resource_type`: Type of resource consumed (e.g., "openai.gpt-5.2.input_tokens")
 - `quantity`: Amount of resource consumed (as Decimal)
 - `metadata` (optional): Additional context for the event
 
@@ -88,10 +88,10 @@ from decimal import Decimal
 
 client.emit_event(
     agent_id="my-agent-id",
-    resource_type="openai.gpt4.input_tokens",
-    quantity=Decimal("1000"),
+    resource_type="openai.gpt-5.2.input_tokens",
+    quantity=Decimal("1"),
     metadata={
-        "model": "gpt-4",
+        "model": "gpt-5.2",
         "request_id": "req_123",
         "user": "user@example.com"
     }

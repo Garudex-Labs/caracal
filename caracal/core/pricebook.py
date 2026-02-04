@@ -34,7 +34,7 @@ class PriceEntry:
     Represents a price entry for a resource type.
     
     Attributes:
-        resource_type: Resource identifier (e.g., "openai.gpt4.input_tokens")
+        resource_type: Resource identifier (e.g., "openai.gpt-5.2.input_tokens")
         price_per_unit: Price per unit of resource
         currency: Currency code (e.g., "USD")
         updated_at: Timestamp when price was last updated

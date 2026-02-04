@@ -9,7 +9,7 @@ Requirements: 6.1, 6.2, 6.3, 6.4, 6.5, 6.6
 
 import logging
 from contextlib import contextmanager
-from typing import Optional
+from typing import Optional, Generator
 
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Engine
@@ -360,3 +360,32 @@ def close_connection_manager() -> None:
     if _connection_manager is not None:
         _connection_manager.close()
         _connection_manager = None
+
+
+@contextmanager
+def get_session(config: DatabaseConfig) -> Generator[Session, None, None]:
+    """
+    Get a database session using the global connection manager.
+    
+    Args:
+        config: Database configuration
+        
+    Yields:
+        SQLAlchemy Session
+    """
+    manager = initialize_connection_manager(config)
+    with manager.session_scope() as session:
+        yield session
+
+
+@contextmanager
+def session_scope() -> Generator[Session, None, None]:
+    """
+    Get a database session from the global connection manager.
+    
+    Yields:
+        SQLAlchemy Session
+    """
+    manager = get_connection_manager()
+    with manager.session_scope() as session:
+        yield session

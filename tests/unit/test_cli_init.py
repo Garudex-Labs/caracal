@@ -171,10 +171,9 @@ class TestCLIInit:
                 
                 content = pricebook_path.read_text()
                 assert "resource_type,price_per_unit,currency,updated_at" in content
-                assert "openai.gpt4.input_tokens" in content
-                assert "openai.gpt4.output_tokens" in content
-                assert "openai.gpt35.input_tokens" in content
-                assert "anthropic.claude3.input_tokens" in content
+                assert "openai.gpt-5.2.input_tokens" in content
+                assert "openai.gpt-5.2.output_tokens" in content
+                assert "openai.gpt-5.2.cached_input_tokens" in content
             
             finally:
                 if original_home:

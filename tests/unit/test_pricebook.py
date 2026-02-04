@@ -22,44 +22,44 @@ class TestPriceEntry:
     def test_price_entry_creation(self):
         """Test creating a PriceEntry."""
         entry = PriceEntry(
-            resource_type="openai.gpt4.input_tokens",
-            price_per_unit=Decimal("0.000030"),
+            resource_type="openai.gpt-5.2.input_tokens",
+            price_per_unit=Decimal("1.75"),
             currency="USD",
             updated_at="2024-01-15T10:00:00Z"
         )
         
-        assert entry.resource_type == "openai.gpt4.input_tokens"
-        assert entry.price_per_unit == Decimal("0.000030")
+        assert entry.resource_type == "openai.gpt-5.2.input_tokens"
+        assert entry.price_per_unit == Decimal("1.75")
         assert entry.currency == "USD"
         assert entry.updated_at == "2024-01-15T10:00:00Z"
 
     def test_price_entry_to_dict(self):
         """Test converting PriceEntry to dictionary."""
         entry = PriceEntry(
-            resource_type="openai.gpt4.input_tokens",
-            price_per_unit=Decimal("0.000030"),
+            resource_type="openai.gpt-5.2.input_tokens",
+            price_per_unit=Decimal("1.75"),
             currency="USD",
             updated_at="2024-01-15T10:00:00Z"
         )
         
         data = entry.to_dict()
-        assert data["resource_type"] == "openai.gpt4.input_tokens"
-        assert data["price_per_unit"] == "0.000030"
+        assert data["resource_type"] == "openai.gpt-5.2.input_tokens"
+        assert data["price_per_unit"] == "1.75"
         assert data["currency"] == "USD"
         assert data["updated_at"] == "2024-01-15T10:00:00Z"
 
     def test_price_entry_from_dict(self):
         """Test creating PriceEntry from dictionary."""
         data = {
-            "resource_type": "openai.gpt4.input_tokens",
-            "price_per_unit": "0.000030",
+            "resource_type": "openai.gpt-5.2.input_tokens",
+            "price_per_unit": "1.75",
             "currency": "USD",
             "updated_at": "2024-01-15T10:00:00Z"
         }
         
         entry = PriceEntry.from_dict(data)
-        assert entry.resource_type == "openai.gpt4.input_tokens"
-        assert entry.price_per_unit == Decimal("0.000030")
+        assert entry.resource_type == "openai.gpt-5.2.input_tokens"
+        assert entry.price_per_unit == Decimal("1.75")
         assert entry.currency == "USD"
 
 
@@ -80,16 +80,16 @@ class TestPricebook:
         pricebook = Pricebook(str(sample_pricebook_path))
         
         prices = pricebook.get_all_prices()
-        assert len(prices) == 4
-        assert "openai.gpt4.input_tokens" in prices
-        assert "openai.gpt4.output_tokens" in prices
+        assert len(prices) == 3
+        assert "openai.gpt-5.2.input_tokens" in prices
+        assert "openai.gpt-5.2.output_tokens" in prices
 
     def test_get_price_existing_resource(self, sample_pricebook_path):
         """Test getting price for an existing resource."""
         pricebook = Pricebook(str(sample_pricebook_path))
         
-        price = pricebook.get_price("openai.gpt4.input_tokens")
-        assert price == Decimal("0.000030")
+        price = pricebook.get_price("openai.gpt-5.2.input_tokens")
+        assert price == Decimal("1.75")
 
     def test_get_price_unknown_resource(self, sample_pricebook_path):
         """Test getting price for unknown resource returns zero."""
@@ -104,13 +104,13 @@ class TestPricebook:
         pricebook = Pricebook(str(pricebook_path))
         
         pricebook.set_price(
-            "openai.gpt4.input_tokens",
-            Decimal("0.000030"),
+            "openai.gpt-5.2.input_tokens",
+            Decimal("1.75"),
             "USD"
         )
         
-        price = pricebook.get_price("openai.gpt4.input_tokens")
-        assert price == Decimal("0.000030")
+        price = pricebook.get_price("openai.gpt-5.2.input_tokens")
+        assert price == Decimal("1.75")
 
     def test_set_price_update_existing(self, sample_pricebook_path):
         """Test updating price for existing resource."""
@@ -118,13 +118,13 @@ class TestPricebook:
         
         # Update price
         pricebook.set_price(
-            "openai.gpt4.input_tokens",
-            Decimal("0.000035"),
+            "openai.gpt-5.2.input_tokens",
+            Decimal("1.80"),
             "USD"
         )
         
-        price = pricebook.get_price("openai.gpt4.input_tokens")
-        assert price == Decimal("0.000035")
+        price = pricebook.get_price("openai.gpt-5.2.input_tokens")
+        assert price == Decimal("1.80")
 
     def test_set_price_negative_rejected(self, temp_dir):
         """Test that negative prices are rejected."""
@@ -174,7 +174,7 @@ class TestPricebook:
         pricebook = Pricebook(str(sample_pricebook_path))
         
         prices = pricebook.get_all_prices()
-        assert len(prices) == 4
+        assert len(prices) == 3
         assert isinstance(prices, dict)
         
         # Verify it's a copy (not the internal dict)
@@ -192,20 +192,20 @@ class TestPricebook:
         pricebook = Pricebook(str(pricebook_path))
         
         json_data = {
-            "openai.gpt4.input_tokens": {
-                "price": "0.000030",
+            "openai.gpt-5.2.input_tokens": {
+                "price": "1.75",
                 "currency": "USD"
             },
-            "openai.gpt4.output_tokens": {
-                "price": "0.000060",
+            "openai.gpt-5.2.output_tokens": {
+                "price": "14.00",
                 "currency": "USD"
             }
         }
         
         pricebook.import_from_json(json_data)
         
-        assert pricebook.get_price("openai.gpt4.input_tokens") == Decimal("0.000030")
-        assert pricebook.get_price("openai.gpt4.output_tokens") == Decimal("0.000060")
+        assert pricebook.get_price("openai.gpt-5.2.input_tokens") == Decimal("1.75")
+        assert pricebook.get_price("openai.gpt-5.2.output_tokens") == Decimal("14.00")
 
     def test_import_from_json_default_currency(self, temp_dir):
         """Test importing prices with default currency."""

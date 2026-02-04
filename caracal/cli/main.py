@@ -410,12 +410,9 @@ performance:
         pricebook_path = caracal_dir / "pricebook.csv"
         if not pricebook_path.exists():
             sample_pricebook = """resource_type,price_per_unit,currency,updated_at
-openai.gpt4.input_tokens,0.000030,USD,2024-01-15T10:00:00Z
-openai.gpt4.output_tokens,0.000060,USD,2024-01-15T10:00:00Z
-openai.gpt35.input_tokens,0.000001,USD,2024-01-15T10:00:00Z
-openai.gpt35.output_tokens,0.000002,USD,2024-01-15T10:00:00Z
-anthropic.claude3.input_tokens,0.000015,USD,2024-01-15T10:00:00Z
-anthropic.claude3.output_tokens,0.000075,USD,2024-01-15T10:00:00Z
+openai.gpt-5.2.input_tokens,1.75,USD,2024-01-15T10:00:00Z
+openai.gpt-5.2.output_tokens,14.00,USD,2024-01-15T10:00:00Z
+openai.gpt-5.2.cached_input_tokens,0.175,USD,2024-01-15T10:00:00Z
 """
             pricebook_path.write_text(sample_pricebook)
             click.echo(f"Created sample pricebook: {pricebook_path}")

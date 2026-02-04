@@ -23,20 +23,20 @@ class TestLedgerEvent:
             event_id=1,
             agent_id="test-agent-123",
             timestamp="2024-01-15T10:30:00Z",
-            resource_type="openai.gpt4.input_tokens",
-            quantity="1000",
-            cost="0.030",
+            resource_type="openai.gpt-5.2.input_tokens",
+            quantity="1",
+            cost="1.75",
             currency="USD",
-            metadata={"model": "gpt-4"}
+            metadata={"model": "gpt-5.2"}
         )
         
         assert event.event_id == 1
         assert event.agent_id == "test-agent-123"
-        assert event.resource_type == "openai.gpt4.input_tokens"
-        assert event.quantity == "1000"
-        assert event.cost == "0.030"
+        assert event.resource_type == "openai.gpt-5.2.input_tokens"
+        assert event.quantity == "1"
+        assert event.cost == "1.75"
         assert event.currency == "USD"
-        assert event.metadata == {"model": "gpt-4"}
+        assert event.metadata == {"model": "gpt-5.2"}
     
     def test_ledger_event_to_dict(self):
         """Test converting ledger event to dictionary."""
@@ -44,9 +44,9 @@ class TestLedgerEvent:
             event_id=1,
             agent_id="test-agent-123",
             timestamp="2024-01-15T10:30:00Z",
-            resource_type="openai.gpt4.input_tokens",
-            quantity="1000",
-            cost="0.030",
+            resource_type="openai.gpt-5.2.input_tokens",
+            quantity="1",
+            cost="1.75",
             currency="USD",
             metadata=None
         )
@@ -63,9 +63,9 @@ class TestLedgerEvent:
             event_id=1,
             agent_id="test-agent-123",
             timestamp="2024-01-15T10:30:00Z",
-            resource_type="openai.gpt4.input_tokens",
-            quantity="1000",
-            cost="0.030",
+            resource_type="openai.gpt-5.2.input_tokens",
+            quantity="1",
+            cost="1.75",
             currency="USD",
             metadata=None
         )
@@ -100,18 +100,18 @@ class TestLedgerWriter:
         
         event = writer.append_event(
             agent_id="test-agent-123",
-            resource_type="openai.gpt4.input_tokens",
-            quantity=Decimal("1000"),
-            cost=Decimal("0.030"),
+            resource_type="openai.gpt-5.2.input_tokens",
+            quantity=Decimal("1"),
+            cost=Decimal("1.75"),
             currency="USD",
-            metadata={"model": "gpt-4"}
+            metadata={"model": "gpt-5.2"}
         )
         
         assert event.event_id == 1
         assert event.agent_id == "test-agent-123"
-        assert event.resource_type == "openai.gpt4.input_tokens"
-        assert event.quantity == "1000"
-        assert event.cost == "0.030"
+        assert event.resource_type == "openai.gpt-5.2.input_tokens"
+        assert event.quantity == "1"
+        assert event.cost == "1.75"
         
         # Verify event was written to file
         with open(ledger_path, 'r') as f:
@@ -401,29 +401,29 @@ class TestLedgerQuery:
         # Add events with different resource types
         writer.append_event(
             agent_id="agent-1",
-            resource_type="openai.gpt4.input_tokens",
+            resource_type="openai.gpt-5.2.input_tokens",
             quantity=Decimal("100"),
             cost=Decimal("1.00")
         )
         writer.append_event(
             agent_id="agent-1",
-            resource_type="openai.gpt4.output_tokens",
+            resource_type="openai.gpt-5.2.output_tokens",
             quantity=Decimal("200"),
             cost=Decimal("2.00")
         )
         writer.append_event(
             agent_id="agent-1",
-            resource_type="openai.gpt4.input_tokens",
+            resource_type="openai.gpt-5.2.input_tokens",
             quantity=Decimal("300"),
             cost=Decimal("3.00")
         )
         
         # Query events for specific resource type
         query = LedgerQuery(str(ledger_path))
-        events = query.get_events(resource_type="openai.gpt4.input_tokens")
+        events = query.get_events(resource_type="openai.gpt-5.2.input_tokens")
         
         assert len(events) == 2
-        assert all(e.resource_type == "openai.gpt4.input_tokens" for e in events)
+        assert all(e.resource_type == "openai.gpt-5.2.input_tokens" for e in events)
     
     def test_get_events_filter_by_time_range(self, temp_dir):
         """Test filtering events by time range."""

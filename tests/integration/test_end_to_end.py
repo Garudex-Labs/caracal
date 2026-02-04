@@ -105,12 +105,12 @@ class TestCompleteFlow:
         assert decision.allowed is True
         assert decision.remaining_budget == Decimal("100.00")
         
-        # Step 4: Emit metering event (1000 input tokens = $0.03)
+        # Step 4: Emit metering event (10 input tokens = $17.50)
         event = MeteringEvent(
             agent_id=agent.agent_id,
-            resource_type="openai.gpt4.input_tokens",
-            quantity=Decimal("1000"),
-            metadata={"model": "gpt-4"}
+            resource_type="openai.gpt-5.2.input_tokens",
+            quantity=Decimal("10"),
+            metadata={"model": "gpt-5.2"}
         )
         components["metering_collector"].collect_event(event)
         
@@ -118,15 +118,15 @@ class TestCompleteFlow:
         events = components["ledger_query"].get_events(agent_id=agent.agent_id)
         assert len(events) == 1
         assert events[0].agent_id == agent.agent_id
-        assert events[0].resource_type == "openai.gpt4.input_tokens"
+        assert events[0].resource_type == "openai.gpt-5.2.input_tokens"
         # Note: quantity and cost may be stored as strings in JSON
-        assert Decimal(events[0].quantity) == Decimal("1000")
-        assert Decimal(events[0].cost) == Decimal("0.030")
+        assert Decimal(events[0].quantity) == Decimal("10")
+        assert Decimal(events[0].cost) == Decimal("17.50")
         
         # Step 6: Check budget again (should pass with reduced budget)
         decision = components["policy_evaluator"].check_budget(agent.agent_id)
         assert decision.allowed is True
-        assert decision.remaining_budget == Decimal("99.970")
+        assert decision.remaining_budget == Decimal("82.50")
     
     def test_budget_exhaustion_flow(self, integration_setup):
         """
@@ -154,13 +154,13 @@ class TestCompleteFlow:
         )
         
         # Step 3: Emit events to exhaust budget
-        # Each event costs $0.03 (1000 tokens * $0.000030)
-        # Need 34 events to exceed $1 (34 * $0.03 = $1.02)
-        for i in range(34):
+        # Each event costs $1.75 (1 token * $1.75)
+        # Need 1 event to exceed $1
+        for i in range(1):
             event = MeteringEvent(
                 agent_id=agent.agent_id,
-                resource_type="openai.gpt4.input_tokens",
-                quantity=Decimal("1000"),
+                resource_type="openai.gpt-5.2.input_tokens",
+                quantity=Decimal("1"),
                 metadata={"iteration": i}
             )
             components["metering_collector"].collect_event(event)
@@ -176,7 +176,7 @@ class TestCompleteFlow:
             start_time=None,
             end_time=None
         )
-        assert total_spending == Decimal("1.020")  # 34 * $0.03
+        assert total_spending == Decimal("1.75")  # 1 * $1.75
 
 
 class TestMultipleAgents:
@@ -216,33 +216,33 @@ class TestMultipleAgents:
             time_window="daily"
         )
         
-        # Emit events for agent 1 ($0.30 total)
+        # Emit events for agent 1 ($17.50 total)
         for i in range(10):
             event = MeteringEvent(
                 agent_id=agent1.agent_id,
-                resource_type="openai.gpt4.input_tokens",
-                quantity=Decimal("1000")
+                resource_type="openai.gpt-5.2.input_tokens",
+                quantity=Decimal("1")
             )
             components["metering_collector"].collect_event(event)
         
-        # Emit events for agent 2 ($0.15 total)
+        # Emit events for agent 2 ($8.75 total)
         for i in range(5):
             event = MeteringEvent(
                 agent_id=agent2.agent_id,
-                resource_type="openai.gpt4.input_tokens",
-                quantity=Decimal("1000")
+                resource_type="openai.gpt-5.2.input_tokens",
+                quantity=Decimal("1")
             )
             components["metering_collector"].collect_event(event)
         
         # Verify agent 1 budget
         decision1 = components["policy_evaluator"].check_budget(agent1.agent_id)
         assert decision1.allowed is True
-        assert decision1.remaining_budget == Decimal("99.70")
+        assert decision1.remaining_budget == Decimal("82.50")  # 100 - 17.50
         
         # Verify agent 2 budget
         decision2 = components["policy_evaluator"].check_budget(agent2.agent_id)
         assert decision2.allowed is True
-        assert decision2.remaining_budget == Decimal("49.85")
+        assert decision2.remaining_budget == Decimal("41.25")  # 50 - 8.75
         
         # Verify ledger has correct events for each agent
         events1 = components["ledger_query"].get_events(agent_id=agent1.agent_id)
@@ -278,12 +278,12 @@ class TestMultipleAgents:
             time_window="daily"
         )
         
-        # Exhaust agent 1's budget
-        for i in range(20):  # 20 * $0.03 = $0.60
+        # Exhaust agent 1's budget (Limit 0.50)
+        for i in range(1):  # 1 * 1.75 = 1.75 > 0.50
             event = MeteringEvent(
                 agent_id=agent1.agent_id,
-                resource_type="openai.gpt4.input_tokens",
-                quantity=Decimal("1000")
+                resource_type="openai.gpt-5.2.input_tokens",
+                quantity=Decimal("1")
             )
             components["metering_collector"].collect_event(event)
         
@@ -299,15 +299,15 @@ class TestMultipleAgents:
         # Agent 2 can still emit events
         event = MeteringEvent(
             agent_id=agent2.agent_id,
-            resource_type="openai.gpt4.input_tokens",
-            quantity=Decimal("1000")
+            resource_type="openai.gpt-5.2.input_tokens",
+            quantity=Decimal("1")
         )
         components["metering_collector"].collect_event(event)
         
         # Verify agent 2 budget updated
         decision2 = components["policy_evaluator"].check_budget(agent2.agent_id)
         assert decision2.allowed is True
-        assert decision2.remaining_budget == Decimal("999.970")
+        assert decision2.remaining_budget == Decimal("998.25")
 
 
 class TestSystemRestart:
@@ -341,8 +341,8 @@ class TestSystemRestart:
         for i in range(5):
             event = MeteringEvent(
                 agent_id=agent.agent_id,
-                resource_type="openai.gpt4.input_tokens",
-                quantity=Decimal("1000")
+                resource_type="openai.gpt-5.2.input_tokens",
+                quantity=Decimal("1")
             )
             components["metering_collector"].collect_event(event)
         
@@ -406,7 +406,7 @@ class TestSystemRestart:
         for i in range(3):
             event = MeteringEvent(
                 agent_id=agent.agent_id,
-                resource_type="openai.gpt4.input_tokens",
+                resource_type="openai.gpt-5.2.input_tokens",
                 quantity=Decimal("1000")
             )
             components["metering_collector"].collect_event(event)
@@ -430,7 +430,7 @@ class TestSystemRestart:
         for i in range(2):
             event = MeteringEvent(
                 agent_id=agent.agent_id,
-                resource_type="openai.gpt4.input_tokens",
+                resource_type="openai.gpt-5.2.input_tokens",
                 quantity=Decimal("1000")
             )
             new_metering_collector.collect_event(event)
@@ -469,8 +469,8 @@ class TestBudgetDenial:
         # Exhaust budget
         event = MeteringEvent(
             agent_id=agent.agent_id,
-            resource_type="openai.gpt4.input_tokens",
-            quantity=Decimal("1000")  # Costs $0.03
+            resource_type="openai.gpt-5.2.input_tokens",
+            quantity=Decimal("1")  # Costs $1.75
         )
         components["metering_collector"].collect_event(event)
         
@@ -510,15 +510,15 @@ class TestBudgetDenial:
         # Create policy with exact limit for one event
         components["policy_store"].create_policy(
             agent_id=agent.agent_id,
-            limit_amount=Decimal("0.030"),  # Exactly one event
+            limit_amount=Decimal("1.75"),  # Exactly one event
             time_window="daily"
         )
         
-        # Emit one event (costs exactly $0.030)
+        # Emit one event (costs exactly $1.75)
         event = MeteringEvent(
             agent_id=agent.agent_id,
-            resource_type="openai.gpt4.input_tokens",
-            quantity=Decimal("1000")
+            resource_type="openai.gpt-5.2.input_tokens",
+            quantity=Decimal("1")
         )
         components["metering_collector"].collect_event(event)
         

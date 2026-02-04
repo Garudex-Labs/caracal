@@ -14,7 +14,7 @@ from uuid import uuid4
 from caracal.core.identity import AgentRegistry
 from caracal.core.policy import PolicyStore, PolicyEvaluator
 from caracal.core.ledger import LedgerWriter, LedgerQuery
-from caracal.core.delegation import DelegationManager
+from caracal.core.delegation import DelegationTokenManager
 from caracal.core.provisional_charges import ProvisionalChargeManager
 from caracal.db.connection import get_session
 from caracal.config.settings import load_config
@@ -124,16 +124,16 @@ class TestAPIFunctionality:
         # API: write ledger event
         event = ledger_writer.write_event(
             agent_id=agent.agent_id,
-            resource_type="gpt-4",
-            quantity=Decimal("1000"),
-            cost=Decimal("0.03"),
+            resource_type="openai.gpt-5.2.input_tokens",
+            quantity=Decimal("1"),
+            cost=Decimal("1.75"),
             currency="USD"
         )
         
         assert event.agent_id == agent.agent_id
-        assert event.resource_type == "gpt-4"
-        assert event.quantity == Decimal("1000")
-        assert event.cost == Decimal("0.03")
+        assert event.resource_type == "openai.gpt-5.2.input_tokens"
+        assert event.quantity == Decimal("1")
+        assert event.cost == Decimal("1.75")
         assert event.currency == "USD"
         
         # merkle_root_id is None for events not yet batched
@@ -155,9 +155,9 @@ class TestAPIFunctionality:
         for i in range(5):
             ledger_writer.write_event(
                 agent_id=agent.agent_id,
-                resource_type="gpt-4",
-                quantity=Decimal("1000"),
-                cost=Decimal("0.03"),
+                resource_type="openai.gpt-5.2.input_tokens",
+                quantity=Decimal("1"),
+                cost=Decimal("1.75"),
                 currency="USD"
             )
         
@@ -172,7 +172,7 @@ class TestAPIFunctionality:
             end_time=end_time
         )
         
-        assert spending == Decimal("0.15")  # 5 events * 0.03
+        assert spending == Decimal("8.75")  # 5 events * 1.75
     
     def test_delegation_api(self, agent_registry, policy_store):
         """
@@ -230,13 +230,13 @@ class TestAPIFunctionality:
         
         charge = pc_manager.create_charge(
             agent_id=agent.agent_id,
-            amount=Decimal("10.00"),
+            amount=Decimal("14.00"),
             currency="USD",
-            resource_type="gpt-4"
+            resource_type="openai.gpt-5.2.output_tokens"
         )
         
         assert charge.agent_id == agent.agent_id
-        assert charge.amount == Decimal("10.00")
+        assert charge.amount == Decimal("14.00")
         assert charge.currency == "USD"
         assert charge.released is False
         
@@ -270,28 +270,28 @@ class TestAPIFunctionality:
         # Write some spending
         ledger_writer.write_event(
             agent_id=agent.agent_id,
-            resource_type="gpt-4",
-            quantity=Decimal("1000"),
-            cost=Decimal("50.00"),
+            resource_type="openai.gpt-5.2.output_tokens",
+            quantity=Decimal("1"),
+            cost=Decimal("14.00"),
             currency="USD"
         )
         
         # API: evaluate policy
         evaluator = PolicyEvaluator(db_session)
         
-        # Should allow (50 + 30 = 80 < 100)
+        # Should allow (14 + 1.75 = 15.75 < 100)
         result = evaluator.evaluate(
             agent_id=agent.agent_id,
-            estimated_cost=Decimal("30.00"),
+            estimated_cost=Decimal("1.75"),
             currency="USD"
         )
         
         assert result.allowed is True
         
-        # Should deny (50 + 60 = 110 > 100)
+        # Should deny (14 + 90 = 104 > 100)
         result = evaluator.evaluate(
             agent_id=agent.agent_id,
-            estimated_cost=Decimal("60.00"),
+            estimated_cost=Decimal("90.00"),
             currency="USD"
         )
         

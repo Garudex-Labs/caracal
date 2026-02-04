@@ -148,9 +148,9 @@ def get_price(ctx, resource: str, format: str):
     
     Examples:
     
-        caracal pricebook get --resource openai.gpt4.input_tokens
+        caracal pricebook get --resource openai.gpt-5.2.input_tokens
         
-        caracal pricebook get -r openai.gpt4.input_tokens --format json
+        caracal pricebook get -r openai.gpt-5.2.input_tokens --format json
     """
     try:
         # Get CLI context
@@ -226,7 +226,7 @@ def set_price(ctx, resource: str, price: str, currency: str):
     
     Examples:
     
-        caracal pricebook set --resource openai.gpt4.input_tokens --price 0.000035
+        caracal pricebook set --resource openai.gpt-5.2.input_tokens --price 1.75
         
         caracal pricebook set -r custom.api.calls -p 0.01 -c USD
     """
@@ -325,12 +325,12 @@ def import_prices(ctx, file: Path):
     
     JSON format:
     {
-      "openai.gpt4.input_tokens": {
-        "price": "0.000030",
+      "openai.gpt-5.2.input_tokens": {
+        "price": "1.75",
         "currency": "USD"
       },
-      "openai.gpt4.output_tokens": {
-        "price": "0.000060",
+      "openai.gpt-5.2.output_tokens": {
+        "price": "14.00",
         "currency": "USD"
       }
     }

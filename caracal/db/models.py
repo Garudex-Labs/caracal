@@ -20,6 +20,7 @@ from sqlalchemy import (
     DateTime,
     ForeignKey,
     Index,
+    Integer,
     Numeric,
     String,
     JSON,
@@ -156,7 +157,7 @@ class LedgerEvent(Base):
     __tablename__ = "ledger_events"
     
     # Primary key with auto-increment
-    event_id = Column(BigInteger, primary_key=True, autoincrement=True)
+    event_id = Column(BigInteger().with_variant(Integer, "sqlite"), primary_key=True, autoincrement=True)
     
     # Foreign key to agent
     agent_id = Column(
@@ -264,7 +265,7 @@ class AuditLog(Base):
     __tablename__ = "audit_logs"
     
     # Primary key with auto-increment
-    log_id = Column(BigInteger, primary_key=True, autoincrement=True)
+    log_id = Column(BigInteger().with_variant(Integer, "sqlite"), primary_key=True, autoincrement=True)
     
     # Event identification
     event_id = Column(String(255), nullable=False, index=True)

@@ -141,11 +141,11 @@ def query(
         caracal ledger query --start 2024-01-01 --end 2024-01-31
         
         # Query events for a specific resource type
-        caracal ledger query --resource openai.gpt4.input_tokens
+        caracal ledger query --resource openai.gpt-5.2.input_tokens
         
         # Combine filters
         caracal ledger query -a 550e8400-e29b-41d4-a716-446655440000 \\
-            -s 2024-01-01 -e 2024-01-31 -r openai.gpt4.input_tokens
+            -s 2024-01-01 -e 2024-01-31 -r openai.gpt-5.2.input_tokens
         
         # JSON output
         caracal ledger query --format json

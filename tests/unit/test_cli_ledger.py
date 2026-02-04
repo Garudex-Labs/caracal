@@ -32,18 +32,18 @@ class TestLedgerCLI:
         # Add events for agent 1
         writer.append_event(
             agent_id="agent-1",
-            resource_type="openai.gpt4.input_tokens",
-            quantity=Decimal("1000"),
-            cost=Decimal("0.030"),
+            resource_type="openai.gpt-5.2.input_tokens",
+            quantity=Decimal("1"),
+            cost=Decimal("1.75"),
             currency="USD",
             timestamp=datetime(2024, 1, 15, 10, 30, 0),
         )
         
         writer.append_event(
             agent_id="agent-1",
-            resource_type="openai.gpt4.output_tokens",
-            quantity=Decimal("500"),
-            cost=Decimal("0.030"),
+            resource_type="openai.gpt-5.2.output_tokens",
+            quantity=Decimal("1"),
+            cost=Decimal("14.00"),
             currency="USD",
             timestamp=datetime(2024, 1, 15, 11, 0, 0),
         )
@@ -126,7 +126,7 @@ logging:
         assert 'Total events: 3' in result.output
         assert 'agent-1' in result.output
         assert 'agent-2' in result.output
-        assert 'openai.gpt4.input_tokens' in result.output
+        assert 'openai.gpt-5.2.input_tokens' in result.output
         assert 'anthropic.claude3.input_tokens' in result.output
     
     def test_query_all_events_json(self, temp_config):
@@ -140,7 +140,7 @@ logging:
         events = json.loads(result.output)
         assert len(events) == 3
         assert events[0]['agent_id'] == 'agent-1'
-        assert events[0]['resource_type'] == 'openai.gpt4.input_tokens'
+        assert events[0]['resource_type'] == 'openai.gpt-5.2.input_tokens'
     
     def test_query_filter_by_agent(self, temp_config):
         """Test querying events filtered by agent ID."""
@@ -177,13 +177,13 @@ logging:
         result = runner.invoke(cli, [
             '--config', temp_config,
             'ledger', 'query',
-            '--resource', 'openai.gpt4.input_tokens'
+            '--resource', 'openai.gpt-5.2.input_tokens'
         ])
         
         assert result.exit_code == 0
         assert 'Total events: 1' in result.output
-        assert 'openai.gpt4.input_tokens' in result.output
-        assert 'openai.gpt4.output_tokens' not in result.output
+        assert 'openai.gpt-5.2.input_tokens' in result.output
+        assert 'openai.gpt-5.2.output_tokens' not in result.output
     
     def test_query_combined_filters(self, temp_config):
         """Test querying events with combined filters."""
@@ -194,12 +194,12 @@ logging:
             '--agent-id', 'agent-1',
             '--start', '2024-01-15',
             '--end', '2024-01-15 12:00:00',
-            '--resource', 'openai.gpt4.input_tokens'
+            '--resource', 'openai.gpt-5.2.input_tokens'
         ])
         
         assert result.exit_code == 0
         assert 'Total events: 1' in result.output
-        assert 'openai.gpt4.input_tokens' in result.output
+        assert 'openai.gpt-5.2.input_tokens' in result.output
     
     def test_query_no_results(self, temp_config):
         """Test querying with filters that return no results."""
@@ -251,10 +251,10 @@ logging:
         
         assert result.exit_code == 0
         assert 'Spending Summary for Agent: agent-1' in result.output
-        assert 'Total Spending: 0.060 USD' in result.output
+        assert 'Total Spending: 15.75 USD' in result.output
         assert 'Breakdown by Resource Type' in result.output
-        assert 'openai.gpt4.input_tokens' in result.output
-        assert 'openai.gpt4.output_tokens' in result.output
+        assert 'openai.gpt-5.2.input_tokens' in result.output
+        assert 'openai.gpt-5.2.output_tokens' in result.output
     
     def test_summary_single_agent_json(self, temp_config):
         """Test summary for single agent with JSON output."""
@@ -273,9 +273,9 @@ logging:
         # Parse JSON output
         summary = json.loads(result.output)
         assert summary['agent_id'] == 'agent-1'
-        assert summary['total_spending'] == '0.060'
+        assert summary['total_spending'] == '15.75'
         assert 'breakdown_by_resource' in summary
-        assert 'openai.gpt4.input_tokens' in summary['breakdown_by_resource']
+        assert 'openai.gpt-5.2.input_tokens' in summary['breakdown_by_resource']
     
     def test_summary_multi_agent_table(self, temp_config):
         """Test summary for multiple agents with table output."""
@@ -290,7 +290,7 @@ logging:
         assert result.exit_code == 0
         assert 'Spending Summary by Agent' in result.output
         assert 'Total Agents: 2' in result.output
-        assert 'Total Spending: 0.090 USD' in result.output
+        assert 'Total Spending: 15.78 USD' in result.output
         assert 'agent-1' in result.output
         assert 'agent-2' in result.output
     
@@ -312,7 +312,7 @@ logging:
         assert 'agents' in summary
         assert 'agent-1' in summary['agents']
         assert 'agent-2' in summary['agents']
-        assert summary['agents']['agent-1'] == '0.060'
+        assert summary['agents']['agent-1'] == '15.75'
         assert summary['agents']['agent-2'] == '0.030'
     
     def test_summary_no_spending(self, temp_config):

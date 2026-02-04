@@ -148,6 +148,14 @@ class DatabaseConfig:
     max_overflow: int = 5
     pool_timeout: int = 30
 
+    def get_connection_url(self) -> str:
+        """Get database connection URL."""
+        if self.type == "sqlite":
+            return f"sqlite:///{self.file_path}"
+        
+        # Postgres default
+        return f"postgresql://{self.user}:{self.password}@{self.host}:{self.port}/{self.database}"
+
 
 @dataclass
 class TLSConfig:

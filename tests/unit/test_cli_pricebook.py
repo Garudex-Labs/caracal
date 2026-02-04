@@ -57,9 +57,9 @@ logging:
         
         # Add sample prices
         from decimal import Decimal
-        pricebook.set_price("openai.gpt4.input_tokens", Decimal("0.000030"), "USD")
-        pricebook.set_price("openai.gpt4.output_tokens", Decimal("0.000060"), "USD")
-        pricebook.set_price("anthropic.claude3.input_tokens", Decimal("0.000015"), "USD")
+        pricebook.set_price("openai.gpt-5.2.input_tokens", Decimal("1.75"), "USD")
+        pricebook.set_price("openai.gpt-5.2.output_tokens", Decimal("14.00"), "USD")
+        pricebook.set_price("openai.gpt-5.2.cached_input_tokens", Decimal("0.175"), "USD")
         
         return pricebook
     
@@ -98,8 +98,8 @@ logging:
         assert 'Price/Unit' in result.output
         assert 'Currency' in result.output
         assert 'Last Updated' in result.output
-        assert 'openai.gpt4.input_tokens' in result.output
-        assert '0.000030' in result.output
+        assert 'openai.gpt-5.2.input_tokens' in result.output
+        assert '1.75' in result.output
         assert 'USD' in result.output
     
     def test_pricebook_list_json_format(self, config_file, pricebook_with_data):
@@ -116,9 +116,9 @@ logging:
         # Parse JSON output
         prices = json.loads(result.output)
         assert len(prices) == 3
-        assert 'openai.gpt4.input_tokens' in prices
-        assert prices['openai.gpt4.input_tokens']['price_per_unit'] == '0.000030'
-        assert prices['openai.gpt4.input_tokens']['currency'] == 'USD'
+        assert 'openai.gpt-5.2.input_tokens' in prices
+        assert prices['openai.gpt-5.2.input_tokens']['price_per_unit'] == '1.75'
+        assert prices['openai.gpt-5.2.input_tokens']['currency'] == 'USD'
     
     def test_pricebook_get_success(self, config_file, pricebook_with_data):
         """Test getting price for a specific resource."""
@@ -126,15 +126,15 @@ logging:
         result = runner.invoke(cli, [
             '--config', config_file,
             'pricebook', 'get',
-            '--resource', 'openai.gpt4.input_tokens'
+            '--resource', 'openai.gpt-5.2.input_tokens'
         ])
         
         assert result.exit_code == 0
         assert 'Resource Price Details' in result.output
         assert 'Resource:' in result.output
-        assert 'openai.gpt4.input_tokens' in result.output
+        assert 'openai.gpt-5.2.input_tokens' in result.output
         assert 'Price:' in result.output
-        assert '0.000030 USD per unit' in result.output
+        assert '1.75 USD per unit' in result.output
         assert 'Last Updated:' in result.output
     
     def test_pricebook_get_not_found(self, config_file, pricebook_with_data):
@@ -155,7 +155,7 @@ logging:
         result = runner.invoke(cli, [
             '--config', config_file,
             'pricebook', 'get',
-            '--resource', 'openai.gpt4.input_tokens',
+            '--resource', 'openai.gpt-5.2.input_tokens',
             '--format', 'json'
         ])
         
@@ -163,8 +163,8 @@ logging:
         
         # Parse JSON output
         price_entry = json.loads(result.output)
-        assert price_entry['resource_type'] == 'openai.gpt4.input_tokens'
-        assert price_entry['price_per_unit'] == '0.000030'
+        assert price_entry['resource_type'] == 'openai.gpt-5.2.input_tokens'
+        assert price_entry['price_per_unit'] == '1.75'
         assert price_entry['currency'] == 'USD'
     
     def test_pricebook_set_new_resource(self, config_file):
@@ -190,14 +190,14 @@ logging:
         result = runner.invoke(cli, [
             '--config', config_file,
             'pricebook', 'set',
-            '--resource', 'openai.gpt4.input_tokens',
-            '--price', '0.000035'
+            '--resource', 'openai.gpt-5.2.input_tokens',
+            '--price', '1.80'
         ])
         
         assert result.exit_code == 0
         assert 'Price updated successfully' in result.output
-        assert 'openai.gpt4.input_tokens' in result.output
-        assert '0.000035 USD per unit' in result.output
+        assert 'openai.gpt-5.2.input_tokens' in result.output
+        assert '1.80 USD per unit' in result.output
     
     def test_pricebook_set_with_currency(self, config_file):
         """Test setting price with explicit currency."""
@@ -290,12 +290,12 @@ logging:
         # Create JSON file with prices
         json_file = temp_dir / "prices.json"
         prices_data = {
-            "openai.gpt4.input_tokens": {
-                "price": "0.000030",
+            "openai.gpt-5.2.input_tokens": {
+                "price": "1.75",
                 "currency": "USD"
             },
-            "openai.gpt4.output_tokens": {
-                "price": "0.000060",
+            "openai.gpt-5.2.output_tokens": {
+                "price": "14.00",
                 "currency": "USD"
             }
         }
@@ -311,8 +311,8 @@ logging:
         assert result.exit_code == 0
         assert 'Successfully imported 2 prices' in result.output
         assert 'Imported resources:' in result.output
-        assert 'openai.gpt4.input_tokens' in result.output
-        assert '0.000030 USD' in result.output
+        assert 'openai.gpt-5.2.input_tokens' in result.output
+        assert '1.75 USD' in result.output
     
     def test_pricebook_import_invalid_json(self, config_file, temp_dir):
         """Test importing from invalid JSON file."""

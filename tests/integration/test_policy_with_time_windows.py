@@ -31,7 +31,7 @@ class TestPolicyEvaluatorWithTimeWindows:
         self.agent_registry = AgentRegistry(str(registry_path))
         
         # Create test agent
-        self.agent = self.agent_registry.create_agent("test-agent", "test-owner")
+        self.agent = self.agent_registry.register_agent("test-agent", "test-owner")
         
         # Create policy store
         policy_path = Path(self.temp_dir) / "policies.json"

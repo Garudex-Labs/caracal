@@ -83,42 +83,42 @@ def main():
         # Parent spending
         writer.append_event(
             agent_id=parent.agent_id,
-            resource_type="openai.gpt4.input_tokens",
-            quantity=Decimal("10000"),
-            cost=Decimal("0.30"),
+            resource_type="openai.gpt-5.2.input_tokens",
+            quantity=Decimal("1"),
+            cost=Decimal("1.75"),
             timestamp=base_time
         )
-        print(f"✓ Parent spent: $0.30 (GPT-4 tokens)")
+        print(f"✓ Parent spent: $1.75 (GPT-5.2 input tokens)")
         
         # Child 1 spending
         writer.append_event(
             agent_id=child1.agent_id,
-            resource_type="openai.gpt4.output_tokens",
-            quantity=Decimal("5000"),
-            cost=Decimal("0.30"),
+            resource_type="openai.gpt-5.2.output_tokens",
+            quantity=Decimal("1"),
+            cost=Decimal("14.00"),
             timestamp=base_time
         )
-        print(f"✓ Child 1 spent: $0.30 (GPT-4 tokens)")
+        print(f"✓ Child 1 spent: $14.00 (GPT-5.2 output tokens)")
         
         # Child 2 spending
         writer.append_event(
             agent_id=child2.agent_id,
-            resource_type="anthropic.claude3.input_tokens",
-            quantity=Decimal("20000"),
-            cost=Decimal("0.30"),
+            resource_type="openai.gpt-5.2.cached_input_tokens",
+            quantity=Decimal("10"),
+            cost=Decimal("1.75"),
             timestamp=base_time
         )
-        print(f"✓ Child 2 spent: $0.30 (Claude tokens)")
+        print(f"✓ Child 2 spent: $1.75 (GPT-5.2 cached input)")
         
         # Grandchild spending
         writer.append_event(
             agent_id=grandchild.agent_id,
-            resource_type="openai.gpt35.input_tokens",
-            quantity=Decimal("50000"),
-            cost=Decimal("0.05"),
+            resource_type="openai.gpt-5.2.input_tokens",
+            quantity=Decimal("1"),
+            cost=Decimal("1.75"),
             timestamp=base_time
         )
-        print(f"✓ Grandchild spent: $0.05 (GPT-3.5 tokens)")
+        print(f"✓ Grandchild spent: $1.75 (GPT-5.2 input tokens)")
         print()
         
         # Step 3: Query spending with aggregation

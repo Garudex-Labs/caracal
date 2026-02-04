@@ -27,9 +27,9 @@ def main():
         # Create sample pricebook
         pricebook_path = temp_path / "pricebook.csv"
         pricebook_content = """resource_type,price_per_unit,currency,updated_at
-openai.gpt4.input_tokens,0.000030,USD,2024-01-15T10:00:00Z
-openai.gpt4.output_tokens,0.000060,USD,2024-01-15T10:00:00Z
-anthropic.claude3.input_tokens,0.000015,USD,2024-01-15T10:00:00Z
+openai.gpt-5.2.input_tokens,1.75,USD,2024-01-15T10:00:00Z
+openai.gpt-5.2.output_tokens,14.00,USD,2024-01-15T10:00:00Z
+openai.gpt-5.2.cached_input_tokens,0.175,USD,2024-01-15T10:00:00Z
 """
         pricebook_path.write_text(pricebook_content)
         
@@ -98,15 +98,15 @@ logging:
         print("\n6. Emitting metering event...")
         client.emit_event(
             agent_id=agent.agent_id,
-            resource_type="openai.gpt4.input_tokens",
-            quantity=Decimal("1000"),
+            resource_type="openai.gpt-5.2.input_tokens",
+            quantity=Decimal("1"),
             metadata={
-                "model": "gpt-4",
+                "model": "gpt-5.2",
                 "request_id": "demo_req_001"
             }
         )
-        print("   ✓ Event emitted: 1000 input tokens")
-        print("   ✓ Cost: $0.030 (1000 * $0.000030)")
+        print("   ✓ Event emitted: 1 input token")
+        print("   ✓ Cost: $1.75 (1 * $1.75)")
         
         # 7. Check budget again
         print("\n7. Checking budget after event...")
@@ -123,12 +123,12 @@ logging:
         for i in range(3):
             client.emit_event(
                 agent_id=agent.agent_id,
-                resource_type="openai.gpt4.output_tokens",
-                quantity=Decimal("500"),
+                resource_type="openai.gpt-5.2.output_tokens",
+                quantity=Decimal("1"),
                 metadata={"request_id": f"demo_req_{i+2:03d}"}
             )
-        print("   ✓ Emitted 3 events: 500 output tokens each")
-        print("   ✓ Total cost: $0.090 (3 * 500 * $0.000060)")
+        print("   ✓ Emitted 3 events: 1 output token each")
+        print("   ✓ Total cost: $42.00 (3 * 1 * $14.00)")
         
         # 10. Final budget check
         print("\n10. Final budget status...")

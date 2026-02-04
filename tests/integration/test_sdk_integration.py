@@ -104,15 +104,15 @@ class TestSDKContextManager:
         # Create policy with low budget
         sdk_client.policy_store.create_policy(
             agent_id=agent.agent_id,
-            limit_amount=Decimal("0.01"),
+            limit_amount=Decimal("1.00"),
             time_window="daily"
         )
         
         # Exhaust budget
         sdk_client.emit_event(
             agent_id=agent.agent_id,
-            resource_type="openai.gpt4.input_tokens",
-            quantity=Decimal("1000"),  # Costs $0.03
+            resource_type="openai.gpt-5.2.input_tokens",
+            quantity=Decimal("1"),  # Costs $1.75
         )
         
         # Context manager should raise BudgetExceededError
@@ -148,25 +148,25 @@ class TestSDKContextManager:
         # Use context manager with manual event emission
         with sdk_client.budget_check(agent_id=agent.agent_id):
             # Simulate expensive operation
-            tokens_used = 1000
+            tokens_used = 10
             
             # Manually emit event after operation
             sdk_client.emit_event(
                 agent_id=agent.agent_id,
-                resource_type="openai.gpt4.input_tokens",
+                resource_type="openai.gpt-5.2.input_tokens",
                 quantity=Decimal(str(tokens_used)),
-                metadata={"model": "gpt-4", "operation": "test"}
+                metadata={"model": "gpt-5.2", "operation": "test"}
             )
         
         # Verify event was recorded
         events = sdk_client.ledger_query.get_events(agent_id=agent.agent_id)
         assert len(events) == 1
         # Note: quantity may be stored as string in JSON
-        assert Decimal(events[0].quantity) == Decimal("1000")
+        assert Decimal(events[0].quantity) == Decimal("10")
         
         # Verify budget was updated
         decision = sdk_client.policy_evaluator.check_budget(agent.agent_id)
-        assert decision.remaining_budget == Decimal("99.970")
+        assert decision.remaining_budget == Decimal("82.50")
     
     def test_context_manager_multiple_operations(self, sdk_client: CaracalClient):
         """
@@ -183,7 +183,7 @@ class TestSDKContextManager:
         # Create policy
         sdk_client.policy_store.create_policy(
             agent_id=agent.agent_id,
-            limit_amount=Decimal("1.00"),
+            limit_amount=Decimal("100.00"),
             time_window="daily"
         )
         
@@ -193,8 +193,8 @@ class TestSDKContextManager:
                 # Simulate operation
                 sdk_client.emit_event(
                     agent_id=agent.agent_id,
-                    resource_type="openai.gpt4.input_tokens",
-                    quantity=Decimal("1000"),
+                    resource_type="openai.gpt-5.2.input_tokens",
+                    quantity=Decimal("10"),
                     metadata={"iteration": i}
                 )
         
@@ -203,9 +203,9 @@ class TestSDKContextManager:
         assert len(events) == 5
         
         # Verify budget updated correctly
-        total_cost = Decimal("0.150")  # 5 * $0.03
+        total_cost = Decimal("87.50")  # 5 * $17.50
         decision = sdk_client.policy_evaluator.check_budget(agent.agent_id)
-        assert decision.remaining_budget == Decimal("1.00") - total_cost
+        assert decision.remaining_budget == Decimal("100.00") - total_cost
 
 
 class TestSDKErrorHandling:
@@ -333,8 +333,8 @@ class TestSDKConcurrentOperations:
         def emit_event(iteration: int):
             sdk_client.emit_event(
                 agent_id=agent.agent_id,
-                resource_type="openai.gpt4.input_tokens",
-                quantity=Decimal("1000"),
+                resource_type="openai.gpt-5.2.input_tokens",
+                quantity=Decimal("10"),
                 metadata={"thread": iteration}
             )
         
@@ -349,7 +349,7 @@ class TestSDKConcurrentOperations:
         assert len(events) == num_threads
         
         # Verify budget updated correctly
-        expected_cost = Decimal("0.30")  # 10 * $0.03
+        expected_cost = Decimal("175.00")  # 10 * $17.50
         decision = sdk_client.policy_evaluator.check_budget(agent.agent_id)
         assert decision.remaining_budget == Decimal("1000.00") - expected_cost
     
@@ -402,7 +402,7 @@ class TestSDKConcurrentOperations:
         # Create policy with budget for ~10 events
         sdk_client.policy_store.create_policy(
             agent_id=agent.agent_id,
-            limit_amount=Decimal("0.30"),  # 10 * $0.03
+            limit_amount=Decimal("20.00"),
             time_window="daily"
         )
         
@@ -410,8 +410,8 @@ class TestSDKConcurrentOperations:
         for i in range(8):
             sdk_client.emit_event(
                 agent_id=agent.agent_id,
-                resource_type="openai.gpt4.input_tokens",
-                quantity=Decimal("1000"),
+                resource_type="openai.gpt-5.2.input_tokens",
+                quantity=Decimal("1"),
                 metadata={"phase": "setup", "iteration": i}
             )
         
@@ -422,8 +422,8 @@ class TestSDKConcurrentOperations:
                 with sdk_client.budget_check(agent_id=agent.agent_id):
                     sdk_client.emit_event(
                         agent_id=agent.agent_id,
-                        resource_type="openai.gpt4.input_tokens",
-                        quantity=Decimal("1000"),
+                        resource_type="openai.gpt-5.2.input_tokens",
+                        quantity=Decimal("1"),
                         metadata={"phase": "concurrent", "iteration": iteration}
                     )
                 return True
@@ -474,15 +474,15 @@ class TestSDKRealisticScenarios:
         # Create daily budget policy
         sdk_client.policy_store.create_policy(
             agent_id=agent.agent_id,
-            limit_amount=Decimal("10.00"),
+            limit_amount=Decimal("100.00"),
             time_window="daily"
         )
         
         # Simulate multiple LLM API calls
         conversations = [
-            {"input_tokens": 500, "output_tokens": 200},
-            {"input_tokens": 800, "output_tokens": 300},
-            {"input_tokens": 1200, "output_tokens": 400},
+            {"input_tokens": 1, "output_tokens": 1},
+            {"input_tokens": 1, "output_tokens": 1},
+            {"input_tokens": 1, "output_tokens": 1},
         ]
         
         for i, conv in enumerate(conversations):
@@ -494,7 +494,7 @@ class TestSDKRealisticScenarios:
                 # Emit input tokens event
                 sdk_client.emit_event(
                     agent_id=agent.agent_id,
-                    resource_type="openai.gpt4.input_tokens",
+                    resource_type="openai.gpt-5.2.input_tokens",
                     quantity=Decimal(str(conv["input_tokens"])),
                     metadata={"conversation": i, "type": "input"}
                 )
@@ -502,7 +502,7 @@ class TestSDKRealisticScenarios:
                 # Emit output tokens event
                 sdk_client.emit_event(
                     agent_id=agent.agent_id,
-                    resource_type="openai.gpt4.output_tokens",
+                    resource_type="openai.gpt-5.2.output_tokens",
                     quantity=Decimal(str(conv["output_tokens"])),
                     metadata={"conversation": i, "type": "output"}
                 )
@@ -512,10 +512,8 @@ class TestSDKRealisticScenarios:
         assert len(events) == 6  # 3 conversations * 2 events each
         
         # Calculate expected cost
-        # Input: (500 + 800 + 1200) * $0.000030 = $0.075
-        # Output: (200 + 300 + 400) * $0.000060 = $0.054
-        # Total: $0.129
-        expected_cost = Decimal("0.129")
+        # Total: $47.25
+        expected_cost = Decimal("47.25")
         
         total_spending = sdk_client.ledger_query.sum_spending(
             agent_id=agent.agent_id,
@@ -526,7 +524,7 @@ class TestSDKRealisticScenarios:
         
         # Verify remaining budget
         decision = sdk_client.policy_evaluator.check_budget(agent.agent_id)
-        assert decision.remaining_budget == Decimal("10.00") - expected_cost
+        assert decision.remaining_budget == Decimal("100.00") - expected_cost
     
     def test_agent_with_mixed_resource_types(self, sdk_client: CaracalClient):
         """
@@ -549,10 +547,10 @@ class TestSDKRealisticScenarios:
         
         # Use different resource types
         resources = [
-            ("openai.gpt4.input_tokens", Decimal("1000")),
-            ("openai.gpt4.output_tokens", Decimal("500")),
-            ("anthropic.claude3.input_tokens", Decimal("2000")),
-            ("anthropic.claude3.output_tokens", Decimal("1000")),
+            ("openai.gpt-5.2.input_tokens", Decimal("1")),
+            ("openai.gpt-5.2.output_tokens", Decimal("1")),
+            ("openai.gpt-5.2.cached_input_tokens", Decimal("10")),
+            ("openai.gpt-5.2.output_tokens", Decimal("1")),
         ]
         
         for resource_type, quantity in resources:
@@ -569,15 +567,15 @@ class TestSDKRealisticScenarios:
                 agent_id=agent.agent_id,
                 resource_type=resource_type
             )
-            assert len(events) == 1
+            # The last resource is duplicated in list, so we get 2 events for output_tokens
+            if resource_type == "openai.gpt-5.2.output_tokens":
+                assert len(events) == 2
+            else:
+                assert len(events) == 1
         
         # Calculate expected total cost
-        # GPT-4 input: 1000 * $0.000030 = $0.030
-        # GPT-4 output: 500 * $0.000060 = $0.030
-        # Claude input: 2000 * $0.000015 = $0.030
-        # Claude output: 1000 * $0.000075 = $0.075
-        # Total: $0.165
-        expected_cost = Decimal("0.165")
+        # 1.75 + 14.00 + 1.75 + 14.00 = 31.50
+        expected_cost = Decimal("31.50")
         
         total_spending = sdk_client.ledger_query.sum_spending(
             agent_id=agent.agent_id,

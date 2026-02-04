@@ -175,6 +175,10 @@ class AgentRegistry:
         
         return agent
 
+    def create_agent(self, *args, **kwargs) -> AgentIdentity:
+        """Alias for register_agent for backward compatibility."""
+        return self.register_agent(*args, **kwargs)
+
     def update_agent(
         self,
         agent_id: str,

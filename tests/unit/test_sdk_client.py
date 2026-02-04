@@ -92,9 +92,9 @@ storage:
         # Emit event
         client.emit_event(
             agent_id=agent.agent_id,
-            resource_type="openai.gpt4.input_tokens",
-            quantity=Decimal("1000"),
-            metadata={"model": "gpt-4"}
+            resource_type="openai.gpt-5.2.input_tokens",
+            quantity=Decimal("10"),
+            metadata={"model": "gpt-5.2"}
         )
         
         # Verify event was written to ledger
@@ -110,10 +110,11 @@ storage:
         import json
         event_data = json.loads(lines[0])
         assert event_data["agent_id"] == agent.agent_id
-        assert event_data["resource_type"] == "openai.gpt4.input_tokens"
-        assert event_data["quantity"] == "1000"
-        # Cost should be 1000 * 0.000030 = 0.030
-        assert Decimal(event_data["cost"]) == Decimal("0.030")
+        assert event_data["resource_type"] == "openai.gpt-5.2.input_tokens"
+        assert event_data["quantity"] == "10"
+        # Cost should be 10 * 1.75 = 17.50
+        assert event_data["cost"] == "17.50"
+        assert Decimal(event_data["cost"]) == Decimal("17.50")
 
     def test_check_budget_no_policy(self, temp_dir, sample_pricebook_path):
         """Test budget check with no policy (should fail closed)."""
@@ -212,8 +213,8 @@ storage:
         # Emit event that exceeds budget
         client.emit_event(
             agent_id=agent.agent_id,
-            resource_type="openai.gpt4.input_tokens",
-            quantity=Decimal("1000"),  # Cost: 0.030
+            resource_type="openai.gpt-5.2.input_tokens",
+            quantity=Decimal("10"),  # Cost: 17.50
         )
         
         # Check budget (should fail - exceeded)
@@ -254,14 +255,14 @@ storage:
         # Emit event
         client.emit_event(
             agent_id=agent.agent_id,
-            resource_type="openai.gpt4.input_tokens",
-            quantity=Decimal("1000"),  # Cost: 0.030
+            resource_type="openai.gpt-5.2.input_tokens",
+            quantity=Decimal("10"),  # Cost: 17.50
         )
         
         # Get remaining budget
         remaining = client.get_remaining_budget(agent.agent_id)
         assert remaining is not None
-        assert remaining == Decimal("99.970")  # 100.00 - 0.030
+        assert remaining == Decimal("82.50")  # 100.00 - 17.50
 
     def test_get_remaining_budget_no_policy(self, temp_dir, sample_pricebook_path):
         """Test getting remaining budget with no policy (should return None)."""
@@ -324,7 +325,7 @@ storage:
         
         client.emit_event(
             agent_id=agent.agent_id,
-            resource_type="openai.gpt4.input_tokens",
+            resource_type="openai.gpt-5.2.input_tokens",
             quantity=Decimal("1000"),
             metadata=metadata
         )
@@ -411,8 +412,8 @@ storage:
         # Emit event that exceeds budget
         client.emit_event(
             agent_id=agent.agent_id,
-            resource_type="openai.gpt4.input_tokens",
-            quantity=Decimal("1000"),  # Cost: 0.030
+            resource_type="openai.gpt-5.2.input_tokens",
+            quantity=Decimal("10"),  # Cost: 17.50
         )
         
         # Use budget check context (should raise BudgetExceededError)
@@ -795,8 +796,8 @@ storage:
         # Emit some events
         client.emit_event(
             agent_id=agent.agent_id,
-            resource_type="openai.gpt4.input_tokens",
-            quantity=Decimal("1000")  # Cost: 0.030
+            resource_type="openai.gpt-5.2.input_tokens",
+            quantity=Decimal("10")  # Cost: 17.50
         )
         
         # Query spending
@@ -811,9 +812,9 @@ storage:
         
         # Verify result
         assert result["agent_id"] == agent.agent_id
-        assert Decimal(result["own_spending"]) == Decimal("0.030")
+        assert Decimal(result["own_spending"]) == Decimal("17.50")
         assert Decimal(result["children_spending"]) == Decimal("0")
-        assert Decimal(result["total_spending"]) == Decimal("0.030")
+        assert Decimal(result["total_spending"]) == Decimal("17.50")
         assert result["agent_count"] == 1
 
     def test_query_spending_with_children_with_children(self, temp_dir, sample_pricebook_path):
@@ -858,20 +859,20 @@ storage:
         # Emit events for parent and children
         client.emit_event(
             agent_id=parent.agent_id,
-            resource_type="openai.gpt4.input_tokens",
-            quantity=Decimal("1000")  # Cost: 0.030
+            resource_type="openai.gpt-5.2.input_tokens",
+            quantity=Decimal("10")  # Cost: 17.50
         )
         
         client.emit_event(
             agent_id=child1.agent_id,
-            resource_type="openai.gpt4.input_tokens",
-            quantity=Decimal("2000")  # Cost: 0.060
+            resource_type="openai.gpt-5.2.input_tokens",
+            quantity=Decimal("20")  # Cost: 35.00
         )
         
         client.emit_event(
             agent_id=child2.agent_id,
-            resource_type="openai.gpt4.input_tokens",
-            quantity=Decimal("500")  # Cost: 0.015
+            resource_type="openai.gpt-5.2.input_tokens",
+            quantity=Decimal("5")  # Cost: 8.75
         )
         
         # Query spending with children
@@ -886,9 +887,9 @@ storage:
         
         # Verify result
         assert result["agent_id"] == parent.agent_id
-        assert Decimal(result["own_spending"]) == Decimal("0.030")
-        assert Decimal(result["children_spending"]) == Decimal("0.075")  # 0.060 + 0.015
-        assert Decimal(result["total_spending"]) == Decimal("0.105")  # 0.030 + 0.075
+        assert Decimal(result["own_spending"]) == Decimal("17.50")
+        assert Decimal(result["children_spending"]) == Decimal("43.75")  # 35.00 + 8.75
+        assert Decimal(result["total_spending"]) == Decimal("61.25")  # 17.50 + 43.75
         assert result["agent_count"] == 3  # parent + 2 children
 
     def test_query_spending_with_children_with_breakdown(self, temp_dir, sample_pricebook_path):
@@ -927,14 +928,14 @@ storage:
         # Emit events
         client.emit_event(
             agent_id=parent.agent_id,
-            resource_type="openai.gpt4.input_tokens",
-            quantity=Decimal("1000")  # Cost: 0.030
+            resource_type="openai.gpt-5.2.input_tokens",
+            quantity=Decimal("10")  # Cost: 17.50
         )
         
         client.emit_event(
             agent_id=child.agent_id,
-            resource_type="openai.gpt4.input_tokens",
-            quantity=Decimal("2000")  # Cost: 0.060
+            resource_type="openai.gpt-5.2.input_tokens",
+            quantity=Decimal("20")  # Cost: 35.00
         )
         
         # Query spending with breakdown
@@ -954,15 +955,15 @@ storage:
         
         assert breakdown["agent_id"] == parent.agent_id
         assert breakdown["agent_name"] == "parent-agent"
-        assert Decimal(breakdown["spending"]) == Decimal("0.030")
-        assert Decimal(breakdown["total_with_children"]) == Decimal("0.090")
+        assert Decimal(breakdown["spending"]) == Decimal("17.50")
+        assert Decimal(breakdown["total_with_children"]) == Decimal("52.50")
         
         # Verify children in breakdown
         assert len(breakdown["children"]) == 1
         child_breakdown = breakdown["children"][0]
         assert child_breakdown["agent_id"] == child.agent_id
         assert child_breakdown["agent_name"] == "child-agent"
-        assert Decimal(child_breakdown["spending"]) == Decimal("0.060")
+        assert Decimal(child_breakdown["spending"]) == Decimal("35.00")
 
     def test_query_spending_with_children_default_time_window(self, temp_dir, sample_pricebook_path):
         """Test querying spending with default time window (current day)."""
@@ -991,8 +992,8 @@ storage:
         # Emit event
         client.emit_event(
             agent_id=agent.agent_id,
-            resource_type="openai.gpt4.input_tokens",
-            quantity=Decimal("1000")
+            resource_type="openai.gpt-5.2.input_tokens",
+            quantity=Decimal("10")
         )
         
         # Query spending without specifying time window

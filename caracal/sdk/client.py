@@ -241,7 +241,7 @@ class CaracalClient:
         
         Args:
             agent_id: Agent identifier
-            resource_type: Type of resource consumed (e.g., "openai.gpt4.input_tokens")
+            resource_type: Type of resource consumed (e.g., "openai.gpt-5.2.input_tokens")
             quantity: Amount of resource consumed
             metadata: Optional additional context
             
