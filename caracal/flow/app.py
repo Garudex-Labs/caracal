@@ -109,13 +109,8 @@ class FlowApp:
     
     def _run_pricebook_flow(self) -> None:
         """Run pricebook editor flow."""
-        # Simplified version - uses submenu pattern
-        while True:
-            self.console.clear()
-            action = show_submenu("pricebook", self.console)
-            if action is None:
-                break
-            self._show_cli_fallback("pricebook", action)
+        from caracal.flow.screens.pricebook_flow import run_pricebook_flow
+        run_pricebook_flow(self.console)
     
     def _run_delegation_flow(self) -> None:
         """Run delegation center flow."""
