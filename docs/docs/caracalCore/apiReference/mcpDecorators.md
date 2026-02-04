@@ -336,7 +336,7 @@ async def test_decorated_tool(mcp_adapter):
 
 ## See Also
 
-- [MCP Adapter Service Mode](./README.md) - Standalone service deployment
-- [Cost Calculator](./cost_calculator.py) - Cost estimation for MCP tools
-- [Policy Evaluator](../core/policy.py) - Budget policy enforcement
-- [Metering Collector](../core/metering.py) - Event collection and ledger writing
+- [MCP Adapter Service Mode](./mcpIntegration) - Standalone service deployment
+- [Cost Calculator](https://github.com/Garudex-Labs/Caracal/blob/main/caracal/mcp/cost_calculator.py) - Cost estimation for MCP tools
+- [Policy Evaluator](https://github.com/Garudex-Labs/Caracal/blob/main/caracal/core/policy.py) - Budget policy enforcement
+- [Metering Collector](https://github.com/Garudex-Labs/Caracal/blob/main/caracal/core/metering.py) - Event collection and ledger writing

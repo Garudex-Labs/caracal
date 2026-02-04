@@ -77,7 +77,8 @@ const config: Config = {
       title: 'Caracal',
       logo: {
         alt: 'Caracal Logo',
-        src: 'img/caracal_logo.png',
+        src: 'img/caracal.png',
+        srcDark: 'img/caracal_inverted.png',
       },
       items: [
         {
@@ -105,7 +106,7 @@ const config: Config = {
             },
             {
               label: 'Quickstart',
-              to: '/quickstart',
+              to: '/caracalCore/gettingStarted/quickstart',
             },
           ],
         },

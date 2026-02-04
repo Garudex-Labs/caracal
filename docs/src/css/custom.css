@@ -11,19 +11,28 @@
   --ifm-code-font-size: 90%;
   --ifm-font-family-base: 'Inter', system-ui, -apple-system, sans-serif;
   --docusaurus-highlighted-code-line-bg: rgba(0, 170, 255, 0.1);
+  --ifm-footer-background-color: #000000;
+  --ifm-footer-color: #ffffff;
+  --ifm-footer-link-color: rgba(255, 255, 255, 0.6);
+  --ifm-footer-link-hover-color: #ffffff;
+  --ifm-footer-title-color: #ffffff;
 }
 
 [data-theme='dark'] {
-  --ifm-background-color: #0a0e14;
-  --ifm-navbar-background-color: rgba(10, 14, 20, 0.8);
-  --ifm-color-primary: #00aaff;
-  --ifm-color-primary-dark: #0099e6;
-  --ifm-color-primary-darker: #0090d9;
-  --ifm-color-primary-darkest: #0077b3;
-  --ifm-color-primary-light: #1ab2ff;
-  --ifm-color-primary-lighter: #26b7ff;
-  --ifm-color-primary-lightest: #4dc3ff;
-  --docusaurus-highlighted-code-line-bg: rgba(0, 170, 255, 0.2);
+  --ifm-background-color: #000000;
+  --ifm-navbar-background-color: rgba(0, 0, 0, 0.8);
+  --ifm-color-primary: #cdfe3e;
+  --ifm-color-primary-dark: #b8e537;
+  --ifm-color-primary-darker: #adff2f;
+  --ifm-color-primary-darkest: #87b029;
+  --ifm-color-primary-light: #d8ff66;
+  --ifm-color-primary-lighter: #e1ff80;
+  --ifm-color-primary-lightest: #ecffb3;
+  --docusaurus-highlighted-code-line-bg: rgba(205, 254, 62, 0.2);
+  --ifm-footer-background-color: #000000;
+  --ifm-menu-color: #ffffff;
+  --ifm-menu-color-active: #cdfe3e;
+  --ifm-font-color-base: #ffffff;
 }
 
 .navbar {
@@ -33,8 +42,8 @@
 }
 
 .footer {
+  background-color: #000000 !important;
   border-top: 1px solid rgba(255, 255, 255, 0.05);
-  background-color: #0a0e14;
 }
 
 .docusaurus-highlight-code-line {
@@ -54,18 +63,40 @@
 }
 
 .button--primary {
-  background: linear-gradient(135deg, #00aaff 0%, #0077b3 100%);
+  background: var(--ifm-color-primary);
+  color: #000000;
   border: none;
-  font-weight: 600;
+  font-weight: 700;
   transition: transform 0.2s ease, box-shadow 0.2s ease;
 }
 
-.button--primary:hover {
+[data-theme='dark'] .button--primary:hover {
   transform: translateY(-1px);
-  box-shadow: 0 4px 15px rgba(0, 170, 255, 0.3);
+  box-shadow: 0 4px 15px rgba(205, 254, 62, 0.4);
+}
+
+[data-theme='light'] .button--primary {
+  color: #ffffff;
 }
 
 /* Hide Docusaurus tag in production if possible via CSS */
 .footer__tagline {
   display: none;
+}
+
+/* Themed Logo support */
+.logo-light {
+  display: block;
+}
+
+.logo-dark {
+  display: none;
+}
+
+[data-theme='dark'] .logo-light {
+  display: none;
+}
+
+[data-theme='dark'] .logo-dark {
+  display: block;
 }

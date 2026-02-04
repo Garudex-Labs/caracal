@@ -1,16 +1,21 @@
-# Caracal Core v0.2 - Kubernetes Quickstart Guide
+---
+sidebar_position: 2
+title: Kubernetes Deployment
+---
 
-This guide will help you deploy Caracal Core v0.2 to a Kubernetes cluster in minutes.
+# Kubernetes Deployment
+
+This guide covers deploying Caracal Core to a Kubernetes cluster.
 
 ## Prerequisites
 
 - Kubernetes cluster (v1.20+)
 - `kubectl` configured to access your cluster
-- `openssl` for generating TLS certificates (optional)
+- `openssl` for generating TLS certificates
 
 ## Quick Deploy (Automated)
 
-The fastest way to deploy Caracal Core:
+The fastest way to deploy:
 
 ```bash
 cd k8s
@@ -26,8 +31,6 @@ This script will:
 6. Wait for all components to be ready
 
 ## Manual Deploy
-
-If you prefer manual deployment:
 
 ### 1. Create TLS Certificates
 
@@ -85,19 +88,12 @@ kubectl apply -f mcp-adapter-deployment.yaml
 ### 3. Verify Deployment
 
 ```bash
-# Check all pods are running
 kubectl get pods -n caracal
-
-# Check services
 kubectl get svc -n caracal
-
-# View logs
 kubectl logs -n caracal -l app.kubernetes.io/component=gateway --tail=50
 ```
 
 ## Initialize Database
-
-After deployment, initialize the database schema:
 
 ```bash
 # Port-forward to PostgreSQL
@@ -108,7 +104,7 @@ export DB_HOST=localhost
 export DB_PORT=5432
 export DB_NAME=caracal
 export DB_USER=caracal
-export DB_PASSWORD=caracal_dev_password  # Use your actual password
+export DB_PASSWORD=<your-password>
 
 # Initialize database
 caracal db init
@@ -117,12 +113,9 @@ caracal db migrate up
 
 ## Access the Gateway
 
-Get the Gateway LoadBalancer IP:
-
 ```bash
 kubectl get svc caracal-gateway -n caracal
 
-# Test health endpoint
 GATEWAY_IP=$(kubectl get svc caracal-gateway -n caracal -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
 curl -k https://$GATEWAY_IP:8443/health
 ```
@@ -131,33 +124,23 @@ curl -k https://$GATEWAY_IP:8443/health
 
 ### Update Database Password
 
-Edit `secret.yaml` and change the `DB_PASSWORD`:
-
 ```bash
-# Generate secure password
 NEW_PASSWORD=$(openssl rand -base64 32)
-
-# Encode in base64
 echo -n "$NEW_PASSWORD" | base64
 
-# Update secret.yaml with the base64 value
-# Then apply:
+# Update secret.yaml with the base64 value, then:
 kubectl apply -f secret.yaml
-
-# Restart pods to pick up new password
 kubectl rollout restart deployment -n caracal
 ```
 
 ### Configure MCP Servers
 
-Edit `configmap.yaml` and set `MCP_SERVERS`:
+Edit `configmap.yaml`:
 
 ```yaml
 data:
   MCP_SERVERS: "local:http://mcp-server:3000,remote:http://external-mcp:3001"
 ```
-
-Apply changes:
 
 ```bash
 kubectl apply -f configmap.yaml
@@ -166,13 +149,8 @@ kubectl rollout restart deployment caracal-mcp-adapter -n caracal
 
 ### Adjust Replicas
 
-Scale deployments as needed:
-
 ```bash
-# Scale Gateway to 5 replicas
 kubectl scale deployment caracal-gateway -n caracal --replicas=5
-
-# Scale MCP Adapter to 3 replicas
 kubectl scale deployment caracal-mcp-adapter -n caracal --replicas=3
 ```
 
@@ -184,22 +162,9 @@ kubectl scale deployment caracal-mcp-adapter -n caracal --replicas=3
 kubectl apply -f hpa.yaml
 ```
 
-This enables automatic scaling based on CPU/memory usage:
-- Gateway: 3-10 replicas
-- MCP Adapter: 2-8 replicas
-
 ### Enable Ingress
 
-Edit `ingress.yaml` and update the hostname:
-
-```yaml
-spec:
-  tls:
-    - hosts:
-        - caracal-gateway.your-domain.com
-```
-
-Apply:
+Edit `ingress.yaml` and update the hostname, then:
 
 ```bash
 kubectl apply -f ingress.yaml
@@ -211,11 +176,7 @@ kubectl apply -f ingress.yaml
 kubectl apply -f pdb.yaml
 ```
 
-This ensures minimum availability during cluster maintenance.
-
 ### Enable Prometheus Monitoring
-
-If using Prometheus Operator:
 
 ```bash
 kubectl apply -f servicemonitor.yaml
@@ -226,59 +187,37 @@ kubectl apply -f servicemonitor.yaml
 ### Pods Not Starting
 
 ```bash
-# Check pod status
 kubectl get pods -n caracal
-
-# Describe pod
 kubectl describe pod <pod-name> -n caracal
-
-# Check logs
 kubectl logs <pod-name> -n caracal
 ```
 
 ### Database Connection Issues
 
 ```bash
-# Check PostgreSQL is ready
 kubectl exec -n caracal caracal-postgres-0 -- pg_isready -U caracal
-
-# Check database logs
 kubectl logs -n caracal caracal-postgres-0
-
-# Test connection
-kubectl run -it --rm psql --image=postgres:14-alpine --restart=Never \
-  -- psql -h caracal-postgres.caracal.svc.cluster.local -U caracal -d caracal
 ```
 
 ### LoadBalancer Not Getting IP
 
-If your cluster doesn't support LoadBalancer, use NodePort:
+Use NodePort instead:
 
 ```bash
-# Edit gateway-deployment.yaml
-# Change service type from LoadBalancer to NodePort
+# Edit gateway-deployment.yaml to use NodePort
 kubectl apply -f gateway-deployment.yaml
-
-# Get NodePort
 kubectl get svc caracal-gateway -n caracal
 ```
 
-Or use Ingress (see above).
-
 ## Cleanup
 
-Remove all Caracal resources:
-
 ```bash
-# Delete all resources
 kubectl delete namespace caracal
 ```
 
 **Warning**: This deletes all data including the database.
 
 ## Production Checklist
-
-Before deploying to production:
 
 - [ ] Use production TLS certificates (not self-signed)
 - [ ] Change default database password
@@ -290,25 +229,9 @@ Before deploying to production:
 - [ ] Configure network policies
 - [ ] Enable pod security policies
 - [ ] Test disaster recovery procedures
-- [ ] Document runbooks for common operations
-
-## Additional Resources
-
-- [Caracal Core Project README](./README_PROJECT.md)
-- [Deployment Guide](./DEPLOYMENT_GUIDE_V03.md)
-- [Production Guide](./PRODUCTION_GUIDE_V03.md)
-- [Architecture Documentation](../index.md)
-- [Quickstart Guide](../quickstart.md)
 
 ## Next Steps
 
-- Read the full [Kubernetes Advanced Guide](./KUBERNETES_ADVANCED.md)
-- Configure [monitoring and alerting](./KUBERNETES_ADVANCED.md#monitoring)
-- Set up [database backups](./KUBERNETES_ADVANCED.md#backup-database)
-- Review [security best practices](./KUBERNETES_ADVANCED.md#security)
-
-## Support
-
-- Documentation: https://caracal.dev/docs
-- GitHub Issues: https://github.com/caracal/caracal-core/issues
-- Community: https://caracal.dev/community
+- [Kubernetes Advanced](./kubernetesAdvanced) - Advanced configuration
+- [Production Guide](./production) - Production settings
+- [Operational Runbook](./operationalRunbook) - Operations procedures
