@@ -16,7 +16,7 @@ namespace: caracal
 # Common labels applied to all resources
 commonLabels:
   app.kubernetes.io/name: caracal
-  app.kubernetes.io/version: "0.4.0"
+  app.kubernetes.io/version: "1.0.0"
   app.kubernetes.io/managed-by: kustomize
 
 # Resources to deploy (in order)

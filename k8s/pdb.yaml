@@ -14,7 +14,7 @@ metadata:
   namespace: caracal
   labels:
     app.kubernetes.io/name: caracal
-    app.kubernetes.io/version: "0.4.0"
+    app.kubernetes.io/version: "1.0.0"
     app.kubernetes.io/component: gateway
 spec:
   minAvailable: 2
@@ -31,7 +31,7 @@ metadata:
   namespace: caracal
   labels:
     app.kubernetes.io/name: caracal
-    app.kubernetes.io/version: "0.4.0"
+    app.kubernetes.io/version: "1.0.0"
     app.kubernetes.io/component: mcp-adapter
 spec:
   minAvailable: 1

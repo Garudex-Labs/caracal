@@ -14,7 +14,7 @@ metadata:
   namespace: caracal
   labels:
     app.kubernetes.io/name: caracal
-    app.kubernetes.io/version: "0.4.0"
+    app.kubernetes.io/version: "1.0.0"
     app.kubernetes.io/component: gateway
 spec:
   replicas: 3
@@ -31,7 +31,7 @@ spec:
     metadata:
       labels:
         app.kubernetes.io/name: caracal
-        app.kubernetes.io/version: "0.4.0"
+        app.kubernetes.io/version: "1.0.0"
         app.kubernetes.io/component: gateway
       annotations:
         prometheus.io/scrape: "true"
@@ -193,7 +193,7 @@ metadata:
   namespace: caracal
   labels:
     app.kubernetes.io/name: caracal
-    app.kubernetes.io/version: "0.4.0"
+    app.kubernetes.io/version: "1.0.0"
     app.kubernetes.io/component: gateway
   annotations:
     service.beta.kubernetes.io/aws-load-balancer-type: "nlb"  # For AWS
@@ -228,7 +228,7 @@ metadata:
   namespace: caracal
   labels:
     app.kubernetes.io/name: caracal
-    app.kubernetes.io/version: "0.4.0"
+    app.kubernetes.io/version: "1.0.0"
     app.kubernetes.io/component: gateway
     app.kubernetes.io/part-of: monitoring
 spec:

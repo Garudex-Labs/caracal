@@ -16,7 +16,7 @@ metadata:
   namespace: caracal
   labels:
     app.kubernetes.io/name: caracal
-    app.kubernetes.io/version: "0.4.0"
+    app.kubernetes.io/version: "1.0.0"
     app.kubernetes.io/component: gateway
     prometheus: kube-prometheus  # Match your Prometheus instance label
 spec:
@@ -42,7 +42,7 @@ metadata:
   namespace: caracal
   labels:
     app.kubernetes.io/name: caracal
-    app.kubernetes.io/version: "0.4.0"
+    app.kubernetes.io/version: "1.0.0"
     app.kubernetes.io/component: mcp-adapter
     prometheus: kube-prometheus
 spec:

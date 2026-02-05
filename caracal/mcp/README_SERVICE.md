@@ -115,7 +115,7 @@ Response:
 {
   "status": "healthy",
   "service": "caracal-mcp-adapter",
-  "version": "0.4.0",
+  "version": "1.0.0",
   "mcp_servers": {
     "filesystem": "healthy",
     "database": "healthy"
@@ -255,7 +255,7 @@ Health check endpoint.
 {
   "status": "healthy",
   "service": "caracal-mcp-adapter",
-  "version": "0.4.0",
+  "version": "1.0.0",
   "mcp_servers": {
     "filesystem": "healthy",
     "database": "healthy"
@@ -375,7 +375,7 @@ spec:
     spec:
       containers:
       - name: mcp-adapter
-        image: caracal/mcp-adapter:0.4.0
+        image: caracal/mcp-adapter:1.0.0
         ports:
         - containerPort: 8080
           name: http

@@ -14,7 +14,7 @@ metadata:
   namespace: caracal
   labels:
     app.kubernetes.io/name: caracal
-    app.kubernetes.io/version: "0.4.0"
+    app.kubernetes.io/version: "1.0.0"
     app.kubernetes.io/component: gateway
   annotations:
     # NGINX Ingress Controller annotations
@@ -73,7 +73,7 @@ metadata:
   namespace: caracal
   labels:
     app.kubernetes.io/name: caracal
-    app.kubernetes.io/version: "0.4.0"
+    app.kubernetes.io/version: "1.0.0"
     app.kubernetes.io/component: monitoring
   annotations:
     nginx.ingress.kubernetes.io/backend-protocol: "HTTP"
@@ -114,7 +114,7 @@ metadata:
   namespace: caracal
   labels:
     app.kubernetes.io/name: caracal
-    app.kubernetes.io/version: "0.4.0"
+    app.kubernetes.io/version: "1.0.0"
     app.kubernetes.io/component: monitoring
 type: Opaque
 data:

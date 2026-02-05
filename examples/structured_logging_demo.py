@@ -37,7 +37,7 @@ def main():
         
         # Example 1: Basic structured logging
         print("1. Basic structured logging with custom fields:")
-        logger.info("application_started", version="0.4.0", environment="production")
+        logger.info("application_started", version="1.0.0", environment="production")
         
         # Example 2: Using correlation IDs for request tracing
         print("2. Using correlation IDs for request tracing:")

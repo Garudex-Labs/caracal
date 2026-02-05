@@ -211,7 +211,7 @@ curl http://localhost:8443/health | jq
 # {
 #   "status": "healthy",
 #   "service": "caracal-gateway-proxy",
-#   "version": "0.4.0",
+#   "version": "1.0.0",
 #   "checks": {
 #     "database": "healthy",
 #     "policy_cache": {

@@ -14,7 +14,7 @@ metadata:
   namespace: caracal
   labels:
     app.kubernetes.io/name: caracal
-    app.kubernetes.io/version: "0.4.0"
+    app.kubernetes.io/version: "1.0.0"
     app.kubernetes.io/component: redis
 spec:
   type: ClusterIP
@@ -35,7 +35,7 @@ metadata:
   namespace: caracal
   labels:
     app.kubernetes.io/name: caracal
-    app.kubernetes.io/version: "0.4.0"
+    app.kubernetes.io/version: "1.0.0"
     app.kubernetes.io/component: redis
 spec:
   serviceName: caracal-redis
@@ -48,7 +48,7 @@ spec:
     metadata:
       labels:
         app.kubernetes.io/name: caracal
-        app.kubernetes.io/version: "0.4.0"
+        app.kubernetes.io/version: "1.0.0"
         app.kubernetes.io/component: redis
     spec:
       securityContext:

@@ -532,7 +532,7 @@ class TestGatewayProxyHealthCheck:
         data = response.json()
         assert data["status"] == "healthy"
         assert data["service"] == "caracal-gateway-proxy"
-        assert data["version"] == "0.4.0"
+        assert data["version"] == "1.0.0"
 
 
 class TestGatewayProxyPolicyEvaluation:
@@ -1243,7 +1243,7 @@ class TestGatewayProxyHealthCheck:
         data = response.json()
         assert data["status"] == "healthy"
         assert data["service"] == "caracal-gateway-proxy"
-        assert data["version"] == "0.4.0"
+        assert data["version"] == "1.0.0"
         assert "checks" in data
         assert data["checks"]["database"] == "not_configured"
     

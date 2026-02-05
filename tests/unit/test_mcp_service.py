@@ -104,7 +104,7 @@ class TestMCPServiceHealthCheck:
         data = response.json()
         assert data["status"] == "healthy"
         assert data["service"] == "caracal-mcp-adapter"
-        assert data["version"] == "0.4.0"
+        assert data["version"] == "1.0.0"
         assert data["mcp_servers"]["database"] == "healthy"
         assert data["mcp_servers"]["test-server-1"] == "healthy"
         assert data["mcp_servers"]["test-server-2"] == "healthy"

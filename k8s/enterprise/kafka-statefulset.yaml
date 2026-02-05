@@ -15,7 +15,7 @@ metadata:
   namespace: caracal
   labels:
     app.kubernetes.io/name: caracal
-    app.kubernetes.io/version: "0.4.0"
+    app.kubernetes.io/version: "1.0.0"
     app.kubernetes.io/component: kafka
 spec:
   type: ClusterIP
@@ -37,7 +37,7 @@ metadata:
   namespace: caracal
   labels:
     app.kubernetes.io/name: caracal
-    app.kubernetes.io/version: "0.4.0"
+    app.kubernetes.io/version: "1.0.0"
     app.kubernetes.io/component: kafka
 spec:
   serviceName: caracal-kafka
@@ -50,7 +50,7 @@ spec:
     metadata:
       labels:
         app.kubernetes.io/name: caracal
-        app.kubernetes.io/version: "0.4.0"
+        app.kubernetes.io/version: "1.0.0"
         app.kubernetes.io/component: kafka
     spec:
       securityContext:

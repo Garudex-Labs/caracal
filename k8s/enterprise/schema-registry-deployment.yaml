@@ -13,7 +13,7 @@ metadata:
   namespace: caracal
   labels:
     app.kubernetes.io/name: caracal
-    app.kubernetes.io/version: "0.4.0"
+    app.kubernetes.io/version: "1.0.0"
     app.kubernetes.io/component: schema-registry
 spec:
   replicas: 2
@@ -30,7 +30,7 @@ spec:
     metadata:
       labels:
         app.kubernetes.io/name: caracal
-        app.kubernetes.io/version: "0.4.0"
+        app.kubernetes.io/version: "1.0.0"
         app.kubernetes.io/component: schema-registry
     spec:
       containers:
@@ -91,7 +91,7 @@ metadata:
   namespace: caracal
   labels:
     app.kubernetes.io/name: caracal
-    app.kubernetes.io/version: "0.4.0"
+    app.kubernetes.io/version: "1.0.0"
     app.kubernetes.io/component: schema-registry
 spec:
   type: ClusterIP

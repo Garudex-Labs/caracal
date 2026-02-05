@@ -8,7 +8,7 @@ Caracal Core uses a centralized version management system where the `VERSION` fi
 
 ### Single Source of Truth
 
-The `VERSION` file contains only the version number (e.g., `0.4.0`) and is used by:
+The `VERSION` file contains only the version number (e.g., `1.0.0`) and is used by:
 
 1. **Python Package** (`pyproject.toml`, `setup.py`)
 2. **Runtime Code** (`caracal/_version.py`, `caracal/__init__.py`)
@@ -87,7 +87,7 @@ All Kubernetes manifests use version labels that are updated by the script:
 ```yaml
 metadata:
   labels:
-    app.kubernetes.io/version: "0.4.0"  # Updated by script
+    app.kubernetes.io/version: "1.0.0"  # Updated by script
 ```
 
 ## Usage
@@ -96,7 +96,7 @@ metadata:
 
 1. **Edit VERSION file:**
    ```bash
-   echo "0.4.0" > VERSION
+   echo "1.0.0" > VERSION
    ```
 
 2. **Update all references:**
@@ -112,7 +112,7 @@ metadata:
 4. **Commit changes:**
    ```bash
    git add VERSION pyproject.toml helm/ k8s/
-   git commit -m "Bump version to 0.4.0"
+   git commit -m "Bump version to 1.0.0"
    ```
 
 ### Automated Release
@@ -136,19 +136,19 @@ If you prefer manual control:
 
 ```bash
 # 1. Update version
-echo "0.4.0" > VERSION
+echo "1.0.0" > VERSION
 
 # 2. Update references
 ./scripts/update-version.sh
 
 # 3. Commit changes
 git add VERSION pyproject.toml helm/ k8s/
-git commit -m "Bump version to 0.4.0"
+git commit -m "Bump version to 1.0.0"
 
 # 4. Create tag
-git tag -a v0.4.0 -m "Release v0.4.0"
+git tag -a v1.0.0 -m "Release v1.0.0"
 git push origin main
-git push origin v0.4.0
+git push origin v1.0.0
 
 # 5. Build Docker images
 ./scripts/build-images.sh
@@ -156,7 +156,7 @@ git push origin v0.4.0
 # 6. Package Helm chart
 cd helm
 helm package caracal
-helm push caracal-0.4.0.tgz oci://registry.example.com/charts
+helm push caracal-1.0.0.tgz oci://registry.example.com/charts
 
 # 7. Publish to PyPI
 cd ..
@@ -168,18 +168,18 @@ twine upload dist/*
 
 Caracal Core follows [Semantic Versioning](https://semver.org/):
 
-- **MAJOR.MINOR.PATCH** (e.g., `0.4.0`)
+- **MAJOR.MINOR.PATCH** (e.g., `1.0.0`)
 - **MAJOR**: Breaking changes
 - **MINOR**: New features (backward compatible)
 - **PATCH**: Bug fixes (backward compatible)
 
 ### Version Prefixes
 
-- **Git tags**: Use `v` prefix (e.g., `v0.4.0`)
-- **Docker images**: Use `v` prefix (e.g., `caracal-gateway:v0.4.0`)
-- **Helm charts**: No `v` prefix (e.g., `version: 0.4.0`)
-- **Python package**: No `v` prefix (e.g., `version = "0.4.0"`)
-- **Kubernetes labels**: No `v` prefix (e.g., `app.kubernetes.io/version: "0.4.0"`)
+- **Git tags**: Use `v` prefix (e.g., `v1.0.0`)
+- **Docker images**: Use `v` prefix (e.g., `caracal-gateway:v1.0.0`)
+- **Helm charts**: No `v` prefix (e.g., `version: 1.0.0`)
+- **Python package**: No `v` prefix (e.g., `version = "1.0.0"`)
+- **Kubernetes labels**: No `v` prefix (e.g., `app.kubernetes.io/version: "1.0.0"`)
 
 ## Files Updated by Scripts
 
@@ -206,7 +206,7 @@ Orchestrates the entire release process by calling other scripts and performing 
 
 ```python
 import caracal
-print(caracal.__version__)  # e.g., "0.4.0"
+print(caracal.__version__)  # e.g., "1.0.0"
 ```
 
 ### CLI
@@ -218,7 +218,7 @@ caracal --version
 ### Docker Container
 
 ```bash
-docker run caracal-gateway:v0.4.0 caracal --version
+docker run caracal-gateway:v1.0.0 caracal --version
 ```
 
 ### Kubernetes
@@ -233,7 +233,7 @@ kubectl get deployment caracal-gateway -o jsonpath='{.metadata.labels.app\.kuber
 2. **Run update-version.sh** after changing VERSION file
 3. **Commit VERSION file changes** with all updated references
 4. **Use semantic versioning** for version numbers
-5. **Tag releases** with `v` prefix (e.g., `v0.4.0`)
+5. **Tag releases** with `v` prefix (e.g., `v1.0.0`)
 6. **Test locally** before pushing tags
 7. **Document changes** in RELEASE_NOTES.md
 

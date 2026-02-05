@@ -9,7 +9,7 @@ This directory contains utility scripts for managing Caracal Core.
 The `VERSION` file at the root of the project is the single source of truth for the version number. All other version references are derived from this file.
 
 To update the version:
-1. Edit the `VERSION` file with the new version number (e.g., `0.4.0`)
+1. Edit the `VERSION` file with the new version number (e.g., `1.0.0`)
 2. Run `./scripts/update-version.sh` to update all references
 3. Commit the changes
 
@@ -170,7 +170,7 @@ This ensures the version is always consistent across:
 
 1. **Update VERSION file:**
    ```bash
-   echo "0.4.0" > VERSION
+   echo "1.0.0" > VERSION
    ```
 
 2. **Run release script:**
@@ -191,7 +191,7 @@ If you prefer manual control:
 
 ```bash
 # 1. Update VERSION file
-echo "0.4.0" > VERSION
+echo "1.0.0" > VERSION
 
 # 2. Update references
 ./scripts/update-version.sh
@@ -200,13 +200,13 @@ echo "0.4.0" > VERSION
 ./scripts/build-images.sh
 
 # 4. Create tag
-git tag -a v0.4.0 -m "Release v0.4.0"
-git push origin v0.4.0
+git tag -a v1.0.0 -m "Release v1.0.0"
+git push origin v1.0.0
 
 # 5. Package Helm chart
 cd helm
 helm package caracal
-helm push caracal-0.4.0.tgz oci://registry.example.com/charts
+helm push caracal-1.0.0.tgz oci://registry.example.com/charts
 
 # 6. Publish to PyPI
 python -m build
@@ -217,6 +217,6 @@ twine upload dist/*
 
 - All scripts should be run from the Caracal root directory
 - Scripts use the VERSION file as the single source of truth
-- Docker images are tagged with `v` prefix (e.g., `v0.4.0`)
-- Helm chart versions do not use `v` prefix (e.g., `0.4.0`)
-- Git tags use `v` prefix (e.g., `v0.4.0`)
+- Docker images are tagged with `v` prefix (e.g., `v1.0.0`)
+- Helm chart versions do not use `v` prefix (e.g., `1.0.0`)
+- Git tags use `v` prefix (e.g., `v1.0.0`)
