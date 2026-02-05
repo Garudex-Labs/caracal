@@ -78,7 +78,6 @@ const sidebars: SidebarsConfig = {
       items: [
         'development/contributing',
         'development/versionManagement',
-        'development/releaseProcess',
       ],
     },
     {
