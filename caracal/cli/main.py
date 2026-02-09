@@ -399,6 +399,20 @@ except Exception as e:
     logging.getLogger(__name__).warning(f"Failed to register audit commands: {e}")
 
 
+# Import and register Migration commands (v0.5)
+try:
+    from caracal.cli.migrate import migrate_group
+    cli.add_command(migrate_group)
+except ImportError as e:
+    # Migration commands not available
+    import logging
+    logging.getLogger(__name__).debug(f"Migration commands not available: {e}")
+except Exception as e:
+    # Log any other errors
+    import logging
+    logging.getLogger(__name__).warning(f"Failed to register migration commands: {e}")
+
+
 @cli.command()
 @pass_context
 def init(ctx: CLIContext):
