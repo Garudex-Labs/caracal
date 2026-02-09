@@ -1,5 +1,5 @@
 """
-Prometheus metrics for Caracal Core v0.3.
+Prometheus metrics for Caracal Core v0.5.
 
 This module provides comprehensive metrics for monitoring:
 - Gateway request metrics (count, duration, status)
@@ -12,8 +12,9 @@ This module provides comprehensive metrics for monitoring:
 - Snapshot metrics (creation, size) [v0.3]
 - Allowlist metrics (checks, matches, misses) [v0.3]
 - Dead letter queue metrics (size) [v0.3]
+- Authority enforcement metrics (validations, issuances, revocations) [v0.5]
 
-Requirements: 17.7, 22.1, 24.1, 24.2, 24.3, 24.4, 24.5
+Requirements: 15.1, 15.2, 15.3, 15.4, 15.5, 17.7, 22.1, 24.1, 24.2, 24.3, 24.4, 24.5
 """
 
 import time
@@ -514,7 +515,57 @@ class MetricsRegistry:
             registry=self.registry
         )
         
-        logger.info("Metrics registry initialized with all metric collectors (v0.2 + v0.3)")
+        # Authority Enforcement Metrics (v0.5)
+        self.authority_mandate_validations_total = Counter(
+            'caracal_authority_mandate_validations_total',
+            'Total number of mandate validation attempts',
+            ['principal_id', 'decision'],
+            registry=self.registry
+        )
+        
+        self.authority_mandate_validations_denied_total = Counter(
+            'caracal_authority_mandate_validations_denied_total',
+            'Total number of mandate validations denied',
+            ['principal_id', 'denial_reason'],
+            registry=self.registry
+        )
+        
+        self.authority_mandate_validation_duration_seconds = Histogram(
+            'caracal_authority_mandate_validation_duration_seconds',
+            'Mandate validation duration in seconds',
+            ['decision'],
+            buckets=(0.001, 0.0025, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0),
+            registry=self.registry
+        )
+        
+        self.authority_mandate_issuances_total = Counter(
+            'caracal_authority_mandate_issuances_total',
+            'Total number of mandates issued',
+            ['issuer_id', 'subject_id'],
+            registry=self.registry
+        )
+        
+        self.authority_mandate_revocations_total = Counter(
+            'caracal_authority_mandate_revocations_total',
+            'Total number of mandates revoked',
+            ['revoker_id', 'cascade'],
+            registry=self.registry
+        )
+        
+        self.authority_ledger_events_total = Counter(
+            'caracal_authority_ledger_events_total',
+            'Total number of authority ledger events created',
+            ['event_type'],
+            registry=self.registry
+        )
+        
+        self.authority_cache_hit_rate = Gauge(
+            'caracal_authority_cache_hit_rate',
+            'Authority mandate cache hit rate (0.0 to 1.0)',
+            registry=self.registry
+        )
+        
+        logger.info("Metrics registry initialized with all metric collectors (v0.2 + v0.3 + v0.5)")
     
     # Gateway Request Metrics Methods
     
@@ -1267,6 +1318,117 @@ class MetricsRegistry:
         finally:
             duration = time.time() - start_time
             self.record_event_replay_completed(source, duration)
+    
+    # Authority Enforcement Metrics Methods (v0.5)
+    
+    def record_authority_mandate_validation(
+        self,
+        principal_id: str,
+        decision: str,
+        duration_seconds: float,
+        denial_reason: Optional[str] = None
+    ):
+        """
+        Record a mandate validation attempt.
+        
+        Args:
+            principal_id: Principal ID
+            decision: Validation decision (allowed, denied)
+            duration_seconds: Validation duration in seconds
+            denial_reason: Reason for denial if denied
+        """
+        self.authority_mandate_validations_total.labels(
+            principal_id=principal_id,
+            decision=decision
+        ).inc()
+        
+        self.authority_mandate_validation_duration_seconds.labels(
+            decision=decision
+        ).observe(duration_seconds)
+        
+        if decision == "denied" and denial_reason:
+            self.authority_mandate_validations_denied_total.labels(
+                principal_id=principal_id,
+                denial_reason=denial_reason
+            ).inc()
+    
+    @contextmanager
+    def time_authority_mandate_validation(self, principal_id: str):
+        """
+        Context manager to time mandate validation.
+        
+        Args:
+            principal_id: Principal ID
+        
+        Yields:
+            Dictionary to store decision and denial_reason
+        """
+        start_time = time.time()
+        result = {"decision": "denied", "denial_reason": "unknown"}
+        try:
+            yield result
+        finally:
+            duration = time.time() - start_time
+            self.record_authority_mandate_validation(
+                principal_id=principal_id,
+                decision=result.get("decision", "denied"),
+                duration_seconds=duration,
+                denial_reason=result.get("denial_reason")
+            )
+    
+    def record_authority_mandate_issuance(
+        self,
+        issuer_id: str,
+        subject_id: str
+    ):
+        """
+        Record a mandate issuance.
+        
+        Args:
+            issuer_id: Issuer principal ID
+            subject_id: Subject principal ID
+        """
+        self.authority_mandate_issuances_total.labels(
+            issuer_id=issuer_id,
+            subject_id=subject_id
+        ).inc()
+    
+    def record_authority_mandate_revocation(
+        self,
+        revoker_id: str,
+        cascade: bool
+    ):
+        """
+        Record a mandate revocation.
+        
+        Args:
+            revoker_id: Revoker principal ID
+            cascade: Whether cascade revocation was used
+        """
+        self.authority_mandate_revocations_total.labels(
+            revoker_id=revoker_id,
+            cascade=str(cascade).lower()
+        ).inc()
+    
+    def record_authority_ledger_event(self, event_type: str):
+        """
+        Record an authority ledger event creation.
+        
+        Args:
+            event_type: Event type (issued, validated, denied, revoked)
+        """
+        self.authority_ledger_events_total.labels(
+            event_type=event_type
+        ).inc()
+    
+    def update_authority_cache_hit_rate(self, hit_rate: float):
+        """
+        Update authority mandate cache hit rate.
+        
+        Args:
+            hit_rate: Hit rate as a float between 0.0 and 1.0
+        """
+        self.authority_cache_hit_rate.set(hit_rate)
     
     # Metrics Export
     
