@@ -3,8 +3,6 @@ Ledger management for Caracal Core.
 
 This module provides the LedgerWriter for appending events to an immutable ledger
 and LedgerQuery for querying ledger events.
-
-v0.3: Integrated with Redis cache for fast recent spending queries.
 """
 
 import fcntl
@@ -42,8 +40,6 @@ class LedgerEvent:
     timestamp: str  # ISO 8601 format
     resource_type: str
     quantity: str  # Decimal as string
-    cost: str  # Decimal as string
-    currency: str
     metadata: Optional[Dict[str, Any]] = None
 
     def to_dict(self) -> Dict[str, Any]:
@@ -76,22 +72,19 @@ class LedgerWriter:
     - Atomic write operations
     - Rolling backups
     
-    v0.3: Integrated with Redis cache to update spending on writes.
     Requirements: 20.3, 20.4
     """
 
-    def __init__(self, ledger_path: str, backup_count: int = 3, redis_cache=None):
+    def __init__(self, ledger_path: str, backup_count: int = 3):
         """
         Initialize LedgerWriter.
         
         Args:
             ledger_path: Path to the ledger file (JSON Lines format)
             backup_count: Number of rolling backups to maintain (default: 3)
-            redis_cache: Optional RedisSpendingCache for cache updates (v0.3)
         """
         self.ledger_path = Path(ledger_path)
         self.backup_count = backup_count
-        self.redis_cache = redis_cache
         self._next_event_id = 1
         self._backup_created = False
         
@@ -106,19 +99,14 @@ class LedgerWriter:
             # Load existing ledger to determine next event ID
             self._initialize_event_id()
             logger.info(f"Loaded existing ledger from {self.ledger_path}, next event ID: {self._next_event_id}")
-        
-        if redis_cache:
-            logger.info("LedgerWriter initialized with Redis cache integration")
-        else:
-            logger.info("LedgerWriter initialized without Redis cache (v0.1/v0.2 mode)")
+            
+        logger.info("LedgerWriter initialized")
 
     def append_event(
         self,
         agent_id: str,
         resource_type: str,
         quantity: Decimal,
-        cost: Decimal,
-        currency: str = "USD",
         metadata: Optional[Dict[str, Any]] = None,
         timestamp: Optional[datetime] = None,
         provisional_charge_id: Optional[str] = None,
@@ -133,8 +121,6 @@ class LedgerWriter:
             agent_id: Agent identifier
             resource_type: Type of resource consumed
             quantity: Amount of resource consumed
-            cost: Calculated cost
-            currency: Currency code (default: "USD")
             metadata: Optional additional context
             timestamp: Optional timestamp (defaults to current UTC time)
             provisional_charge_id: Optional UUID of provisional charge (v0.2)
@@ -156,9 +142,6 @@ class LedgerWriter:
         if quantity < 0:
             logger.warning(f"Ledger write validation failed: quantity must be non-negative, got {quantity}")
             raise InvalidLedgerEventError(f"quantity must be non-negative, got {quantity}")
-        if cost < 0:
-            logger.warning(f"Ledger write validation failed: cost must be non-negative, got {cost}")
-            raise InvalidLedgerEventError(f"cost must be non-negative, got {cost}")
         
         # Create backup on first write (if not already created)
         if not self._backup_created and self.ledger_path.exists() and self.ledger_path.stat().st_size > 0:
@@ -182,8 +165,6 @@ class LedgerWriter:
             timestamp=timestamp.isoformat() + "Z",
             resource_type=resource_type,
             quantity=str(quantity),
-            cost=str(cost),
-            currency=currency,
             metadata=metadata,
         )
         
@@ -191,25 +172,9 @@ class LedgerWriter:
         try:
             self._atomic_append(event)
             
-            # Update Redis cache if available (v0.3)
-            if self.redis_cache:
-                try:
-                    self.redis_cache.update_spending(
-                        agent_id=agent_id,
-                        cost=cost,
-                        timestamp=timestamp,
-                        event_id=str(event.event_id)
-                    )
-                    logger.debug(f"Updated Redis cache for agent {agent_id}, cost={cost}")
-                except Exception as e:
-                    # Cache update failures should not fail the write
-                    logger.warning(
-                        f"Failed to update Redis cache for event {event.event_id}: {e}"
-                    )
-            
             logger.info(
                 f"Ledger write: event_id={event.event_id}, agent_id={agent_id}, "
-                f"resource={resource_type}, cost={cost} {currency}, "
+                f"resource={resource_type}, "
                 f"provisional_charge_id={provisional_charge_id}"
             )
             return event
@@ -369,28 +334,24 @@ class LedgerWriter:
             logger.warning(f"Failed to create backup of ledger: {e}")
 
 
-
 class LedgerQuery:
     """
     Query service for the immutable ledger.
     
     Provides filtering and aggregation capabilities for ledger events.
-    Uses sequential scan of JSON Lines file (v0.1 approach).
+    Uses sequential scan of JSON Lines file.
     
-    v0.3: Integrated with Redis cache for fast recent spending queries.
     Requirements: 20.3, 20.4
     """
 
-    def __init__(self, ledger_path: str, redis_cache=None):
+    def __init__(self, ledger_path: str):
         """
         Initialize LedgerQuery.
         
         Args:
             ledger_path: Path to the ledger file (JSON Lines format)
-            redis_cache: Optional RedisSpendingCache for fast recent queries (v0.3)
         """
         self.ledger_path = Path(ledger_path)
-        self.redis_cache = redis_cache
         
         # Ensure ledger file exists
         if not self.ledger_path.exists():
@@ -398,11 +359,8 @@ class LedgerQuery:
             self.ledger_path.parent.mkdir(parents=True, exist_ok=True)
             self.ledger_path.touch()
             logger.info(f"Created empty ledger file at {self.ledger_path}")
-        
-        if redis_cache:
-            logger.info("LedgerQuery initialized with Redis cache integration")
-        else:
-            logger.info("LedgerQuery initialized without Redis cache (v0.1/v0.2 mode)")
+            
+        logger.info("LedgerQuery initialized")
 
     def get_events(
         self,
@@ -506,342 +464,3 @@ class LedgerQuery:
             raise LedgerReadError(
                 f"Failed to read ledger from {self.ledger_path}: {e}"
             ) from e
-
-    def sum_spending(
-        self,
-        agent_id: str,
-        start_time: datetime,
-        end_time: datetime,
-    ) -> Decimal:
-        """
-        Calculate total spending for an agent in a time window.
-        
-        v0.3: Uses Redis cache for recent spending (last 24 hours), falls back to
-        PostgreSQL/file for older data.
-        
-        Args:
-            agent_id: Agent identifier
-            start_time: Start of time window (inclusive)
-            end_time: End of time window (inclusive)
-            
-        Returns:
-            Total spending as Decimal
-            
-        Raises:
-            LedgerReadError: If ledger file cannot be read
-            
-        Requirements: 20.3, 20.4
-        """
-        # Check if we can use Redis cache for recent data
-        if self.redis_cache:
-            now = datetime.utcnow()
-            cache_cutoff = now - timedelta(hours=24)
-            
-            # If entire query is within cache window (last 24 hours)
-            if start_time >= cache_cutoff:
-                try:
-                    cached_spending = self.redis_cache.get_spending_in_range(
-                        agent_id,
-                        start_time,
-                        end_time
-                    )
-                    logger.debug(
-                        f"Cache hit: spending for agent {agent_id} from {start_time} "
-                        f"to {end_time}: {cached_spending}"
-                    )
-                    return cached_spending
-                except Exception as e:
-                    logger.warning(
-                        f"Redis cache query failed, falling back to database: {e}"
-                    )
-                    # Fall through to database query
-            
-            # If query spans cache and database
-            elif end_time >= cache_cutoff:
-                try:
-                    # Get recent spending from cache
-                    cached_spending = self.redis_cache.get_spending_in_range(
-                        agent_id,
-                        cache_cutoff,
-                        end_time
-                    )
-                    
-                    # Get older spending from database
-                    db_spending = self._sum_spending_from_db(
-                        agent_id,
-                        start_time,
-                        cache_cutoff
-                    )
-                    
-                    total = cached_spending + db_spending
-                    logger.debug(
-                        f"Hybrid query: agent {agent_id} from {start_time} to {end_time}: "
-                        f"cache={cached_spending}, db={db_spending}, total={total}"
-                    )
-                    return total
-                except Exception as e:
-                    logger.warning(
-                        f"Hybrid cache/db query failed, falling back to database only: {e}"
-                    )
-                    # Fall through to database query
-        
-        # Fall back to database query (no cache or query is for old data)
-        return self._sum_spending_from_db(agent_id, start_time, end_time)
-    
-    def _sum_spending_from_db(
-        self,
-        agent_id: str,
-        start_time: datetime,
-        end_time: datetime,
-    ) -> Decimal:
-        """
-        Calculate total spending from database (file or PostgreSQL).
-        
-        This is the original v0.1/v0.2 implementation that reads from the ledger file.
-        
-        Args:
-            agent_id: Agent identifier
-            start_time: Start of time window (inclusive)
-            end_time: End of time window (inclusive)
-            
-        Returns:
-            Total spending as Decimal
-            
-        Raises:
-            LedgerReadError: If ledger file cannot be read
-        """
-        # Get all events for the agent in the time window
-        events = self.get_events(
-            agent_id=agent_id,
-            start_time=start_time,
-            end_time=end_time,
-        )
-        
-        # Sum the costs
-        total = Decimal('0')
-        for event in events:
-            try:
-                cost = Decimal(event.cost)
-                total += cost
-            except Exception as e:
-                logger.warning(
-                    f"Failed to parse cost '{event.cost}' for event {event.event_id}: {e}"
-                )
-                continue
-        
-        logger.debug(
-            f"Database query: spending for agent {agent_id} from {start_time} "
-            f"to {end_time}: {total}"
-        )
-        
-        return total
-
-    def aggregate_by_agent(
-        self,
-        start_time: datetime,
-        end_time: datetime,
-    ) -> Dict[str, Decimal]:
-        """
-        Aggregate spending by agent for a time window.
-        
-        Args:
-            start_time: Start of time window (inclusive)
-            end_time: End of time window (inclusive)
-            
-        Returns:
-            Dictionary mapping agent_id to total spending
-            
-        Raises:
-            LedgerReadError: If ledger file cannot be read
-        """
-        # Get all events in the time window
-        events = self.get_events(
-            start_time=start_time,
-            end_time=end_time,
-        )
-        
-        # Aggregate by agent
-        aggregation: Dict[str, Decimal] = {}
-        for event in events:
-            try:
-                cost = Decimal(event.cost)
-                if event.agent_id in aggregation:
-                    aggregation[event.agent_id] += cost
-                else:
-                    aggregation[event.agent_id] = cost
-            except Exception as e:
-                logger.warning(
-                    f"Failed to parse cost '{event.cost}' for event {event.event_id}: {e}"
-                )
-                continue
-        
-        logger.debug(
-            f"Aggregated spending for {len(aggregation)} agents "
-            f"from {start_time} to {end_time}"
-        )
-        
-        return aggregation
-
-    def sum_spending_with_children(
-        self,
-        agent_id: str,
-        start_time: datetime,
-        end_time: datetime,
-        agent_registry=None,
-    ) -> Dict[str, Decimal]:
-        """
-        Calculate spending for agent and all descendants.
-        
-        This method aggregates spending across a parent agent and all its children,
-        grandchildren, etc. It returns a dictionary mapping each agent ID to their
-        individual spending, allowing the caller to sum for total or analyze breakdown.
-        
-        Args:
-            agent_id: Parent agent identifier
-            start_time: Start of time window (inclusive)
-            end_time: End of time window (inclusive)
-            agent_registry: Optional AgentRegistry for hierarchy lookup (required for children)
-            
-        Returns:
-            Dictionary mapping agent_id to spending (includes parent and all descendants)
-            
-        Raises:
-            LedgerReadError: If ledger file cannot be read
-            ValueError: If agent_registry not provided when needed
-        """
-        # Start with the parent agent's spending
-        spending_breakdown: Dict[str, Decimal] = {}
-        
-        # Get parent's spending
-        parent_spending = self.sum_spending(agent_id, start_time, end_time)
-        spending_breakdown[agent_id] = parent_spending
-        
-        # If no agent registry provided, can only return parent's spending
-        if agent_registry is None:
-            logger.debug(
-                f"No agent_registry provided, returning only parent spending for {agent_id}"
-            )
-            return spending_breakdown
-        
-        # Get all descendants
-        try:
-            descendants = agent_registry.get_descendants(agent_id)
-        except Exception as e:
-            logger.warning(
-                f"Failed to get descendants for agent {agent_id}: {e}. "
-                f"Returning only parent spending."
-            )
-            return spending_breakdown
-        
-        # Calculate spending for each descendant
-        for descendant in descendants:
-            descendant_spending = self.sum_spending(
-                descendant.agent_id,
-                start_time,
-                end_time
-            )
-            spending_breakdown[descendant.agent_id] = descendant_spending
-        
-        total_spending = sum(spending_breakdown.values())
-        logger.debug(
-            f"Aggregated spending for agent {agent_id} with {len(descendants)} descendants: "
-            f"{total_spending} (parent: {parent_spending})"
-        )
-        
-        return spending_breakdown
-
-    def get_spending_breakdown(
-        self,
-        agent_id: str,
-        start_time: datetime,
-        end_time: datetime,
-        agent_registry=None,
-    ) -> Dict[str, any]:
-        """
-        Get hierarchical spending breakdown with parent-child structure.
-        
-        Returns a structured breakdown showing the agent's spending and each child's
-        spending separately, organized hierarchically. This is useful for displaying
-        spending in a tree view or indented format.
-        
-        Args:
-            agent_id: Parent agent identifier
-            start_time: Start of time window (inclusive)
-            end_time: End of time window (inclusive)
-            agent_registry: Optional AgentRegistry for hierarchy lookup
-            
-        Returns:
-            Dictionary with structure:
-            {
-                "agent_id": str,
-                "agent_name": str (if registry available),
-                "spending": Decimal,
-                "children": [
-                    {
-                        "agent_id": str,
-                        "agent_name": str,
-                        "spending": Decimal,
-                        "children": [...]
-                    },
-                    ...
-                ],
-                "total_with_children": Decimal
-            }
-            
-        Raises:
-            LedgerReadError: If ledger file cannot be read
-        """
-        # Get agent's own spending
-        agent_spending = self.sum_spending(agent_id, start_time, end_time)
-        
-        # Build breakdown structure
-        breakdown = {
-            "agent_id": agent_id,
-            "spending": agent_spending,
-            "children": [],
-            "total_with_children": agent_spending
-        }
-        
-        # Add agent name if registry available
-        if agent_registry is not None:
-            try:
-                agent = agent_registry.get_agent(agent_id)
-                if agent:
-                    breakdown["agent_name"] = agent.name
-            except Exception as e:
-                logger.warning(f"Failed to get agent name for {agent_id}: {e}")
-        
-        # If no agent registry, can't get children
-        if agent_registry is None:
-            return breakdown
-        
-        # Get direct children
-        try:
-            children = agent_registry.get_children(agent_id)
-        except Exception as e:
-            logger.warning(f"Failed to get children for agent {agent_id}: {e}")
-            return breakdown
-        
-        # Recursively build breakdown for each child
-        total_children_spending = Decimal('0')
-        for child in children:
-            child_breakdown = self.get_spending_breakdown(
-                child.agent_id,
-                start_time,
-                end_time,
-                agent_registry
-            )
-            breakdown["children"].append(child_breakdown)
-            total_children_spending += child_breakdown["total_with_children"]
-        
-        # Update total to include all descendants
-        breakdown["total_with_children"] = agent_spending + total_children_spending
-        
-        logger.debug(
-            f"Built spending breakdown for agent {agent_id}: "
-            f"own={agent_spending}, children={total_children_spending}, "
-            f"total={breakdown['total_with_children']}"
-        )
-        
-        return breakdown
-
