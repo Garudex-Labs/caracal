@@ -1,0 +1,55 @@
+                CARACAL DUAL LICENSE NOTICE
+            Community Edition (AGPLv3) and Enterprise Edition
+
+
+Copyright (C) 2026 Garudex Labs. All rights reserved.
+
+This repository is distributed under a dual licensing model:
+
+1. Community Edition
+   All source code in this repository, except for the Enterprise Components
+   defined below, is licensed under the GNU Affero General Public License,
+   Version 3 (AGPLv3). Use, modification, and distribution of these portions
+   must comply fully with AGPLv3, including its copyleft and network source
+   disclosure provisions.
+
+2. Enterprise Edition
+   All files, directories, modules, or components explicitly designated as:
+
+   ```
+   /enterprise
+   /enterprise/*
+   or otherwise marked as "Enterprise", "Enterprise Edition",
+   or "Proprietary"
+   ```
+
+   are proprietary software and are NOT licensed under AGPLv3.
+
+   These Enterprise Components are the exclusive property of Garudex Labs.
+   No rights are granted to use, copy, modify, distribute, sublicense,
+   or create derivative works of Enterprise Components without a valid
+   written commercial agreement executed with Garudex Labs.
+
+Commercial Licensing Option
+
+If you wish to use the complete repository, including Enterprise
+Components, or if you wish to use the Community Edition without being
+subject to AGPLv3 copyleft and source disclosure obligations, you must
+obtain a commercial subscription license under the Caracal Enterprise
+service provided exclusively by Garudex Labs.
+
+Commercial licenses are granted only through a written agreement.
+
+For commercial licensing inquiries:
+
+```
+Email: support@garudexlabs.com
+Website: www.garudexlabs.com
+```
+
+Except as expressly provided above, all rights are reserved by
+Garudex Labs.
+
+                GNU AFFERO GENERAL PUBLIC LICENSE
+                   Version 3, 19 November 2007
+
