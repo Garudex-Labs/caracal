@@ -132,8 +132,7 @@ class LedgerWriterConsumer(BaseKafkaConsumer):
         agent_id = UUID(event_data['agent_id'])
         resource_type = event_data['resource_type']
         quantity = Decimal(str(event_data['quantity']))
-        cost = Decimal(str(event_data['cost']))
-        currency = event_data['currency']
+        quantity = Decimal(str(event_data['quantity']))
         # provisional_charge_id removed
         metadata = event_data.get('metadata')
         
@@ -151,8 +150,6 @@ class LedgerWriterConsumer(BaseKafkaConsumer):
                 timestamp=timestamp,
                 resource_type=resource_type,
                 quantity=quantity,
-                cost=cost,
-                currency=currency,
                 event_metadata=metadata,
                 # provisional_charge_id removed
             )
@@ -162,7 +159,7 @@ class LedgerWriterConsumer(BaseKafkaConsumer):
             
             logger.info(
                 f"Wrote ledger event: event_id={ledger_event.event_id}, "
-                f"agent_id={agent_id}, resource={resource_type}, cost={cost} {currency}"
+                f"agent_id={agent_id}, resource={resource_type}"
             )
             
             # Release provisional charge removed
@@ -225,9 +222,8 @@ class LedgerWriterConsumer(BaseKafkaConsumer):
             'agent_id',
             'event_type',
             'resource_type',
-            'quantity',
-            'cost',
-            'currency'
+            'resource_type',
+            'quantity'
         ]
         
         for field in required_fields:
@@ -255,15 +251,6 @@ class LedgerWriterConsumer(BaseKafkaConsumer):
                 )
         except (ValueError, TypeError) as e:
             raise InvalidLedgerEventError(f"Invalid quantity: {e}") from e
-        
-        try:
-            cost = Decimal(str(event_data['cost']))
-            if cost < 0:
-                raise InvalidLedgerEventError(
-                    f"cost must be non-negative, got {cost}"
-                )
-        except (ValueError, TypeError) as e:
-            raise InvalidLedgerEventError(f"Invalid cost: {e}") from e
         
         # Validate timestamp
         try:
