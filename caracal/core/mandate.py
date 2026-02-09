@@ -21,6 +21,11 @@ from caracal.logging_config import get_logger
 
 logger = get_logger(__name__)
 
+# Import AuthorityLedgerWriter for type hints (avoid circular import)
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from caracal.core.authority_ledger import AuthorityLedgerWriter
+
 
 class MandateManager:
     """
