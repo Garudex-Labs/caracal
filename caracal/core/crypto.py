@@ -368,3 +368,97 @@ def verify_merkle_root(
     except Exception as e:
         logger.warning(f"Merkle root signature verification failed: {e}")
         return False
+
+
+
+def store_signed_merkle_root(
+    db_session,
+    merkle_root: bytes,
+    signature_hex: str,
+    batch_id,
+    event_count: int,
+    first_event_id: int,
+    last_event_id: int,
+    source: str = "live"
+):
+    """
+    Store a signed Merkle root in the database.
+    
+    Args:
+        db_session: SQLAlchemy database session
+        merkle_root: 32-byte Merkle root hash (SHA-256)
+        signature_hex: Hex-encoded signature string
+        batch_id: UUID for the batch
+        event_count: Number of events in the batch
+        first_event_id: First event ID in the batch
+        last_event_id: Last event ID in the batch
+        source: Source of the batch ("live" or "migration")
+    
+    Returns:
+        MerkleRoot database object
+    
+    Raises:
+        ValueError: If parameters are invalid
+    
+    Requirements: 13.4, 13.5
+    
+    Example:
+        >>> from caracal.db.connection import get_session
+        >>> from uuid import uuid4
+        >>> 
+        >>> session = get_session()
+        >>> merkle_root_record = store_signed_merkle_root(
+        ...     session, root, signature, uuid4(), 100, 1, 100
+        ... )
+        >>> session.commit()
+    """
+    from caracal.db.models import MerkleRoot
+    from uuid import UUID, uuid4
+    
+    if not merkle_root or len(merkle_root) != 32:
+        raise ValueError(f"merkle_root must be 32 bytes (SHA-256), got {len(merkle_root) if merkle_root else 0} bytes")
+    
+    if not signature_hex:
+        raise ValueError("signature_hex cannot be empty")
+    
+    if not batch_id:
+        raise ValueError("batch_id cannot be empty")
+    
+    if event_count <= 0:
+        raise ValueError(f"event_count must be positive, got {event_count}")
+    
+    if first_event_id <= 0 or last_event_id <= 0:
+        raise ValueError(f"event IDs must be positive, got first={first_event_id}, last={last_event_id}")
+    
+    if first_event_id > last_event_id:
+        raise ValueError(f"first_event_id ({first_event_id}) must be <= last_event_id ({last_event_id})")
+    
+    try:
+        # Convert batch_id to UUID if it's a string
+        if isinstance(batch_id, str):
+            batch_id = UUID(batch_id)
+        
+        # Create MerkleRoot record
+        merkle_root_record = MerkleRoot(
+            root_id=uuid4(),
+            batch_id=batch_id,
+            merkle_root=merkle_root.hex(),
+            signature=signature_hex,
+            event_count=event_count,
+            first_event_id=first_event_id,
+            last_event_id=last_event_id,
+            source=source
+        )
+        
+        db_session.add(merkle_root_record)
+        
+        logger.info(
+            f"Stored signed Merkle root for batch {batch_id} "
+            f"with {event_count} events (IDs: {first_event_id} to {last_event_id})"
+        )
+        
+        return merkle_root_record
+        
+    except Exception as e:
+        logger.error(f"Failed to store signed Merkle root: {e}", exc_info=True)
+        raise ValueError(f"Failed to store signed Merkle root: {e}")
