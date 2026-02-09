@@ -20,10 +20,11 @@ from caracal.logging_config import get_logger
 
 logger = get_logger(__name__)
 
-# Import AuthorityLedgerWriter for type hints (avoid circular import)
+# Import AuthorityLedgerWriter and RedisMandateCache for type hints (avoid circular import)
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from caracal.core.authority_ledger import AuthorityLedgerWriter
+    from caracal.redis.mandate_cache import RedisMandateCache
 
 
 @dataclass
@@ -53,20 +54,22 @@ class AuthorityEvaluator:
     Validates mandates and makes allow/deny decisions with fail-closed semantics.
     Any error or uncertainty results in denial of authority.
     
-    Requirements: 6.9
+    Requirements: 6.9, 14.4
     """
     
-    def __init__(self, db_session: Session, ledger_writer=None):
+    def __init__(self, db_session: Session, ledger_writer=None, mandate_cache=None):
         """
         Initialize AuthorityEvaluator.
         
         Args:
             db_session: SQLAlchemy database session
             ledger_writer: AuthorityLedgerWriter instance (optional, for recording events)
+            mandate_cache: RedisMandateCache instance (optional, for caching mandates)
         """
         self.db_session = db_session
         self.ledger_writer = ledger_writer
-        logger.info("AuthorityEvaluator initialized")
+        self.mandate_cache = mandate_cache
+        logger.info(f"AuthorityEvaluator initialized (cache_enabled={mandate_cache is not None})")
     
     def _get_principal(self, principal_id: UUID) -> Optional[Principal]:
         """
@@ -86,6 +89,51 @@ class AuthorityEvaluator:
             return principal
         except Exception as e:
             logger.error(f"Failed to get principal {principal_id}: {e}", exc_info=True)
+            return None
+    
+    def _get_mandate_with_cache(self, mandate_id: UUID) -> Optional[ExecutionMandate]:
+        """
+        Get mandate by ID with caching support.
+        
+        Checks cache first, falls back to database if not cached.
+        
+        Args:
+            mandate_id: The mandate ID to get
+        
+        Returns:
+            ExecutionMandate if found, None otherwise
+        
+        Requirements: 14.4
+        """
+        # Try cache first if available
+        if self.mandate_cache:
+            try:
+                cached_data = self.mandate_cache.get_cached_mandate(mandate_id)
+                if cached_data:
+                    # Reconstruct ExecutionMandate from cached data
+                    mandate = ExecutionMandate(**cached_data)
+                    logger.debug(f"Retrieved mandate {mandate_id} from cache")
+                    return mandate
+            except Exception as e:
+                logger.warning(f"Failed to get mandate from cache: {e}")
+                # Fall through to database query
+        
+        # Cache miss or cache not available - query database
+        try:
+            mandate = self.db_session.query(ExecutionMandate).filter(
+                ExecutionMandate.mandate_id == mandate_id
+            ).first()
+            
+            if mandate and self.mandate_cache:
+                # Cache the mandate for future use
+                try:
+                    self.mandate_cache.cache_mandate(mandate)
+                except Exception as e:
+                    logger.warning(f"Failed to cache mandate: {e}")
+            
+            return mandate
+        except Exception as e:
+            logger.error(f"Failed to get mandate {mandate_id}: {e}", exc_info=True)
             return None
     
     def _match_pattern(self, value: str, pattern: str) -> bool:
