@@ -90,6 +90,7 @@ class TestConfigurationLoading:
                     'backup_dir': '/tmp/backups',
                     'backup_count': 5,
                 },
+                'defaults': {
                     'time_window': 'daily',
                 },
                 'logging': {
