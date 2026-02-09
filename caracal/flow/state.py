@@ -137,6 +137,7 @@ class FlowState:
     onboarding: OnboardingState = field(default_factory=OnboardingState)
     preferences: UserPreferences = field(default_factory=UserPreferences)
     session: SessionData = field(default_factory=SessionData)
+    authority_session: AuthoritySessionData = field(default_factory=AuthoritySessionData)
     recent_actions: list[dict] = field(default_factory=list)
     favorite_commands: list[str] = field(default_factory=list)
     
