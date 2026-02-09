@@ -478,3 +478,245 @@ class LedgerSnapshot(Base):
         return f"<LedgerSnapshot(snapshot_id={self.snapshot_id}, timestamp={self.snapshot_timestamp}, events={self.total_events})>"
 
 
+# ============================================================================
+# Authority Enforcement Models (v0.5.0)
+# ============================================================================
+
+
+class Principal(Base):
+    """
+    Principal identity (agent, user, or service).
+    
+    Represents an entity that can hold authority and perform actions.
+    Replaces AgentIdentity with more general concept for authority enforcement.
+    
+    Requirements: 1.2, 1.3, 3.2
+    """
+    
+    __tablename__ = "principals"
+    
+    # Primary key
+    principal_id = Column(PG_UUID(as_uuid=True), primary_key=True, default=uuid4)
+    
+    # Identity
+    name = Column(String(255), unique=True, nullable=False, index=True)
+    principal_type = Column(String(50), nullable=False, index=True)  # agent, user, service
+    owner = Column(String(255), nullable=False)
+    
+    # Hierarchy
+    parent_principal_id = Column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("principals.principal_id"),
+        nullable=True,
+        index=True,
+    )
+    
+    # Cryptographic keys
+    public_key_pem = Column(String(2000), nullable=True)
+    private_key_pem = Column(String(4000), nullable=True)  # Encrypted or stored in KMS
+    
+    # Metadata
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    metadata = Column(JSON().with_variant(JSONB, "postgresql"), nullable=True)
+    
+    # Relationships
+    parent = relationship(
+        "Principal",
+        remote_side=[principal_id],
+        backref="children",
+        foreign_keys=[parent_principal_id],
+    )
+    
+    def __repr__(self):
+        return f"<Principal(principal_id={self.principal_id}, name={self.name}, type={self.principal_type})>"
+
+
+class ExecutionMandate(Base):
+    """
+    Execution mandate for authority enforcement.
+    
+    Represents a cryptographically signed authorization that grants
+    specific execution rights to a principal for a limited time.
+    
+    Requirements: 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 1.7, 1.8, 1.9, 1.10
+    """
+    
+    __tablename__ = "execution_mandates"
+    
+    # Primary key
+    mandate_id = Column(PG_UUID(as_uuid=True), primary_key=True, default=uuid4)
+    
+    # Principal identifiers
+    issuer_id = Column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("principals.principal_id"),
+        nullable=False,
+        index=True,
+    )
+    subject_id = Column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("principals.principal_id"),
+        nullable=False,
+        index=True,
+    )
+    
+    # Validity period
+    valid_from = Column(DateTime, nullable=False, index=True)
+    valid_until = Column(DateTime, nullable=False, index=True)
+    
+    # Scope
+    resource_scope = Column(JSON().with_variant(JSONB, "postgresql"), nullable=False)  # List of resource patterns
+    action_scope = Column(JSON().with_variant(JSONB, "postgresql"), nullable=False)    # List of allowed actions
+    
+    # Cryptographic signature
+    signature = Column(String(512), nullable=False)  # ECDSA P-256 signature
+    
+    # Metadata
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    metadata = Column(JSON().with_variant(JSONB, "postgresql"), nullable=True)
+    
+    # Revocation
+    revoked = Column(Boolean, nullable=False, default=False, index=True)
+    revoked_at = Column(DateTime, nullable=True)
+    revocation_reason = Column(String(1000), nullable=True)
+    
+    # Delegation
+    parent_mandate_id = Column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("execution_mandates.mandate_id"),
+        nullable=True,
+        index=True,
+    )
+    delegation_depth = Column(Integer, nullable=False, default=0)
+    
+    # Intent constraint (optional)
+    intent_hash = Column(String(64), nullable=True)  # SHA-256 hash of intent
+    
+    # Relationships
+    issuer = relationship("Principal", foreign_keys=[issuer_id], backref="issued_mandates")
+    subject = relationship("Principal", foreign_keys=[subject_id], backref="received_mandates")
+    parent_mandate = relationship("ExecutionMandate", remote_side=[mandate_id], backref="child_mandates")
+    
+    def __repr__(self):
+        return f"<ExecutionMandate(mandate_id={self.mandate_id}, subject_id={self.subject_id}, revoked={self.revoked})>"
+
+
+class AuthorityLedgerEvent(Base):
+    """
+    Immutable ledger event for authority decisions.
+    
+    Records all authority-related events including mandate issuance,
+    validation attempts, and revocations.
+    
+    Requirements: 2.1, 2.2, 2.3, 2.4, 2.5, 2.6, 2.7, 2.8, 2.9, 2.10, 2.11
+    """
+    
+    __tablename__ = "authority_ledger_events"
+    
+    # Primary key with auto-increment
+    event_id = Column(BigInteger().with_variant(Integer, "sqlite"), primary_key=True, autoincrement=True)
+    
+    # Event identification
+    event_type = Column(String(50), nullable=False, index=True)  # issued, validated, denied, revoked
+    timestamp = Column(DateTime, nullable=False, default=datetime.utcnow, index=True)
+    
+    # Principal and mandate
+    principal_id = Column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("principals.principal_id"),
+        nullable=False,
+        index=True,
+    )
+    mandate_id = Column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("execution_mandates.mandate_id"),
+        nullable=True,
+        index=True,
+    )
+    
+    # Decision outcome (for validation events)
+    decision = Column(String(20), nullable=True)  # allowed, denied
+    denial_reason = Column(String(1000), nullable=True)
+    
+    # Request context
+    requested_action = Column(String(255), nullable=True)
+    requested_resource = Column(String(1000), nullable=True)
+    
+    # Metadata
+    event_metadata = Column(JSON().with_variant(JSONB, "postgresql"), nullable=True)
+    correlation_id = Column(String(255), nullable=True, index=True)
+    
+    # Merkle tree integration
+    merkle_root_id = Column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("merkle_roots.root_id"),
+        nullable=True,
+        index=True,
+    )
+    
+    # Relationships
+    principal = relationship("Principal", backref="authority_events")
+    mandate = relationship("ExecutionMandate", backref="ledger_events")
+    merkle_root = relationship("MerkleRoot", backref="authority_events")
+    
+    # Composite indexes for common queries
+    __table_args__ = (
+        Index("ix_authority_ledger_events_principal_timestamp", "principal_id", "timestamp"),
+        Index("ix_authority_ledger_events_mandate_timestamp", "mandate_id", "timestamp"),
+    )
+    
+    def __repr__(self):
+        return f"<AuthorityLedgerEvent(event_id={self.event_id}, event_type={self.event_type}, decision={self.decision})>"
+
+
+class AuthorityPolicy(Base):
+    """
+    Authority policy for mandate issuance constraints.
+    
+    Defines rules for how mandates can be issued to a principal,
+    including scope limits and validity period constraints.
+    
+    Requirements: 3.1, 3.2, 3.3, 3.4, 3.5, 3.6, 3.7, 3.8
+    """
+    
+    __tablename__ = "authority_policies"
+    
+    # Primary key
+    policy_id = Column(PG_UUID(as_uuid=True), primary_key=True, default=uuid4)
+    
+    # Principal
+    principal_id = Column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("principals.principal_id"),
+        nullable=False,
+        index=True,
+    )
+    
+    # Validity constraints
+    max_validity_seconds = Column(Integer, nullable=False)  # Maximum TTL for mandates
+    
+    # Scope constraints
+    allowed_resource_patterns = Column(JSON().with_variant(JSONB, "postgresql"), nullable=False)  # List of regex/glob patterns
+    allowed_actions = Column(JSON().with_variant(JSONB, "postgresql"), nullable=False)  # List of action types
+    
+    # Delegation constraints
+    allow_delegation = Column(Boolean, nullable=False, default=False)
+    max_delegation_depth = Column(Integer, nullable=False, default=0)
+    
+    # Metadata
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    created_by = Column(String(255), nullable=False)
+    active = Column(Boolean, nullable=False, default=True, index=True)
+    
+    # Relationships
+    principal = relationship("Principal", backref="authority_policies")
+    
+    # Composite index for active policy queries
+    __table_args__ = (
+        Index("ix_authority_policies_principal_active", "principal_id", "active"),
+    )
+    
+    def __repr__(self):
+        return f"<AuthorityPolicy(policy_id={self.policy_id}, principal_id={self.principal_id}, active={self.active})>"
+
+
