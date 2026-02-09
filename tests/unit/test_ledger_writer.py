@@ -25,8 +25,6 @@ class TestLedgerEvent:
             timestamp="2024-01-15T10:30:00Z",
             resource_type="openai.gpt-5.2.input_tokens",
             quantity="1",
-            cost="1.75",
-            currency="USD",
             metadata={"model": "gpt-5.2"}
         )
         
@@ -34,8 +32,6 @@ class TestLedgerEvent:
         assert event.agent_id == "test-agent-123"
         assert event.resource_type == "openai.gpt-5.2.input_tokens"
         assert event.quantity == "1"
-        assert event.cost == "1.75"
-        assert event.currency == "USD"
         assert event.metadata == {"model": "gpt-5.2"}
     
     def test_ledger_event_to_dict(self):
@@ -46,8 +42,6 @@ class TestLedgerEvent:
             timestamp="2024-01-15T10:30:00Z",
             resource_type="openai.gpt-5.2.input_tokens",
             quantity="1",
-            cost="1.75",
-            currency="USD",
             metadata=None
         )
         
@@ -65,8 +59,6 @@ class TestLedgerEvent:
             timestamp="2024-01-15T10:30:00Z",
             resource_type="openai.gpt-5.2.input_tokens",
             quantity="1",
-            cost="1.75",
-            currency="USD",
             metadata=None
         )
         
@@ -102,8 +94,6 @@ class TestLedgerWriter:
             agent_id="test-agent-123",
             resource_type="openai.gpt-5.2.input_tokens",
             quantity=Decimal("1"),
-            cost=Decimal("1.75"),
-            currency="USD",
             metadata={"model": "gpt-5.2"}
         )
         
@@ -111,7 +101,6 @@ class TestLedgerWriter:
         assert event.agent_id == "test-agent-123"
         assert event.resource_type == "openai.gpt-5.2.input_tokens"
         assert event.quantity == "1"
-        assert event.cost == "1.75"
         
         # Verify event was written to file
         with open(ledger_path, 'r') as f:
@@ -131,22 +120,19 @@ class TestLedgerWriter:
         event1 = writer.append_event(
             agent_id="agent-1",
             resource_type="resource-1",
-            quantity=Decimal("100"),
-            cost=Decimal("1.00")
+            quantity=Decimal("100")
         )
         
         event2 = writer.append_event(
             agent_id="agent-2",
             resource_type="resource-2",
-            quantity=Decimal("200"),
-            cost=Decimal("2.00")
+            quantity=Decimal("200")
         )
         
         event3 = writer.append_event(
             agent_id="agent-3",
             resource_type="resource-3",
-            quantity=Decimal("300"),
-            cost=Decimal("3.00")
+            quantity=Decimal("300")
         )
         
         # Verify monotonic IDs
@@ -169,14 +155,12 @@ class TestLedgerWriter:
         writer1.append_event(
             agent_id="agent-1",
             resource_type="resource-1",
-            quantity=Decimal("100"),
-            cost=Decimal("1.00")
+            quantity=Decimal("100")
         )
         writer1.append_event(
             agent_id="agent-2",
             resource_type="resource-2",
-            quantity=Decimal("200"),
-            cost=Decimal("2.00")
+            quantity=Decimal("200")
         )
         
         # Create second writer (simulating restart)
@@ -188,8 +172,7 @@ class TestLedgerWriter:
         event3 = writer2.append_event(
             agent_id="agent-3",
             resource_type="resource-3",
-            quantity=Decimal("300"),
-            cost=Decimal("3.00")
+            quantity=Decimal("300")
         )
         
         assert event3.event_id == 3
@@ -203,8 +186,7 @@ class TestLedgerWriter:
             writer.append_event(
                 agent_id="",
                 resource_type="resource-1",
-                quantity=Decimal("100"),
-                cost=Decimal("1.00")
+                quantity=Decimal("100")
             )
     
     def test_invalid_resource_type(self, temp_dir):
@@ -216,8 +198,7 @@ class TestLedgerWriter:
             writer.append_event(
                 agent_id="agent-1",
                 resource_type="",
-                quantity=Decimal("100"),
-                cost=Decimal("1.00")
+                quantity=Decimal("100")
             )
     
     def test_negative_quantity(self, temp_dir):
@@ -229,21 +210,7 @@ class TestLedgerWriter:
             writer.append_event(
                 agent_id="agent-1",
                 resource_type="resource-1",
-                quantity=Decimal("-100"),
-                cost=Decimal("1.00")
-            )
-    
-    def test_negative_cost(self, temp_dir):
-        """Test that negative cost raises error."""
-        ledger_path = temp_dir / "ledger.jsonl"
-        writer = LedgerWriter(str(ledger_path))
-        
-        with pytest.raises(InvalidLedgerEventError, match="cost must be non-negative"):
-            writer.append_event(
-                agent_id="agent-1",
-                resource_type="resource-1",
-                quantity=Decimal("100"),
-                cost=Decimal("-1.00")
+                quantity=Decimal("-100")
             )
     
     def test_backup_creation(self, temp_dir):
@@ -252,7 +219,7 @@ class TestLedgerWriter:
         
         # Create ledger with some initial data
         with open(ledger_path, 'w') as f:
-            f.write('{"event_id":1,"agent_id":"old-agent","timestamp":"2024-01-01T00:00:00Z","resource_type":"test","quantity":"100","cost":"1.00","currency":"USD"}\n')
+            f.write('{"event_id":1,"agent_id":"old-agent","timestamp":"2024-01-01T00:00:00Z","resource_type":"test","quantity":"100"}\n')
         
         # Create writer (should create backup on first write)
         writer = LedgerWriter(str(ledger_path))
@@ -261,8 +228,7 @@ class TestLedgerWriter:
         writer.append_event(
             agent_id="new-agent",
             resource_type="resource-1",
-            quantity=Decimal("100"),
-            cost=Decimal("1.00")
+            quantity=Decimal("100")
         )
         
         # Verify backup was created
@@ -285,8 +251,7 @@ class TestLedgerWriter:
             writer.append_event(
                 agent_id=f"agent-{i}",
                 resource_type="resource-1",
-                quantity=Decimal("100"),
-                cost=Decimal("1.00")
+                quantity=Decimal("100")
             )
         
         # Read file and verify format
@@ -300,7 +265,6 @@ class TestLedgerWriter:
             parsed = json.loads(line)
             assert "event_id" in parsed
             assert "agent_id" in parsed
-
 
 
 class TestLedgerQuery:
@@ -338,14 +302,12 @@ class TestLedgerQuery:
         writer.append_event(
             agent_id="agent-1",
             resource_type="resource-1",
-            quantity=Decimal("100"),
-            cost=Decimal("1.00")
+            quantity=Decimal("100")
         )
         writer.append_event(
             agent_id="agent-2",
             resource_type="resource-2",
-            quantity=Decimal("200"),
-            cost=Decimal("2.00")
+            quantity=Decimal("200")
         )
         
         # Query all events
@@ -367,20 +329,17 @@ class TestLedgerQuery:
         writer.append_event(
             agent_id="agent-1",
             resource_type="resource-1",
-            quantity=Decimal("100"),
-            cost=Decimal("1.00")
+            quantity=Decimal("100")
         )
         writer.append_event(
             agent_id="agent-2",
             resource_type="resource-2",
-            quantity=Decimal("200"),
-            cost=Decimal("2.00")
+            quantity=Decimal("200")
         )
         writer.append_event(
             agent_id="agent-1",
             resource_type="resource-3",
-            quantity=Decimal("300"),
-            cost=Decimal("3.00")
+            quantity=Decimal("300")
         )
         
         # Query events for agent-1
@@ -393,7 +352,6 @@ class TestLedgerQuery:
     def test_get_events_filter_by_resource_type(self, temp_dir):
         """Test filtering events by resource type."""
         from caracal.core.ledger import LedgerQuery
-        from datetime import datetime
         
         ledger_path = temp_dir / "ledger.jsonl"
         writer = LedgerWriter(str(ledger_path))
@@ -402,20 +360,17 @@ class TestLedgerQuery:
         writer.append_event(
             agent_id="agent-1",
             resource_type="openai.gpt-5.2.input_tokens",
-            quantity=Decimal("100"),
-            cost=Decimal("1.00")
+            quantity=Decimal("100")
         )
         writer.append_event(
             agent_id="agent-1",
             resource_type="openai.gpt-5.2.output_tokens",
-            quantity=Decimal("200"),
-            cost=Decimal("2.00")
+            quantity=Decimal("200")
         )
         writer.append_event(
             agent_id="agent-1",
             resource_type="openai.gpt-5.2.input_tokens",
-            quantity=Decimal("300"),
-            cost=Decimal("3.00")
+            quantity=Decimal("300")
         )
         
         # Query events for specific resource type
@@ -440,21 +395,18 @@ class TestLedgerQuery:
             agent_id="agent-1",
             resource_type="resource-1",
             quantity=Decimal("100"),
-            cost=Decimal("1.00"),
             timestamp=base_time
         )
         writer.append_event(
             agent_id="agent-1",
             resource_type="resource-2",
             quantity=Decimal("200"),
-            cost=Decimal("2.00"),
             timestamp=base_time + timedelta(hours=1)
         )
         writer.append_event(
             agent_id="agent-1",
             resource_type="resource-3",
             quantity=Decimal("300"),
-            cost=Decimal("3.00"),
             timestamp=base_time + timedelta(hours=2)
         )
         
@@ -483,28 +435,24 @@ class TestLedgerQuery:
             agent_id="agent-1",
             resource_type="resource-1",
             quantity=Decimal("100"),
-            cost=Decimal("1.00"),
             timestamp=base_time
         )
         writer.append_event(
             agent_id="agent-2",
             resource_type="resource-1",
             quantity=Decimal("200"),
-            cost=Decimal("2.00"),
             timestamp=base_time
         )
         writer.append_event(
             agent_id="agent-1",
             resource_type="resource-2",
             quantity=Decimal("300"),
-            cost=Decimal("3.00"),
             timestamp=base_time
         )
         writer.append_event(
             agent_id="agent-1",
             resource_type="resource-1",
             quantity=Decimal("400"),
-            cost=Decimal("4.00"),
             timestamp=base_time + timedelta(hours=2)
         )
         
@@ -520,144 +468,6 @@ class TestLedgerQuery:
         assert len(events) == 1
         assert events[0].agent_id == "agent-1"
         assert events[0].resource_type == "resource-1"
-        assert events[0].cost == "1.00"
-    
-    def test_sum_spending(self, temp_dir):
-        """Test calculating total spending for an agent."""
-        from caracal.core.ledger import LedgerQuery
-        from datetime import datetime, timedelta
-        
-        ledger_path = temp_dir / "ledger.jsonl"
-        writer = LedgerWriter(str(ledger_path))
-        
-        base_time = datetime(2024, 1, 15, 10, 0, 0)
-        
-        # Add events for agent-1
-        writer.append_event(
-            agent_id="agent-1",
-            resource_type="resource-1",
-            quantity=Decimal("100"),
-            cost=Decimal("1.50"),
-            timestamp=base_time
-        )
-        writer.append_event(
-            agent_id="agent-1",
-            resource_type="resource-2",
-            quantity=Decimal("200"),
-            cost=Decimal("2.75"),
-            timestamp=base_time + timedelta(hours=1)
-        )
-        writer.append_event(
-            agent_id="agent-2",
-            resource_type="resource-3",
-            quantity=Decimal("300"),
-            cost=Decimal("5.00"),
-            timestamp=base_time
-        )
-        
-        # Calculate spending for agent-1
-        query = LedgerQuery(str(ledger_path))
-        total = query.sum_spending(
-            agent_id="agent-1",
-            start_time=base_time - timedelta(hours=1),
-            end_time=base_time + timedelta(hours=2)
-        )
-        
-        assert total == Decimal("4.25")  # 1.50 + 2.75
-    
-    def test_sum_spending_empty_result(self, temp_dir):
-        """Test sum_spending returns zero for no matching events."""
-        from caracal.core.ledger import LedgerQuery
-        from datetime import datetime
-        
-        ledger_path = temp_dir / "ledger.jsonl"
-        writer = LedgerWriter(str(ledger_path))
-        
-        # Add event for agent-1
-        writer.append_event(
-            agent_id="agent-1",
-            resource_type="resource-1",
-            quantity=Decimal("100"),
-            cost=Decimal("1.00")
-        )
-        
-        # Query for different agent
-        query = LedgerQuery(str(ledger_path))
-        total = query.sum_spending(
-            agent_id="agent-2",
-            start_time=datetime(2024, 1, 1),
-            end_time=datetime(2024, 12, 31)
-        )
-        
-        assert total == Decimal("0")
-    
-    def test_aggregate_by_agent(self, temp_dir):
-        """Test aggregating spending by agent."""
-        from caracal.core.ledger import LedgerQuery
-        from datetime import datetime, timedelta
-        
-        ledger_path = temp_dir / "ledger.jsonl"
-        writer = LedgerWriter(str(ledger_path))
-        
-        base_time = datetime(2024, 1, 15, 10, 0, 0)
-        
-        # Add events for multiple agents
-        writer.append_event(
-            agent_id="agent-1",
-            resource_type="resource-1",
-            quantity=Decimal("100"),
-            cost=Decimal("1.00"),
-            timestamp=base_time
-        )
-        writer.append_event(
-            agent_id="agent-2",
-            resource_type="resource-2",
-            quantity=Decimal("200"),
-            cost=Decimal("2.00"),
-            timestamp=base_time
-        )
-        writer.append_event(
-            agent_id="agent-1",
-            resource_type="resource-3",
-            quantity=Decimal("300"),
-            cost=Decimal("3.00"),
-            timestamp=base_time
-        )
-        writer.append_event(
-            agent_id="agent-3",
-            resource_type="resource-4",
-            quantity=Decimal("400"),
-            cost=Decimal("4.00"),
-            timestamp=base_time
-        )
-        
-        # Aggregate spending
-        query = LedgerQuery(str(ledger_path))
-        aggregation = query.aggregate_by_agent(
-            start_time=base_time - timedelta(hours=1),
-            end_time=base_time + timedelta(hours=1)
-        )
-        
-        assert len(aggregation) == 3
-        assert aggregation["agent-1"] == Decimal("4.00")  # 1.00 + 3.00
-        assert aggregation["agent-2"] == Decimal("2.00")
-        assert aggregation["agent-3"] == Decimal("4.00")
-    
-    def test_aggregate_by_agent_empty_result(self, temp_dir):
-        """Test aggregate_by_agent returns empty dict for no matching events."""
-        from caracal.core.ledger import LedgerQuery
-        from datetime import datetime
-        
-        ledger_path = temp_dir / "ledger.jsonl"
-        query = LedgerQuery(str(ledger_path))
-        
-        # Query empty ledger
-        aggregation = query.aggregate_by_agent(
-            start_time=datetime(2024, 1, 1),
-            end_time=datetime(2024, 12, 31)
-        )
-        
-        assert aggregation == {}
     
     def test_get_events_handles_malformed_json(self, temp_dir):
         """Test that malformed JSON lines are skipped gracefully."""
@@ -667,9 +477,9 @@ class TestLedgerQuery:
         
         # Write some valid and invalid JSON lines
         with open(ledger_path, 'w') as f:
-            f.write('{"event_id":1,"agent_id":"agent-1","timestamp":"2024-01-15T10:00:00Z","resource_type":"test","quantity":"100","cost":"1.00","currency":"USD"}\n')
+            f.write('{"event_id":1,"agent_id":"agent-1","timestamp":"2024-01-15T10:00:00Z","resource_type":"test","quantity":"100"}\n')
             f.write('this is not valid json\n')
-            f.write('{"event_id":2,"agent_id":"agent-2","timestamp":"2024-01-15T10:00:00Z","resource_type":"test","quantity":"200","cost":"2.00","currency":"USD"}\n')
+            f.write('{"event_id":2,"agent_id":"agent-2","timestamp":"2024-01-15T10:00:00Z","resource_type":"test","quantity":"200"}\n')
         
         # Query should skip malformed line and return valid events
         query = LedgerQuery(str(ledger_path))
