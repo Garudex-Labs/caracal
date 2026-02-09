@@ -13,7 +13,7 @@ from uuid import UUID
 
 from ase.protocol import MeteringEvent
 from caracal.core.metering import MeteringCollector
-from caracal.core.policy import PolicyEvaluator
+from caracal.core.authority import AuthorityEvaluator
 from caracal.kafka.producer import KafkaEventProducer
 from caracal.core.error_handling import (
     get_error_handler,
@@ -21,9 +21,8 @@ from caracal.core.error_handling import (
     ErrorCategory,
     ErrorSeverity
 )
-from caracal.exceptions import BudgetExceededError, CaracalError
+from caracal.exceptions import CaracalError
 from caracal.logging_config import get_logger
-from caracal.mcp.cost_calculator import MCPCostCalculator
 
 logger = get_logger(__name__)
 
@@ -81,19 +80,18 @@ class MCPResult:
 
 class MCPAdapter:
     """
-    Adapter for integrating Caracal budget enforcement with MCP protocol.
+    Adapter for integrating Caracal authority enforcement with MCP protocol.
     
     This adapter intercepts MCP tool calls and resource reads, performs
-    budget checks, forwards requests to MCP servers, and emits metering events.
+    mandate validations, forwards requests to MCP servers, and emits metering events.
     
     Requirements: 11.1, 11.2, 11.3, 11.4, 11.5, 12.1, 12.2, 12.3
     """
 
     def __init__(
         self,
-        policy_evaluator: PolicyEvaluator,
+        authority_evaluator: AuthorityEvaluator,
         metering_collector: MeteringCollector,
-        cost_calculator: MCPCostCalculator,
         kafka_producer: Optional[KafkaEventProducer] = None,
         enable_kafka: bool = False
     ):
@@ -101,15 +99,13 @@ class MCPAdapter:
         Initialize MCPAdapter.
         
         Args:
-            policy_evaluator: PolicyEvaluator for budget checks
+            authority_evaluator: AuthorityEvaluator for mandate checks
             metering_collector: MeteringCollector for emitting events
-            cost_calculator: MCPCostCalculator for cost estimation
             kafka_producer: Optional KafkaEventProducer for v0.3 event publishing
             enable_kafka: Enable Kafka event publishing (default: False for v0.2 compatibility)
         """
-        self.policy_evaluator = policy_evaluator
+        self.authority_evaluator = authority_evaluator
         self.metering_collector = metering_collector
-        self.cost_calculator = cost_calculator
         self.kafka_producer = kafka_producer
         self.enable_kafka = enable_kafka
         logger.info(f"MCPAdapter initialized with kafka_enabled={enable_kafka}")
@@ -125,10 +121,10 @@ class MCPAdapter:
         
         This method:
         1. Extracts agent ID from MCP context
-        2. Estimates cost based on tool and args
-        3. Checks budget via Policy Evaluator
-        4. If allowed, forwards to MCP server (simulated in v0.2)
-        5. Emits metering event with actual cost
+        2. Extracts Mandate ID from metadata
+        3. Validates authority via Authority Evaluator
+        4. If allowed, forwards to MCP server
+        5. Emits metering event
         6. Returns result
         
         Args:
@@ -140,7 +136,6 @@ class MCPAdapter:
             MCPResult with success status and result/error
             
         Raises:
-            BudgetExceededError: If budget check fails
             CaracalError: If operation fails critically
             
         Requirements: 11.1, 11.2, 11.3, 11.4, 11.5
@@ -152,45 +147,63 @@ class MCPAdapter:
                 f"Intercepting MCP tool call: tool={tool_name}, agent={agent_id}"
             )
             
-            # 2. Estimate cost based on tool and args
-            estimated_cost = await self.cost_calculator.estimate_tool_cost(
-                tool_name, tool_args
-            )
-            logger.debug(
-                f"Estimated cost for tool '{tool_name}': {estimated_cost} USD"
-            )
-            
-            # 3. Check budget via Policy Evaluator
-            policy_decision = self.policy_evaluator.check_budget(
-                agent_id, estimated_cost
-            )
-            
-            if not policy_decision.allowed:
-                logger.warning(
-                    f"Budget check denied for agent {agent_id}: {policy_decision.reason}"
+            # 2. Extract Mandate ID
+            mandate_id_str = mcp_context.get("mandate_id")
+            if not mandate_id_str:
+                logger.warning(f"No mandate_id provided for agent {agent_id}, tool {tool_name}")
+                return MCPResult(
+                    success=False,
+                    result=None,
+                    error="Authority denied: Missing mandate_id"
                 )
-                raise BudgetExceededError(
-                    f"Budget check failed: {policy_decision.reason}"
+            
+            try:
+                mandate_id = UUID(mandate_id_str)
+            except ValueError:
+                logger.warning(f"Invalid mandate_id format: {mandate_id_str}")
+                return MCPResult(
+                    success=False,
+                    result=None,
+                    error="Authority denied: Invalid mandate_id format"
+                )
+
+            # 3. Fetch Mandate
+            mandate = self.authority_evaluator._get_mandate_with_cache(mandate_id)
+            if not mandate:
+                logger.warning(f"Mandate not found: {mandate_id}")
+                return MCPResult(
+                    success=False,
+                    result=None,
+                    error="Authority denied: Mandate not found"
+                )
+
+            # 4. Validate Authority
+            # Action: execute, Resource: tool_name
+            decision = self.authority_evaluator.validate_mandate(
+                mandate=mandate,
+                requested_action="execute",
+                requested_resource=tool_name
+            )
+            
+            if not decision.allowed:
+                logger.warning(
+                    f"Authority denied for agent {agent_id}: {decision.reason}"
+                )
+                return MCPResult(
+                    success=False,
+                    result=None,
+                    error=f"Authority denied: {decision.reason}"
                 )
             
             logger.info(
-                f"Budget check passed for agent {agent_id}: "
-                f"remaining={policy_decision.remaining_budget} USD"
+                f"Authority granted for agent {agent_id}, tool {tool_name} (mandate {mandate_id})"
             )
             
-            # 4. Forward to MCP server (simulated in v0.2 - actual forwarding in v0.3)
+            # 5. Forward to MCP server (simulated in v0.2 - actual forwarding in v0.3)
             # In a real implementation, this would call the actual MCP server
             tool_result = await self._forward_to_mcp_server(tool_name, tool_args)
             
-            # 5. Calculate actual cost from result
-            actual_cost = await self.cost_calculator.calculate_actual_tool_cost(
-                tool_name, tool_args, tool_result
-            )
-            logger.debug(
-                f"Actual cost for tool '{tool_name}': {actual_cost} USD"
-            )
-            
-            # 6. Emit metering event with actual cost
+            # 6. Emit metering event (usage tracking only)
             # v0.3: Publish to Kafka if enabled, otherwise write directly to ledger
             if self.enable_kafka and self.kafka_producer:
                 try:
@@ -198,35 +211,19 @@ class MCPAdapter:
                         agent_id=agent_id,
                         resource_type=f"mcp.tool.{tool_name}",
                         quantity=Decimal("1"),
-                        cost=actual_cost,
-                        currency="USD",
+                        # cost and currency removed
                         # provisional_charge_id removed
                         metadata={
                             "tool_name": tool_name,
                             "tool_args": str(tool_args),
-                            "estimated_cost": str(estimated_cost),
-                            "actual_cost": str(actual_cost),
+                            "mandate_id": str(mandate_id)
                         },
                         timestamp=datetime.utcnow()
                     )
                     
                     logger.info(
                         f"Published MCP metering event to Kafka: tool={tool_name}, "
-                        f"agent={agent_id}, cost={actual_cost} USD"
-                    )
-                    
-                    # Also publish policy decision event
-                    await self.kafka_producer.publish_policy_decision(
-                        agent_id=agent_id,
-                        decision="allowed",
-                        reason=policy_decision.reason,
-                        estimated_cost=estimated_cost,
-                        remaining_budget=policy_decision.remaining_budget,
-                        metadata={
-                            "tool_name": tool_name,
-                            "resource_type": f"mcp.tool.{tool_name}",
-                        },
-                        timestamp=datetime.utcnow()
+                        f"agent={agent_id}"
                     )
                     
                 except Exception as kafka_error:
@@ -245,9 +242,8 @@ class MCPAdapter:
                         metadata={
                             "tool_name": tool_name,
                             "tool_args": tool_args,
-                            "estimated_cost": str(estimated_cost),
-                            "actual_cost": str(actual_cost),
                             "mcp_context": mcp_context.metadata,
+                            "mandate_id": str(mandate_id)
                         }
                     )
                     
@@ -262,32 +258,25 @@ class MCPAdapter:
                     metadata={
                         "tool_name": tool_name,
                         "tool_args": tool_args,
-                        "estimated_cost": str(estimated_cost),
-                        "actual_cost": str(actual_cost),
                         "mcp_context": mcp_context.metadata,
+                        "mandate_id": str(mandate_id)
                     }
                 )
                 
                 self.metering_collector.collect_event(metering_event)
             
             logger.info(
-                f"MCP tool call completed: tool={tool_name}, agent={agent_id}, "
-                f"cost={actual_cost} USD"
+                f"MCP tool call completed: tool={tool_name}, agent={agent_id}"
             )
             
             return MCPResult(
                 success=True,
                 result=tool_result,
                 metadata={
-                    "estimated_cost": str(estimated_cost),
-                    "actual_cost": str(actual_cost),
-                    "remaining_budget": str(policy_decision.remaining_budget) if policy_decision.remaining_budget else None,
+                    "mandate_id": str(mandate_id)
                 }
             )
             
-        except BudgetExceededError:
-            # Re-raise budget errors (already logged by policy evaluator)
-            raise
         except Exception as e:
             # Fail closed: deny on error (Requirement 23.3)
             error_handler = get_error_handler("mcp-adapter")
@@ -326,10 +315,10 @@ class MCPAdapter:
         
         This method:
         1. Extracts agent ID from MCP context
-        2. Estimates cost based on resource type and size
-        3. Checks budget via Policy Evaluator
-        4. If allowed, forwards to MCP server (simulated in v0.2)
-        5. Emits metering event with actual cost
+        2. Extracts Mandate ID from metadata
+        3. Validates authority via Authority Evaluator
+        4. If allowed, forwards to MCP server
+        5. Emits metering event
         6. Returns resource
         
         Args:
@@ -340,7 +329,6 @@ class MCPAdapter:
             MCPResult with success status and resource/error
             
         Raises:
-            BudgetExceededError: If budget check fails
             CaracalError: If operation fails critically
             
         Requirements: 12.1, 12.2, 12.3
@@ -352,82 +340,82 @@ class MCPAdapter:
                 f"Intercepting MCP resource read: uri={resource_uri}, agent={agent_id}"
             )
             
-            # 2. Estimate cost based on resource URI (before fetching)
-            # For now, use a default estimate - actual size will be known after fetch
-            estimated_cost = await self.cost_calculator.estimate_resource_cost(
-                resource_uri, estimated_size=0  # Will be refined after fetch
-            )
-            logger.debug(
-                f"Estimated cost for resource '{resource_uri}': {estimated_cost} USD"
-            )
-            
-            # 3. Check budget via Policy Evaluator
-            policy_decision = self.policy_evaluator.check_budget(
-                agent_id, estimated_cost
-            )
-            
-            if not policy_decision.allowed:
-                logger.warning(
-                    f"Budget check denied for agent {agent_id}: {policy_decision.reason}"
+            # 2. Extract Mandate ID
+            mandate_id_str = mcp_context.get("mandate_id")
+            if not mandate_id_str:
+                logger.warning(f"No mandate_id provided for agent {agent_id}, resource {resource_uri}")
+                return MCPResult(
+                    success=False,
+                    result=None,
+                    error="Authority denied: Missing mandate_id"
                 )
-                raise BudgetExceededError(
-                    f"Budget check failed: {policy_decision.reason}"
+            
+            try:
+                mandate_id = UUID(mandate_id_str)
+            except ValueError:
+                logger.warning(f"Invalid mandate_id format: {mandate_id_str}")
+                return MCPResult(
+                    success=False,
+                    result=None,
+                    error="Authority denied: Invalid mandate_id format"
+                )
+
+            # 3. Fetch Mandate
+            mandate = self.authority_evaluator._get_mandate_with_cache(mandate_id)
+            if not mandate:
+                logger.warning(f"Mandate not found: {mandate_id}")
+                return MCPResult(
+                    success=False,
+                    result=None,
+                    error="Authority denied: Mandate not found"
+                )
+
+            # 4. Validate Authority
+            # Action: read, Resource: resource_uri
+            decision = self.authority_evaluator.validate_mandate(
+                mandate=mandate,
+                requested_action="read",
+                requested_resource=resource_uri
+            )
+            
+            if not decision.allowed:
+                logger.warning(
+                    f"Authority denied for agent {agent_id}: {decision.reason}"
+                )
+                return MCPResult(
+                    success=False,
+                    result=None,
+                    error=f"Authority denied: {decision.reason}"
                 )
             
             logger.info(
-                f"Budget check passed for agent {agent_id}: "
-                f"remaining={policy_decision.remaining_budget} USD"
+                f"Authority granted for agent {agent_id}, resource {resource_uri} (mandate {mandate_id})"
             )
             
-            # 4. Fetch resource from MCP server (simulated in v0.2)
+            # 5. Fetch resource from MCP server (simulated in v0.2)
             resource = await self._fetch_resource(resource_uri)
             
-            # 5. Calculate actual cost based on resource size
-            actual_cost = await self.cost_calculator.estimate_resource_cost(
-                resource_uri, estimated_size=resource.size
-            )
-            logger.debug(
-                f"Actual cost for resource '{resource_uri}': {actual_cost} USD"
-            )
-            
-            # 6. Emit metering event with actual cost
-            # v0.3: Publish to Kafka if enabled, otherwise write directly to ledger
+            # 6. Emit metering event (usage tracking only)
             if self.enable_kafka and self.kafka_producer:
                 try:
                     await self.kafka_producer.publish_metering_event(
                         agent_id=agent_id,
                         resource_type=f"mcp.resource.{self._get_resource_type(resource_uri)}",
                         quantity=Decimal(str(resource.size)),
-                        cost=actual_cost,
-                        currency="USD",
+                        # cost and currency removed
                         # provisional_charge_id removed
                         metadata={
                             "resource_uri": resource_uri,
                             "mime_type": resource.mime_type,
                             "size_bytes": str(resource.size),
-                            "estimated_cost": str(estimated_cost),
-                            "actual_cost": str(actual_cost),
+                            "mandate_id": str(mandate_id)
                         },
                         timestamp=datetime.utcnow()
                     )
                     
                     logger.info(
                         f"Published MCP resource metering event to Kafka: uri={resource_uri}, "
-                        f"agent={agent_id}, size={resource.size} bytes, cost={actual_cost} USD"
-                    )
-                    
-                    # Also publish policy decision event
-                    await self.kafka_producer.publish_policy_decision(
-                        agent_id=agent_id,
-                        decision="allowed",
-                        reason=policy_decision.reason,
-                        estimated_cost=estimated_cost,
-                        remaining_budget=policy_decision.remaining_budget,
-                        metadata={
-                            "resource_uri": resource_uri,
-                            "resource_type": f"mcp.resource.{self._get_resource_type(resource_uri)}",
-                        },
-                        timestamp=datetime.utcnow()
+                        f"agent={agent_id}, size={resource.size} bytes"
                     )
                     
                 except Exception as kafka_error:
@@ -447,9 +435,8 @@ class MCPAdapter:
                             "resource_uri": resource_uri,
                             "mime_type": resource.mime_type,
                             "size_bytes": resource.size,
-                            "estimated_cost": str(estimated_cost),
-                            "actual_cost": str(actual_cost),
                             "mcp_context": mcp_context.metadata,
+                            "mandate_id": str(mandate_id)
                         }
                     )
                     
@@ -465,9 +452,8 @@ class MCPAdapter:
                         "resource_uri": resource_uri,
                         "mime_type": resource.mime_type,
                         "size_bytes": resource.size,
-                        "estimated_cost": str(estimated_cost),
-                        "actual_cost": str(actual_cost),
                         "mcp_context": mcp_context.metadata,
+                        "mandate_id": str(mandate_id)
                     }
                 )
                 
@@ -475,23 +461,18 @@ class MCPAdapter:
             
             logger.info(
                 f"MCP resource read completed: uri={resource_uri}, agent={agent_id}, "
-                f"size={resource.size} bytes, cost={actual_cost} USD"
+                f"size={resource.size} bytes"
             )
             
             return MCPResult(
                 success=True,
                 result=resource,
                 metadata={
-                    "estimated_cost": str(estimated_cost),
-                    "actual_cost": str(actual_cost),
-                    "remaining_budget": str(policy_decision.remaining_budget) if policy_decision.remaining_budget else None,
                     "resource_size": resource.size,
+                    "mandate_id": str(mandate_id)
                 }
             )
             
-        except BudgetExceededError:
-            # Re-raise budget errors (already logged by policy evaluator)
-            raise
         except Exception as e:
             # Fail closed: deny on error (Requirement 23.3)
             error_handler = get_error_handler("mcp-adapter")
@@ -641,18 +622,17 @@ class MCPAdapter:
         Return Python decorator for in-process integration.
         
         This decorator wraps MCP tool functions to automatically handle:
-        - Budget checks before execution
+        - Mandate validation before execution
         - Metering events after execution
         - Error handling and logging
         
         Usage:
             @mcp_adapter.as_decorator()
-            async def my_mcp_tool(agent_id: str, **kwargs):
+            async def my_mcp_tool(agent_id: str, mandate_id: str, **kwargs):
                 # Tool implementation
                 return result
         
-        The decorated function must accept agent_id as the first parameter
-        or in kwargs. All other parameters are passed as tool_args.
+        The decorated function must accept agent_id and mandate_id as arguments.
         
         Returns:
             Decorator function that wraps MCP tool functions
@@ -667,7 +647,7 @@ class MCPAdapter:
                 func: The MCP tool function to wrap
                 
             Returns:
-                Wrapped function with budget enforcement
+                Wrapped function with authority enforcement
             """
             import functools
             import inspect
@@ -675,7 +655,7 @@ class MCPAdapter:
             @functools.wraps(func)
             async def wrapper(*args, **kwargs):
                 """
-                Wrapper that handles budget checks and metering.
+                Wrapper that handles authority checks and metering.
                 
                 Args:
                     *args: Positional arguments for the tool
@@ -685,44 +665,58 @@ class MCPAdapter:
                     Tool execution result
                     
                 Raises:
-                    BudgetExceededError: If budget check fails
-                    CaracalError: If agent_id not provided or other errors
+                    CaracalError: If validation fails
                 """
-                # Extract agent_id from arguments
+                # Extract agent_id and mandate_id from arguments
                 agent_id = None
+                mandate_id = None
                 tool_args = {}
                 
                 # Get function signature to understand parameters
                 sig = inspect.signature(func)
                 param_names = list(sig.parameters.keys())
                 
-                # Check if agent_id is in kwargs
-                if 'agent_id' in kwargs:
-                    agent_id = kwargs.pop('agent_id')
-                    tool_args = kwargs
-                # Check if first positional arg is agent_id
+                # Copy kwargs to modify
+                call_kwargs = kwargs.copy()
+                
+                # Extract agent_id
+                if 'agent_id' in call_kwargs:
+                    agent_id = call_kwargs.pop('agent_id')
                 elif len(args) > 0 and len(param_names) > 0 and param_names[0] == 'agent_id':
                     agent_id = args[0]
-                    # Remaining args become tool_args
-                    for i, arg in enumerate(args[1:], start=1):
-                        if i < len(param_names):
-                            tool_args[param_names[i]] = arg
-                    tool_args.update(kwargs)
-                else:
-                    # Try to find agent_id in kwargs with different names
-                    for key in ['agent_id', 'agent', 'caracal_agent_id']:
-                        if key in kwargs:
-                            agent_id = kwargs.pop(key)
-                            tool_args = kwargs
+                
+                # Extract mandate_id
+                if 'mandate_id' in call_kwargs:
+                    mandate_id = call_kwargs.pop('mandate_id')
+                # Check positional args if mandate_id is expected
+                elif len(args) > 1 and len(param_names) > 1 and param_names[1] == 'mandate_id':
+                    mandate_id = args[1]
+                
+                # If agent_id not found in args, try alternative names
+                if not agent_id:
+                    for key in ['agent', 'caracal_agent_id']:
+                        if key in call_kwargs:
+                            agent_id = call_kwargs.pop(key)
                             break
+                            
+                # Collect remaining args as tool_args
+                # This is a simplification; in reality we'd need to map remaining args to param names
+                tool_args = call_kwargs
                 
                 if not agent_id:
                     logger.error(
                         f"agent_id not provided to decorated MCP tool '{func.__name__}'"
                     )
                     raise CaracalError(
-                        f"agent_id is required for MCP tool '{func.__name__}'. "
-                        "Pass it as the first argument or as a keyword argument."
+                        f"agent_id is required for MCP tool '{func.__name__}'."
+                    )
+                    
+                if not mandate_id:
+                    logger.error(
+                        f"mandate_id not provided to decorated MCP tool '{func.__name__}'"
+                    )
+                    raise CaracalError(
+                        f"mandate_id is required for MCP tool '{func.__name__}'."
                     )
                 
                 # Get tool name from function name
@@ -730,10 +724,11 @@ class MCPAdapter:
                 
                 # Create MCP context
                 mcp_context = MCPContext(
-                    agent_id=agent_id,
+                    agent_id=str(agent_id),
                     metadata={
                         "tool_name": tool_name,
                         "decorator_mode": True,
+                        "mandate_id": str(mandate_id)
                     }
                 )
                 
@@ -742,94 +737,69 @@ class MCPAdapter:
                 )
                 
                 try:
-                    # 1. Estimate cost based on tool and args
-                    estimated_cost = await self.cost_calculator.estimate_tool_cost(
-                        tool_name, tool_args
-                    )
-                    logger.debug(
-                        f"Estimated cost for tool '{tool_name}': {estimated_cost} USD"
+                    # 1. Fetch Mandate
+                    try:
+                        mandate_uuid = UUID(str(mandate_id))
+                    except ValueError:
+                        raise CaracalError(f"Invalid mandate_id format: {mandate_id}")
+                        
+                    mandate = self.authority_evaluator._get_mandate_with_cache(mandate_uuid)
+                    if not mandate:
+                        raise CaracalError(f"Mandate not found: {mandate_id}")
+
+                    # 2. Validate Authority
+                    decision = self.authority_evaluator.validate_mandate(
+                        mandate=mandate,
+                        requested_action="execute",
+                        requested_resource=tool_name
                     )
                     
-                    # 2. Check budget via Policy Evaluator
-                    policy_decision = self.policy_evaluator.check_budget(
-                        agent_id, estimated_cost
-                    )
-                    
-                    if not policy_decision.allowed:
+                    if not decision.allowed:
                         logger.warning(
-                            f"Budget check denied for agent {agent_id}: {policy_decision.reason}"
+                            f"Authority denied for agent {agent_id}: {decision.reason}"
                         )
-                        raise BudgetExceededError(
-                            f"Budget check failed: {policy_decision.reason}"
-                        )
+                        raise CaracalError(f"Authority denied: {decision.reason}")
                     
                     logger.info(
-                        f"Budget check passed for agent {agent_id}: "
-                        f"remaining={policy_decision.remaining_budget} USD"
+                        f"Authority granted for agent {agent_id}, tool {tool_name}"
                     )
                     
                     # 3. Execute the actual tool function
                     if inspect.iscoroutinefunction(func):
-                        # Reconstruct original call with agent_id
-                        if len(args) > 0 and len(param_names) > 0 and param_names[0] == 'agent_id':
-                            # agent_id was first positional arg
-                            tool_result = await func(agent_id, **tool_args)
-                        else:
-                            # agent_id should be passed as kwarg
-                            tool_result = await func(agent_id=agent_id, **tool_args)
+                        tool_result = await func(*args, **kwargs)
                     else:
-                        # Synchronous function
-                        if len(args) > 0 and len(param_names) > 0 and param_names[0] == 'agent_id':
-                            tool_result = func(agent_id, **tool_args)
-                        else:
-                            tool_result = func(agent_id=agent_id, **tool_args)
+                        tool_result = func(*args, **kwargs)
                     
-                    # 4. Calculate actual cost from result
-                    actual_cost = await self.cost_calculator.calculate_actual_tool_cost(
-                        tool_name, tool_args, tool_result
-                    )
-                    logger.debug(
-                        f"Actual cost for tool '{tool_name}': {actual_cost} USD"
-                    )
-                    
-                    # 5. Emit metering event with actual cost
+                    # 4. Emit metering event
                     metering_event = MeteringEvent(
-                        agent_id=agent_id,
+                        agent_id=str(agent_id),
                         resource_type=f"mcp.tool.{tool_name}",
-                        quantity=Decimal("1"),  # One tool invocation
+                        quantity=Decimal("1"),
                         timestamp=datetime.utcnow(),
                         metadata={
                             "tool_name": tool_name,
-                            "tool_args": tool_args,
-                            "estimated_cost": str(estimated_cost),
-                            "actual_cost": str(actual_cost),
                             "decorator_mode": True,
+                            "mandate_id": str(mandate_id)
                         }
                     )
                     
-                    self.metering_collector.collect_event(
-                        metering_event,
-                        provisional_charge_id=policy_decision.provisional_charge_id
-                    )
+                    self.metering_collector.collect_event(metering_event)
                     
                     logger.info(
-                        f"MCP tool call completed (decorator): tool={tool_name}, "
-                        f"agent={agent_id}, cost={actual_cost} USD"
+                        f"MCP tool call completed (decorated): tool={tool_name}, agent={agent_id}"
                     )
                     
                     return tool_result
-                    
-                except BudgetExceededError:
-                    # Re-raise budget errors
+            
+                except CaracalError:
                     raise
                 except Exception as e:
+                    # Fail closed
                     logger.error(
-                        f"Failed to execute decorated MCP tool '{tool_name}' for agent {agent_id}: {e}",
+                        f"Failed to execute decorated tool '{tool_name}' for agent {agent_id}: {e}",
                         exc_info=True
                     )
-                    raise CaracalError(
-                        f"MCP tool execution failed: {e}"
-                    ) from e
+                    raise CaracalError(f"Tool execution failed: {e}")
             
             return wrapper
         
