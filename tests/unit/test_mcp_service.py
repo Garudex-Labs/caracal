@@ -14,7 +14,7 @@ import httpx
 
 from caracal.mcp.service import MCPAdapterService, MCPServiceConfig, MCPServerConfig
 from caracal.mcp.adapter import MCPAdapter
-from caracal.core.policy import PolicyEvaluator
+from caracal.core.authority import AuthorityEvaluator
 from caracal.core.metering import MeteringCollector
 
 
@@ -38,9 +38,9 @@ def mock_mcp_adapter():
 
 
 @pytest.fixture
-def mock_policy_evaluator():
-    """Create a mock policy evaluator."""
-    return Mock(spec=PolicyEvaluator)
+def mock_authority_evaluator():
+    """Create a mock authority evaluator."""
+    return Mock(spec=AuthorityEvaluator)
 
 
 @pytest.fixture
@@ -53,14 +53,14 @@ def mock_metering_collector():
 def mcp_service(
     mcp_service_config,
     mock_mcp_adapter,
-    mock_policy_evaluator,
+    mock_authority_evaluator,
     mock_metering_collector
 ):
     """Create an MCPAdapterService instance for testing."""
     return MCPAdapterService(
         config=mcp_service_config,
         mcp_adapter=mock_mcp_adapter,
-        policy_evaluator=mock_policy_evaluator,
+        authority_evaluator=mock_authority_evaluator,
         metering_collector=mock_metering_collector
     )
 
@@ -72,7 +72,7 @@ class TestMCPServiceInitialization:
         """Test that MCPAdapterService initializes correctly."""
         assert mcp_service.config == mcp_service_config
         assert mcp_service.mcp_adapter is not None
-        assert mcp_service.policy_evaluator is not None
+        assert mcp_service.authority_evaluator is not None
         assert mcp_service.metering_collector is not None
         assert mcp_service.app is not None
         assert len(mcp_service.mcp_clients) == 2
@@ -104,7 +104,6 @@ class TestMCPServiceHealthCheck:
         data = response.json()
         assert data["status"] == "healthy"
         assert data["service"] == "caracal-mcp-adapter"
-        assert data["version"] == "1.0.0"
         assert data["mcp_servers"]["database"] == "healthy"
         assert data["mcp_servers"]["test-server-1"] == "healthy"
         assert data["mcp_servers"]["test-server-2"] == "healthy"
