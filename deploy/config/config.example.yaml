@@ -18,7 +18,7 @@ storage:
   agent_registry: ~/.caracal/agents.json
   policy_store: ~/.caracal/policies.json
   ledger: ~/.caracal/ledger.jsonl
-  pricebook: ~/.caracal/pricebook.csv
+
   backup_dir: ~/.caracal/backups
   backup_count: 3
 
@@ -210,14 +210,7 @@ mcp_adapter:
     - http://localhost:3000
     - http://localhost:3001
   
-  # Cost calculation rules for MCP operations
-  cost_rules:
-    - resource_type: "tool_call"
-      cost_per_unit: 0.01
-      unit: "operation"
-    - resource_type: "resource_read"
-      cost_per_unit: 0.001
-      unit: "kb"
+
 
 # ============================================================================
 # ASE PROTOCOL CONFIGURATION (v0.2)
