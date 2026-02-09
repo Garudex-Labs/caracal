@@ -517,7 +517,7 @@ class Principal(Base):
     
     # Metadata
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
-    metadata = Column(JSON().with_variant(JSONB, "postgresql"), nullable=True)
+    principal_metadata = Column("metadata", JSON().with_variant(JSONB, "postgresql"), nullable=True)
     
     # Relationships
     parent = relationship(
@@ -573,7 +573,7 @@ class ExecutionMandate(Base):
     
     # Metadata
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
-    metadata = Column(JSON().with_variant(JSONB, "postgresql"), nullable=True)
+    mandate_metadata = Column("metadata", JSON().with_variant(JSONB, "postgresql"), nullable=True)
     
     # Revocation
     revoked = Column(Boolean, nullable=False, default=False, index=True)
