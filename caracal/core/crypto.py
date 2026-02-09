@@ -205,3 +205,166 @@ def verify_mandate_signature(
     except Exception as e:
         logger.warning(f"Signature verification failed: {e}")
         return False
+
+
+
+def sign_merkle_root(
+    merkle_root: bytes,
+    private_key_pem: str,
+    passphrase: str = None
+) -> str:
+    """
+    Sign a Merkle root hash using ECDSA P-256.
+    
+    The Merkle root (32-byte SHA-256 hash) is signed directly using ECDSA P-256.
+    The signature is returned as a hex-encoded string.
+    
+    Args:
+        merkle_root: 32-byte Merkle root hash (SHA-256)
+        private_key_pem: Private key in PEM format (string)
+        passphrase: Optional passphrase for encrypted private key
+    
+    Returns:
+        Hex-encoded signature string
+    
+    Raises:
+        ValueError: If merkle_root is invalid or private_key_pem is invalid
+    
+    Requirements: 13.4, 13.5
+    
+    Example:
+        >>> from caracal.merkle.tree import MerkleTreeBuilder
+        >>> builder = MerkleTreeBuilder()
+        >>> tree = builder.build_tree([b"event1", b"event2", b"event3"])
+        >>> root = builder.get_root()
+        >>> signature = sign_merkle_root(root, private_key_pem)
+    """
+    if not merkle_root:
+        raise ValueError("merkle_root cannot be empty")
+    
+    if len(merkle_root) != 32:
+        raise ValueError(f"merkle_root must be 32 bytes (SHA-256), got {len(merkle_root)} bytes")
+    
+    if not private_key_pem:
+        raise ValueError("private_key_pem cannot be empty")
+    
+    try:
+        # Load private key from PEM format
+        passphrase_bytes = passphrase.encode() if passphrase else None
+        private_key = serialization.load_pem_private_key(
+            private_key_pem.encode() if isinstance(private_key_pem, str) else private_key_pem,
+            password=passphrase_bytes,
+            backend=default_backend()
+        )
+        
+        # Verify it's an ECDSA key with P-256 curve
+        if not isinstance(private_key, ec.EllipticCurvePrivateKey):
+            raise ValueError(f"Key is not an ECDSA key, got {type(private_key)}")
+        
+        if not isinstance(private_key.curve, ec.SECP256R1):
+            raise ValueError(f"Key is not P-256 curve, got {type(private_key.curve)}")
+        
+    except Exception as e:
+        logger.error(f"Failed to load private key: {e}", exc_info=True)
+        raise ValueError(f"Invalid private key: {e}")
+    
+    try:
+        # Sign the Merkle root using ECDSA P-256
+        signature = private_key.sign(
+            merkle_root,
+            ec.ECDSA(hashes.SHA256())
+        )
+        
+        # Convert signature to hex string
+        signature_hex = signature.hex()
+        
+        logger.debug(f"Signed Merkle root {merkle_root.hex()[:16]}... with ECDSA P-256")
+        
+        return signature_hex
+        
+    except Exception as e:
+        logger.error(f"Failed to sign Merkle root: {e}", exc_info=True)
+        raise ValueError(f"Failed to sign Merkle root: {e}")
+
+
+def verify_merkle_root(
+    merkle_root: bytes,
+    signature_hex: str,
+    public_key_pem: str
+) -> bool:
+    """
+    Verify a Merkle root signature using ECDSA P-256.
+    
+    Args:
+        merkle_root: 32-byte Merkle root hash (SHA-256)
+        signature_hex: Hex-encoded signature string
+        public_key_pem: Public key in PEM format (string)
+    
+    Returns:
+        True if signature is valid, False otherwise
+    
+    Requirements: 13.4, 13.5
+    
+    Example:
+        >>> is_valid = verify_merkle_root(root, signature, public_key_pem)
+        >>> assert is_valid
+    """
+    if not merkle_root:
+        logger.warning("merkle_root cannot be empty")
+        return False
+    
+    if len(merkle_root) != 32:
+        logger.warning(f"merkle_root must be 32 bytes (SHA-256), got {len(merkle_root)} bytes")
+        return False
+    
+    if not signature_hex:
+        logger.warning("signature_hex cannot be empty")
+        return False
+    
+    if not public_key_pem:
+        logger.warning("public_key_pem cannot be empty")
+        return False
+    
+    try:
+        # Load public key from PEM format
+        public_key = serialization.load_pem_public_key(
+            public_key_pem.encode() if isinstance(public_key_pem, str) else public_key_pem,
+            backend=default_backend()
+        )
+        
+        # Verify it's an ECDSA key with P-256 curve
+        if not isinstance(public_key, ec.EllipticCurvePublicKey):
+            logger.warning(f"Key is not an ECDSA public key, got {type(public_key)}")
+            return False
+        
+        if not isinstance(public_key.curve, ec.SECP256R1):
+            logger.warning(f"Key is not P-256 curve, got {type(public_key.curve)}")
+            return False
+        
+    except Exception as e:
+        logger.warning(f"Failed to load public key: {e}")
+        return False
+    
+    try:
+        # Convert hex signature to bytes
+        signature_bytes = bytes.fromhex(signature_hex)
+        
+        # Verify the signature
+        public_key.verify(
+            signature_bytes,
+            merkle_root,
+            ec.ECDSA(hashes.SHA256())
+        )
+        
+        logger.debug(f"Merkle root signature verified for root {merkle_root.hex()[:16]}...")
+        return True
+        
+    except InvalidSignature:
+        logger.warning(f"Invalid Merkle root signature for root {merkle_root.hex()[:16]}...")
+        return False
+    except ValueError as e:
+        logger.warning(f"Invalid signature format: {e}")
+        return False
+    except Exception as e:
+        logger.warning(f"Merkle root signature verification failed: {e}")
+        return False
