@@ -4,8 +4,10 @@ Caracal Flow Onboarding Screen.
 First-run setup wizard with:
 - Step 1: Configuration path selection
 - Step 2: Database setup (optional)
-- Step 3: First agent registration
-- Step 4: First policy creation
+- Step 3: First principal registration
+- Step 4: First authority policy creation
+- Step 5: Issue first mandate
+- Step 6: Validate mandate demo
 - Skip options with actionable to-dos
 """
 
@@ -180,18 +182,18 @@ def _step_database(wizard: Wizard) -> Any:
     return wizard.context["database"]
 
 
-def _step_agent(wizard: Wizard) -> Any:
-    """Step 3: Register first agent."""
+def _step_principal(wizard: Wizard) -> Any:
+    """Step 3: Register first principal."""
     console = wizard.console
     prompt = FlowPrompt(console)
     
-    console.print(f"  [{Colors.NEUTRAL}]Let's register your first AI agent.")
-    console.print(f"  [{Colors.DIM}]Agents are identities that can spend budget.[/]")
+    console.print(f"  [{Colors.NEUTRAL}]Let's register your first principal.")
+    console.print(f"  [{Colors.DIM}]Principals are identities that can hold authority.[/]")
     console.print()
     
     name = prompt.text(
-        "Agent name",
-        default="my-first-agent",
+        "Principal name",
+        default="my-first-principal",
     )
     
     owner = prompt.text(
@@ -199,49 +201,103 @@ def _step_agent(wizard: Wizard) -> Any:
         default="admin@example.com",
     )
     
+    principal_type = prompt.select(
+        "Principal type",
+        choices=["agent", "user", "service"],
+        default="agent",
+    )
+    
     # Store for later
-    wizard.context["first_agent"] = {
+    wizard.context["first_principal"] = {
         "name": name,
         "owner": owner,
+        "type": principal_type,
     }
     
     console.print()
-    console.print(f"  [{Colors.INFO}]{Icons.INFO} Agent will be registered after setup completes.[/]")
+    console.print(f"  [{Colors.INFO}]{Icons.INFO} Principal will be registered after setup completes.[/]")
     console.print(f"  [{Colors.DIM}]Name: {name}[/]")
     console.print(f"  [{Colors.DIM}]Owner: {owner}[/]")
+    console.print(f"  [{Colors.DIM}]Type: {principal_type}[/]")
     
-    return wizard.context["first_agent"]
+    return wizard.context["first_principal"]
 
 
 def _step_policy(wizard: Wizard) -> Any:
-    """Step 4: Create first policy."""
+    """Step 4: Create first authority policy."""
     console = wizard.console
     prompt = FlowPrompt(console)
     
-    agent_info = wizard.context.get("first_agent", {})
-    agent_name = agent_info.get("name", "the agent")
+    principal_info = wizard.context.get("first_principal", {})
+    principal_name = principal_info.get("name", "the principal")
     
-    console.print(f"  [{Colors.NEUTRAL}]Now let's set a budget limit for {agent_name}.")
-    console.print(f"  [{Colors.DIM}]Policies define spending limits within time windows.[/]")
+    console.print(f"  [{Colors.NEUTRAL}]Now let's create an authority policy for {principal_name}.")
+    console.print(f"  [{Colors.DIM}]Policies define how mandates can be issued.[/]")
     console.print()
     
-    budget = prompt.number(
-        "Daily budget limit (USD)",
-        default=100.0,
-        min_value=0.01,
+    max_validity = prompt.number(
+        "Maximum mandate validity (seconds)",
+        default=3600,
+        min_value=60,
     )
     
     wizard.context["first_policy"] = {
-        "limit": budget,
-        "currency": "USD",
-        "time_window": "daily",
+        "max_validity_seconds": int(max_validity),
+        "resource_patterns": ["api:*", "database:*"],
+        "actions": ["api_call", "database_query"],
     }
     
     console.print()
     console.print(f"  [{Colors.INFO}]{Icons.INFO} Policy will be created after setup completes.[/]")
-    console.print(f"  [{Colors.DIM}]Limit: ${budget:.2f}/day[/]")
+    console.print(f"  [{Colors.DIM}]Max Validity: {int(max_validity)}s[/]")
     
     return wizard.context["first_policy"]
+
+
+def _step_mandate(wizard: Wizard) -> Any:
+    """Step 5: Issue first mandate."""
+    console = wizard.console
+    prompt = FlowPrompt(console)
+    
+    principal_info = wizard.context.get("first_principal", {})
+    principal_name = principal_info.get("name", "the principal")
+    
+    console.print(f"  [{Colors.NEUTRAL}]Let's issue an execution mandate for {principal_name}.")
+    console.print(f"  [{Colors.DIM}]Mandates grant specific execution rights for a limited time.[/]")
+    console.print()
+    
+    validity = prompt.number(
+        "Mandate validity (seconds)",
+        default=1800,
+        min_value=60,
+    )
+    
+    wizard.context["first_mandate"] = {
+        "validity_seconds": int(validity),
+        "resource_scope": ["api:openai:*"],
+        "action_scope": ["api_call"],
+    }
+    
+    console.print()
+    console.print(f"  [{Colors.INFO}]{Icons.INFO} Mandate will be issued after setup completes.[/]")
+    console.print(f"  [{Colors.DIM}]Validity: {int(validity)}s[/]")
+    
+    return wizard.context["first_mandate"]
+
+
+def _step_validate(wizard: Wizard) -> Any:
+    """Step 6: Validate mandate demo."""
+    console = wizard.console
+    
+    console.print(f"  [{Colors.NEUTRAL}]Finally, we'll demonstrate mandate validation.")
+    console.print(f"  [{Colors.DIM}]This shows how authority is checked before execution.[/]")
+    console.print()
+    
+    console.print(f"  [{Colors.INFO}]{Icons.INFO} Validation demo will run after setup completes.[/]")
+    
+    wizard.context["validate_demo"] = True
+    
+    return True
 
 
 def run_onboarding(
@@ -285,20 +341,36 @@ def run_onboarding(
             skip_message="Using default file-based storage",
         ),
         WizardStep(
-            key="agent",
-            title="Register First Agent",
-            description="Create your first AI agent identity",
-            action=_step_agent,
+            key="principal",
+            title="Register First Principal",
+            description="Create your first principal identity",
+            action=_step_principal,
             skippable=True,
-            skip_message="You can register agents later from the main menu",
+            skip_message="You can register principals later from the main menu",
         ),
         WizardStep(
             key="policy",
-            title="Create First Policy",
-            description="Set up a budget policy for your agent",
+            title="Create First Authority Policy",
+            description="Set up an authority policy for your principal",
             action=_step_policy,
             skippable=True,
             skip_message="You can create policies later from the main menu",
+        ),
+        WizardStep(
+            key="mandate",
+            title="Issue First Mandate",
+            description="Create an execution mandate",
+            action=_step_mandate,
+            skippable=True,
+            skip_message="You can issue mandates later from the main menu",
+        ),
+        WizardStep(
+            key="validate",
+            title="Validate Mandate Demo",
+            description="Demonstrate mandate validation",
+            action=_step_validate,
+            skippable=True,
+            skip_message="You can validate mandates later from the main menu",
         ),
     ]
     
@@ -404,23 +476,20 @@ def _show_next_steps(console: Console, results: dict, context: dict) -> None:
     todos = []
     
     # Check what was skipped
-    if results.get("agent") is None:
-        todos.append(("Register an agent", "caracal agent register --name my-agent --owner user@example.com"))
-    else:
-        agent = context.get("first_agent", {})
-        todos.append((
-            f"Complete agent registration",
-            f"caracal agent register --name {agent.get('name', 'my-agent')} --owner {agent.get('owner', 'user@example.com')}"
-        ))
+    if results.get("principal") is None:
+        todos.append(("Register a principal", "caracal authority register --name my-principal --owner user@example.com"))
     
     if results.get("policy") is None:
-        todos.append(("Create a budget policy", "caracal policy create --agent-id <uuid> --limit 100.00"))
+        todos.append(("Create an authority policy", "caracal authority-policy create --principal-id <uuid> --max-validity 3600"))
+    
+    if results.get("mandate") is None:
+        todos.append(("Issue an execution mandate", "caracal authority issue --issuer-id <uuid> --subject-id <uuid>"))
     
     if results.get("database") == "file":
         todos.append(("Consider PostgreSQL for production", "Set database.type: postgresql in config.yaml"))
     
     # Always suggest viewing the ledger
-    todos.append(("Explore your ledger", "caracal ledger query"))
+    todos.append(("Explore your authority ledger", "caracal authority-ledger query"))
     
     for i, (title, cmd) in enumerate(todos, 1):
         console.print(f"  [{Colors.NEUTRAL}]{i}. {title}[/]")
