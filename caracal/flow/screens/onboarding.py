@@ -25,6 +25,87 @@ from caracal.flow.state import FlowState, StatePersistence, RecentAction
 from caracal.flow.theme import Colors, Icons
 
 
+def _get_db_config_from_env() -> dict:
+    """Load database configuration from .env file."""
+    config = {
+        "host": "localhost",
+        "port": 5432,
+        "database": "caracal",
+        "username": "caracal",
+        "password": "",
+    }
+    try:
+        env_path = Path.cwd() / ".env"
+        if env_path.exists():
+            import re
+            content = env_path.read_text()
+            mapping = {
+                "host": r"^DB_HOST=(.*)$",
+                "port": r"^DB_PORT=(.*)$",
+                "database": r"^DB_NAME=(.*)$",
+                "username": r"^DB_USER=(.*)$",
+                "password": r"^DB_PASSWORD=(.*)$",
+            }
+            for key, pattern in mapping.items():
+                match = re.search(pattern, content, re.MULTILINE)
+                if match:
+                    val = match.group(1).strip()
+                    if key == "port":
+                        try:
+                            config[key] = int(val)
+                        except ValueError:
+                            pass
+                    else:
+                        config[key] = val
+    except Exception:
+        pass
+    return config
+
+
+def _save_db_config_to_env(config: dict) -> bool:
+    """Save database configuration back to .env file."""
+    try:
+        env_path = Path.cwd() / ".env"
+        if env_path.exists():
+            import re
+            content = env_path.read_text()
+            mapping = {
+                "DB_HOST": config.get("host", "localhost"),
+                "DB_PORT": str(config.get("port", 5432)),
+                "DB_NAME": config.get("database", "caracal"),
+                "DB_USER": config.get("username", "caracal"),
+                "DB_PASSWORD": config.get("password", ""),
+            }
+            for key, val in mapping.items():
+                if re.search(f"^{key}=", content, re.MULTILINE):
+                    content = re.sub(f"^{key}=.*$", f"{key}={val}", content, flags=re.MULTILINE)
+                else:
+                    content += f"\n{key}={val}"
+            env_path.write_text(content)
+            return True
+    except Exception:
+        pass
+    return False
+
+
+def _test_db_connection(config: dict) -> tuple[bool, str]:
+    """Test PostgreSQL connection with given config."""
+    try:
+        import psycopg2
+        conn = psycopg2.connect(
+            host=config.get("host", "localhost"),
+            port=int(config.get("port", 5432)),
+            database=config.get("database", "caracal"),
+            user=config.get("username", "caracal"),
+            password=config.get("password", ""),
+            connect_timeout=5
+        )
+        conn.close()
+        return True, ""
+    except Exception as e:
+        return False, str(e)
+
+
 def _step_config(wizard: Wizard) -> Any:
     """Step 1: Configuration setup."""
     console = wizard.console
@@ -36,7 +117,8 @@ def _step_config(wizard: Wizard) -> Any:
     console.print(f"  [{Colors.DIM}]Default location: {default_path}[/]")
     console.print()
     
-    # Check if already initialized
+    # Determine if we should wipe based on whether we found existing config and user rejected it
+    wipe = False
     if default_path.exists() and (default_path / "config.yaml").exists():
         console.print(f"  [{Colors.SUCCESS}]{Icons.SUCCESS} Configuration found at {default_path}[/]")
         console.print()
@@ -49,8 +131,8 @@ def _step_config(wizard: Wizard) -> Any:
         if use_existing:
             wizard.context["config_path"] = str(default_path)
             return str(default_path)
-    
-    # Ask for path
+        else:
+            wipe = True
     console.print()
     use_default = prompt.confirm(
         f"Use default location ({default_path})?",
@@ -71,7 +153,7 @@ def _step_config(wizard: Wizard) -> Any:
     console.print(f"  [{Colors.INFO}]{Icons.INFO} Initializing configuration...[/]")
     
     try:
-        _initialize_caracal_dir(config_path)
+        _initialize_caracal_dir(config_path, wipe=wipe)
         console.print(f"  [{Colors.SUCCESS}]{Icons.SUCCESS} Configuration initialized at {config_path}[/]")
         wizard.context["config_path"] = str(config_path)
         return str(config_path)
@@ -80,8 +162,17 @@ def _step_config(wizard: Wizard) -> Any:
         raise
 
 
-def _initialize_caracal_dir(path: Path) -> None:
+def _initialize_caracal_dir(path: Path, wipe: bool = False) -> None:
     """Initialize Caracal directory structure."""
+    if wipe and path.exists():
+        import shutil
+        # Wipe data files but keep the directory
+        for item in path.iterdir():
+            if item.is_file():
+                item.unlink()
+            elif item.is_dir() and item.name != "backups":
+                shutil.rmtree(item)
+
     # Create directories
     path.mkdir(parents=True, exist_ok=True)
     (path / "backups").mkdir(exist_ok=True)
@@ -95,7 +186,6 @@ storage:
   agent_registry: {path}/agents.json
   policy_store: {path}/policies.json
   ledger: {path}/ledger.jsonl
-  pricebook: {path}/pricebook.csv
   backup_dir: {path}/backups
   backup_count: 3
 
@@ -123,14 +213,10 @@ logging:
     if not ledger_path.exists():
         ledger_path.write_text("")
     
-    pricebook_path = path / "pricebook.csv"
-    if not pricebook_path.exists():
-        sample_pricebook = """resource_type,price_per_unit,currency,updated_at
-openai.gpt-5.2.input_tokens,1.75,USD,2024-01-15T10:00:00Z
-openai.gpt-5.2.output_tokens,14.00,USD,2024-01-15T10:00:00Z
-openai.gpt-5.2.cached_input_tokens,0.175,USD,2024-01-15T10:00:00Z
-"""
-        pricebook_path.write_text(sample_pricebook)
+    # SQLite database file - should be wiped if fresh start
+    db_path = path / "caracal.db"
+    if db_path.exists() and wipe:
+        db_path.unlink()
 
 
 def _step_database(wizard: Wizard) -> Any:
@@ -153,33 +239,87 @@ def _step_database(wizard: Wizard) -> Any:
         wizard.context["database"] = "file"
         return "file"
     
-    # PostgreSQL configuration
+    # 1. Automatic Setup from .env
+    env_config = _get_db_config_from_env()
+    if env_config.get("password"):
+        console.print()
+        console.print(f"  [{Colors.INFO}]{Icons.INFO} Found database credentials in .env[/]")
+        console.print(f"  [{Colors.DIM}]Host: {env_config['host']}:{env_config['port']}[/]")
+        console.print(f"  [{Colors.DIM}]Database: {env_config['database']}[/]")
+        console.print(f"  [{Colors.DIM}]Username: {env_config['username']}[/]")
+        console.print()
+        
+        console.print(f"  [{Colors.INFO}]{Icons.INFO} Testing connection...[/]")
+        success, error = _test_db_connection(env_config)
+        
+        if success:
+            console.print(f"  [{Colors.SUCCESS}]{Icons.SUCCESS} Connection successful![/]")
+            wizard.context["database"] = {**env_config, "type": "postgresql"}
+            return wizard.context["database"]
+        else:
+            console.print(f"  [{Colors.ERROR}]{Icons.ERROR} Connection failed: {error}[/]")
+            if "password authentication failed" in error.lower():
+                console.print()
+                console.print(f"  [{Colors.HINT}]{Icons.INFO} Tip: Your .env credentials might be out of sync with Docker.[/]")
+                console.print(f"  [{Colors.HINT}]      Run './reset_postgres.sh' to re-apply .env credentials.[/]")
+            console.print()
+            console.print(f"  [{Colors.NEUTRAL}]Let's verify or update the connection details manually.[/]")
+
+    # 2. Manual Configuration (Fallback or Correction)
     console.print()
-    console.print(f"  [{Colors.INFO}]Enter PostgreSQL connection details:[/]")
+    console.print(f"  [{Colors.INFO}]PostgreSQL Connection Details:[/]")
     console.print()
     
-    host = prompt.text("Host", default="localhost")
-    port = prompt.number("Port", default=5432, min_value=1, max_value=65535)
-    database = prompt.text("Database name", default="caracal")
-    username = prompt.text("Username", default="caracal")
+    max_attempts = 3
+    for attempt in range(max_attempts):
+        host = prompt.text("Host", default=env_config["host"])
+        port = prompt.number("Port", default=env_config["port"], min_value=1, max_value=65535)
+        database = prompt.text("Database name", default=env_config["database"])
+        username = prompt.text("Username", default=env_config["username"])
+        password = prompt.password("Password", default=env_config["password"])
+        
+        config = {
+            "host": host,
+            "port": int(port),
+            "database": database,
+            "username": username,
+            "password": password,
+        }
+        
+        # Test the connection
+        console.print()
+        console.print(f"  [{Colors.INFO}]{Icons.INFO} Testing PostgreSQL connection...[/]")
+        
+        success, error = _test_db_connection(config)
+        if success:
+            console.print(f"  [{Colors.SUCCESS}]{Icons.SUCCESS} Connection successful![/]")
+            
+            # Save updated config back to .env
+            if _save_db_config_to_env(config):
+                console.print(f"  [{Colors.SUCCESS}]{Icons.SUCCESS} Configuration saved to .env[/]")
+            
+            wizard.context["database"] = {**config, "type": "postgresql"}
+            return wizard.context["database"]
+            
+        else:
+            console.print(f"  [{Colors.ERROR}]{Icons.ERROR} Connection failed: {error}[/]")
+            console.print()
+            
+            if attempt < max_attempts - 1:
+                retry = prompt.confirm("Try again with different credentials?", default=True)
+                if not retry:
+                    break
+                console.print()
+            else:
+                console.print(f"  [{Colors.WARNING}]Maximum attempts reached.[/]")
     
-    # Password is sensitive, use secure input with toggle
-    password = prompt.password("Password")
-    
-    wizard.context["database"] = {
-        "type": "postgresql",
-        "host": host,
-        "port": int(port),
-        "database": database,
-        "username": username,
-        "password": password,
-    }
-    
+    # Fall back to SQLite
     console.print()
-    console.print(f"  [{Colors.SUCCESS}]{Icons.SUCCESS} Database configured[/]")
-    console.print(f"  [{Colors.DIM}]Note: Update your config.yaml to use these settings[/]")
+    console.print(f"  [{Colors.INFO}]{Icons.INFO} Falling back to SQLite[/]")
+    console.print(f"  [{Colors.DIM}]You can configure PostgreSQL later in settings[/]")
     
-    return wizard.context["database"]
+    wizard.context["database"] = "file"
+    return "file"
 
 
 def _step_principal(wizard: Wizard) -> Any:
@@ -388,6 +528,7 @@ def run_onboarding(
     
     # Persist changes
     try:
+        from pathlib import Path
         from caracal.config import load_config
         from caracal.db.connection import DatabaseConfig, DatabaseConnectionManager
         from caracal.db.models import Principal, AuthorityPolicy
@@ -399,7 +540,7 @@ def run_onboarding(
         
         # Save database configuration if provided
         db_config_data = results.get("database")
-        if db_config_data and isinstance(db_config_data, dict):
+        if db_config_data and isinstance(db_config_data, dict) and db_config_data.get("type") == "postgresql":
             console.print()
             console.print(f"  [{Colors.INFO}]{Icons.INFO} Saving database configuration...[/]")
             
@@ -427,10 +568,13 @@ def run_onboarding(
                 with open(config_file, 'w') as f:
                     yaml.dump(config_yaml, f, default_flow_style=False)
                 
-                console.print(f"  [{Colors.SUCCESS}]{Icons.SUCCESS} Database configuration saved to config.yaml[/]")
+                console.print(f"  [{Colors.SUCCESS}]{Icons.SUCCESS} PostgreSQL configuration saved to config.yaml[/]")
                 
                 # Reload config
                 config = load_config()
+        elif db_config_data == "file":
+            console.print()
+            console.print(f"  [{Colors.INFO}]{Icons.INFO} Using SQLite (file-based storage)[/]")
         
         # Setup database connection
         if hasattr(config, 'database') and config.database:

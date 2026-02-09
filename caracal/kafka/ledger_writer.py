@@ -16,7 +16,7 @@ from uuid import UUID
 from sqlalchemy.orm import Session
 
 from caracal.kafka.consumer import BaseKafkaConsumer, KafkaMessage
-from caracal.db.models import LedgerEvent, ProvisionalCharge
+from caracal.db.models import LedgerEvent
 from caracal.logging_config import get_logger
 from caracal.exceptions import InvalidLedgerEventError
 
@@ -134,7 +134,7 @@ class LedgerWriterConsumer(BaseKafkaConsumer):
         quantity = Decimal(str(event_data['quantity']))
         cost = Decimal(str(event_data['cost']))
         currency = event_data['currency']
-        provisional_charge_id = event_data.get('provisional_charge_id')
+        # provisional_charge_id removed
         metadata = event_data.get('metadata')
         
         # Convert timestamp from Unix milliseconds to datetime
@@ -154,7 +154,7 @@ class LedgerWriterConsumer(BaseKafkaConsumer):
                 cost=cost,
                 currency=currency,
                 event_metadata=metadata,
-                provisional_charge_id=UUID(provisional_charge_id) if provisional_charge_id else None
+                # provisional_charge_id removed
             )
             
             session.add(ledger_event)
@@ -165,13 +165,7 @@ class LedgerWriterConsumer(BaseKafkaConsumer):
                 f"agent_id={agent_id}, resource={resource_type}, cost={cost} {currency}"
             )
             
-            # Release provisional charge if present
-            if provisional_charge_id:
-                await self._release_provisional_charge(
-                    session,
-                    UUID(provisional_charge_id),
-                    ledger_event.event_id
-                )
+            # Release provisional charge removed
             
             # Commit database transaction
             session.commit()
@@ -252,15 +246,6 @@ class LedgerWriterConsumer(BaseKafkaConsumer):
         except (ValueError, TypeError) as e:
             raise InvalidLedgerEventError(f"Invalid agent_id UUID: {e}") from e
         
-        # Validate provisional_charge_id if present
-        if 'provisional_charge_id' in event_data and event_data['provisional_charge_id']:
-            try:
-                UUID(event_data['provisional_charge_id'])
-            except (ValueError, TypeError) as e:
-                raise InvalidLedgerEventError(
-                    f"Invalid provisional_charge_id UUID: {e}"
-                ) from e
-        
         # Validate numeric fields
         try:
             quantity = Decimal(str(event_data['quantity']))
@@ -292,60 +277,6 @@ class LedgerWriterConsumer(BaseKafkaConsumer):
         
         logger.debug(f"Event schema validation passed: event_id={event_data['event_id']}")
     
-    async def _release_provisional_charge(
-        self,
-        session: Session,
-        charge_id: UUID,
-        final_event_id: int
-    ) -> None:
-        """
-        Release provisional charge after writing final event.
-        
-        Marks the provisional charge as released and links it to the final
-        ledger event. This frees up the reserved budget.
-        
-        Args:
-            session: Database session
-            charge_id: Provisional charge ID
-            final_event_id: Final ledger event ID
-            
-        Requirements: 2.1
-        """
-        try:
-            # Query provisional charge
-            charge = session.query(ProvisionalCharge).filter(
-                ProvisionalCharge.charge_id == charge_id
-            ).first()
-            
-            if not charge:
-                logger.warning(
-                    f"Provisional charge not found: charge_id={charge_id}. "
-                    f"May have already been released or expired."
-                )
-                return
-            
-            if charge.released:
-                logger.warning(
-                    f"Provisional charge already released: charge_id={charge_id}"
-                )
-                return
-            
-            # Mark as released
-            charge.released = True
-            charge.final_charge_event_id = final_event_id
-            
-            logger.info(
-                f"Released provisional charge: charge_id={charge_id}, "
-                f"final_event_id={final_event_id}, amount={charge.amount} {charge.currency}"
-            )
-        
-        except Exception as e:
-            logger.error(
-                f"Failed to release provisional charge {charge_id}: {e}",
-                exc_info=True
-            )
-            # Don't raise - we don't want to fail the entire event processing
-            # The charge will eventually expire via cleanup job
     
     async def _add_to_merkle_batcher(self, ledger_event: LedgerEvent) -> None:
         """

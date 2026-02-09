@@ -43,107 +43,6 @@ def get_json_type():
         return JSON
 
 
-class AgentIdentity(Base):
-    """
-    Agent identity registry with parent-child relationships.
-    
-    Stores agent identities with support for hierarchical agent structures.
-    Parent agents can create child agents with delegated budgets.
-    
-    Requirements: 3.2, 8.2, 8.3, 8.7
-    """
-    
-    __tablename__ = "agent_identities"
-    
-    # Primary key
-    agent_id = Column(PG_UUID(as_uuid=True), primary_key=True, default=uuid4)
-    
-    # Core fields
-    name = Column(String(255), unique=True, nullable=False, index=True)
-    owner = Column(String(255), nullable=False)
-    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
-    
-    # Parent-child relationship
-    parent_agent_id = Column(
-        PG_UUID(as_uuid=True),
-        ForeignKey("agent_identities.agent_id"),
-        nullable=True,
-        index=True,
-    )
-    
-    # Metadata and authentication
-    agent_metadata = Column("metadata", JSON().with_variant(JSONB, "postgresql"), nullable=True)
-    api_key_hash = Column(String(255), nullable=True)
-    
-    # Relationships
-    parent = relationship(
-        "AgentIdentity",
-        remote_side=[agent_id],
-        backref="children",
-        foreign_keys=[parent_agent_id],
-    )
-    
-    policies = relationship("BudgetPolicy", back_populates="agent", foreign_keys="BudgetPolicy.agent_id")
-    ledger_events = relationship("LedgerEvent", back_populates="agent")
-    provisional_charges = relationship("ProvisionalCharge", back_populates="agent")
-    
-    def __repr__(self):
-        return f"<AgentIdentity(agent_id={self.agent_id}, name={self.name})>"
-
-
-class BudgetPolicy(Base):
-    """
-    Budget policy store with delegation tracking.
-    
-    Stores budget policies for agents with support for delegation from parent agents.
-    Policies define spending limits over time windows (daily, weekly, monthly).
-    
-    Requirements: 4.2, 9.1, 9.3
-    """
-    
-    __tablename__ = "budget_policies"
-    
-    # Primary key
-    policy_id = Column(PG_UUID(as_uuid=True), primary_key=True, default=uuid4)
-    
-    # Foreign key to agent
-    agent_id = Column(
-        PG_UUID(as_uuid=True),
-        ForeignKey("agent_identities.agent_id"),
-        nullable=False,
-        index=True,
-    )
-    
-    # Budget configuration
-    limit_amount = Column(Numeric(precision=20, scale=6), nullable=False)
-    time_window = Column(String(50), nullable=False)  # "hourly", "daily", "weekly", "monthly"
-    window_type = Column(String(20), nullable=False, default="calendar", server_default="calendar")  # "rolling" or "calendar" (v0.3)
-    currency = Column(String(3), nullable=False, default="USD")
-    
-    # Delegation tracking
-    delegated_from_agent_id = Column(
-        PG_UUID(as_uuid=True),
-        ForeignKey("agent_identities.agent_id"),
-        nullable=True,
-    )
-    
-    # Metadata
-    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
-    active = Column(Boolean, nullable=False, default=True)
-    
-    # Relationships
-    agent = relationship("AgentIdentity", back_populates="policies", foreign_keys=[agent_id])
-    delegated_from = relationship("AgentIdentity", foreign_keys=[delegated_from_agent_id])
-    
-    # Composite index for active policy queries
-    __table_args__ = (
-        Index("ix_budget_policies_agent_active", "agent_id", "active"),
-    )
-    
-    def __repr__(self):
-        return f"<BudgetPolicy(policy_id={self.policy_id}, agent_id={self.agent_id}, limit={self.limit_amount})>"
-
-
 class LedgerEvent(Base):
     """
     Immutable ledger events for spending tracking.
@@ -159,10 +58,10 @@ class LedgerEvent(Base):
     # Primary key with auto-increment
     event_id = Column(BigInteger().with_variant(Integer, "sqlite"), primary_key=True, autoincrement=True)
     
-    # Foreign key to agent
+    # Foreign key to principal (formerly agent)
     agent_id = Column(
         PG_UUID(as_uuid=True),
-        ForeignKey("agent_identities.agent_id"),
+        ForeignKey("principals.principal_id"),
         nullable=False,
         index=True,
     )
@@ -174,9 +73,9 @@ class LedgerEvent(Base):
     cost = Column(Numeric(precision=20, scale=6), nullable=False)
     currency = Column(String(3), nullable=False, default="USD")
     
-    # Metadata and provisional charge tracking
+    # Metadata
     event_metadata = Column("metadata", JSON().with_variant(JSONB, "postgresql"), nullable=True)
-    provisional_charge_id = Column(PG_UUID(as_uuid=True), nullable=True)
+    # provisional_charge_id removed as it was part of legacy logic
     
     # Merkle tree integration (v0.3)
     merkle_root_id = Column(
@@ -187,7 +86,7 @@ class LedgerEvent(Base):
     )
     
     # Relationships
-    agent = relationship("AgentIdentity", back_populates="ledger_events")
+    principal = relationship("Principal", backref="ledger_events")
     merkle_root = relationship("MerkleRoot", back_populates="ledger_events")
     
     # Composite index for time-range queries
@@ -197,59 +96,6 @@ class LedgerEvent(Base):
     
     def __repr__(self):
         return f"<LedgerEvent(event_id={self.event_id}, agent_id={self.agent_id}, cost={self.cost})>"
-
-
-class ProvisionalCharge(Base):
-    """
-    Provisional charges for budget reservations with automatic expiration.
-    
-    Stores budget reservations created during policy checks. Charges automatically
-    expire after a configurable timeout and are released by a background cleanup job.
-    
-    Requirements: 14.1, 14.2, 14.3, 14.4, 14.6
-    """
-    
-    __tablename__ = "provisional_charges"
-    
-    # Primary key
-    charge_id = Column(PG_UUID(as_uuid=True), primary_key=True, default=uuid4)
-    
-    # Foreign key to agent
-    agent_id = Column(
-        PG_UUID(as_uuid=True),
-        ForeignKey("agent_identities.agent_id"),
-        nullable=False,
-        index=True,
-    )
-    
-    # Charge data
-    amount = Column(Numeric(precision=20, scale=6), nullable=False)
-    currency = Column(String(3), nullable=False, default="USD")
-    
-    # Lifecycle timestamps
-    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
-    expires_at = Column(DateTime, nullable=False, index=True)
-    
-    # Release tracking
-    released = Column(Boolean, nullable=False, default=False)
-    final_charge_event_id = Column(
-        BigInteger,
-        ForeignKey("ledger_events.event_id"),
-        nullable=True,
-    )
-    
-    # Relationships
-    agent = relationship("AgentIdentity", back_populates="provisional_charges")
-    final_charge = relationship("LedgerEvent")
-    
-    # Composite indexes for queries
-    __table_args__ = (
-        Index("ix_provisional_charges_agent_released", "agent_id", "released"),
-        Index("ix_provisional_charges_expires_released", "expires_at", "released"),
-    )
-    
-    def __repr__(self):
-        return f"<ProvisionalCharge(charge_id={self.charge_id}, agent_id={self.agent_id}, amount={self.amount}, released={self.released})>"
 
 
 class AuditLog(Base):
@@ -347,104 +193,6 @@ class MerkleRoot(Base):
     
     def __repr__(self):
         return f"<MerkleRoot(root_id={self.root_id}, batch_id={self.batch_id}, events={self.first_event_id}-{self.last_event_id}, source={self.source})>"
-
-
-class PolicyVersion(Base):
-    """
-    Policy version history for audit trails.
-    
-    Stores immutable snapshots of policy changes, enabling complete audit trails
-    of who changed what and when. Each policy modification creates a new version record.
-    
-    Requirements: 5.2, 5.3, 6.1, 6.2, 6.3, 6.4
-    """
-    
-    __tablename__ = "policy_versions"
-    
-    # Primary key
-    version_id = Column(PG_UUID(as_uuid=True), primary_key=True, default=uuid4)
-    
-    # Foreign key to policy
-    policy_id = Column(
-        PG_UUID(as_uuid=True),
-        ForeignKey("budget_policies.policy_id"),
-        nullable=False,
-        index=True,
-    )
-    
-    # Version tracking
-    version_number = Column(BigInteger, nullable=False)
-    
-    # Policy snapshot (all fields from BudgetPolicy)
-    agent_id = Column(PG_UUID(as_uuid=True), nullable=False, index=True)
-    limit_amount = Column(Numeric(precision=20, scale=6), nullable=False)
-    time_window = Column(String(50), nullable=False)
-    window_type = Column(String(50), nullable=True)  # "rolling" or "calendar" (v0.3)
-    currency = Column(String(3), nullable=False, default="USD")
-    active = Column(Boolean, nullable=False)
-    delegated_from_agent_id = Column(PG_UUID(as_uuid=True), nullable=True)
-    
-    # Change tracking
-    change_type = Column(String(50), nullable=False)  # "created", "modified", "deactivated"
-    changed_by = Column(String(255), nullable=False)  # User/system identifier
-    changed_at = Column(DateTime, nullable=False, default=datetime.utcnow, index=True)
-    change_reason = Column(String(1000), nullable=False)  # Required explanation
-    
-    # Relationships
-    policy = relationship("BudgetPolicy", backref="versions")
-    
-    # Composite indexes for common queries
-    __table_args__ = (
-        Index("ix_policy_versions_policy_version", "policy_id", "version_number", unique=True),
-        Index("ix_policy_versions_agent_changed", "agent_id", "changed_at"),
-        Index("ix_policy_versions_type_changed", "change_type", "changed_at"),
-    )
-    
-    def __repr__(self):
-        return f"<PolicyVersion(version_id={self.version_id}, policy_id={self.policy_id}, version={self.version_number}, change_type={self.change_type})>"
-
-
-class ResourceAllowlist(Base):
-    """
-    Resource allowlists for fine-grained access control.
-    
-    Stores whitelist patterns (regex or glob) that define which resources
-    an agent is allowed to access. Supports both regex and glob pattern matching.
-    
-    Requirements: 7.1, 7.2, 7.3, 7.6, 7.7
-    """
-    
-    __tablename__ = "resource_allowlists"
-    
-    # Primary key
-    allowlist_id = Column(PG_UUID(as_uuid=True), primary_key=True, default=uuid4)
-    
-    # Foreign key to agent
-    agent_id = Column(
-        PG_UUID(as_uuid=True),
-        ForeignKey("agent_identities.agent_id"),
-        nullable=False,
-        index=True,
-    )
-    
-    # Pattern configuration
-    resource_pattern = Column(String(1000), nullable=False)
-    pattern_type = Column(String(10), nullable=False)  # "regex" or "glob"
-    
-    # Metadata
-    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
-    active = Column(Boolean, nullable=False, default=True)
-    
-    # Relationships
-    agent = relationship("AgentIdentity", backref="allowlists")
-    
-    # Composite index for active allowlist queries
-    __table_args__ = (
-        Index("ix_resource_allowlists_agent_active", "agent_id", "active"),
-    )
-    
-    def __repr__(self):
-        return f"<ResourceAllowlist(allowlist_id={self.allowlist_id}, agent_id={self.agent_id}, pattern={self.resource_pattern[:50]})>"
 
 
 class LedgerSnapshot(Base):

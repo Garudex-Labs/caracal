@@ -175,8 +175,7 @@ class MCPAdapter:
             
             logger.info(
                 f"Budget check passed for agent {agent_id}: "
-                f"remaining={policy_decision.remaining_budget} USD, "
-                f"provisional_charge_id={policy_decision.provisional_charge_id}"
+                f"remaining={policy_decision.remaining_budget} USD"
             )
             
             # 4. Forward to MCP server (simulated in v0.2 - actual forwarding in v0.3)
@@ -201,7 +200,7 @@ class MCPAdapter:
                         quantity=Decimal("1"),
                         cost=actual_cost,
                         currency="USD",
-                        provisional_charge_id=policy_decision.provisional_charge_id,
+                        # provisional_charge_id removed
                         metadata={
                             "tool_name": tool_name,
                             "tool_args": str(tool_args),
@@ -252,10 +251,7 @@ class MCPAdapter:
                         }
                     )
                     
-                    self.metering_collector.collect_event(
-                        metering_event,
-                        provisional_charge_id=policy_decision.provisional_charge_id
-                    )
+                    self.metering_collector.collect_event(metering_event)
             else:
                 # v0.2 compatibility: Direct ledger write
                 metering_event = MeteringEvent(
@@ -272,10 +268,7 @@ class MCPAdapter:
                     }
                 )
                 
-                self.metering_collector.collect_event(
-                    metering_event,
-                    provisional_charge_id=policy_decision.provisional_charge_id
-                )
+                self.metering_collector.collect_event(metering_event)
             
             logger.info(
                 f"MCP tool call completed: tool={tool_name}, agent={agent_id}, "
@@ -288,7 +281,6 @@ class MCPAdapter:
                 metadata={
                     "estimated_cost": str(estimated_cost),
                     "actual_cost": str(actual_cost),
-                    "provisional_charge_id": policy_decision.provisional_charge_id,
                     "remaining_budget": str(policy_decision.remaining_budget) if policy_decision.remaining_budget else None,
                 }
             )
@@ -384,8 +376,7 @@ class MCPAdapter:
             
             logger.info(
                 f"Budget check passed for agent {agent_id}: "
-                f"remaining={policy_decision.remaining_budget} USD, "
-                f"provisional_charge_id={policy_decision.provisional_charge_id}"
+                f"remaining={policy_decision.remaining_budget} USD"
             )
             
             # 4. Fetch resource from MCP server (simulated in v0.2)
@@ -409,7 +400,7 @@ class MCPAdapter:
                         quantity=Decimal(str(resource.size)),
                         cost=actual_cost,
                         currency="USD",
-                        provisional_charge_id=policy_decision.provisional_charge_id,
+                        # provisional_charge_id removed
                         metadata={
                             "resource_uri": resource_uri,
                             "mime_type": resource.mime_type,
@@ -462,10 +453,7 @@ class MCPAdapter:
                         }
                     )
                     
-                    self.metering_collector.collect_event(
-                        metering_event,
-                        provisional_charge_id=policy_decision.provisional_charge_id
-                    )
+                    self.metering_collector.collect_event(metering_event)
             else:
                 # v0.2 compatibility: Direct ledger write
                 metering_event = MeteringEvent(
@@ -483,10 +471,7 @@ class MCPAdapter:
                     }
                 )
                 
-                self.metering_collector.collect_event(
-                    metering_event,
-                    provisional_charge_id=policy_decision.provisional_charge_id
-                )
+                self.metering_collector.collect_event(metering_event)
             
             logger.info(
                 f"MCP resource read completed: uri={resource_uri}, agent={agent_id}, "
@@ -499,7 +484,6 @@ class MCPAdapter:
                 metadata={
                     "estimated_cost": str(estimated_cost),
                     "actual_cost": str(actual_cost),
-                    "provisional_charge_id": policy_decision.provisional_charge_id,
                     "remaining_budget": str(policy_decision.remaining_budget) if policy_decision.remaining_budget else None,
                     "resource_size": resource.size,
                 }
@@ -781,8 +765,7 @@ class MCPAdapter:
                     
                     logger.info(
                         f"Budget check passed for agent {agent_id}: "
-                        f"remaining={policy_decision.remaining_budget} USD, "
-                        f"provisional_charge_id={policy_decision.provisional_charge_id}"
+                        f"remaining={policy_decision.remaining_budget} USD"
                     )
                     
                     # 3. Execute the actual tool function

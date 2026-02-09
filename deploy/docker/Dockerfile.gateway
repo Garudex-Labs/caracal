@@ -88,8 +88,6 @@ from caracal.core.identity import AgentRegistry
 from caracal.core.policy import PolicyStore, PolicyEvaluator
 from caracal.core.ledger import LedgerWriter, LedgerQuery
 from caracal.core.metering import MeteringCollector
-from caracal.core.pricebook import Pricebook
-from caracal.core.provisional_charges import ProvisionalChargeManager, ProvisionalChargeConfig
 from caracal.db.connection import DatabaseConnectionManager
 from caracal.logging_config import setup_logging
 from caracal.monitoring.metrics import initialize_metrics
@@ -145,29 +143,16 @@ async def main():
     policy_store = PolicyStore(session)
     ledger_writer = LedgerWriter(session)
     ledger_query = LedgerQuery(session)
-    pricebook = Pricebook(session)
-    
-    # Initialize provisional charge manager
-    provisional_config = ProvisionalChargeConfig(
-        default_expiration_seconds=int(os.getenv("PROVISIONAL_CHARGE_EXPIRATION", "300")),
-        timeout_minutes=int(os.getenv("PROVISIONAL_CHARGE_MAX_TIMEOUT", "60")),
-        cleanup_interval_seconds=int(os.getenv("PROVISIONAL_CHARGE_CLEANUP_INTERVAL", "60")),
-        cleanup_batch_size=int(os.getenv("PROVISIONAL_CHARGE_CLEANUP_BATCH_SIZE", "1000"))
-    )
-    provisional_charge_manager = ProvisionalChargeManager(session, provisional_config)
     
     # Initialize metering collector
     metering_collector = MeteringCollector(
-        pricebook=pricebook,
-        ledger_writer=ledger_writer,
-        provisional_charge_manager=provisional_charge_manager
+        ledger_writer=ledger_writer
     )
     
     # Initialize policy evaluator
     policy_evaluator = PolicyEvaluator(
         policy_store=policy_store,
-        ledger_query=ledger_query,
-        provisional_charge_manager=provisional_charge_manager
+        ledger_query=ledger_query
     )
     
     print("✓ Core components initialized")

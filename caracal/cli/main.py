@@ -201,16 +201,6 @@ from caracal.cli.mcp_service import mcp_service_group
 cli.add_command(mcp_service_group)
 
 
-@cli.group(name='provisional-charges')
-def provisional_charges():
-    """Manage provisional charges."""
-    pass
-
-
-# Import and register provisional charge commands
-from caracal.cli.provisional_charges import list_charges, cleanup_charges
-provisional_charges.add_command(list_charges, name='list')
-provisional_charges.add_command(cleanup_charges, name='cleanup')
 
 
 @cli.group(name='db')
@@ -221,9 +211,9 @@ def db():
 
 # Import and register database commands (lazy import to avoid circular dependency)
 def _register_db_commands():
-    from caracal.cli.db import init_db, migrate, db_status
+    from caracal.cli.db import init_db, db_status
     db.add_command(init_db)
-    db.add_command(migrate)
+    # db.add_command(migrate)  # Removed: Migration tool deprecated
     db.add_command(db_status, name='status')
 
 _register_db_commands()
@@ -399,18 +389,6 @@ except Exception as e:
     logging.getLogger(__name__).warning(f"Failed to register audit commands: {e}")
 
 
-# Import and register Migration commands (v0.5)
-try:
-    from caracal.cli.migrate import migrate_group
-    cli.add_command(migrate_group)
-except ImportError as e:
-    # Migration commands not available
-    import logging
-    logging.getLogger(__name__).debug(f"Migration commands not available: {e}")
-except Exception as e:
-    # Log any other errors
-    import logging
-    logging.getLogger(__name__).warning(f"Failed to register migration commands: {e}")
 
 
 @cli.command()

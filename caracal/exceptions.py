@@ -179,10 +179,6 @@ class SDKConfigurationError(SDKError):
     pass
 
 
-# Provisional Charge Errors
-class ProvisionalChargeError(CaracalError):
-    """Base exception for provisional charge-related errors."""
-    pass
 
 
 # Delegation Token Errors

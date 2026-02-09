@@ -87,7 +87,6 @@ class PolicyStore:
         policy_path: str, 
         agent_registry=None,
         backup_count: int = 3,
-        policy_version_manager=None,
         cache_ttl_seconds: int = 60
     ):
         """
@@ -97,13 +96,11 @@ class PolicyStore:
             policy_path: Path to the policy store JSON file
             agent_registry: Optional AgentRegistry for validating agent existence
             backup_count: Number of rolling backups to maintain (default: 3)
-            policy_version_manager: Optional PolicyVersionManager for v0.3 versioning
             cache_ttl_seconds: TTL for policy query cache (default: 60 seconds)
         """
         self.policy_path = Path(policy_path)
         self.agent_registry = agent_registry
         self.backup_count = backup_count
-        self.policy_version_manager = policy_version_manager
         self.cache_ttl_seconds = cache_ttl_seconds
         self._policies: Dict[str, BudgetPolicy] = {}
         self._agent_policies: Dict[str, List[str]] = {}  # agent_id -> [policy_ids]
@@ -583,7 +580,7 @@ class PolicyDecision:
     allowed: bool
     reason: str
     remaining_budget: Optional[Decimal] = None
-    provisional_charge_id: Optional[str] = None  # UUID as string for v0.2 compatibility
+    # provisional_charge_id removed as it was part of legacy logic
     failed_policy_id: Optional[str] = None  # NEW: Which policy failed (v0.3)
     policy_decisions: Optional[List[SinglePolicyDecision]] = None  # NEW: Individual policy decisions (v0.3)
 
@@ -610,7 +607,6 @@ class PolicyEvaluator:
         self, 
         policy_store: PolicyStore, 
         ledger_query, 
-        provisional_charge_manager=None, 
         delegation_token_manager=None,
         time_window_calculator: Optional[TimeWindowCalculator] = None
     ):
@@ -620,13 +616,11 @@ class PolicyEvaluator:
         Args:
             policy_store: PolicyStore instance for loading policies
             ledger_query: LedgerQuery instance for querying spending
-            provisional_charge_manager: Optional ProvisionalChargeManager for v0.2 provisional charges
             delegation_token_manager: Optional DelegationTokenManager for delegation token validation
             time_window_calculator: Optional TimeWindowCalculator for v0.3 extended time windows
         """
         self.policy_store = policy_store
         self.ledger_query = ledger_query
-        self.provisional_charge_manager = provisional_charge_manager
         self.delegation_token_manager = delegation_token_manager
         self.time_window_calculator = time_window_calculator or TimeWindowCalculator()
         logger.info("PolicyEvaluator initialized with TimeWindowCalculator")
@@ -697,32 +691,8 @@ class PolicyEvaluator:
                     f"Failed to query spending for agent '{agent_id}': {e}"
                 ) from e
             
-            # Query active provisional charges (v0.2 only)
+            # Query active provisional charges (v0.2 only) - REMOVED
             reserved_budget = Decimal('0')
-            if self.provisional_charge_manager is not None:
-                try:
-                    # Import here to avoid circular dependency
-                    from uuid import UUID
-                    
-                    # Convert agent_id string to UUID for v0.2
-                    agent_uuid = UUID(agent_id)
-                    
-                    # Call synchronous method
-                    reserved_budget = self.provisional_charge_manager.calculate_reserved_budget(agent_uuid)
-                    
-                    logger.debug(
-                        f"Reserved budget for agent {agent_id} in policy {policy.policy_id}: "
-                        f"{reserved_budget} {policy.currency}"
-                    )
-                except Exception as e:
-                    # Fail closed on provisional charge query error
-                    logger.error(
-                        f"Failed to query reserved budget for agent {agent_id}: {e}",
-                        exc_info=True
-                    )
-                    raise PolicyEvaluationError(
-                        f"Failed to query reserved budget for agent '{agent_id}': {e}"
-                    ) from e
             
             # Get policy limit as Decimal
             limit = policy.get_limit_decimal()
@@ -857,52 +827,23 @@ class PolicyEvaluator:
                     policy_decisions=policy_decisions
                 )
             
-            # 4. All policies passed - create provisional charge if manager available and estimated cost provided
-            provisional_charge_id = None
-            if self.provisional_charge_manager is not None and estimated_cost is not None:
-                try:
-                    from uuid import UUID
-                    
-                    agent_uuid = UUID(agent_id)
-                    
-                    # Call synchronous method
-                    provisional_charge = self.provisional_charge_manager.create_provisional_charge(
-                        agent_uuid, estimated_cost
-                    )
-                    
-                    provisional_charge_id = str(provisional_charge.charge_id)
-                    logger.debug(
-                        f"Created provisional charge {provisional_charge_id} for agent {agent_id}, "
-                        f"amount={estimated_cost}"
-                    )
-                except Exception as e:
-                    # Fail closed on provisional charge creation error
-                    logger.error(
-                        f"Failed to create provisional charge for agent {agent_id}: {e}",
-                        exc_info=True
-                    )
-                    raise PolicyEvaluationError(
-                        f"Failed to create provisional charge for agent '{agent_id}': {e}"
-                    ) from e
-            
-            # 5. Calculate minimum remaining budget across all policies
+            # 4. Calculate minimum remaining budget across all policies
             min_remaining = min(
                 decision.available_budget - (estimated_cost if estimated_cost is not None else Decimal('0'))
                 for decision in policy_decisions
             )
             
-            # 6. Allow with remaining budget
+            # 5. Allow with remaining budget
             logger.info(
                 f"Budget check allowed for agent {agent_id}: "
                 f"All {len(policies)} policies passed "
-                f"(min_remaining={min_remaining}, provisional_charge_id={provisional_charge_id})"
+                f"(min_remaining={min_remaining})"
             )
             
             return PolicyDecision(
                 allowed=True,
                 reason=f"Within budget (all {len(policies)} policies passed)",
                 remaining_budget=min_remaining,
-                provisional_charge_id=provisional_charge_id,
                 policy_decisions=policy_decisions
             )
             

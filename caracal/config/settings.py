@@ -128,7 +128,6 @@ class StorageConfig:
     agent_registry: str
     policy_store: str
     ledger: str
-    pricebook: str
     backup_dir: str
     backup_count: int = 3
 
@@ -210,23 +209,12 @@ class MCPAdapterConfig:
 
 
 @dataclass
-class ProvisionalChargeConfig:
-    """Provisional charge configuration."""
-    
-    default_expiration_seconds: int = 300  # 5 minutes
-    timeout_minutes: int = 60  # 1 hour maximum
-    cleanup_interval_seconds: int = 60
-    cleanup_batch_size: int = 1000
-
-
-@dataclass
 class ASEConfig:
     """ASE protocol configuration."""
     
     version: str = "1.0.8"
     delegation_token_expiration_seconds: int = 86400  # 24 hours
     key_algorithm: str = "RS256"  # RS256 or ES256
-    provisional_charges: ProvisionalChargeConfig = field(default_factory=ProvisionalChargeConfig)
 
 
 @dataclass
@@ -437,7 +425,6 @@ def get_default_config() -> CaracalConfig:
         agent_registry=os.path.join(home_dir, "agents.json"),
         policy_store=os.path.join(home_dir, "policies.json"),
         ledger=os.path.join(home_dir, "ledger.jsonl"),
-        pricebook=os.path.join(home_dir, "pricebook.csv"),
         backup_dir=os.path.join(home_dir, "backups"),
         backup_count=3,
     )
@@ -574,9 +561,6 @@ def _build_config_from_dict(config_data: Dict[str, Any]) -> CaracalConfig:
         ledger=os.path.expanduser(
             storage_data.get('ledger', default_config.storage.ledger)
         ),
-        pricebook=os.path.expanduser(
-            storage_data.get('pricebook', default_config.storage.pricebook)
-        ),
         backup_dir=os.path.expanduser(
             storage_data.get('backup_dir', default_config.storage.backup_dir)
         ),
@@ -672,18 +656,10 @@ def _build_config_from_dict(config_data: Dict[str, Any]) -> CaracalConfig:
     
     # Parse ASE configuration (optional, for v0.2)
     ase_data = config_data.get('ase', {})
-    provisional_charges_data = ase_data.get('provisional_charges', {})
-    provisional_charges = ProvisionalChargeConfig(
-        default_expiration_seconds=provisional_charges_data.get('default_expiration_seconds', default_config.ase.provisional_charges.default_expiration_seconds),
-        timeout_minutes=provisional_charges_data.get('timeout_minutes', default_config.ase.provisional_charges.timeout_minutes),
-        cleanup_interval_seconds=provisional_charges_data.get('cleanup_interval_seconds', default_config.ase.provisional_charges.cleanup_interval_seconds),
-        cleanup_batch_size=provisional_charges_data.get('cleanup_batch_size', default_config.ase.provisional_charges.cleanup_batch_size),
-    )
     ase = ASEConfig(
         version=ase_data.get('version', default_config.ase.version),
         delegation_token_expiration_seconds=ase_data.get('delegation_token_expiration_seconds', default_config.ase.delegation_token_expiration_seconds),
         key_algorithm=ase_data.get('key_algorithm', default_config.ase.key_algorithm),
-        provisional_charges=provisional_charges,
     )
     
     # Parse Merkle configuration (optional, for v0.3)

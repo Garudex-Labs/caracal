@@ -1,6 +1,6 @@
-# Caracal Core v0.2 Database Infrastructure
+# Caracal Core v0.5 Database Infrastructure
 
-This directory contains the PostgreSQL database infrastructure for Caracal Core v0.2.
+This directory contains the PostgreSQL database infrastructure for Caracal Core v0.5.
 
 ## Overview
 
@@ -14,26 +14,38 @@ The database module provides:
 
 ### Tables
 
-1. **agent_identities**: Agent registry with parent-child relationships
-   - Primary key: `agent_id` (UUID)
+1. **principals**: Principal identities (agents, users, services)
+   - Primary key: `principal_id` (UUID)
    - Unique constraint: `name`
-   - Self-referential foreign key: `parent_agent_id`
-   - Indexes: `name`, `parent_agent_id`
+   - Self-referential foreign key: `parent_principal_id`
+   - Indexes: `name`, `parent_principal_id`, `principal_type`
 
-2. **budget_policies**: Budget policies with delegation tracking
-   - Primary key: `policy_id` (UUID)
-   - Foreign keys: `agent_id`, `delegated_from_agent_id`
-   - Indexes: `agent_id`, `(agent_id, active)`
+2. **execution_mandates**: Authority mandates
+   - Primary key: `mandate_id` (UUID)
+   - Foreign keys: `issuer_id`, `subject_id`, `parent_mandate_id`
+   - Indexes: `issuer_id`, `subject_id`, `(subject_id, valid_until)`, `revoked`
 
 3. **ledger_events**: Immutable ledger events for spending tracking
    - Primary key: `event_id` (BIGSERIAL auto-increment)
-   - Foreign key: `agent_id`
+   - Foreign key: `agent_id` (references `principals.principal_id`)
    - Indexes: `agent_id`, `timestamp`, `(agent_id, timestamp)`
 
-4. **provisional_charges**: Budget reservations with automatic expiration
-   - Primary key: `charge_id` (UUID)
-   - Foreign keys: `agent_id`, `final_charge_event_id`
-   - Indexes: `agent_id`, `expires_at`, `(agent_id, released)`, `(expires_at, released)`
+4. **authority_ledger_events**: Immutable authority events
+   - Primary key: `event_id` (BIGSERIAL auto-increment)
+   - Foreign keys: `principal_id`, `mandate_id`
+   - Indexes: `principal_id`, `mandate_id`, `timestamp`
+
+5. **authority_policies**: Mandate issuance policies
+   - Primary key: `policy_id` (UUID)
+   - Foreign key: `principal_id`
+   - Indexes: `principal_id`, `active`
+
+6. **merkle_roots**: Merkle roots for cryptographic integrity
+   - Primary key: `root_id` (UUID)
+   - Unique: `batch_id`
+
+7. **ledger_snapshots**: Ledger state snapshots
+   - Primary key: `snapshot_id` (UUID)
 
 ## Usage
 
@@ -59,8 +71,8 @@ db_manager = initialize_connection_manager(config)
 # Use with context manager for transactions
 with db_manager.session_scope() as session:
     # Perform database operations
-    agent = AgentIdentity(name="test-agent", owner="user@example.com")
-    session.add(agent)
+    principal = Principal(name="test-agent", type="agent", owner="user@example.com")
+    session.add(principal)
     # Commit happens automatically on success
 ```
 
@@ -123,40 +135,36 @@ alembic revision -m "Description of changes"
 
 Migrations are stored in: `caracal/db/migrations/versions/`
 
-### Initial Migration
-
-The initial v0.2 schema migration creates all four tables with proper indexes and foreign key constraints.
-
-Revision ID: `ac870772e55c`
-
 ## Models
 
-### AgentIdentity
+### Principal
 
 ```python
-from caracal.db import AgentIdentity
+from caracal.db import Principal
 
-agent = AgentIdentity(
+principal = Principal(
     name="my-agent",
+    principal_type="agent",
     owner="user@example.com",
-    parent_agent_id=parent_id,  # Optional
-    agent_metadata={"key": "value"},  # Optional JSONB
+    parent_principal_id=parent_id,  # Optional
+    principal_metadata={"key": "value"},  # Optional JSONB
 )
 ```
 
-### BudgetPolicy
+### ExecutionMandate
 
 ```python
-from caracal.db import BudgetPolicy
-from decimal import Decimal
+from caracal.db import ExecutionMandate
+from datetime import datetime, timedelta
 
-policy = BudgetPolicy(
-    agent_id=agent.agent_id,
-    limit_amount=Decimal("100.00"),
-    time_window="daily",
-    currency="USD",
-    delegated_from_agent_id=parent_id,  # Optional
-    active=True,
+mandate = ExecutionMandate(
+    issuer_id=issuer.principal_id,
+    subject_id=subject.principal_id,
+    valid_from=datetime.utcnow(),
+    valid_until=datetime.utcnow() + timedelta(days=1),
+    resource_scope=["*"],
+    action_scope=["*"],
+    signature="...",
 )
 ```
 
@@ -168,31 +176,13 @@ from decimal import Decimal
 from datetime import datetime
 
 event = LedgerEvent(
-    agent_id=agent.agent_id,
+    agent_id=principal.principal_id,
     timestamp=datetime.utcnow(),
     resource_type="api.openai.gpt4",
     quantity=Decimal("1000"),  # tokens
     cost=Decimal("0.03"),
     currency="USD",
     event_metadata={"model": "gpt-4"},  # Optional JSONB
-    provisional_charge_id=charge_id,  # Optional
-)
-```
-
-### ProvisionalCharge
-
-```python
-from caracal.db import ProvisionalCharge
-from decimal import Decimal
-from datetime import datetime, timedelta
-
-charge = ProvisionalCharge(
-    agent_id=agent.agent_id,
-    amount=Decimal("0.05"),
-    currency="USD",
-    created_at=datetime.utcnow(),
-    expires_at=datetime.utcnow() + timedelta(minutes=5),
-    released=False,
 )
 ```
 
@@ -211,25 +201,19 @@ print(f"Overflow: {pool_status['overflow']}")
 
 ## Requirements Satisfied
 
-This implementation satisfies the following requirements from the v0.2 specification:
+This implementation satisfies the following requirements from the v0.5 specification:
 
-- **Requirement 3.2**: PostgreSQL Agent Identity Registry with parent-child relationships
-- **Requirement 4.2**: PostgreSQL Budget Policy Store with delegation tracking
-- **Requirement 5.2**: PostgreSQL Ledger Events Table with efficient querying
+- **Requirement 1.2**: Principal Identity Registry
+- **Requirement 1.5**: Execution Mandates with cryptographic signatures
+- **Requirement 2.1**: Immutable Ledger Events
+- **Requirement 2.2**: Authority Ledger Events
 - **Requirement 6.1-6.6**: Database connection management with pooling
-- **Requirement 19.1-19.2, 19.7**: Alembic migrations and schema version tracking
-
-## Performance Characteristics
-
-- Agent identity lookups: <5ms p99 (indexed on agent_id and name)
-- Policy queries: <10ms p99 (indexed on agent_id)
-- Ledger time-range queries: <50ms p99 (composite index on agent_id + timestamp)
-- Connection pool: Supports 1,000+ requests/second per instance
+- **Requirement 19.1**: Alembic migrations
 
 ## Notes
 
-- All tables use UUID primary keys except `ledger_events` which uses BIGSERIAL for monotonic IDs
-- The `metadata` column is mapped to `agent_metadata` and `event_metadata` in Python to avoid conflicts with SQLAlchemy's reserved `metadata` attribute
+- All tables use UUID primary keys except `ledger_events` and `authority_ledger_events` which use BIGSERIAL for monotonic IDs
+- The `metadata` column is mapped to `principal_metadata`, `mandate_metadata`, etc. in Python to avoid conflicts with SQLAlchemy's reserved `metadata` attribute
 - Foreign key constraints ensure referential integrity
 - Indexes are optimized for common query patterns
 - Connection pooling reduces database connection overhead

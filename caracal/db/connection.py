@@ -83,7 +83,8 @@ class DatabaseConfig:
             return f"sqlite:///{self.file_path}"
         
         # Postgres default
-        return f"postgresql://{self.user}:{self.password}@{self.host}:{self.port}/{self.database}"
+        from urllib.parse import quote_plus
+        return f"postgresql://{self.user}:{quote_plus(self.password)}@{self.host}:{self.port}/{self.database}"
 
 
 class DatabaseConnectionManager:

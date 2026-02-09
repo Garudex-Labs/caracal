@@ -661,13 +661,11 @@ async def main():
     # Initialize Caracal Core components
     # Note: In a real deployment, these would be initialized from the main config
     # For now, we'll create minimal instances for demonstration
-    from caracal.core.pricebook import Pricebook
     from caracal.db.connection import DatabaseConnectionManager
     from caracal.db.models import Base
     from caracal.core.identity import AgentRegistry
     from caracal.core.policy import PolicyStore
     from caracal.core.ledger import LedgerWriter, LedgerQuery
-    from caracal.core.provisional_charges import ProvisionalChargeManager, ProvisionalChargeConfig
     
     # TODO: Load database config from main config file
     # For now, use environment variables
@@ -691,35 +689,25 @@ async def main():
     ledger_writer = LedgerWriter(session)
     ledger_query = LedgerQuery(session)
     
-    # Initialize provisional charge manager
-    provisional_config = ProvisionalChargeConfig()
-    provisional_charge_manager = ProvisionalChargeManager(session, provisional_config)
-    
-    # Initialize pricebook
-    pricebook = Pricebook()
-    
     # Initialize policy evaluator
     policy_evaluator = PolicyEvaluator(
         policy_store=policy_store,
-        ledger_query=ledger_query,
-        provisional_charge_manager=provisional_charge_manager
+        ledger_query=ledger_query
     )
     
     # Initialize metering collector
     metering_collector = MeteringCollector(
-        ledger_writer=ledger_writer,
-        pricebook=pricebook,
-        provisional_charge_manager=provisional_charge_manager
+        ledger_writer=ledger_writer
     )
     
     # Initialize MCP cost calculator
-    cost_calculator = MCPCostCalculator(pricebook=pricebook)
+    cost_calculator = MCPCostCalculator()
     
     # Initialize MCP adapter
     mcp_adapter = MCPAdapter(
         policy_evaluator=policy_evaluator,
         metering_collector=metering_collector,
-        cost_calculator=cost_calculator
+        # cost_calculator=cost_calculator
     )
     
     # Initialize MCP service

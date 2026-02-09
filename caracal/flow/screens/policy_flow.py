@@ -36,7 +36,6 @@ def run_policy_flow(console: Optional[Console] = None, state: Optional[FlowState
                 ("create", "Create Policy", "Create a new budget policy"),
                 ("list", "List Policies", "View all policies"),
                 ("status", "Policy Status", "Check budget utilization"),
-                ("history", "Policy History", "View policy change audit trail"),
             ],
             subtitle="Manage budget policies",
         )
@@ -52,8 +51,6 @@ def run_policy_flow(console: Optional[Console] = None, state: Optional[FlowState
             _list_policies(console)
         elif action == "status":
             _policy_status(console)
-        elif action == "history":
-            _policy_history(console)
         
         console.print()
         console.print(f"  [{Colors.HINT}]Press Enter to continue...[/]")
@@ -269,101 +266,6 @@ def _policy_status(console: Console) -> None:
         console.print(f"  [{Colors.ERROR}]{Icons.ERROR} Error: {e}[/]")
 
 
-def _policy_history(console: Console) -> None:
-    """View policy change history."""
-    prompt = FlowPrompt(console)
-    
-    console.print(Panel(
-        f"[{Colors.NEUTRAL}]View audit trail of policy changes[/]",
-        title=f"[bold {Colors.INFO}]Policy History[/]",
-        border_style=Colors.PRIMARY,
-    ))
-    console.print()
-    
-    try:
-        from caracal.cli.policy import get_policy_store
-        from caracal.config import load_config
-        
-        config = load_config()
-        store = get_policy_store(config)
-        policies = store.list_all_policies()
-        
-        if not policies:
-            console.print(f"  [{Colors.DIM}]No policies exist.[/]")
-            return
-        
-        items = [(p.policy_id, f"Agent {p.agent_id[:8]}... - ${float(p.limit_amount):.2f}") for p in policies]
-        policy_id = prompt.uuid("Policy ID (Tab for suggestions)", items)
-        
-        # Check if database is configured for history
-        # Simple check: if host is default localhost and password is empty, likely not configured
-        # But better to try to connect if user wants history
-        
-        try:
-            from caracal.db.connection import DatabaseConfig, DatabaseConnectionManager
-            from caracal.core.policy_versions import PolicyVersionManager
-            from uuid import UUID
-            
-            # Create database connection manager
-            db_config = DatabaseConfig(
-                host=config.database.host,
-                port=config.database.port,
-                database=config.database.database,
-                user=config.database.user,
-                password=config.database.password
-            )
-            
-            # Check if we should even try to connect (basic validation)
-            if not config.database.password and config.database.host == "localhost":
-                # Assume default config without DB
-                raise ImportError("Database not configured")
-
-            console.print(f"  [{Colors.DIM}]Connecting to database to fetch history...[/]")
-            db_manager = DatabaseConnectionManager(db_config)
-            db_manager.initialize()
-            
-            # Get database session
-            with db_manager.session_scope() as db_session:
-                # Create version manager
-                version_manager = PolicyVersionManager(db_session)
-                
-                # Get policy history
-                history = version_manager.get_policy_history(UUID(policy_id))
-            
-            db_manager.close()
-            
-            if not history:
-                console.print(f"  [{Colors.DIM}]No history found for this policy.[/]")
-                return
-            
-            console.print()
-            console.print(f"  [{Colors.INFO}]Change History:[/]")
-            console.print()
-            
-            for entry in history[-10:]:  # Last 10 entries
-                console.print(f"  [{Colors.DIM}]{entry.changed_at}[/]")
-                console.print(f"    {entry.change_type}: {entry.description}")
-                console.print()
-                
-        except (ImportError, Exception) as e:
-            # Fallback for file-based storage or connection error
-            logger.debug(f"Could not fetch history from DB: {e}")
-            
-            console.print(f"  [{Colors.WARNING}]{Icons.WARNING} Full history requires database storage.[/]")
-            console.print(f"  [{Colors.DIM}]Current policy state:[/]")
-            
-            # Show current state from file store
-            policy = store._policies.get(policy_id)
-            if policy:
-                console.print(f"    Created: {policy.created_at}")
-                console.print(f"    Limit: {policy.limit_amount} {policy.currency}")
-                console.print(f"    Status: {'Active' if policy.active else 'Inactive'}")
-            
-    except ImportError:
-        policy_id = prompt.text("Enter policy ID")
-        _show_cli_command(console, "policy", "history", f"--policy-id {policy_id}")
-    except Exception as e:
-        console.print(f"  [{Colors.ERROR}]{Icons.ERROR} Error: {e}[/]")
 
 
 def _show_cli_command(console: Console, group: str, command: str, args: str) -> None:

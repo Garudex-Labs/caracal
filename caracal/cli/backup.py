@@ -43,7 +43,6 @@ def get_data_files(config) -> dict:
         "agents.json": Path(config.storage.agent_registry).expanduser(),
         "policies.json": Path(config.storage.policy_store).expanduser(),
         "ledger.jsonl": Path(config.storage.ledger).expanduser(),
-        "pricebook.csv": Path(config.storage.pricebook).expanduser(),
         "config.yaml": Path("~/.caracal/config.yaml").expanduser(),
     }
 
@@ -71,7 +70,7 @@ def backup_create(ctx, name: Optional[str]):
     Create a timestamped backup archive of all Caracal data.
     
     Creates a .tar.gz archive containing agents.json, policies.json,
-    ledger.jsonl, pricebook.csv, and config.yaml.
+    ledger.jsonl, and config.yaml.
     """
     try:
         config = get_config(ctx)

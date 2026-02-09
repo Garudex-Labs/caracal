@@ -13,10 +13,11 @@ from caracal.db.connection import (
 )
 from caracal.db.models import (
     Base,
-    AgentIdentity,
-    BudgetPolicy,
     LedgerEvent,
-    ProvisionalCharge,
+    Principal,
+    ExecutionMandate,
+    AuthorityLedgerEvent,
+    AuthorityPolicy,
 )
 from caracal.db.schema_version import (
     SchemaVersionManager,
@@ -26,10 +27,11 @@ from caracal.db.schema_version import (
 __all__ = [
     # Models
     "Base",
-    "AgentIdentity",
-    "BudgetPolicy",
     "LedgerEvent",
-    "ProvisionalCharge",
+    "Principal",
+    "ExecutionMandate",
+    "AuthorityLedgerEvent",
+    "AuthorityPolicy",
     # Connection management
     "DatabaseConfig",
     "DatabaseConnectionManager",

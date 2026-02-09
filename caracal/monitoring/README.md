@@ -9,7 +9,7 @@ The monitoring module instruments all major components of Caracal Core:
 - **Gateway Proxy**: Request metrics, authentication failures, replay protection
 - **Policy Evaluator**: Policy evaluation metrics, cache statistics
 - **Database**: Query metrics, connection pool statistics
-- **Provisional Charges**: Charge lifecycle metrics, cleanup job performance
+
 - **Circuit Breakers**: State tracking, failure/success counts
 
 ## Requirements
@@ -116,16 +116,6 @@ metrics.record_policy_evaluation(
 | `caracal_database_connection_pool_overflow` | Gauge | Number of overflow connections | - |
 | `caracal_database_connection_errors_total` | Counter | Total database connection errors | error_type |
 
-### Provisional Charge Metrics
-
-| Metric | Type | Description | Labels |
-|--------|------|-------------|--------|
-| `caracal_provisional_charges_created_total` | Counter | Total provisional charges created | agent_id |
-| `caracal_provisional_charges_released_total` | Counter | Total provisional charges released | agent_id, reason |
-| `caracal_provisional_charges_expired_total` | Counter | Total provisional charges expired | - |
-| `caracal_provisional_charges_active` | Gauge | Number of currently active provisional charges | agent_id |
-| `caracal_provisional_charges_cleanup_duration_seconds` | Histogram | Duration of cleanup job | - |
-| `caracal_provisional_charges_cleanup_errors_total` | Counter | Total cleanup job errors | - |
 
 ### Circuit Breaker Metrics
 
@@ -164,13 +154,6 @@ with metrics.time_database_query(DatabaseOperationType.SELECT, "agent_identities
     result = session.execute(query)
 ```
 
-### Time Cleanup Jobs
-
-```python
-with metrics.time_provisional_charge_cleanup():
-    # Run cleanup
-    released_count = await cleanup_expired_charges()
-```
 
 ## Prometheus Configuration
 
@@ -205,10 +188,6 @@ scrape_configs:
    - Query duration (p99): `histogram_quantile(0.99, rate(caracal_database_query_duration_seconds_bucket[5m]))`
    - Connection pool utilization: `caracal_database_connection_pool_checked_out / caracal_database_connection_pool_size`
 
-4. **Provisional Charges**
-   - Active charges: `caracal_provisional_charges_active`
-   - Expiration rate: `rate(caracal_provisional_charges_expired_total[5m])`
-   - Cleanup duration: `histogram_quantile(0.99, rate(caracal_provisional_charges_cleanup_duration_seconds_bucket[5m]))`
 
 5. **Circuit Breakers**
    - Circuit breaker state: `caracal_circuit_breaker_state`
@@ -262,15 +241,6 @@ groups:
           summary: "Circuit breaker {{ $labels.name }} is open"
           description: "Circuit breaker {{ $labels.name }} has been open for 1 minute"
       
-      # High provisional charge expiration rate
-      - alert: HighProvisionalChargeExpirationRate
-        expr: rate(caracal_provisional_charges_expired_total[5m]) > 1
-        for: 5m
-        labels:
-          severity: warning
-        annotations:
-          summary: "High provisional charge expiration rate"
-          description: "Provisional charges are expiring at {{ $value }} charges/sec"
 ```
 
 ## Best Practices

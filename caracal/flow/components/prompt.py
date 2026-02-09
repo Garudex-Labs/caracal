@@ -253,12 +253,13 @@ class FlowPrompt:
         )
         
         return float(result)
-    def password(self, message: str) -> str:
+    def password(self, message: str, default: str = "") -> str:
         """
         Prompt for a password with visibility toggle.
         
         Args:
             message: Prompt message
+            default: Default password value
             
         Returns:
             The entered password
@@ -298,6 +299,7 @@ class FlowPrompt:
             is_password=is_hidden,
             key_bindings=bindings,
             bottom_toolbar=get_toolbar,
+            default=default,
         )
         
         return result
