@@ -388,65 +388,129 @@ def run_onboarding(
     
     # Persist changes
     try:
-        from decimal import Decimal
         from caracal.config import load_config
-        from caracal.core.identity import AgentRegistry
-        from caracal.core.policy import PolicyStore
+        from caracal.db.connection import DatabaseConfig, DatabaseConnectionManager
+        from caracal.db.models import Principal, AuthorityPolicy
+        from datetime import datetime
+        from uuid import uuid4
         
         # Load fresh config (in case it was just initialized)
         config = load_config()
         
-        # Initialize registry
-        registry = AgentRegistry(config.storage.agent_registry)
+        # Save database configuration if provided
+        db_config_data = results.get("database")
+        if db_config_data and isinstance(db_config_data, dict):
+            console.print()
+            console.print(f"  [{Colors.INFO}]{Icons.INFO} Saving database configuration...[/]")
+            
+            # Update config file with database settings
+            import yaml
+            from pathlib import Path
+            
+            config_path = wizard.context.get("config_path", Path.home() / ".caracal")
+            config_file = Path(config_path) / "config.yaml"
+            
+            if config_file.exists():
+                with open(config_file, 'r') as f:
+                    config_yaml = yaml.safe_load(f) or {}
+                
+                # Update database section
+                config_yaml['database'] = {
+                    'type': 'postgres',
+                    'host': db_config_data['host'],
+                    'port': db_config_data['port'],
+                    'database': db_config_data['database'],
+                    'user': db_config_data['username'],
+                    'password': db_config_data['password'],
+                }
+                
+                with open(config_file, 'w') as f:
+                    yaml.dump(config_yaml, f, default_flow_style=False)
+                
+                console.print(f"  [{Colors.SUCCESS}]{Icons.SUCCESS} Database configuration saved to config.yaml[/]")
+                
+                # Reload config
+                config = load_config()
         
-        # Handle Agent Registration
-        agent_data = results.get("agent")
-        if agent_data:
+        # Setup database connection
+        if hasattr(config, 'database') and config.database:
+            db_config = DatabaseConfig(
+                type=getattr(config.database, 'type', 'sqlite'),
+                host=getattr(config.database, 'host', 'localhost'),
+                port=getattr(config.database, 'port', 5432),
+                database=getattr(config.database, 'database', 'caracal'),
+                user=getattr(config.database, 'user', 'caracal'),
+                password=getattr(config.database, 'password', ''),
+                file_path=getattr(config.database, 'file_path', str(Path.home() / ".caracal" / "caracal.db")),
+            )
+        else:
+            # Default to SQLite
+            db_config = DatabaseConfig(
+                type='sqlite',
+                file_path=str(Path.home() / ".caracal" / "caracal.db"),
+            )
+        
+        db_manager = DatabaseConnectionManager(db_config)
+        db_manager.initialize()
+        
+        # Handle Principal Registration
+        principal_data = results.get("principal")
+        principal_id = None
+        
+        if principal_data:
             console.print()
             console.print(f"  [{Colors.INFO}]{Icons.INFO} Finalizing setup...[/]")
             
-            # Clear existing/dummy agents as requested
-            registry._agents = {}
-            registry._names = {}
-            registry._persist()
-            
             try:
-                agent = registry.register_agent(
-                    name=agent_data["name"],
-                    owner=agent_data["owner"],
-                )
-                results["agent_id"] = agent.agent_id
-                console.print(f"  [{Colors.SUCCESS}]{Icons.SUCCESS} Agent registered successfully.[/]")
+                with db_manager.session_scope() as db_session:
+                    principal = Principal(
+                        name=principal_data["name"],
+                        principal_type=principal_data["type"],
+                        owner=principal_data["owner"],
+                        created_at=datetime.utcnow(),
+                    )
+                    
+                    db_session.add(principal)
+                    db_session.flush()
+                    
+                    principal_id = principal.principal_id
+                    
+                console.print(f"  [{Colors.SUCCESS}]{Icons.SUCCESS} Principal registered successfully.[/]")
+                console.print(f"  [{Colors.DIM}]Principal ID: {principal_id}[/]")
             except Exception as e:
-                console.print(f"  [{Colors.ERROR}]{Icons.ERROR} Failed to register agent: {e}[/]")
+                console.print(f"  [{Colors.ERROR}]{Icons.ERROR} Failed to register principal: {e}[/]")
         
-        # Handle Policy Creation
+        # Handle Authority Policy Creation
         policy_data = results.get("policy")
-        if policy_data and results.get("agent_id"):
+        if policy_data and principal_id:
             try:
-                # Initialize PolicyStore with agent registry for validation
-                policy_store = PolicyStore(
-                    policy_path=config.storage.policy_store,
-                    agent_registry=registry
-                )
-                
-                # Clear existing policies to start fresh (matching user intent)
-                policy_store._policies = {}
-                policy_store._agent_policies = {}
-                policy_store._persist()
-                
-                policy_store.create_policy(
-                    agent_id=results["agent_id"],
-                    limit_amount=Decimal(str(policy_data["limit"])),
-                    time_window=policy_data["time_window"],
-                    currency=policy_data["currency"]
-                )
-                console.print(f"  [{Colors.SUCCESS}]{Icons.SUCCESS} Policy created successfully.[/]")
+                with db_manager.session_scope() as db_session:
+                    policy = AuthorityPolicy(
+                        policy_id=uuid4(),
+                        principal_id=principal_id,
+                        max_validity_seconds=policy_data["max_validity_seconds"],
+                        allowed_resource_patterns=policy_data["resource_patterns"],
+                        allowed_actions=policy_data["actions"],
+                        allow_delegation=True,
+                        max_delegation_depth=3,
+                        created_at=datetime.utcnow(),
+                        created_by=principal_data["owner"] if principal_data else "system",
+                        active=True,
+                    )
+                    
+                    db_session.add(policy)
+                    
+                console.print(f"  [{Colors.SUCCESS}]{Icons.SUCCESS} Authority policy created successfully.[/]")
             except Exception as e:
                 console.print(f"  [{Colors.ERROR}]{Icons.ERROR} Failed to create policy: {e}[/]")
+        
+        # Close database connection
+        db_manager.close()
                 
     except Exception as e:
         console.print(f"  [{Colors.ERROR}]{Icons.ERROR} Error saving configuration: {e}[/]")
+        import traceback
+        traceback.print_exc()
 
     # Update state
     if state:
