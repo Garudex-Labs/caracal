@@ -49,7 +49,7 @@ MAIN_MENU_ITEMS = [
     ),
     MenuItem(
         key="delegation",
-        label="Delegation Center",
+        label=" Delegation Center",
         description="Manage mandate delegation and relationships",
         icon="🏛",
     ),
