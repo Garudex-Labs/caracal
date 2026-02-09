@@ -47,11 +47,8 @@ class DelegationTokenClaims:
         expiration: Token expiration timestamp
         issued_at: Token issuance timestamp
         token_id: Unique token identifier (jti claim)
-        spending_limit: Maximum spending allowed
-        currency: Currency code (e.g., "USD")
         allowed_operations: List of allowed operation types
         max_delegation_depth: Maximum delegation chain depth
-        budget_category: Optional budget category
     """
     issuer: UUID
     subject: UUID
@@ -59,11 +56,8 @@ class DelegationTokenClaims:
     expiration: datetime
     issued_at: datetime
     token_id: UUID
-    spending_limit: Decimal
-    currency: str
     allowed_operations: List[str]
     max_delegation_depth: int
-    budget_category: Optional[str] = None
 
 
 class DelegationTokenManager:
@@ -120,12 +114,9 @@ class DelegationTokenManager:
         self,
         parent_agent_id: UUID,
         child_agent_id: UUID,
-        spending_limit: Decimal,
-        currency: str = "USD",
         expiration_seconds: int = 86400,
         allowed_operations: Optional[List[str]] = None,
-        max_delegation_depth: int = 2,
-        budget_category: Optional[str] = None
+        max_delegation_depth: int = 2
     ) -> str:
         """
         Generate ASE v1.0.8 delegation token.
@@ -136,12 +127,9 @@ class DelegationTokenManager:
         Args:
             parent_agent_id: Parent agent ID (issuer)
             child_agent_id: Child agent ID (subject)
-            spending_limit: Maximum spending allowed
-            currency: Currency code (default: "USD")
             expiration_seconds: Token validity duration (default: 86400 = 24 hours)
             allowed_operations: List of allowed operations (default: ["api_call", "mcp_tool"])
             max_delegation_depth: Maximum delegation chain depth (default: 2)
-            budget_category: Optional budget category
             
         Returns:
             JWT token string
@@ -205,15 +193,9 @@ class DelegationTokenManager:
             "jti": token_id,
             
             # ASE v1.0.8 specific claims
-            "spendingLimit": str(spending_limit),
-            "currency": currency,
             "allowedOperations": allowed_operations,
             "maxDelegationDepth": max_delegation_depth,
         }
-        
-        # Add optional budget category
-        if budget_category is not None:
-            payload["budgetCategory"] = budget_category
         
         # Build JWT header
         headers = {
@@ -238,7 +220,7 @@ class DelegationTokenManager:
         
         logger.info(
             f"Generated delegation token: parent={parent_agent_id}, child={child_agent_id}, "
-            f"limit={spending_limit} {currency}, expires={expiration.isoformat()}"
+            f"expires={expiration.isoformat()}"
         )
         
         return token
@@ -382,11 +364,8 @@ class DelegationTokenManager:
                 expiration = datetime.fromtimestamp(payload["exp"])
                 issued_at = datetime.fromtimestamp(payload["iat"])
                 token_id = UUID(payload["jti"])
-                spending_limit = Decimal(payload["spendingLimit"])
-                currency = payload["currency"]
                 allowed_operations = payload["allowedOperations"]
                 max_delegation_depth = payload["maxDelegationDepth"]
-                budget_category = payload.get("budgetCategory")
                 
             except (KeyError, ValueError, TypeError) as e:
                 # Missing or invalid claims - fail closed (Requirement 23.3)
@@ -411,16 +390,12 @@ class DelegationTokenManager:
                 expiration=expiration,
                 issued_at=issued_at,
                 token_id=token_id,
-                spending_limit=spending_limit,
-                currency=currency,
                 allowed_operations=allowed_operations,
-                max_delegation_depth=max_delegation_depth,
-                budget_category=budget_category
+                max_delegation_depth=max_delegation_depth
             )
             
             logger.info(
-                f"Validated delegation token: issuer={issuer}, subject={subject}, "
-                f"limit={spending_limit} {currency}"
+                f"Validated delegation token: issuer={issuer}, subject={subject}"
             )
             
             return claims
@@ -433,46 +408,3 @@ class DelegationTokenManager:
             raise TokenValidationError(
                 f"Unexpected error validating token: {e}"
             ) from e
-
-    def check_spending_limit(
-        self,
-        token_claims: DelegationTokenClaims,
-        agent_id: UUID,
-        current_spending: Decimal
-    ) -> bool:
-        """
-        Check if agent is within delegation token spending limit.
-        
-        Args:
-            token_claims: Validated delegation token claims
-            agent_id: Agent ID to check (should match token subject)
-            current_spending: Current spending amount
-            
-        Returns:
-            True if within limit, False otherwise
-            
-        Requirements: 13.3, 13.4
-        """
-        # Verify agent matches token subject
-        if agent_id != token_claims.subject:
-            logger.warning(
-                f"Agent ID mismatch: token subject={token_claims.subject}, "
-                f"checking agent={agent_id}"
-            )
-            return False
-        
-        # Check spending limit
-        within_limit = current_spending <= token_claims.spending_limit
-        
-        if within_limit:
-            logger.debug(
-                f"Agent {agent_id} within spending limit: "
-                f"{current_spending} <= {token_claims.spending_limit} {token_claims.currency}"
-            )
-        else:
-            logger.warning(
-                f"Agent {agent_id} exceeded spending limit: "
-                f"{current_spending} > {token_claims.spending_limit} {token_claims.currency}"
-            )
-        
-        return within_limit
