@@ -21,10 +21,12 @@ from caracal.logging_config import get_logger
 
 logger = get_logger(__name__)
 
-# Import AuthorityLedgerWriter for type hints (avoid circular import)
+# Import AuthorityLedgerWriter, RedisMandateCache, and MandateIssuanceRateLimiter for type hints (avoid circular import)
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from caracal.core.authority_ledger import AuthorityLedgerWriter
+    from caracal.redis.mandate_cache import RedisMandateCache
+    from caracal.core.rate_limiter import MandateIssuanceRateLimiter
 
 
 class MandateManager:
@@ -34,20 +36,27 @@ class MandateManager:
     Handles mandate issuance, revocation, and delegation with validation
     against authority policies and fail-closed semantics.
     
-    Requirements: 5.1, 5.2, 5.3
+    Requirements: 5.1, 5.2, 5.3, 14.4, 14.9
     """
     
-    def __init__(self, db_session: Session, ledger_writer=None):
+    def __init__(self, db_session: Session, ledger_writer=None, mandate_cache=None, rate_limiter=None):
         """
         Initialize MandateManager.
         
         Args:
             db_session: SQLAlchemy database session
             ledger_writer: AuthorityLedgerWriter instance (optional, for recording events)
+            mandate_cache: RedisMandateCache instance (optional, for caching mandates)
+            rate_limiter: MandateIssuanceRateLimiter instance (optional, for rate limiting)
         """
         self.db_session = db_session
         self.ledger_writer = ledger_writer
-        logger.info("MandateManager initialized")
+        self.mandate_cache = mandate_cache
+        self.rate_limiter = rate_limiter
+        logger.info(
+            f"MandateManager initialized (cache_enabled={mandate_cache is not None}, "
+            f"rate_limiter_enabled={rate_limiter is not None})"
+        )
     
     def _get_active_policy(self, principal_id: UUID) -> Optional[AuthorityPolicy]:
         """
@@ -231,6 +240,22 @@ class MandateManager:
             f"Issuing mandate: issuer={issuer_id}, subject={subject_id}, "
             f"validity={validity_seconds}s, parent={parent_mandate_id}"
         )
+        
+        # Check rate limit if rate limiter is configured
+        if self.rate_limiter:
+            try:
+                self.rate_limiter.check_rate_limit(issuer_id)
+            except Exception as e:
+                # Rate limit exceeded
+                error_msg = str(e)
+                logger.warning(error_msg)
+                self._record_ledger_event(
+                    event_type="denied",
+                    principal_id=issuer_id,
+                    decision="denied",
+                    denial_reason=error_msg
+                )
+                raise ValueError(error_msg)
         
         # Validate issuer has active authority policy
         issuer_policy = self._get_active_policy(issuer_id)
@@ -441,6 +466,13 @@ class MandateManager:
             f"(valid for {validity_seconds}s, delegation_depth={delegation_depth})"
         )
         
+        # Record rate limit usage if rate limiter is configured
+        if self.rate_limiter:
+            try:
+                self.rate_limiter.record_request(issuer_id)
+            except Exception as e:
+                logger.warning(f"Failed to record rate limit: {e}")
+        
         return mandate
 
     def revoke_mandate(
@@ -522,6 +554,13 @@ class MandateManager:
             logger.error(error_msg, exc_info=True)
             self.db_session.rollback()
             raise RuntimeError(error_msg)
+        
+        # Invalidate cache if available
+        if self.mandate_cache:
+            try:
+                self.mandate_cache.invalidate_mandate(mandate_id)
+            except Exception as e:
+                logger.warning(f"Failed to invalidate mandate cache: {e}")
         
         # Create authority ledger event for revocation
         self._record_ledger_event(
