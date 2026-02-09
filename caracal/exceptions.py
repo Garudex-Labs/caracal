@@ -299,3 +299,8 @@ class InvalidMandateError(AuthorityError):
 class DelegationError(AuthorityError):
     """Raised when delegation operations fail."""
     pass
+
+
+class RateLimitExceededError(AuthorityError):
+    """Raised when rate limit is exceeded for mandate issuance."""
+    pass
