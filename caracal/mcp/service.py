@@ -26,10 +26,9 @@ from pydantic import BaseModel, Field
 
 from caracal._version import __version__
 from caracal.mcp.adapter import MCPAdapter, MCPContext, MCPResult
-from caracal.mcp.cost_calculator import MCPCostCalculator
-from caracal.core.policy import PolicyEvaluator
+from caracal.core.authority import AuthorityEvaluator
 from caracal.core.metering import MeteringCollector
-from caracal.exceptions import BudgetExceededError, CaracalError
+from caracal.exceptions import CaracalError
 from caracal.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -121,7 +120,7 @@ class MCPAdapterService:
         self,
         config: MCPServiceConfig,
         mcp_adapter: MCPAdapter,
-        policy_evaluator: PolicyEvaluator,
+        authority_evaluator: AuthorityEvaluator,
         metering_collector: MeteringCollector,
         db_connection_manager: Optional[Any] = None
     ):
@@ -131,13 +130,13 @@ class MCPAdapterService:
         Args:
             config: MCPServiceConfig with server settings
             mcp_adapter: MCPAdapter for budget enforcement
-            policy_evaluator: PolicyEvaluator for budget checks
+            authority_evaluator: AuthorityEvaluator for mandate checks
             metering_collector: MeteringCollector for metering events
             db_connection_manager: Optional DatabaseConnectionManager for health checks
         """
         self.config = config
         self.mcp_adapter = mcp_adapter
-        self.policy_evaluator = policy_evaluator
+        self.authority_evaluator = authority_evaluator
         self.metering_collector = metering_collector
         self.db_connection_manager = db_connection_manager
         
@@ -340,18 +339,6 @@ class MCPAdapterService:
                     metadata=result.metadata
                 )
                 
-            except BudgetExceededError as e:
-                self._denied_count += 1
-                logger.warning(
-                    f"Budget exceeded for tool call: tool={request.tool_name}, "
-                    f"agent={request.agent_id}, error={e}"
-                )
-                return MCPServiceResponse(
-                    success=False,
-                    result=None,
-                    error=f"Budget exceeded: {e}",
-                    metadata={"error_type": "budget_exceeded"}
-                )
             except CaracalError as e:
                 self._error_count += 1
                 logger.error(
@@ -440,18 +427,6 @@ class MCPAdapterService:
                     metadata=result.metadata
                 )
                 
-            except BudgetExceededError as e:
-                self._denied_count += 1
-                logger.warning(
-                    f"Budget exceeded for resource read: uri={request.resource_uri}, "
-                    f"agent={request.agent_id}, error={e}"
-                )
-                return MCPServiceResponse(
-                    success=False,
-                    result=None,
-                    error=f"Budget exceeded: {e}",
-                    metadata={"error_type": "budget_exceeded"}
-                )
             except CaracalError as e:
                 self._error_count += 1
                 logger.error(
@@ -662,10 +637,10 @@ async def main():
     # Note: In a real deployment, these would be initialized from the main config
     # For now, we'll create minimal instances for demonstration
     from caracal.db.connection import DatabaseConnectionManager
-    from caracal.db.models import Base
     from caracal.core.identity import AgentRegistry
-    from caracal.core.policy import PolicyStore
-    from caracal.core.ledger import LedgerWriter, LedgerQuery
+    from caracal.core.authority import AuthorityEvaluator
+    from caracal.core.authority_ledger import AuthorityLedgerWriter
+    from caracal.core.ledger import LedgerWriter
     
     # TODO: Load database config from main config file
     # For now, use environment variables
@@ -685,14 +660,13 @@ async def main():
     
     # Initialize core components
     agent_registry = AgentRegistry(session)
-    policy_store = PolicyStore(session)
     ledger_writer = LedgerWriter(session)
-    ledger_query = LedgerQuery(session)
+    authority_ledger_writer = AuthorityLedgerWriter(session)
     
-    # Initialize policy evaluator
-    policy_evaluator = PolicyEvaluator(
-        policy_store=policy_store,
-        ledger_query=ledger_query
+    # Initialize authority evaluator
+    authority_evaluator = AuthorityEvaluator(
+        db_session=session,
+        # authority_ledger=authority_ledger_writer  # If needed by evaluator, but currently it takes session
     )
     
     # Initialize metering collector
@@ -700,21 +674,17 @@ async def main():
         ledger_writer=ledger_writer
     )
     
-    # Initialize MCP cost calculator
-    cost_calculator = MCPCostCalculator()
-    
     # Initialize MCP adapter
     mcp_adapter = MCPAdapter(
-        policy_evaluator=policy_evaluator,
-        metering_collector=metering_collector,
-        # cost_calculator=cost_calculator
+        authority_evaluator=authority_evaluator,
+        metering_collector=metering_collector
     )
     
     # Initialize MCP service
     service = MCPAdapterService(
         config=config,
         mcp_adapter=mcp_adapter,
-        policy_evaluator=policy_evaluator,
+        authority_evaluator=authority_evaluator,
         metering_collector=metering_collector,
         db_connection_manager=db_manager
     )
