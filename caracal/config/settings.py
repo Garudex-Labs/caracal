@@ -570,9 +570,9 @@ def _build_config_from_dict(config_data: Dict[str, Any]) -> CaracalConfig:
     # Parse defaults configuration (optional)
     defaults_data = config_data.get('defaults', {})
     defaults = DefaultsConfig(
-        currency=defaults_data.get('currency', default_config.defaults.currency),
+    return DefaultsConfig(
         time_window=defaults_data.get('time_window', default_config.defaults.time_window),
-        default_budget=defaults_data.get('default_budget', default_config.defaults.default_budget),
+    )
     )
     
     # Parse logging configuration (optional)
@@ -650,7 +650,8 @@ def _build_config_from_dict(config_data: Dict[str, Any]) -> CaracalConfig:
         enabled=mcp_adapter_data.get('enabled', default_config.mcp_adapter.enabled),
         listen_address=mcp_adapter_data.get('listen_address', default_config.mcp_adapter.listen_address),
         mcp_server_urls=mcp_adapter_data.get('mcp_server_urls', default_config.mcp_adapter.mcp_server_urls),
-        cost_rules=mcp_adapter_data.get('cost_rules', default_config.mcp_adapter.cost_rules),
+        health_check_enabled=mcp_adapter_data.get('health_check_enabled', default_config.mcp_adapter.health_check_enabled),
+    )
         health_check_enabled=mcp_adapter_data.get('health_check_enabled', default_config.mcp_adapter.health_check_enabled),
     )
     
