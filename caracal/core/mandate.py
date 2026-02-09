@@ -564,3 +564,146 @@ class MandateManager:
             f"Successfully revoked mandate {mandate_id} "
             f"(cascade={cascade}, children_revoked={len(child_mandates) if cascade else 0})"
         )
+
+    def delegate_mandate(
+        self,
+        parent_mandate_id: UUID,
+        child_subject_id: UUID,
+        resource_scope: List[str],
+        action_scope: List[str],
+        validity_seconds: int
+    ) -> ExecutionMandate:
+        """
+        Create a delegated mandate from a parent mandate.
+        
+        Validates:
+        - Parent mandate is valid
+        - Child scope is subset of parent scope
+        - Child validity is within parent validity
+        - Delegation depth is within limits
+        
+        Args:
+            parent_mandate_id: The parent mandate ID to delegate from
+            child_subject_id: Principal ID of the child subject
+            resource_scope: Resource scope for the child mandate (must be subset of parent)
+            action_scope: Action scope for the child mandate (must be subset of parent)
+            validity_seconds: Validity period for the child mandate (must be within parent)
+        
+        Returns:
+            Delegated ExecutionMandate object
+        
+        Raises:
+            ValueError: If validation fails
+            RuntimeError: If delegation fails
+        
+        Requirements: 8.1, 8.2, 8.3, 8.4, 8.5, 8.6
+        """
+        logger.info(
+            f"Delegating mandate: parent={parent_mandate_id}, "
+            f"child_subject={child_subject_id}, validity={validity_seconds}s"
+        )
+        
+        # Get parent mandate
+        parent_mandate = self.db_session.query(ExecutionMandate).filter(
+            ExecutionMandate.mandate_id == parent_mandate_id
+        ).first()
+        
+        if not parent_mandate:
+            error_msg = f"Parent mandate {parent_mandate_id} not found"
+            logger.warning(error_msg)
+            raise ValueError(error_msg)
+        
+        # Validate parent mandate is valid (not revoked, not expired)
+        if parent_mandate.revoked:
+            error_msg = f"Parent mandate {parent_mandate_id} is revoked"
+            logger.warning(error_msg)
+            raise ValueError(error_msg)
+        
+        current_time = datetime.utcnow()
+        if current_time > parent_mandate.valid_until:
+            error_msg = f"Parent mandate {parent_mandate_id} is expired"
+            logger.warning(error_msg)
+            raise ValueError(error_msg)
+        
+        if current_time < parent_mandate.valid_from:
+            error_msg = f"Parent mandate {parent_mandate_id} is not yet valid"
+            logger.warning(error_msg)
+            raise ValueError(error_msg)
+        
+        # Validate child scope is subset of parent scope
+        if not self._validate_scope_subset(resource_scope, parent_mandate.resource_scope):
+            error_msg = "Child resource scope must be subset of parent scope"
+            logger.warning(error_msg)
+            raise ValueError(error_msg)
+        
+        if not self._validate_scope_subset(action_scope, parent_mandate.action_scope):
+            error_msg = "Child action scope must be subset of parent scope"
+            logger.warning(error_msg)
+            raise ValueError(error_msg)
+        
+        # Validate child validity is within parent validity
+        valid_from = datetime.utcnow()
+        valid_until = valid_from + timedelta(seconds=validity_seconds)
+        
+        if valid_from < parent_mandate.valid_from:
+            error_msg = "Child mandate cannot start before parent mandate"
+            logger.warning(error_msg)
+            raise ValueError(error_msg)
+        
+        if valid_until > parent_mandate.valid_until:
+            error_msg = "Child mandate cannot extend beyond parent mandate"
+            logger.warning(error_msg)
+            raise ValueError(error_msg)
+        
+        # Validate delegation depth is within limits
+        # Get the issuer's policy to check delegation limits
+        issuer_policy = self._get_active_policy(parent_mandate.subject_id)
+        if not issuer_policy:
+            error_msg = (
+                f"Subject {parent_mandate.subject_id} does not have an active authority policy "
+                f"and cannot delegate"
+            )
+            logger.warning(error_msg)
+            raise ValueError(error_msg)
+        
+        if not issuer_policy.allow_delegation:
+            error_msg = (
+                f"Subject {parent_mandate.subject_id} is not allowed to delegate "
+                f"according to their authority policy"
+            )
+            logger.warning(error_msg)
+            raise ValueError(error_msg)
+        
+        child_delegation_depth = parent_mandate.delegation_depth + 1
+        if child_delegation_depth > issuer_policy.max_delegation_depth:
+            error_msg = (
+                f"Delegation depth {child_delegation_depth} exceeds policy limit "
+                f"{issuer_policy.max_delegation_depth}"
+            )
+            logger.warning(error_msg)
+            raise ValueError(error_msg)
+        
+        # Call issue_mandate with parent_mandate_id to create the delegated mandate
+        # The issuer is the subject of the parent mandate (they are delegating their authority)
+        try:
+            delegated_mandate = self.issue_mandate(
+                issuer_id=parent_mandate.subject_id,
+                subject_id=child_subject_id,
+                resource_scope=resource_scope,
+                action_scope=action_scope,
+                validity_seconds=validity_seconds,
+                intent=None,
+                parent_mandate_id=parent_mandate_id
+            )
+            
+            logger.info(
+                f"Successfully delegated mandate {delegated_mandate.mandate_id} "
+                f"from parent {parent_mandate_id} to subject {child_subject_id}"
+            )
+            
+            return delegated_mandate
+            
+        except Exception as e:
+            error_msg = f"Failed to delegate mandate: {e}"
+            logger.error(error_msg, exc_info=True)
+            raise RuntimeError(error_msg)
