@@ -27,8 +27,7 @@ from fastapi.responses import JSONResponse
 
 from caracal.gateway.auth import Authenticator, AuthenticationMethod, AuthenticationResult
 from caracal.gateway.replay_protection import ReplayProtection, ReplayCheckResult
-from caracal.gateway.cache import PolicyCache, PolicyCacheConfig, CachedPolicy
-from caracal.core.policy import PolicyEvaluator, PolicyDecision
+from caracal.core.authority import AuthorityEvaluator
 from caracal.core.metering import MeteringCollector
 from caracal.kafka.producer import KafkaEventProducer
 from caracal.core.error_handling import (
@@ -39,12 +38,11 @@ from caracal.core.error_handling import (
     ErrorContext
 )
 from caracal.exceptions import (
-    BudgetExceededError,
-    PolicyEvaluationError,
+    CaracalError,
 )
 from caracal._version import __version__
 from caracal.logging_config import get_logger
-from caracal.monitoring.metrics import get_metrics_registry, PolicyDecisionType
+from caracal.monitoring.metrics import get_metrics_registry
 
 logger = get_logger(__name__)
 
@@ -68,9 +66,6 @@ class GatewayConfig:
         timestamp_window_seconds: Maximum timestamp age in seconds (default: 300)
         request_timeout_seconds: Timeout for forwarded requests (default: 30)
         max_request_size_mb: Maximum request body size in MB (default: 10)
-        enable_policy_cache: Enable policy cache for degraded mode (default: True)
-        policy_cache_ttl: TTL for cached policies in seconds (default: 60)
-        policy_cache_max_size: Maximum number of cached policies (default: 10000)
         enable_kafka: Enable Kafka event publishing (default: False for v0.2 compatibility)
     """
     listen_address: str = "0.0.0.0:8443"
@@ -86,9 +81,6 @@ class GatewayConfig:
     timestamp_window_seconds: int = 300
     request_timeout_seconds: int = 30
     max_request_size_mb: int = 10
-    enable_policy_cache: bool = True
-    policy_cache_ttl: int = 60
-    policy_cache_max_size: int = 10000
     enable_kafka: bool = False
 
 
@@ -96,8 +88,8 @@ class GatewayProxy:
     """
     Gateway Proxy server for network-enforced policy enforcement.
     
-    Intercepts outbound API calls from agents and enforces budget policies
-    at the network layer. Provides authentication, policy evaluation,
+    Intercepts outbound API calls from agents and enforces mandates
+    at the network layer. Provides authentication, authority evaluation,
     request forwarding, and metering.
     
     Requirements: 1.1, 1.2, 1.6
@@ -107,10 +99,9 @@ class GatewayProxy:
         self,
         config: GatewayConfig,
         authenticator: Authenticator,
-        policy_evaluator: PolicyEvaluator,
+        authority_evaluator: AuthorityEvaluator,
         metering_collector: MeteringCollector,
         replay_protection: Optional[ReplayProtection] = None,
-        policy_cache: Optional[PolicyCache] = None,
         db_connection_manager: Optional[Any] = None,
         kafka_producer: Optional[KafkaEventProducer] = None,
         allowlist_manager: Optional[Any] = None
@@ -121,36 +112,21 @@ class GatewayProxy:
         Args:
             config: GatewayConfig with server settings
             authenticator: Authenticator for agent authentication
-            policy_evaluator: PolicyEvaluator for budget checks
-            metering_collector: MeteringCollector for final charges
+            authority_evaluator: AuthorityEvaluator for mandate checks
+            metering_collector: MeteringCollector for usage tracking
             replay_protection: Optional ReplayProtection for replay attack prevention
-            policy_cache: Optional PolicyCache for degraded mode operation
             db_connection_manager: Optional DatabaseConnectionManager for health checks
             kafka_producer: Optional KafkaEventProducer for v0.3 event publishing
             allowlist_manager: Optional AllowlistManager for resource access control (v0.3)
         """
         self.config = config
         self.authenticator = authenticator
-        self.policy_evaluator = policy_evaluator
+        self.authority_evaluator = authority_evaluator
         self.metering_collector = metering_collector
         self.replay_protection = replay_protection
         self.db_connection_manager = db_connection_manager
         self.kafka_producer = kafka_producer
         self.allowlist_manager = allowlist_manager
-        
-        # Initialize policy cache if enabled and not provided
-        if config.enable_policy_cache and policy_cache is None:
-            cache_config = PolicyCacheConfig(
-                ttl_seconds=config.policy_cache_ttl,
-                max_size=config.policy_cache_max_size
-            )
-            self.policy_cache = PolicyCache(cache_config)
-            logger.info(
-                f"Initialized policy cache: ttl={cache_config.ttl_seconds}s, "
-                f"max_size={cache_config.max_size}"
-            )
-        else:
-            self.policy_cache = policy_cache
         
         # Create FastAPI app
         self.app = FastAPI(
@@ -181,7 +157,6 @@ class GatewayProxy:
         logger.info(
             f"Initialized GatewayProxy with auth_mode={config.auth_mode}, "
             f"replay_protection={replay_protection is not None}, "
-            f"policy_cache={self.policy_cache is not None}, "
             f"kafka_enabled={config.enable_kafka}"
         )
     
@@ -197,7 +172,6 @@ class GatewayProxy:
             - Database connectivity (if db_connection_manager provided)
             - Kafka connectivity (if kafka_producer provided)
             - Redis connectivity (if redis_client provided)
-            - Policy cache status (if enabled)
             
             Returns:
             - 200 OK: Service is healthy and all dependencies are available
@@ -218,28 +192,6 @@ class GatewayProxy:
             
             # Perform health checks
             health_result = await health_checker.check_health()
-            
-            # Add policy cache status
-            if self.policy_cache:
-                cache_stats = self.policy_cache.get_stats()
-                health_result.checks.append(
-                    type('HealthCheckResult', (), {
-                        'name': 'policy_cache',
-                        'status': HealthStatus.HEALTHY,
-                        'message': 'Policy cache enabled',
-                        'details': {
-                            'size': cache_stats.size,
-                            'max_size': cache_stats.max_size,
-                            'hit_rate': cache_stats.hit_rate
-                        },
-                        'to_dict': lambda self: {
-                            'name': self.name,
-                            'status': self.status.value,
-                            'message': self.message,
-                            'details': self.details
-                        }
-                    })()
-                )
             
             # Determine HTTP status code
             if health_result.status == HealthStatus.HEALTHY:
@@ -287,19 +239,6 @@ class GatewayProxy:
             if self.replay_protection:
                 stats["replay_protection"] = self.replay_protection.get_stats()
             
-            # Add policy cache stats if available
-            if self.policy_cache:
-                cache_stats = self.policy_cache.get_stats()
-                stats["policy_cache"] = {
-                    "hit_count": cache_stats.hit_count,
-                    "miss_count": cache_stats.miss_count,
-                    "hit_rate": cache_stats.hit_rate,
-                    "size": cache_stats.size,
-                    "max_size": cache_stats.max_size,
-                    "eviction_count": cache_stats.eviction_count,
-                    "invalidation_count": cache_stats.invalidation_count,
-                }
-            
             return stats
         
         @self.app.api_route("/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"])
@@ -319,7 +258,7 @@ class GatewayProxy:
     
     async def _handle_request(self, request: Request, path: str) -> Response:
         """
-        Handle incoming request with authentication, policy check, and forwarding.
+        Handle incoming request with authentication, authority check, and forwarding.
         
         Args:
             request: FastAPI Request object
@@ -448,273 +387,13 @@ class GatewayProxy:
                         content=error_response.to_dict()
                     )
             
-            # 2.5. Check resource allowlist (v0.3)
-            # Extract target URL for allowlist check
+            # 3. Check Authority (Mandate Validation)
+            # Extract Mandate ID from headers
+            mandate_id_str = request.headers.get("X-Caracal-Mandate-ID")
             target_url = request.headers.get("X-Caracal-Target-URL")
             
-            if self.allowlist_manager and target_url:
-                try:
-                    allowlist_decision = self.allowlist_manager.check_resource(
-                        agent_id=agent.agent_id,
-                        resource_url=target_url
-                    )
-                    
-                    if not allowlist_decision.allowed:
-                        self._allowlist_blocks += 1
-                        
-                        logger.warning(
-                            f"Resource {target_url} denied by allowlist for agent {agent.agent_id}: "
-                            f"{allowlist_decision.reason}"
-                        )
-                        
-                        # Record request metric
-                        if metrics:
-                            duration = time.time() - start_time
-                            metrics.record_gateway_request(
-                                method=request.method,
-                                status_code=403,
-                                auth_method=auth_result.method.value,
-                                duration_seconds=duration
-                            )
-                        
-                        return JSONResponse(
-                            status_code=status.HTTP_403_FORBIDDEN,
-                            content={
-                                "error": "resource_not_allowed",
-                                "message": allowlist_decision.reason,
-                                "resource": target_url
-                            }
-                        )
-                    
-                    self._allowlist_allows += 1
-                    
-                    logger.info(
-                        f"Resource {target_url} allowed by allowlist for agent {agent.agent_id}: "
-                        f"{allowlist_decision.reason}"
-                    )
-                    
-                except Exception as allowlist_error:
-                    # Log error but don't fail the request if allowlist check fails
-                    # This ensures backward compatibility and prevents allowlist issues
-                    # from blocking legitimate requests
-                    logger.error(
-                        f"Allowlist check failed for agent {agent.agent_id}, allowing request: {allowlist_error}",
-                        exc_info=True
-                    )
-            
-            # 3. Evaluate budget policy
-            # Extract estimated cost from request headers (optional)
-            estimated_cost_str = request.headers.get("X-Caracal-Estimated-Cost")
-            estimated_cost = None
-            if estimated_cost_str:
-                try:
-                    from decimal import Decimal
-                    estimated_cost = Decimal(estimated_cost_str)
-                except Exception as e:
-                    logger.warning(f"Invalid estimated cost header: {estimated_cost_str}, error: {e}")
-            
-            # Call PolicyEvaluator to check budget
-            # If policy service is unavailable, use cached policy for degraded mode
-            policy_decision = None
-            used_cache = False
-            cache_age_seconds = None
-            
-            # Time policy evaluation
-            policy_eval_start = time.time()
-            
-            try:
-                policy_decision = self.policy_evaluator.check_budget(
-                    agent_id=str(agent.agent_id),
-                    estimated_cost=estimated_cost
-                )
-                
-                # Record policy evaluation metric
-                if metrics:
-                    policy_eval_duration = time.time() - policy_eval_start
-                    decision_type = PolicyDecisionType.ALLOWED if policy_decision.allowed else PolicyDecisionType.DENIED
-                    metrics.record_policy_evaluation(
-                        decision=decision_type,
-                        agent_id=str(agent.agent_id),
-                        duration_seconds=policy_eval_duration
-                    )
-                
-                # Cache the policy decision for future degraded mode use
-                if self.policy_cache and policy_decision.allowed:
-                    # Get the policy from policy store to cache it
-                    try:
-                        policies = self.policy_evaluator.policy_store.get_policies(str(agent.agent_id))
-                        if policies:
-                            await self.policy_cache.put(str(agent.agent_id), policies[0])
-                    except Exception as cache_error:
-                        logger.warning(f"Failed to cache policy for agent {agent.agent_id}: {cache_error}")
-                
-            except PolicyEvaluationError as e:
-                # Policy service unavailable - try degraded mode with cache
-                # Handle with fail-closed semantics
-                error_handler = get_error_handler("gateway-proxy")
-                context = error_handler.handle_error(
-                    error=e,
-                    category=ErrorCategory.POLICY_EVALUATION,
-                    operation="check_budget",
-                    agent_id=str(agent.agent_id),
-                    request_id=request.headers.get("X-Request-ID"),
-                    metadata={
-                        "agent_name": agent.name,
-                        "estimated_cost": str(estimated_cost) if estimated_cost else None,
-                        "path": path,
-                        "method": request.method
-                    },
-                    severity=ErrorSeverity.HIGH
-                )
-                
-                logger.warning(
-                    f"Policy evaluation failed for agent {agent.agent_id}: {e}, "
-                    f"attempting degraded mode with cache"
-                )
-                
-                # Record policy evaluation error metric
-                if metrics:
-                    policy_eval_duration = time.time() - policy_eval_start
-                    metrics.record_policy_evaluation(
-                        decision=PolicyDecisionType.ERROR,
-                        agent_id=str(agent.agent_id),
-                        duration_seconds=policy_eval_duration
-                    )
-                
-                if self.policy_cache:
-                    cached_policy = await self.policy_cache.get(str(agent.agent_id))
-                    
-                    if cached_policy:
-                        # Use cached policy for degraded mode operation
-                        used_cache = True
-                        self._degraded_mode_count += 1
-                        cache_age_seconds = (datetime.utcnow() - cached_policy.cached_at).total_seconds()
-                        
-                        # Record degraded mode metric
-                        if metrics:
-                            metrics.record_degraded_mode_request()
-                        
-                        logger.warning(
-                            f"Using cached policy for agent {agent.agent_id} in degraded mode, "
-                            f"cache_age={cache_age_seconds:.1f}s"
-                        )
-                        
-                        # Perform simplified budget check with cached policy
-                        # Note: This doesn't check current spending or provisional charges
-                        # It's a best-effort degraded mode operation
-                        from decimal import Decimal
-                        limit = Decimal(cached_policy.policy.limit_amount)
-                        
-                        # Allow request if estimated cost is within limit
-                        # This is a simplified check - we can't query current spending in degraded mode
-                        if estimated_cost is None or estimated_cost <= limit:
-                            policy_decision = PolicyDecision(
-                                allowed=True,
-                                reason="Within budget (degraded mode - cached policy)",
-                                remaining_budget=limit - (estimated_cost if estimated_cost else Decimal('0')),
-                                provisional_charge_id=None  # No provisional charge in degraded mode
-                            )
-                        else:
-                            policy_decision = PolicyDecision(
-                                allowed=False,
-                                reason=f"Estimated cost {estimated_cost} exceeds cached policy limit {limit} (degraded mode)",
-                                remaining_budget=Decimal('0')
-                            )
-                    else:
-                        # No cached policy available - fail closed
-                        error_response = error_handler.create_error_response(context, include_details=False)
-                        
-                        logger.error(
-                            f"Policy evaluation failed and no cached policy available for agent {agent.agent_id}, "
-                            f"failing closed (Requirement 23.3)"
-                        )
-                        
-                        # Record request metric
-                        if metrics:
-                            duration = time.time() - start_time
-                            metrics.record_gateway_request(
-                                method=request.method,
-                                status_code=503,
-                                auth_method=auth_result.method.value,
-                                duration_seconds=duration
-                            )
-                        
-                        return JSONResponse(
-                            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                            content=error_response.to_dict()
-                        )
-                else:
-                    # Policy cache not enabled - fail closed
-                    error_response = error_handler.create_error_response(context, include_details=False)
-                    
-                    logger.error(
-                        f"Policy evaluation failed for agent {agent.agent_id} and policy cache not enabled, "
-                        f"failing closed (Requirement 23.3)"
-                    )
-                    
-                    # Record request metric
-                    if metrics:
-                        duration = time.time() - start_time
-                        metrics.record_gateway_request(
-                            method=request.method,
-                            status_code=503,
-                            auth_method=auth_result.method.value,
-                            duration_seconds=duration
-                        )
-                    
-                    return JSONResponse(
-                        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                        content=error_response.to_dict()
-                    )
-            
-            # Return 403 on budget denial (Requirement 1.5)
-            if not policy_decision.allowed:
-                self._denied_count += 1
-                logger.info(
-                    f"Budget check denied for agent {agent.agent_id}: {policy_decision.reason}"
-                )
-                
-                # Record request metric
-                if metrics:
-                    duration = time.time() - start_time
-                    metrics.record_gateway_request(
-                        method=request.method,
-                        status_code=403,
-                        auth_method=auth_result.method.value,
-                        duration_seconds=duration
-                    )
-                
-                return JSONResponse(
-                    status_code=status.HTTP_403_FORBIDDEN,
-                    content={
-                        "error": "budget_exceeded",
-                        "message": policy_decision.reason,
-                        "remaining_budget": str(policy_decision.remaining_budget) if policy_decision.remaining_budget is not None else None
-                    }
-                )
-            
-            # Budget check passed - provisional charge created if manager available (Requirement 1.3, 1.4)
-            logger.info(
-                f"Budget check allowed for agent {agent.agent_id}, "
-                f"remaining={policy_decision.remaining_budget}, "
-                f"provisional_charge_id={policy_decision.provisional_charge_id}"
-            )
-            
-            # 4. Forward request to target API
-            target_url = request.headers.get("X-Caracal-Target-URL")
             if not target_url:
                 logger.warning(f"Missing X-Caracal-Target-URL header for agent {agent.agent_id}")
-                
-                # Record request metric
-                if metrics:
-                    duration = time.time() - start_time
-                    metrics.record_gateway_request(
-                        method=request.method,
-                        status_code=400,
-                        auth_method=auth_result.method.value,
-                        duration_seconds=duration
-                    )
-                
                 return JSONResponse(
                     status_code=status.HTTP_400_BAD_REQUEST,
                     content={
@@ -722,22 +401,86 @@ class GatewayProxy:
                         "message": "X-Caracal-Target-URL header is required"
                     }
                 )
-            
+
+            if not mandate_id_str:
+                logger.warning(f"Missing X-Caracal-Mandate-ID header for agent {agent.agent_id}")
+                return JSONResponse(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    content={
+                        "error": "missing_mandate_id",
+                        "message": "X-Caracal-Mandate-ID header is required"
+                    }
+                )
+                
+            try:
+                # Validate Mandate ID format
+                from uuid import UUID
+                mandate_id = UUID(mandate_id_str)
+            except ValueError:
+                logger.warning(f"Invalid mandate_id format: {mandate_id_str}")
+                return JSONResponse(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    content={
+                        "error": "invalid_mandate_id",
+                        "message": "Invalid mandate_id format"
+                    }
+                )
+
+            # Fetch and Validate Mandate
+            try:
+                mandate = self.authority_evaluator._get_mandate_with_cache(mandate_id)
+                if not mandate:
+                    logger.warning(f"Mandate not found: {mandate_id}")
+                    return JSONResponse(
+                        status_code=status.HTTP_403_FORBIDDEN,
+                        content={
+                            "error": "mandate_not_found",
+                            "message": f"Mandate {mandate_id} not found"
+                        }
+                    )
+                
+                # Validate authority for the target URL
+                # Action: "call" (generic API call), Resource: target_url
+                decision = self.authority_evaluator.validate_mandate(
+                    mandate=mandate,
+                    requested_action="call",
+                    requested_resource=target_url
+                )
+                
+                if not decision.allowed:
+                    self._denied_count += 1
+                    logger.warning(
+                        f"Authority denied for agent {agent.agent_id}: {decision.reason}"
+                    )
+                    return JSONResponse(
+                        status_code=status.HTTP_403_FORBIDDEN,
+                        content={
+                            "error": "authority_denied",
+                            "message": decision.reason,
+                            "mandate_id": str(mandate_id)
+                        }
+                    )
+                
+                logger.info(
+                    f"Authority granted for agent {agent.agent_id}, resource {target_url} (mandate {mandate_id})"
+                )
+                
+            except Exception as e:
+                # Fail closed on validation error
+                logger.error(f"Authority validation failed for agent {agent.agent_id}: {e}", exc_info=True)
+                return JSONResponse(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    content={
+                        "error": "authority_validation_failed",
+                        "message": "Internal error during authority validation"
+                    }
+                )
+
+            # 4. Forward request to target API
             try:
                 response = await self.forward_request(request, target_url)
             except Exception as e:
                 logger.error(f"Failed to forward request for agent {agent.agent_id}: {e}", exc_info=True)
-                
-                # Record request metric
-                if metrics:
-                    duration = time.time() - start_time
-                    metrics.record_gateway_request(
-                        method=request.method,
-                        status_code=502,
-                        auth_method=auth_result.method.value,
-                        duration_seconds=duration
-                    )
-                
                 return JSONResponse(
                     status_code=status.HTTP_502_BAD_GATEWAY,
                     content={
@@ -746,34 +489,18 @@ class GatewayProxy:
                     }
                 )
             
-            # 5. Emit final charge (metering event) after response
-            # This ensures accurate cost tracking based on actual resource consumption
-            # Requirements: 1.4, 15.1, 15.2, 15.3
+            # 5. Emit metering event (usage only)
             try:
-                from decimal import Decimal
-                from ase.protocol import MeteringEvent
                 # datetime is already imported at module level
+                from ase.protocol import MeteringEvent
+                from decimal import Decimal
                 
-                # Extract actual cost from response headers if provided
-                # Otherwise, use the estimated cost from the provisional charge
-                actual_cost_str = response.headers.get("X-Caracal-Actual-Cost")
-                if actual_cost_str:
-                    try:
-                        actual_cost = Decimal(actual_cost_str)
-                    except (ValueError, Exception) as e:
-                        logger.warning(f"Invalid actual cost header: {actual_cost_str}, using estimated cost")
-                        actual_cost = estimated_cost if estimated_cost else Decimal("0")
-                else:
-                    # Use estimated cost if no actual cost provided
-                    actual_cost = estimated_cost if estimated_cost else Decimal("0")
-                
-                # Determine resource type from request headers or default to api_call
+                # Determine resource type
                 resource_type = request.headers.get("X-Caracal-Resource-Type", "api_call")
                 
-                # Calculate quantity based on response size (bytes)
-                # This provides a basic metering mechanism when no explicit cost is provided
+                # Calculate quantity (e.g. 1 call or bytes)
                 response_size_bytes = len(response.content)
-                quantity = Decimal(str(response_size_bytes)) if actual_cost == Decimal("0") else Decimal("1")
+                quantity = Decimal("1") # Count as 1 call by default
                 
                 # v0.3: Publish metering event to Kafka if enabled
                 if self.config.enable_kafka and self.kafka_producer:
@@ -782,50 +509,28 @@ class GatewayProxy:
                             agent_id=str(agent.agent_id),
                             resource_type=resource_type,
                             quantity=quantity,
-                            cost=actual_cost,
-                            currency="USD",
-                            provisional_charge_id=str(policy_decision.provisional_charge_id) if policy_decision.provisional_charge_id else None,
+                            # cost/currency removed
+                            # provisional_charge_id removed
                             metadata={
                                 "method": request.method,
                                 "path": path,
                                 "target_url": target_url,
                                 "status_code": str(response.status_code),
                                 "response_size_bytes": str(response_size_bytes),
-                                "estimated_cost": str(estimated_cost) if estimated_cost else None,
-                                "actual_cost": str(actual_cost),
+                                "mandate_id": str(mandate_id)
                             },
                             timestamp=datetime.utcnow()
                         )
                         
                         logger.info(
-                            f"Published metering event to Kafka for agent {agent.agent_id}, "
-                            f"resource={resource_type}, quantity={quantity}, cost={actual_cost}"
+                            f"Published metering event to Kafka: agent={agent.agent_id}, "
+                            f"resource={resource_type}"
                         )
-                        
-                        # Also publish policy decision event
-                        await self.kafka_producer.publish_policy_decision(
-                            agent_id=str(agent.agent_id),
-                            decision="allowed",
-                            reason=policy_decision.reason,
-                            estimated_cost=estimated_cost,
-                            remaining_budget=policy_decision.remaining_budget,
-                            metadata={
-                                "method": request.method,
-                                "path": path,
-                                "target_url": target_url,
-                            },
-                            timestamp=datetime.utcnow()
-                        )
-                        
                     except Exception as kafka_error:
-                        logger.error(
-                            f"Failed to publish events to Kafka for agent {agent.agent_id}: {kafka_error}",
-                            exc_info=True
-                        )
-                        # Fall back to direct ledger write if Kafka fails
-                        logger.warning("Falling back to direct ledger write due to Kafka failure")
+                        logger.error(f"Failed to publish Kafka event: {kafka_error}")
+                        # Fallback to direct collection logic if needed, or just log error
+                        # For now, we'll try direct collection via metering_collector
                         
-                        # Create metering event for direct write
                         metering_event = MeteringEvent(
                             agent_id=str(agent.agent_id),
                             resource_type=resource_type,
@@ -835,22 +540,15 @@ class GatewayProxy:
                                 "method": request.method,
                                 "path": path,
                                 "target_url": target_url,
-                                "status_code": response.status_code,
-                                "response_size_bytes": response_size_bytes,
-                                "estimated_cost": str(estimated_cost) if estimated_cost else None,
-                                "actual_cost": str(actual_cost),
-                                "provisional_charge_id": str(policy_decision.provisional_charge_id) if policy_decision.provisional_charge_id else None
+                                "status_code": str(response.status_code),
+                                "response_size_bytes": str(response_size_bytes),
+                                "mandate_id": str(mandate_id)
                             }
                         )
-                        
-                        # Collect event with provisional charge ID for reconciliation
-                        self.metering_collector.collect_event(
-                            metering_event,
-                            provisional_charge_id=str(policy_decision.provisional_charge_id) if policy_decision.provisional_charge_id else None
-                        )
+                        self.metering_collector.collect_event(metering_event)
+
                 else:
-                    # v0.2 compatibility: Direct ledger write
-                    # Create metering event with comprehensive metadata
+                    # Direct collection
                     metering_event = MeteringEvent(
                         agent_id=str(agent.agent_id),
                         resource_type=resource_type,
