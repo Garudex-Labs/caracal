@@ -7,12 +7,17 @@ creating tamper-evident ledger batches. It supports:
 - Merkle proof generation for any leaf
 - Merkle proof verification
 - Parallel tree construction for improved performance (v0.3 optimization)
+- Builder pattern for convenient tree construction
 """
 
 import hashlib
 import concurrent.futures
 from dataclasses import dataclass
 from typing import List, Optional
+
+from caracal.logging_config import get_logger
+
+logger = get_logger(__name__)
 
 
 @dataclass
@@ -30,6 +35,92 @@ class MerkleProof:
     proof_hashes: List[bytes]
     proof_directions: List[str]  # "left" or "right"
     root_hash: bytes
+
+
+class MerkleTreeBuilder:
+    """
+    Builder class for constructing Merkle trees from event batches.
+    
+    This class provides a convenient interface for building Merkle trees
+    from authority ledger events or other data batches. It handles event
+    serialization and tree construction.
+    
+    Requirements: 13.3
+    
+    Example:
+        >>> builder = MerkleTreeBuilder()
+        >>> tree = builder.build_tree(event_batch)
+        >>> root = builder.get_root()
+        >>> proof = builder.get_proof(event_index)
+    """
+    
+    def __init__(self):
+        """Initialize the Merkle tree builder."""
+        self._tree: Optional[MerkleTree] = None
+        self._events: List[bytes] = []
+    
+    def build_tree(self, events: List[bytes]) -> 'MerkleTreeBuilder':
+        """
+        Build Merkle tree from event batch.
+        
+        Args:
+            events: List of event data (as bytes)
+        
+        Returns:
+            Self for method chaining
+        
+        Raises:
+            ValueError: If events list is empty
+        
+        Requirements: 13.3
+        """
+        if not events:
+            raise ValueError("Cannot build Merkle tree from empty events list")
+        
+        self._events = events
+        self._tree = MerkleTree(events)
+        
+        logger.debug(f"Built Merkle tree with {len(events)} events")
+        
+        return self
+    
+    def get_root(self) -> bytes:
+        """
+        Get the Merkle root hash.
+        
+        Returns:
+            Root hash of the tree
+        
+        Raises:
+            RuntimeError: If tree has not been built yet
+        
+        Requirements: 13.3
+        """
+        if self._tree is None:
+            raise RuntimeError("Tree has not been built yet. Call build_tree() first.")
+        
+        return self._tree.get_root()
+    
+    def get_proof(self, event_index: int) -> MerkleProof:
+        """
+        Generate Merkle proof for event at given index.
+        
+        Args:
+            event_index: Index of the event (0-based)
+        
+        Returns:
+            MerkleProof for the event
+        
+        Raises:
+            RuntimeError: If tree has not been built yet
+            ValueError: If event_index is out of range
+        
+        Requirements: 13.3
+        """
+        if self._tree is None:
+            raise RuntimeError("Tree has not been built yet. Call build_tree() first.")
+        
+        return self._tree.generate_proof(event_index)
 
 
 class MerkleTree:
