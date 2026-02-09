@@ -321,6 +321,84 @@ except Exception as e:
     logging.getLogger(__name__).warning(f"Failed to register config encryption commands: {e}")
 
 
+# Import and register Authority commands (v0.5)
+@cli.group()
+def authority():
+    """Manage execution mandates and authority enforcement."""
+    pass
+
+
+try:
+    from caracal.cli.authority import issue, validate, revoke, list_mandates, delegate
+    authority.add_command(issue)
+    authority.add_command(validate)
+    authority.add_command(revoke)
+    authority.add_command(list_mandates, name='list')
+    authority.add_command(delegate)
+except ImportError as e:
+    # Authority commands not available
+    import logging
+    logging.getLogger(__name__).debug(f"Authority commands not available: {e}")
+except Exception as e:
+    # Log any other errors
+    import logging
+    logging.getLogger(__name__).warning(f"Failed to register authority commands: {e}")
+
+
+# Import and register Authority Policy commands (v0.5)
+# Note: These extend the existing policy group
+try:
+    from caracal.cli.authority_policy import create as policy_create_authority, list_policies as policy_list_authority
+    # Add authority policy commands to existing policy group
+    policy.add_command(policy_create_authority, name='create-authority')
+    policy.add_command(policy_list_authority, name='list-authority')
+except ImportError as e:
+    # Authority policy commands not available
+    import logging
+    logging.getLogger(__name__).debug(f"Authority policy commands not available: {e}")
+except Exception as e:
+    # Log any other errors
+    import logging
+    logging.getLogger(__name__).warning(f"Failed to register authority policy commands: {e}")
+
+
+# Import and register Authority Ledger commands (v0.5)
+# Note: These extend the existing ledger group
+try:
+    from caracal.cli.authority_ledger import query as ledger_query_authority, export as ledger_export_authority
+    # Add authority ledger commands to existing ledger group
+    ledger.add_command(ledger_query_authority, name='query-authority')
+    ledger.add_command(ledger_export_authority, name='export-authority')
+except ImportError as e:
+    # Authority ledger commands not available
+    import logging
+    logging.getLogger(__name__).debug(f"Authority ledger commands not available: {e}")
+except Exception as e:
+    # Log any other errors
+    import logging
+    logging.getLogger(__name__).warning(f"Failed to register authority ledger commands: {e}")
+
+
+# Import and register Audit commands (v0.5)
+@cli.group()
+def audit():
+    """Export audit reports."""
+    pass
+
+
+try:
+    from caracal.cli.authority_ledger import export as audit_export
+    audit.add_command(audit_export, name='export')
+except ImportError as e:
+    # Audit commands not available
+    import logging
+    logging.getLogger(__name__).debug(f"Audit commands not available: {e}")
+except Exception as e:
+    # Log any other errors
+    import logging
+    logging.getLogger(__name__).warning(f"Failed to register audit commands: {e}")
+
+
 @cli.command()
 @pass_context
 def init(ctx: CLIContext):
