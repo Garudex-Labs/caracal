@@ -1,5 +1,5 @@
 """
-Database connection management for Caracal Core v0.2.
+Database connection management for Caracal Core.
 
 This module provides connection pooling, health checks, and retry logic
 for PostgreSQL database operations.

@@ -45,7 +45,7 @@ def get_json_type():
 
 class LedgerEvent(Base):
     """
-    Immutable ledger events for spending tracking.
+    Immutable ledger events for resource usage tracking.
     
     Stores all metering events with automatic monotonic ID generation.
     Events are append-only and never modified or deleted.
@@ -58,7 +58,7 @@ class LedgerEvent(Base):
     # Primary key with auto-increment
     event_id = Column(BigInteger().with_variant(Integer, "sqlite"), primary_key=True, autoincrement=True)
     
-    # Foreign key to principal (formerly agent)
+    # Foreign key to principal
     agent_id = Column(
         PG_UUID(as_uuid=True),
         ForeignKey("principals.principal_id"),
@@ -70,8 +70,6 @@ class LedgerEvent(Base):
     timestamp = Column(DateTime, nullable=False, default=datetime.utcnow, index=True)
     resource_type = Column(String(255), nullable=False)
     quantity = Column(Numeric(precision=20, scale=6), nullable=False)
-    cost = Column(Numeric(precision=20, scale=6), nullable=False)
-    currency = Column(String(3), nullable=False, default="USD")
     
     # Metadata
     event_metadata = Column("metadata", JSON().with_variant(JSONB, "postgresql"), nullable=True)
@@ -95,7 +93,7 @@ class LedgerEvent(Base):
     )
     
     def __repr__(self):
-        return f"<LedgerEvent(event_id={self.event_id}, agent_id={self.agent_id}, cost={self.cost})>"
+        return f"<LedgerEvent(event_id={self.event_id}, agent_id={self.agent_id})>"
 
 
 class AuditLog(Base):

@@ -2,7 +2,7 @@
   "type": "record",
   "name": "MeteringEvent",
   "namespace": "caracal.events",
-  "doc": "Metering event for tracking resource usage and costs",
+  "doc": "Metering event for tracking resource usage",
   "fields": [
     {
       "name": "event_id",
@@ -31,7 +31,7 @@
       "type": {
         "type": "enum",
         "name": "EventType",
-        "symbols": ["API_CALL", "MCP_TOOL", "DELEGATION", "CHARGE"]
+        "symbols": ["API_CALL", "MCP_TOOL", "DELEGATION"]
       },
       "doc": "Type of metering event"
     },
@@ -56,23 +56,6 @@
       "type": "string",
       "default": "operation",
       "doc": "Unit of measurement (e.g., 'tokens', 'operations', 'requests')"
-    },
-    {
-      "name": "cost",
-      "type": "double",
-      "doc": "Cost in the specified currency"
-    },
-    {
-      "name": "currency",
-      "type": "string",
-      "default": "USD",
-      "doc": "Currency code (ISO 4217)"
-    },
-    {
-      "name": "provisional_charge_id",
-      "type": ["null", "string"],
-      "default": null,
-      "doc": "Associated provisional charge ID if applicable"
     },
     {
       "name": "parent_agent_id",

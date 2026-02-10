@@ -329,7 +329,6 @@ consumers:
     
     # Metrics configuration
     metricsPort: 9091
-    anomalyDetectionThreshold: 2.0
     
     resources:
       requests:

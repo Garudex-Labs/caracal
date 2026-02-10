@@ -132,7 +132,6 @@ class LedgerWriterConsumer(BaseKafkaConsumer):
         agent_id = UUID(event_data['agent_id'])
         resource_type = event_data['resource_type']
         quantity = Decimal(str(event_data['quantity']))
-        quantity = Decimal(str(event_data['quantity']))
         # provisional_charge_id removed
         metadata = event_data.get('metadata')
         

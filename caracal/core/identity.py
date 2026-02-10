@@ -1,8 +1,8 @@
 """
-Agent identity management for Caracal Core.
+Principal identity management for Caracal Core.
 
-This module provides the AgentRegistry for managing agent identities,
-including registration, retrieval, and persistence.
+This module provides the AgentRegistry (to be renamed to PrincipalRegistry) 
+for managing principal identities, including registration and persistence.
 """
 
 import json
@@ -29,7 +29,7 @@ logger = get_logger(__name__)
 @dataclass
 class AgentIdentity:
     """
-    Represents an agent's economic identity.
+    Represents a principal's authority identity.
     
     Attributes:
         agent_id: Globally unique identifier (UUID v4)
@@ -58,7 +58,7 @@ class AgentIdentity:
 
 class AgentRegistry:
     """
-    Manages agent identity lifecycle with JSON persistence.
+    Manages principal identity lifecycle with JSON persistence.
     
     Provides methods to register, retrieve, and list agents.
     Implements atomic write operations and rolling backups.

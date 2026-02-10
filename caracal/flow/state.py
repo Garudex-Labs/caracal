@@ -57,7 +57,7 @@ class SessionData:
     
     current_screen: str = "welcome"
     previous_screens: list[str] = field(default_factory=list)
-    selected_agent_id: Optional[str] = None
+    selected_principal_id: Optional[str] = None
     selected_policy_id: Optional[str] = None
     temp_data: dict[str, Any] = field(default_factory=dict)
     

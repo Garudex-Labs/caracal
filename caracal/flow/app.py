@@ -200,7 +200,6 @@ class FlowApp:
             self.console.print()
             
             self.console.print(f"  [{Colors.INFO}]Defaults:[/]")
-            self.console.print(f"    Currency: [{Colors.NEUTRAL}]{config.defaults.currency}[/]")
             self.console.print(f"    Time Window: [{Colors.NEUTRAL}]{config.defaults.time_window}[/]")
             self.console.print()
             

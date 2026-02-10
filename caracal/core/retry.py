@@ -168,8 +168,8 @@ def retry_database_operation(
         
     Example:
         @retry_database_operation(max_retries=3)
-        def query_agent(session, agent_id):
-            return session.query(Agent).filter_by(id=agent_id).first()
+        def query_principal(session, principal_id):
+            return session.query(Principal).filter_by(id=principal_id).first()
             
     Requirements: 23.1
     """
@@ -273,8 +273,8 @@ def retry_database_query(
         
     Example:
         result = retry_database_query(
-            lambda: session.query(Agent).filter_by(id=agent_id).first(),
-            "query_agent",
+            lambda: session.query(Principal).filter_by(id=principal_id).first(),
+            "query_principal",
             max_retries=3
         )
         
