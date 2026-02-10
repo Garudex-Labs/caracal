@@ -113,15 +113,15 @@ agent.add_command(get)
 
 @cli.group()
 def policy():
-    """Manage budget policies."""
+    """Manage authority policies."""
     pass
 
 
-# Import and register policy commands
-from caracal.cli.policy import create, get, list_policies
+# Import and register authority policy commands (v0.5)
+# Replacing old budget policy commands
+from caracal.cli.authority_policy import create, list_policies
 policy.add_command(create)
 policy.add_command(list_policies, name='list')
-policy.add_command(get)
 
 
 @cli.group()
@@ -149,18 +149,7 @@ ledger.add_command(archive_partitions, name='archive-partitions')
 ledger.add_command(refresh_views, name='refresh-views')
 
 
-@cli.group()
-def pricebook():
-    """Manage resource prices."""
-    pass
-
-
-# Import and register pricebook commands
-from caracal.cli.pricebook import get_price, import_prices, list_prices, set_price
-pricebook.add_command(list_prices, name='list')
-pricebook.add_command(get_price, name='get')
-pricebook.add_command(set_price, name='set')
-pricebook.add_command(import_prices, name='import')
+# Pricebook commands removed in v0.5
 
 
 @cli.group()
@@ -335,21 +324,7 @@ except Exception as e:
     logging.getLogger(__name__).warning(f"Failed to register authority commands: {e}")
 
 
-# Import and register Authority Policy commands (v0.5)
-# Note: These extend the existing policy group
-try:
-    from caracal.cli.authority_policy import create as policy_create_authority, list_policies as policy_list_authority
-    # Add authority policy commands to existing policy group
-    policy.add_command(policy_create_authority, name='create-authority')
-    policy.add_command(policy_list_authority, name='list-authority')
-except ImportError as e:
-    # Authority policy commands not available
-    import logging
-    logging.getLogger(__name__).debug(f"Authority policy commands not available: {e}")
-except Exception as e:
-    # Log any other errors
-    import logging
-    logging.getLogger(__name__).warning(f"Failed to register authority policy commands: {e}")
+# Authority policy commands are now registered in the main policy group above
 
 
 # Import and register Authority Ledger commands (v0.5)
@@ -427,7 +402,6 @@ storage:
 defaults:
   currency: USD
   time_window: daily
-  default_budget: 100.00
 
 
 logging:
@@ -476,16 +450,6 @@ performance:
             ledger_path.write_text("")
             click.echo(f"Created ledger: {ledger_path}")
         
-        # Create sample pricebook.csv if it doesn't exist
-        pricebook_path = caracal_dir / "pricebook.csv"
-        if not pricebook_path.exists():
-            sample_pricebook = """resource_type,price_per_unit,currency,updated_at
-openai.gpt-5.2.input_tokens,1.75,USD,2024-01-15T10:00:00Z
-openai.gpt-5.2.output_tokens,14.00,USD,2024-01-15T10:00:00Z
-openai.gpt-5.2.cached_input_tokens,0.175,USD,2024-01-15T10:00:00Z
-"""
-            pricebook_path.write_text(sample_pricebook)
-            click.echo(f"Created sample pricebook: {pricebook_path}")
         
         click.echo("\n✓ Caracal Core initialized successfully!")
         click.echo(f"\nConfiguration directory: {caracal_dir}")
