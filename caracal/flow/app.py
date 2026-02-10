@@ -22,6 +22,12 @@ class FlowApp:
     """Main Caracal Flow application."""
     
     def __init__(self, console: Optional[Console] = None):
+        # Suppress debug/info log output that pollutes the TUI.
+        # Must use setup_logging() because structlog's default config
+        # bypasses standard library logging entirely.
+        from caracal.logging_config import setup_logging
+        setup_logging(level="WARNING", json_format=False)
+        
         self.console = console or Console(theme=FLOW_THEME)
         self.persistence = StatePersistence()
         self.state = self.persistence.load()
@@ -42,8 +48,14 @@ class FlowApp:
                 self._goodbye()
                 return
             
-            if action == "new" or not self.state.onboarding.completed:
-                # Run onboarding
+            if action == "new":
+                # User explicitly chose onboarding — run it directly
+                run_onboarding(self.console, self.state)
+            elif action == "continue":
+                # Skip onboarding, go straight to main menu
+                pass
+            elif not self.state.onboarding.completed:
+                # First-time user who hasn't completed onboarding
                 run_onboarding(self.console, self.state)
             
             # Main loop

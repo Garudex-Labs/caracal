@@ -44,8 +44,8 @@ def wait_for_action(console: Optional[Console] = None) -> str:
     items = [
         MenuItem(
             key="continue",
-            label="Continue to Main Menu",
-            description="Dashboard, mandates, policies, and ledger",
+            label="Continue with Existing Configuration",
+            description="Skip onboarding and launch with existing settings",
             icon=Icons.ARROW_RIGHT
         ),
         MenuItem(

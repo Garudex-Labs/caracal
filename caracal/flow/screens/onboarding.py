@@ -133,6 +133,7 @@ def _step_config(wizard: Wizard) -> Any:
             return str(default_path)
         else:
             wipe = True
+            wizard.context["fresh_start"] = True
     console.print()
     use_default = prompt.confirm(
         f"Use default location ({default_path})?",
@@ -454,13 +455,6 @@ def run_onboarding(
     """
     console = console or Console()
     
-    # Check if already completed
-    if state and state.onboarding.completed:
-        console.print(f"  [{Colors.INFO}]{Icons.INFO} Onboarding already completed[/]")
-        rerun = FlowPrompt(console).confirm("Run onboarding again?", default=False)
-        if not rerun:
-            return {}
-    
     # Define wizard steps
     steps = [
         WizardStep(
@@ -595,6 +589,25 @@ def run_onboarding(
         db_manager = DatabaseConnectionManager(db_config)
         db_manager.initialize()
         
+        # If this was a fresh start (user chose to wipe config), clean up the database too
+        if wizard.context.get("fresh_start"):
+            try:
+                console.print(f"  [{Colors.INFO}]{Icons.INFO} Cleaning up old data...[/]")
+                with db_manager.session_scope() as db_session:
+                    from sqlalchemy import text
+                    # Truncate tables in correct order (mandates -> policies -> principals)
+                    if db_config.type == 'postgresql':
+                        db_session.execute(text("TRUNCATE TABLE execution_mandates CASCADE"))
+                        db_session.execute(text("TRUNCATE TABLE authority_policies CASCADE"))
+                        db_session.execute(text("TRUNCATE TABLE principals CASCADE"))
+                    else:
+                        db_session.execute(text("DELETE FROM execution_mandates"))
+                        db_session.execute(text("DELETE FROM authority_policies"))
+                        db_session.execute(text("DELETE FROM principals"))
+                console.print(f"  [{Colors.SUCCESS}]{Icons.SUCCESS} Database cleaned.[/]")
+            except Exception as e:
+                console.print(f"  [{Colors.WARNING}]{Icons.WARNING} Failed to clean database: {e}[/]")
+        
         # Handle Principal Registration
         principal_data = results.get("principal")
         principal_id = None
@@ -636,22 +649,31 @@ def run_onboarding(
         if policy_data and principal_id:
             try:
                 with db_manager.session_scope() as db_session:
-                    policy = AuthorityPolicy(
-                        policy_id=uuid4(),
+                    # Check if a policy already exists for this principal
+                    existing_policy = db_session.query(AuthorityPolicy).filter_by(
                         principal_id=principal_id,
-                        max_validity_seconds=policy_data["max_validity_seconds"],
-                        allowed_resource_patterns=policy_data["resource_patterns"],
-                        allowed_actions=policy_data["actions"],
-                        allow_delegation=True,
-                        max_delegation_depth=3,
-                        created_at=datetime.utcnow(),
-                        created_by=principal_data["owner"] if principal_data else "system",
                         active=True,
-                    )
+                    ).first()
                     
-                    db_session.add(policy)
-                    
-                console.print(f"  [{Colors.SUCCESS}]{Icons.SUCCESS} Authority policy created successfully.[/]")
+                    if existing_policy:
+                        console.print(f"  [{Colors.SUCCESS}]{Icons.SUCCESS} Authority policy already exists, skipping.[/]")
+                    else:
+                        policy = AuthorityPolicy(
+                            policy_id=uuid4(),
+                            principal_id=principal_id,
+                            max_validity_seconds=policy_data["max_validity_seconds"],
+                            allowed_resource_patterns=policy_data["resource_patterns"],
+                            allowed_actions=policy_data["actions"],
+                            allow_delegation=True,
+                            max_delegation_depth=3,
+                            created_at=datetime.utcnow(),
+                            created_by=principal_data["owner"] if principal_data else "system",
+                            active=True,
+                        )
+                        
+                        db_session.add(policy)
+                        
+                        console.print(f"  [{Colors.SUCCESS}]{Icons.SUCCESS} Authority policy created successfully.[/]")
             except Exception as e:
                 console.print(f"  [{Colors.ERROR}]{Icons.ERROR} Failed to create policy: {e}[/]")
         
