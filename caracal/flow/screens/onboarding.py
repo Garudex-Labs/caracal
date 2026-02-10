@@ -130,6 +130,11 @@ def _step_config(wizard: Wizard) -> Any:
         
         if use_existing:
             wizard.context["config_path"] = str(default_path)
+            
+            # Check if user wants to start fresh with data
+            if prompt.confirm("Reset database (clear all data)?", default=False):
+                wizard.context["fresh_start"] = True
+                
             return str(default_path)
         else:
             wipe = True
