@@ -43,6 +43,8 @@ class AsyncAuthorityClient:
         api_key: Optional[str] = None,
         timeout: int = 30,
         max_connections: int = 100,
+        workspace_id: Optional[str] = None,
+        directory_scope: Optional[str] = None,
     ):
         """
         Initialize Async Authority SDK client.
@@ -52,6 +54,8 @@ class AsyncAuthorityClient:
             api_key: Optional API key for authentication
             timeout: Request timeout in seconds (default: 30)
             max_connections: Maximum number of concurrent connections (default: 100)
+            workspace_id: Optional workspace identifier for multi-workspace isolation.
+            directory_scope: Optional directory path scope for client-side binding.
             
         Raises:
             SDKConfigurationError: If configuration is invalid
@@ -66,6 +70,8 @@ class AsyncAuthorityClient:
             self.base_url = base_url.rstrip('/')
             self.api_key = api_key
             self.timeout = ClientTimeout(total=timeout)
+            self.workspace_id = workspace_id
+            self.directory_scope = directory_scope
             
             # Prepare headers
             self.headers = {
@@ -75,6 +81,11 @@ class AsyncAuthorityClient:
             
             if self.api_key:
                 self.headers["Authorization"] = f"Bearer {self.api_key}"
+            
+            if self.workspace_id:
+                self.headers["X-Workspace-Id"] = self.workspace_id
+            if self.directory_scope:
+                self.headers["X-Directory-Scope"] = self.directory_scope
             
             # Create connector with connection pooling
             self.connector = TCPConnector(limit=max_connections)
@@ -584,3 +595,55 @@ class AsyncAuthorityClient:
             endpoint="/policies",
             params=params,
         )
+
+    # ------------------------------------------------------------------
+    # Metadata sync (Enterprise dashboard integration)
+    # ------------------------------------------------------------------
+
+    async def sync_metadata(
+        self,
+        enforcement_state: Dict[str, Any],
+        sync_type: str = "full",
+        enterprise_url: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """
+        Push local enforcement state to the Caracal Enterprise dashboard — async.
+
+        See :meth:`AuthorityClient.sync_metadata` for full documentation.
+        """
+        if not self.workspace_id:
+            raise SDKConfigurationError(
+                "workspace_id is required for metadata sync. "
+                "Pass workspace_id when constructing AsyncAuthorityClient."
+            )
+
+        url = (enterprise_url or self.base_url).rstrip("/")
+        payload = {
+            "workspace_id": self.workspace_id,
+            "directory_scope": self.directory_scope,
+            "sync_type": sync_type,
+            "enforcement_state": enforcement_state,
+            "client_version": self.headers.get("User-Agent", "unknown"),
+            "timestamp": datetime.utcnow().isoformat(),
+        }
+
+        logger.info(
+            "Syncing metadata to enterprise (async): workspace=%s type=%s",
+            self.workspace_id,
+            sync_type,
+        )
+
+        try:
+            session = await self._get_session()
+            async with session.post(
+                f"{url}/api/connection/sync",
+                json=payload,
+                headers=self.headers,
+                timeout=self.timeout,
+            ) as resp:
+                resp.raise_for_status()
+                return await resp.json()
+        except aiohttp.ClientError as e:
+            raise ConnectionError(
+                f"Failed to sync metadata to enterprise: {e}"
+            ) from e

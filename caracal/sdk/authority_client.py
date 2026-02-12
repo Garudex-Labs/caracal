@@ -45,6 +45,8 @@ class AuthorityClient:
         timeout: int = 30,
         max_retries: int = 3,
         backoff_factor: float = 0.5,
+        workspace_id: Optional[str] = None,
+        directory_scope: Optional[str] = None,
     ):
         """
         Initialize Authority SDK client.
@@ -55,6 +57,10 @@ class AuthorityClient:
             timeout: Request timeout in seconds (default: 30)
             max_retries: Maximum number of retry attempts (default: 3)
             backoff_factor: Backoff factor for exponential retry (default: 0.5)
+            workspace_id: Optional workspace identifier for multi-workspace isolation.
+                          When set, all requests include this as a header for server-side scoping.
+            directory_scope: Optional directory path scope for client-side binding.
+                             Restricts metadata sync to this subtree.
             
         Raises:
             SDKConfigurationError: If configuration is invalid
@@ -70,6 +76,8 @@ class AuthorityClient:
             self.base_url = base_url.rstrip('/')
             self.api_key = api_key
             self.timeout = timeout
+            self.workspace_id = workspace_id
+            self.directory_scope = directory_scope
             
             # Create session with connection pooling
             self.session = requests.Session()
@@ -100,6 +108,16 @@ class AuthorityClient:
             if self.api_key:
                 self.session.headers.update({
                     "Authorization": f"Bearer {self.api_key}"
+                })
+            
+            # Attach workspace scoping headers if provided
+            if self.workspace_id:
+                self.session.headers.update({
+                    "X-Workspace-Id": self.workspace_id
+                })
+            if self.directory_scope:
+                self.session.headers.update({
+                    "X-Directory-Scope": self.directory_scope
                 })
             
             logger.info("Caracal Authority SDK client initialized successfully")
@@ -908,3 +926,77 @@ class AuthorityClient:
             endpoint="/policies",
             params=params,
         )
+
+    # ------------------------------------------------------------------
+    # Metadata sync (Enterprise dashboard integration)
+    # ------------------------------------------------------------------
+
+    def sync_metadata(
+        self,
+        enforcement_state: Dict[str, Any],
+        sync_type: str = "full",
+        enterprise_url: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """
+        Push local enforcement state to the Caracal Enterprise dashboard.
+
+        This method sends a snapshot of the client's enforcement state
+        (active mandates, policies, principal summaries, recent events)
+        to the hosted Enterprise API so the dashboard can display live
+        status without requiring localhost access.
+
+        The ``workspace_id`` and ``directory_scope`` used in the request
+        are taken from the client's constructor parameters.
+
+        Args:
+            enforcement_state: Dictionary describing current enforcement
+                state.  Structure is flexible; typically includes keys
+                like ``principals``, ``mandates``, ``policies``,
+                ``recent_events``.
+            sync_type: ``'full'`` to replace all state or ``'incremental'``
+                to merge into existing state on the server.
+            enterprise_url: Optional override for the Enterprise API base
+                URL.  Defaults to ``self.base_url``.
+
+        Returns:
+            Server acknowledgement dictionary with ``accepted``,
+            ``items_received``, ``server_timestamp``.
+
+        Raises:
+            ConnectionError: If the request fails.
+            SDKConfigurationError: If workspace_id is not set.
+        """
+        if not self.workspace_id:
+            raise SDKConfigurationError(
+                "workspace_id is required for metadata sync. "
+                "Pass workspace_id when constructing AuthorityClient."
+            )
+
+        url = (enterprise_url or self.base_url).rstrip("/")
+        payload = {
+            "workspace_id": self.workspace_id,
+            "directory_scope": self.directory_scope,
+            "sync_type": sync_type,
+            "enforcement_state": enforcement_state,
+            "client_version": self.session.headers.get("User-Agent", "unknown"),
+            "timestamp": datetime.utcnow().isoformat(),
+        }
+
+        logger.info(
+            "Syncing metadata to enterprise: workspace=%s type=%s",
+            self.workspace_id,
+            sync_type,
+        )
+
+        try:
+            response = self.session.post(
+                f"{url}/api/connection/sync",
+                json=payload,
+                timeout=self.timeout,
+            )
+            response.raise_for_status()
+            return response.json()
+        except requests.exceptions.RequestException as e:
+            raise ConnectionError(
+                f"Failed to sync metadata to enterprise: {e}"
+            ) from e
