@@ -194,7 +194,7 @@ class AuthorityPolicyFlow:
                 self.console.print(f"  [{Colors.HINT}]Examples: api:openai:*, database:users:read, file:reports/*.pdf[/]")
                 resource_patterns = []
                 while True:
-                    pattern = self.prompt.text(f"Resource pattern {len(resource_patterns) + 1}", allow_empty=True)
+                    pattern = self.prompt.text(f"Resource pattern {len(resource_patterns) + 1}", required=False)
                     if not pattern:
                         break
                     resource_patterns.append(pattern)
@@ -209,7 +209,7 @@ class AuthorityPolicyFlow:
                 self.console.print(f"  [{Colors.HINT}]Examples: api_call, database_query, file_read[/]")
                 actions = []
                 while True:
-                    action = self.prompt.text(f"Action {len(actions) + 1}", allow_empty=True)
+                    action = self.prompt.text(f"Action {len(actions) + 1}", required=False)
                     if not action:
                         break
                     actions.append(action)

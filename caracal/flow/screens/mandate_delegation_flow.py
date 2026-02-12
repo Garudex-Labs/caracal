@@ -252,7 +252,7 @@ class MandateDelegationFlow:
                 self.console.print(f"  [{Colors.HINT}]Parent resources: {', '.join(parent_mandate.resource_scope)}[/]")
                 child_resources = []
                 while True:
-                    resource = self.prompt.text(f"Resource {len(child_resources) + 1}", allow_empty=True)
+                    resource = self.prompt.text(f"Resource {len(child_resources) + 1}", required=False)
                     if not resource:
                         break
                     if resource not in parent_mandate.resource_scope:
@@ -270,7 +270,7 @@ class MandateDelegationFlow:
                 self.console.print(f"  [{Colors.HINT}]Parent actions: {', '.join(parent_mandate.action_scope)}[/]")
                 child_actions = []
                 while True:
-                    action = self.prompt.text(f"Action {len(child_actions) + 1}", allow_empty=True)
+                    action = self.prompt.text(f"Action {len(child_actions) + 1}", required=False)
                     if not action:
                         break
                     if action not in parent_mandate.action_scope:

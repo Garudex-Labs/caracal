@@ -203,7 +203,7 @@ class MandateFlow:
                 self.console.print(f"  [{Colors.HINT}]Examples: api:openai:*, database:users:read, file:reports/*.pdf[/]")
                 resource_scope = []
                 while True:
-                    resource = self.prompt.text(f"Resource {len(resource_scope) + 1}", allow_empty=True)
+                    resource = self.prompt.text(f"Resource {len(resource_scope) + 1}", required=False)
                     if not resource:
                         break
                     resource_scope.append(resource)
@@ -218,7 +218,7 @@ class MandateFlow:
                 self.console.print(f"  [{Colors.HINT}]Examples: api_call, database_query, file_read[/]")
                 action_scope = []
                 while True:
-                    action = self.prompt.text(f"Action {len(action_scope) + 1}", allow_empty=True)
+                    action = self.prompt.text(f"Action {len(action_scope) + 1}", required=False)
                     if not action:
                         break
                     action_scope.append(action)
