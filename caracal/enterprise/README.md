@@ -161,8 +161,8 @@ Response format:
   "error": "enterprise_feature_required",
   "feature": "Advanced Analytics Export",
   "message": "Advanced analytics export requires Caracal Enterprise. Basic Prometheus metrics are available at /metrics endpoint.",
-  "upgrade_url": "https://caracal.dev/enterprise",
-  "contact_email": "enterprise@caracal.dev"
+  "upgrade_url": "https://garudexlabs.com",
+  "contact_email": "support@garudexlabs.com"
 }
 ```
 
@@ -200,8 +200,8 @@ CE-1-abc123-sso,analytics,workflows-20251231-3a7b9c...
 
 To upgrade to Caracal Enterprise:
 
-- **Website**: https://caracal.dev/enterprise
-- **Email**: enterprise@caracal.dev
+- **Website**: https://garudexlabs.com
+- **Email**: support@garudexlabs.com
 - **Documentation**: https://docs.garudexlabs.com/enterprise
 
 ## Security Considerations
@@ -230,5 +230,5 @@ def test_sso_requires_enterprise():
     
     assert exc_info.value.feature == "SSO Authentication"
     assert "Caracal Enterprise" in exc_info.value.message
-    assert "https://caracal.dev/enterprise" in exc_info.value.message
+    assert "https://garudexlabs.com" in exc_info.value.message
 ```

@@ -156,7 +156,7 @@ class OpenSourceSSOProvider(SSOProvider):
             feature="SSO Authentication",
             message=(
                 "Single Sign-On integration requires Caracal Enterprise. "
-                "Visit https://caracal.dev/enterprise for licensing information."
+                "Visit https://garudexlabs.com for licensing information."
             ),
         )
     
@@ -173,8 +173,8 @@ class OpenSourceSSOProvider(SSOProvider):
             "provider": "none",
             "enterprise_required": True,
             "message": "SSO providers require Caracal Enterprise.",
-            "upgrade_url": "https://caracal.dev/enterprise",
-            "contact_email": "enterprise@caracal.dev",
+            "upgrade_url": "https://garudexlabs.com",
+            "contact_email": "support@garudexlabs.com",
         }
     
     def initiate_login(self, redirect_url: str) -> str:
@@ -193,7 +193,7 @@ class OpenSourceSSOProvider(SSOProvider):
             feature="SSO Login",
             message=(
                 "SSO login flow requires Caracal Enterprise. "
-                "Visit https://caracal.dev/enterprise for licensing information."
+                "Visit https://garudexlabs.com for licensing information."
             ),
         )
     
@@ -213,7 +213,7 @@ class OpenSourceSSOProvider(SSOProvider):
             feature="SSO Callback Handling",
             message=(
                 "SSO callback handling requires Caracal Enterprise. "
-                "Visit https://caracal.dev/enterprise for licensing information."
+                "Visit https://garudexlabs.com for licensing information."
             ),
         )
 

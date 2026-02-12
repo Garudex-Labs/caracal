@@ -97,7 +97,7 @@ class EnterpriseLicenseValidator:
             valid=False,
             message=(
                 "Enterprise license validation requires Caracal Enterprise. "
-                "Visit https://caracal.dev/enterprise for licensing information."
+                "Visit https://garudexlabs.com for licensing information."
             ),
             features_available=[],
             expires_at=None,
@@ -152,6 +152,6 @@ class EnterpriseLicenseValidator:
             "edition": "open_source",
             "license_active": False,
             "features_available": [],
-            "upgrade_url": "https://caracal.dev/enterprise",
-            "contact_email": "enterprise@caracal.dev",
+            "upgrade_url": "https://garudexlabs.com",
+            "contact_email": "support@garudexlabs.com",
         }
