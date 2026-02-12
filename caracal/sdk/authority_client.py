@@ -928,75 +928,62 @@ class AuthorityClient:
         )
 
     # ------------------------------------------------------------------
-    # Metadata sync (Enterprise dashboard integration)
+    # Enterprise Connectivity
     # ------------------------------------------------------------------
 
-    def sync_metadata(
+    def sync_enforcement_state(
         self,
+        workspace_id: str,
         enforcement_state: Dict[str, Any],
         sync_type: str = "full",
-        enterprise_url: Optional[str] = None,
+        directory_scope: Optional[str] = None,
+        client_version: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Push local enforcement state to the Caracal Enterprise dashboard.
 
-        This method sends a snapshot of the client's enforcement state
-        (active mandates, policies, principal summaries, recent events)
-        to the hosted Enterprise API so the dashboard can display live
-        status without requiring localhost access.
-
-        The ``workspace_id`` and ``directory_scope`` used in the request
-        are taken from the client's constructor parameters.
+        This enables the dashboard to visualize the live state of policies,
+        principals, and active mandates in this client environment.
 
         Args:
-            enforcement_state: Dictionary describing current enforcement
-                state.  Structure is flexible; typically includes keys
-                like ``principals``, ``mandates``, ``policies``,
-                ``recent_events``.
-            sync_type: ``'full'`` to replace all state or ``'incremental'``
-                to merge into existing state on the server.
-            enterprise_url: Optional override for the Enterprise API base
-                URL.  Defaults to ``self.base_url``.
+            workspace_id: The Enterprise workspace ID this state belongs to.
+            enforcement_state: Dictionary containing state snapshot (principals,
+                policies, active_mandates, etc).
+            sync_type: ``"full"`` (replace) or ``"incremental"`` (merge).
+            directory_scope: Optional directory scope this state applies to.
+            client_version: Optional version string of the client SDK.
 
         Returns:
-            Server acknowledgement dictionary with ``accepted``,
-            ``items_received``, ``server_timestamp``.
+            Server acknowledgement response.
 
         Raises:
-            ConnectionError: If the request fails.
-            SDKConfigurationError: If workspace_id is not set.
+            ConnectionError: If the sync request fails.
         """
-        if not self.workspace_id:
-            raise SDKConfigurationError(
-                "workspace_id is required for metadata sync. "
-                "Pass workspace_id when constructing AuthorityClient."
-            )
+        logger.debug(f"Syncing enforcement state (type={sync_type})")
 
-        url = (enterprise_url or self.base_url).rstrip("/")
         payload = {
-            "workspace_id": self.workspace_id,
-            "directory_scope": self.directory_scope,
+            "workspace_id": workspace_id,
             "sync_type": sync_type,
             "enforcement_state": enforcement_state,
-            "client_version": self.session.headers.get("User-Agent", "unknown"),
-            "timestamp": datetime.utcnow().isoformat(),
         }
+        if directory_scope:
+            payload["directory_scope"] = directory_scope
+        if client_version:
+            payload["client_version"] = client_version
 
-        logger.info(
-            "Syncing metadata to enterprise: workspace=%s type=%s",
-            self.workspace_id,
-            sync_type,
+        # Important: The '/api/connection/sync' endpoint in Enterprise
+        # is often mounted under the main API. If base_url points to
+        # typical Caracal Core, this might fail unless it's an Enterprise Gateway.
+        # We assume base_url points to the Enterprise API for this call.
+        # If this client is talking to a local Core, this method might not be relevant
+        # unless that Core proxies to Enterprise.
+        # For the "Connect" flow, the client talks directly to Enterprise.
+
+        return self._make_request(
+            method="POST",
+            endpoint="/api/connection/sync",
+            data=payload,
         )
 
-        try:
-            response = self.session.post(
-                f"{url}/api/connection/sync",
-                json=payload,
-                timeout=self.timeout,
-            )
-            response.raise_for_status()
-            return response.json()
-        except requests.exceptions.RequestException as e:
-            raise ConnectionError(
-                f"Failed to sync metadata to enterprise: {e}"
-            ) from e
+
+
