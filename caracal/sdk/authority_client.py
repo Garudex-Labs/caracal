@@ -715,3 +715,196 @@ class AuthorityClient:
                 exc_info=True
             )
             raise
+
+    # ------------------------------------------------------------------
+    # Health & discovery
+    # ------------------------------------------------------------------
+
+    def health_check(self) -> Dict[str, Any]:
+        """
+        Check connectivity and service health.
+
+        Returns:
+            Dictionary with at least ``{"status": "ok"}`` on success.
+
+        Raises:
+            ConnectionError: If the service is unreachable.
+
+        Example:
+            >>> client = AuthorityClient(
+            ...     base_url=os.environ["CARACAL_AUTHORITY_URL"],
+            ...     api_key=os.environ.get("CARACAL_API_KEY"),
+            ... )
+            >>> health = client.health_check()
+            >>> assert health["status"] == "ok"
+        """
+        logger.debug("Performing health check")
+        return self._make_request(method="GET", endpoint="/health")
+
+    # ------------------------------------------------------------------
+    # Principal management
+    # ------------------------------------------------------------------
+
+    def register_principal(
+        self,
+        name: str,
+        principal_type: str = "agent",
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """
+        Register a new principal (user, agent, or service).
+
+        Args:
+            name: Human-readable principal name.
+            principal_type: One of ``"user"``, ``"agent"``, ``"service"``
+                (default ``"agent"``).
+            metadata: Arbitrary key/value metadata to attach.
+
+        Returns:
+            Created principal record including ``principal_id``.
+
+        Raises:
+            ConnectionError: If the request fails.
+
+        Example:
+            >>> principal = client.register_principal(
+            ...     name="my-ai-agent",
+            ...     principal_type="agent",
+            ...     metadata={"team": "platform"},
+            ... )
+            >>> print(principal["principal_id"])
+        """
+        logger.info(f"Registering principal: name={name}, type={principal_type}")
+
+        request_data: Dict[str, Any] = {
+            "name": name,
+            "principal_type": principal_type,
+        }
+        if metadata:
+            request_data["metadata"] = metadata
+
+        response = self._make_request(
+            method="POST",
+            endpoint="/principals",
+            data=request_data,
+        )
+
+        logger.info(f"Principal registered: {response.get('principal_id')}")
+        return response
+
+    def list_principals(
+        self,
+        page: int = 1,
+        page_size: int = 50,
+    ) -> Dict[str, Any]:
+        """
+        List registered principals (paginated).
+
+        Args:
+            page: Page number (1-indexed, default 1).
+            page_size: Items per page (default 50).
+
+        Returns:
+            Dictionary with ``items`` list and pagination metadata.
+
+        Raises:
+            ConnectionError: If the request fails.
+        """
+        logger.debug(f"Listing principals: page={page}, page_size={page_size}")
+        return self._make_request(
+            method="GET",
+            endpoint="/principals",
+            params={"page": page, "page_size": page_size},
+        )
+
+    # ------------------------------------------------------------------
+    # Policy management
+    # ------------------------------------------------------------------
+
+    def create_policy(
+        self,
+        principal_id: str,
+        allowed_resource_patterns: List[str],
+        allowed_actions: List[str],
+        max_validity_seconds: int = 86400,
+        delegation_depth: int = 0,
+    ) -> Dict[str, Any]:
+        """
+        Create an authority policy for a principal.
+
+        Args:
+            principal_id: UUID of the principal this policy applies to.
+            allowed_resource_patterns: Glob patterns for allowed resources
+                (e.g. ``["api:*", "file:read/*"]``).
+            allowed_actions: Allowed action strings
+                (e.g. ``["read", "write"]``).
+            max_validity_seconds: Maximum mandate lifetime under this policy
+                (default 86400 = 24 h).
+            delegation_depth: How many levels of sub-delegation are allowed
+                (default 0 = no delegation).
+
+        Returns:
+            Created policy record including ``policy_id``.
+
+        Raises:
+            ConnectionError: If the request fails.
+
+        Example:
+            >>> policy = client.create_policy(
+            ...     principal_id=principal["principal_id"],
+            ...     allowed_resource_patterns=["api:external/*"],
+            ...     allowed_actions=["read", "write"],
+            ...     max_validity_seconds=3600,
+            ...     delegation_depth=2,
+            ... )
+            >>> print(policy["policy_id"])
+        """
+        logger.info(f"Creating policy for principal {principal_id}")
+
+        request_data: Dict[str, Any] = {
+            "principal_id": principal_id,
+            "allowed_resource_patterns": allowed_resource_patterns,
+            "allowed_actions": allowed_actions,
+            "max_validity_seconds": max_validity_seconds,
+            "allow_delegation": delegation_depth > 0,
+            "max_delegation_depth": delegation_depth,
+        }
+
+        response = self._make_request(
+            method="POST",
+            endpoint="/policies",
+            data=request_data,
+        )
+
+        logger.info(f"Policy created: {response.get('policy_id')}")
+        return response
+
+    def list_policies(
+        self,
+        principal_id: Optional[str] = None,
+        page: int = 1,
+        page_size: int = 50,
+    ) -> Dict[str, Any]:
+        """
+        List authority policies (paginated), optionally filtered by principal.
+
+        Args:
+            principal_id: Optional principal UUID to filter by.
+            page: Page number (1-indexed, default 1).
+            page_size: Items per page (default 50).
+
+        Returns:
+            Dictionary with ``items`` list and pagination metadata.
+
+        Raises:
+            ConnectionError: If the request fails.
+        """
+        logger.debug(f"Listing policies: principal={principal_id}, page={page}")
+        params: Dict[str, Any] = {"page": page, "page_size": page_size}
+        if principal_id:
+            params["principal_id"] = principal_id
+        return self._make_request(
+            method="GET",
+            endpoint="/policies",
+            params=params,
+        )
