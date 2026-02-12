@@ -242,7 +242,7 @@ class OpenSourceWorkflowEngine(WorkflowEngine):
             feature="Workflow Automation",
             message=(
                 "Automated workflow triggers require Caracal Enterprise. "
-                "Visit https://caracal.dev/enterprise for licensing information."
+                "Visit https://garudexlabs.com for licensing information."
             ),
         )
     
@@ -262,7 +262,7 @@ class OpenSourceWorkflowEngine(WorkflowEngine):
             feature="Workflow Automation",
             message=(
                 "Workflow trigger management requires Caracal Enterprise. "
-                "Visit https://caracal.dev/enterprise for licensing information."
+                "Visit https://garudexlabs.com for licensing information."
             ),
         )
     
@@ -287,7 +287,7 @@ class OpenSourceWorkflowEngine(WorkflowEngine):
             feature="Workflow Execution",
             message=(
                 "Workflow execution requires Caracal Enterprise. "
-                "Visit https://caracal.dev/enterprise for licensing information."
+                "Visit https://garudexlabs.com for licensing information."
             ),
         )
     
@@ -312,7 +312,7 @@ class OpenSourceWorkflowEngine(WorkflowEngine):
             feature="Workflow Creation",
             message=(
                 "Workflow creation requires Caracal Enterprise. "
-                "Visit https://caracal.dev/enterprise for licensing information."
+                "Visit https://garudexlabs.com for licensing information."
             ),
         )
     
@@ -339,7 +339,7 @@ class OpenSourceWorkflowEngine(WorkflowEngine):
             feature="Workflow Scheduling",
             message=(
                 "Workflow scheduling requires Caracal Enterprise. "
-                "Visit https://caracal.dev/enterprise for licensing information."
+                "Visit https://garudexlabs.com for licensing information."
             ),
         )
     
@@ -359,7 +359,7 @@ class OpenSourceWorkflowEngine(WorkflowEngine):
             feature="Workflow Status",
             message=(
                 "Workflow status tracking requires Caracal Enterprise. "
-                "Visit https://caracal.dev/enterprise for licensing information."
+                "Visit https://garudexlabs.com for licensing information."
             ),
         )
 

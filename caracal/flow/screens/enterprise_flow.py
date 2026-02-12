@@ -126,9 +126,9 @@ class EnterpriseFlow:
         
         content.append("\n")
         content.append("Learn More: ", style="bold")
-        content.append("https://caracal.dev/enterprise\n", style=Colors.LINK)
+        content.append("https://garudexlabs.com\n", style=Colors.LINK)
         content.append("Contact Sales: ", style="bold")
-        content.append("enterprise@caracal.dev", style=Colors.LINK)
+        content.append("support@garudexlabs.com", style=Colors.LINK)
         
         return Panel(
             content,
@@ -197,8 +197,8 @@ class EnterpriseFlow:
         # Show upgrade information
         upgrade_panel = Panel(
             f"[bold]Ready to upgrade?[/bold]\n\n"
-            f"Visit [{Colors.LINK}]https://caracal.dev/enterprise[/] to learn more\n"
-            f"or contact [{Colors.LINK}]enterprise@caracal.dev[/] for a demo.",
+            f"Visit [{Colors.LINK}]https://garudexlabs.com[/] to learn more\n"
+            f"or contact [{Colors.LINK}]support@garudexlabs.com[/] for a demo.",
             border_style=Colors.PRIMARY,
             padding=(1, 2),
         )
@@ -218,8 +218,8 @@ class EnterpriseFlow:
             f"[bold]Connect Enterprise License[/bold]\n\n"
             f"Enter your Caracal Enterprise license token to activate enterprise features.\n\n"
             f"License tokens are provided when you purchase Caracal Enterprise.\n"
-            f"If you don't have a license token, visit [{Colors.LINK}]https://caracal.dev/enterprise[/]\n"
-            f"or contact [{Colors.LINK}]enterprise@caracal.dev[/] for more information.",
+            f"If you don't have a license token, visit [{Colors.LINK}]https://garudexlabs.com[/]\n"
+            f"or contact [{Colors.LINK}]support@garudexlabs.com[/] for more information.",
             border_style=Colors.PRIMARY,
             padding=(1, 2),
         )
@@ -274,8 +274,8 @@ class EnterpriseFlow:
         
         contact_panel = Panel(
             f"[bold]Contact Caracal Enterprise Sales[/bold]\n\n"
-            f"[bold]Website:[/] [{Colors.LINK}]https://caracal.dev/enterprise[/]\n"
-            f"[bold]Email:[/] [{Colors.LINK}]enterprise@caracal.dev[/]\n\n"
+            f"[bold]Website:[/] [{Colors.LINK}]https://garudexlabs.com[/]\n"
+            f"[bold]Email:[/] [{Colors.LINK}]support@garudexlabs.com[/]\n\n"
             f"[bold]What to expect:[/]\n"
             f"  • Schedule a personalized demo\n"
             f"  • Discuss your organization's needs\n"

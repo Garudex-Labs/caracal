@@ -49,8 +49,8 @@ def get_enterprise_status() -> dict[str, Any]:
     return {
         "edition": "open_source",
         "enterprise_features_available": False,
-        "upgrade_url": "https://caracal.dev/enterprise",
-        "contact_email": "enterprise@caracal.dev",
+        "upgrade_url": "https://garudexlabs.com",
+        "contact_email": "support@garudexlabs.com",
         "features": {
             "sso": {
                 "available": False,
@@ -209,8 +209,8 @@ def get_enterprise_features() -> dict[str, Any]:
     
     return {
         "features": all_features,
-        "upgrade_url": "https://caracal.dev/enterprise",
-        "contact_email": "enterprise@caracal.dev",
+        "upgrade_url": "https://garudexlabs.com",
+        "contact_email": "support@garudexlabs.com",
     }
 
 
