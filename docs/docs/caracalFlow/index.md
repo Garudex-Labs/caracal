@@ -29,11 +29,12 @@ Flow makes Caracal accessible to everyone:
 |    +----------------------------------------------------+         |
 |    |  Main Menu                                         |         |
 |    +----------------------------------------------------+         |
-|    |  -> Agents         Register and manage             |         |
-|    |     Policies       Budget limits                   |         |
-|    |     Ledger         Spending history                |         |
-|    |     Pricebook      Resource pricing                |         |
-|    |     Delegation     Parent-child budgets            |         |
+|    |  -> Principals     Manage identities               |         |
+|    |     Policies       Authority rules                 |         |
+|    |     Ledger         Audit trail                     |         |
+|    |     Mandates       Grant authority                 |         |
+|    |     Delegation     Delegate authority              |         |
+|    |     Enterprise     Sync & status                   |         |
 |    |     Settings       Configuration                   |         |
 |    |     Help           Documentation                   |         |
 |    +----------------------------------------------------+         |
@@ -50,9 +51,9 @@ Flow makes Caracal accessible to everyone:
 | Task | Use Flow | Use Core CLI |
 |------|:--------:|:------------:|
 | First-time setup | Yes | |
-| Register agents | Yes | Yes |
-| Create budgets | Yes | Yes |
-| View spending | Yes | Yes |
+| Register principals | Yes | Yes |
+| Create policies | Yes | Yes |
+| View audit ledger | Yes | Yes |
 | Automation/scripting | | Yes |
 | Merkle verification | | Yes |
 | Key rotation | | Yes |
@@ -82,8 +83,8 @@ On first launch, Flow runs an onboarding wizard:
 
 1. **Configuration Setup** - Choose where to store Caracal data
 2. **Database Setup** - Configure PostgreSQL or use file-based storage
-3. **Register First Agent** - Create your first AI agent identity
-4. **Create First Policy** - Set up initial budget limits
+3. **Register First Principal** - Create your first identity (Agent, User, or Service)
+4. **Create First Policy** - Set up initial authority rules
 
 ### Command-Line Options
 
@@ -103,32 +104,46 @@ caracal-flow [OPTIONS]
 
 ## Feature Overview
 
-### Agent Management
+### Principal Management
 
-Register, view, and configure AI agents:
+Register, view, and configure identities:
 
-- Create new agents with names and owners
+- Create new principals (Agents, Users, Services)
 - Add metadata for organization
-- Create parent-child relationships
-- View agent details and history
+- View principal details and history
 
 ### Policy Configuration
 
-Set up and manage spending limits:
+Set up and manage authority rules:
 
-- Create daily/weekly/monthly budgets
-- Choose calendar or rolling windows
-- View active policies per agent
-- Quick budget adjustments
+- Define allowed resources and actions
+- Set validity periods
+- Apply constraints
+- View active policies per principal
 
-### Spending Dashboard
+### Mandate Management
 
-Monitor agent spending in real-time:
+Issue and manage authority tokens:
 
-- View current spending vs budget
-- See breakdown by operation type
-- Track delegation chain spending
-- Identify high-cost operations
+- Create new mandates for principals
+- Revoke existing mandates
+- View mandate status and history
+
+### Delegation Center
+
+Manage parent-child authority relationships:
+
+- View delegation chains
+- Track delegated mandates
+- Monitor sub-principal activity
+
+### Enterprise Integration
+
+Connect to Caracal Enterprise:
+
+- View sync status
+- Monitor connection health
+- Check license status
 
 ### Settings and Infrastructure
 
@@ -136,17 +151,9 @@ Configure Caracal and manage infrastructure:
 
 - View current configuration
 - Edit config files
-- Start/stop Docker services
-- Check database and Kafka status
-- Create and restore backups
-
-### Delegation Center
-
-Manage parent-child budget relationships:
-
-- View all delegations
-- See spending by child agents
-- Quick status checks
+- **Infrastructure**: Start/stop Docker services (Postgres, Kafka)
+- **Database**: Check connection status
+- **Backup & Restore**: Create and restore data backups (SQLite only)
 
 ---
 
@@ -279,7 +286,7 @@ If something goes wrong, reset Flow state:
 caracal-flow --reset
 ```
 
-This clears onboarding state but preserves your agents and policies.
+This clears onboarding state but preserves your principals and policies.
 
 ---
 
