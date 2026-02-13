@@ -3,6 +3,20 @@ sidebar_position: 1
 title: Configuration
 ---
 
+### Enterprise Sync
+ 
+ To enable synchronization with a Caracal Enterprise instance, add the following to your `config.yaml`:
+ 
+ ```yaml
+ enterprise:
+   enabled: true
+   server_url: "https://your-enterprise-instance.com"
+   api_key: "your-api-key"
+   sync_interval: 60  # seconds
+ ```
+ 
+ ### Database Configuration
+
 # Caracal Flow Configuration
 
 Customize the appearance and behavior of Caracal Flow.

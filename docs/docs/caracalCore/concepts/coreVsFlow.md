@@ -11,13 +11,13 @@ Understanding when to use each tool for effective Caracal deployment and managem
 
 ## Overview
 
-| | Caracal Core | Caracal Flow |
-|---|:---:|:---:|
-| **Type** | Engine + CLI | Terminal UI (TUI) |
-| **Interface** | Command-line, SDK, API | Interactive menus |
-| **Use Case** | Automation, infrastructure, recovery | Day-to-day management, onboarding |
-| **Skill Level** | DevOps/Engineering | All users |
-| **Scriptable** | Yes | No |
+| | Caracal Core | Caracal Flow | Caracal Enterprise |
+|---|:---:|:---:|:---:|
+| **Type** | Engine + CLI | Terminal UI (TUI) | Management Platform |
+| **Interface** | Command-line, SDK, API | Interactive menus | Web Dashboard |
+| **Use Case** | Automation, infrastructure, recovery | Day-to-day management, onboarding | Multi-team management, compliance |
+| **Skill Level** | DevOps/Engineering | All users | Admins/Managers |
+| **Scriptable** | Yes | No | API-driven |
 
 ---
 

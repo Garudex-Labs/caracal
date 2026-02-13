@@ -1,7 +1,7 @@
 ## Installation
 
 ```bash
-npm build
+npm run build
 ```
 
 ## Local Development

@@ -9,7 +9,10 @@ Caracal Flow is a **terminal-based user interface (TUI)** for managing your Cara
 
 ## Features
 
-- **Agent Dashboard**: View all registered agents and their status.
+- **Interactive Management**: Easily manage agents, policies, and budgets through a guided interface.
+- **Real-time Monitoring**: View spending and system health in real-time.
+- **Enterprise Ready**: Seamlessly upgrade to Enterprise Edition to unlock multi-tenancy and advanced security features.
+- **Developer Friendly**: Built for developers who prefer terminal-based tools over heavy web UIs.
 - **Policy Editor**: Create and modify spending policies interactively.
 - **Spending Monitor**: Real-time visualization of agent spending.
 - **Quick Setup Wizard**: Guided configuration for new deployments.

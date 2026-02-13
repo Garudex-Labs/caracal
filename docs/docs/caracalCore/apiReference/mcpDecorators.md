@@ -10,12 +10,12 @@ Implements **Requirement 18.4**: "WHEN deployed as an SDK plugin, THE MCP_Adapte
 
 ## Features
 
-- ✅ Automatic budget checks before tool execution
-- ✅ Automatic metering events after tool execution  
-- ✅ Support for both async and sync functions
-- ✅ Flexible agent_id parameter handling
-- ✅ Transparent error handling and logging
-- ✅ Preserves function metadata (name, docstring)
+- Automatic budget checks before tool execution
+- Automatic metering events after tool execution
+- Support for both async and sync functions
+- Flexible agent_id parameter handling
+- Transparent error handling and logging
+- Preserves function metadata (name, docstring)
 
 ## Usage
 

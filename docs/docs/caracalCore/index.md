@@ -137,23 +137,23 @@ Learn more in [Architecture](./concepts/architecture).
 
 ## Key Features
 
-### 🔒 Network-Level Enforcement
+### Network-Level Enforcement
 
 Spending limits are enforced at the network level before requests reach AI providers. Agents cannot bypass budget controls.
 
-### 📝 Immutable Audit Trail
+### Immutable Audit Trail
 
 Every spending event is recorded in an append-only ledger with Merkle tree integrity proofs. Tampering is cryptographically detectable.
 
-### ⚡ Real-Time Policy Evaluation
+### Real-Time Policy Evaluation
 
 Policies are evaluated in under 100ms, enabling real-time request blocking without significant latency impact.
 
-### 🔗 Hierarchical Delegation
+### Hierarchical Delegation
 
 Parent agents can delegate budget to child agents with constraints. Spending is tracked across the entire hierarchy.
 
-### 📊 Rich Analytics
+### Rich Analytics
 
 Query spending by agent, time range, operation type, and more. Export data for compliance and cost analysis.
 
@@ -169,7 +169,7 @@ import Link from '@docusaurus/Link';
   <div className="col col--4">
     <div className="card">
       <div className="card__header">
-        <h3>🚀 Quickstart</h3>
+        <h3>Quickstart</h3>
       </div>
       <div className="card__body">
         Get Caracal running in 5 minutes
@@ -184,7 +184,7 @@ import Link from '@docusaurus/Link';
   <div className="col col--4">
     <div className="card">
       <div className="card__header">
-        <h3>📖 CLI Reference</h3>
+        <h3>CLI Reference</h3>
       </div>
       <div className="card__body">
         Complete command documentation
@@ -199,7 +199,7 @@ import Link from '@docusaurus/Link';
   <div className="col col--4">
     <div className="card">
       <div className="card__header">
-        <h3>🐍 SDK</h3>
+        <h3>SDK</h3>
       </div>
       <div className="card__body">
         Python integration guide

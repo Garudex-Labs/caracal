@@ -343,6 +343,16 @@ Metering Event
 
 ---
 
+## Enterprise Integration
+
+Caracal Core is designed to work seamlessly with **Caracal Enterprise Edition**.
+
+- **Policy Sync**: Core instances can legally pull policy updates from the Enterprise Control Plane.
+- **Telemetry**: Spending logs and audit trails are pushed to Enterprise for centralized monitoring.
+- **Fail-Safe**: If Enterprise connectivity is lost, Core continues to enforce cached policies (Fail-Closed if cache expires).
+
+---
+
 ## Deployment Patterns
 
 ### Single Node

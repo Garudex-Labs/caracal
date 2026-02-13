@@ -99,6 +99,32 @@ const sidebars: SidebarsConfig = {
       ],
     },
     {
+      type: 'category',
+      label: 'Caracal Enterprise',
+      link: { type: 'doc', id: 'caracalEnterprise/gettingStarted/index' },
+      items: [
+        {
+          type: 'category',
+          label: 'Getting Started',
+          items: [
+            'caracalEnterprise/gettingStarted/index',
+            'caracalEnterprise/gettingStarted/setup',
+          ],
+        },
+        {
+          type: 'category',
+          label: 'Guides',
+          items: [
+            'caracalEnterprise/guides/sdkIntegration',
+            'caracalEnterprise/guides/gatewayDeployment',
+            'caracalEnterprise/guides/principalManagement',
+          ],
+        },
+        'caracalEnterprise/architecture',
+        'caracalEnterprise/features',
+      ],
+    },
+    {
       type: 'doc',
       id: 'faq',
       label: 'FAQ',
