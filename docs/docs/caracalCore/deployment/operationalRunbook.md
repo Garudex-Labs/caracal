@@ -9,38 +9,37 @@ This runbook covers day-to-day operations for Caracal Core.
 
 ## Common Operations
 
-### Create Agent
+### Register Principal
 
 ```bash
-caracal agent create \
+caracal agent register \
   --name "my-agent" \
   --description "My AI agent" \
   --owner "user@example.com"
 ```
 
-### Create Budget Policy
+### Create Authority Policy
 
 ```bash
 caracal policy create \
-  --agent-id <agent-id> \
-  --limit 100.00 \
-  --currency USD \
-  --time-window daily \
-  --window-type calendar \
-  --change-reason "Initial budget allocation"
+  --agent-id <principal-id> \
+  --resources "api:external/*" \
+  --actions "read" "write" "execute" \
+  --max-validity 86400 \
+  --delegation-depth 1
 ```
 
-### Query Agent Spending
+### Query Principal Activity
 
 ```bash
 caracal ledger query \
-  --agent-id <agent-id> \
+  --agent-id <principal-id> \
   --start-time "2024-01-01T00:00:00Z" \
   --end-time "2024-01-31T23:59:59Z"
 
-# Current daily spending
+# Current daily activity
 caracal ledger query \
-  --agent-id <agent-id> \
+  --agent-id <principal-id> \
   --time-window daily
 ```
 

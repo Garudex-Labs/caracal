@@ -27,7 +27,7 @@ caracal kafka COMMAND [OPTIONS]
 
 | Topic | Description |
 |-------|-------------|
-| `caracal.events` | Spending events stream |
+| `caracal.events` | Authority events stream |
 | `caracal.dlq` | Dead letter queue |
 | `caracal.snapshots` | Snapshot notifications |
 

@@ -5,7 +5,7 @@ title: Contributing
 
 # Contributing to Caracal
 
-Thank you for your interest in contributing to Caracal! This guide will help you get started.
+Thank you for your interest in contributing to Caracal.
 
 ## Development Setup
 
@@ -43,3 +43,7 @@ ruff check caracal/
 ## Reporting Issues
 
 Use [GitHub Issues](https://github.com/Garudex-Labs/Caracal/issues) for bug reports and feature requests.
+
+## Support
+
+For contribution guidance, questions, or discussions --- [Book a Call](https://cal.com/rawx18/open-source).

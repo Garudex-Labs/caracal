@@ -11,36 +11,49 @@ title: Welcome to Caracal
   <img src="/img/caracal.png" width="200" alt="Caracal Logo" className="logo-light" />
 </p>
 
-**Network-enforced policy enforcement and metering for AI agents.**
+**Execution authority enforcement for AI agents.**
 
-Caracal ensures your AI agents operate within defined economic boundaries with cryptographic proof of all spending events.
+Caracal ensures every AI agent action is explicitly authorized, cryptographically verifiable, and fully auditable -- before it executes.
 
 ## Products
 
 <div className="row">
-  <div className="col col--6">
+  <div className="col col--4">
     <div className="card">
       <div className="card__header">
         <h3>Caracal Core</h3>
       </div>
       <div className="card__body">
-        <p>The policy enforcement engine. Includes Gateway Proxy, Ledger, SDK, and CLI tools.</p>
+        <p>The authority enforcement engine. Gateway, SDK, CLI, and audit ledger.</p>
       </div>
       <div className="card__footer">
         <a className="button button--primary button--block" href="/caracalCore">Get Started</a>
       </div>
     </div>
   </div>
-  <div className="col col--6">
+  <div className="col col--4">
     <div className="card">
       <div className="card__header">
         <h3>Caracal Flow</h3>
       </div>
       <div className="card__body">
-        <p>Terminal UI for managing Caracal. Configure agents, policies, and view spending interactively.</p>
+        <p>Terminal UI for managing Caracal. Configure principals, policies, and mandates interactively.</p>
       </div>
       <div className="card__footer">
         <a className="button button--secondary button--block" href="/caracalFlow">Explore</a>
+      </div>
+    </div>
+  </div>
+  <div className="col col--4">
+    <div className="card">
+      <div className="card__header">
+        <h3>Caracal Enterprise</h3>
+      </div>
+      <div className="card__body">
+        <p>Centralized control plane for multi-team authority management, compliance, and analytics.</p>
+      </div>
+      <div className="card__footer">
+        <a className="button button--secondary button--block" href="/caracalEnterprise/gettingStarted/">Explore</a>
       </div>
     </div>
   </div>
@@ -48,24 +61,20 @@ Caracal ensures your AI agents operate within defined economic boundaries with c
 
 ---
 
-## Core vs Flow Comparison
+## What is Authority Enforcement?
 
-| Feature | Caracal Core | Caracal Flow |
-|---------|:------------:|:------------:|
-| **Interface** | CLI + SDK | Terminal UI |
-| **Best For** | Automation, scripts, CI/CD | Interactive management |
-| **Agent Registration** | Yes | Yes |
-| **Policy Creation** | Yes | Yes |
-| **Spending Queries** | Yes | Yes |
-| **Merkle Verification** | Yes | No |
-| **Key Rotation** | Yes | No |
-| **Event Replay** | Yes | No |
-| **DLQ Management** | Yes | No |
-| **Batch Operations** | Yes | No |
-| **Onboarding Wizard** | No | Yes |
-| **Visual Menus** | No | Yes |
+Caracal is not a billing system or an API gateway. It is an **authority layer** that answers one question before any AI agent acts:
 
-**Rule:** Use Flow for interactive work, use Core CLI for automation or advanced operations.
+> Does this agent have explicit, valid, and verifiable permission to perform this action on this resource, right now?
+
+| Concept | Description |
+|---------|-------------|
+| **Principal** | Any entity (AI agent, user, service) that can hold authority |
+| **Mandate** | A time-bound, scoped token granting permission to act |
+| **Policy** | Rules governing what mandates can be issued to a principal |
+| **Delegation** | Scoped transfer of authority from one principal to another |
+| **Intent** | Declared purpose attached to a mandate request |
+| **Fail-Closed** | If authority cannot be verified, the action is denied |
 
 ---
 
@@ -82,8 +91,8 @@ Caracal ensures your AI agents operate within defined economic boundaries with c
 |                     CARACAL GATEWAY PROXY                        |
 |                                                                  |
 |  +----------------+  +----------------+  +------------------+    |
-|  | Authenticate   |->| Evaluate       |->| Record Spending  |    |
-|  | Request        |  | Policy         |  | to Ledger        |    |
+|  | Authenticate   |->| Validate       |->| Record Authority |    |
+|  | Principal      |  | Mandate        |  | Event            |    |
 |  +----------------+  +----------------+  +------------------+    |
 +------------------------------------------------------------------+
                                |
@@ -91,8 +100,8 @@ Caracal ensures your AI agents operate within defined economic boundaries with c
          |                     |                     |
          v                     v                     v
 +----------------+   +------------------+   +----------------+
-|    POLICY      |   |     LEDGER       |   |    MERKLE      |
-|    ENGINE      |   |   (Immutable)    |   |     TREE       |
+|   AUTHORITY    |   |   AUTHORITY      |   |    MERKLE      |
+|    POLICY      |   |    LEDGER        |   |     TREE       |
 +----------------+   +------------------+   +----------------+
          |                     |                     |
          +---------------------+---------------------+
@@ -108,14 +117,12 @@ Caracal ensures your AI agents operate within defined economic boundaries with c
 ## CLI Quick Reference
 
 | Task | Command |
-|------|---------|
+|------|---------:|
 | Initialize Caracal | `caracal init` |
-| Register agent | `caracal agent register --name NAME --owner OWNER` |
-| List agents | `caracal agent list` |
-| Create policy | `caracal policy create --agent-id ID --limit 100.00` |
+| Register principal | `caracal agent register --name NAME --owner OWNER` |
+| List principals | `caracal agent list` |
+| Create policy | `caracal policy create --agent-id ID --resources "api:*" --actions "read"` |
 | Query ledger | `caracal ledger query --agent-id ID` |
-| Spending summary | `caracal ledger summary --agent-id ID` |
-| Database status | `caracal db status` |
 | Verify integrity | `caracal merkle verify` |
 
 See [CLI Reference](/caracalCore/cliReference/) for complete documentation.
@@ -125,22 +132,31 @@ See [CLI Reference](/caracalCore/cliReference/) for complete documentation.
 ## SDK Quick Start
 
 ```python
-from decimal import Decimal
-from caracal.sdk.client import CaracalClient
+from caracal.sdk import AuthorityClient
 
-# Initialize client
-client = CaracalClient()
+client = AuthorityClient(
+    base_url="https://your-caracal-instance.example.com",
+    api_key="your-api-key"
+)
 
-# Check budget before expensive operation
-if client.check_budget("my-agent-id"):
-    result = call_ai_api()
-    
-    # Record the spending
-    client.emit_event(
-        agent_id="my-agent-id",
-        resource_type="openai.gpt-4.output_tokens",
-        quantity=Decimal("500")
-    )
+# Request a mandate before performing an action
+mandate = client.request_mandate(
+    issuer_id="<issuer-principal-id>",
+    subject_id="<subject-principal-id>",
+    resource_scope=["api:external/*"],
+    action_scope=["read"],
+    validity_seconds=3600
+)
+
+# Validate mandate before execution
+validation = client.validate_mandate(
+    mandate_id=mandate["mandate_id"],
+    requested_action="read",
+    requested_resource="api:external/data"
+)
+
+if validation["allowed"]:
+    result = call_external_api()
 ```
 
 See [SDK Reference](/caracalCore/apiReference/sdkClient) for complete documentation.
@@ -154,14 +170,16 @@ See [SDK Reference](/caracalCore/apiReference/sdkClient) for complete documentat
 | Getting Started | [Installation](/caracalCore/gettingStarted/installation) - [Quickstart](/caracalCore/gettingStarted/quickstart) |
 | CLI Reference | [Commands](/caracalCore/cliReference/) - [Agent](/caracalCore/cliReference/agent) - [Policy](/caracalCore/cliReference/policy) |
 | API Reference | [SDK](/caracalCore/apiReference/sdkClient) - [MCP](/caracalCore/apiReference/mcpIntegration) |
-| Deployment | [Docker Compose](/caracalCore/deployment/dockerCompose) - [Kubernetes](/caracalCore/deployment/kubernetes) |
+| Enterprise | [Getting Started](/caracalEnterprise/gettingStarted/) - [Using Enterprise](/caracalEnterprise/guides/usage) |
 | Development | [Contributing](/development/contributing) - [FAQ](/faq) |
 
 ---
 
-## Community
+## Community and Support
 
 | Resource | Link |
 |----------|------|
 | GitHub | [Garudex-Labs/Caracal](https://github.com/Garudex-Labs/Caracal) |
 | Discord | [Join Community](https://discord.gg/d32UBmsK7A) |
+| Open Source Support | [Book a Call](https://cal.com/rawx18/open-source) |
+| Enterprise Sales | [Book a Call](https://cal.com/rawx18/caracal-enterprise-sales) |

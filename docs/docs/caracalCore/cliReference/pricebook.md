@@ -1,11 +1,11 @@
 ---
 sidebar_position: 8
-title: Pricebook Commands
+title: Resource Registry Commands
 ---
 
-# Pricebook Commands
+# Resource Registry Commands
 
-The `pricebook` command group manages resource pricing for cost calculation.
+The `pricebook` command group manages the resource registry. This defines the resources that can be referenced in authority policies and mandates.
 
 ```
 caracal pricebook COMMAND [OPTIONS]
@@ -17,40 +17,39 @@ caracal pricebook COMMAND [OPTIONS]
 
 | Command | Description |
 |---------|-------------|
-| [`list`](#list) | List all resource prices |
-| [`get`](#get) | Get price for a specific resource |
-| [`set`](#set) | Set price for a resource |
-| [`import`](#import) | Import prices from CSV file |
+| [`list`](#list) | List all registered resources |
+| [`get`](#get) | Get details for a specific resource |
+| [`set`](#set) | Register or update a resource |
+| [`import`](#import) | Import resources from CSV file |
 
 ---
 
-## Pricing Structure
+## Resource Structure
 
 | Field | Description |
 |-------|-------------|
-| resource_type | Unique identifier (e.g., `openai.gpt-4.output_tokens`) |
-| price | Price per unit |
-| currency | Currency code (USD) |
-| unit | Quantity unit (e.g., tokens, seconds) |
+| resource_type | Unique identifier (e.g., `api:external/openai`) |
+| description | Human-readable description |
+| category | Resource category (api, db, service) |
 
 ### Resource Type Naming Convention
 
 ```
-provider.model.resource_type
+category:provider/resource
 ```
 
-| Example | Provider | Model | Resource |
-|---------|----------|-------|----------|
-| `openai.gpt-4.input_tokens` | OpenAI | GPT-4 | Input tokens |
-| `openai.gpt-4.output_tokens` | OpenAI | GPT-4 | Output tokens |
-| `anthropic.claude-3.input_tokens` | Anthropic | Claude 3 | Input tokens |
-| `openai.whisper-1.seconds` | OpenAI | Whisper | Audio seconds |
+| Example | Category | Provider | Resource |
+|---------|----------|----------|----------|
+| `api:external/openai` | api | external | openai |
+| `api:external/anthropic` | api | external | anthropic |
+| `db:analytics/reports` | db | analytics | reports |
+| `service:internal/auth` | service | internal | auth |
 
 ---
 
 ## list
 
-List all resource prices.
+List all registered resources.
 
 ```
 caracal pricebook list [OPTIONS]
@@ -60,13 +59,11 @@ caracal pricebook list [OPTIONS]
 
 | Option | Short | Default | Description |
 |--------|-------|---------|-------------|
-| `--provider` | `-p` | - | Filter by provider |
+| `--category` | `-c` | - | Filter by category |
 | `--format` | `-f` | table | Output format |
 
-### Examples
-
 <details>
-<summary>List All Prices</summary>
+<summary>List all resources</summary>
 
 ```bash
 caracal pricebook list
@@ -74,59 +71,17 @@ caracal pricebook list
 
 **Output:**
 ```
-Resource Prices
-===============
+Registered Resources
+====================
 
-Resource Type                         Price         Currency    Unit
-------------------------------------------------------------------------
-openai.gpt-4.input_tokens             $0.00003      USD         token
-openai.gpt-4.output_tokens            $0.00006      USD         token
-openai.gpt-4-turbo.input_tokens       $0.00001      USD         token
-openai.gpt-4-turbo.output_tokens      $0.00003      USD         token
-openai.gpt-3.5-turbo.input_tokens     $0.0000005    USD         token
-openai.gpt-3.5-turbo.output_tokens    $0.0000015    USD         token
-anthropic.claude-3.input_tokens       $0.000008     USD         token
-anthropic.claude-3.output_tokens      $0.000024     USD         token
-openai.whisper-1.seconds              $0.0001       USD         second
-openai.dall-e-3.images                $0.04         USD         image
+Resource Type                         Category    Description
+--------------------------------------------------------------------
+api:external/openai                   api         OpenAI API access
+api:external/anthropic                api         Anthropic API access
+db:analytics/reports                  db          Analytics database
+service:internal/auth                 service     Auth service
 
-Total: 10 resource types
-```
-
-</details>
-
-<details>
-<summary>Filter by Provider</summary>
-
-```bash
-caracal pricebook list --provider openai
-```
-
-</details>
-
-<details>
-<summary>JSON Output</summary>
-
-```bash
-caracal pricebook list --format json
-```
-
-**Output:**
-```json
-[
-  {
-    "resource_type": "openai.gpt-4.input_tokens",
-    "price": "0.00003",
-    "currency": "USD",
-    "unit": "token"
-  },
-  {
-    "resource_type": "openai.gpt-4.output_tokens",
-    "price": "0.00006",
-    "currency": "USD",
-    "unit": "token"
-  }
-]
+Total: 4 resources
 ```
 
 </details>
@@ -135,180 +90,59 @@ caracal pricebook list --format json
 
 ## get
 
-Get price for a specific resource.
+Get details for a specific resource.
 
 ```
 caracal pricebook get [OPTIONS]
 ```
 
-### Options
-
 | Option | Short | Required | Description |
 |--------|-------|:--------:|-------------|
 | `--resource-type` | `-r` | Yes | Resource type identifier |
-| `--format` | `-f` | No | Output format |
-
-### Examples
-
-<details>
-<summary>Get Single Price</summary>
-
-```bash
-caracal pricebook get --resource-type openai.gpt-4.output_tokens
-```
-
-**Output:**
-```
-Resource: openai.gpt-4.output_tokens
-Price:    $0.00006 USD per token
-```
-
-</details>
 
 ---
 
 ## set
 
-Set price for a resource.
+Register or update a resource.
 
 ```
 caracal pricebook set [OPTIONS]
 ```
 
-### Options
-
-| Option | Short | Required | Default | Description |
-|--------|-------|:--------:|---------|-------------|
-| `--resource-type` | `-r` | Yes | - | Resource type identifier |
-| `--price` | `-p` | Yes | - | Price per unit |
-| `--currency` | `-c` | No | USD | Currency code |
-| `--unit` | `-u` | No | - | Unit description |
-
-### Examples
-
-<details>
-<summary>Set New Price</summary>
-
-```bash
-caracal pricebook set \
-  --resource-type openai.gpt-5.input_tokens \
-  --price 0.0001 \
-  --unit token
-```
-
-**Output:**
-```
-Price updated successfully!
-
-Resource Type: openai.gpt-5.input_tokens
-New Price:     $0.0001 USD per token
-Previous:      (new entry)
-```
-
-</details>
-
-<details>
-<summary>Update Existing Price</summary>
-
-```bash
-caracal pricebook set \
-  --resource-type openai.gpt-4.output_tokens \
-  --price 0.00005
-```
-
-**Output:**
-```
-Price updated successfully!
-
-Resource Type: openai.gpt-4.output_tokens
-New Price:     $0.00005 USD per token
-Previous:      $0.00006 USD per token
-Change:        -16.7%
-```
-
-</details>
+| Option | Short | Required | Description |
+|--------|-------|:--------:|-------------|
+| `--resource-type` | `-r` | Yes | Resource type identifier |
+| `--description` | `-d` | No | Human-readable description |
+| `--category` | `-c` | No | Resource category |
 
 ---
 
 ## import
 
-Import prices from CSV file.
+Import resources from CSV file.
 
 ```
 caracal pricebook import [OPTIONS] FILE
 ```
 
-### Arguments
-
-| Argument | Description |
-|----------|-------------|
-| FILE | Path to CSV file |
-
-### Options
-
 | Option | Short | Default | Description |
 |--------|-------|---------|-------------|
-| `--overwrite` | | false | Overwrite existing prices |
+| `--overwrite` | | false | Overwrite existing entries |
 | `--dry-run` | | false | Preview without importing |
 
 ### CSV Format
 
 ```csv
-resource_type,price,currency,unit
-openai.gpt-4.input_tokens,0.00003,USD,token
-openai.gpt-4.output_tokens,0.00006,USD,token
-anthropic.claude-3.input_tokens,0.000008,USD,token
+resource_type,description,category
+api:external/openai,OpenAI API access,api
+api:external/anthropic,Anthropic API access,api
+db:analytics/reports,Analytics database,db
 ```
-
-### Examples
-
-<details>
-<summary>Import from CSV</summary>
-
-```bash
-caracal pricebook import prices.csv
-```
-
-**Output:**
-```
-Importing prices from: prices.csv
-
-  [OK] openai.gpt-4.input_tokens: $0.00003
-  [OK] openai.gpt-4.output_tokens: $0.00006
-  [OK] anthropic.claude-3.input_tokens: $0.000008
-  [SKIP] openai.gpt-3.5-turbo: already exists (use --overwrite)
-
-Imported: 3 prices
-Skipped: 1 (already exists)
-```
-
-</details>
-
-<details>
-<summary>Dry Run</summary>
-
-```bash
-caracal pricebook import prices.csv --dry-run
-```
-
-**Output:**
-```
-DRY RUN - No changes will be made
-
-Would import:
-  openai.gpt-4.input_tokens: $0.00003
-  openai.gpt-4.output_tokens: $0.00006
-  anthropic.claude-3.input_tokens: $0.000008
-
-Would skip (already exists):
-  openai.gpt-3.5-turbo
-```
-
-</details>
 
 ---
 
 ## See Also
 
-- [Ledger Commands](./ledger) - View cost calculations
-- [Policy Commands](./policy) - Set budget limits
+- [Policy Commands](./policy) -- Reference resources in authority policies
+- [Ledger Commands](./ledger) -- View events by resource

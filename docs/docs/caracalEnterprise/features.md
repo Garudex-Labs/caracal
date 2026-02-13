@@ -1,35 +1,52 @@
 # Features
 
-Caracal Enterprise Edition offers a suite of advanced features designed to meet the rigorous demands of modern enterprises.
+Caracal Enterprise Edition provides advanced capabilities for organizations managing authority enforcement at scale.
+
+---
 
 ## Enterprise Sync
 
-Enterprise Sync bridges the gap between local development and centralized management. It ensures that your distributed agent infrastructure remains consistent and compliant.
+Bridges local development and centralized management.
 
--   **Centralized Policy Management**: Define policies once in the Enterprise dashboard and enforce them across all connected agents.
--   **Real-time Synchronization**: Updates to policies are propagated to connected agents in real-time.
--   **Offline Mode**: Agents can continue to operate with the last known policy configuration even if the connection to the Enterprise server is lost.
+| Capability | Description |
+|------------|-------------|
+| Centralized Policy Management | Define policies once, enforce everywhere |
+| Real-time Synchronization | Policy updates propagate to connected instances immediately |
+| Offline Mode | Principals continue operating with cached policies if connectivity is lost |
+
+---
 
 ## Fail-Closed Security Model
 
-Security is paramount in Caracal Enterprise. We adhere to a "Fail-Closed" security model.
+| Principle | Description |
+|-----------|-------------|
+| Default Deny | All actions are blocked unless explicitly authorized by a valid mandate |
+| Secure Defaults | Pre-configured with minimal-privilege settings |
+| Tamper-Proof Logging | All authority events are logged to an immutable audit trail |
 
--   **Default Deny**: All actions are blocked by default. Explicit permissions must be granted via policies.
--   **Secure Defaults**: The system comes pre-configured with secure settings to minimize the attack surface.
--   **Tamper-Proof Logging**: All security-critical events are logged to a tamper-proof audit trail.
+---
 
-## Onboarding and Agent Management
+## Principal and Mandate Management
 
-Managing a large fleet of agents is made easy with our intuitive onboarding and management tools.
+| Capability | Description |
+|------------|-------------|
+| Bulk Onboarding | Register multiple principals via CSV import or API |
+| Health Monitoring | Monitor principal status and connectivity in real-time |
+| Remote Configuration | Update principal configurations without direct access |
+| Mandate Lifecycle | Issue, validate, revoke, and audit mandates from the dashboard |
 
--   **Bulk Onboarding**: Register multiple agents simultaneously using CSV import or API integration.
--   **Agent Health Monitoring**: Monitor the health and status of your agents in real-time.
--   **Remote Configuration**: Update agent configurations remotely without needing to access the physical device.
+---
 
 ## Advanced Analytics
 
-Gain deep insights into your agent interactions and system performance.
+| Capability | Description |
+|------------|-------------|
+| Custom Dashboards | Visualize authority events, mandate usage, and policy compliance |
+| Usage Reports | Generate detailed reports on principal activity |
+| Anomaly Detection | Detect and alert on unusual authority patterns |
 
--   **Custom Dashboards**: Create custom dashboards to visualize the metrics that matter most to your business.
--   **Usage Reports**: Generate detailed reports on agent usage and resource consumption.
--   **Anomaly Detection**: Automatically detect and alert on unusual agent behavior.
+---
+
+## Contact Sales
+
+[Book a Call](https://cal.com/rawx18/caracal-enterprise-sales) to learn more about Enterprise features.

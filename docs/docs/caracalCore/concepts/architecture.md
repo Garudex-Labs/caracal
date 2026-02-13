@@ -5,7 +5,7 @@ title: Architecture
 
 # Caracal Core Architecture
 
-Technical architecture of the Caracal policy enforcement system.
+Technical architecture of the Caracal authority enforcement system.
 
 ---
 
@@ -16,29 +16,29 @@ Technical architecture of the Caracal policy enforcement system.
 |                        AI AGENT APPLICATIONS                      |
 |                                                                   |
 |  +--------+   +--------+   +--------+   +--------+   +--------+  |
-|  | Agent  |   | Agent  |   | Agent  |   | Agent  |   | Agent  |  |
+|  |Princip.|   |Princip.|   |Princip.|   |Princip.|   |Princip.|  |
 |  |   1    |   |   2    |   |   3    |   |   4    |   |   5    |  |
 |  +---+----+   +---+----+   +---+----+   +---+----+   +---+----+  |
 +------+-----------+-----------+-----------+-----------+------------+
        |           |           |           |           |
        +-----------+-----------+-----------+-----------+
                                |
-                               | HTTP Requests with Budget Headers
+                               | HTTP Requests with Mandate Headers
                                v
 +------------------------------------------------------------------+
 |                     CARACAL GATEWAY PROXY                         |
 |                                                                   |
-|  1. Authenticate Request                                          |
-|  2. Evaluate Budget Policy                                        |
-|  3. Record Spending to Ledger                                     |
-|  4. Forward Request or Reject                                     |
+|  1. Authenticate Principal                                        |
+|  2. Validate Mandate (scope, expiry, signature, revocation)       |
+|  3. Record Authority Event in Ledger                              |
+|  4. Forward Request or Deny                                       |
 +------------------------------------------------------------------+
                                |
          +---------------------+---------------------+
          v                     v                     v
 +----------------+   +------------------+   +----------------+
-|    POLICY      |   |     LEDGER       |   |    MERKLE      |
-|    ENGINE      |   |   (Immutable)    |   |     TREE       |
+|   AUTHORITY    |   |   AUTHORITY      |   |    MERKLE      |
+|    POLICY      |   |    LEDGER        |   |     TREE       |
 +----------------+   +------------------+   +----------------+
          |                     |                     |
          +---------------------+---------------------+
@@ -55,27 +55,27 @@ Technical architecture of the Caracal policy enforcement system.
 
 | Component | Description |
 |-----------|-------------|
-| Gateway Proxy | Intercepts AI API requests, enforces policies |
-| Policy Engine | Evaluates budget limits and time windows |
-| Ledger | Immutable append-only spending log |
-| Merkle Tree | Cryptographic integrity verification |
-| Agent Registry | Identity management for AI agents |
-| Pricebook | Resource pricing configuration |
+| Gateway Proxy | Intercepts agent API requests, validates mandates |
+| Authority Policy Engine | Evaluates whether mandates can be issued to principals |
+| Authority Ledger | Immutable append-only log of all authority events |
+| Merkle Tree | Cryptographic integrity verification for the ledger |
+| Principal Registry | Identity management for AI agents, users, and services |
+| Delegation Engine | Manages scoped authority transfer between principals |
 
 ---
 
-## Agent Registry
+## Principal Registry
 
-Manages AI agent identities and hierarchical relationships.
+Manages principal identities and hierarchical relationships.
 
 ```
 +-----------------------------------+
-|          AGENT REGISTRY           |
+|       PRINCIPAL REGISTRY          |
 +-----------------------------------+
 |                                   |
 |  +---------------------------+    |
-|  |     Root Agent            |    |
-|  |     (Orchestrator)        |    |
+|  |    Root Principal         |    |
+|  |    (Orchestrator)         |    |
 |  +-------------+-------------+    |
 |                |                  |
 |      +---------+---------+        |
@@ -93,69 +93,72 @@ Manages AI agent identities and hierarchical relationships.
 
 | Field | Description |
 |-------|-------------|
-| agent_id | Unique UUID identifier |
+| principal_id | Unique UUID identifier |
 | name | Human-readable name |
 | owner | Owner email or identifier |
-| parent_agent_id | Parent for hierarchical relationships |
+| parent_id | Parent for hierarchical relationships |
+| type | agent, user, or service |
 | metadata | Key-value pairs for custom data |
 
 ---
 
-## Policy Engine
+## Authority Policy Engine
 
-Evaluates spending limits with support for multiple policies per agent.
+Evaluates whether a mandate can be issued or validated for a given principal.
 
-### Policy Evaluation Flow
+### Mandate Validation Flow
 
 ```
                 +-------------------+
-                |   Check Budget    |
+                |  Validate Mandate |
                 |     Request       |
                 +---------+---------+
                           |
                           v
                 +-------------------+
-                |   Get Agent       |
-                |   Policies        |
+                | Check Signature   |
+                | (Cryptographic)   |
                 +---------+---------+
                           |
                           v
                 +-------------------+
-                |  For Each Policy  |<--------+
-                +---------+---------+         |
-                          |                   |
-                          v                   |
-                +-------------------+         |
-                |  Calculate Time   |         |
-                |     Window        |         |
-                +---------+---------+         |
-                          |                   |
-                          v                   |
-                +-------------------+         |
-                |  Sum Spending     |         |
-                |   in Window       |         |
-                +---------+---------+         |
-                          |                   |
-                          v                   |
-                +-------------------+         |
-                | Spending < Limit? |         |
-                +---------+---------+         |
-                     |         |              |
-                    Yes        No             |
-                     |         |              |
-                     |    +----v----+         |
-                     |    | REJECT  |         |
-                     |    +---------+         |
-                     v                        |
-                +-------------------+         |
-                | More Policies?    +---------+
+                | Check Expiration  |
                 +---------+---------+
                           |
-                          | No more
                           v
                 +-------------------+
-                |     ALLOW         |
+                | Check Revocation  |
+                +---------+---------+
+                          |
+                          v
                 +-------------------+
+                | Validate Action   |
+                | Scope             |
+                +---------+---------+
+                          |
+                          v
+                +-------------------+
+                | Validate Resource |
+                | Scope             |
+                +---------+---------+
+                     |         |
+                    Yes        No
+                     |         |
+                     |    +----v----+
+                     |    | DENY    |
+                     |    +---------+
+                     v
+                +-------------------+
+                | Check Delegation  |
+                | Chain             |
+                +---------+---------+
+                     |         |
+                   Valid     Invalid
+                     |         |
+                     v    +----v----+
+                +--------+| DENY    |
+                | ALLOW  |+---------+
+                +--------+
 ```
 
 ### Policy Fields
@@ -163,38 +166,39 @@ Evaluates spending limits with support for multiple policies per agent.
 | Field | Type | Description |
 |-------|------|-------------|
 | policy_id | UUID | Unique identifier |
-| agent_id | UUID | Target agent |
-| limit_amount | Decimal | Maximum spending |
-| currency | String | Currency code |
-| time_window | Enum | hourly, daily, weekly, monthly |
-| window_type | Enum | calendar, rolling |
+| principal_id | UUID | Target principal |
+| allowed_resources | List[str] | Resource patterns (supports wildcards) |
+| allowed_actions | List[str] | Permitted actions (read, write, execute) |
+| max_validity | int | Maximum mandate validity in seconds |
+| delegation_depth | int | Maximum delegation chain depth |
 
 ---
 
-## Ledger
+## Authority Ledger
 
-Append-only immutable log of spending events.
+Append-only immutable log of all authority events.
 
 ### Event Structure
 
 | Field | Type | Description |
 |-------|------|-------------|
 | event_id | UUID | Unique identifier |
-| agent_id | UUID | Agent that incurred cost |
+| event_type | String | issued, validated, denied, revoked |
+| principal_id | UUID | Principal involved |
+| mandate_id | UUID | Associated mandate |
 | timestamp | ISO 8601 | Event timestamp |
-| amount | Decimal | Cost amount |
-| currency | String | Currency code |
-| operation_type | String | Type of operation |
-| resource_type | String | Pricebook resource |
-| quantity | Decimal | Quantity consumed |
-| delegation_chain | Array | Parent agent chain |
-| request_id | String | Original request ID |
+| requested_action | String | Action requested |
+| requested_resource | String | Resource requested |
+| decision | String | allowed or denied |
+| denial_reason | String | Reason for denial (if applicable) |
+| delegation_chain | Array | Parent mandate chain |
 
-### Partitioning
+<details>
+<summary>Ledger partitioning</summary>
 
 ```
 +------------------------------------------+
-|              LEDGER TABLE                |
+|           AUTHORITY LEDGER               |
 +------------------------------------------+
 |                                          |
 |  +------------+                          |
@@ -210,11 +214,13 @@ Append-only immutable log of spending events.
 +------------------------------------------+
 ```
 
+</details>
+
 ---
 
 ## Merkle Tree
 
-Provides cryptographic integrity proofs.
+Provides cryptographic integrity proofs for the authority ledger.
 
 ```
                       +-------------+
@@ -238,8 +244,6 @@ Provides cryptographic integrity proofs.
     Event A      Event B          Event C      Event D
 ```
 
-### Properties
-
 | Property | Description |
 |----------|-------------|
 | Tamper-evident | Any change to historical data is detectable |
@@ -261,17 +265,19 @@ Agent Request
 | Gateway Proxy    |
 +------------------+
      |
-     +----> Validate Delegation Token
+     +----> Authenticate Principal
      |
-     +----> Check Budget (Policy Engine)
+     +----> Validate Mandate
      |         |
-     |         +----> Query Ledger for current spending
+     |         +----> Check signature, expiry, revocation
      |         |
-     |         +----> Compare against policy limits
+     |         +----> Validate action and resource scope
+     |         |
+     |         +----> Verify delegation chain
      |
-     +----> If ALLOWED: Forward to AI Provider
+     +----> If ALLOWED: Forward to target API
      |
-     +----> Record Event (Ledger)
+     +----> Record Authority Event
      |         |
      |         +----> Append to ledger
      |         |
@@ -279,38 +285,6 @@ Agent Request
      |
      v
 Response to Agent
-```
-
-### Event Recording
-
-```
-Metering Event
-     |
-     v
-+------------------+
-| Event Validation |
-+------------------+
-     |
-     v
-+------------------+
-| Calculate Cost   |
-| (Pricebook)      |
-+------------------+
-     |
-     v
-+------------------+
-| Append to Ledger |
-+------------------+
-     |
-     v
-+------------------+
-| Update Merkle    |
-+------------------+
-     |
-     v
-+------------------+
-| Publish to Kafka |
-+------------------+
 ```
 
 ---
@@ -322,7 +296,7 @@ Metering Event
 | Scenario | Behavior |
 |----------|----------|
 | Database unavailable | Deny all requests |
-| Policy check fails | Deny request |
+| Mandate validation fails | Deny request |
 | Event recording fails | Raise exception |
 | Merkle verification fails | Alert and deny |
 
@@ -330,13 +304,13 @@ Metering Event
 
 | Method | Use Case |
 |--------|----------|
-| Agent ID | Identify the agent |
-| Delegation Token | Prove budget authority |
+| Principal ID | Identify the entity |
+| Mandate Token | Prove execution authority |
 | API Key | Gateway authentication |
 
 ### Audit Trail
 
-- All events are immutable
+- All authority events are immutable
 - Merkle proofs are exportable
 - Root hashes are signed daily
 - Full history is preserved
@@ -345,17 +319,18 @@ Metering Event
 
 ## Enterprise Integration
 
-Caracal Core is designed to work seamlessly with **Caracal Enterprise Edition**.
+Caracal Core works with **Caracal Enterprise Edition** for centralized management.
 
-- **Policy Sync**: Core instances can legally pull policy updates from the Enterprise Control Plane.
-- **Telemetry**: Spending logs and audit trails are pushed to Enterprise for centralized monitoring.
-- **Fail-Safe**: If Enterprise connectivity is lost, Core continues to enforce cached policies (Fail-Closed if cache expires).
+- **Policy Sync** -- Core instances pull policy updates from the Enterprise Control Plane.
+- **Telemetry** -- Authority events are pushed to Enterprise for centralized monitoring.
+- **Fail-Safe** -- If Enterprise connectivity is lost, Core continues to enforce cached policies (fail-closed if cache expires).
 
 ---
 
 ## Deployment Patterns
 
-### Single Node
+<details>
+<summary>Single node</summary>
 
 ```
 +----------------------------------+
@@ -373,7 +348,10 @@ Caracal Core is designed to work seamlessly with **Caracal Enterprise Edition**.
 +----------------------------------+
 ```
 
-### High Availability
+</details>
+
+<details>
+<summary>High availability</summary>
 
 ```
 +------------------------------------------+
@@ -396,10 +374,12 @@ Caracal Core is designed to work seamlessly with **Caracal Enterprise Edition**.
 +-----------+ +-----------+ +-----------+
 ```
 
+</details>
+
 ---
 
 ## See Also
 
-- [Core vs Flow](/caracalCore/concepts/coreVsFlow) - Product comparison
-- [Deployment](/caracalCore/deployment/dockerCompose) - Deployment guides
-- [CLI Reference](/caracalCore/cliReference/) - Command documentation
+- [Core vs Flow](/caracalCore/concepts/coreVsFlow) -- Product comparison
+- [Deployment](/caracalCore/deployment/dockerCompose) -- Deployment guides
+- [CLI Reference](/caracalCore/cliReference/) -- Command documentation

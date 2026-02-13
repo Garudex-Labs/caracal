@@ -100,3 +100,35 @@
 [data-theme='dark'] .logo-dark {
   display: block;
 }
+
+/* --- Search Bar Customization --- */
+
+/* Center the search bar on desktop */
+@media (min-width: 997px) {
+  .navbar__search {
+    position: absolute;
+    left: 50%;
+    transform: translateX(-50%);
+    top: 12px;
+    /* Slightly above */
+    z-index: 100;
+  }
+
+  /* Make it wider */
+  .navbar__search-input {
+    width: 35rem !important;
+    transition: all 0.2s ease;
+  }
+}
+
+/* User asked: "change the color on hover of text make it black on hover" */
+.navbar__search-input:hover {
+  color: black !important;
+  /* Ensure readability on dark bg */
+  background-color: white !important;
+  border-color: transparent;
+}
+
+.navbar__search-input:hover::placeholder {
+  color: rgba(0, 0, 0, 0.5) !important;
+}

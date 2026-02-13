@@ -14,7 +14,7 @@ Caracal Flow is a **terminal-based user interface (TUI)** for managing your Cara
 - **Enterprise Ready**: Seamlessly upgrade to Enterprise Edition to unlock multi-tenancy and advanced security features.
 - **Developer Friendly**: Built for developers who prefer terminal-based tools over heavy web UIs.
 - **Policy Editor**: Create and modify authority policies interactively.
-- **Spending Monitor**: Real-time visualization of resource usage.
+- **Activity Monitor**: Real-time visualization of authority events and resource usage.
 - **Quick Setup Wizard**: Guided configuration for new deployments.
 - **Log Viewer**: Stream logs from Caracal components.
 

@@ -5,163 +5,110 @@ title: Caracal Core
 
 # Caracal Core
 
-Caracal Core is the **network-enforced policy enforcement and metering engine** for AI agents. It provides cryptographic proof of all spending events and real-time budget enforcement.
+Caracal Core is the **execution authority enforcement engine** for AI agents. It validates mandates, enforces policies, and records every authority decision in a cryptographically verifiable ledger.
 
-## What Caracal Core Provides
+## Components
 
 | Component | Description |
 |-----------|-------------|
-| **Gateway Proxy** | Intercepts and authorizes all agent API calls at the network level |
-| **Policy Engine** | Evaluates spending limits, time windows, and allowlists in real-time |
-| **Immutable Ledger** | Records all metering events with Merkle tree integrity proofs |
-| **CLI Tools** | Full command-line interface for automation and operations |
-| **SDK** | Python client for direct integration into your applications |
-
-## Quick Navigation
-
-### For New Users
-
-Start here to understand and deploy Caracal:
-
-1. **[Introduction](./gettingStarted/introduction)** - Learn the core concepts
-2. **[Installation](./gettingStarted/installation)** - Set up your environment
-3. **[Quickstart](./gettingStarted/quickstart)** - Deploy in 5 minutes
-
-### For Daily Operations
-
-Guides for day-to-day management:
-
-- **[Agent Commands](./cliReference/agent)** - Register and manage agents
-- **[Policy Commands](./cliReference/policy)** - Create and manage budgets
-- **[Ledger Commands](./cliReference/ledger)** - Query spending history
-
-### For Advanced Users
-
-Deep dives into specific areas:
-
-- **[Architecture](./concepts/architecture)** - Understand system design
-- **[Core vs Flow](./concepts/coreVsFlow)** - When to use each tool
-- **[Merkle Commands](./cliReference/merkle)** - Cryptographic integrity verification
-- **[Delegation Commands](./cliReference/delegation)** - Parent-child budget sharing
-
-### For Integration
-
-Build Caracal into your applications:
-
-- **[SDK Reference](./apiReference/sdkClient)** - Python SDK documentation
-- **[MCP Integration](./apiReference/mcpIntegration)** - Model Context Protocol
-- **[MCP Decorators](./apiReference/mcpDecorators)** - Decorator-based integration
-
-### For Production
-
-Deploy to production environments:
-
-- **[Docker Compose](./deployment/dockerCompose)** - Local/development deployment
-- **[Kubernetes](./deployment/kubernetes)** - Container orchestration
-- **[Production Guide](./deployment/production)** - Scaling and security
-- **[Operational Runbook](./deployment/operationalRunbook)** - Day-2 operations
+| **Gateway Proxy** | Intercepts agent requests and validates mandates at the network level |
+| **Authority Policy Engine** | Evaluates whether mandates can be issued based on principal policies |
+| **Authority Ledger** | Immutable, Merkle tree-backed log of all authority events |
+| **CLI Tools** | Command-line interface for operations and automation |
+| **SDK** | Python client for direct authority integration |
 
 ---
 
-## Command-Line Interface
+## Quick Navigation
 
-Caracal Core provides a comprehensive CLI for all operations:
+### Getting Started
 
-```bash
-# Global help
-caracal --help
+1. **[Introduction](./gettingStarted/introduction)** -- Core concepts
+2. **[Installation](./gettingStarted/installation)** -- Set up your environment
+3. **[Quickstart](./gettingStarted/quickstart)** -- Deploy in 5 minutes
 
-# Initialize Caracal
-caracal init
+### Operations
 
-# Manage agents
-caracal agent register --name my-agent --owner user@example.com
-caracal agent list
+- **[CLI Reference](./cliReference/)** -- Full command documentation
+- **[Agent Commands](./cliReference/agent)** -- Register and manage principals
+- **[Policy Commands](./cliReference/policy)** -- Create authority policies
+- **[Ledger Commands](./cliReference/ledger)** -- Query authority events
 
-# Create policies
-caracal policy create --agent-id <uuid> --limit 100.00
+### Advanced
 
-# Query ledger
-caracal ledger query --agent-id <uuid>
-caracal ledger summary --agent-id <uuid>
+- **[Architecture](./concepts/architecture)** -- System design
+- **[Core vs Flow](./concepts/coreVsFlow)** -- When to use each tool
+- **[Merkle Commands](./cliReference/merkle)** -- Cryptographic integrity verification
+- **[Delegation Commands](./cliReference/delegation)** -- Authority delegation
 
-# Database operations
-caracal db init-db
-caracal db migrate up
-caracal db status
+### Integration
 
-# Merkle tree verification
-caracal merkle status
-caracal merkle verify --full
-```
+- **[SDK Reference](./apiReference/sdkClient)** -- Python SDK
+- **[MCP Integration](./apiReference/mcpIntegration)** -- Model Context Protocol
 
-See the [CLI Reference](./cliReference/) for complete documentation.
+### Deployment
+
+- **[Docker Compose](./deployment/dockerCompose)** -- Local/development
+- **[Kubernetes](./deployment/kubernetes)** -- Container orchestration
+- **[Production Guide](./deployment/production)** -- Scaling and security
 
 ---
 
 ## Architecture Overview
 
 ```
-┌─────────────────────────────────────────────────────────────────────┐
-│                        AI AGENT APPLICATION                         │
-└───────────────────────────────┬─────────────────────────────────────┘
-                                │
-                                │ HTTP Request
-                                ▼
-┌─────────────────────────────────────────────────────────────────────┐
-│                      CARACAL GATEWAY PROXY                          │
-│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐              │
-│  │ Authenticate │──│ Check Policy │──│ Record Spend │              │
-│  └──────────────┘  └──────────────┘  └──────────────┘              │
-└───────────────────────────────┬─────────────────────────────────────┘
-                                │
-              ┌─────────────────┼─────────────────┐
-              ▼                 ▼                 ▼
-     ┌──────────────┐  ┌──────────────┐  ┌──────────────┐
-     │    POLICY    │  │    LEDGER    │  │   MERKLE     │
-     │    ENGINE    │  │   (Events)   │  │    TREE      │
-     └──────────────┘  └──────────────┘  └──────────────┘
-              │                 │                 │
-              └─────────────────┼─────────────────┘
-                                │
-                                ▼
-                       ┌──────────────┐
-                       │  PostgreSQL  │
-                       │   Database   │
-                       └──────────────┘
++-----------------------------------------------------------------+
+|                     AI AGENT APPLICATION                         |
++-------------------------------+---------------------------------+
+                                |
+                                | HTTP Request
+                                v
++-----------------------------------------------------------------+
+|                    CARACAL GATEWAY PROXY                         |
+|  +--------------+  +----------------+  +--------------------+   |
+|  | Authenticate |--| Validate       |--| Record Authority   |   |
+|  | Principal    |  | Mandate        |  | Event              |   |
+|  +--------------+  +----------------+  +--------------------+   |
++-------------------------------+---------------------------------+
+                                |
+              +-----------------+-----------------+
+              v                 v                 v
+     +--------------+  +---------------+  +--------------+
+     |  AUTHORITY   |  |  AUTHORITY    |  |   MERKLE     |
+     |   POLICY     |  |   LEDGER     |  |    TREE      |
+     +--------------+  +---------------+  +--------------+
+              |                 |                 |
+              +-----------------+-----------------+
+                                |
+                                v
+                       +--------------+
+                       |  PostgreSQL  |
+                       +--------------+
 ```
-
-Learn more in [Architecture](./concepts/architecture).
 
 ---
 
-## Key Features
+## Key Capabilities
 
 ### Network-Level Enforcement
 
-Spending limits are enforced at the network level before requests reach AI providers. Agents cannot bypass budget controls.
+The Gateway intercepts all agent traffic. Mandates are validated **before** requests reach external APIs. Agents cannot bypass authority controls.
 
 ### Immutable Audit Trail
 
-Every spending event is recorded in an append-only ledger with Merkle tree integrity proofs. Tampering is cryptographically detectable.
+Every authority event (issued, validated, denied, revoked) is recorded in an append-only ledger with Merkle tree integrity proofs.
 
-### Real-Time Policy Evaluation
+### Fail-Closed Design
 
-Policies are evaluated in under 100ms, enabling real-time request blocking without significant latency impact.
+If the authority engine or ledger is unavailable, all requests are **denied by default**. No unchecked execution.
 
 ### Hierarchical Delegation
 
-Parent agents can delegate budget to child agents with constraints. Spending is tracked across the entire hierarchy.
-
-### Rich Analytics
-
-Query spending by agent, time range, operation type, and more. Export data for compliance and cost analysis.
+Principals can delegate scoped authority to other principals. Delegation chains are validated end-to-end.
 
 ---
 
 ## Next Steps
-
-Ready to get started?
 
 import Link from '@docusaurus/Link';
 
@@ -176,7 +123,7 @@ import Link from '@docusaurus/Link';
       </div>
       <div className="card__footer">
         <Link className="button button--primary button--block" to="./gettingStarted/quickstart">
-          Start Now →
+          Start Now
         </Link>
       </div>
     </div>
@@ -191,7 +138,7 @@ import Link from '@docusaurus/Link';
       </div>
       <div className="card__footer">
         <Link className="button button--secondary button--block" to="./cliReference/">
-          Explore →
+          Explore
         </Link>
       </div>
     </div>
@@ -206,7 +153,7 @@ import Link from '@docusaurus/Link';
       </div>
       <div className="card__footer">
         <Link className="button button--secondary button--block" to="./apiReference/sdkClient">
-          Learn →
+          Learn
         </Link>
       </div>
     </div>

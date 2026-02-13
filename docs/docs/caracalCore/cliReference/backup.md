@@ -27,10 +27,10 @@ caracal backup COMMAND [OPTIONS]
 
 | Component | Included | Description |
 |-----------|:--------:|-------------|
-| Agents | Yes | Agent registry |
-| Policies | Yes | Budget policies |
-| Pricebook | Yes | Resource pricing |
-| Ledger | Yes | Spending events |
+| Principals | Yes | Principal registry |
+| Policies | Yes | Authority policies |
+| Resource Registry | Yes | Resource registry |
+| Ledger | Yes | Authority events |
 | Merkle tree | Yes | Integrity proofs |
 | Keys | Optional | Signing keys (encrypted) |
 
@@ -67,9 +67,9 @@ caracal backup create
 Creating backup...
 
 Components:
-  [OK] agents (125 records)
+  [OK] principals (125 records)
   [OK] policies (89 records)
-  [OK] pricebook (45 entries)
+  [OK] resources (45 entries)
   [OK] ledger (1,234,567 events)
   [OK] merkle (committed)
 
@@ -99,9 +99,9 @@ Creating backup...
           Ensure backup is stored securely.
 
 Components:
-  [OK] agents (125 records)
+  [OK] principals (125 records)
   [OK] policies (89 records)
-  [OK] pricebook (45 entries)
+  [OK] resources (45 entries)
   [OK] ledger (1,234,567 events)
   [OK] merkle (committed)
   [OK] keys (encrypted with master password)
@@ -156,9 +156,9 @@ Extracting...
   [OK] Extracted 2.3 GB
 
 Restoring components:
-  [OK] agents (125 records)
+  [OK] principals (125 records)
   [OK] policies (89 records)
-  [OK] pricebook (45 entries)
+  [OK] resources (45 entries)
   [OK] ledger (1,234,567 events)
   [OK] merkle (verified)
 
@@ -190,10 +190,10 @@ caracal backup restore backup.tar.gz --dry-run
 DRY RUN - No changes will be made
 
 Backup contents:
-  agents:    125 records (would overwrite 125 existing)
-  policies:  89 records (would overwrite 89 existing)
-  pricebook: 45 entries (would overwrite 45 existing)
-  ledger:    1,234,567 events (would add to existing)
+  principals: 125 records (would overwrite 125 existing)
+  policies:   89 records (would overwrite 89 existing)
+  resources:  45 entries (would overwrite 45 existing)
+  ledger:     1,234,567 events (would add to existing)
   merkle:    committed (would rebuild)
 
 To proceed: remove --dry-run and add --force

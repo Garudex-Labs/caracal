@@ -57,20 +57,20 @@ Creating tables:
   [OK] policy_versions
   [OK] ledger_events
   [OK] delegation_tokens
-  [OK] provisional_charges
+  [OK] pending_mandates
   [OK] merkle_nodes
   [OK] snapshots
   [OK] dead_letter_queue
 
 Creating indexes:
-  [OK] idx_ledger_events_agent_id
+  [OK] idx_ledger_events_principal_id
   [OK] idx_ledger_events_timestamp
-  [OK] idx_policies_agent_id
+  [OK] idx_policies_principal_id
   ...
 
 Creating materialized views:
-  [OK] agent_daily_spending_mv
-  [OK] agent_hourly_spending_mv
+  [OK] principal_daily_activity_mv
+  [OK] principal_hourly_activity_mv
 
 Database initialized successfully!
 ```
@@ -89,7 +89,7 @@ caracal db init-db --dry-run
 -- DRY RUN: The following SQL would be executed
 
 CREATE TABLE IF NOT EXISTS agents (
-    agent_id UUID PRIMARY KEY,
+    principal_id UUID PRIMARY KEY,
     name VARCHAR(255) UNIQUE NOT NULL,
     owner VARCHAR(255) NOT NULL,
     created_at TIMESTAMPTZ DEFAULT NOW(),
@@ -98,7 +98,7 @@ CREATE TABLE IF NOT EXISTS agents (
 
 CREATE TABLE IF NOT EXISTS policies (
     policy_id UUID PRIMARY KEY,
-    agent_id UUID REFERENCES agents(agent_id),
+    principal_id UUID REFERENCES agents(principal_id),
     ...
 );
 
@@ -254,7 +254,7 @@ Tables
   policy_versions:     234 rows
   ledger_events:       1,234,567 rows
   delegation_tokens:   45 rows
-  provisional_charges: 12 rows
+  pending_mandates:  12 rows
 
 Storage
 -------

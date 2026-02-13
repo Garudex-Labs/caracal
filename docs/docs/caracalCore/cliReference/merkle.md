@@ -15,7 +15,7 @@ caracal merkle COMMAND [OPTIONS]
 
 ## Overview
 
-Caracal uses a Merkle tree to provide tamper-evident records of spending events.
+Caracal uses a Merkle tree to provide tamper-evident records of authority events.
 
 ```
                       +-------------+
@@ -149,8 +149,9 @@ Inclusion Proof for Event: evt-001-aaaa-bbbb-cccc
 Event Details
 -------------
   Event ID:     evt-001-aaaa-bbbb-cccc
-  Agent ID:     550e8400-e29b-41d4-a716-446655440000
-  Amount:       0.0023 USD
+  Principal ID: 550e8400-e29b-41d4-a716-446655440000
+  Type:         validated
+  Resource:     api:external/openai
   Timestamp:    2024-01-15T14:30:45Z
   Event Hash:   b4c5d6e7f8a9...
 
@@ -487,6 +488,6 @@ caracal merkle root --format json > root-signature-2024.json
 
 ## See Also
 
-- [Key Commands](./keys) - Manage signing keys
+- [Policy Commands](./policy) - Authority policies for principals
 - [Backup Commands](./backup) - Create backups
 - [Ledger Commands](./ledger) - Query events
