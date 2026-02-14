@@ -121,7 +121,6 @@
   }
 }
 
-/* User asked: "change the color on hover of text make it black on hover" */
 .navbar__search-input:hover {
   color: black !important;
   /* Ensure readability on dark bg */
