@@ -71,7 +71,7 @@ class EnterpriseLicenseValidator:
         ...     print(result.message)
     """
     
-    def validate_license(self, license_token: str) -> LicenseValidationResult:
+    def validate_license(self, license_token: str, password: Optional[str] = None) -> LicenseValidationResult:
         """
         Validate an enterprise license token.
         
@@ -81,6 +81,7 @@ class EnterpriseLicenseValidator:
         
         Args:
             license_token: The enterprise license token to validate
+            password: Optional password for password-protected licenses
         
         Returns:
             LicenseValidationResult indicating the token is invalid in open source
@@ -89,9 +90,10 @@ class EnterpriseLicenseValidator:
             In Caracal Enterprise, this method would:
             1. Parse the license token
             2. Verify the cryptographic signature
-            3. Check expiration date
-            4. Validate organization identifier
-            5. Return available features
+            3. Check password if token is password-protected
+            4. Check expiration date
+            5. Validate organization identifier
+            6. Return available features
         """
         return LicenseValidationResult(
             valid=False,
