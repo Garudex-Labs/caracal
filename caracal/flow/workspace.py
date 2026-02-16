@@ -96,11 +96,6 @@ class WorkspaceManager:
         return self._root / "ledger.jsonl"
 
     @property
-    def pricebook_path(self) -> Path:
-        """Path to ``pricebook.csv``."""
-        return self._root / "pricebook.csv"
-
-    @property
     def master_password_path(self) -> Path:
         """Path to ``master_password``."""
         return self._root / "master_password"

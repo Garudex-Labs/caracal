@@ -171,10 +171,8 @@ class FlowApp:
                 self._run_infra_actions()
             elif action == "db-status":
                 self._show_db_status()
-            elif action == "kafka-status":
-                self._show_kafka_status()
-            elif action == "services-status":
-                self._show_services_status()
+            elif action == "service-health":
+                self._show_service_health()
             elif action == "backup":
                 self._run_backup_flow()
             elif action == "restore":
@@ -198,8 +196,9 @@ class FlowApp:
                 self._show_cli_fallback("", action)
     
     def _show_current_config(self) -> None:
-        """Display current configuration."""
+        """Display current configuration with enabled services."""
         from rich.panel import Panel
+        from rich.table import Table
         
         self.console.print(Panel(
             f"[{Colors.NEUTRAL}]Current Caracal Configuration[/]",
@@ -213,14 +212,67 @@ class FlowApp:
             
             config = load_config()
             
+            # Storage paths
             self.console.print(f"  [{Colors.INFO}]Storage:[/]")
             self.console.print(f"    Agent Registry: [{Colors.DIM}]{config.storage.agent_registry}[/]")
             self.console.print(f"    Policy Store: [{Colors.DIM}]{config.storage.policy_store}[/]")
             self.console.print(f"    Ledger: [{Colors.DIM}]{config.storage.ledger}[/]")
             self.console.print()
             
+            # Database
+            self.console.print(f"  [{Colors.INFO}]Database:[/]")
+            if config.database.type == "sqlite":
+                self.console.print(f"    Type: [{Colors.NEUTRAL}]SQLite (file-based)[/]")
+                if config.database.file_path:
+                    self.console.print(f"    Path: [{Colors.DIM}]{config.database.file_path}[/]")
+            else:
+                self.console.print(f"    Type: [{Colors.NEUTRAL}]PostgreSQL[/]")
+                self.console.print(f"    Host: [{Colors.DIM}]{config.database.host}:{config.database.port}[/]")
+                self.console.print(f"    Database: [{Colors.DIM}]{config.database.database}[/]")
+            self.console.print()
+            
+            # Compatibility mode and enabled services
+            self.console.print(f"  [{Colors.INFO}]Services (via compatibility config):[/]")
+            mode = getattr(config.compatibility, 'mode', 'v0.3')
+            self.console.print(f"    Mode: [{Colors.NEUTRAL}]{mode}[/]")
+            
+            # Service status table
+            svc_table = Table(show_header=False, padding=(0, 2), show_edge=False)
+            svc_table.add_column("Service", style=Colors.DIM)
+            svc_table.add_column("Status")
+            
+            kafka_on = getattr(config.compatibility, 'enable_kafka', True)
+            redis_on = getattr(config.compatibility, 'enable_redis', True)
+            merkle_on = getattr(config.compatibility, 'enable_merkle', False)
+            gateway_on = getattr(config.gateway, 'enabled', False)
+            mcp_on = getattr(config.mcp_adapter, 'enabled', False)
+            
+            def _status(enabled: bool, label: str = "") -> str:
+                if enabled:
+                    return f"[{Colors.SUCCESS}]{Icons.SUCCESS} Enabled[/]{f' ({label})' if label else ''}"
+                return f"[{Colors.DIM}]{Icons.ERROR} Disabled[/]{f' ({label})' if label else ''}"
+            
+            svc_table.add_row("    Kafka", _status(kafka_on, "optional — async event streaming"))
+            svc_table.add_row("    Redis", _status(redis_on, "optional — mandate cache & rate limiting"))
+            svc_table.add_row("    Merkle", _status(merkle_on, "optional — tamper-proof audit batches"))
+            svc_table.add_row("    Gateway", _status(gateway_on, "deployment — network enforcement proxy"))
+            svc_table.add_row("    MCP Adapter", _status(mcp_on, "deployment — MCP protocol bridge"))
+            
+            self.console.print(svc_table)
+            self.console.print()
+            
+            # Defaults
             self.console.print(f"  [{Colors.INFO}]Defaults:[/]")
             self.console.print(f"    Time Window: [{Colors.NEUTRAL}]{config.defaults.time_window}[/]")
+            self.console.print()
+            
+            # Architecture context
+            self.console.print(f"  [{Colors.INFO}]Architecture:[/]")
+            self.console.print(f"    [{Colors.DIM}]Core: PostgreSQL (or SQLite) is the only required infrastructure.[/]")
+            self.console.print(f"    [{Colors.DIM}]Optional: Kafka, Redis, Merkle enhance performance & audit.[/]")
+            self.console.print(f"    [{Colors.DIM}]Deploy: Gateway & MCP Adapter are separate services that wrap[/]")
+            self.console.print(f"    [{Colors.DIM}]  core authority logic for network or MCP protocol enforcement.[/]")
+            self.console.print(f"    [{Colors.DIM}]  They can run on different hosts / containers.[/]")
             self.console.print()
             
         except Exception as e:
@@ -276,61 +328,121 @@ class FlowApp:
         self.console.print(f"  [{Colors.HINT}]Press Enter to continue...[/]")
         input()
 
-    def _show_kafka_status(self) -> None:
-        """Show Kafka and Zookeeper connection status."""
+    def _show_service_health(self) -> None:
+        """Show health status of all enabled services."""
         from rich.panel import Panel
+        from rich.table import Table
         import socket
         
         self.console.print(Panel(
-            f"[{Colors.NEUTRAL}]Kafka Infrastructure Status[/]",
-            title=f"[bold {Colors.INFO}]Kafka & Zookeeper[/]",
+            f"[{Colors.NEUTRAL}]Service Health Check[/]",
+            title=f"[bold {Colors.INFO}]Service Health[/]",
             border_style=Colors.PRIMARY,
         ))
         self.console.print()
         
-        services = [
-            ("Zookeeper", "localhost", 2181),
-            ("Kafka", "localhost", 9092),
-        ]
+        try:
+            from caracal.config import load_config
+            config = load_config()
+        except Exception as e:
+            self.console.print(f"  [{Colors.ERROR}]{Icons.ERROR} Cannot load config: {e}[/]")
+            self.console.print()
+            self.console.print(f"  [{Colors.HINT}]Press Enter to continue...[/]")
+            input()
+            return
         
-        for name, host, port in services:
+        table = Table(show_header=True, header_style=f"bold {Colors.INFO}", padding=(0, 2))
+        table.add_column("Service", style=f"bold {Colors.NEUTRAL}")
+        table.add_column("Role", style=Colors.DIM)
+        table.add_column("Enabled")
+        table.add_column("Status")
+        table.add_column("Endpoint", style=Colors.DIM)
+        
+        def _check_tcp(host: str, port: int) -> bool:
             try:
                 sock = socket.create_connection((host, port), timeout=2)
                 sock.close()
-                self.console.print(f"  [{Colors.INFO}]{name}:[/] [{Colors.SUCCESS}]{Icons.SUCCESS} Running[/] ({host}:{port})")
+                return True
             except Exception:
-                self.console.print(f"  [{Colors.INFO}]{name}:[/] [{Colors.ERROR}]{Icons.ERROR} Unreachable[/] ({host}:{port})")
+                return False
         
+        def _enabled_str(val: bool) -> str:
+            return f"[{Colors.SUCCESS}]Yes[/]" if val else f"[{Colors.DIM}]No[/]"
+        
+        def _status_str(reachable: bool) -> str:
+            if reachable:
+                return f"[{Colors.SUCCESS}]{Icons.SUCCESS} Running[/]"
+            return f"[{Colors.ERROR}]{Icons.ERROR} Unreachable[/]"
+        
+        # Database (always checked — core requirement)
+        if config.database.type == "sqlite":
+            table.add_row("PostgreSQL", "Core", _enabled_str(False), f"[{Colors.DIM}]N/A (using SQLite)[/]", "—")
+        else:
+            db_ok = _check_tcp(config.database.host, config.database.port)
+            table.add_row("PostgreSQL", "Core", _enabled_str(True), _status_str(db_ok),
+                         f"{config.database.host}:{config.database.port}")
+        
+        # Kafka (optional — async event streaming, core works without it)
+        kafka_on = getattr(config.compatibility, 'enable_kafka', True)
+        if kafka_on:
+            brokers = getattr(config.kafka, 'brokers', ['localhost:9092'])
+            broker = brokers[0] if brokers else 'localhost:9092'
+            host, _, port_str = broker.rpartition(':')
+            port = int(port_str) if port_str.isdigit() else 9092
+            host = host or 'localhost'
+            kafka_ok = _check_tcp(host, port)
+            table.add_row("Kafka", "Optional", _enabled_str(True), _status_str(kafka_ok), broker)
+        else:
+            table.add_row("Kafka", "Optional", _enabled_str(False), f"[{Colors.DIM}]Skipped[/]", "—")
+        
+        # Redis (optional — mandate caching and rate limiting, falls back to PostgreSQL)
+        redis_on = getattr(config.compatibility, 'enable_redis', True)
+        if redis_on:
+            redis_host = getattr(config.redis, 'host', 'localhost')
+            redis_port = getattr(config.redis, 'port', 6379)
+            redis_ok = _check_tcp(redis_host, redis_port)
+            table.add_row("Redis", "Optional", _enabled_str(True), _status_str(redis_ok),
+                         f"{redis_host}:{redis_port}")
+        else:
+            table.add_row("Redis", "Optional", _enabled_str(False), f"[{Colors.DIM}]Skipped[/]", "—")
+        
+        # Gateway (deployment artifact — separate network enforcement proxy, can run on different host)
+        gateway_on = getattr(config.gateway, 'enabled', False)
+        if gateway_on:
+            gw_addr = getattr(config.gateway, 'listen_address', '0.0.0.0:8443')
+            gw_host, _, gw_port_str = gw_addr.rpartition(':')
+            gw_port = int(gw_port_str) if gw_port_str.isdigit() else 8443
+            gw_check_host = 'localhost' if gw_host == '0.0.0.0' else gw_host
+            gw_ok = _check_tcp(gw_check_host, gw_port)
+            table.add_row("Gateway", "Deploy", _enabled_str(True), _status_str(gw_ok), gw_addr)
+        else:
+            table.add_row("Gateway", "Deploy", _enabled_str(False), f"[{Colors.DIM}]Separate service[/]", "—")
+        
+        # MCP Adapter (deployment artifact — protocol bridge for MCP environments, can run on different host)
+        mcp_on = getattr(config.mcp_adapter, 'enabled', False)
+        if mcp_on:
+            mcp_addr = getattr(config.mcp_adapter, 'listen_address', '0.0.0.0:8080')
+            mcp_host, _, mcp_port_str = mcp_addr.rpartition(':')
+            mcp_port = int(mcp_port_str) if mcp_port_str.isdigit() else 8080
+            mcp_check_host = 'localhost' if mcp_host == '0.0.0.0' else mcp_host
+            mcp_ok = _check_tcp(mcp_check_host, mcp_port)
+            table.add_row("MCP Adapter", "Deploy", _enabled_str(True), _status_str(mcp_ok), mcp_addr)
+        else:
+            table.add_row("MCP Adapter", "Deploy", _enabled_str(False), f"[{Colors.DIM}]Separate service[/]", "—")
+        
+        self.console.print(table)
         self.console.print()
-        self.console.print(f"  [{Colors.HINT}]Press Enter to continue...[/]")
-        input()
-
-    def _show_services_status(self) -> None:
-        """Show other services status."""
-        from rich.panel import Panel
-        import socket
         
-        self.console.print(Panel(
-            f"[{Colors.NEUTRAL}]Additional Services Status[/]",
-            title=f"[bold {Colors.INFO}]Services[/]",
-            border_style=Colors.PRIMARY,
-        ))
+        # Architecture note
+        self.console.print(f"  [{Colors.INFO}]Architecture Notes:[/]")
+        self.console.print(f"  [{Colors.DIM}]  • PostgreSQL is the only required service for core authority enforcement[/]")
+        self.console.print(f"  [{Colors.DIM}]  • Kafka, Redis, Merkle are optional enhancements (disable in config.yaml → compatibility section)[/]")
+        self.console.print(f"  [{Colors.DIM}]  • Gateway & MCP Adapter are separate deployment services — they wrap core logic[/]")
+        self.console.print(f"  [{Colors.DIM}]    for network-layer or MCP-protocol enforcement and can run on different hosts[/]")
         self.console.print()
-        
-        services = [
-            ("Redis", "localhost", 6379),
-            ("Schema Registry", "localhost", 8081),
-            ("Gateway", "localhost", 8443),
-        ]
-        
-        for name, host, port in services:
-            try:
-                sock = socket.create_connection((host, port), timeout=2)
-                sock.close()
-                self.console.print(f"  [{Colors.INFO}]{name}:[/] [{Colors.SUCCESS}]{Icons.SUCCESS} Running[/] ({host}:{port})")
-            except Exception:
-                self.console.print(f"  [{Colors.INFO}]{name}:[/] [{Colors.ERROR}]{Icons.ERROR} Unreachable[/] ({host}:{port})")
-        
+        self.console.print(f"  [{Colors.HINT}]Edit config.yaml to enable/disable services:[/]")
+        self.console.print(f"  [{Colors.DIM}]  compatibility.enable_kafka, compatibility.enable_redis, compatibility.enable_merkle[/]")
+        self.console.print(f"  [{Colors.DIM}]  gateway.enabled, mcp_adapter.enabled[/]")
         self.console.print()
         self.console.print(f"  [{Colors.HINT}]Press Enter to continue...[/]")
         input()
@@ -455,17 +567,56 @@ ledger capabilities.[/]
         """Run infrastructure management actions."""
         from caracal.flow.components.menu import Menu, MenuItem
         import subprocess
+        from pathlib import Path
+        
+        # Locate the docker-compose file
+        compose_file = None
+        for candidate in [
+            Path.cwd() / "docker-compose.yml",
+            Path(__file__).resolve().parent.parent.parent / "docker-compose.yml",
+        ]:
+            if candidate.exists():
+                compose_file = candidate
+                break
         
         while True:
             self.console.clear()
             
+            if compose_file:
+                self.console.print(f"  [{Colors.DIM}]Compose file: {compose_file}[/]")
+            else:
+                self.console.print(f"  [{Colors.WARNING}]{Icons.WARNING} No docker-compose.yml found[/]")
+            self.console.print()
+            
+            # Determine which optional services are enabled
+            kafka_enabled = False
+            redis_enabled = False
+            try:
+                from caracal.config import load_config
+                config = load_config()
+                kafka_enabled = getattr(config.compatibility, 'enable_kafka', True)
+                redis_enabled = getattr(config.compatibility, 'enable_redis', True)
+            except Exception:
+                pass
+            
+            # Core infrastructure
             items = [
-                MenuItem("up", "Start All Services", "Start Postgres, Kafka, etc.", ""),
-                MenuItem("down", "Stop All Services", "Stop and remove containers", ""),
-                MenuItem("postgres", "Start Postgres Only", "Start only database", ""),
-                MenuItem("kafka", "Start Kafka Only", "Start only message bus", ""),
-                MenuItem("back", "Back to Settings", "", Icons.ARROW_LEFT),
+                MenuItem("postgres", "Start PostgreSQL", "Core database (required)", ""),
             ]
+            
+            # Optional services — only shown if enabled in config
+            if redis_enabled:
+                items.append(MenuItem("redis", "Start Redis", "Optional: mandate caching & rate limiting", ""))
+            if kafka_enabled:
+                items.append(MenuItem("kafka-stack", "Start Kafka Stack",
+                                     "Optional: event streaming (kafka + zookeeper + schema-registry)", ""))
+            
+            items.extend([
+                MenuItem("core-stack", "Start Core Stack",
+                         "PostgreSQL" + (", Redis" if redis_enabled else "") + " (what's enabled)", ""),
+                MenuItem("down", "Stop All Services", "Stop and remove all containers", ""),
+                MenuItem("back", "Back to Settings", "", Icons.ARROW_LEFT),
+            ])
             
             menu = Menu("Infrastructure Setup", items=items)
             result = menu.run()
@@ -473,27 +624,50 @@ ledger capabilities.[/]
             if not result or result.key == "back":
                 break
             
-            # Execute command
-            cmd = []
-            if result.key == "up":
-                cmd = ["docker", "compose", "up", "-d"]
+            # Build docker compose command
+            base_cmd = ["docker", "compose"]
+            if compose_file:
+                base_cmd = ["docker", "compose", "-f", str(compose_file)]
+            
+            services = []
+            if result.key == "postgres":
+                services = ["postgres"]
+            elif result.key == "redis":
+                services = ["redis"]
+            elif result.key == "kafka-stack":
+                services = ["zookeeper", "kafka", "schema-registry"]
+            elif result.key == "core-stack":
+                services = ["postgres"]
+                if redis_enabled:
+                    services.append("redis")
             elif result.key == "down":
-                cmd = ["docker", "compose", "down"]
-            elif result.key == "postgres":
-                cmd = ["docker", "compose", "up", "-d", "postgres"]
-            elif result.key == "kafka":
-                cmd = ["docker", "compose", "up", "-d", "kafka", "zookeeper"]
+                cmd = base_cmd + ["down"]
+                self.console.print()
+                self.console.print(f"[{Colors.INFO}]Running: {' '.join(cmd)}[/]")
+                try:
+                    subprocess.run(cmd, check=True)
+                    self.console.print(f"[{Colors.SUCCESS}]{Icons.SUCCESS} All services stopped.[/]")
+                except subprocess.CalledProcessError as e:
+                    self.console.print(f"[{Colors.ERROR}]{Icons.ERROR} Command failed: {e}[/]")
+                except FileNotFoundError:
+                    self.console.print(f"[{Colors.ERROR}]{Icons.ERROR} 'docker' not found in PATH.[/]")
+                self.console.print()
+                self.console.print(f"  [{Colors.HINT}]Press Enter to continue...[/]")
+                input()
+                continue
             
-            self.console.print()
-            self.console.print(f"[{Colors.INFO}]Running: {' '.join(cmd)}[/]")
-            
-            try:
-                subprocess.run(cmd, check=True)
-                self.console.print(f"[{Colors.SUCCESS}]{Icons.SUCCESS} Command completed successfully.[/]")
-            except subprocess.CalledProcessError as e:
-                self.console.print(f"[{Colors.ERROR}]{Icons.ERROR} Command failed: {e}[/]")
-            except FileNotFoundError:
-                self.console.print(f"[{Colors.ERROR}]{Icons.ERROR} 'docker' command not found in PATH.[/]")
+            if services:
+                cmd = base_cmd + ["up", "-d"] + services
+                self.console.print()
+                self.console.print(f"[{Colors.INFO}]Running: {' '.join(cmd)}[/]")
+                try:
+                    subprocess.run(cmd, check=True)
+                    self.console.print(f"[{Colors.SUCCESS}]{Icons.SUCCESS} Services started: {', '.join(services)}[/]")
+                except subprocess.CalledProcessError as e:
+                    self.console.print(f"[{Colors.ERROR}]{Icons.ERROR} Command failed: {e}[/]")
+                    self.console.print(f"  [{Colors.HINT}]Make sure Docker is running and the compose file defines these services.[/]")
+                except FileNotFoundError:
+                    self.console.print(f"[{Colors.ERROR}]{Icons.ERROR} 'docker' not found in PATH. Install Docker first.[/]")
             
             self.console.print()
             self.console.print(f"  [{Colors.HINT}]Press Enter to continue...[/]")

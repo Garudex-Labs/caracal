@@ -33,7 +33,7 @@ class LedgerEvent:
     """
     Represents a single event in the immutable ledger.
     
-    This structure is designed to be compatible with ASE ChargeEvent.
+    Represents an immutable record of agent resource usage.
     """
     event_id: int
     agent_id: str

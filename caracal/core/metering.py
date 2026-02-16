@@ -1,8 +1,8 @@
 """
 Metering collector for Caracal Core.
 
-This module provides the MeteringCollector for accepting metering events,
-validating them against ASE schema, calculating costs, and writing to the ledger.
+This module provides the MeteringCollector for accepting resource usage events
+and writing them to the ledger for immutable audit proof.
 """
 
 from dataclasses import dataclass
@@ -21,18 +21,14 @@ from caracal.logging_config import get_logger
 logger = get_logger(__name__)
 
 
-
-
 class MeteringCollector:
     """
-    Collects metering events, calculates costs, and writes to ledger.
+    Collects resource usage events and writes to ledger.
     
     Responsibilities:
-    - Accept metering events
-    - Validate events against ASE schema
-    - Calculate provisional charges (quantity * price)
-    - Pass events to LedgerWriter
-    - Release provisional charges when final charges are created (v0.2)
+    - Accept usage events
+    - Validate events
+    - Pass events to LedgerWriter for persistence
     """
 
     def __init__(self, ledger_writer: LedgerWriter):
@@ -47,12 +43,7 @@ class MeteringCollector:
 
     def collect_event(self, event: MeteringEvent) -> None:
         """
-        Accept a metering event, calculate cost, and write to ledger.
-        
-        This method:
-        1. Validates the event
-        2. Calculates the cost (quantity * price)
-        3. Writes the event to the ledger
+        Accept an event and write to ledger.
         
         Args:
             event: MeteringEvent to collect
@@ -72,78 +63,58 @@ class MeteringCollector:
                 quantity=event.quantity,
                 metadata=event.metadata,
                 timestamp=event.timestamp,
-                # provisional_charge_id removed (v0.2 legacy)
             )
             
             logger.info(
-                f"Collected metering event: agent_id={event.agent_id}, "
+                f"Collected event: agent_id={event.agent_id}, "
                 f"resource={event.resource_type}, quantity={event.quantity}, "
                 f"event_id={ledger_event.event_id}"
             )
             
         except InvalidMeteringEventError:
-            # Re-raise validation errors (already logged in _validate_event)
             raise
         except Exception as e:
             logger.error(
-                f"Failed to collect metering event for agent {event.agent_id}: {e}",
+                f"Failed to collect event for agent {event.agent_id}: {e}",
                 exc_info=True
             )
             raise MeteringCollectionError(
-                f"Failed to collect metering event for agent {event.agent_id}: {e}"
+                f"Failed to collect event for agent {event.agent_id}: {e}"
             ) from e
 
     def _validate_event(self, event: MeteringEvent) -> None:
         """
-        Validate metering event conforms to ASE schema requirements.
-        
-        For v0.1, this performs basic validation:
-        - agent_id is not empty
-        - resource_type is not empty
-        - quantity is non-negative
-        - timestamp is valid
-        
-        Future versions will use full ASE protocol validation.
-        
-        Args:
-            event: MeteringEvent to validate
-            
-        Raises:
-            InvalidMeteringEventError: If validation fails
+        Validate event data.
         """
-        # Validate agent_id
         if not event.agent_id or not isinstance(event.agent_id, str):
-            logger.warning("Metering event validation failed: agent_id must be a non-empty string")
+            logger.warning("Event validation failed: agent_id must be a non-empty string")
             raise InvalidMeteringEventError(
                 "agent_id must be a non-empty string"
             )
         
-        # Validate resource_type
         if not event.resource_type or not isinstance(event.resource_type, str):
-            logger.warning("Metering event validation failed: resource_type must be a non-empty string")
+            logger.warning("Event validation failed: resource_type must be a non-empty string")
             raise InvalidMeteringEventError(
                 "resource_type must be a non-empty string"
             )
         
-        # Validate quantity
         if not isinstance(event.quantity, Decimal):
             logger.warning(
-                f"Metering event validation failed: quantity must be a Decimal, got {type(event.quantity).__name__}"
+                f"Event validation failed: quantity must be a Decimal, got {type(event.quantity).__name__}"
             )
             raise InvalidMeteringEventError(
                 f"quantity must be a Decimal, got {type(event.quantity).__name__}"
             )
         
         if event.quantity < 0:
-            logger.warning(f"Metering event validation failed: quantity must be non-negative, got {event.quantity}")
+            logger.warning(f"Event validation failed: quantity must be non-negative, got {event.quantity}")
             raise InvalidMeteringEventError(
                 f"quantity must be non-negative, got {event.quantity}"
             )
         
-        # Validate timestamp
         if event.timestamp is not None and not isinstance(event.timestamp, datetime):
             logger.warning(
-                f"Metering event validation failed: timestamp must be a datetime object, "
+                f"Event validation failed: timestamp must be a datetime object, "
                 f"got {type(event.timestamp).__name__}"
             )
             raise InvalidMeteringEventError(
@@ -151,7 +122,7 @@ class MeteringCollector:
             )
         
         logger.debug(
-            f"Validated metering event: agent_id={event.agent_id}, "
+            f"Validated event: agent_id={event.agent_id}, "
             f"resource={event.resource_type}"
         )
 

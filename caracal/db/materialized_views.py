@@ -37,11 +37,11 @@ class MaterializedViewManager:
         """
         self.db_session = db_session
     
-    def refresh_spending_by_agent(self, concurrent: bool = True) -> None:
+    def refresh_usage_by_agent(self, concurrent: bool = True) -> None:
         """
-        Refresh the spending_by_agent_mv materialized view.
+        Refresh the usage_by_agent_mv materialized view.
         
-        This view aggregates total spending per agent and currency.
+        This view aggregates total usage per agent.
         
         Args:
             concurrent: If True, use CONCURRENTLY to avoid blocking reads
@@ -52,27 +52,27 @@ class MaterializedViewManager:
         """
         try:
             refresh_mode = "CONCURRENTLY" if concurrent else ""
-            sql = f"REFRESH MATERIALIZED VIEW {refresh_mode} spending_by_agent_mv"
+            sql = f"REFRESH MATERIALIZED VIEW {refresh_mode} usage_by_agent_mv"
             
-            logger.info(f"Refreshing spending_by_agent_mv (concurrent={concurrent})")
+            logger.info(f"Refreshing usage_by_agent_mv (concurrent={concurrent})")
             start_time = datetime.utcnow()
             
             self.db_session.execute(text(sql))
             self.db_session.commit()
             
             duration = (datetime.utcnow() - start_time).total_seconds()
-            logger.info(f"Refreshed spending_by_agent_mv in {duration:.2f}s")
+            logger.info(f"Refreshed usage_by_agent_mv in {duration:.2f}s")
             
         except Exception as e:
             self.db_session.rollback()
-            logger.error(f"Failed to refresh spending_by_agent_mv: {e}")
+            logger.error(f"Failed to refresh usage_by_agent_mv: {e}")
             raise DatabaseError(f"Materialized view refresh failed: {e}") from e
     
-    def refresh_spending_by_time_window(self, concurrent: bool = True) -> None:
+    def refresh_usage_by_time_window(self, concurrent: bool = True) -> None:
         """
-        Refresh the spending_by_time_window_mv materialized view.
+        Refresh the usage_by_time_window_mv materialized view.
         
-        This view aggregates spending by various time windows (hourly, daily,
+        This view aggregates usage by various time windows (hourly, daily,
         weekly, monthly) for both rolling and calendar windows.
         
         Args:
@@ -84,20 +84,20 @@ class MaterializedViewManager:
         """
         try:
             refresh_mode = "CONCURRENTLY" if concurrent else ""
-            sql = f"REFRESH MATERIALIZED VIEW {refresh_mode} spending_by_time_window_mv"
+            sql = f"REFRESH MATERIALIZED VIEW {refresh_mode} usage_by_time_window_mv"
             
-            logger.info(f"Refreshing spending_by_time_window_mv (concurrent={concurrent})")
+            logger.info(f"Refreshing usage_by_time_window_mv (concurrent={concurrent})")
             start_time = datetime.utcnow()
             
             self.db_session.execute(text(sql))
             self.db_session.commit()
             
             duration = (datetime.utcnow() - start_time).total_seconds()
-            logger.info(f"Refreshed spending_by_time_window_mv in {duration:.2f}s")
+            logger.info(f"Refreshed usage_by_time_window_mv in {duration:.2f}s")
             
         except Exception as e:
             self.db_session.rollback()
-            logger.error(f"Failed to refresh spending_by_time_window_mv: {e}")
+            logger.error(f"Failed to refresh usage_by_time_window_mv: {e}")
             raise DatabaseError(f"Materialized view refresh failed: {e}") from e
     
     def refresh_all(self, concurrent: bool = True) -> None:
@@ -113,8 +113,8 @@ class MaterializedViewManager:
         logger.info("Refreshing all materialized views")
         start_time = datetime.utcnow()
         
-        self.refresh_spending_by_agent(concurrent=concurrent)
-        self.refresh_spending_by_time_window(concurrent=concurrent)
+        self.refresh_usage_by_agent(concurrent=concurrent)
+        self.refresh_usage_by_time_window(concurrent=concurrent)
         
         duration = (datetime.utcnow() - start_time).total_seconds()
         logger.info(f"Refreshed all materialized views in {duration:.2f}s")

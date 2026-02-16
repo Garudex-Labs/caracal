@@ -1,7 +1,7 @@
 """
 Caracal Flow Mandate Flow Screen.
 
-Mandate management flows (replaces pricebook_flow):
+Mandate management flows:
 - Show mandate list with principal filter
 - Issue mandate wizard with scope and validity prompts
 - View mandate details with signature verification status

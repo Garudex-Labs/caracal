@@ -73,7 +73,6 @@ class LedgerEvent(Base):
     
     # Metadata
     event_metadata = Column("metadata", JSON().with_variant(JSONB, "postgresql"), nullable=True)
-    # provisional_charge_id removed as it was part of legacy logic
     
     # Merkle tree integration (v0.3)
     merkle_root_id = Column(
@@ -197,7 +196,7 @@ class LedgerSnapshot(Base):
     """
     Ledger snapshots for fast recovery.
     
-    Stores point-in-time snapshots of ledger state including aggregated spending
+    Stores point-in-time snapshots of ledger state including aggregated usage
     per agent and current Merkle root. Enables fast recovery without replaying
     all events from the beginning.
     
@@ -214,7 +213,7 @@ class LedgerSnapshot(Base):
     total_events = Column(BigInteger, nullable=False)
     merkle_root = Column(String(64), nullable=False)  # Hex-encoded SHA-256 hash
     
-    # Snapshot data (aggregated spending per agent)
+    # Snapshot data (aggregated usage per agent)
     snapshot_data = Column(JSON().with_variant(JSONB, "postgresql"), nullable=False)
     
     # Creation timestamp

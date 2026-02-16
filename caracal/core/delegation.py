@@ -65,7 +65,7 @@ class DelegationTokenManager:
     Manages ASE v1.0.8 delegation tokens for parent-child agent relationships.
     
     Generates JWT tokens signed with ECDSA P-256 (ES256) and validates
-    token signatures, expiration, and spending limits.
+    token signatures, expiration, and authority limits.
     
     Requirements: 13.1, 13.2, 13.3, 13.4, 13.5
     """
