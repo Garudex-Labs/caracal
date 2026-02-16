@@ -62,7 +62,6 @@ def get_test_merkle_key_path() -> Path:
 
 def create_test_config_content(
     temp_dir: Path,
-    pricebook_path: Optional[Path] = None,
     merkle_key_path: Optional[Path] = None,
     **overrides
 ) -> str:
@@ -74,7 +73,6 @@ def create_test_config_content(
     
     Args:
         temp_dir: Temporary directory for storage paths.
-        pricebook_path: Optional path to pricebook file.
         merkle_key_path: Optional path to merkle key. If None, uses session key.
         **overrides: Additional config sections to override.
         
@@ -84,20 +82,15 @@ def create_test_config_content(
     if merkle_key_path is None:
         merkle_key_path = get_test_merkle_key_path()
     
-    if pricebook_path is None:
-        pricebook_path = temp_dir / "pricebook.csv"
-    
     config = f"""
 storage:
   agent_registry: {temp_dir}/agents.json
   policy_store: {temp_dir}/policies.json
   ledger: {temp_dir}/ledger.jsonl
-  pricebook: {pricebook_path}
   backup_dir: {temp_dir}/backups
   backup_count: 3
 
 defaults:
-  currency: USD
   time_window: daily
 
 logging:
@@ -178,39 +171,17 @@ def make_config_yaml(temp_dir: Path, test_merkle_key: Path):
     Returns a callable that tests can use to generate valid config content.
     
     Usage:
-        def test_something(temp_dir, make_config_yaml, sample_pricebook_path):
-            config_content = make_config_yaml(pricebook_path=sample_pricebook_path)
+        def test_something(temp_dir, make_config_yaml):
+            config_content = make_config_yaml()
             config_path = temp_dir / "config.yaml"
             config_path.write_text(config_content)
     """
-    def _make_config(pricebook_path: Path = None):
+    def _make_config():
         return create_test_config_content(
             temp_dir=temp_dir,
-            pricebook_path=pricebook_path,
             merkle_key_path=test_merkle_key
         )
     return _make_config
-
-
-@pytest.fixture
-def sample_pricebook_path(temp_dir: Path) -> Path:
-    """
-    Create a sample pricebook CSV file for testing.
-    
-    Args:
-        temp_dir: Temporary directory fixture.
-        
-    Returns:
-        Path to sample pricebook file.
-    """
-    pricebook_path = temp_dir / "pricebook.csv"
-    pricebook_content = """resource_type,price_per_unit,currency,updated_at
-openai.gpt-5.2.input_tokens,1.75,USD,2024-01-15T10:00:00Z
-openai.gpt-5.2.cached_input_tokens,0.175,USD,2024-01-15T10:00:00Z
-openai.gpt-5.2.output_tokens,14.00,USD,2024-01-15T10:00:00Z
-"""
-    pricebook_path.write_text(pricebook_content)
-    return pricebook_path
 
 
 # Hypothesis settings for property-based tests

@@ -2,7 +2,7 @@
 MCP Adapter for Caracal Core.
 
 This module provides the MCPAdapter service that intercepts MCP tool calls
-and resource reads, enforces budget policies, and emits metering events.
+and resource reads, enforces authority policies, and emits metering events.
 """
 
 from dataclasses import dataclass
@@ -211,8 +211,6 @@ class MCPAdapter:
                         agent_id=agent_id,
                         resource_type=f"mcp.tool.{tool_name}",
                         quantity=Decimal("1"),
-                        # cost and currency removed
-                        # provisional_charge_id removed
                         metadata={
                             "tool_name": tool_name,
                             "tool_args": str(tool_args),
@@ -402,8 +400,6 @@ class MCPAdapter:
                         agent_id=agent_id,
                         resource_type=f"mcp.resource.{self._get_resource_type(resource_uri)}",
                         quantity=Decimal(str(resource.size)),
-                        # cost and currency removed
-                        # provisional_charge_id removed
                         metadata={
                             "resource_uri": resource_uri,
                             "mime_type": resource.mime_type,

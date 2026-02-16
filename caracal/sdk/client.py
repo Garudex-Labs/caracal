@@ -116,7 +116,7 @@ class CaracalClient:
             )
             logger.debug("Initialized Ledger Query")
             
-            # Initialize Metering Collector (Cost calculation removed)
+            # Initialize Metering Collector
             self.metering_collector = MeteringCollector(
                 ledger_writer=self.ledger_writer,
             )

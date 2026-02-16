@@ -206,7 +206,7 @@ class MerkleVerifier:
                 # Hash event data (same as batcher does)
                 event_data = (
                     f"{event.event_id}|{event.agent_id}|{event.timestamp.isoformat()}|"
-                    f"{event.resource_type}|{event.quantity}|{event.cost}|{event.currency}"
+                    f"{event.resource_type}|{event.quantity}"
                 ).encode()
                 event_hash = hashlib.sha256(event_data).digest()
                 event_hashes.append(event_hash)
@@ -399,7 +399,7 @@ class MerkleVerifier:
                 # Compute event hash
                 event_data = (
                     f"{event.event_id}|{event.agent_id}|{event.timestamp.isoformat()}|"
-                    f"{event.resource_type}|{event.quantity}|{event.cost}|{event.currency}"
+                    f"{event.resource_type}|{event.quantity}"
                 ).encode()
                 event_hash = hashlib.sha256(event_data).digest()
                 event_hashes.append(event_hash)
@@ -425,8 +425,7 @@ class MerkleVerifier:
             event_data = (
                 f"{events[event_index].event_id}|{events[event_index].agent_id}|"
                 f"{events[event_index].timestamp.isoformat()}|"
-                f"{events[event_index].resource_type}|{events[event_index].quantity}|"
-                f"{events[event_index].cost}|{events[event_index].currency}"
+                f"{events[event_index].resource_type}|{events[event_index].quantity}"
             ).encode()
             
             is_valid = MerkleTree.verify_proof(event_data, proof, stored_root)

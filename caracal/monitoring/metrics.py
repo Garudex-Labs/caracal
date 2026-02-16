@@ -5,7 +5,6 @@ This module provides comprehensive metrics for monitoring:
 - Gateway request metrics (count, duration, status)
 - Policy evaluation metrics (count, duration, decision)
 - Database query metrics (count, duration, operation)
-- Provisional charge metrics (active, expired)
 - Circuit breaker metrics (state)
 - Kafka consumer metrics (lag, processing time) [v0.3]
 - Merkle tree metrics (batch processing, signing) [v0.3]
@@ -62,7 +61,6 @@ class MetricsRegistry:
     - Gateway proxy requests
     - Policy evaluations
     - Database operations
-    - Provisional charges
     - Circuit breakers
     
     Requirements: 17.7, 22.1
