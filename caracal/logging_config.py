@@ -160,48 +160,6 @@ def get_logger(name: str) -> structlog.stdlib.BoundLogger:
 
 # Convenience functions for common logging patterns
 
-def log_budget_decision(
-    logger: structlog.stdlib.BoundLogger,
-    agent_id: str,
-    decision: str,
-    remaining_budget: Optional[str] = None,
-    provisional_charge_id: Optional[str] = None,
-    reason: Optional[str] = None,
-    **kwargs: Any,
-) -> None:
-    """
-    Log a budget check decision.
-    
-    Args:
-        logger: Logger instance
-        agent_id: Agent ID
-        decision: Decision outcome ("allow" or "deny")
-        remaining_budget: Remaining budget after decision
-        provisional_charge_id: ID of provisional charge if created
-        reason: Reason for the decision
-        **kwargs: Additional context to log
-    """
-    log_data: Dict[str, Any] = {
-        "event_type": "budget_check_decision",
-        "agent_id": agent_id,
-        "decision": decision,
-    }
-    
-    if remaining_budget is not None:
-        log_data["remaining_budget"] = remaining_budget
-    if provisional_charge_id is not None:
-        log_data["provisional_charge_id"] = provisional_charge_id
-    if reason is not None:
-        log_data["reason"] = reason
-    
-    log_data.update(kwargs)
-    
-    if decision == "allow":
-        logger.info("budget_check_decision", **log_data)
-    else:
-        logger.warning("budget_check_decision", **log_data)
-
-
 def log_authentication_failure(
     logger: structlog.stdlib.BoundLogger,
     auth_method: str,

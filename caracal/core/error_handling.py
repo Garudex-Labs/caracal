@@ -42,7 +42,6 @@ class ErrorCategory(Enum):
     CONFIGURATION = "configuration"
     METERING = "metering"
     DELEGATION = "delegation"
-    PROVISIONAL_CHARGE = "provisional_charge"
     CIRCUIT_BREAKER = "circuit_breaker"
     UNKNOWN = "unknown"
 
@@ -261,10 +260,6 @@ class FailClosedErrorHandler:
         if category == ErrorCategory.METERING:
             return ErrorSeverity.MEDIUM
         
-        # Provisional charge errors are medium (cleanup job will handle)
-        if category == ErrorCategory.PROVISIONAL_CHARGE:
-            return ErrorSeverity.MEDIUM
-        
         # Network errors are high severity (fail closed)
         if category == ErrorCategory.NETWORK:
             return ErrorSeverity.HIGH
@@ -349,7 +344,6 @@ class FailClosedErrorHandler:
             ErrorCategory.CONFIGURATION: "configuration_error",
             ErrorCategory.METERING: "metering_error",
             ErrorCategory.DELEGATION: "delegation_error",
-            ErrorCategory.PROVISIONAL_CHARGE: "provisional_charge_error",
             ErrorCategory.CIRCUIT_BREAKER: "circuit_breaker_open",
             ErrorCategory.UNKNOWN: "internal_error"
         }

@@ -52,11 +52,6 @@ class PolicyEvaluationError(PolicyError):
     pass
 
 
-class BudgetExceededError(PolicyError):
-    """Raised when an agent exceeds its budget limit."""
-    pass
-
-
 # Ledger Errors
 class LedgerError(CaracalError):
     """Base exception for ledger-related errors."""
@@ -91,27 +86,6 @@ class InvalidMeteringEventError(MeteringError):
 
 class MeteringCollectionError(MeteringError):
     """Raised when metering event collection fails."""
-    pass
-
-
-# Pricebook Errors
-class PricebookError(CaracalError):
-    """Base exception for pricebook-related errors."""
-    pass
-
-
-class InvalidPriceError(PricebookError):
-    """Raised when a price is invalid (e.g., negative)."""
-    pass
-
-
-class PricebookLoadError(PricebookError):
-    """Raised when loading the pricebook fails."""
-    pass
-
-
-class ResourceNotFoundError(PricebookError):
-    """Raised when a resource is not found in the pricebook."""
     pass
 
 
@@ -199,11 +173,6 @@ class TokenExpiredError(DelegationTokenError):
 
 class TokenValidationError(DelegationTokenError):
     """Raised when delegation token validation fails."""
-    pass
-
-
-class SpendingLimitExceededError(DelegationTokenError):
-    """Raised when spending exceeds delegation token limit."""
     pass
 
 
