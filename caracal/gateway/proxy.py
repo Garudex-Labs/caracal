@@ -7,7 +7,7 @@ Provides network-enforced policy enforcement through:
 - Policy evaluation before forwarding requests
 - Replay protection
 - Request forwarding to target APIs
-- Final charge emission after responses
+- Metering event emission for enterprise usage tracking
 
 Requirements: 1.1, 1.2, 1.6
 """
@@ -249,9 +249,9 @@ class GatewayProxy:
             Process:
             1. Authenticate agent
             2. Check replay protection
-            3. Evaluate budget policy
+            3. Evaluate authority policy
             4. Forward request to target API
-            5. Emit final charge
+            5. Emit metering event
             6. Return response
             """
             return await self._handle_request(request, path)
@@ -832,8 +832,8 @@ class GatewayProxy:
         
         This method forwards the request to the target API and handles both
         regular and streaming responses. For streaming responses, the entire
-        response is read into memory before returning to ensure we can emit
-        accurate final charges based on actual resource consumption.
+        response is read into memory before returning to ensure we can
+        accurately record resource consumption for metering.
         
         Args:
             request: FastAPI Request object

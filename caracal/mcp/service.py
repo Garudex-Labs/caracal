@@ -1,7 +1,7 @@
 """
 MCP Adapter Standalone Service for Caracal Core v0.2.
 
-Provides HTTP API for MCP request proxying with budget enforcement:
+Provides HTTP API for MCP request proxying with authority enforcement:
 - HTTP API for intercepting MCP tool calls and resource reads
 - Health check endpoints for monitoring
 - Configuration loading from YAML or environment variables
@@ -111,7 +111,7 @@ class MCPAdapterService:
     Standalone HTTP service for MCP adapter.
     
     Provides HTTP API for intercepting MCP tool calls and resource reads,
-    enforcing budget policies, and forwarding requests to MCP servers.
+    enforcing authority policies, and forwarding requests to MCP servers.
     
     Requirements: 18.1, 18.3
     """
@@ -129,7 +129,7 @@ class MCPAdapterService:
         
         Args:
             config: MCPServiceConfig with server settings
-            mcp_adapter: MCPAdapter for budget enforcement
+            mcp_adapter: MCPAdapter for authority enforcement
             authority_evaluator: AuthorityEvaluator for mandate checks
             metering_collector: MeteringCollector for metering events
             db_connection_manager: Optional DatabaseConnectionManager for health checks
@@ -143,7 +143,7 @@ class MCPAdapterService:
         # Create FastAPI app
         self.app = FastAPI(
             title="Caracal MCP Adapter Service",
-            description="HTTP API for MCP request proxying with budget enforcement",
+            description="HTTP API for MCP request proxying with authority enforcement",
             version=__version__
         )
         
@@ -283,7 +283,7 @@ class MCPAdapterService:
             
             This endpoint:
             1. Extracts agent ID and tool information from request
-            2. Performs budget check via MCPAdapter
+            2. Performs authority check via MCPAdapter
             3. Forwards tool call to appropriate MCP server
             4. Emits metering event
             5. Returns result
@@ -313,7 +313,7 @@ class MCPAdapterService:
                 )
                 
                 # Intercept tool call through MCPAdapter
-                # This handles budget check, forwarding, and metering
+                # This handles authority check, forwarding, and metering
                 result = await self.mcp_adapter.intercept_tool_call(
                     tool_name=request.tool_name,
                     tool_args=request.tool_args,
@@ -372,7 +372,7 @@ class MCPAdapterService:
             
             This endpoint:
             1. Extracts agent ID and resource URI from request
-            2. Performs budget check via MCPAdapter
+            2. Performs authority check via MCPAdapter
             3. Forwards resource read to appropriate MCP server
             4. Emits metering event
             5. Returns resource
@@ -402,7 +402,7 @@ class MCPAdapterService:
                 )
                 
                 # Intercept resource read through MCPAdapter
-                # This handles budget check, forwarding, and metering
+                # This handles authority check, forwarding, and metering
                 result = await self.mcp_adapter.intercept_resource_read(
                     resource_uri=request.resource_uri,
                     mcp_context=mcp_context
