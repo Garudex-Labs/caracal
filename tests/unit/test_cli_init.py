@@ -69,7 +69,6 @@ class TestCLIInit:
                 assert "agent_registry:" in content
                 assert "policy_store:" in content
                 assert "ledger:" in content
-                assert "pricebook:" in content
                 assert "backup_dir:" in content
                 assert "defaults:" in content
                 assert "logging:" in content
@@ -145,35 +144,6 @@ class TestCLIInit:
                 ledger_path = Path(tmpdir) / ".caracal" / "ledger.jsonl"
                 assert ledger_path.exists()
                 assert ledger_path.read_text() == ""
-            
-            finally:
-                if original_home:
-                    os.environ['HOME'] = original_home
-                else:
-                    if 'HOME' in os.environ:
-                        del os.environ['HOME']
-    
-    def test_init_creates_sample_pricebook_csv(self):
-        """Test that init command creates sample pricebook.csv with common resources."""
-        runner = CliRunner()
-        
-        with tempfile.TemporaryDirectory() as tmpdir:
-            original_home = os.environ.get('HOME')
-            os.environ['HOME'] = tmpdir
-            
-            try:
-                result = runner.invoke(cli, ['init'])
-                
-                assert result.exit_code == 0
-                
-                pricebook_path = Path(tmpdir) / ".caracal" / "pricebook.csv"
-                assert pricebook_path.exists()
-                
-                content = pricebook_path.read_text()
-                assert "resource_type,price_per_unit,currency,updated_at" in content
-                assert "openai.gpt-5.2.input_tokens" in content
-                assert "openai.gpt-5.2.output_tokens" in content
-                assert "openai.gpt-5.2.cached_input_tokens" in content
             
             finally:
                 if original_home:

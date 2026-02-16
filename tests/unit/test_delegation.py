@@ -82,8 +82,6 @@ class TestDelegationTokenManager:
         token = delegation_manager.generate_token(
             parent_agent_id=UUID(parent_agent.agent_id),
             child_agent_id=UUID(child_agent.agent_id),
-            spending_limit=Decimal("100.00"),
-            currency="USD",
             expiration_seconds=3600
         )
         
@@ -102,7 +100,6 @@ class TestDelegationTokenManager:
             delegation_manager.generate_token(
                 parent_agent_id=fake_parent_id,
                 child_agent_id=UUID(child_agent.agent_id),
-                spending_limit=Decimal("100.00")
             )
     
     def test_generate_token_no_private_key(self, agent_registry, delegation_manager, child_agent):
@@ -118,7 +115,6 @@ class TestDelegationTokenManager:
             delegation_manager.generate_token(
                 parent_agent_id=UUID(parent_no_keys.agent_id),
                 child_agent_id=UUID(child_agent.agent_id),
-                spending_limit=Decimal("100.00")
             )
     
     def test_validate_token_success(self, delegation_manager, parent_agent, child_agent):
@@ -127,8 +123,6 @@ class TestDelegationTokenManager:
         token = delegation_manager.generate_token(
             parent_agent_id=UUID(parent_agent.agent_id),
             child_agent_id=UUID(child_agent.agent_id),
-            spending_limit=Decimal("100.00"),
-            currency="USD",
             expiration_seconds=3600,
             allowed_operations=["api_call", "mcp_tool"]
         )
@@ -140,8 +134,6 @@ class TestDelegationTokenManager:
         assert isinstance(claims, DelegationTokenClaims)
         assert claims.issuer == UUID(parent_agent.agent_id)
         assert claims.subject == UUID(child_agent.agent_id)
-        assert claims.spending_limit == Decimal("100.00")
-        assert claims.currency == "USD"
         assert claims.allowed_operations == ["api_call", "mcp_tool"]
         assert claims.audience == "caracal-core"
     
@@ -151,7 +143,6 @@ class TestDelegationTokenManager:
         token = delegation_manager.generate_token(
             parent_agent_id=UUID(parent_agent.agent_id),
             child_agent_id=UUID(child_agent.agent_id),
-            spending_limit=Decimal("100.00"),
             expiration_seconds=1  # 1 second
         )
         
@@ -169,7 +160,6 @@ class TestDelegationTokenManager:
         token = delegation_manager.generate_token(
             parent_agent_id=UUID(parent_agent.agent_id),
             child_agent_id=UUID(child_agent.agent_id),
-            spending_limit=Decimal("100.00")
         )
         
         # Tamper with token (change last character)
@@ -185,7 +175,6 @@ class TestDelegationTokenManager:
         token = delegation_manager.generate_token(
             parent_agent_id=UUID(parent_agent.agent_id),
             child_agent_id=UUID(child_agent.agent_id),
-            spending_limit=Decimal("100.00")
         )
         
         # Remove parent agent from registry (simulate deletion)
@@ -195,71 +184,6 @@ class TestDelegationTokenManager:
         with pytest.raises(AgentNotFoundError):
             delegation_manager.validate_token(token)
     
-    def test_check_spending_limit_within_limit(self, delegation_manager, parent_agent, child_agent):
-        """Test spending limit check passes when within limit."""
-        # Generate token
-        token = delegation_manager.generate_token(
-            parent_agent_id=UUID(parent_agent.agent_id),
-            child_agent_id=UUID(child_agent.agent_id),
-            spending_limit=Decimal("100.00")
-        )
-        
-        # Validate token
-        claims = delegation_manager.validate_token(token)
-        
-        # Check spending limit (within limit)
-        result = delegation_manager.check_spending_limit(
-            claims,
-            UUID(child_agent.agent_id),
-            Decimal("50.00")
-        )
-        
-        assert result is True
-    
-    def test_check_spending_limit_exceeded(self, delegation_manager, parent_agent, child_agent):
-        """Test spending limit check fails when limit exceeded."""
-        # Generate token
-        token = delegation_manager.generate_token(
-            parent_agent_id=UUID(parent_agent.agent_id),
-            child_agent_id=UUID(child_agent.agent_id),
-            spending_limit=Decimal("100.00")
-        )
-        
-        # Validate token
-        claims = delegation_manager.validate_token(token)
-        
-        # Check spending limit (exceeded)
-        result = delegation_manager.check_spending_limit(
-            claims,
-            UUID(child_agent.agent_id),
-            Decimal("150.00")
-        )
-        
-        assert result is False
-    
-    def test_check_spending_limit_agent_mismatch(self, delegation_manager, parent_agent, child_agent):
-        """Test spending limit check fails when agent ID doesn't match token subject."""
-        # Generate token
-        token = delegation_manager.generate_token(
-            parent_agent_id=UUID(parent_agent.agent_id),
-            child_agent_id=UUID(child_agent.agent_id),
-            spending_limit=Decimal("100.00")
-        )
-        
-        # Validate token
-        claims = delegation_manager.validate_token(token)
-        
-        # Check spending limit with different agent ID
-        fake_agent_id = uuid4()
-        result = delegation_manager.check_spending_limit(
-            claims,
-            fake_agent_id,
-            Decimal("50.00")
-        )
-        
-        assert result is False
-
-
 class TestAgentRegistryDelegation:
     """Test AgentRegistry delegation token integration."""
     
@@ -294,8 +218,6 @@ class TestAgentRegistryDelegation:
         token = agent_registry.generate_delegation_token(
             parent_agent_id=parent_agent.agent_id,
             child_agent_id=child_agent.agent_id,
-            spending_limit=100.00,
-            currency="USD"
         )
         
         # Verify token generated
@@ -309,8 +231,6 @@ class TestAgentRegistryDelegation:
         
         token_metadata = child.metadata["delegation_tokens"][0]
         assert token_metadata["parent_agent_id"] == parent_agent.agent_id
-        assert token_metadata["spending_limit"] == 100.00
-        assert token_metadata["currency"] == "USD"
     
     def test_generate_delegation_token_parent_not_found(self, agent_registry, child_agent):
         """Test delegation token generation fails when parent not found."""
@@ -320,7 +240,6 @@ class TestAgentRegistryDelegation:
             agent_registry.generate_delegation_token(
                 parent_agent_id=fake_parent_id,
                 child_agent_id=child_agent.agent_id,
-                spending_limit=100.00
             )
     
     def test_generate_delegation_token_child_not_found(self, agent_registry, parent_agent):
@@ -331,5 +250,4 @@ class TestAgentRegistryDelegation:
             agent_registry.generate_delegation_token(
                 parent_agent_id=parent_agent.agent_id,
                 child_agent_id=fake_child_id,
-                spending_limit=100.00
             )

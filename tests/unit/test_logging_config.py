@@ -14,7 +14,6 @@ from caracal.logging_config import (
     set_correlation_id,
     clear_correlation_id,
     get_correlation_id,
-    log_budget_decision,
     log_authentication_failure,
     log_database_query,
     log_delegation_token_validation,
@@ -135,54 +134,6 @@ class TestLoggingConfiguration:
         assert log_entry["correlation_id"] == "test-correlation-123"
         
         clear_correlation_id()
-    
-    def test_log_budget_decision_allow(self, temp_dir: Path):
-        """Test log_budget_decision for allow decision."""
-        log_file = temp_dir / "test.log"
-        setup_logging(level="INFO", log_file=log_file, json_format=True)
-        
-        logger = get_logger("test")
-        log_budget_decision(
-            logger,
-            agent_id="agent-123",
-            decision="allow",
-            remaining_budget="100.00",
-            provisional_charge_id="charge-456",
-            reason="Within budget"
-        )
-        
-        # Verify log entry
-        log_content = log_file.read_text()
-        log_entry = json.loads(log_content.strip().split("\n")[0])
-        assert log_entry["event_type"] == "budget_check_decision"
-        assert log_entry["agent_id"] == "agent-123"
-        assert log_entry["decision"] == "allow"
-        assert log_entry["remaining_budget"] == "100.00"
-        assert log_entry["provisional_charge_id"] == "charge-456"
-        assert log_entry["reason"] == "Within budget"
-        assert log_entry["level"] == "info"
-    
-    def test_log_budget_decision_deny(self, temp_dir: Path):
-        """Test log_budget_decision for deny decision."""
-        log_file = temp_dir / "test.log"
-        setup_logging(level="INFO", log_file=log_file, json_format=True)
-        
-        logger = get_logger("test")
-        log_budget_decision(
-            logger,
-            agent_id="agent-123",
-            decision="deny",
-            reason="Insufficient budget"
-        )
-        
-        # Verify log entry
-        log_content = log_file.read_text()
-        log_entry = json.loads(log_content.strip().split("\n")[0])
-        assert log_entry["event_type"] == "budget_check_decision"
-        assert log_entry["agent_id"] == "agent-123"
-        assert log_entry["decision"] == "deny"
-        assert log_entry["reason"] == "Insufficient budget"
-        assert log_entry["level"] == "warning"
     
     def test_log_authentication_failure(self, temp_dir: Path):
         """Test log_authentication_failure."""

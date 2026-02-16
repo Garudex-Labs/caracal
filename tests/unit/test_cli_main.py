@@ -15,7 +15,6 @@ from click.testing import CliRunner
 
 from caracal.cli.main import (
     cli,
-    validate_currency,
     validate_non_negative_decimal,
     validate_positive_decimal,
     validate_resource_type,
@@ -58,7 +57,6 @@ storage:
   agent_registry: /tmp/agents.json
   policy_store: /tmp/policies.json
   ledger: /tmp/ledger.jsonl
-  pricebook: /tmp/pricebook.csv
   backup_dir: /tmp/backups
   backup_count: 3
 """)
@@ -119,14 +117,6 @@ storage:
         assert result.exit_code == 0
         assert 'ledger' in result.output.lower()
     
-    def test_pricebook_command_group(self):
-        """Test pricebook command group exists."""
-        runner = CliRunner()
-        result = runner.invoke(cli, ['pricebook', '--help'])
-        
-        assert result.exit_code == 0
-        assert 'pricebook' in result.output.lower()
-    
     def test_backup_command_group(self):
         """Test backup command group exists."""
         runner = CliRunner()
@@ -153,7 +143,6 @@ storage:
                 assert (caracal_dir / 'agents.json').exists()
                 assert (caracal_dir / 'policies.json').exists()
                 assert (caracal_dir / 'ledger.jsonl').exists()
-                assert (caracal_dir / 'pricebook.csv').exists()
                 assert (caracal_dir / 'backups').exists()
 
 
@@ -242,21 +231,6 @@ class TestInputValidation:
         
         with pytest.raises(BadParameter, match="must be one of"):
             validate_time_window(None, None, "hourly")
-    
-    def test_validate_currency_valid(self):
-        """Test validate_currency with valid currency."""
-        result = validate_currency(None, None, "USD")
-        assert result == "USD"
-        
-        result = validate_currency(None, None, "usd")
-        assert result == "USD"
-    
-    def test_validate_currency_invalid(self):
-        """Test validate_currency with invalid currency."""
-        from click.exceptions import BadParameter
-        
-        with pytest.raises(BadParameter, match="must be one of"):
-            validate_currency(None, None, "EUR")
     
     def test_validate_resource_type_valid(self):
         """Test validate_resource_type with valid resource."""

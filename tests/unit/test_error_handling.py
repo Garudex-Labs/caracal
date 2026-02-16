@@ -22,7 +22,6 @@ from caracal.core.error_handling import (
 )
 from caracal.exceptions import (
     PolicyEvaluationError,
-    BudgetExceededError,
     TokenValidationError,
     AgentNotFoundError
 )
@@ -198,7 +197,7 @@ class TestFailClosedErrorHandler:
         context = handler.handle_error(
             error=error,
             category=ErrorCategory.POLICY_EVALUATION,
-            operation="check_budget"
+            operation="evaluate_policy"
         )
         
         assert handler.should_deny_operation(context) is True
@@ -310,7 +309,7 @@ class TestConvenienceFunctions:
         should_deny, error_response = handle_error_with_denial(
             error=error,
             category=ErrorCategory.POLICY_EVALUATION,
-            operation="check_budget",
+            operation="evaluate_policy",
             agent_id="agent-123"
         )
         
@@ -371,7 +370,7 @@ class TestFailClosedSemantics:
         context = handler.handle_error(
             error=error,
             category=ErrorCategory.POLICY_EVALUATION,
-            operation="check_budget"
+            operation="evaluate_policy"
         )
         
         assert context.severity == ErrorSeverity.HIGH

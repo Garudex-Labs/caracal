@@ -10,9 +10,7 @@ from decimal import Decimal
 from unittest.mock import patch, MagicMock
 
 from caracal.core.identity import AgentRegistry
-from caracal.core.policy import PolicyStore
 from caracal.core.ledger import LedgerWriter
-from caracal.core.pricebook import Pricebook
 from caracal.exceptions import FileWriteError
 
 
@@ -65,48 +63,6 @@ class TestAgentRegistryRetry:
                     registry.register_agent("test-agent", "owner@example.com")
 
 
-class TestPolicyStoreRetry:
-    """Tests for retry logic in PolicyStore."""
-    
-    def test_policy_store_persist_with_transient_failure(self):
-        """Test that PolicyStore retries on transient write failures."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            policy_path = Path(tmpdir) / "policies.json"
-            agent_registry_path = Path(tmpdir) / "agents.json"
-            
-            # Create agent registry and register an agent
-            agent_registry = AgentRegistry(str(agent_registry_path))
-            agent = agent_registry.register_agent("test-agent", "owner@example.com")
-            
-            # Create policy store
-            policy_store = PolicyStore(str(policy_path), agent_registry=agent_registry)
-            
-            # Mock open to fail twice then succeed
-            call_count = 0
-            original_open = open
-            
-            def mock_open(*args, **kwargs):
-                nonlocal call_count
-                # Convert Path to string for comparison
-                path_str = str(args[0]) if hasattr(args[0], '__fspath__') else args[0]
-                if path_str.endswith('.tmp') and 'policies' in path_str:
-                    call_count += 1
-                    if call_count <= 2:
-                        raise OSError("Simulated transient failure")
-                return original_open(*args, **kwargs)
-            
-            with patch('builtins.open', side_effect=mock_open):
-                # This should succeed after retries
-                policy = policy_store.create_policy(
-                    agent.agent_id,
-                    Decimal("100.00"),
-                    "daily"
-                )
-                
-                assert policy.agent_id == agent.agent_id
-                assert call_count >= 3  # At least 3 attempts
-
-
 class TestLedgerWriterRetry:
     """Tests for retry logic in LedgerWriter."""
     
@@ -140,40 +96,3 @@ class TestLedgerWriterRetry:
                 
                 assert event.agent_id == "test-agent"
                 assert call_count >= 2  # At least 2 failed attempts before success
-
-
-class TestPricebookRetry:
-    """Tests for retry logic in Pricebook."""
-    
-    def test_pricebook_persist_with_transient_failure(self):
-        """Test that Pricebook retries on transient write failures."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            pricebook_path = Path(tmpdir) / "pricebook.csv"
-            
-            # Create initial pricebook file
-            with open(pricebook_path, 'w') as f:
-                f.write("resource_type,price_per_unit,currency,updated_at\n")
-                f.write("test.resource,0.001,USD,2024-01-01T00:00:00Z\n")
-            
-            pricebook = Pricebook(str(pricebook_path))
-            
-            # Mock open to fail twice then succeed
-            call_count = 0
-            original_open = open
-            
-            def mock_open(*args, **kwargs):
-                nonlocal call_count
-                # Convert Path to string for comparison
-                path_str = str(args[0]) if hasattr(args[0], '__fspath__') else args[0]
-                if path_str.endswith('.tmp'):
-                    call_count += 1
-                    if call_count <= 2:
-                        raise OSError("Simulated transient failure")
-                return original_open(*args, **kwargs)
-            
-            with patch('builtins.open', side_effect=mock_open):
-                # This should succeed after retries
-                pricebook.set_price("new.resource", Decimal("0.002"))
-                
-                assert call_count >= 3  # At least 3 attempts
-                assert pricebook.get_price("new.resource") == Decimal("0.002")

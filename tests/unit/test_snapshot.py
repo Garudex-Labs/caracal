@@ -52,8 +52,6 @@ def sample_events(db_session, sample_agent):
             timestamp=datetime.utcnow() - timedelta(hours=10-i),
             resource_type="test.resource",
             quantity=Decimal("1.0"),
-            cost=Decimal("10.0"),
-            currency="USD",
         )
         db_session.add(event)
         events.append(event)
@@ -297,19 +295,12 @@ class TestSnapshotData:
 
     def test_snapshot_data_creation(self):
         """Test creating SnapshotData."""
-        agent_spending = {
-            uuid4(): Decimal("100.0"),
-            uuid4(): Decimal("200.0"),
-        }
-        
         data = SnapshotData(
-            agent_spending=agent_spending,
             total_events=10,
             merkle_root="a" * 64,
             snapshot_timestamp=datetime.utcnow(),
         )
         
-        assert data.agent_spending == agent_spending
         assert data.total_events == 10
         assert data.merkle_root == "a" * 64
         assert isinstance(data.snapshot_timestamp, datetime)

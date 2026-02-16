@@ -55,7 +55,6 @@ class TestConfigurationDataclasses:
         config = RedisConfig()
         assert config.host == "localhost"
         assert config.port == 6379
-        assert config.spending_cache_ttl == 86400
         assert config.metrics_cache_ttl == 3600
         assert config.allowlist_cache_ttl == 60
     
@@ -115,7 +114,6 @@ class TestConfigurationLoading:
                     'agent_registry': '/tmp/agents.json',
                     'policy_store': '/tmp/policies.json',
                     'ledger': '/tmp/ledger.jsonl',
-                    'pricebook': '/tmp/pricebook.csv',
                     'backup_dir': '/tmp/backups',
                 },
                 'kafka': {
@@ -307,7 +305,6 @@ class TestEnvironmentVariableSubstitution:
                     'agent_registry': '/tmp/agents.json',
                     'policy_store': '/tmp/policies.json',
                     'ledger': '/tmp/ledger.jsonl',
-                    'pricebook': '/tmp/pricebook.csv',
                     'backup_dir': '/tmp/backups',
                 },
                 'kafka': {
@@ -330,7 +327,6 @@ class TestEnvironmentVariableSubstitution:
                     'agent_registry': '/tmp/agents.json',
                     'policy_store': '/tmp/policies.json',
                     'ledger': '/tmp/ledger.jsonl',
-                    'pricebook': '/tmp/pricebook.csv',
                     'backup_dir': '/tmp/backups',
                 },
                 'redis': {

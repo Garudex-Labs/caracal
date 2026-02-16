@@ -9,10 +9,8 @@ from caracal.exceptions import (
     AgentNotFoundError,
     DuplicateAgentNameError,
     PolicyError,
-    BudgetExceededError,
     LedgerError,
     MeteringError,
-    PricebookError,
     ConfigurationError,
     StorageError,
     SDKError,
@@ -37,7 +35,6 @@ class TestExceptionHierarchy:
     def test_policy_errors_inherit_from_base(self):
         """Test that policy errors inherit from CaracalError."""
         assert issubclass(PolicyError, CaracalError)
-        assert issubclass(BudgetExceededError, PolicyError)
     
     def test_ledger_errors_inherit_from_base(self):
         """Test that ledger errors inherit from CaracalError."""
@@ -46,10 +43,6 @@ class TestExceptionHierarchy:
     def test_metering_errors_inherit_from_base(self):
         """Test that metering errors inherit from CaracalError."""
         assert issubclass(MeteringError, CaracalError)
-    
-    def test_pricebook_errors_inherit_from_base(self):
-        """Test that pricebook errors inherit from CaracalError."""
-        assert issubclass(PricebookError, CaracalError)
     
     def test_configuration_errors_inherit_from_base(self):
         """Test that configuration errors inherit from CaracalError."""
@@ -65,9 +58,8 @@ class TestExceptionHierarchy:
     
     def test_exception_can_be_raised_and_caught(self):
         """Test that exceptions can be raised and caught."""
-        with pytest.raises(BudgetExceededError) as exc_info:
-            raise BudgetExceededError("Budget exceeded")
+        with pytest.raises(PolicyError) as exc_info:
+            raise PolicyError("Policy violation")
         
-        assert "Budget exceeded" in str(exc_info.value)
-        assert isinstance(exc_info.value, PolicyError)
+        assert "Policy violation" in str(exc_info.value)
         assert isinstance(exc_info.value, CaracalError)

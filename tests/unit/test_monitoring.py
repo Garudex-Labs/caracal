@@ -235,7 +235,7 @@ class TestV03StructuredLogging:
             change_type="modified",
             version_number=2,
             changed_by="admin@example.com",
-            change_reason="Increase budget",
+            change_reason="Increase authority scope",
             before_values={"limit_amount": "100.00"},
             after_values={"limit_amount": "200.00"}
         )

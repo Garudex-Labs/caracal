@@ -38,7 +38,6 @@ class TestWorkspaceManager:
         assert wm.agents_path == temp_workspace / "agents.json"
         assert wm.policies_path == temp_workspace / "policies.json"
         assert wm.ledger_path == temp_workspace / "ledger.jsonl"
-        assert wm.pricebook_path == temp_workspace / "pricebook.csv"
         assert wm.master_password_path == temp_workspace / "master_password"
 
     def test_ensure_dirs(self, temp_workspace):
