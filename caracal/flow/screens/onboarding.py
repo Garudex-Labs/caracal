@@ -25,8 +25,63 @@ from caracal.flow.state import FlowState, StatePersistence, RecentAction
 from caracal.flow.theme import Colors, Icons
 
 
+def _find_env_file() -> Optional[Path]:
+    """Find the .env file by searching multiple locations.
+    
+    Search order:
+    1. Current working directory
+    2. Project root (walk up from this file to find pyproject.toml/setup.py)
+    3. Parent directories of CWD (up to 5 levels)
+    
+    Returns:
+        Path to .env file, or None if not found.
+    """
+    # 1. Current working directory
+    cwd_env = Path.cwd() / ".env"
+    if cwd_env.exists():
+        return cwd_env
+    
+    # 2. Project root — walk up from this source file
+    try:
+        source_dir = Path(__file__).resolve().parent
+        for _ in range(10):  # max 10 levels up
+            candidate = source_dir / ".env"
+            if candidate.exists():
+                return candidate
+            # Check if this looks like a project root
+            if (source_dir / "pyproject.toml").exists() or (source_dir / "setup.py").exists():
+                # We're at project root but no .env — stop looking upward
+                break
+            parent = source_dir.parent
+            if parent == source_dir:  # filesystem root
+                break
+            source_dir = parent
+    except Exception:
+        pass
+    
+    # 3. Walk up from CWD (handles running from subdirectories)
+    try:
+        current = Path.cwd()
+        for _ in range(5):
+            parent = current.parent
+            if parent == current:
+                break
+            current = parent
+            candidate = current / ".env"
+            if candidate.exists():
+                return candidate
+    except Exception:
+        pass
+    
+    return None
+
+
 def _get_db_config_from_env() -> dict:
-    """Load database configuration from .env file."""
+    """Load database configuration from .env file.
+    
+    Searches for .env in CWD, project root, and parent directories.
+    Returns defaults for any values not found.
+    """
     config = {
         "host": "localhost",
         "port": 5432,
@@ -35,8 +90,8 @@ def _get_db_config_from_env() -> dict:
         "password": "",
     }
     try:
-        env_path = Path.cwd() / ".env"
-        if env_path.exists():
+        env_path = _find_env_file()
+        if env_path and env_path.exists():
             import re
             content = env_path.read_text()
             mapping = {
@@ -57,6 +112,7 @@ def _get_db_config_from_env() -> dict:
                             pass
                     else:
                         config[key] = val
+            config["_env_path"] = str(env_path)  # Track where we loaded from
     except Exception:
         pass
     return config
@@ -65,7 +121,10 @@ def _get_db_config_from_env() -> dict:
 def _save_db_config_to_env(config: dict) -> bool:
     """Save database configuration back to .env file."""
     try:
-        env_path = Path.cwd() / ".env"
+        env_path = _find_env_file()
+        if env_path is None:
+            # No existing .env found — create one in CWD
+            env_path = Path.cwd() / ".env"
         if env_path.exists():
             import re
             content = env_path.read_text()
@@ -82,6 +141,20 @@ def _save_db_config_to_env(config: dict) -> bool:
                 else:
                     content += f"\n{key}={val}"
             env_path.write_text(content)
+            return True
+        else:
+            # Create a new .env file with database config
+            lines = [
+                "# Caracal Core - Environment Variables",
+                "# Database Configuration",
+                f"DB_HOST={config.get('host', 'localhost')}",
+                f"DB_PORT={config.get('port', 5432)}",
+                f"DB_NAME={config.get('database', 'caracal')}",
+                f"DB_USER={config.get('username', 'caracal')}",
+                f"DB_PASSWORD={config.get('password', '')}",
+                "",
+            ]
+            env_path.write_text("\n".join(lines))
             return True
     except Exception:
         pass
@@ -404,93 +477,401 @@ logging:
         db_path.unlink()
 
 
+def _validate_env_config(config: dict) -> list[str]:
+    """Validate that all required PostgreSQL env vars are properly set.
+    
+    Required: DB_NAME, DB_USER, DB_PASSWORD, DB_PORT (valid range).
+    Optional: DB_HOST (defaults to 'localhost' which is fine).
+    
+    Returns a list of missing/invalid fields. Empty list means all valid.
+    """
+    issues = []
+    # host is optional — defaults to localhost which is valid for local setups
+    if not config.get("database"):
+        issues.append("DB_NAME is missing or empty")
+    if not config.get("username"):
+        issues.append("DB_USER is missing or empty")
+    if not config.get("password"):
+        issues.append("DB_PASSWORD is missing or empty — required for PostgreSQL")
+    port = config.get("port")
+    if not isinstance(port, int) or port < 1 or port > 65535:
+        issues.append(f"DB_PORT has invalid value: {port}")
+    return issues
+
+
+def _start_postgresql(console: Console, method: str = "auto") -> tuple[bool, str]:
+    """Attempt to start PostgreSQL automatically.
+    
+    Tries multiple methods in order:
+    1. docker compose up -d postgres  (if docker-compose.yml exists)
+    2. systemctl start postgresql     (if systemd is available)
+    3. pg_ctl start                   (direct pg_ctl)
+    
+    Args:
+        console: Rich console for output
+        method: "auto" tries all, or "docker", "systemctl", "pg_ctl"
+    
+    Returns:
+        (success: bool, message: str)
+    """
+    import subprocess
+    import shutil
+    import time
+    
+    methods_to_try = []
+    
+    if method == "auto":
+        # Check which methods are available
+        compose_file = Path.cwd() / "docker-compose.yml"
+        if compose_file.exists() and shutil.which("docker"):
+            methods_to_try.append("docker")
+        if shutil.which("systemctl"):
+            methods_to_try.append("systemctl")
+        if shutil.which("pg_ctl"):
+            methods_to_try.append("pg_ctl")
+    else:
+        methods_to_try = [method]
+    
+    if not methods_to_try:
+        return False, "No method available to start PostgreSQL (no docker, systemctl, or pg_ctl found)"
+    
+    for m in methods_to_try:
+        if m == "docker":
+            console.print(f"  [{Colors.INFO}]{Icons.INFO} Starting PostgreSQL via docker compose...[/]")
+            try:
+                result = subprocess.run(
+                    ["docker", "compose", "up", "-d", "postgres"],
+                    capture_output=True, text=True, timeout=60,
+                )
+                if result.returncode == 0:
+                    # Wait for PostgreSQL to become ready
+                    console.print(f"  [{Colors.INFO}]{Icons.INFO} Waiting for PostgreSQL to become ready...[/]")
+                    for i in range(15):  # wait up to 15 seconds
+                        time.sleep(1)
+                        check = subprocess.run(
+                            ["docker", "compose", "exec", "-T", "postgres",
+                             "pg_isready", "-U", "caracal"],
+                            capture_output=True, text=True, timeout=5,
+                        )
+                        if check.returncode == 0:
+                            return True, "PostgreSQL started via docker compose"
+                    return False, f"Docker container started but PostgreSQL not ready after 15s. Logs:\n{result.stderr}"
+                else:
+                    console.print(f"  [{Colors.DIM}]docker compose failed: {result.stderr.strip()}[/]")
+            except subprocess.TimeoutExpired:
+                console.print(f"  [{Colors.DIM}]docker compose timed out[/]")
+            except FileNotFoundError:
+                pass
+        
+        elif m == "systemctl":
+            console.print(f"  [{Colors.INFO}]{Icons.INFO} Starting PostgreSQL via systemctl...[/]")
+            try:
+                result = subprocess.run(
+                    ["sudo", "systemctl", "start", "postgresql"],
+                    capture_output=True, text=True, timeout=30,
+                )
+                if result.returncode == 0:
+                    time.sleep(2)
+                    return True, "PostgreSQL started via systemctl"
+                else:
+                    console.print(f"  [{Colors.DIM}]systemctl failed: {result.stderr.strip()}[/]")
+            except (subprocess.TimeoutExpired, FileNotFoundError):
+                pass
+        
+        elif m == "pg_ctl":
+            console.print(f"  [{Colors.INFO}]{Icons.INFO} Starting PostgreSQL via pg_ctl...[/]")
+            try:
+                result = subprocess.run(
+                    ["pg_ctl", "start", "-D", "/var/lib/postgresql/data", "-l", "/tmp/pg.log"],
+                    capture_output=True, text=True, timeout=30,
+                )
+                if result.returncode == 0:
+                    time.sleep(2)
+                    return True, "PostgreSQL started via pg_ctl"
+                else:
+                    console.print(f"  [{Colors.DIM}]pg_ctl failed: {result.stderr.strip()}[/]")
+            except (subprocess.TimeoutExpired, FileNotFoundError):
+                pass
+    
+    return False, "All start methods failed. Please start PostgreSQL manually."
+
+
 def _step_database(wizard: Wizard) -> Any:
-    """Step 2: Database setup (optional)."""
+    """Step 2: Database setup — strict PostgreSQL or explicit SQLite choice.
+    
+    Logic:
+    - Ask user: PostgreSQL (Y) or SQLite (N)?
+    - If Y (PostgreSQL):
+        - Validate env vars from .env; prompt user to fix if missing
+        - Auto-start PostgreSQL if not running
+        - Test connection; on failure show clear errors
+        - NEVER fall back to SQLite — loop until PostgreSQL works
+    - If N (SQLite):
+        - Use file-based SQLite in workspace directory
+    
+    Database is mandatory. This step cannot be skipped.
+    """
     console = wizard.console
     prompt = FlowPrompt(console)
     
-    # 1. Try automatic setup from .env
-    env_config = _get_db_config_from_env()
-    if env_config.get("password"):
-        console.print()
-        console.print(f"  [{Colors.INFO}]{Icons.INFO} Testing PostgreSQL connection...[/]")
+    console.print()
+    console.print(f"  [{Colors.INFO}]{Icons.INFO} Configuring database...[/]")
+    console.print()
+    console.print(f"  [{Colors.NEUTRAL}]Caracal supports two database backends:[/]")
+    console.print(f"  [{Colors.DIM}]  • PostgreSQL — recommended for production (persistent, scalable)[/]")
+    console.print(f"  [{Colors.DIM}]  • SQLite     — lightweight file-based (good for development)[/]")
+    console.print()
+    
+    wants_postgres = prompt.confirm(
+        "Use PostgreSQL?",
+        default=True,
+    )
+    
+    if not wants_postgres:
+        # ── SQLite path ──────────────────────────────────────────────
+        return _setup_sqlite(wizard, console)
+    
+    # ── PostgreSQL path ──────────────────────────────────────────────
+    # PostgreSQL was chosen — we MUST get it working. No SQLite fallback.
+    
+    while True:
+        # 1. Load and validate env config
+        env_config = _get_db_config_from_env()
+        env_path_used = env_config.pop("_env_path", None)
+        env_issues = _validate_env_config(env_config)
         
+        if env_path_used:
+            console.print(f"  [{Colors.DIM}]Loaded .env from: {env_path_used}[/]")
+        else:
+            console.print(f"  [{Colors.WARNING}]⚠️  No .env file found in current directory or project root[/]")
+        console.print()
+        
+        if env_issues:
+            console.print(f"  [{Colors.ERROR}]{Icons.ERROR} PostgreSQL environment configuration incomplete:[/]")
+            for issue in env_issues:
+                console.print(f"    [{Colors.WARNING}]• {issue}[/]")
+            console.print()
+            console.print(f"  [{Colors.INFO}]{Icons.INFO} Please set these variables in your .env file:[/]")
+            console.print(f"  [{Colors.DIM}]  DB_HOST=localhost[/]")
+            console.print(f"  [{Colors.DIM}]  DB_PORT=5432[/]")
+            console.print(f"  [{Colors.DIM}]  DB_NAME=caracal[/]")
+            console.print(f"  [{Colors.DIM}]  DB_USER=caracal[/]")
+            console.print(f"  [{Colors.DIM}]  DB_PASSWORD=<your_password>[/]")
+            console.print()
+            
+            fix_choice = prompt.select(
+                "How would you like to proceed?",
+                choices=[
+                    "Enter credentials now (saves to .env)",
+                    "I've updated .env — retry",
+                ],
+            )
+            
+            if fix_choice == "Enter credentials now (saves to .env)":
+                console.print()
+                pg_host = prompt.text("Host", default=env_config.get("host", "localhost"))
+                pg_port = prompt.number("Port", default=env_config.get("port", 5432), min_value=1)
+                pg_database = prompt.text("Database name", default=env_config.get("database", "caracal"))
+                pg_user = prompt.text("Username", default=env_config.get("username", "caracal"))
+                pg_password = prompt.text("Password", default="", hide_input=True)
+                
+                env_config = {
+                    "host": pg_host,
+                    "port": int(pg_port),
+                    "database": pg_database,
+                    "username": pg_user,
+                    "password": pg_password,
+                }
+                
+                if _save_db_config_to_env(env_config):
+                    console.print(f"  [{Colors.SUCCESS}]{Icons.SUCCESS} Credentials saved to .env[/]")
+                else:
+                    console.print(f"  [{Colors.WARNING}]⚠️  Could not save to .env — please update manually[/]")
+                console.print()
+            else:
+                # User says they updated .env — loop to re-read
+                console.print()
+                continue
+            
+            # Re-validate after user input
+            env_issues = _validate_env_config(env_config)
+            if env_issues:
+                console.print(f"  [{Colors.ERROR}]{Icons.ERROR} Configuration still incomplete:[/]")
+                for issue in env_issues:
+                    console.print(f"    [{Colors.WARNING}]• {issue}[/]")
+                console.print()
+                continue
+        
+        # 2. Config is valid — show what we'll connect to
+        console.print(f"  [{Colors.INFO}]{Icons.INFO} PostgreSQL configuration:[/]")
+        console.print(f"  [{Colors.DIM}]  Host:     {env_config['host']}:{env_config['port']}[/]")
+        console.print(f"  [{Colors.DIM}]  Database: {env_config['database']}[/]")
+        console.print(f"  [{Colors.DIM}]  User:     {env_config['username']}[/]")
+        console.print()
+        
+        # 3. Test connection
+        console.print(f"  [{Colors.INFO}]{Icons.INFO} Testing PostgreSQL connection...[/]")
         success, error = _test_db_connection(env_config)
         
         if success:
             console.print(f"  [{Colors.SUCCESS}]{Icons.SUCCESS} PostgreSQL connected successfully![/]")
-            console.print(f"  [{Colors.DIM}]Host: {env_config['host']}:{env_config['port']}[/]")
-            console.print(f"  [{Colors.DIM}]Database: {env_config['database']}[/]")
+            console.print(f"  [{Colors.DIM}]Using PostgreSQL for data storage[/]")
             console.print()
             
-            # Auto-configure without prompting
             wizard.context["database"] = {**env_config, "type": "postgresql"}
             wizard.context["database_auto_configured"] = True
             return wizard.context["database"]
-        else:
-            console.print(f"  [{Colors.WARNING}]PostgreSQL connection failed: {error}[/]")
-            if "password authentication failed" in error.lower():
-                console.print(f"  [{Colors.HINT}]{Icons.INFO} Tip: Run './reset_postgres.sh' to sync credentials.[/]")
+        
+        # 4. Connection failed — show clear error and attempt auto-start
+        console.print(f"  [{Colors.ERROR}]{Icons.ERROR} PostgreSQL connection failed![/]")
+        console.print()
+        
+        _show_connection_error_details(console, error, env_config)
+        
+        # 5. Try to auto-start PostgreSQL if it looks like a connection issue
+        is_connection_issue = any(phrase in error.lower() for phrase in [
+            "connection refused", "could not connect", "timeout",
+            "no such file or directory", "is the server running",
+        ])
+        
+        if is_connection_issue:
+            console.print(f"  [{Colors.INFO}]{Icons.INFO} Attempting to start PostgreSQL automatically...[/]")
+            start_ok, start_msg = _start_postgresql(console)
+            
+            if start_ok:
+                console.print(f"  [{Colors.SUCCESS}]{Icons.SUCCESS} {start_msg}[/]")
+                console.print(f"  [{Colors.INFO}]{Icons.INFO} Re-testing connection...[/]")
+                
+                success2, error2 = _test_db_connection(env_config)
+                if success2:
+                    console.print(f"  [{Colors.SUCCESS}]{Icons.SUCCESS} PostgreSQL connected successfully![/]")
+                    console.print(f"  [{Colors.DIM}]Using PostgreSQL for data storage[/]")
+                    console.print()
+                    
+                    wizard.context["database"] = {**env_config, "type": "postgresql"}
+                    wizard.context["database_auto_configured"] = True
+                    return wizard.context["database"]
+                else:
+                    console.print(f"  [{Colors.ERROR}]{Icons.ERROR} Connection still failing after start: {error2}[/]")
+            else:
+                console.print(f"  [{Colors.ERROR}]{Icons.ERROR} Auto-start failed: {start_msg}[/]")
             console.print()
-    
-    # 2. Ask if user wants PostgreSQL (simple Y/N)
-    console.print(f"  [{Colors.NEUTRAL}]Database Setup:[/]")
-    console.print(f"  [{Colors.DIM}]• PostgreSQL: Production-ready, scalable database[/]")
-    console.print(f"  [{Colors.DIM}]• SQLite: Simple file-based storage (default)[/]")
-    console.print()
-    
-    use_postgres = prompt.confirm(
-        "Use PostgreSQL?",
-        default=False,
-    )
-    
-    if not use_postgres:
+        
+        # 6. PostgreSQL still not working — do NOT fall back to SQLite
+        #    Let user fix the issue and retry
+        console.print(f"  [{Colors.WARNING}]⚠️  PostgreSQL must be running to continue.[/]")
+        console.print(f"  [{Colors.DIM}]Fix the issue above and retry. Caracal will not fall back to SQLite[/]")
+        console.print(f"  [{Colors.DIM}]when PostgreSQL is selected — database integrity matters.[/]")
         console.print()
-        console.print(f"  [{Colors.INFO}]{Icons.INFO} Using SQLite (file-based storage)[/]")
-        wizard.context["database"] = "file"
-        return "file"
-    
-    # 3. Auto-setup PostgreSQL with standard config
-    console.print()
-    console.print(f"  [{Colors.INFO}]{Icons.INFO} Setting up PostgreSQL...[/]")
-    
-    # Use environment config or defaults
-    config = {
-        "host": env_config.get("host", "localhost"),
-        "port": int(env_config.get("port", 5432)),
-        "database": env_config.get("database", "caracal"),
-        "username": env_config.get("username", "caracal"),
-        "password": env_config.get("password", "caracal"),
-    }
-    
-    console.print(f"  [{Colors.DIM}]Host: {config['host']}:{config['port']}[/]")
-    console.print(f"  [{Colors.DIM}]Database: {config['database']}[/]")
-    console.print(f"  [{Colors.DIM}]Username: {config['username']}[/]")
-    console.print()
-    
-    # Test the connection
-    console.print(f"  [{Colors.INFO}]{Icons.INFO} Testing connection...[/]")
-    success, error = _test_db_connection(config)
-    
-    if success:
-        console.print(f"  [{Colors.SUCCESS}]{Icons.SUCCESS} PostgreSQL configured successfully![/]")
         
-        # Save config to .env
-        if _save_db_config_to_env(config):
-            console.print(f"  [{Colors.SUCCESS}]{Icons.SUCCESS} Configuration saved to .env[/]")
+        action = prompt.select(
+            "How would you like to proceed?",
+            choices=[
+                "Retry connection (after fixing the issue)",
+                "Enter different credentials",
+                "Start PostgreSQL manually (then retry)",
+            ],
+        )
         
-        wizard.context["database"] = {**config, "type": "postgresql"}
-        return wizard.context["database"]
+        if action == "Enter different credentials":
+            console.print()
+            pg_host = prompt.text("Host", default=env_config.get("host", "localhost"))
+            pg_port = prompt.number("Port", default=env_config.get("port", 5432), min_value=1)
+            pg_database = prompt.text("Database name", default=env_config.get("database", "caracal"))
+            pg_user = prompt.text("Username", default=env_config.get("username", "caracal"))
+            pg_password = prompt.text("Password", default="", hide_input=True)
+            
+            env_config = {
+                "host": pg_host,
+                "port": int(pg_port),
+                "database": pg_database,
+                "username": pg_user,
+                "password": pg_password,
+            }
+            
+            # Save new creds to .env
+            if _save_db_config_to_env(env_config):
+                console.print(f"  [{Colors.SUCCESS}]{Icons.SUCCESS} Credentials saved to .env[/]")
+            console.print()
+            
+        elif action == "Start PostgreSQL manually (then retry)":
+            console.print()
+            console.print(f"  [{Colors.INFO}]{Icons.INFO} Common commands to start PostgreSQL:[/]")
+            console.print(f"  [{Colors.DIM}]  docker compose up -d postgres[/]")
+            console.print(f"  [{Colors.DIM}]  sudo systemctl start postgresql[/]")
+            console.print(f"  [{Colors.DIM}]  brew services start postgresql@16[/]")
+            console.print()
+            console.print(f"  [{Colors.HINT}]Start PostgreSQL in another terminal, then press Enter to retry...[/]")
+            input()
+        else:
+            # "Retry connection" — just loop
+            console.print()
+        
+        # Loop back to retry
+
+
+def _show_connection_error_details(console: Console, error: str, config: dict) -> None:
+    """Show detailed, actionable error messages based on the connection error."""
+    error_lower = error.lower()
+    
+    console.print(f"  [{Colors.DIM}]Error: {error}[/]")
+    console.print()
+    
+    if "password" in error_lower or "authentication" in error_lower:
+        console.print(f"  [{Colors.ERROR}]DIAGNOSIS: Authentication failed[/]")
+        console.print(f"  [{Colors.DIM}]  → The password for user '{config.get('username')}' is incorrect[/]")
+        console.print(f"  [{Colors.DIM}]  → Fix: Update DB_PASSWORD in your .env file[/]")
+        console.print(f"  [{Colors.DIM}]  → Or reset: sudo -u postgres psql -c \"ALTER USER {config.get('username')} PASSWORD 'newpass';\"[/]")
+    elif "connection refused" in error_lower or "could not connect" in error_lower:
+        console.print(f"  [{Colors.ERROR}]DIAGNOSIS: PostgreSQL server is not running or not accepting connections[/]")
+        console.print(f"  [{Colors.DIM}]  → Check: sudo systemctl status postgresql[/]")
+        console.print(f"  [{Colors.DIM}]  → Start: docker compose up -d postgres[/]")
+        console.print(f"  [{Colors.DIM}]  → Verify port {config.get('port')} is not blocked by firewall[/]")
+    elif "does not exist" in error_lower and "database" in error_lower:
+        console.print(f"  [{Colors.ERROR}]DIAGNOSIS: Database '{config.get('database')}' does not exist[/]")
+        console.print(f"  [{Colors.DIM}]  → Create it: sudo -u postgres createdb {config.get('database')}[/]")
+        console.print(f"  [{Colors.DIM}]  → Or via psql: CREATE DATABASE {config.get('database')};[/]")
+    elif "role" in error_lower and "does not exist" in error_lower:
+        console.print(f"  [{Colors.ERROR}]DIAGNOSIS: PostgreSQL user '{config.get('username')}' does not exist[/]")
+        console.print(f"  [{Colors.DIM}]  → Create: sudo -u postgres createuser {config.get('username')}[/]")
+        console.print(f"  [{Colors.DIM}]  → With password: sudo -u postgres psql -c \"CREATE USER {config.get('username')} WITH PASSWORD 'pass';\"[/]")
+    elif "timeout" in error_lower:
+        console.print(f"  [{Colors.ERROR}]DIAGNOSIS: Connection timed out[/]")
+        console.print(f"  [{Colors.DIM}]  → Host '{config.get('host')}' may be unreachable[/]")
+        console.print(f"  [{Colors.DIM}]  → Check network / firewall / VPN settings[/]")
+    elif "no such file" in error_lower or "unix" in error_lower:
+        console.print(f"  [{Colors.ERROR}]DIAGNOSIS: PostgreSQL socket file not found[/]")
+        console.print(f"  [{Colors.DIM}]  → PostgreSQL is likely not installed or not running[/]")
+        console.print(f"  [{Colors.DIM}]  → Install: sudo apt install postgresql  (Debian/Ubuntu)[/]")
+        console.print(f"  [{Colors.DIM}]  → Or use Docker: docker compose up -d postgres[/]")
     else:
-        console.print(f"  [{Colors.ERROR}]{Icons.ERROR} Connection failed: {error}[/]")
-        console.print()
-        console.print(f"  [{Colors.INFO}]{Icons.INFO} Falling back to SQLite[/]")
-        console.print(f"  [{Colors.DIM}]Make sure PostgreSQL is running on {config['host']}:{config['port']}[/]")
-        console.print(f"  [{Colors.DIM}]You can configure PostgreSQL later from settings[/]")
-        console.print()
-        
-        wizard.context["database"] = "file"
-        return "file"
+        console.print(f"  [{Colors.ERROR}]DIAGNOSIS: Unexpected error[/]")
+        console.print(f"  [{Colors.DIM}]  → Verify PostgreSQL is running and credentials are correct[/]")
+        console.print(f"  [{Colors.DIM}]  → Check the full error message above for details[/]")
+    
+    console.print()
+
+
+def _setup_sqlite(wizard: Wizard, console: Console) -> Any:
+    """Configure SQLite file-based database."""
+    from caracal.flow.workspace import get_workspace
+    
+    workspace = get_workspace()
+    db_file_path = workspace.db_path
+    
+    console.print()
+    console.print(f"  [{Colors.SUCCESS}]{Icons.SUCCESS} SQLite configured successfully[/]")
+    console.print(f"  [{Colors.DIM}]Database file: {db_file_path}[/]")
+    console.print(f"  [{Colors.DIM}]You can switch to PostgreSQL later from settings[/]")
+    console.print()
+    
+    wizard.context["database"] = "file"
+    wizard.context["database_file_path"] = str(db_file_path)
+    
+    # Ensure parent directory exists
+    db_file_path.parent.mkdir(parents=True, exist_ok=True)
+    
+    return wizard.context.get("database")
 
 
 def _step_principal(wizard: Wizard) -> Any:
@@ -546,29 +927,59 @@ def _step_policy(wizard: Wizard) -> Any:
     console = wizard.console
     prompt = FlowPrompt(console)
     
-    principal_info = wizard.context.get("first_principal", {})
+    # Check dependency: principal must be created first
+    principal_info = wizard.context.get("first_principal")
+    if not principal_info:
+        # Silently skip - no need to prompt user since principal wasn't registered
+        return None
+    
     principal_name = principal_info.get("name", "the principal")
     
     console.print(f"  [{Colors.NEUTRAL}]Now let's create an authority policy for {principal_name}.")
     console.print(f"  [{Colors.DIM}]Policies define how mandates can be issued.[/]")
     console.print()
     
+    # Ask whether the user wants to create a policy now or skip
+    create_now = prompt.confirm(
+        "Create an authority policy now?",
+        default=False,
+    )
+
+    if not create_now:
+        console.print()
+        console.print(f"  [{Colors.INFO}]{Icons.INFO} Skipping policy creation. You can create policies later from the main menu.[/]")
+        return None
+
+    # Collect realistic inputs (no dummy defaults)
     max_validity = prompt.number(
         "Maximum mandate validity (seconds)",
         default=3600,
         min_value=60,
     )
-    
+
+    resource_input = prompt.text(
+        "Resource patterns (comma-separated, e.g. api:read:*,database:query)",
+        default="",
+    )
+
+    actions_input = prompt.text(
+        "Allowed actions (comma-separated, e.g. api_call,database_query)",
+        default="",
+    )
+
+    resource_patterns = [r.strip() for r in resource_input.split(",") if r.strip()]
+    actions = [a.strip() for a in actions_input.split(",") if a.strip()]
+
     wizard.context["first_policy"] = {
         "max_validity_seconds": int(max_validity),
-        "resource_patterns": ["api:*", "database:*"],
-        "actions": ["api_call", "database_query"],
+        "resource_patterns": resource_patterns,
+        "actions": actions,
     }
-    
+
     console.print()
     console.print(f"  [{Colors.INFO}]{Icons.INFO} Policy will be created after setup completes.[/]")
     console.print(f"  [{Colors.DIM}]Max Validity: {int(max_validity)}s[/]")
-    
+
     return wizard.context["first_policy"]
 
 
@@ -577,6 +988,12 @@ def _step_mandate(wizard: Wizard) -> Any:
     console = wizard.console
     prompt = FlowPrompt(console)
     
+    # Check dependency: policy must be created first
+    policy_info = wizard.context.get("first_policy")
+    if not policy_info:
+        # Silently skip - no need to prompt user since policy wasn't created
+        return None
+    
     principal_info = wizard.context.get("first_principal", {})
     principal_name = principal_info.get("name", "the principal")
     
@@ -584,37 +1001,78 @@ def _step_mandate(wizard: Wizard) -> Any:
     console.print(f"  [{Colors.DIM}]Mandates grant specific execution rights for a limited time.[/]")
     console.print()
     
+    # Ask whether the user wants to issue a mandate now or skip
+    issue_now = prompt.confirm(
+        "Issue a mandate now?",
+        default=False,
+    )
+
+    if not issue_now:
+        console.print()
+        console.print(f"  [{Colors.INFO}]{Icons.INFO} Skipping mandate issuance. You can issue mandates later from the main menu.[/]")
+        return None
+
     validity = prompt.number(
         "Mandate validity (seconds)",
         default=1800,
         min_value=60,
     )
-    
+
+    resource_input = prompt.text(
+        "Resource scope (comma-separated patterns, e.g. api:service:*,database:*)",
+        default="",
+    )
+
+    action_input = prompt.text(
+        "Action scope (comma-separated, e.g. api_call,database_query)",
+        default="",
+    )
+
+    resource_scope = [r.strip() for r in resource_input.split(",") if r.strip()]
+    action_scope = [a.strip() for a in action_input.split(",") if a.strip()]
+
     wizard.context["first_mandate"] = {
         "validity_seconds": int(validity),
-        "resource_scope": ["api:openai:*"],
-        "action_scope": ["api_call"],
+        "resource_scope": resource_scope,
+        "action_scope": action_scope,
     }
-    
+
     console.print()
     console.print(f"  [{Colors.INFO}]{Icons.INFO} Mandate will be issued after setup completes.[/]")
     console.print(f"  [{Colors.DIM}]Validity: {int(validity)}s[/]")
-    
+
     return wizard.context["first_mandate"]
 
 
 def _step_validate(wizard: Wizard) -> Any:
     """Step 6: Validate mandate demo."""
     console = wizard.console
+    prompt = FlowPrompt(console)
+    
+    # Check dependency: mandate must be issued first
+    mandate_info = wizard.context.get("first_mandate")
+    if not mandate_info:
+        # Silently skip - no need to prompt user since mandate wasn't issued
+        wizard.context["validate_demo"] = False
+        return None
     
     console.print(f"  [{Colors.NEUTRAL}]Finally, we'll demonstrate mandate validation.")
     console.print(f"  [{Colors.DIM}]This shows how authority is checked before execution.[/]")
     console.print()
-    
+
+    run_demo = prompt.confirm(
+        "Run the validation demo now?",
+        default=False,
+    )
+
+    if not run_demo:
+        console.print()
+        console.print(f"  [{Colors.INFO}]{Icons.INFO} Skipping validation demo. You can run validation from the main menu later.[/]")
+        wizard.context["validate_demo"] = False
+        return False
+
     console.print(f"  [{Colors.INFO}]{Icons.INFO} Validation demo will run after setup completes.[/]")
-    
     wizard.context["validate_demo"] = True
-    
     return True
 
 
@@ -653,10 +1111,9 @@ def run_onboarding(
         WizardStep(
             key="database",
             title="Database Setup",
-            description="Configure database connection (optional)",
+            description="Automatic database configuration with fail-safe fallback",
             action=_step_database,
-            skippable=True,
-            skip_message="Using default file-based storage",
+            skippable=False,
         ),
         WizardStep(
             key="principal",
@@ -766,21 +1223,23 @@ def run_onboarding(
             console.print(f"  [{Colors.INFO}]{Icons.INFO} Using SQLite (file-based storage)[/]")
         
         # Setup database connection - prioritize wizard results over existing config
+        # This logic is fail-safe: it always defaults to a working SQLite configuration
         if db_config_data == "file":
-            # User explicitly selected SQLite in wizard
+            # User explicitly selected SQLite in wizard (or auto-fallback occurred)
+            db_file_path = wizard.context.get("database_file_path", str(get_workspace().db_path))
             db_config = DatabaseConfig(
                 type='sqlite',
-                file_path=str(get_workspace().db_path),
+                file_path=db_file_path,
             )
-        elif db_config_data == "postgresql":
-            # User explicitly selected PostgreSQL in wizard (should have env vars)
+        elif isinstance(db_config_data, dict) and db_config_data.get("type") == "postgresql":
+            # PostgreSQL was successfully configured in wizard
             db_config = DatabaseConfig(
                 type='postgresql',
-                host=env_vars.get('PGHOST', 'localhost'),
-                port=int(env_vars.get('PGPORT', '5432')),
-                database=env_vars['PGDATABASE'],
-                user=env_vars['PGUSER'],
-                password=env_vars.get('PGPASSWORD', ''),
+                host=db_config_data.get('host', 'localhost'),
+                port=int(db_config_data.get('port', 5432)),
+                database=db_config_data.get('database', 'caracal'),
+                user=db_config_data.get('username', 'caracal'),
+                password=db_config_data.get('password', ''),
             )
         elif hasattr(config, 'database') and config.database:
             # Fall back to existing config if wizard didn't complete
@@ -794,14 +1253,36 @@ def run_onboarding(
                 file_path=getattr(config.database, 'file_path', str(get_workspace().db_path)),
             )
         else:
-            # Default to SQLite
+            # Final fallback: always works with SQLite
             db_config = DatabaseConfig(
                 type='sqlite',
                 file_path=str(get_workspace().db_path),
             )
         
-        db_manager = DatabaseConnectionManager(db_config)
-        db_manager.initialize()
+        # Initialize database — NO silent fallback to SQLite when PostgreSQL was chosen
+        try:
+            db_manager = DatabaseConnectionManager(db_config)
+            db_manager.initialize()
+            console.print(f"  [{Colors.SUCCESS}]{Icons.SUCCESS} Database initialized successfully[/]")
+        except Exception as e:
+            console.print(f"  [{Colors.ERROR}]{Icons.ERROR} Database initialization failed: {e}[/]")
+            
+            if db_config.type in ('postgresql', 'postgres'):
+                # PostgreSQL was explicitly chosen — do NOT fall back to SQLite
+                console.print(f"  [{Colors.ERROR}]{Icons.ERROR} CRITICAL: PostgreSQL initialization failed.[/]")
+                console.print(f"  [{Colors.DIM}]PostgreSQL was selected as the database backend.[/]")
+                console.print(f"  [{Colors.DIM}]Caracal will NOT silently fall back to SQLite.[/]")
+                console.print(f"  [{Colors.DIM}]Please fix PostgreSQL and run onboarding again.[/]")
+                console.print()
+                console.print(f"  [{Colors.INFO}]{Icons.INFO} Error details: {e}[/]")
+                raise RuntimeError(
+                    f"PostgreSQL initialization failed: {e}\n"
+                    f"Fix PostgreSQL and re-run onboarding. No SQLite fallback when PostgreSQL is selected."
+                ) from e
+            else:
+                # SQLite failed — this is critical
+                console.print(f"  [{Colors.ERROR}]{Icons.ERROR} CRITICAL: Failed to initialize SQLite database[/]")
+                raise RuntimeError(f"SQLite database initialization failed: {e}") from e
         
         # Only clean database if explicitly requested or if it's a new workspace with fresh start
         # Do NOT clean database if it was auto-configured from .env without user confirmation
@@ -814,20 +1295,12 @@ def run_onboarding(
             try:
                 console.print()
                 console.print(f"  [{Colors.INFO}]{Icons.INFO} Cleaning database for fresh start...[/]")
-                with db_manager.session_scope() as db_session:
-                    from sqlalchemy import text
-                    # Truncate tables in correct order (mandates -> policies -> principals)
-                    if db_config.type == 'postgresql':
-                        db_session.execute(text("TRUNCATE TABLE execution_mandates CASCADE"))
-                        db_session.execute(text("TRUNCATE TABLE authority_policies CASCADE"))
-                        db_session.execute(text("TRUNCATE TABLE principals CASCADE"))
-                    else:
-                        db_session.execute(text("DELETE FROM execution_mandates"))
-                        db_session.execute(text("DELETE FROM authority_policies"))
-                        db_session.execute(text("DELETE FROM principals"))
-                console.print(f"  [{Colors.SUCCESS}]{Icons.SUCCESS} Database cleaned for fresh start.[/]")
+                # Use the clear_database method for a clean wipe
+                db_manager.clear_database()
+                console.print(f"  [{Colors.SUCCESS}]{Icons.SUCCESS} Database cleaned - starting with empty tables[/]")
             except Exception as e:
                 console.print(f"  [{Colors.WARNING}]{Icons.WARNING} Failed to clean database: {e}[/]")
+                console.print(f"  [{Colors.DIM}]Continuing with existing data...[/]")
         
         # Handle Principal Registration
         principal_data = results.get("principal")

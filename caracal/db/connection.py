@@ -82,7 +82,7 @@ class DatabaseConfig:
                 pass 
             return f"sqlite:///{self.file_path}"
         
-        # Postgres default
+        # PostgreSQL (accept both 'postgres' and 'postgresql')
         from urllib.parse import quote_plus
         return f"postgresql://{self.user}:{quote_plus(self.password)}@{self.host}:{self.port}/{self.database}"
 
@@ -102,6 +102,9 @@ class DatabaseConnectionManager:
         Initialize connection manager with configuration.
         """
         self.config = config
+        # Normalize database type (accept both 'postgres' and 'postgresql')
+        if self.config.type == "postgres":
+            self.config.type = "postgresql"
         self._engine: Optional[Engine] = None
         self._session_factory: Optional[sessionmaker] = None
         self._initialized = False
@@ -136,54 +139,31 @@ class DatabaseConnectionManager:
                 echo=self.config.echo,
             )
         else:
+            # PostgreSQL with connection pooling
+            self._engine = create_engine(
+                connection_url,
+                poolclass=QueuePool,
+                pool_size=self.config.pool_size,
+                max_overflow=self.config.max_overflow,
+                pool_timeout=self.config.pool_timeout,
+                pool_recycle=self.config.pool_recycle,
+                echo=self.config.echo,
+            )
+            
+            # Verify connection - fail hard if PostgreSQL is misconfigured
+            # The onboarding wizard is responsible for choosing SQLite as fallback
             try:
-                # PostgreSQL with connection pooling
-                self._engine = create_engine(
-                    connection_url,
-                    poolclass=QueuePool,
-                    pool_size=self.config.pool_size,
-                    max_overflow=self.config.max_overflow,
-                    pool_timeout=self.config.pool_timeout,
-                    pool_recycle=self.config.pool_recycle,
-                    echo=self.config.echo,
-                )
-                
-                # Verify connection
                 with self._engine.connect() as conn:
                     conn.execute(text("SELECT 1"))
-                    
+                logger.info(f"Successfully connected to PostgreSQL database: {self.config.database}")
             except OperationalError as e:
-                if self.config.type == "postgres":
-                    logger.warning(f"Failed to connect to PostgreSQL: {e}")
-                    logger.warning("Falling back to File-based SQLite...")
-                    
-                    # Switch to SQLite
-                    self.config.type = "sqlite"
-                    if not self.config.file_path:
-                        # Determine default sqlite path relative to CWD or config dir
-                        import os
-                        from pathlib import Path
-                        
-                        # Try to put it in workspace dir if possible
-                        from caracal.flow.workspace import get_workspace
-                        base_dir = get_workspace().root
-                        base_dir.mkdir(exist_ok=True)
-                        self.config.file_path = str(base_dir / "caracal.db")
-                    
-                    logger.info(f"Using SQLite database at {self.config.file_path}")
-                    
-                    connection_url = self.config.get_connection_url()
-                    from sqlalchemy.pool import StaticPool
-                    connect_args = {"check_same_thread": False}
-                    
-                    self._engine = create_engine(
-                        connection_url,
-                        connect_args=connect_args,
-                        poolclass=StaticPool if self.config.file_path == ":memory:" else None,
-                        echo=self.config.echo,
-                    )
-                else:
-                    raise e
+                logger.error(f"Failed to connect to PostgreSQL: {e}")
+                logger.error(f"Connection string: postgresql://{self.config.user}:***@{self.config.host}:{self.config.port}/{self.config.database}")
+                logger.error("To use SQLite instead, reconfigure your database settings during onboarding.")
+                raise RuntimeError(
+                    f"PostgreSQL connection failed: {e}\n"
+                    f"Run onboarding again to reconfigure database, or fix PostgreSQL credentials."
+                ) from e
         
         # Create session factory
         self._session_factory = sessionmaker(
@@ -274,6 +254,33 @@ class DatabaseConnectionManager:
         except Exception as e:
             logger.error(f"Unexpected error during health check: {e}")
             return False
+    
+    def clear_database(self) -> None:
+        """
+        Clear all data from the database (drop and recreate all tables).
+        
+        WARNING: This is destructive and will delete all data!
+        Use with caution, typically only during setup or testing.
+        """
+        if not self._initialized or self._engine is None:
+            raise RuntimeError(
+                "Database connection manager not initialized. Call initialize() first."
+            )
+        
+        logger.warning("Clearing database - dropping all tables")
+        
+        try:
+            from caracal.db.models import Base
+            # Drop all tables
+            Base.metadata.drop_all(self._engine)
+            logger.info("All tables dropped")
+            
+            # Recreate all tables
+            Base.metadata.create_all(self._engine)
+            logger.info("All tables recreated - database is now empty")
+        except Exception as e:
+            logger.error(f"Failed to clear database: {e}")
+            raise
     
     def close(self) -> None:
         """

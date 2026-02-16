@@ -263,7 +263,8 @@ class FlowApp:
                     self.console.print(f"  [{Colors.SUCCESS}]{Icons.SUCCESS} Connection OK[/]")
                 except Exception as e:
                     self.console.print(f"  [{Colors.ERROR}]{Icons.ERROR} Connection Failed: {e}[/]")
-                    self.console.print(f"  [{Colors.WARNING}]System will auto-fallback to SQLite if Postgres is unavailable.[/]")
+                    self.console.print(f"  [{Colors.ERROR}]PostgreSQL is not reachable. Fix the issue or re-run onboarding.[/]")
+                    self.console.print(f"  [{Colors.DIM}]Caracal will NOT fall back to SQLite when PostgreSQL is configured.[/]")
             else:
                 self.console.print(f"  [{Colors.INFO}]Storage Mode:[/] File-based")
                 self.console.print(f"  [{Colors.DIM}]PostgreSQL not configured[/]")
