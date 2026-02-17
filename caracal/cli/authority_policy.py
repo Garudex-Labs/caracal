@@ -133,19 +133,11 @@ def create(
         actions = list(action)
         
         # Create database connection
-        from caracal.db.connection import DatabaseConfig, DatabaseConnectionManager
+        from caracal.db.connection import get_db_manager
         from caracal.db.models import AuthorityPolicy, Principal
         from uuid import uuid4
         
-        db_config = DatabaseConfig(
-            host=cli_ctx.config.database.host,
-            port=cli_ctx.config.database.port,
-            database=cli_ctx.config.database.database,
-            user=cli_ctx.config.database.user,
-            password=cli_ctx.config.database.password
-        )
-        db_manager = DatabaseConnectionManager(db_config)
-        db_manager.initialize()
+        db_manager = get_db_manager()
         
         try:
             session = db_manager.get_session()
@@ -278,18 +270,10 @@ def list_policies(
                 sys.exit(1)
         
         # Create database connection
-        from caracal.db.connection import DatabaseConfig, DatabaseConnectionManager
+        from caracal.db.connection import get_db_manager
         from caracal.db.models import AuthorityPolicy
         
-        db_config = DatabaseConfig(
-            host=cli_ctx.config.database.host,
-            port=cli_ctx.config.database.port,
-            database=cli_ctx.config.database.database,
-            user=cli_ctx.config.database.user,
-            password=cli_ctx.config.database.password
-        )
-        db_manager = DatabaseConnectionManager(db_config)
-        db_manager.initialize()
+        db_manager = get_db_manager()
         
         try:
             # Query policies
