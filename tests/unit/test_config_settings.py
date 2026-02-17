@@ -11,7 +11,6 @@ import yaml
 
 from caracal.config.settings import (
     CaracalConfig,
-    KafkaConfig,
     RedisConfig,
     MerkleConfig,
     SnapshotConfig,
@@ -41,15 +40,6 @@ class TestConfigurationDataclasses:
         assert config.file_path == ""
         assert config.pool_size == 10
 
-    def test_kafka_config_defaults(self):
-        """Test KafkaConfig has correct defaults."""
-        config = KafkaConfig()
-        assert config.brokers == ["localhost:9092"]
-        assert config.security_protocol == "PLAINTEXT"
-        assert config.producer.acks == "all"
-        assert config.consumer.enable_auto_commit is False
-        assert config.processing.guarantee == "exactly_once"
-    
     def test_redis_config_defaults(self):
         """Test RedisConfig has correct defaults."""
         config = RedisConfig()
@@ -99,7 +89,6 @@ class TestConfigurationLoading:
         config = get_default_config()
         assert isinstance(config, CaracalConfig)
         assert config.storage is not None
-        assert config.kafka is not None
         assert config.redis is not None
         assert config.merkle is not None
         assert config.snapshot is not None
@@ -115,10 +104,6 @@ class TestConfigurationLoading:
                     'policy_store': '/tmp/policies.json',
                     'ledger': '/tmp/ledger.jsonl',
                     'backup_dir': '/tmp/backups',
-                },
-                'kafka': {
-                    'brokers': ['kafka1:9092', 'kafka2:9092'],
-                    'security_protocol': 'PLAINTEXT',  # Use PLAINTEXT to avoid SASL credential requirements
                 },
                 'redis': {
                     'host': 'redis.example.com',
@@ -148,10 +133,6 @@ class TestConfigurationLoading:
             
             # Verify storage
             assert config.storage.agent_registry == '/tmp/agents.json'
-            
-            # Verify Kafka
-            assert config.kafka.brokers == ['kafka1:9092', 'kafka2:9092']
-            assert config.kafka.security_protocol == 'SASL_SSL'
             
             # Verify Redis
             assert config.redis.host == 'redis.example.com'
@@ -191,31 +172,6 @@ class TestConfigurationValidation:
         config = get_default_config()
         # Should not raise exception
         _validate_config(config)
-    
-    def test_validate_kafka_brokers_required(self):
-        """Test that Kafka brokers are required when Kafka is enabled."""
-        config = get_default_config()
-        config.kafka.brokers = []
-        
-        with pytest.raises(InvalidConfigurationError, match="kafka brokers list cannot be empty"):
-            _validate_config(config)
-    
-    def test_validate_kafka_security_protocol(self):
-        """Test that Kafka security protocol is validated."""
-        config = get_default_config()
-        config.kafka.security_protocol = "INVALID"
-        
-        with pytest.raises(InvalidConfigurationError, match="kafka security_protocol must be one of"):
-            _validate_config(config)
-    
-    def test_validate_kafka_exactly_once_requirements(self):
-        """Test that exactly-once semantics requirements are enforced."""
-        config = get_default_config()
-        config.kafka.processing.guarantee = "exactly_once"
-        config.kafka.consumer.enable_auto_commit = True
-        
-        with pytest.raises(InvalidConfigurationError, match="enable_auto_commit must be False"):
-            _validate_config(config)
     
     def test_validate_redis_port_range(self):
         """Test that Redis port is validated."""
@@ -297,7 +253,7 @@ class TestEnvironmentVariableSubstitution:
     
     def test_env_var_substitution(self, monkeypatch):
         """Test that environment variables are substituted."""
-        monkeypatch.setenv('TEST_KAFKA_HOST', 'kafka.example.com')
+        monkeypatch.setenv('TEST_REDIS_HOST', 'redis.example.com')
         
         with tempfile.NamedTemporaryFile(mode='w', suffix='.yaml', delete=False) as f:
             yaml.dump({
@@ -307,15 +263,15 @@ class TestEnvironmentVariableSubstitution:
                     'ledger': '/tmp/ledger.jsonl',
                     'backup_dir': '/tmp/backups',
                 },
-                'kafka': {
-                    'brokers': ['${TEST_KAFKA_HOST}:9092'],
+                'redis': {
+                    'host': '${TEST_REDIS_HOST}',
                 },
             }, f)
             config_path = f.name
         
         try:
             config = load_config(config_path)
-            assert config.kafka.brokers == ['kafka.example.com:9092']
+            assert config.redis.host == 'redis.example.com'
         finally:
             os.unlink(config_path)
     
@@ -344,16 +300,6 @@ class TestEnvironmentVariableSubstitution:
 
 class TestV03ConfigurationFeatures:
     """Test v0.3-specific configuration features."""
-    
-    def test_kafka_exactly_once_config(self):
-        """Test Kafka exactly-once semantics configuration."""
-        config = get_default_config()
-        
-        assert config.kafka.processing.guarantee == "exactly_once"
-        assert config.kafka.processing.enable_transactions is True
-        assert config.kafka.consumer.enable_auto_commit is False
-        assert config.kafka.consumer.isolation_level == "read_committed"
-        assert config.kafka.producer.enable_idempotence is True
     
     def test_merkle_batch_thresholds(self):
         """Test Merkle batch threshold configuration."""

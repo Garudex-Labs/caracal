@@ -16,43 +16,12 @@ from caracal.logging_config import (
     log_allowlist_check,
     log_event_replay,
     log_snapshot_operation,
-    log_kafka_consumer_event,
     log_dlq_event,
 )
 
 
 class TestV03Metrics:
     """Test v0.3 Prometheus metrics."""
-    
-    def test_kafka_consumer_metrics(self):
-        """Test Kafka consumer metrics."""
-        registry = CollectorRegistry()
-        metrics = MetricsRegistry(registry)
-        
-        # Update consumer lag
-        metrics.update_kafka_consumer_lag("test-group", "test-topic", 0, 100)
-        
-        # Update consumer offset
-        metrics.update_kafka_consumer_offset("test-group", "test-topic", 0, 1000)
-        
-        # Record message consumed
-        metrics.record_kafka_message_consumed("test-group", "test-topic", "success", 0.01)
-        
-        # Record consumer error
-        metrics.record_kafka_consumer_error("test-group", "test-topic", "timeout")
-        
-        # Record rebalance
-        metrics.record_kafka_consumer_rebalance("test-group")
-        
-        # Verify metrics exist
-        metric_families = list(registry.collect())
-        metric_names = [m.name for m in metric_families]
-        
-        assert "caracal_kafka_consumer_lag" in metric_names
-        assert "caracal_kafka_consumer_offset" in metric_names
-        assert "caracal_kafka_messages_consumed" in metric_names
-        assert "caracal_kafka_consumer_errors" in metric_names
-        assert "caracal_kafka_consumer_rebalances" in metric_names
     
     def test_merkle_tree_metrics(self):
         """Test Merkle tree metrics."""
@@ -299,25 +268,6 @@ class TestV03StructuredLogging:
         assert "snapshot_operation" in captured.out
         assert "snapshot_id=snapshot-101" in captured.out
     
-    def test_log_kafka_consumer_event(self, capsys):
-        """Test Kafka consumer event logging."""
-        logger = get_logger(__name__)
-        
-        log_kafka_consumer_event(
-            logger,
-            consumer_group="ledger-writer-group",
-            topic="caracal.metering.events",
-            partition=0,
-            offset=1000,
-            event_type="metering_event",
-            processing_status="success",
-            duration_ms=5.2
-        )
-        
-        captured = capsys.readouterr()
-        assert "kafka_consumer_event" in captured.out
-        assert "consumer_group=ledger-writer-group" in captured.out
-    
     def test_log_dlq_event(self, capsys):
         """Test DLQ event logging."""
         logger = get_logger(__name__)
@@ -339,19 +289,6 @@ class TestV03StructuredLogging:
 
 class TestMetricsContextManagers:
     """Test metrics context managers."""
-    
-    def test_time_kafka_message_processing(self):
-        """Test Kafka message processing timing context manager."""
-        registry = CollectorRegistry()
-        metrics = MetricsRegistry(registry)
-        
-        with metrics.time_kafka_message_processing("test-group", "test-topic"):
-            pass  # Simulate processing
-        
-        # Verify metric was recorded
-        metric_families = list(registry.collect())
-        metric_names = [m.name for m in metric_families]
-        assert "caracal_kafka_message_processing_duration_seconds" in metric_names
     
     def test_time_merkle_tree_computation(self):
         """Test Merkle tree computation timing context manager."""
