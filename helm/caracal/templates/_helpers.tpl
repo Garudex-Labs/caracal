@@ -81,30 +81,4 @@ Redis host
 {{- end }}
 {{- end }}
 
-{{/*
-Kafka bootstrap servers
-*/}}
-{{- define "caracal.kafka.bootstrapServers" -}}
-{{- if .Values.kafka.enabled }}
-{{- $fullname := include "caracal.fullname" . }}
-{{- $replicas := int .Values.kafka.replicaCount }}
-{{- $servers := list }}
-{{- range $i := until $replicas }}
-{{- $servers = append $servers (printf "%s-kafka-%d.%s-kafka:9092" $fullname $i $fullname) }}
-{{- end }}
-{{- join "," $servers }}
-{{- else }}
-{{- .Values.kafka.externalBootstrapServers }}
-{{- end }}
-{{- end }}
 
-{{/*
-Schema Registry URL
-*/}}
-{{- define "caracal.schemaRegistry.url" -}}
-{{- if .Values.schemaRegistry.enabled }}
-{{- printf "http://%s-schema-registry:%d" (include "caracal.fullname" .) (int .Values.schemaRegistry.service.port) }}
-{{- else }}
-{{- .Values.schemaRegistry.externalUrl }}
-{{- end }}
-{{- end }}

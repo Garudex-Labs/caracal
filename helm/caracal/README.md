@@ -143,16 +143,6 @@ caracal db init
 caracal db migrate up
 ```
 
-### 7. Create Kafka topics
-
-```bash
-# Port-forward to Kafka
-kubectl port-forward -n caracal caracal-kafka-0 9092:9092 &
-
-# Create topics
-caracal kafka create-topics
-```
-
 ## Uninstalling the Chart
 
 ```bash
@@ -201,19 +191,6 @@ The following table lists the configurable parameters of the Caracal chart and t
 | `redis.resources.limits.cpu` | CPU limit | `1000m` |
 | `redis.resources.limits.memory` | Memory limit | `512Mi` |
 
-### Kafka Parameters
-
-| Parameter | Description | Default |
-|-----------|-------------|---------|
-| `kafka.enabled` | Enable Kafka | `true` |
-| `kafka.replicaCount` | Number of Kafka brokers | `3` |
-| `kafka.config.defaultReplicationFactor` | Default replication factor | `3` |
-| `kafka.config.minInsyncReplicas` | Minimum in-sync replicas | `2` |
-| `kafka.persistence.size` | Persistent volume size | `20Gi` |
-| `kafka.resources.requests.cpu` | CPU request | `500m` |
-| `kafka.resources.requests.memory` | Memory request | `1Gi` |
-| `kafka.resources.limits.cpu` | CPU limit | `2000m` |
-| `kafka.resources.limits.memory` | Memory limit | `2Gi` |
 
 ### Gateway Parameters
 
@@ -298,20 +275,6 @@ kubectl describe pod <pod-name> -n caracal
 kubectl logs <pod-name> -n caracal
 ```
 
-### Kafka not connecting
-
-```bash
-# Check Kafka logs
-kubectl logs -n caracal caracal-kafka-0
-
-# Check Zookeeper
-kubectl logs -n caracal caracal-zookeeper-0
-
-# Test connectivity
-kubectl exec -n caracal caracal-kafka-0 -- \
-  kafka-broker-api-versions --bootstrap-server localhost:9092
-```
-
 ### Database connection issues
 
 ```bash
@@ -328,7 +291,6 @@ kubectl get secret caracal-secrets -n caracal -o yaml
 ## Production Recommendations
 
 1. **Use managed services**:
-   - Managed Kafka (Confluent Cloud, AWS MSK, Azure Event Hubs)
    - Managed Redis (AWS ElastiCache, Azure Cache for Redis)
    - Managed PostgreSQL (AWS RDS, Azure Database for PostgreSQL)
 
@@ -348,7 +310,6 @@ kubectl get secret caracal-secrets -n caracal -o yaml
    - Enable Prometheus ServiceMonitors
    - Set up Grafana dashboards
    - Configure alerts for critical metrics
-   - Monitor Kafka consumer lag
 
 5. **Backup and Recovery**:
    - Implement automated database backups

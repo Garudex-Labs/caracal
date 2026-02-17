@@ -20,21 +20,6 @@ data:
   REDIS_SPENDING_CACHE_TTL: "86400"
   REDIS_METRICS_CACHE_TTL: "3600"
   
-  # Kafka Configuration
-  KAFKA_BOOTSTRAP_SERVERS: {{ include "caracal.kafka.bootstrapServers" . | quote }}
-  KAFKA_SECURITY_PROTOCOL: "PLAINTEXT"
-  KAFKA_AUTO_OFFSET_RESET: "earliest"
-  KAFKA_ENABLE_AUTO_COMMIT: "false"
-  KAFKA_ISOLATION_LEVEL: "read_committed"
-  KAFKA_MAX_POLL_RECORDS: "500"
-  KAFKA_SESSION_TIMEOUT_MS: "30000"
-  KAFKA_ENABLE_IDEMPOTENCE: "true"
-  KAFKA_ACKS: "all"
-  KAFKA_MAX_IN_FLIGHT_REQUESTS: "5"
-  
-  # Schema Registry
-  SCHEMA_REGISTRY_URL: {{ include "caracal.schemaRegistry.url" . | quote }}
-  
   # Merkle Tree Configuration
   MERKLE_BATCH_SIZE_LIMIT: {{ .Values.consumers.ledgerWriter.merkle.batchSizeLimit | quote }}
   MERKLE_BATCH_TIMEOUT_SECONDS: {{ .Values.consumers.ledgerWriter.merkle.batchTimeoutSeconds | quote }}
