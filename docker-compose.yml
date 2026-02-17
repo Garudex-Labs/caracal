@@ -81,8 +81,8 @@ services:
   # Caracal Gateway Proxy
   gateway:
     build:
-      context: .
-      dockerfile: deploy/docker/Dockerfile.gateway
+      context: ..
+      dockerfile: Caracal/deploy/docker/Dockerfile.gateway
     image: caracal-gateway:latest
     container_name: caracal-gateway
     depends_on:
@@ -141,8 +141,8 @@ services:
   # Caracal MCP Adapter
   mcp-adapter:
     build:
-      context: .
-      dockerfile: deploy/docker/Dockerfile.mcp
+      context: ..
+      dockerfile: Caracal/deploy/docker/Dockerfile.mcp
     image: caracal-mcp-adapter:latest
     container_name: caracal-mcp-adapter
     depends_on:
@@ -175,8 +175,8 @@ services:
   # Caracal CLI
   cli:
     build:
-      context: .
-      dockerfile: deploy/docker/Dockerfile.cli
+      context: ..
+      dockerfile: Caracal/deploy/docker/Dockerfile.cli
     image: caracal-cli:latest
     container_name: caracal-cli
     depends_on:
