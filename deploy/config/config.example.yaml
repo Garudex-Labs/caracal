@@ -2,7 +2,6 @@
 # This file demonstrates all available configuration options for v0.3
 # 
 # v0.3 introduces:
-# - Kafka event streaming for scalable event handling
 # - Merkle tree ledger for cryptographic tamper-evidence
 # - Policy versioning for complete audit trails
 # - Resource allowlists for fine-grained access control
@@ -34,55 +33,6 @@ database:
   pool_size: ${DATABASE_POOL_SIZE:10}
   max_overflow: ${DATABASE_MAX_OVERFLOW:5}
   pool_timeout: ${DATABASE_POOL_TIMEOUT:30}
-
-# ============================================================================
-# KAFKA CONFIGURATION (v0.3 - Event streaming)
-# ============================================================================
-kafka:
-  # Kafka broker addresses (comma-separated list)
-  brokers:
-    - ${KAFKA_BROKER_1:localhost:9092}
-    - ${KAFKA_BROKER_2:localhost:9093}
-    - ${KAFKA_BROKER_3:localhost:9094}
-  
-  # Security protocol: PLAINTEXT, SSL, SASL_PLAINTEXT, SASL_SSL
-  security_protocol: ${KAFKA_SECURITY_PROTOCOL:SASL_SSL}
-  
-  # SASL authentication (when using SASL_PLAINTEXT or SASL_SSL)
-  sasl_mechanism: ${KAFKA_SASL_MECHANISM:SCRAM-SHA-512}  # PLAIN, SCRAM-SHA-256, SCRAM-SHA-512, GSSAPI
-  sasl_username: ${KAFKA_SASL_USERNAME}
-  sasl_password: ${KAFKA_SASL_PASSWORD}
-  
-  # SSL/TLS configuration (when using SSL or SASL_SSL)
-  ssl_ca_location: ${KAFKA_SSL_CA_LOCATION:/etc/caracal/kafka/ca-cert.pem}
-  ssl_cert_location: ${KAFKA_SSL_CERT_LOCATION:/etc/caracal/kafka/client-cert.pem}
-  ssl_key_location: ${KAFKA_SSL_KEY_LOCATION:/etc/caracal/kafka/client-key.pem}
-  ssl_key_password: ${KAFKA_SSL_KEY_PASSWORD}
-  
-  # Producer configuration
-  producer:
-    acks: all  # Wait for all replicas (strongest durability)
-    retries: 3
-    max_in_flight_requests: 5
-    compression_type: snappy  # Options: none, gzip, snappy, lz4, zstd
-    enable_idempotence: true  # Required for exactly-once semantics
-    transactional_id_prefix: caracal-producer
-  
-  # Consumer configuration
-  consumer:
-    auto_offset_reset: earliest  # Options: earliest, latest, none
-    enable_auto_commit: false  # MUST be False for exactly-once semantics
-    isolation_level: read_committed  # Read only committed messages (EOS)
-    max_poll_records: 500
-    session_timeout_ms: 30000
-    enable_idempotence: true
-    transactional_id_prefix: caracal-consumer
-  
-  # Processing configuration
-  processing:
-    guarantee: exactly_once  # Options: exactly_once, at_least_once
-    enable_transactions: true  # Enable Kafka transactions for EOS
-    idempotency_check: true  # Enable idempotency checks (fallback)
 
 # ============================================================================
 # REDIS CONFIGURATION (v0.3 - Caching and metrics)
@@ -226,7 +176,6 @@ compatibility:
   mode: ${COMPATIBILITY_MODE:v0.3}
   
   # Feature flags for v0.2 compatibility mode
-  enable_kafka: ${COMPATIBILITY_ENABLE_KAFKA:true}
   enable_merkle: ${COMPATIBILITY_ENABLE_MERKLE:true}
   enable_redis: ${COMPATIBILITY_ENABLE_REDIS:true}
   
@@ -270,13 +219,11 @@ performance:
 #   Requires CARACAL_MASTER_PASSWORD environment variable
 #
 # Production Recommendations:
-#   - Use SASL_SSL for Kafka security
 #   - Enable Redis SSL/TLS
 #   - Use exactly_once processing guarantee
 #   - Enable Merkle tree signing
 #   - Configure appropriate batch thresholds based on compliance needs
 #   - Set up regular snapshots for fast recovery
-#   - Monitor Kafka consumer lag and DLQ size
 #
 # Batch Threshold Recommendations:
 #   - High-compliance: 1000 events / 300 seconds (5 minutes)

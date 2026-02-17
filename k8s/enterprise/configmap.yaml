@@ -35,23 +35,6 @@ data:
   REDIS_METRICS_CACHE_TTL: "3600"
   
   # ============================================================================
-  # KAFKA CONFIGURATION (v0.3)
-  # ============================================================================
-  KAFKA_BOOTSTRAP_SERVERS: "caracal-kafka-0.caracal-kafka:9092,caracal-kafka-1.caracal-kafka:9092,caracal-kafka-2.caracal-kafka:9092"
-  KAFKA_SECURITY_PROTOCOL: "PLAINTEXT"
-  KAFKA_AUTO_OFFSET_RESET: "earliest"
-  KAFKA_ENABLE_AUTO_COMMIT: "false"
-  KAFKA_ISOLATION_LEVEL: "read_committed"
-  KAFKA_MAX_POLL_RECORDS: "500"
-  KAFKA_SESSION_TIMEOUT_MS: "30000"
-  KAFKA_ENABLE_IDEMPOTENCE: "true"
-  KAFKA_ACKS: "all"
-  KAFKA_MAX_IN_FLIGHT_REQUESTS: "5"
-  
-  # Schema Registry
-  SCHEMA_REGISTRY_URL: "http://caracal-schema-registry:8081"
-  
-  # ============================================================================
   # MERKLE TREE CONFIGURATION (v0.3)
   # ============================================================================
   MERKLE_BATCH_SIZE_LIMIT: "1000"

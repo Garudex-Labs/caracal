@@ -79,45 +79,7 @@ Restores a PostgreSQL database from backup.
 ./scripts/restore-postgresql.sh <backup-file>
 ```
 
-### backup-kafka-topics.sh
-
-Backs up Kafka topics to disk.
-
-**Usage:**
-```bash
-./scripts/backup-kafka-topics.sh
-```
-
-## Kafka Management
-
-### create-kafka-topics.sh
-
-Creates all required Kafka topics with proper configuration.
-
-**Usage:**
-```bash
-./scripts/create-kafka-topics.sh
-```
-
-### register-schemas.sh
-
-Registers Avro schemas with the Schema Registry.
-
-**Usage:**
-```bash
-./scripts/register-schemas.sh
-```
-
 ## Security Setup
-
-### setup-kafka-security.sh
-
-Configures Kafka security (SASL/SCRAM, TLS).
-
-**Usage:**
-```bash
-./scripts/setup-kafka-security.sh
-```
 
 ### setup-redis-security.sh
 
@@ -137,15 +99,6 @@ Recovers system state from a ledger snapshot.
 **Usage:**
 ```bash
 ./scripts/snapshot-recovery.sh <snapshot-id>
-```
-
-### event-replay-recovery.sh
-
-Recovers system state by replaying events from Kafka.
-
-**Usage:**
-```bash
-./scripts/event-replay-recovery.sh <timestamp>
 ```
 
 ## Python Version Management

@@ -3,7 +3,7 @@ Demo of Caracal Core v0.3 monitoring and observability features.
 
 This example demonstrates:
 1. Initializing Prometheus metrics
-2. Recording v0.3 metrics (Kafka, Merkle, snapshots, allowlists, DLQ)
+2. Recording metrics (Merkle, snapshots, allowlists, DLQ)
 3. Using structured logging for v0.3 features
 4. Starting metrics HTTP server for Prometheus scraping
 """
@@ -23,44 +23,8 @@ from caracal.logging_config import (
     log_allowlist_check,
     log_event_replay,
     log_snapshot_operation,
-    log_kafka_consumer_event,
     log_dlq_event,
 )
-
-
-def demo_kafka_metrics():
-    """Demo Kafka consumer metrics."""
-    print("\n=== Kafka Consumer Metrics Demo ===")
-    
-    metrics = get_metrics_registry()
-    
-    # Simulate consumer lag
-    print("Recording consumer lag...")
-    metrics.update_kafka_consumer_lag(
-        consumer_group="ledger-writer-group",
-        topic="caracal.metering.events",
-        partition=0,
-        lag=150
-    )
-    
-    # Simulate message processing
-    print("Recording message processing...")
-    with metrics.time_kafka_message_processing("ledger-writer-group", "caracal.metering.events"):
-        time.sleep(0.01)  # Simulate processing
-    
-    # Simulate consumer error
-    print("Recording consumer error...")
-    metrics.record_kafka_consumer_error(
-        consumer_group="ledger-writer-group",
-        topic="caracal.metering.events",
-        error_type="deserialization_error"
-    )
-    
-    # Simulate rebalance
-    print("Recording consumer rebalance...")
-    metrics.record_kafka_consumer_rebalance("ledger-writer-group")
-    
-    print("✓ Kafka metrics recorded")
 
 
 def demo_merkle_metrics():
@@ -247,19 +211,6 @@ def demo_structured_logging():
         status="completed"
     )
     
-    # Log Kafka consumer event
-    print("Logging Kafka consumer event...")
-    log_kafka_consumer_event(
-        logger,
-        consumer_group="ledger-writer-group",
-        topic="caracal.metering.events",
-        partition=0,
-        offset=1000,
-        event_type="metering_event",
-        processing_status="success",
-        duration_ms=5.2
-    )
-    
     # Log DLQ event
     print("Logging DLQ event...")
     log_dlq_event(
@@ -295,7 +246,6 @@ def main():
     print(f"✓ Metrics available at: {server.get_url()}")
     
     # Run demos
-    demo_kafka_metrics()
     demo_merkle_metrics()
     demo_snapshot_metrics()
     demo_allowlist_metrics()
