@@ -71,7 +71,7 @@ caracal-flow
 * **Onboarding Wizard:** Guided setup for principals and policies.
 * **Authority Ledger:** Real-time stream of authorization decisions.
 * **Principal Hub:** Manage identities and cryptographic key pairs.
-* **Infrastructure Setup:** Provision PostgreSQL and Kafka with one click.
+* **Infrastructure Setup:** Provision PostgreSQL with one click.
 
 ---
 
@@ -128,7 +128,7 @@ Caracal scales from local development to enterprise-grade throughput.
 | Environment | Database | Messaging | Event Bus | Use Case |
 | --- | --- | --- | --- | --- |
 | **Standard** | SQLite | File-based | In-Memory | Local development, testing, and TUI default. |
-| **Enterprise** | PostgreSQL | Kafka | Redis/Redpanda | High-availability production enforcement. |
+| **Enterprise** | PostgreSQL | — | Redis/Redpanda | High-availability production enforcement. |
 
 ---
 

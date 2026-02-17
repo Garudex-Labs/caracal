@@ -14,7 +14,6 @@ from uuid import UUID
 from ase.protocol import MeteringEvent
 from caracal.core.metering import MeteringCollector
 from caracal.core.authority import AuthorityEvaluator
-from caracal.kafka.producer import KafkaEventProducer
 from caracal.core.error_handling import (
     get_error_handler,
     handle_error_with_denial,
@@ -92,8 +91,6 @@ class MCPAdapter:
         self,
         authority_evaluator: AuthorityEvaluator,
         metering_collector: MeteringCollector,
-        kafka_producer: Optional[KafkaEventProducer] = None,
-        enable_kafka: bool = False
     ):
         """
         Initialize MCPAdapter.
@@ -101,14 +98,10 @@ class MCPAdapter:
         Args:
             authority_evaluator: AuthorityEvaluator for mandate checks
             metering_collector: MeteringCollector for emitting events
-            kafka_producer: Optional KafkaEventProducer for v0.3 event publishing
-            enable_kafka: Enable Kafka event publishing (default: False for v0.2 compatibility)
         """
         self.authority_evaluator = authority_evaluator
         self.metering_collector = metering_collector
-        self.kafka_producer = kafka_producer
-        self.enable_kafka = enable_kafka
-        logger.info(f"MCPAdapter initialized with kafka_enabled={enable_kafka}")
+        logger.info("MCPAdapter initialized")
 
     async def intercept_tool_call(
         self,
@@ -199,69 +192,25 @@ class MCPAdapter:
                 f"Authority granted for agent {agent_id}, tool {tool_name} (mandate {mandate_id})"
             )
             
-            # 5. Forward to MCP server (simulated in v0.2 - actual forwarding in v0.3)
+            # 5. Forward to MCP server (simulated - actual forwarding in production)
             # In a real implementation, this would call the actual MCP server
             tool_result = await self._forward_to_mcp_server(tool_name, tool_args)
             
             # 6. Emit metering event (usage tracking only)
-            # v0.3: Publish to Kafka if enabled, otherwise write directly to ledger
-            if self.enable_kafka and self.kafka_producer:
-                try:
-                    await self.kafka_producer.publish_metering_event(
-                        agent_id=agent_id,
-                        resource_type=f"mcp.tool.{tool_name}",
-                        quantity=Decimal("1"),
-                        metadata={
-                            "tool_name": tool_name,
-                            "tool_args": str(tool_args),
-                            "mandate_id": str(mandate_id)
-                        },
-                        timestamp=datetime.utcnow()
-                    )
-                    
-                    logger.info(
-                        f"Published MCP metering event to Kafka: tool={tool_name}, "
-                        f"agent={agent_id}"
-                    )
-                    
-                except Exception as kafka_error:
-                    logger.error(
-                        f"Failed to publish MCP events to Kafka for agent {agent_id}: {kafka_error}",
-                        exc_info=True
-                    )
-                    # Fall back to direct ledger write
-                    logger.warning("Falling back to direct ledger write due to Kafka failure")
-                    
-                    metering_event = MeteringEvent(
-                        agent_id=agent_id,
-                        resource_type=f"mcp.tool.{tool_name}",
-                        quantity=Decimal("1"),
-                        timestamp=datetime.utcnow(),
-                        metadata={
-                            "tool_name": tool_name,
-                            "tool_args": tool_args,
-                            "mcp_context": mcp_context.metadata,
-                            "mandate_id": str(mandate_id)
-                        }
-                    )
-                    
-                    self.metering_collector.collect_event(metering_event)
-            else:
-                # v0.2 compatibility: Direct ledger write
-                metering_event = MeteringEvent(
-                    agent_id=agent_id,
-                    resource_type=f"mcp.tool.{tool_name}",
-                    quantity=Decimal("1"),  # One tool invocation
-                    timestamp=datetime.utcnow(),
-                    metadata={
-                        "tool_name": tool_name,
-                        "tool_args": tool_args,
-                        "mcp_context": mcp_context.metadata,
-                        "mandate_id": str(mandate_id)
-                    }
-                )
-                
-                self.metering_collector.collect_event(metering_event)
+            metering_event = MeteringEvent(
+                agent_id=agent_id,
+                resource_type=f"mcp.tool.{tool_name}",
+                quantity=Decimal("1"),  # One tool invocation
+                timestamp=datetime.utcnow(),
+                metadata={
+                    "tool_name": tool_name,
+                    "tool_args": tool_args,
+                    "mcp_context": mcp_context.metadata,
+                    "mandate_id": str(mandate_id)
+                }
+            )
+            
+            self.metering_collector.collect_event(metering_event)
             
             logger.info(
                 f"MCP tool call completed: tool={tool_name}, agent={agent_id}"
@@ -390,70 +339,25 @@ class MCPAdapter:
                 f"Authority granted for agent {agent_id}, resource {resource_uri} (mandate {mandate_id})"
             )
             
-            # 5. Fetch resource from MCP server (simulated in v0.2)
+            # 5. Fetch resource from MCP server
             resource = await self._fetch_resource(resource_uri)
             
             # 6. Emit metering event (usage tracking only)
-            if self.enable_kafka and self.kafka_producer:
-                try:
-                    await self.kafka_producer.publish_metering_event(
-                        agent_id=agent_id,
-                        resource_type=f"mcp.resource.{self._get_resource_type(resource_uri)}",
-                        quantity=Decimal(str(resource.size)),
-                        metadata={
-                            "resource_uri": resource_uri,
-                            "mime_type": resource.mime_type,
-                            "size_bytes": str(resource.size),
-                            "mandate_id": str(mandate_id)
-                        },
-                        timestamp=datetime.utcnow()
-                    )
-                    
-                    logger.info(
-                        f"Published MCP resource metering event to Kafka: uri={resource_uri}, "
-                        f"agent={agent_id}, size={resource.size} bytes"
-                    )
-                    
-                except Exception as kafka_error:
-                    logger.error(
-                        f"Failed to publish MCP resource events to Kafka for agent {agent_id}: {kafka_error}",
-                        exc_info=True
-                    )
-                    # Fall back to direct ledger write
-                    logger.warning("Falling back to direct ledger write due to Kafka failure")
-                    
-                    metering_event = MeteringEvent(
-                        agent_id=agent_id,
-                        resource_type=f"mcp.resource.{self._get_resource_type(resource_uri)}",
-                        quantity=Decimal(str(resource.size)),
-                        timestamp=datetime.utcnow(),
-                        metadata={
-                            "resource_uri": resource_uri,
-                            "mime_type": resource.mime_type,
-                            "size_bytes": resource.size,
-                            "mcp_context": mcp_context.metadata,
-                            "mandate_id": str(mandate_id)
-                        }
-                    )
-                    
-                    self.metering_collector.collect_event(metering_event)
-            else:
-                # v0.2 compatibility: Direct ledger write
-                metering_event = MeteringEvent(
-                    agent_id=agent_id,
-                    resource_type=f"mcp.resource.{self._get_resource_type(resource_uri)}",
-                    quantity=Decimal(str(resource.size)),  # Size in bytes
-                    timestamp=datetime.utcnow(),
-                    metadata={
-                        "resource_uri": resource_uri,
-                        "mime_type": resource.mime_type,
-                        "size_bytes": resource.size,
-                        "mcp_context": mcp_context.metadata,
-                        "mandate_id": str(mandate_id)
-                    }
-                )
-                
-                self.metering_collector.collect_event(metering_event)
+            metering_event = MeteringEvent(
+                agent_id=agent_id,
+                resource_type=f"mcp.resource.{self._get_resource_type(resource_uri)}",
+                quantity=Decimal(str(resource.size)),  # Size in bytes
+                timestamp=datetime.utcnow(),
+                metadata={
+                    "resource_uri": resource_uri,
+                    "mime_type": resource.mime_type,
+                    "size_bytes": resource.size,
+                    "mcp_context": mcp_context.metadata,
+                    "mandate_id": str(mandate_id)
+                }
+            )
+            
+            self.metering_collector.collect_event(metering_event)
             
             logger.info(
                 f"MCP resource read completed: uri={resource_uri}, agent={agent_id}, "

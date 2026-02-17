@@ -1,0 +1,124 @@
+# This is the recommended configuration for most deployments
+# Only PostgreSQL is required; Redis and Merkle are optional
+
+# =============================================================================
+# STORAGE PATHS
+# =============================================================================
+storage:
+  agent_registry: ~/.caracal/agents.json
+  policy_store: ~/.caracal/policies.json
+  ledger: ~/.caracal/ledger.jsonl
+  backup_dir: ~/.caracal/backups
+  backup_count: 7
+
+# =============================================================================
+# DATABASE (REQUIRED)
+# =============================================================================
+database:
+  host: ${DB_HOST:localhost}
+  port: ${DB_PORT:5432}
+  dbname: ${DB_NAME:caracal}
+  user: ${DB_USER:caracal}
+  password: ${DB_PASSWORD}
+  pool_size: ${DB_POOL_SIZE:10}
+  max_overflow: ${DB_MAX_OVERFLOW:5}
+  pool_timeout: ${DB_POOL_TIMEOUT:30}
+
+# =============================================================================
+# REDIS (OPTIONAL - for caching)
+# =============================================================================
+redis:
+  host: ${REDIS_HOST:localhost}
+  port: ${REDIS_PORT:6379}
+  password: ${REDIS_PASSWORD}
+  db: ${REDIS_DB:0}
+  ssl: false
+  metrics_cache_ttl: 3600      # 1 hour
+  allowlist_cache_ttl: 60      # 1 minute
+
+# =============================================================================
+# GATEWAY PROXY (OPTIONAL - for network-enforced policy)
+# =============================================================================
+gateway:
+  listen_address: ${LISTEN_ADDRESS:0.0.0.0:8443}
+  tls_cert_file: ${TLS_CERT_FILE:./certs/server.crt}
+  tls_key_file: ${TLS_KEY_FILE:./certs/server.key}
+  tls_ca_file: ${TLS_CA_FILE:./certs/ca.crt}
+  
+  # Auth mode: jwt, mtls, or api_key
+  auth_mode: ${AUTH_MODE:jwt}
+  
+  # JWT configuration
+  jwt_public_key_path: ${JWT_PUBLIC_KEY_PATH:./certs/jwt_public.pem}
+  jwt_algorithm: ${JWT_ALGORITHM:RS256}
+  
+  # Request limits
+  request_timeout: ${REQUEST_TIMEOUT:30}
+  max_request_size_mb: ${MAX_REQUEST_SIZE_MB:10}
+  
+  # Replay protection
+  replay_protection_enabled: ${ENABLE_REPLAY_PROTECTION:true}
+  nonce_cache_ttl: 300  # 5 minutes
+  timestamp_window: 300 # 5 minutes
+
+# =============================================================================
+# MCP ADAPTER (OPTIONAL - for Model Context Protocol integration)
+# =============================================================================
+mcp_adapter:
+  listen_address: ${MCP_LISTEN_ADDRESS:0.0.0.0:8080}
+  request_timeout: ${MCP_REQUEST_TIMEOUT:30}
+  max_request_size_mb: ${MCP_MAX_REQUEST_SIZE_MB:10}
+
+# =============================================================================
+# OPTIONAL FEATURES
+# =============================================================================
+compatibility:
+  enable_redis: true            # Caching for performance (recommended)
+  enable_merkle: false          # Cryptographic audit trails (enterprise)
+
+# =============================================================================
+# DEFAULTS
+# =============================================================================
+defaults:
+  time_window: daily            # daily, weekly, monthly
+
+# =============================================================================
+# LOGGING
+# =============================================================================
+logging:
+  level: ${LOG_LEVEL:INFO}      # DEBUG, INFO, WARNING, ERROR, CRITICAL
+  file: ""                      # Leave empty for stdout
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+
+# =============================================================================
+# PERFORMANCE TUNING
+# =============================================================================
+performance:
+  policy_eval_timeout_ms: 100
+  ledger_write_timeout_ms: 10
+  file_lock_timeout_s: 5
+  max_retries: 3
+
+# =============================================================================
+# ADVANCED: MERKLE TREE CONFIGURATION (v0.3 mode only - ignore for v0.2)
+# =============================================================================
+# Merkle trees provide cryptographic audit trails. Only needed for
+# compliance requirements.
+#
+# merkle:
+#   batch_size_limit: 1000
+#   batch_timeout_seconds: 300
+#   signing_algorithm: ES256
+#   signing_backend: software
+#   private_key_path: ./keys/merkle_signing_key.pem
+
+# =============================================================================
+# ADVANCED: SNAPSHOT CONFIGURATION (v0.3 mode only - ignore for v0.2)
+# =============================================================================
+# Automated snapshots for faster recovery
+#
+# snapshot:
+#   enabled: true
+#   schedule_cron: "0 0 * * *"  # Daily at midnight
+#   retention_days: 90
+#   compression_enabled: true
