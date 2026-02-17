@@ -15,7 +15,7 @@ import click
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-from caracal.db.connection import DatabaseConfig, DatabaseConnectionManager
+from caracal.db.connection import get_db_manager
 from caracal.logging_config import get_logger
 from caracal.merkle.snapshot import SnapshotManager
 from caracal.merkle.recovery import RecoveryManager
@@ -33,23 +33,8 @@ def get_db_session(config):
     Returns:
         SQLAlchemy session
     """
-    # Create database config from settings
-    db_config = DatabaseConfig(
-        host=config.database.host,
-        port=config.database.port,
-        database=config.database.database,
-        user=config.database.user,
-        password=config.database.password,
-        pool_size=config.database.pool_size,
-        max_overflow=config.database.max_overflow,
-        pool_timeout=config.database.pool_timeout,
-    )
-    
-    # Create connection manager
-    conn_manager = DatabaseConnectionManager(db_config)
-    
-    # Get session
-    return conn_manager.get_session()
+    db_manager = get_db_manager()
+    return db_manager.get_session()
 
 
 @click.group(name='snapshot')

@@ -133,26 +133,27 @@ class StorageConfig:
 
 @dataclass
 class DatabaseConfig:
-    """Database configuration."""
-    
-    type: str = "postgres"  # "postgres" or "sqlite"
+    """PostgreSQL database configuration.
+
+    PostgreSQL is the only supported backend.  Values may be overridden
+    via ``CARACAL_DB_*`` environment variables (handled in
+    ``caracal.db.connection``).
+    """
+
     host: str = "localhost"
     port: int = 5432
     database: str = "caracal"
     user: str = "caracal"
     password: str = ""
-    file_path: str = ""  # For SQLite
+    schema: str = ""  # PostgreSQL schema for workspace isolation
     pool_size: int = 10
     max_overflow: int = 5
     pool_timeout: int = 30
 
     def get_connection_url(self) -> str:
-        """Get database connection URL."""
-        if self.type == "sqlite":
-            return f"sqlite:///{self.file_path}"
-        
-        # Postgres default
-        return f"postgresql://{self.user}:{self.password}@{self.host}:{self.port}/{self.database}"
+        """Build a PostgreSQL connection URL."""
+        from urllib.parse import quote_plus
+        return f"postgresql://{self.user}:{quote_plus(self.password)}@{self.host}:{self.port}/{self.database}"
 
 
 @dataclass
@@ -279,7 +280,7 @@ class CompatibilityConfig:
     """Feature flags for optional infrastructure components."""
     
     enable_merkle: bool = False  # If False, skip Merkle tree computation (simpler deployment)
-    enable_redis: bool = True  # If False, skip Redis caching (PostgreSQL-only mode)
+    enable_redis: bool = False  # If False, skip Redis caching (PostgreSQL-only mode)
 
 
 @dataclass
@@ -288,8 +289,6 @@ class AuthorityEnforcementConfig:
     
     enabled: bool = False  # Global authority enforcement flag
     per_principal_rollout: bool = False  # Enable per-principal authority enforcement
-
-    compatibility_logging_enabled: bool = True  # Log compatibility mode usage
     compatibility_logging_enabled: bool = True  # Log compatibility mode usage
 
 
@@ -535,16 +534,15 @@ def _build_config_from_dict(config_data: Dict[str, Any]) -> CaracalConfig:
         ),
     )
     
-    # Parse database configuration (optional, for v0.2)
+    # Parse database configuration (PostgreSQL only)
     database_data = config_data.get('database', {})
     database = DatabaseConfig(
-        type=database_data.get('type', default_config.database.type),
         host=database_data.get('host', default_config.database.host),
         port=database_data.get('port', default_config.database.port),
         database=database_data.get('database', default_config.database.database),
         user=database_data.get('user', default_config.database.user),
         password=database_data.get('password', default_config.database.password),
-        file_path=os.path.expanduser(database_data.get('file_path', default_config.database.file_path)),
+        schema=database_data.get('schema', default_config.database.schema),
         pool_size=database_data.get('pool_size', default_config.database.pool_size),
         max_overflow=database_data.get('max_overflow', default_config.database.max_overflow),
         pool_timeout=database_data.get('pool_timeout', default_config.database.pool_timeout),
@@ -643,7 +641,7 @@ def _build_config_from_dict(config_data: Dict[str, Any]) -> CaracalConfig:
         max_patterns_per_agent=allowlist_data.get('max_patterns_per_agent', default_config.allowlist.max_patterns_per_agent),
     )
     
-    # Parse event replay configuration (optional, for v0.3)
+    # Parse event replay configuration
     event_replay_data = config_data.get('event_replay', {})
     event_replay = EventReplayConfig(
         batch_size=event_replay_data.get('batch_size', default_config.event_replay.batch_size),
@@ -659,7 +657,7 @@ def _build_config_from_dict(config_data: Dict[str, Any]) -> CaracalConfig:
         enable_redis=compatibility_data.get('enable_redis', default_config.compatibility.enable_redis),
     )
     
-    # Parse authority enforcement configuration (optional, for v0.5 authority enforcement)
+    # Parse authority enforcement configuration
     authority_enforcement_data = config_data.get('authority_enforcement', {})
     authority_enforcement = AuthorityEnforcementConfig(
         enabled=authority_enforcement_data.get('enabled', default_config.authority_enforcement.enabled),
@@ -674,13 +672,12 @@ def _build_config_from_dict(config_data: Dict[str, Any]) -> CaracalConfig:
         logger.info("Redis caching is disabled - using PostgreSQL for all queries")
     
     # Log warnings for authority enforcement configuration
-    # Log warnings for authority enforcement configuration
     if authority_enforcement.enabled:
         logger.info("Authority enforcement enabled")
         if authority_enforcement.per_principal_rollout:
             logger.info("Per-principal authority enforcement rollout enabled")
-        if authority_enforcement.compatibility_mode_enabled:
-            logger.info("Legacy compatibility mode enabled")
+        if authority_enforcement.compatibility_logging_enabled:
+            logger.info("Compatibility logging enabled for authority enforcement")
     
     return CaracalConfig(
         storage=storage,
@@ -870,52 +867,56 @@ def _validate_config(config: CaracalConfig) -> None:
     
 
     
-    # Validate Merkle configuration (v0.3)
+    # Validate Merkle configuration
     if config.compatibility.enable_merkle:
-        # Cast to int to handle env var string values
-        try:
-            config.merkle.batch_size_limit = int(config.merkle.batch_size_limit)
-            config.merkle.batch_timeout_seconds = int(config.merkle.batch_timeout_seconds)
+        # Check if Merkle is minimally configured (requires private_key_path for software backend)
+        _merkle_ready = True
+        if config.merkle.signing_backend == "software" and not config.merkle.private_key_path:
+            logger.warning(
+                "Merkle is enabled but private_key_path is not configured. "
+                "Merkle signing will be disabled until a key path is provided."
+            )
+            config.compatibility.enable_merkle = False
+            _merkle_ready = False
+
+        if _merkle_ready:
+            # Cast to int to handle env var string values
+            try:
+                config.merkle.batch_size_limit = int(config.merkle.batch_size_limit)
+                config.merkle.batch_timeout_seconds = int(config.merkle.batch_timeout_seconds)
+                if config.merkle.key_rotation_enabled:
+                     config.merkle.key_rotation_days = int(config.merkle.key_rotation_days)
+            except (ValueError, TypeError):
+                raise InvalidConfigurationError("Merkle numeric configuration values must be integers")
+            if config.merkle.batch_size_limit < 1:
+                raise InvalidConfigurationError(
+                    f"merkle batch_size_limit must be at least 1, got {config.merkle.batch_size_limit}"
+                )
+            if config.merkle.batch_timeout_seconds < 1:
+                raise InvalidConfigurationError(
+                    f"merkle batch_timeout_seconds must be at least 1, got {config.merkle.batch_timeout_seconds}"
+                )
+            
+            valid_signing_algorithms = ["ES256"]
+            if config.merkle.signing_algorithm not in valid_signing_algorithms:
+                raise InvalidConfigurationError(
+                    f"merkle signing_algorithm must be one of {valid_signing_algorithms}, "
+                    f"got '{config.merkle.signing_algorithm}'"
+                )
+            
+            valid_signing_backends = ["software", "hsm"]
+            if config.merkle.signing_backend not in valid_signing_backends:
+                raise InvalidConfigurationError(
+                    f"merkle signing_backend must be one of {valid_signing_backends}, "
+                    f"got '{config.merkle.signing_backend}'"
+                )
+            
+            # Validate key rotation configuration
             if config.merkle.key_rotation_enabled:
-                 config.merkle.key_rotation_days = int(config.merkle.key_rotation_days)
-        except (ValueError, TypeError):
-            raise InvalidConfigurationError("Merkle numeric configuration values must be integers")
-        if config.merkle.batch_size_limit < 1:
-            raise InvalidConfigurationError(
-                f"merkle batch_size_limit must be at least 1, got {config.merkle.batch_size_limit}"
-            )
-        if config.merkle.batch_timeout_seconds < 1:
-            raise InvalidConfigurationError(
-                f"merkle batch_timeout_seconds must be at least 1, got {config.merkle.batch_timeout_seconds}"
-            )
-        
-        valid_signing_algorithms = ["ES256"]
-        if config.merkle.signing_algorithm not in valid_signing_algorithms:
-            raise InvalidConfigurationError(
-                f"merkle signing_algorithm must be one of {valid_signing_algorithms}, "
-                f"got '{config.merkle.signing_algorithm}'"
-            )
-        
-        valid_signing_backends = ["software", "hsm"]
-        if config.merkle.signing_backend not in valid_signing_backends:
-            raise InvalidConfigurationError(
-                f"merkle signing_backend must be one of {valid_signing_backends}, "
-                f"got '{config.merkle.signing_backend}'"
-            )
-        
-        # Validate software signing configuration
-        if config.merkle.signing_backend == "software":
-            if not config.merkle.private_key_path:
-                raise InvalidConfigurationError(
-                    "merkle private_key_path is required when signing_backend is 'software'"
-                )
-        
-        # Validate key rotation configuration
-        if config.merkle.key_rotation_enabled:
-            if config.merkle.key_rotation_days < 1:
-                raise InvalidConfigurationError(
-                    f"merkle key_rotation_days must be at least 1, got {config.merkle.key_rotation_days}"
-                )
+                if config.merkle.key_rotation_days < 1:
+                    raise InvalidConfigurationError(
+                        f"merkle key_rotation_days must be at least 1, got {config.merkle.key_rotation_days}"
+                    )
     
     # Validate Redis configuration
     if config.compatibility.enable_redis:

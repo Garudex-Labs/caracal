@@ -369,16 +369,13 @@ logging:
   format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 
 database:
-  type: postgres  # or "sqlite"
-  # For PostgreSQL:
+  # PostgreSQL connection (the only supported backend).
+  # Can also be set via CARACAL_DB_* environment variables.
   host: localhost
   port: 5432
   database: caracal
   user: caracal
   password: ""
-  # For SQLite:
-  # type: sqlite
-  # file_path: {ws.db_path}
 
 performance:
   policy_eval_timeout_ms: 100
