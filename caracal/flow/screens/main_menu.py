@@ -118,17 +118,14 @@ def _show_status_header(console: Console) -> None:
         config = load_config()
 
         # Database status
-        if config.database.type == "sqlite":
-            status_items.append((Icons.SUCCESS, "DB: SQLite", Colors.SUCCESS))
-        else:
-            try:
-                sock = socket.create_connection(
-                    (config.database.host, config.database.port), timeout=1
-                )
-                sock.close()
-                status_items.append((Icons.SUCCESS, "DB: PostgreSQL", Colors.SUCCESS))
-            except Exception:
-                status_items.append((Icons.ERROR, "DB: Unreachable", Colors.ERROR))
+        try:
+            sock = socket.create_connection(
+                (config.database.host, config.database.port), timeout=1
+            )
+            sock.close()
+            status_items.append((Icons.SUCCESS, "DB: PostgreSQL", Colors.SUCCESS))
+        except Exception:
+            status_items.append((Icons.ERROR, "DB: Unreachable", Colors.ERROR))
 
     except Exception:
         status_items.append((Icons.SUCCESS, "System Ready", Colors.SUCCESS))
@@ -221,10 +218,8 @@ def get_submenu_items(category: str) -> list[MenuItem]:
                     description="Display current settings and enabled services", icon=""),
             MenuItem(key="edit", label="Edit Configuration", 
                     description="Open config in system editor", icon=""),
-            MenuItem(key="infra", label="Infrastructure Setup", 
-                    description="Manage Docker services (start/stop containers)", icon=""),
-            MenuItem(key="db-status", label="Database Status", 
-                    description="Check database connection", icon=""),
+            MenuItem(key="configure-services", label="Configure Services", 
+                    description="Enable/disable optional services (Redis, Merkle, etc.)", icon=""),
             MenuItem(key="service-health", label="Service Health", 
                     description="Check status of all enabled services", icon=""),
             MenuItem(key="backup", label="Backup Data", 

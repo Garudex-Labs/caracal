@@ -9,6 +9,7 @@ from caracal.db.connection import (
     DatabaseConnectionManager,
     close_connection_manager,
     get_connection_manager,
+    get_db_manager,
     initialize_connection_manager,
 )
 from caracal.db.models import (
@@ -36,6 +37,7 @@ __all__ = [
     "DatabaseConfig",
     "DatabaseConnectionManager",
     "get_connection_manager",
+    "get_db_manager",
     "initialize_connection_manager",
     "close_connection_manager",
     # Schema version management
