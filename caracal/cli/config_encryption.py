@@ -162,14 +162,14 @@ def decrypt_value(encrypted_value: str, password: str):
     "--keys",
     "-k",
     multiple=True,
-    help="Keys to encrypt (e.g., 'database.password', 'kafka.sasl_password')",
+    help="Keys to encrypt (e.g., 'database.password')",
 )
 def encrypt_file(config_file: str, output: str, password: str, keys: tuple):
     """
     Encrypt specific values in a configuration file.
     
     Example:
-        caracal config-encrypt encrypt-file config.yaml -k database.password -k kafka.sasl_password
+        caracal config-encrypt encrypt-file config.yaml -k database.password
     """
     try:
         import yaml

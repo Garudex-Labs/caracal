@@ -99,7 +99,7 @@ class AuditLog(Base):
     """
     Append-only audit log for all system events.
     
-    Stores comprehensive audit trail of all events from Kafka topics.
+    Stores comprehensive audit trail of all system events.
     Records are append-only with no updates or deletes allowed.
     
     Requirements: 17.1, 17.2, 17.3, 17.4

@@ -130,11 +130,6 @@ def _show_status_header(console: Console) -> None:
             except Exception:
                 status_items.append((Icons.ERROR, "DB: Unreachable", Colors.ERROR))
 
-        # Compatibility mode indicator
-        mode = getattr(config.compatibility, "mode", "v0.3")
-        if mode == "v0.2":
-            status_items.append((Icons.WARNING, "Mode: v0.2 compat", Colors.WARNING))
-
     except Exception:
         status_items.append((Icons.SUCCESS, "System Ready", Colors.SUCCESS))
 

@@ -211,60 +211,8 @@ class ASEConfig:
 
 
 @dataclass
-class KafkaProducerConfig:
-    """Kafka producer configuration."""
-    
-    acks: str = "all"  # Wait for all replicas
-    retries: int = 3
-    max_in_flight_requests: int = 5
-    compression_type: str = "snappy"
-    enable_idempotence: bool = True  # Required for exactly-once
-    transactional_id_prefix: str = "caracal-producer"  # Required for transactions
-
-
-@dataclass
-class KafkaConsumerConfig:
-    """Kafka consumer configuration."""
-    
-    auto_offset_reset: str = "earliest"
-    enable_auto_commit: bool = False  # MUST be False for exactly-once
-    isolation_level: str = "read_committed"  # Read only committed messages (EOS)
-    max_poll_records: int = 500
-    session_timeout_ms: int = 30000
-    enable_idempotence: bool = True  # Required for exactly-once
-    transactional_id_prefix: str = "caracal-consumer"  # Required for transactions
-
-
-@dataclass
-class KafkaProcessingConfig:
-    """Kafka processing configuration."""
-    
-    guarantee: str = "exactly_once"  # or at_least_once
-    enable_transactions: bool = True  # Enable Kafka transactions for EOS
-    idempotency_check: bool = True  # Enable idempotency checks (fallback for at_least_once)
-
-
-@dataclass
-class KafkaConfig:
-    """Kafka configuration for v0.3."""
-    
-    brokers: list = field(default_factory=lambda: ["localhost:9092"])
-    security_protocol: str = "PLAINTEXT"  # PLAINTEXT, SSL, SASL_PLAINTEXT, SASL_SSL
-    sasl_mechanism: str = "SCRAM-SHA-512"  # PLAIN, SCRAM-SHA-256, SCRAM-SHA-512, GSSAPI
-    sasl_username: str = ""
-    sasl_password: str = ""
-    ssl_ca_location: str = ""  # Path to CA certificate
-    ssl_cert_location: str = ""  # Path to client certificate
-    ssl_key_location: str = ""  # Path to client private key
-    ssl_key_password: str = ""  # Password for encrypted private key
-    producer: KafkaProducerConfig = field(default_factory=KafkaProducerConfig)
-    consumer: KafkaConsumerConfig = field(default_factory=KafkaConsumerConfig)
-    processing: KafkaProcessingConfig = field(default_factory=KafkaProcessingConfig)
-
-
-@dataclass
 class RedisConfig:
-    """Redis configuration for v0.3."""
+    """Redis configuration."""
     
     host: str = "localhost"
     port: int = 6379
@@ -328,13 +276,10 @@ class MerkleConfig:
 
 @dataclass
 class CompatibilityConfig:
-    """Backward compatibility configuration for v0.2 deployments."""
+    """Feature flags for optional infrastructure components."""
     
-    mode: str = "v0.3"  # "v0.2" or "v0.3"
-    enable_kafka: bool = True  # If False, use direct PostgreSQL writes (v0.2 mode)
-    enable_merkle: bool = False  # If False, skip Merkle tree computation (v0.2 mode)
-    enable_redis: bool = True  # If False, skip Redis caching (v0.2 mode)
-    warn_on_v02_mode: bool = True  # Log warnings when running in v0.2 compatibility mode
+    enable_merkle: bool = False  # If False, skip Merkle tree computation (simpler deployment)
+    enable_redis: bool = True  # If False, skip Redis caching (PostgreSQL-only mode)
 
 
 @dataclass
@@ -387,7 +332,6 @@ class CaracalConfig:
     policy_cache: PolicyCacheConfig = field(default_factory=PolicyCacheConfig)
     mcp_adapter: MCPAdapterConfig = field(default_factory=MCPAdapterConfig)
     ase: ASEConfig = field(default_factory=ASEConfig)
-    kafka: KafkaConfig = field(default_factory=KafkaConfig)
     redis: RedisConfig = field(default_factory=RedisConfig)
     merkle: MerkleConfig = field(default_factory=MerkleConfig)
     snapshot: SnapshotConfig = field(default_factory=SnapshotConfig)
@@ -664,53 +608,7 @@ def _build_config_from_dict(config_data: Dict[str, Any]) -> CaracalConfig:
         hsm_config=merkle_data.get('hsm_config', default_config.merkle.hsm_config),
     )
     
-    # Parse Kafka configuration (optional, for v0.3)
-    kafka_data = config_data.get('kafka', {})
-    kafka_producer_data = kafka_data.get('producer', {})
-    kafka_consumer_data = kafka_data.get('consumer', {})
-    kafka_processing_data = kafka_data.get('processing', {})
-    
-    kafka_producer = KafkaProducerConfig(
-        acks=kafka_producer_data.get('acks', default_config.kafka.producer.acks),
-        retries=kafka_producer_data.get('retries', default_config.kafka.producer.retries),
-        max_in_flight_requests=kafka_producer_data.get('max_in_flight_requests', default_config.kafka.producer.max_in_flight_requests),
-        compression_type=kafka_producer_data.get('compression_type', default_config.kafka.producer.compression_type),
-        enable_idempotence=kafka_producer_data.get('enable_idempotence', default_config.kafka.producer.enable_idempotence),
-        transactional_id_prefix=kafka_producer_data.get('transactional_id_prefix', default_config.kafka.producer.transactional_id_prefix),
-    )
-    
-    kafka_consumer = KafkaConsumerConfig(
-        auto_offset_reset=kafka_consumer_data.get('auto_offset_reset', default_config.kafka.consumer.auto_offset_reset),
-        enable_auto_commit=kafka_consumer_data.get('enable_auto_commit', default_config.kafka.consumer.enable_auto_commit),
-        isolation_level=kafka_consumer_data.get('isolation_level', default_config.kafka.consumer.isolation_level),
-        max_poll_records=kafka_consumer_data.get('max_poll_records', default_config.kafka.consumer.max_poll_records),
-        session_timeout_ms=kafka_consumer_data.get('session_timeout_ms', default_config.kafka.consumer.session_timeout_ms),
-        enable_idempotence=kafka_consumer_data.get('enable_idempotence', default_config.kafka.consumer.enable_idempotence),
-        transactional_id_prefix=kafka_consumer_data.get('transactional_id_prefix', default_config.kafka.consumer.transactional_id_prefix),
-    )
-    
-    kafka_processing = KafkaProcessingConfig(
-        guarantee=kafka_processing_data.get('guarantee', default_config.kafka.processing.guarantee),
-        enable_transactions=kafka_processing_data.get('enable_transactions', default_config.kafka.processing.enable_transactions),
-        idempotency_check=kafka_processing_data.get('idempotency_check', default_config.kafka.processing.idempotency_check),
-    )
-    
-    kafka = KafkaConfig(
-        brokers=kafka_data.get('brokers', default_config.kafka.brokers),
-        security_protocol=kafka_data.get('security_protocol', default_config.kafka.security_protocol),
-        sasl_mechanism=kafka_data.get('sasl_mechanism', default_config.kafka.sasl_mechanism),
-        sasl_username=kafka_data.get('sasl_username', default_config.kafka.sasl_username),
-        sasl_password=kafka_data.get('sasl_password', default_config.kafka.sasl_password),
-        ssl_ca_location=os.path.expanduser(kafka_data.get('ssl_ca_location', default_config.kafka.ssl_ca_location)),
-        ssl_cert_location=os.path.expanduser(kafka_data.get('ssl_cert_location', default_config.kafka.ssl_cert_location)),
-        ssl_key_location=os.path.expanduser(kafka_data.get('ssl_key_location', default_config.kafka.ssl_key_location)),
-        ssl_key_password=kafka_data.get('ssl_key_password', default_config.kafka.ssl_key_password),
-        producer=kafka_producer,
-        consumer=kafka_consumer,
-        processing=kafka_processing,
-    )
-    
-    # Parse Redis configuration (optional, for v0.3)
+    # Parse Redis configuration (optional)
     redis_data = config_data.get('redis', {})
     redis = RedisConfig(
         host=redis_data.get('host', default_config.redis.host),
@@ -754,14 +652,11 @@ def _build_config_from_dict(config_data: Dict[str, Any]) -> CaracalConfig:
         validation_enabled=event_replay_data.get('validation_enabled', default_config.event_replay.validation_enabled),
     )
     
-    # Parse compatibility configuration (optional, for v0.2 compatibility)
+    # Parse compatibility configuration (optional feature flags)
     compatibility_data = config_data.get('compatibility', {})
     compatibility = CompatibilityConfig(
-        mode=compatibility_data.get('mode', default_config.compatibility.mode),
-        enable_kafka=compatibility_data.get('enable_kafka', default_config.compatibility.enable_kafka),
         enable_merkle=compatibility_data.get('enable_merkle', default_config.compatibility.enable_merkle),
         enable_redis=compatibility_data.get('enable_redis', default_config.compatibility.enable_redis),
-        warn_on_v02_mode=compatibility_data.get('warn_on_v02_mode', default_config.compatibility.warn_on_v02_mode),
     )
     
     # Parse authority enforcement configuration (optional, for v0.5 authority enforcement)
@@ -772,15 +667,11 @@ def _build_config_from_dict(config_data: Dict[str, Any]) -> CaracalConfig:
         compatibility_logging_enabled=authority_enforcement_data.get('compatibility_logging_enabled', default_config.authority_enforcement.compatibility_logging_enabled),
     )
     
-    # Log warnings if running in v0.2 compatibility mode
-    if compatibility.mode == "v0.2" and compatibility.warn_on_v02_mode:
-        logger.warning("Running in v0.2 compatibility mode - some v0.3 features are disabled")
-        if not compatibility.enable_kafka:
-            logger.warning("Kafka event streaming is disabled - using direct PostgreSQL writes")
-        if not compatibility.enable_merkle:
-            logger.warning("Merkle tree ledger is disabled - no cryptographic tamper-evidence")
-        if not compatibility.enable_redis:
-            logger.warning("Redis caching is disabled - using PostgreSQL for all queries")
+    # Log info about optional features
+    if not compatibility.enable_merkle:
+        logger.info("Merkle tree ledger is disabled - no cryptographic tamper-evidence")
+    if not compatibility.enable_redis:
+        logger.info("Redis caching is disabled - using PostgreSQL for all queries")
     
     # Log warnings for authority enforcement configuration
     # Log warnings for authority enforcement configuration
@@ -801,7 +692,6 @@ def _build_config_from_dict(config_data: Dict[str, Any]) -> CaracalConfig:
         policy_cache=policy_cache,
         mcp_adapter=mcp_adapter,
         ase=ase,
-        kafka=kafka,
         redis=redis,
         merkle=merkle,
         snapshot=snapshot,
@@ -1027,127 +917,7 @@ def _validate_config(config: CaracalConfig) -> None:
                     f"merkle key_rotation_days must be at least 1, got {config.merkle.key_rotation_days}"
                 )
     
-    # Validate Kafka configuration (v0.3)
-    if config.compatibility.enable_kafka:
-        if not config.kafka.brokers:
-            raise InvalidConfigurationError("kafka brokers list cannot be empty when Kafka is enabled")
-        
-        valid_security_protocols = ["PLAINTEXT", "SSL", "SASL_PLAINTEXT", "SASL_SSL"]
-        if config.kafka.security_protocol not in valid_security_protocols:
-            raise InvalidConfigurationError(
-                f"kafka security_protocol must be one of {valid_security_protocols}, "
-                f"got '{config.kafka.security_protocol}'"
-            )
-        
-        # Validate SASL configuration
-        if config.kafka.security_protocol in ["SASL_PLAINTEXT", "SASL_SSL"]:
-            valid_sasl_mechanisms = ["PLAIN", "SCRAM-SHA-256", "SCRAM-SHA-512", "GSSAPI"]
-            if config.kafka.sasl_mechanism not in valid_sasl_mechanisms:
-                raise InvalidConfigurationError(
-                    f"kafka sasl_mechanism must be one of {valid_sasl_mechanisms}, "
-                    f"got '{config.kafka.sasl_mechanism}'"
-                )
-            
-            if not config.kafka.sasl_username:
-                raise InvalidConfigurationError(
-                    "kafka sasl_username is required when using SASL authentication"
-                )
-            
-            if not config.kafka.sasl_password:
-                raise InvalidConfigurationError(
-                    "kafka sasl_password is required when using SASL authentication"
-                )
-        
-        # Validate SSL configuration
-        if config.kafka.security_protocol in ["SSL", "SASL_SSL"]:
-            if not config.kafka.ssl_ca_location:
-                raise InvalidConfigurationError(
-                    "kafka ssl_ca_location is required when using SSL/TLS"
-                )
-            
-            # Client certificate is optional for SSL, but if provided, key must also be provided
-            if config.kafka.ssl_cert_location and not config.kafka.ssl_key_location:
-                raise InvalidConfigurationError(
-                    "kafka ssl_key_location is required when ssl_cert_location is provided"
-                )
-            
-            if config.kafka.ssl_key_location and not config.kafka.ssl_cert_location:
-                raise InvalidConfigurationError(
-                    "kafka ssl_cert_location is required when ssl_key_location is provided"
-                )
-        
-        # Validate producer configuration
-        valid_acks = ["0", "1", "all", "-1"]
-        if config.kafka.producer.acks not in valid_acks:
-            raise InvalidConfigurationError(
-                f"kafka producer acks must be one of {valid_acks}, "
-                f"got '{config.kafka.producer.acks}'"
-            )
-        
-        if config.kafka.producer.retries < 0:
-            raise InvalidConfigurationError(
-                f"kafka producer retries must be non-negative, got {config.kafka.producer.retries}"
-            )
-        
-        if config.kafka.producer.max_in_flight_requests < 1:
-            raise InvalidConfigurationError(
-                f"kafka producer max_in_flight_requests must be at least 1, "
-                f"got {config.kafka.producer.max_in_flight_requests}"
-            )
-        
-        valid_compression_types = ["none", "gzip", "snappy", "lz4", "zstd"]
-        if config.kafka.producer.compression_type not in valid_compression_types:
-            raise InvalidConfigurationError(
-                f"kafka producer compression_type must be one of {valid_compression_types}, "
-                f"got '{config.kafka.producer.compression_type}'"
-            )
-        
-        # Validate consumer configuration
-        valid_auto_offset_reset = ["earliest", "latest", "none"]
-        if config.kafka.consumer.auto_offset_reset not in valid_auto_offset_reset:
-            raise InvalidConfigurationError(
-                f"kafka consumer auto_offset_reset must be one of {valid_auto_offset_reset}, "
-                f"got '{config.kafka.consumer.auto_offset_reset}'"
-            )
-        
-        # Enforce exactly-once semantics requirements
-        if config.kafka.processing.guarantee == "exactly_once":
-            if config.kafka.consumer.enable_auto_commit:
-                raise InvalidConfigurationError(
-                    "kafka consumer enable_auto_commit must be False for exactly-once semantics"
-                )
-            
-            if config.kafka.consumer.isolation_level != "read_committed":
-                raise InvalidConfigurationError(
-                    "kafka consumer isolation_level must be 'read_committed' for exactly-once semantics"
-                )
-            
-            if not config.kafka.producer.enable_idempotence:
-                raise InvalidConfigurationError(
-                    "kafka producer enable_idempotence must be True for exactly-once semantics"
-                )
-        
-        if config.kafka.consumer.max_poll_records < 1:
-            raise InvalidConfigurationError(
-                f"kafka consumer max_poll_records must be at least 1, "
-                f"got {config.kafka.consumer.max_poll_records}"
-            )
-        
-        if config.kafka.consumer.session_timeout_ms < 1000:
-            raise InvalidConfigurationError(
-                f"kafka consumer session_timeout_ms must be at least 1000, "
-                f"got {config.kafka.consumer.session_timeout_ms}"
-            )
-        
-        # Validate processing configuration
-        valid_guarantees = ["exactly_once", "at_least_once"]
-        if config.kafka.processing.guarantee not in valid_guarantees:
-            raise InvalidConfigurationError(
-                f"kafka processing guarantee must be one of {valid_guarantees}, "
-                f"got '{config.kafka.processing.guarantee}'"
-            )
-    
-    # Validate Redis configuration (v0.3)
+    # Validate Redis configuration
     if config.compatibility.enable_redis:
         if not config.redis.host:
             raise InvalidConfigurationError("redis host cannot be empty when Redis is enabled")
@@ -1201,13 +971,8 @@ def _validate_config(config: CaracalConfig) -> None:
             )
 
     
-    # Validate compatibility configuration (v0.3)
-    valid_compatibility_modes = ["v0.2", "v0.3"]
-    if config.compatibility.mode not in valid_compatibility_modes:
-        raise InvalidConfigurationError(
-            f"compatibility mode must be one of {valid_compatibility_modes}, "
-            f"got '{config.compatibility.mode}'"
-        )
+    # Validate compatibility configuration
+    # Note: enable_merkle, enable_redis are just boolean flags - no validation needed
     
     # Validate snapshot configuration (v0.3)
     if config.snapshot.enabled:

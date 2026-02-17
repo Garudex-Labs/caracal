@@ -193,15 +193,6 @@ def _register_db_commands():
 _register_db_commands()
 
 
-# Import and register Kafka commands (v0.3)
-try:
-    from caracal.cli.kafka import kafka_group
-    cli.add_command(kafka_group)
-except ImportError:
-    # Kafka commands not available if kafka-python not installed
-    pass
-
-
 # Import and register Merkle commands (v0.3)
 try:
     from caracal.cli.merkle import merkle
@@ -227,34 +218,6 @@ try:
 except ImportError:
     # Snapshot commands not available
     pass
-
-
-# Import and register Replay commands (v0.3)
-try:
-    from caracal.cli.replay import replay_group
-    cli.add_command(replay_group)
-except ImportError as e:
-    # Replay commands not available
-    import logging
-    logging.getLogger(__name__).debug(f"Replay commands not available: {e}")
-except Exception as e:
-    # Log any other errors
-    import logging
-    logging.getLogger(__name__).warning(f"Failed to register replay commands: {e}")
-
-
-# Import and register DLQ commands (v0.3)
-try:
-    from caracal.cli.dlq import dlq_group
-    cli.add_command(dlq_group)
-except ImportError as e:
-    # DLQ commands not available
-    import logging
-    logging.getLogger(__name__).debug(f"DLQ commands not available: {e}")
-except Exception as e:
-    # Log any other errors
-    import logging
-    logging.getLogger(__name__).warning(f"Failed to register DLQ commands: {e}")
 
 
 # Import and register Key Management commands (v0.3)

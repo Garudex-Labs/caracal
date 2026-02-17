@@ -29,56 +29,18 @@ class AuthorityLedgerWriter:
     Implements:
     - Atomic write operations
     - Monotonically increasing event IDs (handled by database)
-    - Integration with Kafka for event streaming (optional)
-    
     Requirements: 2.1, 2.2, 2.3
     """
     
-    def __init__(self, db_session: Session, kafka_producer=None):
+    def __init__(self, db_session: Session):
         """
         Initialize AuthorityLedgerWriter.
         
         Args:
             db_session: SQLAlchemy database session
-            kafka_producer: Optional Kafka producer for event streaming
         """
         self.db_session = db_session
-        self.kafka_producer = kafka_producer
         logger.info("AuthorityLedgerWriter initialized")
-    
-    def _write_to_kafka(self, event: AuthorityLedgerEvent):
-        """
-        Write event to Kafka topic (optional).
-        
-        Args:
-            event: The AuthorityLedgerEvent to publish
-        """
-        if self.kafka_producer:
-            try:
-                event_data = {
-                    "event_id": event.event_id,
-                    "event_type": event.event_type,
-                    "timestamp": event.timestamp.isoformat(),
-                    "principal_id": str(event.principal_id),
-                    "mandate_id": str(event.mandate_id) if event.mandate_id else None,
-                    "decision": event.decision,
-                    "denial_reason": event.denial_reason,
-                    "requested_action": event.requested_action,
-                    "requested_resource": event.requested_resource,
-                    "event_metadata": event.event_metadata,
-                    "correlation_id": event.correlation_id
-                }
-                
-                self.kafka_producer.send(
-                    topic="authority-events",
-                    value=event_data
-                )
-                logger.debug(f"Published event {event.event_id} to Kafka")
-            except Exception as e:
-                # Kafka failures should not fail the write
-                logger.warning(f"Failed to publish event {event.event_id} to Kafka: {e}")
-        else:
-            logger.debug("No Kafka producer configured, skipping event publishing")
     
     def record_issuance(
         self,
@@ -91,8 +53,7 @@ class AuthorityLedgerWriter:
         """
         Record a mandate issuance event.
         
-        Creates a ledger event with type="issued" and writes it to the database
-        and optionally to Kafka.
+        Creates a ledger event with type="issued" and writes it to the database.
         
         Args:
             mandate_id: The mandate ID that was issued
@@ -144,9 +105,6 @@ class AuthorityLedgerWriter:
             self.db_session.rollback()
             raise RuntimeError(error_msg)
         
-        # Write to Kafka (optional, non-blocking)
-        self._write_to_kafka(event)
-        
         return event
     
     def record_validation(
@@ -165,7 +123,7 @@ class AuthorityLedgerWriter:
         Record a mandate validation event.
         
         Creates a ledger event with type="validated" or "denied" based on the
-        decision outcome and writes it to the database and optionally to Kafka.
+        decision outcome and writes it to the database.
         
         Args:
             mandate_id: The mandate ID that was validated (None if no mandate provided)
@@ -234,9 +192,6 @@ class AuthorityLedgerWriter:
             self.db_session.rollback()
             raise RuntimeError(error_msg)
         
-        # Write to Kafka (optional, non-blocking)
-        self._write_to_kafka(event)
-        
         return event
     
     def record_revocation(
@@ -251,8 +206,7 @@ class AuthorityLedgerWriter:
         """
         Record a mandate revocation event.
         
-        Creates a ledger event with type="revoked" and writes it to the database
-        and optionally to Kafka.
+        Creates a ledger event with type="revoked" and writes it to the database.
         
         Args:
             mandate_id: The mandate ID that was revoked
@@ -304,9 +258,6 @@ class AuthorityLedgerWriter:
             logger.error(error_msg, exc_info=True)
             self.db_session.rollback()
             raise RuntimeError(error_msg)
-        
-        # Write to Kafka (optional, non-blocking)
-        self._write_to_kafka(event)
         
         return event
 

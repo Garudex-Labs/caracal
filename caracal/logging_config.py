@@ -475,7 +475,7 @@ def log_event_replay(
         logger: Logger instance
         replay_id: Unique replay operation ID
         source: Replay source (timestamp, snapshot, offset)
-        start_offset: Starting Kafka offset (if applicable)
+        start_offset: Starting offset (if applicable)
         start_timestamp: Starting timestamp (if applicable)
         events_processed: Number of events processed (if completed)
         duration_seconds: Replay duration in seconds (if completed)
@@ -561,60 +561,6 @@ def log_snapshot_operation(
         logger.error(f"snapshot_{operation}_failed", **log_data)
     else:
         logger.debug(f"snapshot_{operation}_progress", **log_data)
-
-
-def log_kafka_consumer_event(
-    logger: structlog.stdlib.BoundLogger,
-    consumer_group: str,
-    topic: str,
-    partition: int,
-    offset: int,
-    event_type: str,
-    processing_status: str,
-    duration_ms: Optional[float] = None,
-    error: Optional[str] = None,
-    **kwargs: Any,
-) -> None:
-    """
-    Log a Kafka consumer event.
-    
-    Args:
-        logger: Logger instance
-        consumer_group: Consumer group ID
-        topic: Topic name
-        partition: Partition number
-        offset: Message offset
-        event_type: Type of event being processed
-        processing_status: Processing status (success, error, retry, dlq)
-        duration_ms: Processing duration in milliseconds
-        error: Error message if failed
-        **kwargs: Additional context to log
-    """
-    log_data: Dict[str, Any] = {
-        "event_type": "kafka_consumer_event",
-        "consumer_group": consumer_group,
-        "topic": topic,
-        "partition": partition,
-        "offset": offset,
-        "message_event_type": event_type,
-        "processing_status": processing_status,
-    }
-    
-    if duration_ms is not None:
-        log_data["duration_ms"] = duration_ms
-    if error is not None:
-        log_data["error"] = error
-    
-    log_data.update(kwargs)
-    
-    if processing_status == "success":
-        logger.debug("kafka_consumer_event_processed", **log_data)
-    elif processing_status == "error":
-        logger.error("kafka_consumer_event_failed", **log_data)
-    elif processing_status == "dlq":
-        logger.warning("kafka_consumer_event_sent_to_dlq", **log_data)
-    else:
-        logger.info("kafka_consumer_event", **log_data)
 
 
 def log_dlq_event(

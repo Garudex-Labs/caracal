@@ -176,22 +176,6 @@ class TokenValidationError(DelegationTokenError):
     pass
 
 
-# Kafka Errors
-class KafkaError(CaracalError):
-    """Base exception for Kafka-related errors."""
-    pass
-
-
-class KafkaPublishError(KafkaError):
-    """Raised when publishing to Kafka fails."""
-    pass
-
-
-class KafkaConsumerError(KafkaError):
-    """Raised when Kafka consumer operations fail."""
-    pass
-
-
 # Redis Errors
 class RedisError(CaracalError):
     """Base exception for Redis-related errors."""

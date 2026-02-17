@@ -241,7 +241,6 @@ class FlowApp:
             svc_table.add_column("Service", style=Colors.DIM)
             svc_table.add_column("Status")
             
-            kafka_on = getattr(config.compatibility, 'enable_kafka', True)
             redis_on = getattr(config.compatibility, 'enable_redis', True)
             merkle_on = getattr(config.compatibility, 'enable_merkle', False)
             gateway_on = getattr(config.gateway, 'enabled', False)
@@ -252,9 +251,8 @@ class FlowApp:
                     return f"[{Colors.SUCCESS}]{Icons.SUCCESS} Enabled[/]{f' ({label})' if label else ''}"
                 return f"[{Colors.DIM}]{Icons.ERROR} Disabled[/]{f' ({label})' if label else ''}"
             
-            svc_table.add_row("    Kafka", _status(kafka_on, "optional — async event streaming"))
-            svc_table.add_row("    Redis", _status(redis_on, "optional — mandate cache & rate limiting"))
-            svc_table.add_row("    Merkle", _status(merkle_on, "optional — tamper-proof audit batches"))
+            svc_table.add_row("    Redis", _status(redis_on, "optional — caching (recommended)"))
+            svc_table.add_row("    Merkle", _status(merkle_on, "optional — cryptographic audit"))
             svc_table.add_row("    Gateway", _status(gateway_on, "deployment — network enforcement proxy"))
             svc_table.add_row("    MCP Adapter", _status(mcp_on, "deployment — MCP protocol bridge"))
             
@@ -268,11 +266,10 @@ class FlowApp:
             
             # Architecture context
             self.console.print(f"  [{Colors.INFO}]Architecture:[/]")
-            self.console.print(f"    [{Colors.DIM}]Core: PostgreSQL (or SQLite) is the only required infrastructure.[/]")
-            self.console.print(f"    [{Colors.DIM}]Optional: Kafka, Redis, Merkle enhance performance & audit.[/]")
-            self.console.print(f"    [{Colors.DIM}]Deploy: Gateway & MCP Adapter are separate services that wrap[/]")
-            self.console.print(f"    [{Colors.DIM}]  core authority logic for network or MCP protocol enforcement.[/]")
-            self.console.print(f"    [{Colors.DIM}]  They can run on different hosts / containers.[/]")
+            self.console.print(f"    [{Colors.DIM}]Core: PostgreSQL is required.[/]")
+            self.console.print(f"    [{Colors.DIM}]Optional: Redis (caching), Merkle (audit).[/]")
+            self.console.print(f"    [{Colors.DIM}]Deploy: Gateway & MCP Adapter are optional services for network[/]")
+            self.console.print(f"    [{Colors.DIM}]  or MCP protocol enforcement. They can run on different hosts.[/]")
             self.console.print()
             
         except Exception as e:
@@ -382,19 +379,6 @@ class FlowApp:
             table.add_row("PostgreSQL", "Core", _enabled_str(True), _status_str(db_ok),
                          f"{config.database.host}:{config.database.port}")
         
-        # Kafka (optional — async event streaming, core works without it)
-        kafka_on = getattr(config.compatibility, 'enable_kafka', True)
-        if kafka_on:
-            brokers = getattr(config.kafka, 'brokers', ['localhost:9092'])
-            broker = brokers[0] if brokers else 'localhost:9092'
-            host, _, port_str = broker.rpartition(':')
-            port = int(port_str) if port_str.isdigit() else 9092
-            host = host or 'localhost'
-            kafka_ok = _check_tcp(host, port)
-            table.add_row("Kafka", "Optional", _enabled_str(True), _status_str(kafka_ok), broker)
-        else:
-            table.add_row("Kafka", "Optional", _enabled_str(False), f"[{Colors.DIM}]Skipped[/]", "—")
-        
         # Redis (optional — mandate caching and rate limiting, falls back to PostgreSQL)
         redis_on = getattr(config.compatibility, 'enable_redis', True)
         if redis_on:
@@ -435,14 +419,14 @@ class FlowApp:
         
         # Architecture note
         self.console.print(f"  [{Colors.INFO}]Architecture Notes:[/]")
-        self.console.print(f"  [{Colors.DIM}]  • PostgreSQL is the only required service for core authority enforcement[/]")
-        self.console.print(f"  [{Colors.DIM}]  • Kafka, Redis, Merkle are optional enhancements (disable in config.yaml → compatibility section)[/]")
-        self.console.print(f"  [{Colors.DIM}]  • Gateway & MCP Adapter are separate deployment services — they wrap core logic[/]")
-        self.console.print(f"  [{Colors.DIM}]    for network-layer or MCP-protocol enforcement and can run on different hosts[/]")
+        self.console.print(f"  [{Colors.DIM}]  • PostgreSQL is required[/]")
+        self.console.print(f"  [{Colors.DIM}]  • Redis (optional) — caching for performance[/]")
+        self.console.print(f"  [{Colors.DIM}]  • Merkle trees (optional) — cryptographic audit trails[/]")
+        self.console.print(f"  [{Colors.DIM}]  • Gateway & MCP Adapter (optional) — deployment services[/]")
         self.console.print()
-        self.console.print(f"  [{Colors.HINT}]Edit config.yaml to enable/disable services:[/]")
-        self.console.print(f"  [{Colors.DIM}]  compatibility.enable_kafka, compatibility.enable_redis, compatibility.enable_merkle[/]")
-        self.console.print(f"  [{Colors.DIM}]  gateway.enabled, mcp_adapter.enabled[/]")
+        self.console.print(f"  [{Colors.HINT}]Edit config.yaml to enable/disable optional features:[/]")
+        self.console.print(f"  [{Colors.DIM}]  compatibility.enable_redis: true (default)[/]")
+        self.console.print(f"  [{Colors.DIM}]  compatibility.enable_merkle: false (default)[/]")
         self.console.print()
         self.console.print(f"  [{Colors.HINT}]Press Enter to continue...[/]")
         input()
@@ -589,12 +573,10 @@ ledger capabilities.[/]
             self.console.print()
             
             # Determine which optional services are enabled
-            kafka_enabled = False
             redis_enabled = False
             try:
                 from caracal.config import load_config
                 config = load_config()
-                kafka_enabled = getattr(config.compatibility, 'enable_kafka', True)
                 redis_enabled = getattr(config.compatibility, 'enable_redis', True)
             except Exception:
                 pass
@@ -607,9 +589,6 @@ ledger capabilities.[/]
             # Optional services — only shown if enabled in config
             if redis_enabled:
                 items.append(MenuItem("redis", "Start Redis", "Optional: mandate caching & rate limiting", ""))
-            if kafka_enabled:
-                items.append(MenuItem("kafka-stack", "Start Kafka Stack",
-                                     "Optional: event streaming (kafka + zookeeper + schema-registry)", ""))
             
             items.extend([
                 MenuItem("core-stack", "Start Core Stack",
@@ -634,8 +613,6 @@ ledger capabilities.[/]
                 services = ["postgres"]
             elif result.key == "redis":
                 services = ["redis"]
-            elif result.key == "kafka-stack":
-                services = ["zookeeper", "kafka", "schema-registry"]
             elif result.key == "core-stack":
                 services = ["postgres"]
                 if redis_enabled:
