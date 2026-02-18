@@ -3,10 +3,6 @@
 Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 Caracal, a product of Garudex Labs
 
-[One-sentence description of the file's purpose and functionality.]
-"""
-
-"""
 Comprehensive test suite for crypto operations.
 This tests all functions in the caracal.core.crypto module.
 """

@@ -51,11 +51,9 @@ class AuthorityDecision:
 class AuthorityEvaluator:
     """
     Evaluates authority for action execution.
-    
+
     Validates mandates and makes allow/deny decisions with fail-closed semantics.
     Any error or uncertainty results in denial of authority.
-    
-    Requirements: 6.9, 14.4
     """
     
     def __init__(self, db_session: Session, ledger_writer=None, mandate_cache=None):
@@ -95,16 +93,14 @@ class AuthorityEvaluator:
     def _get_mandate_with_cache(self, mandate_id: UUID) -> Optional[ExecutionMandate]:
         """
         Get mandate by ID with caching support.
-        
+
         Checks cache first, falls back to database if not cached.
-        
+
         Args:
             mandate_id: The mandate ID to get
-        
+
         Returns:
             ExecutionMandate if found, None otherwise
-        
-        Requirements: 14.4
         """
         # Try cache first if available
         if self.mandate_cache:
@@ -211,7 +207,7 @@ class AuthorityEvaluator:
     ) -> AuthorityDecision:
         """
         Validate a mandate for a specific action.
-        
+
         Checks:
         - Cryptographic signature
         - Expiration
@@ -219,20 +215,18 @@ class AuthorityEvaluator:
         - Action scope
         - Resource scope
         - Delegation chain validity
-        
+
         Returns AuthorityDecision with allow/deny and reason.
         Implements fail-closed semantics: any error results in denial.
-        
+
         Args:
             mandate: The ExecutionMandate to validate
             requested_action: The action being requested
             requested_resource: The resource being accessed
             current_time: Optional current time (defaults to utcnow)
-        
+
         Returns:
             AuthorityDecision with allow/deny and reason
-        
-        Requirements: 6.1, 6.2, 6.3, 6.4, 6.5, 6.6, 6.7, 6.8, 6.9, 6.10
         """
         if current_time is None:
             current_time = datetime.utcnow()
@@ -562,21 +556,19 @@ class AuthorityEvaluator:
     ) -> bool:
         """
         Validate entire delegation chain.
-        
+
         Traverses parent mandates recursively and validates each:
         - Not revoked
         - Not expired
         - Scope constraints maintained
-        
+
         Returns True if chain is valid, False otherwise.
-        
+
         Args:
             mandate: The mandate to check the delegation chain for
-        
+
         Returns:
             True if delegation chain is valid, False otherwise
-        
-        Requirements: 8.7, 8.8, 8.9
         """
         logger.info(f"Checking delegation chain for mandate {mandate.mandate_id}")
         
