@@ -5,8 +5,6 @@ Caracal, a product of Garudex Labs
 CLI commands for snapshot management.
 
 Provides commands for creating, listing, and restoring ledger snapshots.
-
-Requirements: 12.5
 """
 
 import sys

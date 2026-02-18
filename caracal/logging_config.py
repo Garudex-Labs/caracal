@@ -629,8 +629,7 @@ def log_authority_decision(
         resource: Requested resource
         denial_reason: Reason for denial if denied
         **kwargs: Additional context to log
-        
-    Requirements: 15.6, 15.7
+
     """
     # Get correlation ID from context
     correlation_id = get_correlation_id()
@@ -685,8 +684,7 @@ def log_mandate_issuance(
         validity_seconds: Validity period in seconds
         parent_mandate_id: Parent mandate ID if delegated
         **kwargs: Additional context to log
-        
-    Requirements: 15.6, 15.7
+
     """
     correlation_id = get_correlation_id()
     
@@ -740,7 +738,6 @@ def log_mandate_validation(
         duration_ms: Validation duration in milliseconds
         **kwargs: Additional context to log
         
-    Requirements: 15.6, 15.7
     """
     correlation_id = get_correlation_id()
     
@@ -790,7 +787,6 @@ def log_mandate_revocation(
         child_mandates_revoked: Number of child mandates revoked (if cascade)
         **kwargs: Additional context to log
         
-    Requirements: 15.6, 15.7
     """
     correlation_id = get_correlation_id()
     
@@ -838,7 +834,6 @@ def log_authority_policy_change(
         after_values: Policy values after change
         **kwargs: Additional context to log
         
-    Requirements: 15.6, 15.7
     """
     correlation_id = get_correlation_id()
     
@@ -887,7 +882,6 @@ def log_delegation_chain_validation(
         failure_reason: Reason for chain validation failure
         **kwargs: Additional context to log
         
-    Requirements: 15.6, 15.7
     """
     correlation_id = get_correlation_id()
     
@@ -938,7 +932,6 @@ def log_intent_validation(
         reason: Reason for validation result
         **kwargs: Additional context to log
         
-    Requirements: 15.6, 15.7
     """
     correlation_id = get_correlation_id()
     

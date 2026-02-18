@@ -11,8 +11,6 @@ Circuit breaker states:
 - CLOSED: Normal operation, requests pass through
 - OPEN: Too many failures, requests fail immediately
 - HALF_OPEN: Testing if service recovered, limited requests pass through
-
-Requirements: 23.5, 23.6
 """
 
 import asyncio

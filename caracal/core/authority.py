@@ -6,8 +6,6 @@ Authority evaluation for mandate validation.
 
 This module provides the AuthorityEvaluator class for validating execution
 mandates and making allow/deny decisions with fail-closed semantics.
-
-Requirements: 6.1, 6.2, 6.3, 6.4, 6.5, 6.6, 6.7, 6.8, 6.9, 6.10, 8.7, 8.8, 8.9
 """
 
 from dataclasses import dataclass

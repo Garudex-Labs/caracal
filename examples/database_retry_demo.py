@@ -11,8 +11,6 @@ Database Retry Logic Demo
 
 This example demonstrates how to use the retry_database_operation decorator
 and retry_database_query function to handle transient database failures.
-
-Requirements: 23.1
 """
 
 import sys

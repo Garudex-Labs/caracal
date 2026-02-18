@@ -6,8 +6,6 @@ Ledger snapshot management for Caracal Core v0.3.
 
 This module provides the SnapshotManager for creating and managing ledger snapshots
 for fast recovery without replaying all events from the beginning.
-
-Requirements: 12.1, 12.2, 12.3, 12.4, 12.5, 12.6, 12.7
 """
 
 import asyncio

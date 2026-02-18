@@ -6,10 +6,6 @@ Demo script for AuthorityClient SDK.
 
 This script demonstrates how to use the AuthorityClient SDK to interact
 with the Caracal Authority Enforcement system.
-
-Requirements:
-- Caracal authority service running at http://localhost:8000
-- Valid API key (if authentication is enabled)
 """
 
 from caracal.sdk import AuthorityClient

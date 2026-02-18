@@ -6,8 +6,6 @@ Scheduled snapshot creation for Caracal Core v0.3.
 
 This module provides a scheduler for creating ledger snapshots at regular intervals
 (e.g., daily at midnight UTC).
-
-Requirements: 12.1
 """
 
 import asyncio
@@ -28,11 +26,9 @@ logger = get_logger(__name__)
 class SnapshotScheduler:
     """
     Scheduler for automatic snapshot creation.
-    
+
     Creates snapshots at configured intervals (default: daily at midnight UTC).
     Logs all snapshot creation operations.
-    
-    Requirements: 12.1
     """
 
     def __init__(

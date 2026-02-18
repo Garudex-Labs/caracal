@@ -12,7 +12,6 @@ Demo script for Gateway Proxy server.
 This script demonstrates how to set up and run the Gateway Proxy
 for network-enforced policy enforcement.
 
-Requirements: 1.1, 1.2, 1.6
 """
 
 import asyncio
