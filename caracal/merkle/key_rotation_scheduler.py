@@ -1,4 +1,7 @@
 """
+Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+Caracal, a product of Garudex Labs
+
 Automatic key rotation scheduler for Merkle signing keys.
 
 This module provides automatic key rotation based on configured intervals.

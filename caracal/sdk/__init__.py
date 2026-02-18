@@ -1,4 +1,7 @@
 """
+Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+Caracal, a product of Garudex Labs
+
 Python SDK for Caracal Core.
 
 Provides developer-friendly API for budget checks and metering.

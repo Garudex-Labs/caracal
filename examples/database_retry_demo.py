@@ -1,5 +1,12 @@
 #!/usr/bin/env python3
 """
+Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+Caracal, a product of Garudex Labs
+
+[One-sentence description of the file's purpose and functionality.]
+"""
+
+"""
 Database Retry Logic Demo
 
 This example demonstrates how to use the retry_database_operation decorator

@@ -1,4 +1,7 @@
 """
+Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+Caracal, a product of Garudex Labs
+
 Configuration encryption utilities for Caracal Core.
 
 Provides utilities for:

@@ -1,4 +1,7 @@
 """
+Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+Caracal, a product of Garudex Labs
+
 Demo of Caracal Core v0.3 monitoring and observability features.
 
 This example demonstrates:

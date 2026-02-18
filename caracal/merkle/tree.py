@@ -1,4 +1,7 @@
 """
+Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+Caracal, a product of Garudex Labs
+
 Merkle tree implementation for cryptographic ledger integrity.
 
 This module implements a binary Merkle tree with SHA-256 hashing for

@@ -1,4 +1,7 @@
 """
+Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+Caracal, a product of Garudex Labs
+
 Demo script for MCP Adapter.
 
 This script demonstrates how to use the MCP Adapter to intercept

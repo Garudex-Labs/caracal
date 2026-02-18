@@ -1,4 +1,7 @@
 """
+Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+Caracal, a product of Garudex Labs
+
 Ledger snapshot management for Caracal Core v0.3.
 
 This module provides the SnapshotManager for creating and managing ledger snapshots

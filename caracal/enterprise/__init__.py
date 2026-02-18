@@ -1,4 +1,7 @@
 """
+Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+Caracal, a product of Garudex Labs
+
 Caracal Enterprise Extension Module.
 
 This module provides extension points for Caracal Enterprise features.

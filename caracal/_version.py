@@ -1,4 +1,7 @@
 """
+Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+Caracal, a product of Garudex Labs
+
 Version information for Caracal Core.
 
 This module reads the version from the VERSION file at the root of the package.

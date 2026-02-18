@@ -1,4 +1,7 @@
 """
+Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+Caracal, a product of Garudex Labs
+
 Ledger management for Caracal Core.
 
 This module provides the LedgerWriter for appending events to an immutable ledger

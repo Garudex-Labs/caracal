@@ -1,4 +1,7 @@
 """
+Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+Caracal, a product of Garudex Labs
+
 Circuit Breaker Demo for Caracal Core.
 
 This example demonstrates how to use circuit breakers to protect against

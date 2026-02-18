@@ -1,4 +1,7 @@
 """
+Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+Caracal, a product of Garudex Labs
+
 Database connection management for Caracal Core.
 
 PostgreSQL is the **only** supported database backend.  There is no SQLite

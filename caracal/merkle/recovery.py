@@ -1,4 +1,7 @@
 """
+Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+Caracal, a product of Garudex Labs
+
 Snapshot-based recovery for Caracal Core v0.3.
 
 This module provides comprehensive recovery functionality including:

@@ -1,4 +1,7 @@
 """
+Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+Caracal, a product of Garudex Labs
+
 Setup script for Caracal Core.
 
 This file exists for compatibility with older build tools.

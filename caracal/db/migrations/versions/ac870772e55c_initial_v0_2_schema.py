@@ -1,4 +1,8 @@
-"""Initial v0.2 schema
+"""
+Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+Caracal, a product of Garudex Labs
+
+Initial v0.2 schema
 
 Revision ID: ac870772e55c
 Revises: 

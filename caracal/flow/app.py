@@ -1,4 +1,7 @@
 """
+Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+Caracal, a product of Garudex Labs
+
 Caracal Flow Application Controller.
 
 Main application class orchestrating the TUI experience:

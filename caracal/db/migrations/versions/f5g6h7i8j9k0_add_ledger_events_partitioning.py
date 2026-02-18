@@ -1,4 +1,8 @@
-"""Add table partitioning for ledger_events
+"""
+Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+Caracal, a product of Garudex Labs
+
+Add table partitioning for ledger_events
 
 Revision ID: f5g6h7i8j9k0
 Revises: e4f5g6h7i8j9

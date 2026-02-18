@@ -1,9 +1,12 @@
-"""add window_type to budget_policies
+"""
+Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+Caracal, a product of Garudex Labs
+
+add window_type to budget_policies
 
 Revision ID: d3e4f5g6h7i8
 Revises: c2d3e4f5g6h7
 Create Date: 2024-01-15 10:00:00.000000
-
 """
 from alembic import op
 import sqlalchemy as sa

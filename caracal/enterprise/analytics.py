@@ -1,4 +1,7 @@
 """
+Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+Caracal, a product of Garudex Labs
+
 Advanced analytics export for Caracal Enterprise.
 
 This module provides advanced analytics and anomaly detection capabilities

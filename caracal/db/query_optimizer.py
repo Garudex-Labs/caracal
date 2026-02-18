@@ -1,4 +1,7 @@
 """
+Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+Caracal, a product of Garudex Labs
+
 Database query optimization utilities.
 
 Provides query result caching, optimized query patterns, and performance

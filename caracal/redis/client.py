@@ -1,4 +1,7 @@
 """
+Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+Caracal, a product of Garudex Labs
+
 Redis client for Caracal Core v0.3.
 
 Provides connection management and basic operations for Redis caching.

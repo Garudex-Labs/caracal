@@ -1,4 +1,7 @@
 """
+Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+Caracal, a product of Garudex Labs
+
 Materialized view management for Caracal Core v0.3.
 
 This module provides functionality to refresh materialized views used for

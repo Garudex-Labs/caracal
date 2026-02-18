@@ -1,4 +1,7 @@
 """
+Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+Caracal, a product of Garudex Labs
+
 Redis mandate cache for authority enforcement performance optimization.
 
 Provides caching of frequently validated mandates with TTL management

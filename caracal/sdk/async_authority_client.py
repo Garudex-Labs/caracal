@@ -1,4 +1,7 @@
 """
+Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+Caracal, a product of Garudex Labs
+
 Async SDK client for Caracal Authority Enforcement.
 
 Provides async developer-friendly API for mandate management and authority validation.

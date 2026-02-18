@@ -1,3 +1,10 @@
+"""
+Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+Caracal, a product of Garudex Labs
+
+[One-sentence description of the file's purpose and functionality.]
+"""
+
 import sys
 
 from datetime import datetime

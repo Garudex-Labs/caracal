@@ -1,4 +1,7 @@
 """
+Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+Caracal, a product of Garudex Labs
+
 HTTP server for Prometheus metrics endpoint.
 
 Provides HTTP endpoint for Prometheus to scrape metrics from Caracal Core.

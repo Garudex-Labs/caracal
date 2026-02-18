@@ -1,4 +1,7 @@
 """
+Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+Caracal, a product of Garudex Labs
+
 Time window calculation for Caracal Core v0.3.
 
 This module provides the TimeWindowCalculator for calculating time window bounds

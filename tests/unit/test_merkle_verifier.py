@@ -1,4 +1,7 @@
 """
+Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+Caracal, a product of Garudex Labs
+
 Unit tests for Merkle verifier.
 
 Tests the MerkleVerifier implementation for batch verification,

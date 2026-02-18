@@ -1,4 +1,7 @@
 """
+Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+Caracal, a product of Garudex Labs
+
 CLI entry point for Caracal Core.
 
 Provides command-line interface for administrative operations including

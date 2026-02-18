@@ -1,4 +1,7 @@
 """
+Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+Caracal, a product of Garudex Labs
+
 Scheduled snapshot creation for Caracal Core v0.3.
 
 This module provides a scheduler for creating ledger snapshots at regular intervals

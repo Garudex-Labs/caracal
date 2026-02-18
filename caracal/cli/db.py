@@ -1,4 +1,7 @@
 """
+Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+Caracal, a product of Garudex Labs
+
 Database management commands for Caracal Core.
 
 Provides CLI commands for database initialization, migrations, and status checks.

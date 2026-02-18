@@ -1,4 +1,7 @@
 """
+Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+Caracal, a product of Garudex Labs
+
 Merkle root signing with pluggable backend support.
 
 This module provides cryptographic signing of Merkle roots using ECDSA P-256.

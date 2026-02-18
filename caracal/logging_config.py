@@ -1,4 +1,7 @@
 """
+Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+Caracal, a product of Garudex Labs
+
 Logging configuration for Caracal Core.
 
 Provides centralized structured logging setup with JSON output for production

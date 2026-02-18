@@ -1,4 +1,7 @@
 """
+Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+Caracal, a product of Garudex Labs
+
 Integration tests for snapshot functionality.
 
 Tests the complete snapshot workflow including creation, listing, and recovery.

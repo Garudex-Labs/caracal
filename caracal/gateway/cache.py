@@ -1,4 +1,7 @@
 """
+Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+Caracal, a product of Garudex Labs
+
 Policy Cache for Gateway Proxy.
 
 Provides caching of policy evaluation results for degraded mode operation

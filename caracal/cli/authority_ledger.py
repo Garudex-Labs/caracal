@@ -1,4 +1,7 @@
 """
+Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+Caracal, a product of Garudex Labs
+
 CLI commands for authority ledger management.
 
 Provides commands for querying authority ledger events and exporting audit reports.

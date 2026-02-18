@@ -1,4 +1,7 @@
 """
+Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+Caracal, a product of Garudex Labs
+
 Fail-closed error handling for Caracal Core v0.2.
 
 Provides centralized error handling with fail-closed semantics:

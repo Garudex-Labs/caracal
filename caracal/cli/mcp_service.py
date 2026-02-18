@@ -1,4 +1,7 @@
 """
+Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+Caracal, a product of Garudex Labs
+
 CLI commands for MCP Adapter Service.
 
 Provides commands to start and manage the MCP adapter standalone service.

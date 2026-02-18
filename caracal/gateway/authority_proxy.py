@@ -1,4 +1,7 @@
 """
+Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+Caracal, a product of Garudex Labs
+
 Authority gateway proxy for pre-execution enforcement.
 
 This module provides the AuthorityGatewayProxy class for intercepting requests

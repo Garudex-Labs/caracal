@@ -1,4 +1,7 @@
 """
+Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+Caracal, a product of Garudex Labs
+
 MCP Adapter for Caracal Core.
 
 This module provides the MCPAdapter service that intercepts MCP tool calls

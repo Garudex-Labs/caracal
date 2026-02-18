@@ -1,4 +1,7 @@
 """
+Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+Caracal, a product of Garudex Labs
+
 Caracal Flow Components - UI building blocks.
 
 Provides reusable UI components:

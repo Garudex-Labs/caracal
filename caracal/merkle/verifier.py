@@ -1,4 +1,7 @@
 """
+Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+Caracal, a product of Garudex Labs
+
 Merkle verifier for cryptographic ledger integrity verification.
 
 This module implements verification of Merkle tree batches, including:

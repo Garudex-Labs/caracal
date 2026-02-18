@@ -1,4 +1,7 @@
 """
+Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+Caracal, a product of Garudex Labs
+
 CLI commands for authority enforcement management.
 
 Provides commands for issuing, validating, revoking, and listing execution mandates.

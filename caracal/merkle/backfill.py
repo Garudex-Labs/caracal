@@ -1,4 +1,7 @@
 """
+Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+Caracal, a product of Garudex Labs
+
 Ledger backfill manager for v0.2 events.
 
 This module provides functionality to retroactively compute Merkle roots for

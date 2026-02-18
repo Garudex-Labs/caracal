@@ -1,4 +1,7 @@
 """
+Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+Caracal, a product of Garudex Labs
+
 Workspace management for Caracal Flow.
 
 Provides centralized path resolution so every module resolves files

@@ -1,4 +1,7 @@
 """
+Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+Caracal, a product of Garudex Labs
+
 Unit tests for CLI database management commands.
 
 Tests the caracal db commands for database initialization, migrations, and status.

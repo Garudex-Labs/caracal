@@ -1,4 +1,7 @@
 """
+Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+Caracal, a product of Garudex Labs
+
 Unit tests for CLI agent delegation commands.
 
 Tests the agent register command with parent-id and delegated-budget options,

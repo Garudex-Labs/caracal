@@ -1,4 +1,7 @@
 """
+Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+Caracal, a product of Garudex Labs
+
 Unit tests for delegation token management.
 
 Tests the DelegationTokenManager for generating and validating

@@ -1,4 +1,7 @@
 """
+Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+Caracal, a product of Garudex Labs
+
 MCP (Model Context Protocol) adapter for Caracal Core.
 
 This module provides integration between Caracal authority enforcement

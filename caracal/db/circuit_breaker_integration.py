@@ -1,4 +1,7 @@
 """
+Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+Caracal, a product of Garudex Labs
+
 Circuit breaker integration for database operations.
 
 This module provides circuit breaker protection for database operations

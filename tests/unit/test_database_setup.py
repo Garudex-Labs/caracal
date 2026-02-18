@@ -1,4 +1,7 @@
 """
+Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+Caracal, a product of Garudex Labs
+
 Comprehensive tests for database setup logic in Caracal.
 
 Tests the complete database setup flow including:

@@ -1,4 +1,7 @@
 """
+Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+Caracal, a product of Garudex Labs
+
 Circuit breaker implementation for Caracal Core.
 
 This module provides circuit breaker functionality to handle failures in external services

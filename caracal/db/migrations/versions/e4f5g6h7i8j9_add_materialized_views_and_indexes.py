@@ -1,4 +1,8 @@
-"""Add materialized views and indexes for ledger query optimization
+"""
+Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+Caracal, a product of Garudex Labs
+
+Add materialized views and indexes for ledger query optimization
 
 Revision ID: e4f5g6h7i8j9
 Revises: d3e4f5g6h7i8

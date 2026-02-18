@@ -1,4 +1,7 @@
 """
+Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+Caracal, a product of Garudex Labs
+
 CLI commands for delegation token management.
 
 Provides commands for generating and viewing delegation tokens.

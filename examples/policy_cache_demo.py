@@ -1,4 +1,7 @@
 """
+Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+Caracal, a product of Garudex Labs
+
 Policy Cache Demonstration
 
 This script demonstrates the PolicyCache functionality for degraded mode operation:

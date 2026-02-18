@@ -1,4 +1,7 @@
 """
+Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+Caracal, a product of Garudex Labs
+
 Mandate management for authority enforcement.
 
 This module provides the MandateManager class for managing execution mandate

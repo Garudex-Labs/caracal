@@ -1,4 +1,7 @@
 """
+Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+Caracal, a product of Garudex Labs
+
 Delegation token management for Caracal Core v0.2.
 
 This module provides the DelegationTokenManager for generating and validating

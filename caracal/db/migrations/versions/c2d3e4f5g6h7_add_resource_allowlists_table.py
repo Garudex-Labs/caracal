@@ -1,4 +1,8 @@
-"""Add resource_allowlists table
+"""
+Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+Caracal, a product of Garudex Labs
+
+Add resource_allowlists table
 
 Revision ID: c2d3e4f5g6h7
 Revises: b1c2d3e4f5g6

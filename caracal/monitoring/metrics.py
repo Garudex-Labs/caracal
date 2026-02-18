@@ -1,4 +1,7 @@
 """
+Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+Caracal, a product of Garudex Labs
+
 Prometheus metrics for Caracal Core v0.5.
 
 This module provides comprehensive metrics for monitoring:

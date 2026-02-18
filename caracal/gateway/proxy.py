@@ -1,4 +1,7 @@
 """
+Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+Caracal, a product of Garudex Labs
+
 Gateway Proxy server for Caracal Core.
 
 Provides network-enforced policy enforcement through:

@@ -1,4 +1,8 @@
-"""Add policy_versions table
+"""
+Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+Caracal, a product of Garudex Labs
+
+Add policy_versions table
 
 Revision ID: b1c2d3e4f5g6
 Revises: ac870772e55c

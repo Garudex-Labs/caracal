@@ -1,4 +1,8 @@
-"""add backfill support
+"""
+Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+Caracal, a product of Garudex Labs
+
+add backfill support
 
 Revision ID: g6h7i8j9k0l1
 Revises: f5g6h7i8j9k0

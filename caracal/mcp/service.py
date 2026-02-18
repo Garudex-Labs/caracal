@@ -1,4 +1,7 @@
 """
+Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+Caracal, a product of Garudex Labs
+
 MCP Adapter Standalone Service for Caracal Core v0.2.
 
 Provides HTTP API for MCP request proxying with authority enforcement:

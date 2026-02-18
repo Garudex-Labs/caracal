@@ -1,4 +1,7 @@
 """
+Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+Caracal, a product of Garudex Labs
+
 Merkle batcher for accumulating events and triggering batch signing.
 
 This module implements event batching with configurable thresholds:

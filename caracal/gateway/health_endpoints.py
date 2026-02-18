@@ -1,4 +1,7 @@
 """
+Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+Caracal, a product of Garudex Labs
+
 Health check endpoints for gateway and services.
 
 Provides HTTP endpoints for health checks that can be used by load balancers,

@@ -1,4 +1,7 @@
 """
+Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+Caracal, a product of Garudex Labs
+
 Enterprise-specific exceptions.
 
 This module defines exceptions raised when enterprise features are accessed

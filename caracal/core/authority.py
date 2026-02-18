@@ -1,4 +1,7 @@
 """
+Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+Caracal, a product of Garudex Labs
+
 Authority evaluation for mandate validation.
 
 This module provides the AuthorityEvaluator class for validating execution

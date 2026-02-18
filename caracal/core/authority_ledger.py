@@ -1,4 +1,7 @@
 """
+Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+Caracal, a product of Garudex Labs
+
 Authority ledger operations for authority enforcement.
 
 This module provides the AuthorityLedgerWriter for recording authority events

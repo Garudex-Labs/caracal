@@ -1,4 +1,7 @@
 """
+Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+Caracal, a product of Garudex Labs
+
 Unit tests for LedgerWriter.
 
 Tests the core functionality of appending events to the immutable ledger.

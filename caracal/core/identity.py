@@ -1,4 +1,7 @@
 """
+Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+Caracal, a product of Garudex Labs
+
 Principal identity management for Caracal Core.
 
 This module provides the AgentRegistry (to be renamed to PrincipalRegistry) 

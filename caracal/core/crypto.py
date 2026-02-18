@@ -1,4 +1,7 @@
 """
+Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+Caracal, a product of Garudex Labs
+
 Cryptographic operations for authority enforcement.
 
 This module provides cryptographic functions for execution mandate signing

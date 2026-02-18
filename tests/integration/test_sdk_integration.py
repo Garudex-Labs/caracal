@@ -1,4 +1,7 @@
 """
+Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+Caracal, a product of Garudex Labs
+
 Integration tests for Caracal SDK usage.
 
 Tests SDK context manager in realistic scenarios:

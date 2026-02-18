@@ -1,4 +1,8 @@
-"""Add authority enforcement tables
+"""
+Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+Caracal, a product of Garudex Labs
+
+Add authority enforcement tables
 
 Revision ID: h7i8j9k0l1m2
 Revises: g6h7i8j9k0l1

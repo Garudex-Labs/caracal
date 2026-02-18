@@ -1,4 +1,7 @@
 """
+Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+Caracal, a product of Garudex Labs
+
 Caracal Flow - Interactive CLI for the Caracal authority enforcement system.
 
 Provides a guided, step-driven terminal experience with:

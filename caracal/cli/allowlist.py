@@ -1,4 +1,7 @@
 """
+Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+Caracal, a product of Garudex Labs
+
 CLI commands for resource allowlist management.
 
 Provides commands for creating, listing, deleting, and testing resource allowlists.

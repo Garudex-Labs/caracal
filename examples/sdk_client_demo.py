@@ -1,5 +1,12 @@
 #!/usr/bin/env python
 """
+Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+Caracal, a product of Garudex Labs
+
+[One-sentence description of the file's purpose and functionality.]
+"""
+
+"""
 Demonstration of Caracal SDK Client usage.
 
 This script shows how to:

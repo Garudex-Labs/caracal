@@ -1,4 +1,7 @@
 """
+Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+Caracal, a product of Garudex Labs
+
 Audit Log Management for Caracal Core v0.3.
 
 Provides functionality for querying and exporting audit logs in multiple formats.

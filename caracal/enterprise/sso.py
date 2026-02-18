@@ -1,4 +1,7 @@
 """
+Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+Caracal, a product of Garudex Labs
+
 SSO (Single Sign-On) integration for Caracal Enterprise.
 
 This module provides SSO authentication capabilities for Caracal Enterprise.

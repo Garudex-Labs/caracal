@@ -1,4 +1,7 @@
 """
+Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+Caracal, a product of Garudex Labs
+
 Unit tests for configuration management (v0.3).
 
 Tests configuration loading, validation, and v0.3 features.

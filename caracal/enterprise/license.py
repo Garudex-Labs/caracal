@@ -1,4 +1,7 @@
 """
+Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+Caracal, a product of Garudex Labs
+
 Enterprise license validation.
 
 This module provides license validation for Caracal Enterprise features.

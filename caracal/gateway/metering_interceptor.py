@@ -1,4 +1,7 @@
 """
+Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+Caracal, a product of Garudex Labs
+
 Gateway metering interceptor for Caracal Gateway.
 
 Instruments the gateway proxy to record server-side metering events

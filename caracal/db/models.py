@@ -1,4 +1,7 @@
 """
+Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+Caracal, a product of Garudex Labs
+
 SQLAlchemy models for Caracal Core PostgreSQL backend.
 
 This module defines the database schema for:

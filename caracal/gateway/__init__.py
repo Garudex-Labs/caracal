@@ -1,4 +1,7 @@
 """
+Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+Caracal, a product of Garudex Labs
+
 Gateway proxy module for Caracal Core v0.5.
 
 This module provides network-enforced policy enforcement through:

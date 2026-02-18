@@ -1,4 +1,7 @@
 """
+Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+Caracal, a product of Garudex Labs
+
 Enterprise API routes for Caracal.
 
 This module provides API endpoints for enterprise features.

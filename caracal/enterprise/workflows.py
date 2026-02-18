@@ -1,4 +1,7 @@
 """
+Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+Caracal, a product of Garudex Labs
+
 Workflow automation engine for Caracal Enterprise.
 
 This module provides workflow automation capabilities for Caracal Enterprise.

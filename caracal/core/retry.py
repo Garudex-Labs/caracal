@@ -1,4 +1,7 @@
 """
+Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+Caracal, a product of Garudex Labs
+
 Retry logic utilities for Caracal Core.
 
 This module provides retry decorators and utilities for handling transient failures

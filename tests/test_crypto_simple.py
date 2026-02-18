@@ -1,4 +1,11 @@
 #!/usr/bin/env python3
+"""
+Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+Caracal, a product of Garudex Labs
+
+[One-sentence description of the file's purpose and functionality.]
+"""
+
 """Simple test for crypto operations."""
 
 from cryptography.hazmat.primitives import serialization

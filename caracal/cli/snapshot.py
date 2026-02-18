@@ -1,4 +1,7 @@
 """
+Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+Caracal, a product of Garudex Labs
+
 CLI commands for snapshot management.
 
 Provides commands for creating, listing, and restoring ledger snapshots.

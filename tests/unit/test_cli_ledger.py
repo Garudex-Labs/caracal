@@ -1,4 +1,7 @@
 """
+Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+Caracal, a product of Garudex Labs
+
 Unit tests for CLI ledger commands.
 
 Tests ledger query and summary commands with various filters and output formats.

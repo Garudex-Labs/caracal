@@ -1,4 +1,7 @@
 """
+Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+Caracal, a product of Garudex Labs
+
 Metering collector for Caracal Core.
 
 This module provides the MeteringCollector for accepting resource usage events

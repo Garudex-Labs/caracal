@@ -1,5 +1,12 @@
 #!/usr/bin/env python3
 """
+Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+Caracal, a product of Garudex Labs
+
+[One-sentence description of the file's purpose and functionality.]
+"""
+
+"""
 Script to convert authority_ledger_events table to partitioned table.
 
 This script performs the following steps:

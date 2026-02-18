@@ -1,4 +1,7 @@
 """
+Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+Caracal, a product of Garudex Labs
+
 Compliance reporting for Caracal Enterprise.
 
 This module provides compliance reporting capabilities for Caracal Enterprise.

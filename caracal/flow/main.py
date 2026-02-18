@@ -1,4 +1,7 @@
 """
+Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+Caracal, a product of Garudex Labs
+
 Caracal Flow - Entry Point.
 
 This is the main entry point for the Caracal Flow interactive CLI.

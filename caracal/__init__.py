@@ -1,4 +1,7 @@
 """
+Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+Caracal, a product of Garudex Labs
+
 Caracal Core - Pre-Execution Authority Enforcement System for AI Agents
 
 Caracal Core provides execution authority, mandate management, delegation,

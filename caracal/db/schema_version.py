@@ -1,4 +1,7 @@
 """
+Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+Caracal, a product of Garudex Labs
+
 Schema version tracking for Caracal Core database.
 
 This module provides utilities for checking and managing database schema versions.

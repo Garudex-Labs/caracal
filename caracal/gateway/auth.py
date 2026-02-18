@@ -1,4 +1,7 @@
 """
+Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+Caracal, a product of Garudex Labs
+
 Authentication service for Gateway Proxy.
 
 Provides multiple authentication methods:

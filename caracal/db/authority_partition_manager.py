@@ -1,4 +1,7 @@
 """
+Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+Caracal, a product of Garudex Labs
+
 Partition management for authority_ledger_events table.
 
 Provides automatic monthly partitioning for authority ledger events
