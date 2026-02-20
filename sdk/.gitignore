@@ -1,0 +1,15 @@
+node_modules/
+dist/
+build/
+.env
+.DS_Store
+npm-debug.log*
+yarn-error.log*
+package-lock.json
+pnpm-lock.yaml
+.turbo/
+.parcel-cache/
+.next/
+.cache/
+.idea/
+.vscode/
