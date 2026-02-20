@@ -7,7 +7,6 @@ This directory contains Kubernetes manifests for deploying Caracal Core in a Kub
 The deployment consists of:
 
 - **PostgreSQL StatefulSet**: Persistent database with 10Gi storage
-- **Gateway Proxy Deployment**: 3 replicas with LoadBalancer service
 - **MCP Adapter Deployment**: 2 replicas with ClusterIP service
 - **ConfigMap**: Non-sensitive configuration
 - **Secrets**: Database credentials and TLS certificates
@@ -16,21 +15,18 @@ The deployment consists of:
 
 1. **Kubernetes Cluster**: v1.20 or later
 2. **kubectl**: Configured to access your cluster
-3. **TLS Certificates**: For Gateway Proxy HTTPS and mTLS
 4. **Storage Class**: For PostgreSQL persistent volumes (optional)
 
 ## Quick Start
 
 ### 1. Prepare TLS Certificates
 
-Create TLS certificates for the Gateway Proxy:
 
 ```bash
 # Create a directory for certificates
 mkdir -p certs
 
 # Generate self-signed certificates (for testing only)
-# Server certificate for Gateway HTTPS
 openssl req -x509 -newkey rsa:4096 -keyout certs/server.key -out certs/server.crt \
   -days 365 -nodes -subj "/CN=caracal-gateway"
 
@@ -92,7 +88,6 @@ kubectl apply -f postgres-statefulset.yaml
 # Wait for PostgreSQL to be ready
 kubectl wait --for=condition=ready pod -l app.kubernetes.io/component=database -n caracal --timeout=300s
 
-# Deploy Gateway Proxy
 kubectl apply -f gateway-deployment.yaml
 
 # Deploy MCP Adapter
@@ -108,14 +103,12 @@ kubectl get pods -n caracal
 # Check services
 kubectl get svc -n caracal
 
-# Check Gateway Proxy logs
 kubectl logs -n caracal -l app.kubernetes.io/component=gateway --tail=50
 
 # Check MCP Adapter logs
 kubectl logs -n caracal -l app.kubernetes.io/component=mcp-adapter --tail=50
 ```
 
-### 6. Access the Gateway
 
 ```bash
 # Get the LoadBalancer external IP
@@ -143,7 +136,6 @@ Edit `configmap.yaml` to customize:
 
 Adjust resource requests and limits in deployment files:
 
-**Gateway Proxy** (`gateway-deployment.yaml`):
 ```yaml
 resources:
   requests:
@@ -181,7 +173,6 @@ resources:
 Scale deployments as needed:
 
 ```bash
-# Scale Gateway Proxy to 5 replicas
 kubectl scale deployment caracal-gateway -n caracal --replicas=5
 
 # Scale MCP Adapter to 3 replicas
@@ -209,9 +200,7 @@ volumeClaimTemplates:
 
 ### Prometheus Metrics
 
-Both Gateway Proxy and MCP Adapter expose Prometheus metrics:
 
-- **Gateway Proxy**: `http://<gateway-pod>:9090/metrics`
 - **MCP Adapter**: `http://<mcp-adapter-pod>:8080/metrics`
 
 Pods are annotated for automatic Prometheus scraping:
@@ -227,7 +216,6 @@ annotations:
 
 Health endpoints are available:
 
-- **Gateway Proxy**: `https://<gateway-ip>:8443/health`
 - **MCP Adapter**: `http://<mcp-adapter-ip>:8080/health`
 - **PostgreSQL**: `pg_isready` command
 
@@ -236,7 +224,6 @@ Health endpoints are available:
 View logs for troubleshooting:
 
 ```bash
-# Gateway Proxy logs
 kubectl logs -n caracal -l app.kubernetes.io/component=gateway -f
 
 # MCP Adapter logs

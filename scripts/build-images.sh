@@ -20,8 +20,6 @@ VERSION=$(cat "$VERSION_FILE" | tr -d '[:space:]')
 echo "Building Docker images for version: $VERSION"
 
 # Build images
-echo "Building caracal-gateway:v$VERSION..."
-docker build -t caracal-gateway:v$VERSION -f "$ROOT_DIR/Dockerfile.gateway" "$ROOT_DIR"
 
 echo "Building caracal-mcp-adapter:v$VERSION..."
 docker build -t caracal-mcp-adapter:v$VERSION -f "$ROOT_DIR/Dockerfile.mcp" "$ROOT_DIR"
@@ -35,7 +33,6 @@ docker build -t caracal-cli:v$VERSION -f "$ROOT_DIR/Dockerfile.cli" "$ROOT_DIR"
 echo ""
 echo "Docker images built successfully!"
 echo "Images:"
-echo "  - caracal-gateway:v$VERSION"
 echo "  - caracal-mcp-adapter:v$VERSION"
 echo "  - caracal-consumer:v$VERSION"
 echo "  - caracal-cli:v$VERSION"

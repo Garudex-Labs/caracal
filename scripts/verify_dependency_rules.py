@@ -115,9 +115,9 @@ def check_caracal_enterprise_imports(ecosystem_root: Path) -> list[str]:
         if re.search(r"from\s+caracal\.sdk\.enterprise", content):
             violations.append(f"❌ {rel}: imports from caracal.sdk.enterprise (use caracal.enterprise.* instead)")
 
-        # Should not import from the dead caracal.gateway redirect
-        if re.search(r"from\s+caracal\.gateway", content):
-            violations.append(f"❌ {rel}: imports from caracal.gateway (moved to caracalEnterprise, use relative imports)")
+        # Verify no imports from caracal.mcp
+        if re.search(r"from\s+caracal\.mcp", content):
+            violations.append(f"❌ {rel}: imports from caracal.mcp. Core should not depend on MCP adapter.")
 
     return violations
 

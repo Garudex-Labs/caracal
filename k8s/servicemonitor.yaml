@@ -12,29 +12,6 @@
 apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
 metadata:
-  name: caracal-gateway
-  namespace: caracal
-  labels:
-    app.kubernetes.io/name: caracal
-    app.kubernetes.io/version: "0.6.0"
-    app.kubernetes.io/component: gateway
-    prometheus: kube-prometheus  # Match your Prometheus instance label
-spec:
-  selector:
-    matchLabels:
-      app.kubernetes.io/name: caracal
-      app.kubernetes.io/component: gateway
-  endpoints:
-    - port: metrics
-      interval: 30s
-      path: /metrics
-      scheme: http
-      scrapeTimeout: 10s
-  namespaceSelector:
-    matchNames:
-      - caracal
-
----
 apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
 metadata:

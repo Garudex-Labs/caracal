@@ -10,61 +10,6 @@
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: caracal-gateway-ingress
-  namespace: caracal
-  labels:
-    app.kubernetes.io/name: caracal
-    app.kubernetes.io/version: "0.6.0"
-    app.kubernetes.io/component: gateway
-  annotations:
-    # NGINX Ingress Controller annotations
-    nginx.ingress.kubernetes.io/backend-protocol: "HTTPS"
-    nginx.ingress.kubernetes.io/ssl-passthrough: "true"
-    nginx.ingress.kubernetes.io/ssl-redirect: "true"
-    
-    # Rate limiting (adjust as needed)
-    nginx.ingress.kubernetes.io/limit-rps: "100"
-    nginx.ingress.kubernetes.io/limit-connections: "10"
-    
-    # Timeouts
-    nginx.ingress.kubernetes.io/proxy-connect-timeout: "30"
-    nginx.ingress.kubernetes.io/proxy-send-timeout: "30"
-    nginx.ingress.kubernetes.io/proxy-read-timeout: "30"
-    
-    # Client certificate authentication (for mTLS)
-    # nginx.ingress.kubernetes.io/auth-tls-verify-client: "on"
-    # nginx.ingress.kubernetes.io/auth-tls-secret: "caracal/caracal-tls"
-    
-    # Cert-manager annotations (if using cert-manager for TLS)
-    # cert-manager.io/cluster-issuer: "letsencrypt-prod"
-    
-    # AWS ALB annotations (if using AWS ALB Ingress Controller)
-    # alb.ingress.kubernetes.io/scheme: internet-facing
-    # alb.ingress.kubernetes.io/target-type: ip
-    # alb.ingress.kubernetes.io/backend-protocol: HTTPS
-    # alb.ingress.kubernetes.io/certificate-arn: arn:aws:acm:region:account:certificate/id
-spec:
-  ingressClassName: nginx  # Change to your ingress class
-  
-  # TLS configuration
-  tls:
-    - hosts:
-        - caracal-gateway.example.com  # Change to your domain
-      secretName: caracal-tls-ingress  # TLS certificate secret
-  
-  rules:
-    - host: caracal-gateway.example.com  # Change to your domain
-      http:
-        paths:
-          - path: /
-            pathType: Prefix
-            backend:
-              service:
-                name: caracal-gateway
-                port:
-                  number: 8443
-
----
 # Ingress for Prometheus metrics (optional)
 apiVersion: networking.k8s.io/v1
 kind: Ingress

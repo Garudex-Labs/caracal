@@ -4,7 +4,6 @@
 # This compose file sets up the simplified Caracal Core stack:
 # - PostgreSQL database for persistent storage
 # - Redis cache for real-time metrics and policy cache
-# - Caracal Gateway Proxy for network-enforced policy enforcement
 # - Caracal MCP Adapter for Model Context Protocol integration
 #
 # Usage:
@@ -78,65 +77,6 @@ services:
   # CARACAL SERVICES
   # ============================================================================
 
-  # Caracal Gateway Proxy
-  gateway:
-    build:
-      context: ..
-      dockerfile: Caracal/deploy/docker/Dockerfile.gateway
-    image: caracal-gateway:latest
-    container_name: caracal-gateway
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-    ports:
-      - "${GATEWAY_PORT:-8443}:8443"
-      - "${METRICS_PORT:-9090}:9090"
-    volumes:
-      - ./certs:/etc/caracal/tls:ro
-    environment:
-      # Database Configuration
-      DB_HOST: postgres
-      DB_PORT: 5432
-      DB_NAME: ${DB_NAME:-caracal}
-      DB_USER: ${DB_USER:-caracal}
-      DB_PASSWORD: ${DB_PASSWORD:-caracal_dev_password}
-
-      # Redis Configuration
-      REDIS_HOST: redis
-      REDIS_PORT: 6379
-      REDIS_PASSWORD: ${REDIS_PASSWORD:-caracal_redis_password}
-      REDIS_DB: ${REDIS_DB:-0}
-
-      # Gateway Configuration
-      LISTEN_ADDRESS: "0.0.0.0:8443"
-      AUTH_MODE: ${AUTH_MODE:-jwt}
-      LOG_LEVEL: ${LOG_LEVEL:-INFO}
-      REQUEST_TIMEOUT: ${REQUEST_TIMEOUT:-30}
-      MAX_REQUEST_SIZE_MB: ${MAX_REQUEST_SIZE_MB:-10}
-
-      # TLS Configuration
-      TLS_CERT_FILE: /etc/caracal/tls/server.crt
-      TLS_KEY_FILE: /etc/caracal/tls/server.key
-      TLS_CA_FILE: /etc/caracal/tls/ca.crt
-
-      # JWT Configuration
-      JWT_PUBLIC_KEY_PATH: /etc/caracal/tls/jwt_public.pem
-      JWT_ALGORITHM: ${JWT_ALGORITHM:-RS256}
-
-      # Authority Enforcement
-      ENABLE_REPLAY_PROTECTION: ${ENABLE_REPLAY_PROTECTION:-true}
-      ENABLE_POLICY_CACHE: ${ENABLE_POLICY_CACHE:-true}
-    networks:
-      - caracal-network
-    healthcheck:
-      test: [ "CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8443/health').read()" ]
-      interval: 30s
-      timeout: 10s
-      start_period: 40s
-      retries: 3
-    restart: unless-stopped
 
   # Caracal MCP Adapter
   mcp-adapter:

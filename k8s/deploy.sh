@@ -126,7 +126,6 @@ if [ "$SKIP_TLS" = false ]; then
     
     # Generate server certificate
     openssl req -x509 -newkey rsa:4096 -keyout certs/server.key -out certs/server.crt \
-      -days 365 -nodes -subj "/CN=caracal-gateway" >/dev/null 2>&1
     
     # Generate CA certificate
     openssl req -x509 -newkey rsa:4096 -keyout certs/ca.key -out certs/ca.crt \
@@ -205,12 +204,10 @@ echo ""
 
 # Step 5: Deploy Gateway Proxy
 print_info "Step 5/6: Deploying Gateway Proxy..."
-$KUBECTL_CMD -f gateway-deployment.yaml
 print_success "Gateway Proxy deployed"
 
 if [ "$WAIT" = true ] && [ "$DRY_RUN" = false ]; then
   print_info "Waiting for Gateway Proxy to be ready..."
-  kubectl wait --for=condition=available deployment/caracal-gateway \
     -n "$NAMESPACE" --timeout=300s
   print_success "Gateway Proxy is ready"
 fi
@@ -247,7 +244,6 @@ if [ "$DRY_RUN" = false ]; then
   print_info "Next steps:"
   echo "  1. Check pod status: kubectl get pods -n $NAMESPACE"
   echo "  2. View logs: kubectl logs -n $NAMESPACE -l app.kubernetes.io/name=caracal -f"
-  echo "  3. Get Gateway IP: kubectl get svc caracal-gateway -n $NAMESPACE"
   echo "  4. Test health: curl -k https://<gateway-ip>:8443/health"
   echo ""
   print_info "To initialize the database:"

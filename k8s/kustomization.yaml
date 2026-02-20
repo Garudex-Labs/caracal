@@ -25,13 +25,10 @@ resources:
   - configmap.yaml
   - secret.yaml
   - postgres-statefulset.yaml
-  - gateway-deployment.yaml
   - mcp-adapter-deployment.yaml
 
 # Images to use (can be overridden)
 images:
-  - name: caracal-gateway
-    newName: caracal-gateway
     newTag: latest
   - name: caracal-mcp-adapter
     newName: caracal-mcp-adapter
@@ -61,7 +58,5 @@ images:
 
 # Replicas (can be overridden per environment)
 replicas:
-  - name: caracal-gateway
-    count: 3
   - name: caracal-mcp-adapter
     count: 2
