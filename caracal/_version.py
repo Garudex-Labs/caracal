@@ -14,7 +14,7 @@ def get_version() -> str:
     Read version from VERSION file.
     
     Returns:
-        str: The version string (e.g., "0.6.0")
+        str: The version string (e.g., "1.0.0")
     """
     version_file = Path(__file__).parent.parent / "VERSION"
     if version_file.exists():
