@@ -133,16 +133,6 @@ except SDKConfigurationError as e:
     print(f"Config error: {e}")
 ```
 
-## Migration from v0.1
-
-```python
-# OLD (deprecated, still works with warning):
-client = CaracalClient(config_path="/path/to/config.toml")
-
-# NEW:
-client = CaracalClient(api_key="sk_test_123")
-```
-
 ## Requirements
 
 - Python 3.10+

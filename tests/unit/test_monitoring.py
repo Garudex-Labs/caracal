@@ -2,9 +2,9 @@
 Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 Caracal, a product of Garudex Labs
 
-Unit tests for v0.3 monitoring features.
+Unit tests for monitoring features.
 
-Tests Prometheus metrics and structured logging for v0.3 features.
+Tests Prometheus metrics and structured logging.
 """
 
 import logging
@@ -23,8 +23,8 @@ from caracal.logging_config import (
 )
 
 
-class TestV03Metrics:
-    """Test v0.3 Prometheus metrics."""
+class TestMetrics:
+    """Test Prometheus metrics."""
     
     def test_merkle_tree_metrics(self):
         """Test Merkle tree metrics."""
@@ -176,8 +176,8 @@ class TestV03Metrics:
         assert "caracal_event_replay_duration_seconds" in metric_names
 
 
-class TestV03StructuredLogging:
-    """Test v0.3 structured logging functions."""
+class TestStructuredLogging:
+    """Test structured logging functions."""
     
     def test_log_merkle_root_computation(self, capsys):
         """Test Merkle root computation logging."""
