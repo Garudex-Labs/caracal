@@ -222,7 +222,7 @@ class TestConfigurationValidation:
                     'backup_dir': '/tmp/backups',
                 },
                 'defaults': {
-                    'time_window': 'hourly',  # Not supported in v0.1
+                    'time_window': 'hourly',
                 },
             }
             
@@ -329,8 +329,8 @@ class TestConfigurationValidation:
 
 
 
-class TestV02Configuration:
-    """Test v0.2 configuration features."""
+class TestAdvancedConfiguration:
+    """Test database and gateway configuration features."""
     
     def test_load_config_with_database_section(self):
         """Test loading configuration with database section."""

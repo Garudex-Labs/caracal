@@ -1,3 +1,4 @@
+from caracal._version import get_version
 """
 Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 Caracal, a product of Garudex Labs
@@ -41,7 +42,7 @@ class SyncExtension(CaracalExtension):
 
     @property
     def version(self) -> str:
-        return "0.1.0"
+        return get_version()
 
     def install(self, hooks: HookRegistry) -> None:
         hooks.on_state_change(self._sync_state)
