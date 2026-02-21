@@ -662,7 +662,6 @@ def export_roots(output, start_time, end_time, config):
         # Export roots for a time range
         caracal merkle export-roots -o merkle_roots.json -s 2024-01-01T00:00:00 -e 2024-01-31T23:59:59
     
-    Requirements: 4.7
     """
     import asyncio
     import json

@@ -38,7 +38,6 @@ class AuthorityClient:
     Implements fail-closed semantics: on connection or initialization errors,
     the client will raise exceptions to prevent unauthorized access.
     
-    Requirements: 10.6, 10.7, 10.8, 10.9
     """
 
     def __init__(
@@ -264,7 +263,6 @@ class AuthorityClient:
             ConnectionError: If request fails
             SDKConfigurationError: If parameters are invalid
             
-        Requirements: 10.1, 10.7, 10.8
         
         Example:
             >>> client = AuthorityClient(base_url="http://localhost:8000", api_key="secret")
@@ -365,7 +363,6 @@ class AuthorityClient:
             ConnectionError: If request fails
             SDKConfigurationError: If parameters are invalid
             
-        Requirements: 10.2
         
         Example:
             >>> client = AuthorityClient(base_url="http://localhost:8000", api_key="secret")
@@ -460,7 +457,6 @@ class AuthorityClient:
             ConnectionError: If request fails
             SDKConfigurationError: If parameters are invalid
             
-        Requirements: 10.3
         
         Example:
             >>> client = AuthorityClient(base_url="http://localhost:8000", api_key="secret")
@@ -562,7 +558,6 @@ class AuthorityClient:
             ConnectionError: If request fails
             SDKConfigurationError: If parameters are invalid
             
-        Requirements: 10.4
         
         Example:
             >>> from datetime import datetime, timedelta
@@ -672,7 +667,6 @@ class AuthorityClient:
             ConnectionError: If request fails
             SDKConfigurationError: If parameters are invalid
             
-        Requirements: 10.5
         
         Example:
             >>> client = AuthorityClient(base_url="http://localhost:8000", api_key="secret")

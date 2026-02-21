@@ -15,7 +15,6 @@ This module provides comprehensive metrics for monitoring:
 - Dead letter queue metrics (size) [v0.3]
 - Authority enforcement metrics (validations, issuances, revocations) [v0.5]
 
-Requirements: 15.1, 15.2, 15.3, 15.4, 15.5, 17.7, 22.1, 24.1, 24.2, 24.3, 24.4, 24.5
 """
 
 import time
@@ -65,7 +64,6 @@ class MetricsRegistry:
     - Database operations
     - Circuit breakers
     
-    Requirements: 17.7, 22.1
     """
     
     def __init__(self, registry: Optional[CollectorRegistry] = None):

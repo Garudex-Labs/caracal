@@ -16,7 +16,6 @@ IMPORTANT: This migration requires careful execution in production:
 2. For large tables, consider using pg_partman or manual partitioning
 3. Test thoroughly in staging environment first
 
-Requirements: 20.5, 20.6
 """
 from typing import Sequence, Union
 from datetime import datetime, timedelta

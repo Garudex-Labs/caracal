@@ -7,7 +7,6 @@ Circuit breaker integration for database operations.
 This module provides circuit breaker protection for database operations
 to prevent cascading failures when the database is unavailable.
 
-Requirements: 23.5, 23.6
 """
 
 from contextlib import contextmanager
@@ -37,7 +36,6 @@ class DatabaseCircuitBreakerManager:
     Wraps database connection manager with circuit breaker protection
     to fail fast when database is unavailable.
     
-    Requirements: 23.5, 23.6
     """
     
     def __init__(

@@ -8,7 +8,6 @@ This module provides cryptographic functions for execution mandate signing
 and verification using ECDSA P-256 (NIST P-256 curve) with deterministic
 signatures (RFC 6979).
 
-Requirements: 1.7, 5.5, 6.1, 13.1, 13.2
 """
 
 import hashlib
@@ -48,7 +47,6 @@ def sign_mandate(
         ValueError: If mandate_data is invalid or private_key_pem is invalid
         TypeError: If mandate_data is not a dictionary
     
-    Requirements: 1.7, 5.5, 13.1
     
     Example:
         >>> mandate = {
@@ -137,7 +135,6 @@ def verify_mandate_signature(
     Returns:
         True if signature is valid, False otherwise
     
-    Requirements: 6.1, 13.2
     
     Example:
         >>> is_valid = verify_mandate_signature(mandate, signature, public_key_pem)
@@ -233,7 +230,6 @@ def sign_merkle_root(
     Raises:
         ValueError: If merkle_root is invalid or private_key_pem is invalid
     
-    Requirements: 13.4, 13.5
     
     Example:
         >>> from caracal.merkle.tree import MerkleTreeBuilder
@@ -306,7 +302,6 @@ def verify_merkle_root(
     Returns:
         True if signature is valid, False otherwise
     
-    Requirements: 13.4, 13.5
     
     Example:
         >>> is_valid = verify_merkle_root(root, signature, public_key_pem)
@@ -403,7 +398,6 @@ def store_signed_merkle_root(
     Raises:
         ValueError: If parameters are invalid
     
-    Requirements: 13.4, 13.5
     
     Example:
         >>> from caracal.db.connection import get_session

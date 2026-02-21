@@ -7,7 +7,6 @@ Unit tests for fail-closed error handling.
 Tests the error handling module to ensure all error paths
 result in denial of operations with comprehensive logging.
 
-Requirements: 23.3, 23.4
 """
 
 import pytest

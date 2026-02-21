@@ -7,7 +7,6 @@ Ledger backfill manager for v0.2 events.
 This module provides functionality to retroactively compute Merkle roots for
 v0.2 ledger events that were created before Merkle tree support was added.
 
-Requirements: 22.8, 22.9, 22.1.1-22.1.12
 """
 
 import hashlib
@@ -61,7 +60,6 @@ class LedgerBackfillManager:
     This class handles the process of retroactively computing Merkle roots
     for ledger events that were created before Merkle tree support was added.
     
-    Requirements: 22.1.1-22.1.12
     """
     
     def __init__(
@@ -107,7 +105,6 @@ class LedgerBackfillManager:
         Raises:
             BackfillError: If backfill operation fails
         
-        Requirements: 22.1.1, 22.1.2, 22.1.3, 22.1.4, 22.1.5, 22.1.6
         """
         self._start_time = datetime.utcnow()
         errors = []
@@ -272,7 +269,6 @@ class LedgerBackfillManager:
         Raises:
             BackfillError: If batch processing fails
         
-        Requirements: 22.1.3, 22.1.4, 22.1.5, 22.1.6
         """
         if not events:
             raise BackfillError("Cannot process empty batch")
@@ -337,7 +333,6 @@ class LedgerBackfillManager:
         Returns:
             SHA-256 hash as bytes
         
-        Requirements: 22.1.3
         """
         # Create canonical representation of event
         event_data = (
@@ -364,7 +359,6 @@ class LedgerBackfillManager:
         Returns:
             List of validation errors (empty if valid)
         
-        Requirements: 22.1.7
         """
         errors = []
         
@@ -428,6 +422,5 @@ class LedgerBackfillManager:
         Returns:
             BackfillProgress if backfill is running, None otherwise
         
-        Requirements: 22.1.8
         """
         return self._progress

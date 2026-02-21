@@ -186,7 +186,6 @@ class AllowlistManager:
         Raises:
             ValidationError: If pattern_type is invalid or pattern is malformed
         
-        Requirements: 7.1, 7.2, 8.3, 8.4
         """
         # Validate pattern type
         if pattern_type not in ("regex", "glob"):
@@ -357,7 +356,6 @@ class AllowlistManager:
         Returns:
             List of active ResourceAllowlist objects
         
-        Requirements: 7.7
         """
         stmt = select(ResourceAllowlist).where(
             ResourceAllowlist.agent_id == agent_id,
@@ -376,7 +374,6 @@ class AllowlistManager:
         Raises:
             ValueError: If allowlist not found
         
-        Requirements: 7.7, 18.6
         """
         stmt = select(ResourceAllowlist).where(
             ResourceAllowlist.allowlist_id == allowlist_id
@@ -404,7 +401,6 @@ class AllowlistManager:
         Args:
             agent_id: UUID of the agent
         
-        Requirements: 18.6
         """
         if agent_id in self._allowlist_cache:
             del self._allowlist_cache[agent_id]
@@ -467,7 +463,6 @@ class AllowlistManager:
         Raises:
             ValidationError: If pattern is invalid
         
-        Requirements: 8.3, 8.4
         """
         if pattern_type == "regex":
             try:
@@ -496,7 +491,6 @@ class AllowlistManager:
         Returns:
             True if the pattern matches, False otherwise
         
-        Requirements: 8.1, 8.5, 23.5
         """
         # Check LRU cache
         compiled_pattern = self._pattern_cache.get(pattern)
@@ -523,6 +517,5 @@ class AllowlistManager:
         Returns:
             True if the pattern matches, False otherwise
         
-        Requirements: 8.2
         """
         return fnmatch.fnmatch(resource_url, pattern)

@@ -63,7 +63,6 @@ class CircuitBreaker:
     - OPEN: Too many failures, all requests fail immediately
     - HALF_OPEN: Testing recovery, limited requests pass through
     
-    Requirements: 23.5, 23.6
     """
     
     def __init__(self, name: str, config: Optional[CircuitBreakerConfig] = None):

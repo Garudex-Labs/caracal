@@ -14,7 +14,6 @@ Creates materialized views and indexes for optimized ledger queries:
 - Composite indexes on ledger_events for common query patterns
 - Indexes on resource_type and provisional_charge_id
 
-Requirements: 20.1, 20.2
 """
 from typing import Sequence, Union
 

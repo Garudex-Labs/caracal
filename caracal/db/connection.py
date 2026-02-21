@@ -13,7 +13,6 @@ Configuration is resolved in this priority order:
   2. Environment variables (``CARACAL_DB_HOST``, ``CARACAL_DB_PORT``, etc.).
   3. Workspace ``config.yaml`` (via ``get_db_manager()``).
 
-Requirements: 6.1, 6.2, 6.3, 6.4, 6.5, 6.6
 """
 
 import logging
@@ -132,7 +131,6 @@ class DatabaseConnectionManager:
     """
     Manages PostgreSQL connections with pooling and workspace schema isolation.
 
-    Requirements: 6.1, 6.2, 6.3, 6.4, 6.5, 6.6
     """
 
     def __init__(self, config: DatabaseConfig):

@@ -9,7 +9,6 @@ Provides centralized error handling with fail-closed semantics:
 - Comprehensive error logging with structured context
 - Standardized error response formatting
 
-Requirements: 23.3, 23.4
 """
 
 import logging
@@ -150,7 +149,6 @@ class FailClosedErrorHandler:
     Ensures that all error paths result in denial of operations,
     with comprehensive logging and standardized error responses.
     
-    Requirements: 23.3, 23.4
     """
     
     def __init__(self, service_name: str = "caracal-core"):
@@ -453,7 +451,6 @@ def handle_error_with_denial(
         - should_deny: True if operation should be denied
         - error_response: Standardized error response
     
-    Requirements: 23.3, 23.4
     """
     handler = get_error_handler()
     context = handler.handle_error(

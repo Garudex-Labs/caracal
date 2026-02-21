@@ -6,7 +6,6 @@ Unit tests for circuit breaker functionality.
 
 Tests circuit breaker state transitions, failure handling, and recovery.
 
-Requirements: 23.5, 23.6
 """
 
 import asyncio

@@ -7,7 +7,6 @@ Authority ledger operations for authority enforcement.
 This module provides the AuthorityLedgerWriter for recording authority events
 and AuthorityLedgerQuery for querying authority ledger events.
 
-Requirements: 2.1, 2.2, 2.3, 2.4, 2.5, 2.6, 2.7, 2.8, 2.9, 2.10, 2.11, 10.4, 11.7
 """
 
 from datetime import datetime, timedelta
@@ -32,7 +31,6 @@ class AuthorityLedgerWriter:
     Implements:
     - Atomic write operations
     - Monotonically increasing event IDs (handled by database)
-    Requirements: 2.1, 2.2, 2.3
     """
     
     def __init__(self, db_session: Session):
@@ -71,7 +69,6 @@ class AuthorityLedgerWriter:
         Raises:
             RuntimeError: If database write fails
         
-        Requirements: 2.1, 2.4, 5.7
         """
         if timestamp is None:
             timestamp = datetime.utcnow()
@@ -146,7 +143,6 @@ class AuthorityLedgerWriter:
             RuntimeError: If database write fails
             ValueError: If decision is "denied" but no denial_reason provided
         
-        Requirements: 2.2, 2.9, 2.10, 6.6
         """
         if timestamp is None:
             timestamp = datetime.utcnow()
@@ -225,7 +221,6 @@ class AuthorityLedgerWriter:
         Raises:
             RuntimeError: If database write fails
         
-        Requirements: 2.3, 7.5
         """
         if timestamp is None:
             timestamp = datetime.utcnow()
@@ -272,7 +267,6 @@ class AuthorityLedgerQuery:
     Provides filtering and aggregation capabilities for authority ledger events.
     Uses database queries with indexes for performance.
     
-    Requirements: 10.4
     """
     
     def __init__(self, db_session: Session):
@@ -316,7 +310,6 @@ class AuthorityLedgerQuery:
         Raises:
             RuntimeError: If database query fails
         
-        Requirements: 10.4, 11.7
         """
         logger.debug(
             f"Querying authority ledger: principal_id={principal_id}, "
@@ -389,7 +382,6 @@ class AuthorityLedgerQuery:
         Raises:
             RuntimeError: If database query fails
         
-        Requirements: 10.4
         """
         logger.debug(
             f"Aggregating events by principal: start_time={start_time}, "

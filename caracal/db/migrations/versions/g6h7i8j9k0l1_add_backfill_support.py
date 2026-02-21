@@ -13,7 +13,6 @@ Add database schema changes to support v0.2 ledger backfill:
 - Add merkle_root_id column to ledger_events table (UUID, nullable)
 - Create index on ledger_events(merkle_root_id)
 
-Requirements: 22.1.5
 """
 from alembic import op
 import sqlalchemy as sa

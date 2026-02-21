@@ -37,7 +37,6 @@ class AsyncAuthorityClient:
     Implements fail-closed semantics: on connection or initialization errors,
     the client will raise exceptions to prevent unauthorized access.
     
-    Requirements: 10.6
     """
 
     def __init__(

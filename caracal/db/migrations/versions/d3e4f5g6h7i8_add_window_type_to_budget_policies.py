@@ -28,7 +28,6 @@ def upgrade():
     - Sets default to 'calendar' for backward compatibility
     - Updates time_window to support hourly, daily, weekly, monthly
     
-    Requirements: 9.1, 9.2, 9.3, 9.4, 10.1, 10.7
     """
     # Add window_type column with default 'calendar' for backward compatibility
     op.add_column('budget_policies', 

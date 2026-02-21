@@ -6,7 +6,6 @@ Redis client for Caracal Core v0.3.
 
 Provides connection management and basic operations for Redis caching.
 
-Requirements: 21.4, 25.6
 """
 
 import redis
@@ -30,7 +29,6 @@ class RedisClient:
     - TTL management
     - Connection pooling
     
-    Requirements: 21.4, 25.6
     """
     
     def __init__(

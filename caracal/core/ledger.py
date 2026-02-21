@@ -75,7 +75,6 @@ class LedgerWriter:
     - Atomic write operations
     - Rolling backups
     
-    Requirements: 20.3, 20.4
     """
 
     def __init__(self, ledger_path: str, backup_count: int = 3):
@@ -335,7 +334,6 @@ class LedgerQuery:
     Provides filtering and aggregation capabilities for ledger events.
     Uses sequential scan of JSON Lines file.
     
-    Requirements: 20.3, 20.4
     """
 
     def __init__(self, ledger_path: str):

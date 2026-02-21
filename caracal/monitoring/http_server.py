@@ -6,7 +6,6 @@ HTTP server for Prometheus metrics endpoint.
 
 Provides HTTP endpoint for Prometheus to scrape metrics from Caracal Core.
 
-Requirements: 16.7
 """
 
 import asyncio
@@ -99,7 +98,6 @@ class PrometheusMetricsServer:
     Runs in a separate thread to avoid blocking the main application.
     Exposes metrics at http://host:port/metrics for Prometheus scraping.
     
-    Requirements: 16.7
     """
     
     def __init__(

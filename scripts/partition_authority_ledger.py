@@ -15,7 +15,6 @@ This script performs the following steps:
 3. Migrates existing data to partitions
 4. Swaps old table with new partitioned table
 
-Requirements: 14.6
 """
 
 import sys

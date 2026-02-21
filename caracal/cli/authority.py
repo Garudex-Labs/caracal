@@ -286,7 +286,6 @@ def validate(
         # JSON output
         caracal authority validate -m <mandate-id> -a "api_call" -r "api:*" --format json
     
-    Requirements: 11.2, 11.10
     """
     try:
         # Get CLI context
@@ -716,7 +715,6 @@ def delegate(
         caracal delegation manage \\
             -p <parent-id> -s <child-id> -r "api:*" -a "api_call" -v 3600
     
-    Requirements: 11.8, 11.10
     """
     try:
         # Get CLI context

@@ -10,7 +10,6 @@ This module provides comprehensive recovery functionality including:
 - Rebuilding Redis cache
 - Validating integrity with Merkle roots
 
-Requirements: 12.5, 12.6
 """
 
 from datetime import datetime
@@ -37,7 +36,6 @@ class RecoveryManager:
     2. Replay events after snapshot timestamp
     3. Validate integrity with Merkle roots
     
-    Requirements: 12.5, 12.6
     """
 
     def __init__(
@@ -76,7 +74,6 @@ class RecoveryManager:
         Raises:
             ValueError: If no snapshots exist
             
-        Requirements: 12.5, 12.6
         """
         try:
             logger.info("Starting recovery from latest snapshot")
@@ -114,7 +111,6 @@ class RecoveryManager:
         Returns:
             RecoveryResult: Recovery metadata including events replayed
             
-        Requirements: 12.5, 12.6
         """
         try:
             logger.info(f"Starting recovery from snapshot {snapshot_id}")

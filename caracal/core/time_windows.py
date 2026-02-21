@@ -10,7 +10,6 @@ for budget policies with support for:
 - Rolling windows (sliding time periods)
 - Calendar windows (aligned to calendar boundaries)
 
-Requirements: 9.1, 9.2, 9.3, 9.4, 9.7, 10.2, 10.3, 10.4, 10.5, 10.6
 """
 
 from datetime import datetime, timedelta
@@ -54,7 +53,6 @@ class TimeWindowCalculator:
         Raises:
             InvalidPolicyError: If time_window or window_type is invalid
             
-        Requirements: 9.1, 9.2, 9.3, 9.4, 9.7, 10.1
         """
         # Use current UTC time if not provided
         if reference_time is None:
@@ -108,7 +106,6 @@ class TimeWindowCalculator:
         Returns:
             Tuple of (start_time, end_time) for the rolling window
             
-        Requirements: 9.5, 10.2
         """
         end_time = reference_time
         
@@ -150,7 +147,6 @@ class TimeWindowCalculator:
         Returns:
             Tuple of (start_time, end_time) for the calendar window
             
-        Requirements: 9.6, 10.3, 10.4, 10.5, 10.6
         """
         end_time = reference_time
         

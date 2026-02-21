@@ -6,7 +6,6 @@ Audit Log Management for Caracal Core v0.3.
 
 Provides functionality for querying and exporting audit logs in multiple formats.
 
-Requirements: 17.5, 17.7
 """
 
 import csv
@@ -34,7 +33,6 @@ class AuditLogManager:
     - Query audit logs by agent, time range, event type, correlation ID
     - Export audit logs in JSON, CSV, and SYSLOG formats
     
-    Requirements: 17.5, 17.7
     """
     
     def __init__(self, db_connection_manager=None):
@@ -71,7 +69,6 @@ class AuditLogManager:
         Returns:
             List of AuditLog entries matching filters
             
-        Requirements: 17.7
         """
         with self.db_connection_manager.session_scope() as session:
             query = session.query(AuditLog)
@@ -138,7 +135,6 @@ class AuditLogManager:
         Returns:
             JSON string containing audit log entries
             
-        Requirements: 17.5
         """
         logs = self.query_audit_logs(
             agent_id=agent_id,
@@ -194,7 +190,6 @@ class AuditLogManager:
         Returns:
             CSV string containing audit log entries
             
-        Requirements: 17.5
         """
         logs = self.query_audit_logs(
             agent_id=agent_id,
@@ -274,7 +269,6 @@ class AuditLogManager:
         Returns:
             SYSLOG formatted string containing audit log entries
             
-        Requirements: 17.5
         """
         logs = self.query_audit_logs(
             agent_id=agent_id,
@@ -355,7 +349,6 @@ class AuditLogManager:
         Returns:
             Dictionary with archival statistics
             
-        Requirements: 17.6
         """
         from datetime import timedelta
         
@@ -415,7 +408,6 @@ class AuditLogManager:
         Returns:
             Dictionary with retention statistics
             
-        Requirements: 17.6
         """
         from datetime import timedelta
         

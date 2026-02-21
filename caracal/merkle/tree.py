@@ -48,7 +48,6 @@ class MerkleTreeBuilder:
     from authority ledger events or other data batches. It handles event
     serialization and tree construction.
     
-    Requirements: 13.3
     
     Example:
         >>> builder = MerkleTreeBuilder()
@@ -75,7 +74,6 @@ class MerkleTreeBuilder:
         Raises:
             ValueError: If events list is empty
         
-        Requirements: 13.3
         """
         if not events:
             raise ValueError("Cannot build Merkle tree from empty events list")
@@ -97,7 +95,6 @@ class MerkleTreeBuilder:
         Raises:
             RuntimeError: If tree has not been built yet
         
-        Requirements: 13.3
         """
         if self._tree is None:
             raise RuntimeError("Tree has not been built yet. Call build_tree() first.")
@@ -118,7 +115,6 @@ class MerkleTreeBuilder:
             RuntimeError: If tree has not been built yet
             ValueError: If event_index is out of range
         
-        Requirements: 13.3
         """
         if self._tree is None:
             raise RuntimeError("Tree has not been built yet. Call build_tree() first.")
@@ -147,7 +143,6 @@ class MerkleTree:
         >>> proof = tree.generate_proof(0)
         >>> assert MerkleTree.verify_proof(leaves[0], proof, root)
     
-    Requirements: 3.2, 3.3, 23.3, 23.4
     """
     
     # Threshold for parallel processing (use parallel for batches larger than this)
@@ -211,7 +206,6 @@ class MerkleTree:
         Returns:
             List of hashed leaves
             
-        Requirements: 23.3
         """
         with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
             return list(executor.map(self._hash, leaves))
@@ -239,7 +233,6 @@ class MerkleTree:
         Returns:
             Next level of hashes
             
-        Requirements: 23.3
         """
         # Create pairs for parallel processing
         pairs = []
@@ -272,7 +265,6 @@ class MerkleTree:
         Returns:
             List of levels, each level is a list of hashes
             
-        Requirements: 23.3
         """
         tree = [self.leaves]
         current_level = self.leaves
@@ -332,7 +324,6 @@ class MerkleTree:
         Raises:
             ValueError: If leaf_index is out of range
             
-        Requirements: 3.6, 23.4
         """
         if leaf_index < 0 or leaf_index >= self.leaf_count:
             raise ValueError(f"Leaf index {leaf_index} out of range [0, {self.leaf_count})")
@@ -404,7 +395,6 @@ class MerkleTree:
         Returns:
             True if proof is valid, False otherwise
             
-        Requirements: 3.7, 23.4
         """
         # Hash the leaf
         current_hash = hashlib.sha256(leaf).digest()

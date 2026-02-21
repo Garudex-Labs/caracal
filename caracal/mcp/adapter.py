@@ -87,7 +87,6 @@ class MCPAdapter:
     This adapter intercepts MCP tool calls and resource reads, performs
     mandate validations, forwards requests to MCP servers, and emits metering events.
     
-    Requirements: 11.1, 11.2, 11.3, 11.4, 11.5, 12.1, 12.2, 12.3
     """
 
     def __init__(
@@ -134,7 +133,6 @@ class MCPAdapter:
         Raises:
             CaracalError: If operation fails critically
             
-        Requirements: 11.1, 11.2, 11.3, 11.4, 11.5
         """
         try:
             # 1. Extract agent ID from MCP context
@@ -281,7 +279,6 @@ class MCPAdapter:
         Raises:
             CaracalError: If operation fails critically
             
-        Requirements: 12.1, 12.2, 12.3
         """
         try:
             # 1. Extract agent ID from MCP context
@@ -540,7 +537,6 @@ class MCPAdapter:
         Returns:
             Decorator function that wraps MCP tool functions
             
-        Requirements: 18.4
         """
         def decorator(func):
             """

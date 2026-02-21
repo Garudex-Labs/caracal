@@ -7,7 +7,6 @@ Redis mandate cache for authority enforcement performance optimization.
 Provides caching of frequently validated mandates with TTL management
 and automatic invalidation on revocation.
 
-Requirements: 14.4
 """
 
 import json
@@ -32,7 +31,6 @@ class RedisMandateCache:
     - Automatic invalidation on revocation
     - Serialization/deserialization of mandate objects
     
-    Requirements: 14.4
     """
     
     # Key prefixes
@@ -135,7 +133,6 @@ class RedisMandateCache:
         Args:
             mandate: ExecutionMandate object to cache
         
-        Requirements: 14.4
         """
         try:
             mandate_key = f"{self.PREFIX_MANDATE}:{mandate.mandate_id}"
@@ -166,7 +163,6 @@ class RedisMandateCache:
         Returns:
             Dictionary with mandate data if cached, None otherwise
         
-        Requirements: 14.4
         """
         try:
             mandate_key = f"{self.PREFIX_MANDATE}:{mandate_id}"
@@ -199,7 +195,6 @@ class RedisMandateCache:
         Args:
             mandate_id: Mandate identifier
         
-        Requirements: 14.4
         """
         try:
             mandate_key = f"{self.PREFIX_MANDATE}:{mandate_id}"
@@ -232,7 +227,6 @@ class RedisMandateCache:
         Returns:
             Number of mandates invalidated
         
-        Requirements: 14.4
         """
         try:
             # Note: This requires scanning keys, which is expensive

@@ -8,7 +8,6 @@ This module provides functionality to refresh materialized views used for
 optimized ledger queries. Views are refreshed concurrently to avoid blocking
 reads during refresh operations.
 
-Requirements: 20.1, 20.2
 """
 
 import logging

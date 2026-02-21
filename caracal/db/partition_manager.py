@@ -8,7 +8,6 @@ This module provides functionality to manage PostgreSQL table partitions
 for the ledger_events table. Supports automatic partition creation for
 upcoming months and partition archival for old data.
 
-Requirements: 20.5, 20.6, 20.7
 """
 
 import logging

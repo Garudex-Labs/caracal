@@ -60,7 +60,6 @@ class SnapshotManager:
     Enables fast recovery by loading snapshot and replaying only events
     after the snapshot timestamp.
     
-    Requirements: 12.1, 12.2, 12.3, 12.4, 12.5, 12.6, 12.7
     """
 
     def __init__(
@@ -100,7 +99,6 @@ class SnapshotManager:
         Raises:
             Exception: If snapshot creation fails
             
-        Requirements: 12.1, 12.2, 12.3, 12.4
         """
         try:
             snapshot_timestamp = datetime.utcnow()
@@ -188,7 +186,6 @@ class SnapshotManager:
         Raises:
             ValueError: If snapshot not found
             
-        Requirements: 12.5
         """
         try:
             # Query snapshot
@@ -237,7 +234,6 @@ class SnapshotManager:
         Raises:
             ValueError: If snapshot not found
             
-        Requirements: 12.5, 12.6
         """
         try:
             logger.info(f"Starting recovery from snapshot {snapshot_id}")
@@ -282,7 +278,6 @@ class SnapshotManager:
         Returns:
             List of LedgerSnapshot records, ordered by creation time (newest first)
             
-        Requirements: 12.5
         """
         try:
             result = self.db_session.execute(
@@ -313,7 +308,6 @@ class SnapshotManager:
         Returns:
             Number of snapshots deleted
             
-        Requirements: 12.7
         """
         try:
             cutoff_date = datetime.utcnow() - timedelta(days=retention_days)

@@ -10,7 +10,6 @@ Tests SDK context manager in realistic scenarios:
 - Concurrent operations
 
 Feature: caracal-core
-Requirements: 7.1, 7.2, 7.4, 7.6
 """
 
 import concurrent.futures
@@ -68,7 +67,6 @@ class TestSDKContextManager:
         """
         Test that context manager allows execution when agent is within budget.
         
-        Requirements: 7.1, 7.2
         """
         # Register agent
         agent = sdk_client.agent_registry.register_agent(
@@ -96,7 +94,6 @@ class TestSDKContextManager:
         """
         Test that context manager raises BudgetExceededError when budget exceeded.
         
-        Requirements: 7.2, 7.4
         """
         # Register agent
         agent = sdk_client.agent_registry.register_agent(
@@ -133,7 +130,6 @@ class TestSDKContextManager:
         """
         Test realistic workflow: budget check + operation + manual event emission.
         
-        Requirements: 7.1, 7.2
         """
         # Register agent
         agent = sdk_client.agent_registry.register_agent(
@@ -175,7 +171,6 @@ class TestSDKContextManager:
         """
         Test multiple sequential operations with budget checks.
         
-        Requirements: 7.1, 7.2
         """
         # Register agent
         agent = sdk_client.agent_registry.register_agent(
@@ -218,7 +213,6 @@ class TestSDKErrorHandling:
         """
         Test that SDK fails closed when no policy exists.
         
-        Requirements: 7.6
         """
         # Register agent without policy
         agent = sdk_client.agent_registry.register_agent(
@@ -237,7 +231,6 @@ class TestSDKErrorHandling:
         """
         Test that check_budget() returns False on errors (fail closed).
         
-        Requirements: 7.6
         """
         # Check budget for non-existent agent
         result = sdk_client.check_budget(agent_id="non-existent-agent-id")
@@ -249,7 +242,6 @@ class TestSDKErrorHandling:
         """
         Test that get_remaining_budget() returns None on errors (fail closed).
         
-        Requirements: 7.6
         """
         # Get remaining budget for non-existent agent
         result = sdk_client.get_remaining_budget(agent_id="non-existent-agent-id")
@@ -261,7 +253,6 @@ class TestSDKErrorHandling:
         """
         Test that emit_event() raises ConnectionError on failure (fail closed).
         
-        Requirements: 7.6
         """
         # Register agent first (so agent exists)
         agent = sdk_client.agent_registry.register_agent(
@@ -290,7 +281,6 @@ class TestSDKErrorHandling:
         """
         Test that SDK initialization fails with clear error on invalid config.
         
-        Requirements: 7.6
         """
         # Create invalid config (missing required files)
         invalid_config_path = temp_dir / "invalid_config.yaml"
@@ -317,7 +307,6 @@ class TestSDKConcurrentOperations:
         """
         Test that multiple threads can emit events concurrently.
         
-        Requirements: 7.1, 7.2
         """
         # Register agent
         agent = sdk_client.agent_registry.register_agent(
@@ -360,7 +349,6 @@ class TestSDKConcurrentOperations:
         """
         Test that multiple threads can check budgets concurrently.
         
-        Requirements: 7.1, 7.2
         """
         # Register agent
         agent = sdk_client.agent_registry.register_agent(
@@ -394,7 +382,6 @@ class TestSDKConcurrentOperations:
         
         This tests race conditions and ensures fail-closed behavior.
         
-        Requirements: 7.2, 7.4, 7.6
         """
         # Register agent with low budget
         agent = sdk_client.agent_registry.register_agent(
@@ -465,7 +452,6 @@ class TestSDKRealisticScenarios:
         
         Simulates an agent making multiple LLM API calls with budget tracking.
         
-        Requirements: 7.1, 7.2
         """
         # Register agent
         agent = sdk_client.agent_registry.register_agent(
@@ -533,7 +519,6 @@ class TestSDKRealisticScenarios:
         """
         Test agent using multiple different resource types.
         
-        Requirements: 7.1, 7.2
         """
         # Register agent
         agent = sdk_client.agent_registry.register_agent(

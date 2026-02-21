@@ -7,7 +7,6 @@ Database query optimization utilities.
 Provides query result caching, optimized query patterns, and performance
 monitoring for database operations.
 
-Requirements: 14.5, 14.6
 """
 
 from datetime import datetime, timedelta
@@ -33,7 +32,6 @@ class QueryOptimizer:
     - Query result caching (in-memory)
     - Index-aware query patterns
     
-    Requirements: 14.5, 14.6
     """
     
     def __init__(self, db_session: Session):
@@ -96,7 +94,6 @@ class QueryOptimizer:
         Returns:
             ExecutionMandate with relationships loaded, or None
         
-        Requirements: 14.5
         """
         try:
             mandate = self.db_session.query(ExecutionMandate).options(
@@ -133,7 +130,6 @@ class QueryOptimizer:
         Returns:
             List of active ExecutionMandate objects
         
-        Requirements: 14.5
         """
         if current_time is None:
             current_time = datetime.utcnow()
@@ -173,7 +169,6 @@ class QueryOptimizer:
         Returns:
             List of ExecutionMandate objects expiring soon
         
-        Requirements: 14.5
         """
         try:
             current_time = datetime.utcnow()
@@ -223,7 +218,6 @@ class QueryOptimizer:
         Returns:
             List of AuthorityLedgerEvent objects
         
-        Requirements: 14.5, 14.6
         """
         try:
             query = self.db_session.query(AuthorityLedgerEvent).filter(
@@ -267,7 +261,6 @@ class QueryOptimizer:
         Returns:
             AuthorityPolicy if found and active, None otherwise
         
-        Requirements: 14.5
         """
         cache_key = f"policy:{principal_id}"
         
@@ -324,7 +317,6 @@ class QueryOptimizer:
         Returns:
             List of ExecutionMandate objects in delegation chain
         
-        Requirements: 14.5
         """
         try:
             chain = []
@@ -369,7 +361,6 @@ class QueryOptimizer:
         Returns:
             Count of active mandates
         
-        Requirements: 14.5
         """
         if current_time is None:
             current_time = datetime.utcnow()
@@ -406,7 +397,6 @@ class QueryOptimizer:
         Returns:
             List of recent AuthorityLedgerEvent objects
         
-        Requirements: 14.5
         """
         try:
             events = self.db_session.query(AuthorityLedgerEvent).filter(

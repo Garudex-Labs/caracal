@@ -9,7 +9,6 @@ Provides comprehensive health checks for:
 - Database connectivity
 - Redis connectivity
 
-Requirements: Deployment, 24.1, 24.5
 """
 
 import asyncio
@@ -112,7 +111,6 @@ class HealthChecker:
     - Redis cache
     - Component-specific checks
     
-    Requirements: Deployment
     """
     
     def __init__(

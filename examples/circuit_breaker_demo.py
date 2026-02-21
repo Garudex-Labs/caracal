@@ -7,7 +7,6 @@ Circuit Breaker Demo for Caracal Core.
 This example demonstrates how to use circuit breakers to protect against
 cascading failures in database operations, policy service, and external services.
 
-Requirements: 23.5, 23.6
 """
 
 import asyncio

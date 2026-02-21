@@ -10,7 +10,6 @@ Provides HTTP API for MCP request proxying with authority enforcement:
 - Configuration loading from YAML or environment variables
 - Integration with Caracal Core policy evaluation and metering
 
-Requirements: 18.1, 18.3
 """
 
 import asyncio
@@ -116,7 +115,6 @@ class MCPAdapterService:
     Provides HTTP API for intercepting MCP tool calls and resource reads,
     enforcing authority policies, and forwarding requests to MCP servers.
     
-    Requirements: 18.1, 18.3
     """
     
     def __init__(
@@ -190,7 +188,6 @@ class MCPAdapterService:
             - 200 OK: Service is healthy and all dependencies are available
             - 503 Service Unavailable: Service is in degraded mode (some dependencies unavailable)
             
-            Requirements: 18.3, 17.4, 22.5
             """
             mcp_server_statuses = {}
             
@@ -297,7 +294,6 @@ class MCPAdapterService:
             Returns:
                 MCPServiceResponse with tool execution result
                 
-            Requirements: 18.1
             """
             start_time = time.time()
             self._request_count += 1
@@ -386,7 +382,6 @@ class MCPAdapterService:
             Returns:
                 MCPServiceResponse with resource content
                 
-            Requirements: 18.1
             """
             start_time = time.time()
             self._request_count += 1
@@ -510,7 +505,6 @@ def load_config_from_yaml(config_path: str) -> MCPServiceConfig:
         FileNotFoundError: If config file doesn't exist
         ValueError: If config file is invalid
         
-    Requirements: 18.3
     """
     import yaml
     import os
@@ -573,7 +567,6 @@ def load_config_from_env() -> MCPServiceConfig:
     Returns:
         MCPServiceConfig loaded from environment
         
-    Requirements: 18.3
     """
     import os
     import json

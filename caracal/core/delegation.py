@@ -7,7 +7,6 @@ Delegation token management for Caracal Core v0.2.
 This module provides the DelegationTokenManager for generating and validating
 ASE v1.0.8 delegation tokens using JWT with ECDSA P-256 signatures.
 
-Requirements: 13.1, 13.2, 13.3, 13.4, 13.5
 """
 
 import json
@@ -89,7 +88,6 @@ class DelegationTokenManager:
         Returns:
             Tuple of (private_key_pem, public_key_pem) as bytes
             
-        Requirements: 13.5
         """
         # Generate ECDSA P-256 private key
         private_key = ec.generate_private_key(ec.SECP256R1(), default_backend())
@@ -140,7 +138,6 @@ class DelegationTokenManager:
             AgentNotFoundError: If parent agent does not exist
             InvalidDelegationTokenError: If parent agent has no private key
             
-        Requirements: 13.1, 13.2
         """
         # Get parent agent
         parent_agent = self.agent_registry.get_agent(str(parent_agent_id))
@@ -247,7 +244,6 @@ class DelegationTokenManager:
             TokenExpiredError: If token has expired
             AgentNotFoundError: If issuer agent does not exist
             
-        Requirements: 13.2, 13.3, 13.4
         """
         try:
             # Decode header without verification to get issuer (kid)

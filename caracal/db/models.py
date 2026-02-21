@@ -48,7 +48,6 @@ class LedgerEvent(Base):
     Stores all metering events with automatic monotonic ID generation.
     Events are append-only and never modified or deleted.
     
-    Requirements: 5.2, 15.1, 15.2
     """
     
     __tablename__ = "ledger_events"
@@ -100,7 +99,6 @@ class AuditLog(Base):
     Stores comprehensive audit trail of all system events.
     Records are append-only with no updates or deletes allowed.
     
-    Requirements: 17.1, 17.2, 17.3, 17.4
     """
     
     __tablename__ = "audit_logs"
@@ -145,7 +143,6 @@ class MerkleRoot(Base):
     Stores signed Merkle roots for batches of ledger events, enabling
     cryptographic verification of ledger integrity.
     
-    Requirements: 3.4, 3.5, 4.2
     """
     
     __tablename__ = "merkle_roots"
@@ -198,7 +195,6 @@ class LedgerSnapshot(Base):
     per agent and current Merkle root. Enables fast recovery without replaying
     all events from the beginning.
     
-    Requirements: 12.1, 12.2, 12.3, 12.4, 12.5, 12.6, 12.7
     """
     
     __tablename__ = "ledger_snapshots"
@@ -233,7 +229,6 @@ class Principal(Base):
     Represents an entity that can hold authority and perform actions.
     Replaces AgentIdentity with more general concept for authority enforcement.
     
-    Requirements: 1.2, 1.3, 3.2
     """
     
     __tablename__ = "principals"
@@ -281,7 +276,6 @@ class ExecutionMandate(Base):
     Represents a cryptographically signed authorization that grants
     specific execution rights to a principal for a limited time.
     
-    Requirements: 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 1.7, 1.8, 1.9, 1.10
     """
     
     __tablename__ = "execution_mandates"
@@ -351,7 +345,6 @@ class AuthorityLedgerEvent(Base):
     Records all authority-related events including mandate issuance,
     validation attempts, and revocations.
     
-    Requirements: 2.1, 2.2, 2.3, 2.4, 2.5, 2.6, 2.7, 2.8, 2.9, 2.10, 2.11
     """
     
     __tablename__ = "authority_ledger_events"
@@ -419,7 +412,6 @@ class AuthorityPolicy(Base):
     Defines rules for how mandates can be issued to a principal,
     including scope limits and validity period constraints.
     
-    Requirements: 3.1, 3.2, 3.3, 3.4, 3.5, 3.6, 3.7, 3.8
     """
     
     __tablename__ = "authority_policies"

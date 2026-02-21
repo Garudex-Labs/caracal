@@ -6,7 +6,6 @@ Database management commands for Caracal Core.
 
 Provides CLI commands for database initialization, migrations, and status checks.
 
-Requirements: 19.3, 19.5, 19.6
 """
 
 import logging
@@ -95,7 +94,6 @@ def init_db(ctx):
     Creates all tables defined in SQLAlchemy models if they don't exist.
     This is equivalent to running all migrations to create the initial schema.
     
-    Requirements: 19.3
     """
     try:
         click.echo("Initializing database schema...")
@@ -180,7 +178,6 @@ def migrate(ctx, direction: str, revision: str, sql: bool):
         caracal db migrate down -r base    # Rollback all migrations
         caracal db migrate up --sql        # Generate SQL without executing
     
-    Requirements: 19.5
     """
     try:
         # Get database configuration
@@ -268,7 +265,6 @@ def db_status(ctx, verbose: bool):
     
     Displays current schema version, pending migrations, and database connectivity.
     
-    Requirements: 19.6
     """
     try:
         # Get database configuration

@@ -7,7 +7,6 @@ Partition management for authority_ledger_events table.
 Provides automatic monthly partitioning for authority ledger events
 to improve query performance and enable efficient data archival.
 
-Requirements: 14.6
 """
 
 from datetime import datetime, timedelta
@@ -31,7 +30,6 @@ class AuthorityLedgerPartitionManager:
     - Partition maintenance (cleanup old partitions)
     - Partition listing and status
     
-    Requirements: 14.6
     """
     
     # Table name
@@ -97,7 +95,6 @@ class AuthorityLedgerPartitionManager:
         Returns:
             True if partition created successfully, False otherwise
         
-        Requirements: 14.6
         """
         partition_name = self._get_partition_name(year, month)
         start_date, end_date = self._get_partition_bounds(year, month)
@@ -167,7 +164,6 @@ class AuthorityLedgerPartitionManager:
         Returns:
             Number of partitions created
         
-        Requirements: 14.6
         """
         created_count = 0
         current_date = datetime(start_year, start_month, 1)
@@ -199,7 +195,6 @@ class AuthorityLedgerPartitionManager:
         Returns:
             Number of partitions created
         
-        Requirements: 14.6
         """
         current_date = datetime.utcnow()
         created_count = 0
@@ -224,7 +219,6 @@ class AuthorityLedgerPartitionManager:
             - size_bytes: Partition size in bytes
             - row_count: Approximate row count
         
-        Requirements: 14.6
         """
         try:
             list_sql = text("""
@@ -276,7 +270,6 @@ class AuthorityLedgerPartitionManager:
         Returns:
             Number of partitions dropped
         
-        Requirements: 14.6
         """
         try:
             current_date = datetime.utcnow()
@@ -326,7 +319,6 @@ class AuthorityLedgerPartitionManager:
             - oldest_partition: Name of oldest partition
             - newest_partition: Name of newest partition
         
-        Requirements: 14.6
         """
         try:
             partitions = self.list_partitions()
@@ -370,7 +362,6 @@ class AuthorityLedgerPartitionManager:
         Returns:
             True if partition exists or was created, False otherwise
         
-        Requirements: 14.6
         """
         current_date = datetime.utcnow()
         return self.create_partition(current_date.year, current_date.month)
@@ -385,7 +376,6 @@ class AuthorityLedgerPartitionManager:
         Returns:
             True if initialization successful, False otherwise
         
-        Requirements: 14.6
         """
         try:
             # Check if table is already partitioned

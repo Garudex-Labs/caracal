@@ -7,7 +7,6 @@ Mandate management for authority enforcement.
 This module provides the MandateManager class for managing execution mandate
 lifecycle including issuance, revocation, and delegation.
 
-Requirements: 5.1, 5.2, 5.3, 5.4, 5.5, 5.6, 5.7, 5.9, 5.10, 7.1, 7.2, 7.3, 7.4,
 7.5, 7.7, 7.8, 7.9, 8.1, 8.2, 8.3, 8.4, 8.5, 8.6
 """
 
@@ -39,7 +38,6 @@ class MandateManager:
     Handles mandate issuance, revocation, and delegation with validation
     against authority policies and fail-closed semantics.
     
-    Requirements: 5.1, 5.2, 5.3, 14.4, 14.9
     """
     
     def __init__(self, db_session: Session, ledger_writer=None, mandate_cache=None, rate_limiter=None):
@@ -237,7 +235,6 @@ class MandateManager:
             ValueError: If validation fails
             RuntimeError: If mandate creation fails
         
-        Requirements: 5.1, 5.2, 5.3, 5.4, 5.5, 5.6, 5.7, 5.9, 5.10
         """
         logger.info(
             f"Issuing mandate: issuer={issuer_id}, subject={subject_id}, "
@@ -504,7 +501,6 @@ class MandateManager:
             ValueError: If validation fails
             RuntimeError: If revocation fails
         
-        Requirements: 7.1, 7.2, 7.3, 7.4, 7.5, 7.7, 7.8, 7.9
         """
         logger.info(
             f"Revoking mandate {mandate_id}: revoker={revoker_id}, "
@@ -643,7 +639,6 @@ class MandateManager:
             ValueError: If validation fails
             RuntimeError: If delegation fails
         
-        Requirements: 8.1, 8.2, 8.3, 8.4, 8.5, 8.6
         """
         logger.info(
             f"Delegating mandate: parent={parent_mandate_id}, "

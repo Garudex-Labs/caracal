@@ -119,7 +119,6 @@ class MerkleVerifier:
         Returns:
             VerificationResult with verification status
         
-        Requirements: 4.3, 4.4, 22.1.10, 22.1.11
         """
         logger.info(f"Verifying batch {batch_id}")
         
@@ -290,7 +289,6 @@ class MerkleVerifier:
         Returns:
             VerificationSummary with aggregated results
         
-        Requirements: 4.5
         """
         logger.info(f"Verifying batches from {start_time} to {end_time}")
         
@@ -365,7 +363,6 @@ class MerkleVerifier:
         Returns:
             True if event is included and proof is valid, False otherwise
         
-        Requirements: 3.6, 3.7
         """
         logger.info(f"Verifying inclusion of event {event_id}")
         
@@ -461,7 +458,6 @@ class MerkleVerifier:
         Returns:
             VerificationSummary with aggregated results for migration batches
         
-        Requirements: 22.1.10, 22.1.12
         """
         logger.info("Verifying all migration batches (v0.2 backfill)")
         

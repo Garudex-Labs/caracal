@@ -7,7 +7,6 @@ Rate limiting for mandate issuance.
 Provides rate limiting functionality to prevent abuse and ensure
 fair resource allocation across principals.
 
-Requirements: 14.9
 """
 
 from datetime import datetime, timedelta
@@ -30,7 +29,6 @@ class MandateIssuanceRateLimiter:
     
     Uses sliding window algorithm for accurate rate limiting.
     
-    Requirements: 14.9
     """
     
     # Key prefix
@@ -92,7 +90,6 @@ class MandateIssuanceRateLimiter:
         Raises:
             RateLimitExceededError: If rate limit is exceeded
         
-        Requirements: 14.9
         """
         current_time = datetime.utcnow()
         current_timestamp = current_time.timestamp()
@@ -183,7 +180,6 @@ class MandateIssuanceRateLimiter:
         Args:
             principal_id: Principal identifier
         
-        Requirements: 14.9
         """
         try:
             current_time = datetime.utcnow()

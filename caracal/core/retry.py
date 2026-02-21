@@ -7,7 +7,6 @@ Retry logic utilities for Caracal Core.
 This module provides retry decorators and utilities for handling transient failures
 in file persistence operations and database queries.
 
-Requirements: 23.1
 """
 
 import functools
@@ -174,7 +173,6 @@ def retry_database_operation(
         def query_principal(session, principal_id):
             return session.query(Principal).filter_by(id=principal_id).first()
             
-    Requirements: 23.1
     """
     # Import SQLAlchemy exceptions here to avoid circular imports
     try:
@@ -281,7 +279,6 @@ def retry_database_query(
             max_retries=3
         )
         
-    Requirements: 23.1
     """
     # Import SQLAlchemy exceptions here to avoid circular imports
     try:
