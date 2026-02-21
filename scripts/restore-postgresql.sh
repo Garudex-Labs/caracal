@@ -18,7 +18,7 @@
 #   --db-name NAME      Database name (default: caracal)
 #   --db-user USER      Database user (default: caracal)
 #   --drop-database     Drop database before restore (default: false)
-#   --stop-consumers    Stop Kafka consumers before restore (default: true)
+
 #   --confirm           Skip confirmation prompt (default: false)
 #
 # Requirements: Deployment
@@ -36,7 +36,7 @@ DB_PORT="${DB_PORT:-5432}"
 DB_NAME="${DB_NAME:-caracal}"
 DB_USER="${DB_USER:-caracal}"
 DROP_DATABASE="${DROP_DATABASE:-false}"
-STOP_CONSUMERS="${STOP_CONSUMERS:-true}"
+
 CONFIRM="${CONFIRM:-false}"
 
 # Parse command line arguments
@@ -82,14 +82,7 @@ while [[ $# -gt 0 ]]; do
       DROP_DATABASE="true"
       shift
       ;;
-    --stop-consumers)
-      STOP_CONSUMERS="true"
-      shift
-      ;;
-    --no-stop-consumers)
-      STOP_CONSUMERS="false"
-      shift
-      ;;
+
     --confirm)
       CONFIRM="true"
       shift
@@ -141,7 +134,7 @@ echo "Database: $DB_NAME"
 echo "Compressed: $IS_COMPRESSED"
 echo "Kubernetes: $KUBERNETES"
 echo "Drop database: $DROP_DATABASE"
-echo "Stop consumers: $STOP_CONSUMERS"
+
 echo "=========================================="
 
 # Confirmation prompt
@@ -158,19 +151,6 @@ if [ "$CONFIRM" != "true" ]; then
   fi
 fi
 
-# Stop Kafka consumers
-if [ "$STOP_CONSUMERS" = "true" ] && [ "$KUBERNETES" = "true" ]; then
-  echo "Stopping Kafka consumers..."
-  
-  kubectl scale deployment/caracal-ledger-writer -n "$NAMESPACE" --replicas=0 || true
-  kubectl scale deployment/caracal-metrics-aggregator -n "$NAMESPACE" --replicas=0 || true
-  kubectl scale deployment/caracal-audit-logger -n "$NAMESPACE" --replicas=0 || true
-  
-  echo "Waiting for consumers to stop..."
-  sleep 10
-  
-  echo "Consumers stopped"
-fi
 
 # Restore database
 echo "Restoring database..."
@@ -265,16 +245,6 @@ else
   exit 1
 fi
 
-# Restart Kafka consumers
-if [ "$STOP_CONSUMERS" = "true" ] && [ "$KUBERNETES" = "true" ]; then
-  echo "Restarting Kafka consumers..."
-  
-  kubectl scale deployment/caracal-ledger-writer -n "$NAMESPACE" --replicas=3 || true
-  kubectl scale deployment/caracal-metrics-aggregator -n "$NAMESPACE" --replicas=2 || true
-  kubectl scale deployment/caracal-audit-logger -n "$NAMESPACE" --replicas=1 || true
-  
-  echo "Consumers restarted"
-fi
 
 # Cleanup temporary file if downloaded from S3
 if [ -n "$S3_PATH" ]; then

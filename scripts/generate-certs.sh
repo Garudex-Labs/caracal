@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Generate self-signed TLS certificates for Caracal Gateway
+# Generate self-signed TLS certificates for Caracal Services
 # For production, use certificates from a trusted CA
 
 set -e
@@ -31,15 +31,14 @@ openssl genrsa -out "$CERTS_DIR/server.key" 4096
 
 # Generate server CSR
 echo "4. Generating server certificate signing request..."
-openssl req -new -key "$CERTS_DIR/server.key" -out "$CERTS_DIR/server.csr" \
-  -subj "/C=US/ST=State/L=City/O=Caracal Gateway/OU=IT/CN=localhost"
+  -subj "/C=US/ST=State/L=City/O=Caracal/OU=IT/CN=localhost"
 
 # Generate server certificate
 echo "5. Signing server certificate with CA..."
 openssl x509 -req -days "$DAYS_VALID" -in "$CERTS_DIR/server.csr" \
   -CA "$CERTS_DIR/ca.crt" -CAkey "$CERTS_DIR/ca.key" -CAcreateserial \
   -out "$CERTS_DIR/server.crt" \
-  -extfile <(printf "subjectAltName=DNS:localhost,DNS:caracal-gateway,IP:127.0.0.1")
+  -extfile <(printf "subjectAltName=DNS:localhost,IP:127.0.0.1")
 
 # Generate JWT signing keys (RS256)
 echo "6. Generating JWT RSA key pair..."
@@ -68,5 +67,5 @@ echo "    For production, use certificates from a trusted Certificate Authority.
 echo
 echo "Next steps:"
 echo "  1. Start services: docker compose up -d"
-echo "  2. Test gateway: curl -k https://localhost:8443/health"
+echo "  2. Test services: curl -k https://localhost:8443/health"
 echo

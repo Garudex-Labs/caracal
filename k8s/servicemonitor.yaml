@@ -2,7 +2,7 @@
 # Requirements: 17.2, 17.4
 #
 # This ServiceMonitor configures Prometheus Operator to scrape metrics
-# from Gateway Proxy and MCP Adapter.
+# from MCP Adapter.
 #
 # Requires Prometheus Operator to be installed in the cluster.
 #
