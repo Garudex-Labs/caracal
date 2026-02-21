@@ -5,8 +5,6 @@ Caracal, a product of Garudex Labs
 CLI commands for authority enforcement management.
 
 Provides commands for issuing, validating, revoking, and listing execution mandates.
-
-Requirements: 11.1, 11.2, 11.3, 11.4, 11.10
 """
 
 import json
@@ -153,8 +151,6 @@ def issue(
         
         # JSON output
         caracal authority issue -i <issuer> -s <subject> -r "api:*" -a "api_call" -v 3600 --format json
-    
-    Requirements: 11.1, 11.10
     """
     try:
         # Get CLI context
@@ -432,8 +428,6 @@ def revoke(
         
         # JSON output
         caracal authority revoke -m <mandate-id> -r <revoker-id> -e "Reason" --format json
-    
-    Requirements: 11.3, 11.10
     """
     try:
         # Get CLI context
@@ -543,7 +537,6 @@ def list_mandates(
         # JSON output
         caracal authority list --format json
     
-    Requirements: 11.4, 11.10
     """
     try:
         # Get CLI context

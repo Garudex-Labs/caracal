@@ -5,8 +5,6 @@ Caracal, a product of Garudex Labs
 CLI commands for authority ledger management.
 
 Provides commands for querying authority ledger events and exporting audit reports.
-
-Requirements: 11.7, 11.9, 11.10
 """
 
 import csv
@@ -138,9 +136,7 @@ def query(
         
         # JSON output
         caracal ledger query --format json
-    
-    Requirements: 11.7, 11.10
-    """
+        """
     try:
         # Get CLI context
         cli_ctx = ctx.obj
@@ -329,8 +325,6 @@ def export(
             -p 550e8400-e29b-41d4-a716-446655440000 \\
             -o audit_report.json \\
             --format json
-    
-    Requirements: 11.9, 11.10
     """
     try:
         # Get CLI context

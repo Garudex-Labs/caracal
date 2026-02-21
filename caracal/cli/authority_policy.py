@@ -5,8 +5,6 @@ Caracal, a product of Garudex Labs
 CLI commands for authority policy management.
 
 Provides commands for creating and listing authority policies.
-
-Requirements: 11.5, 11.6, 11.10
 """
 
 import json
@@ -107,8 +105,6 @@ def create(
         
         # JSON output
         caracal policy create -p <principal-id> -v 3600 -r "api:*" -a "api_call" --format json
-    
-    Requirements: 11.5, 11.10
     """
     try:
         # Get CLI context
@@ -256,8 +252,6 @@ def list_policies(
         
         # JSON output
         caracal policy list --format json
-    
-    Requirements: 11.6, 11.10
     """
     try:
         # Get CLI context

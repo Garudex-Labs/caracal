@@ -384,8 +384,6 @@ def verify_batch(batch_id, config):
         
         # Verify with custom config
         caracal merkle verify-batch -b 550e8400-e29b-41d4-a716-446655440000 -c /etc/caracal/config.yaml
-    
-    Requirements: 4.5, 4.7
     """
     import asyncio
     from uuid import UUID
@@ -487,8 +485,6 @@ def verify_range(start_time, end_time, config, verbose):
         
         # Verify with verbose output
         caracal merkle verify-range -s 2024-01-01T00:00:00 -e 2024-01-31T23:59:59 -v
-    
-    Requirements: 4.5, 4.7
     """
     import asyncio
     from datetime import datetime
@@ -583,11 +579,9 @@ def verify_event(event_id, config):
         
         # Verify with custom config
         caracal merkle verify-event -e 12345 -c /etc/caracal/config.yaml
-    
-    Requirements: 3.6, 3.7
     """
+
     import asyncio
-    
     from caracal.config.settings import load_config
     from caracal.db.connection import get_async_session
     from caracal.merkle import create_merkle_signer, MerkleVerifier
@@ -832,8 +826,6 @@ def backfill(source_version, batch_size, dry_run, config):
         
         # Backfill from specific version
         caracal merkle backfill --source-version v0.2
-    
-    Requirements: 22.10, 22.1.8
     """
     import asyncio
     from caracal.config.settings import load_config
@@ -953,8 +945,6 @@ def backfill_status(config):
     
         # Check backfill status
         caracal merkle backfill-status
-    
-    Requirements: 22.1.8
     """
     from caracal.config.settings import load_config
     from caracal.db.connection import get_session
@@ -1042,8 +1032,6 @@ def verify_backfill(config, verbose):
         
         # Verify with verbose output
         caracal merkle verify-backfill -v
-    
-    Requirements: 22.1.10
     """
     import asyncio
     
@@ -1141,8 +1129,6 @@ def list_batches(source, limit, config):
         
         # List first 50 batches
         caracal merkle list-batches --limit 50
-    
-    Requirements: 22.1.8
     """
     import asyncio
     from sqlalchemy import select

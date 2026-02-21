@@ -5,8 +5,6 @@ Caracal, a product of Garudex Labs
 CLI commands for resource allowlist management.
 
 Provides commands for creating, listing, deleting, and testing resource allowlists.
-
-Requirements: 7.1, 7.2
 """
 
 import sys

@@ -7,12 +7,10 @@ Resource Allowlist Manager for Caracal Core v0.3.
 This module provides fine-grained access control through resource allowlists.
 Agents can be restricted to specific resources using regex or glob patterns.
 
-v0.3 optimizations:
+optimizations:
 - LRU cache for compiled regex patterns
 - Efficient glob matching with fnmatch
 - Target p99 latency < 2ms
-
-Requirements: 7.1, 7.2, 7.3, 7.4, 7.5, 7.6, 7.7, 8.1, 8.2, 8.3, 8.4, 8.5, 8.6, 18.6, 23.5
 """
 
 import fnmatch
@@ -40,8 +38,6 @@ class LRUCache:
     Simple LRU (Least Recently Used) cache implementation.
     
     Used for caching compiled regex patterns and allowlist entries.
-    
-    Requirements: 23.5
     """
     
     def __init__(self, max_size: int):
@@ -140,12 +136,10 @@ class AllowlistManager:
     Provides methods to create, query, and check resource allowlists for agents.
     Supports both regex and glob pattern types with validation and caching.
     
-    v0.3 optimizations:
+    optimizations:
     - LRU cache for compiled regex patterns (max 1000 patterns)
     - LRU cache for agent allowlists (max 500 agents)
     - Target p99 latency < 2ms for pattern matching
-    
-    Requirements: 7.3, 7.4, 7.5, 7.6, 7.7, 8.1, 8.2, 8.3, 8.4, 8.5, 8.6, 18.6, 23.5
     """
     
     def __init__(self, db_session: Session, cache_ttl_seconds: int = 60):
@@ -244,8 +238,6 @@ class AllowlistManager:
         
         Returns:
             AllowlistDecision with the result
-        
-        Requirements: 7.3, 7.4, 7.5, 7.6, 8.1, 8.2, 8.6, 18.6
         """
         # Check cache first
         cached_entry = self._get_cached_allowlists(agent_id)
@@ -346,8 +338,6 @@ class AllowlistManager:
         
         Returns:
             True if the pattern matches, False otherwise
-        
-        Requirements: 8.1, 8.2, 8.5
         """
         if pattern_type == "regex":
             return self._match_regex(pattern, resource_url)
