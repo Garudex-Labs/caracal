@@ -173,7 +173,7 @@ def list_delegations(ctx, agent_id: str, parent_id: str, format: str):
     """
     List delegation relationships and policies.
     
-    Shows parent-child agent relationships and delegated budget policies.
+    Shows parent-child agent relationships and delegation policies.
     Can filter by agent ID (shows delegations to/from that agent) or
     parent ID (shows all delegations from that parent).
     

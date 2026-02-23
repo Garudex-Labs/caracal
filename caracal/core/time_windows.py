@@ -5,7 +5,7 @@ Caracal, a product of Garudex Labs
 Time window calculation for Caracal Core v0.3.
 
 This module provides the TimeWindowCalculator for calculating time window bounds
-for budget policies with support for:
+for authority policies with support for:
 - Hourly, daily, weekly, monthly time windows
 - Rolling windows (sliding time periods)
 - Calendar windows (aligned to calendar boundaries)
@@ -23,7 +23,7 @@ logger = get_logger(__name__)
 
 class TimeWindowCalculator:
     """
-    Calculate time window bounds for budget policies.
+    Calculate time window bounds for authority policies.
     
     Supports:
     - Time windows: hourly, daily, weekly, monthly
