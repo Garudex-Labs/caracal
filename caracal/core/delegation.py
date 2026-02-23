@@ -2,10 +2,11 @@
 Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 Caracal, a product of Garudex Labs
 
-Delegation token management for Caracal Core v0.2.
+Delegation token management for Caracal Core.
 
 This module provides the DelegationTokenManager for generating and validating
-ASE v1.0.8 delegation tokens using JWT with ECDSA P-256 signatures.
+delegation tokens using JWT with ECDSA P-256 signatures. Supports graph-based
+authority delegation across principal types (user, agent, service).
 
 """
 
@@ -40,17 +41,21 @@ logger = get_logger(__name__)
 @dataclass
 class DelegationTokenClaims:
     """
-    Decoded claims from an ASE v1.0.8 delegation token.
+    Decoded claims from a delegation token.
     
     Attributes:
-        issuer: Parent agent ID (UUID)
-        subject: Child agent ID (UUID)
+        issuer: Source principal ID (UUID)
+        subject: Target principal ID (UUID)
         audience: Target audience (e.g., "caracal-core")
         expiration: Token expiration timestamp
         issued_at: Token issuance timestamp
         token_id: Unique token identifier (jti claim)
         allowed_operations: List of allowed operation types
-        max_delegation_depth: Maximum delegation chain depth
+        delegation_type: Type of delegation (hierarchical/peer)
+        source_principal_type: Type of the delegating principal (user/agent/service)
+        target_principal_type: Type of the receiving principal (user/agent/service)
+        context_tags: Context tags for dynamic authority filtering
+        authority_sources: List of source mandate IDs (for multi-source)
     """
     issuer: UUID
     subject: UUID
@@ -59,15 +64,20 @@ class DelegationTokenClaims:
     issued_at: datetime
     token_id: UUID
     allowed_operations: List[str]
-    max_delegation_depth: int
+    delegation_type: str = "hierarchical"
+    source_principal_type: str = "agent"
+    target_principal_type: str = "agent"
+    context_tags: Optional[List[str]] = None
+    authority_sources: Optional[List[str]] = None
 
 
 class DelegationTokenManager:
     """
-    Manages ASE v1.0.8 delegation tokens for parent-child agent relationships.
+    Manages delegation tokens for graph-based authority delegation.
     
     Generates JWT tokens signed with ECDSA P-256 (ES256) and validates
     token signatures, expiration, and authority limits.
+    Supports delegation across principal types (user, agent, service).
     
     """
 
@@ -112,49 +122,57 @@ class DelegationTokenManager:
 
     def generate_token(
         self,
-        parent_agent_id: UUID,
-        child_agent_id: UUID,
+        source_agent_id: UUID,
+        target_agent_id: UUID,
         expiration_seconds: int = 86400,
         allowed_operations: Optional[List[str]] = None,
-        max_delegation_depth: int = 2
+        delegation_type: str = "hierarchical",
+        source_principal_type: str = "agent",
+        target_principal_type: str = "agent",
+        context_tags: Optional[List[str]] = None,
+        authority_sources: Optional[List[str]] = None,
     ) -> str:
         """
-        Generate ASE v1.0.8 delegation token.
+        Generate delegation token.
         
-        Creates a JWT token signed with the parent agent's private key using
-        ECDSA P-256 (ES256) algorithm per ASE v1.0.8 specification.
+        Creates a JWT token signed with the source principal's private key using
+        ECDSA P-256 (ES256) algorithm.
         
         Args:
-            parent_agent_id: Parent agent ID (issuer)
-            child_agent_id: Child agent ID (subject)
+            source_agent_id: Source principal ID (issuer/delegator)
+            target_agent_id: Target principal ID (subject/delegate)
             expiration_seconds: Token validity duration (default: 86400 = 24 hours)
             allowed_operations: List of allowed operations (default: ["api_call", "mcp_tool"])
-            max_delegation_depth: Maximum delegation chain depth (default: 2)
+            delegation_type: Type of delegation (hierarchical/peer)
+            source_principal_type: Type of delegating principal (user/agent/service)
+            target_principal_type: Type of receiving principal (user/agent/service)
+            context_tags: Context tags for dynamic authority filtering
+            authority_sources: List of source mandate IDs for multi-source
             
         Returns:
             JWT token string
             
         Raises:
-            AgentNotFoundError: If parent agent does not exist
-            InvalidDelegationTokenError: If parent agent has no private key
+            AgentNotFoundError: If source principal does not exist
+            InvalidDelegationTokenError: If source principal has no private key
             
         """
-        # Get parent agent
-        parent_agent = self.agent_registry.get_agent(str(parent_agent_id))
-        if parent_agent is None:
-            logger.error(f"Parent agent not found: {parent_agent_id}")
+        # Get source agent
+        source_agent = self.agent_registry.get_agent(str(source_agent_id))
+        if source_agent is None:
+            logger.error(f"Source principal not found: {source_agent_id}")
             raise AgentNotFoundError(
-                f"Parent agent with ID '{parent_agent_id}' does not exist"
+                f"Source principal with ID '{source_agent_id}' does not exist"
             )
         
-        # Get parent agent's private key from metadata
-        if parent_agent.metadata is None or "private_key_pem" not in parent_agent.metadata:
-            logger.error(f"Parent agent {parent_agent_id} has no private key")
+        # Get source agent's private key from metadata
+        if source_agent.metadata is None or "private_key_pem" not in source_agent.metadata:
+            logger.error(f"Source principal {source_agent_id} has no private key")
             raise InvalidDelegationTokenError(
-                f"Parent agent '{parent_agent_id}' has no private key for signing"
+                f"Source principal '{source_agent_id}' has no private key for signing"
             )
         
-        private_key_pem = parent_agent.metadata["private_key_pem"]
+        private_key_pem = source_agent.metadata["private_key_pem"]
         
         # Load private key
         try:
@@ -164,9 +182,9 @@ class DelegationTokenManager:
                 backend=default_backend()
             )
         except Exception as e:
-            logger.error(f"Failed to load private key for agent {parent_agent_id}: {e}")
+            logger.error(f"Failed to load private key for principal {source_agent_id}: {e}")
             raise InvalidDelegationTokenError(
-                f"Failed to load private key for agent '{parent_agent_id}': {e}"
+                f"Failed to load private key for principal '{source_agent_id}': {e}"
             ) from e
         
         # Set default allowed operations
@@ -181,26 +199,34 @@ class DelegationTokenManager:
         import uuid
         token_id = str(uuid.uuid4())
         
-        # Build JWT payload per ASE v1.0.8 specification
+        # Build JWT payload
         payload = {
             # Standard JWT claims
-            "iss": str(parent_agent_id),
-            "sub": str(child_agent_id),
+            "iss": str(source_agent_id),
+            "sub": str(target_agent_id),
             "aud": "caracal-core",
             "exp": int(expiration.timestamp()),
             "iat": int(now.timestamp()),
             "jti": token_id,
             
-            # ASE v1.0.8 specific claims
+            # Delegation claims
             "allowedOperations": allowed_operations,
-            "maxDelegationDepth": max_delegation_depth,
+            "delegationType": delegation_type,
+            "sourcePrincipalType": source_principal_type,
+            "targetPrincipalType": target_principal_type,
         }
+        
+        # Optional claims
+        if context_tags:
+            payload["contextTags"] = context_tags
+        if authority_sources:
+            payload["authoritySources"] = authority_sources
         
         # Build JWT header
         headers = {
             "alg": "ES256",
             "typ": "JWT",
-            "kid": str(parent_agent_id)
+            "kid": str(source_agent_id)
         }
         
         # Sign token with ES256 (ECDSA P-256)
@@ -218,7 +244,8 @@ class DelegationTokenManager:
             ) from e
         
         logger.info(
-            f"Generated delegation token: parent={parent_agent_id}, child={child_agent_id}, "
+            f"Generated delegation token: source={parent_agent_id}, target={child_agent_id}, "
+            f"type={delegation_type}, {source_principal_type}→{target_principal_type}, "
             f"expires={expiration.isoformat()}"
         )
         
@@ -363,7 +390,11 @@ class DelegationTokenManager:
                 issued_at = datetime.fromtimestamp(payload["iat"])
                 token_id = UUID(payload["jti"])
                 allowed_operations = payload["allowedOperations"]
-                max_delegation_depth = payload["maxDelegationDepth"]
+                delegation_type = payload.get("delegationType", "hierarchical")
+                source_principal_type = payload.get("sourcePrincipalType", "agent")
+                target_principal_type = payload.get("targetPrincipalType", "agent")
+                context_tags = payload.get("contextTags")
+                authority_sources = payload.get("authoritySources")
                 
             except (KeyError, ValueError, TypeError) as e:
                 # Missing or invalid claims - fail closed (Requirement 23.3)
@@ -389,11 +420,16 @@ class DelegationTokenManager:
                 issued_at=issued_at,
                 token_id=token_id,
                 allowed_operations=allowed_operations,
-                max_delegation_depth=max_delegation_depth
+                delegation_type=delegation_type,
+                source_principal_type=source_principal_type,
+                target_principal_type=target_principal_type,
+                context_tags=context_tags,
+                authority_sources=authority_sources,
             )
             
             logger.info(
-                f"Validated delegation token: issuer={issuer}, subject={subject}"
+                f"Validated delegation token: issuer={issuer}, subject={subject}, "
+                f"type={delegation_type}"
             )
             
             return claims

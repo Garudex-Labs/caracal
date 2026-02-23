@@ -5,9 +5,8 @@ Caracal, a product of Garudex Labs
 Mandate management for authority enforcement.
 
 This module provides the MandateManager class for managing execution mandate
-lifecycle including issuance, revocation, and delegation.
+lifecycle including issuance, revocation, and graph-based delegation.
 
-7.5, 7.7, 7.8, 7.9, 8.1, 8.2, 8.3, 8.4, 8.5, 8.6
 """
 
 from datetime import datetime, timedelta
@@ -18,7 +17,7 @@ from sqlalchemy.orm import Session
 
 from caracal.core.crypto import sign_mandate
 from caracal.core.intent import Intent
-from caracal.db.models import ExecutionMandate, AuthorityPolicy, Principal
+from caracal.db.models import ExecutionMandate, AuthorityPolicy, Principal, DelegationEdgeModel
 from caracal.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -40,7 +39,7 @@ class MandateManager:
     
     """
     
-    def __init__(self, db_session: Session, ledger_writer=None, mandate_cache=None, rate_limiter=None):
+    def __init__(self, db_session: Session, ledger_writer=None, mandate_cache=None, rate_limiter=None, delegation_graph=None):
         """
         Initialize MandateManager.
         
@@ -49,14 +48,17 @@ class MandateManager:
             ledger_writer: AuthorityLedgerWriter instance (optional, for recording events)
             mandate_cache: RedisMandateCache instance (optional, for caching mandates)
             rate_limiter: MandateIssuanceRateLimiter instance (optional, for rate limiting)
+            delegation_graph: DelegationGraph instance (optional, for graph-based delegation)
         """
         self.db_session = db_session
         self.ledger_writer = ledger_writer
         self.mandate_cache = mandate_cache
         self.rate_limiter = rate_limiter
+        self.delegation_graph = delegation_graph
         logger.info(
             f"MandateManager initialized (cache_enabled={mandate_cache is not None}, "
-            f"rate_limiter_enabled={rate_limiter is not None})"
+            f"rate_limiter_enabled={rate_limiter is not None}, "
+            f"delegation_graph_enabled={delegation_graph is not None})"
         )
     
     def _get_active_policy(self, principal_id: UUID) -> Optional[AuthorityPolicy]:
@@ -208,7 +210,8 @@ class MandateManager:
         action_scope: List[str],
         validity_seconds: int,
         intent: Optional[Intent] = None,
-        parent_mandate_id: Optional[UUID] = None
+        delegation_type: str = "hierarchical",
+        context_tags: Optional[List[str]] = None,
     ) -> ExecutionMandate:
         """
         Issue a new execution mandate.
@@ -217,7 +220,6 @@ class MandateManager:
         - Issuer has authority to issue mandates
         - Scope is within issuer's policy limits
         - Validity period is within policy limits
-        - If delegated, scope/validity is subset of parent
         
         Args:
             issuer_id: Principal ID of the issuer
@@ -226,7 +228,8 @@ class MandateManager:
             action_scope: List of actions the mandate allows
             validity_seconds: How long the mandate is valid (in seconds)
             intent: Optional intent to bind the mandate to
-            parent_mandate_id: Optional parent mandate ID for delegation
+            delegation_type: Type of delegation (hierarchical/peer)
+            context_tags: Context tags for dynamic authority filtering
         
         Returns:
             Signed ExecutionMandate object
@@ -238,7 +241,7 @@ class MandateManager:
         """
         logger.info(
             f"Issuing mandate: issuer={issuer_id}, subject={subject_id}, "
-            f"validity={validity_seconds}s, parent={parent_mandate_id}"
+            f"validity={validity_seconds}s, type={delegation_type}"
         )
         
         # Check rate limit if rate limiter is configured
@@ -308,68 +311,6 @@ class MandateManager:
             )
             raise ValueError(error_msg)
         
-        # If this is a delegation, validate against parent mandate
-        delegation_depth = 0
-        if parent_mandate_id:
-            parent_mandate = self.db_session.query(ExecutionMandate).filter(
-                ExecutionMandate.mandate_id == parent_mandate_id
-            ).first()
-            
-            if not parent_mandate:
-                error_msg = f"Parent mandate {parent_mandate_id} not found"
-                logger.warning(error_msg)
-                raise ValueError(error_msg)
-            
-            # Validate parent mandate is not revoked
-            if parent_mandate.revoked:
-                error_msg = f"Parent mandate {parent_mandate_id} is revoked"
-                logger.warning(error_msg)
-                raise ValueError(error_msg)
-            
-            # Validate parent mandate is not expired
-            current_time = datetime.utcnow()
-            if current_time > parent_mandate.valid_until:
-                error_msg = f"Parent mandate {parent_mandate_id} is expired"
-                logger.warning(error_msg)
-                raise ValueError(error_msg)
-            
-            # Validate child scope is subset of parent scope
-            if not self._validate_scope_subset(resource_scope, parent_mandate.resource_scope):
-                error_msg = "Child resource scope must be subset of parent scope"
-                logger.warning(error_msg)
-                raise ValueError(error_msg)
-            
-            if not self._validate_scope_subset(action_scope, parent_mandate.action_scope):
-                error_msg = "Child action scope must be subset of parent scope"
-                logger.warning(error_msg)
-                raise ValueError(error_msg)
-            
-            # Validate child validity is within parent validity
-            valid_from = datetime.utcnow()
-            valid_until = valid_from + timedelta(seconds=validity_seconds)
-            
-            if valid_from < parent_mandate.valid_from:
-                error_msg = "Child mandate cannot start before parent mandate"
-                logger.warning(error_msg)
-                raise ValueError(error_msg)
-            
-            if valid_until > parent_mandate.valid_until:
-                error_msg = "Child mandate cannot extend beyond parent mandate"
-                logger.warning(error_msg)
-                raise ValueError(error_msg)
-            
-            # Calculate delegation depth
-            delegation_depth = parent_mandate.delegation_depth + 1
-            
-            # Validate delegation depth is within limits
-            if delegation_depth > issuer_policy.max_delegation_depth:
-                error_msg = (
-                    f"Delegation depth {delegation_depth} exceeds policy limit "
-                    f"{issuer_policy.max_delegation_depth}"
-                )
-                logger.warning(error_msg)
-                raise ValueError(error_msg)
-        
         # Generate unique mandate ID
         mandate_id = uuid4()
         
@@ -403,8 +344,7 @@ class MandateManager:
             "valid_until": valid_until.isoformat(),
             "resource_scope": resource_scope,
             "action_scope": action_scope,
-            "delegation_depth": delegation_depth,
-            "parent_mandate_id": str(parent_mandate_id) if parent_mandate_id else None,
+            "delegation_type": delegation_type,
             "intent_hash": intent_hash
         }
         
@@ -427,13 +367,13 @@ class MandateManager:
             action_scope=action_scope,
             signature=signature,
             created_at=datetime.utcnow(),
-            metadata={
+            mandate_metadata={
                 "intent_id": str(intent.intent_id) if intent else None,
                 "issued_by": "MandateManager"
             },
             revoked=False,
-            parent_mandate_id=parent_mandate_id,
-            delegation_depth=delegation_depth,
+            delegation_type=delegation_type,
+            context_tags=context_tags,
             intent_hash=intent_hash
         )
         
@@ -456,14 +396,13 @@ class MandateManager:
             metadata={
                 "issuer_id": str(issuer_id),
                 "validity_seconds": validity_seconds,
-                "delegation_depth": delegation_depth,
-                "parent_mandate_id": str(parent_mandate_id) if parent_mandate_id else None
+                "delegation_type": delegation_type,
             }
         )
         
         logger.info(
             f"Successfully issued mandate {mandate_id} to subject {subject_id} "
-            f"(valid for {validity_seconds}s, delegation_depth={delegation_depth})"
+            f"(valid for {validity_seconds}s, type={delegation_type})"
         )
         
         # Record rate limit usage if rate limiter is configured
@@ -489,13 +428,13 @@ class MandateManager:
         - Revoker has authority to revoke
         - Mandate exists and is not already revoked
         
-        If cascade=True, revokes all child mandates recursively.
+        If cascade=True, revokes all delegation edges from this mandate.
         
         Args:
             mandate_id: The mandate ID to revoke
             revoker_id: Principal ID of the revoker
             reason: Reason for revocation
-            cascade: Whether to revoke child mandates (default: True)
+            cascade: Whether to revoke delegation edges (default: True)
         
         Raises:
             ValueError: If validation fails
@@ -574,63 +513,39 @@ class MandateManager:
             }
         )
         
-        # If cascade is enabled, revoke all child mandates recursively
-        if cascade:
-            child_mandates = self.db_session.query(ExecutionMandate).filter(
-                ExecutionMandate.parent_mandate_id == mandate_id,
-                ExecutionMandate.revoked == False
-            ).all()
-            
-            if child_mandates:
-                logger.info(
-                    f"Cascade revocation: found {len(child_mandates)} child mandates "
-                    f"for mandate {mandate_id}"
-                )
-                
-                for child_mandate in child_mandates:
-                    try:
-                        # Recursively revoke child mandate
-                        self.revoke_mandate(
-                            mandate_id=child_mandate.mandate_id,
-                            revoker_id=revoker_id,
-                            reason=f"Parent mandate {mandate_id} revoked: {reason}",
-                            cascade=True
-                        )
-                    except Exception as e:
-                        logger.error(
-                            f"Failed to revoke child mandate {child_mandate.mandate_id}: {e}",
-                            exc_info=True
-                        )
-                        # Continue revoking other children even if one fails
+        # If cascade, revoke all delegation edges from this mandate
+        cascade_count = 0
+        if cascade and self.delegation_graph:
+            cascade_count = self.delegation_graph.revoke_cascade(mandate_id, reason)
         
         logger.info(
             f"Successfully revoked mandate {mandate_id} "
-            f"(cascade={cascade}, children_revoked={len(child_mandates) if cascade else 0})"
+            f"(cascade={cascade}, edges_revoked={cascade_count})"
         )
 
     def delegate_mandate(
         self,
-        parent_mandate_id: UUID,
+        source_mandate_id: UUID,
         child_subject_id: UUID,
         resource_scope: List[str],
         action_scope: List[str],
-        validity_seconds: int
+        validity_seconds: int,
+        context_tags: Optional[List[str]] = None,
     ) -> ExecutionMandate:
         """
-        Create a delegated mandate from a parent mandate.
+        Create a delegated mandate from a source mandate.
         
-        Validates:
-        - Parent mandate is valid
-        - Child scope is subset of parent scope
-        - Child validity is within parent validity
-        - Delegation depth is within limits
+        Creates a new mandate for the child subject with scope that must be
+        a subset of the source mandate's scope, then creates a delegation
+        edge in the graph. Respects delegation direction rules.
         
         Args:
-            parent_mandate_id: The parent mandate ID to delegate from
+            source_mandate_id: The source mandate ID to delegate from
             child_subject_id: Principal ID of the child subject
-            resource_scope: Resource scope for the child mandate (must be subset of parent)
-            action_scope: Action scope for the child mandate (must be subset of parent)
-            validity_seconds: Validity period for the child mandate (must be within parent)
+            resource_scope: Resource scope for the child mandate (must be subset)
+            action_scope: Action scope for the child mandate (must be subset)
+            validity_seconds: Validity period for the child mandate
+            context_tags: Optional context tags for the delegation edge
         
         Returns:
             Delegated ExecutionMandate object
@@ -638,114 +553,183 @@ class MandateManager:
         Raises:
             ValueError: If validation fails
             RuntimeError: If delegation fails
-        
         """
+        from caracal.core.delegation_graph import DelegationGraph
+        
         logger.info(
-            f"Delegating mandate: parent={parent_mandate_id}, "
+            f"Delegating mandate: source={source_mandate_id}, "
             f"child_subject={child_subject_id}, validity={validity_seconds}s"
         )
         
-        # Get parent mandate
-        parent_mandate = self.db_session.query(ExecutionMandate).filter(
-            ExecutionMandate.mandate_id == parent_mandate_id
+        # Get source mandate
+        source_mandate = self.db_session.query(ExecutionMandate).filter(
+            ExecutionMandate.mandate_id == source_mandate_id
         ).first()
         
-        if not parent_mandate:
-            error_msg = f"Parent mandate {parent_mandate_id} not found"
-            logger.warning(error_msg)
-            raise ValueError(error_msg)
-        
-        # Validate parent mandate is valid (not revoked, not expired)
-        if parent_mandate.revoked:
-            error_msg = f"Parent mandate {parent_mandate_id} is revoked"
-            logger.warning(error_msg)
-            raise ValueError(error_msg)
+        if not source_mandate:
+            raise ValueError(f"Source mandate {source_mandate_id} not found")
+        if source_mandate.revoked:
+            raise ValueError(f"Source mandate {source_mandate_id} is revoked")
         
         current_time = datetime.utcnow()
-        if current_time > parent_mandate.valid_until:
-            error_msg = f"Parent mandate {parent_mandate_id} is expired"
-            logger.warning(error_msg)
-            raise ValueError(error_msg)
+        if current_time > source_mandate.valid_until:
+            raise ValueError(f"Source mandate {source_mandate_id} is expired")
+        if current_time < source_mandate.valid_from:
+            raise ValueError(f"Source mandate {source_mandate_id} is not yet valid")
         
-        if current_time < parent_mandate.valid_from:
-            error_msg = f"Parent mandate {parent_mandate_id} is not yet valid"
-            logger.warning(error_msg)
-            raise ValueError(error_msg)
+        # Validate child scope is subset of source scope
+        if not self._validate_scope_subset(resource_scope, source_mandate.resource_scope):
+            raise ValueError("Child resource scope must be subset of source scope")
+        if not self._validate_scope_subset(action_scope, source_mandate.action_scope):
+            raise ValueError("Child action scope must be subset of source scope")
         
-        # Validate child scope is subset of parent scope
-        if not self._validate_scope_subset(resource_scope, parent_mandate.resource_scope):
-            error_msg = "Child resource scope must be subset of parent scope"
-            logger.warning(error_msg)
-            raise ValueError(error_msg)
-        
-        if not self._validate_scope_subset(action_scope, parent_mandate.action_scope):
-            error_msg = "Child action scope must be subset of parent scope"
-            logger.warning(error_msg)
-            raise ValueError(error_msg)
-        
-        # Validate child validity is within parent validity
+        # Validate child validity is within source validity
         valid_from = datetime.utcnow()
         valid_until = valid_from + timedelta(seconds=validity_seconds)
+        if valid_until > source_mandate.valid_until:
+            raise ValueError("Child mandate cannot extend beyond source mandate")
         
-        if valid_from < parent_mandate.valid_from:
-            error_msg = "Child mandate cannot start before parent mandate"
-            logger.warning(error_msg)
-            raise ValueError(error_msg)
+        # Get principal types for direction validation
+        source_principal = self._get_principal(source_mandate.subject_id)
+        target_principal = self._get_principal(child_subject_id)
         
-        if valid_until > parent_mandate.valid_until:
-            error_msg = "Child mandate cannot extend beyond parent mandate"
-            logger.warning(error_msg)
-            raise ValueError(error_msg)
+        if not source_principal:
+            raise ValueError(f"Source principal {source_mandate.subject_id} not found")
+        if not target_principal:
+            raise ValueError(f"Target principal {child_subject_id} not found")
         
-        # Validate delegation depth is within limits
-        # Get the issuer's policy to check delegation limits
-        issuer_policy = self._get_active_policy(parent_mandate.subject_id)
+        # Validate delegation direction
+        DelegationGraph.validate_delegation_direction(
+            source_principal.principal_type,
+            target_principal.principal_type
+        )
+        
+        # Check delegation is allowed by policy
+        issuer_policy = self._get_active_policy(source_mandate.subject_id)
         if not issuer_policy:
-            error_msg = (
-                f"Subject {parent_mandate.subject_id} does not have an active authority policy "
+            raise ValueError(
+                f"Subject {source_mandate.subject_id} does not have an active authority policy "
                 f"and cannot delegate"
             )
-            logger.warning(error_msg)
-            raise ValueError(error_msg)
-        
         if not issuer_policy.allow_delegation:
-            error_msg = (
-                f"Subject {parent_mandate.subject_id} is not allowed to delegate "
+            raise ValueError(
+                f"Subject {source_mandate.subject_id} is not allowed to delegate "
                 f"according to their authority policy"
             )
-            logger.warning(error_msg)
-            raise ValueError(error_msg)
         
-        child_delegation_depth = parent_mandate.delegation_depth + 1
-        if child_delegation_depth > issuer_policy.max_delegation_depth:
-            error_msg = (
-                f"Delegation depth {child_delegation_depth} exceeds policy limit "
-                f"{issuer_policy.max_delegation_depth}"
-            )
-            logger.warning(error_msg)
-            raise ValueError(error_msg)
+        # Determine delegation type
+        delegation_type = DelegationGraph.get_delegation_type(
+            source_principal.principal_type,
+            target_principal.principal_type
+        )
         
-        # Call issue_mandate with parent_mandate_id to create the delegated mandate
-        # The issuer is the subject of the parent mandate (they are delegating their authority)
+        # Issue the delegated mandate
         try:
             delegated_mandate = self.issue_mandate(
-                issuer_id=parent_mandate.subject_id,
+                issuer_id=source_mandate.subject_id,
                 subject_id=child_subject_id,
                 resource_scope=resource_scope,
                 action_scope=action_scope,
                 validity_seconds=validity_seconds,
                 intent=None,
-                parent_mandate_id=parent_mandate_id
+                delegation_type=delegation_type,
+                context_tags=context_tags,
+            )
+            
+            # Create delegation edge in graph
+            graph = self.delegation_graph or DelegationGraph(self.db_session)
+            graph.add_edge(
+                source_mandate_id=source_mandate_id,
+                target_mandate_id=delegated_mandate.mandate_id,
+                context_tags=context_tags,
+                expires_at=delegated_mandate.valid_until,
             )
             
             logger.info(
                 f"Successfully delegated mandate {delegated_mandate.mandate_id} "
-                f"from parent {parent_mandate_id} to subject {child_subject_id}"
+                f"from source {source_mandate_id} to subject {child_subject_id} "
+                f"[{source_principal.principal_type}→{target_principal.principal_type}]"
             )
             
             return delegated_mandate
             
+        except (ValueError, RuntimeError):
+            raise
         except Exception as e:
             error_msg = f"Failed to delegate mandate: {e}"
             logger.error(error_msg, exc_info=True)
             raise RuntimeError(error_msg)
+
+    def peer_delegate(
+        self,
+        source_mandate_id: UUID,
+        target_subject_id: UUID,
+        resource_scope: List[str],
+        action_scope: List[str],
+        validity_seconds: int,
+        context_tags: Optional[List[str]] = None,
+    ) -> ExecutionMandate:
+        """
+        Create a peer delegation — non-hierarchical authority sharing.
+        
+        Unlike delegate_mandate, peer delegation:
+        - Only works between same principal types (user↔user, agent↔agent)
+        - Creates a DelegationEdge with type='peer'
+        - Both source and target retain their existing authority level
+        - Scope must still be a subset of source's scope
+        
+        Args:
+            source_mandate_id: The source mandate ID
+            target_subject_id: Principal ID of the peer target
+            resource_scope: Resource scope (must be subset of source)
+            action_scope: Action scope (must be subset of source)
+            validity_seconds: Validity period
+            context_tags: Optional context tags
+        
+        Returns:
+            Peer-delegated ExecutionMandate object
+        
+        Raises:
+            ValueError: If types don't match or validation fails
+            RuntimeError: If delegation fails
+        """
+        from caracal.core.delegation_graph import DelegationGraph
+        
+        # Get source mandate
+        source_mandate = self.db_session.query(ExecutionMandate).filter(
+            ExecutionMandate.mandate_id == source_mandate_id
+        ).first()
+        if not source_mandate:
+            raise ValueError(f"Source mandate {source_mandate_id} not found")
+        
+        # Get principal types
+        source_principal = self._get_principal(source_mandate.subject_id)
+        target_principal = self._get_principal(target_subject_id)
+        
+        if not source_principal:
+            raise ValueError(f"Source principal {source_mandate.subject_id} not found")
+        if not target_principal:
+            raise ValueError(f"Target principal {target_subject_id} not found")
+        
+        # Peer delegation requires same principal type
+        if source_principal.principal_type != target_principal.principal_type:
+            raise ValueError(
+                f"Peer delegation requires same principal types. "
+                f"Got {source_principal.principal_type} → {target_principal.principal_type}"
+            )
+        
+        # Validate direction (same type peer must be allowed)
+        DelegationGraph.validate_delegation_direction(
+            source_principal.principal_type,
+            target_principal.principal_type
+        )
+        
+        # Delegate using the standard flow (will set type='peer' automatically)
+        return self.delegate_mandate(
+            source_mandate_id=source_mandate_id,
+            child_subject_id=target_subject_id,
+            resource_scope=resource_scope,
+            action_scope=action_scope,
+            validity_seconds=validity_seconds,
+            context_tags=context_tags,
+        )
