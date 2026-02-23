@@ -270,17 +270,17 @@ class TestAgentRegistry:
         assert agent.metadata == {}
 
     def test_register_agent_with_parent(self, temp_dir):
-        """Test registering a child agent with a parent."""
+        """Test registering a target agent with a parent."""
         registry_path = temp_dir / "agents.json"
         registry = AgentRegistry(str(registry_path))
         
-        # Register parent agent
+        # Register source agent
         parent = registry.register_agent(
             name="parent-agent",
             owner="parent@example.com"
         )
         
-        # Register child agent
+        # Register target agent
         child = registry.register_agent(
             name="child-agent",
             owner="child@example.com",
@@ -312,13 +312,13 @@ class TestAgentRegistry:
         registry_path = temp_dir / "agents.json"
         registry = AgentRegistry(str(registry_path))
         
-        # Register parent agent
+        # Register source agent
         parent = registry.register_agent(
             name="parent-agent",
             owner="parent@example.com"
         )
         
-        # Register child agents
+        # Register target agents
         child1 = registry.register_agent(
             name="child-1",
             owner="child1@example.com",

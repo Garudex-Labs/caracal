@@ -587,7 +587,11 @@ class MandateManager:
         valid_from = datetime.utcnow()
         valid_until = valid_from + timedelta(seconds=validity_seconds)
         if valid_until > source_mandate.valid_until:
-            raise ValueError("Child mandate cannot extend beyond source mandate")
+            # Cap validity to source mandate's expiration
+            valid_until = source_mandate.valid_until
+            validity_seconds = int((valid_until - valid_from).total_seconds())
+            if validity_seconds <= 0:
+                raise ValueError("Source mandate is practically expired, cannot delegate")
         
         # Get principal types for direction validation
         source_principal = self._get_principal(source_mandate.subject_id)

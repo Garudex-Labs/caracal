@@ -59,7 +59,7 @@ performance:
   max_retries: 3
 """)
             
-            # Register parent agent first
+            # Register source agent first
             result = runner.invoke(cli, [
                 '--config', str(config_path),
                 'agent', 'register',
@@ -70,7 +70,7 @@ performance:
             assert result.exit_code == 0
             assert 'Agent registered successfully' in result.output
             
-            # Extract parent agent ID from output
+            # Extract source agent ID from output
             lines = result.output.split('\n')
             parent_id = None
             for line in lines:
@@ -80,7 +80,7 @@ performance:
             
             assert parent_id is not None
             
-            # Register child agent with parent ID
+            # Register target agent with parent ID
             result = runner.invoke(cli, [
                 '--config', str(config_path),
                 'agent', 'register',

@@ -46,7 +46,7 @@ def delegation_manager(agent_registry):
 
 @pytest.fixture
 def parent_agent(agent_registry):
-    """Create parent agent with keys."""
+    """Create source agent with keys."""
     return agent_registry.register_agent(
         name="parent-agent",
         owner="parent@example.com",
@@ -56,7 +56,7 @@ def parent_agent(agent_registry):
 
 @pytest.fixture
 def child_agent(agent_registry, parent_agent):
-    """Create child agent with keys."""
+    """Create target agent with keys."""
     return agent_registry.register_agent(
         name="child-agent",
         owner="child@example.com",
@@ -95,7 +95,7 @@ class TestDelegationTokenManager:
         assert len(parts) == 3
     
     def test_generate_token_parent_not_found(self, delegation_manager, child_agent):
-        """Test token generation fails when parent agent not found."""
+        """Test token generation fails when source agent not found."""
         fake_parent_id = uuid4()
         
         with pytest.raises(AgentNotFoundError):
@@ -179,7 +179,7 @@ class TestDelegationTokenManager:
             target_agent_id=UUID(child_agent.agent_id),
         )
         
-        # Remove parent agent from registry (simulate deletion)
+        # Remove source agent from registry (simulate deletion)
         del agent_registry._agents[parent_agent.agent_id]
         
         # Validate should fail
@@ -226,7 +226,7 @@ class TestAgentRegistryDelegation:
         assert token is not None
         assert isinstance(token, str)
         
-        # Verify token metadata stored in child agent
+        # Verify token metadata stored in target agent
         child = agent_registry.get_agent(child_agent.agent_id)
         assert "delegation_tokens" in child.metadata
         assert len(child.metadata["delegation_tokens"]) == 1
