@@ -34,7 +34,7 @@ def get_db_session(config):
     Returns:
         SQLAlchemy session
     """
-    db_manager = get_db_manager()
+    db_manager = get_db_manager(config)
     return db_manager.get_session()
 
 
