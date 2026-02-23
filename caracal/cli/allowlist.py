@@ -14,7 +14,7 @@ from uuid import UUID
 import click
 
 from caracal.core.allowlist import AllowlistManager
-from caracal.db.connection import get_db_session
+from caracal.db.connection import get_db_manager
 from caracal.exceptions import CaracalError, ValidationError
 
 
@@ -28,7 +28,8 @@ def get_allowlist_manager(config) -> AllowlistManager:
     Returns:
         AllowlistManager instance
     """
-    db_session = get_db_session(config)
+    db_manager = get_db_manager(config)
+    db_session = db_manager.get_session()
     cache_ttl = getattr(config, 'allowlist_cache_ttl', 60)
     return AllowlistManager(db_session, cache_ttl_seconds=cache_ttl)
 
