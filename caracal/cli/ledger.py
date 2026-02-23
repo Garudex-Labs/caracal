@@ -816,11 +816,11 @@ def list_partitions(ctx, format: str):
         caracal ledger list-partitions --format json
     """
     try:
-        from caracal.db.connection import get_session
+        from caracal.db.connection import get_db_manager
         from caracal.db.partition_manager import PartitionManager
         
         # Get database session
-        session = get_session()
+        session = get_db_manager(ctx.obj.config).get_session()
         manager = PartitionManager(session)
         
         # List partitions
@@ -914,11 +914,11 @@ def create_partitions(ctx, months_ahead: int):
         caracal ledger create-partitions --months-ahead 6
     """
     try:
-        from caracal.db.connection import get_session
+        from caracal.db.connection import get_db_manager
         from caracal.db.partition_manager import PartitionManager
         
         # Get database session
-        session = get_session()
+        session = get_db_manager(ctx.obj.config).get_session()
         manager = PartitionManager(session)
         
         click.echo(f"Creating partitions for next {months_ahead} months...")
@@ -978,11 +978,11 @@ def archive_partitions(ctx, months_to_keep: int, dry_run: bool):
         caracal ledger archive-partitions --months-to-keep 6
     """
     try:
-        from caracal.db.connection import get_session
+        from caracal.db.connection import get_db_manager
         from caracal.db.partition_manager import PartitionManager
         
         # Get database session
-        session = get_session()
+        session = get_db_manager(ctx.obj.config).get_session()
         manager = PartitionManager(session)
         
         if dry_run:
@@ -1054,11 +1054,11 @@ def refresh_views(ctx, concurrent: bool):
         caracal ledger refresh-views --no-concurrent
     """
     try:
-        from caracal.db.connection import get_session
+        from caracal.db.connection import get_db_manager
         from caracal.db.materialized_views import MaterializedViewManager
         
         # Get database session
-        session = get_session()
+        session = get_db_manager(ctx.obj.config).get_session()
         manager = MaterializedViewManager(session)
         
         click.echo("Refreshing materialized views...")
