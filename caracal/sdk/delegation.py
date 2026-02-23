@@ -78,15 +78,15 @@ class DelegationOperations:
 
     async def get_token(
         self,
-        parent_agent_id: str,
-        child_agent_id: str,
+        source_agent_id: str,
+        target_agent_id: str,
         expiration_seconds: int = 86400,
         allowed_operations: Optional[List[str]] = None,
     ) -> Dict[str, Any]:
-        """Generate a delegation token for a child agent."""
+        """Generate a delegation token from source to target agent."""
         body: Dict[str, Any] = {
-            "parent_agent_id": parent_agent_id,
-            "child_agent_id": child_agent_id,
+            "source_agent_id": source_agent_id,
+            "target_agent_id": target_agent_id,
             "expiration_seconds": expiration_seconds,
         }
         if allowed_operations:
@@ -94,7 +94,7 @@ class DelegationOperations:
         req = self._build_request("POST", "/delegations/token", body=body)
         return await self._execute(req)
 
-    async def get_chain(self, agent_id: str) -> List[Dict[str, Any]]:
-        """Get the delegation chain for an agent."""
-        req = self._build_request("GET", f"/delegations/chain/{agent_id}")
+    async def get_graph(self, agent_id: str) -> Dict[str, Any]:
+        """Get the delegation graph for an agent."""
+        req = self._build_request("GET", f"/delegations/graph/{agent_id}")
         return await self._execute(req)

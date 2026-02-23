@@ -225,8 +225,8 @@ def log_database_query(
 
 def log_delegation_token_validation(
     logger: structlog.stdlib.BoundLogger,
-    parent_agent_id: str,
-    child_agent_id: str,
+    source_agent_id: str,
+    target_agent_id: str,
     success: bool,
     reason: Optional[str] = None,
     **kwargs: Any,
@@ -236,16 +236,16 @@ def log_delegation_token_validation(
     
     Args:
         logger: Logger instance
-        parent_agent_id: Parent agent ID
-        child_agent_id: Child agent ID
+        source_agent_id: Source (delegating) agent ID
+        target_agent_id: Target (delegated-to) agent ID
         success: Whether validation succeeded
         reason: Reason for failure if not successful
         **kwargs: Additional context to log
     """
     log_data: Dict[str, Any] = {
         "event_type": "delegation_token_validation",
-        "parent_agent_id": parent_agent_id,
-        "child_agent_id": child_agent_id,
+        "source_agent_id": source_agent_id,
+        "target_agent_id": target_agent_id,
         "success": success,
     }
     
@@ -668,7 +668,7 @@ def log_mandate_issuance(
     resource_scope: list,
     action_scope: list,
     validity_seconds: int,
-    parent_mandate_id: Optional[str] = None,
+    source_mandate_id: Optional[str] = None,
     **kwargs: Any,
 ) -> None:
     """
@@ -682,7 +682,7 @@ def log_mandate_issuance(
         resource_scope: Resource scope list
         action_scope: Action scope list
         validity_seconds: Validity period in seconds
-        parent_mandate_id: Parent mandate ID if delegated
+        source_mandate_id: Source mandate ID if delegated
         **kwargs: Additional context to log
 
     """
@@ -699,8 +699,8 @@ def log_mandate_issuance(
         "timestamp": structlog.processors.TimeStamper(fmt="iso")(None, None, {})["timestamp"],
     }
     
-    if parent_mandate_id is not None:
-        log_data["parent_mandate_id"] = parent_mandate_id
+    if source_mandate_id is not None:
+        log_data["source_mandate_id"] = source_mandate_id
         log_data["is_delegated"] = True
     else:
         log_data["is_delegated"] = False
