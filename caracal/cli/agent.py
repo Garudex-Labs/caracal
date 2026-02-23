@@ -61,7 +61,6 @@ def register(ctx, name: str, owner: str, metadata: tuple):
     Register a new AI agent with a unique identity.
     
     Creates a new agent with a globally unique ID and stores it in the registry.
-    Optionally creates a child agent with a parent relationship.
     
     Examples:
     
@@ -69,9 +68,6 @@ def register(ctx, name: str, owner: str, metadata: tuple):
         
         caracal agent register -n research-bot -o researcher@university.edu \
             -m department=AI -m project=LLM
-        
-        caracal agent register -n child-agent -o user@example.com \
-            --parent-id 550e8400-e29b-41d4-a716-446655440000
     """
     try:
         # Get CLI context

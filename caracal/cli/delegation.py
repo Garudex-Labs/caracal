@@ -52,13 +52,13 @@ def get_agent_registry_with_delegation(config) -> tuple:
     '--parent-id',
     '-p',
     required=True,
-    help='Parent agent ID (issuer)',
+    help='Source agent ID (issuer)',
 )
 @click.option(
     '--child-id',
     '-c',
     required=True,
-    help='Child agent ID (subject)',
+    help='Target agent ID (subject)',
 )
 @click.option(
     '--authority-scope',
@@ -89,9 +89,9 @@ def get_agent_registry_with_delegation(config) -> tuple:
 def generate(ctx, parent_id: str, child_id: str, authority_scope: float, 
              currency: str, expiration: int, operations: tuple):
     """
-    Generate a delegation token for a child agent.
+    Generate a delegation token for a target agent.
     
-    Creates a JWT token signed by the parent agent that authorizes the child
+    Creates a JWT token signed by the source agent that authorizes the target
     agent to operate within the specified authority scope.
     
     Examples:
@@ -343,7 +343,7 @@ def revoke(ctx, policy_id: str, confirm: bool):
     """
     Revoke a delegation policy.
     
-    Deactivates the delegation policy for a child agent, effectively revoking
+    Deactivates the delegation policy for a target agent, effectively revoking
     their designated authority.
     
     Examples:
@@ -397,9 +397,8 @@ def revoke(ctx, policy_id: str, confirm: bool):
         if not confirm:
             click.echo("Delegation Details:")
             click.echo("=" * 50)
-            click.echo(f"Policy ID:     {policy.policy_id}")
-            click.echo(f"Child Agent:   {agent.name if agent else 'Unknown'} ({policy.agent_id})")
-            click.echo(f"Parent Agent:  {parent.name if parent else 'Unknown'} ({policy.delegated_from_agent_id})")
+            click.echo(f"Target Agent:  {agent.name if agent else 'Unknown'} ({policy.agent_id})")
+            click.echo(f"Source Agent:  {parent.name if parent else 'Unknown'} ({policy.delegated_from_agent_id})")
             click.echo(f"Time Window:   {policy.time_window}")
             click.echo()
             
@@ -415,10 +414,10 @@ def revoke(ctx, policy_id: str, confirm: bool):
         click.echo("✓ Delegation revoked successfully!")
         click.echo()
         click.echo(f"Policy ID:     {policy_id}")
-        click.echo(f"Child Agent:   {agent.name if agent else 'Unknown'}")
+        click.echo(f"Target Agent:  {agent.name if agent else 'Unknown'}")
         click.echo(f"Status:        Inactive")
         click.echo()
-        click.echo("⚠ The child agent remains registered but can no longer spend.")
+        click.echo("⚠ The target agent remains registered but can no longer spend.")
         
     except CaracalError as e:
         click.echo(f"Error: {e}", err=True)
