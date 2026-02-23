@@ -60,7 +60,6 @@ def child_agent(agent_registry, parent_agent):
     return agent_registry.register_agent(
         name="child-agent",
         owner="child@example.com",
-        parent_agent_id=parent_agent.agent_id,
         generate_keys=True
     )
 
@@ -83,8 +82,8 @@ class TestDelegationTokenManager:
     def test_generate_token_success(self, delegation_manager, parent_agent, child_agent):
         """Test successful delegation token generation."""
         token = delegation_manager.generate_token(
-            parent_agent_id=UUID(parent_agent.agent_id),
-            child_agent_id=UUID(child_agent.agent_id),
+            source_agent_id=UUID(parent_agent.agent_id),
+            target_agent_id=UUID(child_agent.agent_id),
             expiration_seconds=3600
         )
         
@@ -101,8 +100,8 @@ class TestDelegationTokenManager:
         
         with pytest.raises(AgentNotFoundError):
             delegation_manager.generate_token(
-                parent_agent_id=fake_parent_id,
-                child_agent_id=UUID(child_agent.agent_id),
+                source_agent_id=fake_parent_id,
+                target_agent_id=UUID(child_agent.agent_id),
             )
     
     def test_generate_token_no_private_key(self, agent_registry, delegation_manager, child_agent):
@@ -116,16 +115,16 @@ class TestDelegationTokenManager:
         
         with pytest.raises(InvalidDelegationTokenError):
             delegation_manager.generate_token(
-                parent_agent_id=UUID(parent_no_keys.agent_id),
-                child_agent_id=UUID(child_agent.agent_id),
+                source_agent_id=UUID(parent_no_keys.agent_id),
+                target_agent_id=UUID(child_agent.agent_id),
             )
     
     def test_validate_token_success(self, delegation_manager, parent_agent, child_agent):
         """Test successful token validation."""
         # Generate token
         token = delegation_manager.generate_token(
-            parent_agent_id=UUID(parent_agent.agent_id),
-            child_agent_id=UUID(child_agent.agent_id),
+            source_agent_id=UUID(parent_agent.agent_id),
+            target_agent_id=UUID(child_agent.agent_id),
             expiration_seconds=3600,
             allowed_operations=["api_call", "mcp_tool"]
         )
@@ -144,8 +143,8 @@ class TestDelegationTokenManager:
         """Test token validation fails for expired token."""
         # Generate token with very short expiration
         token = delegation_manager.generate_token(
-            parent_agent_id=UUID(parent_agent.agent_id),
-            child_agent_id=UUID(child_agent.agent_id),
+            source_agent_id=UUID(parent_agent.agent_id),
+            target_agent_id=UUID(child_agent.agent_id),
             expiration_seconds=1  # 1 second
         )
         
@@ -161,8 +160,8 @@ class TestDelegationTokenManager:
         """Test token validation fails for tampered token."""
         # Generate valid token
         token = delegation_manager.generate_token(
-            parent_agent_id=UUID(parent_agent.agent_id),
-            child_agent_id=UUID(child_agent.agent_id),
+            source_agent_id=UUID(parent_agent.agent_id),
+            target_agent_id=UUID(child_agent.agent_id),
         )
         
         # Tamper with token (change last character)
@@ -176,8 +175,8 @@ class TestDelegationTokenManager:
         """Test token validation fails when issuer agent deleted."""
         # Generate token
         token = delegation_manager.generate_token(
-            parent_agent_id=UUID(parent_agent.agent_id),
-            child_agent_id=UUID(child_agent.agent_id),
+            source_agent_id=UUID(parent_agent.agent_id),
+            target_agent_id=UUID(child_agent.agent_id),
         )
         
         # Remove parent agent from registry (simulate deletion)
@@ -219,8 +218,8 @@ class TestAgentRegistryDelegation:
     def test_generate_delegation_token(self, agent_registry, parent_agent, child_agent):
         """Test delegation token generation via registry."""
         token = agent_registry.generate_delegation_token(
-            parent_agent_id=parent_agent.agent_id,
-            child_agent_id=child_agent.agent_id,
+            source_agent_id=parent_agent.agent_id,
+            target_agent_id=child_agent.agent_id,
         )
         
         # Verify token generated
@@ -233,7 +232,7 @@ class TestAgentRegistryDelegation:
         assert len(child.metadata["delegation_tokens"]) == 1
         
         token_metadata = child.metadata["delegation_tokens"][0]
-        assert token_metadata["parent_agent_id"] == parent_agent.agent_id
+        assert token_metadata["source_agent_id"] == parent_agent.agent_id
     
     def test_generate_delegation_token_parent_not_found(self, agent_registry, child_agent):
         """Test delegation token generation fails when parent not found."""
@@ -241,8 +240,8 @@ class TestAgentRegistryDelegation:
         
         with pytest.raises(AgentNotFoundError):
             agent_registry.generate_delegation_token(
-                parent_agent_id=fake_parent_id,
-                child_agent_id=child_agent.agent_id,
+                source_agent_id=fake_parent_id,
+                target_agent_id=child_agent.agent_id,
             )
     
     def test_generate_delegation_token_child_not_found(self, agent_registry, parent_agent):
@@ -251,6 +250,6 @@ class TestAgentRegistryDelegation:
         
         with pytest.raises(AgentNotFoundError):
             agent_registry.generate_delegation_token(
-                parent_agent_id=parent_agent.agent_id,
-                child_agent_id=fake_child_id,
+                source_agent_id=parent_agent.agent_id,
+                target_agent_id=fake_child_id,
             )
