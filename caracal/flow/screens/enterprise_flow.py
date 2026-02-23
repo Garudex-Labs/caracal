@@ -22,6 +22,7 @@ from rich.text import Text
 
 from caracal.enterprise import EnterpriseLicenseValidator
 from caracal.enterprise.license import load_enterprise_config
+from caracal.core.gateway_features import get_gateway_features
 from caracal.flow.components.menu import Menu, MenuItem
 from caracal.flow.theme import Colors, Icons
 
@@ -68,6 +69,18 @@ class EnterpriseFlow:
         
         if self.validator.is_connected():
             items.extend([
+                MenuItem(
+                    key="gateway",
+                    label="API Gateway",
+                    description="Connect and manage enterprise gateway enforcement",
+                    icon="🌐",
+                ),
+                MenuItem(
+                    key="secrets",
+                    label="Secret Vault",
+                    description="Manage tier-appropriate secret backend (CaracalVault / AWS SM)",
+                    icon="🔐",
+                ),
                 MenuItem(
                     key="status",
                     label="Connection Status",
@@ -125,11 +138,18 @@ class EnterpriseFlow:
         # Show connection status bar if connected
         if self.validator.is_connected():
             info = self.validator.get_license_info()
+            flags = get_gateway_features(reload=True)
+            gw_status = (
+                f"[bold {Colors.SUCCESS}]● Gateway: {flags.deployment_type}[/]"
+                if flags.gateway_enabled
+                else f"[{Colors.DIM}]○ Gateway: not connected[/]"
+            )
             tier = (info.get("tier") or "unknown").upper()
             self.console.print(
                 f"[bold {Colors.SUCCESS}]● Connected[/] — "
                 f"[{Colors.PRIMARY}]{tier}[/] tier  |  "
-                f"Features: [{Colors.PRIMARY}]{', '.join(info.get('features_available', [])) or 'none'}[/]"
+                f"Features: [{Colors.PRIMARY}]{', '.join(info.get('features_available', [])) or 'none'}[/]  |  "
+                f"{gw_status}"
             )
             self.console.print()
         
@@ -609,6 +629,19 @@ class EnterpriseFlow:
             
             if action == "features":
                 self.show_feature_details()
+            elif action == "gateway":
+                from caracal.flow.screens.gateway_flow import show_gateway_flow
+                show_gateway_flow(self.console)
+            elif action == "secrets":
+                from caracal.flow.screens.secrets_flow import SecretsFlow
+                # Derive tier/org from enterprise config if available
+                try:
+                    cfg = load_enterprise_config()
+                    tier = getattr(cfg, "tier", "starter")
+                    org_id = getattr(cfg, "org_id", "")
+                except Exception:
+                    tier, org_id = "starter", ""
+                SecretsFlow(tier=tier, org_id=org_id, console=self.console).show()
             elif action == "connect":
                 self.connect_enterprise()
             elif action == "status":
