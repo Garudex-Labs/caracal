@@ -317,6 +317,16 @@ except Exception as e:
     logging.getLogger(__name__).warning(f"Failed to register audit commands: {e}")
 
 
+# Import and register Secrets commands
+try:
+    from caracal.cli.secrets import secrets_group
+    cli.add_command(secrets_group)
+except ImportError as e:
+    import logging
+    logging.getLogger(__name__).debug(f"Secrets commands not available: {e}")
+except Exception as e:
+    import logging
+    logging.getLogger(__name__).warning(f"Failed to register secrets commands: {e}")
 
 
 @cli.command()
