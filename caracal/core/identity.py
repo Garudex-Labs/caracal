@@ -40,14 +40,12 @@ class AgentIdentity:
         owner: Owner identifier (email or username)
         created_at: Timestamp when agent was registered
         metadata: Extensible metadata dictionary
-        parent_agent_id: Optional parent agent ID for hierarchical relationships
     """
     agent_id: str
     name: str
     owner: str
     created_at: str  # ISO 8601 format
     metadata: Dict[str, Any]
-    parent_agent_id: Optional[str] = None
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for JSON serialization."""
@@ -97,7 +95,6 @@ class AgentRegistry:
         name: str, 
         owner: str, 
         metadata: Optional[Dict[str, Any]] = None,
-        parent_agent_id: Optional[str] = None,
         generate_keys: bool = True
     ) -> AgentIdentity:
         """
@@ -107,7 +104,6 @@ class AgentRegistry:
             name: Human-readable agent name (must be unique)
             owner: Owner identifier
             metadata: Optional extensible metadata
-            parent_agent_id: Optional parent agent ID for hierarchical relationships
             generate_keys: Whether to generate ECDSA key pair for delegation tokens (default: True)
             
         Returns:
@@ -115,7 +111,6 @@ class AgentRegistry:
             
         Raises:
             DuplicateAgentNameError: If agent name already exists
-            AgentNotFoundError: If parent_agent_id is provided but parent doesn't exist
         """
         # Validate unique name
         if name in self._names:
@@ -123,15 +118,6 @@ class AgentRegistry:
             raise DuplicateAgentNameError(
                 f"Agent with name '{name}' already exists"
             )
-        
-        # Validate parent existence if provided
-        if parent_agent_id is not None:
-            parent = self.get_agent(parent_agent_id)
-            if parent is None:
-                logger.warning(f"Attempted to register agent with non-existent parent: {parent_agent_id}")
-                raise AgentNotFoundError(
-                    f"Parent agent with ID '{parent_agent_id}' does not exist"
-                )
         
         # Generate UUID v4 for agent ID
         agent_id = str(uuid.uuid4())
@@ -158,7 +144,6 @@ class AgentRegistry:
             owner=owner,
             created_at=datetime.utcnow().isoformat() + "Z",
             metadata=metadata,
-            parent_agent_id=parent_agent_id
         )
         
         # Add to registry
@@ -174,7 +159,7 @@ class AgentRegistry:
                 f"Failed to persist agent registry to {self.registry_path}: {e}"
             ) from e
         
-        logger.info(f"Registered agent: id={agent_id}, name={name}, owner={owner}, parent_id={parent_agent_id}")
+        logger.info(f"Registered agent: id={agent_id}, name={name}, owner={owner}")
         
         return agent
 
@@ -185,50 +170,33 @@ class AgentRegistry:
     def update_agent(
         self,
         agent_id: str,
-        parent_agent_id: Optional[str] = None,
+        metadata: Optional[Dict[str, Any]] = None,
     ) -> AgentIdentity:
         """
-        Update an existing agent.
+        Update an existing agent's metadata.
         
         Args:
             agent_id: ID of agent to update
-            parent_agent_id: New parent agent ID (optional)
+            metadata: Metadata fields to merge into existing metadata
             
         Returns:
             Updated AgentIdentity
             
         Raises:
             AgentNotFoundError: If agent doesn't exist
-            ValueError: If invalid parent assignment (self-parenting, cycles)
         """
         agent = self.get_agent(agent_id)
         if not agent:
              raise AgentNotFoundError(f"Agent {agent_id} not found")
              
-        if parent_agent_id:
-            if parent_agent_id == agent_id:
-                raise ValueError("Agent cannot be its own parent")
-            
-            parent = self.get_agent(parent_agent_id)
-            if not parent:
-                raise AgentNotFoundError(f"Parent agent {parent_agent_id} not found")
-                
-            # Cycle detection
-            curr = parent
-            seen = {agent_id}
-            while curr and curr.parent_agent_id:
-                if curr.parent_agent_id in seen:
-                    raise ValueError("Detected cycle in parent-child relationship")
-                seen.add(curr.agent_id)
-                curr = self.get_agent(curr.parent_agent_id)
-        
-        # Update fields
-        agent.parent_agent_id = parent_agent_id
+        # Update metadata
+        if metadata:
+            agent.metadata.update(metadata)
         
         # Persist
         self._persist()
         
-        logger.info(f"Updated agent {agent_id}: parent_id={parent_agent_id}")
+        logger.info(f"Updated agent {agent_id}")
         return agent
 
     def get_agent(self, agent_id: str) -> Optional[AgentIdentity]:
@@ -257,107 +225,71 @@ class AgentRegistry:
         """
         return list(self._agents.values())
 
-    def get_children(self, agent_id: str) -> List[AgentIdentity]:
-        """
-        Get all direct children of an agent.
-        
-        Args:
-            agent_id: The parent agent's unique identifier
-            
-        Returns:
-            List of AgentIdentity objects that are direct children of the agent
-        """
-        children = [
-            agent for agent in self._agents.values()
-            if agent.parent_agent_id == agent_id
-        ]
-        logger.debug(f"Found {len(children)} direct children for agent {agent_id}")
-        return children
-
-    def get_descendants(self, agent_id: str) -> List[AgentIdentity]:
-        """
-        Get all descendants (children, grandchildren, etc.) recursively.
-        
-        Args:
-            agent_id: The ancestor agent's unique identifier
-            
-        Returns:
-            List of all AgentIdentity objects in the descendant tree
-        """
-        descendants = []
-        
-        # Get direct children
-        children = self.get_children(agent_id)
-        
-        # Add children to descendants
-        descendants.extend(children)
-        
-        # Recursively get descendants of each child
-        for child in children:
-            descendants.extend(self.get_descendants(child.agent_id))
-        
-        logger.debug(f"Found {len(descendants)} total descendants for agent {agent_id}")
-        return descendants
-
     def generate_delegation_token(
         self,
-        parent_agent_id: str,
-        child_agent_id: str,
+        source_agent_id: str,
+        target_agent_id: str,
         expiration_seconds: int = 86400,
-        allowed_operations: Optional[List[str]] = None
+        allowed_operations: Optional[List[str]] = None,
+        delegation_type: str = "hierarchical",
+        source_principal_type: str = "agent",
+        target_principal_type: str = "agent",
+        context_tags: Optional[List[str]] = None,
     ) -> Optional[str]:
         """
-        Generate a delegation token for a child agent.
+        Generate a delegation token from source to target agent.
         
         Args:
-            parent_agent_id: Parent agent ID (issuer)
-            child_agent_id: Child agent ID (subject)
+            source_agent_id: Source agent ID (issuer/delegator)
+            target_agent_id: Target agent ID (subject/delegate)
             expiration_seconds: Token validity duration (default: 86400 = 24 hours)
             allowed_operations: List of allowed operations (default: ["api_call", "mcp_tool"])
+            delegation_type: Type of delegation (hierarchical/peer)
+            source_principal_type: Type of delegating principal (user/agent/service)
+            target_principal_type: Type of receiving principal (user/agent/service)
+            context_tags: Context tags for dynamic authority filtering
             
         Returns:
             JWT token string, or None if delegation_token_manager not available
             
         Raises:
-            AgentNotFoundError: If parent or child agent does not exist
+            AgentNotFoundError: If source or target agent does not exist
         """
         if self.delegation_token_manager is None:
             logger.warning("Cannot generate delegation token: DelegationTokenManager not available")
             return None
         
         # Validate agents exist
-        parent = self.get_agent(parent_agent_id)
-        if parent is None:
-            raise AgentNotFoundError(f"Parent agent with ID '{parent_agent_id}' does not exist")
+        source = self.get_agent(source_agent_id)
+        if source is None:
+            raise AgentNotFoundError(f"Source agent with ID '{source_agent_id}' does not exist")
         
-        child = self.get_agent(child_agent_id)
-        if child is None:
-            raise AgentNotFoundError(f"Child agent with ID '{child_agent_id}' does not exist")
-        
-        # Validate parent-child relationship
-        if child.parent_agent_id != parent_agent_id:
-            logger.warning(
-                f"Agent {child_agent_id} is not a child of {parent_agent_id} "
-                f"(parent is {child.parent_agent_id})"
-            )
+        target = self.get_agent(target_agent_id)
+        if target is None:
+            raise AgentNotFoundError(f"Target agent with ID '{target_agent_id}' does not exist")
         
         # Generate token
         from uuid import UUID
         
         token = self.delegation_token_manager.generate_token(
-            parent_agent_id=UUID(parent_agent_id),
-            child_agent_id=UUID(child_agent_id),
+            source_agent_id=UUID(source_agent_id),
+            target_agent_id=UUID(target_agent_id),
             expiration_seconds=expiration_seconds,
-            allowed_operations=allowed_operations
+            allowed_operations=allowed_operations,
+            delegation_type=delegation_type,
+            source_principal_type=source_principal_type,
+            target_principal_type=target_principal_type,
+            context_tags=context_tags,
         )
         
-        # Store token metadata in child agent
-        if "delegation_tokens" not in child.metadata:
-            child.metadata["delegation_tokens"] = []
+        # Store token metadata in target agent
+        if "delegation_tokens" not in target.metadata:
+            target.metadata["delegation_tokens"] = []
         
-        child.metadata["delegation_tokens"].append({
+        target.metadata["delegation_tokens"].append({
             "token_id": token[:20] + "...",  # Store truncated token for reference
-            "parent_agent_id": parent_agent_id,
+            "source_agent_id": source_agent_id,
+            "delegation_type": delegation_type,
             "created_at": datetime.utcnow().isoformat() + "Z",
             "expires_in_seconds": expiration_seconds
         })
@@ -370,7 +302,8 @@ class AgentRegistry:
             # Don't fail - token is still valid even if metadata not persisted
         
         logger.info(
-            f"Generated delegation token: parent={parent_agent_id}, child={child_agent_id}"
+            f"Generated delegation token: source={source_agent_id}, target={target_agent_id}, "
+            f"type={delegation_type}"
         )
         
         return token
