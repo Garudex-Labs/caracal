@@ -14,16 +14,25 @@ from uuid import uuid4
 
 from caracal.core.mandate import MandateManager
 from caracal.core.intent import Intent
-from caracal.db.models import ExecutionMandate, AuthorityPolicy, Principal
+from caracal.db.models import ExecutionMandate, AuthorityPolicy, Principal, DelegationEdgeModel
 from caracal.db.connection import get_session
 
 
 @pytest.fixture
-def db_session():
+def db_session(tmp_path):
     """Create a test database session."""
-    session = get_session()
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import sessionmaker
+    from caracal.db.models import Base
+    
+    # Use in-memory SQLite for testing
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    Session = sessionmaker(bind=engine)
+    session = Session()
+    
     yield session
-    session.rollback()
+    
     session.close()
 
 
@@ -124,7 +133,6 @@ def test_issue_mandate_success(db_session, test_principal, test_policy):
     assert mandate.action_scope == ["api_call"]
     assert mandate.signature is not None
     assert mandate.revoked is False
-    assert mandate.delegation_depth == 0
 
 
 def test_issue_mandate_no_policy(db_session, test_principal):
@@ -289,7 +297,7 @@ def test_delegate_mandate_success(db_session, test_principal, test_policy):
     
     # Delegate mandate
     child_mandate = manager.delegate_mandate(
-        parent_mandate_id=parent_mandate.mandate_id,
+        source_mandate_id=parent_mandate.mandate_id,
         child_subject_id=child_subject.principal_id,
         resource_scope=["api:openai:gpt-4"],
         action_scope=["api_call"],
@@ -297,8 +305,11 @@ def test_delegate_mandate_success(db_session, test_principal, test_policy):
     )
     
     # Verify delegation
-    assert child_mandate.parent_mandate_id == parent_mandate.mandate_id
-    assert child_mandate.delegation_depth == 1
+    edge = db_session.query(DelegationEdgeModel).filter_by(
+        source_mandate_id=parent_mandate.mandate_id,
+        target_mandate_id=child_mandate.mandate_id
+    ).first()
+    assert edge is not None
     assert child_mandate.subject_id == child_subject.principal_id
     assert child_mandate.resource_scope == ["api:openai:gpt-4"]
 

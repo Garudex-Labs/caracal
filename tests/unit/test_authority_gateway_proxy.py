@@ -81,8 +81,7 @@ def sample_mandate(sample_principal):
         resource_scope=["api:*", "database:users:*"],
         action_scope=["read", "write"],
         signature="test-signature",
-        revoked=False,
-        delegation_depth=0
+        revoked=False
     )
 
 

@@ -13,7 +13,7 @@ from datetime import datetime, timedelta
 from uuid import uuid4
 
 from caracal.core.authority import AuthorityEvaluator, AuthorityDecision
-from caracal.db.models import ExecutionMandate, Principal, AuthorityPolicy
+from caracal.db.models import ExecutionMandate, Principal, AuthorityPolicy, DelegationEdgeModel
 from caracal.core.crypto import sign_mandate
 
 
@@ -102,8 +102,6 @@ def valid_mandate(db_session, test_principal, test_subject):
         "valid_until": valid_until.isoformat(),
         "resource_scope": ["api:openai:*", "database:users:read"],
         "action_scope": ["api_call", "database_query"],
-        "delegation_depth": 0,
-        "parent_mandate_id": None,
         "intent_hash": None
     }
     
@@ -118,8 +116,7 @@ def valid_mandate(db_session, test_principal, test_subject):
         resource_scope=["api:openai:*", "database:users:read"],
         action_scope=["api_call", "database_query"],
         signature=signature,
-        revoked=False,
-        delegation_depth=0
+        revoked=False
     )
     
     db_session.add(mandate)
@@ -283,8 +280,6 @@ def test_check_delegation_chain_with_valid_parent(db_session, test_principal, te
         "valid_until": parent_valid_until.isoformat(),
         "resource_scope": ["api:openai:*"],
         "action_scope": ["api_call"],
-        "delegation_depth": 0,
-        "parent_mandate_id": None,
         "intent_hash": None
     }
     
@@ -299,8 +294,7 @@ def test_check_delegation_chain_with_valid_parent(db_session, test_principal, te
         resource_scope=["api:openai:*"],
         action_scope=["api_call"],
         signature=parent_signature,
-        revoked=False,
-        delegation_depth=0
+        revoked=False
     )
     
     db_session.add(parent_mandate)
@@ -318,8 +312,6 @@ def test_check_delegation_chain_with_valid_parent(db_session, test_principal, te
         "valid_until": child_valid_until.isoformat(),
         "resource_scope": ["api:openai:gpt-4"],
         "action_scope": ["api_call"],
-        "delegation_depth": 1,
-        "parent_mandate_id": str(parent_mandate.mandate_id),
         "intent_hash": None
     }
     
@@ -334,12 +326,22 @@ def test_check_delegation_chain_with_valid_parent(db_session, test_principal, te
         resource_scope=["api:openai:gpt-4"],
         action_scope=["api_call"],
         signature=child_signature,
-        revoked=False,
-        delegation_depth=1,
-        parent_mandate_id=parent_mandate.mandate_id
+        revoked=False
     )
     
     db_session.add(child_mandate)
+    
+    edge = DelegationEdgeModel(
+        edge_id=uuid4(),
+        source_mandate_id=parent_mandate.mandate_id,
+        target_mandate_id=child_mandate.mandate_id,
+        delegation_type="hierarchical",
+        source_principal_type="agent",
+        target_principal_type="agent",
+        revoked=False
+    )
+    db_session.add(edge)
+    
     db_session.commit()
     
     # Check delegation chain
@@ -364,8 +366,6 @@ def test_check_delegation_chain_revoked_parent(db_session, test_principal, test_
         "valid_until": parent_valid_until.isoformat(),
         "resource_scope": ["api:openai:*"],
         "action_scope": ["api_call"],
-        "delegation_depth": 0,
-        "parent_mandate_id": None,
         "intent_hash": None
     }
     
@@ -380,8 +380,7 @@ def test_check_delegation_chain_revoked_parent(db_session, test_principal, test_
         resource_scope=["api:openai:*"],
         action_scope=["api_call"],
         signature=parent_signature,
-        revoked=True,  # Parent is revoked
-        delegation_depth=0
+        revoked=True  # Parent is revoked
     )
     
     db_session.add(parent_mandate)
@@ -397,12 +396,21 @@ def test_check_delegation_chain_revoked_parent(db_session, test_principal, test_
         resource_scope=["api:openai:gpt-4"],
         action_scope=["api_call"],
         signature="dummy_signature",
-        revoked=False,
-        delegation_depth=1,
-        parent_mandate_id=parent_mandate.mandate_id
+        revoked=False
     )
     
     db_session.add(child_mandate)
+    
+    edge = DelegationEdgeModel(
+        edge_id=uuid4(),
+        source_mandate_id=parent_mandate.mandate_id,
+        target_mandate_id=child_mandate.mandate_id,
+        delegation_type="hierarchical",
+        source_principal_type="agent",
+        target_principal_type="agent",
+        revoked=False
+    )
+    db_session.add(edge)
     db_session.commit()
     
     # Check delegation chain - should fail because parent is revoked
@@ -427,8 +435,6 @@ def test_check_delegation_chain_expired_parent(db_session, test_principal, test_
         "valid_until": parent_valid_until.isoformat(),
         "resource_scope": ["api:openai:*"],
         "action_scope": ["api_call"],
-        "delegation_depth": 0,
-        "parent_mandate_id": None,
         "intent_hash": None
     }
     
@@ -443,8 +449,7 @@ def test_check_delegation_chain_expired_parent(db_session, test_principal, test_
         resource_scope=["api:openai:*"],
         action_scope=["api_call"],
         signature=parent_signature,
-        revoked=False,
-        delegation_depth=0
+        revoked=False
     )
     
     db_session.add(parent_mandate)
@@ -460,12 +465,20 @@ def test_check_delegation_chain_expired_parent(db_session, test_principal, test_
         resource_scope=["api:openai:gpt-4"],
         action_scope=["api_call"],
         signature="dummy_signature",
-        revoked=False,
-        delegation_depth=1,
-        parent_mandate_id=parent_mandate.mandate_id
+        revoked=False
     )
     
     db_session.add(child_mandate)
+    edge = DelegationEdgeModel(
+        edge_id=uuid4(),
+        source_mandate_id=parent_mandate.mandate_id,
+        target_mandate_id=child_mandate.mandate_id,
+        delegation_type="hierarchical",
+        source_principal_type="agent",
+        target_principal_type="agent",
+        revoked=False
+    )
+    db_session.add(edge)
     db_session.commit()
     
     # Check delegation chain - should fail because parent is expired

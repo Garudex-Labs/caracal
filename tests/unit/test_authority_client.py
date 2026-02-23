@@ -246,20 +246,18 @@ class TestAuthorityClientDelegateMandate:
         """Test successful mandate delegation."""
         mock_request.return_value = {
             "mandate_id": "child-mandate-id",
-            "parent_mandate_id": "parent-mandate-id",
+            "source_mandate_id": "parent-mandate-id",
             "subject_id": "child-subject-id",
-            "delegation_depth": 1,
         }
 
         client = AuthorityClient(base_url="http://localhost:8000")
         result = client.delegate_mandate(
-            parent_mandate_id="parent-mandate-id",
+            source_mandate_id="parent-mandate-id",
             child_subject_id="child-subject-id",
             resource_scope=["api:openai:gpt-3.5"],
             action_scope=["api_call"],
             validity_seconds=1800
         )
 
-        assert result["delegation_depth"] == 1
-        assert result["parent_mandate_id"] == "parent-mandate-id"
+        assert result["source_mandate_id"] == "parent-mandate-id"
         client.close()
