@@ -225,8 +225,6 @@ def list_delegations(ctx, agent_id: str, parent_id: str, format: str):
                         'child_id': child.agent_id,
                         'child_name': child.name,
                         'policy_id': policy.policy_id,
-                        'limit': policy.limit_amount,
-                        'currency': policy.currency,
                         'time_window': policy.time_window,
                         'created_at': policy.created_at,
                         'active': policy.active
@@ -245,8 +243,6 @@ def list_delegations(ctx, agent_id: str, parent_id: str, format: str):
                         'child_id': agent_id,
                         'child_name': agent.name,
                         'policy_id': policy.policy_id,
-                        'limit': policy.limit_amount,
-                        'currency': policy.currency,
                         'time_window': policy.time_window,
                         'created_at': policy.created_at,
                         'active': policy.active
@@ -271,8 +267,6 @@ def list_delegations(ctx, agent_id: str, parent_id: str, format: str):
                         'child_id': child.agent_id,
                         'child_name': child.name,
                         'policy_id': policy.policy_id,
-                        'limit': policy.limit_amount,
-                        'currency': policy.currency,
                         'time_window': policy.time_window,
                         'created_at': policy.created_at,
                         'active': policy.active
@@ -293,8 +287,6 @@ def list_delegations(ctx, agent_id: str, parent_id: str, format: str):
                     'child_id': policy.agent_id,
                     'child_name': child.name if child else 'Unknown',
                     'policy_id': policy.policy_id,
-                    'limit': policy.limit_amount,
-                    'currency': policy.currency,
                     'time_window': policy.time_window,
                     'created_at': policy.created_at,
                     'active': policy.active
@@ -314,7 +306,7 @@ def list_delegations(ctx, agent_id: str, parent_id: str, format: str):
             
             # Print header
             click.echo(
-                f"{'Parent Agent':<30}  {'Child Agent':<30}  {'Limit':<15}  {'Window':<10}  {'Status':<8}"
+                f"{'Parent Agent':<30}  {'Child Agent':<30}  {'Window':<10}  {'Status':<8}"
             )
             click.echo("-" * 105)
             
@@ -322,11 +314,10 @@ def list_delegations(ctx, agent_id: str, parent_id: str, format: str):
             for delegation in delegations:
                 parent_display = f"{delegation['parent_name'][:27]}..." if len(delegation['parent_name']) > 30 else delegation['parent_name']
                 child_display = f"{delegation['child_name'][:27]}..." if len(delegation['child_name']) > 30 else delegation['child_name']
-                limit_display = f"{delegation['limit']} {delegation['currency']}"
                 status = "Active" if delegation['active'] else "Inactive"
                 
                 click.echo(
-                    f"{parent_display:<30}  {child_display:<30}  {limit_display:<15}  "
+                    f"{parent_display:<30}  {child_display:<30}  "
                     f"{delegation['time_window']:<10}  {status:<8}"
                 )
         
@@ -375,14 +366,10 @@ def validate(ctx, token: str):
         click.echo(f"Subject (Child):     {claims.subject}")
         click.echo(f"Audience:            {claims.audience}")
         click.echo(f"Token ID:            {claims.token_id}")
-        click.echo(f"Authority Scope:     {claims.spending_limit} {claims.currency}")
         click.echo(f"Issued At:           {claims.issued_at}")
         click.echo(f"Expires At:          {claims.expiration}")
         click.echo(f"Allowed Operations:  {', '.join(claims.allowed_operations)}")
         click.echo(f"Max Delegation Depth: {claims.max_delegation_depth}")
-        
-        if claims.budget_category:
-            click.echo(f"Authority Category:  {claims.budget_category}")
         
     except CaracalError as e:
         click.echo(f"Error: {e}", err=True)
@@ -397,7 +384,7 @@ def validate(ctx, token: str):
     '--policy-id',
     '-p',
     required=True,
-    help='Policy ID of the delegated budget to revoke',
+    help='Policy ID of the delegation to revoke',
 )
 @click.option(
     '--confirm',
@@ -407,11 +394,10 @@ def validate(ctx, token: str):
 @click.pass_context
 def revoke(ctx, policy_id: str, confirm: bool):
     """
-    Revoke a delegated budget policy.
+    Revoke a delegation policy.
     
-    Deactivates the budget policy for a child agent, effectively revoking
-    their delegated spending authority. The agent remains registered but
-    will no longer be able to spend.
+    Deactivates the delegation policy for a child agent, effectively revoking
+    their designated authority.
     
     Examples:
     
@@ -467,7 +453,6 @@ def revoke(ctx, policy_id: str, confirm: bool):
             click.echo(f"Policy ID:     {policy.policy_id}")
             click.echo(f"Child Agent:   {agent.name if agent else 'Unknown'} ({policy.agent_id})")
             click.echo(f"Parent Agent:  {parent.name if parent else 'Unknown'} ({policy.delegated_from_agent_id})")
-            click.echo(f"Budget Limit:  {policy.limit_amount} {policy.currency}")
             click.echo(f"Time Window:   {policy.time_window}")
             click.echo()
             
