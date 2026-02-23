@@ -491,125 +491,6 @@ class MCPAdapterService:
         logger.info("MCP Adapter Service shutdown complete")
 
 
-def load_config_from_yaml(config_path: str) -> MCPServiceConfig:
-    """
-    Load MCP service configuration from YAML file.
-    
-    Args:
-        config_path: Path to YAML configuration file
-        
-    Returns:
-        MCPServiceConfig loaded from file
-        
-    Raises:
-        FileNotFoundError: If config file doesn't exist
-        ValueError: If config file is invalid
-        
-    """
-    import yaml
-    import os
-    
-    if not os.path.exists(config_path):
-        raise FileNotFoundError(f"Configuration file not found: {config_path}")
-    
-    try:
-        with open(config_path, 'r') as f:
-            config_data = yaml.safe_load(f)
-        
-        # Extract MCP adapter configuration
-        mcp_config = config_data.get('mcp_adapter', {})
-        
-        # Parse MCP servers
-        mcp_servers = []
-        for server_data in mcp_config.get('mcp_servers', []):
-            mcp_servers.append(MCPServerConfig(
-                name=server_data['name'],
-                url=server_data['url'],
-                timeout_seconds=server_data.get('timeout_seconds', 30)
-            ))
-        
-        # Create service config
-        service_config = MCPServiceConfig(
-            listen_address=mcp_config.get('listen_address', '0.0.0.0:8080'),
-            mcp_servers=mcp_servers,
-            request_timeout_seconds=mcp_config.get('request_timeout_seconds', 30),
-            max_request_size_mb=mcp_config.get('max_request_size_mb', 10),
-            enable_health_check=mcp_config.get('enable_health_check', True),
-            health_check_path=mcp_config.get('health_check_path', '/health')
-        )
-        
-        logger.info(
-            f"Loaded configuration from {config_path}: "
-            f"listen_address={service_config.listen_address}, "
-            f"mcp_servers={len(service_config.mcp_servers)}"
-        )
-        
-        return service_config
-        
-    except yaml.YAMLError as e:
-        raise ValueError(f"Invalid YAML configuration: {e}")
-    except KeyError as e:
-        raise ValueError(f"Missing required configuration key: {e}")
-    except Exception as e:
-        raise ValueError(f"Failed to load configuration: {e}")
-
-
-def load_config_from_env() -> MCPServiceConfig:
-    """
-    Load MCP service configuration from environment variables.
-    
-    Environment variables:
-    - CARACAL_MCP_LISTEN_ADDRESS: Listen address (default: "0.0.0.0:8080")
-    - CARACAL_MCP_SERVERS: JSON array of MCP server configs
-    - CARACAL_MCP_REQUEST_TIMEOUT: Request timeout in seconds (default: 30)
-    - CARACAL_MCP_MAX_REQUEST_SIZE_MB: Max request size in MB (default: 10)
-    
-    Returns:
-        MCPServiceConfig loaded from environment
-        
-    """
-    import os
-    import json
-    
-    # Parse listen address
-    listen_address = os.getenv('CARACAL_MCP_LISTEN_ADDRESS', '0.0.0.0:8080')
-    
-    # Parse MCP servers from JSON
-    mcp_servers = []
-    mcp_servers_json = os.getenv('CARACAL_MCP_SERVERS', '[]')
-    try:
-        servers_data = json.loads(mcp_servers_json)
-        for server_data in servers_data:
-            mcp_servers.append(MCPServerConfig(
-                name=server_data['name'],
-                url=server_data['url'],
-                timeout_seconds=server_data.get('timeout_seconds', 30)
-            ))
-    except json.JSONDecodeError as e:
-        logger.warning(f"Invalid CARACAL_MCP_SERVERS JSON: {e}, using empty list")
-    except KeyError as e:
-        logger.warning(f"Missing required key in MCP server config: {e}")
-    
-    # Parse other settings
-    request_timeout = int(os.getenv('CARACAL_MCP_REQUEST_TIMEOUT', '30'))
-    max_request_size_mb = int(os.getenv('CARACAL_MCP_MAX_REQUEST_SIZE_MB', '10'))
-    
-    service_config = MCPServiceConfig(
-        listen_address=listen_address,
-        mcp_servers=mcp_servers,
-        request_timeout_seconds=request_timeout,
-        max_request_size_mb=max_request_size_mb
-    )
-    
-    logger.info(
-        f"Loaded configuration from environment: "
-        f"listen_address={service_config.listen_address}, "
-        f"mcp_servers={len(service_config.mcp_servers)}"
-    )
-    
-    return service_config
-
-
 async def main():
     """
     Main entry point for MCP Adapter Service.
@@ -617,41 +498,47 @@ async def main():
     Loads configuration and starts the service.
     """
     import sys
-    import os
-    
-    # Determine config source
-    config_path = os.getenv('CARACAL_CONFIG_PATH')
-    
-    if config_path:
-        logger.info(f"Loading configuration from file: {config_path}")
-        config = load_config_from_yaml(config_path)
-    else:
-        logger.info("Loading configuration from environment variables")
-        config = load_config_from_env()
-    
-    # Initialize Caracal Core components
-    # Note: In a real deployment, these would be initialized from the main config
-    # For now, we'll create minimal instances for demonstration
-    from caracal.db.connection import DatabaseConnectionManager
+    from caracal.config import load_config
+    from caracal.db.connection import get_db_manager
     from caracal.core.identity import AgentRegistry
     from caracal.core.authority import AuthorityEvaluator
     from caracal.core.authority_ledger import AuthorityLedgerWriter
     from caracal.core.ledger import LedgerWriter
     
-    # TODO: Load database config from main config file
-    # For now, use environment variables
-    db_config = {
-        'host': os.getenv('CARACAL_DB_HOST', 'localhost'),
-        'port': int(os.getenv('CARACAL_DB_PORT', '5432')),
-        'database': os.getenv('CARACAL_DB_NAME', 'caracal'),
-        'user': os.getenv('CARACAL_DB_USER', 'caracal_user'),
-        'password': os.getenv('CARACAL_DB_PASSWORD', ''),
-    }
-    
     logger.info("Initializing Caracal Core components...")
     
-    # Initialize database connection
-    db_manager = DatabaseConnectionManager(db_config)
+    # Load production config
+    try:
+        core_config = load_config()
+    except Exception as e:
+        logger.error(f"Failed to load core config: {e}")
+        sys.exit(1)
+        
+    # Map core config to MCP service config
+    mcp_servers = []
+    # Support both string URLs and dict configurations from settings if any
+    for i, server_entry in enumerate(core_config.mcp_adapter.mcp_server_urls):
+        if isinstance(server_entry, dict):
+            mcp_servers.append(MCPServerConfig(
+                name=server_entry.get('name', f"server-{i}"),
+                url=server_entry.get('url', ''),
+                timeout_seconds=server_entry.get('timeout_seconds', 30)
+            ))
+        else:
+            mcp_servers.append(MCPServerConfig(
+                name=f"server-{i}",
+                url=str(server_entry),
+                timeout_seconds=30
+            ))
+            
+    config = MCPServiceConfig(
+        listen_address=core_config.mcp_adapter.listen_address,
+        mcp_servers=mcp_servers,
+        enable_health_check=core_config.mcp_adapter.health_check_enabled
+    )
+    
+    # Initialize database connection via standard manager
+    db_manager = get_db_manager(core_config)
     session = db_manager.get_session()
     
     # Initialize core components
