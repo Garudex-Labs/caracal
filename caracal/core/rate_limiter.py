@@ -163,11 +163,15 @@ class MandateIssuanceRateLimiter:
             # Re-raise rate limit errors
             raise
         except Exception as e:
-            # Log error but don't fail the request
-            # Fail-open for rate limiting to avoid blocking legitimate requests
-            logger.error(
-                f"Failed to check rate limit for principal {principal_id}: {e}",
+            # Fail-closed: deny the request if rate limiter is unreachable
+            # (Caracal security posture — never fail-open on authority controls)
+            logger.critical(
+                f"Rate limiter unavailable for principal {principal_id} — "
+                f"denying request (fail-closed): {e}",
                 exc_info=True
+            )
+            raise RateLimitExceededError(
+                f"Rate limit check failed (fail-closed): {e}"
             )
     
     def record_request(self, principal_id: UUID) -> None:
