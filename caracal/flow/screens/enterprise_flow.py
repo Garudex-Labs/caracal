@@ -62,7 +62,7 @@ class EnterpriseFlow:
                 key="features",
                 label="View Feature Details",
                 description="See detailed information about each enterprise feature",
-                icon=Icons.INFO,
+                icon="",
             ),
         ]
         
@@ -93,7 +93,7 @@ class EnterpriseFlow:
                     key="connect",
                     label="Connect Enterprise License",
                     description="Enter enterprise license token to activate features and enable sync",
-                    icon="🔑",
+                    icon="",
                 ),
             )
         
@@ -102,7 +102,7 @@ class EnterpriseFlow:
                 key="contact",
                 label="Contact Sales",
                 description="Get information about purchasing Caracal Enterprise",
-                icon="📧",
+                icon="",
             ),
             MenuItem(
                 key="back",

@@ -228,16 +228,15 @@ async def demo_sync_function():
     # Use the synchronous tool (note: we still await it)
     agent_id = str(uuid4())
     print(f"\n👾 Agent: {agent_id[:8]}...")
-    print("  ✅ Budget check passed")
     
     result = await calculate_hash(
         agent_id=agent_id,
         data="Hello, Caracal!"
     )
     
-    print(f"  🔑 Hash: {result['hash'][:16]}...")
-    print(f"  📏 Input size: {result['input_size']} bytes")
-    print(f"  🪙 Total events metered: {len(metering.events)}")
+    print(f"  Hash: {result['hash'][:16]}...")
+    print(f"  Input size: {result['input_size']} bytes")
+    print(f"  Total events metered: {len(metering.events)}")
 
 
 async def main():
