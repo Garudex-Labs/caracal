@@ -260,7 +260,7 @@ def log_delegation_token_validation(
         logger.warning("delegation_token_validation", **log_data)
 
 
-# v0.3 Structured Logging Functions
+# Structured Logging Functions
 
 def log_merkle_root_computation(
     logger: structlog.stdlib.BoundLogger,

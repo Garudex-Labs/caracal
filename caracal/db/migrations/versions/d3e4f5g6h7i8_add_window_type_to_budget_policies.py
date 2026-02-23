@@ -23,7 +23,7 @@ def upgrade():
     """
     Add window_type column to budget_policies table.
     
-    This migration adds support for extended time windows (v0.3):
+    This migration adds support for extended time windows :
     - Adds window_type column (rolling or calendar)
     - Sets default to 'calendar' for backward compatibility
     - Updates time_window to support hourly, daily, weekly, monthly

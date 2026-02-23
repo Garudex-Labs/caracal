@@ -196,7 +196,7 @@ def _register_db_commands():
 _register_db_commands()
 
 
-# Import and register Merkle commands (v0.3)
+# Import and register Merkle commands 
 try:
     from caracal.cli.merkle import merkle
     cli.add_command(merkle)
@@ -205,7 +205,7 @@ except ImportError:
     pass
 
 
-# Import and register Allowlist commands (v0.3)
+# Import and register Allowlist commands 
 try:
     from caracal.cli.allowlist import allowlist_group
     cli.add_command(allowlist_group)
@@ -214,7 +214,7 @@ except ImportError:
     pass
 
 
-# Import and register Snapshot commands (v0.3)
+# Import and register Snapshot commands 
 try:
     from caracal.cli.snapshot import snapshot_group
     cli.add_command(snapshot_group)
@@ -223,7 +223,7 @@ except ImportError:
     pass
 
 
-# Import and register Key Management commands (v0.3)
+# Import and register Key Management commands 
 try:
     from caracal.cli.key_management import keys_group
     cli.add_command(keys_group)
@@ -237,7 +237,7 @@ except Exception as e:
     logging.getLogger(__name__).warning(f"Failed to register key management commands: {e}")
 
 
-# Import and register Configuration Encryption commands (v0.3)
+# Import and register Configuration Encryption commands 
 try:
     from caracal.cli.config_encryption import config_encrypt_group
     cli.add_command(config_encrypt_group)
