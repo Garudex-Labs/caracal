@@ -36,7 +36,7 @@ def get_mandate_manager(config):
     from caracal.core.mandate import MandateManager
     from caracal.core.authority_ledger import AuthorityLedgerWriter
     
-    db_manager = get_db_manager()
+    db_manager = get_db_manager(config)
     
     # Get session
     session = db_manager.get_session()
@@ -62,7 +62,7 @@ def get_authority_evaluator(config):
     from caracal.core.authority import AuthorityEvaluator
     from caracal.core.authority_ledger import AuthorityLedgerWriter
     
-    db_manager = get_db_manager()
+    db_manager = get_db_manager(config)
     
     # Get session
     session = db_manager.get_session()
@@ -554,7 +554,7 @@ def list_mandates(
         from caracal.db.connection import get_db_manager
         from caracal.db.models import ExecutionMandate
         
-        db_manager = get_db_manager()
+        db_manager = get_db_manager(cli_ctx.config)
         
         try:
             # Query mandates
