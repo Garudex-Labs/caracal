@@ -197,11 +197,11 @@ class DatabaseConnectionManager:
             )
         except OperationalError as e:
             logger.error("PostgreSQL connection failed: %s", e)
-            raise RuntimeError(
-                f"PostgreSQL connection failed: {e}\n"
-                f"Fix your PostgreSQL server or credentials. "
-                f"There is no fallback database."
-            ) from e
+            from caracal.exceptions import CaracalError
+            raise CaracalError(
+                "Service Unavailable: Cannot connect to PostgreSQL backend.\n"
+                f"Details: {e}"
+            ) from None
 
         # Ensure workspace schema exists
         if pg_schema:
@@ -401,7 +401,7 @@ def session_scope() -> Generator[Session, None, None]:
         yield session
 
 
-def get_db_manager() -> DatabaseConnectionManager:
+def get_db_manager(config: Optional["CaracalConfig"] = None) -> DatabaseConnectionManager:
     """Create and initialize a ``DatabaseConnectionManager`` from the active
     workspace ``config.yaml``.
 
@@ -412,9 +412,9 @@ def get_db_manager() -> DatabaseConnectionManager:
     Environment variables (``CARACAL_DB_*``) take highest precedence,
     followed by the YAML config values.
     """
-    from caracal.config import load_config
-
-    config = load_config()
+    if config is None:
+        from caracal.config import load_config
+        config = load_config()
 
     db_config = DatabaseConfig(
         host=getattr(config.database, "host", "localhost"),
