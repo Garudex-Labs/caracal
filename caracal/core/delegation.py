@@ -256,7 +256,7 @@ class DelegationTokenManager:
         Validate ASE v1.0.8 delegation token.
         
         Verifies:
-        1. Token signature using parent agent's public key
+        1. Token signature using source agent's public key
         2. Token expiration
         3. Required claims presence
         

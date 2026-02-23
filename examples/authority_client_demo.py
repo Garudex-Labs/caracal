@@ -51,7 +51,7 @@ def demo_synchronous_client():
             print()
         
         # 3. Delegate the mandate
-        print("3. Delegating mandate to child agent...")
+        print("3. Delegating mandate to target agent...")
         child_mandate = client.delegate_mandate(
             parent_mandate_id=mandate['mandate_id'],
             child_subject_id="child-agent-principal-id",

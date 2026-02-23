@@ -276,7 +276,7 @@ def query(
 @click.option(
     '--aggregate-children',
     is_flag=True,
-    help='Include usage from child agents in the total (hierarchical aggregation)',
+    help='Include usage from target agents in the total (graph aggregation)',
 )
 @click.option(
     '--breakdown',
@@ -306,7 +306,7 @@ def summary(
     Calculates total usage for each agent in the specified time window.
     If agent-id is specified, shows detailed breakdown for that agent only.
     
-    With --aggregate-children, includes usage from all child agents in the total.
+    With --aggregate-children, includes usage from all target agents in the total.
     With --breakdown, shows hierarchical view with indentation for parent-child relationships.
     
     Examples:
@@ -317,7 +317,7 @@ def summary(
         # Summary for a specific agent
         caracal ledger summary --agent-id 550e8400-e29b-41d4-a716-446655440000
         
-        # Summary with child agent usage included
+        # Summary with target agent usage included
         caracal ledger summary --agent-id 550e8400-e29b-41d4-a716-446655440000 \\
             --aggregate-children --start 2024-01-01 --end 2024-01-31
         
