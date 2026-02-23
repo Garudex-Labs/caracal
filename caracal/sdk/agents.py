@@ -90,20 +90,21 @@ class AgentOperations:
         req = self._build_request("DELETE", f"/agents/{agent_id}")
         return await self._execute(req)
 
-    async def create_child(
+    async def delegate_authority(
         self,
-        parent_agent_id: str,
-        child_name: str,
-        child_owner: str,
-        generate_token: bool = False,
+        source_agent_id: str,
+        target_agent_id: str,
+        delegation_type: str = "hierarchical",
+        context_tags: Optional[List[str]] = None,
     ) -> Dict[str, Any]:
-        """Create a child agent under a parent."""
+        """Delegate authority from source agent to target agent via delegation graph."""
         body: Dict[str, Any] = {
-            "child_name": child_name,
-            "child_owner": child_owner,
-            "generate_token": generate_token,
+            "target_agent_id": target_agent_id,
+            "delegation_type": delegation_type,
         }
+        if context_tags:
+            body["context_tags"] = context_tags
         req = self._build_request(
-            "POST", f"/agents/{parent_agent_id}/children", body=body
+            "POST", f"/agents/{source_agent_id}/delegate", body=body
         )
         return await self._execute(req)
