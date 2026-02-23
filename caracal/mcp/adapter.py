@@ -12,6 +12,8 @@ from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
 from typing import Any, Dict, Optional
+
+import httpx
 from uuid import UUID
 
 from ase.protocol import MeteringEvent
@@ -93,6 +95,8 @@ class MCPAdapter:
         self,
         authority_evaluator: AuthorityEvaluator,
         metering_collector: MeteringCollector,
+        mcp_server_url: Optional[str] = None,
+        request_timeout_seconds: int = 30,
     ):
         """
         Initialize MCPAdapter.
@@ -100,10 +104,17 @@ class MCPAdapter:
         Args:
             authority_evaluator: AuthorityEvaluator for mandate checks
             metering_collector: MeteringCollector for emitting events
+            mcp_server_url: Base URL of the upstream MCP server (e.g. "http://localhost:3001")
+            request_timeout_seconds: Timeout for upstream HTTP requests (default: 30)
         """
         self.authority_evaluator = authority_evaluator
         self.metering_collector = metering_collector
-        logger.info("MCPAdapter initialized")
+        self.mcp_server_url = mcp_server_url.rstrip("/") if mcp_server_url else None
+        self.request_timeout_seconds = request_timeout_seconds
+        self._http_client: Optional[httpx.AsyncClient] = None
+        logger.info(
+            f"MCPAdapter initialized (upstream={'configured: ' + self.mcp_server_url if self.mcp_server_url else 'none'})"
+        )
 
     async def intercept_tool_call(
         self,
@@ -436,64 +447,187 @@ class MCPAdapter:
         
         return agent_id
 
+    async def _get_http_client(self) -> httpx.AsyncClient:
+        """Lazily create and return a shared httpx.AsyncClient."""
+        if self._http_client is None or self._http_client.is_closed:
+            self._http_client = httpx.AsyncClient(
+                timeout=httpx.Timeout(self.request_timeout_seconds),
+                follow_redirects=True,
+            )
+        return self._http_client
+
     async def _forward_to_mcp_server(
         self,
         tool_name: str,
         tool_args: Dict[str, Any]
     ) -> Any:
         """
-        Forward tool invocation to MCP server.
-        
-        This is a placeholder implementation for v0.2.
-        In v0.3, this will make actual HTTP/gRPC calls to MCP servers.
-        
+        Forward tool invocation to the upstream MCP server via HTTP POST.
+
+        Sends a JSON-RPC-style request to ``{mcp_server_url}/tool/call`` and
+        returns the parsed response body.  Handles connection timeouts,
+        non-200 status codes, and JSON parsing errors.
+
         Args:
             tool_name: Name of the tool
             tool_args: Tool arguments
-            
+
         Returns:
-            Simulated tool result
+            Parsed upstream response dict
+
+        Raises:
+            CaracalError: On connection, timeout, HTTP, or parse failures
         """
-        # Simulated tool execution for v0.2
-        logger.debug(
-            f"Simulating MCP tool execution: tool={tool_name}, args={tool_args}"
-        )
-        
-        # Return a simulated result
-        return {
-            "status": "success",
-            "tool": tool_name,
-            "result": f"Simulated result for {tool_name}",
-            "metadata": {
-                "execution_time_ms": 100,
-                "tokens_used": tool_args.get("max_tokens", 1000),
-            }
+        if not self.mcp_server_url:
+            raise CaracalError(
+                "MCP server URL not configured — cannot forward tool call"
+            )
+
+        url = f"{self.mcp_server_url}/tool/call"
+        payload = {
+            "tool_name": tool_name,
+            "tool_args": tool_args,
         }
+
+        logger.debug(
+            f"Forwarding MCP tool call to upstream: url={url}, tool={tool_name}"
+        )
+
+        try:
+            client = await self._get_http_client()
+            response = await client.post(url, json=payload)
+
+            if response.status_code != 200:
+                error_body = response.text[:500]
+                logger.error(
+                    f"Upstream MCP server returned HTTP {response.status_code} "
+                    f"for tool {tool_name}: {error_body}"
+                )
+                raise CaracalError(
+                    f"Upstream MCP server error (HTTP {response.status_code}): {error_body}"
+                )
+
+            try:
+                result = response.json()
+            except Exception as parse_err:
+                logger.error(
+                    f"Failed to parse upstream JSON for tool {tool_name}: {parse_err}"
+                )
+                raise CaracalError(
+                    f"Invalid JSON from upstream MCP server: {parse_err}"
+                )
+
+            logger.debug(
+                f"Upstream MCP tool call succeeded: tool={tool_name}"
+            )
+            return result
+
+        except httpx.TimeoutException as exc:
+            logger.error(f"Timeout forwarding tool {tool_name} to {url}: {exc}")
+            raise CaracalError(
+                f"Upstream MCP server timed out after {self.request_timeout_seconds}s"
+            )
+        except httpx.ConnectError as exc:
+            logger.error(f"Connection failed for tool {tool_name} to {url}: {exc}")
+            raise CaracalError(
+                f"Cannot connect to upstream MCP server at {self.mcp_server_url}: {exc}"
+            )
+        except CaracalError:
+            raise
+        except Exception as exc:
+            logger.error(
+                f"Unexpected error forwarding tool {tool_name}: {exc}",
+                exc_info=True,
+            )
+            raise CaracalError(f"Failed to forward tool call: {exc}")
 
     async def _fetch_resource(self, resource_uri: str) -> MCPResource:
         """
-        Fetch resource from MCP server.
-        
-        This is a placeholder implementation for v0.2.
-        In v0.3, this will make actual HTTP/gRPC calls to MCP servers.
-        
+        Fetch a resource from the upstream MCP server via HTTP POST.
+
+        Sends a request to ``{mcp_server_url}/resource/read`` and maps the
+        upstream JSON into an ``MCPResource``.
+
         Args:
             resource_uri: URI of the resource
-            
+
         Returns:
-            MCPResource with simulated content
+            MCPResource populated from the upstream response
+
+        Raises:
+            CaracalError: On connection, timeout, HTTP, or parse failures
         """
-        # Simulated resource fetch for v0.2
-        logger.debug(f"Simulating MCP resource fetch: uri={resource_uri}")
-        
-        # Return a simulated resource
-        content = f"Simulated content for {resource_uri}"
-        return MCPResource(
-            uri=resource_uri,
-            content=content,
-            mime_type="text/plain",
-            size=len(content.encode('utf-8'))
+        if not self.mcp_server_url:
+            raise CaracalError(
+                "MCP server URL not configured — cannot fetch resource"
+            )
+
+        url = f"{self.mcp_server_url}/resource/read"
+        payload = {"resource_uri": resource_uri}
+
+        logger.debug(
+            f"Forwarding MCP resource read to upstream: url={url}, uri={resource_uri}"
         )
+
+        try:
+            client = await self._get_http_client()
+            response = await client.post(url, json=payload)
+
+            if response.status_code != 200:
+                error_body = response.text[:500]
+                logger.error(
+                    f"Upstream MCP server returned HTTP {response.status_code} "
+                    f"for resource {resource_uri}: {error_body}"
+                )
+                raise CaracalError(
+                    f"Upstream MCP server error (HTTP {response.status_code}): {error_body}"
+                )
+
+            try:
+                data = response.json()
+            except Exception as parse_err:
+                logger.error(
+                    f"Failed to parse upstream JSON for resource {resource_uri}: {parse_err}"
+                )
+                raise CaracalError(
+                    f"Invalid JSON from upstream MCP server: {parse_err}"
+                )
+
+            # Map upstream response into MCPResource
+            content = data.get("content", "")
+            content_bytes = content.encode("utf-8") if isinstance(content, str) else str(content).encode("utf-8")
+
+            resource = MCPResource(
+                uri=data.get("uri", resource_uri),
+                content=content,
+                mime_type=data.get("mime_type", "application/octet-stream"),
+                size=data.get("size", len(content_bytes)),
+            )
+
+            logger.debug(
+                f"Upstream MCP resource read succeeded: uri={resource_uri}, "
+                f"size={resource.size} bytes"
+            )
+            return resource
+
+        except httpx.TimeoutException as exc:
+            logger.error(f"Timeout fetching resource {resource_uri} from {url}: {exc}")
+            raise CaracalError(
+                f"Upstream MCP server timed out after {self.request_timeout_seconds}s"
+            )
+        except httpx.ConnectError as exc:
+            logger.error(f"Connection failed for resource {resource_uri} to {url}: {exc}")
+            raise CaracalError(
+                f"Cannot connect to upstream MCP server at {self.mcp_server_url}: {exc}"
+            )
+        except CaracalError:
+            raise
+        except Exception as exc:
+            logger.error(
+                f"Unexpected error fetching resource {resource_uri}: {exc}",
+                exc_info=True,
+            )
+            raise CaracalError(f"Failed to fetch resource: {exc}")
 
     def _get_resource_type(self, resource_uri: str) -> str:
         """
