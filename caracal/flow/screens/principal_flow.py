@@ -4,20 +4,34 @@ Caracal, a product of Garudex Labs
 
 Caracal Flow Principal Flow Screen.
 
-Principal management flows (replaces agent_flow):
-- Register new principal (guided form)
+Principal management flows:
+- Register new principal (guided form) — ECDSA P-256 keypair generated automatically
 - List principals with authority status
 - View principal authority (policies and mandates)
-- Generate ECDSA P-256 key pair
+- Rotate Key — replace the keypair and choose mandate disposition
+
+Key storage:
+  Development : private key written to ~/.caracal/keystore/<id>.key (chmod 600)
+  Production  : integrate with an HSM, PKCS#11 provider, or cloud KMS
+                (AWS KMS, GCP Cloud KMS, HashiCorp Vault) instead.
 """
 
+import os
+from datetime import datetime
+from pathlib import Path
 from typing import Optional
 from uuid import UUID
 
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric import ec
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
+from sqlalchemy import or_
+
+from caracal.db.connection import get_db_manager
+from caracal.db.models import AuthorityLedgerEvent, ExecutionMandate, Principal
 from caracal.flow.components.menu import show_menu
 from caracal.flow.components.prompt import FlowPrompt
 from caracal.flow.theme import Colors, Icons
@@ -25,6 +39,11 @@ from caracal.flow.state import FlowState, RecentAction
 from caracal.logging_config import get_logger
 
 logger = get_logger(__name__)
+
+# Default local keystore directory (overridable via CARACAL_KEYSTORE_DIR env var)
+_KEYSTORE_DIR = Path(
+    os.environ.get("CARACAL_KEYSTORE_DIR", str(Path.home() / ".caracal" / "keystore"))
+)
 
 
 class PrincipalFlow:
@@ -46,7 +65,7 @@ class PrincipalFlow:
                     ("register", "Register New Principal", "Create a new principal identity"),
                     ("list", "List Principals", "View all registered principals"),
                     ("view", "View Principal Authority", "View policies and mandates"),
-                    ("keys", "Generate Keys", "Generate ECDSA P-256 key pair"),
+                    ("rotate", "Rotate Key", "Generate a new keypair; manage existing mandates"),
                 ],
                 subtitle="Manage principal identities",
             )
@@ -62,8 +81,8 @@ class PrincipalFlow:
                 self.show_principal_list()
             elif action == "view":
                 self.view_principal_authority()
-            elif action == "keys":
-                self.generate_keys()
+            elif action == "rotate":
+                self.rotate_key()
             
             self.console.print()
             self.console.print(f"  [{Colors.HINT}]Press Enter to continue...[/]")
@@ -79,9 +98,6 @@ class PrincipalFlow:
         self.console.print()
         
         try:
-            from caracal.db.connection import get_db_manager
-            from caracal.db.models import Principal, AuthorityPolicy, ExecutionMandate
-            
             db_manager = get_db_manager()
             
             with db_manager.session_scope() as db_session:
@@ -130,7 +146,11 @@ class PrincipalFlow:
             self.console.print(f"  [{Colors.ERROR}]{Icons.ERROR} Error: {e}[/]")
     
     def create_principal(self) -> None:
-        """Create principal wizard with type selection."""
+        """Create principal wizard with type selection.
+        
+        Automatically generates and stores an ECDSA P-256 keypair immediately
+        after the principal is committed to the database.
+        """
         self.console.print(Panel(
             f"[{Colors.NEUTRAL}]Create a new principal identity[/]",
             title=f"[bold {Colors.INFO}]Register Principal[/]",
@@ -139,10 +159,6 @@ class PrincipalFlow:
         self.console.print()
         
         try:
-            from caracal.db.connection import get_db_manager
-            from caracal.db.models import Principal
-            from datetime import datetime
-            
             # Collect information
             name = self.prompt.text(
                 "Principal name",
@@ -166,13 +182,14 @@ class PrincipalFlow:
             self.console.print(f"    Name: [{Colors.NEUTRAL}]{name}[/]")
             self.console.print(f"    Type: [{Colors.NEUTRAL}]{principal_type}[/]")
             self.console.print(f"    Owner: [{Colors.NEUTRAL}]{owner}[/]")
+            self.console.print(f"    Keys: [{Colors.DIM}]ECDSA P-256 keypair (generated automatically)[/]")
             self.console.print()
             
             if not self.prompt.confirm("Create this principal?", default=True):
                 self.console.print(f"  [{Colors.WARNING}]{Icons.WARNING} Cancelled[/]")
                 return
             
-            # Create principal
+            # Create principal and generate keypair atomically
             self.console.print()
             self.console.print(f"  [{Colors.INFO}]Creating principal...[/]")
             
@@ -187,15 +204,27 @@ class PrincipalFlow:
                 )
                 
                 db_session.add(principal)
+                db_session.flush()  # populate principal_id before key generation
+                
+                # --- Auto-generate ECDSA P-256 keypair ---
+                key_path = self._generate_and_store_keypair(principal, db_session)
+                
                 db_session.commit()
                 
                 self.console.print(f"  [{Colors.SUCCESS}]{Icons.SUCCESS} Principal registered![/]")
-                self.console.print(f"  [{Colors.NEUTRAL}]Principal ID: [{Colors.PRIMARY}]{principal.principal_id}[/]")
+                self.console.print(f"  [{Colors.NEUTRAL}]Principal ID : [{Colors.PRIMARY}]{principal.principal_id}[/]")
+                self.console.print(f"  [{Colors.NEUTRAL}]Private key  : [{Colors.DIM}]{key_path}[/]")
+                self.console.print()
+                self.console.print(
+                    f"  [{Colors.WARNING}]{Icons.WARNING} Private key stored on local filesystem.[/]\n"
+                    f"  [{Colors.HINT}]Production: use an HSM or cloud KMS "
+                    f"(AWS KMS, GCP Cloud KMS, HashiCorp Vault, PKCS#11).[/]"
+                )
                 
                 if self.state:
                     self.state.add_recent_action(RecentAction.create(
                         "register_principal",
-                        f"Registered principal '{name}'",
+                        f"Registered principal '{name}' with ECDSA P-256 keypair",
                     ))
             
             db_manager.close()
@@ -214,9 +243,6 @@ class PrincipalFlow:
         self.console.print()
         
         try:
-            from caracal.db.connection import get_db_manager
-            from caracal.db.models import Principal, AuthorityPolicy, ExecutionMandate
-            
             db_manager = get_db_manager()
             
             with db_manager.session_scope() as db_session:
@@ -278,21 +304,181 @@ class PrincipalFlow:
             logger.error(f"Error viewing principal authority: {e}")
             self.console.print(f"  [{Colors.ERROR}]{Icons.ERROR} Error: {e}[/]")
     
-    def generate_keys(self) -> None:
-        """Generate ECDSA P-256 key pair for principal."""
+    # ------------------------------------------------------------------
+    # Private helpers
+    # ------------------------------------------------------------------
+
+    def _generate_and_store_keypair(self, principal, db_session) -> str:
+        """Generate an ECDSA P-256 keypair, persist it, and write an audit log entry.
+        
+        The public key PEM is stored in ``principal.public_key_pem``.
+        The private key is written to the local keystore directory with chmod 600.
+        
+        In production replace the filesystem write with an HSM/KMS call and
+        store only a key reference (key ID / ARN) in the principal metadata.
+        
+        Args:
+            principal: The :class:`~caracal.db.models.Principal` ORM object
+                       (must have ``principal_id`` populated via flush).
+            db_session: Active SQLAlchemy session (used for the audit record).
+        
+        Returns:
+            Absolute path to the written private key file.
+        """
+        self.console.print(f"  [{Colors.INFO}]Generating ECDSA P-256 keypair...[/]")
+        
+        # Generate key material
+        private_key = ec.generate_private_key(ec.SECP256R1())
+        public_key = private_key.public_key()
+        
+        # Serialize
+        private_pem = private_key.private_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PrivateFormat.PKCS8,
+            encryption_algorithm=serialization.NoEncryption(),
+        ).decode("utf-8")
+        
+        public_pem = public_key.public_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PublicFormat.SubjectPublicKeyInfo,
+        ).decode("utf-8")
+        
+        # Store public key in principal metadata
+        principal.public_key_pem = public_pem
+        
+        # Write private key to local keystore (dev/staging)
+        _KEYSTORE_DIR.mkdir(parents=True, exist_ok=True)
+        key_file = _KEYSTORE_DIR / f"{principal.principal_id}.key"
+        key_file.write_text(private_pem)
+        key_file.chmod(0o600)
+        
+        logger.info(
+            "ECDSA P-256 keypair generated for principal %s; "
+            "private key written to %s",
+            principal.principal_id,
+            key_file,
+        )
+        
+        # Audit log entry
+        self._write_audit_log(
+            db_session,
+            event_type="key_generated",
+            principal_id=principal.principal_id,
+            details=f"ECDSA P-256 keypair generated; private key stored at {key_file}",
+        )
+        
+        return str(key_file)
+
+    def _write_audit_log(
+        self,
+        db_session,
+        event_type: str,
+        principal_id,
+        details: str,
+        mandate_id=None,
+    ) -> None:
+        """Append an :class:`~caracal.db.models.AuthorityLedgerEvent` audit row.
+        
+        Args:
+            db_session: Active SQLAlchemy session.
+            event_type: Short identifier, e.g. ``"key_generated"``.
+            principal_id: UUID of the affected principal.
+            details: Human-readable description of the event.
+            mandate_id: Optional UUID of a related mandate.
+        """
+        entry = AuthorityLedgerEvent(
+            event_type=event_type,
+            timestamp=datetime.utcnow(),
+            principal_id=principal_id,
+            mandate_id=mandate_id,
+            decision=None,
+            event_metadata={
+                "details": details,
+                "operator": "tui",
+                "ts": datetime.utcnow().isoformat(),
+            },
+        )
+        db_session.add(entry)
+        db_session.flush()
+        
+        logger.info(
+            "Audit log [%s] principal=%s — %s",
+            event_type,
+            principal_id,
+            details,
+        )
+
+    def _revoke_mandates_for_principal(
+        self,
+        principal_id,
+        db_session,
+        reason: str,
+    ) -> int:
+        """Revoke all active mandates where the principal is the issuer or subject.
+        
+        Args:
+            principal_id: UUID of the principal whose mandates should be revoked.
+            db_session: Active SQLAlchemy session.
+            reason: Short revocation reason stored on each mandate.
+        
+        Returns:
+            Number of mandates revoked.
+        """
+        now = datetime.utcnow()
+        mandates = (
+            db_session.query(ExecutionMandate)
+            .filter(
+                ExecutionMandate.revoked.is_(False),
+                or_(
+                    ExecutionMandate.subject_id == principal_id,
+                    ExecutionMandate.issuer_id == principal_id,
+                ),
+            )
+            .all()
+        )
+        
+        for mandate in mandates:
+            mandate.revoked = True
+            mandate.revoked_at = now
+            mandate.revocation_reason = reason
+            self._write_audit_log(
+                db_session,
+                event_type="mandate_revoked_by_rotation",
+                principal_id=principal_id,
+                mandate_id=mandate.mandate_id,
+                details=(
+                    f"Mandate {mandate.mandate_id} revoked due to key rotation "
+                    f"(reason: {reason})"
+                ),
+            )
+        
+        db_session.flush()
+        return len(mandates)
+
+    # ------------------------------------------------------------------
+    # Rotate Key action
+    # ------------------------------------------------------------------
+
+    def rotate_key(self) -> None:
+        """Rotate the ECDSA P-256 keypair for a principal.
+        
+        Workflow:
+        1. Operator selects a principal.
+        2. Confirmation prompt.
+        3. New keypair is generated; old private key file is backed up.
+        4. Operator chooses mandate disposition:
+           a. Revoke all active mandates immediately.
+           b. Leave mandates valid until expiry (recommended).
+        5. Audit log entries are written for every action.
+        """
         self.console.print(Panel(
-            f"[{Colors.NEUTRAL}]Generate cryptographic keys for a principal[/]",
-            title=f"[bold {Colors.INFO}]Generate Keys[/]",
+            f"[{Colors.NEUTRAL}]Rotate the ECDSA P-256 keypair for a principal[/]",
+            title=f"[bold {Colors.INFO}]Rotate Key[/]",
             border_style=Colors.PRIMARY,
         ))
         self.console.print()
         
         try:
-            from caracal.db.connection import get_db_manager
-            from caracal.db.models import Principal
-            from cryptography.hazmat.primitives.asymmetric import ec
-            from cryptography.hazmat.primitives import serialization
-            
             db_manager = get_db_manager()
             
             with db_manager.session_scope() as db_session:
@@ -303,61 +489,204 @@ class PrincipalFlow:
                     return
                 
                 items = [(str(p.principal_id), p.name) for p in principals]
-                principal_id_str = self.prompt.uuid("Principal ID (Tab for suggestions)", items)
+                principal_id_str = self.prompt.uuid(
+                    "Principal ID (Tab for suggestions)", items
+                )
                 principal_id = UUID(principal_id_str)
                 
-                principal = db_session.query(Principal).filter_by(principal_id=principal_id).first()
+                principal = (
+                    db_session.query(Principal)
+                    .filter_by(principal_id=principal_id)
+                    .first()
+                )
                 
                 if not principal:
-                    self.console.print(f"  [{Colors.ERROR}]{Icons.ERROR} Principal not found.[/]")
+                    self.console.print(
+                        f"  [{Colors.ERROR}]{Icons.ERROR} Principal not found.[/]"
+                    )
                     return
                 
-                # Check if keys already exist
-                if principal.public_key_pem:
-                    self.console.print(f"  [{Colors.WARNING}]{Icons.WARNING} Principal already has keys.[/]")
-                    if not self.prompt.confirm("Regenerate keys?", default=False):
-                        return
+                # Require an existing keypair
+                if not principal.public_key_pem:
+                    self.console.print(
+                        f"  [{Colors.ERROR}]{Icons.ERROR} Principal '{principal.name}' has no "
+                        f"existing keypair. Register the principal first.[/]"
+                    )
+                    return
                 
-                # Generate ECDSA P-256 key pair
+                # ---------- confirmation ----------
                 self.console.print()
-                self.console.print(f"  [{Colors.INFO}]Generating ECDSA P-256 key pair...[/]")
+                self.console.print(
+                    f"  [{Colors.WARNING}]{Icons.WARNING}  You are about to rotate the keypair "
+                    f"for '[bold]{principal.name}[/bold]'.[/]"
+                )
+                self.console.print(
+                    f"  [{Colors.DIM}]All mandates signed with the old key will become "
+                    f"unverifiable unless you keep them active until expiry.[/]"
+                )
+                self.console.print()
                 
-                private_key = ec.generate_private_key(ec.SECP256R1())
-                public_key = private_key.public_key()
+                if not self.prompt.confirm(
+                    f"Rotate keypair for '{principal.name}'?", default=False
+                ):
+                    self.console.print(
+                        f"  [{Colors.WARNING}]{Icons.WARNING} Rotation cancelled.[/]"
+                    )
+                    return
                 
-                # Serialize keys to PEM format
-                private_pem = private_key.private_bytes(
-                    encoding=serialization.Encoding.PEM,
-                    format=serialization.PrivateFormat.PKCS8,
-                    encryption_algorithm=serialization.NoEncryption()
-                ).decode('utf-8')
+                # ---------- backup old key file ----------
+                old_key_file = _KEYSTORE_DIR / f"{principal.principal_id}.key"
+                if old_key_file.exists():
+                    timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+                    backup_path = (
+                        _KEYSTORE_DIR / f"{principal.principal_id}.key.bak_{timestamp}"
+                    )
+                    old_key_file.rename(backup_path)
+                    self.console.print(
+                        f"  [{Colors.DIM}]Old private key backed up → {backup_path}[/]"
+                    )
                 
-                public_pem = public_key.public_bytes(
-                    encoding=serialization.Encoding.PEM,
-                    format=serialization.PublicFormat.SubjectPublicKeyInfo
-                ).decode('utf-8')
+                # ---------- generate new keypair ----------
+                self.console.print()
+                new_key_path = self._generate_and_store_keypair(principal, db_session)
                 
-                # Store keys
-                principal.private_key_pem = private_pem
-                principal.public_key_pem = public_pem
+                # Audit: rotation event
+                self._write_audit_log(
+                    db_session,
+                    event_type="key_rotated",
+                    principal_id=principal.principal_id,
+                    details=(
+                        f"Keypair rotated for principal '{principal.name}'; "
+                        f"new private key at {new_key_path}"
+                    ),
+                )
+                
+                # ---------- mandate disposition ----------
+                self.console.print()
+                self.console.print(
+                    f"  [{Colors.INFO}]What should happen to existing active mandates signed "
+                    f"with the old key?[/]"
+                )
+                self.console.print(
+                    f"  [{Colors.NEUTRAL}]  [1] Revoke all immediately — mandates become invalid "
+                    f"right now.[/]"
+                )
+                self.console.print(
+                    f"  [{Colors.SUCCESS}]  [2] Leave until expiry (recommended) — mandates "
+                    f"remain valid until their individual expiry; "
+                    f"new key used for all future mandates.[/]"
+                )
+                self.console.print()
+                
+                choice = self.prompt.text(
+                    "Choice",
+                    default="2",
+                    validator=lambda x: (
+                        x in ("1", "2"),
+                        "Enter 1 or 2",
+                    ),
+                )
+                
+                if choice == "1":
+                    # --- option 1: revoke all active mandates ---
+                    active_count = (
+                        db_session.query(ExecutionMandate)
+                        .filter(
+                            ExecutionMandate.revoked.is_(False),
+                            or_(
+                                ExecutionMandate.subject_id == principal_id,
+                                ExecutionMandate.issuer_id == principal_id,
+                            ),
+                        )
+                        .count()
+                    )
+                    
+                    if active_count == 0:
+                        self.console.print(
+                            f"  [{Colors.DIM}]No active mandates to revoke.[/]"
+                        )
+                    else:
+                        self.console.print()
+                        self.console.print(
+                            f"  [{Colors.WARNING}]{Icons.WARNING}  This will immediately revoke "
+                            f"[bold]{active_count}[/bold] active mandate(s). "
+                            f"This cannot be undone.[/]"
+                        )
+                        
+                        if not self.prompt.confirm(
+                            f"Revoke {active_count} mandate(s)?", default=False
+                        ):
+                            self.console.print(
+                                f"  [{Colors.WARNING}]Revocation skipped. "
+                                f"Mandates remain active.[/]"
+                            )
+                        else:
+                            revoked = self._revoke_mandates_for_principal(
+                                principal_id=principal.principal_id,
+                                db_session=db_session,
+                                reason="key_rotation",
+                            )
+                            self.console.print(
+                                f"  [{Colors.SUCCESS}]{Icons.SUCCESS} "
+                                f"Revoked {revoked} mandate(s).[/]"
+                            )
+                else:
+                    # --- option 2: leave mandates until expiry ---
+                    active_count = (
+                        db_session.query(ExecutionMandate)
+                        .filter(
+                            ExecutionMandate.revoked.is_(False),
+                            or_(
+                                ExecutionMandate.subject_id == principal_id,
+                                ExecutionMandate.issuer_id == principal_id,
+                            ),
+                        )
+                        .count()
+                    )
+                    
+                    self.console.print(
+                        f"  [{Colors.SUCCESS}]{Icons.SUCCESS} "
+                        f"{active_count} active mandate(s) will remain valid until expiry.[/]"
+                    )
+                    self.console.print(
+                        f"  [{Colors.HINT}]All future mandates will use the new key.[/]"
+                    )
+                    
+                    self._write_audit_log(
+                        db_session,
+                        event_type="key_rotated_mandates_preserved",
+                        principal_id=principal.principal_id,
+                        details=(
+                            f"{active_count} mandate(s) preserved until expiry after "
+                            f"key rotation for '{principal.name}'"
+                        ),
+                    )
                 
                 db_session.commit()
                 
-                self.console.print(f"  [{Colors.SUCCESS}]{Icons.SUCCESS} Keys generated and stored![/]")
                 self.console.print()
-                self.console.print(f"  [{Colors.WARNING}]Warning: Private key is stored in database.[/]")
-                self.console.print(f"  [{Colors.HINT}]In production, use a key management service (KMS).[/]")
+                self.console.print(
+                    f"  [{Colors.SUCCESS}]{Icons.SUCCESS} Key rotation complete.[/]"
+                )
+                self.console.print(
+                    f"  [{Colors.NEUTRAL}]New private key : [{Colors.DIM}]{new_key_path}[/]"
+                )
+                self.console.print(
+                    f"  [{Colors.WARNING}]{Icons.WARNING} Private key stored on local filesystem.[/]\n"
+                    f"  [{Colors.HINT}]Production: use an HSM or cloud KMS "
+                    f"(AWS KMS, GCP Cloud KMS, HashiCorp Vault, PKCS#11).[/]"
+                )
                 
                 if self.state:
                     self.state.add_recent_action(RecentAction.create(
-                        "generate_keys",
-                        f"Generated keys for principal {principal.name}",
+                        "rotate_key",
+                        f"Rotated keypair for principal '{principal.name}'",
                     ))
             
             db_manager.close()
             
         except Exception as e:
-            logger.error(f"Error generating keys: {e}")
+            logger.error(f"Error rotating key: {e}")
             self.console.print(f"  [{Colors.ERROR}]{Icons.ERROR} Error: {e}[/]")
 
 
