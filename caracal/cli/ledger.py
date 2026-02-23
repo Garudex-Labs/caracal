@@ -649,7 +649,7 @@ def summary(
     '--agent-id',
     '-a',
     required=True,
-    help='Agent ID to query delegation chain for',
+    help='Agent ID to query delegation graph for',
 )
 @click.option(
     '--format',
@@ -665,14 +665,14 @@ def delegation_chain(
     format: str,
 ):
     """
-    Query the delegation chain for an agent.
+    Query the delegation graph for an agent.
     
-    Shows the parent-child hierarchy for an agent, including all ancestors
-    (parent, grandparent, etc.) and all descendants (children, grandchildren, etc.).
+    Shows all delegation edges (inbound and outbound) for the mandates
+    belonging to the specified agent.
     
     Examples:
     
-        # Show delegation chain for an agent
+        # Show delegation graph for an agent
         caracal ledger delegation-chain --agent-id 550e8400-e29b-41d4-a716-446655440000
         
         # JSON output
@@ -682,106 +682,104 @@ def delegation_chain(
         # Get CLI context
         cli_ctx = ctx.obj
         
-        # Get agent registry
-        agent_registry = get_agent_registry(cli_ctx.config)
+        from caracal.db.connection import get_db_manager
+        from caracal.db.models import DelegationEdgeModel, ExecutionMandate
         
-        # Get the agent
-        agent = agent_registry.get_agent(agent_id)
-        if not agent:
-            click.echo(f"Error: Agent with ID '{agent_id}' not found", err=True)
-            sys.exit(1)
+        db_manager = get_db_manager(cli_ctx.config)
+        session = db_manager.get_session()
         
-        # Build ancestor chain (parent, grandparent, etc.)
-        ancestors = []
-        current_agent = agent
-        while current_agent.parent_agent_id:
-            parent = agent_registry.get_agent(current_agent.parent_agent_id)
-            if not parent:
-                break
-            ancestors.append({
-                "agent_id": parent.agent_id,
-                "name": parent.name,
-                "owner": parent.owner
-            })
-            current_agent = parent
-        
-        # Reverse to show from root to current
-        ancestors.reverse()
-        
-        # Get descendants (children, grandchildren, etc.)
-        descendants = agent_registry.get_descendants(agent_id)
-        descendants_data = [
-            {
-                "agent_id": desc.agent_id,
-                "name": desc.name,
-                "owner": desc.owner,
-                "parent_agent_id": desc.parent_agent_id
-            }
-            for desc in descendants
-        ]
-        
-        # Get direct children for tree view
-        children = agent_registry.get_children(agent_id)
-        
-        if format.lower() == 'json':
-            # JSON output
-            output = {
-                "agent": {
-                    "agent_id": agent.agent_id,
-                    "name": agent.name,
-                    "owner": agent.owner,
-                    "parent_agent_id": agent.parent_agent_id
-                },
-                "ancestors": ancestors,
-                "descendants": descendants_data,
-                "direct_children_count": len(children),
-                "total_descendants_count": len(descendants)
-            }
-            click.echo(json.dumps(output, indent=2))
-        else:
-            # Table output
-            click.echo(f"Delegation Chain for Agent: {agent.name}")
-            click.echo("=" * 70)
-            click.echo()
-            click.echo(f"Agent ID: {agent.agent_id}")
-            click.echo(f"Owner: {agent.owner}")
-            click.echo()
+        try:
+            # Get mandates for this agent
+            mandates = session.query(ExecutionMandate).filter(
+                ExecutionMandate.subject_id == agent_id
+            ).all()
             
-            # Show ancestors (path from root to current)
-            if ancestors:
-                click.echo("Ancestors (from root):")
-                click.echo("-" * 70)
-                for i, ancestor in enumerate(ancestors):
-                    indent = "  " * i
-                    click.echo(f"{indent}└─ {ancestor['name']} ({ancestor['agent_id']})")
-                # Show current agent with proper indentation
-                indent = "  " * len(ancestors)
-                click.echo(f"{indent}└─ {agent.name} ({agent.agent_id}) ← YOU ARE HERE")
-                click.echo()
-            else:
-                click.echo("No parent agents (this is a root agent)")
-                click.echo()
+            if not mandates:
+                click.echo(f"No mandates found for agent: {agent_id}")
+                return
             
-            # Show descendants
-            if descendants:
-                click.echo(f"Descendants: {len(descendants)} total")
-                click.echo("-" * 70)
-                
-                # Build tree structure recursively
-                def print_tree(parent_id, indent=0):
-                    """Print agent tree recursively"""
-                    children = agent_registry.get_children(parent_id)
-                    for child in children:
-                        indent_str = "  " * indent
-                        click.echo(f"{indent_str}└─ {child.name} ({child.agent_id})")
-                        # Recursively print children
-                        print_tree(child.agent_id, indent + 1)
-                
-                print_tree(agent_id)
-                click.echo()
-                click.echo(f"Direct children: {len(children)}")
+            mandate_ids = [m.mandate_id for m in mandates]
+            
+            # Get inbound edges (delegations TO this agent)
+            inbound_edges = session.query(DelegationEdgeModel).filter(
+                DelegationEdgeModel.target_mandate_id.in_(mandate_ids),
+                DelegationEdgeModel.revoked == False,
+            ).all()
+            
+            # Get outbound edges (delegations FROM this agent)
+            outbound_edges = session.query(DelegationEdgeModel).filter(
+                DelegationEdgeModel.source_mandate_id.in_(mandate_ids),
+                DelegationEdgeModel.revoked == False,
+            ).all()
+            
+            if format.lower() == 'json':
+                output = {
+                    "agent_id": agent_id,
+                    "mandate_count": len(mandates),
+                    "inbound_edges": [
+                        {
+                            "edge_id": str(e.edge_id),
+                            "source_mandate_id": str(e.source_mandate_id),
+                            "source_principal_type": e.source_principal_type,
+                            "delegation_type": e.delegation_type,
+                            "context_tags": e.context_tags,
+                        }
+                        for e in inbound_edges
+                    ],
+                    "outbound_edges": [
+                        {
+                            "edge_id": str(e.edge_id),
+                            "target_mandate_id": str(e.target_mandate_id),
+                            "target_principal_type": e.target_principal_type,
+                            "delegation_type": e.delegation_type,
+                            "context_tags": e.context_tags,
+                        }
+                        for e in outbound_edges
+                    ],
+                }
+                click.echo(json.dumps(output, indent=2))
             else:
-                click.echo("No child agents")
+                type_icons = {'user': '\ud83d\udc64', 'agent': '\ud83e\udd16', 'service': '\u2699\ufe0f'}
+                click.echo(f"Delegation Graph for Agent: {agent_id}")
+                click.echo("=" * 70)
+                click.echo()
+                click.echo(f"Mandates: {len(mandates)}")
+                click.echo()
+                
+                if inbound_edges:
+                    click.echo(f"Inbound Edges ({len(inbound_edges)} authority sources):")
+                    click.echo("-" * 70)
+                    for edge in inbound_edges:
+                        icon = type_icons.get(edge.source_principal_type, '?')
+                        tags = ', '.join(edge.context_tags) if edge.context_tags else ''
+                        click.echo(
+                            f"  {icon} {edge.source_principal_type} "
+                            f"({str(edge.source_mandate_id)[:8]}...) "
+                            f"\u2192 [{edge.delegation_type}] "
+                            f"{tags}"
+                        )
+                    click.echo()
+                else:
+                    click.echo("No inbound edges (root authority)")
+                    click.echo()
+                
+                if outbound_edges:
+                    click.echo(f"Outbound Edges ({len(outbound_edges)} delegated targets):")
+                    click.echo("-" * 70)
+                    for edge in outbound_edges:
+                        icon = type_icons.get(edge.target_principal_type, '?')
+                        tags = ', '.join(edge.context_tags) if edge.context_tags else ''
+                        click.echo(
+                            f"  \u2192 {icon} {edge.target_principal_type} "
+                            f"({str(edge.target_mandate_id)[:8]}...) "
+                            f"[{edge.delegation_type}] "
+                            f"{tags}"
+                        )
+                else:
+                    click.echo("No outbound edges (leaf node)")
+        
+        finally:
+            db_manager.close()
     
     except CaracalError as e:
         click.echo(f"Error: {e}", err=True)

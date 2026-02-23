@@ -35,6 +35,7 @@ def get_mandate_manager(config):
     from caracal.db.connection import get_db_manager
     from caracal.core.mandate import MandateManager
     from caracal.core.authority_ledger import AuthorityLedgerWriter
+    from caracal.core.delegation_graph import DelegationGraph
     
     db_manager = get_db_manager(config)
     
@@ -44,8 +45,11 @@ def get_mandate_manager(config):
     # Create ledger writer
     ledger_writer = AuthorityLedgerWriter(session)
     
+    # Create delegation graph
+    delegation_graph = DelegationGraph(session)
+    
     # Create mandate manager
-    return MandateManager(session, ledger_writer), db_manager
+    return MandateManager(session, ledger_writer, delegation_graph=delegation_graph), db_manager
 
 
 def get_authority_evaluator(config):
@@ -61,6 +65,7 @@ def get_authority_evaluator(config):
     from caracal.db.connection import get_db_manager
     from caracal.core.authority import AuthorityEvaluator
     from caracal.core.authority_ledger import AuthorityLedgerWriter
+    from caracal.core.delegation_graph import DelegationGraph
     
     db_manager = get_db_manager(config)
     
@@ -70,8 +75,11 @@ def get_authority_evaluator(config):
     # Create ledger writer
     ledger_writer = AuthorityLedgerWriter(session)
     
+    # Create delegation graph
+    delegation_graph = DelegationGraph(session)
+    
     # Create authority evaluator
-    return AuthorityEvaluator(session, ledger_writer), db_manager
+    return AuthorityEvaluator(session, ledger_writer, delegation_graph=delegation_graph), db_manager
 
 
 @click.command('issue')
@@ -202,22 +210,22 @@ def issue(
                     'signature': mandate.signature,
                     'created_at': mandate.created_at.isoformat(),
                     'revoked': mandate.revoked,
-                    'delegation_depth': mandate.delegation_depth
+                    'delegation_type': mandate.delegation_type
                 }
                 click.echo(json.dumps(output, indent=2))
             else:
                 # Table output
                 click.echo("✓ Mandate issued successfully!")
                 click.echo()
-                click.echo(f"Mandate ID:      {mandate.mandate_id}")
-                click.echo(f"Issuer ID:       {mandate.issuer_id}")
-                click.echo(f"Subject ID:      {mandate.subject_id}")
-                click.echo(f"Valid From:      {mandate.valid_from}")
-                click.echo(f"Valid Until:     {mandate.valid_until}")
-                click.echo(f"Resource Scope:  {', '.join(mandate.resource_scope)}")
-                click.echo(f"Action Scope:    {', '.join(mandate.action_scope)}")
-                click.echo(f"Delegation Depth: {mandate.delegation_depth}")
-                click.echo(f"Created:         {mandate.created_at}")
+                click.echo(f"Mandate ID:       {mandate.mandate_id}")
+                click.echo(f"Issuer ID:        {mandate.issuer_id}")
+                click.echo(f"Subject ID:       {mandate.subject_id}")
+                click.echo(f"Valid From:       {mandate.valid_from}")
+                click.echo(f"Valid Until:      {mandate.valid_until}")
+                click.echo(f"Resource Scope:   {', '.join(mandate.resource_scope)}")
+                click.echo(f"Action Scope:     {', '.join(mandate.action_scope)}")
+                click.echo(f"Delegation Type:  {mandate.delegation_type}")
+                click.echo(f"Created:          {mandate.created_at}")
         
         finally:
             # Close database connection
@@ -475,7 +483,7 @@ def revoke(
                 
                 if cascade:
                     click.echo()
-                    click.echo("Note: All child mandates in the delegation chain have been revoked.")
+                    click.echo("Note: All delegation edges from this mandate have been revoked.")
         
         finally:
             # Close database connection
@@ -594,7 +602,7 @@ def list_mandates(
                         'resource_scope': m.resource_scope,
                         'action_scope': m.action_scope,
                         'revoked': m.revoked,
-                        'delegation_depth': m.delegation_depth,
+                        'delegation_type': m.delegation_type,
                         'created_at': m.created_at.isoformat()
                     }
                     for m in mandates
@@ -606,7 +614,7 @@ def list_mandates(
                 click.echo()
                 
                 # Print header
-                click.echo(f"{'Mandate ID':<38}  {'Subject ID':<38}  {'Valid Until':<20}  {'Status':<10}  Depth")
+                click.echo(f"{'Mandate ID':<38}  {'Subject ID':<38}  {'Valid Until':<20}  {'Status':<10}  Type")
                 click.echo("-" * 130)
                 
                 # Print mandates
@@ -627,7 +635,7 @@ def list_mandates(
                         f"{str(m.subject_id):<38}  "
                         f"{valid_until_str:<20}  "
                         f"{status:<10}  "
-                        f"{m.delegation_depth}"
+                        f"{m.delegation_type}"
                     )
         
         finally:
@@ -646,37 +654,43 @@ def list_mandates(
 
 @click.command('delegate')
 @click.option(
-    '--parent-mandate-id',
+    '--source-mandate-id',
     '-p',
     required=True,
-    help='Parent mandate ID (UUID)',
+    help='Source mandate ID to delegate from (UUID)',
 )
 @click.option(
     '--child-subject-id',
     '-s',
     required=True,
-    help='Child subject principal ID (UUID)',
+    help='Target subject principal ID (UUID)',
 )
 @click.option(
     '--resource-scope',
     '-r',
     required=True,
     multiple=True,
-    help='Resource scope patterns (must be subset of parent)',
+    help='Resource scope patterns (must be subset of source)',
 )
 @click.option(
     '--action-scope',
     '-a',
     required=True,
     multiple=True,
-    help='Action scope (must be subset of parent)',
+    help='Action scope (must be subset of source)',
 )
 @click.option(
     '--validity-seconds',
     '-v',
     required=True,
     type=int,
-    help='Validity period in seconds (must be within parent validity)',
+    help='Validity period in seconds (must be within source validity)',
+)
+@click.option(
+    '--context-tags',
+    '-t',
+    multiple=True,
+    help='Context tags for delegation edge (can be specified multiple times)',
 )
 @click.option(
     '--format',
@@ -688,32 +702,39 @@ def list_mandates(
 @click.pass_context
 def delegate(
     ctx,
-    parent_mandate_id: str,
+    source_mandate_id: str,
     child_subject_id: str,
     resource_scope: tuple,
     action_scope: tuple,
     validity_seconds: int,
+    context_tags: tuple,
     format: str,
 ):
     """
-    Delegate a mandate to create a child mandate.
+    Delegate authority from a source mandate to a target principal.
     
-    Creates a new mandate derived from a parent mandate with constrained
-    scope and validity period.
+    Creates a new mandate derived from a source mandate with constrained
+    scope and validity, then creates a delegation edge in the graph.
+    
+    Respects delegation direction rules:
+      ✅ user → agent/service, agent → service, peer delegation (user↔user, agent↔agent)
+      ❌ service → any, agent → user
     
     Examples:
     
-        # Delegate a mandate
-        caracal delegation manage \\
-            --parent-mandate-id 550e8400-e29b-41d4-a716-446655440000 \\
-            --child-subject-id 660e8400-e29b-41d4-a716-446655440001 \\
+        # Delegate from user mandate to agent
+        caracal authority delegate \\
+            --source-mandate-id <source-id> \\
+            --child-subject-id <agent-id> \\
             --resource-scope "api:openai:gpt-4" \\
             --action-scope "api_call" \\
             --validity-seconds 1800
         
-        # Short form
-        caracal delegation manage \\
-            -p <parent-id> -s <child-id> -r "api:*" -a "api_call" -v 3600
+        # Delegate with context tags
+        caracal authority delegate \\
+            -p <source-id> -s <target-id> \\
+            -r "api:*" -a "api_call" -v 3600 \\
+            -t "production" -t "read-only"
     
     """
     try:
@@ -722,7 +743,7 @@ def delegate(
         
         # Parse UUIDs
         try:
-            parent_uuid = UUID(parent_mandate_id)
+            source_uuid = UUID(source_mandate_id)
             child_uuid = UUID(child_subject_id)
         except ValueError as e:
             click.echo(f"Error: Invalid UUID format: {e}", err=True)
@@ -736,6 +757,7 @@ def delegate(
         # Convert tuples to lists
         resource_scope_list = list(resource_scope)
         action_scope_list = list(action_scope)
+        context_tags_list = list(context_tags) if context_tags else None
         
         # Create mandate manager
         mandate_manager, db_manager = get_mandate_manager(cli_ctx.config)
@@ -743,11 +765,12 @@ def delegate(
         try:
             # Delegate mandate
             child_mandate = mandate_manager.delegate_mandate(
-                parent_mandate_id=parent_uuid,
+                source_mandate_id=source_uuid,
                 child_subject_id=child_uuid,
                 resource_scope=resource_scope_list,
                 action_scope=action_scope_list,
-                validity_seconds=validity_seconds
+                validity_seconds=validity_seconds,
+                context_tags=context_tags_list,
             )
             
             # Commit transaction
@@ -757,14 +780,15 @@ def delegate(
                 # JSON output
                 output = {
                     'mandate_id': str(child_mandate.mandate_id),
-                    'parent_mandate_id': str(child_mandate.parent_mandate_id),
+                    'source_mandate_id': source_mandate_id,
                     'issuer_id': str(child_mandate.issuer_id),
                     'subject_id': str(child_mandate.subject_id),
                     'valid_from': child_mandate.valid_from.isoformat(),
                     'valid_until': child_mandate.valid_until.isoformat(),
                     'resource_scope': child_mandate.resource_scope,
                     'action_scope': child_mandate.action_scope,
-                    'delegation_depth': child_mandate.delegation_depth,
+                    'delegation_type': child_mandate.delegation_type,
+                    'context_tags': child_mandate.context_tags,
                     'created_at': child_mandate.created_at.isoformat()
                 }
                 click.echo(json.dumps(output, indent=2))
@@ -772,14 +796,16 @@ def delegate(
                 # Table output
                 click.echo("✓ Mandate delegated successfully!")
                 click.echo()
-                click.echo(f"Child Mandate ID:  {child_mandate.mandate_id}")
-                click.echo(f"Parent Mandate ID: {child_mandate.parent_mandate_id}")
-                click.echo(f"Subject ID:        {child_mandate.subject_id}")
-                click.echo(f"Valid From:        {child_mandate.valid_from}")
-                click.echo(f"Valid Until:       {child_mandate.valid_until}")
-                click.echo(f"Resource Scope:    {', '.join(child_mandate.resource_scope)}")
-                click.echo(f"Action Scope:      {', '.join(child_mandate.action_scope)}")
-                click.echo(f"Delegation Depth:  {child_mandate.delegation_depth}")
+                click.echo(f"Delegated Mandate ID:  {child_mandate.mandate_id}")
+                click.echo(f"Source Mandate ID:     {source_mandate_id}")
+                click.echo(f"Subject ID:            {child_mandate.subject_id}")
+                click.echo(f"Valid From:            {child_mandate.valid_from}")
+                click.echo(f"Valid Until:           {child_mandate.valid_until}")
+                click.echo(f"Resource Scope:        {', '.join(child_mandate.resource_scope)}")
+                click.echo(f"Action Scope:          {', '.join(child_mandate.action_scope)}")
+                click.echo(f"Delegation Type:       {child_mandate.delegation_type}")
+                if child_mandate.context_tags:
+                    click.echo(f"Context Tags:          {', '.join(child_mandate.context_tags)}")
         
         finally:
             # Close database connection
@@ -791,4 +817,246 @@ def delegate(
     except Exception as e:
         click.echo(f"Unexpected error: {e}", err=True)
         logger.error(f"Failed to delegate mandate: {e}", exc_info=True)
+        sys.exit(1)
+
+
+@click.command('graph')
+@click.option(
+    '--root-mandate-id',
+    '-m',
+    default=None,
+    help='Root mandate ID to show subgraph from (optional, shows full graph if not specified)',
+)
+@click.option(
+    '--format',
+    '-f',
+    type=click.Choice(['table', 'json'], case_sensitive=False),
+    default='table',
+    help='Output format (default: table)',
+)
+@click.pass_context
+def graph(ctx, root_mandate_id: Optional[str], format: str):
+    """
+    Show the delegation graph topology.
+    
+    Displays all delegation edges between mandates with principal types
+    and delegation types (hierarchical/peer).
+    
+    Examples:
+    
+        # Show full delegation graph
+        caracal authority graph
+        
+        # Show subgraph from a specific mandate
+        caracal authority graph --root-mandate-id <mandate-id>
+        
+        # JSON output
+        caracal authority graph --format json
+    """
+    try:
+        cli_ctx = ctx.obj
+        
+        # Parse root mandate ID if provided
+        root_uuid = None
+        if root_mandate_id:
+            try:
+                root_uuid = UUID(root_mandate_id)
+            except ValueError as e:
+                click.echo(f"Error: Invalid mandate ID format: {e}", err=True)
+                sys.exit(1)
+        
+        from caracal.db.connection import get_db_manager
+        from caracal.core.delegation_graph import DelegationGraph
+        
+        db_manager = get_db_manager(cli_ctx.config)
+        
+        try:
+            session = db_manager.get_session()
+            graph = DelegationGraph(session)
+            topology = graph.get_topology(root_mandate_id=root_uuid)
+            
+            if format.lower() == 'json':
+                output = {
+                    'nodes': topology.nodes,
+                    'edges': topology.edges,
+                    'stats': topology.stats,
+                }
+                click.echo(json.dumps(output, indent=2))
+            else:
+                # Table output
+                type_icons = {'user': '👤', 'agent': '🤖', 'service': '⚙️'}
+                click.echo(f"Delegation Graph ({topology.stats['total_nodes']} nodes, {topology.stats['total_edges']} edges)")
+                click.echo()
+                
+                if topology.edges:
+                    click.echo(f"{'Edge ID':<38}  {'Source':<18}  {'Target':<18}  {'Type':<14}  Tags")
+                    click.echo("-" * 110)
+                    
+                    for edge in topology.edges:
+                        src_icon = type_icons.get(edge['source_principal_type'], '?')
+                        tgt_icon = type_icons.get(edge['target_principal_type'], '?')
+                        tags = ', '.join(edge.get('context_tags', []))
+                        click.echo(
+                            f"{edge['edge_id']:<38}  "
+                            f"{src_icon} {edge['source_principal_type']:<14}  "
+                            f"{tgt_icon} {edge['target_principal_type']:<14}  "
+                            f"{edge['delegation_type']:<14}  "
+                            f"{tags}"
+                        )
+                else:
+                    click.echo("No delegation edges found.")
+                
+                click.echo()
+                click.echo("Stats:")
+                for ptype, count in topology.stats.get('nodes_by_type', {}).items():
+                    icon = type_icons.get(ptype, '?')
+                    click.echo(f"  {icon} {ptype}: {count} nodes")
+        
+        finally:
+            db_manager.close()
+    
+    except CaracalError as e:
+        click.echo(f"Error: {e}", err=True)
+        sys.exit(1)
+    except Exception as e:
+        click.echo(f"Unexpected error: {e}", err=True)
+        logger.error(f"Failed to show delegation graph: {e}", exc_info=True)
+        sys.exit(1)
+
+
+@click.command('peer-delegate')
+@click.option(
+    '--source-mandate-id',
+    '-p',
+    required=True,
+    help='Source mandate ID (UUID)',
+)
+@click.option(
+    '--target-subject-id',
+    '-s',
+    required=True,
+    help='Peer target principal ID (UUID)',
+)
+@click.option(
+    '--resource-scope',
+    '-r',
+    required=True,
+    multiple=True,
+    help='Resource scope patterns (must be subset of source)',
+)
+@click.option(
+    '--action-scope',
+    '-a',
+    required=True,
+    multiple=True,
+    help='Action scope (must be subset of source)',
+)
+@click.option(
+    '--validity-seconds',
+    '-v',
+    required=True,
+    type=int,
+    help='Validity period in seconds',
+)
+@click.option(
+    '--context-tags',
+    '-t',
+    multiple=True,
+    help='Context tags for delegation edge',
+)
+@click.option(
+    '--format',
+    '-f',
+    type=click.Choice(['table', 'json'], case_sensitive=False),
+    default='table',
+    help='Output format (default: table)',
+)
+@click.pass_context
+def peer_delegate_cmd(
+    ctx,
+    source_mandate_id: str,
+    target_subject_id: str,
+    resource_scope: tuple,
+    action_scope: tuple,
+    validity_seconds: int,
+    context_tags: tuple,
+    format: str,
+):
+    """
+    Create a peer delegation between same-type principals.
+    
+    Peer delegation allows authority sharing between principals of
+    the same type (user↔user, agent↔agent).
+    
+    Examples:
+    
+        # Peer delegate between two agents
+        caracal authority peer-delegate \\
+            --source-mandate-id <source-id> \\
+            --target-subject-id <target-id> \\
+            --resource-scope "api:*" \\
+            --action-scope "api_call" \\
+            --validity-seconds 3600
+    """
+    try:
+        cli_ctx = ctx.obj
+        
+        try:
+            source_uuid = UUID(source_mandate_id)
+            target_uuid = UUID(target_subject_id)
+        except ValueError as e:
+            click.echo(f"Error: Invalid UUID format: {e}", err=True)
+            sys.exit(1)
+        
+        if validity_seconds <= 0:
+            click.echo(f"Error: Validity seconds must be positive", err=True)
+            sys.exit(1)
+        
+        resource_scope_list = list(resource_scope)
+        action_scope_list = list(action_scope)
+        context_tags_list = list(context_tags) if context_tags else None
+        
+        mandate_manager, db_manager = get_mandate_manager(cli_ctx.config)
+        
+        try:
+            peer_mandate = mandate_manager.peer_delegate(
+                source_mandate_id=source_uuid,
+                target_subject_id=target_uuid,
+                resource_scope=resource_scope_list,
+                action_scope=action_scope_list,
+                validity_seconds=validity_seconds,
+                context_tags=context_tags_list,
+            )
+            
+            db_manager.get_session().commit()
+            
+            if format.lower() == 'json':
+                output = {
+                    'mandate_id': str(peer_mandate.mandate_id),
+                    'source_mandate_id': source_mandate_id,
+                    'subject_id': str(peer_mandate.subject_id),
+                    'delegation_type': peer_mandate.delegation_type,
+                    'context_tags': peer_mandate.context_tags,
+                    'created_at': peer_mandate.created_at.isoformat()
+                }
+                click.echo(json.dumps(output, indent=2))
+            else:
+                click.echo("✓ Peer delegation created successfully!")
+                click.echo()
+                click.echo(f"Peer Mandate ID:   {peer_mandate.mandate_id}")
+                click.echo(f"Source Mandate:    {source_mandate_id}")
+                click.echo(f"Target Subject:    {peer_mandate.subject_id}")
+                click.echo(f"Delegation Type:   {peer_mandate.delegation_type}")
+                if peer_mandate.context_tags:
+                    click.echo(f"Context Tags:      {', '.join(peer_mandate.context_tags)}")
+        
+        finally:
+            db_manager.close()
+    
+    except CaracalError as e:
+        click.echo(f"Error: {e}", err=True)
+        sys.exit(1)
+    except Exception as e:
+        click.echo(f"Unexpected error: {e}", err=True)
+        logger.error(f"Failed to create peer delegation: {e}", exc_info=True)
         sys.exit(1)
