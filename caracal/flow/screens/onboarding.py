@@ -893,12 +893,11 @@ def _step_principal(wizard: Wizard) -> Any:
         wizard.context["first_principal"] = {"_existing": True}
         return wizard.context["first_principal"]
     
-    # Get system username for better defaults
-    import os
-    import getpass
-    system_user = getpass.getuser()
-    default_name = f"{system_user}-principal"
-    default_email = f"{system_user}@localhost"
+    def validate_email(value: str) -> tuple[bool, str]:
+        import re
+        if re.match(r"^[^@]+@[^@]+\.[^@]+$", value):
+            return True, ""
+        return False, "Please enter a valid email address."
     
     console.print(f"  [{Colors.NEUTRAL}]Let's register your first principal.")
     console.print(f"  [{Colors.DIM}]This will be the first agent, user, or service you want to start with.[/]")
@@ -907,17 +906,15 @@ def _step_principal(wizard: Wizard) -> Any:
     principal_type = prompt.select(
         "Principal type",
         choices=["user", "agent", "service"],
-        default="user",
     )
     
     name = prompt.text(
         "Principal name",
-        default=default_name,
     )
     
     owner = prompt.text(
         "Owner email",
-        default=default_email,
+        validator=validate_email,
     )
     
     # Store for later
