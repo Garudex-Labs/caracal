@@ -31,7 +31,7 @@ from rich.table import Table
 from sqlalchemy import or_
 
 from caracal.db.connection import get_db_manager
-from caracal.db.models import AuthorityLedgerEvent, ExecutionMandate, Principal
+from caracal.db.models import AuthorityLedgerEvent, AuthorityPolicy, ExecutionMandate, Principal
 from caracal.flow.components.menu import show_menu
 from caracal.flow.components.prompt import FlowPrompt
 from caracal.flow.theme import Colors, Icons
