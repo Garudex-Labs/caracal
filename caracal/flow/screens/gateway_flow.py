@@ -80,13 +80,13 @@ class GatewayFlow:
                 key="status",
                 label="Gateway Status",
                 description="View current enforcement mode and connection health",
-                icon="🌐",
+                icon="",
             ),
             MenuItem(
                 key="connect",
                 label="Sync Gateway Configuration",
                 description="Pull gateway config from Enterprise dashboard (auto-configures endpoint and keys)",
-                icon="🔗",
+                icon="",
             ),
         ]
 
@@ -96,37 +96,37 @@ class GatewayFlow:
                     key="providers",
                     label="Provider Registry",
                     description="View registered upstream API providers",
-                    icon="📦",
+                    icon="",
                 ),
                 MenuItem(
                     key="revocation",
                     label="Check Mandate Revocation",
                     description="Query the gateway for a mandate's revocation status",
-                    icon="🚫",
+                    icon="",
                 ),
                 MenuItem(
                     key="revoke",
                     label="Revoke Mandate via Gateway",
                     description="Push a revocation through the gateway (propagates to all nodes)",
-                    icon="⛔",
+                    icon="",
                 ),
                 MenuItem(
                     key="quota",
                     label="Quota Usage",
                     description="View per-tenant rate limit and quota counters",
-                    icon="📊",
+                    icon="",
                 ),
                 MenuItem(
                     key="logs",
                     label="Gateway Audit Log",
                     description="View recent gateway enforcement events",
-                    icon=Icons.LEDGER,
+                    icon="",
                 ),
                 MenuItem(
                     key="disconnect",
                     label="Disconnect Gateway",
                     description="Remove gateway configuration from workspace",
-                    icon="🔓",
+                    icon="",
                 ),
             ]
 
