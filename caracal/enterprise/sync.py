@@ -310,6 +310,11 @@ class EnterpriseSyncClient:
 
     Uses the sync API key stored in ``enterprise.json`` (generated during
     license validation) for authentication.
+
+    In addition to pushing local data *up*, the client also pulls the
+    gateway configuration *down* from the Enterprise API so that the
+    local SDK/CLI can auto-configure the gateway connection without
+    manual endpoint/key entry.
     """
 
     def __init__(
@@ -404,11 +409,17 @@ class EnterpriseSyncClient:
             }
             save_enterprise_config(cfg)
 
+            # Pull gateway configuration from Enterprise (auto-setup)
+            gw_result = self.pull_gateway_config()
+            errors = result.get("errors", [])
+            if not gw_result.get("success"):
+                errors.append(f"Gateway config pull: {gw_result.get('message', 'unknown')}")
+
             return SyncResult(
                 success=result.get("success", True),
                 message=result.get("message", "Sync completed."),
                 synced_counts=result.get("synced_counts", {}),
-                errors=result.get("errors", []),
+                errors=errors,
             )
 
         except urllib.error.HTTPError as exc:
@@ -432,6 +443,81 @@ class EnterpriseSyncClient:
 
         except Exception as exc:
             return SyncResult(success=False, message=f"Unexpected sync error: {exc}")
+
+    def pull_gateway_config(self) -> Dict[str, Any]:
+        """Pull gateway configuration from the Enterprise API.
+
+        Called automatically during ``sync()`` and available standalone so
+        the gateway flow can refresh the local config without a full data
+        push.  The Enterprise API's ``/api/gateway/sync-config`` endpoint
+        returns the provisioned gateway endpoint, API key, deployment type,
+        and enforcement settings for the authenticated organization.
+
+        On success the gateway section of ``enterprise.json`` is updated
+        and the gateway feature flags are reloaded.
+
+        Returns:
+            Dict with keys ``success``, ``message``, and the full gateway
+            config when successful.
+        """
+        if not self.is_configured:
+            return {"success": False, "message": "Enterprise sync not configured."}
+
+        try:
+            url = f"{self._api_url}/api/gateway/sync-config"
+            headers: Dict[str, str] = {}
+            if self._sync_api_key:
+                headers["X-Sync-Api-Key"] = self._sync_api_key
+                headers["Authorization"] = f"Bearer {self._sync_api_key}"
+
+            result = _get_json(url, headers=headers)
+
+            if not result.get("gateway_configured"):
+                return {
+                    "success": True,
+                    "gateway_configured": False,
+                    "message": result.get("message", "No gateway provisioned."),
+                }
+
+            # Persist to enterprise.json gateway section
+            cfg = load_enterprise_config()
+            cfg["gateway"] = {
+                "enabled": True,
+                "deployment_type": result.get("deployment_type", "managed"),
+                "endpoint": result.get("gateway_endpoint", ""),
+                "api_key": result.get("gateway_api_key", ""),
+                "fail_closed": result.get("fail_closed", True),
+                "use_provider_registry": result.get("use_provider_registry", True),
+            }
+            cfg["tier"] = result.get("tier", cfg.get("tier", "starter"))
+            save_enterprise_config(cfg)
+
+            # Reload gateway feature flags so the SDK picks up the new config
+            try:
+                from caracal.core.gateway_features import reset_gateway_features
+                reset_gateway_features()
+            except ImportError:
+                pass
+
+            logger.info(
+                "Gateway config synced from Enterprise: %s endpoint=%s",
+                result.get("deployment_type"),
+                result.get("gateway_endpoint"),
+            )
+
+            return {
+                "success": True,
+                "gateway_configured": True,
+                "message": "Gateway configuration synced from Enterprise.",
+                **result,
+            }
+
+        except Exception as exc:
+            logger.warning("Failed to pull gateway config: %s", exc)
+            return {
+                "success": False,
+                "message": f"Failed to pull gateway config: {exc}",
+            }
 
     def get_sync_status(self) -> Dict[str, Any]:
         """Fetch the sync status from the Enterprise API."""
