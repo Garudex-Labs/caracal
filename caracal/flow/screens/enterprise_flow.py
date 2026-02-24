@@ -139,11 +139,15 @@ class EnterpriseFlow:
         if self.validator.is_connected():
             info = self.validator.get_license_info()
             flags = get_gateway_features(reload=True)
-            gw_status = (
-                f"[bold {Colors.SUCCESS}]● Gateway: {flags.deployment_type}[/]"
-                if flags.gateway_enabled
-                else f"[{Colors.DIM}]○ Gateway: not connected[/]"
-            )
+            if flags.gateway_enabled:
+                mode_label = (
+                    "Managed" if flags.deployment_type == "managed"
+                    else "On-Prem" if flags.deployment_type == "on_prem"
+                    else flags.deployment_type
+                )
+                gw_status = f"[bold {Colors.SUCCESS}]● Gateway: {mode_label}[/]"
+            else:
+                gw_status = f"[{Colors.DIM}]○ Gateway: not synced[/]"
             tier = (info.get("tier") or "unknown").upper()
             self.console.print(
                 f"[bold {Colors.SUCCESS}]● Connected[/] — "
@@ -370,7 +374,38 @@ class EnterpriseFlow:
             )
             self.console.print(success_panel)
             
-            # Offer to sync now
+            # Auto-sync gateway config from Enterprise
+            self.console.print(
+                f"\n[{Colors.DIM}]Syncing gateway configuration from Enterprise...[/]"
+            )
+            try:
+                from caracal.enterprise.sync import EnterpriseSyncClient
+                client = EnterpriseSyncClient()
+                gw_result = client.pull_gateway_config()
+                if gw_result.get("success") and gw_result.get("gateway_configured"):
+                    deploy = gw_result.get("deployment_type", "managed")
+                    mode_label = (
+                        "Managed (Caracal platform)" if deploy == "managed"
+                        else "On-Prem (customer)"
+                    )
+                    self.console.print(
+                        f"[{Colors.SUCCESS}]✓ Gateway auto-configured: "
+                        f"{mode_label} → {gw_result.get('gateway_endpoint', '—')}[/]"
+                    )
+                elif gw_result.get("success"):
+                    self.console.print(
+                        f"[{Colors.DIM}]Gateway not yet provisioned on Enterprise.[/]"
+                    )
+                else:
+                    self.console.print(
+                        f"[{Colors.WARNING}]Gateway sync skipped: {gw_result.get('message', '')}[/]"
+                    )
+            except Exception as exc:
+                self.console.print(
+                    f"[{Colors.WARNING}]Gateway auto-config skipped: {exc}[/]"
+                )
+
+            # Offer to sync data now
             self.console.print()
             do_sync = Prompt.ask(
                 f"[{Colors.PRIMARY}]Sync local data to Enterprise now?[/]",
