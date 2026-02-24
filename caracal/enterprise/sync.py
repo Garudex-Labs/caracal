@@ -43,8 +43,47 @@ logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
-# Data classes
+# Retry helper
 # ---------------------------------------------------------------------------
+
+def _get_json_with_retry(
+    url: str,
+    headers: Optional[Dict[str, str]] = None,
+    max_attempts: int = 3,
+    backoff_base: float = 1.5,
+) -> Dict[str, Any]:
+    """Call _get_json with exponential-backoff retry on transient failures.
+
+    Retries on network errors and HTTP 5xx responses.  HTTPError with a
+    4xx status is re-raised immediately (no retry — auth/config issue).
+    """
+    import time
+
+    attempt = 0
+    last_exc: Exception = RuntimeError("No attempts made")
+    while attempt < max_attempts:
+        try:
+            return _get_json(url, headers=headers)
+        except urllib.error.HTTPError as exc:
+            if exc.code < 500:
+                raise  # 4xx — auth/config problem, don't retry
+            last_exc = exc
+        except (urllib.error.URLError, OSError) as exc:
+            last_exc = exc
+
+        attempt += 1
+        if attempt < max_attempts:
+            wait = backoff_base ** attempt
+            logger.debug(
+                "Gateway sync attempt %d/%d failed (%s), retrying in %.1fs…",
+                attempt,
+                max_attempts,
+                last_exc,
+                wait,
+            )
+            time.sleep(wait)
+
+    raise last_exc
 
 @dataclass
 class SyncResult:
@@ -467,10 +506,11 @@ class EnterpriseSyncClient:
             url = f"{self._api_url}/api/gateway/sync-config"
             headers: Dict[str, str] = {}
             if self._sync_api_key:
+                # X-Sync-Api-Key for dedicated CLI auth; never send it as Bearer
+                # (Bearer is reserved for JWT tokens from the dashboard login)
                 headers["X-Sync-Api-Key"] = self._sync_api_key
-                headers["Authorization"] = f"Bearer {self._sync_api_key}"
 
-            result = _get_json(url, headers=headers)
+            result = _get_json_with_retry(url, headers=headers)
 
             if not result.get("gateway_configured"):
                 return {
