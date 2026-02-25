@@ -600,7 +600,7 @@ class EnterpriseFlow:
         info = self.validator.get_license_info()
         
         warning_panel = Panel(
-            f"[bold {Colors.WARNING}]Disconnect Enterprise License[/bold]\n\n"
+            f"[bold {Colors.WARNING}]Disconnect Enterprise License[/]\n\n"
             f"This will remove the enterprise license from this workspace.\n\n"
             f"[bold]Current license:[/]\n"
             f"  Key: {info.get('license_key', 'N/A')}\n"
