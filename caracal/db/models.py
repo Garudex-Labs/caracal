@@ -312,6 +312,15 @@ class ExecutionMandate(Base):
     # Intent constraint (optional)
     intent_hash = Column(String(64), nullable=True)  # SHA-256 hash of intent
     
+    # Delegation hierarchy
+    parent_mandate_id = Column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("execution_mandates.mandate_id"),
+        nullable=True,
+        index=True,
+    )
+    delegation_depth = Column(Integer, nullable=True, default=0)
+    
     # Relationships
     issuer = relationship("Principal", foreign_keys=[issuer_id], backref="issued_mandates")
     subject = relationship("Principal", foreign_keys=[subject_id], backref="received_mandates")
