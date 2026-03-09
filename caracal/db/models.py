@@ -522,3 +522,36 @@ class AuthorityPolicy(Base):
         return f"<AuthorityPolicy(policy_id={self.policy_id}, principal_id={self.principal_id}, active={self.active})>"
 
 
+class GatewayProvider(Base):
+    """
+    Registered upstream provider for the enterprise gateway.
+
+    Provider entries are loaded by ProviderRegistry and used to map
+    logical provider IDs to validated upstream URLs, preventing SSRF.
+    """
+
+    __tablename__ = "gateway_providers"
+
+    provider_id = Column(String(255), primary_key=True)
+    name = Column(String(255), nullable=False)
+    base_url = Column(String(2048), nullable=False)
+
+    # JSON arrays stored as JSONB
+    allowed_paths = Column(JSONB, nullable=False, default=list, server_default="'[]'")
+    scopes = Column(JSONB, nullable=False, default=list, server_default="'[]'")
+
+    tls_pin = Column(String(255), nullable=True)
+    secret_ref = Column(String(512), nullable=True)
+    enabled = Column(Boolean, nullable=False, default=True, index=True)
+
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    __table_args__ = (
+        Index("ix_gateway_providers_enabled", "enabled"),
+    )
+
+    def __repr__(self):
+        return f"<GatewayProvider(provider_id={self.provider_id!r}, base_url={self.base_url!r}, enabled={self.enabled})>"
+
+
