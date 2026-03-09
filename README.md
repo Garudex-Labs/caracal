@@ -134,6 +134,6 @@ Caracal Core (the open-source foundation) implements the primary enforcement eng
 
 ## License
 
-Caracal is open-source software licensed under the **AGPL-3.0**. See the [LICENSE](LICENSE) file for details.
+Caracal is open-source software licensed under the **Apache-2.0**. See the [LICENSE](LICENSE) file for details.
 
 **Developed by Garudex Labs.**

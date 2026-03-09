@@ -24,7 +24,7 @@
     "delegation",
     "sdk"
   ],
-  "license": "AGPL-3.0",
+  "license": "Apache-2.0",
   "author": "Garudex Labs <support@garudexlabs.com>",
   "repository": {
     "type": "git",

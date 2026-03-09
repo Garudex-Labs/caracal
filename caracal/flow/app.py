@@ -478,7 +478,7 @@ class FlowApp:
         self.console.print(Panel(
             f"""[{Colors.NEUTRAL}]Caracal Flow - Interactive CLI for Caracal[/]
 [{Colors.INFO}]Version:[/] {__version__}
-[{Colors.INFO}]License:[/] AGPL-3.0
+[{Colors.INFO}]License:[/] Apache-2.0
 [{Colors.NEUTRAL}]Caracal is a pre-execution authority enforcement system for AI agents,
 providing mandate management, policy enforcement, and authority
 ledger capabilities.[/]

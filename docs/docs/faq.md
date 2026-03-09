@@ -85,7 +85,7 @@ Caracal Core is the enforcement engine. Enterprise adds centralized management, 
 <details>
 <summary>Is Caracal open-source?</summary>
 
-Caracal Core is open-source under the AGPL-3.0 license. Caracal Enterprise is available under a commercial license. See the [GitHub repository](https://github.com/Garudex-Labs/Caracal) for details.
+Caracal Core is open-source under the Apache-2.0 license. Caracal Enterprise is available under a commercial license. See the [GitHub repository](https://github.com/Garudex-Labs/Caracal) for details.
 
 </details>
 
