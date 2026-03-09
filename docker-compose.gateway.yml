@@ -1,31 +1,33 @@
-# Docker Compose — Caracal Dev Gateway Stub
+# Caracal Core - Gateway Sync Reference
 #
-# Starts the lightweight gateway stub for local development.
-# The stub mimics the enterprise gateway API surface (port 8444).
+# NOTE: The Caracal Dev Gateway is an ENTERPRISE feature.
+# The authoritative gateway code lives in:
+#   caracalEnterprise/services/gateway/
 #
-# Usage:
-#   docker-compose -f docker-compose.gateway.yml up -d
-#   docker-compose -f docker-compose.gateway.yml logs -f gateway
-#   docker-compose -f docker-compose.gateway.yml down
+# This file exists only so that tooling that invokes
+#   docker-compose -f Caracal/docker-compose.gateway.yml up -d
+# still works by delegating to the enterprise gateway image.
+#
+# To start the gateway standalone, prefer:
+#   cd caracalEnterprise/services/gateway && docker-compose up -d
+#
+# To start the full enterprise stack (recommended):
+#   cd caracalEnterprise && docker-compose up -d
 
 services:
   gateway:
-    image: python:3.11-slim
+    build:
+      context: ../caracalEnterprise/services/gateway
+      dockerfile: Dockerfile
     container_name: caracal-gateway-dev
-    working_dir: /app
-    volumes:
-      - ./scripts/dev_gateway.py:/app/dev_gateway.py:ro
-    command: >
-      sh -c "pip install --quiet fastapi uvicorn &&
-             python3 dev_gateway.py"
     environment:
-      GATEWAY_PORT: "${GATEWAY_PORT:-8444}"
+      GATEWAY_PORT: "${GATEWAY_DEV_PORT:-8443}"
       GATEWAY_API_KEY: "${GATEWAY_API_KEY:-}"
       GATEWAY_ADMIN_KEY: "${GATEWAY_ADMIN_KEY:-}"
     ports:
-      - "${GATEWAY_PORT:-8444}:${GATEWAY_PORT:-8444}"
+      - "${GATEWAY_DEV_PORT:-8443}:${GATEWAY_DEV_PORT:-8443}"
     healthcheck:
-      test: ["CMD-SHELL", "python3 -c \"import urllib.request; urllib.request.urlopen('http://localhost:${GATEWAY_PORT:-8444}/health')\""]
+      test: ["CMD-SHELL", "python3 -c \"import urllib.request; urllib.request.urlopen('http://localhost:${GATEWAY_DEV_PORT:-8443}/health')\""]
       interval: 10s
       timeout: 5s
       retries: 3
