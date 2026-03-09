@@ -1,6 +1,6 @@
 apiVersion: v2
 name: caracal
-description: A Helm chart for Caracal Core v1.0.0 - Pre-execution authority enforcement for AI agents
+description: A Helm chart for Caracal Core Pre-execution authority enforcement for AI agents
 type: application
 version: 0.6.0
 appVersion: "0.6.0"

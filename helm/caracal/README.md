@@ -1,6 +1,6 @@
-# Caracal Core v1.0.0 - Helm Chart
+# Caracal Core - Helm Chart
 
-This Helm chart deploys Caracal Core v1.0.0 on a Kubernetes cluster.
+This Helm chart deploys Caracal Core on a Kubernetes cluster.
 
 ## Prerequisites
 
