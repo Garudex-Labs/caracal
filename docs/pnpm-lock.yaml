@@ -5030,7 +5030,7 @@ packages:
       globby: 13.2.2
       normalize-path: 3.0.0
       schema-utils: 4.3.3
-      serialize-javascript: 6.0.2
+      serialize-javascript: 7.0.3
       webpack: 5.105.2
     dev: false
 
@@ -5171,7 +5171,7 @@ packages:
       jest-worker: 29.7.0
       postcss: 8.5.6
       schema-utils: 4.3.3
-      serialize-javascript: 6.0.2
+      serialize-javascript: 7.0.3
       webpack: 5.105.2
     dev: false
 
@@ -9919,7 +9919,7 @@ packages:
       '@jridgewell/trace-mapping': 0.3.31
       jest-worker: 27.5.1
       schema-utils: 4.3.3
-      serialize-javascript: 6.0.2
+      serialize-javascript: 7.0.3
       terser: 5.46.0
       webpack: 5.105.2
 
