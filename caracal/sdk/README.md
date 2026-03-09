@@ -99,7 +99,11 @@ class MyExtension(CaracalExtension):
 
     @property
     def version(self) -> str:
-        return "1.0.0"
+        try:
+            from importlib import resources
+            return resources.files("caracal").joinpath("VERSION").read_text().strip()
+        except Exception:
+            return "unknown"
 
     def install(self, hooks: HookRegistry) -> None:
         hooks.on_before_request(self._inject_header)

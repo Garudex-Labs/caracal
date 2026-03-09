@@ -7,27 +7,6 @@ SDK Extension base class.
 All Caracal extensions — both open-source and enterprise — implement this
 interface.  Extensions register callbacks on the :class:`HookRegistry`
 during :meth:`install` and are activated via ``client.use(extension)``.
-
-Example::
-
-    from caracal.sdk.extensions import CaracalExtension
-    from caracal.sdk.hooks import HookRegistry
-
-    class MyExtension(CaracalExtension):
-        @property
-        def name(self) -> str:
-            return "my-extension"
-
-        @property
-        def version(self) -> str:
-            return "1.0.0"
-
-        def install(self, hooks: HookRegistry) -> None:
-            hooks.on_before_request(self._inject_header)
-
-        def _inject_header(self, request, scope):
-            request.headers["X-Custom"] = "value"
-            return request
 """
 
 from __future__ import annotations
