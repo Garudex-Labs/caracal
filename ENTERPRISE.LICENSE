@@ -1,20 +1,19 @@
                 CARACAL DUAL LICENSE NOTICE
-      Community Edition (AGPLv3) and Enterprise Edition
+      Community Edition (Apache-2.0) and Enterprise Edition
 
 Copyright (c) 2026 Garudex Labs. All rights reserved.
 
 This software is provided under a dual licensing model designed to support 
 open-source development while ensuring the sustainability of the project. 
 Depending on your usage and requirements, the software is available under 
-the terms of the GNU Affero General Public License v3 ("AGPLv3") or a 
+the terms of the GNU Affero General Public License v3 ("Apache-2.0") or a 
 commercial Enterprise License.
 
 1. TERMS OF THE COMMUNITY EDITION
 
 Unless you have executed a written commercial agreement with Garudex Labs, 
-this software is licensed under the GNU Affero General Public License, 
-Version 3 (AGPLv3). You may copy, distribute, and modify the software 
-provided that you comply with the terms of the AGPLv3, specifically including 
+this software is licensed under the Apache License, Version 2 (Apache-2.0). You may copy, distribute, and modify the software 
+provided that you comply with the terms of the Apache-2.0, specifically including 
 the requirements for copyleft and source code disclosure to network users.
 
 2. EXCLUSION OF ENTERPRISE COMPONENTS
@@ -29,7 +28,7 @@ components include, but are not limited to:
        "Enterprise Edition", or "Proprietary" headers.
 
 These Enterprise Components are the exclusive property of Garudex Labs and 
-are NOT licensed under the AGPLv3. No rights are granted to use, copy, modify, 
+are NOT licensed under the Apache-2.0. No rights are granted to use, copy, modify, 
 distribute, sublicense, or create derivative works of these components without 
 a valid, written commercial subscription specifically governing their use.
 
@@ -40,7 +39,7 @@ A commercial subscription license from Garudex Labs is legally required if:
    (a) You intend to use, deploy, or modify the Enterprise Components; OR
    (b) You wish to use the Community Edition source code in a commercial 
        product or service without being subject to the copyleft and source 
-       disclosure obligations of the AGPLv3.
+       disclosure obligations of the Apache-2.0.
 
 Commercial licenses are granted only through a written agreement. For licensing 
 inquiries, enterprise pricing, and support, please contact:
