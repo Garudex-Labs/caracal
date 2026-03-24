@@ -12,8 +12,9 @@ import json
 import os
 import shutil
 import uuid
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from datetime import datetime
+from enum import Enum
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -29,32 +30,143 @@ from caracal.core.retry import retry_on_transient_failure
 logger = get_logger(__name__)
 
 
+class VerificationStatus(Enum):
+    """
+    Agent verification status.
+    
+    Enhancements over ASE:
+    - Provides graduated trust levels for agents
+    - Enables trust-based access control
+    """
+    UNVERIFIED = "unverified"
+    VERIFIED = "verified"
+    TRUSTED = "trusted"
+
+
 @dataclass
 class AgentIdentity:
     """
-    Represents a principal's authority identity.
+    Enhanced agent identity with verification and trust management.
+    
+    Improvements over ASE:
+    - Verification status tracking (unverified, verified, trusted)
+    - Trust level scoring (0-100) for graduated authorization
+    - Capability declarations for fine-grained permission checks
+    - Temporal tracking (created_at, last_verified_at) for audit and compliance
+    - Extensible metadata for additional attributes
     
     Attributes:
         agent_id: Globally unique identifier (UUID v4)
         name: Human-readable agent name
         owner: Owner identifier (email or username)
-        created_at: Timestamp when agent was registered
+        created_at: Timestamp when agent was registered (ISO 8601 format)
         metadata: Extensible metadata dictionary
+        public_key: Optional public key for signature verification
+        org_id: Optional organization identifier
+        role: Optional role identifier for role-based access
+        verification_status: Verification status (unverified, verified, trusted)
+        trust_level: Trust score from 0-100
+        capabilities: List of declared capabilities
+        last_verified_at: Optional timestamp of last verification
     """
     agent_id: str
     name: str
     owner: str
     created_at: str  # ISO 8601 format
     metadata: Dict[str, Any]
+    public_key: Optional[str] = None
+    org_id: Optional[str] = None
+    role: Optional[str] = None
+    verification_status: VerificationStatus = VerificationStatus.UNVERIFIED
+    trust_level: int = 0
+    capabilities: List[str] = field(default_factory=list)
+    last_verified_at: Optional[str] = None  # ISO 8601 format
+
+    def __post_init__(self):
+        """Validate fields after initialization."""
+        if not self.agent_id or not isinstance(self.agent_id, str):
+            raise ValueError("agent_id must be non-empty string")
+        
+        if not 0 <= self.trust_level <= 100:
+            raise ValueError("trust_level must be between 0 and 100")
+        
+        # Convert string verification_status to enum if needed
+        if isinstance(self.verification_status, str):
+            self.verification_status = VerificationStatus(self.verification_status)
+
+    def has_capability(self, capability: str) -> bool:
+        """
+        Check if agent has declared capability.
+        
+        Args:
+            capability: Capability to check for
+            
+        Returns:
+            True if agent has the capability
+        """
+        return capability in self.capabilities
+
+    def is_verified(self) -> bool:
+        """
+        Check if agent is verified or trusted.
+        
+        Returns:
+            True if verification_status is VERIFIED or TRUSTED
+        """
+        return self.verification_status in [VerificationStatus.VERIFIED, VerificationStatus.TRUSTED]
 
     def to_dict(self) -> Dict[str, Any]:
-        """Convert to dictionary for JSON serialization."""
-        return asdict(self)
+        """
+        Convert to dictionary for JSON serialization.
+        
+        Returns:
+            Dictionary representation with all fields
+        """
+        return {
+            "agent_id": self.agent_id,
+            "name": self.name,
+            "owner": self.owner,
+            "created_at": self.created_at,
+            "metadata": self.metadata,
+            "public_key": self.public_key,
+            "org_id": self.org_id,
+            "role": self.role,
+            "verification_status": self.verification_status.value,
+            "trust_level": self.trust_level,
+            "capabilities": self.capabilities,
+            "last_verified_at": self.last_verified_at
+        }
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "AgentIdentity":
-        """Create AgentIdentity from dictionary."""
-        return cls(**data)
+        """
+        Create AgentIdentity from dictionary.
+        
+        Args:
+            data: Dictionary containing identity data
+            
+        Returns:
+            AgentIdentity instance
+        """
+        # Handle verification_status conversion
+        verification_status = data.get("verification_status", "unverified")
+        if isinstance(verification_status, str):
+            verification_status = VerificationStatus(verification_status)
+        
+        return cls(
+            agent_id=data["agent_id"],
+            name=data["name"],
+            owner=data["owner"],
+            created_at=data["created_at"],
+            metadata=data["metadata"],
+            public_key=data.get("public_key"),
+            org_id=data.get("org_id"),
+            role=data.get("role"),
+            verification_status=verification_status,
+            trust_level=data.get("trust_level", 0),
+            capabilities=data.get("capabilities", []),
+            last_verified_at=data.get("last_verified_at")
+        )
 
 
 class AgentRegistry:
