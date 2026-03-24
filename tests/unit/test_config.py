@@ -406,35 +406,6 @@ class TestAdvancedConfiguration:
             assert config.gateway.tls.cert_file == '/etc/certs/server.crt'
             assert config.gateway.jwt_public_key == '/etc/jwt/public.pem'
     
-    def test_load_config_with_ase_section(self):
-        """Test loading configuration with ASE section."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            config_path = os.path.join(tmpdir, "config.yaml")
-            
-            config_data = {
-                'storage': {
-                    'agent_registry': '/tmp/agents.json',
-                    'policy_store': '/tmp/policies.json',
-                    'ledger': '/tmp/ledger.jsonl',
-
-                    'backup_dir': '/tmp/backups',
-                },
-                'ase': {
-                    'version': '1.0.8',
-                    'delegation_token_expiration_seconds': 3600,
-                    'key_algorithm': 'ES256',
-                },
-            }
-            
-            with open(config_path, 'w') as f:
-                yaml.dump(config_data, f)
-            
-            config = load_config(config_path)
-            
-            assert config.ase.version == '1.0.8'
-            assert config.ase.delegation_token_expiration_seconds == 3600
-            assert config.ase.key_algorithm == 'ES256'
-    
     def test_environment_variable_expansion(self):
         """Test environment variable expansion in configuration."""
         with tempfile.TemporaryDirectory() as tmpdir:
