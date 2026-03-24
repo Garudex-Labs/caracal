@@ -16,8 +16,7 @@ from typing import Any, Dict, Optional
 import httpx
 from uuid import UUID
 
-from ase.protocol import MeteringEvent
-from caracal.core.metering import MeteringCollector
+from caracal.core.metering import MeteringEvent, MeteringCollector
 from caracal.core.authority import AuthorityEvaluator
 from caracal.core.error_handling import (
     get_error_handler,
