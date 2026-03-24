@@ -28,12 +28,9 @@ COPY Caracal/README.md Caracal/LICENSE Caracal/VERSION ./
 COPY Caracal/caracal/ ./caracal/
 COPY Caracal/sdk/ ./sdk/
 
-# Copy and install local ASE package, then build Caracal wheel
-COPY ase/ /build/ase/
+# Build Caracal wheel
 RUN pip install --no-cache-dir --upgrade pip setuptools wheel && \
-    pip install --no-cache-dir /build/ase/ && \
-    pip wheel --no-cache-dir --wheel-dir /wheels . && \
-    pip wheel --no-cache-dir --wheel-dir /wheels /build/ase/
+    pip wheel --no-cache-dir --wheel-dir /wheels .
 
 # Stage 2: Runtime - Minimal production image
 FROM python:3.10-slim
@@ -62,8 +59,7 @@ COPY --from=builder /wheels /wheels
 # Install the application and dependencies from wheels
 RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir /wheels/*.whl && \
-    rm -rf /wheels && \
-    sed -i 's/from typing import Dict/from typing import Any, Dict/' /usr/local/lib/python3.10/site-packages/ase/core/versioning.py
+    rm -rf /wheels
 
 # Create directories for configuration and logs
 RUN mkdir -p /etc/caracal/config /var/log/caracal && \

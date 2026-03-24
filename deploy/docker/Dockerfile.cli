@@ -27,12 +27,8 @@ COPY Caracal/pyproject.toml Caracal/setup.py Caracal/VERSION ./
 COPY Caracal/caracal/ ./caracal/
 COPY Caracal/sdk/ ./sdk/
 
-# Copy and install local ASE package first
-COPY ase/ /tmp/ase/
-RUN pip install /tmp/ase/ && \
-    pip install -e . && \
-    sed -i 's/from typing import Dict/from typing import Any, Dict/' /usr/local/lib/python3.10/site-packages/ase/core/versioning.py && \
-    rm -rf /tmp/ase/
+# Install Python dependencies
+RUN pip install -e .
 
 # Create non-root user
 RUN useradd -m -u 1000 caracal && \
