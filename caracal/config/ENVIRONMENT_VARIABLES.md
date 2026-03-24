@@ -59,18 +59,6 @@ database:
 | `MCP_ADAPTER_LISTEN_ADDRESS` | MCP adapter listen address | 0.0.0.0:8080 | No |
 | `MCP_ADAPTER_HEALTH_CHECK_ENABLED` | Enable health check endpoint | true | No |
 
-## ASE Protocol Configuration
-
-| Variable | Description | Default | Required |
-|----------|-------------|---------|----------|
-| `ASE_VERSION` | ASE protocol version | 1.0.8 | No |
-| `ASE_DELEGATION_TOKEN_EXPIRATION_SECONDS` | Token expiration in seconds | 86400 | No |
-| `ASE_KEY_ALGORITHM` | Key algorithm (RS256, ES256) | RS256 | No |
-| `ASE_PROVISIONAL_CHARGE_DEFAULT_EXPIRATION_SECONDS` | Default expiration in seconds | 300 | No |
-| `ASE_PROVISIONAL_CHARGE_TIMEOUT_MINUTES` | Maximum timeout in minutes | 60 | No |
-| `ASE_PROVISIONAL_CHARGE_CLEANUP_INTERVAL_SECONDS` | Cleanup interval in seconds | 60 | No |
-| `ASE_PROVISIONAL_CHARGE_CLEANUP_BATCH_SIZE` | Cleanup batch size | 1000 | No |
-
 ## Storage Configuration (v0.1 compatibility)
 
 | Variable | Description | Default | Required |
@@ -125,16 +113,6 @@ mcp_adapter:
   enabled: ${MCP_ADAPTER_ENABLED:false}
   listen_address: ${MCP_ADAPTER_LISTEN_ADDRESS:0.0.0.0:8080}
   health_check_enabled: ${MCP_ADAPTER_HEALTH_CHECK_ENABLED:true}
-
-ase:
-  version: ${ASE_VERSION:1.0.8}
-  delegation_token_expiration_seconds: ${ASE_DELEGATION_TOKEN_EXPIRATION_SECONDS:86400}
-  key_algorithm: ${ASE_KEY_ALGORITHM:RS256}
-  provisional_charges:
-    default_expiration_seconds: ${ASE_PROVISIONAL_CHARGE_DEFAULT_EXPIRATION_SECONDS:300}
-    timeout_minutes: ${ASE_PROVISIONAL_CHARGE_TIMEOUT_MINUTES:60}
-    cleanup_interval_seconds: ${ASE_PROVISIONAL_CHARGE_CLEANUP_INTERVAL_SECONDS:60}
-    cleanup_batch_size: ${ASE_PROVISIONAL_CHARGE_CLEANUP_BATCH_SIZE:1000}
 
 logging:
   level: ${LOG_LEVEL:INFO}
