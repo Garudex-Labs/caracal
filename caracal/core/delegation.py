@@ -37,6 +37,10 @@ from caracal.logging_config import get_logger
 
 logger = get_logger(__name__)
 
+# Delegation token configuration constants (moved from ASEConfig)
+DEFAULT_DELEGATION_TOKEN_EXPIRATION_SECONDS = 86400  # 24 hours
+DEFAULT_KEY_ALGORITHM = "RS256"  # RS256 or ES256
+
 
 @dataclass
 class DelegationTokenClaims:
