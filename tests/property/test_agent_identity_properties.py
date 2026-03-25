@@ -2,10 +2,10 @@
 Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 Caracal, a product of Garudex Labs
 
-Property-based tests for enhanced AgentIdentity implementation.
+Property-based tests for enhanced PrincipalIdentity implementation.
 
 These tests validate universal correctness properties that should hold
-across all valid executions of the AgentIdentity system.
+across all valid executions of the PrincipalIdentity system.
 """
 
 from datetime import datetime
@@ -14,7 +14,7 @@ from typing import Any, Dict, List, Optional
 import pytest
 from hypothesis import given, strategies as st
 
-from caracal.core.identity import AgentIdentity, VerificationStatus
+from caracal.core.identity import PrincipalIdentity, VerificationStatus
 
 
 # Strategies for generating test data
@@ -79,8 +79,8 @@ def valid_verification_statuses(draw):
 
 @st.composite
 def valid_agent_identities(draw):
-    """Generate valid AgentIdentity instances."""
-    return AgentIdentity(
+    """Generate valid PrincipalIdentity instances."""
+    return PrincipalIdentity(
         agent_id=draw(valid_agent_ids()),
         name=draw(valid_names()),
         owner=draw(valid_owners()),
@@ -96,25 +96,25 @@ def valid_agent_identities(draw):
     )
 
 
-class TestAgentIdentityProperties:
-    """Property-based tests for AgentIdentity."""
+class TestPrincipalIdentityProperties:
+    """Property-based tests for PrincipalIdentity."""
     
     @given(valid_agent_identities())
     def test_property_6_serialization_round_trip(self, identity):
         """
-        Property 6: AgentIdentity Serialization Round-Trip (with new fields)
+        Property 6: PrincipalIdentity Serialization Round-Trip (with new fields)
         
-        For any valid AgentIdentity instance, serializing it to JSON via to_dict()
+        For any valid PrincipalIdentity instance, serializing it to JSON via to_dict()
         and then deserializing via from_dict() should produce an equivalent
-        AgentIdentity with the same field values.
+        PrincipalIdentity with the same field values.
         
         **Validates: Requirements 4.13, 4.14, 18.2**
         """
         # Serialize to dict
         identity_dict = identity.to_dict()
         
-        # Deserialize back to AgentIdentity
-        restored_identity = AgentIdentity.from_dict(identity_dict)
+        # Deserialize back to PrincipalIdentity
+        restored_identity = PrincipalIdentity.from_dict(identity_dict)
         
         # Verify all fields match
         assert restored_identity.agent_id == identity.agent_id
@@ -135,13 +135,13 @@ class TestAgentIdentityProperties:
         """
         Property 7: Trust Level Validation
         
-        For any AgentIdentity instance, when trust_level is set to a value
+        For any PrincipalIdentity instance, when trust_level is set to a value
         outside the range 0-100, the validation should reject it with ValueError.
         
         **Validates: Requirements 4.13**
         """
         with pytest.raises(ValueError, match="trust_level must be between 0 and 100"):
-            AgentIdentity(
+            PrincipalIdentity(
                 agent_id="test-agent",
                 name="Test Agent",
                 owner="test-owner",
@@ -160,13 +160,13 @@ class TestAgentIdentityProperties:
         """
         Property 8: Capability Checking
         
-        For any AgentIdentity with a list of capabilities, the has_capability()
+        For any PrincipalIdentity with a list of capabilities, the has_capability()
         method should return True for capabilities in the list and False for
         capabilities not in the list.
         
         **Validates: Requirements 4.14**
         """
-        identity = AgentIdentity(
+        identity = PrincipalIdentity(
             agent_id=agent_id,
             name=name,
             owner=owner,
@@ -194,10 +194,10 @@ class TestAgentIdentityProperties:
         """
         Property: Verification Status Checking
         
-        For any AgentIdentity, the is_verified() method should return True
+        For any PrincipalIdentity, the is_verified() method should return True
         if verification_status is VERIFIED or TRUSTED, and False if UNVERIFIED.
         """
-        identity = AgentIdentity(
+        identity = PrincipalIdentity(
             agent_id=agent_id,
             name=name,
             owner=owner,
@@ -220,10 +220,10 @@ class TestAgentIdentityProperties:
         """
         Property: Default values should be set correctly
         
-        For any AgentIdentity created with only required fields,
+        For any PrincipalIdentity created with only required fields,
         optional fields should have appropriate defaults.
         """
-        identity = AgentIdentity(
+        identity = PrincipalIdentity(
             agent_id=agent_id,
             name=name,
             owner=owner,
@@ -245,11 +245,11 @@ class TestAgentIdentityProperties:
         """
         Property: Empty agent_id should be rejected
         
-        For any AgentIdentity instance, when agent_id is set to an empty string,
+        For any PrincipalIdentity instance, when agent_id is set to an empty string,
         the validation should reject it with ValueError.
         """
         with pytest.raises(ValueError, match="agent_id must be non-empty string"):
-            AgentIdentity(
+            PrincipalIdentity(
                 agent_id=empty_agent_id,
                 name="Test Agent",
                 owner="test-owner",
@@ -267,10 +267,10 @@ class TestAgentIdentityProperties:
         """
         Property: Verification status strings should be converted to enums
         
-        For any AgentIdentity created with a string verification_status,
+        For any PrincipalIdentity created with a string verification_status,
         it should be automatically converted to the appropriate enum value.
         """
-        identity = AgentIdentity(
+        identity = PrincipalIdentity(
             agent_id=agent_id,
             name=name,
             owner=owner,

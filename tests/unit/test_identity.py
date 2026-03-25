@@ -11,16 +11,16 @@ from pathlib import Path
 
 import pytest
 
-from caracal.core.identity import AgentIdentity, AgentRegistry
+from caracal.core.identity import PrincipalIdentity, PrincipalRegistry
 from caracal.exceptions import DuplicateAgentNameError
 
 
-class TestAgentIdentity:
-    """Test AgentIdentity dataclass."""
+class TestPrincipalIdentity:
+    """Test PrincipalIdentity dataclass."""
 
     def test_agent_identity_creation(self):
-        """Test creating an AgentIdentity."""
-        agent = AgentIdentity(
+        """Test creating an PrincipalIdentity."""
+        agent = PrincipalIdentity(
             agent_id="550e8400-e29b-41d4-a716-446655440000",
             name="test-agent",
             owner="test@example.com",
@@ -35,8 +35,8 @@ class TestAgentIdentity:
         assert agent.metadata == {"department": "AI Research"}
 
     def test_agent_identity_to_dict(self):
-        """Test converting AgentIdentity to dictionary."""
-        agent = AgentIdentity(
+        """Test converting PrincipalIdentity to dictionary."""
+        agent = PrincipalIdentity(
             agent_id="550e8400-e29b-41d4-a716-446655440000",
             name="test-agent",
             owner="test@example.com",
@@ -50,7 +50,7 @@ class TestAgentIdentity:
         assert data["owner"] == "test@example.com"
 
     def test_agent_identity_from_dict(self):
-        """Test creating AgentIdentity from dictionary."""
+        """Test creating PrincipalIdentity from dictionary."""
         data = {
             "agent_id": "550e8400-e29b-41d4-a716-446655440000",
             "name": "test-agent",
@@ -59,19 +59,19 @@ class TestAgentIdentity:
             "metadata": {"key": "value"}
         }
         
-        agent = AgentIdentity.from_dict(data)
+        agent = PrincipalIdentity.from_dict(data)
         assert agent.agent_id == "550e8400-e29b-41d4-a716-446655440000"
         assert agent.name == "test-agent"
         assert agent.metadata == {"key": "value"}
 
 
-class TestAgentRegistry:
-    """Test AgentRegistry class."""
+class TestPrincipalRegistry:
+    """Test PrincipalRegistry class."""
 
     def test_registry_initialization(self, temp_dir):
-        """Test initializing an AgentRegistry."""
+        """Test initializing an PrincipalRegistry."""
         registry_path = temp_dir / "agents.json"
-        registry = AgentRegistry(str(registry_path))
+        registry = PrincipalRegistry(str(registry_path))
         
         assert registry.registry_path == registry_path
         assert registry.backup_count == 3
@@ -80,7 +80,7 @@ class TestAgentRegistry:
     def test_register_agent(self, temp_dir):
         """Test registering a new agent."""
         registry_path = temp_dir / "agents.json"
-        registry = AgentRegistry(str(registry_path))
+        registry = PrincipalRegistry(str(registry_path))
         
         agent = registry.register_agent(
             name="test-agent",
@@ -107,7 +107,7 @@ class TestAgentRegistry:
     def test_register_agent_duplicate_name(self, temp_dir):
         """Test that duplicate agent names are rejected."""
         registry_path = temp_dir / "agents.json"
-        registry = AgentRegistry(str(registry_path))
+        registry = PrincipalRegistry(str(registry_path))
         
         # Register first agent
         registry.register_agent(
@@ -127,7 +127,7 @@ class TestAgentRegistry:
     def test_get_agent(self, temp_dir):
         """Test retrieving an agent by ID."""
         registry_path = temp_dir / "agents.json"
-        registry = AgentRegistry(str(registry_path))
+        registry = PrincipalRegistry(str(registry_path))
         
         # Register agent
         agent = registry.register_agent(
@@ -145,7 +145,7 @@ class TestAgentRegistry:
     def test_get_agent_not_found(self, temp_dir):
         """Test retrieving a non-existent agent."""
         registry_path = temp_dir / "agents.json"
-        registry = AgentRegistry(str(registry_path))
+        registry = PrincipalRegistry(str(registry_path))
         
         result = registry.get_agent("non-existent-id")
         assert result is None
@@ -153,7 +153,7 @@ class TestAgentRegistry:
     def test_list_agents(self, temp_dir):
         """Test listing all agents."""
         registry_path = temp_dir / "agents.json"
-        registry = AgentRegistry(str(registry_path))
+        registry = PrincipalRegistry(str(registry_path))
         
         # Register multiple agents
         agent1 = registry.register_agent(
@@ -176,7 +176,7 @@ class TestAgentRegistry:
     def test_persistence(self, temp_dir):
         """Test that agents are persisted to disk."""
         registry_path = temp_dir / "agents.json"
-        registry = AgentRegistry(str(registry_path))
+        registry = PrincipalRegistry(str(registry_path))
         
         # Register agent
         agent = registry.register_agent(
@@ -203,14 +203,14 @@ class TestAgentRegistry:
         registry_path = temp_dir / "agents.json"
         
         # Create first registry and register agent
-        registry1 = AgentRegistry(str(registry_path))
+        registry1 = PrincipalRegistry(str(registry_path))
         agent = registry1.register_agent(
             name="test-agent",
             owner="test@example.com"
         )
         
         # Create second registry (should load from disk)
-        registry2 = AgentRegistry(str(registry_path))
+        registry2 = PrincipalRegistry(str(registry_path))
         
         # Verify agent was loaded
         loaded_agent = registry2.get_agent(agent.agent_id)
@@ -222,7 +222,7 @@ class TestAgentRegistry:
     def test_backup_creation(self, temp_dir):
         """Test that backups are created."""
         registry_path = temp_dir / "agents.json"
-        registry = AgentRegistry(str(registry_path))
+        registry = PrincipalRegistry(str(registry_path))
         
         # Register first agent (creates initial file)
         registry.register_agent(name="agent-1", owner="user1@example.com")
@@ -237,7 +237,7 @@ class TestAgentRegistry:
     def test_backup_rotation(self, temp_dir):
         """Test that backups are rotated correctly."""
         registry_path = temp_dir / "agents.json"
-        registry = AgentRegistry(str(registry_path), backup_count=3)
+        registry = PrincipalRegistry(str(registry_path), backup_count=3)
         
         # Register multiple agents to trigger backup rotation
         for i in range(5):
@@ -260,7 +260,7 @@ class TestAgentRegistry:
     def test_empty_metadata(self, temp_dir):
         """Test registering agent with no metadata."""
         registry_path = temp_dir / "agents.json"
-        registry = AgentRegistry(str(registry_path))
+        registry = PrincipalRegistry(str(registry_path))
         
         agent = registry.register_agent(
             name="test-agent",

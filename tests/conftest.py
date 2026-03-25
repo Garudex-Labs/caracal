@@ -87,7 +87,7 @@ def create_test_config_content(
     
     config = f"""
 storage:
-  agent_registry: {temp_dir}/agents.json
+  principal_registry: {temp_dir}/agents.json
   policy_store: {temp_dir}/policies.json
   ledger: {temp_dir}/ledger.jsonl
   backup_dir: {temp_dir}/backups
