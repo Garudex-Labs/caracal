@@ -2,7 +2,7 @@
 Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 Caracal, a product of Garudex Labs
 
-Unit tests for core types (MeteringEvent, AgentIdentity, AuditReference).
+Unit tests for core types (MeteringEvent, PrincipalIdentity, AuditReference).
 
 Tests cover instantiation, validation, and serialization for all core types.
 """
@@ -12,7 +12,7 @@ from datetime import datetime
 from decimal import Decimal
 
 from caracal.core.metering import MeteringEvent
-from caracal.core.identity import AgentIdentity, VerificationStatus
+from caracal.core.identity import PrincipalIdentity, VerificationStatus
 from caracal.core.audit import AuditReference
 from caracal.exceptions import InvalidMeteringEventError
 
@@ -190,15 +190,15 @@ class TestMeteringEventSerialization:
         assert restored.tags == original.tags
 
 
-class TestAgentIdentityInstantiation:
-    """Test AgentIdentity instantiation and validation."""
+class TestPrincipalIdentityInstantiation:
+    """Test PrincipalIdentity instantiation and validation."""
     
     def test_agent_identity_with_all_fields(self):
-        """Test AgentIdentity instantiation with all fields."""
+        """Test PrincipalIdentity instantiation with all fields."""
         created_at = datetime.utcnow().isoformat() + "Z"
         last_verified = datetime.utcnow().isoformat() + "Z"
         
-        identity = AgentIdentity(
+        identity = PrincipalIdentity(
             agent_id="agent-123",
             name="Test Agent",
             owner="owner@example.com",
@@ -227,8 +227,8 @@ class TestAgentIdentityInstantiation:
         assert identity.last_verified_at == last_verified
     
     def test_agent_identity_with_minimal_fields(self):
-        """Test AgentIdentity instantiation with minimal required fields."""
-        identity = AgentIdentity(
+        """Test PrincipalIdentity instantiation with minimal required fields."""
+        identity = PrincipalIdentity(
             agent_id="agent-123",
             name="Test Agent",
             owner="owner@example.com",
@@ -250,7 +250,7 @@ class TestAgentIdentityInstantiation:
     def test_agent_identity_validation_empty_agent_id(self):
         """Test that empty agent_id raises ValueError."""
         with pytest.raises(ValueError, match="agent_id must be non-empty string"):
-            AgentIdentity(
+            PrincipalIdentity(
                 agent_id="",
                 name="Test Agent",
                 owner="owner@example.com",
@@ -261,7 +261,7 @@ class TestAgentIdentityInstantiation:
     def test_agent_identity_validation_trust_level_too_low(self):
         """Test that trust_level below 0 raises ValueError."""
         with pytest.raises(ValueError, match="trust_level must be between 0 and 100"):
-            AgentIdentity(
+            PrincipalIdentity(
                 agent_id="agent-123",
                 name="Test Agent",
                 owner="owner@example.com",
@@ -273,7 +273,7 @@ class TestAgentIdentityInstantiation:
     def test_agent_identity_validation_trust_level_too_high(self):
         """Test that trust_level above 100 raises ValueError."""
         with pytest.raises(ValueError, match="trust_level must be between 0 and 100"):
-            AgentIdentity(
+            PrincipalIdentity(
                 agent_id="agent-123",
                 name="Test Agent",
                 owner="owner@example.com",
@@ -284,7 +284,7 @@ class TestAgentIdentityInstantiation:
     
     def test_agent_identity_has_capability(self):
         """Test has_capability method."""
-        identity = AgentIdentity(
+        identity = PrincipalIdentity(
             agent_id="agent-123",
             name="Test Agent",
             owner="owner@example.com",
@@ -299,7 +299,7 @@ class TestAgentIdentityInstantiation:
     
     def test_agent_identity_is_verified(self):
         """Test is_verified method."""
-        unverified = AgentIdentity(
+        unverified = PrincipalIdentity(
             agent_id="agent-123",
             name="Test Agent",
             owner="owner@example.com",
@@ -308,7 +308,7 @@ class TestAgentIdentityInstantiation:
             verification_status=VerificationStatus.UNVERIFIED
         )
         
-        verified = AgentIdentity(
+        verified = PrincipalIdentity(
             agent_id="agent-456",
             name="Test Agent 2",
             owner="owner@example.com",
@@ -317,7 +317,7 @@ class TestAgentIdentityInstantiation:
             verification_status=VerificationStatus.VERIFIED
         )
         
-        trusted = AgentIdentity(
+        trusted = PrincipalIdentity(
             agent_id="agent-789",
             name="Test Agent 3",
             owner="owner@example.com",
@@ -331,15 +331,15 @@ class TestAgentIdentityInstantiation:
         assert trusted.is_verified() is True
 
 
-class TestAgentIdentitySerialization:
-    """Test AgentIdentity serialization and deserialization."""
+class TestPrincipalIdentitySerialization:
+    """Test PrincipalIdentity serialization and deserialization."""
     
     def test_agent_identity_to_dict(self):
-        """Test AgentIdentity serialization to dictionary."""
+        """Test PrincipalIdentity serialization to dictionary."""
         created_at = "2024-01-15T10:30:00Z"
         last_verified = "2024-01-16T10:30:00Z"
         
-        identity = AgentIdentity(
+        identity = PrincipalIdentity(
             agent_id="agent-123",
             name="Test Agent",
             owner="owner@example.com",
@@ -370,7 +370,7 @@ class TestAgentIdentitySerialization:
         assert data["last_verified_at"] == last_verified
     
     def test_agent_identity_from_dict(self):
-        """Test AgentIdentity deserialization from dictionary."""
+        """Test PrincipalIdentity deserialization from dictionary."""
         data = {
             "agent_id": "agent-123",
             "name": "Test Agent",
@@ -386,7 +386,7 @@ class TestAgentIdentitySerialization:
             "last_verified_at": "2024-01-16T10:30:00Z"
         }
         
-        identity = AgentIdentity.from_dict(data)
+        identity = PrincipalIdentity.from_dict(data)
         
         assert identity.agent_id == "agent-123"
         assert identity.name == "Test Agent"
@@ -402,8 +402,8 @@ class TestAgentIdentitySerialization:
         assert identity.last_verified_at == "2024-01-16T10:30:00Z"
     
     def test_agent_identity_round_trip(self):
-        """Test AgentIdentity serialization round-trip."""
-        original = AgentIdentity(
+        """Test PrincipalIdentity serialization round-trip."""
+        original = PrincipalIdentity(
             agent_id="agent-123",
             name="Test Agent",
             owner="owner@example.com",
@@ -420,7 +420,7 @@ class TestAgentIdentitySerialization:
         
         # Serialize and deserialize
         data = original.to_dict()
-        restored = AgentIdentity.from_dict(data)
+        restored = PrincipalIdentity.from_dict(data)
         
         # Verify all fields match
         assert restored.agent_id == original.agent_id

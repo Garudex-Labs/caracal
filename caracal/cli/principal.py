@@ -159,7 +159,7 @@ def register(ctx, name: str, principal_type: str, owner: str, metadata: tuple):
     help='Output format (default: table)',
 )
 @click.pass_context
-def list_principals(ctx, format: str):
+def list_principals(ctx, principal_type: str, format: str):
     """
     List all registered principals.
     
