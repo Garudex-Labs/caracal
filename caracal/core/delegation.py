@@ -12,7 +12,7 @@ authority delegation across principal types (user, agent, service).
 
 import json
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Dict, List, Optional
 from uuid import UUID
@@ -196,7 +196,7 @@ class DelegationTokenManager:
             allowed_operations = ["api_call", "mcp_tool"]
         
         # Calculate timestamps
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         expiration = now + timedelta(seconds=expiration_seconds)
         
         # Generate unique token ID
@@ -248,7 +248,7 @@ class DelegationTokenManager:
             ) from e
         
         logger.info(
-            f"Generated delegation token: source={parent_principal_id}, target={child_principal_id}, "
+            f"Generated delegation token: source={source_principal_id}, target={target_principal_id}, "
             f"type={delegation_type}, {source_principal_type}→{target_principal_type}, "
             f"expires={expiration.isoformat()}"
         )

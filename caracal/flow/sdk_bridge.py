@@ -89,7 +89,7 @@ class SDKBridge:
         scope = self._scope or self._get_default_scope()
         return await scope.agents.list(limit=limit)
 
-    async def create_agent(self, name: str, owner: str, metadata=None):
+    async def create_principal(self, name: str, owner: str, metadata=None):
         """Create an agent in the current scope."""
         scope = self._scope or self._get_default_scope()
         return await scope.agents.create(name=name, owner=owner, metadata=metadata)

@@ -40,12 +40,12 @@ def upgrade() -> None:
         sa.Column('name', sa.String(length=255), nullable=False),
         sa.Column('principal_type', sa.String(length=50), nullable=False),
         sa.Column('owner', sa.String(length=255), nullable=False),
-        sa.Column('parent_principal_id', postgresql.UUID(as_uuid=True), nullable=True),
+        sa.Column('source_principal_id', postgresql.UUID(as_uuid=True), nullable=True),
         sa.Column('public_key_pem', sa.String(length=2000), nullable=True),
         sa.Column('private_key_pem', sa.String(length=4000), nullable=True),
         sa.Column('created_at', sa.DateTime(), nullable=False),
         sa.Column('metadata', postgresql.JSONB(astext_type=sa.Text()), nullable=True),
-        sa.ForeignKeyConstraint(['parent_principal_id'], ['principals.principal_id'], ),
+        sa.ForeignKeyConstraint(['source_principal_id'], ['principals.principal_id'], ),
         sa.PrimaryKeyConstraint('principal_id'),
         sa.UniqueConstraint('name')
     )
@@ -53,7 +53,7 @@ def upgrade() -> None:
     # Create indexes for principals
     op.create_index(op.f('ix_principals_name'), 'principals', ['name'], unique=True)
     op.create_index(op.f('ix_principals_principal_type'), 'principals', ['principal_type'], unique=False)
-    op.create_index(op.f('ix_principals_parent_principal_id'), 'principals', ['parent_principal_id'], unique=False)
+    op.create_index(op.f('ix_principals_source_principal_id'), 'principals', ['source_principal_id'], unique=False)
     
     # Create execution_mandates table
     op.create_table(
@@ -172,7 +172,7 @@ def downgrade() -> None:
     op.drop_table('execution_mandates')
     
     # Drop principals table and indexes
-    op.drop_index(op.f('ix_principals_parent_principal_id'), table_name='principals')
+    op.drop_index(op.f('ix_principals_source_principal_id'), table_name='principals')
     op.drop_index(op.f('ix_principals_principal_type'), table_name='principals')
     op.drop_index(op.f('ix_principals_name'), table_name='principals')
     op.drop_table('principals')
