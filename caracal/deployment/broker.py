@@ -2,49 +2,47 @@
 Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 Caracal, a product of Garudex Labs
 
-Broker for Open Source Edition.
+Broker for Open-Source Edition.
 
 Handles direct communication with AI providers.
 """
 
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 
 
 @dataclass
 class ProviderRequest:
-    """Provider API request."""
+    """Provider request data model."""
+    provider: str
     method: str
-    endpoint: str
-    headers: Dict[str, str]
-    body: Optional[Dict[str, Any]]
+    params: Dict[str, Any]
 
 
 @dataclass
 class ProviderResponse:
-    """Provider API response."""
+    """Provider response data model."""
     status_code: int
-    headers: Dict[str, str]
-    body: Any
+    data: Dict[str, Any]
+    error: Optional[str] = None
 
 
 @dataclass
 class ProviderConfig:
-    """Provider configuration."""
+    """Provider configuration data model."""
     name: str
     provider_type: str
     api_key_ref: str
-    base_url: Optional[str]
-    timeout_seconds: int
-    max_retries: int
+    base_url: Optional[str] = None
+    timeout_seconds: int = 30
+    max_retries: int = 3
 
 
 class Broker:
     """
-    Manages direct communication with AI providers.
+    Broker for Open-Source Edition.
     
-    Provides methods for provider API calls with retry logic, circuit breaker,
-    and rate limiting.
+    Handles direct communication with AI providers.
     """
     
     def __init__(self):
@@ -61,24 +59,5 @@ class Broker:
             
         Returns:
             Provider response
-        """
-        raise NotImplementedError("To be implemented in task 8.1")
-    
-    def configure_provider(self, provider: str, config: ProviderConfig) -> None:
-        """
-        Configures provider credentials and settings.
-        
-        Args:
-            provider: Provider name
-            config: Provider configuration
-        """
-        raise NotImplementedError("To be implemented in task 8.1")
-    
-    def list_providers(self) -> List[Dict[str, Any]]:
-        """
-        Returns list of configured providers with status.
-        
-        Returns:
-            List of provider information
         """
         raise NotImplementedError("To be implemented in task 8.1")
