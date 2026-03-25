@@ -197,6 +197,26 @@ class Icons:
     SETTINGS = "⚙️ "
     HELP = "❓"
     
+    # Deployment specific
+    WORKSPACE = "🗂️ "
+    SYNC = "🔄"
+    DATABASE = "🗄️ "
+    PROVIDER = "🔌"
+    LIST = "📋"
+    ADD = "➕"
+    DELETE = "🗑️ "
+    EXPORT = "📤"
+    IMPORT = "📥"
+    CONNECT = "🔗"
+    DISCONNECT = "⛓️‍💥"
+    TEST = "🧪"
+    CHART = "📊"
+    SEARCH = "🔍"
+    STREAM = "📡"
+    GUIDE = "📖"
+    ARCHITECTURE = "🏗️ "
+    SWITCH = "🔀"
+    
     # Decorative
     BULLET = "•"
     DASH = "─"
