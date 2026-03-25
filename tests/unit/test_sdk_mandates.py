@@ -38,13 +38,13 @@ class TestMandateOperations:
     async def test_create(self, scoped_setup):
         ctx, adapter, _ = scoped_setup
         result = await ctx.mandates.create(
-            agent_id="a1", allowed_operations=["read", "write"], expires_in=3600,
+            principal_id="a1", allowed_operations=["read", "write"], expires_in=3600,
         )
         assert result["id"] == "m1"
         sent = adapter.sent_requests[0]
         assert sent.method == "POST"
         assert sent.path == "/mandates"
-        assert sent.body["agent_id"] == "a1"
+        assert sent.body["principal_id"] == "a1"
         assert sent.body["allowed_operations"] == ["read", "write"]
         assert sent.headers["X-Caracal-Org-ID"] == "org_1"
 

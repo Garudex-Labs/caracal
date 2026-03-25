@@ -147,7 +147,7 @@ class TestLoggingConfiguration:
         log_authentication_failure(
             logger,
             auth_method="jwt",
-            agent_id="agent-123",
+            principal_id="agent-123",
             reason="expired_token"
         )
         
@@ -156,7 +156,7 @@ class TestLoggingConfiguration:
         log_entry = json.loads(log_content.strip().split("\n")[0])
         assert log_entry["event_type"] == "authentication_failure"
         assert log_entry["auth_method"] == "jwt"
-        assert log_entry["agent_id"] == "agent-123"
+        assert log_entry["principal_id"] == "agent-123"
         assert log_entry["reason"] == "expired_token"
         assert log_entry["level"] == "warning"
     
@@ -169,7 +169,7 @@ class TestLoggingConfiguration:
         log_database_query(
             logger,
             operation="select",
-            table="agent_identities",
+            table="principal_identities",
             duration_ms=5.2
         )
         
@@ -178,7 +178,7 @@ class TestLoggingConfiguration:
         log_entry = json.loads(log_content.strip().split("\n")[0])
         assert log_entry["event_type"] == "database_query"
         assert log_entry["operation"] == "select"
-        assert log_entry["table"] == "agent_identities"
+        assert log_entry["table"] == "principal_identities"
         assert log_entry["duration_ms"] == 5.2
         assert log_entry["level"] == "debug"
     

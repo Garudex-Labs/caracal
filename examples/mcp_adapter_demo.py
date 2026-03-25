@@ -19,7 +19,7 @@ from caracal.core.policy import PolicyStore, PolicyEvaluator
 from caracal.core.metering import MeteringCollector
 from caracal.core.pricebook import Pricebook
 from caracal.core.ledger import LedgerWriter, LedgerQuery
-from caracal.core.identity import AgentRegistry
+from caracal.core.identity import PrincipalRegistry
 
 
 async def main():
@@ -39,7 +39,7 @@ async def main():
         
         # Agent Registry
         agents_path = os.path.join(tmpdir, "agents.json")
-        agent_registry = AgentRegistry(agents_path)
+        principal_registry = PrincipalRegistry(agents_path)
         
         # Pricebook
         pricebook_path = os.path.join(tmpdir, "pricebook.csv")
@@ -59,7 +59,7 @@ async def main():
         
         # Policy Store
         policy_path = os.path.join(tmpdir, "policies.json")
-        policy_store = PolicyStore(policy_path, agent_registry=agent_registry)
+        policy_store = PolicyStore(policy_path, principal_registry=principal_registry)
         
         # Metering Collector
         metering_collector = MeteringCollector(pricebook, ledger_writer)
@@ -82,7 +82,7 @@ async def main():
         
         # Register test agent
         print("Registering test agent...")
-        agent = agent_registry.register_agent(
+        agent = principal_registry.register_principal(
             name="demo-mcp-agent",
             owner="demo-user"
         )

@@ -82,7 +82,7 @@ class TestMetricsRegistry:
         # Record database query
         metrics.record_database_query(
             operation=DatabaseOperationType.SELECT,
-            table="agent_identities",
+            table="principal_identities",
             status="success",
             duration_seconds=0.005
         )
@@ -184,7 +184,7 @@ class TestMetricsContextManagers:
         metrics = MetricsRegistry(registry)
         
         # Use context manager
-        with metrics.time_database_query(DatabaseOperationType.SELECT, "agent_identities"):
+        with metrics.time_database_query(DatabaseOperationType.SELECT, "principal_identities"):
             # Simulate some work
             import time
             time.sleep(0.005)
@@ -203,7 +203,7 @@ class TestMetricsContextManagers:
         
         # Use context manager with error
         with pytest.raises(ValueError):
-            with metrics.time_database_query(DatabaseOperationType.SELECT, "agent_identities"):
+            with metrics.time_database_query(DatabaseOperationType.SELECT, "principal_identities"):
                 raise ValueError("Test error")
         
         # Verify metric was recorded with error status
