@@ -58,7 +58,7 @@ class TestAuthorityMetadata:
         
         # Verify all fields
         assert metadata.version == "1.0.0"
-        assert metadata.agent_identity == agent_identity
+        assert metadata.principal_identity == agent_identity
         assert metadata.mandate_id == "mandate-789"
         assert metadata.audit_reference == audit_reference
         assert metadata.delegation_token == "jwt.token.here"
@@ -76,7 +76,7 @@ class TestAuthorityMetadata:
         
         # Verify defaults
         assert metadata.version == "1.0.0"
-        assert metadata.agent_identity is None
+        assert metadata.principal_identity is None
         assert metadata.mandate_id is None
         assert metadata.audit_reference is None
         assert metadata.delegation_token is None
@@ -154,9 +154,9 @@ class TestAuthorityMetadata:
         
         # Verify all fields match
         assert restored.version == original.version
-        assert restored.agent_identity.agent_id == original.agent_identity.agent_id
-        assert restored.agent_identity.name == original.agent_identity.name
-        assert restored.agent_identity.verification_status == original.agent_identity.verification_status
+        assert restored.principal_identity.principal_id == original.principal_identity.principal_id
+        assert restored.principal_identity.name == original.principal_identity.name
+        assert restored.principal_identity.verification_status == original.principal_identity.verification_status
         assert restored.mandate_id == original.mandate_id
         assert restored.audit_reference.audit_id == original.audit_reference.audit_id
         assert restored.audit_reference.hash == original.audit_reference.hash
@@ -187,7 +187,7 @@ class TestAuthorityMetadata:
         restored = AuthorityMetadata.from_dict(metadata_dict)
         
         # Verify None fields are preserved
-        assert restored.agent_identity is None
+        assert restored.principal_identity is None
         assert restored.audit_reference is None
     
     def test_integration_with_agent_identity(self):
@@ -219,22 +219,22 @@ class TestAuthorityMetadata:
         )
         
         # Verify integration
-        assert metadata.agent_identity == agent_identity
-        assert metadata.agent_identity.agent_id == "agent-123"
-        assert metadata.agent_identity.verification_status == VerificationStatus.VERIFIED
-        assert metadata.agent_identity.trust_level == 80
-        assert metadata.agent_identity.has_capability("api_call")
-        assert metadata.agent_identity.is_verified()
+        assert metadata.principal_identity == agent_identity
+        assert metadata.principal_identity.principal_id == "agent-123"
+        assert metadata.principal_identity.verification_status == VerificationStatus.VERIFIED
+        assert metadata.principal_identity.trust_level == 80
+        assert metadata.principal_identity.has_capability("api_call")
+        assert metadata.principal_identity.is_verified()
         
         # Serialize and deserialize
         metadata_dict = metadata.to_dict()
         restored = AuthorityMetadata.from_dict(metadata_dict)
         
         # Verify agent identity is preserved
-        assert restored.agent_identity.agent_id == agent_identity.agent_id
-        assert restored.agent_identity.verification_status == agent_identity.verification_status
-        assert restored.agent_identity.trust_level == agent_identity.trust_level
-        assert restored.agent_identity.capabilities == agent_identity.capabilities
+        assert restored.principal_identity.principal_id == agent_identity.principal_id
+        assert restored.principal_identity.verification_status == agent_identity.verification_status
+        assert restored.principal_identity.trust_level == agent_identity.trust_level
+        assert restored.principal_identity.capabilities == agent_identity.capabilities
     
     def test_integration_with_audit_reference(self):
         """

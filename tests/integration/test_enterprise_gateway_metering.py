@@ -381,7 +381,7 @@ class TestEnterpriseGatewayMetering:
             quantity=Decimal("1")
         )
         
-        assert event.agent_id == "test-agent"
+        assert event.principal_id == "test-agent"
         assert event.resource_type == "test.resource"
         assert event.quantity == Decimal("1")
         assert event.timestamp is not None
