@@ -34,18 +34,18 @@ def upgrade() -> None:
     op.create_table(
         'resource_allowlists',
         sa.Column('allowlist_id', postgresql.UUID(as_uuid=True), nullable=False),
-        sa.Column('agent_id', postgresql.UUID(as_uuid=True), nullable=False),
+        sa.Column('principal_id', postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column('resource_pattern', sa.String(length=1000), nullable=False),
         sa.Column('pattern_type', sa.String(length=10), nullable=False),
         sa.Column('created_at', sa.DateTime(), nullable=False),
         sa.Column('active', sa.Boolean(), nullable=False),
-        sa.ForeignKeyConstraint(['agent_id'], ['agent_identities.agent_id'], ),
+        sa.ForeignKeyConstraint(['principal_id'], ['principal_identities.principal_id'], ),
         sa.PrimaryKeyConstraint('allowlist_id')
     )
     
     # Create indexes
-    op.create_index(op.f('ix_resource_allowlists_agent_id'), 'resource_allowlists', ['agent_id'], unique=False)
-    op.create_index('ix_resource_allowlists_agent_active', 'resource_allowlists', ['agent_id', 'active'], unique=False)
+    op.create_index(op.f('ix_resource_allowlists_principal_id'), 'resource_allowlists', ['principal_id'], unique=False)
+    op.create_index('ix_resource_allowlists_agent_active', 'resource_allowlists', ['principal_id', 'active'], unique=False)
 
 
 def downgrade() -> None:
@@ -53,7 +53,7 @@ def downgrade() -> None:
     
     # Drop indexes
     op.drop_index('ix_resource_allowlists_agent_active', table_name='resource_allowlists')
-    op.drop_index(op.f('ix_resource_allowlists_agent_id'), table_name='resource_allowlists')
+    op.drop_index(op.f('ix_resource_allowlists_principal_id'), table_name='resource_allowlists')
     
     # Drop table
     op.drop_table('resource_allowlists')

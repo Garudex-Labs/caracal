@@ -58,7 +58,7 @@ class LedgerEvent(Base):
     event_id = Column(BigInteger, primary_key=True, autoincrement=True)
     
     # Foreign key to principal
-    agent_id = Column(
+    principal_id = Column(
         PG_UUID(as_uuid=True),
         ForeignKey("principals.principal_id"),
         nullable=False,
@@ -87,11 +87,11 @@ class LedgerEvent(Base):
     
     # Composite index for time-range queries
     __table_args__ = (
-        Index("ix_ledger_events_agent_timestamp", "agent_id", "timestamp"),
+        Index("ix_ledger_events_agent_timestamp", "principal_id", "timestamp"),
     )
     
     def __repr__(self):
-        return f"<LedgerEvent(event_id={self.event_id}, agent_id={self.agent_id})>"
+        return f"<LedgerEvent(event_id={self.event_id}, principal_id={self.principal_id})>"
 
 
 class AuditLog(Base):
@@ -122,13 +122,13 @@ class AuditLog(Base):
     logged_at = Column(DateTime, nullable=False, default=datetime.utcnow, index=True)
     
     # Event data
-    agent_id = Column(PG_UUID(as_uuid=True), nullable=True, index=True)
+    principal_id = Column(PG_UUID(as_uuid=True), nullable=True, index=True)
     correlation_id = Column(String(255), nullable=True, index=True)
     event_data = Column(JSONB, nullable=False)
     
     # Composite indexes for common queries
     __table_args__ = (
-        Index("ix_audit_logs_agent_timestamp", "agent_id", "event_timestamp"),
+        Index("ix_audit_logs_agent_timestamp", "principal_id", "event_timestamp"),
         Index("ix_audit_logs_type_timestamp", "event_type", "event_timestamp"),
         Index("ix_audit_logs_correlation", "correlation_id", "event_timestamp"),
         Index("ix_audit_logs_topic_partition_offset", "topic", "partition", "offset", unique=True),
