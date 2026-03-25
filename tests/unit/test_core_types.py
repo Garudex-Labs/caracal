@@ -34,7 +34,7 @@ class TestMeteringEventInstantiation:
             tags=["mcp", "search"]
         )
         
-        assert event.agent_id == "agent-123"
+        assert event.principal_id == "agent-123"
         assert event.resource_type == "mcp.tool.search"
         assert event.quantity == Decimal("1.5")
         assert event.timestamp == timestamp
@@ -51,7 +51,7 @@ class TestMeteringEventInstantiation:
             quantity=Decimal("1")
         )
         
-        assert event.agent_id == "agent-123"
+        assert event.principal_id == "agent-123"
         assert event.resource_type == "api.call"
         assert event.quantity == Decimal("1")
         assert event.timestamp is not None  # Auto-generated
@@ -153,7 +153,7 @@ class TestMeteringEventSerialization:
         
         event = MeteringEvent.from_dict(data)
         
-        assert event.agent_id == "agent-123"
+        assert event.principal_id == "agent-123"
         assert event.resource_type == "mcp.tool.search"
         assert event.quantity == Decimal("1.5")
         assert event.timestamp == datetime(2024, 1, 15, 10, 30, 0)
@@ -180,7 +180,7 @@ class TestMeteringEventSerialization:
         restored = MeteringEvent.from_dict(data)
         
         # Verify all fields match
-        assert restored.agent_id == original.agent_id
+        assert restored.principal_id == original.principal_id
         assert restored.resource_type == original.resource_type
         assert restored.quantity == original.quantity
         assert restored.timestamp == original.timestamp
@@ -213,7 +213,7 @@ class TestPrincipalIdentityInstantiation:
             last_verified_at=last_verified
         )
         
-        assert identity.agent_id == "agent-123"
+        assert identity.principal_id == "agent-123"
         assert identity.name == "Test Agent"
         assert identity.owner == "owner@example.com"
         assert identity.created_at == created_at
@@ -236,7 +236,7 @@ class TestPrincipalIdentityInstantiation:
             metadata={}
         )
         
-        assert identity.agent_id == "agent-123"
+        assert identity.principal_id == "agent-123"
         assert identity.name == "Test Agent"
         assert identity.owner == "owner@example.com"
         assert identity.public_key is None
@@ -388,7 +388,7 @@ class TestPrincipalIdentitySerialization:
         
         identity = PrincipalIdentity.from_dict(data)
         
-        assert identity.agent_id == "agent-123"
+        assert identity.principal_id == "agent-123"
         assert identity.name == "Test Agent"
         assert identity.owner == "owner@example.com"
         assert identity.created_at == "2024-01-15T10:30:00Z"
@@ -423,7 +423,7 @@ class TestPrincipalIdentitySerialization:
         restored = PrincipalIdentity.from_dict(data)
         
         # Verify all fields match
-        assert restored.agent_id == original.agent_id
+        assert restored.principal_id == original.principal_id
         assert restored.name == original.name
         assert restored.owner == original.owner
         assert restored.created_at == original.created_at

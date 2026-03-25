@@ -280,7 +280,7 @@ class PrincipalRegistry:
         
         return agent
 
-    def create_agent(self, *args, **kwargs) -> PrincipalIdentity:
+    def create_principal(self, *args, **kwargs) -> PrincipalIdentity:
         """Alias for register_principal for backward compatibility."""
         return self.register_principal(*args, **kwargs)
 

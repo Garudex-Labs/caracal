@@ -98,7 +98,7 @@ class TestDelegationOperations:
     async def test_get_token(self, scoped_setup):
         ctx, _, _ = scoped_setup
         result = await ctx.delegation.get_token(
-            source_agent_id="parent_1", target_agent_id="child_1",
+            source_principal_id="parent_1", target_principal_id="child_1",
         )
         assert result["token"] == "jwt..."
 
