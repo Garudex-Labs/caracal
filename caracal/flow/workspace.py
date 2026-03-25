@@ -253,6 +253,46 @@ class WorkspaceManager:
         
         return False
 
+    @staticmethod
+    def delete_all_workspaces(
+        registry_path: Optional[Path] = None,
+        delete_directories: bool = False,
+    ) -> int:
+        """Delete all registered workspaces.
+
+        Args:
+            registry_path: Optional custom registry path.
+            delete_directories: If True, also remove workspace directories from disk.
+
+        Returns:
+            Number of workspaces successfully removed from the registry.
+        """
+        rp = registry_path or _REGISTRY_PATH
+        workspaces = WorkspaceManager.list_workspaces(rp)
+        if not workspaces:
+            return 0
+
+        # Remove all registry entries first so deleting a workspace directory that
+        # contains the registry file (e.g. ~/.caracal) does not interrupt the loop.
+        deleted_count = 0
+        for ws in workspaces:
+            if WorkspaceManager.delete_workspace(
+                ws["path"],
+                registry_path=rp,
+                delete_directory=False,
+            ):
+                deleted_count += 1
+
+        if delete_directories:
+            import shutil
+
+            for ws in workspaces:
+                workspace_path = Path(ws["path"]).resolve()
+                if workspace_path.exists():
+                    shutil.rmtree(workspace_path)
+
+        return deleted_count
+
     # ------------------------------------------------------------------
     # repr
     # ------------------------------------------------------------------

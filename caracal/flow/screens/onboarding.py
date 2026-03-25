@@ -233,6 +233,7 @@ def _step_workspace(wizard: Wizard) -> Any:
     ])
     if workspaces:
         choices.append("Delete workspace")
+        choices.append("Delete all workspaces")
     
     action = prompt.select(
         "What would you like to do?",
@@ -363,6 +364,38 @@ def _step_workspace(wizard: Wizard) -> Any:
             console.print()
             # Restart workspace selection
             return _step_workspace(wizard)
+
+    elif action == "Delete all workspaces":
+        console.print()
+        console.print(f"  [{Colors.WARNING}]⚠️  WARNING: This will remove ALL registered workspaces[/]")
+        console.print(f"  [{Colors.DIM}]Count: {len(workspaces)} workspace(s)[/]")
+        console.print()
+
+        delete_files = prompt.confirm(
+            "Also delete all workspace directories from disk?",
+            default=False,
+        )
+
+        confirm = prompt.confirm(
+            "Are you sure you want to delete all workspaces?",
+            default=False,
+        )
+
+        if confirm:
+            deleted_count = WorkspaceManager.delete_all_workspaces(
+                delete_directories=delete_files,
+            )
+            console.print()
+            console.print(
+                f"  [{Colors.SUCCESS}]{Icons.SUCCESS} Deleted {deleted_count} workspace(s)[/]"
+            )
+            console.print()
+            return _step_workspace(wizard)
+
+        console.print()
+        console.print(f"  [{Colors.INFO}]{Icons.INFO} Bulk deletion cancelled[/]")
+        console.print()
+        return _step_workspace(wizard)
     
     # This should never be reached, but handle it gracefully
     console.print()
