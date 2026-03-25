@@ -5,7 +5,7 @@ Caracal, a product of Garudex Labs
 Unit tests for delegation token management.
 
 Tests the DelegationTokenManager for generating and validating
-ASE v1.0.8 delegation tokens.
+delegation tokens.
 """
 
 import pytest

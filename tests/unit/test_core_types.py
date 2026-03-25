@@ -2,12 +2,9 @@
 Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 Caracal, a product of Garudex Labs
 
-Unit tests for native implementations (MeteringEvent, AgentIdentity, AuditReference).
+Unit tests for core types (MeteringEvent, AgentIdentity, AuditReference).
 
-These tests verify that the native implementations work correctly after ASE removal.
-Tests cover instantiation, validation, and serialization for all native types.
-
-Requirements: 14.3, 14.4, 14.5
+Tests cover instantiation, validation, and serialization for all core types.
 """
 
 import pytest
