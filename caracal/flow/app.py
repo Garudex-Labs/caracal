@@ -119,6 +119,7 @@ class FlowApp:
             "ledger": self._run_authority_ledger_flow,
             "mandates": self._run_mandate_flow,
             "delegation": self._run_mandate_delegation_flow,
+            "deployment": self._run_deployment_flow,
             "enterprise": self._run_enterprise_flow,
             "settings": self._run_settings_flow,
             "help": self._run_help_flow,
@@ -152,6 +153,38 @@ class FlowApp:
         """Run mandate delegation center flow."""
         from caracal.flow.screens.mandate_delegation_flow import run_mandate_delegation_flow
         run_mandate_delegation_flow(self.console)
+    
+    def _run_deployment_flow(self) -> None:
+        """Run deployment management flow."""
+        while True:
+            self.console.clear()
+            action = show_submenu("deployment", self.console)
+            if action is None:
+                break
+            
+            if action == "dashboard":
+                from caracal.flow.screens.deployment_dashboard import show_deployment_dashboard
+                show_deployment_dashboard(self.console, self.state)
+            elif action == "workspaces":
+                from caracal.flow.screens.workspace_manager import show_workspace_manager
+                show_workspace_manager(self.console, self.state)
+            elif action == "sync":
+                from caracal.flow.screens.sync_monitor import show_sync_monitor
+                show_sync_monitor(self.console, self.state)
+            elif action == "config":
+                from caracal.flow.screens.config_editor import show_config_editor
+                show_config_editor(self.console, self.state)
+            elif action == "providers":
+                from caracal.flow.screens.provider_manager import show_provider_manager
+                show_provider_manager(self.console, self.state)
+            elif action == "logs":
+                from caracal.flow.screens.logs_viewer import show_logs_viewer
+                show_logs_viewer(self.console, self.state)
+            elif action == "help":
+                from caracal.flow.screens.deployment_help import show_deployment_help
+                show_deployment_help(self.console, self.state)
+            else:
+                self._show_cli_fallback("deployment", action)
     
     def _run_enterprise_flow(self) -> None:
         """Run enterprise features flow."""
