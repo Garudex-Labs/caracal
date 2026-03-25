@@ -40,7 +40,7 @@ class AuthorityMetadata:
     
     Attributes:
         version: Caracal authority protocol version
-        agent_identity: Identity of the agent performing the operation
+        principal_identity: Identity of the agent performing the operation
         mandate_id: Optional link to Caracal mandate
         audit_reference: Optional reference to audit trail
         delegation_token: Optional JWT delegation token
@@ -49,7 +49,7 @@ class AuthorityMetadata:
         signature: Optional cryptographic signature
     """
     version: str = "1.0.0"
-    agent_identity: Optional[AgentIdentity] = None
+    principal_identity: Optional[AgentIdentity] = None
     mandate_id: Optional[str] = None
     audit_reference: Optional[AuditReference] = None
     delegation_token: Optional[str] = None
@@ -71,7 +71,7 @@ class AuthorityMetadata:
         """
         return {
             "version": self.version,
-            "agent_identity": self.agent_identity.to_dict() if self.agent_identity else None,
+            "principal_identity": self.principal_identity.to_dict() if self.principal_identity else None,
             "mandate_id": self.mandate_id,
             "audit_reference": self.audit_reference.to_dict() if self.audit_reference else None,
             "delegation_token": self.delegation_token,
@@ -92,9 +92,9 @@ class AuthorityMetadata:
             AuthorityMetadata instance
         """
         # Parse nested objects
-        agent_identity = None
-        if data.get("agent_identity"):
-            agent_identity = AgentIdentity.from_dict(data["agent_identity"])
+        principal_identity = None
+        if data.get("principal_identity"):
+            principal_identity = AgentIdentity.from_dict(data["principal_identity"])
         
         audit_reference = None
         if data.get("audit_reference"):
@@ -106,7 +106,7 @@ class AuthorityMetadata:
         
         return cls(
             version=data.get("version", "1.0.0"),
-            agent_identity=agent_identity,
+            principal_identity=principal_identity,
             mandate_id=data.get("mandate_id"),
             audit_reference=audit_reference,
             delegation_token=data.get("delegation_token"),

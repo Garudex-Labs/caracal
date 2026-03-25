@@ -58,7 +58,7 @@ class ErrorContext:
         category: Error category for classification
         severity: Error severity level
         operation: Name of the operation that failed
-        agent_id: Optional agent ID involved in the error
+        principal_id: Optional agent ID involved in the error
         request_id: Optional request/correlation ID
         metadata: Additional context-specific metadata
         timestamp: When the error occurred
@@ -68,7 +68,7 @@ class ErrorContext:
     category: ErrorCategory
     severity: ErrorSeverity
     operation: str
-    agent_id: Optional[str] = None
+    principal_id: Optional[str] = None
     request_id: Optional[str] = None
     metadata: Dict[str, Any] = field(default_factory=dict)
     timestamp: datetime = field(default_factory=datetime.utcnow)
@@ -87,7 +87,7 @@ class ErrorContext:
             "category": self.category.value,
             "severity": self.severity.value,
             "operation": self.operation,
-            "agent_id": self.agent_id,
+            "principal_id": self.principal_id,
             "request_id": self.request_id,
             "metadata": self.metadata,
             "timestamp": self.timestamp.isoformat(),
@@ -167,7 +167,7 @@ class FailClosedErrorHandler:
         error: Exception,
         category: ErrorCategory,
         operation: str,
-        agent_id: Optional[str] = None,
+        principal_id: Optional[str] = None,
         request_id: Optional[str] = None,
         metadata: Optional[Dict[str, Any]] = None,
         severity: Optional[ErrorSeverity] = None
@@ -186,7 +186,7 @@ class FailClosedErrorHandler:
             error: The exception that occurred
             category: Error category for classification
             operation: Name of the operation that failed
-            agent_id: Optional agent ID involved in the error
+            principal_id: Optional agent ID involved in the error
             request_id: Optional request/correlation ID
             metadata: Optional additional context
             severity: Optional severity override (auto-determined if not provided)
@@ -204,7 +204,7 @@ class FailClosedErrorHandler:
             category=category,
             severity=severity,
             operation=operation,
-            agent_id=agent_id,
+            principal_id=principal_id,
             request_id=request_id,
             metadata=metadata or {}
         )
@@ -426,7 +426,7 @@ def handle_error_with_denial(
     error: Exception,
     category: ErrorCategory,
     operation: str,
-    agent_id: Optional[str] = None,
+    principal_id: Optional[str] = None,
     request_id: Optional[str] = None,
     metadata: Optional[Dict[str, Any]] = None
 ) -> tuple[bool, ErrorResponse]:
@@ -442,7 +442,7 @@ def handle_error_with_denial(
         error: The exception that occurred
         category: Error category for classification
         operation: Name of the operation that failed
-        agent_id: Optional agent ID involved in the error
+        principal_id: Optional agent ID involved in the error
         request_id: Optional request/correlation ID
         metadata: Optional additional context
     
@@ -457,7 +457,7 @@ def handle_error_with_denial(
         error=error,
         category=category,
         operation=operation,
-        agent_id=agent_id,
+        principal_id=principal_id,
         request_id=request_id,
         metadata=metadata
     )

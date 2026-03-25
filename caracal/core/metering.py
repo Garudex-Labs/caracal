@@ -44,7 +44,7 @@ class MeteringEvent:
     - Resource type hierarchies enable pattern-based filtering
     
     Attributes:
-        agent_id: Unique identifier for the agent consuming resources
+        principal_id: Unique identifier for the agent consuming resources
         resource_type: Type of resource (supports hierarchical patterns like "mcp.tool.search")
         quantity: Amount of resource consumed (non-negative)
         timestamp: When the event occurred (auto-generated if not provided)
@@ -53,7 +53,7 @@ class MeteringEvent:
         parent_event_id: Optional ID for building event hierarchies
         tags: Optional list of tags for categorization and filtering
     """
-    agent_id: str
+    principal_id: str
     resource_type: str
     quantity: Decimal
     timestamp: Optional[datetime] = None
@@ -75,8 +75,8 @@ class MeteringEvent:
         Raises:
             InvalidMeteringEventError: If validation fails
         """
-        if not self.agent_id or not isinstance(self.agent_id, str):
-            raise InvalidMeteringEventError("agent_id must be non-empty string")
+        if not self.principal_id or not isinstance(self.principal_id, str):
+            raise InvalidMeteringEventError("principal_id must be non-empty string")
         
         if not self.resource_type or not isinstance(self.resource_type, str):
             raise InvalidMeteringEventError("resource_type must be non-empty string")
@@ -118,7 +118,7 @@ class MeteringEvent:
             Dictionary representation of the event
         """
         return {
-            "agent_id": self.agent_id,
+            "principal_id": self.principal_id,
             "resource_type": self.resource_type,
             "quantity": str(self.quantity),
             "timestamp": self.timestamp.isoformat() if self.timestamp else None,
@@ -140,7 +140,7 @@ class MeteringEvent:
             MeteringEvent instance
         """
         return cls(
-            agent_id=data["agent_id"],
+            principal_id=data["principal_id"],
             resource_type=data["resource_type"],
             quantity=Decimal(data["quantity"]),
             timestamp=datetime.fromisoformat(data["timestamp"]) if data.get("timestamp") else None,
@@ -199,7 +199,7 @@ class MeteringCollector:
             
             # Write to ledger
             ledger_event = self.ledger_writer.append_event(
-                agent_id=event.agent_id,
+                principal_id=event.principal_id,
                 resource_type=event.resource_type,
                 quantity=event.quantity,
                 metadata=enhanced_metadata if enhanced_metadata else None,
@@ -207,7 +207,7 @@ class MeteringCollector:
             )
             
             logger.info(
-                f"Collected event: agent_id={event.agent_id}, "
+                f"Collected event: principal_id={event.principal_id}, "
                 f"resource={event.resource_type}, quantity={event.quantity}, "
                 f"event_id={ledger_event.event_id}"
             )
@@ -216,21 +216,21 @@ class MeteringCollector:
             raise
         except Exception as e:
             logger.error(
-                f"Failed to collect event for agent {event.agent_id}: {e}",
+                f"Failed to collect event for agent {event.principal_id}: {e}",
                 exc_info=True
             )
             raise MeteringCollectionError(
-                f"Failed to collect event for agent {event.agent_id}: {e}"
+                f"Failed to collect event for agent {event.principal_id}: {e}"
             ) from e
 
     def _validate_event(self, event: MeteringEvent) -> None:
         """
         Validate event data.
         """
-        if not event.agent_id or not isinstance(event.agent_id, str):
-            logger.warning("Event validation failed: agent_id must be a non-empty string")
+        if not event.principal_id or not isinstance(event.principal_id, str):
+            logger.warning("Event validation failed: principal_id must be a non-empty string")
             raise InvalidMeteringEventError(
-                "agent_id must be a non-empty string"
+                "principal_id must be a non-empty string"
             )
         
         if not event.resource_type or not isinstance(event.resource_type, str):
@@ -263,7 +263,7 @@ class MeteringCollector:
             )
         
         logger.debug(
-            f"Validated event: agent_id={event.agent_id}, "
+            f"Validated event: principal_id={event.principal_id}, "
             f"resource={event.resource_type}"
         )
 

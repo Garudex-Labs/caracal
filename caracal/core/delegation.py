@@ -248,7 +248,7 @@ class DelegationTokenManager:
             ) from e
         
         logger.info(
-            f"Generated delegation token: source={parent_agent_id}, target={child_agent_id}, "
+            f"Generated delegation token: source={parent_principal_id}, target={child_principal_id}, "
             f"type={delegation_type}, {source_principal_type}→{target_principal_type}, "
             f"expires={expiration.isoformat()}"
         )
@@ -320,7 +320,7 @@ class DelegationTokenManager:
                     error=error,
                     category=ErrorCategory.DELEGATION,
                     operation="validate_token",
-                    agent_id=issuer_id,
+                    principal_id=issuer_id,
                     metadata={"has_metadata": issuer_agent.metadata is not None},
                     severity=ErrorSeverity.CRITICAL
                 )
@@ -343,7 +343,7 @@ class DelegationTokenManager:
                     error=error,
                     category=ErrorCategory.DELEGATION,
                     operation="validate_token",
-                    agent_id=issuer_id,
+                    principal_id=issuer_id,
                     severity=ErrorSeverity.CRITICAL
                 )
                 logger.error(f"Failed to load public key for agent {issuer_id} (fail-closed): {e}")
@@ -366,7 +366,7 @@ class DelegationTokenManager:
                     error=error,
                     category=ErrorCategory.DELEGATION,
                     operation="validate_token",
-                    agent_id=issuer_id,
+                    principal_id=issuer_id,
                     severity=ErrorSeverity.HIGH
                 )
                 logger.warning(f"Token expired (fail-closed): {e}")
@@ -379,7 +379,7 @@ class DelegationTokenManager:
                     error=error,
                     category=ErrorCategory.DELEGATION,
                     operation="validate_token",
-                    agent_id=issuer_id,
+                    principal_id=issuer_id,
                     severity=ErrorSeverity.CRITICAL
                 )
                 logger.error(f"Invalid token (fail-closed): {e}")
@@ -408,7 +408,7 @@ class DelegationTokenManager:
                     error=error,
                     category=ErrorCategory.DELEGATION,
                     operation="validate_token",
-                    agent_id=issuer_id,
+                    principal_id=issuer_id,
                     metadata={"payload_keys": list(payload.keys())},
                     severity=ErrorSeverity.CRITICAL
                 )
