@@ -28,6 +28,11 @@ from caracal.db import (
 logger = logging.getLogger(__name__)
 
 
+def _escape_alembic_url(url: str) -> str:
+    """Escape percent signs for ConfigParser interpolation used by Alembic."""
+    return url.replace("%", "%%")
+
+
 def get_database_config_from_context(ctx) -> DatabaseConfig:
     """
     Extract database configuration from CLI context.
@@ -125,11 +130,11 @@ def init_db(ctx):
         # Override database URL in alembic config
         alembic_config.set_main_option(
             "sqlalchemy.url",
-            db_config.get_connection_url()
+            _escape_alembic_url(db_config.get_connection_url())
         )
         
-        # Stamp the database with the current head revision
-        command.stamp(alembic_config, "head")
+        # Stamp with head and purge stale version rows from prior schema histories.
+        command.stamp(alembic_config, "head", purge=True)
         
         click.echo("✓ Alembic version table initialized")
         
@@ -189,7 +194,7 @@ def migrate(ctx, direction: str, revision: str, sql: bool):
         # Override database URL in alembic config
         alembic_config.set_main_option(
             "sqlalchemy.url",
-            db_config.get_connection_url()
+            _escape_alembic_url(db_config.get_connection_url())
         )
         
         # Determine target revision
@@ -308,7 +313,7 @@ def db_status(ctx, verbose: bool):
         # Override database URL
         alembic_config.set_main_option(
             "sqlalchemy.url",
-            db_config.get_connection_url()
+            _escape_alembic_url(db_config.get_connection_url())
         )
         
         # Get schema version info

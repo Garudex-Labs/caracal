@@ -33,7 +33,8 @@ target_metadata = Base.metadata
 # This allows overriding the alembic.ini setting
 database_url = os.environ.get("CARACAL_DATABASE_URL")
 if database_url:
-    config.set_main_option("sqlalchemy.url", database_url)
+    # Alembic's underlying ConfigParser treats '%' as interpolation markers.
+    config.set_main_option("sqlalchemy.url", database_url.replace("%", "%%"))
 
 # other values from the config, defined by the needs of env.py,
 # can be acquired:
