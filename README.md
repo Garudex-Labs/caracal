@@ -106,20 +106,22 @@ caracal-flow
 
 ### Local Bootstrap (uv + Infra)
 
-Use the included `Makefile` to install Python dependencies with `uv` and start local infrastructure (`postgres` + `redis`) before running the CLI/TUI.
+Use the included `Makefile` to install Python dependencies with `uv`, install `caracal`/`caracal-flow`, and start required infrastructure (`postgres` + `redis`) before running commands.
+
+`uv` is handled automatically by the setup command (installed if missing).
 
 ```bash
 # From Caracal/
-make bootstrap
+make setup-user
 
-# Launch the onboarding flow
-make flow
+# For contributors running tests/dev tools
+make setup-dev
 ```
 
-If `uv` is not installed yet:
-
+# Then use Caracal directly from your shell
 ```bash
-make install-uv
+caracal
+caracal-flow
 ```
 
 ---
