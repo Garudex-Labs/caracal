@@ -119,7 +119,7 @@ logging:
   file: ${LOG_FILE:~/.caracal/caracal.log}
 
 storage:
-  agent_registry: ${CARACAL_AGENT_REGISTRY:~/.caracal/agents.json}
+  principal_registry: ${CARACAL_AGENT_REGISTRY:~/.caracal/agents.json}
   policy_store: ${CARACAL_POLICY_STORE:~/.caracal/policies.json}
   ledger: ${CARACAL_LEDGER:~/.caracal/ledger.jsonl}
 

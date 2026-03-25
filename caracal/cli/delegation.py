@@ -14,35 +14,35 @@ from pathlib import Path
 import click
 
 from caracal.core.delegation import DelegationTokenManager
-from caracal.core.identity import AgentRegistry
+from caracal.core.identity import PrincipalRegistry
 from caracal.exceptions import CaracalError
 
 
-def get_agent_registry_with_delegation(config) -> tuple:
+def get_principal_registry_with_delegation(config) -> tuple:
     """
-    Create AgentRegistry and DelegationTokenManager instances from configuration.
+    Create PrincipalRegistry and DelegationTokenManager instances from configuration.
     
     Args:
         config: Configuration object
         
     Returns:
-        Tuple of (AgentRegistry, DelegationTokenManager)
+        Tuple of (PrincipalRegistry, DelegationTokenManager)
     """
-    registry_path = Path(config.storage.agent_registry).expanduser()
+    registry_path = Path(config.storage.principal_registry).expanduser()
     backup_count = config.storage.backup_count
     
     # Create delegation token manager first
-    delegation_manager = DelegationTokenManager(agent_registry=None)
+    delegation_manager = DelegationTokenManager(principal_registry=None)
     
     # Create agent registry with delegation manager
-    registry = AgentRegistry(
+    registry = PrincipalRegistry(
         str(registry_path),
         backup_count=backup_count,
         delegation_token_manager=delegation_manager
     )
     
     # Set registry reference in delegation manager
-    delegation_manager.agent_registry = registry
+    delegation_manager.principal_registry = registry
     
     return registry, delegation_manager
 
@@ -110,7 +110,7 @@ def generate(ctx, parent_id: str, child_id: str, authority_scope: float,
         cli_ctx = ctx.obj
         
         # Create registry and delegation manager
-        registry, delegation_manager = get_agent_registry_with_delegation(cli_ctx.config)
+        registry, delegation_manager = get_principal_registry_with_delegation(cli_ctx.config)
         
         # Parse allowed operations
         allowed_operations = list(operations) if operations else None
@@ -299,7 +299,7 @@ def validate(ctx, token: str):
         cli_ctx = ctx.obj
         
         # Create registry and delegation manager
-        registry, delegation_manager = get_agent_registry_with_delegation(cli_ctx.config)
+        registry, delegation_manager = get_principal_registry_with_delegation(cli_ctx.config)
         
         # Validate token
         claims = delegation_manager.validate_token(token)
@@ -360,12 +360,12 @@ def revoke(ctx, policy_id: str, confirm: bool):
         from pathlib import Path
         from caracal.core.policy import PolicyStore
         
-        registry_path = Path(cli_ctx.config.storage.agent_registry).expanduser()
+        registry_path = Path(cli_ctx.config.storage.principal_registry).expanduser()
         policy_path = Path(cli_ctx.config.storage.policy_store).expanduser()
         backup_count = cli_ctx.config.storage.backup_count
         
-        registry = AgentRegistry(str(registry_path), backup_count=backup_count)
-        policy_store = PolicyStore(str(policy_path), agent_registry=registry, backup_count=backup_count)
+        registry = PrincipalRegistry(str(registry_path), backup_count=backup_count)
+        policy_store = PolicyStore(str(policy_path), principal_registry=registry, backup_count=backup_count)
         
         # Get the policy to verify it exists and is delegated
         policy = None

@@ -34,7 +34,7 @@ def get_ledger_query(config) -> LedgerQuery:
     return LedgerQuery(str(ledger_path))
 
 
-def get_agent_registry(config):
+def get_principal_registry(config):
     """
     Create AgentRegistry instance from configuration.
     
@@ -45,7 +45,7 @@ def get_agent_registry(config):
         AgentRegistry instance
     """
     from caracal.core.identity import AgentRegistry
-    registry_path = Path(config.storage.agent_registry).expanduser()
+    registry_path = Path(config.storage.principal_registry).expanduser()
     return AgentRegistry(str(registry_path))
 
 
@@ -365,9 +365,9 @@ def summary(
         ledger_query = get_ledger_query(cli_ctx.config)
         
         # Get agent registry if needed for hierarchical features
-        agent_registry = None
+        principal_registry = None
         if aggregate_children or breakdown:
-            agent_registry = get_agent_registry(cli_ctx.config)
+            principal_registry = get_principal_registry(cli_ctx.config)
         
         if agent_id:
             # Single agent summary with optional hierarchical features
@@ -384,7 +384,7 @@ def summary(
                     agent_id=agent_id,
                     start_time=start_time,
                     end_time=end_time,
-                    agent_registry=agent_registry
+                    principal_registry=principal_registry
                 )
                 
                 if format.lower() == 'json':
@@ -441,7 +441,7 @@ def summary(
                     agent_id=agent_id,
                     start_time=start_time,
                     end_time=end_time,
-                    agent_registry=agent_registry
+                    principal_registry=principal_registry
                 )
                 
                 # Calculate totals

@@ -185,14 +185,14 @@ def sync():
 # 4. CORE WORKFLOWS (Agent, Policy, Delegation, Authority, Run, Audit)
 
 @cli.group()
-def agent():
-    """Manage AI agent identities."""
+def principal():
+    """Manage AI principal identities."""
     pass
 
-from caracal.cli.agent import get, list_agents, register
-agent.add_command(register)
-agent.add_command(list_agents, name='list')
-agent.add_command(get)
+from caracal.cli.principal import get, list_principals, register
+principal.add_command(register)
+principal.add_command(list_principals, name='list')
+principal.add_command(get)
 
 @cli.group()
 def policy():
