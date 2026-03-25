@@ -77,12 +77,12 @@ class TestPrincipalRegistry:
         assert registry.backup_count == 3
         assert len(registry.list_agents()) == 0
 
-    def test_register_agent(self, temp_dir):
+    def test_register_principal(self, temp_dir):
         """Test registering a new agent."""
         registry_path = temp_dir / "agents.json"
         registry = PrincipalRegistry(str(registry_path))
         
-        agent = registry.register_agent(
+        agent = registry.register_principal(
             name="test-agent",
             owner="test@example.com",
             metadata={"department": "AI"}
@@ -104,20 +104,20 @@ class TestPrincipalRegistry:
         assert agent.created_at.endswith("Z")
         assert "T" in agent.created_at
 
-    def test_register_agent_duplicate_name(self, temp_dir):
+    def test_register_principal_duplicate_name(self, temp_dir):
         """Test that duplicate agent names are rejected."""
         registry_path = temp_dir / "agents.json"
         registry = PrincipalRegistry(str(registry_path))
         
         # Register first agent
-        registry.register_agent(
+        registry.register_principal(
             name="test-agent",
             owner="user1@example.com"
         )
         
         # Attempt to register second agent with same name
         with pytest.raises(DuplicateAgentNameError) as exc_info:
-            registry.register_agent(
+            registry.register_principal(
                 name="test-agent",
                 owner="user2@example.com"
             )
@@ -130,7 +130,7 @@ class TestPrincipalRegistry:
         registry = PrincipalRegistry(str(registry_path))
         
         # Register agent
-        agent = registry.register_agent(
+        agent = registry.register_principal(
             name="test-agent",
             owner="test@example.com"
         )
@@ -156,11 +156,11 @@ class TestPrincipalRegistry:
         registry = PrincipalRegistry(str(registry_path))
         
         # Register multiple agents
-        agent1 = registry.register_agent(
+        agent1 = registry.register_principal(
             name="agent-1",
             owner="user1@example.com"
         )
-        agent2 = registry.register_agent(
+        agent2 = registry.register_principal(
             name="agent-2",
             owner="user2@example.com"
         )
@@ -179,7 +179,7 @@ class TestPrincipalRegistry:
         registry = PrincipalRegistry(str(registry_path))
         
         # Register agent
-        agent = registry.register_agent(
+        agent = registry.register_principal(
             name="test-agent",
             owner="test@example.com",
             metadata={"key": "value"}
@@ -204,7 +204,7 @@ class TestPrincipalRegistry:
         
         # Create first registry and register agent
         registry1 = PrincipalRegistry(str(registry_path))
-        agent = registry1.register_agent(
+        agent = registry1.register_principal(
             name="test-agent",
             owner="test@example.com"
         )
@@ -225,10 +225,10 @@ class TestPrincipalRegistry:
         registry = PrincipalRegistry(str(registry_path))
         
         # Register first agent (creates initial file)
-        registry.register_agent(name="agent-1", owner="user1@example.com")
+        registry.register_principal(name="agent-1", owner="user1@example.com")
         
         # Register second agent (should create backup)
-        registry.register_agent(name="agent-2", owner="user2@example.com")
+        registry.register_principal(name="agent-2", owner="user2@example.com")
         
         # Verify backup exists
         backup_path = Path(f"{registry_path}.bak.1")
@@ -241,7 +241,7 @@ class TestPrincipalRegistry:
         
         # Register multiple agents to trigger backup rotation
         for i in range(5):
-            registry.register_agent(
+            registry.register_principal(
                 name=f"agent-{i}",
                 owner=f"user{i}@example.com"
             )
@@ -262,7 +262,7 @@ class TestPrincipalRegistry:
         registry_path = temp_dir / "agents.json"
         registry = PrincipalRegistry(str(registry_path))
         
-        agent = registry.register_agent(
+        agent = registry.register_principal(
             name="test-agent",
             owner="test@example.com"
         )

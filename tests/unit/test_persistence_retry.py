@@ -41,7 +41,7 @@ class TestPrincipalRegistryRetry:
             
             with patch('builtins.open', side_effect=mock_open):
                 # This should succeed after retries
-                agent = registry.register_agent("test-agent", "owner@example.com")
+                agent = registry.register_principal("test-agent", "owner@example.com")
                 
                 assert agent.name == "test-agent"
                 assert call_count >= 3  # At least 3 attempts (2 failures + 1 success)
@@ -63,6 +63,6 @@ class TestPrincipalRegistryRetry:
             with patch('builtins.open', side_effect=mock_open):
                 # This should fail after max retries
                 with pytest.raises(FileWriteError):
-                    registry.register_agent("test-agent", "owner@example.com")
+                    registry.register_principal("test-agent", "owner@example.com")
 
 

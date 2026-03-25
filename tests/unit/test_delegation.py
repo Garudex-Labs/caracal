@@ -47,7 +47,7 @@ def delegation_manager(principal_registry):
 @pytest.fixture
 def parent_agent(principal_registry):
     """Create source agent with keys."""
-    return principal_registry.register_agent(
+    return principal_registry.register_principal(
         name="parent-agent",
         owner="parent@example.com",
         generate_keys=True
@@ -57,7 +57,7 @@ def parent_agent(principal_registry):
 @pytest.fixture
 def child_agent(principal_registry, parent_agent):
     """Create target agent with keys."""
-    return principal_registry.register_agent(
+    return principal_registry.register_principal(
         name="child-agent",
         owner="child@example.com",
         generate_keys=True
@@ -107,7 +107,7 @@ class TestDelegationTokenManager:
     def test_generate_token_no_private_key(self, principal_registry, delegation_manager, child_agent):
         """Test token generation fails when parent has no private key."""
         # Create parent without keys
-        parent_no_keys = principal_registry.register_agent(
+        parent_no_keys = principal_registry.register_principal(
             name="parent-no-keys",
             owner="parent@example.com",
             generate_keys=False
@@ -189,9 +189,9 @@ class TestDelegationTokenManager:
 class TestPrincipalRegistryDelegation:
     """Test PrincipalRegistry delegation token integration."""
     
-    def test_register_agent_generates_keys(self, principal_registry):
+    def test_register_principal_generates_keys(self, principal_registry):
         """Test agent registration generates key pair."""
-        agent = principal_registry.register_agent(
+        agent = principal_registry.register_principal(
             name="test-agent",
             owner="test@example.com",
             generate_keys=True
@@ -203,9 +203,9 @@ class TestPrincipalRegistryDelegation:
         assert agent.metadata["private_key_pem"].startswith("-----BEGIN PRIVATE KEY-----")
         assert agent.metadata["public_key_pem"].startswith("-----BEGIN PUBLIC KEY-----")
     
-    def test_register_agent_no_keys(self, principal_registry):
+    def test_register_principal_no_keys(self, principal_registry):
         """Test agent registration without key generation."""
-        agent = principal_registry.register_agent(
+        agent = principal_registry.register_principal(
             name="test-agent-no-keys",
             owner="test@example.com",
             generate_keys=False
