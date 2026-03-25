@@ -162,7 +162,7 @@ def generate(ctx, parent_id: str, child_id: str, authority_scope: float,
     help='Output format (default: table)',
 )
 @click.pass_context
-def list_delegations(ctx, agent_id: str, format: str):
+def list_delegations(ctx, principal_id: str, format: str):
     """
     List delegation relationships from the delegation graph.
     
@@ -194,12 +194,12 @@ def list_delegations(ctx, agent_id: str, format: str):
                 DelegationEdgeModel.revoked == False
             )
             
-            if agent_id:
+            if principal_id:
                 # Filter edges involving this agent (as source or target principal)
                 from caracal.db.models import ExecutionMandate
                 # Get mandates for this agent
                 mandates = session.query(ExecutionMandate.mandate_id).filter(
-                    ExecutionMandate.subject_id == agent_id
+                    ExecutionMandate.subject_id == principal_id
                 ).all()
                 mandate_ids = [m.mandate_id for m in mandates]
                 
@@ -209,7 +209,7 @@ def list_delegations(ctx, agent_id: str, format: str):
                         (DelegationEdgeModel.target_mandate_id.in_(mandate_ids))
                     )
                 else:
-                    click.echo(f"No mandates found for agent: {agent_id}")
+                    click.echo(f"No mandates found for agent: {principal_id}")
                     return
             
             edges = query.all()
@@ -382,7 +382,7 @@ def revoke(ctx, policy_id: str, confirm: bool):
             click.echo(f"Error: Policy {policy_id} is already inactive", err=True)
             sys.exit(1)
         
-        if policy.delegated_from_agent_id is None:
+        if policy.delegated_from_principal_id is None:
             click.echo(
                 f"Error: Policy {policy_id} is not a delegated policy",
                 err=True
@@ -390,15 +390,15 @@ def revoke(ctx, policy_id: str, confirm: bool):
             sys.exit(1)
         
         # Get agent details for display
-        agent = registry.get_principal(policy.agent_id)
-        parent = registry.get_principal(policy.delegated_from_agent_id)
+        agent = registry.get_principal(policy.principal_id)
+        parent = registry.get_principal(policy.delegated_from_principal_id)
         
         # Confirm revocation
         if not confirm:
             click.echo("Delegation Details:")
             click.echo("=" * 50)
-            click.echo(f"Target Agent:  {agent.name if agent else 'Unknown'} ({policy.agent_id})")
-            click.echo(f"Source Agent:  {parent.name if parent else 'Unknown'} ({policy.delegated_from_agent_id})")
+            click.echo(f"Target Agent:  {agent.name if agent else 'Unknown'} ({policy.principal_id})")
+            click.echo(f"Source Agent:  {parent.name if parent else 'Unknown'} ({policy.delegated_from_principal_id})")
             click.echo(f"Time Window:   {policy.time_window}")
             click.echo()
             

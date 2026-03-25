@@ -337,7 +337,7 @@ class LedgerBackfillManager:
         # Create canonical representation of event
         event_data = (
             f"{event.event_id}|"
-            f"{event.agent_id}|"
+            f"{event.principal_id}|"
             f"{event.timestamp.isoformat()}|"
             f"{event.resource_type}|"
             f"{event.quantity}"

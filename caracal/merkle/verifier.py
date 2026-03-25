@@ -207,7 +207,7 @@ class MerkleVerifier:
             for event in events:
                 # Hash event data (same as batcher does)
                 event_data = (
-                    f"{event.event_id}|{event.agent_id}|{event.timestamp.isoformat()}|"
+                    f"{event.event_id}|{event.principal_id}|{event.timestamp.isoformat()}|"
                     f"{event.resource_type}|{event.quantity}"
                 ).encode()
                 event_hash = hashlib.sha256(event_data).digest()
@@ -398,7 +398,7 @@ class MerkleVerifier:
             for i, event in enumerate(events):
                 # Compute event hash
                 event_data = (
-                    f"{event.event_id}|{event.agent_id}|{event.timestamp.isoformat()}|"
+                    f"{event.event_id}|{event.principal_id}|{event.timestamp.isoformat()}|"
                     f"{event.resource_type}|{event.quantity}"
                 ).encode()
                 event_hash = hashlib.sha256(event_data).digest()
@@ -423,7 +423,7 @@ class MerkleVerifier:
             # Verify proof
             # Note: We need to pass the original event data, not the hash
             event_data = (
-                f"{events[event_index].event_id}|{events[event_index].agent_id}|"
+                f"{events[event_index].event_id}|{events[event_index].principal_id}|"
                 f"{events[event_index].timestamp.isoformat()}|"
                 f"{events[event_index].resource_type}|{events[event_index].quantity}"
             ).encode()

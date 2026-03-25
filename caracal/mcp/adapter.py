@@ -36,10 +36,10 @@ class MCPContext:
     Context information for an MCP request.
     
     Attributes:
-        agent_id: ID of the agent making the request
+        principal_id: ID of the agent making the request
         metadata: Additional metadata from the MCP request
     """
-    agent_id: str
+    principal_id: str
     metadata: Dict[str, Any]
     
     def get(self, key: str, default: Any = None) -> Any:
@@ -146,15 +146,15 @@ class MCPAdapter:
         """
         try:
             # 1. Extract agent ID from MCP context
-            agent_id = self._extract_agent_id(mcp_context)
+            principal_id = self._extract_principal_id(mcp_context)
             logger.debug(
-                f"Intercepting MCP tool call: tool={tool_name}, agent={agent_id}"
+                f"Intercepting MCP tool call: tool={tool_name}, agent={principal_id}"
             )
             
             # 2. Extract Mandate ID
             mandate_id_str = mcp_context.get("mandate_id")
             if not mandate_id_str:
-                logger.warning(f"No mandate_id provided for agent {agent_id}, tool {tool_name}")
+                logger.warning(f"No mandate_id provided for agent {principal_id}, tool {tool_name}")
                 return MCPResult(
                     success=False,
                     result=None,
@@ -191,7 +191,7 @@ class MCPAdapter:
             
             if not decision.allowed:
                 logger.warning(
-                    f"Authority denied for agent {agent_id}: {decision.reason}"
+                    f"Authority denied for agent {principal_id}: {decision.reason}"
                 )
                 return MCPResult(
                     success=False,
@@ -200,7 +200,7 @@ class MCPAdapter:
                 )
             
             logger.info(
-                f"Authority granted for agent {agent_id}, tool {tool_name} (mandate {mandate_id})"
+                f"Authority granted for agent {principal_id}, tool {tool_name} (mandate {mandate_id})"
             )
             
             # 5. Forward to MCP server (simulated - actual forwarding in production)
@@ -219,7 +219,7 @@ class MCPAdapter:
             tags = ["mcp", "tool", tool_name]
             
             metering_event = MeteringEvent(
-                agent_id=agent_id,
+                principal_id=principal_id,
                 resource_type=f"mcp.tool.{tool_name}",
                 quantity=Decimal("1"),  # One tool invocation
                 timestamp=datetime.utcnow(),
@@ -237,7 +237,7 @@ class MCPAdapter:
             self.metering_collector.collect_event(metering_event)
             
             logger.info(
-                f"MCP tool call completed: tool={tool_name}, agent={agent_id}"
+                f"MCP tool call completed: tool={tool_name}, agent={principal_id}"
             )
             
             return MCPResult(
@@ -255,7 +255,7 @@ class MCPAdapter:
                 error=e,
                 category=ErrorCategory.UNKNOWN,
                 operation="intercept_tool_call",
-                agent_id=mcp_context.agent_id,
+                principal_id=mcp_context.principal_id,
                 metadata={
                     "tool_name": tool_name,
                     "tool_args": tool_args
@@ -266,7 +266,7 @@ class MCPAdapter:
             error_response = error_handler.create_error_response(context, include_details=False)
             
             logger.error(
-                f"Failed to intercept MCP tool call '{tool_name}' for agent {mcp_context.agent_id} (fail-closed): {e}",
+                f"Failed to intercept MCP tool call '{tool_name}' for agent {mcp_context.principal_id} (fail-closed): {e}",
                 exc_info=True
             )
             
@@ -305,15 +305,15 @@ class MCPAdapter:
         """
         try:
             # 1. Extract agent ID from MCP context
-            agent_id = self._extract_agent_id(mcp_context)
+            principal_id = self._extract_principal_id(mcp_context)
             logger.debug(
-                f"Intercepting MCP resource read: uri={resource_uri}, agent={agent_id}"
+                f"Intercepting MCP resource read: uri={resource_uri}, agent={principal_id}"
             )
             
             # 2. Extract Mandate ID
             mandate_id_str = mcp_context.get("mandate_id")
             if not mandate_id_str:
-                logger.warning(f"No mandate_id provided for agent {agent_id}, resource {resource_uri}")
+                logger.warning(f"No mandate_id provided for agent {principal_id}, resource {resource_uri}")
                 return MCPResult(
                     success=False,
                     result=None,
@@ -350,7 +350,7 @@ class MCPAdapter:
             
             if not decision.allowed:
                 logger.warning(
-                    f"Authority denied for agent {agent_id}: {decision.reason}"
+                    f"Authority denied for agent {principal_id}: {decision.reason}"
                 )
                 return MCPResult(
                     success=False,
@@ -359,7 +359,7 @@ class MCPAdapter:
                 )
             
             logger.info(
-                f"Authority granted for agent {agent_id}, resource {resource_uri} (mandate {mandate_id})"
+                f"Authority granted for agent {principal_id}, resource {resource_uri} (mandate {mandate_id})"
             )
             
             # 5. Fetch resource from MCP server
@@ -378,7 +378,7 @@ class MCPAdapter:
             tags = ["mcp", "resource", resource_type_tag]
             
             metering_event = MeteringEvent(
-                agent_id=agent_id,
+                principal_id=principal_id,
                 resource_type=f"mcp.resource.{resource_type_tag}",
                 quantity=Decimal(str(resource.size)),  # Size in bytes
                 timestamp=datetime.utcnow(),
@@ -397,7 +397,7 @@ class MCPAdapter:
             self.metering_collector.collect_event(metering_event)
             
             logger.info(
-                f"MCP resource read completed: uri={resource_uri}, agent={agent_id}, "
+                f"MCP resource read completed: uri={resource_uri}, agent={principal_id}, "
                 f"size={resource.size} bytes"
             )
             
@@ -417,7 +417,7 @@ class MCPAdapter:
                 error=e,
                 category=ErrorCategory.UNKNOWN,
                 operation="intercept_resource_read",
-                agent_id=mcp_context.agent_id,
+                principal_id=mcp_context.principal_id,
                 metadata={
                     "resource_uri": resource_uri
                 },
@@ -427,7 +427,7 @@ class MCPAdapter:
             error_response = error_handler.create_error_response(context, include_details=False)
             
             logger.error(
-                f"Failed to intercept MCP resource read '{resource_uri}' for agent {mcp_context.agent_id} (fail-closed): {e}",
+                f"Failed to intercept MCP resource read '{resource_uri}' for agent {mcp_context.principal_id} (fail-closed): {e}",
                 exc_info=True
             )
             
@@ -437,7 +437,7 @@ class MCPAdapter:
                 error=error_response.message
             )
 
-    def _extract_agent_id(self, mcp_context: MCPContext) -> str:
+    def _extract_principal_id(self, mcp_context: MCPContext) -> str:
         """
         Extract agent ID from MCP context.
         
@@ -450,20 +450,20 @@ class MCPAdapter:
         Raises:
             CaracalError: If agent ID not found in context (fail-closed)
         """
-        agent_id = mcp_context.agent_id
+        principal_id = mcp_context.principal_id
         
-        if not agent_id:
+        if not principal_id:
             # Try to get from metadata as fallback
-            agent_id = mcp_context.get("caracal_agent_id")
+            principal_id = mcp_context.get("caracal_principal_id")
             
-        if not agent_id:
+        if not principal_id:
             # Fail closed: deny operation if agent ID cannot be determined (Requirement 23.3)
             error_handler = get_error_handler("mcp-adapter")
             error = CaracalError("Agent ID not found in MCP context")
             error_handler.handle_error(
                 error=error,
                 category=ErrorCategory.VALIDATION,
-                operation="_extract_agent_id",
+                operation="_extract_principal_id",
                 metadata={"mcp_context_metadata": mcp_context.metadata},
                 severity=ErrorSeverity.CRITICAL
             )
@@ -471,7 +471,7 @@ class MCPAdapter:
             logger.error("Agent ID not found in MCP context (fail-closed)")
             raise error
         
-        return agent_id
+        return principal_id
 
     async def _get_http_client(self) -> httpx.AsyncClient:
         """Lazily create and return a shared httpx.AsyncClient."""
@@ -688,11 +688,11 @@ class MCPAdapter:
         
         Usage:
             @mcp_adapter.as_decorator()
-            async def my_mcp_tool(agent_id: str, mandate_id: str, **kwargs):
+            async def my_mcp_tool(principal_id: str, mandate_id: str, **kwargs):
                 # Tool implementation
                 return result
         
-        The decorated function must accept agent_id and mandate_id as arguments.
+        The decorated function must accept principal_id and mandate_id as arguments.
         
         Returns:
             Decorator function that wraps MCP tool functions
@@ -726,8 +726,8 @@ class MCPAdapter:
                 Raises:
                     CaracalError: If validation fails
                 """
-                # Extract agent_id and mandate_id from arguments
-                agent_id = None
+                # Extract principal_id and mandate_id from arguments
+                principal_id = None
                 mandate_id = None
                 tool_args = {}
                 
@@ -738,11 +738,11 @@ class MCPAdapter:
                 # Copy kwargs to modify
                 call_kwargs = kwargs.copy()
                 
-                # Extract agent_id
-                if 'agent_id' in call_kwargs:
-                    agent_id = call_kwargs.pop('agent_id')
-                elif len(args) > 0 and len(param_names) > 0 and param_names[0] == 'agent_id':
-                    agent_id = args[0]
+                # Extract principal_id
+                if 'principal_id' in call_kwargs:
+                    principal_id = call_kwargs.pop('principal_id')
+                elif len(args) > 0 and len(param_names) > 0 and param_names[0] == 'principal_id':
+                    principal_id = args[0]
                 
                 # Extract mandate_id
                 if 'mandate_id' in call_kwargs:
@@ -751,23 +751,23 @@ class MCPAdapter:
                 elif len(args) > 1 and len(param_names) > 1 and param_names[1] == 'mandate_id':
                     mandate_id = args[1]
                 
-                # If agent_id not found in args, try alternative names
-                if not agent_id:
-                    for key in ['agent', 'caracal_agent_id']:
+                # If principal_id not found in args, try alternative names
+                if not principal_id:
+                    for key in ['agent', 'caracal_principal_id']:
                         if key in call_kwargs:
-                            agent_id = call_kwargs.pop(key)
+                            principal_id = call_kwargs.pop(key)
                             break
                             
                 # Collect remaining args as tool_args
                 # This is a simplification; in reality we'd need to map remaining args to param names
                 tool_args = call_kwargs
                 
-                if not agent_id:
+                if not principal_id:
                     logger.error(
-                        f"agent_id not provided to decorated MCP tool '{func.__name__}'"
+                        f"principal_id not provided to decorated MCP tool '{func.__name__}'"
                     )
                     raise CaracalError(
-                        f"agent_id is required for MCP tool '{func.__name__}'."
+                        f"principal_id is required for MCP tool '{func.__name__}'."
                     )
                     
                 if not mandate_id:
@@ -783,7 +783,7 @@ class MCPAdapter:
                 
                 # Create MCP context
                 mcp_context = MCPContext(
-                    agent_id=str(agent_id),
+                    principal_id=str(principal_id),
                     metadata={
                         "tool_name": tool_name,
                         "decorator_mode": True,
@@ -792,7 +792,7 @@ class MCPAdapter:
                 )
                 
                 logger.debug(
-                    f"Decorator intercepting MCP tool: tool={tool_name}, agent={agent_id}"
+                    f"Decorator intercepting MCP tool: tool={tool_name}, agent={principal_id}"
                 )
                 
                 try:
@@ -815,12 +815,12 @@ class MCPAdapter:
                     
                     if not decision.allowed:
                         logger.warning(
-                            f"Authority denied for agent {agent_id}: {decision.reason}"
+                            f"Authority denied for agent {principal_id}: {decision.reason}"
                         )
                         raise CaracalError(f"Authority denied: {decision.reason}")
                     
                     logger.info(
-                        f"Authority granted for agent {agent_id}, tool {tool_name}"
+                        f"Authority granted for agent {principal_id}, tool {tool_name}"
                     )
                     
                     # 3. Execute the actual tool function
@@ -841,7 +841,7 @@ class MCPAdapter:
                     tags = ["mcp", "tool", tool_name, "decorator"]
                     
                     metering_event = MeteringEvent(
-                        agent_id=str(agent_id),
+                        principal_id=str(principal_id),
                         resource_type=f"mcp.tool.{tool_name}",
                         quantity=Decimal("1"),
                         timestamp=datetime.utcnow(),
@@ -858,7 +858,7 @@ class MCPAdapter:
                     self.metering_collector.collect_event(metering_event)
                     
                     logger.info(
-                        f"MCP tool call completed (decorated): tool={tool_name}, agent={agent_id}"
+                        f"MCP tool call completed (decorated): tool={tool_name}, agent={principal_id}"
                     )
                     
                     return tool_result
@@ -868,7 +868,7 @@ class MCPAdapter:
                 except Exception as e:
                     # Fail closed
                     logger.error(
-                        f"Failed to execute decorated tool '{tool_name}' for agent {agent_id}: {e}",
+                        f"Failed to execute decorated tool '{tool_name}' for agent {principal_id}: {e}",
                         exc_info=True
                     )
                     raise CaracalError(f"Tool execution failed: {e}")
