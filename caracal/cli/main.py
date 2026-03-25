@@ -634,14 +634,15 @@ except ImportError:
 @click.pass_context
 def provider(ctx):
     """
-    Manage AI provider configurations.
-    
-    Configure connections to AI providers (OpenAI, Anthropic, etc).
+    Manage external provider configurations.
+
+    Configure authenticated access to external services such as LLMs,
+    APIs, databases, infrastructure endpoints, and internal resources.
     
     \b
     Examples:
     caracal provider list               # List providers
-    caracal provider add <name> --api-key <key>  # Add provider
+    caracal provider add <name> --service-type api --auth-scheme api-key --credential <secret>
     caracal provider test <name>        # Test connection
     caracal provider remove <name>      # Remove provider
     """
