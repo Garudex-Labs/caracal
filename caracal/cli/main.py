@@ -26,11 +26,17 @@ from caracal.cli.context import CLIContext, pass_context
 def get_active_workspace() -> str:
     """Get the currently active workspace name."""
     try:
-        from caracal.deployment.config_manager import ConfigManager
-        config_mgr = ConfigManager()
-        workspaces = config_mgr.list_workspaces()
-        default_ws = next((ws for ws in workspaces if ws.is_default), None)
-        return default_ws.name if default_ws else "default"
+        from caracal.flow.workspace import WorkspaceManager
+        
+        # Get list of workspaces from registry
+        workspaces = WorkspaceManager.list_workspaces()
+        
+        if not workspaces:
+            return "default"
+        
+        # For now, return the first workspace
+        # TODO: Add default workspace tracking to workspaces.json
+        return workspaces[0]["name"]
     except Exception:
         return "default"
 
