@@ -127,11 +127,13 @@ def _has_encrypted_values(value: Any) -> bool:
 class StorageConfig:
     """Storage configuration for file paths."""
     
-    principal_registry: str
-    policy_store: str
-    ledger: str
     backup_dir: str
     backup_count: int = 3
+    
+    # Legacy fields (SQLite/JSON no longer supported, PostgreSQL only)
+    principal_registry: str = ""
+    policy_store: str = ""
+    ledger: str = ""
 
 
 @dataclass
@@ -356,11 +358,11 @@ def get_default_config() -> CaracalConfig:
     home_dir = str(ws.root)
     
     storage = StorageConfig(
-        principal_registry=str(ws.agents_path),
-        policy_store=str(ws.policies_path),
-        ledger=str(ws.ledger_path),
         backup_dir=str(ws.backups_dir),
         backup_count=3,
+        principal_registry="",
+        policy_store="",
+        ledger="",
     )
     
     defaults = DefaultsConfig(
@@ -490,19 +492,19 @@ def _build_config_from_dict(config_data: Dict[str, Any]) -> CaracalConfig:
     
     # Expand paths with user home directory
     storage = StorageConfig(
-        principal_registry=os.path.expanduser(
-            storage_data.get('principal_registry', default_config.storage.principal_registry)
-        ),
-        policy_store=os.path.expanduser(
-            storage_data.get('policy_store', default_config.storage.policy_store)
-        ),
-        ledger=os.path.expanduser(
-            storage_data.get('ledger', default_config.storage.ledger)
-        ),
         backup_dir=os.path.expanduser(
             storage_data.get('backup_dir', default_config.storage.backup_dir)
         ),
         backup_count=storage_data.get('backup_count', default_config.storage.backup_count),
+        principal_registry=os.path.expanduser(
+            storage_data.get('principal_registry', default_config.storage.principal_registry)
+        ) if storage_data.get('principal_registry') else "",
+        policy_store=os.path.expanduser(
+            storage_data.get('policy_store', default_config.storage.policy_store)
+        ) if storage_data.get('policy_store') else "",
+        ledger=os.path.expanduser(
+            storage_data.get('ledger', default_config.storage.ledger)
+        ) if storage_data.get('ledger') else "",
     )
     
     # Parse defaults configuration (optional)

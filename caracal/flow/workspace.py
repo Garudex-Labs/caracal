@@ -88,21 +88,6 @@ class WorkspaceManager:
         return self._root / "caracal.log"
 
     @property
-    def agents_path(self) -> Path:
-        """Path to ``agents.json``."""
-        return self._root / "agents.json"
-
-    @property
-    def policies_path(self) -> Path:
-        """Path to ``policies.json``."""
-        return self._root / "policies.json"
-
-    @property
-    def ledger_path(self) -> Path:
-        """Path to ``ledger.jsonl``."""
-        return self._root / "ledger.jsonl"
-
-    @property
     def master_password_path(self) -> Path:
         """Path to ``master_password``."""
         return self._root / "master_password"
