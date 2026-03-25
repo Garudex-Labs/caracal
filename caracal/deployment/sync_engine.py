@@ -32,8 +32,10 @@ from caracal.deployment.exceptions import (
     SyncConnectionError,
     SyncOperationError,
     SyncStateError,
+    VersionIncompatibleError,
     WorkspaceNotFoundError,
 )
+from caracal.deployment.version import CompatibilityLevel, get_version_checker
 
 logger = structlog.get_logger(__name__)
 
@@ -167,10 +169,15 @@ class SyncEngine:
         Raises:
             WorkspaceNotFoundError: If workspace doesn't exist
             SyncConnectionError: If connection fails
+            VersionIncompatibleError: If versions are incompatible
         """
         try:
             # Validate workspace exists
             config = self.config_manager.get_workspace_config(workspace)
+            
+            # TODO: Fetch remote version from enterprise instance
+            # For now, we'll skip version checking during connect
+            # Version checking will be performed during sync_now
             
             # Update workspace configuration with sync settings
             config.sync_enabled = True
@@ -304,6 +311,7 @@ class SyncEngine:
         Raises:
             WorkspaceNotFoundError: If workspace doesn't exist
             SyncOperationError: If sync fails
+            VersionIncompatibleError: If versions are incompatible
         """
         start_time = time.time()
         errors = []
@@ -333,6 +341,10 @@ class SyncEngine:
                     raise SyncStateError(
                         f"Sync metadata not found for workspace: {workspace}"
                     )
+                
+                # Check version compatibility if remote version is available
+                if sync_meta.remote_version:
+                    self._check_version_compatibility(sync_meta.remote_version)
                 
                 # Perform sync based on direction
                 if direction in (SyncDirection.PUSH, SyncDirection.BIDIRECTIONAL):
@@ -395,7 +407,7 @@ class SyncEngine:
             finally:
                 session.close()
                 
-        except (WorkspaceNotFoundError, SyncStateError):
+        except (WorkspaceNotFoundError, SyncStateError, VersionIncompatibleError):
             raise
         except Exception as e:
             # Update failure count
@@ -420,6 +432,42 @@ class SyncEngine:
                 error=str(e)
             )
             raise SyncOperationError(f"Sync failed: {e}") from e
+    
+    def _check_version_compatibility(self, remote_version: str) -> None:
+        """
+        Check version compatibility with remote instance.
+        
+        Args:
+            remote_version: Remote version string
+            
+        Raises:
+            VersionIncompatibleError: If versions are incompatible
+        """
+        version_checker = get_version_checker()
+        compatibility = version_checker.check_compatibility(remote_version)
+        
+        # Log compatibility status
+        logger.info(
+            "version_compatibility_check",
+            local_version=str(compatibility.local_version),
+            remote_version=str(compatibility.remote_version),
+            compatibility_level=compatibility.compatibility_level.value,
+            message=compatibility.message
+        )
+        
+        # Raise exception if incompatible
+        if compatibility.compatibility_level == CompatibilityLevel.INCOMPATIBLE:
+            raise VersionIncompatibleError(
+                f"{compatibility.message}\n\n{compatibility.upgrade_instructions}"
+            )
+        
+        # Log warning if minor version mismatch
+        if compatibility.compatibility_level == CompatibilityLevel.WARNING:
+            logger.warning(
+                "version_compatibility_warning",
+                message=compatibility.message,
+                upgrade_instructions=compatibility.upgrade_instructions
+            )
     
     def _push_changes(self, workspace: str, session: Session) -> Dict[str, Any]:
         """
@@ -521,6 +569,10 @@ class SyncEngine:
             # Get workspace configuration
             config = self.config_manager.get_workspace_config(workspace)
             
+            # Get local version from version checker
+            version_checker = get_version_checker()
+            local_version = str(version_checker.get_local_version())
+            
             # Get sync metadata from database
             session = self._get_db_session()
             try:
@@ -543,7 +595,7 @@ class SyncEngine:
                     sync_enabled=config.sync_enabled,
                     remote_url=config.sync_url,
                     remote_version=sync_meta.remote_version if sync_meta else None,
-                    local_version=self.LOCAL_VERSION,
+                    local_version=local_version,
                     consecutive_failures=sync_meta.consecutive_failures if sync_meta else 0,
                     last_error=sync_meta.last_error if sync_meta else None
                 )
