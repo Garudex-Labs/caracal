@@ -1,0 +1,1182 @@
+"""
+Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+Caracal, a product of Garudex Labs
+
+CLI commands for deployment architecture management.
+
+Provides command-line interface for mode, edition, workspace, sync, and provider management.
+"""
+
+import json
+import sys
+from datetime import datetime
+from pathlib import Path
+from typing import Optional
+
+import click
+from rich.console import Console
+from rich.table import Table
+from rich.progress import Progress, SpinnerColumn, TextColumn
+import structlog
+
+from caracal.deployment import (
+    Mode,
+    ModeManager,
+    Edition,
+    EditionManager,
+    ConfigManager,
+    WorkspaceConfig,
+    PostgresConfig,
+    SyncDirection,
+    ConflictStrategy,
+    MigrationManager,
+    get_version_checker,
+)
+from caracal.deployment.exceptions import (
+    ConfigurationError,
+    WorkspaceNotFoundError,
+    WorkspaceAlreadyExistsError,
+    InvalidWorkspaceNameError,
+)
+
+logger = structlog.get_logger(__name__)
+console = Console()
+
+
+# Output formatting helpers
+def format_output(data, format_type: str = "table"):
+    """Format output based on requested format."""
+    if format_type == "json":
+        click.echo(json.dumps(data, indent=2, default=str))
+    else:
+        # Default to table or text output
+        return data
+
+
+# Config command group
+@click.group(name="config")
+def config_group():
+    """Manage system configuration."""
+    pass
+
+
+@config_group.command(name="mode")
+@click.argument("mode_value", type=click.Choice(["dev", "user"], case_sensitive=False), required=False)
+@click.option("--format", "-f", type=click.Choice(["table", "json"]), default="table", help="Output format")
+def config_mode(mode_value: Optional[str], format: str):
+    """Get or set installation mode (dev or user)."""
+    try:
+        mode_manager = ModeManager()
+        
+        if mode_value:
+            # Set mode
+            mode = Mode(mode_value.lower())
+            mode_manager.set_mode(mode)
+            
+            if format == "json":
+                click.echo(json.dumps({"mode": mode.value, "status": "updated"}))
+            else:
+                console.print(f"[green]✓[/green] Mode set to: {mode.value}")
+        else:
+            # Get mode
+            mode = mode_manager.get_mode()
+            
+            if format == "json":
+                click.echo(json.dumps({"mode": mode.value}))
+            else:
+                console.print(f"Current mode: [bold]{mode.value}[/bold]")
+                
+    except Exception as e:
+        logger.error("config_mode_failed", error=str(e))
+        console.print(f"[red]Error:[/red] {e}", err=True)
+        sys.exit(1)
+
+
+@config_group.command(name="edition")
+@click.argument("edition_value", type=click.Choice(["opensource", "enterprise"], case_sensitive=False), required=False)
+@click.option("--gateway-url", help="Gateway URL (required for enterprise)")
+@click.option("--gateway-token", help="Gateway JWT token (optional)")
+@click.option("--format", "-f", type=click.Choice(["table", "json"]), default="table", help="Output format")
+def config_edition(edition_value: Optional[str], gateway_url: Optional[str], gateway_token: Optional[str], format: str):
+    """Get or set edition (opensource or enterprise)."""
+    try:
+        edition_manager = EditionManager()
+        
+        if edition_value:
+            # Set edition
+            edition = Edition(edition_value.lower())
+            
+            if edition == Edition.ENTERPRISE and not gateway_url:
+                console.print("[red]Error:[/red] --gateway-url is required for enterprise edition", err=True)
+                sys.exit(1)
+            
+            edition_manager.set_edition(edition, gateway_url, gateway_token)
+            
+            if format == "json":
+                result = {"edition": edition.value, "status": "updated"}
+                if gateway_url:
+                    result["gateway_url"] = gateway_url
+                click.echo(json.dumps(result))
+            else:
+                console.print(f"[green]✓[/green] Edition set to: {edition.value}")
+                if gateway_url:
+                    console.print(f"  Gateway URL: {gateway_url}")
+        else:
+            # Get edition
+            edition = edition_manager.get_edition()
+            
+            if format == "json":
+                result = {"edition": edition.value}
+                if edition == Edition.ENTERPRISE:
+                    gateway_url = edition_manager.get_gateway_url()
+                    if gateway_url:
+                        result["gateway_url"] = gateway_url
+                click.echo(json.dumps(result))
+            else:
+                console.print(f"Current edition: [bold]{edition.value}[/bold]")
+                if edition == Edition.ENTERPRISE:
+                    gateway_url = edition_manager.get_gateway_url()
+                    if gateway_url:
+                        console.print(f"  Gateway URL: {gateway_url}")
+                        
+    except Exception as e:
+        logger.error("config_edition_failed", error=str(e))
+        console.print(f"[red]Error:[/red] {e}", err=True)
+        sys.exit(1)
+
+
+@config_group.command(name="set")
+@click.argument("key")
+@click.argument("value")
+@click.option("--workspace", "-w", help="Workspace name (default: current workspace)")
+def config_set(key: str, value: str, workspace: Optional[str]):
+    """Set configuration value."""
+    try:
+        config_manager = ConfigManager()
+        
+        # For now, store as secret (can be extended for other config types)
+        if not workspace:
+            workspaces = config_manager.list_workspaces()
+            if not workspaces:
+                console.print("[red]Error:[/red] No workspaces found. Create one first.", err=True)
+                sys.exit(1)
+            workspace = workspaces[0]
+        
+        config_manager.store_secret(key, value, workspace)
+        console.print(f"[green]✓[/green] Configuration set: {key}")
+        
+    except Exception as e:
+        logger.error("config_set_failed", error=str(e))
+        console.print(f"[red]Error:[/red] {e}", err=True)
+        sys.exit(1)
+
+
+@config_group.command(name="get")
+@click.argument("key")
+@click.option("--workspace", "-w", help="Workspace name (default: current workspace)")
+@click.option("--format", "-f", type=click.Choice(["table", "json"]), default="table", help="Output format")
+def config_get(key: str, workspace: Optional[str], format: str):
+    """Get configuration value."""
+    try:
+        config_manager = ConfigManager()
+        
+        if not workspace:
+            workspaces = config_manager.list_workspaces()
+            if not workspaces:
+                console.print("[red]Error:[/red] No workspaces found. Create one first.", err=True)
+                sys.exit(1)
+            workspace = workspaces[0]
+        
+        value = config_manager.get_secret(key, workspace)
+        
+        if format == "json":
+            click.echo(json.dumps({key: value}))
+        else:
+            console.print(f"{key}: {value}")
+            
+    except Exception as e:
+        logger.error("config_get_failed", error=str(e))
+        console.print(f"[red]Error:[/red] {e}", err=True)
+        sys.exit(1)
+
+
+@config_group.command(name="list")
+@click.option("--workspace", "-w", help="Workspace name (default: current workspace)")
+@click.option("--format", "-f", type=click.Choice(["table", "json"]), default="table", help="Output format")
+def config_list(workspace: Optional[str], format: str):
+    """List configuration keys."""
+    try:
+        config_manager = ConfigManager()
+        
+        if not workspace:
+            workspaces = config_manager.list_workspaces()
+            if not workspaces:
+                console.print("[red]Error:[/red] No workspaces found. Create one first.", err=True)
+                sys.exit(1)
+            workspace = workspaces[0]
+        
+        # Load vault to get keys
+        vault = config_manager._load_vault(workspace)
+        keys = list(vault.keys())
+        
+        if format == "json":
+            click.echo(json.dumps({"workspace": workspace, "keys": keys}))
+        else:
+            console.print(f"Configuration keys in workspace '{workspace}':")
+            for key in keys:
+                console.print(f"  • {key}")
+                
+    except Exception as e:
+        logger.error("config_list_failed", error=str(e))
+        console.print(f"[red]Error:[/red] {e}", err=True)
+        sys.exit(1)
+
+
+# Workspace command group
+@click.group(name="workspace")
+def workspace_group():
+    """Manage workspaces."""
+    pass
+
+
+@workspace_group.command(name="create")
+@click.argument("name")
+@click.option("--template", "-t", type=click.Choice(["enterprise", "local-dev"]), help="Workspace template")
+@click.option("--format", "-f", type=click.Choice(["table", "json"]), default="table", help="Output format")
+def workspace_create(name: str, template: Optional[str], format: str):
+    """Create a new workspace."""
+    try:
+        config_manager = ConfigManager()
+        config_manager.create_workspace(name, template)
+        
+        if format == "json":
+            click.echo(json.dumps({"workspace": name, "status": "created", "template": template}))
+        else:
+            console.print(f"[green]✓[/green] Workspace created: {name}")
+            if template:
+                console.print(f"  Template: {template}")
+                
+    except WorkspaceAlreadyExistsError as e:
+        console.print(f"[red]Error:[/red] {e}", err=True)
+        sys.exit(1)
+    except Exception as e:
+        logger.error("workspace_create_failed", error=str(e))
+        console.print(f"[red]Error:[/red] {e}", err=True)
+        sys.exit(1)
+
+
+@workspace_group.command(name="switch")
+@click.argument("name")
+def workspace_switch(name: str):
+    """Switch active workspace."""
+    try:
+        config_manager = ConfigManager()
+        
+        # Verify workspace exists
+        if name not in config_manager.list_workspaces():
+            console.print(f"[red]Error:[/red] Workspace not found: {name}", err=True)
+            sys.exit(1)
+        
+        # Set as default workspace
+        config = config_manager.get_workspace_config(name)
+        
+        # Unset default on all other workspaces
+        for ws in config_manager.list_workspaces():
+            if ws != name:
+                ws_config = config_manager.get_workspace_config(ws)
+                if ws_config.is_default:
+                    ws_config.is_default = False
+                    config_manager.set_workspace_config(ws, ws_config)
+        
+        # Set as default
+        config.is_default = True
+        config_manager.set_workspace_config(name, config)
+        
+        console.print(f"[green]✓[/green] Switched to workspace: {name}")
+        
+    except Exception as e:
+        logger.error("workspace_switch_failed", error=str(e))
+        console.print(f"[red]Error:[/red] {e}", err=True)
+        sys.exit(1)
+
+
+@workspace_group.command(name="list")
+@click.option("--format", "-f", type=click.Choice(["table", "json"]), default="table", help="Output format")
+def workspace_list(format: str):
+    """List all workspaces."""
+    try:
+        config_manager = ConfigManager()
+        workspaces = config_manager.list_workspaces()
+        
+        if format == "json":
+            workspace_data = []
+            for ws in workspaces:
+                config = config_manager.get_workspace_config(ws)
+                workspace_data.append({
+                    "name": ws,
+                    "is_default": config.is_default,
+                    "sync_enabled": config.sync_enabled,
+                    "created_at": config.created_at.isoformat()
+                })
+            click.echo(json.dumps({"workspaces": workspace_data}))
+        else:
+            if not workspaces:
+                console.print("No workspaces found.")
+                return
+            
+            table = Table(title="Workspaces")
+            table.add_column("Name", style="cyan")
+            table.add_column("Default", style="green")
+            table.add_column("Sync", style="yellow")
+            table.add_column("Created", style="blue")
+            
+            for ws in workspaces:
+                config = config_manager.get_workspace_config(ws)
+                table.add_row(
+                    ws,
+                    "✓" if config.is_default else "",
+                    "✓" if config.sync_enabled else "",
+                    config.created_at.strftime("%Y-%m-%d %H:%M")
+                )
+            
+            console.print(table)
+            
+    except Exception as e:
+        logger.error("workspace_list_failed", error=str(e))
+        console.print(f"[red]Error:[/red] {e}", err=True)
+        sys.exit(1)
+
+
+@workspace_group.command(name="delete")
+@click.argument("name")
+@click.option("--backup/--no-backup", default=True, help="Create backup before deletion")
+@click.option("--force", "-f", is_flag=True, help="Skip confirmation")
+def workspace_delete(name: str, backup: bool, force: bool):
+    """Delete a workspace."""
+    try:
+        config_manager = ConfigManager()
+        
+        if not force:
+            if not click.confirm(f"Delete workspace '{name}'?"):
+                console.print("Cancelled.")
+                return
+        
+        config_manager.delete_workspace(name, backup)
+        console.print(f"[green]✓[/green] Workspace deleted: {name}")
+        if backup:
+            console.print("  Backup created in ~/.caracal/backups/")
+            
+    except WorkspaceNotFoundError as e:
+        console.print(f"[red]Error:[/red] {e}", err=True)
+        sys.exit(1)
+    except Exception as e:
+        logger.error("workspace_delete_failed", error=str(e))
+        console.print(f"[red]Error:[/red] {e}", err=True)
+        sys.exit(1)
+
+
+@workspace_group.command(name="export")
+@click.argument("name")
+@click.argument("path", type=click.Path(path_type=Path))
+@click.option("--include-secrets", is_flag=True, help="Include encrypted secrets in export")
+def workspace_export(name: str, path: Path, include_secrets: bool):
+    """Export workspace configuration."""
+    try:
+        config_manager = ConfigManager()
+        config_manager.export_workspace(name, path, include_secrets)
+        
+        console.print(f"[green]✓[/green] Workspace exported: {name}")
+        console.print(f"  Export file: {path}")
+        if include_secrets:
+            console.print("  [yellow]Warning:[/yellow] Secrets included in export")
+            
+    except WorkspaceNotFoundError as e:
+        console.print(f"[red]Error:[/red] {e}", err=True)
+        sys.exit(1)
+    except Exception as e:
+        logger.error("workspace_export_failed", error=str(e))
+        console.print(f"[red]Error:[/red] {e}", err=True)
+        sys.exit(1)
+
+
+@workspace_group.command(name="import")
+@click.argument("path", type=click.Path(exists=True, path_type=Path))
+@click.option("--name", help="Workspace name (uses name from export if not provided)")
+def workspace_import(path: Path, name: Optional[str]):
+    """Import workspace from backup."""
+    try:
+        config_manager = ConfigManager()
+        config_manager.import_workspace(path, name)
+        
+        console.print(f"[green]✓[/green] Workspace imported")
+        console.print(f"  Import file: {path}")
+        if name:
+            console.print(f"  Workspace name: {name}")
+            
+    except WorkspaceAlreadyExistsError as e:
+        console.print(f"[red]Error:[/red] {e}", err=True)
+        sys.exit(1)
+    except Exception as e:
+        logger.error("workspace_import_failed", error=str(e))
+        console.print(f"[red]Error:[/red] {e}", err=True)
+        sys.exit(1)
+
+
+# Sync command group
+@click.group(name="sync")
+def sync_group():
+    """Manage workspace synchronization."""
+    pass
+
+
+@sync_group.command(name="connect")
+@click.argument("url")
+@click.argument("token")
+@click.option("--workspace", "-w", help="Workspace name (default: current workspace)")
+def sync_connect(url: str, token: str, workspace: Optional[str]):
+    """Connect workspace to enterprise backend."""
+    try:
+        from caracal.deployment.sync_engine import SyncEngine
+        
+        config_manager = ConfigManager()
+        
+        if not workspace:
+            workspaces = config_manager.list_workspaces()
+            if not workspaces:
+                console.print("[red]Error:[/red] No workspaces found. Create one first.", err=True)
+                sys.exit(1)
+            workspace = workspaces[0]
+        
+        sync_engine = SyncEngine()
+        sync_engine.connect(workspace, url, token)
+        
+        console.print(f"[green]✓[/green] Workspace connected to enterprise")
+        console.print(f"  Workspace: {workspace}")
+        console.print(f"  URL: {url}")
+        
+    except Exception as e:
+        logger.error("sync_connect_failed", error=str(e))
+        console.print(f"[red]Error:[/red] {e}", err=True)
+        sys.exit(1)
+
+
+@sync_group.command(name="disconnect")
+@click.option("--workspace", "-w", help="Workspace name (default: current workspace)")
+def sync_disconnect(workspace: Optional[str]):
+    """Disconnect workspace from enterprise backend."""
+    try:
+        from caracal.deployment.sync_engine import SyncEngine
+        
+        config_manager = ConfigManager()
+        
+        if not workspace:
+            workspaces = config_manager.list_workspaces()
+            if not workspaces:
+                console.print("[red]Error:[/red] No workspaces found.", err=True)
+                sys.exit(1)
+            workspace = workspaces[0]
+        
+        sync_engine = SyncEngine()
+        sync_engine.disconnect(workspace)
+        
+        console.print(f"[green]✓[/green] Workspace disconnected from enterprise")
+        console.print(f"  Workspace: {workspace}")
+        
+    except Exception as e:
+        logger.error("sync_disconnect_failed", error=str(e))
+        console.print(f"[red]Error:[/red] {e}", err=True)
+        sys.exit(1)
+
+
+@sync_group.command(name="now")
+@click.option("--workspace", "-w", help="Workspace name (default: current workspace)")
+@click.option("--direction", "-d", type=click.Choice(["push", "pull", "both"]), default="both", help="Sync direction")
+@click.option("--format", "-f", type=click.Choice(["table", "json"]), default="table", help="Output format")
+def sync_now(workspace: Optional[str], direction: str, format: str):
+    """Perform immediate synchronization."""
+    try:
+        from caracal.deployment.sync_engine import SyncEngine, SyncDirection as SyncDir
+        
+        config_manager = ConfigManager()
+        
+        if not workspace:
+            workspaces = config_manager.list_workspaces()
+            if not workspaces:
+                console.print("[red]Error:[/red] No workspaces found.", err=True)
+                sys.exit(1)
+            workspace = workspaces[0]
+        
+        # Map direction
+        direction_map = {
+            "push": SyncDir.PUSH,
+            "pull": SyncDir.PULL,
+            "both": SyncDir.BIDIRECTIONAL
+        }
+        sync_direction = direction_map[direction]
+        
+        sync_engine = SyncEngine()
+        
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            console=console,
+        ) as progress:
+            task = progress.add_task(f"Syncing workspace '{workspace}'...", total=None)
+            result = sync_engine.sync_now(workspace, sync_direction)
+            progress.update(task, completed=True)
+        
+        if format == "json":
+            click.echo(json.dumps({
+                "workspace": workspace,
+                "success": result.success,
+                "uploaded": result.uploaded_count,
+                "downloaded": result.downloaded_count,
+                "conflicts": result.conflicts_count,
+                "duration_ms": result.duration_ms
+            }))
+        else:
+            if result.success:
+                console.print(f"[green]✓[/green] Sync completed successfully")
+            else:
+                console.print(f"[yellow]⚠[/yellow] Sync completed with errors")
+            
+            console.print(f"  Uploaded: {result.uploaded_count}")
+            console.print(f"  Downloaded: {result.downloaded_count}")
+            console.print(f"  Conflicts: {result.conflicts_count}")
+            console.print(f"  Duration: {result.duration_ms}ms")
+            
+            if result.errors:
+                console.print("\n[red]Errors:[/red]")
+                for error in result.errors:
+                    console.print(f"  • {error}")
+        
+    except Exception as e:
+        logger.error("sync_now_failed", error=str(e))
+        console.print(f"[red]Error:[/red] {e}", err=True)
+        sys.exit(1)
+
+
+@sync_group.command(name="status")
+@click.option("--workspace", "-w", help="Workspace name (default: current workspace)")
+@click.option("--format", "-f", type=click.Choice(["table", "json"]), default="table", help="Output format")
+def sync_status(workspace: Optional[str], format: str):
+    """Show sync status."""
+    try:
+        from caracal.deployment.sync_engine import SyncEngine
+        
+        config_manager = ConfigManager()
+        
+        if not workspace:
+            workspaces = config_manager.list_workspaces()
+            if not workspaces:
+                console.print("[red]Error:[/red] No workspaces found.", err=True)
+                sys.exit(1)
+            workspace = workspaces[0]
+        
+        sync_engine = SyncEngine()
+        status = sync_engine.get_sync_status(workspace)
+        
+        if format == "json":
+            click.echo(json.dumps({
+                "workspace": status.workspace,
+                "sync_enabled": status.sync_enabled,
+                "last_sync": status.last_sync_timestamp.isoformat() if status.last_sync_timestamp else None,
+                "pending_operations": len(status.pending_operations),
+                "conflicts": len(status.conflicts),
+                "remote_url": status.remote_url,
+                "local_version": status.local_version,
+                "remote_version": status.remote_version
+            }))
+        else:
+            console.print(f"Sync Status for workspace '{workspace}':")
+            console.print(f"  Sync enabled: {'✓' if status.sync_enabled else '✗'}")
+            if status.last_sync_timestamp:
+                console.print(f"  Last sync: {status.last_sync_timestamp.strftime('%Y-%m-%d %H:%M:%S')}")
+            else:
+                console.print(f"  Last sync: Never")
+            console.print(f"  Pending operations: {len(status.pending_operations)}")
+            console.print(f"  Conflicts: {len(status.conflicts)}")
+            if status.remote_url:
+                console.print(f"  Remote URL: {status.remote_url}")
+            console.print(f"  Local version: {status.local_version}")
+            if status.remote_version:
+                console.print(f"  Remote version: {status.remote_version}")
+        
+    except Exception as e:
+        logger.error("sync_status_failed", error=str(e))
+        console.print(f"[red]Error:[/red] {e}", err=True)
+        sys.exit(1)
+
+
+@sync_group.command(name="conflicts")
+@click.option("--workspace", "-w", help="Workspace name (default: current workspace)")
+@click.option("--format", "-f", type=click.Choice(["table", "json"]), default="table", help="Output format")
+def sync_conflicts(workspace: Optional[str], format: str):
+    """Show conflict history."""
+    try:
+        from caracal.deployment.sync_engine import SyncEngine
+        
+        config_manager = ConfigManager()
+        
+        if not workspace:
+            workspaces = config_manager.list_workspaces()
+            if not workspaces:
+                console.print("[red]Error:[/red] No workspaces found.", err=True)
+                sys.exit(1)
+            workspace = workspaces[0]
+        
+        sync_engine = SyncEngine()
+        conflicts = sync_engine.get_conflict_history(workspace, limit=100)
+        
+        if format == "json":
+            conflicts_data = []
+            for conflict in conflicts:
+                conflicts_data.append({
+                    "id": conflict.id,
+                    "entity_type": conflict.entity_type,
+                    "entity_id": conflict.entity_id,
+                    "local_timestamp": conflict.local_timestamp.isoformat(),
+                    "remote_timestamp": conflict.remote_timestamp.isoformat(),
+                    "resolved": conflict.resolution is not None
+                })
+            click.echo(json.dumps({"workspace": workspace, "conflicts": conflicts_data}))
+        else:
+            if not conflicts:
+                console.print(f"No conflicts found for workspace '{workspace}'")
+                return
+            
+            table = Table(title=f"Conflicts for workspace '{workspace}'")
+            table.add_column("Entity Type", style="cyan")
+            table.add_column("Entity ID", style="yellow")
+            table.add_column("Local Time", style="blue")
+            table.add_column("Remote Time", style="blue")
+            table.add_column("Resolved", style="green")
+            
+            for conflict in conflicts:
+                table.add_row(
+                    conflict.entity_type,
+                    conflict.entity_id[:8] + "...",
+                    conflict.local_timestamp.strftime("%Y-%m-%d %H:%M"),
+                    conflict.remote_timestamp.strftime("%Y-%m-%d %H:%M"),
+                    "✓" if conflict.resolution else "✗"
+                )
+            
+            console.print(table)
+        
+    except Exception as e:
+        logger.error("sync_conflicts_failed", error=str(e))
+        console.print(f"[red]Error:[/red] {e}", err=True)
+        sys.exit(1)
+
+
+@sync_group.command(name="auto-enable")
+@click.option("--workspace", "-w", help="Workspace name (default: current workspace)")
+@click.option("--interval", "-i", type=int, default=300, help="Sync interval in seconds (default: 300)")
+def sync_auto_enable(workspace: Optional[str], interval: int):
+    """Enable automatic background sync."""
+    try:
+        from caracal.deployment.sync_engine import SyncEngine
+        
+        config_manager = ConfigManager()
+        
+        if not workspace:
+            workspaces = config_manager.list_workspaces()
+            if not workspaces:
+                console.print("[red]Error:[/red] No workspaces found.", err=True)
+                sys.exit(1)
+            workspace = workspaces[0]
+        
+        sync_engine = SyncEngine()
+        sync_engine.enable_auto_sync(workspace, interval)
+        
+        console.print(f"[green]✓[/green] Auto-sync enabled")
+        console.print(f"  Workspace: {workspace}")
+        console.print(f"  Interval: {interval} seconds")
+        
+    except Exception as e:
+        logger.error("sync_auto_enable_failed", error=str(e))
+        console.print(f"[red]Error:[/red] {e}", err=True)
+        sys.exit(1)
+
+
+@sync_group.command(name="auto-disable")
+@click.option("--workspace", "-w", help="Workspace name (default: current workspace)")
+def sync_auto_disable(workspace: Optional[str]):
+    """Disable automatic background sync."""
+    try:
+        from caracal.deployment.sync_engine import SyncEngine
+        
+        config_manager = ConfigManager()
+        
+        if not workspace:
+            workspaces = config_manager.list_workspaces()
+            if not workspaces:
+                console.print("[red]Error:[/red] No workspaces found.", err=True)
+                sys.exit(1)
+            workspace = workspaces[0]
+        
+        sync_engine = SyncEngine()
+        sync_engine.disable_auto_sync(workspace)
+        
+        console.print(f"[green]✓[/green] Auto-sync disabled")
+        console.print(f"  Workspace: {workspace}")
+        
+    except Exception as e:
+        logger.error("sync_auto_disable_failed", error=str(e))
+        console.print(f"[red]Error:[/red] {e}", err=True)
+        sys.exit(1)
+
+
+# Provider command group
+@click.group(name="provider")
+def provider_group():
+    """Manage AI provider configurations."""
+    pass
+
+
+@provider_group.command(name="add")
+@click.argument("name")
+@click.option("--api-key", required=True, help="Provider API key")
+@click.option("--workspace", "-w", help="Workspace name (default: current workspace)")
+def provider_add(name: str, api_key: str, workspace: Optional[str]):
+    """Add a provider configuration."""
+    try:
+        config_manager = ConfigManager()
+        
+        if not workspace:
+            workspaces = config_manager.list_workspaces()
+            if not workspaces:
+                console.print("[red]Error:[/red] No workspaces found. Create one first.", err=True)
+                sys.exit(1)
+            workspace = workspaces[0]
+        
+        # Store API key as secret
+        key_name = f"provider_{name}_api_key"
+        config_manager.store_secret(key_name, api_key, workspace)
+        
+        console.print(f"[green]✓[/green] Provider added: {name}")
+        console.print(f"  Workspace: {workspace}")
+        
+    except Exception as e:
+        logger.error("provider_add_failed", error=str(e))
+        console.print(f"[red]Error:[/red] {e}", err=True)
+        sys.exit(1)
+
+
+@provider_group.command(name="list")
+@click.option("--workspace", "-w", help="Workspace name (default: current workspace)")
+@click.option("--format", "-f", type=click.Choice(["table", "json"]), default="table", help="Output format")
+def provider_list(workspace: Optional[str], format: str):
+    """List configured providers."""
+    try:
+        config_manager = ConfigManager()
+        edition_manager = EditionManager()
+        
+        if not workspace:
+            workspaces = config_manager.list_workspaces()
+            if not workspaces:
+                console.print("[red]Error:[/red] No workspaces found.", err=True)
+                sys.exit(1)
+            workspace = workspaces[0]
+        
+        # Get provider client based on edition
+        provider_client = edition_manager.get_provider_client()
+        
+        # List providers
+        providers = provider_client.list_providers()
+        
+        if format == "json":
+            providers_data = []
+            for provider in providers:
+                providers_data.append({
+                    "name": provider.name,
+                    "type": provider.provider_type,
+                    "status": provider.status
+                })
+            click.echo(json.dumps({"workspace": workspace, "providers": providers_data}))
+        else:
+            if not providers:
+                console.print(f"No providers configured for workspace '{workspace}'")
+                return
+            
+            table = Table(title=f"Providers for workspace '{workspace}'")
+            table.add_column("Name", style="cyan")
+            table.add_column("Type", style="yellow")
+            table.add_column("Status", style="green")
+            
+            for provider in providers:
+                table.add_row(
+                    provider.name,
+                    provider.provider_type,
+                    provider.status
+                )
+            
+            console.print(table)
+        
+    except Exception as e:
+        logger.error("provider_list_failed", error=str(e))
+        console.print(f"[red]Error:[/red] {e}", err=True)
+        sys.exit(1)
+
+
+@provider_group.command(name="test")
+@click.argument("name")
+@click.option("--workspace", "-w", help="Workspace name (default: current workspace)")
+def provider_test(name: str, workspace: Optional[str]):
+    """Test provider connectivity."""
+    try:
+        edition_manager = EditionManager()
+        
+        # Get provider client based on edition
+        provider_client = edition_manager.get_provider_client()
+        
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            console=console,
+        ) as progress:
+            task = progress.add_task(f"Testing provider '{name}'...", total=None)
+            health = provider_client.test_provider(name)
+            progress.update(task, completed=True)
+        
+        if health.is_healthy:
+            console.print(f"[green]✓[/green] Provider '{name}' is healthy")
+        else:
+            console.print(f"[red]✗[/red] Provider '{name}' is unhealthy")
+            console.print(f"  Error: {health.error_message}")
+        
+    except Exception as e:
+        logger.error("provider_test_failed", error=str(e))
+        console.print(f"[red]Error:[/red] {e}", err=True)
+        sys.exit(1)
+
+
+@provider_group.command(name="remove")
+@click.argument("name")
+@click.option("--workspace", "-w", help="Workspace name (default: current workspace)")
+@click.option("--force", "-f", is_flag=True, help="Skip confirmation")
+def provider_remove(name: str, workspace: Optional[str], force: bool):
+    """Remove a provider configuration."""
+    try:
+        config_manager = ConfigManager()
+        
+        if not workspace:
+            workspaces = config_manager.list_workspaces()
+            if not workspaces:
+                console.print("[red]Error:[/red] No workspaces found.", err=True)
+                sys.exit(1)
+            workspace = workspaces[0]
+        
+        if not force:
+            if not click.confirm(f"Remove provider '{name}'?"):
+                console.print("Cancelled.")
+                return
+        
+        # Remove API key secret
+        key_name = f"provider_{name}_api_key"
+        vault = config_manager._load_vault(workspace)
+        if key_name in vault:
+            del vault[key_name]
+            config_manager._save_vault(workspace, vault)
+        
+        console.print(f"[green]✓[/green] Provider removed: {name}")
+        
+    except Exception as e:
+        logger.error("provider_remove_failed", error=str(e))
+        console.print(f"[red]Error:[/red] {e}", err=True)
+        sys.exit(1)
+
+
+# Migration and maintenance commands
+@click.command(name="migrate")
+@click.option("--from", "from_type", type=click.Choice(["repo"]), default="repo", help="Migration source type")
+@click.option("--backup/--no-backup", default=True, help="Create backup before migration")
+@click.option("--force", "-f", is_flag=True, help="Skip confirmation")
+def migrate_command(from_type: str, backup: bool, force: bool):
+    """Migrate from repository-based installation to package-based."""
+    try:
+        if not force:
+            console.print("[yellow]Warning:[/yellow] This will migrate your Caracal installation.")
+            console.print("A backup will be created before migration.")
+            if not click.confirm("Continue with migration?"):
+                console.print("Cancelled.")
+                return
+        
+        migration_manager = MigrationManager()
+        
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            console=console,
+        ) as progress:
+            task = progress.add_task("Migrating installation...", total=None)
+            
+            if from_type == "repo":
+                result = migration_manager.migrate_from_repository(backup=backup)
+            
+            progress.update(task, completed=True)
+        
+        if result.success:
+            console.print(f"[green]✓[/green] Migration completed successfully")
+            if backup:
+                console.print(f"  Backup created at: {result.backup_path}")
+        else:
+            console.print(f"[red]✗[/red] Migration failed")
+            for error in result.errors:
+                console.print(f"  • {error}")
+        
+    except Exception as e:
+        logger.error("migrate_failed", error=str(e))
+        console.print(f"[red]Error:[/red] {e}", err=True)
+        sys.exit(1)
+
+
+@click.command(name="doctor")
+@click.option("--format", "-f", type=click.Choice(["table", "json"]), default="table", help="Output format")
+def doctor_command(format: str):
+    """Run system health checks."""
+    try:
+        from caracal.deployment.sync_engine import SyncEngine
+        
+        config_manager = ConfigManager()
+        mode_manager = ModeManager()
+        edition_manager = EditionManager()
+        
+        checks = []
+        
+        # Check 1: Configuration directory
+        try:
+            if config_manager.CONFIG_DIR.exists():
+                checks.append({
+                    "name": "Configuration Directory",
+                    "status": "pass",
+                    "message": f"Found at {config_manager.CONFIG_DIR}"
+                })
+            else:
+                checks.append({
+                    "name": "Configuration Directory",
+                    "status": "fail",
+                    "message": "Not found"
+                })
+        except Exception as e:
+            checks.append({
+                "name": "Configuration Directory",
+                "status": "fail",
+                "message": str(e)
+            })
+        
+        # Check 2: Mode configuration
+        try:
+            mode = mode_manager.get_mode()
+            checks.append({
+                "name": "Mode Configuration",
+                "status": "pass",
+                "message": f"Mode: {mode.value}"
+            })
+        except Exception as e:
+            checks.append({
+                "name": "Mode Configuration",
+                "status": "fail",
+                "message": str(e)
+            })
+        
+        # Check 3: Edition configuration
+        try:
+            edition = edition_manager.get_edition()
+            checks.append({
+                "name": "Edition Configuration",
+                "status": "pass",
+                "message": f"Edition: {edition.value}"
+            })
+        except Exception as e:
+            checks.append({
+                "name": "Edition Configuration",
+                "status": "fail",
+                "message": str(e)
+            })
+        
+        # Check 4: Workspaces
+        try:
+            workspaces = config_manager.list_workspaces()
+            if workspaces:
+                checks.append({
+                    "name": "Workspaces",
+                    "status": "pass",
+                    "message": f"Found {len(workspaces)} workspace(s)"
+                })
+            else:
+                checks.append({
+                    "name": "Workspaces",
+                    "status": "warn",
+                    "message": "No workspaces found"
+                })
+        except Exception as e:
+            checks.append({
+                "name": "Workspaces",
+                "status": "fail",
+                "message": str(e)
+            })
+        
+        # Check 5: PostgreSQL configuration
+        try:
+            postgres_config = config_manager.get_postgres_config()
+            if postgres_config:
+                checks.append({
+                    "name": "PostgreSQL Configuration",
+                    "status": "pass",
+                    "message": f"Configured: {postgres_config.host}:{postgres_config.port}"
+                })
+            else:
+                checks.append({
+                    "name": "PostgreSQL Configuration",
+                    "status": "warn",
+                    "message": "Not configured"
+                })
+        except Exception as e:
+            checks.append({
+                "name": "PostgreSQL Configuration",
+                "status": "fail",
+                "message": str(e)
+            })
+        
+        # Output results
+        if format == "json":
+            overall_status = "healthy"
+            if any(c["status"] == "fail" for c in checks):
+                overall_status = "unhealthy"
+            elif any(c["status"] == "warn" for c in checks):
+                overall_status = "degraded"
+            
+            click.echo(json.dumps({
+                "overall_status": overall_status,
+                "checks": checks,
+                "timestamp": datetime.now().isoformat()
+            }))
+        else:
+            console.print("\n[bold]System Health Check[/bold]\n")
+            
+            for check in checks:
+                status_icon = {
+                    "pass": "[green]✓[/green]",
+                    "warn": "[yellow]⚠[/yellow]",
+                    "fail": "[red]✗[/red]"
+                }[check["status"]]
+                
+                console.print(f"{status_icon} {check['name']}")
+                console.print(f"  {check['message']}\n")
+            
+            # Overall status
+            if any(c["status"] == "fail" for c in checks):
+                console.print("[red]Overall Status: Unhealthy[/red]")
+            elif any(c["status"] == "warn" for c in checks):
+                console.print("[yellow]Overall Status: Degraded[/yellow]")
+            else:
+                console.print("[green]Overall Status: Healthy[/green]")
+        
+    except Exception as e:
+        logger.error("doctor_failed", error=str(e))
+        console.print(f"[red]Error:[/red] {e}", err=True)
+        sys.exit(1)
+
+
+@click.command(name="version")
+@click.option("--check-updates", is_flag=True, help="Check for available updates")
+@click.option("--format", "-f", type=click.Choice(["table", "json"]), default="table", help="Output format")
+def version_command(check_updates: bool, format: str):
+    """Show version information."""
+    try:
+        from caracal._version import __version__
+        
+        version_checker = get_version_checker()
+        local_version = version_checker.parse_version(__version__)
+        
+        if format == "json":
+            result = {
+                "local_version": str(local_version),
+                "major": local_version.major,
+                "minor": local_version.minor,
+                "patch": local_version.patch
+            }
+            
+            if check_updates:
+                # Check for updates (placeholder - would need actual implementation)
+                result["updates_available"] = False
+            
+            click.echo(json.dumps(result))
+        else:
+            console.print(f"Caracal version: [bold]{local_version}[/bold]")
+            
+            if check_updates:
+                console.print("\n[yellow]Note:[/yellow] Update checking not yet implemented")
+        
+    except Exception as e:
+        logger.error("version_failed", error=str(e))
+        console.print(f"[red]Error:[/red] {e}", err=True)
+        sys.exit(1)
+
+
+
+@click.command(name="completion")
+@click.argument("shell", type=click.Choice(["bash", "zsh", "fish"]))
+def completion_command(shell: str):
+    """Generate shell completion script."""
+    try:
+        # Generate completion script based on shell type
+        if shell == "bash":
+            script = """
+# Caracal bash completion
+_caracal_completion() {
+    local IFS=$'\\n'
+    COMPREPLY=( $( env COMP_WORDS="${COMP_WORDS[*]}" \\
+                   COMP_CWORD=$COMP_CWORD \\
+                   _CARACAL_COMPLETE=complete $1 ) )
+    return 0
+}
+
+complete -F _caracal_completion -o default caracal
+"""
+        elif shell == "zsh":
+            script = """
+# Caracal zsh completion
+#compdef caracal
+
+_caracal_completion() {
+    eval $(env COMMANDLINE="${words[1,$CURRENT]}" _CARACAL_COMPLETE=complete-zsh caracal)
+}
+
+if [[ "$(basename -- ${(%):-%x})" != "_caracal" ]]; then
+    compdef _caracal_completion caracal
+fi
+"""
+        elif shell == "fish":
+            script = """
+# Caracal fish completion
+function __fish_caracal_complete
+    set -lx _CARACAL_COMPLETE fish_complete
+    set -lx COMP_WORDS (commandline -opc) (commandline -ct)
+    caracal
+end
+
+complete --no-files --command caracal --arguments '(__fish_caracal_complete)'
+"""
+        else:
+            console.print(f"[red]Error:[/red] Unsupported shell: {shell}", err=True)
+            sys.exit(1)
+        
+        click.echo(script)
+        
+        # Print installation instructions
+        console.print(f"\n[green]To enable completion, add this to your {shell} config:[/green]", err=True)
+        if shell == "bash":
+            console.print("  eval \"$(caracal completion bash)\"", err=True)
+            console.print("  # Or add to ~/.bashrc", err=True)
+        elif shell == "zsh":
+            console.print("  eval \"$(caracal completion zsh)\"", err=True)
+            console.print("  # Or add to ~/.zshrc", err=True)
+        elif shell == "fish":
+            console.print("  caracal completion fish > ~/.config/fish/completions/caracal.fish", err=True)
+        
+    except Exception as e:
+        logger.error("completion_failed", error=str(e))
+        console.print(f"[red]Error:[/red] {e}", err=True)
+        sys.exit(1)

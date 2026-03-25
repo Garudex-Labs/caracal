@@ -345,6 +345,36 @@ try:
 except ImportError:
     pass
 
+# 7. DEPLOYMENT ARCHITECTURE COMMANDS
+# Add new deployment architecture command groups
+try:
+    from caracal.cli.deployment_cli import (
+        config_group,
+        workspace_group,
+        sync_group,
+        provider_group,
+        migrate_command,
+        doctor_command,
+        version_command,
+        completion_command,
+    )
+    
+    # Add command groups to main CLI
+    cli.add_command(config_group)
+    cli.add_command(workspace_group)
+    cli.add_command(sync_group)
+    cli.add_command(provider_group)
+    
+    # Add standalone commands
+    cli.add_command(migrate_command)
+    cli.add_command(doctor_command)
+    cli.add_command(version_command)
+    cli.add_command(completion_command)
+except ImportError as e:
+    # Deployment CLI not available, skip
+    logger.debug("deployment_cli_not_available", error=str(e))
+    pass
+
 
 # Deprecated init is removed (merged into setup init)
 
