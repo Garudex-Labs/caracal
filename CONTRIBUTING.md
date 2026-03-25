@@ -49,4 +49,4 @@ mypy caracal/
 3.  Ensure all tests and linting checks pass locally.
 4.  Submit a Pull Request and address any review comments.
 
-Thank you for helping build the economic infrastructure for the agentic web.
+Thank you for helping build pre-execution authority enforcement for the agentic web.

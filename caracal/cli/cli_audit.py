@@ -418,7 +418,7 @@ def audit_workflow(ctx: click.Context, strict: bool, output_format: str, execute
         "caracal system db init-db",
         "caracal agent register --name ops-agent --owner ops@example.com",
         "caracal policy create --principal-id <principal-uuid> --max-validity-seconds 3600 --resource-pattern 'api:*' --action 'api_call'",
-        "caracal delegation generate --parent-id <parent-uuid> --child-id <child-uuid> --authority-scope 100",
+        "caracal delegation generate --source-id <parent-uuid> --target-id <child-uuid> --authority-scope 100",
         "caracal authority issue --issuer-id <issuer-uuid> --subject-id <subject-uuid> --resource-scope 'api:*' --action-scope 'api_call' --validity-seconds 3600",
         "caracal authority validate --mandate-id <mandate-uuid> --action api_call --resource api:openai:gpt-4",
         "caracal audit export",

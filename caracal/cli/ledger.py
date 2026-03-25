@@ -411,13 +411,13 @@ def summary(
                     def print_breakdown(data, indent=0):
                         """Recursively print breakdown with indentation"""
                         indent_str = "  " * indent
-                        agent_name = data.get("agent_name", data["principal_id"])
+                        principal_name = data.get("principal_name", data["principal_id"])
                         
                         # Print agent line
                         if indent == 0:
-                            click.echo(f"{indent_str}Agent: {agent_name} ({data['principal_id']})")
+                            click.echo(f"{indent_str}Principal: {principal_name} ({data['principal_id']})")
                         else:
-                            click.echo(f"{indent_str}└─ {agent_name} ({data['principal_id']})")
+                            click.echo(f"{indent_str}└─ {principal_name} ({data['principal_id']})")
                         
                         click.echo(f"{indent_str}   Own Usage: {data['usage']} USD")
                         
