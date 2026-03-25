@@ -552,3 +552,189 @@ class GatewayProvider(Base):
         return f"<GatewayProvider(provider_id={self.provider_id!r}, base_url={self.base_url!r}, enabled={self.enabled})>"
 
 
+
+
+# ============================================================================
+# Sync State Management Models
+# ============================================================================
+
+
+class SyncOperation(Base):
+    """
+    Queued sync operation for workspace synchronization.
+    
+    Stores operations that need to be synchronized between local and
+    enterprise instances. Operations are queued when offline and processed
+    when connectivity is restored.
+    
+    """
+    
+    __tablename__ = "sync_operations"
+    
+    # Primary key
+    operation_id = Column(PG_UUID(as_uuid=True), primary_key=True, default=uuid4)
+    
+    # Workspace identification
+    workspace = Column(String(64), nullable=False, index=True)
+    
+    # Operation details
+    operation_type = Column(String(20), nullable=False, index=True)  # create, update, delete
+    entity_type = Column(String(100), nullable=False, index=True)
+    entity_id = Column(String(255), nullable=False, index=True)
+    
+    # Operation data (JSONB for flexibility)
+    operation_data = Column(JSONB, nullable=False)
+    
+    # Timing
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow, index=True)
+    scheduled_at = Column(DateTime, nullable=True, index=True)  # For delayed operations
+    
+    # Retry tracking
+    retry_count = Column(Integer, nullable=False, default=0)
+    last_retry_at = Column(DateTime, nullable=True)
+    last_error = Column(String(2000), nullable=True)
+    max_retries = Column(Integer, nullable=False, default=5)
+    
+    # Status
+    status = Column(
+        String(20), 
+        nullable=False, 
+        default="pending", 
+        index=True
+    )  # pending, processing, completed, failed
+    completed_at = Column(DateTime, nullable=True)
+    
+    # Metadata
+    operation_metadata = Column("metadata", JSONB, nullable=True)
+    correlation_id = Column(String(255), nullable=True, index=True)
+    
+    # Composite indexes for efficient querying
+    __table_args__ = (
+        Index("ix_sync_operations_workspace_status", "workspace", "status"),
+        Index("ix_sync_operations_workspace_created", "workspace", "created_at"),
+        Index("ix_sync_operations_entity", "entity_type", "entity_id"),
+    )
+    
+    def __repr__(self):
+        return (
+            f"<SyncOperation(operation_id={self.operation_id}, "
+            f"workspace={self.workspace}, type={self.operation_type}, "
+            f"status={self.status})>"
+        )
+
+
+class SyncConflict(Base):
+    """
+    Detected conflict during workspace synchronization.
+    
+    Stores conflicts that occur when the same entity is modified on both
+    local and enterprise instances. Tracks resolution status and strategy.
+    
+    """
+    
+    __tablename__ = "sync_conflicts"
+    
+    # Primary key
+    conflict_id = Column(PG_UUID(as_uuid=True), primary_key=True, default=uuid4)
+    
+    # Workspace identification
+    workspace = Column(String(64), nullable=False, index=True)
+    
+    # Entity identification
+    entity_type = Column(String(100), nullable=False, index=True)
+    entity_id = Column(String(255), nullable=False, index=True)
+    
+    # Conflict versions (JSONB for flexibility)
+    local_version = Column(JSONB, nullable=False)
+    remote_version = Column(JSONB, nullable=False)
+    
+    # Timestamps
+    local_timestamp = Column(DateTime, nullable=False, index=True)
+    remote_timestamp = Column(DateTime, nullable=False, index=True)
+    detected_at = Column(DateTime, nullable=False, default=datetime.utcnow, index=True)
+    
+    # Resolution
+    resolution_strategy = Column(String(50), nullable=True)  # operational_transform, last_write_wins, etc.
+    resolved_version = Column(JSONB, nullable=True)
+    resolved_at = Column(DateTime, nullable=True, index=True)
+    resolved_by = Column(String(255), nullable=True)  # system or user identifier
+    
+    # Status
+    status = Column(
+        String(20), 
+        nullable=False, 
+        default="unresolved", 
+        index=True
+    )  # unresolved, resolved, manual_review
+    
+    # Metadata
+    conflict_metadata = Column("metadata", JSONB, nullable=True)
+    correlation_id = Column(String(255), nullable=True, index=True)
+    
+    # Composite indexes for efficient querying
+    __table_args__ = (
+        Index("ix_sync_conflicts_workspace_status", "workspace", "status"),
+        Index("ix_sync_conflicts_workspace_detected", "workspace", "detected_at"),
+        Index("ix_sync_conflicts_entity", "entity_type", "entity_id"),
+    )
+    
+    def __repr__(self):
+        return (
+            f"<SyncConflict(conflict_id={self.conflict_id}, "
+            f"workspace={self.workspace}, entity={self.entity_type}:{self.entity_id}, "
+            f"status={self.status})>"
+        )
+
+
+class SyncMetadata(Base):
+    """
+    Sync metadata for workspace synchronization state.
+    
+    Stores sync configuration and state for each workspace, including
+    last sync timestamp, remote URL, and sync statistics.
+    
+    """
+    
+    __tablename__ = "sync_metadata"
+    
+    # Primary key (workspace name)
+    workspace = Column(String(64), primary_key=True)
+    
+    # Remote configuration
+    remote_url = Column(String(2048), nullable=True)
+    remote_version = Column(String(50), nullable=True)
+    
+    # Sync state
+    sync_enabled = Column(Boolean, nullable=False, default=False, index=True)
+    last_sync_at = Column(DateTime, nullable=True, index=True)
+    last_sync_direction = Column(String(20), nullable=True)  # push, pull, bidirectional
+    last_sync_status = Column(String(20), nullable=True)  # success, failed, partial
+    
+    # Statistics
+    total_operations_synced = Column(BigInteger, nullable=False, default=0)
+    total_conflicts_detected = Column(BigInteger, nullable=False, default=0)
+    total_conflicts_resolved = Column(BigInteger, nullable=False, default=0)
+    
+    # Error tracking
+    last_error = Column(String(2000), nullable=True)
+    last_error_at = Column(DateTime, nullable=True)
+    consecutive_failures = Column(Integer, nullable=False, default=0)
+    
+    # Auto-sync configuration
+    auto_sync_enabled = Column(Boolean, nullable=False, default=False)
+    auto_sync_interval_seconds = Column(Integer, nullable=True)
+    next_auto_sync_at = Column(DateTime, nullable=True, index=True)
+    
+    # Timestamps
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    # Metadata
+    sync_metadata_data = Column("metadata", JSONB, nullable=True)
+    
+    def __repr__(self):
+        return (
+            f"<SyncMetadata(workspace={self.workspace}, "
+            f"sync_enabled={self.sync_enabled}, "
+            f"last_sync={self.last_sync_at})>"
+        )
