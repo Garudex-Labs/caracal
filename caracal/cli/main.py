@@ -447,9 +447,9 @@ def principal(ctx):
     
     \b
     Examples:
-            caracal principal register             # Register new principal
-            caracal principal list                 # List all principals
-            caracal principal get -a <principal-id>  # Get principal details
+        caracal principal register             # Register new principal
+        caracal principal list                 # List all principals
+        caracal principal get -a <principal-id>  # Get principal details
     """
     pass
 
@@ -474,9 +474,9 @@ def policy(ctx):
     
     \b
     Examples:
-            caracal policy create -p <principal-id> -v 3600 -r "api:*" -a "api_call"  # Create policy
-            caracal policy list                    # List all policies
-            caracal policy list -p <principal-id>  # Filter by principal
+        caracal policy create -p <principal-id> -v 3600 -r "api:*" -a "api_call"  # Create policy
+        caracal policy list                    # List all policies
+        caracal policy list -p <principal-id>  # Filter by principal
     """
     pass
 
@@ -633,10 +633,10 @@ def provider(ctx):
     
     \b
     Examples:
-      caracal provider list               # List providers
-            caracal provider add <name> --api-key <key>  # Add provider
-      caracal provider test <name>        # Test connection
-      caracal provider remove <name>      # Remove provider
+    caracal provider list               # List providers
+    caracal provider add <name> --api-key <key>  # Add provider
+    caracal provider test <name>        # Test connection
+    caracal provider remove <name>      # Remove provider
     """
     pass
 
@@ -724,9 +724,9 @@ def audit(ctx):
     
     \b
     Examples:
-            caracal audit commands              # Audit CLI command surface
-      caracal audit export                # Export audit log
-      caracal audit workflow              # Validate workflow
+    caracal audit commands              # Audit CLI command surface
+    caracal audit export                # Export audit log
+    caracal audit workflow              # Validate workflow
     """
     pass
 
