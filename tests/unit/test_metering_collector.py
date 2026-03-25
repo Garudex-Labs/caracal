@@ -28,7 +28,7 @@ class TestMeteringCollectorWithEnhancedTypes:
         collector = MeteringCollector(ledger_writer)
         
         event = MeteringEvent(
-            agent_id="agent-123",
+            principal_id="agent-123",
             resource_type="mcp.tool.search",
             quantity=Decimal("1")
         )
@@ -42,7 +42,7 @@ class TestMeteringCollectorWithEnhancedTypes:
             line = f.readline()
             ledger_event = json.loads(line)
         
-        assert ledger_event["agent_id"] == "agent-123"
+        assert ledger_event["principal_id"] == "agent-123"
         assert ledger_event["resource_type"] == "mcp.tool.search"
         assert ledger_event["quantity"] == "1"
     
@@ -53,7 +53,7 @@ class TestMeteringCollectorWithEnhancedTypes:
         collector = MeteringCollector(ledger_writer)
         
         event = MeteringEvent(
-            agent_id="agent-123",
+            principal_id="agent-123",
             resource_type="mcp.tool.search",
             quantity=Decimal("1"),
             correlation_id="trace-789"
@@ -76,7 +76,7 @@ class TestMeteringCollectorWithEnhancedTypes:
         collector = MeteringCollector(ledger_writer)
         
         event = MeteringEvent(
-            agent_id="agent-123",
+            principal_id="agent-123",
             resource_type="mcp.tool.search",
             quantity=Decimal("1"),
             parent_event_id="event-456"
@@ -99,7 +99,7 @@ class TestMeteringCollectorWithEnhancedTypes:
         collector = MeteringCollector(ledger_writer)
         
         event = MeteringEvent(
-            agent_id="agent-123",
+            principal_id="agent-123",
             resource_type="mcp.tool.search",
             quantity=Decimal("1"),
             tags=["mcp", "search", "production"]
@@ -122,7 +122,7 @@ class TestMeteringCollectorWithEnhancedTypes:
         collector = MeteringCollector(ledger_writer)
         
         event = MeteringEvent(
-            agent_id="agent-123",
+            principal_id="agent-123",
             resource_type="mcp.tool.search",
             quantity=Decimal("1"),
             metadata={"tool_name": "search", "mandate_id": "mandate-456"},
@@ -146,13 +146,13 @@ class TestMeteringCollectorWithEnhancedTypes:
         assert metadata["parent_event_id"] == "event-012"
         assert metadata["tags"] == ["mcp", "search"]
     
-    def test_collect_event_validation_empty_agent_id(self, temp_dir):
-        """Test that empty agent_id raises InvalidMeteringEventError."""
+    def test_collect_event_validation_empty_principal_id(self, temp_dir):
+        """Test that empty principal_id raises InvalidMeteringEventError."""
         ledger_path = temp_dir / "ledger.jsonl"
         ledger_writer = LedgerWriter(str(ledger_path))
         collector = MeteringCollector(ledger_writer)
         
-        # Create event with empty agent_id (bypassing MeteringEvent validation)
+        # Create event with empty principal_id (bypassing MeteringEvent validation)
         event = MeteringEvent.__new__(MeteringEvent)
         event.principal_id = ""
         event.resource_type = "test"
@@ -163,7 +163,7 @@ class TestMeteringCollectorWithEnhancedTypes:
         event.parent_event_id = None
         event.tags = []
         
-        with pytest.raises(InvalidMeteringEventError, match="agent_id must be a non-empty string"):
+        with pytest.raises(InvalidMeteringEventError, match="principal_id must be a non-empty string"):
             collector.collect_event(event)
     
     def test_collect_event_validation_empty_resource_type(self, temp_dir):
@@ -254,7 +254,7 @@ class TestMeteringCollectorWithEnhancedTypes:
         
         # Event 1: with correlation_id
         event1 = MeteringEvent(
-            agent_id="agent-1",
+            principal_id="agent-1",
             resource_type="mcp.tool.search",
             quantity=Decimal("1"),
             correlation_id="trace-1"
@@ -262,7 +262,7 @@ class TestMeteringCollectorWithEnhancedTypes:
         
         # Event 2: with parent_event_id
         event2 = MeteringEvent(
-            agent_id="agent-2",
+            principal_id="agent-2",
             resource_type="mcp.tool.analyze",
             quantity=Decimal("2"),
             parent_event_id="event-1"
@@ -270,7 +270,7 @@ class TestMeteringCollectorWithEnhancedTypes:
         
         # Event 3: with tags
         event3 = MeteringEvent(
-            agent_id="agent-3",
+            principal_id="agent-3",
             resource_type="mcp.tool.write",
             quantity=Decimal("3"),
             tags=["mcp", "write", "production"]
@@ -303,7 +303,7 @@ class TestMeteringCollectorWithEnhancedTypes:
         collector = MeteringCollector(ledger_writer)
         
         event = MeteringEvent(
-            agent_id="agent-123",
+            principal_id="agent-123",
             resource_type="mcp.tool.search",
             quantity=Decimal("1"),
             metadata={"custom_field": "custom_value", "another_field": 42},
@@ -332,7 +332,7 @@ class TestMeteringCollectorWithEnhancedTypes:
         collector = MeteringCollector(ledger_writer)
         
         event = MeteringEvent(
-            agent_id="agent-123",
+            principal_id="agent-123",
             resource_type="mcp.tool.search",
             quantity=Decimal("1"),
             tags=[]  # Empty list
@@ -358,7 +358,7 @@ class TestMeteringCollectorWithEnhancedTypes:
         # Collect multiple events
         for i in range(5):
             event = MeteringEvent(
-                agent_id=f"agent-{i}",
+                principal_id=f"agent-{i}",
                 resource_type="test.resource",
                 quantity=Decimal(str(i * 100)),
                 correlation_id=f"trace-{i}"
@@ -375,5 +375,5 @@ class TestMeteringCollectorWithEnhancedTypes:
         for i, line in enumerate(lines):
             ledger_event = json.loads(line)
             assert ledger_event["event_id"] == i + 1
-            assert ledger_event["agent_id"] == f"agent-{i}"
+            assert ledger_event["principal_id"] == f"agent-{i}"
             assert ledger_event["metadata"]["correlation_id"] == f"trace-{i}"

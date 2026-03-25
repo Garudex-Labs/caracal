@@ -21,7 +21,7 @@ from caracal.exceptions import InvalidMeteringEventError
 
 # Strategies for generating test data
 @st.composite
-def valid_agent_ids(draw):
+def valid_principal_ids(draw):
     """Generate valid non-empty agent IDs."""
     return draw(st.text(min_size=1, max_size=100).filter(lambda x: x.strip()))
 
@@ -81,7 +81,7 @@ def valid_tags(draw):
 def valid_metering_events(draw):
     """Generate valid MeteringEvent instances."""
     return MeteringEvent(
-        agent_id=draw(valid_agent_ids()),
+        principal_id=draw(valid_principal_ids()),
         resource_type=draw(valid_resource_types()),
         quantity=draw(valid_quantities()),
         timestamp=draw(st.one_of(st.none(), st.datetimes())),
@@ -96,18 +96,18 @@ class TestMeteringEventProperties:
     """Property-based tests for MeteringEvent."""
     
     @given(st.one_of(st.just(""), st.text(max_size=0)))
-    def test_property_1_empty_agent_id_validation(self, empty_agent_id):
+    def test_property_1_empty_principal_id_validation(self, empty_principal_id):
         """
-        Property 1: Non-empty String Field Validation (agent_id)
+        Property 1: Non-empty String Field Validation (principal_id)
         
-        For any MeteringEvent instance, when agent_id is set to an empty string,
+        For any MeteringEvent instance, when principal_id is set to an empty string,
         the validation should reject it with InvalidMeteringEventError.
         
         **Validates: Requirements 3.7, 3.8**
         """
-        with pytest.raises(InvalidMeteringEventError, match="agent_id must be non-empty string"):
+        with pytest.raises(InvalidMeteringEventError, match="principal_id must be non-empty string"):
             MeteringEvent(
-                agent_id=empty_agent_id,
+                principal_id=empty_principal_id,
                 resource_type="test.resource",
                 quantity=Decimal("1.0")
             )
@@ -124,7 +124,7 @@ class TestMeteringEventProperties:
         """
         with pytest.raises(InvalidMeteringEventError, match="resource_type must be non-empty string"):
             MeteringEvent(
-                agent_id="test-agent",
+                principal_id="test-agent",
                 resource_type=empty_resource_type,
                 quantity=Decimal("1.0")
             )
@@ -146,7 +146,7 @@ class TestMeteringEventProperties:
         """
         with pytest.raises(InvalidMeteringEventError, match="quantity must be non-negative"):
             MeteringEvent(
-                agent_id="test-agent",
+                principal_id="test-agent",
                 resource_type="test.resource",
                 quantity=negative_quantity
             )
@@ -169,7 +169,7 @@ class TestMeteringEventProperties:
         """
         with pytest.raises(InvalidMeteringEventError, match="timestamp must be a datetime object"):
             MeteringEvent(
-                agent_id="test-agent",
+                principal_id="test-agent",
                 resource_type="test.resource",
                 quantity=Decimal("1.0"),
                 timestamp=invalid_timestamp
@@ -211,11 +211,11 @@ class TestMeteringEventProperties:
             assert restored_event.timestamp is not None
     
     @given(
-        valid_agent_ids(),
+        valid_principal_ids(),
         valid_resource_types(),
         st.text(min_size=1, max_size=100)
     )
-    def test_property_5_resource_pattern_matching(self, agent_id, resource_type, pattern_suffix):
+    def test_property_5_resource_pattern_matching(self, principal_id, resource_type, pattern_suffix):
         """
         Property 5: Resource Pattern Matching
         
@@ -225,7 +225,7 @@ class TestMeteringEventProperties:
         **Validates: Requirements 3.14**
         """
         event = MeteringEvent(
-            agent_id=agent_id,
+            principal_id=principal_id,
             resource_type=resource_type,
             quantity=Decimal("1.0")
         )
@@ -256,19 +256,19 @@ class TestMeteringEventProperties:
         assert isinstance(event.timestamp, datetime)
     
     @given(
-        valid_agent_ids(),
+        valid_principal_ids(),
         valid_resource_types(),
         valid_quantities()
     )
-    def test_property_minimal_event_creation(self, agent_id, resource_type, quantity):
+    def test_property_minimal_event_creation(self, principal_id, resource_type, quantity):
         """
         Property: Minimal events with only required fields should be valid
         
-        For any valid agent_id, resource_type, and quantity, creating a
+        For any valid principal_id, resource_type, and quantity, creating a
         MeteringEvent with only these fields should succeed.
         """
         event = MeteringEvent(
-            agent_id=agent_id,
+            principal_id=principal_id,
             resource_type=resource_type,
             quantity=quantity
         )

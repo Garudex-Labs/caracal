@@ -24,7 +24,7 @@ class TestLedgerEvent:
         """Test creating a ledger event."""
         event = LedgerEvent(
             event_id=1,
-            agent_id="test-agent-123",
+            principal_id="test-agent-123",
             timestamp="2024-01-15T10:30:00Z",
             resource_type="openai.gpt-5.2.input_tokens",
             quantity="1",
@@ -41,7 +41,7 @@ class TestLedgerEvent:
         """Test converting ledger event to dictionary."""
         event = LedgerEvent(
             event_id=1,
-            agent_id="test-agent-123",
+            principal_id="test-agent-123",
             timestamp="2024-01-15T10:30:00Z",
             resource_type="openai.gpt-5.2.input_tokens",
             quantity="1",
@@ -51,14 +51,14 @@ class TestLedgerEvent:
         event_dict = event.to_dict()
         
         assert event_dict["event_id"] == 1
-        assert event_dict["agent_id"] == "test-agent-123"
+        assert event_dict["principal_id"] == "test-agent-123"
         assert "metadata" not in event_dict  # None metadata should be removed
     
     def test_ledger_event_to_json_line(self):
         """Test converting ledger event to JSON line format."""
         event = LedgerEvent(
             event_id=1,
-            agent_id="test-agent-123",
+            principal_id="test-agent-123",
             timestamp="2024-01-15T10:30:00Z",
             resource_type="openai.gpt-5.2.input_tokens",
             quantity="1",
@@ -70,7 +70,7 @@ class TestLedgerEvent:
         # Should be valid JSON
         parsed = json.loads(json_line)
         assert parsed["event_id"] == 1
-        assert parsed["agent_id"] == "test-agent-123"
+        assert parsed["principal_id"] == "test-agent-123"
         
         # Should not contain newlines (single line)
         assert '\n' not in json_line
@@ -94,7 +94,7 @@ class TestLedgerWriter:
         writer = LedgerWriter(str(ledger_path))
         
         event = writer.append_event(
-            agent_id="test-agent-123",
+            principal_id="test-agent-123",
             resource_type="openai.gpt-5.2.input_tokens",
             quantity=Decimal("1"),
             metadata={"model": "gpt-5.2"}
@@ -112,7 +112,7 @@ class TestLedgerWriter:
         assert len(lines) == 1
         parsed = json.loads(lines[0])
         assert parsed["event_id"] == 1
-        assert parsed["agent_id"] == "test-agent-123"
+        assert parsed["principal_id"] == "test-agent-123"
     
     def test_append_multiple_events(self, temp_dir):
         """Test appending multiple events maintains monotonic IDs."""
@@ -121,19 +121,19 @@ class TestLedgerWriter:
         
         # Append three events
         event1 = writer.append_event(
-            agent_id="agent-1",
+            principal_id="agent-1",
             resource_type="resource-1",
             quantity=Decimal("100")
         )
         
         event2 = writer.append_event(
-            agent_id="agent-2",
+            principal_id="agent-2",
             resource_type="resource-2",
             quantity=Decimal("200")
         )
         
         event3 = writer.append_event(
-            agent_id="agent-3",
+            principal_id="agent-3",
             resource_type="resource-3",
             quantity=Decimal("300")
         )
@@ -156,12 +156,12 @@ class TestLedgerWriter:
         # Create first writer and add events
         writer1 = LedgerWriter(str(ledger_path))
         writer1.append_event(
-            agent_id="agent-1",
+            principal_id="agent-1",
             resource_type="resource-1",
             quantity=Decimal("100")
         )
         writer1.append_event(
-            agent_id="agent-2",
+            principal_id="agent-2",
             resource_type="resource-2",
             quantity=Decimal("200")
         )
@@ -173,21 +173,21 @@ class TestLedgerWriter:
         assert writer2._next_event_id == 3
         
         event3 = writer2.append_event(
-            agent_id="agent-3",
+            principal_id="agent-3",
             resource_type="resource-3",
             quantity=Decimal("300")
         )
         
         assert event3.event_id == 3
     
-    def test_invalid_agent_id(self, temp_dir):
-        """Test that empty agent_id raises error."""
+    def test_invalid_principal_id(self, temp_dir):
+        """Test that empty principal_id raises error."""
         ledger_path = temp_dir / "ledger.jsonl"
         writer = LedgerWriter(str(ledger_path))
         
-        with pytest.raises(InvalidLedgerEventError, match="agent_id cannot be empty"):
+        with pytest.raises(InvalidLedgerEventError, match="principal_id cannot be empty"):
             writer.append_event(
-                agent_id="",
+                principal_id="",
                 resource_type="resource-1",
                 quantity=Decimal("100")
             )
@@ -199,7 +199,7 @@ class TestLedgerWriter:
         
         with pytest.raises(InvalidLedgerEventError, match="resource_type cannot be empty"):
             writer.append_event(
-                agent_id="agent-1",
+                principal_id="agent-1",
                 resource_type="",
                 quantity=Decimal("100")
             )
@@ -211,7 +211,7 @@ class TestLedgerWriter:
         
         with pytest.raises(InvalidLedgerEventError, match="quantity must be non-negative"):
             writer.append_event(
-                agent_id="agent-1",
+                principal_id="agent-1",
                 resource_type="resource-1",
                 quantity=Decimal("-100")
             )
@@ -222,14 +222,14 @@ class TestLedgerWriter:
         
         # Create ledger with some initial data
         with open(ledger_path, 'w') as f:
-            f.write('{"event_id":1,"agent_id":"old-agent","timestamp":"2024-01-01T00:00:00Z","resource_type":"test","quantity":"100"}\n')
+            f.write('{"event_id":1,"principal_id":"old-agent","timestamp":"2024-01-01T00:00:00Z","resource_type":"test","quantity":"100"}\n')
         
         # Create writer (should create backup on first write)
         writer = LedgerWriter(str(ledger_path))
         
         # Append event (triggers backup)
         writer.append_event(
-            agent_id="new-agent",
+            principal_id="new-agent",
             resource_type="resource-1",
             quantity=Decimal("100")
         )
@@ -252,7 +252,7 @@ class TestLedgerWriter:
         # Append multiple events
         for i in range(3):
             writer.append_event(
-                agent_id=f"agent-{i}",
+                principal_id=f"agent-{i}",
                 resource_type="resource-1",
                 quantity=Decimal("100")
             )
@@ -267,7 +267,7 @@ class TestLedgerWriter:
         for line in lines:
             parsed = json.loads(line)
             assert "event_id" in parsed
-            assert "agent_id" in parsed
+            assert "principal_id" in parsed
 
 
 class TestLedgerQuery:
@@ -303,12 +303,12 @@ class TestLedgerQuery:
         
         # Add some events
         writer.append_event(
-            agent_id="agent-1",
+            principal_id="agent-1",
             resource_type="resource-1",
             quantity=Decimal("100")
         )
         writer.append_event(
-            agent_id="agent-2",
+            principal_id="agent-2",
             resource_type="resource-2",
             quantity=Decimal("200")
         )
@@ -321,7 +321,7 @@ class TestLedgerQuery:
         assert events[0].principal_id == "agent-1"
         assert events[1].principal_id == "agent-2"
     
-    def test_get_events_filter_by_agent_id(self, temp_dir):
+    def test_get_events_filter_by_principal_id(self, temp_dir):
         """Test filtering events by agent ID."""
         from caracal.core.ledger import LedgerQuery
         
@@ -330,24 +330,24 @@ class TestLedgerQuery:
         
         # Add events for different agents
         writer.append_event(
-            agent_id="agent-1",
+            principal_id="agent-1",
             resource_type="resource-1",
             quantity=Decimal("100")
         )
         writer.append_event(
-            agent_id="agent-2",
+            principal_id="agent-2",
             resource_type="resource-2",
             quantity=Decimal("200")
         )
         writer.append_event(
-            agent_id="agent-1",
+            principal_id="agent-1",
             resource_type="resource-3",
             quantity=Decimal("300")
         )
         
         # Query events for agent-1
         query = LedgerQuery(str(ledger_path))
-        events = query.get_events(agent_id="agent-1")
+        events = query.get_events(principal_id="agent-1")
         
         assert len(events) == 2
         assert all(e.principal_id == "agent-1" for e in events)
@@ -361,17 +361,17 @@ class TestLedgerQuery:
         
         # Add events with different resource types
         writer.append_event(
-            agent_id="agent-1",
+            principal_id="agent-1",
             resource_type="openai.gpt-5.2.input_tokens",
             quantity=Decimal("100")
         )
         writer.append_event(
-            agent_id="agent-1",
+            principal_id="agent-1",
             resource_type="openai.gpt-5.2.output_tokens",
             quantity=Decimal("200")
         )
         writer.append_event(
-            agent_id="agent-1",
+            principal_id="agent-1",
             resource_type="openai.gpt-5.2.input_tokens",
             quantity=Decimal("300")
         )
@@ -395,19 +395,19 @@ class TestLedgerQuery:
         base_time = datetime(2024, 1, 15, 10, 0, 0)
         
         writer.append_event(
-            agent_id="agent-1",
+            principal_id="agent-1",
             resource_type="resource-1",
             quantity=Decimal("100"),
             timestamp=base_time
         )
         writer.append_event(
-            agent_id="agent-1",
+            principal_id="agent-1",
             resource_type="resource-2",
             quantity=Decimal("200"),
             timestamp=base_time + timedelta(hours=1)
         )
         writer.append_event(
-            agent_id="agent-1",
+            principal_id="agent-1",
             resource_type="resource-3",
             quantity=Decimal("300"),
             timestamp=base_time + timedelta(hours=2)
@@ -435,25 +435,25 @@ class TestLedgerQuery:
         
         # Add various events
         writer.append_event(
-            agent_id="agent-1",
+            principal_id="agent-1",
             resource_type="resource-1",
             quantity=Decimal("100"),
             timestamp=base_time
         )
         writer.append_event(
-            agent_id="agent-2",
+            principal_id="agent-2",
             resource_type="resource-1",
             quantity=Decimal("200"),
             timestamp=base_time
         )
         writer.append_event(
-            agent_id="agent-1",
+            principal_id="agent-1",
             resource_type="resource-2",
             quantity=Decimal("300"),
             timestamp=base_time
         )
         writer.append_event(
-            agent_id="agent-1",
+            principal_id="agent-1",
             resource_type="resource-1",
             quantity=Decimal("400"),
             timestamp=base_time + timedelta(hours=2)
@@ -462,7 +462,7 @@ class TestLedgerQuery:
         # Query with multiple filters
         query = LedgerQuery(str(ledger_path))
         events = query.get_events(
-            agent_id="agent-1",
+            principal_id="agent-1",
             resource_type="resource-1",
             start_time=base_time - timedelta(hours=1),
             end_time=base_time + timedelta(hours=1)
@@ -480,9 +480,9 @@ class TestLedgerQuery:
         
         # Write some valid and invalid JSON lines
         with open(ledger_path, 'w') as f:
-            f.write('{"event_id":1,"agent_id":"agent-1","timestamp":"2024-01-15T10:00:00Z","resource_type":"test","quantity":"100"}\n')
+            f.write('{"event_id":1,"principal_id":"agent-1","timestamp":"2024-01-15T10:00:00Z","resource_type":"test","quantity":"100"}\n')
             f.write('this is not valid json\n')
-            f.write('{"event_id":2,"agent_id":"agent-2","timestamp":"2024-01-15T10:00:00Z","resource_type":"test","quantity":"200"}\n')
+            f.write('{"event_id":2,"principal_id":"agent-2","timestamp":"2024-01-15T10:00:00Z","resource_type":"test","quantity":"200"}\n')
         
         # Query should skip malformed line and return valid events
         query = LedgerQuery(str(ledger_path))
