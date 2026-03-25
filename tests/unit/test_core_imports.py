@@ -24,7 +24,7 @@ class TestNativeImports:
         assert isinstance(MeteringEvent, type)
         
         # Verify it has expected attributes
-        assert hasattr(MeteringEvent, 'agent_id')
+        assert hasattr(MeteringEvent, 'principal_id')
         assert hasattr(MeteringEvent, 'resource_type')
         assert hasattr(MeteringEvent, 'quantity')
         assert hasattr(MeteringEvent, 'timestamp')
@@ -38,7 +38,7 @@ class TestNativeImports:
         assert hasattr(MeteringEvent, 'from_dict')
         assert hasattr(MeteringEvent, 'matches_resource_pattern')
     
-    def test_import_agent_identity(self):
+    def test_import_principal_identity(self):
         """Test that PrincipalIdentity can be imported from caracal.core.identity."""
         from caracal.core.identity import PrincipalIdentity
         
@@ -46,7 +46,7 @@ class TestNativeImports:
         assert isinstance(PrincipalIdentity, type)
         
         # Verify it has expected attributes
-        assert hasattr(PrincipalIdentity, 'agent_id')
+        assert hasattr(PrincipalIdentity, 'principal_id')
         assert hasattr(PrincipalIdentity, 'name')
         assert hasattr(PrincipalIdentity, 'owner')
         assert hasattr(PrincipalIdentity, 'created_at')

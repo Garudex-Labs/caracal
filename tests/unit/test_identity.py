@@ -18,10 +18,10 @@ from caracal.exceptions import DuplicateAgentNameError
 class TestPrincipalIdentity:
     """Test PrincipalIdentity dataclass."""
 
-    def test_agent_identity_creation(self):
+    def test_principal_identity_creation(self):
         """Test creating an PrincipalIdentity."""
         agent = PrincipalIdentity(
-            agent_id="550e8400-e29b-41d4-a716-446655440000",
+            principal_id="550e8400-e29b-41d4-a716-446655440000",
             name="test-agent",
             owner="test@example.com",
             created_at="2024-01-15T10:00:00Z",
@@ -34,10 +34,10 @@ class TestPrincipalIdentity:
         assert agent.created_at == "2024-01-15T10:00:00Z"
         assert agent.metadata == {"department": "AI Research"}
 
-    def test_agent_identity_to_dict(self):
+    def test_principal_identity_to_dict(self):
         """Test converting PrincipalIdentity to dictionary."""
         agent = PrincipalIdentity(
-            agent_id="550e8400-e29b-41d4-a716-446655440000",
+            principal_id="550e8400-e29b-41d4-a716-446655440000",
             name="test-agent",
             owner="test@example.com",
             created_at="2024-01-15T10:00:00Z",
@@ -45,14 +45,14 @@ class TestPrincipalIdentity:
         )
         
         data = agent.to_dict()
-        assert data["agent_id"] == "550e8400-e29b-41d4-a716-446655440000"
+        assert data["principal_id"] == "550e8400-e29b-41d4-a716-446655440000"
         assert data["name"] == "test-agent"
         assert data["owner"] == "test@example.com"
 
-    def test_agent_identity_from_dict(self):
+    def test_principal_identity_from_dict(self):
         """Test creating PrincipalIdentity from dictionary."""
         data = {
-            "agent_id": "550e8400-e29b-41d4-a716-446655440000",
+            "principal_id": "550e8400-e29b-41d4-a716-446655440000",
             "name": "test-agent",
             "owner": "test@example.com",
             "created_at": "2024-01-15T10:00:00Z",
@@ -169,9 +169,9 @@ class TestPrincipalRegistry:
         agents = registry.list_agents()
         assert len(agents) == 2
         
-        agent_ids = {a.principal_id for a in agents}
-        assert agent1.principal_id in agent_ids
-        assert agent2.principal_id in agent_ids
+        principal_ids = {a.principal_id for a in agents}
+        assert agent1.principal_id in principal_ids
+        assert agent2.principal_id in principal_ids
 
     def test_persistence(self, temp_dir):
         """Test that agents are persisted to disk."""
@@ -193,7 +193,7 @@ class TestPrincipalRegistry:
             data = json.load(f)
         
         assert len(data) == 1
-        assert data[0]["agent_id"] == agent.principal_id
+        assert data[0]["principal_id"] == agent.principal_id
         assert data[0]["name"] == "test-agent"
         assert data[0]["owner"] == "test@example.com"
         assert data[0]["metadata"] == {"key": "value"}

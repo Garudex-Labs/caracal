@@ -24,7 +24,7 @@ class TestMeteringEventInstantiation:
         """Test MeteringEvent instantiation with all fields."""
         timestamp = datetime.utcnow()
         event = MeteringEvent(
-            agent_id="agent-123",
+            principal_id="agent-123",
             resource_type="mcp.tool.search",
             quantity=Decimal("1.5"),
             timestamp=timestamp,
@@ -46,7 +46,7 @@ class TestMeteringEventInstantiation:
     def test_metering_event_with_minimal_fields(self):
         """Test MeteringEvent instantiation with minimal required fields."""
         event = MeteringEvent(
-            agent_id="agent-123",
+            principal_id="agent-123",
             resource_type="api.call",
             quantity=Decimal("1")
         )
@@ -65,7 +65,7 @@ class TestMeteringEventInstantiation:
         """Test that timestamp is auto-generated when not provided."""
         before = datetime.utcnow()
         event = MeteringEvent(
-            agent_id="agent-123",
+            principal_id="agent-123",
             resource_type="api.call",
             quantity=Decimal("1")
         )
@@ -73,11 +73,11 @@ class TestMeteringEventInstantiation:
         
         assert before <= event.timestamp <= after
     
-    def test_metering_event_validation_empty_agent_id(self):
-        """Test that empty agent_id raises InvalidMeteringEventError."""
-        with pytest.raises(InvalidMeteringEventError, match="agent_id must be non-empty string"):
+    def test_metering_event_validation_empty_principal_id(self):
+        """Test that empty principal_id raises InvalidMeteringEventError."""
+        with pytest.raises(InvalidMeteringEventError, match="principal_id must be non-empty string"):
             MeteringEvent(
-                agent_id="",
+                principal_id="",
                 resource_type="api.call",
                 quantity=Decimal("1")
             )
@@ -86,7 +86,7 @@ class TestMeteringEventInstantiation:
         """Test that empty resource_type raises InvalidMeteringEventError."""
         with pytest.raises(InvalidMeteringEventError, match="resource_type must be non-empty string"):
             MeteringEvent(
-                agent_id="agent-123",
+                principal_id="agent-123",
                 resource_type="",
                 quantity=Decimal("1")
             )
@@ -95,7 +95,7 @@ class TestMeteringEventInstantiation:
         """Test that negative quantity raises InvalidMeteringEventError."""
         with pytest.raises(InvalidMeteringEventError, match="quantity must be non-negative"):
             MeteringEvent(
-                agent_id="agent-123",
+                principal_id="agent-123",
                 resource_type="api.call",
                 quantity=Decimal("-1")
             )
@@ -104,7 +104,7 @@ class TestMeteringEventInstantiation:
         """Test that non-Decimal quantity raises InvalidMeteringEventError."""
         with pytest.raises(InvalidMeteringEventError, match="quantity must be a Decimal"):
             MeteringEvent(
-                agent_id="agent-123",
+                principal_id="agent-123",
                 resource_type="api.call",
                 quantity=1  # Should be Decimal, not int
             )
@@ -117,7 +117,7 @@ class TestMeteringEventSerialization:
         """Test MeteringEvent serialization to dictionary."""
         timestamp = datetime(2024, 1, 15, 10, 30, 0)
         event = MeteringEvent(
-            agent_id="agent-123",
+            principal_id="agent-123",
             resource_type="mcp.tool.search",
             quantity=Decimal("1.5"),
             timestamp=timestamp,
@@ -129,7 +129,7 @@ class TestMeteringEventSerialization:
         
         data = event.to_dict()
         
-        assert data["agent_id"] == "agent-123"
+        assert data["principal_id"] == "agent-123"
         assert data["resource_type"] == "mcp.tool.search"
         assert data["quantity"] == "1.5"
         assert data["timestamp"] == "2024-01-15T10:30:00"
@@ -141,7 +141,7 @@ class TestMeteringEventSerialization:
     def test_metering_event_from_dict(self):
         """Test MeteringEvent deserialization from dictionary."""
         data = {
-            "agent_id": "agent-123",
+            "principal_id": "agent-123",
             "resource_type": "mcp.tool.search",
             "quantity": "1.5",
             "timestamp": "2024-01-15T10:30:00",
@@ -165,7 +165,7 @@ class TestMeteringEventSerialization:
     def test_metering_event_round_trip(self):
         """Test MeteringEvent serialization round-trip."""
         original = MeteringEvent(
-            agent_id="agent-123",
+            principal_id="agent-123",
             resource_type="mcp.tool.search",
             quantity=Decimal("1.5"),
             timestamp=datetime(2024, 1, 15, 10, 30, 0),
@@ -193,13 +193,13 @@ class TestMeteringEventSerialization:
 class TestPrincipalIdentityInstantiation:
     """Test PrincipalIdentity instantiation and validation."""
     
-    def test_agent_identity_with_all_fields(self):
+    def test_principal_identity_with_all_fields(self):
         """Test PrincipalIdentity instantiation with all fields."""
         created_at = datetime.utcnow().isoformat() + "Z"
         last_verified = datetime.utcnow().isoformat() + "Z"
         
         identity = PrincipalIdentity(
-            agent_id="agent-123",
+            principal_id="agent-123",
             name="Test Agent",
             owner="owner@example.com",
             created_at=created_at,
@@ -226,10 +226,10 @@ class TestPrincipalIdentityInstantiation:
         assert identity.capabilities == ["read", "write"]
         assert identity.last_verified_at == last_verified
     
-    def test_agent_identity_with_minimal_fields(self):
+    def test_principal_identity_with_minimal_fields(self):
         """Test PrincipalIdentity instantiation with minimal required fields."""
         identity = PrincipalIdentity(
-            agent_id="agent-123",
+            principal_id="agent-123",
             name="Test Agent",
             owner="owner@example.com",
             created_at=datetime.utcnow().isoformat() + "Z",
@@ -247,22 +247,22 @@ class TestPrincipalIdentityInstantiation:
         assert identity.capabilities == []
         assert identity.last_verified_at is None
     
-    def test_agent_identity_validation_empty_agent_id(self):
-        """Test that empty agent_id raises ValueError."""
-        with pytest.raises(ValueError, match="agent_id must be non-empty string"):
+    def test_principal_identity_validation_empty_principal_id(self):
+        """Test that empty principal_id raises ValueError."""
+        with pytest.raises(ValueError, match="principal_id must be non-empty string"):
             PrincipalIdentity(
-                agent_id="",
+                principal_id="",
                 name="Test Agent",
                 owner="owner@example.com",
                 created_at=datetime.utcnow().isoformat() + "Z",
                 metadata={}
             )
     
-    def test_agent_identity_validation_trust_level_too_low(self):
+    def test_principal_identity_validation_trust_level_too_low(self):
         """Test that trust_level below 0 raises ValueError."""
         with pytest.raises(ValueError, match="trust_level must be between 0 and 100"):
             PrincipalIdentity(
-                agent_id="agent-123",
+                principal_id="agent-123",
                 name="Test Agent",
                 owner="owner@example.com",
                 created_at=datetime.utcnow().isoformat() + "Z",
@@ -270,11 +270,11 @@ class TestPrincipalIdentityInstantiation:
                 trust_level=-1
             )
     
-    def test_agent_identity_validation_trust_level_too_high(self):
+    def test_principal_identity_validation_trust_level_too_high(self):
         """Test that trust_level above 100 raises ValueError."""
         with pytest.raises(ValueError, match="trust_level must be between 0 and 100"):
             PrincipalIdentity(
-                agent_id="agent-123",
+                principal_id="agent-123",
                 name="Test Agent",
                 owner="owner@example.com",
                 created_at=datetime.utcnow().isoformat() + "Z",
@@ -282,10 +282,10 @@ class TestPrincipalIdentityInstantiation:
                 trust_level=101
             )
     
-    def test_agent_identity_has_capability(self):
+    def test_principal_identity_has_capability(self):
         """Test has_capability method."""
         identity = PrincipalIdentity(
-            agent_id="agent-123",
+            principal_id="agent-123",
             name="Test Agent",
             owner="owner@example.com",
             created_at=datetime.utcnow().isoformat() + "Z",
@@ -297,10 +297,10 @@ class TestPrincipalIdentityInstantiation:
         assert identity.has_capability("write") is True
         assert identity.has_capability("delete") is False
     
-    def test_agent_identity_is_verified(self):
+    def test_principal_identity_is_verified(self):
         """Test is_verified method."""
         unverified = PrincipalIdentity(
-            agent_id="agent-123",
+            principal_id="agent-123",
             name="Test Agent",
             owner="owner@example.com",
             created_at=datetime.utcnow().isoformat() + "Z",
@@ -309,7 +309,7 @@ class TestPrincipalIdentityInstantiation:
         )
         
         verified = PrincipalIdentity(
-            agent_id="agent-456",
+            principal_id="agent-456",
             name="Test Agent 2",
             owner="owner@example.com",
             created_at=datetime.utcnow().isoformat() + "Z",
@@ -318,7 +318,7 @@ class TestPrincipalIdentityInstantiation:
         )
         
         trusted = PrincipalIdentity(
-            agent_id="agent-789",
+            principal_id="agent-789",
             name="Test Agent 3",
             owner="owner@example.com",
             created_at=datetime.utcnow().isoformat() + "Z",
@@ -334,13 +334,13 @@ class TestPrincipalIdentityInstantiation:
 class TestPrincipalIdentitySerialization:
     """Test PrincipalIdentity serialization and deserialization."""
     
-    def test_agent_identity_to_dict(self):
+    def test_principal_identity_to_dict(self):
         """Test PrincipalIdentity serialization to dictionary."""
         created_at = "2024-01-15T10:30:00Z"
         last_verified = "2024-01-16T10:30:00Z"
         
         identity = PrincipalIdentity(
-            agent_id="agent-123",
+            principal_id="agent-123",
             name="Test Agent",
             owner="owner@example.com",
             created_at=created_at,
@@ -356,7 +356,7 @@ class TestPrincipalIdentitySerialization:
         
         data = identity.to_dict()
         
-        assert data["agent_id"] == "agent-123"
+        assert data["principal_id"] == "agent-123"
         assert data["name"] == "Test Agent"
         assert data["owner"] == "owner@example.com"
         assert data["created_at"] == created_at
@@ -369,10 +369,10 @@ class TestPrincipalIdentitySerialization:
         assert data["capabilities"] == ["read", "write"]
         assert data["last_verified_at"] == last_verified
     
-    def test_agent_identity_from_dict(self):
+    def test_principal_identity_from_dict(self):
         """Test PrincipalIdentity deserialization from dictionary."""
         data = {
-            "agent_id": "agent-123",
+            "principal_id": "agent-123",
             "name": "Test Agent",
             "owner": "owner@example.com",
             "created_at": "2024-01-15T10:30:00Z",
@@ -401,10 +401,10 @@ class TestPrincipalIdentitySerialization:
         assert identity.capabilities == ["read", "write"]
         assert identity.last_verified_at == "2024-01-16T10:30:00Z"
     
-    def test_agent_identity_round_trip(self):
+    def test_principal_identity_round_trip(self):
         """Test PrincipalIdentity serialization round-trip."""
         original = PrincipalIdentity(
-            agent_id="agent-123",
+            principal_id="agent-123",
             name="Test Agent",
             owner="owner@example.com",
             created_at="2024-01-15T10:30:00Z",
