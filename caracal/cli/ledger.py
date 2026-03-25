@@ -120,7 +120,7 @@ def parse_datetime(date_str: str) -> datetime:
 @click.pass_context
 def query(
     ctx,
-    agent_id: Optional[str],
+    principal_id: Optional[str],
     start: Optional[str],
     end: Optional[str],
     resource: Optional[str],
@@ -188,7 +188,7 @@ def query(
         
         # Query events
         events = ledger_query.get_events(
-            agent_id=agent_id,
+            principal_id=principal_id,
             start_time=start_time,
             end_time=end_time,
             resource_type=resource,
@@ -209,20 +209,20 @@ def query(
             
             # Calculate column widths
             max_event_id_len = max(len(str(event.event_id)) for event in events)
-            max_agent_id_len = max(len(event.agent_id) for event in events)
+            max_principal_id_len = max(len(event.principal_id) for event in events)
             max_resource_len = max(len(event.resource_type) for event in events)
             max_quantity_len = max(len(event.quantity) for event in events)
             
             # Ensure minimum widths for headers
             event_id_width = max(max_event_id_len, len("Event ID"))
-            agent_id_width = max(max_agent_id_len, len("Agent ID"))
+            principal_id_width = max(max_principal_id_len, len("Agent ID"))
             resource_width = max(max_resource_len, len("Resource Type"))
             quantity_width = max(max_quantity_len, len("Quantity"))
             
             # Print header
             header = (
                 f"{'Event ID':<{event_id_width}}  "
-                f"{'Agent ID':<{agent_id_width}}  "
+                f"{'Agent ID':<{principal_id_width}}  "
                 f"{'Resource Type':<{resource_width}}  "
                 f"{'Quantity':<{quantity_width}}  "
                 f"Timestamp"
@@ -237,7 +237,7 @@ def query(
                 
                 click.echo(
                     f"{str(event.event_id):<{event_id_width}}  "
-                    f"{event.agent_id:<{agent_id_width}}  "
+                    f"{event.principal_id:<{principal_id_width}}  "
                     f"{event.resource_type:<{resource_width}}  "
                     f"{event.quantity:<{quantity_width}}  "
                     f"{timestamp}"
@@ -293,7 +293,7 @@ def query(
 @click.pass_context
 def summary(
     ctx,
-    agent_id: Optional[str],
+    principal_id: Optional[str],
     start: Optional[str],
     end: Optional[str],
     aggregate_children: bool,
@@ -369,7 +369,7 @@ def summary(
         if aggregate_children or breakdown:
             principal_registry = get_principal_registry(cli_ctx.config)
         
-        if agent_id:
+        if principal_id:
             # Single agent summary with optional hierarchical features
             if not start_time or not end_time:
                 click.echo(
@@ -381,7 +381,7 @@ def summary(
             # Handle hierarchical breakdown view
             if breakdown:
                 breakdown_data = ledger_query.get_usage_breakdown(
-                    agent_id=agent_id,
+                    principal_id=principal_id,
                     start_time=start_time,
                     end_time=end_time,
                     principal_registry=principal_registry
@@ -411,13 +411,13 @@ def summary(
                     def print_breakdown(data, indent=0):
                         """Recursively print breakdown with indentation"""
                         indent_str = "  " * indent
-                        agent_name = data.get("agent_name", data["agent_id"])
+                        agent_name = data.get("agent_name", data["principal_id"])
                         
                         # Print agent line
                         if indent == 0:
-                            click.echo(f"{indent_str}Agent: {agent_name} ({data['agent_id']})")
+                            click.echo(f"{indent_str}Agent: {agent_name} ({data['principal_id']})")
                         else:
-                            click.echo(f"{indent_str}└─ {agent_name} ({data['agent_id']})")
+                            click.echo(f"{indent_str}└─ {agent_name} ({data['principal_id']})")
                         
                         click.echo(f"{indent_str}   Own Usage: {data['usage']} USD")
                         
@@ -438,21 +438,21 @@ def summary(
             # Handle aggregate children (sum with children)
             if aggregate_children:
                 usage_with_children = ledger_query.sum_usage_with_children(
-                    agent_id=agent_id,
+                    principal_id=principal_id,
                     start_time=start_time,
                     end_time=end_time,
                     principal_registry=principal_registry
                 )
                 
                 # Calculate totals
-                own_usage = usage_with_children.get(agent_id, Decimal('0'))
+                own_usage = usage_with_children.get(principal_id, Decimal('0'))
                 total_usage = sum(usage_with_children.values())
                 children_usage = total_usage - own_usage
                 
                 if format.lower() == 'json':
                     # JSON output
                     output = {
-                        "agent_id": agent_id,
+                        "principal_id": principal_id,
                         "start_time": start_time.isoformat() if start_time else None,
                         "end_time": end_time.isoformat() if end_time else None,
                         "own_usage": str(own_usage),
@@ -467,7 +467,7 @@ def summary(
                     click.echo(json.dumps(output, indent=2))
                 else:
                     # Table output
-                    click.echo(f"Usage Summary for Agent: {agent_id} (with children)")
+                    click.echo(f"Usage Summary for Agent: {principal_id} (with children)")
                     click.echo("=" * 70)
                     click.echo()
                     click.echo(f"Time Period: {start_time} to {end_time}")
@@ -481,11 +481,11 @@ def summary(
                         click.echo("-" * 70)
                         
                         # Calculate column width
-                        max_agent_id_len = max(len(aid) for aid in usage_with_children.keys())
-                        agent_id_width = max(max_agent_id_len, len("Agent ID"))
+                        max_principal_id_len = max(len(aid) for aid in usage_with_children.keys())
+                        principal_id_width = max(max_principal_id_len, len("Agent ID"))
                         
                         # Print header
-                        click.echo(f"{'Agent ID':<{agent_id_width}}  Usage")
+                        click.echo(f"{'Agent ID':<{principal_id_width}}  Usage")
                         click.echo("-" * 70)
                         
                         # Print breakdown sorted by usage (descending)
@@ -494,22 +494,22 @@ def summary(
                             key=lambda x: x[1],
                             reverse=True
                         ):
-                            marker = " (self)" if aid == agent_id else ""
-                            click.echo(f"{aid:<{agent_id_width}}  {usage}{marker}")
+                            marker = " (self)" if aid == principal_id else ""
+                            click.echo(f"{aid:<{principal_id_width}}  {usage}{marker}")
                 
                 return
             
             # Standard single agent summary (no hierarchical features)
             # Calculate total usage
             total_usage = ledger_query.sum_usage(
-                agent_id=agent_id,
+                principal_id=principal_id,
                 start_time=start_time,
                 end_time=end_time,
             )
             
             # Get events for breakdown by resource type
             events = ledger_query.get_events(
-                agent_id=agent_id,
+                principal_id=principal_id,
                 start_time=start_time,
                 end_time=end_time,
             )
@@ -529,7 +529,7 @@ def summary(
             if format.lower() == 'json':
                 # JSON output
                 output = {
-                    "agent_id": agent_id,
+                    "principal_id": principal_id,
                     "start_time": start_time.isoformat() if start_time else None,
                     "end_time": end_time.isoformat() if end_time else None,
                     "total_usage": str(total_usage),
@@ -542,7 +542,7 @@ def summary(
                 click.echo(json.dumps(output, indent=2))
             else:
                 # Table output
-                click.echo(f"Usage Summary for Agent: {agent_id}")
+                click.echo(f"Usage Summary for Agent: {principal_id}")
                 click.echo("=" * 70)
                 click.echo()
                 click.echo(f"Time Period: {start_time} to {end_time}")
@@ -597,8 +597,8 @@ def summary(
                     "end_time": end_time.isoformat() if end_time else None,
                     "unit": "requests",
                     "agents": {
-                        agent_id: str(usage)
-                        for agent_id, usage in aggregation.items()
+                        principal_id: str(usage)
+                        for principal_id, usage in aggregation.items()
                     }
                 }
                 click.echo(json.dumps(output, indent=2))
@@ -617,20 +617,20 @@ def summary(
                 click.echo()
                 
                 # Calculate column widths
-                max_agent_id_len = max(len(agent_id) for agent_id in aggregation.keys())
-                agent_id_width = max(max_agent_id_len, len("Agent ID"))
+                max_principal_id_len = max(len(principal_id) for principal_id in aggregation.keys())
+                principal_id_width = max(max_principal_id_len, len("Agent ID"))
                 
                 # Print header
-                click.echo(f"{'Agent ID':<{agent_id_width}}  Usage")
+                click.echo(f"{'Agent ID':<{principal_id_width}}  Usage")
                 click.echo("-" * 70)
                 
                 # Print agents sorted by usage (descending)
-                for agent_id, usage in sorted(
+                for principal_id, usage in sorted(
                     aggregation.items(),
                     key=lambda x: x[1],
                     reverse=True
                 ):
-                    click.echo(f"{agent_id:<{agent_id_width}}  {usage}")
+                    click.echo(f"{principal_id:<{principal_id_width}}  {usage}")
     
     except LedgerReadError as e:
         click.echo(f"Error: {e}", err=True)
@@ -661,7 +661,7 @@ def summary(
 @click.pass_context
 def delegation_chain(
     ctx,
-    agent_id: str,
+    principal_id: str,
     format: str,
 ):
     """
@@ -691,11 +691,11 @@ def delegation_chain(
         try:
             # Get mandates for this agent
             mandates = session.query(ExecutionMandate).filter(
-                ExecutionMandate.subject_id == agent_id
+                ExecutionMandate.subject_id == principal_id
             ).all()
             
             if not mandates:
-                click.echo(f"No mandates found for agent: {agent_id}")
+                click.echo(f"No mandates found for agent: {principal_id}")
                 return
             
             mandate_ids = [m.mandate_id for m in mandates]
@@ -714,7 +714,7 @@ def delegation_chain(
             
             if format.lower() == 'json':
                 output = {
-                    "agent_id": agent_id,
+                    "principal_id": principal_id,
                     "mandate_count": len(mandates),
                     "inbound_edges": [
                         {
@@ -740,7 +740,7 @@ def delegation_chain(
                 click.echo(json.dumps(output, indent=2))
             else:
                 type_icons = {'user': '\ud83d\udc64', 'agent': '\ud83e\udd16', 'service': '\u2699\ufe0f'}
-                click.echo(f"Delegation Graph for Agent: {agent_id}")
+                click.echo(f"Delegation Graph for Agent: {principal_id}")
                 click.echo("=" * 70)
                 click.echo()
                 click.echo(f"Mandates: {len(mandates)}")

@@ -81,14 +81,14 @@ class ToolCallRequest(BaseModel):
     """Request model for MCP tool call."""
     tool_name: str = Field(..., description="Name of the MCP tool to invoke")
     tool_args: Dict[str, Any] = Field(default_factory=dict, description="Arguments for the tool")
-    agent_id: str = Field(..., description="ID of the agent making the request")
+    principal_id: str = Field(..., description="ID of the agent making the request")
     metadata: Dict[str, Any] = Field(default_factory=dict, description="Additional metadata")
 
 
 class ResourceReadRequest(BaseModel):
     """Request model for MCP resource read."""
     resource_uri: str = Field(..., description="URI of the resource to read")
-    agent_id: str = Field(..., description="ID of the agent making the request")
+    principal_id: str = Field(..., description="ID of the agent making the request")
     metadata: Dict[str, Any] = Field(default_factory=dict, description="Additional metadata")
 
 
@@ -302,12 +302,12 @@ class MCPAdapterService:
             try:
                 logger.info(
                     f"Received tool call request: tool={request.tool_name}, "
-                    f"agent={request.agent_id}"
+                    f"agent={request.principal_id}"
                 )
                 
                 # Create MCP context
                 mcp_context = MCPContext(
-                    agent_id=request.agent_id,
+                    principal_id=request.principal_id,
                     metadata=request.metadata
                 )
                 
@@ -327,7 +327,7 @@ class MCPAdapterService:
                 duration_ms = (time.time() - start_time) * 1000
                 logger.info(
                     f"Tool call completed: tool={request.tool_name}, "
-                    f"agent={request.agent_id}, success={result.success}, "
+                    f"agent={request.principal_id}, success={result.success}, "
                     f"duration={duration_ms:.2f}ms"
                 )
                 
@@ -342,7 +342,7 @@ class MCPAdapterService:
                 self._error_count += 1
                 logger.error(
                     f"Caracal error during tool call: tool={request.tool_name}, "
-                    f"agent={request.agent_id}, error={e}"
+                    f"agent={request.principal_id}, error={e}"
                 )
                 return MCPServiceResponse(
                     success=False,
@@ -354,7 +354,7 @@ class MCPAdapterService:
                 self._error_count += 1
                 logger.error(
                     f"Unexpected error during tool call: tool={request.tool_name}, "
-                    f"agent={request.agent_id}, error={e}",
+                    f"agent={request.principal_id}, error={e}",
                     exc_info=True
                 )
                 return MCPServiceResponse(
@@ -390,12 +390,12 @@ class MCPAdapterService:
             try:
                 logger.info(
                     f"Received resource read request: uri={request.resource_uri}, "
-                    f"agent={request.agent_id}"
+                    f"agent={request.principal_id}"
                 )
                 
                 # Create MCP context
                 mcp_context = MCPContext(
-                    agent_id=request.agent_id,
+                    principal_id=request.principal_id,
                     metadata=request.metadata
                 )
                 
@@ -414,7 +414,7 @@ class MCPAdapterService:
                 duration_ms = (time.time() - start_time) * 1000
                 logger.info(
                     f"Resource read completed: uri={request.resource_uri}, "
-                    f"agent={request.agent_id}, success={result.success}, "
+                    f"agent={request.principal_id}, success={result.success}, "
                     f"duration={duration_ms:.2f}ms"
                 )
                 
@@ -429,7 +429,7 @@ class MCPAdapterService:
                 self._error_count += 1
                 logger.error(
                     f"Caracal error during resource read: uri={request.resource_uri}, "
-                    f"agent={request.agent_id}, error={e}"
+                    f"agent={request.principal_id}, error={e}"
                 )
                 return MCPServiceResponse(
                     success=False,
@@ -441,7 +441,7 @@ class MCPAdapterService:
                 self._error_count += 1
                 logger.error(
                     f"Unexpected error during resource read: uri={request.resource_uri}, "
-                    f"agent={request.agent_id}, error={e}",
+                    f"agent={request.principal_id}, error={e}",
                     exc_info=True
                 )
                 return MCPServiceResponse(

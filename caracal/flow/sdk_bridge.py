@@ -98,14 +98,14 @@ class SDKBridge:
 
     async def create_mandate(
         self,
-        agent_id: str,
+        principal_id: str,
         allowed_operations: list,
         expires_in: int = 3600,
     ):
         """Create a mandate in the current scope."""
         scope = self._scope or self._get_default_scope()
         return await scope.mandates.create(
-            agent_id=agent_id,
+            principal_id=principal_id,
             allowed_operations=allowed_operations,
             expires_in=expires_in,
         )
