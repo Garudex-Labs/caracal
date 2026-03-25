@@ -61,7 +61,7 @@ class TestMockAdapter:
 class TestHttpAdapter:
     def test_initialization(self):
         adapter = HttpAdapter(base_url="http://localhost:8000", api_key="sk_test")
-        assert adapter.is_connected is True
+        assert adapter.is_connected is False  # lazy init: connected after first send()
 
     def test_initialization_strips_trailing_slash(self):
         adapter = HttpAdapter(base_url="http://localhost:8000///")
