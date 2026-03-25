@@ -20,6 +20,19 @@ class CLIContext:
         self.config = None
         self.config_path = None
         self.verbose = False
+        self.workspace = None
+        
+    def __getitem__(self, key):
+        """Allow dict-like access for backward compatibility."""
+        return getattr(self, key)
+        
+    def __setitem__(self, key, value):
+        """Allow dict-like assignment."""
+        setattr(self, key, value)
+        
+    def get(self, key, default=None):
+        """Dict-like get method."""
+        return getattr(self, key, default)
 
 
 pass_context = click.make_pass_decorator(CLIContext, ensure=True)

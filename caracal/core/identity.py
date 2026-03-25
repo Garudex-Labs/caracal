@@ -198,8 +198,8 @@ class PrincipalRegistry:
         # Ensure parent directory exists
         self.registry_path.parent.mkdir(parents=True, exist_ok=True)
         
-        # Load existing registry if it exists
-        if self.registry_path.exists():
+        # Load existing registry if it exists and is a file
+        if self.registry_path.exists() and self.registry_path.is_file():
             self._load()
             logger.info(f"Loaded {len(self._agents)} agents from {self.registry_path}")
         else:

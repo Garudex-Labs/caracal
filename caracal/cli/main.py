@@ -44,8 +44,8 @@ def get_active_workspace() -> str:
 def workspace_context_callback(ctx, param, value):
     """Callback to set workspace context."""
     if value:
-        ctx.ensure_object(dict)
-        ctx.obj['workspace'] = value
+        ctx.ensure_object(CLIContext)
+        ctx.obj.workspace = value
     return value
 
 
@@ -166,10 +166,10 @@ def cli(ctx, config: Optional[Path], workspace: Optional[str], log_level: str, v
     and immutable audit trails.
     """
     # Initialize context
-    ctx.ensure_object(dict)
-    ctx.obj['verbose'] = verbose
-    ctx.obj['config_path'] = str(config) if config else None
-    ctx.obj['workspace'] = workspace or get_active_workspace()
+    ctx.ensure_object(CLIContext)
+    ctx.obj.verbose = verbose
+    ctx.obj.config_path = str(config) if config else None
+    ctx.obj.workspace = workspace or get_active_workspace()
     
     # Keep --help/--version output clean
     is_help_or_version = any(arg in {"--help", "-h", "--version"} for arg in sys.argv[1:])
