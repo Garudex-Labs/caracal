@@ -4,7 +4,7 @@ Caracal, a product of Garudex Labs
 
 Broker for Open-Source Edition.
 
-Handles direct communication with AI providers with circuit breaker,
+Handles direct communication with external providers with circuit breaker,
 rate limiting, retry logic, and health checks.
 """
 
@@ -16,6 +16,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from enum import Enum
 from typing import Any, Dict, List, Optional
+import base64
 
 import httpx
 import structlog
@@ -67,11 +68,33 @@ class ProviderConfig:
     """Provider configuration data model."""
     name: str
     provider_type: str
-    api_key_ref: str
+    api_key_ref: Optional[str] = None
+    auth_scheme: str = "api_key"
+    credential_ref: Optional[str] = None
     base_url: Optional[str] = None
     timeout_seconds: int = 30
     max_retries: int = 3
     rate_limit_rpm: Optional[int] = None  # Requests per minute
+    healthcheck_path: str = "/health"
+    default_headers: Dict[str, str] = field(default_factory=dict)
+    auth_metadata: Dict[str, Any] = field(default_factory=dict)
+    version: Optional[str] = None
+    capabilities: List[str] = field(default_factory=list)
+    tags: List[str] = field(default_factory=list)
+    access_policy: Dict[str, Any] = field(default_factory=dict)
+    metadata: Dict[str, Any] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        # Preserve backward compatibility with legacy api_key_ref-based configs.
+        if self.credential_ref is None and self.api_key_ref:
+            self.credential_ref = self.api_key_ref
+        if self.api_key_ref is None and self.credential_ref:
+            self.api_key_ref = self.credential_ref
+
+    @property
+    def service_type(self) -> str:
+        """Alias for provider_type to support service-agnostic terminology."""
+        return self.provider_type
 
 
 @dataclass
@@ -209,7 +232,16 @@ class ProviderInfo:
     base_url: Optional[str]
     configured: bool
     circuit_state: CircuitState
+    auth_scheme: str = "api_key"
+    version: Optional[str] = None
+    tags: List[str] = field(default_factory=list)
+    status: str = "configured"
     last_error: Optional[str] = None
+
+    @property
+    def service_type(self) -> str:
+        """Alias for provider_type to support service-agnostic terminology."""
+        return self.provider_type
 
 
 @dataclass
@@ -220,6 +252,16 @@ class ProviderHealthCheck:
     latency_ms: float
     error: Optional[str] = None
     timestamp: datetime = field(default_factory=datetime.now)
+
+    @property
+    def is_healthy(self) -> bool:
+        """Compatibility alias used by CLI code paths."""
+        return self.healthy
+
+    @property
+    def error_message(self) -> Optional[str]:
+        """Compatibility alias used by CLI code paths."""
+        return self.error
 
 
 @dataclass
@@ -238,7 +280,7 @@ class Broker:
     """
     Broker for Open-Source Edition.
     
-    Handles direct communication with AI providers with:
+    Handles direct communication with external dependencies with:
     - Circuit breaker pattern per provider
     - Token bucket rate limiting
     - Retry logic with exponential backoff
@@ -314,8 +356,25 @@ class Broker:
             if not config.provider_type:
                 raise ProviderConfigurationError("Provider type is required")
             
-            if not config.api_key_ref:
-                raise ProviderConfigurationError("API key reference is required")
+            normalized_auth_scheme = config.auth_scheme.replace("-", "_").lower()
+            supported_auth_schemes = {
+                "none",
+                "api_key",
+                "bearer",
+                "basic",
+                "header",
+                "oauth2_client_credentials",
+                "service_account",
+            }
+            if normalized_auth_scheme not in supported_auth_schemes:
+                raise ProviderConfigurationError(
+                    f"Unsupported auth scheme: {config.auth_scheme}"
+                )
+
+            if normalized_auth_scheme not in {"none"} and not config.credential_ref:
+                raise ProviderConfigurationError(
+                    "Credential reference is required for authenticated providers"
+                )
             
             # Store configuration
             self._providers[provider] = config
@@ -330,6 +389,7 @@ class Broker:
                 "provider_configured",
                 provider=provider,
                 provider_type=config.provider_type,
+                auth_scheme=normalized_auth_scheme,
                 rate_limit_rpm=config.rate_limit_rpm
             )
             
@@ -361,6 +421,10 @@ class Broker:
                 base_url=config.base_url,
                 configured=True,
                 circuit_state=circuit_breaker.state,
+                auth_scheme=config.auth_scheme,
+                version=config.version,
+                tags=config.tags,
+                status=self._status_from_circuit_state(circuit_breaker.state),
                 last_error=None  # Could track this in metrics
             ))
         
@@ -388,16 +452,15 @@ class Broker:
             # Simple health check: make a minimal request
             start_time = time.time()
             
-            # Get API key
-            api_key = self.config_manager.get_secret(config.api_key_ref, self.workspace)
+            auth_headers = self._build_auth_headers(provider, config)
             
             # Make test request (provider-specific endpoint)
             client = await self._get_client()
             base_url = config.base_url or self._get_default_base_url(config.provider_type)
             
             response = await client.get(
-                f"{base_url}/health",  # Generic health endpoint
-                headers={"Authorization": f"Bearer {api_key}"},
+                f"{base_url}/{config.healthcheck_path.lstrip('/')}",
+                headers={**config.default_headers, **auth_headers},
                 timeout=5.0
             )
             
@@ -558,15 +621,7 @@ class Broker:
                 start_time = time.time()
                 
                 # Get API key
-                try:
-                    api_key = self.config_manager.get_secret(
-                        config.api_key_ref,
-                        self.workspace
-                    )
-                except SecretNotFoundError as e:
-                    raise ProviderAuthenticationError(
-                        f"API key not found for provider {provider}: {config.api_key_ref}"
-                    ) from e
+                auth_headers = self._build_auth_headers(provider, config)
                 
                 # Build request
                 client = await self._get_client()
@@ -574,7 +629,8 @@ class Broker:
                 url = f"{base_url}/{request.endpoint.lstrip('/')}"
                 
                 headers = {
-                    "Authorization": f"Bearer {api_key}",
+                    **config.default_headers,
+                    **auth_headers,
                     **request.headers
                 }
                 
@@ -707,12 +763,64 @@ class Broker:
         Returns:
             Default base URL
         """
-        # Default URLs for common providers
+        # Default URLs for common external services.
         defaults = {
             "openai": "https://api.openai.com/v1",
             "anthropic": "https://api.anthropic.com/v1",
             "google": "https://generativelanguage.googleapis.com/v1",
             "cohere": "https://api.cohere.ai/v1",
+            "api": "https://api.example.com/v1",
+            "database": "https://db.example.com",
+            "infrastructure": "https://infra.example.com",
+            "internal": "https://internal.example.com",
         }
         
         return defaults.get(provider_type.lower(), "https://api.example.com/v1")
+
+    def _build_auth_headers(self, provider: str, config: ProviderConfig) -> Dict[str, str]:
+        """Resolve provider auth scheme into outbound request headers."""
+        scheme = config.auth_scheme.replace("-", "_").lower()
+        if scheme == "none":
+            return {}
+
+        if not config.credential_ref:
+            raise ProviderAuthenticationError(
+                f"Provider '{provider}' is missing credential_ref"
+            )
+
+        try:
+            credential_value = self.config_manager.get_secret(
+                config.credential_ref,
+                self.workspace,
+            )
+        except SecretNotFoundError as e:
+            raise ProviderAuthenticationError(
+                f"Credential not found for provider {provider}: {config.credential_ref}"
+            ) from e
+
+        if scheme in {"api_key", "bearer"}:
+            return {"Authorization": f"Bearer {credential_value}"}
+
+        if scheme == "basic":
+            encoded = base64.b64encode(credential_value.encode("utf-8")).decode("ascii")
+            return {"Authorization": f"Basic {encoded}"}
+
+        if scheme == "header":
+            header_name = str(config.auth_metadata.get("header_name", "X-API-Key"))
+            return {header_name: credential_value}
+
+        if scheme in {"oauth2_client_credentials", "service_account"}:
+            raise ProviderAuthenticationError(
+                f"Auth scheme '{config.auth_scheme}' requires gateway-mediated execution"
+            )
+
+        raise ProviderAuthenticationError(f"Unsupported auth scheme: {config.auth_scheme}")
+
+    @staticmethod
+    def _status_from_circuit_state(state: CircuitState) -> str:
+        """Translate circuit state to simple operational status."""
+        if state == CircuitState.CLOSED:
+            return "healthy"
+        if state == CircuitState.HALF_OPEN:
+            return "degraded"
+        return "unavailable"
