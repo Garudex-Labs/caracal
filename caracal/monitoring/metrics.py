@@ -283,21 +283,21 @@ class MetricsRegistry:
         self.allowlist_checks_total = Counter(
             'caracal_allowlist_checks_total',
             'Total number of allowlist checks',
-            ['agent_id', 'result'],
+            ['principal_id', 'result'],
             registry=self.registry
         )
         
         self.allowlist_matches_total = Counter(
             'caracal_allowlist_matches_total',
             'Total number of allowlist matches',
-            ['agent_id', 'pattern_type'],
+            ['principal_id', 'pattern_type'],
             registry=self.registry
         )
         
         self.allowlist_misses_total = Counter(
             'caracal_allowlist_misses_total',
             'Total number of allowlist misses (resource not allowed)',
-            ['agent_id'],
+            ['principal_id'],
             registry=self.registry
         )
         
@@ -324,7 +324,7 @@ class MetricsRegistry:
         self.allowlist_patterns_active = Gauge(
             'caracal_allowlist_patterns_active',
             'Number of active allowlist patterns per agent',
-            ['agent_id'],
+            ['principal_id'],
             registry=self.registry
         )
         
@@ -789,7 +789,7 @@ class MetricsRegistry:
     
     def record_allowlist_check(
         self,
-        agent_id: str,
+        principal_id: str,
         result: str,
         pattern_type: Optional[str] = None,
         duration_seconds: Optional[float] = None
@@ -798,23 +798,23 @@ class MetricsRegistry:
         Record an allowlist check.
         
         Args:
-            agent_id: Agent ID
+            principal_id: Agent ID
             result: Check result (allowed, denied, no_allowlist)
             pattern_type: Pattern type if matched (regex, glob)
             duration_seconds: Check duration in seconds
         """
         self.allowlist_checks_total.labels(
-            agent_id=agent_id,
+            principal_id=principal_id,
             result=result
         ).inc()
         
         if result == "allowed" and pattern_type:
             self.allowlist_matches_total.labels(
-                agent_id=agent_id,
+                principal_id=principal_id,
                 pattern_type=pattern_type
             ).inc()
         elif result == "denied":
-            self.allowlist_misses_total.labels(agent_id=agent_id).inc()
+            self.allowlist_misses_total.labels(principal_id=principal_id).inc()
         
         if duration_seconds and pattern_type:
             self.allowlist_check_duration_seconds.labels(
@@ -822,12 +822,12 @@ class MetricsRegistry:
             ).observe(duration_seconds)
     
     @contextmanager
-    def time_allowlist_check(self, agent_id: str, pattern_type: str):
+    def time_allowlist_check(self, principal_id: str, pattern_type: str):
         """
         Context manager to time allowlist checks.
         
         Args:
-            agent_id: Agent ID
+            principal_id: Agent ID
             pattern_type: Pattern type (regex, glob)
         """
         start_time = time.time()
@@ -847,15 +847,15 @@ class MetricsRegistry:
         """Record an allowlist cache miss."""
         self.allowlist_cache_misses_total.inc()
     
-    def set_allowlist_patterns_active(self, agent_id: str, count: int):
+    def set_allowlist_patterns_active(self, principal_id: str, count: int):
         """
         Set the number of active allowlist patterns for an agent.
         
         Args:
-            agent_id: Agent ID
+            principal_id: Agent ID
             count: Number of active patterns
         """
-        self.allowlist_patterns_active.labels(agent_id=agent_id).set(count)
+        self.allowlist_patterns_active.labels(principal_id=principal_id).set(count)
     
     # Dead Letter Queue Metrics Methods 
     

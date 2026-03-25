@@ -62,9 +62,9 @@ class AgentOperations:
         )
         return await self._execute(req)
 
-    async def get(self, agent_id: str) -> Dict[str, Any]:
+    async def get(self, principal_id: str) -> Dict[str, Any]:
         """Get an agent by ID."""
-        req = self._build_request("GET", f"/agents/{agent_id}")
+        req = self._build_request("GET", f"/agents/{principal_id}")
         return await self._execute(req)
 
     async def create(
@@ -80,31 +80,31 @@ class AgentOperations:
         req = self._build_request("POST", "/agents", body=body)
         return await self._execute(req)
 
-    async def update(self, agent_id: str, **kwargs: Any) -> Dict[str, Any]:
+    async def update(self, principal_id: str, **kwargs: Any) -> Dict[str, Any]:
         """Update an existing agent."""
-        req = self._build_request("PATCH", f"/agents/{agent_id}", body=kwargs)
+        req = self._build_request("PATCH", f"/agents/{principal_id}", body=kwargs)
         return await self._execute(req)
 
-    async def delete(self, agent_id: str) -> Dict[str, Any]:
+    async def delete(self, principal_id: str) -> Dict[str, Any]:
         """Delete an agent."""
-        req = self._build_request("DELETE", f"/agents/{agent_id}")
+        req = self._build_request("DELETE", f"/agents/{principal_id}")
         return await self._execute(req)
 
     async def delegate_authority(
         self,
-        source_agent_id: str,
-        target_agent_id: str,
+        source_principal_id: str,
+        target_principal_id: str,
         delegation_type: str = "hierarchical",
         context_tags: Optional[List[str]] = None,
     ) -> Dict[str, Any]:
         """Delegate authority from source agent to target agent via delegation graph."""
         body: Dict[str, Any] = {
-            "target_agent_id": target_agent_id,
+            "target_principal_id": target_principal_id,
             "delegation_type": delegation_type,
         }
         if context_tags:
             body["context_tags"] = context_tags
         req = self._build_request(
-            "POST", f"/agents/{source_agent_id}/delegate", body=body
+            "POST", f"/agents/{source_principal_id}/delegate", body=body
         )
         return await self._execute(req)

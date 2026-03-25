@@ -43,7 +43,7 @@ class CaracalClient:
     Workspace-scoped::
 
         ctx = client.context.checkout(organization_id="org_1", workspace_id="ws_1")
-        await ctx.mandates.create(agent_id="a1", allowed_operations=["read"], expires_in=3600)
+        await ctx.mandates.create(principal_id="a1", allowed_operations=["read"], expires_in=3600)
 
     Args:
         api_key: API key for authentication.

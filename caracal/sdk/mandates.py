@@ -56,7 +56,7 @@ class MandateOperations:
 
     async def create(
         self,
-        agent_id: str,
+        principal_id: str,
         allowed_operations: List[str],
         expires_in: int,
         intent: Optional[Dict[str, Any]] = None,
@@ -64,7 +64,7 @@ class MandateOperations:
     ) -> Dict[str, Any]:
         """Create a new execution mandate."""
         body: Dict[str, Any] = {
-            "agent_id": agent_id,
+            "principal_id": principal_id,
             "allowed_operations": allowed_operations,
             "expires_in": expires_in,
         }
@@ -116,12 +116,12 @@ class MandateOperations:
 
     async def list(
         self,
-        agent_id: Optional[str] = None,
+        principal_id: Optional[str] = None,
         limit: int = 100,
     ) -> List[Dict[str, Any]]:
         """List mandates, optionally filtered by agent."""
         params: Dict[str, Any] = {"limit": limit}
-        if agent_id:
-            params["agent_id"] = agent_id
+        if principal_id:
+            params["principal_id"] = principal_id
         req = self._build_request("GET", "/mandates", params=params)
         return await self._execute(req)
