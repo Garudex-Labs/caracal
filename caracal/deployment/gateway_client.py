@@ -67,6 +67,20 @@ class ProviderInfo:
     provider_type: str
     available: bool
     quota_remaining: Optional[int] = None
+    auth_scheme: Optional[str] = None
+    version: Optional[str] = None
+    tags: List[str] = field(default_factory=list)
+    metadata: Dict[str, Any] = field(default_factory=dict)
+
+    @property
+    def service_type(self) -> str:
+        """Alias for provider_type to support service-agnostic terminology."""
+        return self.provider_type
+
+    @property
+    def status(self) -> str:
+        """Compatibility status field consumed by CLI table rendering."""
+        return "healthy" if self.available else "unavailable"
 
 
 @dataclass
@@ -625,10 +639,14 @@ class GatewayClient:
             
             providers = [
                 ProviderInfo(
-                    name=p["name"],
-                    provider_type=p["type"],
-                    available=p["available"],
-                    quota_remaining=p.get("quota_remaining")
+                    name=p.get("name") or p.get("provider_id", "unknown"),
+                    provider_type=p.get("service_type") or p.get("type", "api"),
+                    available=p.get("available", p.get("enabled", True)),
+                    quota_remaining=p.get("quota_remaining"),
+                    auth_scheme=p.get("auth_scheme"),
+                    version=p.get("version"),
+                    tags=p.get("tags", []),
+                    metadata=p.get("metadata", {}),
                 )
                 for p in data["providers"]
             ]
