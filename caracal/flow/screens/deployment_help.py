@@ -138,7 +138,10 @@ def _show_command_reference(console: Console) -> None:
     provider_table.add_column("CLI Equivalent", style=Colors.DIM)
     
     provider_table.add_row("List Providers", "caracal provider list")
-    provider_table.add_row("Add Provider", "caracal provider add <name> --api-key=<key>")
+    provider_table.add_row(
+        "Add Provider",
+        "caracal provider add <name> --resource <id> --action <resource:action:method:path> --credential=<secret>",
+    )
     provider_table.add_row("Test Provider", "caracal provider test <name>")
     provider_table.add_row("Remove Provider", "caracal provider remove <name>")
     
@@ -211,10 +214,13 @@ caracal config set postgres.user caracal
 Edition is inferred from connectivity and cannot be manually set.
 
 ### Open Source Edition (Default)
-Direct provider access with local API key storage:
+Direct provider access with workspace-local provider definitions:
 
 ```bash
-caracal provider add openai --api-key=<your-key>
+caracal provider add my-provider \
+  --resource model.inference \
+  --action model.inference:invoke:POST:/v1/infer \
+  --credential=<your-key>
 ```
 
 ### Enterprise Edition

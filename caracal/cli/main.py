@@ -650,7 +650,7 @@ def provider(ctx):
     \b
     Examples:
     caracal provider list               # List providers
-    caracal provider add <name> --provider-definition openai --credential <secret>
+    caracal provider add <name> --resource <id> --action <resource:action:method:path> --credential <secret>
     caracal provider test <name>        # Test connection
     caracal provider remove <name>      # Remove provider
     """
