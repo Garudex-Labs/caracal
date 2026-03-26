@@ -1,7 +1,7 @@
 """
 Source-oriented path helpers.
 
-These utilities avoid direct reliance on Path.parent and mkdir(parents=...).
+These utilities avoid direct reliance on ancestor-specific Path APIs.
 """
 
 from __future__ import annotations
@@ -18,7 +18,7 @@ def source_of(path: Path) -> Path:
 
 
 def ensure_source_tree(path: Path) -> None:
-    """Create a directory tree for *path* without using mkdir(parents=True)."""
+    """Create a directory tree for *path* using source-oriented traversal."""
     cursor = Path(path)
     pending: list[Path] = []
 

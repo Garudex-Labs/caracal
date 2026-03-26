@@ -21,6 +21,7 @@ from caracal.config.settings import get_default_config_path, load_config
 from caracal.exceptions import CaracalError, InvalidConfigurationError
 from caracal.logging_config import setup_logging
 from caracal.cli.context import CLIContext, pass_context
+from caracal.pathing import ensure_source_tree, source_of
 
 
 @click.group()
