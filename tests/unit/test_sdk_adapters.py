@@ -7,10 +7,10 @@ Tests for SDK Transport Adapters.
 
 import pytest
 
-from caracal.sdk.adapters.base import BaseAdapter, SDKRequest, SDKResponse
-from caracal.sdk.adapters.http import HttpAdapter
-from caracal.sdk.adapters.mock import MockAdapter
-from caracal.sdk.adapters.websocket import WebSocketAdapter
+from caracal_sdk.adapters.base import BaseAdapter, SDKRequest, SDKResponse
+from caracal_sdk.adapters.http import HttpAdapter
+from caracal_sdk.adapters.mock import MockAdapter
+from caracal_sdk.adapters.websocket import WebSocketAdapter
 
 
 class TestMockAdapter:

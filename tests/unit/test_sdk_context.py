@@ -8,9 +8,9 @@ Tests for SDK Context & Scope Management.
 import warnings
 import pytest
 
-from caracal.sdk.adapters.mock import MockAdapter
-from caracal.sdk.hooks import HookRegistry
-from caracal.sdk.context import ScopeContext, ContextManager
+from caracal_sdk.adapters.mock import MockAdapter
+from caracal_sdk.hooks import HookRegistry
+from caracal_sdk.context import ScopeContext, ContextManager
 
 
 @pytest.fixture

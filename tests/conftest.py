@@ -6,11 +6,21 @@ Pytest configuration and shared fixtures for Caracal Core tests.
 """
 
 import os
+import sys
 import tempfile
 from pathlib import Path
 from typing import Generator, Optional
 
 import pytest
+
+
+# Make standalone SDK source importable in monorepo test runs.
+_REPO_ROOT = Path(__file__).resolve().parent.parent
+_SDK_SRC = _REPO_ROOT / "sdk" / "python-sdk" / "src"
+if _SDK_SRC.exists():
+    sdk_src = str(_SDK_SRC)
+    if sdk_src not in sys.path:
+        sys.path.insert(0, sdk_src)
 
 
 # Global test key path (created once per session for efficiency)

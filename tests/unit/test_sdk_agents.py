@@ -7,11 +7,11 @@ Tests for SDK Agent Operations.
 
 import pytest
 
-from caracal.sdk.adapters.base import SDKResponse
-from caracal.sdk.adapters.mock import MockAdapter
-from caracal.sdk.hooks import HookRegistry
-from caracal.sdk.context import ScopeContext
-from caracal.sdk.agents import AgentOperations
+from caracal_sdk.adapters.base import SDKResponse
+from caracal_sdk.adapters.mock import MockAdapter
+from caracal_sdk.hooks import HookRegistry
+from caracal_sdk.context import ScopeContext
+from caracal_sdk.agents import AgentOperations
 
 
 @pytest.fixture
