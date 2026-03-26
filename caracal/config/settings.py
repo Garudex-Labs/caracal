@@ -125,12 +125,12 @@ def _has_encrypted_values(value: Any) -> bool:
 
 @dataclass
 class StorageConfig:
-    """Storage configuration for file paths."""
+    """Storage configuration for workspace-local operational data."""
     
     backup_dir: str
     backup_count: int = 3
     
-    # Legacy fields (SQLite/JSON no longer supported, PostgreSQL only)
+    # Legacy compatibility fields. These are optional in PostgreSQL-only mode.
     principal_registry: str = ""
     policy_store: str = ""
     ledger: str = ""
@@ -491,20 +491,20 @@ def _build_config_from_dict(config_data: Dict[str, Any]) -> CaracalConfig:
     storage_data = config_data['storage']
     
     # Expand paths with user home directory
+    def _resolve_storage_path(key: str, default_value: str) -> str:
+        """Resolve storage path from YAML, falling back to default when absent/empty."""
+        raw_value = storage_data.get(key)
+        value = raw_value if raw_value else default_value
+        return os.path.expanduser(value) if value else ""
+
     storage = StorageConfig(
         backup_dir=os.path.expanduser(
             storage_data.get('backup_dir', default_config.storage.backup_dir)
         ),
         backup_count=storage_data.get('backup_count', default_config.storage.backup_count),
-        principal_registry=os.path.expanduser(
-            storage_data.get('principal_registry', default_config.storage.principal_registry)
-        ) if storage_data.get('principal_registry') else "",
-        policy_store=os.path.expanduser(
-            storage_data.get('policy_store', default_config.storage.policy_store)
-        ) if storage_data.get('policy_store') else "",
-        ledger=os.path.expanduser(
-            storage_data.get('ledger', default_config.storage.ledger)
-        ) if storage_data.get('ledger') else "",
+        principal_registry=_resolve_storage_path('principal_registry', default_config.storage.principal_registry),
+        policy_store=_resolve_storage_path('policy_store', default_config.storage.policy_store),
+        ledger=_resolve_storage_path('ledger', default_config.storage.ledger),
     )
     
     # Parse defaults configuration (optional)
@@ -708,22 +708,7 @@ def _validate_config(config: CaracalConfig) -> None:
     Raises:
         InvalidConfigurationError: If configuration is invalid
     """
-    # Validate storage paths are not empty
-    if not config.storage.principal_registry:
-        logger.error("Configuration validation failed: principal_registry path cannot be empty")
-        raise InvalidConfigurationError("principal_registry path cannot be empty")
-    if not config.storage.policy_store:
-        logger.error("Configuration validation failed: policy_store path cannot be empty")
-        raise InvalidConfigurationError("policy_store path cannot be empty")
-    if not config.storage.ledger:
-        logger.error("Configuration validation failed: ledger path cannot be empty")
-        raise InvalidConfigurationError("ledger path cannot be empty")
-    # Validate agent registry path is not empty
-    if not config.storage.principal_registry:
-        logger.error("Configuration validation failed: principal_registry path cannot be empty")
-        raise InvalidConfigurationError("principal_registry path cannot be empty")
-    
-    # Validate backup count is positive
+    # Validate backup settings (used for exports/snapshots, independent of DB backend)
     if config.storage.backup_count < 1:
         raise InvalidConfigurationError(
             f"backup_count must be at least 1, got {config.storage.backup_count}"
