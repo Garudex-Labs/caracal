@@ -522,14 +522,13 @@ def authority(ctx):
     pass
 
 
-from caracal.cli.authority import issue, validate, revoke, list_mandates, delegate, graph, chain
+from caracal.cli.authority import issue, validate, revoke, list_mandates, delegate, graph
 authority.add_command(issue, name='mandate')
 authority.add_command(validate, name='enforce')
 authority.add_command(revoke)
 authority.add_command(list_mandates, name='list')
 authority.add_command(delegate)
 authority.add_command(graph)
-authority.add_command(chain)
 
 
 # =============================================================================

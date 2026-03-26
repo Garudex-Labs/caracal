@@ -409,7 +409,7 @@ def validate(
     '--cascade',
     '-c',
     is_flag=True,
-    help='Revoke all child mandates recursively',
+    help='Revoke all downstream delegated mandates recursively',
 )
 @click.option(
     '--format',
@@ -431,7 +431,7 @@ def revoke(
     Revoke an execution mandate.
     
     Marks the mandate as revoked, preventing further use. Optionally
-    revokes all child mandates in the delegation chain.
+    revokes all downstream delegated mandates in the delegation graph.
     
     Examples:
     
@@ -677,7 +677,7 @@ def list_mandates(
     help='Source mandate ID to delegate from (UUID)',
 )
 @click.option(
-    '--child-subject-id',
+    '--target-subject-id',
     '-s',
     required=True,
     help='Target subject principal ID (UUID)',
@@ -720,7 +720,7 @@ def list_mandates(
 def delegate(
     ctx,
     source_mandate_id: str,
-    child_subject_id: str,
+    target_subject_id: str,
     resource_scope: tuple,
     action_scope: tuple,
     validity_seconds: int,
@@ -761,7 +761,7 @@ def delegate(
         # Parse UUIDs
         try:
             source_uuid = UUID(source_mandate_id)
-            child_uuid = UUID(child_subject_id)
+            target_uuid = UUID(target_subject_id)
         except ValueError as e:
             click.echo(f"Error: Invalid UUID format: {e}", err=True)
             sys.exit(1)
@@ -783,7 +783,7 @@ def delegate(
             # Delegate mandate
             child_mandate = mandate_manager.delegate_mandate(
                 source_mandate_id=source_uuid,
-                child_subject_id=child_uuid,
+                target_subject_id=target_uuid,
                 resource_scope=resource_scope_list,
                 action_scope=action_scope_list,
                 validity_seconds=validity_seconds,
@@ -893,6 +893,7 @@ def graph(ctx, root_mandate_id: Optional[str], format: str):
             session = db_manager.get_session()
             graph = DelegationGraph(session)
             topology = graph.get_topology(root_mandate_id=root_uuid)
+            details = graph.get_chain_details(root_uuid) if root_uuid else None
             
             if format.lower() == 'json':
                 output = {
@@ -900,6 +901,8 @@ def graph(ctx, root_mandate_id: Optional[str], format: str):
                     'edges': topology.edges,
                     'stats': topology.stats,
                 }
+                if details:
+                    output['graph_details'] = details
                 click.echo(json.dumps(output, indent=2))
             else:
                 # Table output
@@ -930,6 +933,42 @@ def graph(ctx, root_mandate_id: Optional[str], format: str):
                 for ptype, count in topology.stats.get('nodes_by_type', {}).items():
                     icon = type_icons.get(ptype, '?')
                     click.echo(f"  {icon} {ptype}: {count} nodes")
+
+                if details:
+                    stats = details.get('stats', {})
+                    click.echo()
+                    click.echo(
+                        "Graph Details: "
+                        f"max_depth={stats.get('max_depth', 0)}, "
+                        f"branches={stats.get('branch_nodes', 0)}, "
+                        f"leaves={stats.get('leaf_nodes', 0)}, "
+                        f"valid={'yes' if stats.get('is_valid') else 'no'}"
+                    )
+
+                    rows = details.get('chain', [])
+                    if rows:
+                        click.echo()
+                        click.echo(
+                            f"{'Depth':<5}  {'Mandate ID':<38}  {'Type':<8}  {'Children':<8}  {'Paths':<5}  {'DelDepth':<8}  {'Status'}"
+                        )
+                        click.echo("-" * 110)
+
+                        for row in rows:
+                            status = "active"
+                            if not row.get('active'):
+                                status = "revoked"
+                            elif row.get('expired'):
+                                status = "expired"
+
+                            click.echo(
+                                f"{row.get('depth', 0):<5}  "
+                                f"{row.get('mandate_id', ''):<38}  "
+                                f"{row.get('principal_type', 'unknown'):<8}  "
+                                f"{row.get('child_count', 0):<8}  "
+                                f"{row.get('path_count', 0):<5}  "
+                                f"{row.get('delegation_depth', 0):<8}  "
+                                f"{status}"
+                            )
         
         finally:
             db_manager.close()
@@ -940,101 +979,6 @@ def graph(ctx, root_mandate_id: Optional[str], format: str):
     except Exception as e:
         click.echo(f"Unexpected error: {e}", err=True)
         logger.error(f"Failed to show delegation graph: {e}", exc_info=True)
-        sys.exit(1)
-
-
-@click.command('chain')
-@click.option(
-    '--root-mandate-id',
-    '-m',
-    required=True,
-    help='Root mandate ID to inspect delegation chain from (UUID)',
-)
-@click.option(
-    '--format',
-    '-f',
-    type=click.Choice(['table', 'json'], case_sensitive=False),
-    default='table',
-    help='Output format (default: table)',
-)
-@click.pass_context
-def chain(ctx, root_mandate_id: str, format: str):
-    """
-    Show detailed delegation chain metrics for a root mandate.
-
-    Includes depth, branching, path counts, per-node validity, and
-    delegation depth remaining.
-    """
-    try:
-        cli_ctx = ctx.obj
-
-        try:
-            root_uuid = UUID(root_mandate_id)
-        except ValueError as e:
-            click.echo(f"Error: Invalid mandate ID format: {e}", err=True)
-            sys.exit(1)
-
-        from caracal.db.connection import get_db_manager
-        from caracal.core.delegation_graph import DelegationGraph
-
-        db_manager = get_db_manager(cli_ctx.config)
-
-        try:
-            session = db_manager.get_session()
-            graph = DelegationGraph(session)
-            details = graph.get_chain_details(root_mandate_id=root_uuid)
-
-            if format.lower() == 'json':
-                click.echo(json.dumps(details, indent=2))
-            else:
-                stats = details.get('stats', {})
-                click.echo(
-                    "Delegation Chain "
-                    f"(nodes={stats.get('total_nodes', 0)}, "
-                    f"edges={stats.get('total_edges', 0)}, "
-                    f"max_depth={stats.get('max_depth', 0)}, "
-                    f"branches={stats.get('branch_nodes', 0)}, "
-                    f"leaves={stats.get('leaf_nodes', 0)}, "
-                    f"valid={'yes' if stats.get('is_valid') else 'no'})"
-                )
-                click.echo()
-
-                rows = details.get('chain', [])
-                if not rows:
-                    click.echo("No chain nodes found.")
-                    return
-
-                click.echo(
-                    f"{'Depth':<5}  {'Mandate ID':<38}  {'Type':<8}  {'Children':<8}  {'Paths':<5}  {'DelDepth':<8}  {'Status'}"
-                )
-                click.echo("-" * 110)
-
-                for row in rows:
-                    status = "active"
-                    if not row.get('active'):
-                        status = "revoked"
-                    elif row.get('expired'):
-                        status = "expired"
-
-                    click.echo(
-                        f"{row.get('depth', 0):<5}  "
-                        f"{row.get('mandate_id', ''):<38}  "
-                        f"{row.get('principal_type', 'unknown'):<8}  "
-                        f"{row.get('child_count', 0):<8}  "
-                        f"{row.get('path_count', 0):<5}  "
-                        f"{row.get('delegation_depth', 0):<8}  "
-                        f"{status}"
-                    )
-
-        finally:
-            db_manager.close()
-
-    except CaracalError as e:
-        click.echo(f"Error: {e}", err=True)
-        sys.exit(1)
-    except Exception as e:
-        click.echo(f"Unexpected error: {e}", err=True)
-        logger.error(f"Failed to show delegation chain: {e}", exc_info=True)
         sys.exit(1)
 
 
