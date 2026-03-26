@@ -10,33 +10,133 @@ Provides commands for querying and summarizing ledger events.
 import json
 import sys
 from datetime import datetime
+from dataclasses import dataclass
 from decimal import Decimal
-from pathlib import Path
+from uuid import UUID
 from typing import Optional
 
 import click
 
-from caracal.core.ledger import LedgerQuery
-from caracal.exceptions import CaracalError, LedgerReadError
+from caracal.db.connection import get_db_manager
+from caracal.db.models import AuthorityLedgerEvent
+from caracal.exceptions import CaracalError
 
 
-def get_ledger_query(config) -> LedgerQuery:
+@dataclass
+class _LedgerEventView:
+    event_id: int
+    principal_id: str
+    resource_type: str
+    quantity: str
+    timestamp: str
+
+    def to_dict(self) -> dict:
+        return {
+            "event_id": self.event_id,
+            "principal_id": self.principal_id,
+            "resource_type": self.resource_type,
+            "quantity": self.quantity,
+            "timestamp": self.timestamp,
+        }
+
+
+class _PostgresLedgerQuery:
+    """Compatibility query facade backed by authority_ledger_events."""
+
+    def __init__(self, config):
+        self._config = config
+
+    @staticmethod
+    def _as_uuid(value: Optional[str]) -> Optional[UUID]:
+        if not value:
+            return None
+        try:
+            return UUID(value)
+        except ValueError:
+            return None
+
+    def get_events(
+        self,
+        principal_id: Optional[str] = None,
+        start_time: Optional[datetime] = None,
+        end_time: Optional[datetime] = None,
+        resource_type: Optional[str] = None,
+    ) -> list[_LedgerEventView]:
+        principal_uuid = self._as_uuid(principal_id)
+        db_manager = get_db_manager(self._config)
+        try:
+            with db_manager.session_scope() as session:
+                query = session.query(AuthorityLedgerEvent)
+                if principal_uuid:
+                    query = query.filter(AuthorityLedgerEvent.principal_id == principal_uuid)
+                if start_time:
+                    query = query.filter(AuthorityLedgerEvent.timestamp >= start_time)
+                if end_time:
+                    query = query.filter(AuthorityLedgerEvent.timestamp <= end_time)
+                if resource_type:
+                    query = query.filter(AuthorityLedgerEvent.requested_resource.ilike(f"%{resource_type}%"))
+
+                rows = query.order_by(AuthorityLedgerEvent.event_id.desc()).all()
+                return [
+                    _LedgerEventView(
+                        event_id=row.event_id,
+                        principal_id=str(row.principal_id),
+                        resource_type=row.requested_resource or row.event_type or "unknown",
+                        quantity="1",
+                        timestamp=row.timestamp.isoformat(),
+                    )
+                    for row in rows
+                ]
+        finally:
+            db_manager.close()
+
+    def sum_usage(
+        self,
+        principal_id: str,
+        start_time: Optional[datetime],
+        end_time: Optional[datetime],
+    ) -> Decimal:
+        return Decimal(len(self.get_events(principal_id=principal_id, start_time=start_time, end_time=end_time)))
+
+    def aggregate_by_agent(self, start_time: datetime, end_time: datetime) -> dict[str, Decimal]:
+        events = self.get_events(start_time=start_time, end_time=end_time)
+        totals: dict[str, Decimal] = {}
+        for event in events:
+            totals[event.principal_id] = totals.get(event.principal_id, Decimal("0")) + Decimal("1")
+        return totals
+
+    def sum_usage_with_children(self, principal_id: str, start_time: datetime, end_time: datetime, principal_registry=None) -> dict[str, Decimal]:
+        # Delegation-aware recursive rollup has moved to PostgreSQL graph queries.
+        # This compatibility method currently returns direct usage for the requested principal.
+        return {principal_id: self.sum_usage(principal_id, start_time, end_time)}
+
+    def get_usage_breakdown(self, principal_id: str, start_time: datetime, end_time: datetime, principal_registry=None) -> dict:
+        own_usage = self.sum_usage(principal_id, start_time, end_time)
+        return {
+            "principal_id": principal_id,
+            "principal_name": principal_id,
+            "usage": str(own_usage),
+            "children": [],
+            "total_with_children": str(own_usage),
+        }
+
+
+def get_ledger_query(config) -> _PostgresLedgerQuery:
     """
-    Create LedgerQuery instance from configuration.
+    Create PostgreSQL-backed ledger query instance from configuration.
     
     Args:
         config: Configuration object
         
     Returns:
-        LedgerQuery instance
+        _PostgresLedgerQuery instance
     """
-    ledger_path = Path(config.storage.ledger).expanduser()
-    return LedgerQuery(str(ledger_path))
+    return _PostgresLedgerQuery(config)
 
 
 def get_principal_registry(config):
     """
-    Create AgentRegistry instance from configuration.
+    Backward-compatibility placeholder. Hierarchical queries are PostgreSQL-backed.
     
     Args:
         config: Configuration object
@@ -44,9 +144,7 @@ def get_principal_registry(config):
     Returns:
         AgentRegistry instance
     """
-    from caracal.core.identity import AgentRegistry
-    registry_path = Path(config.storage.principal_registry).expanduser()
-    return AgentRegistry(str(registry_path))
+    return None
 
 
 def parse_datetime(date_str: str) -> datetime:
@@ -243,9 +341,6 @@ def query(
                     f"{timestamp}"
                 )
     
-    except LedgerReadError as e:
-        click.echo(f"Error: {e}", err=True)
-        sys.exit(1)
     except CaracalError as e:
         click.echo(f"Error: {e}", err=True)
         sys.exit(1)
@@ -632,9 +727,6 @@ def summary(
                 ):
                     click.echo(f"{principal_id:<{principal_id_width}}  {usage}")
     
-    except LedgerReadError as e:
-        click.echo(f"Error: {e}", err=True)
-        sys.exit(1)
     except CaracalError as e:
         click.echo(f"Error: {e}", err=True)
         sys.exit(1)
