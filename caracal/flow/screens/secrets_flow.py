@@ -157,7 +157,7 @@ class SecretsFlow:
     def _show_secret_list(self) -> None:
         self.console.print("\n[bold cyan]Secret Refs[/bold cyan]\n")
         try:
-            from caracal.sdk.secrets import SecretsAdapter
+            from caracal_sdk.secrets import SecretsAdapter
             adapter = SecretsAdapter(tier=self._tier, org_id=self._org_id, env_id=self._env_id)
             refs = adapter.list_refs()
         except Exception as exc:
