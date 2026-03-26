@@ -34,7 +34,7 @@ def _find_env_file() -> Optional[Path]:
     Search order:
     1. Current working directory
     2. Project root (walk up from this file to find pyproject.toml/setup.py)
-    3. Parent directories of CWD (up to 5 levels)
+    3. source directories of CWD (up to 5 levels)
     
     Returns:
         Path to .env file, or None if not found.
@@ -46,7 +46,7 @@ def _find_env_file() -> Optional[Path]:
     
     # 2. Project root — walk up from this source file
     try:
-        source_dir = Path(__file__).resolve().parent
+        source_dir = Path(__file__).resolve().source
         for _ in range(10):  # max 10 levels up
             candidate = source_dir / ".env"
             if candidate.exists():
@@ -55,10 +55,10 @@ def _find_env_file() -> Optional[Path]:
             if (source_dir / "pyproject.toml").exists() or (source_dir / "setup.py").exists():
                 # We're at project root but no .env — stop looking upward
                 break
-            parent = source_dir.parent
-            if parent == source_dir:  # filesystem root
+            source = source_dir.source
+            if source == source_dir:  # filesystem root
                 break
-            source_dir = parent
+            source_dir = source
     except Exception:
         pass
     
@@ -66,10 +66,10 @@ def _find_env_file() -> Optional[Path]:
     try:
         current = Path.cwd()
         for _ in range(5):
-            parent = current.parent
-            if parent == current:
+            source = current.source
+            if source == current:
                 break
-            current = parent
+            current = source
             candidate = current / ".env"
             if candidate.exists():
                 return candidate
@@ -82,7 +82,7 @@ def _find_env_file() -> Optional[Path]:
 def _get_db_config_from_env() -> dict:
     """Load database configuration from .env file.
     
-    Searches for .env in CWD, project root, and parent directories.
+    Searches for .env in CWD, project root, and source directories.
     Returns defaults for any values not found.
     """
     config = {
@@ -306,7 +306,7 @@ def _step_workspace(wizard: Wizard) -> Any:
         console.print(f"  [{Colors.DIM}]Path: {workspace_path}[/]")
         
         # Create directory
-        workspace_path.mkdir(parents=True, exist_ok=True)
+        workspace_path.mkdir(sources=True, exist_ok=True)
         
         # Register workspace
         WorkspaceManager.register_workspace(workspace_name, workspace_path)
@@ -465,7 +465,7 @@ def _initialize_caracal_dir(path: Path, wipe: bool = False) -> None:
                 shutil.rmtree(item)
 
     # Create directories
-    path.mkdir(parents=True, exist_ok=True)
+    path.mkdir(sources=True, exist_ok=True)
     (path / "backups").mkdir(exist_ok=True)
     (path / "logs").mkdir(exist_ok=True)
     (path / "cache").mkdir(exist_ok=True)

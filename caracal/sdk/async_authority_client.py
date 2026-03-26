@@ -411,22 +411,22 @@ class AsyncAuthorityClient:
     async def delegate_mandate(
         self,
         source_mandate_id: str,
-        child_subject_id: str,
+        target_subject_id: str,
         resource_scope: List[str],
         action_scope: List[str],
         validity_seconds: int,
         metadata: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """
-        Create a delegated mandate from a parent mandate (async).
+        Create a delegated mandate from a source mandate (async).
         
         See AuthorityClient.delegate_mandate() for full documentation.
         """
         # Validate parameters
         if not source_mandate_id:
             raise SDKConfigurationError("source_mandate_id is required")
-        if not child_subject_id:
-            raise SDKConfigurationError("child_subject_id is required")
+        if not target_subject_id:
+            raise SDKConfigurationError("target_subject_id is required")
         if not resource_scope:
             raise SDKConfigurationError("resource_scope must not be empty")
         if not action_scope:
@@ -436,13 +436,13 @@ class AsyncAuthorityClient:
         
         logger.info(
             f"Delegating mandate (async): source={source_mandate_id}, "
-            f"child_subject={child_subject_id}, validity={validity_seconds}s"
+            f"target_subject={target_subject_id}, validity={validity_seconds}s"
         )
         
         # Prepare request data
         request_data = {
             "source_mandate_id": source_mandate_id,
-            "child_subject_id": child_subject_id,
+            "target_subject_id": target_subject_id,
             "resource_scope": resource_scope,
             "action_scope": action_scope,
             "validity_seconds": validity_seconds,
@@ -549,7 +549,7 @@ class AsyncAuthorityClient:
         allowed_resource_patterns: List[str],
         allowed_actions: List[str],
         max_validity_seconds: int = 86400,
-        delegation_depth: int = 0,
+        network_distance: int = 0,
     ) -> Dict[str, Any]:
         """
         Create an authority policy for a principal — async.
@@ -563,8 +563,8 @@ class AsyncAuthorityClient:
             "allowed_resource_patterns": allowed_resource_patterns,
             "allowed_actions": allowed_actions,
             "max_validity_seconds": max_validity_seconds,
-            "allow_delegation": delegation_depth > 0,
-            "max_delegation_depth": delegation_depth,
+            "allow_delegation": network_distance > 0,
+            "max_network_distance": network_distance,
         }
 
         response = await self._make_request(
