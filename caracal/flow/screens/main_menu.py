@@ -127,7 +127,7 @@ def _show_status_header(console: Console) -> None:
     try:
         from caracal.deployment.config_manager import ConfigManager
         config_mgr = ConfigManager()
-                default_ws = get_default_workspace(config_mgr)
+        default_ws = get_default_workspace(config_mgr)
         if default_ws:
             status_items.append((Icons.WORKSPACE, f"Workspace: {default_ws.name}", Colors.PRIMARY))
     except Exception:

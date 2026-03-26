@@ -22,6 +22,7 @@ from rich.progress import Progress, SpinnerColumn, TextColumn
 from caracal.flow.theme import Colors, Icons
 from caracal.flow.state import FlowState, RecentAction
 from caracal.flow.components.menu import Menu, MenuItem
+from caracal.flow.screens._workspace_helpers import get_default_workspace
 
 
 def show_sync_monitor(console: Console, state: FlowState) -> None:
@@ -84,8 +85,7 @@ def _show_sync_status(console: Console) -> None:
     
     try:
         config_mgr = ConfigManager()
-        workspaces = config_mgr.list_workspaces()
-        default_ws = next((ws for ws in workspaces if ws.is_default), None)
+        default_ws = get_default_workspace(config_mgr)
         
         if not default_ws:
             console.print(f"  [{Colors.WARNING}]{Icons.WARNING} No workspace configured[/]")
@@ -140,8 +140,7 @@ def _show_detailed_status(console: Console, state: FlowState) -> None:
     
     try:
         config_mgr = ConfigManager()
-        workspaces = config_mgr.list_workspaces()
-        default_ws = next((ws for ws in workspaces if ws.is_default), None)
+        default_ws = get_default_workspace(config_mgr)
         
         if not default_ws or not default_ws.sync_enabled:
             console.print(f"  [{Colors.WARNING}]{Icons.WARNING} Sync not enabled[/]")
@@ -199,8 +198,7 @@ def _connect_sync(console: Console, state: FlowState) -> None:
     
     try:
         config_mgr = ConfigManager()
-        workspaces = config_mgr.list_workspaces()
-        default_ws = next((ws for ws in workspaces if ws.is_default), None)
+        default_ws = get_default_workspace(config_mgr)
         
         if not default_ws:
             console.print(f"  [{Colors.WARNING}]{Icons.WARNING} No workspace configured[/]")
@@ -259,8 +257,7 @@ def _disconnect_sync(console: Console, state: FlowState) -> None:
     
     try:
         config_mgr = ConfigManager()
-        workspaces = config_mgr.list_workspaces()
-        default_ws = next((ws for ws in workspaces if ws.is_default), None)
+        default_ws = get_default_workspace(config_mgr)
         
         if not default_ws or not default_ws.sync_enabled:
             console.print(f"  [{Colors.WARNING}]{Icons.WARNING} Sync not enabled[/]")
@@ -309,8 +306,7 @@ def _sync_now(console: Console, state: FlowState) -> None:
     
     try:
         config_mgr = ConfigManager()
-        workspaces = config_mgr.list_workspaces()
-        default_ws = next((ws for ws in workspaces if ws.is_default), None)
+        default_ws = get_default_workspace(config_mgr)
         
         if not default_ws or not default_ws.sync_enabled:
             console.print(f"  [{Colors.WARNING}]{Icons.WARNING} Sync not enabled[/]")
@@ -399,8 +395,7 @@ def _view_conflicts(console: Console, state: FlowState) -> None:
     
     try:
         config_mgr = ConfigManager()
-        workspaces = config_mgr.list_workspaces()
-        default_ws = next((ws for ws in workspaces if ws.is_default), None)
+        default_ws = get_default_workspace(config_mgr)
         
         if not default_ws or not default_ws.sync_enabled:
             console.print(f"  [{Colors.WARNING}]{Icons.WARNING} Sync not enabled[/]")
@@ -457,8 +452,7 @@ def _configure_auto_sync(console: Console, state: FlowState) -> None:
     
     try:
         config_mgr = ConfigManager()
-        workspaces = config_mgr.list_workspaces()
-        default_ws = next((ws for ws in workspaces if ws.is_default), None)
+        default_ws = get_default_workspace(config_mgr)
         
         if not default_ws or not default_ws.sync_enabled:
             console.print(f"  [{Colors.WARNING}]{Icons.WARNING} Sync not enabled[/]")
