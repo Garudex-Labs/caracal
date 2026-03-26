@@ -11,7 +11,7 @@ import pytest
 from unittest.mock import Mock, patch, MagicMock
 from datetime import datetime, timedelta
 
-from caracal.sdk.authority_client import AuthorityClient
+from caracal_sdk.authority_client import AuthorityClient
 from caracal.exceptions import ConnectionError, SDKConfigurationError
 
 
@@ -51,7 +51,7 @@ class TestAuthorityClientInitialization:
 class TestAuthorityClientRequestMandate:
     """Test request_mandate method."""
 
-    @patch('caracal.sdk.authority_client.AuthorityClient._make_request')
+    @patch('caracal_sdk.authority_client.AuthorityClient._make_request')
     def test_request_mandate_success(self, mock_request):
         """Test successful mandate request."""
         mock_request.return_value = {
@@ -108,7 +108,7 @@ class TestAuthorityClientRequestMandate:
 class TestAuthorityClientValidateMandate:
     """Test validate_mandate method."""
 
-    @patch('caracal.sdk.authority_client.AuthorityClient._make_request')
+    @patch('caracal_sdk.authority_client.AuthorityClient._make_request')
     def test_validate_mandate_allowed(self, mock_request):
         """Test successful mandate validation."""
         mock_request.return_value = {
@@ -131,7 +131,7 @@ class TestAuthorityClientValidateMandate:
         mock_request.assert_called_once()
         client.close()
 
-    @patch('caracal.sdk.authority_client.AuthorityClient._make_request')
+    @patch('caracal_sdk.authority_client.AuthorityClient._make_request')
     def test_validate_mandate_denied(self, mock_request):
         """Test denied mandate validation."""
         mock_request.return_value = {
@@ -155,7 +155,7 @@ class TestAuthorityClientValidateMandate:
 class TestAuthorityClientRevokeMandate:
     """Test revoke_mandate method."""
 
-    @patch('caracal.sdk.authority_client.AuthorityClient._make_request')
+    @patch('caracal_sdk.authority_client.AuthorityClient._make_request')
     def test_revoke_mandate_success(self, mock_request):
         """Test successful mandate revocation."""
         mock_request.return_value = {
@@ -177,7 +177,7 @@ class TestAuthorityClientRevokeMandate:
         assert result["revoked_count"] == 1
         client.close()
 
-    @patch('caracal.sdk.authority_client.AuthorityClient._make_request')
+    @patch('caracal_sdk.authority_client.AuthorityClient._make_request')
     def test_revoke_mandate_with_cascade(self, mock_request):
         """Test mandate revocation with cascade."""
         mock_request.return_value = {
@@ -202,7 +202,7 @@ class TestAuthorityClientRevokeMandate:
 class TestAuthorityClientQueryLedger:
     """Test query_ledger method."""
 
-    @patch('caracal.sdk.authority_client.AuthorityClient._make_request')
+    @patch('caracal_sdk.authority_client.AuthorityClient._make_request')
     def test_query_ledger_success(self, mock_request):
         """Test successful ledger query."""
         mock_request.return_value = {
@@ -241,7 +241,7 @@ class TestAuthorityClientQueryLedger:
 class TestAuthorityClientDelegateMandate:
     """Test delegate_mandate method."""
 
-    @patch('caracal.sdk.authority_client.AuthorityClient._make_request')
+    @patch('caracal_sdk.authority_client.AuthorityClient._make_request')
     def test_delegate_mandate_success(self, mock_request):
         """Test successful mandate delegation."""
         mock_request.return_value = {
