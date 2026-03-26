@@ -844,7 +844,11 @@ class ConfigManager:
             try:
                 from caracal.flow.workspace import WorkspaceManager
 
-                WorkspaceManager.register_workspace(name, workspace_dir)
+                WorkspaceManager.register_workspace(
+                    name,
+                    workspace_dir,
+                    is_default=config.is_default,
+                )
             except Exception:
                 # Best-effort sync; workspace creation should still succeed.
                 logger.debug("workspace_registry_sync_skipped", workspace=name)
@@ -875,6 +879,14 @@ class ConfigManager:
         Raises:
             WorkspaceNotFoundError: If workspace doesn't exist
             WorkspaceOperationError: If deletion fails
+
+            # Keep workspaces.json default in sync with deployment metadata.
+            try:
+                from caracal.flow.workspace import WorkspaceManager
+
+                WorkspaceManager.set_default_workspace(name)
+            except Exception:
+                logger.debug("workspace_registry_default_sync_skipped", workspace=name)
         """
         self._validate_workspace_name(name)
         
