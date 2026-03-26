@@ -650,7 +650,7 @@ def provider(ctx):
     \b
     Examples:
     caracal provider list               # List providers
-    caracal provider add <name> --service-type api --auth-scheme api-key --credential <secret>
+    caracal provider add <name> --provider-definition openai --credential <secret>
     caracal provider test <name>        # Test connection
     caracal provider remove <name>      # Remove provider
     """
@@ -818,6 +818,78 @@ except ImportError:
     pass
 
 system.add_command(integration)
+
+
+# =============================================================================
+# INPUT VALIDATION HELPERS
+# =============================================================================
+
+def validate_positive_decimal(ctx, param, value):
+    """Validate that a value is a positive decimal number."""
+    if value is None:
+        return value
+
+    try:
+        from decimal import Decimal, InvalidOperation
+
+        decimal_value = Decimal(str(value))
+        if decimal_value <= 0:
+            raise click.BadParameter(f"must be positive, got {value}")
+        return decimal_value
+    except (ValueError, TypeError, InvalidOperation):
+        raise click.BadParameter(f"must be a valid number, got {value}")
+
+
+def validate_non_negative_decimal(ctx, param, value):
+    """Validate that a value is a non-negative decimal number."""
+    if value is None:
+        return value
+
+    try:
+        from decimal import Decimal, InvalidOperation
+
+        decimal_value = Decimal(str(value))
+        if decimal_value < 0:
+            raise click.BadParameter(f"must be non-negative, got {value}")
+        return decimal_value
+    except (ValueError, TypeError, InvalidOperation):
+        raise click.BadParameter(f"must be a valid number, got {value}")
+
+
+def validate_uuid(ctx, param, value):
+    """Validate that a value is a valid UUID."""
+    if value is None:
+        return value
+
+    try:
+        import uuid
+
+        uuid.UUID(value)
+        return value
+    except (ValueError, TypeError):
+        raise click.BadParameter(f"must be a valid UUID, got {value}")
+
+
+def validate_time_window(ctx, param, value):
+    """Validate that a time window is supported."""
+    if value is None:
+        return value
+
+    valid_windows = ["daily"]
+    if value not in valid_windows:
+        raise click.BadParameter(f"must be one of {valid_windows}, got '{value}'")
+    return value
+
+
+def validate_resource_type(ctx, param, value):
+    """Validate that a resource type is non-empty."""
+    if value is None:
+        return value
+
+    if not value or not value.strip():
+        raise click.BadParameter("resource type cannot be empty")
+
+    return value.strip()
 
 
 # =============================================================================
