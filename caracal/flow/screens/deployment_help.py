@@ -122,7 +122,7 @@ def _show_command_reference(console: Console) -> None:
     
     config_table.add_row("View Configuration", "caracal config list")
     config_table.add_row("Set Mode", "caracal config mode [dev|user]")
-    config_table.add_row("Set Edition", "caracal config edition [opensource|enterprise]")
+    config_table.add_row("Edition (Auto)", "caracal config edition")
     config_table.add_row("Set Config Value", "caracal config set <key> <value>")
     config_table.add_row("Get Config Value", "caracal config get <key>")
     
@@ -206,13 +206,14 @@ caracal config set postgres.database caracal
 caracal config set postgres.user caracal
 ```
 
-## 5. Choose Your Edition
+## 5. Edition Is Automatic
+
+Edition is inferred from connectivity and cannot be manually set.
 
 ### Open Source Edition (Default)
 Direct provider access with local API key storage:
 
 ```bash
-caracal config edition opensource
 caracal provider add openai --api-key=<your-key>
 ```
 
@@ -220,8 +221,13 @@ caracal provider add openai --api-key=<your-key>
 Gateway-based access with centralized management:
 
 ```bash
-caracal config edition enterprise
 caracal sync connect <gateway-url> <token>
+```
+
+Return to Open Source mode:
+
+```bash
+caracal sync disconnect
 ```
 
 ## 6. Verify Setup
