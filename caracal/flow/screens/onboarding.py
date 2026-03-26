@@ -509,6 +509,44 @@ def _initialize_caracal_dir(path: Path, wipe: bool = False) -> None:
     # Legacy .db files are left in place (harmless) for manual cleanup.
 
 
+def _resolve_workspace_schema(workspace_name: str, context: dict) -> str:
+    """Return a stable, strongly-isolated schema for the workspace.
+
+    Schema format: ``ws_<slug>_<created_ts>_<hash>``.
+    This prevents schema collisions when users delete and recreate a workspace
+    with the same name.
+    """
+    import hashlib
+    import re as _re
+
+    slug = _re.sub(r"[^a-z0-9_]", "_", (workspace_name or "workspace").lower()).strip("_")
+    slug = slug or "workspace"
+
+    from datetime import datetime as _dt
+    from uuid import uuid4 as _uuid4
+
+    created_tag = _dt.utcnow().strftime("%Y%m%d%H%M%S")
+    workspace_path = context.get("workspace_path") or ""
+    entropy_nonce = ""
+
+    try:
+        from caracal.deployment.config_manager import ConfigManager
+        cfg_mgr = ConfigManager()
+        ws_cfg = cfg_mgr.get_workspace_config(workspace_name)
+        created_tag = ws_cfg.created_at.strftime("%Y%m%d%H%M%S")
+        if not workspace_path:
+            workspace_path = str(cfg_mgr.get_workspace_path(workspace_name))
+    except Exception:
+        entropy_nonce = _uuid4().hex[:8]
+
+    entropy_src = f"{workspace_name}|{workspace_path}|{created_tag}|{entropy_nonce}"
+    suffix = hashlib.sha1(entropy_src.encode("utf-8")).hexdigest()[:8]
+
+    max_slug_len = 63 - len("ws__") - len(created_tag) - len(suffix)
+    safe_slug = slug[:max(8, max_slug_len)]
+    return f"ws_{safe_slug}_{created_tag}_{suffix}"
+
+
 def _validate_env_config(config: dict) -> list[str]:
     """Validate that all required PostgreSQL env vars are properly set.
     
@@ -1253,9 +1291,8 @@ def run_onboarding(
         # Save database configuration if provided
         db_config_data = results.get("database")
         workspace_name = wizard.context.get("workspace_name", "default")
-        # Derive a safe PostgreSQL schema name from the workspace name
-        import re as _re
-        workspace_schema = "ws_" + _re.sub(r"[^a-z0-9_]", "_", workspace_name.lower())
+        # Derive or resolve workspace schema name.
+        workspace_schema = _resolve_workspace_schema(workspace_name, wizard.context)
         
         if db_config_data and isinstance(db_config_data, dict) and db_config_data.get("type") == "postgresql":
             console.print()
@@ -1270,6 +1307,18 @@ def run_onboarding(
             if config_file.exists():
                 with open(config_file, 'r') as f:
                     config_yaml = yaml.safe_load(f) or {}
+
+                # Preserve previously configured schema for this workspace.
+                existing_schema = (
+                    (config_yaml.get('database') or {}).get('schema')
+                    if isinstance(config_yaml, dict)
+                    else None
+                )
+                if existing_schema:
+                    import re as _re_schema
+                    _strong_schema_pattern = r"^ws_[a-z0-9_]+_\d{14}_[0-9a-f]{8}$"
+                    if _re_schema.match(_strong_schema_pattern, str(existing_schema)):
+                        workspace_schema = str(existing_schema)
                 
                 # Update database section — include schema for workspace isolation
                 config_yaml['database'] = {

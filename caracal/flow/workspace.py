@@ -271,6 +271,7 @@ class WorkspaceManager:
                             with open(ws_config_file, "r") as _f:
                                 _cfg = yaml.safe_load(_f) or {}
                             _db = _cfg.get("database", {})
+                            schema_name = _db.get("schema", schema_name)
                             db_kwargs = {
                                 "host": _db.get("host", "localhost"),
                                 "port": int(_db.get("port", 5432)),

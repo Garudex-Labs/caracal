@@ -797,6 +797,41 @@ class ConfigManager:
             raise WorkspaceNotFoundError(f"Workspace not found: {name}")
         
         try:
+            # Attempt schema cleanup before deleting workspace files.
+            schema_name = None
+            db_kwargs = {}
+            ws_config_yaml = workspace_dir / "config.yaml"
+            if ws_config_yaml.exists():
+                try:
+                    import yaml
+
+                    with open(ws_config_yaml, "r") as f:
+                        cfg = yaml.safe_load(f) or {}
+                    db_cfg = cfg.get("database", {})
+                    schema_name = db_cfg.get("schema")
+                    db_kwargs = {
+                        "host": db_cfg.get("host", "localhost"),
+                        "port": int(db_cfg.get("port", 5432)),
+                        "database": db_cfg.get("database", "caracal"),
+                        "user": db_cfg.get("user", "caracal"),
+                        "password": db_cfg.get("password", ""),
+                    }
+                except Exception:
+                    pass
+
+            if schema_name:
+                try:
+                    from caracal.db.connection import DatabaseConfig, DatabaseConnectionManager
+
+                    db_config = DatabaseConfig(**db_kwargs)
+                    mgr = DatabaseConnectionManager(db_config)
+                    mgr.initialize()
+                    mgr.drop_schema(schema_name=schema_name)
+                    mgr.close()
+                    logger.info("workspace_schema_dropped", workspace=name, schema=schema_name)
+                except Exception as e:
+                    logger.warning("workspace_schema_drop_failed", workspace=name, schema=schema_name, error=str(e))
+
             # Create backup if requested
             if backup:
                 backup_dir = self.WORKSPACES_DIR / "_deleted_backups"
