@@ -304,7 +304,7 @@ def _show_troubleshooting(console: Console) -> None:
     
     console.print(f"  [{Colors.INFO}]For more help:[/]")
     console.print(f"    - Run: caracal doctor")
-    console.print(f"    - Check logs: ~/.caracal/logs/")
+    console.print(f"    - Check logs: ~/.caracal/workspaces/<workspace>/logs/")
     console.print(f"    - Documentation: https://docs.garudexlabs.com")
     console.print()
     
