@@ -55,11 +55,11 @@ logger = get_logger(__name__)
     help='Allow delegation of mandates',
 )
 @click.option(
-    '--max-delegation-depth',
+    '--max-delegation-network_distance',
     '-m',
     type=int,
     default=0,
-    help='Maximum delegation depth (default: 0)',
+    help='Maximum delegation network_distance (default: 0)',
 )
 @click.option(
     '--format',
@@ -76,7 +76,7 @@ def create(
     resource_pattern: tuple,
     action: tuple,
     allow_delegation: bool,
-    max_delegation_depth: int,
+    max_network_distance: int,
     format: str,
 ):
     """
@@ -104,7 +104,7 @@ def create(
             -r "api:*" -r "database:*:read" \\
             -a "api_call" -a "database_query" \\
             --allow-delegation \\
-            --max-delegation-depth 2
+            --max-delegation-network_distance 2
         
         # JSON output
         caracal policy create -p <principal-id> -v 3600 -r "api:*" -a "api_call" --format json
@@ -128,9 +128,9 @@ def create(
             )
             sys.exit(1)
         
-        # Validate max_delegation_depth
-        if max_delegation_depth < 0:
-            click.echo(f"Error: Max delegation depth cannot be negative, got {max_delegation_depth}", err=True)
+        # Validate max_network_distance
+        if max_network_distance < 0:
+            click.echo(f"Error: Max delegation network_distance cannot be negative, got {max_network_distance}", err=True)
             sys.exit(1)
         
         # Convert tuples to lists
@@ -182,7 +182,7 @@ def create(
                 allowed_resource_patterns=resource_patterns,
                 allowed_actions=actions,
                 allow_delegation=allow_delegation,
-                max_delegation_depth=max_delegation_depth,
+                max_network_distance=max_network_distance,
                 created_by="cli",
                 active=True
             )
@@ -199,7 +199,7 @@ def create(
                     'allowed_resource_patterns': policy.allowed_resource_patterns,
                     'allowed_actions': policy.allowed_actions,
                     'allow_delegation': policy.allow_delegation,
-                    'max_delegation_depth': policy.max_delegation_depth,
+                    'max_network_distance': policy.max_network_distance,
                     'active': policy.active,
                     'created_at': policy.created_at.isoformat()
                 }
@@ -214,7 +214,7 @@ def create(
                 click.echo(f"Resource Patterns:      {', '.join(policy.allowed_resource_patterns)}")
                 click.echo(f"Allowed Actions:        {', '.join(policy.allowed_actions)}")
                 click.echo(f"Allow Delegation:       {'Yes' if policy.allow_delegation else 'No'}")
-                click.echo(f"Max Delegation Depth:   {policy.max_delegation_depth}")
+                click.echo(f"Max Delegation Network Distance:   {policy.max_network_distance}")
                 click.echo(f"Active:                 {'Yes' if policy.active else 'No'}")
                 click.echo(f"Created:                {policy.created_at}")
                 if principal_auto_created:
@@ -327,7 +327,7 @@ def list_policies(
                         'allowed_resource_patterns': p.allowed_resource_patterns,
                         'allowed_actions': p.allowed_actions,
                         'allow_delegation': p.allow_delegation,
-                        'max_delegation_depth': p.max_delegation_depth,
+                        'max_network_distance': p.max_network_distance,
                         'active': p.active,
                         'created_at': p.created_at.isoformat()
                     }
@@ -350,7 +350,7 @@ def list_policies(
                     
                     # Format delegation
                     if p.allow_delegation:
-                        delegation_str = f"Yes (depth: {p.max_delegation_depth})"
+                        delegation_str = f"Yes (network_distance: {p.max_network_distance})"
                     else:
                         delegation_str = "No"
                     

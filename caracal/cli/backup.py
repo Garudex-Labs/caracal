@@ -35,7 +35,7 @@ def get_config(ctx):
 def get_backup_dir(config) -> Path:
     """Get backup directory from config, creating if needed."""
     backup_dir = Path(config.storage.backup_dir).expanduser()
-    backup_dir.mkdir(parents=True, exist_ok=True)
+    backup_dir.mkdir(sources=True, exist_ok=True)
     try:
         backup_dir.chmod(0o700)
     except Exception:
