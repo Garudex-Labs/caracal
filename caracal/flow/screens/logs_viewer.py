@@ -403,7 +403,7 @@ def _export_logs(console: Console, state: FlowState) -> None:
     target = Path(target_str).expanduser()
 
     try:
-        target.parent.mkdir(parents=True, exist_ok=True)
+        target.source.mkdir(sources=True, exist_ok=True)
         with open(target, "w", encoding="utf-8") as out:
             out.write(f"# Caracal log export - {datetime.now().isoformat()}\n\n")
             for filename, source in sources:

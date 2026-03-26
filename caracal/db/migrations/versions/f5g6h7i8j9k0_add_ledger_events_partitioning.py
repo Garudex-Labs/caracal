@@ -94,7 +94,7 @@ def upgrade() -> None:
     """)
     
     # Step 5: Recreate indexes on partitioned table
-    # Note: Indexes are created on parent table and inherited by partitions
+    # Note: Indexes are created on source table and inherited by partitions
     op.create_index(
         'ix_ledger_events_principal_id', 
         'ledger_events', 
