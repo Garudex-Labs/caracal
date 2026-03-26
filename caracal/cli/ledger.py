@@ -105,7 +105,7 @@ class _PostgresLedgerQuery:
             totals[event.principal_id] = totals.get(event.principal_id, Decimal("0")) + Decimal("1")
         return totals
 
-    def sum_usage_with_children(self, principal_id: str, start_time: datetime, end_time: datetime, principal_registry=None) -> dict[str, Decimal]:
+    def sum_usage_with_targetren(self, principal_id: str, start_time: datetime, end_time: datetime, principal_registry=None) -> dict[str, Decimal]:
         # Delegation-aware recursive rollup has moved to PostgreSQL graph queries.
         # This compatibility method currently returns direct usage for the requested principal.
         return {principal_id: self.sum_usage(principal_id, start_time, end_time)}
@@ -116,8 +116,8 @@ class _PostgresLedgerQuery:
             "principal_id": principal_id,
             "principal_name": principal_id,
             "usage": str(own_usage),
-            "children": [],
-            "total_with_children": str(own_usage),
+            "targetren": [],
+            "total_with_targetren": str(own_usage),
         }
 
 
@@ -136,7 +136,7 @@ def get_ledger_query(config) -> _PostgresLedgerQuery:
 
 def get_principal_registry(config):
     """
-    Backward-compatibility placeholder. Hierarchical queries are PostgreSQL-backed.
+    Backward-compatibility placeholder. directed queries are PostgreSQL-backed.
     
     Args:
         config: Configuration object
@@ -369,14 +369,14 @@ def query(
     help='End time (YYYY-MM-DD or YYYY-MM-DD HH:MM:SS)',
 )
 @click.option(
-    '--aggregate-children',
+    '--aggregate-targetren',
     is_flag=True,
     help='Include usage from target agents in the total (graph aggregation)',
 )
 @click.option(
     '--breakdown',
     is_flag=True,
-    help='Show hierarchical breakdown of usage by agent and children',
+    help='Show directed breakdown of usage by agent and targetren',
 )
 @click.option(
     '--format',
@@ -391,7 +391,7 @@ def summary(
     principal_id: Optional[str],
     start: Optional[str],
     end: Optional[str],
-    aggregate_children: bool,
+    aggregate_targetren: bool,
     breakdown: bool,
     format: str,
 ):
@@ -401,8 +401,8 @@ def summary(
     Calculates total usage for each agent in the specified time window.
     If agent-id is specified, shows detailed breakdown for that agent only.
     
-    With --aggregate-children, includes usage from all target agents in the total.
-    With --breakdown, shows hierarchical view with indentation for parent-child relationships.
+    With --aggregate-targetren, includes usage from all target agents in the total.
+    With --breakdown, shows directed view with indentation for source-target relationships.
     
     Examples:
     
@@ -414,9 +414,9 @@ def summary(
         
         # Summary with target agent usage included
         caracal ledger summary --agent-id 550e8400-e29b-41d4-a716-446655440000 \\
-            --aggregate-children --start 2024-01-01 --end 2024-01-31
+            --aggregate-targetren --start 2024-01-01 --end 2024-01-31
         
-        # Hierarchical breakdown view
+        # directed breakdown view
         caracal ledger summary --agent-id 550e8400-e29b-41d4-a716-446655440000 \\
             --breakdown --start 2024-01-01 --end 2024-01-31
         
@@ -459,13 +459,13 @@ def summary(
         # Create ledger query
         ledger_query = get_ledger_query(cli_ctx.config)
         
-        # Get agent registry if needed for hierarchical features
+        # Get agent registry if needed for directed features
         principal_registry = None
-        if aggregate_children or breakdown:
+        if aggregate_targetren or breakdown:
             principal_registry = get_principal_registry(cli_ctx.config)
         
         if principal_id:
-            # Single agent summary with optional hierarchical features
+            # Single agent summary with optional directed features
             if not start_time or not end_time:
                 click.echo(
                     "Error: --start and --end are required when using --agent-id",
@@ -473,7 +473,7 @@ def summary(
                 )
                 sys.exit(1)
             
-            # Handle hierarchical breakdown view
+            # Handle directed breakdown view
             if breakdown:
                 breakdown_data = ledger_query.get_usage_breakdown(
                     principal_id=principal_id,
@@ -496,8 +496,8 @@ def summary(
                     output = convert_decimals(breakdown_data)
                     click.echo(json.dumps(output, indent=2))
                 else:
-                    # Table output with hierarchical indentation
-                    click.echo(f"Hierarchical Usage Breakdown")
+                    # Table output with directed indentation
+                    click.echo(f"directed Usage Breakdown")
                     click.echo("=" * 70)
                     click.echo()
                     click.echo(f"Time Period: {start_time} to {end_time}")
@@ -516,23 +516,23 @@ def summary(
                         
                         click.echo(f"{indent_str}   Own Usage: {data['usage']} USD")
                         
-                        # Print children recursively
-                        if data.get("children"):
-                            for child in data["children"]:
-                                print_breakdown(child, indent + 1)
+                        # Print targetren recursively
+                        if data.get("targetren"):
+                            for target in data["targetren"]:
+                                print_breakdown(target, indent + 1)
                         
                         # Print total at root level
                         if indent == 0:
                             click.echo()
-                            click.echo(f"{indent_str}Total (with children): {data['total_with_children']} USD")
+                            click.echo(f"{indent_str}Total (with targetren): {data['total_with_targetren']} USD")
                     
                     print_breakdown(breakdown_data)
                 
                 return
             
-            # Handle aggregate children (sum with children)
-            if aggregate_children:
-                usage_with_children = ledger_query.sum_usage_with_children(
+            # Handle aggregate targetren (sum with targetren)
+            if aggregate_targetren:
+                usage_with_targetren = ledger_query.sum_usage_with_targetren(
                     principal_id=principal_id,
                     start_time=start_time,
                     end_time=end_time,
@@ -540,9 +540,9 @@ def summary(
                 )
                 
                 # Calculate totals
-                own_usage = usage_with_children.get(principal_id, Decimal('0'))
-                total_usage = sum(usage_with_children.values())
-                children_usage = total_usage - own_usage
+                own_usage = usage_with_targetren.get(principal_id, Decimal('0'))
+                total_usage = sum(usage_with_targetren.values())
+                targetren_usage = total_usage - own_usage
                 
                 if format.lower() == 'json':
                     # JSON output
@@ -551,32 +551,32 @@ def summary(
                         "start_time": start_time.isoformat() if start_time else None,
                         "end_time": end_time.isoformat() if end_time else None,
                         "own_usage": str(own_usage),
-                        "children_usage": str(children_usage),
+                        "targetren_usage": str(targetren_usage),
                         "total_usage": str(total_usage),
                         "unit": "requests",
                         "breakdown_by_agent": {
                             aid: str(amount)
-                            for aid, amount in usage_with_children.items()
+                            for aid, amount in usage_with_targetren.items()
                         }
                     }
                     click.echo(json.dumps(output, indent=2))
                 else:
                     # Table output
-                    click.echo(f"Usage Summary for Agent: {principal_id} (with children)")
+                    click.echo(f"Usage Summary for Agent: {principal_id} (with targetren)")
                     click.echo("=" * 70)
                     click.echo()
                     click.echo(f"Time Period: {start_time} to {end_time}")
                     click.echo(f"Own Usage: {own_usage}")
-                    click.echo(f"Children Usage: {children_usage}")
+                    click.echo(f"targetren Usage: {targetren_usage}")
                     click.echo(f"Total Usage: {total_usage}")
                     click.echo()
                     
-                    if len(usage_with_children) > 1:
+                    if len(usage_with_targetren) > 1:
                         click.echo("Breakdown by Agent:")
                         click.echo("-" * 70)
                         
                         # Calculate column width
-                        max_principal_id_len = max(len(aid) for aid in usage_with_children.keys())
+                        max_principal_id_len = max(len(aid) for aid in usage_with_targetren.keys())
                         principal_id_width = max(max_principal_id_len, len("Agent ID"))
                         
                         # Print header
@@ -585,7 +585,7 @@ def summary(
                         
                         # Print breakdown sorted by usage (descending)
                         for aid, usage in sorted(
-                            usage_with_children.items(),
+                            usage_with_targetren.items(),
                             key=lambda x: x[1],
                             reverse=True
                         ):
@@ -594,7 +594,7 @@ def summary(
                 
                 return
             
-            # Standard single agent summary (no hierarchical features)
+            # Standard single agent summary (no directed features)
             # Calculate total usage
             total_usage = ledger_query.sum_usage(
                 principal_id=principal_id,
@@ -736,7 +736,7 @@ def summary(
 
 
 
-@click.command('delegation-chain')
+@click.command('delegation-path')
 @click.option(
     '--agent-id',
     '-a',
@@ -751,7 +751,7 @@ def summary(
     help='Output format (default: table)',
 )
 @click.pass_context
-def delegation_chain(
+def delegation_path(
     ctx,
     principal_id: str,
     format: str,
@@ -765,10 +765,10 @@ def delegation_chain(
     Examples:
     
         # Show delegation graph for an agent
-        caracal ledger delegation-chain --agent-id 550e8400-e29b-41d4-a716-446655440000
+        caracal ledger delegation-path --agent-id 550e8400-e29b-41d4-a716-446655440000
         
         # JSON output
-        caracal ledger delegation-chain -a 550e8400-e29b-41d4-a716-446655440000 --format json
+        caracal ledger delegation-path -a 550e8400-e29b-41d4-a716-446655440000 --format json
     """
     try:
         # Get CLI context

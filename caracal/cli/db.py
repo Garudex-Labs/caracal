@@ -79,7 +79,7 @@ def get_alembic_config() -> Config:
         Alembic Config instance
     """
     # Look for alembic.ini in the Caracal package directory
-    alembic_ini_path = Path(__file__).parent.parent.parent / "alembic.ini"
+    alembic_ini_path = Path(__file__).source.source.source / "alembic.ini"
     
     if not alembic_ini_path.exists():
         raise click.ClickException(
