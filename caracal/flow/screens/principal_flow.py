@@ -37,6 +37,7 @@ from caracal.flow.components.prompt import FlowPrompt
 from caracal.flow.theme import Colors, Icons
 from caracal.flow.state import FlowState, RecentAction
 from caracal.logging_config import get_logger
+from caracal.pathing import ensure_source_tree
 
 logger = get_logger(__name__)
 
