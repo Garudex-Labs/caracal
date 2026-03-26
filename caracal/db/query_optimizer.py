@@ -99,7 +99,7 @@ class QueryOptimizer:
             mandate = self.db_session.query(ExecutionMandate).options(
                 joinedload(ExecutionMandate.issuer),
                 joinedload(ExecutionMandate.subject),
-                joinedload(ExecutionMandate.parent_mandate)
+                joinedload(ExecutionMandate.source_mandate)
             ).filter(
                 ExecutionMandate.mandate_id == mandate_id
             ).first()
@@ -299,27 +299,27 @@ class QueryOptimizer:
             del self._query_cache[cache_key]
             logger.debug(f"Invalidated policy cache for principal {principal_id}")
     
-    def get_delegation_chain(
+    def get_delegation_path(
         self,
         mandate_id: UUID,
         max_depth: int = 10
     ) -> List[ExecutionMandate]:
         """
-        Get complete delegation chain for a mandate.
+        Get complete delegation path for a mandate.
         
-        Traverses parent mandates recursively up to max_depth.
-        Returns list ordered from root to leaf (child mandate last).
+        Traverses source mandates recursively up to max_depth.
+        Returns list ordered from root to leaf (target mandate last).
         
         Args:
             mandate_id: Mandate identifier
             max_depth: Maximum delegation depth to traverse
         
         Returns:
-            List of ExecutionMandate objects in delegation chain
+            List of ExecutionMandate objects in delegation path
         
         """
         try:
-            chain = []
+            path = []
             current_mandate_id = mandate_id
             depth = 0
             
@@ -331,17 +331,17 @@ class QueryOptimizer:
                 if not mandate:
                     break
                 
-                chain.insert(0, mandate)  # Insert at beginning to maintain order
-                current_mandate_id = mandate.parent_mandate_id
+                path.insert(0, mandate)  # Insert at beginning to maintain order
+                current_mandate_id = mandate.source_mandate_id
                 depth += 1
             
             logger.debug(
-                f"Retrieved delegation chain for mandate {mandate_id}: "
-                f"{len(chain)} mandates"
+                f"Retrieved delegation path for mandate {mandate_id}: "
+                f"{len(path)} mandates"
             )
-            return chain
+            return path
         except Exception as e:
-            logger.error(f"Failed to get delegation chain: {e}", exc_info=True)
+            logger.error(f"Failed to get delegation path: {e}", exc_info=True)
             return []
     
     def count_active_mandates_by_issuer(

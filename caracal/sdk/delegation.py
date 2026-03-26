@@ -21,7 +21,7 @@ logger = get_logger(__name__)
 
 
 class DelegationOperations:
-    """Delegation chain and token management within a scoped context.
+    """Delegation path and token management within a scoped context.
 
     All methods inject scope headers and fire lifecycle hooks.
     """
@@ -56,17 +56,17 @@ class DelegationOperations:
 
     async def create(
         self,
-        parent_mandate_id: str,
-        child_subject_id: str,
+        source_mandate_id: str,
+        target_subject_id: str,
         resource_scope: List[str],
         action_scope: List[str],
         validity_seconds: int,
         metadata: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
-        """Create a delegated mandate from a parent mandate."""
+        """Create a delegated mandate from a source mandate."""
         body: Dict[str, Any] = {
-            "parent_mandate_id": parent_mandate_id,
-            "child_subject_id": child_subject_id,
+            "source_mandate_id": source_mandate_id,
+            "target_subject_id": target_subject_id,
             "resource_scope": resource_scope,
             "action_scope": action_scope,
             "validity_seconds": validity_seconds,
