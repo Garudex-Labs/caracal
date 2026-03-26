@@ -17,7 +17,7 @@ from sqlalchemy.orm import Session
 
 from caracal.core.crypto import sign_mandate
 from caracal.core.intent import Intent
-from caracal.db.models import ExecutionMandate, AuthorityPolicy, Principal, DelegationEdgeModel
+from caracal.db.models import ExecutionMandate, AuthorityPolicy, Principal
 from caracal.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -212,7 +212,6 @@ class MandateManager:
         intent: Optional[Intent] = None,
         delegation_type: str = "hierarchical",
         delegation_depth: Optional[int] = None,
-        parent_mandate_id: Optional[UUID] = None,
         enforce_issuer_policy: bool = True,
         context_tags: Optional[List[str]] = None,
     ) -> ExecutionMandate:
@@ -233,7 +232,6 @@ class MandateManager:
             intent: Optional intent to bind the mandate to
             delegation_type: Type of delegation (hierarchical/peer)
             delegation_depth: How many additional delegation hops are allowed
-            parent_mandate_id: Parent mandate for delegated mandates
             enforce_issuer_policy: Whether to validate against issuer authority policy
             context_tags: Context tags for dynamic authority filtering
         
@@ -410,7 +408,6 @@ class MandateManager:
             delegation_type=delegation_type,
             context_tags=context_tags,
             intent_hash=intent_hash,
-            parent_mandate_id=parent_mandate_id,
             delegation_depth=resolved_delegation_depth,
         )
         
@@ -564,7 +561,7 @@ class MandateManager:
     def delegate_mandate(
         self,
         source_mandate_id: UUID,
-        child_subject_id: UUID,
+        target_subject_id: UUID,
         resource_scope: List[str],
         action_scope: List[str],
         validity_seconds: int,
@@ -572,17 +569,17 @@ class MandateManager:
     ) -> ExecutionMandate:
         """
         Create a delegated mandate from a source mandate.
-        
-        Creates a new mandate for the child subject with scope that must be
+
+        Creates a new mandate for the target subject with scope that must be
         a subset of the source mandate's scope, then creates a delegation
         edge in the graph. Respects delegation direction rules.
         
         Args:
             source_mandate_id: The source mandate ID to delegate from
-            child_subject_id: Principal ID of the child subject
-            resource_scope: Resource scope for the child mandate (must be subset)
-            action_scope: Action scope for the child mandate (must be subset)
-            validity_seconds: Validity period for the child mandate
+            target_subject_id: Principal ID of the target subject
+            resource_scope: Resource scope for the delegated mandate (must be subset)
+            action_scope: Action scope for the delegated mandate (must be subset)
+            validity_seconds: Validity period for the delegated mandate
             context_tags: Optional context tags for the delegation edge
         
         Returns:
@@ -596,7 +593,7 @@ class MandateManager:
         
         logger.info(
             f"Delegating mandate: source={source_mandate_id}, "
-            f"child_subject={child_subject_id}, validity={validity_seconds}s"
+            f"target_subject={target_subject_id}, validity={validity_seconds}s"
         )
         
         # Get source mandate
@@ -617,11 +614,11 @@ class MandateManager:
         
         # Validate child scope is subset of source scope
         if not self._validate_scope_subset(resource_scope, source_mandate.resource_scope):
-            raise ValueError("Child resource scope must be subset of source scope")
+            raise ValueError("Delegated resource scope must be subset of source scope")
         if not self._validate_scope_subset(action_scope, source_mandate.action_scope):
-            raise ValueError("Child action scope must be subset of source scope")
+            raise ValueError("Delegated action scope must be subset of source scope")
         
-        # Validate child validity is within source validity
+        # Validate delegated validity is within source validity
         valid_from = datetime.utcnow()
         valid_until = valid_from + timedelta(seconds=validity_seconds)
         if valid_until > source_mandate.valid_until:
@@ -633,12 +630,12 @@ class MandateManager:
         
         # Get principal types for direction validation
         source_principal = self._get_principal(source_mandate.subject_id)
-        target_principal = self._get_principal(child_subject_id)
+        target_principal = self._get_principal(target_subject_id)
         
         if not source_principal:
             raise ValueError(f"Source principal {source_mandate.subject_id} not found")
         if not target_principal:
-            raise ValueError(f"Target principal {child_subject_id} not found")
+            raise ValueError(f"Target principal {target_subject_id} not found")
         
         # Validate delegation direction
         DelegationGraph.validate_delegation_direction(
@@ -652,7 +649,7 @@ class MandateManager:
                 f"Source mandate {source_mandate_id} has no remaining delegation depth"
             )
 
-        child_delegation_depth = source_depth - 1
+        delegated_depth = source_depth - 1
         
         # Determine delegation type
         delegation_type = DelegationGraph.get_delegation_type(
@@ -664,14 +661,13 @@ class MandateManager:
         try:
             delegated_mandate = self.issue_mandate(
                 issuer_id=source_mandate.subject_id,
-                subject_id=child_subject_id,
+                subject_id=target_subject_id,
                 resource_scope=resource_scope,
                 action_scope=action_scope,
                 validity_seconds=validity_seconds,
                 intent=None,
                 delegation_type=delegation_type,
-                delegation_depth=child_delegation_depth,
-                parent_mandate_id=source_mandate_id,
+                delegation_depth=delegated_depth,
                 enforce_issuer_policy=False,
                 context_tags=context_tags,
             )
@@ -687,7 +683,7 @@ class MandateManager:
             
             logger.info(
                 f"Successfully delegated mandate {delegated_mandate.mandate_id} "
-                f"from source {source_mandate_id} to subject {child_subject_id} "
+                f"from source {source_mandate_id} to subject {target_subject_id} "
                 f"[{source_principal.principal_type}→{target_principal.principal_type}]"
             )
             
@@ -767,7 +763,7 @@ class MandateManager:
         # Delegate using the standard flow (will set type='peer' automatically)
         return self.delegate_mandate(
             source_mandate_id=source_mandate_id,
-            child_subject_id=target_subject_id,
+            target_subject_id=target_subject_id,
             resource_scope=resource_scope,
             action_scope=action_scope,
             validity_seconds=validity_seconds,

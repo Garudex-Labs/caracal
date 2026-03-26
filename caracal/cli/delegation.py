@@ -125,8 +125,8 @@ def _get_delegation_manager(config) -> tuple[_DBPrincipalRegistryAdapter, Delega
 @click.option(
     '--delegation-type',
     default='hierarchical',
-    type=click.Choice(['hierarchical', 'chained', 'peer']),
-    help='Type of delegation: hierarchical, chained, or peer (default: hierarchical)',
+    type=click.Choice(['hierarchical', 'peer']),
+    help='Type of delegation: hierarchical or peer (default: hierarchical)',
 )
 @click.option(
     '--source-type',
@@ -165,7 +165,7 @@ def generate(ctx, source_id: str, target_id: str, authority_scope: float,
         
         caracal delegation generate -p source-uuid -c target-uuid \
             -l 50.00 --expiration 3600 \
-            --delegation-type chained --source-type user --target-type agent \
+            --delegation-type hierarchical --source-type user --target-type agent \
             -o api_call -o mcp_tool
     """
     try:
