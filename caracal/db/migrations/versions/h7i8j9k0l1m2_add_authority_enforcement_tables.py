@@ -71,12 +71,12 @@ def upgrade() -> None:
         sa.Column('revoked', sa.Boolean(), nullable=False),
         sa.Column('revoked_at', sa.DateTime(), nullable=True),
         sa.Column('revocation_reason', sa.String(length=1000), nullable=True),
-        sa.Column('parent_mandate_id', postgresql.UUID(as_uuid=True), nullable=True),
-        sa.Column('delegation_depth', sa.Integer(), nullable=False),
+        sa.Column('source_mandate_id', postgresql.UUID(as_uuid=True), nullable=True),
+        sa.Column('network_distance', sa.Integer(), nullable=False),
         sa.Column('intent_hash', sa.String(length=64), nullable=True),
         sa.ForeignKeyConstraint(['issuer_id'], ['principals.principal_id'], ),
         sa.ForeignKeyConstraint(['subject_id'], ['principals.principal_id'], ),
-        sa.ForeignKeyConstraint(['parent_mandate_id'], ['execution_mandates.mandate_id'], ),
+        sa.ForeignKeyConstraint(['source_mandate_id'], ['execution_mandates.mandate_id'], ),
         sa.PrimaryKeyConstraint('mandate_id')
     )
     
@@ -86,7 +86,7 @@ def upgrade() -> None:
     op.create_index(op.f('ix_execution_mandates_valid_from'), 'execution_mandates', ['valid_from'], unique=False)
     op.create_index(op.f('ix_execution_mandates_valid_until'), 'execution_mandates', ['valid_until'], unique=False)
     op.create_index(op.f('ix_execution_mandates_revoked'), 'execution_mandates', ['revoked'], unique=False)
-    op.create_index(op.f('ix_execution_mandates_parent_mandate_id'), 'execution_mandates', ['parent_mandate_id'], unique=False)
+    op.create_index(op.f('ix_execution_mandates_source_mandate_id'), 'execution_mandates', ['source_mandate_id'], unique=False)
     
     # Create authority_ledger_events table
     op.create_table(
@@ -128,7 +128,7 @@ def upgrade() -> None:
         sa.Column('allowed_resource_patterns', postgresql.JSONB(astext_type=sa.Text()), nullable=False),
         sa.Column('allowed_actions', postgresql.JSONB(astext_type=sa.Text()), nullable=False),
         sa.Column('allow_delegation', sa.Boolean(), nullable=False),
-        sa.Column('max_delegation_depth', sa.Integer(), nullable=False),
+        sa.Column('max_network_distance', sa.Integer(), nullable=False),
         sa.Column('created_at', sa.DateTime(), nullable=False),
         sa.Column('created_by', sa.String(length=255), nullable=False),
         sa.Column('active', sa.Boolean(), nullable=False),
@@ -163,7 +163,7 @@ def downgrade() -> None:
     op.drop_table('authority_ledger_events')
     
     # Drop execution_mandates table and indexes
-    op.drop_index(op.f('ix_execution_mandates_parent_mandate_id'), table_name='execution_mandates')
+    op.drop_index(op.f('ix_execution_mandates_source_mandate_id'), table_name='execution_mandates')
     op.drop_index(op.f('ix_execution_mandates_revoked'), table_name='execution_mandates')
     op.drop_index(op.f('ix_execution_mandates_valid_until'), table_name='execution_mandates')
     op.drop_index(op.f('ix_execution_mandates_valid_from'), table_name='execution_mandates')

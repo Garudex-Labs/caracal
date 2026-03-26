@@ -9,7 +9,7 @@ Revises:
 Create Date: 2026-02-01 23:03:52.248700
 
 Creates the initial PostgreSQL schema for Caracal Core v0.2:
-- principal_identities: Agent registry with parent-child relationships
+- principal_identities: Agent registry with source-target relationships
 - budget_policies: Budget policies with delegation tracking
 - ledger_events: Immutable ledger events for spending tracking
 - provisional_charges: Budget reservations with automatic expiration
