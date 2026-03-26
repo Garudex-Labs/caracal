@@ -156,7 +156,7 @@ def _set_mode(console: Console, state: FlowState) -> None:
             default="2"
         )
         
-        new_mode = Mode.DEV if choice == "1" else Mode.USER
+        new_mode = Mode.DEVELOPMENT if choice == "1" else Mode.USER
         
         if new_mode != current_mode:
             mode_mgr.set_mode(new_mode)
