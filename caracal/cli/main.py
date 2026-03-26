@@ -333,40 +333,17 @@ def workspace():
 def workspace_list(ctx, format):
     """List all workspaces."""
     from caracal.deployment.config_manager import ConfigManager
-    from caracal.flow.workspace import WorkspaceManager
     import json as json_lib
     
     try:
         config_mgr = ConfigManager()
         workspace_names = config_mgr.list_workspaces()
 
-        # Flow can have registered workspaces that do not yet include
-        # deployment metadata (workspace.toml). Keep those visible.
-        flow_registry = WorkspaceManager.list_workspaces()
-        flow_by_name = {
-            str(ws.get('name')): ws
-            for ws in flow_registry
-            if isinstance(ws, dict) and ws.get('name')
-        }
-
-        if not workspace_names and flow_by_name:
-            workspace_names = sorted(flow_by_name.keys())
-
         workspace_configs = []
         for name in workspace_names:
             try:
                 workspace_configs.append(config_mgr.get_workspace_config(name))
             except Exception:
-                flow_ws = flow_by_name.get(name)
-                if flow_ws:
-                    workspace_configs.append(type('FlowWorkspaceView', (), {
-                        'name': name,
-                        'is_default': False,
-                        'sync_enabled': False,
-                        'created_at': None,
-                        'source': 'flow_registry',
-                        'path': flow_ws.get('path'),
-                    })())
                 continue
         
         if format == 'json':
@@ -375,9 +352,7 @@ def workspace_list(ctx, format):
                     'name': ws.name,
                     'active': ws.is_default,
                     'sync_enabled': ws.sync_enabled,
-                    'created': ws.created_at.isoformat() if ws.created_at else None,
-                    'source': getattr(ws, 'source', 'deployment'),
-                    'path': getattr(ws, 'path', None),
+                    'created': ws.created_at.isoformat() if ws.created_at else None
                 }
                 for ws in workspace_configs
             ]
