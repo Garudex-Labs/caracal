@@ -457,7 +457,7 @@ class GatewayFlow:
         elif result.get("success"):
             self.console.print(
                 f"[bold {Colors.SUCCESS}]✓ Mandate {mandate_id} revoked successfully.[/]\n"
-                f"Cascaded to: {result.get('cascaded_count', 0)} child mandates."
+                f"Cascaded to: {result.get('cascaded_count', 0)} downstream delegated mandates."
             )
         else:
             self.console.print(

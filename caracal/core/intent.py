@@ -303,8 +303,7 @@ class IntentHandler:
                 resource_scope=resource_scope,
                 action_scope=action_scope,
                 validity_seconds=3600,  # Default 1 hour validity
-                intent=intent,
-                parent_mandate_id=None
+                intent=intent
             )
             
             return mandate
