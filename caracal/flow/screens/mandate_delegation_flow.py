@@ -231,16 +231,19 @@ class MandateDelegationFlow:
                 
                 # Target resource scope (must be subset)
                 self.console.print()
-                self.console.print(f"  [{Colors.INFO}]Enter target resource scope (subset of source):[/]")
-                self.console.print(f"  [{Colors.HINT}]Source resources: {', '.join(source_mandate.resource_scope)}[/]")
+                self.console.print(f"  [{Colors.INFO}]Select target resource scope (subset of source):[/]")
                 target_resources = []
                 while True:
-                    resource = self.prompt.text(f"Resource {len(target_resources) + 1}", required=False)
-                    if not resource:
+                    remaining = [r for r in source_mandate.resource_scope if r not in target_resources]
+                    if not remaining:
                         break
-                    if resource not in source_mandate.resource_scope:
-                        self.console.print(f"  [{Colors.WARNING}]{Icons.WARNING} Resource not in source scope. Try again.[/]")
-                        continue
+                    resource = self.prompt.select(
+                        f"Resource {len(target_resources) + 1}",
+                        choices=remaining + ["done"],
+                        default=remaining[0],
+                    )
+                    if resource == "done":
+                        break
                     target_resources.append(resource)
                 
                 if not target_resources:
@@ -249,16 +252,19 @@ class MandateDelegationFlow:
                 
                 # Target action scope (must be subset)
                 self.console.print()
-                self.console.print(f"  [{Colors.INFO}]Enter target action scope (subset of source):[/]")
-                self.console.print(f"  [{Colors.HINT}]Source actions: {', '.join(source_mandate.action_scope)}[/]")
+                self.console.print(f"  [{Colors.INFO}]Select target action scope (subset of source):[/]")
                 target_actions = []
                 while True:
-                    action = self.prompt.text(f"Action {len(target_actions) + 1}", required=False)
-                    if not action:
+                    remaining = [a for a in source_mandate.action_scope if a not in target_actions]
+                    if not remaining:
                         break
-                    if action not in source_mandate.action_scope:
-                        self.console.print(f"  [{Colors.WARNING}]{Icons.WARNING} Action not in source scope. Try again.[/]")
-                        continue
+                    action = self.prompt.select(
+                        f"Action {len(target_actions) + 1}",
+                        choices=remaining + ["done"],
+                        default=remaining[0],
+                    )
+                    if action == "done":
+                        break
                     target_actions.append(action)
                 
                 if not target_actions:

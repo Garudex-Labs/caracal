@@ -24,6 +24,7 @@ from rich.text import Text
 
 from caracal.flow.components.prompt import FlowPrompt
 from caracal.flow.components.wizard import Wizard, WizardStep
+from caracal.flow.screens._provider_scope_helpers import load_provider_scope_catalog
 from caracal.flow.state import FlowState, StatePersistence, RecentAction
 from caracal.flow.theme import Colors, Icons
 from caracal.pathing import ensure_source_tree, source_of
@@ -1049,18 +1050,65 @@ def _step_policy(wizard: Wizard) -> Any:
         min_value=60,
     )
 
-    resource_input = prompt.text(
-        "Resource patterns (comma-separated, e.g. api:read:*,database:query)",
-        default="",
-    )
+    scope_catalog = load_provider_scope_catalog()
+    providers = scope_catalog["providers"]
+    resources = scope_catalog["resources"]
+    actions_catalog = scope_catalog["actions"]
 
-    actions_input = prompt.text(
-        "Allowed actions (comma-separated, e.g. api_call,database_query)",
-        default="",
-    )
+    if not providers:
+        console.print()
+        console.print(
+            f"  [{Colors.WARNING}]{Icons.WARNING} No providers configured in this workspace.[/]"
+        )
+        console.print(
+            f"  [{Colors.INFO}]{Icons.INFO} Skipping policy creation until a provider is configured.[/]"
+        )
+        return None
 
-    resource_patterns = [r.strip() for r in resource_input.split(",") if r.strip()]
-    actions = [a.strip() for a in actions_input.split(",") if a.strip()]
+    provider_choice = prompt.select(
+        "Scope provider",
+        choices=providers + ["all"],
+        default=providers[0],
+    )
+    if provider_choice != "all":
+        prefix = f"provider:{provider_choice}:"
+        resources = [scope for scope in resources if scope.startswith(prefix)]
+        actions_catalog = [scope for scope in actions_catalog if scope.startswith(prefix)]
+
+    resource_patterns: list[str] = []
+    while True:
+        remaining = [r for r in resources if r not in resource_patterns]
+        if not remaining:
+            break
+        choice = prompt.select(
+            f"Resource scope {len(resource_patterns) + 1}",
+            choices=remaining + ["done"],
+            default=remaining[0],
+        )
+        if choice == "done":
+            break
+        resource_patterns.append(choice)
+
+    actions: list[str] = []
+    while True:
+        remaining = [a for a in actions_catalog if a not in actions]
+        if not remaining:
+            break
+        choice = prompt.select(
+            f"Action scope {len(actions) + 1}",
+            choices=remaining + ["done"],
+            default=remaining[0],
+        )
+        if choice == "done":
+            break
+        actions.append(choice)
+
+    if not resource_patterns or not actions:
+        console.print()
+        console.print(
+            f"  [{Colors.WARNING}]{Icons.WARNING} Policy creation skipped because no provider scopes were selected.[/]"
+        )
+        return None
 
     wizard.context["first_policy"] = {
         "max_validity_seconds": int(max_validity),
@@ -1116,18 +1164,43 @@ def _step_mandate(wizard: Wizard) -> Any:
         min_value=60,
     )
 
-    resource_input = prompt.text(
-        "Resource scope (comma-separated patterns, e.g. api:service:*,database:*)",
-        default="",
-    )
+    resource_candidates = policy_info.get("resource_patterns", [])
+    action_candidates = policy_info.get("actions", [])
 
-    action_input = prompt.text(
-        "Action scope (comma-separated, e.g. api_call,database_query)",
-        default="",
-    )
+    resource_scope: list[str] = []
+    while True:
+        remaining = [r for r in resource_candidates if r not in resource_scope]
+        if not remaining:
+            break
+        choice = prompt.select(
+            f"Mandate resource scope {len(resource_scope) + 1}",
+            choices=remaining + ["done"],
+            default=remaining[0],
+        )
+        if choice == "done":
+            break
+        resource_scope.append(choice)
 
-    resource_scope = [r.strip() for r in resource_input.split(",") if r.strip()]
-    action_scope = [a.strip() for a in action_input.split(",") if a.strip()]
+    action_scope: list[str] = []
+    while True:
+        remaining = [a for a in action_candidates if a not in action_scope]
+        if not remaining:
+            break
+        choice = prompt.select(
+            f"Mandate action scope {len(action_scope) + 1}",
+            choices=remaining + ["done"],
+            default=remaining[0],
+        )
+        if choice == "done":
+            break
+        action_scope.append(choice)
+
+    if not resource_scope or not action_scope:
+        console.print()
+        console.print(
+            f"  [{Colors.WARNING}]{Icons.WARNING} Mandate issuance skipped because no provider scopes were selected.[/]"
+        )
+        return None
 
     wizard.context["first_mandate"] = {
         "validity_seconds": int(validity),
@@ -1520,7 +1593,7 @@ def run_onboarding(
                             allowed_resource_patterns=policy_data["resource_patterns"],
                             allowed_actions=policy_data["actions"],
                             allow_delegation=True,
-                            max_delegation_depth=3,
+                            max_network_distance=3,
                             created_at=datetime.utcnow(),
                             created_by=principal_data["owner"] if principal_data else "system",
                             active=True,
