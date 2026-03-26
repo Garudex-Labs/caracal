@@ -44,7 +44,6 @@ def show_config_editor(console: Console, state: FlowState) -> None:
         items = [
             MenuItem("view", "View Configuration", "Show current settings", Icons.INFO),
             MenuItem("mode", "Set Mode", "Development or User mode", Icons.SETTINGS),
-            MenuItem("edition", "Set Edition", "Open Source or Enterprise", Icons.SETTINGS),
             MenuItem("postgres", "PostgreSQL Settings", "Configure database", Icons.DATABASE),
             MenuItem("system", "System Settings", "General configuration", Icons.SETTINGS),
             MenuItem("back", "Back to Menu", "", Icons.ARROW_LEFT),
@@ -61,8 +60,6 @@ def show_config_editor(console: Console, state: FlowState) -> None:
             _view_configuration(console, state)
         elif result.key == "mode":
             _set_mode(console, state)
-        elif result.key == "edition":
-            _set_edition(console, state)
         elif result.key == "postgres":
             _configure_postgres(console, state)
         elif result.key == "system":
@@ -186,13 +183,13 @@ def _set_mode(console: Console, state: FlowState) -> None:
 
 
 def _set_edition(console: Console, state: FlowState) -> None:
-    """Set edition."""
-    from caracal.deployment.edition import EditionManager, Edition
+    """Show auto edition policy information."""
+    from caracal.deployment.edition import EditionManager
     
     console.clear()
     console.print(Panel(
-        f"[{Colors.PRIMARY}]Set Edition[/]",
-        subtitle=f"[{Colors.HINT}]CLI: caracal config edition [opensource|enterprise][/]",
+        f"[{Colors.PRIMARY}]Edition (Auto)[/]",
+        subtitle=f"[{Colors.HINT}]CLI: caracal config edition[/]",
         border_style=Colors.INFO,
     ))
     console.print()
@@ -200,43 +197,14 @@ def _set_edition(console: Console, state: FlowState) -> None:
     try:
         edition_mgr = EditionManager()
         current_edition = edition_mgr.get_edition()
-        
-        console.print(f"  [{Colors.INFO}]Current edition:[/] {'Enterprise' if current_edition.is_enterprise else 'Open Source'}")
+
+        console.print(f"  [{Colors.INFO}]Current edition:[/] {'Enterprise' if current_edition.is_enterprise else 'Open Source'} [dim](auto)[/]")
         console.print()
-        console.print(f"  [{Colors.INFO}]Select edition:[/]")
-        console.print(f"    1. Open Source (direct provider access)")
-        console.print(f"    2. Enterprise (gateway-based access)")
+        console.print(f"  [{Colors.INFO}]Edition is automatically determined by connectivity:[/]")
+        console.print(f"    - [{Colors.SUCCESS}]Enterprise[/] when connected via [bold]caracal sync connect[/bold]")
+        console.print(f"    - [{Colors.SUCCESS}]Open Source[/] after [bold]caracal sync disconnect[/bold]")
         console.print()
-        
-        choice = Prompt.ask(
-            f"[{Colors.INFO}]Edition[/]",
-            choices=["1", "2"],
-            default="1"
-        )
-        
-        new_edition = Edition.ENTERPRISE if choice == "2" else Edition.OPENSOURCE
-        
-        if new_edition != current_edition:
-            # Warn about migration
-            console.print()
-            console.print(f"  [{Colors.WARNING}]Warning: Changing edition will migrate settings[/]")
-            
-            if Confirm.ask(f"[{Colors.INFO}]Continue?[/]"):
-                edition_mgr.set_edition(new_edition)
-                
-                console.print()
-                console.print(f"  [{Colors.SUCCESS}]{Icons.SUCCESS} Edition set to: {'Enterprise' if new_edition.is_enterprise else 'Open Source'}[/]")
-                
-                state.add_recent_action(RecentAction.create(
-                    "edition_set",
-                    f"Changed edition to: {'Enterprise' if new_edition.is_enterprise else 'Open Source'}",
-                    success=True
-                ))
-            else:
-                console.print(f"  [{Colors.DIM}]Cancelled[/]")
-        else:
-            console.print()
-            console.print(f"  [{Colors.DIM}]Edition unchanged[/]")
+        console.print(f"  [{Colors.DIM}]Manual edition switching is disabled for security and consistency.[/]")
         
     except Exception as e:
         console.print(f"  [{Colors.ERROR}]{Icons.ERROR} Error: {e}[/]")
