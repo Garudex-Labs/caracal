@@ -26,8 +26,8 @@ Updates all version references across the codebase from the VERSION file.
 
 **What it updates:**
 
-- Helm Chart.yaml (version and appVersion)
-- Kubernetes manifests (app.kubernetes.io/version labels)
+- Open-source runtime/package metadata managed in this repository
+- Enterprise deployment manifests are versioned in `caracalEnterprise`
 
 ### build-images.sh
 
@@ -60,8 +60,7 @@ Comprehensive release script that automates the entire release process.
 1. Updates all version references
 2. Creates git tag (optional)
 3. Builds Docker images (optional)
-4. Packages Helm chart (optional)
-5. Publishes to PyPI (optional)
+4. Publishes to PyPI (optional)
 
 The script is interactive and prompts for confirmation at each step.
 
@@ -125,8 +124,6 @@ This ensures the version is always consistent across:
 - Package metadata
 - Runtime code
 - Docker images
-- Helm charts
-- Kubernetes manifests
 
 ## Example Workflow
 
@@ -148,7 +145,6 @@ This ensures the version is always consistent across:
    - Update version references
    - Create git tag
    - Build Docker images
-   - Package Helm chart
    - Publish to PyPI
 
 ### Manual Version Update
@@ -169,12 +165,7 @@ echo "1.0.0" > VERSION
 git tag -a v1.0.0 -m "Release v1.0.0"
 git push origin v1.0.0
 
-# 5. Package Helm chart
-cd helm
-helm package caracal
-helm push caracal-1.0.0.tgz oci://registry.example.com/charts
-
-# 6. Publish to PyPI
+# 5. Publish to PyPI
 python -m build
 twine upload dist/*
 ```
@@ -184,5 +175,4 @@ twine upload dist/*
 - All scripts should be run from the Caracal root directory
 - Scripts use the VERSION file as the single source of truth
 - Docker images are tagged with `v` prefix (e.g., `v1.0.0`)
-- Helm chart versions do not use `v` prefix (e.g., `1.0.0`)
 - Git tags use `v` prefix (e.g., `v1.0.0`)
