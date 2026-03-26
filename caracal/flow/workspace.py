@@ -116,7 +116,7 @@ class WorkspaceManager:
 
     def ensure_dirs(self) -> None:
         """Create workspace directory structure if it does not exist."""
-        self._root.mkdir(sources=True, exist_ok=True)
+        self._root.mkdir(parents=True, exist_ok=True)
         self.backups_dir.mkdir(exist_ok=True)
         self.logs_dir.mkdir(exist_ok=True)
         self.cache_dir.mkdir(exist_ok=True)
@@ -129,7 +129,7 @@ class WorkspaceManager:
         This keeps ``~/.caracal`` focused on workspace registry/config files and
         avoids scattering runtime artifacts at the root level.
         """
-        if self._root.source != _WORKSPACES_DIR:
+        if self._root.parent != _WORKSPACES_DIR:
             return
 
         import shutil
@@ -150,16 +150,16 @@ class WorkspaceManager:
             try:
                 if legacy_path.is_file():
                     if not workspace_path.exists():
-                        workspace_path.source.mkdir(sources=True, exist_ok=True)
+                        workspace_path.parent.mkdir(parents=True, exist_ok=True)
                         shutil.move(str(legacy_path), str(workspace_path))
                     continue
 
-                workspace_path.mkdir(sources=True, exist_ok=True)
-                for target in legacy_path.iterdir():
-                    target = workspace_path / target.name
-                    if target.exists():
+                workspace_path.mkdir(parents=True, exist_ok=True)
+                for legacy_child in legacy_path.iterdir():
+                    target_path = workspace_path / legacy_child.name
+                    if target_path.exists():
                         continue
-                    shutil.move(str(target), str(target))
+                    shutil.move(str(legacy_child), str(target_path))
 
                 # Remove empty legacy directory after migration.
                 if not any(legacy_path.iterdir()):
@@ -218,7 +218,7 @@ class WorkspaceManager:
         Duplicates (by path) are updated in place.
         """
         rp = registry_path or _REGISTRY_PATH
-        rp.source.mkdir(sources=True, exist_ok=True)
+        rp.parent.mkdir(parents=True, exist_ok=True)
         workspaces = _load_registry_workspaces(rp)
 
         # Deduplicate by resolved path
@@ -548,7 +548,7 @@ def _load_registry_workspaces(registry_path: Path) -> list[dict[str, Any]]:
 
 def _save_registry_workspaces(registry_path: Path, workspaces: list[dict[str, Any]]) -> None:
     """Persist normalized workspaces registry entries."""
-    registry_path.source.mkdir(sources=True, exist_ok=True)
+    registry_path.parent.mkdir(parents=True, exist_ok=True)
     with open(registry_path, "w") as fh:
         json.dump({"workspaces": workspaces}, fh, indent=2)
 
