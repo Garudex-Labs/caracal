@@ -10,7 +10,7 @@ The authority model uses canonical, provider-scoped identifiers:
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, Iterable, List, Optional
+from typing import Any, Dict, List, Optional
 import re
 
 
@@ -107,123 +107,7 @@ class ProviderDefinition:
         return None
 
 
-def _action(
-    action_id: str,
-    description: str,
-    method: str,
-    path_prefix: str,
-) -> ProviderActionDefinition:
-    return ProviderActionDefinition(
-        action_id=action_id,
-        description=description,
-        method=method.upper(),
-        path_prefix=path_prefix,
-    )
-
-
-def _resource(
-    resource_id: str,
-    description: str,
-    actions: Iterable[ProviderActionDefinition],
-) -> ProviderResourceDefinition:
-    by_id = {action.action_id: action for action in actions}
-    return ProviderResourceDefinition(
-        resource_id=resource_id,
-        description=description,
-        actions=by_id,
-    )
-
-
-_PROVIDER_DEFINITIONS: Dict[str, ProviderDefinition] = {
-    "openai": ProviderDefinition(
-        definition_id="openai",
-        service_type="llm",
-        display_name="OpenAI",
-        auth_scheme="api_key",
-        default_base_url="https://api.openai.com/v1",
-        resources={
-            "chat.completions": _resource(
-                "chat.completions",
-                "Chat Completions API",
-                [
-                    _action("invoke", "Create chat completion", "POST", "/chat/completions"),
-                ],
-            ),
-            "responses": _resource(
-                "responses",
-                "Responses API",
-                [
-                    _action("invoke", "Create response", "POST", "/responses"),
-                ],
-            ),
-            "embeddings": _resource(
-                "embeddings",
-                "Embeddings API",
-                [
-                    _action("invoke", "Create embeddings", "POST", "/embeddings"),
-                ],
-            ),
-        },
-    ),
-    "anthropic": ProviderDefinition(
-        definition_id="anthropic",
-        service_type="llm",
-        display_name="Anthropic",
-        auth_scheme="api_key",
-        default_base_url="https://api.anthropic.com/v1",
-        resources={
-            "messages": _resource(
-                "messages",
-                "Messages API",
-                [
-                    _action("invoke", "Create message", "POST", "/messages"),
-                ],
-            ),
-        },
-    ),
-    "cohere": ProviderDefinition(
-        definition_id="cohere",
-        service_type="llm",
-        display_name="Cohere",
-        auth_scheme="api_key",
-        default_base_url="https://api.cohere.ai/v1",
-        resources={
-            "chat": _resource(
-                "chat",
-                "Chat API",
-                [
-                    _action("invoke", "Create chat response", "POST", "/chat"),
-                ],
-            ),
-            "embed": _resource(
-                "embed",
-                "Embed API",
-                [
-                    _action("invoke", "Create embeddings", "POST", "/embed"),
-                ],
-            ),
-        },
-    ),
-    "generic_http": ProviderDefinition(
-        definition_id="generic_http",
-        service_type="api",
-        display_name="Generic HTTP API",
-        auth_scheme="api_key",
-        default_base_url=None,
-        resources={
-            "default": _resource(
-                "default",
-                "Default provider endpoint",
-                [
-                    _action("get", "HTTP GET", "GET", "/"),
-                    _action("post", "HTTP POST", "POST", "/"),
-                    _action("put", "HTTP PUT", "PUT", "/"),
-                    _action("delete", "HTTP DELETE", "DELETE", "/"),
-                ],
-            ),
-        },
-    ),
-}
+_PROVIDER_DEFINITIONS: Dict[str, ProviderDefinition] = {}
 
 
 def list_provider_definitions() -> List[ProviderDefinition]:
@@ -241,8 +125,63 @@ def get_provider_definition(definition_id: str) -> ProviderDefinition:
     try:
         return _PROVIDER_DEFINITIONS[definition_id]
     except KeyError as e:
-        valid = ", ".join(list_provider_definition_ids())
-        raise KeyError(f"Unknown provider definition '{definition_id}'. Valid: {valid}") from e
+        raise KeyError(
+            f"Unknown provider definition '{definition_id}'. "
+            "Open-source mode does not ship built-in provider catalogs; "
+            "register provider definitions per workspace/provider."
+        ) from e
+
+
+def provider_definition_from_mapping(
+    data: Dict[str, Any],
+    *,
+    default_definition_id: str,
+    default_service_type: str = "api",
+    default_display_name: Optional[str] = None,
+    default_auth_scheme: str = "api_key",
+    default_base_url: Optional[str] = None,
+) -> ProviderDefinition:
+    """Build a ProviderDefinition from a persisted dictionary payload."""
+    resources_data = data.get("resources")
+    if not isinstance(resources_data, dict) or not resources_data:
+        raise ValueError("Provider definition payload must include non-empty 'resources'")
+
+    resources: Dict[str, ProviderResourceDefinition] = {}
+    for resource_id, resource_payload in resources_data.items():
+        if not isinstance(resource_payload, dict):
+            raise ValueError(f"Invalid resource payload for '{resource_id}'")
+        actions_data = resource_payload.get("actions")
+        if not isinstance(actions_data, dict) or not actions_data:
+            raise ValueError(f"Resource '{resource_id}' must define at least one action")
+
+        actions: Dict[str, ProviderActionDefinition] = {}
+        for action_id, action_payload in actions_data.items():
+            if not isinstance(action_payload, dict):
+                raise ValueError(f"Invalid action payload for '{resource_id}:{action_id}'")
+            actions[action_id] = ProviderActionDefinition(
+                action_id=action_id,
+                description=str(action_payload.get("description") or action_id),
+                method=str(action_payload.get("method") or "POST").upper(),
+                path_prefix=str(action_payload.get("path_prefix") or "/"),
+                metadata=dict(action_payload.get("metadata") or {}),
+            )
+
+        resources[str(resource_id)] = ProviderResourceDefinition(
+            resource_id=str(resource_id),
+            description=str(resource_payload.get("description") or resource_id),
+            actions=actions,
+            metadata=dict(resource_payload.get("metadata") or {}),
+        )
+
+    return ProviderDefinition(
+        definition_id=str(data.get("definition_id") or default_definition_id),
+        service_type=str(data.get("service_type") or default_service_type),
+        display_name=str(data.get("display_name") or default_display_name or default_definition_id),
+        auth_scheme=str(data.get("auth_scheme") or default_auth_scheme),
+        default_base_url=data.get("default_base_url", default_base_url),
+        resources=resources,
+        metadata=dict(data.get("metadata") or {}),
+    )
 
 
 def resolve_provider_definition_id(
@@ -254,25 +193,17 @@ def resolve_provider_definition_id(
 
     Priority:
       1. Explicit definition ID
-      2. Service type mapped to known definition
-      3. generic_http
+      2. Service type fallback
+      3. custom
     """
     if requested_definition:
-        get_provider_definition(requested_definition)  # Validate
-        return requested_definition
+        return requested_definition.strip()
 
     normalized_service = (service_type or "").strip().lower()
-    if normalized_service in _PROVIDER_DEFINITIONS:
+    if normalized_service:
         return normalized_service
 
-    if normalized_service in {"llm", "openai"}:
-        return "openai"
-    if normalized_service in {"anthropic"}:
-        return "anthropic"
-    if normalized_service in {"cohere"}:
-        return "cohere"
-
-    return "generic_http"
+    return "custom"
 
 
 def build_resource_scope(provider_name: str, resource_id: str) -> str:

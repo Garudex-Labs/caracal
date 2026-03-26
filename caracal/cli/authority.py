@@ -16,6 +16,13 @@ from uuid import UUID
 
 import click
 
+from caracal.cli.provider_scopes import (
+    action_scope_shell_complete,
+    get_workspace_from_ctx,
+    provider_name_shell_complete,
+    resource_scope_shell_complete,
+    validate_provider_scopes,
+)
 from caracal.exceptions import CaracalError
 from caracal.logging_config import get_logger
 
@@ -96,18 +103,26 @@ def get_authority_evaluator(config):
     help='Subject principal ID (UUID)',
 )
 @click.option(
+    '--provider',
+    multiple=True,
+    shell_complete=provider_name_shell_complete,
+    help='Provider name used for scope autocompletion and filtering (repeatable)',
+)
+@click.option(
     '--resource-scope',
     '-r',
     required=True,
     multiple=True,
-    help='Resource scope patterns (can be specified multiple times)',
+    shell_complete=resource_scope_shell_complete,
+    help='Provider resource scopes (repeatable)',
 )
 @click.option(
     '--action-scope',
     '-a',
     required=True,
     multiple=True,
-    help='Action scope (can be specified multiple times)',
+    shell_complete=action_scope_shell_complete,
+    help='Provider action scopes (repeatable)',
 )
 @click.option(
     '--validity-seconds',
@@ -117,11 +132,13 @@ def get_authority_evaluator(config):
     help='Validity period in seconds',
 )
 @click.option(
+    '--delegation-network-distance',
     '--delegation-network_distance',
+    'network_distance',
     '-d',
     type=int,
     default=None,
-    help='Delegation network_distance for this mandate (default: policy maximum)',
+    help='Delegation network distance for this mandate (default: policy maximum)',
 )
 @click.option(
     '--format',
@@ -135,6 +152,7 @@ def issue(
     ctx,
     issuer_id: str,
     subject_id: str,
+    provider: tuple,
     resource_scope: tuple,
     action_scope: tuple,
     validity_seconds: int,
@@ -149,24 +167,27 @@ def issue(
     
     Examples:
     
-        # Issue a mandate for API access
+        # Issue a provider-scoped mandate
         caracal authority issue \\
             --issuer-id 550e8400-e29b-41d4-a716-446655440000 \\
             --subject-id 660e8400-e29b-41d4-a716-446655440001 \\
-            --resource-scope "api:openai:*" \\
-            --action-scope "api_call" \\
+            --provider openai-main \\
+            --resource-scope "provider:openai-main:resource:chat.completions" \\
+            --action-scope "provider:openai-main:action:invoke" \\
             --validity-seconds 3600
         
         # Issue a mandate with multiple scopes
         caracal authority issue \\
             -i 550e8400-e29b-41d4-a716-446655440000 \\
             -s 660e8400-e29b-41d4-a716-446655440001 \\
-            -r "api:openai:*" -r "database:users:read" \\
-            -a "api_call" -a "database_query" \\
+            -r "provider:openai-main:resource:chat.completions" \\
+            -a "provider:openai-main:action:invoke" \\
             -v 7200
         
         # JSON output
-        caracal authority issue -i <issuer> -s <subject> -r "api:*" -a "api_call" -v 3600 --format json
+        caracal authority issue -i <issuer> -s <subject> \\
+          -r "provider:<provider>:resource:<resource>" \\
+          -a "provider:<provider>:action:<action>" -v 3600 --format json
     """
     try:
         # Get CLI context
@@ -186,12 +207,22 @@ def issue(
             sys.exit(1)
 
         if network_distance is not None and network_distance < 0:
-            click.echo(f"Error: Delegation network_distance cannot be negative, got {network_distance}", err=True)
+            click.echo(f"Error: Delegation network distance cannot be negative, got {network_distance}", err=True)
             sys.exit(1)
         
+        workspace = get_workspace_from_ctx(ctx)
+
         # Convert tuples to lists
+        providers = [str(p) for p in provider]
         resource_scope_list = list(resource_scope)
         action_scope_list = list(action_scope)
+
+        validate_provider_scopes(
+            workspace=workspace,
+            resource_scopes=resource_scope_list,
+            action_scopes=action_scope_list,
+            providers=providers or None,
+        )
         
         # Create mandate manager
         mandate_manager, db_manager = get_mandate_manager(cli_ctx.config)
@@ -263,16 +294,23 @@ def issue(
     help='Mandate ID to validate (UUID)',
 )
 @click.option(
+    '--provider',
+    shell_complete=provider_name_shell_complete,
+    help='Provider name used for scope autocompletion/filtering',
+)
+@click.option(
     '--action',
     '-a',
     required=True,
-    help='Requested action',
+    shell_complete=action_scope_shell_complete,
+    help='Requested provider action scope',
 )
 @click.option(
     '--resource',
     '-r',
     required=True,
-    help='Requested resource',
+    shell_complete=resource_scope_shell_complete,
+    help='Requested provider resource scope',
 )
 @click.option(
     '--format',
@@ -285,6 +323,7 @@ def issue(
 def validate(
     ctx,
     mandate_id: str,
+    provider: Optional[str],
     action: str,
     resource: str,
     format: str,
@@ -300,14 +339,19 @@ def validate(
         # Validate a mandate
         caracal authority validate \\
             --mandate-id 550e8400-e29b-41d4-a716-446655440000 \\
-            --action "api_call" \\
-            --resource "api:openai:gpt-4"
+            --provider openai-main \\
+            --action "provider:openai-main:action:invoke" \\
+            --resource "provider:openai-main:resource:chat.completions"
         
         # Short form
-        caracal authority validate -m <mandate-id> -a "api_call" -r "api:openai:*"
+        caracal authority validate -m <mandate-id> \\
+          -a "provider:<provider>:action:<action>" \\
+          -r "provider:<provider>:resource:<resource>"
         
         # JSON output
-        caracal authority validate -m <mandate-id> -a "api_call" -r "api:*" --format json
+        caracal authority validate -m <mandate-id> \\
+          -a "provider:<provider>:action:<action>" \\
+          -r "provider:<provider>:resource:<resource>" --format json
     
     """
     try:
@@ -320,6 +364,14 @@ def validate(
         except ValueError as e:
             click.echo(f"Error: Invalid mandate ID format: {e}", err=True)
             sys.exit(1)
+
+        workspace = get_workspace_from_ctx(ctx)
+        validate_provider_scopes(
+            workspace=workspace,
+            resource_scopes=[resource],
+            action_scopes=[action],
+            providers=[provider] if provider else None,
+        )
         
         # Create authority evaluator
         evaluator, db_manager = get_authority_evaluator(cli_ctx.config)
@@ -683,18 +735,26 @@ def list_mandates(
     help='Target subject principal ID (UUID)',
 )
 @click.option(
+    '--provider',
+    multiple=True,
+    shell_complete=provider_name_shell_complete,
+    help='Provider name used for scope autocompletion and filtering (repeatable)',
+)
+@click.option(
     '--resource-scope',
     '-r',
     required=True,
     multiple=True,
-    help='Resource scope patterns (must be subset of source)',
+    shell_complete=resource_scope_shell_complete,
+    help='Provider resource scopes (must be subset of source)',
 )
 @click.option(
     '--action-scope',
     '-a',
     required=True,
     multiple=True,
-    help='Action scope (must be subset of source)',
+    shell_complete=action_scope_shell_complete,
+    help='Provider action scopes (must be subset of source)',
 )
 @click.option(
     '--validity-seconds',
@@ -721,6 +781,7 @@ def delegate(
     ctx,
     source_mandate_id: str,
     target_subject_id: str,
+    provider: tuple,
     resource_scope: tuple,
     action_scope: tuple,
     validity_seconds: int,
@@ -743,14 +804,16 @@ def delegate(
         caracal authority delegate \\
             --source-mandate-id <source-id> \\
             --target-subject-id <agent-id> \\
-            --resource-scope "api:openai:gpt-4" \\
-            --action-scope "api_call" \\
+            --provider openai-main \\
+            --resource-scope "provider:openai-main:resource:chat.completions" \\
+            --action-scope "provider:openai-main:action:invoke" \\
             --validity-seconds 1800
         
         # Delegate with context tags
         caracal authority delegate \\
             -p <source-id> -s <target-id> \\
-            -r "api:*" -a "api_call" -v 3600 \\
+            -r "provider:<provider>:resource:<resource>" \\
+            -a "provider:<provider>:action:<action>" -v 3600 \\
             -t "production" -t "read-only"
     
     """
@@ -771,10 +834,20 @@ def delegate(
             click.echo(f"Error: Validity seconds must be positive, got {validity_seconds}", err=True)
             sys.exit(1)
         
+        workspace = get_workspace_from_ctx(ctx)
+
         # Convert tuples to lists
+        providers = [str(p) for p in provider]
         resource_scope_list = list(resource_scope)
         action_scope_list = list(action_scope)
         context_tags_list = list(context_tags) if context_tags else None
+
+        validate_provider_scopes(
+            workspace=workspace,
+            resource_scopes=resource_scope_list,
+            action_scopes=action_scope_list,
+            providers=providers or None,
+        )
         
         # Create mandate manager
         mandate_manager, db_manager = get_mandate_manager(cli_ctx.config)
