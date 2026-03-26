@@ -17,12 +17,12 @@ The database module provides:
 1. **principals**: Principal identities (agents, users, services)
    - Primary key: `principal_id` (UUID)
    - Unique constraint: `name`
-   - Self-referential foreign key: `parent_principal_id`
-   - Indexes: `name`, `parent_principal_id`, `principal_type`
+   - Self-referential foreign key: `source_principal_id`
+   - Indexes: `name`, `source_principal_id`, `principal_type`
 
 2. **execution_mandates**: Authority mandates
    - Primary key: `mandate_id` (UUID)
-   - Foreign keys: `issuer_id`, `subject_id`, `parent_mandate_id`
+   - Foreign keys: `issuer_id`, `subject_id`, `source_mandate_id`
    - Indexes: `issuer_id`, `subject_id`, `(subject_id, valid_until)`, `revoked`
 
 3. **ledger_events**: Immutable ledger events for spending tracking
@@ -146,7 +146,7 @@ principal = Principal(
     name="my-agent",
     principal_type="agent",
     owner="user@example.com",
-    parent_principal_id=parent_id,  # Optional
+    source_principal_id=source_id,  # Optional
     principal_metadata={"key": "value"},  # Optional JSONB
 )
 ```

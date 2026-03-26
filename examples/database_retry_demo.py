@@ -18,7 +18,7 @@ import time
 from decimal import Decimal
 from uuid import uuid4
 
-# Add parent directory to path for imports
+# Add source directory to path for imports
 sys.path.insert(0, '..')
 
 from caracal.core.retry import retry_database_operation, retry_database_query
