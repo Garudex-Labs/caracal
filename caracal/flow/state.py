@@ -17,6 +17,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Optional
 
+from caracal.pathing import ensure_source_tree, source_of
+
 
 @dataclass
 class OnboardingState:
@@ -188,7 +190,7 @@ class StatePersistence:
     def save(self, state: FlowState) -> None:
         """Save state to disk."""
         # Ensure directory exists
-        self.path.parent.mkdir(parents=True, exist_ok=True)
+        ensure_source_tree(source_of(self.path))
         
         # Serialize and save (exclude session data)
         data = self._serialize(state)

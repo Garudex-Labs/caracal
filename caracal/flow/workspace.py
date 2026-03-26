@@ -32,6 +32,8 @@ import json
 from pathlib import Path
 from typing import Any, Optional
 
+from caracal.pathing import ensure_source_tree, source_of
+
 
 _WORKSPACES_DIR = Path.home() / ".caracal" / "workspaces"
 _LEGACY_ROOT = Path.home() / ".caracal"
@@ -116,7 +118,7 @@ class WorkspaceManager:
 
     def ensure_dirs(self) -> None:
         """Create workspace directory structure if it does not exist."""
-        self._root.mkdir(parents=True, exist_ok=True)
+        ensure_source_tree(self._root)
         self.backups_dir.mkdir(exist_ok=True)
         self.logs_dir.mkdir(exist_ok=True)
         self.cache_dir.mkdir(exist_ok=True)
@@ -129,7 +131,7 @@ class WorkspaceManager:
         This keeps ``~/.caracal`` focused on workspace registry/config files and
         avoids scattering runtime artifacts at the root level.
         """
-        if self._root.parent != _WORKSPACES_DIR:
+        if source_of(self._root) != _WORKSPACES_DIR:
             return
 
         import shutil
@@ -150,11 +152,11 @@ class WorkspaceManager:
             try:
                 if legacy_path.is_file():
                     if not workspace_path.exists():
-                        workspace_path.parent.mkdir(parents=True, exist_ok=True)
+                        ensure_source_tree(source_of(workspace_path))
                         shutil.move(str(legacy_path), str(workspace_path))
                     continue
 
-                workspace_path.mkdir(parents=True, exist_ok=True)
+                ensure_source_tree(workspace_path)
                 for legacy_child in legacy_path.iterdir():
                     target_path = workspace_path / legacy_child.name
                     if target_path.exists():
@@ -218,7 +220,7 @@ class WorkspaceManager:
         Duplicates (by path) are updated in place.
         """
         rp = registry_path or _REGISTRY_PATH
-        rp.parent.mkdir(parents=True, exist_ok=True)
+        ensure_source_tree(source_of(rp))
         workspaces = _load_registry_workspaces(rp)
 
         # Deduplicate by resolved path
@@ -548,7 +550,7 @@ def _load_registry_workspaces(registry_path: Path) -> list[dict[str, Any]]:
 
 def _save_registry_workspaces(registry_path: Path, workspaces: list[dict[str, Any]]) -> None:
     """Persist normalized workspaces registry entries."""
-    registry_path.parent.mkdir(parents=True, exist_ok=True)
+    ensure_source_tree(source_of(registry_path))
     with open(registry_path, "w") as fh:
         json.dump({"workspaces": workspaces}, fh, indent=2)
 
