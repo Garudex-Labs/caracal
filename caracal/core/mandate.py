@@ -211,6 +211,8 @@ class MandateManager:
         validity_seconds: int,
         intent: Optional[Intent] = None,
         delegation_type: str = "hierarchical",
+        delegation_depth: Optional[int] = None,
+        parent_mandate_id: Optional[UUID] = None,
         context_tags: Optional[List[str]] = None,
     ) -> ExecutionMandate:
         """
@@ -229,6 +231,8 @@ class MandateManager:
             validity_seconds: How long the mandate is valid (in seconds)
             intent: Optional intent to bind the mandate to
             delegation_type: Type of delegation (hierarchical/peer)
+            delegation_depth: How many additional delegation hops are allowed
+            parent_mandate_id: Parent mandate for delegated mandates
             context_tags: Context tags for dynamic authority filtering
         
         Returns:
@@ -310,6 +314,33 @@ class MandateManager:
                 denial_reason=error_msg
             )
             raise ValueError(error_msg)
+
+        # Resolve delegation depth for this mandate.
+        # If not explicitly provided, inherit issuer policy maximum when delegation is allowed.
+        if delegation_depth is None:
+            resolved_delegation_depth = (
+                int(issuer_policy.max_delegation_depth)
+                if issuer_policy.allow_delegation
+                else 0
+            )
+        else:
+            resolved_delegation_depth = int(delegation_depth)
+
+        if resolved_delegation_depth < 0:
+            raise ValueError("Delegation depth cannot be negative")
+
+        policy_max_depth = int(issuer_policy.max_delegation_depth)
+        if resolved_delegation_depth > policy_max_depth:
+            raise ValueError(
+                f"Requested delegation depth {resolved_delegation_depth} exceeds policy maximum "
+                f"{policy_max_depth}"
+            )
+
+        if not issuer_policy.allow_delegation and resolved_delegation_depth > 0:
+            raise ValueError(
+                f"Issuer {issuer_id} is not allowed to issue delegable mandates "
+                f"according to their authority policy"
+            )
         
         # Generate unique mandate ID
         mandate_id = uuid4()
@@ -374,7 +405,9 @@ class MandateManager:
             revoked=False,
             delegation_type=delegation_type,
             context_tags=context_tags,
-            intent_hash=intent_hash
+            intent_hash=intent_hash,
+            parent_mandate_id=parent_mandate_id,
+            delegation_depth=resolved_delegation_depth,
         )
         
         # Store mandate in database
@@ -397,12 +430,13 @@ class MandateManager:
                 "issuer_id": str(issuer_id),
                 "validity_seconds": validity_seconds,
                 "delegation_type": delegation_type,
+                "delegation_depth": resolved_delegation_depth,
             }
         )
         
         logger.info(
             f"Successfully issued mandate {mandate_id} to subject {subject_id} "
-            f"(valid for {validity_seconds}s, type={delegation_type})"
+            f"(valid for {validity_seconds}s, type={delegation_type}, delegation_depth={resolved_delegation_depth})"
         )
         
         # Record rate limit usage if rate limiter is configured
@@ -607,19 +641,14 @@ class MandateManager:
             source_principal.principal_type,
             target_principal.principal_type
         )
-        
-        # Check delegation is allowed by policy
-        issuer_policy = self._get_active_policy(source_mandate.subject_id)
-        if not issuer_policy:
+
+        source_depth = int(source_mandate.delegation_depth or 0)
+        if source_depth <= 0:
             raise ValueError(
-                f"Subject {source_mandate.subject_id} does not have an active authority policy "
-                f"and cannot delegate"
+                f"Source mandate {source_mandate_id} has no remaining delegation depth"
             )
-        if not issuer_policy.allow_delegation:
-            raise ValueError(
-                f"Subject {source_mandate.subject_id} is not allowed to delegate "
-                f"according to their authority policy"
-            )
+
+        child_delegation_depth = source_depth - 1
         
         # Determine delegation type
         delegation_type = DelegationGraph.get_delegation_type(
@@ -637,6 +666,8 @@ class MandateManager:
                 validity_seconds=validity_seconds,
                 intent=None,
                 delegation_type=delegation_type,
+                delegation_depth=child_delegation_depth,
+                parent_mandate_id=source_mandate_id,
                 context_tags=context_tags,
             )
             
