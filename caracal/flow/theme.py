@@ -185,17 +185,17 @@ class Icons:
     SPINNER = ["◐", "◓", "◑", "◒"]
     
     # Content
-    FOLDER = "📁"
-    FILE = "📄"
-    AGENT = "👾"
-    PRINCIPAL = "👤"
-    POLICY = "📋"
-    LEDGER = "📜"
-    MANDATE = "🎫"
-    AUTHORITY = "🔐"
-    MONEY = "🪙 "
-    SETTINGS = "⚙️ "
-    HELP = "❓"
+    FOLDER = ""
+    FILE = ""
+    AGENT = ""
+    PRINCIPAL = ""
+    POLICY = ""
+    LEDGER = ""
+    MANDATE = ""
+    AUTHORITY = ""
+    MONEY = ""
+    SETTINGS = ""
+    HELP = ""
     
     # Deployment specific
     WORKSPACE = ""
@@ -212,7 +212,7 @@ class Icons:
     TEST = ""
     CHART = ""
     SEARCH = ""
-    STREAM = "📣 "
+    STREAM = ""
     GUIDE = ""
     ARCHITECTURE = ""
     SWITCH = ""

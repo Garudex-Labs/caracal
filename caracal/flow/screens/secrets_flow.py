@@ -94,15 +94,15 @@ class SecretsFlow:
         self.console.print(header)
 
         items = [
-            MenuItem("status", "Vault Status", "Backend, key version, secret count", "🔐"),
-            MenuItem("list", "List Secrets", "Enumerate secret refs for this org/env", "📋"),
+            MenuItem("status", "Vault Status", "Backend, key version, secret count", ""),
+            MenuItem("list", "List Secrets", "Enumerate secret refs for this org/env", ""),
         ]
 
         if is_starter:
             items += [
-                MenuItem("rotate", "Rotate Master Key", "Re-wrap DEKs under a new key version", "🔄"),
-                MenuItem("migrate", "Migrate to AWS SM", "Upgrade plan + cost estimate + wizard", "☁️"),
-                MenuItem("cost", "AWS Cost Estimate", "Show estimated AWS Secrets Manager pricing", "💰"),
+                MenuItem("rotate", "Rotate Master Key", "Re-wrap DEKs under a new key version", ""),
+                MenuItem("migrate", "Migrate to AWS SM", "Upgrade plan + cost estimate + wizard", ""),
+                MenuItem("cost", "AWS Cost Estimate", "Show estimated AWS Secrets Manager pricing", ""),
             ]
 
         items.append(MenuItem("back", "Back", "Return to previous menu", Icons.ARROW_LEFT))
