@@ -21,6 +21,7 @@ from rich.prompt import Prompt, Confirm
 from caracal.flow.theme import Colors, Icons
 from caracal.flow.state import FlowState, RecentAction
 from caracal.flow.components.menu import Menu, MenuItem
+from caracal.flow.screens._workspace_helpers import list_workspace_configs, set_default_workspace
 
 
 def show_workspace_manager(console: Console, state: FlowState) -> None:
@@ -86,7 +87,7 @@ def _list_workspaces(console: Console, state: FlowState) -> None:
     
     try:
         config_mgr = ConfigManager()
-        workspaces = config_mgr.list_workspaces()
+        workspaces = list_workspace_configs(config_mgr)
         
         if not workspaces:
             console.print(f"  [{Colors.WARNING}]{Icons.WARNING} No workspaces found[/]")
@@ -197,7 +198,7 @@ def _switch_workspace(console: Console, state: FlowState) -> None:
     
     try:
         config_mgr = ConfigManager()
-        workspaces = config_mgr.list_workspaces()
+        workspaces = list_workspace_configs(config_mgr)
         
         if not workspaces:
             console.print(f"  [{Colors.WARNING}]{Icons.WARNING} No workspaces available[/]")
@@ -221,7 +222,7 @@ def _switch_workspace(console: Console, state: FlowState) -> None:
         
         if result and result.key != "back":
             # Switch to selected workspace
-            config_mgr.set_default_workspace(result.key)
+            set_default_workspace(config_mgr, result.key)
             
             console.print()
             console.print(f"  [{Colors.SUCCESS}]{Icons.SUCCESS} Switched to workspace: {result.key}[/]")
@@ -255,7 +256,7 @@ def _delete_workspace(console: Console, state: FlowState) -> None:
     
     try:
         config_mgr = ConfigManager()
-        workspaces = config_mgr.list_workspaces()
+        workspaces = list_workspace_configs(config_mgr)
         
         if not workspaces:
             console.print(f"  [{Colors.WARNING}]{Icons.WARNING} No workspaces available[/]")
@@ -328,7 +329,7 @@ def _export_workspace(console: Console, state: FlowState) -> None:
     
     try:
         config_mgr = ConfigManager()
-        workspaces = config_mgr.list_workspaces()
+        workspaces = list_workspace_configs(config_mgr)
         
         if not workspaces:
             console.print(f"  [{Colors.WARNING}]{Icons.WARNING} No workspaces available[/]")
