@@ -726,8 +726,8 @@ def _add_provider(console: Console, state: FlowState) -> None:
         prompt=prompt,
         console=console,
         label="Provider name",
-        purpose="Stable provider label shown in the UI and embedded into canonical provider scopes.",
-        used_for="Policies, mandates, delegation scopes, and execution requests all reference this name.",
+        purpose="Stable identifier shown in the UI and used in scopes.",
+        used_for="Policies, mandates, and execution requests reference this name.",
         example="openai-main",
         existing=providers.keys(),
     )
@@ -735,8 +735,8 @@ def _add_provider(console: Console, state: FlowState) -> None:
         prompt=prompt,
         console=console,
         label="Definition ID",
-        purpose="Definition catalog ID for this provider binding.",
-        used_for="Caracal stores it with the structured definition payload and uses it to identify the provider shape.",
+        purpose="Catalog ID describing the provider's API bindings.",
+        used_for="Identifies the correct integration structure for Caracal.",
         example="openai.chat.api",
         default=name,
     )
@@ -1185,13 +1185,13 @@ def _print_field_help(
     example: Optional[str] = None,
 ) -> None:
     message = (
-        f"[dim]What:[/] {purpose}  "
-        f"[dim]Format:[/] {expected_format}  "
-        f"[dim]Caracal uses it for:[/] {used_for}"
+        f"  [{Colors.HINT}]What:[/] [{Colors.DIM}]{purpose}[/]\n"
+        f"  [{Colors.HINT}]Format:[/] [{Colors.DIM}]{expected_format}[/]\n"
+        f"  [{Colors.HINT}]Used for:[/] [{Colors.DIM}]{used_for}[/]"
     )
     if example:
-        message += f"  [dim]Example:[/] {example}"
-    console.print(f"  {message}")
+        message += f"\n  [{Colors.HINT}]Example:[/] [{Colors.DIM}]{example}[/]"
+    console.print(message)
 
 
 def _render_provider_shell(console: Console, workspace: str, subtitle: str) -> None:
