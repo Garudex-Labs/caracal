@@ -231,7 +231,7 @@ def get_submenu_items(category: str) -> list[MenuItem]:
             MenuItem(key="sync", label="Sync Monitor", 
                     description="Manage enterprise synchronization", icon=Icons.SYNC),
             MenuItem(key="config", label="Configuration Editor", 
-                    description="Edit mode, edition, and system settings", icon=Icons.SETTINGS),
+                    description="Edit mode and system settings (edition is auto)", icon=Icons.SETTINGS),
             MenuItem(key="providers", label="Provider Manager", 
                     description="Configure AI provider connections", icon=Icons.PROVIDER),
             MenuItem(key="logs", label="Logs Viewer", 
