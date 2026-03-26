@@ -26,6 +26,53 @@ from caracal.flow.components.menu import Menu, MenuItem
 from caracal.flow.workspace import get_workspace
 
 
+def _candidate_log_paths(filename: str) -> list[Path]:
+    """Return likely log file locations in priority order."""
+    candidates: list[Path] = []
+
+    # Primary: active workspace log directory.
+    try:
+        candidates.append(get_workspace().logs_dir / filename)
+    except Exception:
+        pass
+
+    # Configured app log path (typically caracal.log).
+    if filename == "caracal.log":
+        try:
+            from caracal.config import load_config
+
+            config = load_config()
+            configured = Path(config.logging.file).expanduser()
+            candidates.append(configured)
+        except Exception:
+            pass
+
+    # Legacy/global locations from older layouts.
+    home = Path.home()
+    candidates.append(home / ".caracal" / "logs" / filename)
+    candidates.append(home / ".caracal" / filename)
+
+    # De-duplicate while preserving order.
+    deduped: list[Path] = []
+    seen: set[str] = set()
+    for path in candidates:
+        key = str(path.expanduser())
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(Path(key))
+
+    return deduped
+
+
+def _resolve_log_path(filename: str) -> Optional[Path]:
+    """Return the first existing log file path, if any."""
+    for path in _candidate_log_paths(filename):
+        if path.exists() and path.is_file():
+            return path
+    return None
+
+
 def show_logs_viewer(console: Console, state: FlowState) -> None:
     """
     Display logs viewer interface.
@@ -80,11 +127,14 @@ def _view_log_file(console: Console, filename: str, title: str) -> None:
     console.print()
     
     try:
-        # Get log file path
-        log_path = get_workspace().logs_dir / filename
+        # Resolve log path from active workspace and known fallback locations.
+        log_path = _resolve_log_path(filename)
         
-        if not log_path.exists():
-            console.print(f"  [{Colors.WARNING}]{Icons.WARNING} Log file not found: {log_path}[/]")
+        if log_path is None:
+            console.print(f"  [{Colors.WARNING}]{Icons.WARNING} No {filename} file found yet.[/]")
+            console.print(f"  [{Colors.DIM}]Checked:[/]")
+            for candidate in _candidate_log_paths(filename):
+                console.print(f"    [{Colors.DIM}]- {candidate}[/]")
             console.print()
             console.print(f"  [{Colors.HINT}]Press Enter to continue...[/]")
             input()
@@ -94,9 +144,6 @@ def _view_log_file(console: Console, filename: str, title: str) -> None:
         with open(log_path, 'r') as f:
             lines = f.readlines()
             last_lines = lines[-50:] if len(lines) > 50 else lines
-        
-        # Display logs with syntax highlighting
-        log_content = ''.join(last_lines)
         
         # Color code by log level
         for line in last_lines:
@@ -201,11 +248,14 @@ def _tail_logs(console: Console, state: FlowState) -> None:
     )
     
     filename = "caracal.log" if choice == "1" else "sync.log"
-    log_path = get_workspace().logs_dir / filename
+    log_path = _resolve_log_path(filename)
     
-    if not log_path.exists():
+    if log_path is None:
         console.print()
-        console.print(f"  [{Colors.WARNING}]{Icons.WARNING} Log file not found: {log_path}[/]")
+        console.print(f"  [{Colors.WARNING}]{Icons.WARNING} No {filename} file found yet.[/]")
+        console.print(f"  [{Colors.DIM}]Checked:[/]")
+        for candidate in _candidate_log_paths(filename):
+            console.print(f"    [{Colors.DIM}]- {candidate}[/]")
         console.print()
         console.print(f"  [{Colors.HINT}]Press Enter to continue...[/]")
         input()
