@@ -25,16 +25,32 @@ class FlowApp:
     """Main Caracal Flow application."""
     
     def __init__(self, console: Optional[Console] = None):
-        # Suppress debug/info log output that pollutes the TUI.
-        # Must use setup_logging() because structlog's default config
-        # bypasses standard library logging entirely.
-        from caracal.logging_config import setup_logging
-        setup_logging(level="WARNING", json_format=False)
+        self._configure_workspace_logging()
         
         self.console = console or Console(theme=FLOW_THEME)
         self.persistence = StatePersistence()
         self.state = self.persistence.load()
         self._running = False
+
+    def _configure_workspace_logging(self) -> None:
+        """Configure Flow logging to workspace log files."""
+        from caracal.logging_config import get_logger, setup_logging
+
+        try:
+            from caracal.flow.workspace import get_workspace
+
+            ws = get_workspace()
+            ws.ensure_dirs()
+            # Ensure log files exist so Logs Viewer always has concrete targets.
+            ws.log_path.touch(exist_ok=True)
+            (ws.logs_dir / "sync.log").touch(exist_ok=True)
+
+            # File-only logging prevents log output from polluting the TUI.
+            setup_logging(level="INFO", log_file=ws.log_path, json_format=True)
+            get_logger(__name__).info("flow_logging_configured", workspace=str(ws.root))
+        except Exception:
+            # Fallback: keep TUI usable even if workspace logging setup fails.
+            setup_logging(level="WARNING", json_format=False)
     
     def start(self) -> None:
         """Start the application."""
@@ -80,6 +96,9 @@ class FlowApp:
                 self.console.print()
                 self._goodbye()
                 return
+
+            # Reconfigure logs after onboarding in case workspace changed.
+            self._configure_workspace_logging()
             
             # Main loop
             self._run_main_loop()

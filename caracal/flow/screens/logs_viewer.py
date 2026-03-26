@@ -144,6 +144,13 @@ def _view_log_file(console: Console, filename: str, title: str) -> None:
         with open(log_path, 'r') as f:
             lines = f.readlines()
             last_lines = lines[-50:] if len(lines) > 50 else lines
+
+        if not last_lines:
+            console.print(f"  [{Colors.DIM}]No log entries yet in {log_path}[/]")
+            console.print()
+            console.print(f"  [{Colors.HINT}]Press Enter to continue...[/]")
+            input()
+            return
         
         # Color code by log level
         for line in last_lines:
