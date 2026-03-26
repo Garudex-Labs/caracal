@@ -168,12 +168,6 @@ class FlowApp:
             elif action == "workspaces":
                 from caracal.flow.screens.workspace_manager import show_workspace_manager
                 show_workspace_manager(self.console, self.state)
-            elif action == "sync":
-                from caracal.flow.screens.sync_monitor import show_sync_monitor
-                show_sync_monitor(self.console, self.state)
-            elif action == "config":
-                from caracal.flow.screens.config_editor import show_config_editor
-                show_config_editor(self.console, self.state)
             elif action == "providers":
                 from caracal.flow.screens.provider_manager import show_provider_manager
                 show_provider_manager(self.console, self.state)
@@ -203,6 +197,9 @@ class FlowApp:
                 self._show_current_config()
             elif action == "edit":
                 self._run_edit_config()
+            elif action == "config":
+                from caracal.flow.screens.config_editor import show_config_editor
+                show_config_editor(self.console, self.state)
             elif action == "service-health":
                 self._show_service_health()
             elif action == "backup":

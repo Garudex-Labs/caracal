@@ -10,8 +10,9 @@ Central navigation hub for all Caracal Flow features:
 - Authority Ledger
 - Mandate Manager
 - Delegation Center
+- Deployment
 - Enterprise
-- Settings & Config
+- Settings
 - Help & Tutorials
 """
 
@@ -60,7 +61,7 @@ MAIN_MENU_ITEMS = [
     MenuItem(
         key="deployment",
         label="Deployment",
-        description="Manage workspaces, sync, providers, and configuration",
+                description="Operational tools: dashboard, workspaces, providers, logs, help",
         icon="👾",
     ),
     MenuItem(
@@ -71,8 +72,8 @@ MAIN_MENU_ITEMS = [
     ),
     MenuItem(
         key="settings",
-        label="Settings & Config",
-        description="Configure Caracal, manage infrastructure, and check service health",
+                label="Settings",
+                description="System configuration, service health, backup, and restore",
         icon="👾",
     ),
     MenuItem(
@@ -228,10 +229,6 @@ def get_submenu_items(category: str) -> list[MenuItem]:
                     description="System overview and status", icon=Icons.INFO),
             MenuItem(key="workspaces", label="Workspace Manager", 
                     description="Create, switch, and manage workspaces", icon=Icons.WORKSPACE),
-            MenuItem(key="sync", label="Sync Monitor", 
-                    description="Manage enterprise synchronization", icon=Icons.SYNC),
-            MenuItem(key="config", label="Configuration Editor", 
-                    description="Edit mode and system settings (edition is auto)", icon=Icons.SETTINGS),
             MenuItem(key="providers", label="Provider Manager", 
                     description="Configure AI provider connections", icon=Icons.PROVIDER),
             MenuItem(key="logs", label="Logs Viewer", 
@@ -252,10 +249,8 @@ def get_submenu_items(category: str) -> list[MenuItem]:
                     description="", icon=Icons.ARROW_LEFT),
         ],
         "settings": [
-            MenuItem(key="view", label="View Configuration", 
-                    description="Display current settings and mandatory services", icon=""),
-            MenuItem(key="edit", label="Edit Configuration", 
-                    description="Open config in system editor", icon=""),
+            MenuItem(key="config", label="Configuration Editor", 
+                    description="View and update mode/system/database settings", icon=Icons.SETTINGS),
             MenuItem(key="service-health", label="Service Health", 
                     description="Check status of required services", icon=""),
             MenuItem(key="backup", label="Backup Data", 
@@ -305,7 +300,7 @@ def show_submenu(category: str, console: Optional[Console] = None) -> Optional[s
         "delegation": "Delegation Center",
         "deployment": "Deployment",
         "enterprise": "Enterprise",
-        "settings": "Settings & Config",
+        "settings": "Settings",
         "help": "Help & Tutorials",
     }
     
