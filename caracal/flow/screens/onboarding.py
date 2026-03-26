@@ -26,6 +26,7 @@ from caracal.flow.components.prompt import FlowPrompt
 from caracal.flow.components.wizard import Wizard, WizardStep
 from caracal.flow.state import FlowState, StatePersistence, RecentAction
 from caracal.flow.theme import Colors, Icons
+from caracal.pathing import ensure_source_tree, source_of
 
 
 def _find_env_file() -> Optional[Path]:
@@ -34,7 +35,7 @@ def _find_env_file() -> Optional[Path]:
     Search order:
     1. Current working directory
     2. Project root (walk up from this file to find pyproject.toml/setup.py)
-    3. Parent directories of CWD (up to 5 levels)
+    3. Source directories of CWD (up to 5 levels)
     
     Returns:
         Path to .env file, or None if not found.
@@ -46,7 +47,7 @@ def _find_env_file() -> Optional[Path]:
     
     # 2. Project root — walk up from this source file
     try:
-        source_dir = Path(__file__).resolve().parent
+        source_dir = source_of(Path(__file__).resolve())
         for _ in range(10):  # max 10 levels up
             candidate = source_dir / ".env"
             if candidate.exists():
@@ -55,7 +56,7 @@ def _find_env_file() -> Optional[Path]:
             if (source_dir / "pyproject.toml").exists() or (source_dir / "setup.py").exists():
                 # We're at project root but no .env — stop looking upward
                 break
-            ancestor = source_dir.parent
+            ancestor = source_of(source_dir)
             if ancestor == source_dir:  # filesystem root
                 break
             source_dir = ancestor
@@ -66,7 +67,7 @@ def _find_env_file() -> Optional[Path]:
     try:
         current = Path.cwd()
         for _ in range(5):
-            ancestor = current.parent
+            ancestor = source_of(current)
             if ancestor == current:
                 break
             current = ancestor
@@ -306,7 +307,7 @@ def _step_workspace(wizard: Wizard) -> Any:
         console.print(f"  [{Colors.DIM}]Path: {workspace_path}[/]")
         
         # Create directory
-        workspace_path.mkdir(parents=True, exist_ok=True)
+        ensure_source_tree(workspace_path)
         
         # Register workspace
         WorkspaceManager.register_workspace(workspace_name, workspace_path)
@@ -465,7 +466,7 @@ def _initialize_caracal_dir(path: Path, wipe: bool = False) -> None:
                 shutil.rmtree(item)
 
     # Create directories
-    path.mkdir(parents=True, exist_ok=True)
+    ensure_source_tree(path)
     (path / "backups").mkdir(exist_ok=True)
     (path / "logs").mkdir(exist_ok=True)
     (path / "cache").mkdir(exist_ok=True)

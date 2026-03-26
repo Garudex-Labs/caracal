@@ -25,6 +25,7 @@ from caracal.flow.theme import Colors, Icons
 from caracal.flow.state import FlowState
 from caracal.flow.components.menu import Menu, MenuItem
 from caracal.flow.workspace import get_workspace
+from caracal.pathing import ensure_source_tree, source_of
 
 
 def _level_style(level: str) -> str:
@@ -403,7 +404,7 @@ def _export_logs(console: Console, state: FlowState) -> None:
     target = Path(target_str).expanduser()
 
     try:
-        target.parent.mkdir(parents=True, exist_ok=True)
+        ensure_source_tree(source_of(target))
         with open(target, "w", encoding="utf-8") as out:
             out.write(f"# Caracal log export - {datetime.now().isoformat()}\n\n")
             for filename, source in sources:
