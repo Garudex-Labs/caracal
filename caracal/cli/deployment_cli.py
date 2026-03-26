@@ -44,6 +44,7 @@ from caracal.deployment.exceptions import (
 from caracal.provider.definitions import (
     resolve_provider_definition_id,
 )
+from caracal.provider.catalog import build_provider_record
 from caracal.provider.workspace import (
     load_workspace_provider_registry,
     save_workspace_provider_registry,
@@ -1099,44 +1100,25 @@ def provider_add(
         resolved_base_url = base_url
         resources = _parse_resources(resource_specs)
         _parse_actions(action_specs, resources)
-        definition_payload = {
-            "definition_id": resolved_definition_id,
-            "service_type": effective_service_type,
-            "display_name": name,
-            "auth_scheme": normalized_auth,
-            "default_base_url": resolved_base_url,
-            "resources": resources,
-        }
-        resource_ids = sorted(resources.keys())
-        action_ids = sorted(
-            {action_id for payload in resources.values() for action_id in payload["actions"].keys()}
+        providers[name] = build_provider_record(
+            name=name,
+            service_type=effective_service_type,
+            definition_id=resolved_definition_id,
+            auth_scheme=normalized_auth,
+            base_url=resolved_base_url,
+            resources=resources,
+            healthcheck_path=health_path,
+            timeout_seconds=timeout_seconds,
+            max_retries=max_retries,
+            rate_limit_rpm=rate_limit_rpm,
+            version=version,
+            tags=list(tags),
+            metadata=metadata,
+            auth_header_name=auth_header_name,
+            credential_ref=secret_ref,
+            existing=existing,
+            created_at=existing.get("created_at", datetime.utcnow().isoformat()),
         )
-
-        providers[name] = {
-            "name": name,
-            "service_type": effective_service_type,
-            "provider_definition": resolved_definition_id,
-            "definition": definition_payload,
-            "base_url": resolved_base_url,
-            "auth_scheme": normalized_auth,
-            "credential_ref": secret_ref,
-            "healthcheck_path": health_path,
-            "timeout_seconds": timeout_seconds,
-            "max_retries": max_retries,
-            "rate_limit_rpm": rate_limit_rpm,
-            "version": version,
-            "tags": list(tags),
-            "capabilities": [],
-            "access_policy": {"scopes": []},
-            "auth_metadata": {"header_name": auth_header_name} if auth_header_name else {},
-            "default_headers": existing.get("default_headers", {}),
-            "metadata": metadata,
-            "resources": resource_ids,
-            "actions": action_ids,
-            "enforce_scoped_requests": True,
-            "created_at": existing.get("created_at", datetime.utcnow().isoformat()),
-            "updated_at": datetime.utcnow().isoformat(),
-        }
 
         _save_workspace_providers(config_manager, workspace, providers)
 

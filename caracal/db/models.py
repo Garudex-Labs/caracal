@@ -534,8 +534,24 @@ class GatewayProvider(Base):
     __tablename__ = "gateway_providers"
 
     provider_id = Column(String(255), primary_key=True)
+    organization_id = Column(PG_UUID(as_uuid=True), nullable=True, index=True)
     name = Column(String(255), nullable=False)
     base_url = Column(String(2048), nullable=False)
+    service_type = Column(String(100), nullable=False, default="application", server_default="application")
+    auth_scheme = Column(String(100), nullable=False, default="api_key", server_default="api_key")
+    version = Column(String(255), nullable=True)
+    capabilities = Column(JSONB, nullable=False, default=list, server_default=text("'[]'"))
+    tags = Column(JSONB, nullable=False, default=list, server_default=text("'[]'"))
+    provider_metadata = Column("metadata", JSONB, nullable=False, default=dict, server_default=text("'{}'"))
+    provider_definition = Column(String(255), nullable=False, default="custom", server_default="custom")
+    provider_definition_data = Column(JSONB, nullable=False, default=dict, server_default=text("'{}'"))
+    resources = Column(JSONB, nullable=False, default=list, server_default=text("'[]'"))
+    actions = Column(JSONB, nullable=False, default=list, server_default=text("'[]'"))
+    auth_metadata = Column(JSONB, nullable=False, default=dict, server_default=text("'{}'"))
+    provider_layer = Column(String(50), nullable=False, default="user_provider", server_default="user_provider", index=True)
+    template_id = Column(String(255), nullable=True)
+    managed_by = Column(String(255), nullable=True)
+    credential_storage = Column(String(50), nullable=False, default="gateway_vault", server_default="gateway_vault")
 
     # JSON arrays stored as JSONB
     allowed_paths = Column(JSONB, nullable=False, default=list, server_default=text("'[]'"))
@@ -543,6 +559,12 @@ class GatewayProvider(Base):
 
     tls_pin = Column(String(255), nullable=True)
     secret_ref = Column(String(512), nullable=True)
+    healthcheck_path = Column(String(255), nullable=False, default="/health", server_default="/health")
+    timeout_seconds = Column(Integer, nullable=False, default=30, server_default="30")
+    max_retries = Column(Integer, nullable=False, default=3, server_default="3")
+    rate_limit_rpm = Column(Integer, nullable=True)
+    default_headers = Column(JSONB, nullable=False, default=dict, server_default=text("'{}'"))
+    access_policy = Column(JSONB, nullable=False, default=dict, server_default=text("'{}'"))
     enabled = Column(Boolean, nullable=False, default=True, index=True)
 
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
