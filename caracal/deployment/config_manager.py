@@ -624,13 +624,91 @@ class ConfigManager:
         """
         if not self.WORKSPACES_DIR.exists():
             return []
-        
-        workspaces = []
+
+        workspaces = set()
+
+        # Discover canonical workspace directories first.
         for item in self.WORKSPACES_DIR.iterdir():
-            if item.is_dir() and (item / "workspace.toml").exists():
-                workspaces.append(item.name)
-        
-        return sorted(workspaces)
+            if not item.is_dir():
+                continue
+            if not self.WORKSPACE_NAME_PATTERN.match(item.name):
+                continue
+
+            if (item / "workspace.toml").exists() or (item / "config.yaml").exists():
+                workspaces.add(item.name)
+
+        # Include names present in the Flow registry only when they resolve to
+        # the canonical workspace directory for that workspace name.
+        try:
+            from caracal.flow.workspace import WorkspaceManager
+
+            for ws in WorkspaceManager.list_workspaces():
+                if not isinstance(ws, dict):
+                    continue
+                name = str(ws.get("name") or "").strip()
+                path = str(ws.get("path") or "").strip()
+                if not name or not path:
+                    continue
+                if not self.WORKSPACE_NAME_PATTERN.match(name):
+                    continue
+
+                canonical_dir = self._get_workspace_dir(name)
+                try:
+                    if Path(path).expanduser().resolve() != canonical_dir.resolve():
+                        continue
+                except Exception:
+                    continue
+
+                if canonical_dir.exists():
+                    workspaces.add(name)
+        except Exception:
+            pass
+
+        names = sorted(workspaces)
+        self._ensure_workspace_metadata(names)
+        return names
+
+    def _ensure_workspace_metadata(self, workspace_names: List[str]) -> None:
+        """Create missing ``workspace.toml`` files for discovered workspaces."""
+        has_default = False
+
+        for name in workspace_names:
+            config_file = self._get_workspace_config_file(name)
+            if not config_file.exists():
+                continue
+            try:
+                if self.get_workspace_config(name).is_default:
+                    has_default = True
+                    break
+            except Exception:
+                continue
+
+        now = datetime.now()
+        for name in workspace_names:
+            config_file = self._get_workspace_config_file(name)
+            if config_file.exists():
+                continue
+
+            try:
+                cfg = WorkspaceConfig(
+                    name=name,
+                    created_at=now,
+                    updated_at=now,
+                    is_default=not has_default,
+                    sync_enabled=False,
+                    sync_url=None,
+                    sync_direction=SyncDirection.BIDIRECTIONAL,
+                    auto_sync_interval=None,
+                    last_sync=None,
+                    conflict_strategy=ConflictStrategy.LAST_WRITE_WINS,
+                    metadata={"source": "workspace_discovery"},
+                )
+                self.set_workspace_config(name, cfg)
+                if cfg.is_default:
+                    has_default = True
+            except Exception:
+                # Best-effort metadata bootstrap; listing should never fail.
+                continue
 
     def get_workspace_path(self, name: str) -> Path:
         """Return absolute path for a workspace directory.
@@ -761,6 +839,15 @@ class ConfigManager:
                 template=template,
                 is_default=config.is_default
             )
+
+            # Keep Flow registry synchronized with deployment workspace metadata.
+            try:
+                from caracal.flow.workspace import WorkspaceManager
+
+                WorkspaceManager.register_workspace(name, workspace_dir)
+            except Exception:
+                # Best-effort sync; workspace creation should still succeed.
+                logger.debug("workspace_registry_sync_skipped", workspace=name)
             
         except Exception as e:
             # Clean up on failure
@@ -852,6 +939,14 @@ class ConfigManager:
             
             # Delete workspace directory
             shutil.rmtree(workspace_dir)
+
+            # Keep Flow registry synchronized with deletion.
+            try:
+                from caracal.flow.workspace import WorkspaceManager
+
+                WorkspaceManager.delete_workspace(workspace_dir, delete_directory=False)
+            except Exception:
+                logger.debug("workspace_registry_delete_sync_skipped", workspace=name)
             
             logger.info(
                 "workspace_deleted",
@@ -976,6 +1071,14 @@ class ConfigManager:
                     workspace=workspace_name,
                     import_path=str(path)
                 )
+
+                # Keep Flow registry synchronized with imported workspace.
+                try:
+                    from caracal.flow.workspace import WorkspaceManager
+
+                    WorkspaceManager.register_workspace(workspace_name, target_dir)
+                except Exception:
+                    logger.debug("workspace_registry_import_sync_skipped", workspace=workspace_name)
                 
         except Exception as e:
             if isinstance(e, (WorkspaceAlreadyExistsError, InvalidWorkspaceNameError)):
