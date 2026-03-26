@@ -221,6 +221,14 @@ class MandateDelegationFlow:
                 self.console.print(f"  [{Colors.INFO}]Source Mandate Scope:[/]")
                 self.console.print(f"    Resources: {', '.join(source_mandate.resource_scope[:3])}{'...' if len(source_mandate.resource_scope) > 3 else ''}")
                 self.console.print(f"    Actions: {', '.join(source_mandate.action_scope[:3])}{'...' if len(source_mandate.action_scope) > 3 else ''}")
+                source_depth = int(source_mandate.delegation_depth or 0)
+                self.console.print(f"    Remaining Delegation Depth: {source_depth}")
+                if source_depth <= 0:
+                    self.console.print()
+                    self.console.print(
+                        f"  [{Colors.ERROR}]{Icons.ERROR} This mandate cannot delegate because delegation depth is exhausted.[/]"
+                    )
+                    return
                 self.console.print()
                 
                 # Select target principal
@@ -300,6 +308,7 @@ class MandateDelegationFlow:
                 self.console.print(f"    Resources: [{Colors.NEUTRAL}]{len(child_resources)} resources[/]")
                 self.console.print(f"    Actions: [{Colors.NEUTRAL}]{len(child_actions)} actions[/]")
                 self.console.print(f"    Validity: [{Colors.NEUTRAL}]{int(validity_seconds)}s[/]")
+                self.console.print(f"    Child Delegation Depth: [{Colors.NEUTRAL}]{source_depth - 1}[/]")
                 if context_tags:
                     self.console.print(f"    Tags: [{Colors.NEUTRAL}]{', '.join(context_tags)}[/]")
                 self.console.print()
@@ -325,6 +334,7 @@ class MandateDelegationFlow:
                 
                 self.console.print(f"  [{Colors.SUCCESS}]{Icons.SUCCESS} Delegation edge created![/]")
                 self.console.print(f"  [{Colors.NEUTRAL}]Target Mandate ID: [{Colors.PRIMARY}]{delegated_mandate.mandate_id}[/]")
+                self.console.print(f"  [{Colors.NEUTRAL}]Delegation Depth: [{Colors.PRIMARY}]{delegated_mandate.delegation_depth}[/]")
                 
                 if self.state:
                     self.state.add_recent_action(RecentAction.create(
@@ -397,6 +407,7 @@ class MandateDelegationFlow:
                 
                 self.console.print(f"  [{Colors.SUCCESS}]{Icons.SUCCESS} Peer delegation created![/]")
                 self.console.print(f"  [{Colors.NEUTRAL}]Target Mandate ID: [{Colors.PRIMARY}]{delegated.mandate_id}[/]")
+                self.console.print(f"  [{Colors.NEUTRAL}]Delegation Depth: [{Colors.PRIMARY}]{delegated.delegation_depth}[/]")
                 
                 if self.state:
                     self.state.add_recent_action(RecentAction.create(
