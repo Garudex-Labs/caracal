@@ -91,7 +91,7 @@ class CaracalClient:
             extension: Extension implementing :class:`CaracalExtension`.
 
         Returns:
-            ``self`` for method chaining.
+            ``self`` for method pathing.
         """
 
         extension.install(self._hooks)

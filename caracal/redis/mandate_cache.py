@@ -71,8 +71,8 @@ class RedisMandateCache:
             "revoked": mandate.revoked,
             "revoked_at": mandate.revoked_at.isoformat() if mandate.revoked_at else None,
             "revocation_reason": mandate.revocation_reason,
-            "parent_mandate_id": str(mandate.parent_mandate_id) if mandate.parent_mandate_id else None,
-            "delegation_depth": mandate.delegation_depth,
+            "source_mandate_id": str(mandate.source_mandate_id) if mandate.source_mandate_id else None,
+            "network_distance": mandate.network_distance,
             "intent_hash": mandate.intent_hash
         }
         return json.dumps(mandate_dict)
@@ -102,8 +102,8 @@ class RedisMandateCache:
         mandate_dict["issuer_id"] = UUID(mandate_dict["issuer_id"])
         mandate_dict["subject_id"] = UUID(mandate_dict["subject_id"])
         
-        if mandate_dict["parent_mandate_id"]:
-            mandate_dict["parent_mandate_id"] = UUID(mandate_dict["parent_mandate_id"])
+        if mandate_dict["source_mandate_id"]:
+            mandate_dict["source_mandate_id"] = UUID(mandate_dict["source_mandate_id"])
         
         return mandate_dict
     
