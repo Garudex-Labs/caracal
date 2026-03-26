@@ -12,18 +12,74 @@ Provides log viewing:
 - Tail logs in real-time
 """
 
+import json
+from datetime import datetime
 from typing import Optional
 from pathlib import Path
 from rich.console import Console
 from rich.panel import Panel
-from rich.table import Table
 from rich.prompt import Prompt
-from rich.syntax import Syntax
+from rich.text import Text
 
 from caracal.flow.theme import Colors, Icons
 from caracal.flow.state import FlowState
 from caracal.flow.components.menu import Menu, MenuItem
 from caracal.flow.workspace import get_workspace
+
+
+def _level_style(level: str) -> str:
+    """Return color style for log levels."""
+    mapping = {
+        "CRITICAL": f"bold {Colors.ERROR}",
+        "ERROR": Colors.ERROR,
+        "WARNING": Colors.WARNING,
+        "INFO": Colors.INFO,
+        "DEBUG": Colors.DIM,
+    }
+    return mapping.get(level.upper(), Colors.NEUTRAL)
+
+
+def _render_log_line(line: str) -> Text:
+    """Render a log line with level-aware coloring."""
+    raw = line.rstrip("\n")
+
+    # Handle JSON logs produced by structlog.
+    try:
+        payload = json.loads(raw)
+        if isinstance(payload, dict):
+            level = str(payload.get("level") or payload.get("log_level") or "INFO").upper()
+            timestamp = str(payload.get("timestamp") or payload.get("time") or "").strip()
+            message = str(payload.get("event") or payload.get("message") or "")
+
+            text = Text()
+            if timestamp:
+                text.append(f"{timestamp} ", style=Colors.DIM)
+
+            text.append(f"[{level:<8}] ", style=_level_style(level))
+            text.append(message or raw, style=Colors.NEUTRAL)
+
+            extras = {
+                k: v
+                for k, v in payload.items()
+                if k not in {"timestamp", "time", "level", "log_level", "event", "message"}
+            }
+            if extras:
+                text.append(" | ", style=Colors.DIM)
+                text.append(
+                    ", ".join(f"{k}={v}" for k, v in extras.items()),
+                    style=Colors.DIM,
+                )
+            return text
+    except Exception:
+        pass
+
+    # Fallback for plain-text logs.
+    upper = raw.upper()
+    for level in ("CRITICAL", "ERROR", "WARNING", "INFO", "DEBUG"):
+        if level in upper:
+            return Text(raw, style=_level_style(level))
+
+    return Text(raw, style=Colors.NEUTRAL)
 
 
 def _candidate_log_paths(filename: str) -> list[Path]:
@@ -96,6 +152,7 @@ def show_logs_viewer(console: Console, state: FlowState) -> None:
             MenuItem("sync", "Sync Logs", "View sync.log", Icons.SYNC),
             MenuItem("search", "Search Logs", "Search for specific entries", Icons.SEARCH),
             MenuItem("tail", "Tail Logs", "Follow logs in real-time", Icons.STREAM),
+            MenuItem("export", "Export Logs", "Extract selected logs to a file", Icons.FILE),
             MenuItem("back", "Back to Menu", "", Icons.ARROW_LEFT),
         ]
         
@@ -114,6 +171,8 @@ def show_logs_viewer(console: Console, state: FlowState) -> None:
             _search_logs(console, state)
         elif result.key == "tail":
             _tail_logs(console, state)
+        elif result.key == "export":
+            _export_logs(console, state)
 
 
 def _view_log_file(console: Console, filename: str, title: str) -> None:
@@ -154,16 +213,7 @@ def _view_log_file(console: Console, filename: str, title: str) -> None:
         
         # Color code by log level
         for line in last_lines:
-            if 'ERROR' in line:
-                console.print(f"[{Colors.ERROR}]{line.rstrip()}[/]")
-            elif 'WARNING' in line:
-                console.print(f"[{Colors.WARNING}]{line.rstrip()}[/]")
-            elif 'INFO' in line:
-                console.print(f"[{Colors.INFO}]{line.rstrip()}[/]")
-            elif 'DEBUG' in line:
-                console.print(f"[{Colors.DIM}]{line.rstrip()}[/]")
-            else:
-                console.print(f"[{Colors.NEUTRAL}]{line.rstrip()}[/]")
+            console.print(_render_log_line(line))
         
     except Exception as e:
         console.print(f"  [{Colors.ERROR}]{Icons.ERROR} Error reading log file: {e}[/]")
@@ -285,16 +335,7 @@ def _tail_logs(console: Console, state: FlowState) -> None:
                 line = f.readline()
                 if line:
                     # Color code by log level
-                    if 'ERROR' in line:
-                        console.print(f"[{Colors.ERROR}]{line.rstrip()}[/]")
-                    elif 'WARNING' in line:
-                        console.print(f"[{Colors.WARNING}]{line.rstrip()}[/]")
-                    elif 'INFO' in line:
-                        console.print(f"[{Colors.INFO}]{line.rstrip()}[/]")
-                    elif 'DEBUG' in line:
-                        console.print(f"[{Colors.DIM}]{line.rstrip()}[/]")
-                    else:
-                        console.print(f"[{Colors.NEUTRAL}]{line.rstrip()}[/]")
+                    console.print(_render_log_line(line))
                 else:
                     time.sleep(0.1)
     except KeyboardInterrupt:
@@ -309,3 +350,74 @@ def _tail_logs(console: Console, state: FlowState) -> None:
         console.print()
         console.print(f"  [{Colors.HINT}]Press Enter to continue...[/]")
         input()
+
+
+def _export_logs(console: Console, state: FlowState) -> None:
+    """Export selected logs to a target file."""
+    console.clear()
+    console.print(Panel(
+        f"[{Colors.PRIMARY}]Export Logs[/]",
+        subtitle=f"[{Colors.HINT}]Save selected logs to a file[/]",
+        border_style=Colors.INFO,
+    ))
+    console.print()
+
+    console.print(f"  [{Colors.INFO}]Select logs to export:[/]")
+    console.print("    1. Application logs (caracal.log)")
+    console.print("    2. Sync logs (sync.log)")
+    console.print("    3. Both")
+    console.print()
+
+    choice = Prompt.ask(
+        f"[{Colors.INFO}]Selection[/]",
+        choices=["1", "2", "3"],
+        default="1",
+    )
+
+    selected = []
+    if choice in {"1", "3"}:
+        selected.append("caracal.log")
+    if choice in {"2", "3"}:
+        selected.append("sync.log")
+
+    sources: list[tuple[str, Path]] = []
+    missing: list[str] = []
+    for filename in selected:
+        path = _resolve_log_path(filename)
+        if path is None:
+            missing.append(filename)
+            continue
+        sources.append((filename, path))
+
+    if not sources:
+        console.print(f"  [{Colors.WARNING}]{Icons.WARNING} No selected log files are available to export.[/]")
+        if missing:
+            console.print(f"  [{Colors.DIM}]Missing: {', '.join(missing)}[/]")
+        console.print()
+        console.print(f"  [{Colors.HINT}]Press Enter to continue...[/]")
+        input()
+        return
+
+    default_target = get_workspace().logs_dir / f"log_export_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
+    target_str = Prompt.ask(f"[{Colors.INFO}]Export path[/]", default=str(default_target))
+    target = Path(target_str).expanduser()
+
+    try:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        with open(target, "w", encoding="utf-8") as out:
+            out.write(f"# Caracal log export - {datetime.now().isoformat()}\n\n")
+            for filename, source in sources:
+                out.write(f"## {filename} ({source})\n")
+                out.write(source.read_text(encoding="utf-8", errors="replace"))
+                out.write("\n\n")
+
+        console.print()
+        console.print(f"  [{Colors.SUCCESS}]{Icons.SUCCESS} Exported logs to: {target}[/]")
+        if missing:
+            console.print(f"  [{Colors.WARNING}]Skipped missing files: {', '.join(missing)}[/]")
+    except Exception as e:
+        console.print(f"  [{Colors.ERROR}]{Icons.ERROR} Failed to export logs: {e}[/]")
+
+    console.print()
+    console.print(f"  [{Colors.HINT}]Press Enter to continue...[/]")
+    input()

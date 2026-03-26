@@ -233,8 +233,6 @@ def get_submenu_items(category: str) -> list[MenuItem]:
                     description="Configure AI provider connections", icon=Icons.PROVIDER),
             MenuItem(key="logs", label="Logs Viewer", 
                     description="View application and sync logs", icon=Icons.FILE),
-            MenuItem(key="help", label="Deployment Help", 
-                    description="Command reference and guides", icon=Icons.HELP),
             MenuItem(key="back", label="Back to Main Menu", 
                     description="", icon=Icons.ARROW_LEFT),
         ],
@@ -263,6 +261,8 @@ def get_submenu_items(category: str) -> list[MenuItem]:
         "help": [
             MenuItem(key="docs", label="View Documentation", 
                     description="Open Caracal docs", icon=""),
+            MenuItem(key="deployment-help", label="Deployment Help", 
+                    description="Deployment command reference and guides", icon=Icons.HELP),
             MenuItem(key="shortcuts", label="Keyboard Shortcuts", 
                     description="View all shortcuts", icon=""),
             MenuItem(key="about", label="About Caracal", 

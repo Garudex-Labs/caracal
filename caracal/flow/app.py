@@ -193,9 +193,6 @@ class FlowApp:
             elif action == "logs":
                 from caracal.flow.screens.logs_viewer import show_logs_viewer
                 show_logs_viewer(self.console, self.state)
-            elif action == "help":
-                from caracal.flow.screens.deployment_help import show_deployment_help
-                show_deployment_help(self.console, self.state)
             else:
                 self._show_cli_fallback("deployment", action)
     
@@ -243,7 +240,10 @@ class FlowApp:
                 self.console.print()
                 self.console.print(f"  [{Colors.HINT}]Press Enter to continue...[/]")
                 input()
-            if action == "shortcuts":
+            elif action == "deployment-help":
+                from caracal.flow.screens.deployment_help import show_deployment_help
+                show_deployment_help(self.console, self.state)
+            elif action == "shortcuts":
                 self._show_shortcuts()
             elif action == "about":
                 self._show_about()
