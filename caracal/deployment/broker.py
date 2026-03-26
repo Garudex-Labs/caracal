@@ -39,6 +39,7 @@ from caracal.provider.definitions import (
     parse_provider_scope,
     resolve_provider_definition_id,
 )
+from caracal.provider.catalog import ProviderCatalogError, resolve_auth_headers
 
 logger = structlog.get_logger(__name__)
 
@@ -876,23 +877,15 @@ class Broker:
                 f"Credential not found for provider {provider}: {config.credential_ref}"
             ) from e
 
-        if scheme in {"api_key", "bearer"}:
-            return {"Authorization": f"Bearer {credential_value}"}
-
-        if scheme == "basic":
-            encoded = base64.b64encode(credential_value.encode("utf-8")).decode("ascii")
-            return {"Authorization": f"Basic {encoded}"}
-
-        if scheme == "header":
-            header_name = str(config.auth_metadata.get("header_name", "X-API-Key"))
-            return {header_name: credential_value}
-
-        if scheme in {"oauth2_client_credentials", "service_account"}:
-            raise ProviderAuthenticationError(
-                f"Auth scheme '{config.auth_scheme}' requires gateway-mediated execution"
+        try:
+            return resolve_auth_headers(
+                auth_scheme=scheme,
+                credential_value=credential_value,
+                auth_metadata=config.auth_metadata,
+                allow_gateway_managed=False,
             )
-
-        raise ProviderAuthenticationError(f"Unsupported auth scheme: {config.auth_scheme}")
+        except ProviderCatalogError as exc:
+            raise ProviderAuthenticationError(str(exc)) from exc
 
     def _validate_request_scope(
         self,
