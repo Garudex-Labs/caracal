@@ -29,6 +29,16 @@ class Edition(str, Enum):
     OPENSOURCE = "opensource"
     ENTERPRISE = "enterprise"
 
+    @property
+    def is_enterprise(self) -> bool:
+        """Return True when edition is enterprise."""
+        return self == Edition.ENTERPRISE
+
+    @property
+    def is_opensource(self) -> bool:
+        """Return True when edition is open source."""
+        return self == Edition.OPENSOURCE
+
 
 class EditionManager:
     """
