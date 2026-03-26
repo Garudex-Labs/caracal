@@ -283,12 +283,12 @@ def init(ctx, workspace_dir):
         click.echo("✓ Initializing database...")
         ctx.invoke(init_db)
         
-        # Create default workspace
-        click.echo("✓ Creating default workspace...")
+        # Create initial workspace
+        click.echo("✓ Creating initial workspace...")
         from caracal.deployment.config_manager import ConfigManager
         config_mgr = ConfigManager()
         try:
-            config_mgr.create_workspace("default")
+            config_mgr.create_workspace("primary")
         except Exception:
             pass  # Workspace might already exist
         

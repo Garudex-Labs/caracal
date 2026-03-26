@@ -7,13 +7,14 @@ Workspace management for Caracal Flow.
 Provides centralized path resolution so every module resolves files
 relative to the active workspace root instead of hardcoding ``~/.caracal/``.
 
-The default workspace root is ``~/.caracal/workspaces/default``.
+The initial workspace root is resolved dynamically from the workspace marked
+as default/active.
 
 Usage::
 
     from caracal.flow.workspace import get_workspace
 
-    ws = get_workspace()                    # default (~/.caracal/workspaces/default)
+    ws = get_workspace()                    # active default workspace
     ws = get_workspace("/opt/myproject")    # custom path
 
     ws.config_path   # -> /opt/myproject/config.yaml
@@ -32,7 +33,8 @@ from pathlib import Path
 from typing import Optional
 
 
-_DEFAULT_ROOT = Path.home() / ".caracal" / "workspaces" / "default"
+_WORKSPACES_DIR = Path.home() / ".caracal" / "workspaces"
+_FALLBACK_ROOT = _WORKSPACES_DIR / "primary"
 _LEGACY_ROOT = Path.home() / ".caracal"
 
 # Global registry file lives outside any individual workspace so it can index all of them.
@@ -49,7 +51,7 @@ class WorkspaceManager:
     """
 
     def __init__(self, root: Optional[Path] = None) -> None:
-        self._root = Path(root) if root else _DEFAULT_ROOT
+        self._root = Path(root) if root else _resolve_initial_workspace_root()
 
     # ------------------------------------------------------------------
     # Path properties
@@ -128,7 +130,7 @@ class WorkspaceManager:
         This keeps ``~/.caracal`` focused on workspace registry/config files and
         avoids scattering runtime artifacts at the root level.
         """
-        if self._root != _DEFAULT_ROOT:
+        if self._root.parent != _WORKSPACES_DIR:
             return
 
         import shutil
@@ -362,8 +364,8 @@ _current_workspace: Optional[WorkspaceManager] = None
 def get_workspace(root: Optional[str | Path] = None) -> WorkspaceManager:
     """Return a ``WorkspaceManager`` for the given root.
 
-    When called without arguments the first time, creates the default
-    workspace (``~/.caracal/workspaces/default``).  Subsequent calls without arguments
+    When called without arguments the first time, resolves the current
+    default/active workspace. Subsequent calls without arguments
     return the same instance.  Passing *root* always creates a fresh
     manager.
     """
@@ -389,3 +391,31 @@ def set_workspace(root: str | Path) -> WorkspaceManager:
     _current_workspace = WorkspaceManager(Path(root))
     _current_workspace.ensure_dirs()
     return _current_workspace
+
+
+def _resolve_initial_workspace_root() -> Path:
+    """Resolve initial workspace root from active/default workspace metadata."""
+    try:
+        from caracal.deployment.config_manager import ConfigManager
+
+        cfg = ConfigManager()
+        default_name = cfg.get_default_workspace_name()
+        if default_name:
+            return cfg.get_workspace_path(default_name)
+    except Exception:
+        pass
+
+    # Fallback to first valid workspace directory if it exists.
+    try:
+        if _WORKSPACES_DIR.exists():
+            candidates = sorted(
+                p for p in _WORKSPACES_DIR.iterdir()
+                if p.is_dir() and (p / "workspace.toml").exists()
+            )
+            if candidates:
+                return candidates[0]
+    except Exception:
+        pass
+
+    # Last resort for brand-new installs before onboarding creates a workspace.
+    return _FALLBACK_ROOT
