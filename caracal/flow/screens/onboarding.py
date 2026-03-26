@@ -474,7 +474,7 @@ def _initialize_caracal_dir(path: Path, wipe: bool = False) -> None:
         default_config = f"""# Caracal Core Configuration
 
 storage:
-  # Legacy files removed, everything uses PostgreSQL
+    # PostgreSQL-only mode; file-based identity/policy/ledger storage is disabled
   backup_dir: {path}/backups
   backup_count: 3
 
@@ -487,8 +487,7 @@ logging:
 """
         config_path.write_text(default_config)
     
-    # We no longer create empty legacy JSON files (agents.json, policies.json, ledger.jsonl).
-    # All data is managed by PostgreSQL.
+    # All authority data is managed by PostgreSQL.
     
     # Note: SQLite no longer supported — PostgreSQL only.
     # Legacy .db files are left in place (harmless) for manual cleanup.
