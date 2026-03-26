@@ -45,12 +45,12 @@ class MeteringEvent:
     
     Attributes:
         principal_id: Unique identifier for the agent consuming resources
-        resource_type: Type of resource (supports hierarchical patterns like "mcp.tool.search")
+        resource_type: Type of resource (supports directed patterns like "mcp.tool.search")
         quantity: Amount of resource consumed (non-negative)
         timestamp: When the event occurred (auto-generated if not provided)
         metadata: Extensible dictionary for additional context
         correlation_id: Optional ID for tracing related events across services
-        parent_event_id: Optional ID for building event hierarchies
+        source_event_id: Optional ID for building event hierarchies
         tags: Optional list of tags for categorization and filtering
     """
     principal_id: str
@@ -59,7 +59,7 @@ class MeteringEvent:
     timestamp: Optional[datetime] = None
     metadata: Dict[str, Any] = field(default_factory=dict)
     correlation_id: Optional[str] = None
-    parent_event_id: Optional[str] = None
+    source_event_id: Optional[str] = None
     tags: List[str] = field(default_factory=list)
     
     def __post_init__(self):
@@ -98,7 +98,7 @@ class MeteringEvent:
     
     def matches_resource_pattern(self, pattern: str) -> bool:
         """
-        Check if resource_type matches a hierarchical pattern.
+        Check if resource_type matches a directed pattern.
         
         Supports wildcards: "mcp.tool.*" matches "mcp.tool.search"
         
@@ -124,7 +124,7 @@ class MeteringEvent:
             "timestamp": self.timestamp.isoformat() if self.timestamp else None,
             "metadata": self.metadata,
             "correlation_id": self.correlation_id,
-            "parent_event_id": self.parent_event_id,
+            "source_event_id": self.source_event_id,
             "tags": self.tags
         }
     
@@ -146,7 +146,7 @@ class MeteringEvent:
             timestamp=datetime.fromisoformat(data["timestamp"]) if data.get("timestamp") else None,
             metadata=data.get("metadata", {}),
             correlation_id=data.get("correlation_id"),
-            parent_event_id=data.get("parent_event_id"),
+            source_event_id=data.get("source_event_id"),
             tags=data.get("tags", [])
         )
 
@@ -192,8 +192,8 @@ class MeteringCollector:
             # Add enhanced fields to metadata if present
             if event.correlation_id:
                 enhanced_metadata["correlation_id"] = event.correlation_id
-            if event.parent_event_id:
-                enhanced_metadata["parent_event_id"] = event.parent_event_id
+            if event.source_event_id:
+                enhanced_metadata["source_event_id"] = event.source_event_id
             if event.tags:
                 enhanced_metadata["tags"] = event.tags
             

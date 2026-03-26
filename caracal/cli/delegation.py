@@ -124,9 +124,9 @@ def _get_delegation_manager(config) -> tuple[_DBPrincipalRegistryAdapter, Delega
 )
 @click.option(
     '--delegation-type',
-    default='hierarchical',
-    type=click.Choice(['hierarchical', 'peer']),
-    help='Type of delegation: hierarchical or peer (default: hierarchical)',
+    default='directed',
+    type=click.Choice(['directed', 'peer']),
+    help='Type of delegation: directed or peer (default: directed)',
 )
 @click.option(
     '--source-type',
@@ -165,7 +165,7 @@ def generate(ctx, source_id: str, target_id: str, authority_scope: float,
         
         caracal delegation generate -p source-uuid -c target-uuid \
             -l 50.00 --expiration 3600 \
-            --delegation-type hierarchical --source-type user --target-type agent \
+            --delegation-type directed --source-type user --target-type agent \
             -o api_call -o mcp_tool
     """
     try:
@@ -378,8 +378,8 @@ def validate(ctx, token: str):
         click.echo()
         click.echo("Token Claims:")
         click.echo("=" * 50)
-        click.echo(f"Issuer (Parent):     {claims.issuer}")
-        click.echo(f"Subject (Child):     {claims.subject}")
+        click.echo(f"Issuer (source):     {claims.issuer}")
+        click.echo(f"Subject (target):     {claims.subject}")
         click.echo(f"Audience:            {claims.audience}")
         click.echo(f"Token ID:            {claims.token_id}")
         click.echo(f"Issued At:           {claims.issued_at}")
