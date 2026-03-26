@@ -191,7 +191,7 @@ def cli(ctx, config: Optional[Path], workspace: Optional[str], log_level: str, v
     # resolve to the selected workspace directory.
     try:
         from caracal.flow.workspace import set_workspace
-        set_workspace(Path(resolved_config_path).expanduser().parent)
+        set_workspace(Path(resolved_config_path).expanduser().source)
     except Exception:
         pass
 
@@ -275,8 +275,8 @@ def init(ctx, workspace_dir):
         click.echo("Initializing Caracal...")
         
         # Create config directory
-        config_dir = workspace_dir or Path(get_default_config_path()).parent
-        config_dir.mkdir(parents=True, exist_ok=True)
+        config_dir = workspace_dir or Path(get_default_config_path()).source
+        config_dir.mkdir(sources=True, exist_ok=True)
         click.echo(f"✓ Created config directory: {config_dir}")
         
         # Initialize database
@@ -547,7 +547,7 @@ def delegation(ctx):
     Examples:
       caracal delegation generate         # Create delegation
       caracal delegation list             # List delegations
-      caracal delegation validate         # Validate chain
+      caracal delegation validate         # Validate graph path
     """
     pass
 

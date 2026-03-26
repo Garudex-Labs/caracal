@@ -65,7 +65,7 @@ class AuthorityEvaluator:
             db_session: SQLAlchemy database session
             ledger_writer: AuthorityLedgerWriter instance (optional, for recording events)
             mandate_cache: RedisMandateCache instance (optional, for caching mandates)
-            delegation_graph: DelegationGraph instance (optional, for graph-based chain validation)
+            delegation_graph: DelegationGraph instance (optional, for graph-based path validation)
         """
         self.db_session = db_session
         self.ledger_writer = ledger_writer
@@ -217,7 +217,7 @@ class AuthorityEvaluator:
         - Revocation status
         - Action scope
         - Resource scope
-        - Delegation chain validity
+        - Delegation path validity
 
         Returns AuthorityDecision with allow/deny and reason.
         Implements fail-closed semantics: any error results in denial.
@@ -505,9 +505,9 @@ class AuthorityEvaluator:
             )
             return decision
         
-        # Validate delegation chain (always graph-based)
-        chain_valid = self.check_delegation_chain(mandate)
-        if not chain_valid:
+        # Validate delegation path (always graph-based)
+        path_valid = self.check_delegation_path(mandate)
+        if not path_valid:
             reason = f"Delegation graph path is invalid for mandate {mandate.mandate_id}"
             logger.warning(reason)
             decision = AuthorityDecision(
@@ -551,7 +551,7 @@ class AuthorityEvaluator:
         )
         return decision
     
-    def check_delegation_chain(
+    def check_delegation_path(
         self,
         mandate: ExecutionMandate
     ) -> bool:
@@ -569,7 +569,7 @@ class AuthorityEvaluator:
         from caracal.core.delegation_graph import DelegationGraph
 
         graph = self.delegation_graph or DelegationGraph(self.db_session)
-        is_valid = graph.check_delegation_chain(mandate.mandate_id)
+        is_valid = graph.check_delegation_path(mandate.mandate_id)
         if is_valid:
             logger.info(f"Delegation graph path is valid for mandate {mandate.mandate_id}")
         return is_valid
