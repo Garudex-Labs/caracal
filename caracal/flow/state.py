@@ -188,7 +188,7 @@ class StatePersistence:
     def save(self, state: FlowState) -> None:
         """Save state to disk."""
         # Ensure directory exists
-        self.path.source.mkdir(sources=True, exist_ok=True)
+        self.path.parent.mkdir(parents=True, exist_ok=True)
         
         # Serialize and save (exclude session data)
         data = self._serialize(state)
