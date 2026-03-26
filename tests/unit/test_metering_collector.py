@@ -5,7 +5,7 @@ Caracal, a product of Garudex Labs
 Unit tests for MeteringCollector with enhanced MeteringEvent.
 
 Tests the core functionality of collecting metering events with enhanced fields
-(correlation_id, parent_event_id, tags) and writing to the ledger.
+(correlation_id, source_event_id, tags) and writing to the ledger.
 """
 
 from decimal import Decimal
@@ -69,8 +69,8 @@ class TestMeteringCollectorWithEnhancedTypes:
         
         assert ledger_event["metadata"]["correlation_id"] == "trace-789"
     
-    def test_collect_event_with_parent_event_id(self, temp_dir):
-        """Test collecting event with parent_event_id."""
+    def test_collect_event_with_source_event_id(self, temp_dir):
+        """Test collecting event with source_event_id."""
         ledger_path = temp_dir / "ledger.jsonl"
         ledger_writer = LedgerWriter(str(ledger_path))
         collector = MeteringCollector(ledger_writer)
@@ -79,18 +79,18 @@ class TestMeteringCollectorWithEnhancedTypes:
             principal_id="agent-123",
             resource_type="mcp.tool.search",
             quantity=Decimal("1"),
-            parent_event_id="event-456"
+            source_event_id="event-456"
         )
         
         collector.collect_event(event)
         
-        # Verify parent_event_id is in metadata
+        # Verify source_event_id is in metadata
         with open(ledger_path, 'r') as f:
             import json
             line = f.readline()
             ledger_event = json.loads(line)
         
-        assert ledger_event["metadata"]["parent_event_id"] == "event-456"
+        assert ledger_event["metadata"]["source_event_id"] == "event-456"
     
     def test_collect_event_with_tags(self, temp_dir):
         """Test collecting event with tags."""
@@ -127,7 +127,7 @@ class TestMeteringCollectorWithEnhancedTypes:
             quantity=Decimal("1"),
             metadata={"tool_name": "search", "mandate_id": "mandate-456"},
             correlation_id="trace-789",
-            parent_event_id="event-012",
+            source_event_id="event-012",
             tags=["mcp", "search"]
         )
         
@@ -143,7 +143,7 @@ class TestMeteringCollectorWithEnhancedTypes:
         assert metadata["tool_name"] == "search"
         assert metadata["mandate_id"] == "mandate-456"
         assert metadata["correlation_id"] == "trace-789"
-        assert metadata["parent_event_id"] == "event-012"
+        assert metadata["source_event_id"] == "event-012"
         assert metadata["tags"] == ["mcp", "search"]
     
     def test_collect_event_validation_empty_principal_id(self, temp_dir):
@@ -160,7 +160,7 @@ class TestMeteringCollectorWithEnhancedTypes:
         event.timestamp = datetime.utcnow()
         event.metadata = {}
         event.correlation_id = None
-        event.parent_event_id = None
+        event.source_event_id = None
         event.tags = []
         
         with pytest.raises(InvalidMeteringEventError, match="principal_id must be a non-empty string"):
@@ -180,7 +180,7 @@ class TestMeteringCollectorWithEnhancedTypes:
         event.timestamp = datetime.utcnow()
         event.metadata = {}
         event.correlation_id = None
-        event.parent_event_id = None
+        event.source_event_id = None
         event.tags = []
         
         with pytest.raises(InvalidMeteringEventError, match="resource_type must be a non-empty string"):
@@ -200,7 +200,7 @@ class TestMeteringCollectorWithEnhancedTypes:
         event.timestamp = datetime.utcnow()
         event.metadata = {}
         event.correlation_id = None
-        event.parent_event_id = None
+        event.source_event_id = None
         event.tags = []
         
         with pytest.raises(InvalidMeteringEventError, match="quantity must be non-negative"):
@@ -220,7 +220,7 @@ class TestMeteringCollectorWithEnhancedTypes:
         event.timestamp = datetime.utcnow()
         event.metadata = {}
         event.correlation_id = None
-        event.parent_event_id = None
+        event.source_event_id = None
         event.tags = []
         
         with pytest.raises(InvalidMeteringEventError, match="quantity must be a Decimal"):
@@ -240,7 +240,7 @@ class TestMeteringCollectorWithEnhancedTypes:
         event.timestamp = "2024-01-15T10:30:00Z"  # string instead of datetime
         event.metadata = {}
         event.correlation_id = None
-        event.parent_event_id = None
+        event.source_event_id = None
         event.tags = []
         
         with pytest.raises(InvalidMeteringEventError, match="timestamp must be a datetime object"):
@@ -260,12 +260,12 @@ class TestMeteringCollectorWithEnhancedTypes:
             correlation_id="trace-1"
         )
         
-        # Event 2: with parent_event_id
+        # Event 2: with source_event_id
         event2 = MeteringEvent(
             principal_id="agent-2",
             resource_type="mcp.tool.analyze",
             quantity=Decimal("2"),
-            parent_event_id="event-1"
+            source_event_id="event-1"
         )
         
         # Event 3: with tags
@@ -291,7 +291,7 @@ class TestMeteringCollectorWithEnhancedTypes:
         assert ledger_event1["metadata"]["correlation_id"] == "trace-1"
         
         ledger_event2 = json.loads(lines[1])
-        assert ledger_event2["metadata"]["parent_event_id"] == "event-1"
+        assert ledger_event2["metadata"]["source_event_id"] == "event-1"
         
         ledger_event3 = json.loads(lines[2])
         assert ledger_event3["metadata"]["tags"] == ["mcp", "write", "production"]

@@ -87,7 +87,7 @@ def valid_metering_events(draw):
         timestamp=draw(st.one_of(st.none(), st.datetimes())),
         metadata=draw(valid_metadata()),
         correlation_id=draw(st.one_of(st.none(), st.text(min_size=1, max_size=100))),
-        parent_event_id=draw(st.one_of(st.none(), st.text(min_size=1, max_size=100))),
+        source_event_id=draw(st.one_of(st.none(), st.text(min_size=1, max_size=100))),
         tags=draw(valid_tags())
     )
 
@@ -198,7 +198,7 @@ class TestMeteringEventProperties:
         assert restored_event.quantity == event.quantity
         assert restored_event.metadata == event.metadata
         assert restored_event.correlation_id == event.correlation_id
-        assert restored_event.parent_event_id == event.parent_event_id
+        assert restored_event.source_event_id == event.source_event_id
         assert restored_event.tags == event.tags
         
         # Verify timestamps match (handle None case)
@@ -282,4 +282,4 @@ class TestMeteringEventProperties:
         
         # Optional fields should be None
         assert event.correlation_id is None
-        assert event.parent_event_id is None
+        assert event.source_event_id is None
