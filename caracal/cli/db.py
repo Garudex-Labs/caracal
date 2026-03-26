@@ -18,14 +18,13 @@ from alembic.config import Config
 from sqlalchemy import text
 
 from caracal.cli.context import pass_context
+from caracal.pathing import source_of
 from caracal.db import (
     Base,
     DatabaseConfig,
     DatabaseConnectionManager,
     SchemaVersionManager,
 )
-
-logger = logging.getLogger(__name__)
 
 
 def _escape_alembic_url(url: str) -> str:
