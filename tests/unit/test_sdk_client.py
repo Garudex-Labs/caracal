@@ -14,7 +14,7 @@ from pathlib import Path
 import pytest
 
 from caracal.exceptions import ConnectionError
-from caracal.sdk.client import CaracalClient
+from caracal_sdk.client import CaracalClient
 
 
 # ===========================================================================
@@ -27,8 +27,8 @@ class TestCaracalClientV2:
 
     def test_init_with_api_key(self):
         """CaracalClient(api_key=...) creates client with HttpAdapter."""
-        from caracal.sdk.client import CaracalClient, SDKConfigurationError
-        from caracal.sdk.adapters.http import HttpAdapter
+        from caracal_sdk.client import CaracalClient, SDKConfigurationError
+        from caracal_sdk.adapters.http import HttpAdapter
 
         client = CaracalClient(api_key="sk_test_123")
         assert isinstance(client._adapter, HttpAdapter)
@@ -37,8 +37,8 @@ class TestCaracalClientV2:
 
     def test_init_with_custom_base_url(self):
         """CaracalClient(api_key=, base_url=) uses custom URL."""
-        from caracal.sdk.client import CaracalClient
-        from caracal.sdk.adapters.http import HttpAdapter
+        from caracal_sdk.client import CaracalClient
+        from caracal_sdk.adapters.http import HttpAdapter
 
         client = CaracalClient(api_key="sk_test_456", base_url="https://api.example.com")
         assert isinstance(client._adapter, HttpAdapter)
@@ -47,8 +47,8 @@ class TestCaracalClientV2:
 
     def test_init_with_mock_adapter(self):
         """CaracalClient with custom adapter skips api_key requirement."""
-        from caracal.sdk.client import CaracalClient
-        from caracal.sdk.adapters.mock import MockAdapter
+        from caracal_sdk.client import CaracalClient
+        from caracal_sdk.adapters.mock import MockAdapter
 
         mock = MockAdapter(responses={})
         client = CaracalClient(adapter=mock)
@@ -57,15 +57,15 @@ class TestCaracalClientV2:
 
     def test_init_requires_api_key_or_adapter(self):
         """CaracalClient without api_key or adapter raises SDKConfigurationError."""
-        from caracal.sdk.client import CaracalClient, SDKConfigurationError
+        from caracal_sdk.client import CaracalClient, SDKConfigurationError
 
         with pytest.raises(SDKConfigurationError, match="requires either"):
             CaracalClient()
 
     def test_context_returns_context_manager(self):
         """client.context is a ContextManager."""
-        from caracal.sdk.client import CaracalClient
-        from caracal.sdk.context import ContextManager
+        from caracal_sdk.client import CaracalClient
+        from caracal_sdk.context import ContextManager
 
         client = CaracalClient(api_key="sk_test_ctx")
         assert isinstance(client.context, ContextManager)
@@ -73,8 +73,8 @@ class TestCaracalClientV2:
 
     def test_context_checkout_returns_scoped_context(self):
         """client.context.checkout() returns ScopeContext with correct IDs."""
-        from caracal.sdk.client import CaracalClient
-        from caracal.sdk.context import ScopeContext
+        from caracal_sdk.client import CaracalClient
+        from caracal_sdk.context import ScopeContext
 
         client = CaracalClient(api_key="sk_test_scope")
         ctx = client.context.checkout(
@@ -90,8 +90,8 @@ class TestCaracalClientV2:
 
     def test_agents_returns_agent_operations(self):
         """client.agents shortcut returns AgentOperations."""
-        from caracal.sdk.client import CaracalClient
-        from caracal.sdk.agents import AgentOperations
+        from caracal_sdk.client import CaracalClient
+        from caracal_sdk.agents import AgentOperations
 
         client = CaracalClient(api_key="sk_test_agents")
         assert isinstance(client.agents, AgentOperations)
@@ -99,8 +99,8 @@ class TestCaracalClientV2:
 
     def test_mandates_returns_mandate_operations(self):
         """client.mandates shortcut returns MandateOperations."""
-        from caracal.sdk.client import CaracalClient
-        from caracal.sdk.mandates import MandateOperations
+        from caracal_sdk.client import CaracalClient
+        from caracal_sdk.mandates import MandateOperations
 
         client = CaracalClient(api_key="sk_test_mandates")
         assert isinstance(client.mandates, MandateOperations)
@@ -108,9 +108,9 @@ class TestCaracalClientV2:
 
     def test_use_installs_extension(self):
         """client.use(extension) calls install and chains."""
-        from caracal.sdk.client import CaracalClient
-        from caracal.sdk.extensions import CaracalExtension
-        from caracal.sdk.hooks import HookRegistry
+        from caracal_sdk.client import CaracalClient
+        from caracal_sdk.extensions import CaracalExtension
+        from caracal_sdk.hooks import HookRegistry
 
         class TestExtension(CaracalExtension):
             installed = False
@@ -140,7 +140,7 @@ class TestCaracalBuilderV2:
 
     def test_builder_basic_build(self):
         """Builder with api_key builds successfully."""
-        from caracal.sdk.client import CaracalBuilder, CaracalClient
+        from caracal_sdk.client import CaracalBuilder, CaracalClient
 
         client = CaracalBuilder().set_api_key("sk_build_1").build()
         assert isinstance(client, CaracalClient)
@@ -148,8 +148,8 @@ class TestCaracalBuilderV2:
 
     def test_builder_custom_base_url(self):
         """Builder with custom base_url."""
-        from caracal.sdk.client import CaracalBuilder
-        from caracal.sdk.adapters.http import HttpAdapter
+        from caracal_sdk.client import CaracalBuilder
+        from caracal_sdk.adapters.http import HttpAdapter
 
         client = (
             CaracalBuilder()
@@ -163,8 +163,8 @@ class TestCaracalBuilderV2:
 
     def test_builder_with_transport(self):
         """Builder with custom transport adapter."""
-        from caracal.sdk.client import CaracalBuilder
-        from caracal.sdk.adapters.mock import MockAdapter
+        from caracal_sdk.client import CaracalBuilder
+        from caracal_sdk.adapters.mock import MockAdapter
 
         mock = MockAdapter(responses={})
         client = CaracalBuilder().set_transport(mock).build()
@@ -173,9 +173,9 @@ class TestCaracalBuilderV2:
 
     def test_builder_with_extension(self):
         """Builder .use() queues extensions, build() installs them."""
-        from caracal.sdk.client import CaracalBuilder
-        from caracal.sdk.extensions import CaracalExtension
-        from caracal.sdk.hooks import HookRegistry
+        from caracal_sdk.client import CaracalBuilder
+        from caracal_sdk.extensions import CaracalExtension
+        from caracal_sdk.hooks import HookRegistry
 
         installed_hooks = []
 
@@ -203,9 +203,9 @@ class TestCaracalBuilderV2:
 
     def test_builder_fires_initialize_hooks(self):
         """Builder.build() fires on_initialize hooks."""
-        from caracal.sdk.client import CaracalBuilder
-        from caracal.sdk.extensions import CaracalExtension
-        from caracal.sdk.hooks import HookRegistry
+        from caracal_sdk.client import CaracalBuilder
+        from caracal_sdk.extensions import CaracalExtension
+        from caracal_sdk.hooks import HookRegistry
 
         init_called = []
 
@@ -232,14 +232,14 @@ class TestCaracalBuilderV2:
 
     def test_builder_no_key_no_adapter_raises(self):
         """Builder without api_key or transport raises SDKConfigurationError."""
-        from caracal.sdk.client import CaracalBuilder, SDKConfigurationError
+        from caracal_sdk.client import CaracalBuilder, SDKConfigurationError
 
         with pytest.raises(SDKConfigurationError, match="requires either"):
             CaracalBuilder().build()
 
     def test_builder_fluent_chaining(self):
         """All builder methods return self for chaining."""
-        from caracal.sdk.client import CaracalBuilder
+        from caracal_sdk.client import CaracalBuilder
 
         builder = CaracalBuilder()
         assert builder.set_api_key("x") is builder
