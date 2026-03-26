@@ -288,7 +288,7 @@ def init(ctx, workspace_dir):
         from caracal.deployment.config_manager import ConfigManager
         config_mgr = ConfigManager()
         try:
-            config_mgr.create_workspace("primary")
+            config_mgr.create_workspace("default")
         except Exception:
             pass  # Workspace might already exist
         
