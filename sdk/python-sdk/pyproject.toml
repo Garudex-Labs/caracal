@@ -1,0 +1,57 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "caracal-sdk"
+dynamic = ["version"]
+description = "Standalone Python SDK for Caracal authority enforcement"
+readme = "README.md"
+requires-python = ">=3.10"
+license = "Apache-2.0"
+authors = [
+  {name = "Caracal Contributors"}
+]
+keywords = ["caracal", "authority", "delegated-actions", "security", "sdk"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Developers",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Software Development :: Libraries :: Python Modules",
+  "Topic :: Security",
+]
+dependencies = [
+  "httpx>=0.25.0",
+  "requests>=2.31.0",
+]
+
+[project.optional-dependencies]
+async = [
+  "aiohttp>=3.9.0",
+]
+core = [
+  "caracal-core>=0.1.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/Garudex-Labs/caracal"
+Documentation = "https://github.com/Garudex-Labs/caracal/tree/main/sdk/python-sdk"
+Repository = "https://github.com/Garudex-Labs/caracal"
+Issues = "https://github.com/Garudex-Labs/caracal/issues"
+
+[tool.setuptools.dynamic]
+version = {file = ["VERSION"]}
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+include-package-data = true
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["caracal_sdk*"]
+
+[tool.setuptools.package-data]
+caracal_sdk = ["py.typed"]
