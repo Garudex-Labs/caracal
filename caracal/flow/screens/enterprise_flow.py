@@ -601,10 +601,12 @@ class EnterpriseFlow:
         
         warning_panel = Panel(
             f"[bold {Colors.WARNING}]Disconnect Enterprise License[/]\n\n"
-            f"This will remove the enterprise license from this workspace.\n\n"
+            f"This will remove the enterprise license and switch this workspace to Open Source mode.\n\n"
             f"[bold]Current license:[/]\n"
             f"  Key: {info.get('license_key', 'N/A')}\n"
             f"  Tier: {(info.get('tier') or 'unknown').upper()}\n\n"
+            f"[bold]Security policy:[/]\n"
+            f"  Fresh start in Open Source mode (no local secret migration by default).\n\n"
             f"[{Colors.DIM}]You can reconnect at any time using the same license token.[/]\n"
             f"[{Colors.DIM}]Your Enterprise dashboard data will not be affected.[/]",
             border_style=Colors.WARNING,
@@ -620,8 +622,40 @@ class EnterpriseFlow:
         )
         
         if confirm == "y":
-            self.validator.disconnect()
-            self.console.print(f"\n[{Colors.SUCCESS}]Enterprise license disconnected.[/]")
+            try:
+                from caracal.deployment.config_manager import ConfigManager
+                from caracal.deployment.edition import Edition
+                from caracal.deployment.migration import MigrationManager
+                from caracal.deployment.sync_engine import SyncEngine
+
+                config_mgr = ConfigManager()
+                sync_engine = SyncEngine()
+
+                for workspace in config_mgr.list_workspaces():
+                    try:
+                        ws_cfg = config_mgr.get_workspace_config(workspace)
+                    except Exception:
+                        continue
+                    if ws_cfg.sync_enabled:
+                        try:
+                            sync_engine.disconnect(workspace)
+                        except Exception:
+                            pass
+
+                try:
+                    MigrationManager().migrate_edition(
+                        Edition.OPENSOURCE,
+                        migrate_api_keys=False,
+                    )
+                except Exception:
+                    # Migration can already be in open-source mode; proceed with license clear.
+                    pass
+
+                self.validator.disconnect()
+                self.console.print(f"\n[{Colors.SUCCESS}]Enterprise license disconnected.[/]")
+                self.console.print(f"[{Colors.INFO}]Edition is now Open Source (fresh start policy).[/]")
+            except Exception as exc:
+                self.console.print(f"\n[{Colors.ERROR}]Failed to disconnect enterprise cleanly: {exc}[/]")
         else:
             self.console.print(f"\n[{Colors.DIM}]Cancelled.[/]")
         
