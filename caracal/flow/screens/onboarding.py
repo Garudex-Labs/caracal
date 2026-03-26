@@ -467,6 +467,9 @@ def _initialize_caracal_dir(path: Path, wipe: bool = False) -> None:
     # Create directories
     path.mkdir(parents=True, exist_ok=True)
     (path / "backups").mkdir(exist_ok=True)
+    (path / "logs").mkdir(exist_ok=True)
+    (path / "cache").mkdir(exist_ok=True)
+    (path / "keys").mkdir(exist_ok=True)
     
     # Create default config if needed
     config_path = path / "config.yaml"
@@ -483,7 +486,17 @@ defaults:
 
 logging:
   level: INFO
-  file: {path}/caracal.log
+    file: {path}/logs/caracal.log
+
+redis:
+    host: localhost
+    port: 6379
+    db: 0
+
+merkle:
+    signing_backend: software
+    signing_algorithm: ES256
+    private_key_path: {path}/keys/merkle_signing_key.pem
 """
         config_path.write_text(default_config)
     
