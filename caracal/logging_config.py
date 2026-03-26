@@ -19,6 +19,8 @@ from typing import Any, Dict, Optional
 import structlog
 from structlog.types import EventDict, Processor
 
+from caracal.pathing import ensure_source_tree, source_of
+
 
 # Context variable for correlation ID
 correlation_id_var: ContextVar[Optional[str]] = ContextVar("correlation_id", default=None)
@@ -99,7 +101,7 @@ def setup_logging(
     # Configure file handler if specified
     if log_file is not None:
         log_file = Path(log_file)
-        log_file.parent.mkdir(parents=True, exist_ok=True)
+            ensure_source_tree(source_of(log_file))
         
         file_handler = logging.FileHandler(log_file)
         file_handler.setLevel(numeric_level)
