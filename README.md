@@ -24,15 +24,15 @@
 
 </div>
 
----
+-----
 
-## Overview
+# Overview
 
-**Caracal** is a pre-execution authority enforcement system for AI agents and automated software operating in production environments. It exists at the boundary where autonomous decisions turn into irreversible actions—API calls, database writes, or system triggers.
+**Caracal** is a pre-execution authority enforcement system for AI agents and automated software operating in production environments. It exists at the boundary where autonomous decisions turn into irreversible actions—such as API calls, database writes, or system triggers.
 
 By enforcing the **principle of explicit authority**, Caracal ensures no action executes without a cryptographically verified, time-bound mandate issued under a governing policy.
 
----
+-----
 
 ## Community
 
@@ -59,104 +59,74 @@ More coming soon
 <div align="center">
 </div>
 
+-----
 
----
+## Technical Architecture
 
-## Core Interfaces
+Caracal Core implements a robust enforcement engine using the following cryptographic and access control primitives:
 
-### 1. Caracal SDK (Python & Node.js)
+| Component | Description |
+| :--- | :--- |
+| **Principals** | Identities (agents/users) with ECDSA P-256 cryptographic keys. |
+| **Policies** | Fine-grained rules defining resource patterns and allowed actions. |
+| **Mandates** | Short-lived, signed tokens granting the right to execute an action. |
+| **Ledger** | High-performance audit trail of every authorization event. |
 
-**Target:** Developers and System Architects.
+-----
 
-The second-generation (v2) SDK provides a unified, high-performance interface for integrating Caracal into any agentic loop.
+## Installation & Setup
 
-**Installation (Python):**
+Choose the setup path that best matches your workflow.
 
-```bash
-pip install caracal-core
-```
+### 1\. End-User Installation (No-Repo)
 
-**Installation (Node.js):**
-
-```bash
-npm install @caracal/core
-```
-
-**Fluent API Example:**
-
-```python
-from caracal.sdk import CaracalClient
-
-client = CaracalClient(api_key="your-key")
-context = client.context.checkout(workspace_id="ws_123")
-
-# Register an agent principal
-agent = context.agents.create(name="web-scraper", owner="system")
-```
-
-### 2. Caracal Flow (TUI)
-
-**Target:** Security Operations and Governance Officers.
-
-Interactive terminal interface for monitoring authority ledgers, managing principals, and initial onboarding.
+For operators and users who want to run Caracal directly without cloning the repository.
 
 ```bash
+# Install the core package
+pip install caracal-core # npm install @caracal/core
+
+# Initialize the base configuration
+caracal init
+
+# Launch the Terminal User Interface (TUI)
 caracal-flow
 ```
 
-### Local Bootstrap (uv + Infra)
+### 2\. Local Bootstrap (Development & Infrastructure)
 
-Use the included `Makefile` to install Python dependencies with `uv`, install `caracal`/`caracal-flow`, and start required infrastructure (`postgres` + `redis`) before running commands.
-
-`uv` is handled automatically by the setup command (installed if missing).
+For contributors or users needing a full local stack. This uses the included Makefile to install Python dependencies via `uv` and spin up required infrastructure (PostgreSQL + Redis).
 
 ```bash
-# From Caracal/
+# Navigate to the repository root
+cd Caracal/
+
+# Standard setup for users
 make setup-user
 
-# For contributors running tests/dev tools
+# Setup for contributors (includes dev tools and test dependencies)
 make setup-dev
 ```
 
-# Then use Caracal directly from your shell
+Once bootstrapped, you can use Caracal directly from your shell:
+
 ```bash
 caracal
 caracal-flow
 ```
 
----
+-----
 
-## Technical Architecture
 
-Caracal Core (the open-source foundation) implements the primary enforcement engine:
+> **Enterprise Features:** Advanced capabilities including Gateway Proxies, SSO Providers, and Compliance Extensions are available at [garudexlabs.com](https://garudexlabs.com).
 
-| Component      | Description                                                         |
-| -------------- | ------------------------------------------------------------------- |
-| **Principals** | Identities (agents/users) with ECDSA P-256 cryptographic keys.      |
-| **Policies**   | Fine-grained rules defining resource patterns and allowed actions.  |
-| **Mandates**   | Short-lived, signed tokens granting the right to execute an action. |
-| **Ledger**     | High-performance audit trail of every authorization event.          |
+-----
 
-> [!NOTE]
-> Enterprise features (Gateway Proxy, SSO Provider, Compliance Extensions) are available on www.garudexlabs.com
-
----
-
-## Project Structure
-
-- `caracal/core/`: The core policy evaluation and mandate engine.
-- `caracal/sdk/`: The unified Python SDK implementation.
-- `caracal/flow/`: TUI application for management and monitoring.
-- `caracal/db/`: Persistence layer with PostgreSQL and Redis support.
-- `k8s/`: Kubernetes manifests for core component deployment.
-
----
-
-## Citation (Optional but Appreciated)
+## Citation
 
 **Caracal** is an open-source framework for *pre-execution authority enforcement for AI agents controlling delegated actions, with real-time revocation and immutable proof*.
 
-If this project contributes to your research, product, or derivative systems, please consider citing it. Citations help us build credibility, advance trustworthy AI security research, and continue developing open infrastructure that benefits the broader ecosystem.
+If this project contributes to your research, product, or derivative systems, please consider citing it to help us advance trustworthy AI security research.
 
 ```bibtex
 @software{madhuwala2026caracal,
@@ -168,10 +138,10 @@ If this project contributes to your research, product, or derivative systems, pl
 }
 ```
 
----
+-----
 
 ## License
 
-Caracal is open-source software licensed under the **Apache-2.0**. See the [LICENSE](LICENSE) file for details.
+Caracal is open-source software licensed under the **Apache-2.0** License. See the [LICENSE](https://www.google.com/search?q=LICENSE) file for details.
 
 **Developed by Garudex Labs.**
