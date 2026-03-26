@@ -9,9 +9,8 @@ Implements Requirement 8.8-13 and 11.13-15 from caracal-core spec.
 """
 
 import os
-import shutil
-import tarfile
 import hashlib
+import subprocess
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
@@ -40,14 +39,51 @@ def get_backup_dir(config) -> Path:
     return backup_dir
 
 
-def get_data_files(config) -> dict:
-    """Get paths to all data files that should be backed up."""
-    return {
-        "agents.json": Path(config.storage.principal_registry).expanduser(),
-        "policies.json": Path(config.storage.policy_store).expanduser(),
-        "ledger.jsonl": Path(config.storage.ledger).expanduser(),
-        "config.yaml": Path(config.storage.principal_registry).expanduser().parent / "config.yaml",
-    }
+def _pg_env(config) -> dict:
+    env = os.environ.copy()
+    if getattr(config.database, "password", None):
+        env["PGPASSWORD"] = str(config.database.password)
+    return env
+
+
+def _run_pg_dump(config, output_file: Path) -> None:
+    cmd = [
+        "pg_dump",
+        "-h", str(config.database.host),
+        "-p", str(config.database.port),
+        "-U", str(config.database.user),
+        "-d", str(config.database.database),
+        "-F", "c",
+        "-f", str(output_file),
+        "--no-owner",
+        "--no-privileges",
+    ]
+    schema = getattr(config.database, "schema", "")
+    if schema:
+        cmd.extend(["-n", schema])
+
+    result = subprocess.run(cmd, env=_pg_env(config), capture_output=True, text=True)
+    if result.returncode != 0:
+        raise CaracalError(f"pg_dump failed: {result.stderr.strip() or result.stdout.strip()}")
+
+
+def _run_pg_restore(config, backup_file: Path) -> None:
+    cmd = [
+        "pg_restore",
+        "-h", str(config.database.host),
+        "-p", str(config.database.port),
+        "-U", str(config.database.user),
+        "-d", str(config.database.database),
+        "--clean",
+        "--if-exists",
+        "--no-owner",
+        "--no-privileges",
+        str(backup_file),
+    ]
+
+    result = subprocess.run(cmd, env=_pg_env(config), capture_output=True, text=True)
+    if result.returncode != 0:
+        raise CaracalError(f"pg_restore failed: {result.stderr.strip() or result.stdout.strip()}")
 
 
 def calculate_file_hash(file_path: Path) -> str:
@@ -70,10 +106,7 @@ def calculate_file_hash(file_path: Path) -> str:
 @click.pass_context
 def backup_create(ctx, name: Optional[str]):
     """
-    Create a timestamped backup archive of all Caracal data.
-    
-    Creates a .tar.gz archive containing agents.json, policies.json,
-    ledger.jsonl, and config.yaml.
+    Create a PostgreSQL backup dump for the active Caracal workspace/schema.
     """
     try:
         config = get_config(ctx)
@@ -82,32 +115,13 @@ def backup_create(ctx, name: Optional[str]):
         # Generate backup name
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         backup_name = name or f"caracal_backup_{timestamp}"
-        archive_path = backup_dir / f"{backup_name}.tar.gz"
-        
-        # Get data files
-        data_files = get_data_files(config)
-        
-        # Check which files exist
-        existing_files = {}
-        for name_key, path in data_files.items():
-            if path.exists():
-                existing_files[name_key] = path
-            else:
-                logger.warning(f"Data file not found, skipping: {path}")
-        
-        if not existing_files:
-            click.echo("Error: No data files found to backup.", err=True)
-            raise SystemExit(1)
-        
-        # Create archive
-        with tarfile.open(archive_path, "w:gz") as tar:
-            for name_key, path in existing_files.items():
-                tar.add(path, arcname=name_key)
-                logger.info(f"Added to backup: {name_key}")
+        archive_path = backup_dir / f"{backup_name}.dump"
+
+        _run_pg_dump(config, archive_path)
         
         # Calculate archive hash for integrity verification
         archive_hash = calculate_file_hash(archive_path)
-        hash_file = archive_path.with_suffix('.tar.gz.sha256')
+        hash_file = archive_path.with_suffix('.dump.sha256')
         hash_file.write_text(f"{archive_hash}  {archive_path.name}\n")
         
         # Get archive size
@@ -119,7 +133,7 @@ def backup_create(ctx, name: Optional[str]):
         
         click.echo(f"✓ Backup created: {archive_path}")
         click.echo(f"  Size: {size_str}")
-        click.echo(f"  Files: {len(existing_files)}")
+        click.echo("  Backend: PostgreSQL")
         click.echo(f"  Hash: {archive_hash[:16]}...")
         
         logger.info(f"Backup created successfully: {archive_path}")
@@ -148,16 +162,15 @@ def backup_create(ctx, name: Optional[str]):
 @click.pass_context
 def backup_restore(ctx, backup_file: Path, force: bool, no_safety_backup: bool):
     """
-    Restore Caracal data from a backup archive.
-    
-    Before restoring, validates archive integrity and creates a safety
-    backup of current data (unless --no-safety-backup is specified).
+    Restore Caracal PostgreSQL data from a backup dump.
+
+    Validates dump integrity and creates a safety dump first (unless disabled).
     """
     try:
         config = get_config(ctx)
         
         # Validate archive integrity
-        hash_file = backup_file.with_suffix('.tar.gz.sha256')
+        hash_file = backup_file.with_suffix('.dump.sha256')
         if hash_file.exists():
             expected_hash = hash_file.read_text().split()[0]
             actual_hash = calculate_file_hash(backup_file)
@@ -170,13 +183,7 @@ def backup_restore(ctx, backup_file: Path, force: bool, no_safety_backup: bool):
         else:
             click.echo("⚠ No hash file found, skipping integrity check")
         
-        # List archive contents
-        with tarfile.open(backup_file, "r:gz") as tar:
-            members = tar.getnames()
-        
-        click.echo(f"\nBackup contains {len(members)} files:")
-        for member in members:
-            click.echo(f"  - {member}")
+        click.echo(f"\nBackup file: {backup_file.name}")
         
         # Confirm restore
         if not force:
@@ -191,37 +198,11 @@ def backup_restore(ctx, backup_file: Path, force: bool, no_safety_backup: bool):
             safety_timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             safety_name = f"safety_backup_{safety_timestamp}"
             backup_dir = get_backup_dir(config)
-            safety_path = backup_dir / f"{safety_name}.tar.gz"
-            
-            data_files = get_data_files(config)
-            existing_files = {k: v for k, v in data_files.items() if v.exists()}
-            
-            if existing_files:
-                with tarfile.open(safety_path, "w:gz") as tar:
-                    for name_key, path in existing_files.items():
-                        tar.add(path, arcname=name_key)
-                click.echo(f"✓ Safety backup created: {safety_path}")
-        
-        # Extract backup
-        from caracal.flow.workspace import get_workspace
-        caracal_dir = get_workspace().root
-        
-        with tarfile.open(backup_file, "r:gz") as tar:
-            for member in tar.getmembers():
-                if member.name in data_files:
-                    target_path = data_files[member.name]
-                    # Extract to a temp file first
-                    tmp_base = caracal_dir.parent / ".caracal_restore_tmp"
-                    tar.extract(member, path=tmp_base)
-                    tmp_path = tmp_base / member.name
-                    # Move to final location
-                    shutil.move(str(tmp_path), str(target_path))
-                    click.echo(f"  Restored: {member.name}")
-        
-        # Cleanup temp dir
-        tmp_dir = caracal_dir.parent / ".caracal_restore_tmp"
-        if tmp_dir.exists():
-            shutil.rmtree(tmp_dir)
+            safety_path = backup_dir / f"{safety_name}.dump"
+            _run_pg_dump(config, safety_path)
+            click.echo(f"✓ Safety backup created: {safety_path}")
+
+        _run_pg_restore(config, backup_file)
         
         click.echo("\n✓ Restore completed successfully!")
         logger.info(f"Restored from backup: {backup_file}")
@@ -250,13 +231,13 @@ def backup_list(ctx, output_json: bool):
         config = get_config(ctx)
         backup_dir = get_backup_dir(config)
         
-        # Find all backup archives
+        # Find all backup dumps
         backups = []
-        for archive_path in sorted(backup_dir.glob("*.tar.gz"), reverse=True):
+        for archive_path in sorted(backup_dir.glob("*.dump"), reverse=True):
             stat = archive_path.stat()
             
             # Check for hash file
-            hash_file = archive_path.with_suffix('.tar.gz.sha256')
+            hash_file = archive_path.with_suffix('.dump.sha256')
             has_hash = hash_file.exists()
             
             backups.append({
