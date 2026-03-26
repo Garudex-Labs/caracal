@@ -94,7 +94,7 @@ def _list_workspaces(console: Console, state: FlowState) -> None:
         else:
             table = Table(show_header=True, header_style=f"bold {Colors.INFO}")
             table.add_column("Name", style=Colors.PRIMARY)
-            table.add_column("Default", style=Colors.SUCCESS)
+            table.add_column("Active", style=Colors.SUCCESS)
             table.add_column("Sync", style=Colors.INFO)
             table.add_column("Created", style=Colors.DIM)
             
@@ -117,7 +117,7 @@ def _list_workspaces(console: Console, state: FlowState) -> None:
 
 def _create_workspace(console: Console, state: FlowState) -> None:
     """Create a new workspace."""
-    from caracal.deployment.config_manager import ConfigManager
+    from caracal.deployment.config_manager import ConfigManager, PostgresConfig
     
     console.clear()
     console.print(Panel(
@@ -136,38 +136,44 @@ def _create_workspace(console: Console, state: FlowState) -> None:
             input()
             return
         
-        # Prompt for template
-        console.print()
-        console.print(f"  [{Colors.INFO}]Select template:[/]")
-        console.print(f"    1. None (empty workspace)")
-        console.print(f"    2. Enterprise (enterprise configuration)")
-        console.print(f"    3. Local Dev (local development)")
-        console.print()
-        
-        template_choice = Prompt.ask(
-            f"[{Colors.INFO}]Template[/]",
-            choices=["1", "2", "3"],
-            default="1"
-        )
-        
-        template_map = {
-            "1": None,
-            "2": "enterprise",
-            "3": "local-dev",
-        }
-        template = template_map.get(template_choice)
-        
-        # Create workspace
+        # Create workspace with onboarding-style defaults.
         config_mgr = ConfigManager()
-        config_mgr.create_workspace(name, template=template)
+        config_mgr.create_workspace(name, template=None)
+
+        # New workspace should become active immediately.
+        set_default_workspace(config_mgr, name)
+
+        # Quick setup (lightweight onboarding): optional PostgreSQL configuration.
+        if Confirm.ask(f"[{Colors.INFO}]Configure PostgreSQL for this workspace now?[/]", default=False):
+            console.print()
+            host = Prompt.ask(f"[{Colors.INFO}]PostgreSQL host[/]", default="localhost")
+            port = Prompt.ask(f"[{Colors.INFO}]PostgreSQL port[/]", default="5432")
+            database = Prompt.ask(f"[{Colors.INFO}]Database name[/]", default="caracal")
+            user = Prompt.ask(f"[{Colors.INFO}]Database user[/]", default="caracal")
+            password = Prompt.ask(f"[{Colors.INFO}]Database password[/]", default="", password=True)
+
+            postgres = PostgresConfig(
+                host=host,
+                port=int(port),
+                database=database,
+                user=user,
+                password_ref="postgres_password",
+                ssl_mode="require",
+                pool_size=10,
+                max_overflow=5,
+                pool_timeout=30,
+            )
+            config_mgr.set_postgres_config(postgres)
+            if password:
+                config_mgr.store_secret("postgres_password", password, name)
         
         console.print()
-        console.print(f"  [{Colors.SUCCESS}]{Icons.SUCCESS} Workspace '{name}' created successfully[/]")
+        console.print(f"  [{Colors.SUCCESS}]{Icons.SUCCESS} Workspace '{name}' created successfully and set as active[/]")
         
         # Record action
         state.add_recent_action(RecentAction.create(
             "workspace_create",
-            f"Created workspace: {name}",
+            f"Created and activated workspace: {name}",
             success=True
         ))
         
