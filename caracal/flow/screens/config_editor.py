@@ -20,6 +20,7 @@ from rich.prompt import Prompt, Confirm
 from caracal.flow.theme import Colors, Icons
 from caracal.flow.state import FlowState, RecentAction
 from caracal.flow.components.menu import Menu, MenuItem
+from caracal.flow.screens._workspace_helpers import get_default_workspace
 
 
 def show_config_editor(console: Console, state: FlowState) -> None:
@@ -100,8 +101,7 @@ def _view_configuration(console: Console, state: FlowState) -> None:
         
         # Workspace
         config_mgr = ConfigManager()
-        workspaces = config_mgr.list_workspaces()
-        default_ws = next((ws for ws in workspaces if ws.is_default), None)
+        default_ws = get_default_workspace(config_mgr)
         
         if default_ws:
             console.print(f"  [{Colors.INFO}]Active Workspace:[/] [{Colors.PRIMARY}]{default_ws.name}[/]")
@@ -113,11 +113,14 @@ def _view_configuration(console: Console, state: FlowState) -> None:
         # PostgreSQL
         postgres_config = config_mgr.get_postgres_config()
         console.print(f"  [{Colors.INFO}]PostgreSQL:[/]")
-        console.print(f"    Host: [{Colors.DIM}]{postgres_config.host}:{postgres_config.port}[/]")
-        console.print(f"    Database: [{Colors.DIM}]{postgres_config.database}[/]")
-        console.print(f"    User: [{Colors.DIM}]{postgres_config.user}[/]")
-        console.print(f"    SSL Mode: [{Colors.DIM}]{postgres_config.ssl_mode}[/]")
-        console.print(f"    Pool Size: [{Colors.DIM}]{postgres_config.pool_size}[/]")
+        if postgres_config is None:
+            console.print(f"    [{Colors.WARNING}]Not configured[/]")
+        else:
+            console.print(f"    Host: [{Colors.DIM}]{postgres_config.host}:{postgres_config.port}[/]")
+            console.print(f"    Database: [{Colors.DIM}]{postgres_config.database}[/]")
+            console.print(f"    User: [{Colors.DIM}]{postgres_config.user}[/]")
+            console.print(f"    SSL Mode: [{Colors.DIM}]{postgres_config.ssl_mode}[/]")
+            console.print(f"    Pool Size: [{Colors.DIM}]{postgres_config.pool_size}[/]")
         
     except Exception as e:
         console.print(f"  [{Colors.ERROR}]{Icons.ERROR} Error: {e}[/]")
@@ -258,6 +261,18 @@ def _configure_postgres(console: Console, state: FlowState) -> None:
     try:
         config_mgr = ConfigManager()
         current_config = config_mgr.get_postgres_config()
+        if current_config is None:
+            current_config = PostgresConfig(
+                host="localhost",
+                port=5432,
+                database="caracal",
+                user="caracal",
+                password_ref="postgres_password",
+                ssl_mode="require",
+                pool_size=10,
+                max_overflow=5,
+                pool_timeout=30,
+            )
         
         console.print(f"  [{Colors.INFO}]Current PostgreSQL configuration:[/]")
         console.print(f"    Host: {current_config.host}")
@@ -289,7 +304,7 @@ def _configure_postgres(console: Console, state: FlowState) -> None:
             port=int(port),
             database=database,
             user=user,
-            password_ref="",  # Will be encrypted by config manager
+            password_ref=current_config.password_ref or "postgres_password",
             ssl_mode=ssl_mode,
             pool_size=current_config.pool_size,
             max_overflow=current_config.max_overflow,
@@ -300,8 +315,14 @@ def _configure_postgres(console: Console, state: FlowState) -> None:
         console.print()
         console.print(f"  [{Colors.INFO}]Testing connection...[/]")
         
-        # Save configuration
-        config_mgr.set_postgres_config(new_config, password=password)
+        # Save configuration and persist password in workspace vault when provided.
+        config_mgr.set_postgres_config(new_config)
+        if password:
+            default_ws = get_default_workspace(config_mgr)
+            if default_ws is not None:
+                config_mgr.store_secret(new_config.password_ref, password, default_ws.name)
+            else:
+                console.print(f"  [{Colors.WARNING}]No workspace found; password was not stored[/]")
         
         console.print(f"  [{Colors.SUCCESS}]{Icons.SUCCESS} PostgreSQL configuration updated[/]")
         
