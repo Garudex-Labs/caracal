@@ -22,6 +22,7 @@ from rich.table import Table
 
 from caracal.flow.components.menu import show_menu
 from caracal.flow.components.prompt import FlowPrompt
+from caracal.flow.screens._provider_scope_helpers import load_provider_scope_catalog
 from caracal.flow.theme import Colors, Icons
 from caracal.flow.state import FlowState, RecentAction
 from caracal.logging_config import get_logger
@@ -176,31 +177,73 @@ class MandateFlow:
                 subject_id_str = self.prompt.uuid("Subject Principal ID (Tab for suggestions)", items)
                 subject_id = UUID(subject_id_str)
                 
-                # Resource scope
+                scope_catalog = load_provider_scope_catalog()
+                providers = scope_catalog["providers"]
+                resources = scope_catalog["resources"]
+                actions_catalog = scope_catalog["actions"]
+
+                if not providers:
+                    self.console.print(
+                        f"  [{Colors.WARNING}]{Icons.WARNING} No providers configured in this workspace.[/]"
+                    )
+                    self.console.print(
+                        f"  [{Colors.HINT}]Add a provider first via 'caracal provider add ...'[/]"
+                    )
+                    return
+
+                provider_choice = self.prompt.select(
+                    "Scope provider",
+                    choices=providers + ["all"],
+                    default=providers[0],
+                )
+                if provider_choice != "all":
+                    provider_prefix = f"provider:{provider_choice}:"
+                    resources = [s for s in resources if s.startswith(provider_prefix)]
+                    actions_catalog = [s for s in actions_catalog if s.startswith(provider_prefix)]
+
+                if not resources or not actions_catalog:
+                    self.console.print(
+                        f"  [{Colors.ERROR}]{Icons.ERROR} Selected provider has no scope catalog.[/]"
+                    )
+                    return
+
+                # Resource scopes
                 self.console.print()
-                self.console.print(f"  [{Colors.INFO}]Enter resource scope (one per line, empty to finish):[/]")
-                self.console.print(f"  [{Colors.HINT}]Examples: api:openai:*, database:users:read, file:reports/*.pdf[/]")
+                self.console.print(f"  [{Colors.INFO}]Select provider resource scopes:[/]")
                 resource_scope = []
                 while True:
-                    resource = self.prompt.text(f"Resource {len(resource_scope) + 1}", required=False)
-                    if not resource:
+                    remaining = [r for r in resources if r not in resource_scope]
+                    if not remaining:
                         break
-                    resource_scope.append(resource)
+                    choice = self.prompt.select(
+                        f"Resource scope {len(resource_scope) + 1}",
+                        choices=remaining + ["done"],
+                        default=remaining[0],
+                    )
+                    if choice == "done":
+                        break
+                    resource_scope.append(choice)
                 
                 if not resource_scope:
                     self.console.print(f"  [{Colors.ERROR}]{Icons.ERROR} At least one resource is required.[/]")
                     return
                 
-                # Action scope
+                # Action scopes
                 self.console.print()
-                self.console.print(f"  [{Colors.INFO}]Enter action scope (one per line, empty to finish):[/]")
-                self.console.print(f"  [{Colors.HINT}]Examples: api_call, database_query, file_read[/]")
+                self.console.print(f"  [{Colors.INFO}]Select provider action scopes:[/]")
                 action_scope = []
                 while True:
-                    action = self.prompt.text(f"Action {len(action_scope) + 1}", required=False)
-                    if not action:
+                    remaining = [a for a in actions_catalog if a not in action_scope]
+                    if not remaining:
                         break
-                    action_scope.append(action)
+                    choice = self.prompt.select(
+                        f"Action scope {len(action_scope) + 1}",
+                        choices=remaining + ["done"],
+                        default=remaining[0],
+                    )
+                    if choice == "done":
+                        break
+                    action_scope.append(choice)
                 
                 if not action_scope:
                     self.console.print(f"  [{Colors.ERROR}]{Icons.ERROR} At least one action is required.[/]")
@@ -394,9 +437,17 @@ class MandateFlow:
                 
                 # Get action and resource to validate
                 self.console.print()
-                self.console.print(f"  [{Colors.INFO}]Validation Request:[/]")
-                requested_action = self.prompt.text("Requested action")
-                requested_resource = self.prompt.text("Requested resource")
+                self.console.print(f"  [{Colors.INFO}]Validation Request (from mandate scope):[/]")
+                requested_action = self.prompt.select(
+                    "Requested action",
+                    choices=sorted(mandate.action_scope),
+                    default=sorted(mandate.action_scope)[0],
+                )
+                requested_resource = self.prompt.select(
+                    "Requested resource",
+                    choices=sorted(mandate.resource_scope),
+                    default=sorted(mandate.resource_scope)[0],
+                )
                 
                 # Validate
                 self.console.print()
