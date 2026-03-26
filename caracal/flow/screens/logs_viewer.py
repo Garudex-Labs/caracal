@@ -23,13 +23,14 @@ from rich.syntax import Syntax
 from caracal.flow.theme import Colors, Icons
 from caracal.flow.state import FlowState
 from caracal.flow.components.menu import Menu, MenuItem
+from caracal.flow.workspace import get_workspace
 
 
 def show_logs_viewer(console: Console, state: FlowState) -> None:
     """
     Display logs viewer interface.
     
-    CLI Equivalent: tail -f ~/.caracal/logs/*.log
+    CLI Equivalent: tail -f ~/.caracal/workspaces/<workspace>/logs/*.log
     """
     while True:
         console.clear()
@@ -80,7 +81,7 @@ def _view_log_file(console: Console, filename: str, title: str) -> None:
     
     try:
         # Get log file path
-        log_path = Path.home() / ".caracal" / "logs" / filename
+        log_path = get_workspace().logs_dir / filename
         
         if not log_path.exists():
             console.print(f"  [{Colors.WARNING}]{Icons.WARNING} Log file not found: {log_path}[/]")
@@ -136,7 +137,7 @@ def _search_logs(console: Console, state: FlowState) -> None:
             return
         
         # Search in both log files
-        log_dir = Path.home() / ".caracal" / "logs"
+        log_dir = get_workspace().logs_dir
         results = []
         
         for log_file in log_dir.glob("*.log"):
@@ -200,7 +201,7 @@ def _tail_logs(console: Console, state: FlowState) -> None:
     )
     
     filename = "caracal.log" if choice == "1" else "sync.log"
-    log_path = Path.home() / ".caracal" / "logs" / filename
+    log_path = get_workspace().logs_dir / filename
     
     if not log_path.exists():
         console.print()
