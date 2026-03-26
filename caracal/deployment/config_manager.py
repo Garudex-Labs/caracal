@@ -105,8 +105,8 @@ class ConfigManager:
     CONFIG_DIR = Path.home() / ".caracal"
     CONFIG_FILE = CONFIG_DIR / "config.toml"
     WORKSPACES_DIR = CONFIG_DIR / "workspaces"
-    CACHE_DIR = CONFIG_DIR / "cache"
-    LOGS_DIR = CONFIG_DIR / "logs"
+    CACHE_DIR = CONFIG_DIR / "cache"  # Legacy root cache (deprecated)
+    LOGS_DIR = CONFIG_DIR / "logs"  # Legacy root logs (deprecated)
     
     # Keyring service name for encryption keys
     KEYRING_SERVICE = "caracal"
@@ -147,8 +147,8 @@ class ConfigManager:
             
             # Create subdirectories
             self.WORKSPACES_DIR.mkdir(exist_ok=True)
-            self.CACHE_DIR.mkdir(exist_ok=True)
-            self.LOGS_DIR.mkdir(exist_ok=True)
+            # Root-level cache/log directories are deprecated.
+            # Runtime artifacts are stored under each workspace directory.
             
             logger.debug(
                 "config_dir_ensured",
@@ -656,6 +656,10 @@ class ConfigManager:
             # Create workspace directory
             workspace_dir.mkdir(parents=True)
             workspace_dir.chmod(0o700)
+            (workspace_dir / "backups").mkdir(exist_ok=True)
+            (workspace_dir / "logs").mkdir(exist_ok=True)
+            (workspace_dir / "cache").mkdir(exist_ok=True)
+            (workspace_dir / "keys").mkdir(exist_ok=True)
             
             # Get template configuration
             template_config = {}
@@ -683,6 +687,13 @@ class ConfigManager:
             
             # Save configuration
             self.set_workspace_config(name, config)
+
+            # Ensure operational directories are private to workspace owner.
+            for subdir in ("backups", "logs", "cache", "keys"):
+                try:
+                    (workspace_dir / subdir).chmod(0o700)
+                except Exception:
+                    pass
             
             # Create empty vault
             self._save_vault(name, {})
@@ -731,8 +742,8 @@ class ConfigManager:
         try:
             # Create backup if requested
             if backup:
-                backup_dir = self.CONFIG_DIR / "backups"
-                backup_dir.mkdir(exist_ok=True)
+                backup_dir = self.WORKSPACES_DIR / "_deleted_backups"
+                backup_dir.mkdir(parents=True, exist_ok=True)
                 
                 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
                 backup_path = backup_dir / f"{name}_{timestamp}.tar.gz"
