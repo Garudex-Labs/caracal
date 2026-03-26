@@ -144,7 +144,7 @@ Once policies are defined and the Gateway is deployed, agents request mandates b
 ### Request and Validate
 
 ```python
-from caracal.sdk import AuthorityClient
+from caracal_sdk import AuthorityClient
 
 client = AuthorityClient(
     base_url="https://gateway.example.com",

@@ -10,19 +10,19 @@ This guide will walk you through the initial setup of Caracal Enterprise integra
 
 ## Step 1: Install the SDK
 
-Install the Caracal Core Python SDK to integrate authority enforcement into your application.
+Install the Caracal Python SDK to integrate authority enforcement into your application.
 
 ```bash
-pip install caracal-core
+pip install caracal-sdk
 ```
 
 Verify the installation:
 
 ```python
-import caracal
-print(f"Caracal SDK v{caracal.__version__} installed")
+import caracal_sdk
+print(f"Caracal SDK v{caracal_sdk.__version__} installed")
 
-from caracal.sdk import AuthorityClient
+from caracal_sdk import AuthorityClient
 print("AuthorityClient ready")
 ```
 
@@ -41,7 +41,7 @@ Initialize the client in your code:
 
 ```python
 import os
-from caracal.sdk import AuthorityClient
+from caracal_sdk import AuthorityClient
 
 # Initialize client using environment variables
 client = AuthorityClient(
