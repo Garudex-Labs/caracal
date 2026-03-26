@@ -94,7 +94,7 @@ class AgentOperations:
         self,
         source_principal_id: str,
         target_principal_id: str,
-        delegation_type: str = "hierarchical",
+        delegation_type: str = "directed",
         context_tags: Optional[List[str]] = None,
     ) -> Dict[str, Any]:
         """Delegate authority from source agent to target agent via delegation graph."""

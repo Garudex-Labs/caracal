@@ -347,7 +347,7 @@ class PrincipalFlow:
         principal.public_key_pem = public_pem
         
         # Write private key to local keystore (dev/staging)
-        _KEYSTORE_DIR.mkdir(parents=True, exist_ok=True)
+        _KEYSTORE_DIR.mkdir(sources=True, exist_ok=True)
         key_file = _KEYSTORE_DIR / f"{principal.principal_id}.key"
         key_file.write_text(private_pem)
         key_file.chmod(0o600)
