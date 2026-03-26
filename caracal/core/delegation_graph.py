@@ -670,6 +670,148 @@ class DelegationGraph:
 
         return DelegationGraphTopology(nodes=nodes, edges=edges_out, stats=stats)
 
+    def get_chain_details(
+        self,
+        root_mandate_id: UUID,
+        active_only: bool = True,
+    ) -> dict:
+        """
+        Build a detailed delegation chain view rooted at a mandate.
+
+        The resulting structure is optimized for presentation in CLI/TUI and
+        includes depth, branching, leaf nodes, and per-node validity metadata.
+
+        Args:
+            root_mandate_id: Root mandate of the delegation chain
+            active_only: Only include active (non-revoked, non-expired) edges
+
+        Returns:
+            Dict with keys: root_mandate_id, chain, edges, stats
+        """
+        now = datetime.utcnow()
+        topology = self.get_topology(root_mandate_id=root_mandate_id, active_only=active_only)
+
+        node_by_id = {n["mandate_id"]: n for n in topology.nodes}
+        if str(root_mandate_id) not in node_by_id:
+            raise ValueError(f"Root mandate {root_mandate_id} not found in delegation graph")
+
+        out_adj: Dict[str, List[str]] = {}
+        in_adj: Dict[str, List[str]] = {}
+        for edge in topology.edges:
+            src = edge["source_mandate_id"]
+            tgt = edge["target_mandate_id"]
+            out_adj.setdefault(src, []).append(tgt)
+            in_adj.setdefault(tgt, []).append(src)
+
+        root_id = str(root_mandate_id)
+        depth_map: Dict[str, int] = {root_id: 0}
+        path_count: Dict[str, int] = {root_id: 1}
+        queue = [root_id]
+        visited_bfs: Set[str] = set()
+
+        while queue:
+            current = queue.pop(0)
+            if current in visited_bfs:
+                continue
+            visited_bfs.add(current)
+            current_depth = depth_map[current]
+
+            for child in out_adj.get(current, []):
+                if child not in depth_map or depth_map[child] > current_depth + 1:
+                    depth_map[child] = current_depth + 1
+                path_count[child] = path_count.get(child, 0) + path_count.get(current, 0)
+                queue.append(child)
+
+        reachable_nodes = [nid for nid in depth_map.keys() if nid in node_by_id]
+
+        cycle_detected = False
+        temp_mark: Set[str] = set()
+        perm_mark: Set[str] = set()
+
+        def _visit(node_id: str) -> None:
+            nonlocal cycle_detected
+            if node_id in perm_mark or cycle_detected:
+                return
+            if node_id in temp_mark:
+                cycle_detected = True
+                return
+            temp_mark.add(node_id)
+            for nxt in out_adj.get(node_id, []):
+                if nxt in depth_map:
+                    _visit(nxt)
+            temp_mark.remove(node_id)
+            perm_mark.add(node_id)
+
+        _visit(root_id)
+
+        chain_rows = []
+        for node_id in sorted(reachable_nodes, key=lambda nid: (depth_map[nid], nid)):
+            node = node_by_id[node_id]
+            valid_until_raw = node.get("valid_until")
+            is_expired = False
+            if valid_until_raw:
+                try:
+                    is_expired = datetime.fromisoformat(valid_until_raw) <= now
+                except Exception:
+                    is_expired = False
+
+            inbound = in_adj.get(node_id, [])
+            outbound = out_adj.get(node_id, [])
+            chain_rows.append({
+                "mandate_id": node_id,
+                "subject_id": node.get("subject_id"),
+                "subject_name": node.get("subject_name"),
+                "principal_type": node.get("principal_type"),
+                "depth": depth_map[node_id],
+                "parent_count": len(inbound),
+                "child_count": len(outbound),
+                "path_count": path_count.get(node_id, 0),
+                "delegation_depth": None,
+                "active": bool(node.get("active", False)),
+                "expired": is_expired,
+                "valid_from": node.get("valid_from"),
+                "valid_until": valid_until_raw,
+                "resource_scope": node.get("resource_scope") or [],
+                "action_scope": node.get("action_scope") or [],
+            })
+
+        # Backfill delegation_depth from mandate records where possible.
+        for row in chain_rows:
+            mandate = self.db_session.query(ExecutionMandate).filter(
+                ExecutionMandate.mandate_id == UUID(row["mandate_id"])
+            ).first()
+            row["delegation_depth"] = int(mandate.delegation_depth or 0) if mandate else 0
+
+        branch_nodes = sum(1 for nid in reachable_nodes if len(out_adj.get(nid, [])) > 1)
+        leaf_nodes = sum(1 for nid in reachable_nodes if len(out_adj.get(nid, [])) == 0)
+        max_depth = max((depth_map[nid] for nid in reachable_nodes), default=0)
+
+        chain_edge_set = {
+            e["edge_id"]
+            for e in topology.edges
+            if e["source_mandate_id"] in depth_map and e["target_mandate_id"] in depth_map
+        }
+        chain_edges = [e for e in topology.edges if e["edge_id"] in chain_edge_set]
+
+        is_valid = bool(chain_rows) and not cycle_detected and all(
+            r["active"] and not r["expired"] for r in chain_rows
+        )
+
+        return {
+            "root_mandate_id": root_id,
+            "chain": chain_rows,
+            "edges": chain_edges,
+            "stats": {
+                "total_nodes": len(chain_rows),
+                "total_edges": len(chain_edges),
+                "max_depth": max_depth,
+                "branch_nodes": branch_nodes,
+                "leaf_nodes": leaf_nodes,
+                "has_cycles": cycle_detected,
+                "is_valid": is_valid,
+            },
+        }
+
     def check_delegation_chain(self, mandate_id: UUID) -> bool:
         """
         Validate delegation chain for a mandate via the graph.
