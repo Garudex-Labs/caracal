@@ -16,7 +16,7 @@ The `AuthorityClient` requires your Enterprise URL and an API Key.
 
 ```python
 import os
-from caracal.sdk import AuthorityClient
+from caracal_sdk import AuthorityClient
 
 client = AuthorityClient(
     base_url=os.environ["CARACAL_AUTHORITY_URL"],

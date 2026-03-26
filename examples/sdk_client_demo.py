@@ -22,7 +22,7 @@ import tempfile
 from decimal import Decimal
 from pathlib import Path
 
-from caracal.sdk.client import CaracalClient
+from caracal_sdk.client import CaracalClient
 
 
 def main():
