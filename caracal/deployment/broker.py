@@ -836,18 +836,13 @@ class Broker:
         Returns:
             Default base URL
         """
-        # Default URLs for common external services.
         defaults = {
-            "openai": "https://api.openai.com/v1",
-            "anthropic": "https://api.anthropic.com/v1",
-            "google": "https://generativelanguage.googleapis.com/v1",
-            "cohere": "https://api.cohere.ai/v1",
             "api": "https://api.example.com/v1",
             "database": "https://db.example.com",
             "infrastructure": "https://infra.example.com",
             "internal": "https://internal.example.com",
         }
-        
+
         return defaults.get(provider_type.lower(), "https://api.example.com/v1")
 
     def _build_auth_headers(self, provider: str, config: ProviderConfig) -> Dict[str, str]:
