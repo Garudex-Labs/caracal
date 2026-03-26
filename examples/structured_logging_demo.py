@@ -105,16 +105,16 @@ def main():
         print("6. Delegation token validation logging:")
         log_delegation_token_validation(
             logger,
-            parent_agent_id="parent-123",
-            child_agent_id="child-456",
+            source_agent_id="source-123",
+            target_agent_id="target-456",
             success=True,
             spending_limit="100.00"
         )
         
         log_delegation_token_validation(
             logger,
-            parent_agent_id="parent-789",
-            child_agent_id="child-abc",
+            source_agent_id="source-789",
+            target_agent_id="target-abc",
             success=False,
             reason="invalid_signature"
         )

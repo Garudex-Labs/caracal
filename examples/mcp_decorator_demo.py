@@ -262,7 +262,7 @@ async def main():
         print("  • Automatic metering events after tool execution")
         print("  • Support for both async and sync functions")
         print("  • Flexible agent_id parameter handling")
-        print("  • Transparent error handling and logging")
+        print("  • Transsource error handling and logging")
         print()
         
     except Exception as e:
