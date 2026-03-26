@@ -82,6 +82,10 @@ def _resolve_workspace_name(config_manager: ConfigManager, workspace: Optional[s
     except Exception:
         logger.debug("workspace_resolution_context_lookup_failed", exc_info=True)
 
+    default_workspace = config_manager.get_default_workspace_name()
+    if default_workspace:
+        return default_workspace
+
     config_workspaces = config_manager.list_workspaces()
     if config_workspaces:
         return config_workspaces[0]
@@ -512,12 +516,7 @@ def sync_connect(url: str, token: str, workspace: Optional[str]):
         
         config_manager = ConfigManager()
         
-        if not workspace:
-            workspaces = config_manager.list_workspaces()
-            if not workspaces:
-                console.print("[red]Error:[/red] No workspaces found. Create one first.")
-                sys.exit(1)
-            workspace = workspaces[0]
+        workspace = _require_workspace(config_manager, workspace)
         
         sync_engine = SyncEngine()
         sync_engine.connect(workspace, url, token)
@@ -565,12 +564,7 @@ def sync_disconnect(workspace: Optional[str], force: bool, allow_local_secrets_m
         
         config_manager = ConfigManager()
         
-        if not workspace:
-            workspaces = config_manager.list_workspaces()
-            if not workspaces:
-                console.print("[red]Error:[/red] No workspaces found.")
-                sys.exit(1)
-            workspace = workspaces[0]
+        workspace = _require_workspace(config_manager, workspace)
         
         current_edition = EditionManager().get_edition()
 
@@ -626,12 +620,7 @@ def sync_now(workspace: Optional[str], direction: str, format: str):
         
         config_manager = ConfigManager()
         
-        if not workspace:
-            workspaces = config_manager.list_workspaces()
-            if not workspaces:
-                console.print("[red]Error:[/red] No workspaces found.")
-                sys.exit(1)
-            workspace = workspaces[0]
+        workspace = _require_workspace(config_manager, workspace)
         
         # Map direction
         direction_map = {
@@ -693,12 +682,7 @@ def sync_status(workspace: Optional[str], format: str):
         
         config_manager = ConfigManager()
         
-        if not workspace:
-            workspaces = config_manager.list_workspaces()
-            if not workspaces:
-                console.print("[red]Error:[/red] No workspaces found.")
-                sys.exit(1)
-            workspace = workspaces[0]
+        workspace = _require_workspace(config_manager, workspace)
         
         sync_engine = SyncEngine()
         status = sync_engine.get_sync_status(workspace)
@@ -745,12 +729,7 @@ def sync_conflicts(workspace: Optional[str], format: str):
         
         config_manager = ConfigManager()
         
-        if not workspace:
-            workspaces = config_manager.list_workspaces()
-            if not workspaces:
-                console.print("[red]Error:[/red] No workspaces found.")
-                sys.exit(1)
-            workspace = workspaces[0]
+        workspace = _require_workspace(config_manager, workspace)
         
         sync_engine = SyncEngine()
         conflicts = sync_engine.get_conflict_history(workspace, limit=100)
@@ -806,12 +785,7 @@ def sync_auto_enable(workspace: Optional[str], interval: int):
         
         config_manager = ConfigManager()
         
-        if not workspace:
-            workspaces = config_manager.list_workspaces()
-            if not workspaces:
-                console.print("[red]Error:[/red] No workspaces found.")
-                sys.exit(1)
-            workspace = workspaces[0]
+        workspace = _require_workspace(config_manager, workspace)
         
         sync_engine = SyncEngine()
         sync_engine.enable_auto_sync(workspace, interval)
@@ -835,12 +809,7 @@ def sync_auto_disable(workspace: Optional[str]):
         
         config_manager = ConfigManager()
         
-        if not workspace:
-            workspaces = config_manager.list_workspaces()
-            if not workspaces:
-                console.print("[red]Error:[/red] No workspaces found.")
-                sys.exit(1)
-            workspace = workspaces[0]
+        workspace = _require_workspace(config_manager, workspace)
         
         sync_engine = SyncEngine()
         sync_engine.disable_auto_sync(workspace)

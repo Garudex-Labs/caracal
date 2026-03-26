@@ -129,8 +129,6 @@ def _create_workspace(console: Console, state: FlowState) -> None:
     console.print()
     
     try:
-        from caracal.flow.workspace import set_workspace
-
         # Prompt for workspace name
         name = Prompt.ask(f"[{Colors.INFO}]Workspace name[/]")
         
@@ -142,10 +140,6 @@ def _create_workspace(console: Console, state: FlowState) -> None:
         # Create workspace with onboarding-style defaults.
         config_mgr = ConfigManager()
         config_mgr.create_workspace(name, template=None)
-
-        # New workspace should become active immediately.
-        set_default_workspace(config_mgr, name)
-        set_workspace(config_mgr.get_workspace_path(name))
 
         # Auto-apply PostgreSQL settings from environment/defaults (no prompt),
         # matching onboarding's non-interactive behavior.
@@ -183,12 +177,13 @@ def _create_workspace(console: Console, state: FlowState) -> None:
             )
         
         console.print()
-        console.print(f"  [{Colors.SUCCESS}]{Icons.SUCCESS} Workspace '{name}' created successfully and set as active[/]")
+        console.print(f"  [{Colors.SUCCESS}]{Icons.SUCCESS} Workspace '{name}' created successfully[/]")
+        console.print(f"  [{Colors.DIM}]Active workspace unchanged. Use Switch Workspace to activate it.[/]")
         
         # Record action
         state.add_recent_action(RecentAction.create(
             "workspace_create",
-            f"Created and activated workspace: {name}",
+            f"Created workspace: {name}",
             success=True
         ))
         
