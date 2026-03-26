@@ -9,7 +9,7 @@ Revises: h7i8j9k0l1m2
 Create Date: 2026-02-24 00:00:00.000000
 
 Changes:
-- execution_mandates: add delegation_type (VARCHAR 50, default 'hierarchical')
+- execution_mandates: add delegation_type (VARCHAR 50, default 'directed')
                        add context_tags (JSONB, nullable)
 - delegation_edges: new table for directed authority delegation graph
 """
@@ -37,7 +37,7 @@ def upgrade() -> None:
             'delegation_type',
             sa.String(length=50),
             nullable=False,
-            server_default='hierarchical',
+            server_default='directed',
         ),
     )
     op.add_column(
