@@ -10,35 +10,17 @@ Provides commands for registering, listing, and retrieving principal identities.
 import json
 import sys
 from datetime import datetime
-from pathlib import Path
 from typing import Optional
 from uuid import UUID
 
 import click
 
-from caracal.core.identity import PrincipalRegistry
 from caracal.db.connection import get_db_manager
 from caracal.db.models import Principal
 from caracal.exceptions import (
-    PrincipalNotFoundError,
     CaracalError,
     DuplicatePrincipalNameError,
 )
-
-
-def get_principal_registry(config) -> PrincipalRegistry:
-    """
-    Create PrincipalRegistry instance from configuration.
-    
-    Args:
-        config: Configuration object
-        
-    Returns:
-        PrincipalRegistry instance
-    """
-    registry_path = Path(config.storage.principal_registry).expanduser()
-    backup_count = config.storage.backup_count
-    return PrincipalRegistry(str(registry_path), backup_count=backup_count)
 
 
 def _format_created(value) -> str:
@@ -155,46 +137,33 @@ def register(ctx, name: str, principal_type: str, email: str, metadata: tuple):
             metadata_dict[key.strip()] = value.strip()
         
         principal = None
-
-        # Primary path: write to PostgreSQL so CLI and Flow stay consistent.
+        db_manager = get_db_manager(cli_ctx.config)
         try:
-            db_manager = get_db_manager(cli_ctx.config)
-            try:
-                with db_manager.session_scope() as db_session:
-                    existing = db_session.query(Principal).filter_by(name=name).first()
-                    if existing:
-                        raise DuplicatePrincipalNameError(f"Principal with name '{name}' already exists")
+            with db_manager.session_scope() as db_session:
+                existing = db_session.query(Principal).filter_by(name=name).first()
+                if existing:
+                    raise DuplicatePrincipalNameError(f"Principal with name '{name}' already exists")
 
-                    principal = Principal(
-                        name=name,
-                        principal_type=principal_type,
-                        owner=email,
-                        created_at=datetime.utcnow(),
-                        principal_metadata=metadata_dict or None,
-                    )
-                    db_session.add(principal)
-                    db_session.flush()
+                principal_row = Principal(
+                    name=name,
+                    principal_type=principal_type,
+                    owner=email,
+                    created_at=datetime.utcnow(),
+                    principal_metadata=metadata_dict or None,
+                )
+                db_session.add(principal_row)
+                db_session.flush()
 
-                    principal = {
-                        "principal_id": str(principal.principal_id),
-                        "name": principal.name,
-                        "principal_type": principal.principal_type,
-                        "owner": principal.owner,
-                        "created_at": principal.created_at.isoformat(),
-                        "metadata": principal.principal_metadata or {},
-                    }
-            finally:
-                db_manager.close()
-        except Exception:
-            # Legacy fallback for file-based registry setups.
-            registry = get_principal_registry(cli_ctx.config)
-            principal_obj = registry.register_principal(
-                name=name,
-                principal_type=principal_type,
-                owner=email,
-                metadata=metadata_dict,
-            )
-            principal = _principal_to_dict(principal_obj)
+                principal = {
+                    "principal_id": str(principal_row.principal_id),
+                    "name": principal_row.name,
+                    "principal_type": principal_row.principal_type,
+                    "owner": principal_row.owner,
+                    "created_at": principal_row.created_at.isoformat(),
+                    "metadata": principal_row.principal_metadata or {},
+                }
+        finally:
+            db_manager.close()
         
         # Display success message
         click.echo("✓ Principal registered successfully!")
@@ -260,17 +229,7 @@ def list_principals(ctx, principal_type: str, format: str):
         # Get CLI context
         cli_ctx = ctx.obj
         
-        try:
-            principals = _load_principals_from_db(cli_ctx.config, principal_type=principal_type)
-        except Exception:
-            # Legacy fallback for file-based registry setups.
-            registry = get_principal_registry(cli_ctx.config)
-            principals = [_principal_to_dict(p) for p in registry.list_principals()]
-            if principal_type != "all":
-                principals = [
-                    p for p in principals
-                    if p.get("principal_type", "agent") == principal_type
-                ]
+        principals = _load_principals_from_db(cli_ctx.config, principal_type=principal_type)
         
         if not principals:
             click.echo("No principals registered.")
@@ -358,16 +317,7 @@ def get(ctx, principal_id: str, principal_type: str, format: str):
         # Get CLI context
         cli_ctx = ctx.obj
         
-        try:
-            principal = _get_principal_from_db(cli_ctx.config, principal_id)
-        except Exception:
-            principal = None
-
-        if not principal:
-            # Legacy fallback for file-based registry setups.
-            registry = get_principal_registry(cli_ctx.config)
-            principal_obj = registry.get_principal(principal_id)
-            principal = _principal_to_dict(principal_obj) if principal_obj else None
+        principal = _get_principal_from_db(cli_ctx.config, principal_id)
         
         if not principal:
             click.echo(f"Error: Principal not found: {principal_id}", err=True)
