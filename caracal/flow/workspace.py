@@ -7,21 +7,22 @@ Workspace management for Caracal Flow.
 Provides centralized path resolution so every module resolves files
 relative to the active workspace root instead of hardcoding ``~/.caracal/``.
 
-The default workspace root is ``~/.caracal/``, preserving backward
-compatibility with existing installations.
+The default workspace root is ``~/.caracal/workspaces/default``.
 
 Usage::
 
     from caracal.flow.workspace import get_workspace
 
-    ws = get_workspace()                    # default (~/.caracal/)
+    ws = get_workspace()                    # default (~/.caracal/workspaces/default)
     ws = get_workspace("/opt/myproject")    # custom path
 
     ws.config_path   # -> /opt/myproject/config.yaml
     ws.state_path    # -> /opt/myproject/flow_state.json
     ws.db_path       # -> /opt/myproject/caracal.db
     ws.backups_dir   # -> /opt/myproject/backups
-    ws.log_path      # -> /opt/myproject/caracal.log
+    ws.logs_dir      # -> /opt/myproject/logs
+    ws.cache_dir     # -> /opt/myproject/cache
+    ws.log_path      # -> /opt/myproject/logs/caracal.log
 """
 
 from __future__ import annotations
@@ -31,9 +32,10 @@ from pathlib import Path
 from typing import Optional
 
 
-_DEFAULT_ROOT = Path.home() / ".caracal"
+_DEFAULT_ROOT = Path.home() / ".caracal" / "workspaces" / "default"
+_LEGACY_ROOT = Path.home() / ".caracal"
 
-# Global registry file lives *outside* any workspace so it can index all of them.
+# Global registry file lives outside any individual workspace so it can index all of them.
 _REGISTRY_PATH = Path.home() / ".caracal" / "workspaces.json"
 
 
@@ -83,9 +85,24 @@ class WorkspaceManager:
         return self._root / "backups"
 
     @property
+    def logs_dir(self) -> Path:
+        """Path to ``logs/`` sub-directory."""
+        return self._root / "logs"
+
+    @property
+    def cache_dir(self) -> Path:
+        """Path to ``cache/`` sub-directory."""
+        return self._root / "cache"
+
+    @property
+    def keys_dir(self) -> Path:
+        """Path to ``keys/`` sub-directory."""
+        return self._root / "keys"
+
+    @property
     def log_path(self) -> Path:
-        """Path to ``caracal.log``."""
-        return self._root / "caracal.log"
+        """Path to workspace log file ``logs/caracal.log``."""
+        return self.logs_dir / "caracal.log"
 
     @property
     def master_password_path(self) -> Path:
@@ -100,6 +117,55 @@ class WorkspaceManager:
         """Create workspace directory structure if it does not exist."""
         self._root.mkdir(parents=True, exist_ok=True)
         self.backups_dir.mkdir(exist_ok=True)
+        self.logs_dir.mkdir(exist_ok=True)
+        self.cache_dir.mkdir(exist_ok=True)
+        self.keys_dir.mkdir(exist_ok=True)
+        self._migrate_legacy_runtime_artifacts()
+
+    def _migrate_legacy_runtime_artifacts(self) -> None:
+        """Move legacy runtime files from ``~/.caracal`` into default workspace.
+
+        This keeps ``~/.caracal`` focused on workspace registry/config files and
+        avoids scattering runtime artifacts at the root level.
+        """
+        if self._root != _DEFAULT_ROOT:
+            return
+
+        import shutil
+
+        mappings = [
+            (_LEGACY_ROOT / "backups", self.backups_dir),
+            (_LEGACY_ROOT / "logs", self.logs_dir),
+            (_LEGACY_ROOT / "cache", self.cache_dir),
+            (_LEGACY_ROOT / "caracal.log", self.log_path),
+        ]
+
+        for legacy_path, workspace_path in mappings:
+            if not legacy_path.exists():
+                continue
+            if legacy_path.resolve() == workspace_path.resolve():
+                continue
+
+            try:
+                if legacy_path.is_file():
+                    if not workspace_path.exists():
+                        workspace_path.parent.mkdir(parents=True, exist_ok=True)
+                        shutil.move(str(legacy_path), str(workspace_path))
+                    continue
+
+                workspace_path.mkdir(parents=True, exist_ok=True)
+                for child in legacy_path.iterdir():
+                    target = workspace_path / child.name
+                    if target.exists():
+                        continue
+                    shutil.move(str(child), str(target))
+
+                # Remove empty legacy directory after migration.
+                if not any(legacy_path.iterdir()):
+                    legacy_path.rmdir()
+            except Exception:
+                # Best-effort migration; never block workspace initialization.
+                continue
 
     # ------------------------------------------------------------------
     # Workspace registry (optional multi-workspace support)
@@ -297,7 +363,7 @@ def get_workspace(root: Optional[str | Path] = None) -> WorkspaceManager:
     """Return a ``WorkspaceManager`` for the given root.
 
     When called without arguments the first time, creates the default
-    workspace (``~/.caracal/``).  Subsequent calls without arguments
+    workspace (``~/.caracal/workspaces/default``).  Subsequent calls without arguments
     return the same instance.  Passing *root* always creates a fresh
     manager.
     """
@@ -308,6 +374,7 @@ def get_workspace(root: Optional[str | Path] = None) -> WorkspaceManager:
 
     if _current_workspace is None:
         _current_workspace = WorkspaceManager()
+        _current_workspace.ensure_dirs()
 
     return _current_workspace
 
@@ -320,4 +387,5 @@ def set_workspace(root: str | Path) -> WorkspaceManager:
     """
     global _current_workspace
     _current_workspace = WorkspaceManager(Path(root))
+    _current_workspace.ensure_dirs()
     return _current_workspace
