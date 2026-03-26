@@ -245,19 +245,19 @@ class TestAuthorityClientDelegateMandate:
     def test_delegate_mandate_success(self, mock_request):
         """Test successful mandate delegation."""
         mock_request.return_value = {
-            "mandate_id": "child-mandate-id",
-            "source_mandate_id": "parent-mandate-id",
-            "subject_id": "child-subject-id",
+            "mandate_id": "target-mandate-id",
+            "source_mandate_id": "source-mandate-id",
+            "subject_id": "target-subject-id",
         }
 
         client = AuthorityClient(base_url="http://localhost:8000")
         result = client.delegate_mandate(
-            source_mandate_id="parent-mandate-id",
-            child_subject_id="child-subject-id",
+            source_mandate_id="source-mandate-id",
+            target_subject_id="target-subject-id",
             resource_scope=["api:openai:gpt-3.5"],
             action_scope=["api_call"],
             validity_seconds=1800
         )
 
-        assert result["source_mandate_id"] == "parent-mandate-id"
+        assert result["source_mandate_id"] == "source-mandate-id"
         client.close()

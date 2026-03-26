@@ -30,7 +30,7 @@ class TestMeteringEventInstantiation:
             timestamp=timestamp,
             metadata={"tool": "search", "query": "test"},
             correlation_id="corr-456",
-            parent_event_id="parent-789",
+            source_event_id="source-789",
             tags=["mcp", "search"]
         )
         
@@ -40,7 +40,7 @@ class TestMeteringEventInstantiation:
         assert event.timestamp == timestamp
         assert event.metadata == {"tool": "search", "query": "test"}
         assert event.correlation_id == "corr-456"
-        assert event.parent_event_id == "parent-789"
+        assert event.source_event_id == "source-789"
         assert event.tags == ["mcp", "search"]
     
     def test_metering_event_with_minimal_fields(self):
@@ -58,7 +58,7 @@ class TestMeteringEventInstantiation:
         assert isinstance(event.timestamp, datetime)
         assert event.metadata == {}
         assert event.correlation_id is None
-        assert event.parent_event_id is None
+        assert event.source_event_id is None
         assert event.tags == []
     
     def test_metering_event_auto_timestamp(self):
@@ -123,7 +123,7 @@ class TestMeteringEventSerialization:
             timestamp=timestamp,
             metadata={"tool": "search"},
             correlation_id="corr-456",
-            parent_event_id="parent-789",
+            source_event_id="source-789",
             tags=["mcp", "search"]
         )
         
@@ -135,7 +135,7 @@ class TestMeteringEventSerialization:
         assert data["timestamp"] == "2024-01-15T10:30:00"
         assert data["metadata"] == {"tool": "search"}
         assert data["correlation_id"] == "corr-456"
-        assert data["parent_event_id"] == "parent-789"
+        assert data["source_event_id"] == "source-789"
         assert data["tags"] == ["mcp", "search"]
     
     def test_metering_event_from_dict(self):
@@ -147,7 +147,7 @@ class TestMeteringEventSerialization:
             "timestamp": "2024-01-15T10:30:00",
             "metadata": {"tool": "search"},
             "correlation_id": "corr-456",
-            "parent_event_id": "parent-789",
+            "source_event_id": "source-789",
             "tags": ["mcp", "search"]
         }
         
@@ -159,7 +159,7 @@ class TestMeteringEventSerialization:
         assert event.timestamp == datetime(2024, 1, 15, 10, 30, 0)
         assert event.metadata == {"tool": "search"}
         assert event.correlation_id == "corr-456"
-        assert event.parent_event_id == "parent-789"
+        assert event.source_event_id == "source-789"
         assert event.tags == ["mcp", "search"]
     
     def test_metering_event_round_trip(self):
@@ -171,7 +171,7 @@ class TestMeteringEventSerialization:
             timestamp=datetime(2024, 1, 15, 10, 30, 0),
             metadata={"tool": "search"},
             correlation_id="corr-456",
-            parent_event_id="parent-789",
+            source_event_id="source-789",
             tags=["mcp", "search"]
         )
         
@@ -186,7 +186,7 @@ class TestMeteringEventSerialization:
         assert restored.timestamp == original.timestamp
         assert restored.metadata == original.metadata
         assert restored.correlation_id == original.correlation_id
-        assert restored.parent_event_id == original.parent_event_id
+        assert restored.source_event_id == original.source_event_id
         assert restored.tags == original.tags
 
 
