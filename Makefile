@@ -4,6 +4,8 @@ SHELL := /bin/bash
 
 # Auto-detect Docker Compose command.
 DOCKER_COMPOSE := $(shell if docker compose version >/dev/null 2>&1; then echo "docker compose"; elif command -v docker-compose >/dev/null 2>&1; then echo "docker-compose"; else echo ""; fi)
+DEPLOY_COMPOSE_FILE := deploy/docker-compose.yml
+DEPLOY_COMPOSE := $(DOCKER_COMPOSE) -f $(DEPLOY_COMPOSE_FILE)
 
 help:
 	@echo "Caracal local setup targets"
@@ -42,6 +44,10 @@ check-tools: ensure-uv
 		echo "docker compose is not available. Install Docker Compose plugin or docker-compose."; \
 		exit 1; \
 	fi
+	@if [ ! -f "$(DEPLOY_COMPOSE_FILE)" ]; then \
+		echo "Deploy compose file not found at $(DEPLOY_COMPOSE_FILE)."; \
+		exit 1; \
+	fi
 deps: check-tools
 	uv sync --locked
 
@@ -49,7 +55,7 @@ deps-dev: check-tools
 	uv sync --locked --extra dev
 
 infra-up: check-tools
-	$(DOCKER_COMPOSE) up -d postgres redis
+	$(DEPLOY_COMPOSE) up -d postgres redis
 	@echo "Waiting for PostgreSQL and Redis health checks..."
 	@for i in $$(seq 1 30); do \
 		PG_STATUS=$$(docker inspect --format='{{if .State.Health}}{{.State.Health.Status}}{{else}}starting{{end}}' caracal-postgres 2>/dev/null || echo "missing"); \
@@ -65,13 +71,13 @@ infra-up: check-tools
 	exit 1
 
 infra-down: check-tools
-	$(DOCKER_COMPOSE) stop postgres redis
+	$(DEPLOY_COMPOSE) stop postgres redis
 
 infra-logs: check-tools
-	$(DOCKER_COMPOSE) logs -f postgres redis
+	$(DEPLOY_COMPOSE) logs -f postgres redis
 
 infra-status: check-tools
-	$(DOCKER_COMPOSE) ps postgres redis
+	$(DEPLOY_COMPOSE) ps postgres redis
 
 setup-user: deps infra-up
 	uv tool install --force --from . caracal-core
