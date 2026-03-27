@@ -100,11 +100,11 @@ def _get_db_config_from_env() -> dict:
             import re
             content = env_path.read_text()
             mapping = {
-                "host": r"^DB_HOST=(.*)$",
-                "port": r"^DB_PORT=(.*)$",
-                "database": r"^DB_NAME=(.*)$",
-                "username": r"^DB_USER=(.*)$",
-                "password": r"^DB_PASSWORD=(.*)$",
+                "host": r"^CARACAL_DB_HOST=(.*)$",
+                "port": r"^CARACAL_DB_PORT=(.*)$",
+                "database": r"^CARACAL_DB_NAME=(.*)$",
+                "username": r"^CARACAL_DB_USER=(.*)$",
+                "password": r"^CARACAL_DB_PASSWORD=(.*)$",
             }
             for key, pattern in mapping.items():
                 match = re.search(pattern, content, re.MULTILINE)
@@ -134,11 +134,11 @@ def _save_db_config_to_env(config: dict) -> bool:
             import re
             content = env_path.read_text()
             mapping = {
-                "DB_HOST": config.get("host", "localhost"),
-                "DB_PORT": str(config.get("port", 5432)),
-                "DB_NAME": config.get("database", "caracal"),
-                "DB_USER": config.get("username", "caracal"),
-                "DB_PASSWORD": config.get("password", ""),
+                "CARACAL_DB_HOST": config.get("host", "localhost"),
+                "CARACAL_DB_PORT": str(config.get("port", 5432)),
+                "CARACAL_DB_NAME": config.get("database", "caracal"),
+                "CARACAL_DB_USER": config.get("username", "caracal"),
+                "CARACAL_DB_PASSWORD": config.get("password", ""),
             }
             for key, val in mapping.items():
                 if re.search(f"^{key}=", content, re.MULTILINE):
@@ -152,11 +152,11 @@ def _save_db_config_to_env(config: dict) -> bool:
             lines = [
                 "# Caracal Core - Environment Variables",
                 "# Database Configuration",
-                f"DB_HOST={config.get('host', 'localhost')}",
-                f"DB_PORT={config.get('port', 5432)}",
-                f"DB_NAME={config.get('database', 'caracal')}",
-                f"DB_USER={config.get('username', 'caracal')}",
-                f"DB_PASSWORD={config.get('password', '')}",
+                f"CARACAL_DB_HOST={config.get('host', 'localhost')}",
+                f"CARACAL_DB_PORT={config.get('port', 5432)}",
+                f"CARACAL_DB_NAME={config.get('database', 'caracal')}",
+                f"CARACAL_DB_USER={config.get('username', 'caracal')}",
+                f"CARACAL_DB_PASSWORD={config.get('password', '')}",
                 "",
             ]
             env_path.write_text("\n".join(lines))
@@ -552,22 +552,23 @@ def _resolve_workspace_schema(workspace_name: str, context: dict) -> str:
 def _validate_env_config(config: dict) -> list[str]:
     """Validate that all required PostgreSQL env vars are properly set.
     
-    Required: DB_NAME, DB_USER, DB_PASSWORD, DB_PORT (valid range).
-    Optional: DB_HOST (defaults to 'localhost' which is fine).
+    Required: CARACAL_DB_NAME, CARACAL_DB_USER, CARACAL_DB_PASSWORD,
+    CARACAL_DB_PORT (valid range).
+    Optional: CARACAL_DB_HOST (defaults to 'localhost' which is fine).
     
     Returns a list of missing/invalid fields. Empty list means all valid.
     """
     issues = []
     # host is optional — defaults to localhost which is valid for local setups
     if not config.get("database"):
-        issues.append("DB_NAME is missing or empty")
+        issues.append("CARACAL_DB_NAME is missing or empty")
     if not config.get("username"):
-        issues.append("DB_USER is missing or empty")
+        issues.append("CARACAL_DB_USER is missing or empty")
     if not config.get("password"):
-        issues.append("DB_PASSWORD is missing or empty — required for PostgreSQL")
+        issues.append("CARACAL_DB_PASSWORD is missing or empty — required for PostgreSQL")
     port = config.get("port")
     if not isinstance(port, int) or port < 1 or port > 65535:
-        issues.append(f"DB_PORT has invalid value: {port}")
+        issues.append(f"CARACAL_DB_PORT has invalid value: {port}")
     return issues
 
 
@@ -766,11 +767,11 @@ def _step_database(wizard: Wizard) -> Any:
                 console.print(f"    [{Colors.WARNING}]• {issue}[/]")
             console.print()
             console.print(f"  [{Colors.INFO}]{Icons.INFO} Please set these variables in your .env file:[/]")
-            console.print(f"  [{Colors.DIM}]  DB_HOST=localhost[/]")
-            console.print(f"  [{Colors.DIM}]  DB_PORT=5432[/]")
-            console.print(f"  [{Colors.DIM}]  DB_NAME=caracal[/]")
-            console.print(f"  [{Colors.DIM}]  DB_USER=caracal[/]")
-            console.print(f"  [{Colors.DIM}]  DB_PASSWORD=<your_password>[/]")
+            console.print(f"  [{Colors.DIM}]  CARACAL_DB_HOST=localhost[/]")
+            console.print(f"  [{Colors.DIM}]  CARACAL_DB_PORT=5432[/]")
+            console.print(f"  [{Colors.DIM}]  CARACAL_DB_NAME=caracal[/]")
+            console.print(f"  [{Colors.DIM}]  CARACAL_DB_USER=caracal[/]")
+            console.print(f"  [{Colors.DIM}]  CARACAL_DB_PASSWORD=<your_password>[/]")
             console.print()
             
             fix_choice = prompt.select(
@@ -933,7 +934,7 @@ def _show_connection_error_details(console: Console, error: str, config: dict) -
     if "password" in error_lower or "authentication" in error_lower:
         console.print(f"  [{Colors.ERROR}]DIAGNOSIS: Authentication failed[/]")
         console.print(f"  [{Colors.DIM}]  → The password for user '{config.get('username')}' is incorrect[/]")
-        console.print(f"  [{Colors.DIM}]  → Fix: Update DB_PASSWORD in your .env file[/]")
+        console.print(f"  [{Colors.DIM}]  → Fix: Update CARACAL_DB_PASSWORD in your .env file[/]")
         console.print(f"  [{Colors.DIM}]  → Or reset: sudo -u postgres psql -c \"ALTER USER {config.get('username')} PASSWORD 'newpass';\"[/]")
     elif "connection refused" in error_lower or "could not connect" in error_lower:
         console.print(f"  [{Colors.ERROR}]DIAGNOSIS: PostgreSQL server is not running or not accepting connections[/]")
@@ -1489,7 +1490,7 @@ def run_onboarding(
                     console.print(f"    [{Colors.DIM}]sudo systemctl start postgresql[/]")
                 elif "password" in err_str or "authentication" in err_str:
                     console.print(f"  [{Colors.INFO}]Authentication failed. Check your .env credentials:[/]")
-                    console.print(f"    [{Colors.DIM}]DB_USER, DB_PASSWORD in .env[/]")
+                    console.print(f"    [{Colors.DIM}]CARACAL_DB_USER, CARACAL_DB_PASSWORD in .env[/]")
                 elif "does not exist" in err_str:
                     console.print(f"  [{Colors.INFO}]Database or role missing. Create them with:[/]")
                     console.print(f"    [{Colors.DIM}]createdb caracal && createuser caracal[/]")

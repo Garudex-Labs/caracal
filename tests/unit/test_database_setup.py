@@ -49,11 +49,11 @@ from caracal.flow.theme import Colors, Icons
 def env_file(tmp_path):
     """Create a temporary .env file with database configuration."""
     env_content = """
-DB_HOST=localhost
-DB_PORT=5432
-DB_NAME=caracal
-DB_USER=caracal
-DB_PASSWORD=Test@Caracal12345
+CARACAL_DB_HOST=localhost
+CARACAL_DB_PORT=5432
+CARACAL_DB_NAME=caracal
+CARACAL_DB_USER=caracal
+CARACAL_DB_PASSWORD=Test@Caracal12345
 """
     env_path = tmp_path / ".env"
     env_path.write_text(env_content)
@@ -64,10 +64,10 @@ DB_PASSWORD=Test@Caracal12345
 def env_file_missing_password(tmp_path):
     """Create a .env file with missing password."""
     env_content = """
-DB_HOST=localhost
-DB_PORT=5432
-DB_NAME=caracal
-DB_USER=caracal
+CARACAL_DB_HOST=localhost
+CARACAL_DB_PORT=5432
+CARACAL_DB_NAME=caracal
+CARACAL_DB_USER=caracal
 """
     env_path = tmp_path / ".env"
     env_path.write_text(env_content)
@@ -114,7 +114,7 @@ class TestFindEnvFile:
     def test_finds_env_in_cwd(self, tmp_path):
         """Finds .env in current working directory first."""
         env_path = tmp_path / ".env"
-        env_path.write_text("DB_NAME=test\n")
+        env_path.write_text("CARACAL_DB_NAME=test\n")
         
         with patch("caracal.flow.screens.onboarding.Path") as mock_path_cls:
             mock_cwd_env = MagicMock()
@@ -169,7 +169,7 @@ class TestGetDbConfigFromEnv:
     """Tests for loading database config from .env file."""
     
     def test_loads_complete_config(self, env_file):
-        """All DB_* vars are correctly parsed from .env."""
+        """All CARACAL_DB_* vars are correctly parsed from .env."""
         with patch("caracal.flow.screens.onboarding._find_env_file", return_value=env_file):
             config = _get_db_config_from_env()
             
@@ -191,16 +191,16 @@ class TestGetDbConfigFromEnv:
             assert config["password"] == ""
     
     def test_missing_password_returns_empty(self, env_file_missing_password):
-        """Missing DB_PASSWORD returns empty string (not None)."""
+        """Missing CARACAL_DB_PASSWORD returns empty string (not None)."""
         with patch("caracal.flow.screens.onboarding._find_env_file", return_value=env_file_missing_password):
             config = _get_db_config_from_env()
             
             assert config["password"] == ""
     
     def test_invalid_port_keeps_default(self, tmp_path):
-        """Non-numeric DB_PORT keeps default 5432."""
+        """Non-numeric CARACAL_DB_PORT keeps default 5432."""
         env_path = tmp_path / ".env"
-        env_path.write_text("DB_PORT=not_a_number\n")
+        env_path.write_text("CARACAL_DB_PORT=not_a_number\n")
         
         with patch("caracal.flow.screens.onboarding._find_env_file", return_value=env_path):
             config = _get_db_config_from_env()
@@ -264,7 +264,7 @@ class TestValidateEnvConfig:
             "password": "",
         }
         issues = _validate_env_config(config)
-        assert any("DB_PASSWORD" in i for i in issues)
+        assert any("CARACAL_DB_PASSWORD" in i for i in issues)
     
     def test_missing_database_is_flagged(self):
         """Missing/empty database name is reported."""
@@ -276,7 +276,7 @@ class TestValidateEnvConfig:
             "password": "secret",
         }
         issues = _validate_env_config(config)
-        assert any("DB_NAME" in i for i in issues)
+        assert any("CARACAL_DB_NAME" in i for i in issues)
     
     def test_missing_username_is_flagged(self):
         """Missing/empty username is reported."""
@@ -288,7 +288,7 @@ class TestValidateEnvConfig:
             "password": "secret",
         }
         issues = _validate_env_config(config)
-        assert any("DB_USER" in i for i in issues)
+        assert any("CARACAL_DB_USER" in i for i in issues)
     
     def test_invalid_port_is_flagged(self):
         """Invalid port numbers are reported."""
@@ -300,7 +300,7 @@ class TestValidateEnvConfig:
             "password": "secret",
         }
         issues = _validate_env_config(config)
-        assert any("DB_PORT" in i for i in issues)
+        assert any("CARACAL_DB_PORT" in i for i in issues)
     
     def test_port_too_high_is_flagged(self):
         """Port > 65535 is reported."""
@@ -312,7 +312,7 @@ class TestValidateEnvConfig:
             "password": "secret",
         }
         issues = _validate_env_config(config)
-        assert any("DB_PORT" in i for i in issues)
+        assert any("CARACAL_DB_PORT" in i for i in issues)
     
     def test_non_integer_port_is_flagged(self):
         """Non-integer port is reported."""
@@ -324,7 +324,7 @@ class TestValidateEnvConfig:
             "password": "secret",
         }
         issues = _validate_env_config(config)
-        assert any("DB_PORT" in i for i in issues)
+        assert any("CARACAL_DB_PORT" in i for i in issues)
     
     def test_missing_host_not_flagged(self):
         """Empty host is NOT flagged — localhost is a valid default."""
@@ -336,7 +336,7 @@ class TestValidateEnvConfig:
             "password": "secret",
         }
         issues = _validate_env_config(config)
-        assert not any("DB_HOST" in i for i in issues)
+        assert not any("CARACAL_DB_HOST" in i for i in issues)
     
     def test_multiple_issues_all_reported(self):
         """All issues are reported at once, not just the first."""
@@ -376,14 +376,14 @@ class TestSaveDbConfigToEnv:
         
         assert result is True
         content = env_path.read_text()
-        assert "DB_HOST=192.168.1.10" in content
-        assert "DB_PORT=5433" in content
-        assert "DB_NAME=mydb" in content
-        assert "DB_USER=admin" in content
-        assert "DB_PASSWORD=s3cret!" in content
+        assert "CARACAL_DB_HOST=192.168.1.10" in content
+        assert "CARACAL_DB_PORT=5433" in content
+        assert "CARACAL_DB_NAME=mydb" in content
+        assert "CARACAL_DB_USER=admin" in content
+        assert "CARACAL_DB_PASSWORD=s3cret!" in content
     
     def test_updates_existing_values(self, env_file):
-        """Existing DB_* values are updated in-place."""
+        """Existing CARACAL_DB_* values are updated in-place."""
         config = {
             "host": "newhost",
             "port": 5433,
@@ -397,8 +397,8 @@ class TestSaveDbConfigToEnv:
         
         assert result is True
         content = env_file.read_text()
-        assert "DB_HOST=newhost" in content
-        assert "DB_NAME=newdb" in content
+        assert "CARACAL_DB_HOST=newhost" in content
+        assert "CARACAL_DB_NAME=newdb" in content
 
 
 # =============================================================================
@@ -466,7 +466,7 @@ class TestShowConnectionErrorDetails:
     """Tests for actionable error diagnostics."""
     
     def test_auth_failure_shows_password_hint(self, mock_console):
-        """Authentication errors mention DB_PASSWORD."""
+        """Authentication errors mention CARACAL_DB_PASSWORD."""
         _show_connection_error_details(
             mock_console,
             "password authentication failed for user 'caracal'",
@@ -658,7 +658,7 @@ class TestStepDatabase:
         
         # Validation shows issues first, then passes after user input
         mock_validate.side_effect = [
-            ["DB_PASSWORD is missing or empty — required for PostgreSQL"],
+            ["CARACAL_DB_PASSWORD is missing or empty — required for PostgreSQL"],
             [],  # Valid after user enters credentials
         ]
         
@@ -784,8 +784,7 @@ class TestPostOnboardingDbInit:
         
         # Clear any env vars so explicit kwargs are used
         for var in ('CARACAL_DB_HOST', 'CARACAL_DB_PORT', 'CARACAL_DB_NAME',
-                    'CARACAL_DB_USER', 'CARACAL_DB_PASSWORD',
-                    'DB_HOST', 'DB_PORT', 'DB_NAME', 'DB_USER', 'DB_PASSWORD'):
+                'CARACAL_DB_USER', 'CARACAL_DB_PASSWORD'):
             monkeypatch.delenv(var, raising=False)
         
         # Create a PostgreSQL config that will fail
@@ -822,8 +821,7 @@ class TestDatabaseConfig:
         
         # Clear any env vars so explicit kwargs are used
         for var in ('CARACAL_DB_HOST', 'CARACAL_DB_PORT', 'CARACAL_DB_NAME',
-                    'CARACAL_DB_USER', 'CARACAL_DB_PASSWORD',
-                    'DB_HOST', 'DB_PORT', 'DB_NAME', 'DB_USER', 'DB_PASSWORD'):
+                'CARACAL_DB_USER', 'CARACAL_DB_PASSWORD'):
             monkeypatch.delenv(var, raising=False)
         
         config = DatabaseConfig(
