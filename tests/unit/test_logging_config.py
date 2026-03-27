@@ -13,6 +13,8 @@ import pytest
 import structlog
 from caracal.logging_config import (
     setup_logging,
+    setup_runtime_logging,
+    resolve_runtime_logging_policy,
     get_logger,
     set_correlation_id,
     clear_correlation_id,
@@ -241,4 +243,43 @@ class TestLoggingConfiguration:
         log_entry = json.loads(log_content.strip().split("\n")[0])
         assert log_entry["custom_field"] == "custom_value"
         assert log_entry["number"] == 42
+
+    def test_runtime_policy_dev_defaults_to_info(self, monkeypatch):
+        """Dev mode should default to INFO unless debug logs are explicitly enabled."""
+        monkeypatch.setenv("CARACAL_ENV_MODE", "dev")
+        monkeypatch.setenv("CARACAL_DEBUG_LOGS", "false")
+
+        policy = resolve_runtime_logging_policy()
+        assert policy.mode == "dev"
+        assert policy.level == "INFO"
+        assert policy.redact_sensitive is False
+
+    def test_runtime_policy_prod_blocks_debug(self, monkeypatch):
+        """Non-dev mode must never run at DEBUG level."""
+        monkeypatch.setenv("CARACAL_ENV_MODE", "prod")
+
+        policy = resolve_runtime_logging_policy(requested_level="DEBUG")
+        assert policy.mode == "prod"
+        assert policy.level == "INFO"
+        assert policy.json_format is True
+        assert policy.redact_sensitive is True
+
+    def test_runtime_logging_redacts_sensitive_fields(self, temp_dir: Path):
+        """Prod/staging logs should redact secrets and credentials."""
+        log_file = temp_dir / "test.log"
+        setup_runtime_logging(mode="prod", log_file=log_file)
+
+        logger = get_logger("test")
+        logger.info(
+            "credential_event",
+            api_key="top-secret",
+            nested={"password": "p@ss", "safe": "ok"},
+        )
+
+        log_content = log_file.read_text()
+        log_entry = json.loads(log_content.strip().split("\n")[0])
+
+        assert log_entry["api_key"] == "[REDACTED]"
+        assert log_entry["nested"]["password"] == "[REDACTED]"
+        assert log_entry["nested"]["safe"] == "ok"
 
