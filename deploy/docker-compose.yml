@@ -20,6 +20,8 @@ services:
       retries: 10
       start_period: 10s
     restart: unless-stopped
+    networks:
+      - caracal-runtime
 
   redis:
     image: redis:7-alpine
@@ -48,12 +50,14 @@ services:
       retries: 10
       start_period: 5s
     restart: unless-stopped
+    networks:
+      - caracal-runtime
 
   mcp:
     build:
       context: ..
-      dockerfile: deploy/docker/Dockerfile.mcp
-    image: caracal-mcp:latest
+      dockerfile: deploy/docker/Dockerfile.runtime
+    image: ${CARACAL_RUNTIME_IMAGE:-caracal-runtime:latest}
     container_name: caracal-mcp
     depends_on:
       postgres:
@@ -62,8 +66,17 @@ services:
         condition: service_healthy
     environment:
       HOME: /home/caracal
+      CARACAL_RUNTIME_IN_CONTAINER: "1"
+      CARACAL_WORKSPACE_ROOT: /home/caracal/.caracal
+      CARACAL_API_URL: http://mcp:8080
       CARACAL_CONFIG_PATH: /home/caracal/.caracal/config.yaml
       CARACAL_MCP_LISTEN_ADDRESS: 0.0.0.0:8080
+      CARACAL_GATEWAY_URL: ${CARACAL_GATEWAY_URL:-}
+      CARACAL_GATEWAY_ENDPOINT: ${CARACAL_GATEWAY_ENDPOINT:-}
+      CARACAL_GATEWAY_ENABLED: ${CARACAL_GATEWAY_ENABLED:-false}
+      CARACAL_ENV_MODE: ${CARACAL_ENV_MODE:-dev}
+      CARACAL_DEBUG_LOGS: ${CARACAL_DEBUG_LOGS:-false}
+      CARACAL_JSON_LOGS: ${CARACAL_JSON_LOGS:-false}
       CARACAL_DB_HOST: postgres
       CARACAL_DB_PORT: 5432
       CARACAL_DB_NAME: ${CARACAL_DB_NAME:-caracal}
@@ -73,11 +86,11 @@ services:
       REDIS_PORT: 6379
       REDIS_PASSWORD: ${REDIS_PASSWORD:-}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    command: ["python", "-m", "caracal.mcp.service"]
     volumes:
       - caracal_state:/home/caracal/.caracal
-      - ./config/config.example.yaml:/home/caracal/.caracal/config.yaml:ro
     ports:
-      - "${MCP_ADAPTER_PORT:-8080}:8080"
+      - "${MCP_ADAPTER_PORT:-8000}:8080"
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health').read()"]
       interval: 30s
@@ -85,13 +98,15 @@ services:
       retries: 5
       start_period: 30s
     restart: unless-stopped
+    networks:
+      - caracal-runtime
 
   cli:
     profiles: ["tools"]
     build:
       context: ..
-      dockerfile: deploy/docker/Dockerfile.cli
-    image: caracal-cli:latest
+      dockerfile: deploy/docker/Dockerfile.runtime
+    image: ${CARACAL_RUNTIME_IMAGE:-caracal-runtime:latest}
     depends_on:
       postgres:
         condition: service_healthy
@@ -99,6 +114,16 @@ services:
         condition: service_healthy
     environment:
       HOME: /home/caracal
+      CARACAL_RUNTIME_IN_CONTAINER: "1"
+      CARACAL_WORKSPACE_ROOT: /home/caracal/.caracal
+      CARACAL_API_URL: http://mcp:8080
+      CARACAL_CONFIG_PATH: /home/caracal/.caracal/config.yaml
+      CARACAL_GATEWAY_URL: ${CARACAL_GATEWAY_URL:-}
+      CARACAL_GATEWAY_ENDPOINT: ${CARACAL_GATEWAY_ENDPOINT:-}
+      CARACAL_GATEWAY_ENABLED: ${CARACAL_GATEWAY_ENABLED:-false}
+      CARACAL_ENV_MODE: ${CARACAL_ENV_MODE:-dev}
+      CARACAL_DEBUG_LOGS: ${CARACAL_DEBUG_LOGS:-false}
+      CARACAL_JSON_LOGS: ${CARACAL_JSON_LOGS:-false}
       CARACAL_DB_HOST: postgres
       CARACAL_DB_PORT: 5432
       CARACAL_DB_NAME: ${CARACAL_DB_NAME:-caracal}
@@ -108,18 +133,20 @@ services:
       REDIS_PORT: 6379
       REDIS_PASSWORD: ${REDIS_PASSWORD:-}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    command: ["caracal"]
     volumes:
       - caracal_state:/home/caracal/.caracal
-      - ./config/config.example.yaml:/home/caracal/.caracal/config.yaml:ro
     stdin_open: true
     tty: true
+    networks:
+      - caracal-runtime
 
   flow:
     profiles: ["tui"]
     build:
       context: ..
-      dockerfile: deploy/docker/Dockerfile.flow
-    image: caracal-flow:latest
+      dockerfile: deploy/docker/Dockerfile.runtime
+    image: ${CARACAL_RUNTIME_IMAGE:-caracal-runtime:latest}
     depends_on:
       postgres:
         condition: service_healthy
@@ -127,6 +154,16 @@ services:
         condition: service_healthy
     environment:
       HOME: /home/caracal
+      CARACAL_RUNTIME_IN_CONTAINER: "1"
+      CARACAL_WORKSPACE_ROOT: /home/caracal/.caracal
+      CARACAL_API_URL: http://mcp:8080
+      CARACAL_CONFIG_PATH: /home/caracal/.caracal/config.yaml
+      CARACAL_GATEWAY_URL: ${CARACAL_GATEWAY_URL:-}
+      CARACAL_GATEWAY_ENDPOINT: ${CARACAL_GATEWAY_ENDPOINT:-}
+      CARACAL_GATEWAY_ENABLED: ${CARACAL_GATEWAY_ENABLED:-false}
+      CARACAL_ENV_MODE: ${CARACAL_ENV_MODE:-dev}
+      CARACAL_DEBUG_LOGS: ${CARACAL_DEBUG_LOGS:-false}
+      CARACAL_JSON_LOGS: ${CARACAL_JSON_LOGS:-false}
       TERM: xterm-256color
       COLORTERM: truecolor
       CARACAL_DB_HOST: postgres
@@ -138,13 +175,19 @@ services:
       REDIS_PORT: 6379
       REDIS_PASSWORD: ${REDIS_PASSWORD:-}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    command: ["caracal-flow"]
     volumes:
       - caracal_state:/home/caracal/.caracal
-      - ./config/config.example.yaml:/home/caracal/.caracal/config.yaml:ro
     stdin_open: true
     tty: true
+    networks:
+      - caracal-runtime
 
 volumes:
   postgres_data:
   redis_data:
   caracal_state:
+
+networks:
+  caracal-runtime:
+    name: ${CARACAL_RUNTIME_NETWORK:-caracal-runtime}

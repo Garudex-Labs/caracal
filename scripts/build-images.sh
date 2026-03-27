@@ -21,18 +21,18 @@ echo "Building Docker images for version: $VERSION"
 
 DOCKER_DIR="$ROOT_DIR/deploy/docker"
 
-echo "Building caracal-mcp-adapter:v$VERSION..."
-docker build -t caracal-mcp-adapter:v$VERSION -f "$DOCKER_DIR/Dockerfile.mcp" "$ROOT_DIR"
+echo "Building caracal-runtime:v$VERSION..."
+docker build -t caracal-runtime:v$VERSION -f "$DOCKER_DIR/Dockerfile.runtime" "$ROOT_DIR"
 
-echo "Building caracal-cli:v$VERSION..."
-docker build -t caracal-cli:v$VERSION -f "$DOCKER_DIR/Dockerfile.cli" "$ROOT_DIR"
-
-echo "Building caracal-flow:v$VERSION..."
-docker build -t caracal-flow:v$VERSION -f "$DOCKER_DIR/Dockerfile.flow" "$ROOT_DIR"
+# Backward-compatible tags for existing workflows.
+docker tag caracal-runtime:v$VERSION caracal-mcp-adapter:v$VERSION
+docker tag caracal-runtime:v$VERSION caracal-cli:v$VERSION
+docker tag caracal-runtime:v$VERSION caracal-flow:v$VERSION
 
 echo ""
 echo "Docker images built successfully!"
 echo "Images:"
+echo "  - caracal-runtime:v$VERSION"
 echo "  - caracal-mcp-adapter:v$VERSION"
 echo "  - caracal-cli:v$VERSION"
 echo "  - caracal-flow:v$VERSION"
