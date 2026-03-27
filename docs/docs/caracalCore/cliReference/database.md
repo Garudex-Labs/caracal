@@ -346,7 +346,7 @@ database:
 
 | Error | Cause | Solution |
 |-------|-------|----------|
-| Connection refused | PostgreSQL not running | Start PostgreSQL: `docker-compose up -d postgres` |
+| Connection refused | PostgreSQL not running | Start PostgreSQL: `docker compose -f deploy/docker-compose.yml up -d postgres` |
 | Authentication failed | Wrong credentials | Check DB_PASSWORD environment variable |
 | Target not up to date | Pending migrations | Run `caracal db migrate up` |
 

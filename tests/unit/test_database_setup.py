@@ -545,11 +545,7 @@ class TestStartPostgresql:
             MagicMock(returncode=0),  # pg_isready check
         ]
         
-        # Create docker-compose.yml in cwd
-        compose_path = Path.cwd() / "docker-compose.yml"
-        compose_exists = compose_path.exists()
-        
-        with patch.object(Path, "exists", return_value=True):
+        with patch("caracal.flow.screens.onboarding._find_deploy_compose_file", return_value=Path("/tmp/deploy/docker-compose.yml")):
             with patch("time.sleep"):
                 success, msg = _start_postgresql(mock_console, method="docker")
         
@@ -564,7 +560,7 @@ class TestStartPostgresql:
         
         mock_run.return_value = MagicMock(returncode=1, stderr="image not found")
         
-        with patch.object(Path, "exists", return_value=True):
+        with patch("caracal.flow.screens.onboarding._find_deploy_compose_file", return_value=Path("/tmp/deploy/docker-compose.yml")):
             success, msg = _start_postgresql(mock_console, method="docker")
         
         assert success is False
@@ -598,7 +594,7 @@ class TestStartPostgresql:
         """Returns failure if no start method is available."""
         mock_which.return_value = None
         
-        with patch.object(Path, "exists", return_value=False):
+        with patch("caracal.flow.screens.onboarding._find_deploy_compose_file", return_value=None):
             success, msg = _start_postgresql(mock_console, method="auto")
         
         assert success is False
