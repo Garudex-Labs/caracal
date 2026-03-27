@@ -8,8 +8,8 @@ This file exists for compatibility with older build tools.
 The primary build configuration is in pyproject.toml.
 """
 
-from pathlib import Path
 import shutil
+from pathlib import Path
 from setuptools import setup
 
 # Read version from VERSION file
@@ -20,5 +20,10 @@ version = version_file.read_text().strip()
 build_lib_dir = Path(__file__).parent / "build" / "lib"
 if build_lib_dir.exists():
     shutil.rmtree(build_lib_dir)
+
+# Guard against stale local metadata overriding current pyproject script entrypoints.
+for egg_info_dir in Path(__file__).parent.glob("*.egg-info"):
+    if egg_info_dir.is_dir():
+        shutil.rmtree(egg_info_dir)
 
 setup(version=version)

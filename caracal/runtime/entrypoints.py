@@ -327,7 +327,10 @@ def _host_up(namespace: argparse.Namespace) -> int:
         if pull_result.returncode != 0:
             return pull_result.returncode
 
-    up_result = subprocess.run(compose_cmd + ["up", "-d", "mcp"], check=False)
+    up_result = subprocess.run(
+        compose_cmd + ["up", "-d", "postgres", "redis", "mcp"],
+        check=False,
+    )
     return up_result.returncode
 
 
@@ -396,20 +399,21 @@ def _resolve_compose_file(override_path: str | None = None) -> Path:
 
     candidates: list[Path] = []
 
-    # Prefer image-only compose, then fallback to build compose.
+    # In source checkouts, prefer build compose to avoid registry auth requirements.
+    # For packaged installs where build files are unavailable, image compose remains a fallback.
     package_root = Path(__file__).resolve()
     for root in (package_root, *package_root.parents):
-        candidates.append(root / "deploy" / "docker-compose.image.yml")
-        candidates.append(root / "docker-compose.image.yml")
         candidates.append(root / "deploy" / "docker-compose.yml")
         candidates.append(root / "docker-compose.yml")
+        candidates.append(root / "deploy" / "docker-compose.image.yml")
+        candidates.append(root / "docker-compose.image.yml")
 
     current = Path.cwd().resolve()
     for root in (current, *current.parents):
-        candidates.append(root / "deploy" / "docker-compose.image.yml")
-        candidates.append(root / "docker-compose.image.yml")
         candidates.append(root / "deploy" / "docker-compose.yml")
         candidates.append(root / "docker-compose.yml")
+        candidates.append(root / "deploy" / "docker-compose.image.yml")
+        candidates.append(root / "docker-compose.image.yml")
 
     for candidate in candidates:
         if candidate.exists() and _compose_supports_runtime_services(candidate):
