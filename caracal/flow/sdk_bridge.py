@@ -10,6 +10,7 @@ Replaces direct core imports with SDK-mediated operations.
 
 from __future__ import annotations
 
+import os
 from typing import Optional
 
 from caracal.logging_config import get_logger
@@ -41,7 +42,7 @@ class SDKBridge:
     def __init__(
         self,
         api_key: Optional[str] = None,
-        base_url: str = "http://localhost:8000",
+        base_url: Optional[str] = None,
         config_path: Optional[str] = None,
     ) -> None:
         if config_path:
@@ -49,9 +50,10 @@ class SDKBridge:
             self._client = CaracalClient(config_path=config_path)
             self._scope: Optional[ScopeContext] = None
         else:
+            resolved_base_url = base_url or os.environ.get("CARACAL_API_URL", "http://localhost:8000")
             self._client = CaracalClient(
                 api_key=api_key,
-                base_url=base_url,
+                base_url=resolved_base_url,
             )
             self._scope = None
 

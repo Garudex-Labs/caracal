@@ -27,6 +27,7 @@ logger = get_logger(__name__)
 # ── Environment variable names ──────────────────────────────────────────────
 _ENV_GATEWAY_ENABLED = "CARACAL_GATEWAY_ENABLED"
 _ENV_GATEWAY_ENDPOINT = "CARACAL_GATEWAY_ENDPOINT"
+_ENV_GATEWAY_URL = "CARACAL_GATEWAY_URL"
 _ENV_GATEWAY_API_KEY = "CARACAL_GATEWAY_API_KEY"
 _ENV_GATEWAY_ENFORCE_NETWORK = "CARACAL_GATEWAY_ENFORCE_NETWORK"
 _ENV_GATEWAY_FAIL_CLOSED = "CARACAL_GATEWAY_FAIL_CLOSED"
@@ -139,9 +140,12 @@ def load_gateway_features() -> GatewayFeatureFlags:
         flags.gateway_enabled = True
         flags._source = "environment"
 
-    endpoint = os.getenv(_ENV_GATEWAY_ENDPOINT)
+    endpoint = os.getenv(_ENV_GATEWAY_ENDPOINT) or os.getenv(_ENV_GATEWAY_URL)
     if endpoint:
         flags.gateway_endpoint = endpoint.rstrip("/")
+        flags.gateway_enabled = True
+        if flags._source == "defaults":
+            flags._source = "environment"
 
     api_key = os.getenv(_ENV_GATEWAY_API_KEY)
     if api_key:
