@@ -8,6 +8,7 @@ Provides commands to start and manage the MCP adapter standalone service.
 """
 
 import asyncio
+import os
 import sys
 from pathlib import Path
 
@@ -50,26 +51,24 @@ def start_service(config, listen_address):
     
     Examples:
         # Start with config file
-        caracal mcp-service start --config /etc/caracal/config.yaml
+        caracal system integration mcp start --config /etc/caracal/config.yaml
         
         # Start with environment variables
         export CARACAL_MCP_LISTEN_ADDRESS="0.0.0.0:8080"
         export CARACAL_MCP_SERVERS='[{"name":"filesystem","url":"http://localhost:9000"}]'
-        caracal mcp-service start
+        caracal system integration mcp start
     """
-    from caracal.mcp.service import (
-        MCPAdapterService,
-        MCPServiceConfig,
-        load_config_from_yaml,
-        load_config_from_env,
-        main as service_main
-    )
+    from caracal.mcp.service import main as service_main
     
     try:
         logger.info("Starting MCP Adapter Service...")
+        if config:
+            os.environ["CARACAL_CONFIG_PATH"] = str(Path(config).expanduser())
+        if listen_address:
+            os.environ["CARACAL_MCP_LISTEN_ADDRESS"] = listen_address
         
         # Run the service
-        asyncio.run(service_main())
+        asyncio.run(service_main(config_path=config, listen_address=listen_address))
         
     except KeyboardInterrupt:
         logger.info("Service stopped by user")
@@ -92,8 +91,8 @@ def check_health(url):
     Check health of running MCP Adapter Service.
     
     Examples:
-        caracal mcp-service health
-        caracal mcp-service health --url http://localhost:8080
+        caracal system integration mcp health
+        caracal system integration mcp health --url http://localhost:8080
     """
     import httpx
     
@@ -143,8 +142,8 @@ def get_stats(url):
     Get statistics from running MCP Adapter Service.
     
     Examples:
-        caracal mcp-service stats
-        caracal mcp-service stats --url http://localhost:8080
+        caracal system integration mcp stats
+        caracal system integration mcp stats --url http://localhost:8080
     """
     import httpx
     
