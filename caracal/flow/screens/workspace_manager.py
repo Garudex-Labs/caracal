@@ -143,11 +143,11 @@ def _create_workspace(console: Console, state: FlowState) -> None:
 
         # Auto-apply PostgreSQL settings from environment/defaults (no prompt),
         # matching onboarding's non-interactive behavior.
-        host = os.getenv("CARACAL_DB_HOST") or os.getenv("DB_HOST") or "localhost"
-        port_raw = os.getenv("CARACAL_DB_PORT") or os.getenv("DB_PORT") or "5432"
-        database = os.getenv("CARACAL_DB_NAME") or os.getenv("DB_NAME") or "caracal"
-        user = os.getenv("CARACAL_DB_USER") or os.getenv("DB_USER") or "caracal"
-        password = os.getenv("CARACAL_DB_PASSWORD") or os.getenv("DB_PASSWORD") or ""
+        host = os.getenv("CARACAL_DB_HOST") or "localhost"
+        port_raw = os.getenv("CARACAL_DB_PORT") or "5432"
+        database = os.getenv("CARACAL_DB_NAME") or "caracal"
+        user = os.getenv("CARACAL_DB_USER") or "caracal"
+        password = os.getenv("CARACAL_DB_PASSWORD") or ""
 
         try:
             port = int(port_raw)
