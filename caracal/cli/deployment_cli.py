@@ -147,11 +147,6 @@ def _get_active_workspace_db_message() -> Optional[str]:
             "CARACAL_DB_NAME",
             "CARACAL_DB_USER",
             "CARACAL_DB_PASSWORD",
-            "DB_HOST",
-            "DB_PORT",
-            "DB_NAME",
-            "DB_USER",
-            "DB_PASSWORD",
         )
         has_db_env = any(bool(os.getenv(key)) for key in env_keys)
 
