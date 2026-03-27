@@ -575,7 +575,7 @@ def _start_postgresql(console: Console, method: str = "auto") -> tuple[bool, str
     """Attempt to start PostgreSQL automatically.
     
     Tries multiple methods in order:
-    1. docker compose up -d postgres  (if docker-compose.yml exists)
+    1. docker compose -f deploy/docker-compose.yml up -d postgres
     2. systemctl start postgresql     (if systemd is available)
     3. pg_ctl start                   (direct pg_ctl)
     
@@ -590,12 +590,12 @@ def _start_postgresql(console: Console, method: str = "auto") -> tuple[bool, str
     import shutil
     import time
     
+    compose_file = _find_deploy_compose_file()
     methods_to_try = []
     
     if method == "auto":
         # Check which methods are available
-        compose_file = Path.cwd() / "docker-compose.yml"
-        if compose_file.exists() and shutil.which("docker"):
+        if compose_file is not None and shutil.which("docker"):
             methods_to_try.append("docker")
         if shutil.which("systemctl"):
             methods_to_try.append("systemctl")
@@ -612,7 +612,7 @@ def _start_postgresql(console: Console, method: str = "auto") -> tuple[bool, str
             console.print(f"  [{Colors.INFO}]{Icons.INFO} Starting PostgreSQL via docker compose...[/]")
             try:
                 result = subprocess.run(
-                    ["docker", "compose", "up", "-d", "postgres"],
+                    ["docker", "compose", "-f", str(compose_file), "up", "-d", "postgres"],
                     capture_output=True, text=True, timeout=60,
                 )
                 if result.returncode == 0:
@@ -621,7 +621,7 @@ def _start_postgresql(console: Console, method: str = "auto") -> tuple[bool, str
                     for i in range(15):  # wait up to 15 seconds
                         time.sleep(1)
                         check = subprocess.run(
-                            ["docker", "compose", "exec", "-T", "postgres",
+                            ["docker", "compose", "-f", str(compose_file), "exec", "-T", "postgres",
                              "pg_isready", "-U", "caracal"],
                             capture_output=True, text=True, timeout=5,
                         )
@@ -666,6 +666,15 @@ def _start_postgresql(console: Console, method: str = "auto") -> tuple[bool, str
                 pass
     
     return False, "All start methods failed. Please start PostgreSQL manually."
+
+
+def _find_deploy_compose_file() -> Optional[Path]:
+    """Find the canonical deploy compose file from the current working tree."""
+    for base in (Path.cwd(), *Path.cwd().parents):
+        candidate = base / "deploy" / "docker-compose.yml"
+        if candidate.exists():
+            return candidate
+    return None
 
 
 def _load_existing_db_config(wizard: Wizard, console: Console) -> Any:
@@ -901,7 +910,7 @@ def _step_database(wizard: Wizard) -> Any:
         elif action == "Start PostgreSQL manually (then retry)":
             console.print()
             console.print(f"  [{Colors.INFO}]{Icons.INFO} Common commands to start PostgreSQL:[/]")
-            console.print(f"  [{Colors.DIM}]  docker compose up -d postgres[/]")
+            console.print(f"  [{Colors.DIM}]  docker compose -f deploy/docker-compose.yml up -d postgres[/]")
             console.print(f"  [{Colors.DIM}]  sudo systemctl start postgresql[/]")
             console.print(f"  [{Colors.DIM}]  brew services start postgresql@16[/]")
             console.print()
@@ -929,7 +938,7 @@ def _show_connection_error_details(console: Console, error: str, config: dict) -
     elif "connection refused" in error_lower or "could not connect" in error_lower:
         console.print(f"  [{Colors.ERROR}]DIAGNOSIS: PostgreSQL server is not running or not accepting connections[/]")
         console.print(f"  [{Colors.DIM}]  → Check: sudo systemctl status postgresql[/]")
-        console.print(f"  [{Colors.DIM}]  → Start: docker compose up -d postgres[/]")
+        console.print(f"  [{Colors.DIM}]  → Start: docker compose -f deploy/docker-compose.yml up -d postgres[/]")
         console.print(f"  [{Colors.DIM}]  → Verify port {config.get('port')} is not blocked by firewall[/]")
     elif "does not exist" in error_lower and "database" in error_lower:
         console.print(f"  [{Colors.ERROR}]DIAGNOSIS: Database '{config.get('database')}' does not exist[/]")
@@ -947,7 +956,7 @@ def _show_connection_error_details(console: Console, error: str, config: dict) -
         console.print(f"  [{Colors.ERROR}]DIAGNOSIS: PostgreSQL socket file not found[/]")
         console.print(f"  [{Colors.DIM}]  → PostgreSQL is likely not installed or not running[/]")
         console.print(f"  [{Colors.DIM}]  → Install: sudo apt install postgresql  (Debian/Ubuntu)[/]")
-        console.print(f"  [{Colors.DIM}]  → Or use Docker: docker compose up -d postgres[/]")
+        console.print(f"  [{Colors.DIM}]  → Or use Docker: docker compose -f deploy/docker-compose.yml up -d postgres[/]")
     else:
         console.print(f"  [{Colors.ERROR}]DIAGNOSIS: Unexpected error[/]")
         console.print(f"  [{Colors.DIM}]  → Verify PostgreSQL is running and credentials are correct[/]")
@@ -1476,7 +1485,7 @@ def run_onboarding(
                 # Show helpful diagnostics
                 if "connection refused" in err_str:
                     console.print(f"  [{Colors.INFO}]PostgreSQL is not running. Start it with:[/]")
-                    console.print(f"    [{Colors.DIM}]docker compose up -d postgres[/]")
+                    console.print(f"    [{Colors.DIM}]docker compose -f deploy/docker-compose.yml up -d postgres[/]")
                     console.print(f"    [{Colors.DIM}]sudo systemctl start postgresql[/]")
                 elif "password" in err_str or "authentication" in err_str:
                     console.print(f"  [{Colors.INFO}]Authentication failed. Check your .env credentials:[/]")

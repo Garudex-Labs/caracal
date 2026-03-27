@@ -491,13 +491,14 @@ class MCPAdapterService:
         logger.info("MCP Adapter Service shutdown complete")
 
 
-async def main():
+async def main(config_path: Optional[str] = None, listen_address: Optional[str] = None):
     """
     Main entry point for MCP Adapter Service.
     
     Loads configuration and starts the service.
     """
     import sys
+    import os
     from caracal.config import load_config
     from caracal.db.connection import get_db_manager
     from caracal.core.identity import AgentRegistry
@@ -509,7 +510,8 @@ async def main():
     
     # Load production config
     try:
-        core_config = load_config()
+        resolved_config_path = config_path or os.environ.get("CARACAL_CONFIG_PATH")
+        core_config = load_config(resolved_config_path)
     except Exception as e:
         logger.error(f"Failed to load core config: {e}")
         sys.exit(1)
@@ -532,7 +534,9 @@ async def main():
             ))
             
     config = MCPServiceConfig(
-        listen_address=core_config.mcp_adapter.listen_address,
+        listen_address=listen_address
+        or os.environ.get("CARACAL_MCP_LISTEN_ADDRESS")
+        or core_config.mcp_adapter.listen_address,
         mcp_servers=mcp_servers,
         enable_health_check=core_config.mcp_adapter.health_check_enabled
     )
