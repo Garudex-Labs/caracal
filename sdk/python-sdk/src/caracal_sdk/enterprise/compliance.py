@@ -4,7 +4,7 @@ Caracal, a product of Garudex Labs
 
 Compliance Extension (Enterprise Stub).
 
-SOC 2, ISO 27001, GDPR, HIPAA compliance reporting.
+SOC 2, ISO 27001, GDPR compliance reporting.
 In the open-source edition, all methods raise EnterpriseFeatureRequired.
 """
 
@@ -21,10 +21,10 @@ from caracal_sdk.enterprise.exceptions import EnterpriseFeatureRequired
 class ComplianceExtension(CaracalExtension):
     """Enterprise compliance reporting extension.
 
-    Supports SOC 2, ISO 27001, GDPR, HIPAA frameworks.
+    Supports SOC 2, ISO 27001, and GDPR frameworks.
 
     Args:
-        standard: Compliance framework (``"soc2"``, ``"iso27001"``, ``"gdpr"``, ``"hipaa"``).
+        standard: Compliance framework (``"soc2"``, ``"iso27001"``, ``"gdpr"``).
         auto_report: Whether to auto-generate reports on state change.
     """
 
