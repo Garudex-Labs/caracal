@@ -167,9 +167,9 @@ def _create_workspace(console: Console, state: FlowState) -> None:
         )
 
         try:
-            config_mgr.set_postgres_config(postgres)
             if password:
                 config_mgr.store_secret("postgres_password", password, name)
+            config_mgr.set_postgres_config(postgres)
         except Exception:
             # Do not block workspace creation when DB is temporarily unavailable.
             console.print(

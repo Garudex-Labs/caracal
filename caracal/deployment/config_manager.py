@@ -1231,16 +1231,29 @@ class ConfigManager:
         """
         try:
             from caracal.db.connection import DatabaseConfig, DatabaseConnectionManager
-            
-            # Get password from vault (use default workspace or system)
-            password = ""
-            try:
-                # Try to get from default workspace
-                workspaces = self.list_workspaces()
-                if workspaces:
-                    password = self.get_secret(config.password_ref, workspaces[0])
-            except (SecretNotFoundError, WorkspaceNotFoundError):
-                # Password not set yet, validation will fail but that's expected
+
+            # Resolve password from env first (container runtime), then workspace vaults.
+            password = os.getenv("CARACAL_DB_PASSWORD", "") or ""
+            if not password:
+                workspace_candidates: List[str] = []
+
+                default_workspace = self.get_default_workspace_name()
+                if default_workspace:
+                    workspace_candidates.append(default_workspace)
+
+                for workspace in self.list_workspaces():
+                    if workspace not in workspace_candidates:
+                        workspace_candidates.append(workspace)
+
+                for workspace in workspace_candidates:
+                    try:
+                        password = self.get_secret(config.password_ref, workspace)
+                        if password:
+                            break
+                    except (SecretNotFoundError, WorkspaceNotFoundError, DecryptionError):
+                        continue
+
+            if not password:
                 logger.debug("postgres_password_not_found", password_ref=config.password_ref)
             
             # Create database config

@@ -340,3 +340,107 @@ class TestConfigManagerPostgres:
         assert retrieved_config.database == "caracal_test"
         assert retrieved_config.user == "caracal_user"
         assert retrieved_config.password_ref == "postgres_password"
+
+    def test_validate_postgres_connectivity_uses_env_password(
+        self, temp_config_dir, monkeypatch
+    ):
+        """Connectivity validation should prefer CARACAL_DB_PASSWORD when set."""
+        captured = {}
+
+        class FakeDatabaseConfig:
+            def __init__(self, **kwargs):
+                captured.update(kwargs)
+
+        class FakeConnectionManager:
+            def __init__(self, config):
+                self.config = config
+
+            def initialize(self):
+                return None
+
+            def health_check(self):
+                return True
+
+            def close(self):
+                return None
+
+        monkeypatch.setenv("CARACAL_DB_PASSWORD", "env-secret")
+        monkeypatch.setattr("caracal.db.connection.DatabaseConfig", FakeDatabaseConfig)
+        monkeypatch.setattr(
+            "caracal.db.connection.DatabaseConnectionManager", FakeConnectionManager
+        )
+
+        manager = ConfigManager()
+        postgres_config = PostgresConfig(
+            host="localhost",
+            port=5432,
+            database="caracal",
+            user="caracal",
+            password_ref="postgres_password",
+            ssl_mode="require",
+            pool_size=10,
+            max_overflow=5,
+            pool_timeout=30,
+        )
+
+        manager._validate_postgres_connectivity(postgres_config)
+
+        assert captured["password"] == "env-secret"
+
+    def test_validate_postgres_connectivity_searches_all_workspaces(
+        self, temp_config_dir, monkeypatch
+    ):
+        """Validation should fall back across default and discovered workspace vaults."""
+        captured = {}
+        queried = []
+
+        class FakeDatabaseConfig:
+            def __init__(self, **kwargs):
+                captured.update(kwargs)
+
+        class FakeConnectionManager:
+            def __init__(self, config):
+                self.config = config
+
+            def initialize(self):
+                return None
+
+            def health_check(self):
+                return True
+
+            def close(self):
+                return None
+
+        def fake_get_secret(key, workspace):
+            queried.append(workspace)
+            if workspace == "ws-b":
+                return "vault-secret"
+            raise SecretNotFoundError(f"Missing secret for {workspace}")
+
+        monkeypatch.delenv("CARACAL_DB_PASSWORD", raising=False)
+        monkeypatch.setattr("caracal.db.connection.DatabaseConfig", FakeDatabaseConfig)
+        monkeypatch.setattr(
+            "caracal.db.connection.DatabaseConnectionManager", FakeConnectionManager
+        )
+
+        manager = ConfigManager()
+        monkeypatch.setattr(manager, "get_default_workspace_name", lambda: "ws-default")
+        monkeypatch.setattr(manager, "list_workspaces", lambda: ["ws-a", "ws-default", "ws-b"])
+        monkeypatch.setattr(manager, "get_secret", fake_get_secret)
+
+        postgres_config = PostgresConfig(
+            host="localhost",
+            port=5432,
+            database="caracal",
+            user="caracal",
+            password_ref="postgres_password",
+            ssl_mode="require",
+            pool_size=10,
+            max_overflow=5,
+            pool_timeout=30,
+        )
+
+        manager._validate_postgres_connectivity(postgres_config)
+
+        assert captured["password"] == "vault-secret"
+        assert queried == ["ws-default", "ws-a", "ws-b"]
