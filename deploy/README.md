@@ -45,7 +45,7 @@ docker compose -f deploy/docker-compose.yml exec mcp caracal flow
 Use enterprise gateway mode by setting `CARACAL_GATEWAY_URL` to a reachable gateway endpoint before starting `mcp`.
 
 ```bash
-export CARACAL_GATEWAY_URL=http://caracal-gateway-dev:8443
+export CARACAL_GATEWAY_URL=http://caracal-gateway-dev:9100
 export CARACAL_GATEWAY_ENABLED=true
 docker compose -f deploy/docker-compose.yml up -d mcp
 ```

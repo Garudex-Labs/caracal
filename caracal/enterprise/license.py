@@ -164,7 +164,7 @@ def _get_json(url: str, headers: Optional[dict] = None, timeout: int = 15) -> di
 # Default Enterprise API URL
 # ---------------------------------------------------------------------------
 
-_DEFAULT_ENTERPRISE_API_URL = "http://localhost:8000"
+_DEFAULT_ENTERPRISE_API_URL = "http://localhost:9000"
 
 
 def _resolve_api_url(override: Optional[str] = None) -> str:
@@ -185,7 +185,8 @@ def _resolve_api_url(override: Optional[str] = None) -> str:
     if env:
         return env.rstrip("/")
 
-    return _DEFAULT_ENTERPRISE_API_URL
+    port = os.environ.get("CARACAL_ENTERPRISE_API_PORT", "9000")
+    return f"http://localhost:{port}"
 
 
 # ---------------------------------------------------------------------------
@@ -226,7 +227,7 @@ class EnterpriseLicenseValidator:
         Args:
             enterprise_api_url: Override URL for the Enterprise API.
                 Defaults to persisted config, ``CARACAL_ENTERPRISE_API_URL``
-                env var, or ``http://localhost:8000``.
+                env var, or ``http://localhost:${CARACAL_ENTERPRISE_API_PORT:-9000}``.
         """
         self._api_url = _resolve_api_url(enterprise_api_url)
         self._cached_config: Optional[Dict[str, Any]] = None

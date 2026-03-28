@@ -421,7 +421,15 @@ class EnterpriseSyncClient:
         license_key: Optional[str] = None,
     ):
         cfg = load_enterprise_config()
-        self._api_url = (api_url or cfg.get("enterprise_api_url", "http://localhost:8000")).rstrip("/")
+        default_enterprise_url = (
+            f"http://localhost:{os.environ.get('CARACAL_ENTERPRISE_API_PORT', '9000')}"
+        )
+        self._api_url = (
+            api_url
+            or cfg.get("enterprise_api_url")
+            or os.environ.get("CARACAL_ENTERPRISE_API_URL")
+            or default_enterprise_url
+        ).rstrip("/")
         self._sync_api_key = sync_api_key or cfg.get("sync_api_key")
         self._license_key = license_key or cfg.get("license_key")
 
