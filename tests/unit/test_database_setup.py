@@ -170,8 +170,9 @@ class TestGetDbConfigFromEnv:
     
     def test_loads_complete_config(self, env_file):
         """All CARACAL_DB_* vars are correctly parsed from .env."""
-        with patch("caracal.flow.screens.onboarding._find_env_file", return_value=env_file):
-            config = _get_db_config_from_env()
+        with patch.dict(os.environ, {}, clear=True):
+            with patch("caracal.flow.screens.onboarding._find_env_file", return_value=env_file):
+                config = _get_db_config_from_env()
             
             assert config["host"] == "localhost"
             assert config["port"] == 5432
@@ -181,8 +182,9 @@ class TestGetDbConfigFromEnv:
     
     def test_defaults_when_no_env_file(self):
         """Returns sensible defaults when .env file doesn't exist."""
-        with patch("caracal.flow.screens.onboarding._find_env_file", return_value=None):
-            config = _get_db_config_from_env()
+        with patch.dict(os.environ, {}, clear=True):
+            with patch("caracal.flow.screens.onboarding._find_env_file", return_value=None):
+                config = _get_db_config_from_env()
             
             assert config["host"] == "localhost"
             assert config["port"] == 5432
@@ -192,8 +194,9 @@ class TestGetDbConfigFromEnv:
     
     def test_missing_password_returns_empty(self, env_file_missing_password):
         """Missing CARACAL_DB_PASSWORD returns empty string (not None)."""
-        with patch("caracal.flow.screens.onboarding._find_env_file", return_value=env_file_missing_password):
-            config = _get_db_config_from_env()
+        with patch.dict(os.environ, {}, clear=True):
+            with patch("caracal.flow.screens.onboarding._find_env_file", return_value=env_file_missing_password):
+                config = _get_db_config_from_env()
             
             assert config["password"] == ""
     
@@ -202,8 +205,9 @@ class TestGetDbConfigFromEnv:
         env_path = tmp_path / ".env"
         env_path.write_text("CARACAL_DB_PORT=not_a_number\n")
         
-        with patch("caracal.flow.screens.onboarding._find_env_file", return_value=env_path):
-            config = _get_db_config_from_env()
+        with patch.dict(os.environ, {}, clear=True):
+            with patch("caracal.flow.screens.onboarding._find_env_file", return_value=env_path):
+                config = _get_db_config_from_env()
             
             assert config["port"] == 5432
     
@@ -212,8 +216,9 @@ class TestGetDbConfigFromEnv:
         mock_path = MagicMock()
         mock_path.exists.side_effect = PermissionError("access denied")
         
-        with patch("caracal.flow.screens.onboarding._find_env_file", return_value=mock_path):
-            config = _get_db_config_from_env()
+        with patch.dict(os.environ, {}, clear=True):
+            with patch("caracal.flow.screens.onboarding._find_env_file", return_value=mock_path):
+                config = _get_db_config_from_env()
             
             assert config["host"] == "localhost"
             assert config["port"] == 5432
@@ -221,18 +226,52 @@ class TestGetDbConfigFromEnv:
     
     def test_tracks_env_path(self, env_file):
         """Config includes _env_path when .env is found."""
-        with patch("caracal.flow.screens.onboarding._find_env_file", return_value=env_file):
-            config = _get_db_config_from_env()
+        with patch.dict(os.environ, {}, clear=True):
+            with patch("caracal.flow.screens.onboarding._find_env_file", return_value=env_file):
+                config = _get_db_config_from_env()
             
             assert "_env_path" in config
             assert config["_env_path"] == str(env_file)
     
     def test_no_env_path_when_not_found(self):
         """Config has no _env_path when .env is not found."""
-        with patch("caracal.flow.screens.onboarding._find_env_file", return_value=None):
-            config = _get_db_config_from_env()
+        with patch.dict(os.environ, {}, clear=True):
+            with patch("caracal.flow.screens.onboarding._find_env_file", return_value=None):
+                config = _get_db_config_from_env()
             
             assert "_env_path" not in config
+
+    def test_prefers_runtime_env_values(self, env_file):
+        """Runtime CARACAL_DB_* vars override .env values when present."""
+        runtime_env = {
+            "CARACAL_DB_HOST": "postgres",
+            "CARACAL_DB_PORT": "6543",
+            "CARACAL_DB_NAME": "runtime_db",
+            "CARACAL_DB_USER": "runtime_user",
+            "CARACAL_DB_PASSWORD": "runtime_secret",
+        }
+        with patch.dict(os.environ, runtime_env, clear=True):
+            with patch("caracal.flow.screens.onboarding._find_env_file", return_value=env_file):
+                config = _get_db_config_from_env()
+
+            assert config["host"] == "postgres"
+            assert config["port"] == 6543
+            assert config["database"] == "runtime_db"
+            assert config["username"] == "runtime_user"
+            assert config["password"] == "runtime_secret"
+            assert config.get("_env_source") == "runtime environment + .env file"
+
+    def test_container_defaults_apply_without_env_file(self):
+        """Container runtime mode has sane DB defaults without .env."""
+        with patch.dict(os.environ, {"CARACAL_RUNTIME_IN_CONTAINER": "1"}, clear=True):
+            with patch("caracal.flow.screens.onboarding._find_env_file", return_value=None):
+                config = _get_db_config_from_env()
+
+            assert config["host"] == "postgres"
+            assert config["port"] == 5432
+            assert config["database"] == "caracal"
+            assert config["username"] == "caracal"
+            assert config["password"] == "caracal"
 
 
 # =============================================================================

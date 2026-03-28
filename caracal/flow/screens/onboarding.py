@@ -14,6 +14,7 @@ First-run setup wizard with:
 - Skip options with actionable to-dos
 """
 
+import os
 from pathlib import Path
 from typing import Any, Optional
 
@@ -82,18 +83,37 @@ def _find_env_file() -> Optional[Path]:
 
 
 def _get_db_config_from_env() -> dict:
-    """Load database configuration from .env file.
-    
-    Searches for .env in CWD, project root, and source directories.
-    Returns defaults for any values not found.
+    """Load database configuration from runtime env and .env.
+
+    Precedence:
+    1. Runtime environment variables (CARACAL_DB_*)
+    2. .env file values
+    3. Sensible defaults
+
+    In container runtime mode, defaults are container-aware so onboarding can
+    proceed without requiring a local .env file.
     """
+    in_container_runtime = (os.environ.get("CARACAL_RUNTIME_IN_CONTAINER", "").strip().lower() in {"1", "true", "yes", "on"})
     config = {
-        "host": "localhost",
+        "host": "postgres" if in_container_runtime else "localhost",
         "port": 5432,
         "database": "caracal",
         "username": "caracal",
-        "password": "",
+        "password": "caracal" if in_container_runtime else "",
     }
+    loaded_from_env_file = False
+    loaded_from_runtime_env = False
+
+    def _set_config_value(key: str, raw_value: str) -> None:
+        value = raw_value.strip()
+        if key == "port":
+            try:
+                config[key] = int(value)
+            except ValueError:
+                return
+            return
+        config[key] = value
+
     try:
         env_path = _find_env_file()
         if env_path and env_path.exists():
@@ -109,15 +129,30 @@ def _get_db_config_from_env() -> dict:
             for key, pattern in mapping.items():
                 match = re.search(pattern, content, re.MULTILINE)
                 if match:
-                    val = match.group(1).strip()
-                    if key == "port":
-                        try:
-                            config[key] = int(val)
-                        except ValueError:
-                            pass
-                    else:
-                        config[key] = val
+                    _set_config_value(key, match.group(1))
+                    loaded_from_env_file = True
             config["_env_path"] = str(env_path)  # Track where we loaded from
+
+        runtime_mapping = {
+            "host": "CARACAL_DB_HOST",
+            "port": "CARACAL_DB_PORT",
+            "database": "CARACAL_DB_NAME",
+            "username": "CARACAL_DB_USER",
+            "password": "CARACAL_DB_PASSWORD",
+        }
+        for key, env_var in runtime_mapping.items():
+            raw = os.environ.get(env_var)
+            if raw is None or raw == "":
+                continue
+            _set_config_value(key, raw)
+            loaded_from_runtime_env = True
+
+        if loaded_from_runtime_env and loaded_from_env_file:
+            config["_env_source"] = "runtime environment + .env file"
+        elif loaded_from_runtime_env:
+            config["_env_source"] = "runtime environment"
+        elif loaded_from_env_file:
+            config["_env_source"] = ".env file"
     except Exception:
         pass
     return config
@@ -752,10 +787,15 @@ def _step_database(wizard: Wizard) -> Any:
     while True:
         # 1. Load and validate env config
         env_config = _get_db_config_from_env()
+        env_source = env_config.pop("_env_source", None)
         env_path_used = env_config.pop("_env_path", None)
         env_issues = _validate_env_config(env_config)
-        
-        if env_path_used:
+
+        if env_source:
+            console.print(f"  [{Colors.DIM}]Loaded DB config from: {env_source}[/]")
+            if env_path_used:
+                console.print(f"  [{Colors.DIM}]Loaded .env from: {env_path_used}[/]")
+        elif env_path_used:
             console.print(f"  [{Colors.DIM}]Loaded .env from: {env_path_used}[/]")
         else:
             console.print(f"  [{Colors.WARNING}]⚠️  No .env file found in current directory or project root[/]")
@@ -766,8 +806,9 @@ def _step_database(wizard: Wizard) -> Any:
             for issue in env_issues:
                 console.print(f"    [{Colors.WARNING}]• {issue}[/]")
             console.print()
-            console.print(f"  [{Colors.INFO}]{Icons.INFO} Please set these variables in your .env file:[/]")
-            console.print(f"  [{Colors.DIM}]  CARACAL_DB_HOST=localhost[/]")
+            host_hint = "postgres" if (os.environ.get("CARACAL_RUNTIME_IN_CONTAINER", "").strip().lower() in {"1", "true", "yes", "on"}) else "localhost"
+            console.print(f"  [{Colors.INFO}]{Icons.INFO} Please set these variables in runtime env or your .env file:[/]")
+            console.print(f"  [{Colors.DIM}]  CARACAL_DB_HOST={host_hint}[/]")
             console.print(f"  [{Colors.DIM}]  CARACAL_DB_PORT=5432[/]")
             console.print(f"  [{Colors.DIM}]  CARACAL_DB_NAME=caracal[/]")
             console.print(f"  [{Colors.DIM}]  CARACAL_DB_USER=caracal[/]")
