@@ -13,7 +13,6 @@ EXPECTED_TOP_LEVEL_COMMANDS = {
     "config-encrypt",
     "db",
     "delegation",
-    "init",
     "keys",
     "ledger",
     "mcp-service",
@@ -63,7 +62,7 @@ def test_audit_workflow_strict_passes_for_expected_flow():
 
     assert result.exit_code == 0
     assert "Workflow commands: complete" in result.output
-    assert "init -> agent -> policy -> delegation -> authority -> audit" in result.output
+    assert "workspace -> agent -> policy -> delegation -> authority -> audit" in result.output
 
 
 def test_audit_workflow_execute_mode_reports_probe():

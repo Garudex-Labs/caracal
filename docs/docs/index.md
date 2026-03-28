@@ -118,7 +118,7 @@ Caracal is not a billing system or an API gateway. It is an **authority layer** 
 
 | Task | Command |
 |------|---------:|
-| Initialize Caracal | `caracal init` |
+| Create a workspace | `caracal workspace create default` |
 | Register principal | `caracal agent register --name NAME --owner OWNER` |
 | List principals | `caracal agent list` |
 | Create policy | `caracal policy create --agent-id ID --resources "api:*" --actions "read"` |
