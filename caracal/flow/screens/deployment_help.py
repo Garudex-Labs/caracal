@@ -248,7 +248,7 @@ caracal doctor
 
 - Configure additional providers
 - Set up sync for enterprise deployments
-- Explore the TUI with `caracal-flow`
+- Explore the TUI with `caracal flow`
 - Read the full documentation at https://docs.garudexlabs.com
 """
     

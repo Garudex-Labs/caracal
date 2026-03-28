@@ -4,7 +4,8 @@ This directory contains the supported open-source deployment assets for Caracal.
 
 The runtime model is container-first:
 
-- `caracal` and `caracal-flow` default to Docker Compose execution.
+- Host `caracal` orchestrates Docker Compose runtime services.
+- CLI and Flow execution happen inside the runtime container.
 - Runtime state lives in a managed Docker volume mounted at `/home/caracal/.caracal`.
 - The same compose stack can run broker mode (open-source) or gateway mode (enterprise) based on environment.
 
@@ -30,13 +31,15 @@ docker compose -f deploy/docker-compose.image.yml up -d mcp
 Run CLI commands in a container:
 
 ```bash
-docker compose -f deploy/docker-compose.yml run --rm cli caracal --help
+docker compose -f deploy/docker-compose.yml exec mcp /bin/bash
+# then inside the container shell:
+caracal --help
 ```
 
 Run the TUI in a container:
 
 ```bash
-docker compose -f deploy/docker-compose.yml run --rm --service-ports flow caracal-flow
+docker compose -f deploy/docker-compose.yml exec mcp caracal flow
 ```
 
 Use enterprise gateway mode by setting `CARACAL_GATEWAY_URL` to a reachable gateway endpoint before starting `mcp`.
@@ -63,7 +66,6 @@ When installed from source, host commands launch the same containers by default:
 
 ```bash
 caracal --help
-caracal-flow
+caracal cli
+caracal flow
 ```
-
-Set `CARACAL_LOCAL_EXECUTION=1` only when direct host execution is explicitly required.
