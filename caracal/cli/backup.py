@@ -29,7 +29,9 @@ def get_config(ctx):
     from caracal.cli.main import CLIContext
     cli_ctx = ctx.find_object(CLIContext)
     if not cli_ctx or not cli_ctx.config:
-        raise CaracalError("Configuration not loaded. Run 'caracal init' first.")
+        raise CaracalError(
+            "Configuration not loaded. Select or create a workspace before using backup commands."
+        )
     return cli_ctx.config
 
 

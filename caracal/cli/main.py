@@ -17,7 +17,7 @@ import click
 from click import Context
 
 from caracal._version import __version__
-from caracal.pathing import ensure_source_tree, source_of
+from caracal.pathing import source_of
 from caracal.config.settings import get_default_config_path, load_config
 from caracal.exceptions import CaracalError, InvalidConfigurationError
 from caracal.logging_config import setup_runtime_logging
@@ -105,7 +105,7 @@ class WorkspaceAwareGroup(click.Group):
         commands = self.list_commands(ctx)
         if commands:
             # Group commands by category
-            core_commands = ['init', 'workspace', 'principal', 'policy', 'authority', 'flow']
+            core_commands = ['workspace', 'principal', 'policy', 'authority', 'flow']
             enterprise_commands = ['sync', 'delegation', 'audit']
             system_commands = ['config', 'provider', 'doctor', 'version', 'completion']
             
@@ -263,58 +263,6 @@ def cli(ctx, config: Optional[Path], workspace: Optional[str], log_level: str, v
         click.echo("Run 'caracal --help' for available commands")
         click.echo("Run 'caracal workspace list' to see all workspaces")
 
-
-# =============================================================================
-# INITIALIZATION
-# =============================================================================
-
-@cli.command()
-@click.option('--workspace-dir', type=click.Path(path_type=Path), default=None,
-              help='Custom workspace directory')
-@click.pass_context
-def init(ctx, workspace_dir):
-    """
-    Initialize Caracal environment.
-    
-    Creates configuration directory, initializes database,
-    and sets up default workspace.
-    """
-    from caracal.cli.db import init_db
-    
-    try:
-        click.echo("Initializing Caracal...")
-        
-        # Create config directory
-        config_dir = workspace_dir or source_of(Path(get_default_config_path()))
-        ensure_source_tree(config_dir)
-        click.echo(f"✓ Created config directory: {config_dir}")
-        
-        # Initialize database
-        click.echo("✓ Initializing database...")
-        ctx.invoke(init_db)
-        
-        # Create initial workspace
-        click.echo("✓ Creating initial workspace...")
-        from caracal.deployment.config_manager import ConfigManager
-        config_mgr = ConfigManager()
-        try:
-            config_mgr.create_workspace("default")
-        except Exception:
-            pass  # Workspace might already exist
-        
-        click.echo()
-        click.echo(click.style("✓ Caracal initialized successfully!", fg='green', bold=True))
-        click.echo()
-        click.echo("Next steps:")
-        click.echo("  1. Register an AI agent:    caracal principal register")
-        click.echo("  2. Create a policy:         caracal policy create")
-        click.echo("  3. Issue a mandate:         caracal authority mandate")
-        
-    except Exception as e:
-        click.echo(f"✗ Initialization failed: {e}", err=True)
-        sys.exit(1)
-
-
 # =============================================================================
 # WORKSPACE MANAGEMENT (Primary Context)
 # =============================================================================
@@ -369,7 +317,7 @@ def workspace_list(ctx, format):
             click.echo(json_lib.dumps(data, indent=2))
         else:
             if not workspace_configs:
-                click.echo("No workspaces found. Run 'caracal init' to create default workspace.")
+                click.echo("No workspaces found. Create one with 'caracal workspace create <name>'.")
                 return
             
             click.echo()
