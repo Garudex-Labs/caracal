@@ -4,6 +4,7 @@ from typing import List, Optional
 
 from caracal.deployment.config_manager import ConfigManager, WorkspaceConfig
 from caracal.deployment.exceptions import WorkspaceNotFoundError
+from caracal.flow.workspace import get_workspace
 
 
 def list_workspace_configs(config_mgr: ConfigManager) -> List[WorkspaceConfig]:
@@ -25,6 +26,26 @@ def get_default_workspace(config_mgr: ConfigManager) -> Optional[WorkspaceConfig
     if default_ws is not None:
         return default_ws
     return workspaces[0] if workspaces else None
+
+
+def get_active_workspace_name(config_mgr: ConfigManager) -> Optional[str]:
+    """Return the runtime-active workspace name, falling back to default config.
+
+    Flow can switch workspace in-memory before metadata persistence catches up,
+    so prefer the current runtime workspace when it maps to a known workspace.
+    """
+    try:
+        workspace_names = set(config_mgr.list_workspaces())
+        runtime_workspace = get_workspace().root.name
+        if runtime_workspace in workspace_names:
+            return runtime_workspace
+    except Exception:
+        pass
+
+    default_workspace = get_default_workspace(config_mgr)
+    if default_workspace is not None:
+        return default_workspace.name
+    return None
 
 
 def set_default_workspace(config_mgr: ConfigManager, workspace_name: str) -> None:

@@ -22,8 +22,8 @@ from rich.console import Console
 from rich.panel import Panel
 
 from caracal.flow.components.menu import Menu, MenuItem
+from caracal.flow.screens._workspace_helpers import get_active_workspace_name
 from caracal.flow.theme import Colors, Icons
-from caracal.flow.screens._workspace_helpers import get_default_workspace
 
 
 # Main menu items
@@ -128,9 +128,9 @@ def _show_status_header(console: Console) -> None:
     try:
         from caracal.deployment.config_manager import ConfigManager
         config_mgr = ConfigManager()
-        default_ws = get_default_workspace(config_mgr)
-        if default_ws:
-            status_items.append((Icons.WORKSPACE, f"Workspace: {default_ws.name}", Colors.PRIMARY))
+        active_workspace = get_active_workspace_name(config_mgr)
+        if active_workspace:
+            status_items.append((Icons.WORKSPACE, f"Workspace: {active_workspace}", Colors.PRIMARY))
     except Exception:
         pass
 

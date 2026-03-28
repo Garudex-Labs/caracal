@@ -219,6 +219,25 @@ def _test_db_connection(config: dict) -> tuple[bool, str]:
         return False, str(e)
 
 
+def _sync_workspace_selection(workspace_name: str) -> None:
+    """Best-effort synchronization of selected workspace across all selectors."""
+    try:
+        from caracal.flow.workspace import WorkspaceManager
+
+        WorkspaceManager.set_default_workspace(workspace_name)
+    except Exception:
+        pass
+
+    try:
+        from caracal.deployment.config_manager import ConfigManager
+
+        config_manager = ConfigManager()
+        if workspace_name in config_manager.list_workspaces():
+            config_manager.set_default_workspace(workspace_name)
+    except Exception:
+        pass
+
+
 def _step_workspace(wizard: Wizard) -> Any:
     """Step 0: Workspace selection/creation/deletion.
     
@@ -294,6 +313,7 @@ def _step_workspace(wizard: Wizard) -> Any:
         
         # Set the selected workspace as active
         set_workspace(workspace_path)
+        _sync_workspace_selection(selected_name)
         wizard.context["workspace_path"] = str(workspace_path)
         wizard.context["workspace_name"] = selected_name
         wizard.context["workspace_existing"] = True
@@ -352,6 +372,7 @@ def _step_workspace(wizard: Wizard) -> Any:
         
         # Set the new workspace as active
         set_workspace(workspace_path)
+        _sync_workspace_selection(workspace_name)
         wizard.context["workspace_path"] = str(workspace_path)
         wizard.context["workspace_name"] = workspace_name
         wizard.context["workspace_existing"] = False

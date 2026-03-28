@@ -25,6 +25,7 @@ from rich.table import Table
 from caracal.deployment import ConfigManager, EditionManager
 from caracal.flow.components.menu import Menu, MenuItem
 from caracal.flow.components.prompt import FlowPrompt, FlowValidator
+from caracal.flow.screens._workspace_helpers import get_active_workspace_name
 from caracal.flow.state import FlowState, RecentAction
 from caracal.flow.theme import Colors, Icons
 from caracal.provider.catalog import (
@@ -644,12 +645,9 @@ def show_provider_manager(console: Console, state: FlowState) -> None:
 
 
 def _active_workspace(config_manager: ConfigManager) -> str:
-    workspace = config_manager.get_default_workspace_name()
+    workspace = get_active_workspace_name(config_manager)
     if workspace:
         return workspace
-    workspaces = config_manager.list_workspaces()
-    if workspaces:
-        return workspaces[0]
     raise RuntimeError("No workspaces found. Create one first with 'caracal workspace create <name>'.")
 
 
