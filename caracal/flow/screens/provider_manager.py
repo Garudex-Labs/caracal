@@ -650,7 +650,7 @@ def _active_workspace(config_manager: ConfigManager) -> str:
     workspaces = config_manager.list_workspaces()
     if workspaces:
         return workspaces[0]
-    raise RuntimeError("No workspaces found. Run 'caracal init' first.")
+    raise RuntimeError("No workspaces found. Create one first with 'caracal workspace create <name>'.")
 
 
 def _list_providers(console: Console) -> None:
