@@ -276,19 +276,10 @@ class FlowApp:
             self.console.print()
             
             # Services and version
-            from pathlib import Path as P
-            from caracal.pathing import source_of
-            version = "unknown"
-            for vf in [
-                source_of(source_of(source_of(P(__file__).resolve()))) / "VERSION",
-                P.cwd() / "VERSION",
-            ]:
-                if vf.exists():
-                    version = vf.read_text().strip()
-                    break
+            from caracal._version import __version__
             
             self.console.print(f"  [{Colors.INFO}]Services:[/]")
-            self.console.print(f"    Version: [{Colors.NEUTRAL}]{version}[/]")
+            self.console.print(f"    Version: [{Colors.NEUTRAL}]{__version__}[/]")
             
             # Service status table
             svc_table = Table(show_header=False, padding=(0, 2), show_edge=False)
