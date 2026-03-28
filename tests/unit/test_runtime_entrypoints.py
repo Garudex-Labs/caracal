@@ -91,7 +91,7 @@ def test_host_up_skips_mcp_pull_for_local_build(monkeypatch):
     ]
 
 
-def test_host_cli_runs_container_cli_and_strips_separator(monkeypatch):
+def test_host_cli_opens_interactive_shell_in_running_container(monkeypatch):
     commands: list[list[str]] = []
 
     monkeypatch.setattr(entrypoints, "_resolve_compose_file", lambda compose_file=None: Path("/tmp/compose.yml"))
@@ -104,8 +104,52 @@ def test_host_cli_runs_container_cli_and_strips_separator(monkeypatch):
 
     monkeypatch.setattr(entrypoints.subprocess, "run", _fake_run)
 
-    namespace = argparse.Namespace(compose_file=None, cli_args=["--", "--help"])
+    namespace = argparse.Namespace(compose_file=None)
     code = entrypoints._host_cli(namespace)
 
     assert code == 0
-    assert commands == [["docker", "compose", "-f", "/tmp/compose.yml", "run", "--rm", "cli", "caracal", "--help"]]
+    assert commands == [["docker", "compose", "-f", "/tmp/compose.yml", "exec", "-u", "caracal", "mcp", "/bin/bash"]]
+
+
+def test_host_flow_runs_inside_runtime_container(monkeypatch):
+    commands: list[list[str]] = []
+
+    monkeypatch.setattr(entrypoints, "_resolve_compose_file", lambda compose_file=None: Path("/tmp/compose.yml"))
+    monkeypatch.setattr(entrypoints, "_compose_cmd", lambda _: ["docker", "compose", "-f", "/tmp/compose.yml"])
+    monkeypatch.setattr(entrypoints, "_host_up", lambda ns: 0)
+
+    def _fake_run(cmd, check=False):
+        commands.append(list(cmd))
+        return _Result(0)
+
+    monkeypatch.setattr(entrypoints.subprocess, "run", _fake_run)
+
+    namespace = argparse.Namespace(compose_file=None)
+    code = entrypoints._host_flow(namespace)
+
+    assert code == 0
+    assert commands == [[
+        "docker",
+        "compose",
+        "-f",
+        "/tmp/compose.yml",
+        "exec",
+        "-u",
+        "caracal",
+        "-e",
+        "TERM=xterm-256color",
+        "-e",
+        "COLORTERM=truecolor",
+        "mcp",
+        "python",
+        "-m",
+        "caracal.flow.main",
+    ]]
+
+
+def test_host_cli_rejects_passthrough_arguments(capsys):
+    code = entrypoints._run_host_orchestrator(("cli", "--", "--help"))
+
+    assert code == 2
+    error_output = capsys.readouterr().err
+    assert "unrecognized arguments" in error_output

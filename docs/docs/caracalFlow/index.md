@@ -71,11 +71,13 @@ See [Core vs Flow](/caracalCore/concepts/coreVsFlow) for a detailed comparison.
 
 ```bash
 # Start Caracal Flow
-caracal-flow
+caracal flow
 
 # Or with UV
-uv run caracal-flow
+uv run caracal flow
 ```
+
+Host `caracal flow` launches the TUI directly. For optional Flow flags, open `caracal cli` first and run the command from inside the container shell.
 
 ### First Run
 
@@ -89,8 +91,10 @@ On first launch, Flow runs an onboarding wizard:
 ### Command-Line Options
 
 ```bash
-caracal-flow [OPTIONS]
+caracal flow [OPTIONS]
 ```
+
+Run these options inside the container shell opened by `caracal cli`.
 
 | Option | Description |
 |--------|-------------|
@@ -275,7 +279,7 @@ Ensure your terminal supports ANSI colors. Try:
 Use compact mode for small terminals:
 
 ```bash
-caracal-flow --compact
+caracal flow --compact
 ```
 
 ### Reset everything
@@ -283,7 +287,7 @@ caracal-flow --compact
 If something goes wrong, reset Flow state:
 
 ```bash
-caracal-flow --reset
+caracal flow --reset
 ```
 
 This clears onboarding state but preserves your principals and policies.

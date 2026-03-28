@@ -92,7 +92,10 @@ caracal reset      # Down + remove volumes (full local reset)
 ### Host vs Container Help
 
 - `caracal --help` on host: orchestration commands only
-- `caracal cli -- --help`: full in-container CLI help
+- `caracal cli`: opens an interactive shell inside the runtime container
+- inside that shell, run `caracal --help` for full in-container CLI help
+
+Host `caracal` does not pass command arguments through to the container.
 
 ### Shared Workspace Behavior
 
