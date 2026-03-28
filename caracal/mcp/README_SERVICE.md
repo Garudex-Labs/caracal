@@ -60,7 +60,7 @@ database:
 
 ```bash
 export CARACAL_MCP_LISTEN_ADDRESS="0.0.0.0:8080"
-export CARACAL_MCP_SERVERS='[{"name":"filesystem","url":"http://localhost:9000"},{"name":"database","url":"http://localhost:9001"}]'
+export CARACAL_MCP_SERVERS='[{"name":"filesystem","url":"http://localhost:8100"},{"name":"database","url":"http://localhost:8101"}]'
 export CARACAL_MCP_REQUEST_TIMEOUT=30
 export CARACAL_MCP_MAX_REQUEST_SIZE_MB=10
 

@@ -396,12 +396,18 @@ class FlowApp:
         # Gateway (deployment artifact — separate network enforcement proxy, can run on different host)
         gateway_on = getattr(config.gateway, 'enabled', False)
         if gateway_on:
-            gw_addr = getattr(config.gateway, 'listen_address', '0.0.0.0:8443')
-            gw_host, _, gw_port_str = gw_addr.rpartition(':')
-            gw_port = int(gw_port_str) if gw_port_str.isdigit() else 8443
-            gw_check_host = 'localhost' if gw_host == '0.0.0.0' else gw_host
-            gw_ok = _check_tcp(gw_check_host, gw_port)
-            table.add_row("Gateway", "Deploy", _enabled_str(True), _status_str(gw_ok), gw_addr)
+            gw_addr = getattr(config.gateway, 'listen_address', '')
+            if gw_addr and ':' in gw_addr:
+                gw_host, _, gw_port_str = gw_addr.rpartition(':')
+                gw_port = int(gw_port_str) if gw_port_str.isdigit() else None
+                if gw_port is None:
+                    table.add_row("Gateway", "Deploy", _enabled_str(True), f"[{Colors.WARNING}]Address invalid[/]", gw_addr)
+                else:
+                    gw_check_host = 'localhost' if gw_host == '0.0.0.0' else gw_host
+                    gw_ok = _check_tcp(gw_check_host, gw_port)
+                    table.add_row("Gateway", "Deploy", _enabled_str(True), _status_str(gw_ok), gw_addr)
+            else:
+                table.add_row("Gateway", "Deploy", _enabled_str(True), f"[{Colors.WARNING}]URL-managed[/]", "Configured remotely")
         else:
             table.add_row("Gateway", "Deploy", _enabled_str(False), f"[{Colors.DIM}]Separate service[/]", "—")
         
