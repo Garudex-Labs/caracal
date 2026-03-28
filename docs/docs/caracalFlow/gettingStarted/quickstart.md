@@ -15,7 +15,7 @@ Get Caracal Flow running in under a minute.
 ## Launch
 
 ```bash
-uv run caracal-flow
+uv run caracal flow
 ```
 
 This launches the TUI. Use arrow keys to navigate and `Enter` to select.
