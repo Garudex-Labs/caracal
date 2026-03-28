@@ -37,6 +37,7 @@ from caracal.pathing import ensure_source_tree, source_of
 
 _WORKSPACES_DIR = Path.home() / ".caracal" / "workspaces"
 _LEGACY_ROOT = Path.home() / ".caracal"
+_RESERVED_WORKSPACE_NAMES = {"primary", "_deleted_backups"}
 
 # Global registry file lives outside any individual workspace so it can index all of them.
 _REGISTRY_PATH = Path.home() / ".caracal" / "workspaces.json"
@@ -536,6 +537,8 @@ def _load_registry_workspaces(registry_path: Path) -> list[dict[str, Any]]:
         path = ws.get("path")
         if not name or not path:
             continue
+        if str(name) in _RESERVED_WORKSPACE_NAMES:
+            continue
         normalized.append(
             {
                 "name": str(name),
@@ -577,7 +580,7 @@ def _discover_workspace_directories() -> list[dict[str, Any]]:
         return discovered
 
     for item in sorted(_WORKSPACES_DIR.iterdir()):
-        if not item.is_dir() or item.name == "primary":
+        if not item.is_dir() or item.name in _RESERVED_WORKSPACE_NAMES:
             continue
         discovered.append({
             "name": item.name,
