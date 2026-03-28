@@ -7,6 +7,7 @@ Container command (``caracal``): full interactive Caracal CLI.
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import platform
 import shutil
@@ -17,6 +18,7 @@ from typing import Sequence
 
 COMPOSE_FILE_ENV = "CARACAL_DOCKER_COMPOSE_FILE"
 IN_CONTAINER_ENV = "CARACAL_RUNTIME_IN_CONTAINER"
+NETWORK_IN_USE_MARKER = "Resource is still in use"
 
 _EMBEDDED_COMPOSE_FILE = Path.home() / ".caracal" / "runtime" / "docker-compose.image.yml"
 _EMBEDDED_COMPOSE_CONTENT = """name: caracal
@@ -329,15 +331,103 @@ def _host_up(namespace: argparse.Namespace) -> int:
 def _host_down(namespace: argparse.Namespace) -> int:
     compose_file = _resolve_compose_file(namespace.compose_file)
     compose_cmd = _compose_cmd(compose_file)
-    result = subprocess.run(compose_cmd + ["down", "--remove-orphans"], check=False)
+    result = subprocess.run(
+        compose_cmd + ["down", "--remove-orphans"],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    _emit_compose_teardown_output(result.stdout, result.stderr)
     return result.returncode
 
 
 def _host_reset(namespace: argparse.Namespace) -> int:
     compose_file = _resolve_compose_file(namespace.compose_file)
     compose_cmd = _compose_cmd(compose_file)
-    result = subprocess.run(compose_cmd + ["down", "-v", "--remove-orphans"], check=False)
+    result = subprocess.run(
+        compose_cmd + ["down", "-v", "--remove-orphans"],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    _emit_compose_teardown_output(result.stdout, result.stderr)
     return result.returncode
+
+
+def _emit_compose_teardown_output(stdout: str | None, stderr: str | None) -> None:
+    filtered_stdout, stdout_network_in_use = _filter_compose_teardown_stream(stdout)
+    filtered_stderr, stderr_network_in_use = _filter_compose_teardown_stream(stderr)
+    filtered_network_in_use = stdout_network_in_use or stderr_network_in_use
+
+    if filtered_stdout:
+        print(filtered_stdout)
+
+    if filtered_stderr:
+        print(filtered_stderr, file=sys.stderr, end="" if filtered_stderr.endswith("\n") else "\n")
+
+    if filtered_network_in_use:
+        network_name = os.environ.get("CARACAL_RUNTIME_NETWORK", "caracal-runtime")
+        attached_containers = _list_network_container_names(network_name)
+        if attached_containers:
+            container_list = ", ".join(attached_containers)
+            print(
+                f"Note: shared Docker network '{network_name}' is still attached to: "
+                f"{container_list}. It was left intact."
+            )
+            return
+
+        print(
+            f"Note: shared Docker network '{network_name}' is still in use by other containers and was left intact."
+        )
+
+
+def _filter_compose_teardown_stream(output: str | None) -> tuple[str, bool]:
+    if not output:
+        return "", False
+
+    filtered_lines: list[str] = []
+    filtered_network_in_use = False
+    for line in output.splitlines():
+        if "Network" in line and NETWORK_IN_USE_MARKER in line:
+            filtered_network_in_use = True
+            continue
+        filtered_lines.append(line)
+
+    return "\n".join(filtered_lines), filtered_network_in_use
+
+
+def _list_network_container_names(network_name: str) -> list[str]:
+    docker = shutil.which("docker")
+    if docker is None:
+        return []
+
+    result = subprocess.run(
+        [docker, "network", "inspect", network_name, "--format", "{{json .Containers}}"],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        return []
+
+    raw_payload = (result.stdout or "").strip()
+    if not raw_payload or raw_payload == "null":
+        return []
+
+    try:
+        containers = json.loads(raw_payload)
+    except json.JSONDecodeError:
+        return []
+
+    if not isinstance(containers, dict):
+        return []
+
+    names = [
+        container.get("Name")
+        for container in containers.values()
+        if isinstance(container, dict) and isinstance(container.get("Name"), str)
+    ]
+    return sorted(name for name in names if name)
 
 
 def _host_logs(namespace: argparse.Namespace) -> int:

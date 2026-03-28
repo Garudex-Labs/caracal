@@ -9,8 +9,10 @@ from caracal.runtime import entrypoints
 
 
 class _Result:
-    def __init__(self, code: int = 0):
+    def __init__(self, code: int = 0, stdout: str = "", stderr: str = ""):
         self.returncode = code
+        self.stdout = stdout
+        self.stderr = stderr
 
 
 def test_host_help_lists_orchestrator_commands(capsys):
@@ -153,3 +155,50 @@ def test_host_cli_rejects_passthrough_arguments(capsys):
     assert code == 2
     error_output = capsys.readouterr().err
     assert "unrecognized arguments" in error_output
+
+
+def test_emit_compose_teardown_output_filters_network_warning_from_stderr(monkeypatch, capsys):
+    monkeypatch.setattr(
+        entrypoints,
+        "_list_network_container_names",
+        lambda network_name: ["caracal-gateway-dev"] if network_name == "caracal-runtime" else [],
+    )
+
+    entrypoints._emit_compose_teardown_output(
+        stdout="",
+        stderr=" Network caracal-runtime Removing \n Network caracal-runtime Resource is still in use \n",
+    )
+
+    captured = capsys.readouterr()
+    assert "Network caracal-runtime Removing" in captured.err
+    assert "Resource is still in use" not in captured.err
+    assert "Resource is still in use" not in captured.out
+    assert "caracal-gateway-dev" in captured.out
+
+
+def test_list_network_container_names_parses_docker_inspect(monkeypatch):
+    monkeypatch.setattr(entrypoints.shutil, "which", lambda cmd: "/usr/bin/docker" if cmd == "docker" else None)
+
+    def _fake_run(cmd, check=False, capture_output=False, text=False):
+        assert cmd == [
+            "/usr/bin/docker",
+            "network",
+            "inspect",
+            "caracal-runtime",
+            "--format",
+            "{{json .Containers}}",
+        ]
+        assert check is False
+        assert capture_output is True
+        assert text is True
+        return _Result(
+            0,
+            stdout='{"abc":{"Name":"caracal-gateway-dev"},"def":{"Name":"caracal-mcp"}}',
+        )
+
+    monkeypatch.setattr(entrypoints.subprocess, "run", _fake_run)
+
+    assert entrypoints._list_network_container_names("caracal-runtime") == [
+        "caracal-gateway-dev",
+        "caracal-mcp",
+    ]
