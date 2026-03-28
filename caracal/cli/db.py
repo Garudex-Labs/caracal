@@ -11,6 +11,7 @@ Provides CLI commands for database initialization, migrations, and status checks
 import logging
 import sys
 from pathlib import Path
+from typing import Optional
 
 import click
 from alembic import command
@@ -30,6 +31,25 @@ from caracal.db import (
 def _escape_alembic_url(url: str) -> str:
     """Escape percent signs for ConfigParser interpolation used by Alembic."""
     return url.replace("%", "%%")
+
+
+def _resolve_migrations_path() -> Path:
+    """Return the packaged Alembic migrations directory."""
+    migrations_path = Path(__file__).resolve().parents[1] / "db" / "migrations"
+    if not migrations_path.exists():
+        raise click.ClickException(
+            f"Alembic migrations not found at {migrations_path}. "
+            "Please reinstall Caracal or restore the package files."
+        )
+    return migrations_path
+
+
+def _resolve_alembic_ini_path() -> Optional[Path]:
+    """Return alembic.ini when available in a source checkout."""
+    alembic_ini_path = Path(__file__).resolve().parents[2] / "alembic.ini"
+    if alembic_ini_path.exists():
+        return alembic_ini_path
+    return None
 
 
 def get_database_config_from_context(ctx) -> DatabaseConfig:
@@ -77,16 +97,16 @@ def get_alembic_config() -> Config:
     Returns:
         Alembic Config instance
     """
-    # Look for alembic.ini in the Caracal package directory
-    alembic_ini_path = Path(__file__).resolve().parents[2] / "alembic.ini"
-    
-    if not alembic_ini_path.exists():
-        raise click.ClickException(
-            f"Alembic configuration not found at {alembic_ini_path}. "
-            "Please ensure alembic.ini exists in the Caracal root directory."
-        )
-    
-    return Config(str(alembic_ini_path))
+    migrations_path = _resolve_migrations_path()
+    alembic_ini_path = _resolve_alembic_ini_path()
+
+    if alembic_ini_path is not None:
+        config = Config(str(alembic_ini_path))
+    else:
+        config = Config()
+
+    config.set_main_option("script_location", str(migrations_path))
+    return config
 
 
 @click.command(name='init-db')
@@ -138,7 +158,7 @@ def init_db(ctx):
         click.echo("✓ Alembic version table initialized")
         
         # Display schema info
-        schema_manager = SchemaVersionManager(db_manager._engine, str(alembic_config.config_file_name))
+        schema_manager = SchemaVersionManager(db_manager._engine, alembic_config)
         schema_info = schema_manager.get_schema_info()
         
         click.echo("\nDatabase schema initialized successfully!")
@@ -223,7 +243,7 @@ def migrate(ctx, direction: str, revision: str, sql: bool):
                 )
             
             # Get current schema info before migration
-            schema_manager = SchemaVersionManager(db_manager._engine, str(alembic_config.config_file_name))
+            schema_manager = SchemaVersionManager(db_manager._engine, alembic_config)
             before_info = schema_manager.get_schema_info()
             
             click.echo(f"  Current revision: {before_info['current_revision']}")
@@ -316,7 +336,7 @@ def db_status(ctx, verbose: bool):
         )
         
         # Get schema version info
-        schema_manager = SchemaVersionManager(db_manager._engine, str(alembic_config.config_file_name))
+        schema_manager = SchemaVersionManager(db_manager._engine, alembic_config)
         schema_info = schema_manager.get_schema_info()
         
         click.echo(f"\nSchema Version:")

@@ -114,6 +114,7 @@ class ConfigManager:
     
     # Workspace name validation pattern
     WORKSPACE_NAME_PATTERN = re.compile(r'^[a-zA-Z0-9_-]{1,64}$')
+    RESERVED_WORKSPACE_NAMES = {"primary", "_deleted_backups"}
     
     # Workspace templates
     TEMPLATES = {
@@ -177,6 +178,18 @@ class ConfigManager:
                 f"Invalid workspace name: {name}. "
                 "Must be alphanumeric with hyphens/underscores, max 64 chars"
             )
+        if name in self.RESERVED_WORKSPACE_NAMES:
+            raise InvalidWorkspaceNameError(
+                f"Invalid workspace name: {name}. "
+                "This name is reserved for internal Caracal use."
+            )
+
+    def _is_workspace_discoverable(self, name: str) -> bool:
+        """Return whether a directory name should be treated as a user workspace."""
+        return (
+            bool(self.WORKSPACE_NAME_PATTERN.match(name))
+            and name not in self.RESERVED_WORKSPACE_NAMES
+        )
     
     def _get_encryption_key(self) -> bytes:
         """
@@ -631,7 +644,7 @@ class ConfigManager:
         for item in self.WORKSPACES_DIR.iterdir():
             if not item.is_dir():
                 continue
-            if not self.WORKSPACE_NAME_PATTERN.match(item.name):
+            if not self._is_workspace_discoverable(item.name):
                 continue
 
             if (item / "workspace.toml").exists() or (item / "config.yaml").exists():
@@ -649,7 +662,7 @@ class ConfigManager:
                 path = str(ws.get("path") or "").strip()
                 if not name or not path:
                     continue
-                if not self.WORKSPACE_NAME_PATTERN.match(name):
+                if not self._is_workspace_discoverable(name):
                     continue
 
                 canonical_dir = self._get_workspace_dir(name)

@@ -24,18 +24,23 @@ from caracal.logging_config import setup_runtime_logging
 from caracal.cli.context import CLIContext, pass_context
 
 
-def get_active_workspace() -> str:
+def get_active_workspace() -> Optional[str]:
     """Get the currently active workspace name."""
     try:
         from caracal.deployment.config_manager import ConfigManager
 
         config_mgr = ConfigManager()
         default_workspace = config_mgr.get_default_workspace_name()
-        if not default_workspace:
-            return "default"
         return default_workspace
     except Exception:
-        return "default"
+        return None
+
+
+def format_workspace_status(active_ws: Optional[str]) -> str:
+    """Render workspace banner text for help and command output."""
+    if active_ws:
+        return f"Active Workspace: {click.style(active_ws, fg='cyan', bold=True)}"
+    return click.style("WARNING: No workspace configured", fg='yellow', bold=True)
 
 
 def get_workspace_config_path(workspace_name: Optional[str]) -> Optional[Path]:
@@ -84,7 +89,7 @@ class WorkspaceAwareGroup(click.Group):
         
         # Add workspace info at the top
         formatter.write_paragraph()
-        formatter.write_text(f"Active Workspace: {click.style(active_ws, fg='cyan', bold=True)}")
+        formatter.write_text(format_workspace_status(active_ws))
         formatter.write_paragraph()
         
         # Format usage
@@ -221,7 +226,7 @@ def cli(ctx, config: Optional[Path], workspace: Optional[str], log_level: str, v
     # subcommand help. Root help already renders this via WorkspaceAwareGroup.
     if ctx.invoked_subcommand is not None and not is_version:
         active_ws = ctx.obj['workspace']
-        click.echo(f"Active Workspace: {click.style(active_ws, fg='cyan', bold=True)}")
+        click.echo(format_workspace_status(active_ws))
 
     if is_help_or_version:
         return
@@ -253,7 +258,7 @@ def cli(ctx, config: Optional[Path], workspace: Optional[str], log_level: str, v
     if ctx.invoked_subcommand is None:
         active_ws = ctx.obj['workspace']
         click.echo(f"Caracal v{__version__}")
-        click.echo(f"Active Workspace: {click.style(active_ws, fg='cyan', bold=True)}")
+        click.echo(format_workspace_status(active_ws))
         click.echo()
         click.echo("Run 'caracal --help' for available commands")
         click.echo("Run 'caracal workspace list' to see all workspaces")
