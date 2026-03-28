@@ -242,9 +242,11 @@ def cli(ctx, config: Optional[Path], workspace: Optional[str], log_level: str, v
     
     # Load configuration
     try:
+        emit_config_logs = bool(verbose) or (bool(log_level) and log_level.lower() == "debug")
         ctx.obj['config'] = load_config(
             ctx.obj['config_path'],
             suppress_missing_file_log=True,
+            emit_logs=emit_config_logs,
         )
     except InvalidConfigurationError as e:
         if not is_help_or_version:

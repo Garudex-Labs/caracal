@@ -399,6 +399,7 @@ def get_default_config() -> CaracalConfig:
 def load_config(
     config_path: Optional[str] = None,
     suppress_missing_file_log: bool = False,
+    emit_logs: bool = True,
 ) -> CaracalConfig:
     """
     Load configuration from YAML file with validation.
@@ -436,7 +437,7 @@ def load_config(
     
     # If config file doesn't exist, return defaults
     if not os.path.exists(config_path):
-        if not suppress_missing_file_log:
+        if emit_logs and not suppress_missing_file_log:
             logger.info(f"Configuration file not found at {config_path}, using defaults")
         return get_default_config()
     
@@ -444,7 +445,8 @@ def load_config(
     try:
         with open(config_path, 'r') as f:
             config_data = yaml.safe_load(f)
-        logger.debug(f"Loaded configuration from {config_path}")
+        if emit_logs:
+            logger.debug(f"Loaded configuration from {config_path}")
     except yaml.YAMLError as e:
         if _attempt_legacy_workspace_config_repair(config_path):
             try:
@@ -472,22 +474,26 @@ def load_config(
     
     # If file is empty, return defaults
     if config_data is None:
-        logger.info(f"Configuration file {config_path} is empty, using defaults")
+        if emit_logs:
+            logger.info(f"Configuration file {config_path} is empty, using defaults")
         return get_default_config()
     
     # Expand environment variables in configuration
     config_data = _expand_env_vars(config_data)
-    logger.debug("Expanded environment variables in configuration")
+    if emit_logs:
+        logger.debug("Expanded environment variables in configuration")
     
     # Decrypt encrypted configuration values
     config_data = _decrypt_config_values(config_data)
-    logger.debug("Decrypted encrypted configuration values")
+    if emit_logs:
+        logger.debug("Decrypted encrypted configuration values")
     
     # Validate and build configuration
     try:
         config = _build_config_from_dict(config_data)
         _validate_config(config)
-        logger.info(f"Successfully loaded and validated configuration from {config_path}")
+        if emit_logs:
+            logger.info(f"Successfully loaded and validated configuration from {config_path}")
         return config
     except Exception as e:
         logger.error(f"Invalid configuration in '{config_path}': {e}", exc_info=True)
