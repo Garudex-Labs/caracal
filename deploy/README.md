@@ -7,7 +7,7 @@ The runtime model is container-first:
 - Host `caracal` orchestrates Docker Compose runtime services.
 - CLI and Flow execution happen inside the runtime container.
 - Runtime state lives in a managed Docker volume mounted at `/home/caracal/.caracal`.
-- The same compose stack can run broker mode (open-source) or gateway mode (enterprise) based on environment.
+- Open-source broker runtime is standalone; enterprise integration is remote via URL only.
 
 ## Layout
 
@@ -42,10 +42,10 @@ Run the TUI in a container:
 docker compose -f deploy/docker-compose.yml exec mcp caracal flow
 ```
 
-Use enterprise gateway mode by setting `CARACAL_GATEWAY_URL` to a reachable gateway endpoint before starting `mcp`.
+Use enterprise integration mode by setting `CARACAL_ENTERPRISE_URL` to a reachable hosted endpoint before starting `mcp`.
 
 ```bash
-export CARACAL_GATEWAY_URL=http://caracal-gateway-dev:9100
+export CARACAL_ENTERPRISE_URL=https://enterprise.example.com
 export CARACAL_GATEWAY_ENABLED=true
 docker compose -f deploy/docker-compose.yml up -d mcp
 ```

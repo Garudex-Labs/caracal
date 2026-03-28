@@ -13,6 +13,7 @@ stored in the workspace config.
 
 import json
 import logging
+import os
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -160,20 +161,14 @@ def _get_json(url: str, headers: Optional[dict] = None, timeout: int = 15) -> di
         raise ConnectionError(f"Cannot reach Enterprise API at {url}: {exc.reason}") from exc
 
 
-# ---------------------------------------------------------------------------
-# Default Enterprise API URL
-# ---------------------------------------------------------------------------
-
-_DEFAULT_ENTERPRISE_API_URL = "http://localhost:9000"
-
-
 def _resolve_api_url(override: Optional[str] = None) -> str:
     """Return the Enterprise API base URL.
 
-    Priority: *override* → persisted config → env var → default.
-    """
-    import os
+    Priority: *override* → persisted config → env var.
 
+    In development mode only, ``CARACAL_ENTERPRISE_DEV_URL`` can be used
+    as a convenience override. No localhost fallback is hardcoded.
+    """
     if override:
         return override.rstrip("/")
 
@@ -181,12 +176,24 @@ def _resolve_api_url(override: Optional[str] = None) -> str:
     if cfg.get("enterprise_api_url"):
         return cfg["enterprise_api_url"].rstrip("/")
 
-    env = os.environ.get("CARACAL_ENTERPRISE_API_URL")
-    if env:
-        return env.rstrip("/")
+    # Primary remote URL contract.
+    enterprise_url = os.environ.get("CARACAL_ENTERPRISE_URL")
+    if enterprise_url:
+        return enterprise_url.rstrip("/")
 
-    port = os.environ.get("CARACAL_ENTERPRISE_API_PORT", "9000")
-    return f"http://localhost:{port}"
+    # Dev-only local override for integration work.
+    env_mode = (os.environ.get("CARACAL_ENV_MODE") or "dev").strip().lower()
+    if env_mode == "dev":
+        dev_url = os.environ.get("CARACAL_ENTERPRISE_DEV_URL")
+        if dev_url:
+            return dev_url.rstrip("/")
+
+    # Backward-compat aliases.
+    legacy_url = os.environ.get("CARACAL_ENTERPRISE_API_URL") or os.environ.get("CARACAL_GATEWAY_URL")
+    if legacy_url:
+        return legacy_url.rstrip("/")
+
+    return ""
 
 
 # ---------------------------------------------------------------------------
@@ -226,8 +233,8 @@ class EnterpriseLicenseValidator:
         
         Args:
             enterprise_api_url: Override URL for the Enterprise API.
-                Defaults to persisted config, ``CARACAL_ENTERPRISE_API_URL``
-                env var, or ``http://localhost:${CARACAL_ENTERPRISE_API_PORT:-9000}``.
+                Defaults to persisted config, ``CARACAL_ENTERPRISE_URL``,
+                or (dev mode only) ``CARACAL_ENTERPRISE_DEV_URL``.
         """
         self._api_url = _resolve_api_url(enterprise_api_url)
         self._cached_config: Optional[Dict[str, Any]] = None
@@ -262,6 +269,10 @@ class EnterpriseLicenseValidator:
             )
 
         license_token = license_token.strip()
+
+        if not self._api_url:
+            logger.info("No enterprise URL configured; falling back to cached license")
+            return self._validate_from_cache(license_token)
 
         # --- Try Enterprise API ---
         try:
@@ -380,7 +391,7 @@ class EnterpriseLicenseValidator:
     def get_enterprise_api_url(self) -> Optional[str]:
         """Return the stored Enterprise API URL, if any."""
         cfg = self._load_config()
-        return cfg.get("enterprise_api_url") or self._api_url
+        return cfg.get("enterprise_api_url") or self._api_url or None
 
     def is_connected(self) -> bool:
         """Return True if a valid license is persisted."""
