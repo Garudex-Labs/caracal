@@ -7,7 +7,7 @@ The runtime model is container-first:
 - Host `caracal` orchestrates Docker Compose runtime services.
 - CLI and Flow execution happen inside the runtime container.
 - Runtime state lives in `CARACAL_HOME` (default `/home/caracal/.caracal`) inside the runtime container.
-- Workspace import/export files use host-local storage mounted at `/caracal-host` (`CARACAL_HOST_IO_DIR` on host).
+- Workspace import/export files use host-local storage mounted at `/caracal-host-io` (`CARACAL_HOST_IO_DIR` on host).
 - Open-source broker runtime is standalone; enterprise integration is remote via URL only.
 
 ## Layout

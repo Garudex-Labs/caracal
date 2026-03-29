@@ -55,7 +55,7 @@ console = Console()
 
 _CONTAINER_RUNTIME_ENV = "CARACAL_RUNTIME_IN_CONTAINER"
 _HOST_IO_ROOT_ENV = "CARACAL_HOST_IO_ROOT"
-_DEFAULT_HOST_IO_ROOT = Path("/caracal-host")
+_DEFAULT_HOST_IO_ROOT = Path("/caracal-host-io")
 
 
 # Output formatting helpers
