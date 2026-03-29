@@ -12,6 +12,7 @@ from typing import Any, Dict, List, Optional
 from uuid import UUID
 
 from caracal.db.models import Principal
+from caracal.core.principal_keys import generate_and_store_principal_keypair
 from caracal.exceptions import DuplicatePrincipalNameError, PrincipalNotFoundError
 from caracal.logging_config import get_logger
 
@@ -100,7 +101,7 @@ class PrincipalRegistry:
             owner=row.owner,
             created_at=created_at,
             metadata=metadata,
-            public_key=metadata.get("public_key_pem") if isinstance(metadata, dict) else None,
+            public_key=row.public_key_pem or (metadata.get("public_key_pem") if isinstance(metadata, dict) else None),
         )
 
     def register_principal(
@@ -115,11 +116,6 @@ class PrincipalRegistry:
             raise DuplicatePrincipalNameError(f"Principal with name '{name}' already exists")
 
         principal_metadata = dict(metadata or {})
-        if generate_keys and self.delegation_token_manager is not None:
-            if "private_key_pem" not in principal_metadata or "public_key_pem" not in principal_metadata:
-                private_key_pem, public_key_pem = self.delegation_token_manager.generate_key_pair()
-                principal_metadata["private_key_pem"] = private_key_pem.decode("utf-8")
-                principal_metadata["public_key_pem"] = public_key_pem.decode("utf-8")
 
         row = Principal(
             name=name,
@@ -130,6 +126,15 @@ class PrincipalRegistry:
         )
         self.session.add(row)
         self.session.flush()
+
+        if generate_keys:
+            generated = generate_and_store_principal_keypair(row.principal_id)
+            row.public_key_pem = generated.public_key_pem
+            merged_metadata = dict(row.principal_metadata or {})
+            merged_metadata.update(generated.storage.metadata)
+            row.principal_metadata = merged_metadata
+            self.session.flush()
+
         self.session.commit()
         logger.info("Registered principal", principal_id=str(row.principal_id), name=name)
         return self._to_identity(row)
@@ -183,12 +188,16 @@ class PrincipalRegistry:
         source = self._get_row(source_principal_id)
         target = self._get_row(target_principal_id)
 
-        # Ensure source has signing keys in metadata
+        # Ensure source has signing keys persisted via the principal key storage abstraction.
         source_metadata = dict(source.principal_metadata or {})
-        if "private_key_pem" not in source_metadata or "public_key_pem" not in source_metadata:
-            private_key_pem, public_key_pem = self.delegation_token_manager.generate_key_pair()
-            source_metadata["private_key_pem"] = private_key_pem.decode("utf-8")
-            source_metadata["public_key_pem"] = public_key_pem.decode("utf-8")
+        has_private_material = any(
+            k in source_metadata
+            for k in ("private_key_ref", "aws_kms_ciphertext_b64", "private_key_pem")
+        )
+        if not source.public_key_pem or not has_private_material:
+            generated = generate_and_store_principal_keypair(source.principal_id)
+            source.public_key_pem = generated.public_key_pem
+            source_metadata.update(generated.storage.metadata)
             source.principal_metadata = source_metadata
             self.session.flush()
 

@@ -15,6 +15,7 @@ from uuid import UUID
 
 import click
 
+from caracal.core.principal_keys import generate_and_store_principal_keypair
 from caracal.db.connection import get_db_manager
 from caracal.db.models import Principal
 from caracal.exceptions import (
@@ -154,6 +155,13 @@ def register(ctx, name: str, principal_type: str, email: str, metadata: tuple):
                 db_session.add(principal_row)
                 db_session.flush()
 
+                keypair = generate_and_store_principal_keypair(principal_row.principal_id)
+                principal_row.public_key_pem = keypair.public_key_pem
+
+                merged_metadata = dict(principal_row.principal_metadata or {})
+                merged_metadata.update(keypair.storage.metadata)
+                principal_row.principal_metadata = merged_metadata
+
                 principal = {
                     "principal_id": str(principal_row.principal_id),
                     "name": principal_row.name,
@@ -161,6 +169,7 @@ def register(ctx, name: str, principal_type: str, email: str, metadata: tuple):
                     "owner": principal_row.owner,
                     "created_at": principal_row.created_at.isoformat(),
                     "metadata": principal_row.principal_metadata or {},
+                    "private_key_ref": keypair.storage.reference,
                 }
         finally:
             db_manager.close()
@@ -174,12 +183,23 @@ def register(ctx, name: str, principal_type: str, email: str, metadata: tuple):
 
         click.echo(f"Email:       {principal['owner']}")
         click.echo(f"Created:     {_format_created(principal.get('created_at'))}")
+        click.echo(f"Private key: {principal.get('private_key_ref', '')}")
 
         if principal.get('metadata'):
             # Filter out keys for display (don't show private keys)
             display_metadata = {
                 k: v for k, v in principal['metadata'].items()
-                if k not in ['private_key_pem', 'public_key_pem', 'delegation_tokens']
+                if k not in [
+                    'private_key_pem',
+                    'public_key_pem',
+                    'delegation_tokens',
+                    'aws_kms_ciphertext_b64',
+                    'private_key_ref',
+                    'key_backend',
+                    'aws_kms_key_id',
+                    'aws_kms_region',
+                    'key_updated_at',
+                ]
             }
             if display_metadata:
                 click.echo("Metadata:")
