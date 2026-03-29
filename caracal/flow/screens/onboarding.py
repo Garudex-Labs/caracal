@@ -239,8 +239,63 @@ def _sync_workspace_selection(workspace_name: str) -> None:
         pass
 
 
+def _in_container_runtime() -> bool:
+    return os.environ.get("CARACAL_RUNTIME_IN_CONTAINER", "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _host_io_root() -> Path:
+    return Path(os.environ.get("CARACAL_HOST_IO_ROOT", "/caracal-host")).resolve(strict=False)
+
+
+def _map_common_host_import_path(candidate: Path, root: Path) -> Optional[Path]:
+    """Best-effort mapping of host absolute paths to container host-io mount.
+
+    This helps when a user pastes a host path like
+    ``.../deploy/caracal-host-io/workspace.tar.gz`` while running in container
+    mode where the same file is mounted under ``/caracal-host/workspace.tar.gz``.
+    """
+    parts = list(candidate.parts)
+    if "caracal-host-io" in parts:
+        idx = parts.index("caracal-host-io")
+        trailing = parts[idx + 1 :]
+        mapped = root.joinpath(*trailing).resolve(strict=False)
+        return mapped
+
+    mapped_by_name = (root / candidate.name).resolve(strict=False)
+    if mapped_by_name.exists():
+        return mapped_by_name
+
+    return None
+
+
+def _resolve_workspace_import_path(path: str) -> Path:
+    normalized_path = path.strip().replace("\r", "").replace("\n", "")
+    candidate = Path(normalized_path).expanduser()
+    resolved = candidate.resolve(strict=False)
+
+    # Outside container runtime, use the exact user-provided path.
+    if not _in_container_runtime():
+        return resolved
+
+    # In container runtime, prefer direct paths that already exist.
+    if resolved.exists():
+        return resolved
+
+    # In container runtime, help users by mapping common host-export paths.
+    root = _host_io_root()
+    mapped = _map_common_host_import_path(resolved, root)
+    if mapped is not None:
+        return mapped
+
+    # For relative paths in container runtime, treat them as host-io-root relative.
+    if not candidate.is_absolute():
+        return (root / candidate).resolve(strict=False)
+
+    return resolved
+
+
 def _step_workspace(wizard: Wizard) -> Any:
-    """Step 0: Workspace selection/creation/deletion.
+    """Step 0: Workspace selection/creation/deletion/import.
     
     CRITICAL: This step cannot be skipped. A workspace must be selected
     or created before proceeding to the main menu, as it defines where
@@ -287,6 +342,7 @@ def _step_workspace(wizard: Wizard) -> Any:
         choices.append("Select existing workspace")
     choices.extend([
         "Create new workspace",
+        "Import workspace",
     ])
     if workspaces:
         choices.append("Delete workspace")
@@ -368,6 +424,83 @@ def _step_workspace(wizard: Wizard) -> Any:
         wizard.context["fresh_start"] = True
         
         return str(workspace_path)
+
+    elif action == "Import workspace":
+        from caracal.deployment.config_manager import ConfigManager
+
+        console.print()
+        if _in_container_runtime():
+            console.print(
+                f"  [{Colors.DIM}]Tip: In container runtime, host-shared files are usually under {_host_io_root()}[/]"
+            )
+
+        import_path_text = prompt.text("Import file path")
+
+        try:
+            resolved_import_path = _resolve_workspace_import_path(import_path_text)
+        except ValueError as e:
+            console.print()
+            console.print(f"  [{Colors.ERROR}]{Icons.ERROR} {e}[/]")
+            console.print()
+            return _step_workspace(wizard)
+
+        if not resolved_import_path.exists():
+            console.print()
+            console.print(f"  [{Colors.ERROR}]{Icons.ERROR} File not found: {resolved_import_path}[/]")
+            console.print()
+            return _step_workspace(wizard)
+
+        console.print()
+        imported_name_override = prompt.text(
+            "Workspace name (leave empty to use original)",
+            default="",
+            required=False,
+        ).strip()
+
+        existing_names = set(ConfigManager().list_workspaces())
+
+        try:
+            config_manager = ConfigManager()
+            config_manager.import_workspace(
+                resolved_import_path,
+                name=imported_name_override if imported_name_override else None,
+            )
+        except Exception as e:
+            console.print()
+            console.print(f"  [{Colors.ERROR}]{Icons.ERROR} Failed to import workspace: {e}[/]")
+            console.print()
+            return _step_workspace(wizard)
+
+        imported_name = imported_name_override
+        if not imported_name:
+            updated_names = set(config_manager.list_workspaces())
+            new_names = sorted(updated_names - existing_names)
+            if len(new_names) == 1:
+                imported_name = new_names[0]
+
+        console.print()
+        console.print(
+            f"  [{Colors.SUCCESS}]{Icons.SUCCESS} Workspace imported from: {resolved_import_path}[/]"
+        )
+
+        if imported_name:
+            try:
+                workspace_path = config_manager.get_workspace_path(imported_name)
+                set_workspace(workspace_path)
+                _sync_workspace_selection(imported_name)
+                wizard.context["workspace_path"] = str(workspace_path)
+                wizard.context["workspace_name"] = imported_name
+                wizard.context["workspace_existing"] = True
+
+                console.print(f"  [{Colors.SUCCESS}]{Icons.SUCCESS} Selected workspace: {imported_name}[/]")
+                console.print(f"  [{Colors.DIM}]Path: {workspace_path}[/]")
+                return str(workspace_path)
+            except Exception:
+                pass
+
+        console.print(f"  [{Colors.INFO}]{Icons.INFO} Choose the imported workspace from the list.[/]")
+        console.print()
+        return _step_workspace(wizard)
     
     elif action == "Delete workspace":
         workspace_names = [ws["name"] for ws in workspaces]
@@ -1335,7 +1468,7 @@ def run_onboarding(
         WizardStep(
             key="workspace",
             title="Workspace Setup",
-            description="Select, create, or delete a workspace",
+            description="Select, create, delete, or import a workspace",
             action=_step_workspace,
             skippable=False,
         ),
