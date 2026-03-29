@@ -14,10 +14,13 @@ stored in the workspace config.
 import json
 import logging
 import os
+import platform
+import socket
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, Optional
+from uuid import uuid4
 
 logger = logging.getLogger(__name__)
 
@@ -62,6 +65,31 @@ def clear_enterprise_config() -> None:
     path = _get_enterprise_config_path()
     if path.exists():
         path.unlink()
+
+
+def _get_or_create_client_instance_id() -> str:
+    """Return a stable CLI client instance id stored in enterprise config."""
+    cfg = load_enterprise_config()
+    client_instance_id = cfg.get("client_instance_id")
+    if isinstance(client_instance_id, str) and client_instance_id.strip():
+        return client_instance_id.strip()
+
+    client_instance_id = f"ccli-{uuid4()}"
+    cfg["client_instance_id"] = client_instance_id
+    save_enterprise_config(cfg)
+    return client_instance_id
+
+
+def _build_client_metadata() -> Dict[str, str]:
+    """Build lightweight runtime metadata for enterprise-side traceability."""
+    return {
+        "source": "caracal-cli",
+        "hostname": socket.gethostname(),
+        "platform": platform.system().lower(),
+        "platform_release": platform.release(),
+        "python_version": platform.python_version(),
+        "env_mode": (os.environ.get("CARACAL_ENV_MODE") or "dev").strip().lower(),
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -277,7 +305,11 @@ class EnterpriseLicenseValidator:
         # --- Try Enterprise API ---
         try:
             url = f"{self._api_url}/api/license/validate"
-            payload: Dict[str, Any] = {"license_key": license_token}
+            payload: Dict[str, Any] = {
+                "license_key": license_token,
+                "client_instance_id": _get_or_create_client_instance_id(),
+                "client_metadata": _build_client_metadata(),
+            }
             if password:
                 payload["password"] = password
 
@@ -434,6 +466,7 @@ class EnterpriseLicenseValidator:
             "enterprise_api_url": enterprise_api_url,
             "valid": True,
             "validated_at": datetime.utcnow().isoformat(),
+            "client_instance_id": _get_or_create_client_instance_id(),
         }
         # Never persist plaintext password — only a flag that one was used
         if password:

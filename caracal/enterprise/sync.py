@@ -34,6 +34,8 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from caracal.enterprise.license import (
+    _build_client_metadata,
+    _get_or_create_client_instance_id,
     _get_json,
     _post_json,
     load_enterprise_config,
@@ -435,6 +437,7 @@ class EnterpriseSyncClient:
         ).rstrip("/")
         self._sync_api_key = sync_api_key or cfg.get("sync_api_key")
         self._license_key = license_key or cfg.get("license_key")
+        self._client_instance_id = cfg.get("client_instance_id") or _get_or_create_client_instance_id()
 
     @property
     def is_configured(self) -> bool:
@@ -489,6 +492,8 @@ class EnterpriseSyncClient:
             )
 
         payload: Dict[str, Any] = {
+            "client_instance_id": self._client_instance_id,
+            "client_metadata": _build_client_metadata(),
             "principals": principals,
             "policies": policies,
             "mandates": mandates,
@@ -512,6 +517,7 @@ class EnterpriseSyncClient:
                 data=data,
                 headers={
                     "Content-Type": "application/json",
+                    "X-Caracal-Client-Id": self._client_instance_id,
                 },
                 method="POST",
             )
@@ -590,6 +596,7 @@ class EnterpriseSyncClient:
                 # X-Sync-Api-Key for dedicated CLI auth; never send it as Bearer
                 # (Bearer is reserved for JWT tokens from the dashboard login)
                 headers["X-Sync-Api-Key"] = self._sync_api_key
+            headers["X-Caracal-Client-Id"] = self._client_instance_id
 
             result = _get_json_with_retry(url, headers=headers)
 
@@ -651,6 +658,7 @@ class EnterpriseSyncClient:
             
             if self._sync_api_key:
                 headers["X-Sync-Api-Key"] = self._sync_api_key
+                headers["X-Caracal-Client-Id"] = self._client_instance_id
                 return _get_json(url, headers=headers)
             elif self._license_key:
                 url += f"?license_key={self._license_key}"
