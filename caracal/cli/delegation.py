@@ -15,6 +15,7 @@ from uuid import UUID
 import click
 
 from caracal.core.delegation import DelegationTokenManager
+from caracal.core.principal_keys import generate_and_store_principal_keypair
 from caracal.db.connection import get_db_manager
 from caracal.db.models import AuthorityPolicy, Principal
 from caracal.exceptions import CaracalError, PrincipalNotFoundError
@@ -26,6 +27,7 @@ class _PrincipalView:
 
     principal_id: str
     metadata: dict
+    public_key: str | None = None
 
 
 class _DBPrincipalRegistryAdapter:
@@ -49,6 +51,7 @@ class _DBPrincipalRegistryAdapter:
                 return _PrincipalView(
                     principal_id=str(row.principal_id),
                     metadata=row.principal_metadata or {},
+                    public_key=row.public_key_pem,
                 )
         finally:
             db_manager.close()
@@ -68,12 +71,16 @@ class _DBPrincipalRegistryAdapter:
                     raise PrincipalNotFoundError(f"Principal not found: {principal_id}")
 
                 metadata = dict(row.principal_metadata or {})
-                if "private_key_pem" in metadata and "public_key_pem" in metadata:
+                has_private_material = any(
+                    k in metadata
+                    for k in ("private_key_ref", "aws_kms_ciphertext_b64", "private_key_pem")
+                )
+                if row.public_key_pem and has_private_material:
                     return
 
-                private_key_pem, public_key_pem = delegation_manager.generate_key_pair()
-                metadata["private_key_pem"] = private_key_pem.decode("utf-8")
-                metadata["public_key_pem"] = public_key_pem.decode("utf-8")
+                generated = generate_and_store_principal_keypair(row.principal_id)
+                row.public_key_pem = generated.public_key_pem
+                metadata.update(generated.storage.metadata)
                 row.principal_metadata = metadata
         finally:
             db_manager.close()
