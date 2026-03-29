@@ -13,6 +13,7 @@ Provides workspace management:
 """
 
 import os
+from pathlib import Path
 from typing import Optional
 from rich.console import Console
 from rich.panel import Panel
@@ -23,6 +24,52 @@ from caracal.flow.theme import Colors, Icons
 from caracal.flow.state import FlowState, RecentAction
 from caracal.flow.components.menu import Menu, MenuItem
 from caracal.flow.screens._workspace_helpers import list_workspace_configs, set_default_workspace
+
+
+_CONTAINER_RUNTIME_ENV = "CARACAL_RUNTIME_IN_CONTAINER"
+_HOST_IO_ROOT_ENV = "CARACAL_HOST_IO_ROOT"
+_DEFAULT_HOST_IO_ROOT = Path("/caracal-host")
+
+
+def _in_container_runtime() -> bool:
+    return os.environ.get(_CONTAINER_RUNTIME_ENV, "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _host_io_root() -> Path:
+    return Path(os.environ.get(_HOST_IO_ROOT_ENV, str(_DEFAULT_HOST_IO_ROOT))).resolve(strict=False)
+
+
+def _resolve_workspace_transfer_path(raw_path: str) -> Path:
+    candidate = Path(raw_path).expanduser()
+    if not _in_container_runtime():
+        return candidate.resolve(strict=False)
+
+    root = _host_io_root()
+    if candidate.is_absolute():
+        resolved = candidate.resolve(strict=False)
+        if resolved == root or root in resolved.parents:
+            return resolved
+        raise ValueError(
+            f"In container runtime, workspace import/export paths must be under {root}."
+        )
+
+    return (root / candidate).resolve(strict=False)
+
+
+def _default_export_path(workspace_name: str) -> str:
+    if _in_container_runtime():
+        return str((_host_io_root() / f"{workspace_name}_export.tar.gz").resolve(strict=False))
+    return f"./{workspace_name}_export.tar.gz"
+
+
+def _path_scope_label(path: Path) -> str:
+    if not _in_container_runtime():
+        return "host path"
+
+    root = _host_io_root()
+    if path == root or root in path.parents:
+        return "container path (host-shared mount)"
+    return "container path"
 
 
 def show_workspace_manager(console: Console, state: FlowState) -> None:
@@ -348,7 +395,6 @@ def _delete_workspace(console: Console, state: FlowState) -> None:
 def _export_workspace(console: Console, state: FlowState) -> None:
     """Export workspace to file."""
     from caracal.deployment.config_manager import ConfigManager
-    from pathlib import Path
     
     console.clear()
     console.print(Panel(
@@ -384,10 +430,17 @@ def _export_workspace(console: Console, state: FlowState) -> None:
         if result and result.key != "back":
             # Prompt for export path
             console.print()
+            if _in_container_runtime():
+                console.print(
+                    f"  [{Colors.DIM}]Export target is host-shared path under {_host_io_root()}[/]"
+                )
             export_path = Prompt.ask(
                 f"[{Colors.INFO}]Export path[/]",
-                default=f"./{result.key}_export.tar.gz"
+                default=_default_export_path(result.key)
             )
+
+            resolved_export_path = _resolve_workspace_transfer_path(export_path)
+            resolved_export_path.parent.mkdir(parents=True, exist_ok=True)
             
             # Ask about including secrets
             include_secrets = Confirm.ask(
@@ -396,10 +449,12 @@ def _export_workspace(console: Console, state: FlowState) -> None:
             )
             
             # Export
-            config_mgr.export_workspace(result.key, Path(export_path), include_secrets=include_secrets)
+            config_mgr.export_workspace(result.key, resolved_export_path, include_secrets=include_secrets)
             
             console.print()
-            console.print(f"  [{Colors.SUCCESS}]{Icons.SUCCESS} Workspace exported to: {export_path}[/]")
+            console.print(
+                f"  [{Colors.SUCCESS}]{Icons.SUCCESS} Workspace exported to ({_path_scope_label(resolved_export_path)}): {resolved_export_path}[/]"
+            )
             
             state.add_recent_action(RecentAction.create(
                 "workspace_export",
@@ -419,7 +474,6 @@ def _export_workspace(console: Console, state: FlowState) -> None:
 def _import_workspace(console: Console, state: FlowState) -> None:
     """Import workspace from file."""
     from caracal.deployment.config_manager import ConfigManager
-    from pathlib import Path
     
     console.clear()
     console.print(Panel(
@@ -431,10 +485,18 @@ def _import_workspace(console: Console, state: FlowState) -> None:
     
     try:
         # Prompt for import path
+        if _in_container_runtime():
+            console.print(
+                f"  [{Colors.DIM}]Import source must be under host-shared path {_host_io_root()}[/]"
+            )
         import_path = Prompt.ask(f"[{Colors.INFO}]Import file path[/]")
-        
-        if not Path(import_path).exists():
-            console.print(f"  [{Colors.ERROR}]{Icons.ERROR} File not found: {import_path}[/]")
+
+        resolved_import_path = _resolve_workspace_transfer_path(import_path)
+
+        if not resolved_import_path.exists():
+            console.print(
+                f"  [{Colors.ERROR}]{Icons.ERROR} File not found ({_path_scope_label(resolved_import_path)}): {resolved_import_path}[/]"
+            )
             input()
             return
         
@@ -447,17 +509,25 @@ def _import_workspace(console: Console, state: FlowState) -> None:
         
         # Import
         config_mgr = ConfigManager()
-        config_mgr.import_workspace(Path(import_path), name=name if name else None)
+        config_mgr.import_workspace(resolved_import_path, name=name if name else None)
         
         console.print()
-        console.print(f"  [{Colors.SUCCESS}]{Icons.SUCCESS} Workspace imported successfully[/]")
+        console.print(
+            f"  [{Colors.SUCCESS}]{Icons.SUCCESS} Workspace imported successfully from ({_path_scope_label(resolved_import_path)}): {resolved_import_path}[/]"
+        )
         
         state.add_recent_action(RecentAction.create(
             "workspace_import",
-            f"Imported workspace from: {import_path}",
+            f"Imported workspace from: {resolved_import_path}",
             success=True
         ))
-        
+    except ValueError as e:
+        console.print(f"  [{Colors.ERROR}]{Icons.ERROR} Error: {e}[/]")
+        state.add_recent_action(RecentAction.create(
+            "workspace_import",
+            "Failed to import workspace",
+            success=False
+        ))
     except Exception as e:
         console.print(f"  [{Colors.ERROR}]{Icons.ERROR} Error: {e}[/]")
         state.add_recent_action(RecentAction.create(
