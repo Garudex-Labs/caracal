@@ -23,6 +23,7 @@ RUN python -m pip install --upgrade pip wheel setuptools && \
 FROM python:3.12-slim
 
 ENV HOME=/home/caracal \
+    CARACAL_HOME=/home/caracal/.caracal \
     LANG=C.UTF-8 \
     LC_ALL=C.UTF-8 \
     PIP_NO_CACHE_DIR=1 \
@@ -44,7 +45,7 @@ COPY --from=builder /wheels /wheels
 RUN python -m pip install --upgrade pip && \
     python -m pip install /wheels/*.whl && \
     rm -rf /wheels && \
-    mkdir -p /home/caracal/.caracal && \
+    mkdir -p "${CARACAL_HOME}" && \
     chown -R caracal:caracal /home/caracal
 
 USER caracal
