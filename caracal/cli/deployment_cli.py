@@ -53,6 +53,10 @@ from caracal.provider.workspace import (
 logger = structlog.get_logger(__name__)
 console = Console()
 
+_CONTAINER_RUNTIME_ENV = "CARACAL_RUNTIME_IN_CONTAINER"
+_HOST_IO_ROOT_ENV = "CARACAL_HOST_IO_ROOT"
+_DEFAULT_HOST_IO_ROOT = Path("/caracal-host")
+
 
 # Output formatting helpers
 def format_output(data, format_type: str = "table"):
@@ -62,6 +66,39 @@ def format_output(data, format_type: str = "table"):
     else:
         # Default to table or text output
         return data
+
+
+def _in_container_runtime() -> bool:
+    return os.environ.get(_CONTAINER_RUNTIME_ENV, "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _host_io_root() -> Path:
+    return Path(os.environ.get(_HOST_IO_ROOT_ENV, str(_DEFAULT_HOST_IO_ROOT))).resolve(strict=False)
+
+
+def _resolve_workspace_transfer_path(path: Path) -> Path:
+    candidate = Path(path).expanduser()
+    if not _in_container_runtime():
+        return candidate.resolve(strict=False)
+
+    root = _host_io_root()
+    if candidate.is_absolute():
+        resolved = candidate.resolve(strict=False)
+        if resolved == root or root in resolved.parents:
+            return resolved
+        raise ValueError(f"In container runtime, workspace import/export paths must be under {root}.")
+
+    return (root / candidate).resolve(strict=False)
+
+
+def _path_scope_label(path: Path) -> str:
+    if not _in_container_runtime():
+        return "host path"
+
+    root = _host_io_root()
+    if path == root or root in path.parents:
+        return "container path (host-shared mount)"
+    return "container path"
 
 
 def _resolve_workspace_name(config_manager: ConfigManager, workspace: Optional[str]) -> Optional[str]:
@@ -462,13 +499,17 @@ def workspace_export(name: str, path: Path, include_secrets: bool):
     """Export workspace configuration."""
     try:
         config_manager = ConfigManager()
-        config_manager.export_workspace(name, path, include_secrets)
+        resolved_path = _resolve_workspace_transfer_path(path)
+        resolved_path.parent.mkdir(parents=True, exist_ok=True)
+        config_manager.export_workspace(name, resolved_path, include_secrets)
         
         console.print(f"[green]✓[/green] Workspace exported: {name}")
-        console.print(f"  Export file: {path}")
+        console.print(f"  Export file ({_path_scope_label(resolved_path)}): {resolved_path}")
         if include_secrets:
             console.print("  [yellow]Warning:[/yellow] Secrets included in export")
-            
+    except ValueError as e:
+        console.print(f"[red]Error:[/red] {e}")
+        sys.exit(1)
     except WorkspaceNotFoundError as e:
         console.print(f"[red]Error:[/red] {e}")
         sys.exit(1)
@@ -479,19 +520,28 @@ def workspace_export(name: str, path: Path, include_secrets: bool):
 
 
 @workspace_group.command(name="import")
-@click.argument("path", type=click.Path(exists=True, path_type=Path))
+@click.argument("path", type=click.Path(path_type=Path))
 @click.option("--name", help="Workspace name (uses name from export if not provided)")
 def workspace_import(path: Path, name: Optional[str]):
     """Import workspace from backup."""
     try:
         config_manager = ConfigManager()
-        config_manager.import_workspace(path, name)
+        resolved_path = _resolve_workspace_transfer_path(path)
+        if not resolved_path.exists():
+            console.print(
+                f"[red]Error:[/red] Import file not found ({_path_scope_label(resolved_path)}): {resolved_path}"
+            )
+            sys.exit(1)
+
+        config_manager.import_workspace(resolved_path, name)
         
         console.print(f"[green]✓[/green] Workspace imported")
-        console.print(f"  Import file: {path}")
+        console.print(f"  Import file ({_path_scope_label(resolved_path)}): {resolved_path}")
         if name:
             console.print(f"  Workspace name: {name}")
-            
+    except ValueError as e:
+        console.print(f"[red]Error:[/red] {e}")
+        sys.exit(1)
     except WorkspaceAlreadyExistsError as e:
         console.print(f"[red]Error:[/red] {e}")
         sys.exit(1)
