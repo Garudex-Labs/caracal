@@ -451,10 +451,6 @@ class MCPAdapter:
             CaracalError: If agent ID not found in context (fail-closed)
         """
         principal_id = mcp_context.principal_id
-        
-        if not principal_id:
-            # Try to get from metadata as fallback
-            principal_id = mcp_context.get("caracal_principal_id")
             
         if not principal_id:
             # Fail closed: deny operation if agent ID cannot be determined (Requirement 23.3)

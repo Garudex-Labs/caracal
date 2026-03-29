@@ -58,6 +58,7 @@ database:
 
 | Variable | Description | Default | Required |
 |----------|-------------|---------|----------|
+| `CARACAL_HOME` | Primary storage root for keystore/workspaces/ledger/system domains | `~/.caracal` | Recommended |
 | `CARACAL_AGENT_REGISTRY` | Path to agents.json | ~/.caracal/agents.json | No |
 | `CARACAL_POLICY_STORE` | Path to policies.json | ~/.caracal/policies.json | No |
 | `CARACAL_LEDGER` | Path to ledger.jsonl | ~/.caracal/ledger.jsonl | No |
@@ -79,8 +80,7 @@ database:
 | Variable | Description | Default | Required |
 |----------|-------------|---------|----------|
 | `CARACAL_PRINCIPAL_KEY_BACKEND` | Principal key backend (`local` or `aws_kms`) | local | No |
-| `CARACAL_PRINCIPAL_KEY_STRICT_AWS` | When `true`, fail closed if AWS KMS backend cannot store keys (no local downgrade) | false | No |
-| `CARACAL_KEYSTORE_DIR` | Local directory for principal private keys | `<active-workspace>/keys/principals` | No |
+| `CARACAL_KEYSTORE_DIR` | Local directory for principal private keys | `${CARACAL_HOME}/keystore/principals` | No |
 | `CARACAL_AWS_KMS_KEY_ID` | AWS KMS key ID/ARN for principal key encryption | - | No |
 | `CARACAL_AWS_KMS_REGION` | AWS region for KMS client | `AWS_REGION` | No |
 
@@ -89,6 +89,14 @@ database:
 | Variable | Description | Default | Required |
 |----------|-------------|---------|----------|
 | `CARACAL_VAULT_MEK_SECRET` | Root secret used to derive Starter-tier CaracalVault MEKs (must be strong random) | - | Yes (when using CaracalVault) |
+
+## Config Encryption Key Management
+
+- Config encryption no longer requires `CARACAL_MASTER_PASSWORD`.
+- Caracal generates a 32-byte master key at `${CARACAL_HOME}/keystore/master_key`.
+- Installation salt is stored at `${CARACAL_HOME}/keystore/salt.bin`.
+- DEKs are stored wrapped under `${CARACAL_HOME}/keystore/encrypted_keys/`.
+- Master key lifecycle events are appended at `${CARACAL_HOME}/ledger/audit_logs/key_events.jsonl`.
 
 ### Runtime Mode Logging Rules
 
@@ -127,14 +135,14 @@ mcp_adapter:
 
 logging:
   level: ${LOG_LEVEL:INFO}
-  file: ${LOG_FILE:~/.caracal/caracal.log}
+  file: ${LOG_FILE:${CARACAL_HOME:~/.caracal}/logs/caracal.log}
 
 storage:
-  principal_registry: ${CARACAL_AGENT_REGISTRY:~/.caracal/agents.json}
-  policy_store: ${CARACAL_POLICY_STORE:~/.caracal/policies.json}
-  ledger: ${CARACAL_LEDGER:~/.caracal/ledger.jsonl}
+  principal_registry: ${CARACAL_AGENT_REGISTRY:${CARACAL_HOME:~/.caracal}/agents.json}
+  policy_store: ${CARACAL_POLICY_STORE:${CARACAL_HOME:~/.caracal}/policies.json}
+  ledger: ${CARACAL_LEDGER:${CARACAL_HOME:~/.caracal}/ledger.jsonl}
 
-  backup_dir: ${CARACAL_BACKUP_DIR:~/.caracal/backups}
+  backup_dir: ${CARACAL_BACKUP_DIR:${CARACAL_HOME:~/.caracal}/backups}
 ```
 
 ## Environment Variable Precedence
