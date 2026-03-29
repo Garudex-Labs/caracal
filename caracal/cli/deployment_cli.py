@@ -91,6 +91,15 @@ def _resolve_workspace_transfer_path(path: Path) -> Path:
     return (root / candidate).resolve(strict=False)
 
 
+def _resolve_workspace_lock_key(lock_key: Optional[str]) -> Optional[str]:
+    """Resolve workspace archive lock key from option or environment."""
+    candidate = lock_key if lock_key is not None else os.environ.get("CARACAL_WORKSPACE_LOCK_KEY")
+    if candidate is None:
+        return None
+    normalized = candidate.strip()
+    return normalized if normalized else None
+
+
 def _path_scope_label(path: Path) -> str:
     if not _in_container_runtime():
         return "host path"
@@ -495,18 +504,30 @@ def workspace_delete(name: str, backup: bool, force: bool):
 @click.argument("name")
 @click.argument("path", type=click.Path(path_type=Path))
 @click.option("--include-secrets", is_flag=True, help="Include encrypted secrets in export")
-def workspace_export(name: str, path: Path, include_secrets: bool):
+@click.option(
+    "--lock-key",
+    help="Archive lock key. If omitted, reads CARACAL_WORKSPACE_LOCK_KEY env var.",
+)
+def workspace_export(name: str, path: Path, include_secrets: bool, lock_key: Optional[str]):
     """Export workspace configuration."""
     try:
         config_manager = ConfigManager()
         resolved_path = _resolve_workspace_transfer_path(path)
         resolved_path.parent.mkdir(parents=True, exist_ok=True)
-        config_manager.export_workspace(name, resolved_path, include_secrets)
+        resolved_lock_key = _resolve_workspace_lock_key(lock_key)
+        config_manager.export_workspace(
+            name,
+            resolved_path,
+            include_secrets=include_secrets,
+            lock_key=resolved_lock_key,
+        )
         
         console.print(f"[green]✓[/green] Workspace exported: {name}")
         console.print(f"  Export file ({_path_scope_label(resolved_path)}): {resolved_path}")
         if include_secrets:
             console.print("  [yellow]Warning:[/yellow] Secrets included in export")
+        if resolved_lock_key:
+            console.print("  [green]Locked:[/green] Archive is protected with import key")
     except ValueError as e:
         console.print(f"[red]Error:[/red] {e}")
         sys.exit(1)
@@ -522,7 +543,11 @@ def workspace_export(name: str, path: Path, include_secrets: bool):
 @workspace_group.command(name="import")
 @click.argument("path", type=click.Path(path_type=Path))
 @click.option("--name", help="Workspace name (uses name from export if not provided)")
-def workspace_import(path: Path, name: Optional[str]):
+@click.option(
+    "--lock-key",
+    help="Archive lock key for locked exports. If omitted, reads CARACAL_WORKSPACE_LOCK_KEY env var.",
+)
+def workspace_import(path: Path, name: Optional[str], lock_key: Optional[str]):
     """Import workspace from backup."""
     try:
         config_manager = ConfigManager()
@@ -533,7 +558,8 @@ def workspace_import(path: Path, name: Optional[str]):
             )
             sys.exit(1)
 
-        config_manager.import_workspace(resolved_path, name)
+        resolved_lock_key = _resolve_workspace_lock_key(lock_key)
+        config_manager.import_workspace(resolved_path, name=name, lock_key=resolved_lock_key)
         
         console.print(f"[green]✓[/green] Workspace imported")
         console.print(f"  Import file ({_path_scope_label(resolved_path)}): {resolved_path}")

@@ -457,6 +457,12 @@ def _step_workspace(wizard: Wizard) -> Any:
             required=False,
         ).strip()
 
+        import_lock_key = prompt.password(
+            "Import key (leave empty for unlocked archive)",
+            default="",
+        )
+        normalized_import_lock_key = import_lock_key.strip() if import_lock_key else None
+
         existing_names = set(ConfigManager().list_workspaces())
 
         try:
@@ -464,6 +470,7 @@ def _step_workspace(wizard: Wizard) -> Any:
             config_manager.import_workspace(
                 resolved_import_path,
                 name=imported_name_override if imported_name_override else None,
+                lock_key=normalized_import_lock_key,
             )
         except Exception as e:
             console.print()
