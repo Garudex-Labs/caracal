@@ -13,6 +13,7 @@ Provides workspace management:
 """
 
 import os
+import time
 from pathlib import Path
 from typing import Optional
 from rich.console import Console
@@ -190,11 +191,17 @@ def _create_workspace(console: Console, state: FlowState) -> None:
 
         # Auto-apply PostgreSQL settings from environment/defaults (no prompt),
         # matching onboarding's non-interactive behavior.
-        host = os.getenv("CARACAL_DB_HOST") or "localhost"
+        in_container_runtime = os.getenv("CARACAL_RUNTIME_IN_CONTAINER", "").strip().lower() in {
+            "1",
+            "true",
+            "yes",
+            "on",
+        }
+        host = os.getenv("CARACAL_DB_HOST") or ("postgres" if in_container_runtime else "localhost")
         port_raw = os.getenv("CARACAL_DB_PORT") or "5432"
         database = os.getenv("CARACAL_DB_NAME") or "caracal"
         user = os.getenv("CARACAL_DB_USER") or "caracal"
-        password = os.getenv("CARACAL_DB_PASSWORD") or ""
+        password = os.getenv("CARACAL_DB_PASSWORD") or ("caracal" if in_container_runtime else "")
 
         try:
             port = int(port_raw)
@@ -213,14 +220,25 @@ def _create_workspace(console: Console, state: FlowState) -> None:
             pool_timeout=30,
         )
 
-        try:
-            if password:
-                config_mgr.store_secret("postgres_password", password, name)
-            config_mgr.set_postgres_config(postgres)
-        except Exception:
+        # Store secret first so connectivity checks can resolve password_ref.
+        if password:
+            config_mgr.store_secret("postgres_password", password, name)
+
+        last_error: Optional[Exception] = None
+        for _attempt in range(3):
+            try:
+                config_mgr.set_postgres_config(postgres)
+                last_error = None
+                break
+            except Exception as exc:
+                last_error = exc
+                # Allow PostgreSQL startup race to settle when runtime is just booting.
+                time.sleep(0.8)
+
+        if last_error is not None:
             # Do not block workspace creation when DB is temporarily unavailable.
             console.print(
-                f"  [{Colors.WARNING}]{Icons.WARNING} Workspace created, but PostgreSQL auto-configuration could not be validated[/]"
+                f"  [{Colors.WARNING}]{Icons.WARNING} Workspace created, but PostgreSQL auto-configuration could not be validated yet: {last_error}[/]"
             )
         
         console.print()
