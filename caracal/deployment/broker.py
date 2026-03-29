@@ -98,11 +98,12 @@ class ProviderConfig:
     enforce_scoped_requests: bool = False
 
     def __post_init__(self) -> None:
-        # Preserve backward compatibility with legacy api_key_ref-based configs.
+        if self.api_key_ref and self.credential_ref and self.api_key_ref != self.credential_ref:
+            raise ValueError("ProviderConfig api_key_ref and credential_ref must match when both are provided")
+
         if self.credential_ref is None and self.api_key_ref:
             self.credential_ref = self.api_key_ref
-        if self.api_key_ref is None and self.credential_ref:
-            self.api_key_ref = self.credential_ref
+
         self.provider_definition = resolve_provider_definition_id(
             service_type=self.provider_type,
             requested_definition=self.provider_definition,
