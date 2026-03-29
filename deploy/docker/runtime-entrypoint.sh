@@ -4,7 +4,7 @@ set -eu
 CARACAL_HOME="${CARACAL_HOME:-${HOME:-/home/caracal}/.caracal}"
 STATE_DIR="${CARACAL_HOME}"
 CONFIG_PATH="${CARACAL_CONFIG_PATH:-${STATE_DIR}/config.yaml}"
-HOST_IO_ROOT="${CARACAL_HOST_IO_ROOT:-/caracal-host}"
+HOST_IO_ROOT="${CARACAL_HOST_IO_ROOT:-/caracal-host-io}"
 
 mkdir -p "${STATE_DIR}"
 mkdir -p "$(dirname "${CONFIG_PATH}")"
