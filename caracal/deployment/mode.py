@@ -21,6 +21,7 @@ from caracal.deployment.exceptions import (
     ModeConfigurationError,
     ModeDetectionError,
 )
+from caracal.storage.layout import resolve_caracal_home
 
 logger = structlog.get_logger(__name__)
 
@@ -56,7 +57,7 @@ class ModeManager:
     ENV_VAR_NAME = "CARACAL_MODE"
     
     # Configuration directory and file paths
-    CONFIG_DIR = Path.home() / ".caracal"
+    CONFIG_DIR = resolve_caracal_home()
     CONFIG_FILE = CONFIG_DIR / "config.toml"
     
     # Default mode when no configuration is found
