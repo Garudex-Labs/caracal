@@ -11,7 +11,6 @@ from dataclasses import dataclass
 
 
 ENV_MODE_VAR = "CARACAL_ENV_MODE"
-ENV_MODE_FALLBACK_VARS = ("CARACAL_ENV", "APP_ENV", "ENVIRONMENT")
 DEBUG_LOGS_VAR = "CARACAL_DEBUG_LOGS"
 JSON_LOGS_VAR = "CARACAL_JSON_LOGS"
 
@@ -47,11 +46,6 @@ def resolve_runtime_mode(explicit_mode: str | None = None) -> str:
         return _MODE_ALIASES.get(explicit_mode.strip().lower(), MODE_DEV)
 
     raw_mode = os.getenv(ENV_MODE_VAR)
-    if not raw_mode:
-        for name in ENV_MODE_FALLBACK_VARS:
-            raw_mode = os.getenv(name)
-            if raw_mode:
-                break
 
     if not raw_mode:
         return MODE_DEV

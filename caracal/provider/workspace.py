@@ -34,32 +34,6 @@ class WorkspaceProviderBinding:
     @property
     def definition(self):
         definition_payload = self.entry.get("definition")
-        if not isinstance(definition_payload, dict):
-            # Backward compatibility for older provider registry entries.
-            resources = self.entry.get("resources") or []
-            actions = self.entry.get("actions") or []
-            if resources and actions:
-                definition_payload = {
-                    "definition_id": self.definition_id,
-                    "service_type": self.service_type,
-                    "display_name": self.provider_name,
-                    "auth_scheme": str(self.entry.get("auth_scheme") or "api_key"),
-                    "default_base_url": self.entry.get("base_url"),
-                    "resources": {
-                        str(resource_id): {
-                            "description": str(resource_id),
-                            "actions": {
-                                str(action_id): {
-                                    "description": str(action_id),
-                                    "method": "POST",
-                                    "path_prefix": "/",
-                                }
-                                for action_id in actions
-                            },
-                        }
-                        for resource_id in resources
-                    },
-                }
         if isinstance(definition_payload, dict):
             return provider_definition_from_mapping(
                 definition_payload,
