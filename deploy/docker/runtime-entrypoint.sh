@@ -1,8 +1,8 @@
 #!/bin/sh
 set -eu
 
-CARACAL_HOME="${HOME:-/home/caracal}"
-STATE_DIR="${CARACAL_HOME}/.caracal"
+CARACAL_HOME="${CARACAL_HOME:-${HOME:-/home/caracal}/.caracal}"
+STATE_DIR="${CARACAL_HOME}"
 CONFIG_PATH="${CARACAL_CONFIG_PATH:-${STATE_DIR}/config.yaml}"
 
 mkdir -p "${STATE_DIR}"
@@ -13,6 +13,7 @@ if [ ! -f "${CONFIG_PATH}" ] && [ -f /opt/caracal/config/config.example.yaml ]; 
 fi
 
 export CARACAL_CONFIG_PATH="${CONFIG_PATH}"
+export CARACAL_HOME="${STATE_DIR}"
 
 if [ "$#" -eq 0 ]; then
     set -- caracal
