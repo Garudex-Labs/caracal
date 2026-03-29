@@ -74,6 +74,22 @@ database:
 | `CARACAL_DEBUG_LOGS` | Enable debug logs (effective only in `dev`) | false | No |
 | `CARACAL_JSON_LOGS` | Force JSON logs in `dev` mode | false | No |
 
+## Principal Key Storage
+
+| Variable | Description | Default | Required |
+|----------|-------------|---------|----------|
+| `CARACAL_PRINCIPAL_KEY_BACKEND` | Principal key backend (`local` or `aws_kms`) | local | No |
+| `CARACAL_PRINCIPAL_KEY_STRICT_AWS` | When `true`, fail closed if AWS KMS backend cannot store keys (no local downgrade) | false | No |
+| `CARACAL_KEYSTORE_DIR` | Local directory for principal private keys | `<active-workspace>/keys/principals` | No |
+| `CARACAL_AWS_KMS_KEY_ID` | AWS KMS key ID/ARN for principal key encryption | - | No |
+| `CARACAL_AWS_KMS_REGION` | AWS region for KMS client | `AWS_REGION` | No |
+
+## Vault Master Key
+
+| Variable | Description | Default | Required |
+|----------|-------------|---------|----------|
+| `CARACAL_VAULT_MEK_SECRET` | Root secret used to derive Starter-tier CaracalVault MEKs (must be strong random) | - | Yes (when using CaracalVault) |
+
 ### Runtime Mode Logging Rules
 
 - `dev`: human-readable logs by default; DEBUG allowed only when `CARACAL_DEBUG_LOGS=true`.
