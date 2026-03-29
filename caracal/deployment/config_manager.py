@@ -211,18 +211,27 @@ class ConfigManager:
             return self._encryption_key
         
         try:
-            # Try to get key from system keyring
-            key_str = keyring.get_password(self.KEYRING_SERVICE, self.KEYRING_USERNAME)
-            
+            # Try to get key from system keyring. In containers this may be unavailable.
+            try:
+                key_str = keyring.get_password(self.KEYRING_SERVICE, self.KEYRING_USERNAME)
+            except Exception as e:
+                logger.warning(
+                    "keyring_read_failed",
+                    error=str(e),
+                    fallback="using_pbkdf2"
+                )
+                self._encryption_key = self._derive_key_pbkdf2()
+                return self._encryption_key
+
             if key_str:
                 # Decode hex string to bytes
                 self._encryption_key = bytes.fromhex(key_str)
                 logger.debug("encryption_key_retrieved_from_keyring")
                 return self._encryption_key
-            
+
             # Generate new key if not found
             key = Fernet.generate_key()
-            
+
             # Try to store in keyring
             try:
                 keyring.set_password(
@@ -239,10 +248,10 @@ class ConfigManager:
                 )
                 # Fallback: derive key from system information
                 key = self._derive_key_pbkdf2()
-            
+
             self._encryption_key = key
             return self._encryption_key
-            
+
         except Exception as e:
             logger.error(
                 "encryption_key_retrieval_failed",
