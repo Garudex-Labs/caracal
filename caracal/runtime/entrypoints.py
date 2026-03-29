@@ -16,12 +16,14 @@ import sys
 from pathlib import Path
 from typing import Sequence
 
+from caracal.storage.layout import resolve_caracal_home
+
 COMPOSE_FILE_ENV = "CARACAL_DOCKER_COMPOSE_FILE"
 IN_CONTAINER_ENV = "CARACAL_RUNTIME_IN_CONTAINER"
 NETWORK_IN_USE_MARKER = "Resource is still in use"
 PURGE_CONFIRMATION_TEXT = "purge"
 
-_EMBEDDED_COMPOSE_FILE = Path.home() / ".caracal" / "runtime" / "docker-compose.image.yml"
+_EMBEDDED_COMPOSE_FILE = resolve_caracal_home(require_explicit=False) / "runtime" / "docker-compose.image.yml"
 _EMBEDDED_COMPOSE_CONTENT = """name: caracal
 
 services:
@@ -86,7 +88,7 @@ services:
         environment:
             HOME: /home/caracal
             CARACAL_RUNTIME_IN_CONTAINER: "1"
-            CARACAL_WORKSPACE_ROOT: /home/caracal/.caracal
+            CARACAL_HOME: /home/caracal/.caracal
             CARACAL_API_URL: http://mcp:8080
             CARACAL_CONFIG_PATH: /home/caracal/.caracal/config.yaml
             CARACAL_MCP_LISTEN_ADDRESS: 0.0.0.0:8080
@@ -140,7 +142,7 @@ services:
         environment:
             HOME: /home/caracal
             CARACAL_RUNTIME_IN_CONTAINER: "1"
-            CARACAL_WORKSPACE_ROOT: /home/caracal/.caracal
+            CARACAL_HOME: /home/caracal/.caracal
             CARACAL_API_URL: http://mcp:8080
             CARACAL_CONFIG_PATH: /home/caracal/.caracal/config.yaml
             CARACAL_ENTERPRISE_URL: ${CARACAL_ENTERPRISE_URL:-}
@@ -180,7 +182,7 @@ services:
         environment:
             HOME: /home/caracal
             CARACAL_RUNTIME_IN_CONTAINER: "1"
-            CARACAL_WORKSPACE_ROOT: /home/caracal/.caracal
+            CARACAL_HOME: /home/caracal/.caracal
             CARACAL_API_URL: http://mcp:8080
             CARACAL_CONFIG_PATH: /home/caracal/.caracal/config.yaml
             CARACAL_ENTERPRISE_URL: ${CARACAL_ENTERPRISE_URL:-}
@@ -295,7 +297,7 @@ def _run_host_orchestrator(args: Sequence[str]) -> int:
             default=None,
             help=(
                 "Advanced: override compose file path. "
-                "Default: auto-detect image compose, then fallback to embedded compose."
+                "Default: auto-detect compose file, then use embedded runtime compose."
             ),
         )
 
@@ -457,7 +459,7 @@ def _confirm_purge(*, force: bool) -> bool:
         return False
 
     print("This will permanently remove all Caracal Docker resources and local data.")
-    print("It deletes Caracal containers, volumes, networks, images, workspaces, and ~/.caracal state.")
+    print("It deletes Caracal containers, volumes, networks, images, workspaces, and CARACAL_HOME state.")
     response = input(f"Type '{PURGE_CONFIRMATION_TEXT}' to continue: ").strip().lower()
     if response != PURGE_CONFIRMATION_TEXT:
         print("Purge cancelled.")
@@ -901,7 +903,7 @@ def _list_caracal_purge_paths() -> list[Path]:
 
 
 def _caracal_home_dir() -> Path:
-    return Path.home() / ".caracal"
+    return resolve_caracal_home(require_explicit=False)
 
 
 def _completion_artifact_paths() -> set[Path]:
@@ -1091,7 +1093,7 @@ def _resolve_compose_file(override_path: str | None = None) -> Path:
     candidates: list[Path] = []
 
     # In source checkouts, prefer build compose to avoid registry auth requirements.
-    # For packaged installs where build files are unavailable, image compose remains a fallback.
+    # For packaged installs where build files are unavailable, image compose is used.
     package_root = Path(__file__).resolve()
     for root in (package_root, *package_root.parents):
         candidates.append(root / "deploy" / "docker-compose.yml")
@@ -1192,13 +1194,9 @@ def _resolve_compose_command() -> list[str]:
         if probe.returncode == 0:
             return [docker, "compose"]
 
-    legacy = shutil.which("docker-compose")
-    if legacy is not None:
-        return [legacy]
-
     raise RuntimeError(
-        "Docker Compose is required but not available. "
-        "Install Docker Compose plugin or docker-compose."
+        "Docker Compose plugin is required but not available. "
+        "Install Docker Compose plugin and ensure 'docker compose version' works."
     )
 
 
