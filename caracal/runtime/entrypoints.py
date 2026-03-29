@@ -239,17 +239,11 @@ def _run_host_orchestrator(args: Sequence[str]) -> int:
     parser = argparse.ArgumentParser(
         prog="caracal",
         description=(
-            "Caracal host orchestrator.\n"
-            "Use this command to manage Docker runtime services.\n"
-            "Use 'caracal cli' to open an in-container Caracal session."
+            "Caracal Help\n"
         ),
         formatter_class=argparse.RawTextHelpFormatter,
         epilog=(
             f"Detected OS: {os_name}\n"
-            "Examples:\n"
-            "  caracal up\n"
-            "  caracal cli\n"
-            "  caracal flow"
         ),
     )
 
@@ -267,7 +261,7 @@ def _run_host_orchestrator(args: Sequence[str]) -> int:
 
     purge_parser = subparsers.add_parser(
         "purge",
-        help="Completely remove all Caracal resources, data, and dependencies from the system",
+        help="Purge all Caracal resources, data, and dependencies from the system",
     )
     purge_parser.add_argument(
         "--force",
@@ -288,7 +282,7 @@ def _run_host_orchestrator(args: Sequence[str]) -> int:
 
     cli_parser = subparsers.add_parser(
         "cli",
-        help="Open a restricted interactive Caracal session inside the runtime container",
+        help="Launch a restricted interactive Caracal CLI session in the container",
     )
     cli_parser.set_defaults(handler=_host_cli)
 
