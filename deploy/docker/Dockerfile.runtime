@@ -39,6 +39,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     gosu \
     libpq5 \
     ncurses-term \
+    postgresql-client \
     tini \
     && rm -rf /var/lib/apt/lists/*
 
