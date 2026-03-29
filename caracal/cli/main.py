@@ -631,6 +631,10 @@ except ImportError:
     pass
 
 
+from caracal.cli.config_encryption import config_encrypt_group
+cli.add_command(config_encrypt_group, name='config-encrypt')
+
+
 # =============================================================================
 # PROVIDER MANAGEMENT
 # =============================================================================
@@ -799,6 +803,13 @@ except ImportError:
 # Secrets management
 from caracal.cli.secrets import secrets_group
 system.add_command(secrets_group, name='secrets')
+
+# Master key management
+from caracal.cli.system_key import key_group
+system.add_command(key_group, name='key')
+
+from caracal.cli.storage_migration import migrate_storage_command
+system.add_command(migrate_storage_command, name='migrate-storage')
 
 
 # Integration services
