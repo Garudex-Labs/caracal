@@ -244,7 +244,7 @@ def _in_container_runtime() -> bool:
 
 
 def _host_io_root() -> Path:
-    return Path(os.environ.get("CARACAL_HOST_IO_ROOT", "/caracal-host")).resolve(strict=False)
+    return Path(os.environ.get("CARACAL_HOST_IO_ROOT", "/caracal-host-io")).resolve(strict=False)
 
 
 def _map_common_host_import_path(candidate: Path, root: Path) -> Optional[Path]:
@@ -252,7 +252,7 @@ def _map_common_host_import_path(candidate: Path, root: Path) -> Optional[Path]:
 
     This helps when a user pastes a host path like
     ``.../deploy/caracal-host-io/workspace.tar.gz`` while running in container
-    mode where the same file is mounted under ``/caracal-host/workspace.tar.gz``.
+    mode where the same file is mounted under ``/caracal-host-io/workspace.tar.gz``.
     """
     parts = list(candidate.parts)
     if "caracal-host-io" in parts:

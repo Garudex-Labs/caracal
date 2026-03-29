@@ -22,7 +22,7 @@ COMPOSE_FILE_ENV = "CARACAL_DOCKER_COMPOSE_FILE"
 IN_CONTAINER_ENV = "CARACAL_RUNTIME_IN_CONTAINER"
 HOST_IO_DIR_ENV = "CARACAL_HOST_IO_DIR"
 HOST_IO_ROOT_ENV = "CARACAL_HOST_IO_ROOT"
-HOST_IO_ROOT_IN_CONTAINER = "/caracal-host"
+HOST_IO_ROOT_IN_CONTAINER = "/caracal-host-io"
 NETWORK_IN_USE_MARKER = "Resource is still in use"
 PURGE_CONFIRMATION_TEXT = "purge"
 
@@ -92,7 +92,7 @@ services:
             HOME: /home/caracal
             CARACAL_RUNTIME_IN_CONTAINER: "1"
             CARACAL_HOME: /home/caracal/.caracal
-            CARACAL_HOST_IO_ROOT: /caracal-host
+            CARACAL_HOST_IO_ROOT: /caracal-host-io
             CARACAL_API_URL: http://mcp:8080
             CARACAL_CONFIG_PATH: /home/caracal/.caracal/config.yaml
             CARACAL_MCP_LISTEN_ADDRESS: 0.0.0.0:8080
@@ -118,7 +118,7 @@ services:
             - caracal.mcp.service
         volumes:
             - caracal_state:/home/caracal/.caracal
-            - ${CARACAL_HOST_IO_DIR:-./caracal-host-io}:/caracal-host:z
+            - ${CARACAL_HOST_IO_DIR:-./caracal-host-io}:/caracal-host-io:z
         ports:
             - ${CARACAL_API_PORT:-8000}:8080
         healthcheck:
@@ -148,7 +148,7 @@ services:
             HOME: /home/caracal
             CARACAL_RUNTIME_IN_CONTAINER: "1"
             CARACAL_HOME: /home/caracal/.caracal
-            CARACAL_HOST_IO_ROOT: /caracal-host
+            CARACAL_HOST_IO_ROOT: /caracal-host-io
             CARACAL_API_URL: http://mcp:8080
             CARACAL_CONFIG_PATH: /home/caracal/.caracal/config.yaml
             CARACAL_ENTERPRISE_URL: ${CARACAL_ENTERPRISE_URL:-}
@@ -171,7 +171,7 @@ services:
             - caracal
         volumes:
             - caracal_state:/home/caracal/.caracal
-            - ${CARACAL_HOST_IO_DIR:-./caracal-host-io}:/caracal-host:z
+            - ${CARACAL_HOST_IO_DIR:-./caracal-host-io}:/caracal-host-io:z
         stdin_open: true
         tty: true
         networks:
@@ -190,7 +190,7 @@ services:
             HOME: /home/caracal
             CARACAL_RUNTIME_IN_CONTAINER: "1"
             CARACAL_HOME: /home/caracal/.caracal
-            CARACAL_HOST_IO_ROOT: /caracal-host
+            CARACAL_HOST_IO_ROOT: /caracal-host-io
             CARACAL_API_URL: http://mcp:8080
             CARACAL_CONFIG_PATH: /home/caracal/.caracal/config.yaml
             CARACAL_ENTERPRISE_URL: ${CARACAL_ENTERPRISE_URL:-}
@@ -217,7 +217,7 @@ services:
             - caracal.flow.main
         volumes:
             - caracal_state:/home/caracal/.caracal
-            - ${CARACAL_HOST_IO_DIR:-./caracal-host-io}:/caracal-host:z
+            - ${CARACAL_HOST_IO_DIR:-./caracal-host-io}:/caracal-host-io:z
         stdin_open: true
         tty: true
         networks:
