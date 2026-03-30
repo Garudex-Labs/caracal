@@ -182,12 +182,30 @@ class EnterpriseFlow:
         content.append(":\n\n", style=Colors.TEXT)
         
         features = [
-            ("SSO Integration", "SAML, OIDC, Okta, Azure AD, Google Workspace"),
-            ("Advanced Analytics", "Real-time dashboard, anomaly detection, usage patterns"),
-            ("Workflow Automation", "Event-driven automation, custom workflows"),
-            ("Compliance Reporting", "SOC 2, ISO 27001, GDPR reports"),
-            ("Multi-Tenancy", "Tenant isolation, per-tenant configuration"),
-            ("Priority Support", "24/7 support, dedicated engineer, SLA guarantees"),
+            (
+                "Centralized Authority Control",
+                "Manage principals, policies, mandates, and revocations from one dashboard",
+            ),
+            (
+                "Enterprise Sync + Gateway Enforcement",
+                "Sync local workspaces to Enterprise and enforce decisions through the gateway",
+            ),
+            (
+                "Identity and Access Controls",
+                "Enterprise SSO and role-based access for operators and reviewers",
+            ),
+            (
+                "Compliance and Audit Readiness",
+                "Immutable authority trails and compliance-focused reporting workflows",
+            ),
+            (
+                "Workspace Isolation",
+                "Strong tenant/workspace boundaries for multi-team operations",
+            ),
+            (
+                "Operational Insights",
+                "Authority usage trends, anomaly signals, and policy health visibility",
+            ),
         ]
         
         for i, (name, description) in enumerate(features, 1):
@@ -199,9 +217,9 @@ class EnterpriseFlow:
         
         content.append("\n")
         content.append("Learn More: ", style="bold")
-        content.append("https://garudexlabs.com\n", style=Colors.LINK)
-        content.append("Contact Sales: ", style="bold")
-        content.append("support@garudexlabs.com", style=Colors.LINK)
+        content.append("https://docs.garudexlabs.com/caracalEnterprise\n", style=Colors.LINK)
+        content.append("Enterprise Sales: ", style="bold")
+        content.append("https://cal.com/rawx18/caracal-enterprise-sales", style=Colors.LINK)
         
         return Panel(
             content,
@@ -230,34 +248,34 @@ class EnterpriseFlow:
         
         features = [
             (
-                "SSO Integration",
-                "Single Sign-On with SAML 2.0, OIDC/OAuth 2.0, Okta, Azure AD, Google Workspace",
-                "docs.garudexlabs.com/enterprise/sso",
+                "Centralized Authority Control",
+                "Operate principals, authority policies, mandate lifecycle, and revocations from a unified Enterprise control plane.",
+                "docs.garudexlabs.com/caracalEnterprise/features",
             ),
             (
-                "Advanced Analytics",
-                "Real-time analytics dashboard, anomaly detection, usage pattern analysis, predictive insights",
-                "docs.garudexlabs.com/enterprise/analytics",
+                "Enterprise Sync + Gateway Enforcement",
+                "Connect local Caracal workspaces to Enterprise and enforce provider traffic through gateway-managed authority checks.",
+                "docs.garudexlabs.com/caracalEnterprise/guides/gatewayDeployment",
             ),
             (
-                "Workflow Automation",
-                "Event-driven automation, custom workflow definitions, scheduled tasks, external integrations",
-                "docs.garudexlabs.com/enterprise/workflows",
+                "Identity and Access Controls",
+                "Enable SSO and role-oriented access patterns so admins, operators, and auditors get scoped permissions.",
+                "docs.garudexlabs.com/caracalEnterprise/guides/usage",
             ),
             (
-                "Compliance Reporting",
-                "SOC 2, ISO 27001, GDPR compliance reports, automated compliance checks",
-                "docs.garudexlabs.com/enterprise/compliance",
+                "Compliance and Audit Readiness",
+                "Maintain tamper-evident authority records and generate reporting artifacts for internal and external compliance workflows.",
+                "docs.garudexlabs.com/caracalEnterprise/features",
             ),
             (
-                "Multi-Tenancy",
-                "Tenant isolation, per-tenant configuration, cross-tenant analytics, tenant management API",
-                "docs.garudexlabs.com/enterprise/multi-tenancy",
+                "Workspace Isolation",
+                "Run multi-team and multi-workspace deployments with explicit boundaries for policy scope, data visibility, and operational ownership.",
+                "docs.garudexlabs.com/caracalEnterprise/architecture",
             ),
             (
-                "Priority Support",
-                "24/7 support access, dedicated support engineer, SLA guarantees, direct escalation",
-                "docs.garudexlabs.com/enterprise/support",
+                "Operational Insights",
+                "Track authority activity, policy effectiveness, and anomaly signals to improve reliability and governance.",
+                "docs.garudexlabs.com/caracalEnterprise/features",
             ),
         ]
         
@@ -270,8 +288,8 @@ class EnterpriseFlow:
         # Show upgrade information
         upgrade_panel = Panel(
             f"[bold]Ready to upgrade?[/bold]\n\n"
-            f"Visit [{Colors.LINK}]https://garudexlabs.com[/] to learn more\n"
-            f"or contact [{Colors.LINK}]support@garudexlabs.com[/] for a demo.",
+            f"Visit [{Colors.LINK}]https://docs.garudexlabs.com/caracalEnterprise[/] for details\n"
+            f"or book a call at [{Colors.LINK}]https://cal.com/rawx18/caracal-enterprise-sales[/].",
             border_style=Colors.PRIMARY,
             padding=(1, 2),
         )
