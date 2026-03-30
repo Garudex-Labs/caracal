@@ -612,6 +612,8 @@ class GatewayFlow:
     def _check_gateway_health(self, endpoint: str) -> None:
         try:
             import httpx
+            from urllib.parse import urlparse
+
             resp = httpx.get(f"{endpoint}/health", timeout=5)
             if resp.status_code == 200:
                 self.console.print(
@@ -621,9 +623,21 @@ class GatewayFlow:
                 self.console.print(
                     f"[{Colors.WARNING}]⚠ Gateway responded HTTP {resp.status_code}[/]"
                 )
+        except httpx.ConnectError as exc:
+            parsed = urlparse(endpoint)
+            host = (parsed.hostname or "").lower()
+            if host in {"localhost", "127.0.0.1", "::1"}:
+                self.console.print(
+                    f"[{Colors.WARNING}]⚠ Gateway configured but not running at {endpoint} ({exc}).[/]\n"
+                    f"[{Colors.DIM}]Start the gateway service (for local dev typically on port {parsed.port or 9100}) and retry.[/]"
+                )
+            else:
+                self.console.print(
+                    f"[{Colors.WARNING}]⚠ Gateway endpoint not reachable right now: {exc}[/]"
+                )
         except Exception as exc:
             self.console.print(
-                f"[{Colors.ERROR}]✗ Gateway unreachable: {exc}[/]"
+                f"[{Colors.WARNING}]⚠ Gateway health check failed: {exc}[/]"
             )
 
     def _api_get(self, flags: GatewayFeatureFlags, path: str):
