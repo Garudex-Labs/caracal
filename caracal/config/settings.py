@@ -204,11 +204,6 @@ class MCPAdapterConfig:
     health_check_enabled: bool = True
 
 
-# ASE configuration removed - delegation settings moved inline to delegation module
-# delegation_token_expiration_seconds: Default is 86400 (24 hours)
-# key_algorithm: Default is "RS256" (RS256 or ES256)
-
-
 @dataclass
 class RedisConfig:
     """Redis configuration."""
@@ -639,9 +634,7 @@ def _build_config_from_dict(config_data: Dict[str, Any]) -> CaracalConfig:
         mcp_server_urls=mcp_adapter_data.get('mcp_server_urls', default_config.mcp_adapter.mcp_server_urls),
         health_check_enabled=mcp_adapter_data.get('health_check_enabled', default_config.mcp_adapter.health_check_enabled),
     )
-    
-    # ASE configuration removed - delegation settings are now inline in delegation module
-    
+        
     # Parse Merkle configuration (optional, for v0.3)
     merkle_data = config_data.get('merkle', {})
     merkle = MerkleConfig(
@@ -997,9 +990,7 @@ def _validate_config(config: CaracalConfig) -> None:
     if config.mcp_adapter.enabled:
         if not config.mcp_adapter.listen_address:
             raise InvalidConfigurationError("mcp_adapter listen_address cannot be empty when MCP adapter is enabled")
-    
-    # ASE configuration validation removed - delegation settings are now inline in delegation module
-    
+        
     # Enforce mandatory services regardless of legacy compatibility toggles.
     config.compatibility.enable_merkle = True
     config.compatibility.enable_redis = True

@@ -3,15 +3,6 @@ Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 Caracal, a product of Garudex Labs
 
 Authority Metadata for Caracal Core.
-
-This module provides AuthorityMetadata, a protocol-level metadata container
-for authority enforcement that replaces ASE's EconomicMetadata.
-
-Enhancements over ASE:
-- Focus on authority semantics only (no economic fields)
-- Integration with Caracal's mandate system
-- Support for delegation paths
-- Audit trail linking
 """
 
 from dataclasses import dataclass, field
@@ -26,17 +17,6 @@ from caracal.core.audit import AuditReference
 class AuthorityMetadata:
     """
     Protocol-level metadata for authority enforcement.
-    
-    Replaces ASE's EconomicMetadata with authority-focused design.
-    This metadata container provides a standardized way to attach
-    authority information to agent operations and communications.
-    
-    Improvements over ASE:
-    - Focuses on authority enforcement metadata only
-    - Integrates with Caracal's existing mandate system
-    - Supports delegation paths for complex authorization scenarios
-    - Maintains audit trail linkage
-    - No economic fields (budget, cost, charges)
     
     Attributes:
         version: Caracal authority protocol version

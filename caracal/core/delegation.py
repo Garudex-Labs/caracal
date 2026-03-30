@@ -260,9 +260,7 @@ class DelegationTokenManager:
         return token
 
     def validate_token(self, token: str) -> DelegationTokenClaims:
-        """
-        Validate ASE v1.0.8 delegation token.
-        
+        """        
         Verifies:
         1. Token signature using source agent's public key
         2. Token expiration

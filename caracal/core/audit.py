@@ -6,7 +6,7 @@ Audit Log Management for Caracal Core v0.3.
 
 Provides functionality for querying and exporting audit logs in multiple formats.
 
-Enhanced AuditReference implementation with improvements over ASE:
+Enhanced AuditReference implementation:
 - Hash algorithm specification for crypto agility
 - Chain verification support (previous_hash) for blockchain-style integrity
 - Cryptographic signatures for non-repudiation
@@ -37,13 +37,6 @@ logger = get_logger(__name__)
 class AuditReference:
     """
     Enhanced audit trail reference with cryptographic verification.
-    
-    Improvements over ASE:
-    - Hash algorithm specification enables crypto agility
-    - Previous hash enables blockchain-style chain verification
-    - Signatures provide non-repudiation
-    - Entry count enables validation of audit completeness
-    - Tamper detection via hash comparison
     
     Attributes:
         audit_id: Unique identifier for the audit entry

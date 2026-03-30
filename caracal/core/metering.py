@@ -6,13 +6,6 @@ Metering collector for Caracal Core.
 
 This module provides the MeteringCollector for accepting resource usage events
 and writing them to the ledger for immutable audit proof.
-
-Enhanced MeteringEvent implementation with improvements over ASE:
-- Correlation IDs for distributed tracing
-- Event hierarchies for complex operations
-- Tags for flexible categorization
-- Structured metadata validation
-- Resource type hierarchies (e.g., "mcp.tool.*")
 """
 
 import fnmatch
@@ -35,13 +28,6 @@ logger = get_logger(__name__)
 class MeteringEvent:
     """
     Enhanced metering event for tracking resource usage.
-    
-    Improvements over ASE:
-    - Correlation IDs for distributed tracing across services
-    - Event hierarchies for complex multi-step operations
-    - Tags for flexible categorization without rigid schemas
-    - Structured metadata validation
-    - Resource type hierarchies enable pattern-based filtering
     
     Attributes:
         principal_id: Unique identifier for the agent consuming resources
