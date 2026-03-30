@@ -13,13 +13,13 @@ Deployment types displayed:
 
 Menu structure:
   - Connection status (current gateway endpoint, enforcement mode)
-  - Connect to gateway (endpoint + API key prompt)
+    - Sync gateway configuration from Enterprise
   - View provider registry entries
   - Mandate revocation check (interactive)
   - Quota usage by dimension
   - Gateway logs (recent audit trail)
   - Revoke mandate via gateway
-  - Disconnect / reconfigure
+    - Reset local gateway state and re-sync
 """
 
 from __future__ import annotations
@@ -157,9 +157,9 @@ class GatewayFlow:
                     icon="",
                 ),
                 MenuItem(
-                    key="disconnect",
-                    label="Disconnect Gateway",
-                    description="Remove gateway configuration from workspace",
+                    key="reset",
+                    label="Reset Gateway Connection",
+                    description="Clear local gateway cache and pull fresh config from Enterprise",
                     icon="",
                 ),
             ]
@@ -190,7 +190,7 @@ class GatewayFlow:
             "revoke": self.revoke_mandate,
             "quota": self.show_quota,
             "logs": self.show_logs,
-            "disconnect": self.disconnect_gateway,
+            "reset": self.reset_gateway_connection,
         }
         handler = dispatch_map.get(action)
         if handler:
@@ -608,12 +608,12 @@ class GatewayFlow:
 
         Prompt.ask("Press Enter to continue", default="")
 
-    def disconnect_gateway(self) -> None:
+    def reset_gateway_connection(self) -> None:
         self.console.clear()
         confirm = Prompt.ask(
-            f"[bold {Colors.WARNING}]Remove gateway configuration from this workspace?[/]",
+            f"[bold {Colors.WARNING}]Reset local gateway connection and re-sync from Enterprise?[/]",
             choices=["y", "n"],
-            default="n",
+            default="y",
         )
         if confirm != "y":
             self.console.print(f"[{Colors.DIM}]Cancelled.[/]")
@@ -624,9 +624,17 @@ class GatewayFlow:
         cfg.pop("gateway", None)
         save_enterprise_config(cfg)
         reset_gateway_features()
-        self._flags = None
-        self.console.print(f"\n[{Colors.SUCCESS}]✓ Gateway configuration removed.[/]")
-        Prompt.ask("Press Enter to continue", default="")
+        self._flags = get_gateway_features(reload=True)
+        self._auto_sync_attempted = False
+
+        self.console.print(
+            f"\n[{Colors.SUCCESS}]✓ Local gateway cache cleared.[/]"
+        )
+        self.console.print(
+            f"[{Colors.DIM}]Pulling a fresh gateway configuration from Enterprise...[/]"
+        )
+
+        self.connect_gateway()
 
     # ── API helpers ───────────────────────────────────────────────────────────
 
