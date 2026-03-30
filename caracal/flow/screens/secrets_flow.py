@@ -157,9 +157,19 @@ class SecretsFlow:
     def _show_secret_list(self) -> None:
         self.console.print("\n[bold cyan]Secret Refs[/bold cyan]\n")
         try:
-            from caracal_sdk.secrets import SecretsAdapter
-            adapter = SecretsAdapter(tier=self._tier, org_id=self._org_id, env_id=self._env_id)
-            refs = adapter.list_refs()
+            if self._tier in _STARTER_TIERS:
+                from caracal.core.vault import get_vault, gateway_context
+
+                with gateway_context():
+                    names = get_vault().list_secrets(self._org_id, self._env_id)
+                refs = [f"caracal:{self._env_id}/{name}" for name in names]
+                backend_name = "caracal_vault"
+            else:
+                from caracal_sdk.secrets import SecretsAdapter
+
+                adapter = SecretsAdapter(tier=self._tier, org_id=self._org_id, env_id=self._env_id)
+                refs = adapter.list_refs()
+                backend_name = adapter.backend_name
         except Exception as exc:
             self.console.print(f"[red]Failed to list secrets: {exc}[/red]")
             Prompt.ask("\n[dim]Press Enter to continue[/dim]")
@@ -170,7 +180,7 @@ class SecretsFlow:
         else:
             table = Table("Ref", "Backend", show_header=True, header_style="bold cyan")
             for ref in refs:
-                table.add_row(ref, adapter.backend_name)
+                table.add_row(ref, backend_name)
             self.console.print(table)
             self.console.print(f"\n[dim]Total: {len(refs)}[/dim]")
 
