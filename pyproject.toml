@@ -81,6 +81,10 @@ include = ["caracal*"]
 [tool.setuptools.dynamic]
 version = {file = ["VERSION"]}
 
+# Monorepo: resolve the Python SDK from the repo instead of PyPI (caracal-sdk may be unpublished).
+[tool.uv.sources]
+caracal-sdk = { path = "sdk/python-sdk", editable = true }
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = ["test_*.py"]
