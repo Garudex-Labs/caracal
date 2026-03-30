@@ -362,7 +362,16 @@ class GatewayFlow:
         self.console.print(
             f"[{Colors.DIM}]Fetching provider registry from {flags.gateway_endpoint}...[/]"
         )
-        providers = self._api_get(flags, "/admin/providers")
+        providers_result = self._api_get(flags, "/admin/providers")
+
+        providers = providers_result
+        if isinstance(providers_result, dict):
+            if isinstance(providers_result.get("providers"), list):
+                providers = providers_result.get("providers", [])
+            elif isinstance(providers_result.get("items"), list):
+                providers = providers_result.get("items", [])
+            else:
+                providers = []
 
         if providers is None:
             self.console.print(f"[{Colors.ERROR}]Failed to fetch providers.[/]")
@@ -386,6 +395,8 @@ class GatewayFlow:
             table.add_column("TLS Pin")
 
             for p in providers:
+                if not isinstance(p, dict):
+                    continue
                 status_str = (
                     f"[{Colors.SUCCESS}]Enabled[/]"
                     if p.get("enabled")
@@ -515,6 +526,10 @@ class GatewayFlow:
         if result is None:
             self.console.print(f"[{Colors.ERROR}]Failed to fetch quota data.[/]")
         else:
+            quota_data = result
+            if isinstance(result, dict) and isinstance(result.get("quota"), dict):
+                quota_data = result["quota"]
+
             table = Table(
                 title="Quota Usage",
                 show_header=True,
@@ -526,7 +541,9 @@ class GatewayFlow:
             table.add_column("Limit", justify="right")
             table.add_column("Used %", justify="right")
 
-            for dim, data in result.items():
+            for dim, data in quota_data.items() if isinstance(quota_data, dict) else []:
+                if not isinstance(data, dict):
+                    continue
                 current = data.get("current", 0)
                 limit = data.get("limit", 1)
                 pct = (current / limit * 100) if limit else 0
