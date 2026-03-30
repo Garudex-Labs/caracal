@@ -452,6 +452,10 @@ class EnterpriseFlow:
                 error_lines.append(f"  • Ensure the Enterprise API is running at {enterprise_url}")
                 error_lines.append(f"  • Check your network connection")
                 error_lines.append(f"  • Try: curl {enterprise_url}/health")
+                error_lines.append(
+                    "  • If running `caracal flow` in container mode, localhost points to the container. "
+                    "Start Enterprise API with `--host 0.0.0.0` so it is reachable from the runtime container"
+                )
             elif "password" in result.message.lower():
                 error_lines.append(f"[bold]Troubleshooting:[/]")
                 error_lines.append(f"  • This license requires a password")

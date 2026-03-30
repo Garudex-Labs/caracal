@@ -16,6 +16,7 @@ import logging
 import os
 import platform
 import socket
+import ipaddress
 from urllib.parse import urlparse
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -32,6 +33,69 @@ logger = logging.getLogger(__name__)
 _ENTERPRISE_CONFIG_NAME = "enterprise.json"
 _DEFAULT_ENTERPRISE_URL = "https://www.garudexlabs.com"
 _ALLOWED_ENTERPRISE_HOSTS = {"localhost", "garudexlabs.com", "www.garudexlabs.com"}
+
+
+def _is_allowed_enterprise_host(host: str) -> bool:
+    """Validate enterprise hostnames while allowing safe local/dev targets."""
+    normalized = host.strip().lower()
+    if not normalized:
+        return False
+
+    if normalized in _ALLOWED_ENTERPRISE_HOSTS:
+        return True
+
+    if normalized in {
+        "127.0.0.1",
+        "::1",
+        "host.docker.internal",
+        "host.containers.internal",
+    }:
+        return True
+
+    try:
+        addr = ipaddress.ip_address(normalized)
+        return bool(addr.is_loopback or addr.is_private)
+    except ValueError:
+        return False
+
+
+def _is_running_in_container() -> bool:
+    """Best-effort detection for Docker/OCI runtime."""
+    if Path("/.dockerenv").exists():
+        return True
+
+    try:
+        cgroup_data = Path("/proc/1/cgroup").read_text()
+    except OSError:
+        return False
+
+    lowered = cgroup_data.lower()
+    return "docker" in lowered or "containerd" in lowered or "kubepods" in lowered
+
+
+def _get_default_gateway_ipv4() -> Optional[str]:
+    """Read Linux default gateway from /proc/net/route."""
+    route_path = Path("/proc/net/route")
+    if not route_path.exists():
+        return None
+
+    try:
+        for line in route_path.read_text().splitlines()[1:]:
+            parts = line.split()
+            if len(parts) < 3:
+                continue
+            destination, gateway = parts[1], parts[2]
+            if destination != "00000000":
+                continue
+
+            # Gateway is little-endian hex in /proc/net/route
+            octets = [str(int(gateway[i:i + 2], 16)) for i in range(0, 8, 2)]
+            octets.reverse()
+            return ".".join(octets)
+    except Exception:
+        return None
+
+    return None
 
 
 def _load_workspace_dotenv() -> Dict[str, str]:
@@ -103,7 +167,7 @@ def _normalize_enterprise_url(raw: Optional[str]) -> Optional[str]:
 
     parsed = urlparse(value)
     host = (parsed.hostname or "").strip().lower()
-    if host not in _ALLOWED_ENTERPRISE_HOSTS:
+    if not _is_allowed_enterprise_host(host):
         return None
 
     return value.rstrip("/")
@@ -335,6 +399,18 @@ def _candidate_api_urls(base_url: str) -> list[str]:
         candidate = f"{parsed.scheme}://{loopback_host}{port_part}{path_part}".rstrip("/")
         if candidate not in candidates:
             candidates.append(candidate)
+
+    if _is_running_in_container():
+        for container_host in ("host.containers.internal", "host.docker.internal"):
+            candidate = f"{parsed.scheme}://{container_host}{port_part}{path_part}".rstrip("/")
+            if candidate not in candidates:
+                candidates.append(candidate)
+
+        gateway_ip = _get_default_gateway_ipv4()
+        if gateway_ip:
+            candidate = f"{parsed.scheme}://{gateway_ip}{port_part}{path_part}".rstrip("/")
+            if candidate not in candidates:
+                candidates.append(candidate)
 
     return candidates
 
