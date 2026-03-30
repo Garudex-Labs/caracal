@@ -8,9 +8,6 @@ First-run setup wizard with:
 - Step 1: Configuration path selection
 - Step 2: Database setup (optional)
 - Step 3: First principal registration
-- Step 4: First authority policy creation
-- Step 5: Issue first mandate
-- Step 6: Validate mandate demo
 - Skip options with actionable to-dos
 """
 
@@ -1537,30 +1534,6 @@ def run_onboarding(
             action=_step_principal,
             skippable=True,
             skip_message="You can register principals later from the main menu",
-        ),
-        WizardStep(
-            key="policy",
-            title="Create First Authority Policy",
-            description="Set up an authority policy for your principal",
-            action=_step_policy,
-            skippable=True,
-            skip_message="You can create policies later from the main menu",
-        ),
-        WizardStep(
-            key="mandate",
-            title="Issue First Mandate",
-            description="Create an execution mandate",
-            action=_step_mandate,
-            skippable=True,
-            skip_message="You can issue mandates later from the main menu",
-        ),
-        WizardStep(
-            key="validate",
-            title="Validate Mandate Demo",
-            description="Demonstrate mandate validation",
-            action=_step_validate,
-            skippable=True,
-            skip_message="You can validate mandates later from the main menu",
         ),
     ]
     
