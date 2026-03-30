@@ -10,7 +10,7 @@ Central navigation hub for all Caracal Flow features:
 - Authority Ledger
 - Mandate Manager
 - Delegation Center
-- Deployment
+- Operations
 - Enterprise
 - Settings
 - Help & Tutorials
@@ -60,8 +60,8 @@ MAIN_MENU_ITEMS = [
     ),
     MenuItem(
         key="deployment",
-        label="Deployment",
-                description="Operational tools: dashboard, workspaces, providers, logs, help",
+                label="Operations",
+                description="Dashboard, workspace, provider, and logs management",
         icon="👾",
     ),
     MenuItem(
@@ -298,7 +298,7 @@ def show_submenu(category: str, console: Optional[Console] = None) -> Optional[s
         "ledger": "Authority Ledger",
         "mandates": "Mandate Manager",
         "delegation": "Delegation Center",
-        "deployment": "Deployment",
+                "deployment": "Operations",
         "enterprise": "Enterprise",
         "settings": "Settings",
         "help": "Help & Tutorials",
