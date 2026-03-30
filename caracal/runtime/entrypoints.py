@@ -1075,6 +1075,15 @@ def _host_cli(namespace: argparse.Namespace) -> int:
 def _host_flow(namespace: argparse.Namespace) -> int:
     compose_file = _resolve_compose_file(namespace.compose_file)
     compose_cmd = _compose_cmd(compose_file)
+    uses_local_build = _service_uses_local_build(compose_file, "flow")
+
+    if uses_local_build:
+        build_result = subprocess.run(
+            compose_cmd + ["build", "flow"],
+            check=False,
+        )
+        if build_result.returncode != 0:
+            return build_result.returncode
 
     # Flow setup only needs postgres/redis to be available; launching through
     # the dedicated flow service avoids hard dependency on mcp container state.
@@ -1088,6 +1097,7 @@ def _host_flow(namespace: argparse.Namespace) -> int:
     cmd = compose_cmd + [
         "run",
         "--rm",
+        "--build",
         "-u",
         "caracal",
         "-e",

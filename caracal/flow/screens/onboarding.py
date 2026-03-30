@@ -1750,7 +1750,7 @@ def run_onboarding(
                         console.print(f"  [{Colors.INFO}]{Icons.INFO} Retrying database connection with recovered credentials...[/]")
                         continue
                 
-                if is_connection_error and attempt < max_attempts:
+                if is_connection_error and (not is_auth_error) and attempt < max_attempts:
                     console.print()
                     console.print(f"  [{Colors.WARNING}]{Icons.WARNING} PostgreSQL is not reachable. Attempting to start it automatically...[/]")
                     start_ok, start_msg = _start_postgresql(console)
