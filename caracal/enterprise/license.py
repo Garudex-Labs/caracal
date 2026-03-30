@@ -29,6 +29,7 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 _ENTERPRISE_CONFIG_NAME = "enterprise.json"
+_DEFAULT_ENTERPRISE_URL = "https://www.garudexlabs.com"
 
 
 def _get_enterprise_config_path() -> Path:
@@ -192,10 +193,10 @@ def _get_json(url: str, headers: Optional[dict] = None, timeout: int = 15) -> di
 def _resolve_api_url(override: Optional[str] = None) -> str:
     """Return the Enterprise API base URL.
 
-    Priority: *override* → persisted config → env var.
+    Priority: *override* → persisted config → explicit env var → default env var.
 
     In development mode only, ``CARACAL_ENTERPRISE_DEV_URL`` can be used
-    as a convenience override. No localhost fallback is hardcoded.
+    as a convenience override.
     """
     if override:
         return override.rstrip("/")
@@ -221,7 +222,12 @@ def _resolve_api_url(override: Optional[str] = None) -> str:
     if legacy_url:
         return legacy_url.rstrip("/")
 
-    return ""
+    # Configurable default for first-time users.
+    default_url = os.environ.get("CARACAL_ENTERPRISE_DEFAULT_URL")
+    if default_url and default_url.strip():
+        return default_url.strip().rstrip("/")
+
+    return _DEFAULT_ENTERPRISE_URL
 
 
 # ---------------------------------------------------------------------------
