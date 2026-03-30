@@ -361,7 +361,17 @@ class EnterpriseLicenseValidator:
             return self._validate_from_cache(license_token)
         except Exception as exc:
             logger.error("Unexpected error during license validation: %s", exc)
-            return self._validate_from_cache(license_token)
+            cached_result = self._validate_from_cache(license_token)
+            if cached_result.valid:
+                return cached_result
+
+            return LicenseValidationResult(
+                valid=False,
+                message=(
+                    "License validation request failed before the API response could be parsed. "
+                    f"Details: {exc}"
+                ),
+            )
 
     def get_available_features(self) -> list[str]:
         """

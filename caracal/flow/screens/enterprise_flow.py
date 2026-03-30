@@ -339,7 +339,7 @@ class EnterpriseFlow:
         enterprise_url = Prompt.ask(
             f"[{Colors.PRIMARY}]Enterprise API URL[/]",
             default=default_enterprise_url,
-        )
+        ).strip()
         
         # Prompt for license token
         license_token = Prompt.ask(
