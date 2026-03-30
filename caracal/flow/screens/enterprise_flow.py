@@ -339,7 +339,7 @@ class EnterpriseFlow:
         
         # Prompt for license password (optional)
         license_password = Prompt.ask(
-            f"[{Colors.PRIMARY}]Enter license password (leave blank if none)[/]",
+            f"[{Colors.PRIMARY}]Enter license password [/]",
             default="",
             password=True,
         )
