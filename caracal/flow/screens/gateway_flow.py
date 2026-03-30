@@ -60,16 +60,46 @@ class GatewayFlow:
     def __init__(self, console: Optional[Console] = None) -> None:
         self.console = console or Console()
         self._flags: Optional[GatewayFeatureFlags] = None
+        self._auto_sync_attempted = False
 
     # ── Menu loop ─────────────────────────────────────────────────────────────
 
     def run(self) -> None:
         while True:
+            self._auto_sync_gateway_if_needed()
             self._flags = get_gateway_features(reload=True)
             action = self._show_menu()
             if action in (None, "back"):
                 break
             self._dispatch(action)
+
+    def _auto_sync_gateway_if_needed(self) -> None:
+        """Best-effort auto-sync when enterprise license is connected."""
+        if self._auto_sync_attempted:
+            return
+
+        self._auto_sync_attempted = True
+
+        cfg = load_enterprise_config()
+        if not cfg.get("valid"):
+            return
+        if not (cfg.get("sync_api_key") or cfg.get("license_key")):
+            return
+
+        # If gateway is already configured, skip network calls.
+        gw = cfg.get("gateway")
+        if isinstance(gw, dict) and gw.get("enabled") and gw.get("endpoint") and gw.get("api_key"):
+            return
+
+        try:
+            from caracal.enterprise.sync import EnterpriseSyncClient
+
+            result = EnterpriseSyncClient().pull_gateway_config()
+            if result.get("success") and result.get("gateway_configured"):
+                reset_gateway_features()
+        except Exception:
+            # Keep Gateway menu responsive even when Enterprise API is unavailable.
+            logger.debug("Gateway auto-sync attempt failed", exc_info=True)
 
     def _show_menu(self) -> Optional[str]:
         self.console.clear()
@@ -190,6 +220,7 @@ class GatewayFlow:
         self.console.clear()
         flags = get_gateway_features(reload=True)
         cfg = load_enterprise_config()
+        enterprise_connected = bool(cfg.get("valid") and (cfg.get("sync_api_key") or cfg.get("license_key")))
 
         table = Table(
             title="Gateway Configuration",
@@ -200,11 +231,12 @@ class GatewayFlow:
         table.add_column("Key", style=f"bold {Colors.DIM}")
         table.add_column("Value", style=Colors.TEXT)
 
-        enabled_str = (
-            f"[bold {Colors.SUCCESS}]Yes[/]"
-            if flags.gateway_enabled
-            else f"[{Colors.WARNING}]No (OSS broker mode)[/]"
-        )
+        if flags.gateway_enabled:
+            enabled_str = f"[bold {Colors.SUCCESS}]Yes[/]"
+        elif enterprise_connected:
+            enabled_str = f"[{Colors.WARNING}]No (Enterprise connected, gateway not synced)[/]"
+        else:
+            enabled_str = f"[{Colors.WARNING}]No (OSS broker mode)[/]"
         table.add_row("Gateway Enabled", enabled_str)
 
         deploy = {
