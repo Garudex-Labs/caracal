@@ -16,6 +16,7 @@ import logging
 import os
 import platform
 import socket
+from urllib.parse import urlparse
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -30,6 +31,82 @@ logger = logging.getLogger(__name__)
 
 _ENTERPRISE_CONFIG_NAME = "enterprise.json"
 _DEFAULT_ENTERPRISE_URL = "https://www.garudexlabs.com"
+_ALLOWED_ENTERPRISE_HOSTS = {"localhost", "garudexlabs.com", "www.garudexlabs.com"}
+
+
+def _load_workspace_dotenv() -> Dict[str, str]:
+    """Load key/value pairs from workspace .env (best-effort)."""
+    env_data: Dict[str, str] = {}
+
+    candidates = []
+    # Repository root (Caracal/.env)
+    candidates.append(Path(__file__).resolve().parents[2] / ".env")
+
+    try:
+        from caracal.flow.workspace import get_workspace
+
+        ws = get_workspace()
+        candidates.append(ws.root / ".env")
+    except Exception:
+        pass
+
+    candidates.append(Path.cwd() / ".env")
+
+    for env_path in candidates:
+        if not env_path.exists():
+            continue
+        try:
+            for line in env_path.read_text().splitlines():
+                stripped = line.strip()
+                if not stripped or stripped.startswith("#"):
+                    continue
+                if "=" not in stripped:
+                    continue
+
+                key, value = stripped.split("=", 1)
+                key = key.strip()
+                # Keep only value before inline comment when unquoted.
+                value = value.strip()
+                if value and value[0] in ('"', "'") and value[-1:] == value[0]:
+                    value = value[1:-1]
+                elif " #" in value:
+                    value = value.split(" #", 1)[0].strip()
+
+                env_data[key] = value
+
+            break
+        except OSError:
+            continue
+
+    return env_data
+
+
+def _read_env(name: str) -> Optional[str]:
+    """Resolve env var from process environment first, then workspace .env."""
+    value = os.environ.get(name)
+    if value is not None:
+        return value
+    return _load_workspace_dotenv().get(name)
+
+
+def _normalize_enterprise_url(raw: Optional[str]) -> Optional[str]:
+    """Normalize Enterprise URL and enforce host allowlist."""
+    if not raw:
+        return None
+
+    value = raw.strip().strip("() ")
+    if not value:
+        return None
+
+    if not value.startswith(("http://", "https://")):
+        value = f"http://{value}"
+
+    parsed = urlparse(value)
+    host = (parsed.hostname or "").strip().lower()
+    if host not in _ALLOWED_ENTERPRISE_HOSTS:
+        return None
+
+    return value.rstrip("/")
 
 
 def _get_enterprise_config_path() -> Path:
@@ -193,41 +270,46 @@ def _get_json(url: str, headers: Optional[dict] = None, timeout: int = 15) -> di
 def _resolve_api_url(override: Optional[str] = None) -> str:
     """Return the Enterprise API base URL.
 
-    Priority: *override* → persisted config → explicit env var → default env var.
+    Priority: *override* → explicit env vars → default env var → static default.
 
     In development mode only, ``CARACAL_ENTERPRISE_DEV_URL`` can be used
     as a convenience override.
     """
-    if override:
-        return override.rstrip("/")
+    normalized_override = _normalize_enterprise_url(override)
+    if override is not None and normalized_override:
+        return normalized_override
 
-    cfg = load_enterprise_config()
-    if cfg.get("enterprise_api_url"):
-        return cfg["enterprise_api_url"].rstrip("/")
+    if override is not None and not normalized_override:
+        logger.warning(
+            "Rejected unsupported enterprise URL override '%s'. Allowed hosts: localhost, garudexlabs.com",
+            override,
+        )
 
     # Primary remote URL contract.
-    enterprise_url = os.environ.get("CARACAL_ENTERPRISE_URL")
+    enterprise_url = _normalize_enterprise_url(_read_env("CARACAL_ENTERPRISE_URL"))
     if enterprise_url:
-        return enterprise_url.rstrip("/")
+        return enterprise_url
 
     # Dev-only local override for integration work.
-    env_mode = (os.environ.get("CARACAL_ENV_MODE") or "dev").strip().lower()
+    env_mode = (_read_env("CARACAL_ENV_MODE") or "dev").strip().lower()
     if env_mode == "dev":
-        dev_url = os.environ.get("CARACAL_ENTERPRISE_DEV_URL")
+        dev_url = _normalize_enterprise_url(_read_env("CARACAL_ENTERPRISE_DEV_URL"))
         if dev_url:
-            return dev_url.rstrip("/")
+            return dev_url
 
     # Backward-compat aliases.
-    legacy_url = os.environ.get("CARACAL_ENTERPRISE_API_URL") or os.environ.get("CARACAL_GATEWAY_URL")
+    legacy_url = _normalize_enterprise_url(
+        _read_env("CARACAL_ENTERPRISE_API_URL") or _read_env("CARACAL_GATEWAY_URL")
+    )
     if legacy_url:
-        return legacy_url.rstrip("/")
+        return legacy_url
 
     # Configurable default for first-time users.
-    default_url = os.environ.get("CARACAL_ENTERPRISE_DEFAULT_URL")
-    if default_url and default_url.strip():
-        return default_url.strip().rstrip("/")
+    default_url = _normalize_enterprise_url(_read_env("CARACAL_ENTERPRISE_DEFAULT_URL"))
+    if default_url:
+        return default_url
 
-    return _DEFAULT_ENTERPRISE_URL
+    return _normalize_enterprise_url(_DEFAULT_ENTERPRISE_URL) or _DEFAULT_ENTERPRISE_URL
 
 
 # ---------------------------------------------------------------------------

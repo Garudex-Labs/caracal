@@ -38,6 +38,7 @@ from caracal.enterprise.license import (
     _get_or_create_client_instance_id,
     _get_json,
     _post_json,
+    _resolve_api_url,
     load_enterprise_config,
     save_enterprise_config,
 )
@@ -424,17 +425,7 @@ class EnterpriseSyncClient:
         license_key: Optional[str] = None,
     ):
         cfg = load_enterprise_config()
-        env_mode = (os.environ.get("CARACAL_ENV_MODE") or "dev").strip().lower()
-        dev_url = os.environ.get("CARACAL_ENTERPRISE_DEV_URL") if env_mode == "dev" else None
-        self._api_url = (
-            api_url
-            or cfg.get("enterprise_api_url")
-            or os.environ.get("CARACAL_ENTERPRISE_URL")
-            or dev_url
-            or os.environ.get("CARACAL_ENTERPRISE_API_URL")
-            or os.environ.get("CARACAL_GATEWAY_URL")
-            or ""
-        ).rstrip("/")
+        self._api_url = _resolve_api_url(api_url)
         self._sync_api_key = sync_api_key or cfg.get("sync_api_key")
         self._license_key = license_key or cfg.get("license_key")
         self._client_instance_id = cfg.get("client_instance_id") or _get_or_create_client_instance_id()
