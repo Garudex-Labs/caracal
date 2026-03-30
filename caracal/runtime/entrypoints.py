@@ -99,6 +99,7 @@ services:
             CARACAL_CONFIG_PATH: /home/caracal/.caracal/config.yaml
             CARACAL_MCP_LISTEN_ADDRESS: 0.0.0.0:8080
             CARACAL_ENTERPRISE_URL: ${CARACAL_ENTERPRISE_URL:-}
+            CARACAL_ENTERPRISE_DEFAULT_URL: ${CARACAL_ENTERPRISE_DEFAULT_URL:-https://www.garudexlabs.com}
             CARACAL_GATEWAY_URL: ${CARACAL_GATEWAY_URL:-}
             CARACAL_GATEWAY_ENDPOINT: ${CARACAL_GATEWAY_ENDPOINT:-}
             CARACAL_GATEWAY_ENABLED: ${CARACAL_GATEWAY_ENABLED:-false}
@@ -154,6 +155,7 @@ services:
             CARACAL_API_URL: http://mcp:8080
             CARACAL_CONFIG_PATH: /home/caracal/.caracal/config.yaml
             CARACAL_ENTERPRISE_URL: ${CARACAL_ENTERPRISE_URL:-}
+            CARACAL_ENTERPRISE_DEFAULT_URL: ${CARACAL_ENTERPRISE_DEFAULT_URL:-https://www.garudexlabs.com}
             CARACAL_GATEWAY_URL: ${CARACAL_GATEWAY_URL:-}
             CARACAL_GATEWAY_ENDPOINT: ${CARACAL_GATEWAY_ENDPOINT:-}
             CARACAL_GATEWAY_ENABLED: ${CARACAL_GATEWAY_ENABLED:-false}
@@ -196,6 +198,7 @@ services:
             CARACAL_API_URL: http://mcp:8080
             CARACAL_CONFIG_PATH: /home/caracal/.caracal/config.yaml
             CARACAL_ENTERPRISE_URL: ${CARACAL_ENTERPRISE_URL:-}
+            CARACAL_ENTERPRISE_DEFAULT_URL: ${CARACAL_ENTERPRISE_DEFAULT_URL:-https://www.garudexlabs.com}
             CARACAL_GATEWAY_URL: ${CARACAL_GATEWAY_URL:-}
             CARACAL_GATEWAY_ENDPOINT: ${CARACAL_GATEWAY_ENDPOINT:-}
             CARACAL_GATEWAY_ENABLED: ${CARACAL_GATEWAY_ENABLED:-false}
@@ -1071,23 +1074,27 @@ def _host_cli(namespace: argparse.Namespace) -> int:
 
 def _host_flow(namespace: argparse.Namespace) -> int:
     compose_file = _resolve_compose_file(namespace.compose_file)
-    start_code = _host_up(argparse.Namespace(compose_file=namespace.compose_file, no_pull=True))
-    if start_code != 0:
-        return start_code
-
     compose_cmd = _compose_cmd(compose_file)
+
+    # Flow setup only needs postgres/redis to be available; launching through
+    # the dedicated flow service avoids hard dependency on mcp container state.
+    start_result = subprocess.run(
+        compose_cmd + ["up", "-d", "postgres", "redis"],
+        check=False,
+    )
+    if start_result.returncode != 0:
+        return start_result.returncode
+
     cmd = compose_cmd + [
-        "exec",
+        "run",
+        "--rm",
         "-u",
         "caracal",
         "-e",
         "TERM=xterm-256color",
         "-e",
         "COLORTERM=truecolor",
-        "mcp",
-        "python",
-        "-m",
-        "caracal.flow.main",
+        "flow",
     ]
     result = subprocess.run(cmd, check=False)
     return result.returncode
@@ -1196,7 +1203,20 @@ def _compose_cmd(compose_file: Path) -> list[str]:
         os.environ[HOST_IO_DIR_ENV] = str(host_io_dir)
 
     os.environ.setdefault(HOST_IO_ROOT_ENV, HOST_IO_ROOT_IN_CONTAINER)
-    return _resolve_compose_command() + ["-f", str(compose_file)]
+
+    compose_cmd = _resolve_compose_command()
+    env_candidates = [
+        Path.cwd().resolve() / ".env",
+        compose_file.parent / ".env",
+        compose_file.parent.parent / ".env",
+    ]
+
+    env_file = next((candidate for candidate in env_candidates if candidate.exists()), None)
+    if env_file:
+        compose_cmd.extend(["--env-file", str(env_file)])
+
+    compose_cmd.extend(["-f", str(compose_file)])
+    return compose_cmd
 
 
 def _resolve_compose_command() -> list[str]:

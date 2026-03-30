@@ -1155,6 +1155,59 @@ def _show_connection_error_details(console: Console, error: str, config: dict) -
     
     console.print(f"  [{Colors.DIM}]Error: {error}[/]")
     console.print()
+
+
+def _is_container_runtime() -> bool:
+    """Return True when Flow is running inside the runtime container."""
+    return (os.environ.get("CARACAL_RUNTIME_IN_CONTAINER", "").strip().lower() in {"1", "true", "yes", "on"})
+
+
+def _persist_workspace_db_password(config_file: Optional[Path], password: str) -> None:
+    """Persist recovered DB password to workspace config.yaml when available."""
+    if not config_file or not config_file.exists():
+        return
+
+    try:
+        import yaml
+
+        with open(config_file, "r") as f:
+            config_yaml = yaml.safe_load(f) or {}
+
+        db_section = config_yaml.get("database") or {}
+        db_section["password"] = password
+        config_yaml["database"] = db_section
+
+        with open(config_file, "w") as f:
+            yaml.dump(config_yaml, f, default_flow_style=False)
+    except Exception:
+        # Best-effort persistence only; onboarding should continue when auth is recovered.
+        pass
+
+
+def _try_runtime_password_fallback(
+    console: Console,
+    config: dict,
+    config_file: Optional[Path],
+) -> tuple[bool, Optional[str]]:
+    """Attempt known container defaults when persisted DB password drifts."""
+    current_password = config.get("password", "")
+    candidates = ["caracal"]
+
+    for candidate in candidates:
+        if candidate == current_password:
+            continue
+
+        probe_config = {**config, "password": candidate}
+        ok, _ = _test_db_connection(probe_config)
+        if ok:
+            console.print(
+                f"  [{Colors.WARNING}]{Icons.WARNING} Detected container DB password drift. "
+                f"Using recovered runtime password.[/]"
+            )
+            _persist_workspace_db_password(config_file, candidate)
+            return True, candidate
+
+    return False, None
     
     if "password" in error_lower or "authentication" in error_lower:
         console.print(f"  [{Colors.ERROR}]DIAGNOSIS: Authentication failed[/]")
@@ -1583,6 +1636,8 @@ def run_onboarding(
         # Derive or resolve workspace schema name.
         workspace_schema = _resolve_workspace_schema(workspace_name, wizard.context)
         
+        config_file: Optional[Path] = None
+
         if db_config_data and isinstance(db_config_data, dict) and db_config_data.get("type") == "postgresql":
             console.print()
             console.print(f"  [{Colors.INFO}]{Icons.INFO} Saving database configuration...[/]")
@@ -1671,6 +1726,29 @@ def run_onboarding(
                     or "no password supplied" in err_str
                     or "operationalerror" in err_str
                 )
+                is_auth_error = ("password" in err_str or "authentication" in err_str)
+
+                # In container mode, a persisted Postgres volume can retain the default
+                # password even after .env changes. Recover automatically when possible.
+                if is_auth_error and _is_container_runtime():
+                    runtime_config = {
+                        "host": db_config.host,
+                        "port": int(db_config.port),
+                        "database": db_config.database,
+                        "username": db_config.user,
+                        "password": db_config.password,
+                    }
+                    recovered, recovered_password = _try_runtime_password_fallback(
+                        console,
+                        runtime_config,
+                        config_file,
+                    )
+                    if recovered and recovered_password:
+                        db_config.password = recovered_password
+                        if isinstance(db_config_data, dict):
+                            db_config_data["password"] = recovered_password
+                        console.print(f"  [{Colors.INFO}]{Icons.INFO} Retrying database connection with recovered credentials...[/]")
+                        continue
                 
                 if is_connection_error and attempt < max_attempts:
                     console.print()
