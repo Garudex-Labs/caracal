@@ -22,7 +22,7 @@ from rich.table import Table
 from rich.text import Text
 
 from caracal.enterprise import EnterpriseLicenseValidator
-from caracal.enterprise.license import _DEFAULT_ENTERPRISE_URL, load_enterprise_config
+from caracal.enterprise.license import _resolve_api_url, load_enterprise_config
 from caracal.core.gateway_features import get_gateway_features
 from caracal.flow.components.menu import Menu, MenuItem
 from caracal.flow.theme import Colors, Icons
@@ -323,32 +323,8 @@ class EnterpriseFlow:
         self.console.print(info_panel)
         self.console.print()
         
-        cfg = load_enterprise_config()
-        configured_default_url = (
-            (os.environ.get("CARACAL_ENTERPRISE_DEFAULT_URL") or "").strip()
-            or _DEFAULT_ENTERPRISE_URL
-        )
-        default_enterprise_url = (
-            cfg.get("enterprise_api_url")
-            or os.environ.get("CARACAL_ENTERPRISE_URL")
-            or (
-                os.environ.get("CARACAL_ENTERPRISE_DEV_URL")
-                if (os.environ.get("CARACAL_ENV_MODE") or "dev").strip().lower() == "dev"
-                else None
-            )
-            or configured_default_url
-        )
-
-        # Prompt for Enterprise API URL (URL is required for online validation).
-        enterprise_url = Prompt.ask(
-            f"[{Colors.PRIMARY}]Enterprise API URL[/]",
-            default=default_enterprise_url,
-        ).strip()
-
-        # Be forgiving for common formatting mistakes in terminal input.
-        enterprise_url = enterprise_url.strip("() ")
-        if enterprise_url and not enterprise_url.startswith(("http://", "https://")):
-            enterprise_url = f"http://{enterprise_url}"
+        # URL is auto-resolved from workspace config/env/default.
+        enterprise_url = _resolve_api_url()
         
         # Prompt for license token
         license_token = Prompt.ask(
