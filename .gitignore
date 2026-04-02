@@ -35,6 +35,9 @@ coverage.xml
 *.cover
 .tox/
 junit-unit.xml
+coverage.json
+coverage-db.json
+
 
 # IDEs
 .vscode/
