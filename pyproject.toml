@@ -64,6 +64,9 @@ dev = [
     "pytest>=7.0.0",
     "pytest-asyncio>=0.23.0",
     "pytest-cov>=4.0.0",
+    "pytest-xdist>=3.0.0",
+    "pytest-timeout>=2.0.0",
+    "hypothesis>=6.0.0",
     "black>=23.0.0",
     "ruff>=0.1.0",
     "mypy>=1.0.0",
@@ -97,14 +100,24 @@ addopts = [
     "--cov=caracal",
     "--cov-report=term-missing",
     "--cov-report=html",
+    "--cov-report=xml",
 ]
 markers = [
-    "unit: Unit tests",
-    "integration: Integration tests",
+    "unit: Unit tests (isolated component testing)",
+    "integration: Integration tests (multi-component)",
+    "e2e: End-to-end tests (full system)",
+    "security: Security-focused tests",
     "property: Property-based tests",
     "asyncio: Async tests",
+    "slow: Slow-running tests",
 ]
 asyncio_mode = "auto"
+timeout = 300
+filterwarnings = [
+    "error",
+    "ignore::DeprecationWarning",
+    "ignore::PendingDeprecationWarning",
+]
 
 [tool.coverage.run]
 source = ["caracal"]
@@ -112,18 +125,32 @@ omit = [
     "*/tests/*",
     "*/__pycache__/*",
     "*/site-packages/*",
+    "*/.venv/*",
+    "*/venv/*",
+    "*/build/*",
+    "*/dist/*",
 ]
+branch = true
+parallel = true
 
 [tool.coverage.report]
+precision = 2
+show_missing = true
+skip_covered = false
 exclude_lines = [
     "pragma: no cover",
     "def __repr__",
+    "def __str__",
     "raise AssertionError",
     "raise NotImplementedError",
     "if __name__ == .__main__.:",
     "if TYPE_CHECKING:",
+    "if typing.TYPE_CHECKING:",
     "@abstractmethod",
+    "@abc.abstractmethod",
+    "pass",
 ]
+fail_under = 90
 
 [tool.black]
 line-length = 100
