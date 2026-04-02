@@ -1,0 +1,164 @@
+name: Test Suite
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: Test Python ${{ matrix.python-version }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12"]
+    
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: caracal_test
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+      
+      redis:
+        image: redis:7
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 6379:6379
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: 'pip'
+      
+      - name: Install uv
+        run: |
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+      
+      - name: Install dependencies
+        run: |
+          uv pip install --system -e ".[dev]"
+      
+      - name: Run unit tests
+        run: |
+          pytest -m unit \
+            --cov=caracal \
+            --cov-report=xml \
+            --cov-report=term \
+            --junitxml=junit-unit.xml
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+      
+      - name: Run integration tests
+        run: |
+          pytest -m integration \
+            --cov=caracal \
+            --cov-append \
+            --cov-report=xml \
+            --cov-report=term \
+            --junitxml=junit-integration.xml
+        env:
+          DATABASE_URL: postgresql://postgres:test@localhost:5432/caracal_test
+          REDIS_URL: redis://localhost:6379
+          PYTHONPATH: ${{ github.workspace }}
+      
+      - name: Run security tests
+        run: |
+          pytest tests/security/ \
+            --cov=caracal \
+            --cov-append \
+            --cov-report=xml \
+            --cov-report=term \
+            --junitxml=junit-security.xml
+        env:
+          DATABASE_URL: postgresql://postgres:test@localhost:5432/caracal_test
+          REDIS_URL: redis://localhost:6379
+          PYTHONPATH: ${{ github.workspace }}
+      
+      - name: Run e2e tests
+        run: |
+          pytest -m e2e \
+            --cov=caracal \
+            --cov-append \
+            --cov-report=xml \
+            --cov-report=term \
+            --junitxml=junit-e2e.xml
+        env:
+          DATABASE_URL: postgresql://postgres:test@localhost:5432/caracal_test
+          REDIS_URL: redis://localhost:6379
+          PYTHONPATH: ${{ github.workspace }}
+      
+      - name: Check coverage threshold
+        run: |
+          coverage report --fail-under=90
+      
+      - name: Generate HTML coverage report
+        if: always()
+        run: |
+          coverage html
+      
+      - name: Upload coverage to Codecov
+        if: matrix.python-version == '3.11'
+        uses: codecov/codecov-action@v4
+        with:
+          file: ./coverage.xml
+          flags: unittests
+          name: codecov-umbrella
+          fail_ci_if_error: false
+      
+      - name: Upload HTML coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report-${{ matrix.python-version }}
+          path: htmlcov/
+          retention-days: 30
+      
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-${{ matrix.python-version }}
+          path: |
+            junit-*.xml
+          retention-days: 30
+  
+  test-summary:
+    name: Test Summary
+    runs-on: ubuntu-latest
+    needs: test
+    if: always()
+    
+    steps:
+      - name: Check test results
+        run: |
+          if [ "${{ needs.test.result }}" == "failure" ]; then
+            echo "Tests failed"
+            exit 1
+          elif [ "${{ needs.test.result }}" == "cancelled" ]; then
+            echo "Tests were cancelled"
+            exit 1
+          else
+            echo "All tests passed"
+          fi
