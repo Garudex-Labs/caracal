@@ -1,0 +1,40 @@
+---
+title: Build
+slug: /build
+sidebar_label: Build
+description: Contributor-facing build, setup, testing, and release entry points.
+---
+
+import HubPage from "@site/src/components/HubPage";
+
+<HubPage
+  eyebrow="Build"
+  title="Build and ship with the contributor lane."
+  summary="This hub gathers the open-source contributor surfaces: local setup, testing, releases, and the codebase architecture needed to work safely."
+  cards={[
+    {
+      title: "Development Setup",
+      description: "Repo bootstrap, uv, Docker, and runtime expectations.",
+      to: "/open-source/developers/development-setup",
+      tag: "Setup",
+    },
+    {
+      title: "Architecture",
+      description: "Module boundaries, runtime entrypoints, and system map.",
+      to: "/open-source/developers/architecture",
+      tag: "Architecture",
+    },
+    {
+      title: "Testing",
+      description: "Unit, integration, and property-test guidance.",
+      to: "/open-source/developers/testing",
+      tag: "Quality",
+    },
+    {
+      title: "Releases",
+      description: "Versioning, release scripts, and packaging surfaces.",
+      to: "/open-source/developers/releases",
+      tag: "Release",
+    },
+  ]}
+/>

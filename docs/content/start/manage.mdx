@@ -1,0 +1,40 @@
+---
+title: Manage
+slug: /manage
+sidebar_label: Manage
+description: Operator-facing command, workflow, configuration, and administration entry points.
+---
+
+import HubPage from "@site/src/components/HubPage";
+
+<HubPage
+  eyebrow="Manage"
+  title="Operate the runtime without hunting through contributor docs."
+  summary="This hub stays focused on end-user workflows: the host runtime, in-container CLI, TUI flows, configuration, and troubleshooting."
+  cards={[
+    {
+      title: "CLI",
+      description: "Host orchestrator and in-container command model.",
+      to: "/open-source/end-users/cli",
+      tag: "Operate",
+    },
+    {
+      title: "TUI",
+      description: "Textual onboarding, screen groups, and navigation.",
+      to: "/open-source/end-users/tui",
+      tag: "Operate",
+    },
+    {
+      title: "Configuration",
+      description: "Workspaces, secrets, provider registry, and environment variables.",
+      to: "/open-source/end-users/configuration",
+      tag: "Configure",
+    },
+    {
+      title: "Enterprise Administration",
+      description: "Enterprise-only administration topics stay in their own lane.",
+      to: "/enterprise/administration",
+      tag: "Enterprise",
+    },
+  ]}
+/>
