@@ -37,7 +37,7 @@ coverage.xml
 junit-unit.xml
 coverage.json
 coverage-db.json
-
+coverage-unit.json
 
 # IDEs
 .vscode/
