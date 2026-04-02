@@ -1,0 +1,23 @@
+---
+title: Quickstart
+description: Placeholder for first-success workflow.
+sidebar_label: Quickstart
+---
+
+import DocPlaceholder from "@site/src/components/DocPlaceholder";
+
+<DocPlaceholder
+  summary="Planned first-success page for starting the runtime, entering the CLI, launching the TUI, and confirming the shared workspace behavior."
+  audience="Open-source end users."
+  prerequisites={["Runtime installed.", "PostgreSQL and Redis handled by the runtime stack."]}
+  plannedSections={[
+    "`caracal up`",
+    "`caracal cli` versus `caracal flow`",
+    "Shared workspace state under the runtime volume",
+    "First things to verify after startup",
+  ]}
+  related={[
+    { label: "Installation", to: "/open-source/end-users/getting-started/installation" },
+    { label: "TUI", to: "/open-source/end-users/tui" },
+  ]}
+/>
