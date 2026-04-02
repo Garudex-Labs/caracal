@@ -30,14 +30,12 @@ env/
 .pytest_cache/
 .coverage
 htmlcov/
-coverage.xml
 .hypothesis/
 *.cover
 .tox/
-junit-unit.xml
-coverage.json
-coverage-db.json
-coverage-unit.json
+junit-*.xml
+coverage.*
+coverage-*.json
 
 # IDEs
 .vscode/
