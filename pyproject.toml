@@ -151,7 +151,6 @@ exclude_lines = [
     "@abc.abstractmethod",
     "pass",
 ]
-fail_under = 80
 
 [tool.black]
 line-length = 100

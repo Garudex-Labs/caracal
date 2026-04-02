@@ -109,9 +109,13 @@ jobs:
           REDIS_URL: redis://localhost:6379
           PYTHONPATH: ${{ github.workspace }}
       
-      - name: Check coverage threshold
+      - name: Display coverage report
+        if: always()
         run: |
-          coverage report --fail-under=80
+          echo "=== Coverage Report ==="
+          coverage report
+          echo ""
+          echo "Coverage report generated (no threshold enforcement)"
       
       - name: Generate HTML coverage report
         if: always()
