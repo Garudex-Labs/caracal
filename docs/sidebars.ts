@@ -1,126 +1,87 @@
-import type { SidebarsConfig } from '@docusaurus/plugin-content-docs';
+import type { SidebarsConfig } from "@docusaurus/plugin-content-docs";
 
 const sidebars: SidebarsConfig = {
-  caracalSidebar: [
+  docsSidebar: [
+    "start/index",
     {
-      type: 'doc',
-      id: 'index',
-      label: 'Home',
-    },
-    {
-      type: 'category',
-      label: 'Caracal Core',
-      link: { type: 'doc', id: 'caracalCore/index' },
+      type: "category",
+      label: "Open Source",
+      link: {
+        type: "doc",
+        id: "open-source/overview/index",
+      },
       items: [
         {
-          type: 'category',
-          label: 'Getting Started',
+          type: "category",
+          label: "End Users",
+          link: {
+            type: "doc",
+            id: "open-source/end-users/index",
+          },
           items: [
-            'caracalCore/gettingStarted/introduction',
-            'caracalCore/gettingStarted/installation',
-            'caracalCore/gettingStarted/quickstart',
+            "open-source/end-users/getting-started/installation",
+            "open-source/end-users/getting-started/quickstart",
+            "open-source/end-users/cli/index",
+            "open-source/end-users/tui/index",
+            "open-source/end-users/configuration/index",
+            "open-source/end-users/commands/index",
+            "open-source/end-users/workflows/index",
+            "open-source/end-users/troubleshooting/index",
+            "open-source/end-users/security/index",
+            "open-source/end-users/concepts/index",
           ],
         },
         {
-          type: 'category',
-          label: 'Concepts',
+          type: "category",
+          label: "Developers",
+          link: {
+            type: "doc",
+            id: "open-source/developers/index",
+          },
           items: [
-            'caracalCore/concepts/architecture',
-            'caracalCore/concepts/coreVsFlow',
-          ],
-        },
-        {
-          type: 'category',
-          label: 'CLI Reference',
-          link: { type: 'doc', id: 'caracalCore/cliReference/index' },
-          items: [
-            'caracalCore/cliReference/agent',
-            'caracalCore/cliReference/policy',
-            'caracalCore/cliReference/ledger',
-            'caracalCore/cliReference/database',
-            'caracalCore/cliReference/merkle',
-            'caracalCore/cliReference/delegation',
-            {
-              type: 'doc',
-              id: 'caracalCore/cliReference/pricebook',
-              label: 'Resource Registry',
-            },
-            'caracalCore/cliReference/backup',
-            'caracalCore/cliReference/keys',
-          ],
-        },
-        {
-          type: 'category',
-          label: 'API Reference',
-          items: [
-            'caracalCore/apiReference/sdkClient',
-            'caracalCore/apiReference/mcpIntegration',
-            'caracalCore/apiReference/mcpDecorators',
+            "open-source/developers/architecture/index",
+            "open-source/developers/contributing/index",
+            "open-source/developers/development-setup/index",
+            "open-source/developers/testing/index",
+            "open-source/developers/releases/index",
+            "open-source/developers/changelog/index",
+            "open-source/developers/enterprise-connector/index",
           ],
         },
       ],
     },
     {
-      type: 'category',
-      label: 'Caracal Flow',
-      link: { type: 'doc', id: 'caracalFlow/index' },
+      type: "category",
+      label: "Enterprise",
+      link: {
+        type: "doc",
+        id: "enterprise/overview/index",
+      },
       items: [
-        {
-          type: 'category',
-          label: 'Getting Started',
-          items: [
-            'caracalFlow/gettingStarted/introduction',
-            'caracalFlow/gettingStarted/quickstart',
-          ],
-        },
-        {
-          type: 'category',
-          label: 'Guides',
-          items: [
-            'caracalFlow/guides/configuration',
-          ],
-        },
+        "enterprise/getting-started/index",
+        "enterprise/configuration/index",
+        "enterprise/administration/index",
+        "enterprise/access-auth/index",
+        "enterprise/deployment/index",
+        "enterprise/monitoring/index",
+        "enterprise/troubleshooting/index",
+        "enterprise/reference/index",
       ],
     },
     {
-      type: 'category',
-      label: 'Development',
+      type: "category",
+      label: "Hubs",
       items: [
-        'development/contributing',
-        'development/versionManagement',
+        "start/build",
+        "start/manage",
+        "start/reference",
+        "start/resources",
       ],
     },
     {
-      type: 'category',
-      label: 'Caracal Enterprise',
-      link: { type: 'doc', id: 'caracalEnterprise/gettingStarted/index' },
-      items: [
-        {
-          type: 'category',
-          label: 'Getting Started',
-          items: [
-            'caracalEnterprise/gettingStarted/index',
-            'caracalEnterprise/gettingStarted/setup',
-          ],
-        },
-        {
-          type: 'category',
-          label: 'Guides',
-          items: [
-            'caracalEnterprise/guides/sdkIntegration',
-            'caracalEnterprise/guides/gatewayDeployment',
-            'caracalEnterprise/guides/principalManagement',
-            'caracalEnterprise/guides/usage',
-          ],
-        },
-        'caracalEnterprise/architecture',
-        'caracalEnterprise/features',
-      ],
-    },
-    {
-      type: 'doc',
-      id: 'faq',
-      label: 'FAQ',
+      type: "category",
+      label: "Documentation System",
+      items: ["resources/documentation-system/rulebook"],
     },
   ],
 };
