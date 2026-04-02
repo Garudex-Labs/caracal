@@ -12,3 +12,20 @@ def test_simple_pass():
 def test_simple_math():
     """Test basic math."""
     assert 1 + 1 == 2
+
+
+@pytest.mark.unit
+def test_import_caracal():
+    """Test that caracal package can be imported."""
+    import caracal
+    assert caracal is not None
+    assert hasattr(caracal, '__version__')
+
+
+@pytest.mark.unit
+def test_caracal_version():
+    """Test that caracal version is accessible."""
+    from caracal._version import __version__
+    assert __version__ is not None
+    assert isinstance(__version__, str)
+    assert len(__version__) > 0
