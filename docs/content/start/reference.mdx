@@ -1,0 +1,40 @@
+---
+title: Reference
+slug: /reference
+sidebar_label: Reference
+description: Reference entry point for commands, concepts, architecture, and rules.
+---
+
+import HubPage from "@site/src/components/HubPage";
+
+<HubPage
+  eyebrow="Reference"
+  title="Reference surfaces, not catch-all dumping grounds."
+  summary="Reference is intentionally structured around real product boundaries: command groups, core concepts, architecture, and enterprise-safe connectors."
+  cards={[
+    {
+      title: "Command Map",
+      description: "Workspace, principal, policy, authority, delegation, and system command groups.",
+      to: "/open-source/end-users/commands",
+      tag: "CLI",
+    },
+    {
+      title: "Core Concepts",
+      description: "Principals, policies, mandates, authority ledger, and Merkle integrity.",
+      to: "/open-source/end-users/concepts",
+      tag: "Concepts",
+    },
+    {
+      title: "Architecture",
+      description: "Runtime entrypoints, services, SDKs, and internal module groupings.",
+      to: "/open-source/developers/architecture",
+      tag: "Developer",
+    },
+    {
+      title: "Enterprise Reference",
+      description: "Enterprise user-facing references without exposing internals.",
+      to: "/enterprise/reference",
+      tag: "Enterprise",
+    },
+  ]}
+/>
