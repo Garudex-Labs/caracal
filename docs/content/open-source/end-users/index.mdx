@@ -1,0 +1,24 @@
+---
+title: Open Source End Users
+description: Operator-facing open-source docs for runtime users.
+sidebar_label: End Users
+---
+
+import DocPlaceholder from "@site/src/components/DocPlaceholder";
+
+<DocPlaceholder
+  summary="This lane covers the open-source runtime as a user product: installation, commands, workflows, configuration, troubleshooting, and security."
+  audience="Operators using the open-source Caracal runtime."
+  prerequisites={["A running host environment with Docker available.", "No contributor or enterprise-only context required."]}
+  plannedSections={[
+    "Install and start the runtime",
+    "Understand host orchestration versus in-container commands",
+    "Use the CLI and TUI for workspace-centric operations",
+    "Configure workspaces, providers, and secure settings",
+  ]}
+  related={[
+    { label: "Installation", to: "/open-source/end-users/getting-started/installation" },
+    { label: "CLI", to: "/open-source/end-users/cli" },
+    { label: "Troubleshooting", to: "/open-source/end-users/troubleshooting" },
+  ]}
+/>
