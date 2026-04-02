@@ -1,0 +1,153 @@
+---
+title: Documentation Rulebook
+description: The strict standard for every future documentation page in the Caracal docs system.
+sidebar_label: Rulebook
+slug: /resources/documentation-system/rulebook
+---
+
+## Writing Principles
+
+1. One page has one purpose.
+2. Do not overlap concepts across pages.
+3. Prefer structure over volume.
+4. Use direct, concrete language.
+5. Do not use marketing language.
+6. Every page must answer: what do I do next?
+
+## Page Standard
+
+Every documentation page must follow this order:
+
+1. Title
+2. One-line summary
+3. Audience
+4. Prerequisites
+5. Quick start or overview
+6. Core explanation
+7. Examples
+8. Edge cases
+9. Troubleshooting
+10. Related pages
+
+## Style Rules
+
+### Do
+
+- Use short paragraphs.
+- Use strong headings that match real tasks or concepts.
+- Use consistent terminology across CLI, TUI, runtime, SDK, and enterprise references.
+- Use real examples that match current product behavior.
+- Link to the canonical page instead of repeating content.
+
+### Do Not
+
+- Do not mix user docs with contributor docs.
+- Do not leak enterprise-only internals into open-source pages.
+- Do not repeat the same setup or explanation on multiple pages.
+- Do not write long unstructured paragraphs.
+- Do not use vague wording like "some setup may be required."
+
+## Example Standard
+
+Examples must:
+
+- be copy-pastable
+- reflect real workflows from the codebase
+- start minimal, then expand to advanced variants
+- include failure cases when that improves first-time success
+
+## Diagram Rule
+
+Use diagrams only when they reduce confusion. Keep them minimal.
+
+```text
+User
+  ↓
+CLI/TUI
+  ↓
+Core Engine
+  ↓
+Output
+```
+
+## Terminology Rule
+
+- Define a term once and reuse it exactly.
+- Do not switch between synonyms for the same object.
+- Keep naming aligned with the repository, command names, and UI labels.
+
+## Separation Rule
+
+Open source must remain split into:
+
+- end-user docs
+- developer and contributor docs
+
+Enterprise must remain:
+
+- user-facing only
+
+Enterprise internals must never be documented in this public docs system.
+
+The only enterprise-adjacent page allowed in open-source developer docs is:
+
+- Enterprise Connector
+
+That page must stay minimal and connector-focused.
+
+## Information Architecture Rule
+
+- Use shallow top-level navigation.
+- Use deeper sidebars only where they help scanning.
+- Prefer hubs for discovery and sidebars for depth.
+- Search is a first-class feature and should always have a clear path from the landing page and navbar.
+
+## UI Rule
+
+- Do not use glassmorphism, blur, or frosted surfaces.
+- Do not use excessive border radius.
+- Do not use decorative gradients or glowing containers.
+- Use solid surfaces and a consistent background color across the full app shell.
+- Keep navigation and page chrome minimal, structured, and product-like.
+- Avoid AI-generated UI patterns such as oversized hero panels, ornamental cards, or decorative chrome that does not improve scanning.
+
+## Presentation Rule
+
+- Do not use emojis anywhere in the documentation system.
+
+## Contact Placement Rule
+
+- Put `support@garudexlabs.com` in troubleshooting or support contexts.
+- Put `https://cal.com/rawx18/caracal-enterprise-sales` on enterprise pages only.
+- Put `https://cal.com/rawx18/open-source` in contributor and developer-community contexts.
+- Do not spam contact links across the site.
+
+## Content Lifecycle Rule
+
+1. Derive structure from code first.
+2. Lock architecture before writing pages.
+3. Implement layout before content.
+4. Publish standards before docs copy.
+5. Write content only after the first four steps are complete.
+
+## File Naming and URL Rule
+
+- Use lowercase kebab-case directories.
+- Use `index.mdx` for category landing pages.
+- Keep URLs stable and readable.
+- Avoid duplicate concepts under different paths.
+- Prefer:
+  - `/open-source/end-users/...`
+  - `/open-source/developers/...`
+  - `/enterprise/...`
+
+## Review Checklist
+
+Before a page is considered complete, verify:
+
+- the audience is correct
+- the page does not duplicate another page
+- examples are runnable or copy-pastable
+- enterprise boundaries are respected
+- related pages point to the canonical source
+- the page clearly tells the reader what to do next
