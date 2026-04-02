@@ -257,7 +257,7 @@ class TestAuthorityListCommand:
         """Set up test fixtures before each test method."""
         self.runner = CliRunner()
     
-    @patch('caracal.cli.authority.get_db_manager')
+    @patch('caracal.db.connection.get_db_manager')
     def test_list_mandates_empty(self, mock_get_db_manager):
         """Test listing mandates when none exist."""
         # Arrange
@@ -276,7 +276,7 @@ class TestAuthorityListCommand:
         assert result.exit_code == 0
         assert 'No mandates found' in result.output
     
-    @patch('caracal.cli.authority.get_db_manager')
+    @patch('caracal.db.connection.get_db_manager')
     def test_list_mandates_with_results(self, mock_get_db_manager):
         """Test listing mandates with results."""
         # Arrange
