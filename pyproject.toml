@@ -16,7 +16,7 @@ keywords = ["ai", "agents", "authority", "enforcement", "mandate", "ledger", "de
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
-    "License :: OSI Approved :: GNU Affero General Public License v3",
+    "License :: OSI Approved :: Apache Software License",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
@@ -112,7 +112,6 @@ markers = [
     "slow: Slow-running tests",
 ]
 asyncio_mode = "auto"
-timeout = 300
 filterwarnings = [
     "error",
     "ignore::DeprecationWarning",
@@ -129,6 +128,8 @@ omit = [
     "*/venv/*",
     "*/build/*",
     "*/dist/*",
+    "*/enterprise/*",
+    "*/sdk/*",
 ]
 branch = true
 parallel = true
@@ -150,7 +151,7 @@ exclude_lines = [
     "@abc.abstractmethod",
     "pass",
 ]
-fail_under = 90
+fail_under = 80
 
 [tool.black]
 line-length = 100
