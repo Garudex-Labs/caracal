@@ -27,8 +27,9 @@ class TestDelegationGenerateCommand:
         """Test generating a delegation token successfully."""
         # Arrange
         mock_registry = Mock()
-        mock_registry.assert_exists.return_value = None
-        mock_registry.ensure_signing_keys.return_value = None
+        # assert_exists should not raise an exception for success case
+        mock_registry.assert_exists = Mock(return_value=None)
+        mock_registry.ensure_signing_keys = Mock(return_value=None)
         
         mock_manager = Mock()
         mock_manager.generate_token.return_value = 'test-token-jwt'
@@ -53,8 +54,8 @@ class TestDelegationGenerateCommand:
         """Test generating token with specific operations."""
         # Arrange
         mock_registry = Mock()
-        mock_registry.assert_exists.return_value = None
-        mock_registry.ensure_signing_keys.return_value = None
+        mock_registry.assert_exists = Mock(return_value=None)
+        mock_registry.ensure_signing_keys = Mock(return_value=None)
         
         mock_manager = Mock()
         mock_manager.generate_token.return_value = 'test-token-jwt'
@@ -79,8 +80,8 @@ class TestDelegationGenerateCommand:
         """Test generating token with context tags."""
         # Arrange
         mock_registry = Mock()
-        mock_registry.assert_exists.return_value = None
-        mock_registry.ensure_signing_keys.return_value = None
+        mock_registry.assert_exists = Mock(return_value=None)
+        mock_registry.ensure_signing_keys = Mock(return_value=None)
         
         mock_manager = Mock()
         mock_manager.generate_token.return_value = 'test-token-jwt'
@@ -301,7 +302,11 @@ class TestDelegationRevokeCommand:
                 first=Mock(return_value=mock_policy if model.__name__ == 'AuthorityPolicy' else mock_principal)
             ))
         )
-        mock_db_manager.session_scope.return_value.__enter__.return_value = mock_session
+        # Fix context manager support
+        mock_context = MagicMock()
+        mock_context.__enter__ = Mock(return_value=mock_session)
+        mock_context.__exit__ = Mock(return_value=False)
+        mock_db_manager.session_scope.return_value = mock_context
         mock_get_db_manager.return_value = mock_db_manager
         
         # Act
@@ -321,7 +326,11 @@ class TestDelegationRevokeCommand:
         mock_db_manager = Mock()
         mock_session = Mock()
         mock_session.query.return_value.filter_by.return_value.first.return_value = None
-        mock_db_manager.session_scope.return_value.__enter__.return_value = mock_session
+        # Fix context manager support
+        mock_context = MagicMock()
+        mock_context.__enter__ = Mock(return_value=mock_session)
+        mock_context.__exit__ = Mock(return_value=False)
+        mock_db_manager.session_scope.return_value = mock_context
         mock_get_db_manager.return_value = mock_db_manager
         
         # Act

@@ -25,7 +25,8 @@ class TestSchemaVersionManager:
         alembic_ini_path = "alembic.ini"
         
         # Act
-        with patch('caracal.db.schema_version.Config'):
+        with patch('caracal.db.schema_version.Config') as mock_config_class:
+            mock_config_class.return_value = Mock(spec=Config)
             manager = SchemaVersionManager(mock_engine, alembic_ini_path)
         
         # Assert
@@ -50,13 +51,17 @@ class TestSchemaVersionManager:
         # Arrange
         mock_engine = Mock()
         mock_connection = MagicMock()
-        mock_engine.connect.return_value.__enter__.return_value = mock_connection
+        mock_context_mgr = MagicMock()
+        mock_context_mgr.__enter__ = Mock(return_value=mock_connection)
+        mock_context_mgr.__exit__ = Mock(return_value=False)
+        mock_engine.connect.return_value = mock_context_mgr
         
         mock_context = Mock()
         mock_context.get_current_revision.return_value = "abc123"
         mock_migration_context.configure.return_value = mock_context
         
-        with patch('caracal.db.schema_version.Config'):
+        with patch('caracal.db.schema_version.Config') as mock_config_class:
+            mock_config_class.return_value = Mock(spec=Config)
             manager = SchemaVersionManager(mock_engine, "alembic.ini")
         
         # Act
@@ -75,7 +80,8 @@ class TestSchemaVersionManager:
         mock_script.get_current_head.return_value = "def456"
         mock_script_directory.from_config.return_value = mock_script
         
-        with patch('caracal.db.schema_version.Config'):
+        with patch('caracal.db.schema_version.Config') as mock_config_class:
+            mock_config_class.return_value = Mock(spec=Config)
             manager = SchemaVersionManager(mock_engine, "alembic.ini")
         
         # Act
@@ -92,7 +98,10 @@ class TestSchemaVersionManager:
         # Arrange
         mock_engine = Mock()
         mock_connection = MagicMock()
-        mock_engine.connect.return_value.__enter__.return_value = mock_connection
+        mock_context_mgr = MagicMock()
+        mock_context_mgr.__enter__ = Mock(return_value=mock_connection)
+        mock_context_mgr.__exit__ = Mock(return_value=False)
+        mock_engine.connect.return_value = mock_context_mgr
         
         # Mock current revision
         mock_context = Mock()
@@ -104,7 +113,8 @@ class TestSchemaVersionManager:
         mock_script.get_current_head.return_value = "abc123"
         mock_script_directory.from_config.return_value = mock_script
         
-        with patch('caracal.db.schema_version.Config'):
+        with patch('caracal.db.schema_version.Config') as mock_config_class:
+            mock_config_class.return_value = Mock(spec=Config)
             manager = SchemaVersionManager(mock_engine, "alembic.ini")
         
         # Act
@@ -120,7 +130,10 @@ class TestSchemaVersionManager:
         # Arrange
         mock_engine = Mock()
         mock_connection = MagicMock()
-        mock_engine.connect.return_value.__enter__.return_value = mock_connection
+        mock_context_mgr = MagicMock()
+        mock_context_mgr.__enter__ = Mock(return_value=mock_connection)
+        mock_context_mgr.__exit__ = Mock(return_value=False)
+        mock_engine.connect.return_value = mock_context_mgr
         
         # Mock current revision (outdated)
         mock_context = Mock()
@@ -132,7 +145,8 @@ class TestSchemaVersionManager:
         mock_script.get_current_head.return_value = "def456"
         mock_script_directory.from_config.return_value = mock_script
         
-        with patch('caracal.db.schema_version.Config'):
+        with patch('caracal.db.schema_version.Config') as mock_config_class:
+            mock_config_class.return_value = Mock(spec=Config)
             manager = SchemaVersionManager(mock_engine, "alembic.ini")
         
         # Act
@@ -148,7 +162,10 @@ class TestSchemaVersionManager:
         # Arrange
         mock_engine = Mock()
         mock_connection = MagicMock()
-        mock_engine.connect.return_value.__enter__.return_value = mock_connection
+        mock_context_mgr = MagicMock()
+        mock_context_mgr.__enter__ = Mock(return_value=mock_connection)
+        mock_context_mgr.__exit__ = Mock(return_value=False)
+        mock_engine.connect.return_value = mock_context_mgr
         
         # Mock no current revision
         mock_context = Mock()
@@ -160,7 +177,8 @@ class TestSchemaVersionManager:
         mock_script.get_current_head.return_value = "abc123"
         mock_script_directory.from_config.return_value = mock_script
         
-        with patch('caracal.db.schema_version.Config'):
+        with patch('caracal.db.schema_version.Config') as mock_config_class:
+            mock_config_class.return_value = Mock(spec=Config)
             manager = SchemaVersionManager(mock_engine, "alembic.ini")
         
         # Act
@@ -176,7 +194,10 @@ class TestSchemaVersionManager:
         # Arrange
         mock_engine = Mock()
         mock_connection = MagicMock()
-        mock_engine.connect.return_value.__enter__.return_value = mock_connection
+        mock_context_mgr = MagicMock()
+        mock_context_mgr.__enter__ = Mock(return_value=mock_connection)
+        mock_context_mgr.__exit__ = Mock(return_value=False)
+        mock_engine.connect.return_value = mock_context_mgr
         
         # Mock current revision
         mock_context = Mock()
@@ -194,7 +215,8 @@ class TestSchemaVersionManager:
         mock_script.iterate_revisions.return_value = [mock_rev2, mock_rev1]
         mock_script_directory.from_config.return_value = mock_script
         
-        with patch('caracal.db.schema_version.Config'):
+        with patch('caracal.db.schema_version.Config') as mock_config_class:
+            mock_config_class.return_value = Mock(spec=Config)
             manager = SchemaVersionManager(mock_engine, "alembic.ini")
         
         # Act
@@ -212,7 +234,10 @@ class TestSchemaVersionManager:
         # Arrange
         mock_engine = Mock()
         mock_connection = MagicMock()
-        mock_engine.connect.return_value.__enter__.return_value = mock_connection
+        mock_context_mgr = MagicMock()
+        mock_context_mgr.__enter__ = Mock(return_value=mock_connection)
+        mock_context_mgr.__exit__ = Mock(return_value=False)
+        mock_engine.connect.return_value = mock_context_mgr
         
         # Mock current revision (same as head)
         mock_context = Mock()
@@ -224,7 +249,8 @@ class TestSchemaVersionManager:
         mock_script.get_current_head.return_value = "abc123"
         mock_script_directory.from_config.return_value = mock_script
         
-        with patch('caracal.db.schema_version.Config'):
+        with patch('caracal.db.schema_version.Config') as mock_config_class:
+            mock_config_class.return_value = Mock(spec=Config)
             manager = SchemaVersionManager(mock_engine, "alembic.ini")
         
         # Act
@@ -240,7 +266,10 @@ class TestSchemaVersionManager:
         # Arrange
         mock_engine = Mock()
         mock_connection = MagicMock()
-        mock_engine.connect.return_value.__enter__.return_value = mock_connection
+        mock_context_mgr = MagicMock()
+        mock_context_mgr.__enter__ = Mock(return_value=mock_connection)
+        mock_context_mgr.__exit__ = Mock(return_value=False)
+        mock_engine.connect.return_value = mock_context_mgr
         
         # Mock current revision (same as head)
         mock_context = Mock()
@@ -252,7 +281,8 @@ class TestSchemaVersionManager:
         mock_script.get_current_head.return_value = "abc123"
         mock_script_directory.from_config.return_value = mock_script
         
-        with patch('caracal.db.schema_version.Config'):
+        with patch('caracal.db.schema_version.Config') as mock_config_class:
+            mock_config_class.return_value = Mock(spec=Config)
             manager = SchemaVersionManager(mock_engine, "alembic.ini")
         
         # Act
@@ -268,7 +298,10 @@ class TestSchemaVersionManager:
         # Arrange
         mock_engine = Mock()
         mock_connection = MagicMock()
-        mock_engine.connect.return_value.__enter__.return_value = mock_connection
+        mock_context_mgr = MagicMock()
+        mock_context_mgr.__enter__ = Mock(return_value=mock_connection)
+        mock_context_mgr.__exit__ = Mock(return_value=False)
+        mock_engine.connect.return_value = mock_context_mgr
         
         # Mock current revision (outdated)
         mock_context = Mock()
@@ -281,7 +314,8 @@ class TestSchemaVersionManager:
         mock_script.iterate_revisions.return_value = []
         mock_script_directory.from_config.return_value = mock_script
         
-        with patch('caracal.db.schema_version.Config'):
+        with patch('caracal.db.schema_version.Config') as mock_config_class:
+            mock_config_class.return_value = Mock(spec=Config)
             manager = SchemaVersionManager(mock_engine, "alembic.ini")
         
         # Act & Assert
@@ -294,7 +328,8 @@ class TestSchemaVersionManager:
         # Arrange
         mock_engine = Mock()
         
-        with patch('caracal.db.schema_version.Config'):
+        with patch('caracal.db.schema_version.Config') as mock_config_class:
+            mock_config_class.return_value = Mock(spec=Config)
             manager = SchemaVersionManager(mock_engine, "alembic.ini")
         
         # Act
@@ -311,7 +346,8 @@ class TestSchemaVersionManager:
         # Arrange
         mock_engine = Mock()
         
-        with patch('caracal.db.schema_version.Config'):
+        with patch('caracal.db.schema_version.Config') as mock_config_class:
+            mock_config_class.return_value = Mock(spec=Config)
             manager = SchemaVersionManager(mock_engine, "alembic.ini")
         
         # Act
@@ -329,7 +365,10 @@ class TestSchemaVersionManager:
         # Arrange
         mock_engine = Mock()
         mock_connection = MagicMock()
-        mock_engine.connect.return_value.__enter__.return_value = mock_connection
+        mock_context_mgr = MagicMock()
+        mock_context_mgr.__enter__ = Mock(return_value=mock_connection)
+        mock_context_mgr.__exit__ = Mock(return_value=False)
+        mock_engine.connect.return_value = mock_context_mgr
         
         # Mock current revision
         mock_context = Mock()
@@ -341,7 +380,8 @@ class TestSchemaVersionManager:
         mock_script.get_current_head.return_value = "abc123"
         mock_script_directory.from_config.return_value = mock_script
         
-        with patch('caracal.db.schema_version.Config'):
+        with patch('caracal.db.schema_version.Config') as mock_config_class:
+            mock_config_class.return_value = Mock(spec=Config)
             manager = SchemaVersionManager(mock_engine, "alembic.ini")
         
         # Act
