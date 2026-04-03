@@ -1061,7 +1061,7 @@ def graph(ctx, root_mandate_id: Optional[str], format: str):
                             click.echo(
                                 f"{row.get('network_distance', 0):<5}  "
                                 f"{row.get('mandate_id', ''):<38}  "
-                                f"{row.get('principal_type', 'unknown'):<8}  "
+                                f"{row.get('principal_kind', 'unknown'):<8}  "
                                 f"{row.get('target_count', 0):<8}  "
                                 f"{row.get('path_count', 0):<5}  "
                                 f"{row.get('network_distance', 0):<8}  "
