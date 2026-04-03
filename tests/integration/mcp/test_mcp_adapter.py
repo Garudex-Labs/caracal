@@ -12,9 +12,35 @@ from unittest.mock import Mock, AsyncMock
 from caracal.mcp.adapter import MCPAdapter, MCPContext, MCPResult
 from caracal.core.authority import AuthorityEvaluator
 from caracal.core.mandate import MandateManager
+from caracal.core.principal_keys import generate_and_store_principal_keypair
 from caracal.core.metering import MeteringCollector
 from caracal.db.models import Principal, ExecutionMandate, AuthorityPolicy
 from tests.fixtures.database import db_session, in_memory_db_engine
+
+
+def _make_principal(
+    principal_id,
+    name,
+    principal_type,
+    *,
+    owner="integration-test",
+    with_keys=False,
+):
+    metadata = None
+    public_key_pem = None
+    if with_keys:
+        generated = generate_and_store_principal_keypair(principal_id)
+        metadata = generated.storage.metadata
+        public_key_pem = generated.public_key_pem
+
+    return Principal(
+        principal_id=principal_id,
+        name=name,
+        principal_type=principal_type,
+        owner=owner,
+        public_key_pem=public_key_pem,
+        principal_metadata=metadata,
+    )
 
 
 @pytest.mark.integration
@@ -37,15 +63,9 @@ class TestMCPAdapterIntegration:
         
         # Create principals
         issuer_id = uuid4()
-        issuer = Principal(
-            principal_id=issuer_id,
-            principal_name="test-issuer",
-            principal_type="user",
-            private_key_pem="-----BEGIN PRIVATE KEY-----\nMIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgTest1234567890Test1234567890Test1234567890hRACBggg==\n-----END PRIVATE KEY-----",
-            public_key_pem="-----BEGIN PUBLIC KEY-----\nMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAETest1234567890Test1234567890Test1234567890Test1234567890==\n-----END PUBLIC KEY-----"
-        )
+        issuer = _make_principal(issuer_id, "test-issuer", "user", with_keys=True)
         db_session.add(issuer)
-        
+
         policy = AuthorityPolicy(
             principal_id=issuer_id,
             allowed_resource_patterns=["*"],
@@ -53,16 +73,13 @@ class TestMCPAdapterIntegration:
             max_validity_seconds=3600,
             allow_delegation=False,
             max_network_distance=0,
+            created_by="integration-test",
             active=True
         )
         db_session.add(policy)
-        
+
         subject_id = uuid4()
-        subject = Principal(
-            principal_id=subject_id,
-            principal_name="test-agent",
-            principal_type="agent"
-        )
+        subject = _make_principal(subject_id, "test-agent", "agent")
         db_session.add(subject)
         db_session.commit()
         
@@ -110,15 +127,9 @@ class TestMCPAdapterIntegration:
         
         # Create principals
         issuer_id = uuid4()
-        issuer = Principal(
-            principal_id=issuer_id,
-            principal_name="test-issuer",
-            principal_type="user",
-            private_key_pem="-----BEGIN PRIVATE KEY-----\nMIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgTest1234567890Test1234567890Test1234567890hRACBggg==\n-----END PRIVATE KEY-----",
-            public_key_pem="-----BEGIN PUBLIC KEY-----\nMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAETest1234567890Test1234567890Test1234567890Test1234567890==\n-----END PUBLIC KEY-----"
-        )
+        issuer = _make_principal(issuer_id, "test-issuer", "user", with_keys=True)
         db_session.add(issuer)
-        
+
         policy = AuthorityPolicy(
             principal_id=issuer_id,
             allowed_resource_patterns=["*"],
@@ -126,16 +137,13 @@ class TestMCPAdapterIntegration:
             max_validity_seconds=3600,
             allow_delegation=False,
             max_network_distance=0,
+            created_by="integration-test",
             active=True
         )
         db_session.add(policy)
-        
+
         subject_id = uuid4()
-        subject = Principal(
-            principal_id=subject_id,
-            principal_name="test-agent",
-            principal_type="agent"
-        )
+        subject = _make_principal(subject_id, "test-agent", "agent")
         db_session.add(subject)
         db_session.commit()
         
@@ -182,15 +190,9 @@ class TestMCPAdapterIntegration:
         
         # Create principals
         issuer_id = uuid4()
-        issuer = Principal(
-            principal_id=issuer_id,
-            principal_name="test-issuer",
-            principal_type="user",
-            private_key_pem="-----BEGIN PRIVATE KEY-----\nMIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgTest1234567890Test1234567890Test1234567890hRACBggg==\n-----END PRIVATE KEY-----",
-            public_key_pem="-----BEGIN PUBLIC KEY-----\nMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAETest1234567890Test1234567890Test1234567890Test1234567890==\n-----END PUBLIC KEY-----"
-        )
+        issuer = _make_principal(issuer_id, "test-issuer", "user", with_keys=True)
         db_session.add(issuer)
-        
+
         policy = AuthorityPolicy(
             principal_id=issuer_id,
             allowed_resource_patterns=["allowed_tool"],
@@ -198,16 +200,13 @@ class TestMCPAdapterIntegration:
             max_validity_seconds=3600,
             allow_delegation=False,
             max_network_distance=0,
+            created_by="integration-test",
             active=True
         )
         db_session.add(policy)
-        
+
         subject_id = uuid4()
-        subject = Principal(
-            principal_id=subject_id,
-            principal_name="test-agent",
-            principal_type="agent"
-        )
+        subject = _make_principal(subject_id, "test-agent", "agent")
         db_session.add(subject)
         db_session.commit()
         
