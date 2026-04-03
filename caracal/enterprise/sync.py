@@ -8,8 +8,8 @@ Pushes local Caracal Core data (principals, policies, mandates, ledger
 entries) to the Caracal Enterprise dashboard.
 
 Authentication is done via a sync API key that is generated during
-license validation.  The key is stored in ``enterprise.json`` inside
-the active workspace and used automatically for subsequent syncs.
+license validation.  The key is stored in enterprise runtime metadata
+and used automatically for subsequent syncs.
 
 Usage::
 
@@ -158,14 +158,14 @@ def _load_local_principals() -> List[Dict[str, Any]]:
             mgr.initialize()
             with mgr.session_scope() as session:
                 rows = session.execute(
-                    text(f'SELECT principal_id, name, principal_type, metadata FROM "{schema}".principals')
+                    text(f'SELECT principal_id, name, principal_kind, metadata FROM "{schema}".principals')
                 ).fetchall()
             mgr.close()
             return [
                 {
                     "principal_id": str(r[0]),
                     "name": r[1],
-                    "principal_type": r[2],
+                    "principal_kind": r[2],
                     "metadata": r[3] if r[3] else {},
                 }
                 for r in rows
@@ -277,9 +277,15 @@ def _load_local_mandates() -> List[Dict[str, Any]]:
                 # with both older and newer DB versions.
                 rows = session.execute(
                     text(
-                        f'SELECT mandate_id, issuer_id, subject_id, resource_scope, '
-                        f'action_scope, valid_from, valid_until, intent_hash, source_mandate_id, revoked '
-                        f'FROM "{schema}".execution_mandates'
+                        f'SELECT em.mandate_id, em.issuer_id, em.subject_id, '
+                        f'COALESCE((SELECT array_agg(mrs.resource_scope ORDER BY mrs.position) '
+                        f'          FROM "{schema}".mandate_resource_scopes mrs '
+                        f'          WHERE mrs.mandate_id = em.mandate_id), ARRAY[\'*\']) AS resource_scope, '
+                        f'COALESCE((SELECT array_agg(mas.action_scope ORDER BY mas.position) '
+                        f'          FROM "{schema}".mandate_action_scopes mas '
+                        f'          WHERE mas.mandate_id = em.mandate_id), ARRAY[\'*\']) AS action_scope, '
+                        f'em.valid_from, em.valid_until, em.intent_hash, em.source_mandate_id, em.revoked '
+                        f'FROM "{schema}".execution_mandates em'
                     )
                 ).fetchall()
             mgr.close()
@@ -323,24 +329,37 @@ def _load_local_mandates() -> List[Dict[str, Any]]:
 
 
 def _load_local_ledger() -> List[Dict[str, Any]]:
-    """Load ledger entries from the local workspace."""
+    """Load ledger entries from PostgreSQL."""
     try:
-        from caracal.flow.workspace import get_workspace
-        ws = get_workspace()
-        ledger_path = ws.ledger_path
-        if ledger_path.exists():
-            entries = []
-            with open(ledger_path) as f:
-                for line in f:
-                    line = line.strip()
-                    if line:
-                        try:
-                            entries.append(json.loads(line))
-                        except json.JSONDecodeError:
-                            continue
-            return entries
+        from caracal.config import load_config
+        from caracal.db.connection import get_db_manager
+        from caracal.db.models import LedgerEvent
+
+        db_manager = get_db_manager(load_config())
+        try:
+            with db_manager.session_scope() as session:
+                rows = (
+                    session.query(LedgerEvent)
+                    .order_by(LedgerEvent.timestamp.asc(), LedgerEvent.event_id.asc())
+                    .all()
+                )
+                entries: List[Dict[str, Any]] = []
+                for row in rows:
+                    entries.append(
+                        {
+                            "event_id": int(row.event_id),
+                            "principal_id": str(row.principal_id),
+                            "timestamp": row.timestamp.isoformat() if row.timestamp else None,
+                            "resource_type": row.resource_type,
+                            "quantity": float(row.quantity),
+                            "metadata": row.event_metadata,
+                        }
+                    )
+                return entries
+        finally:
+            db_manager.close()
     except Exception as exc:
-        logger.debug("Could not load ledger from file: %s", exc)
+        logger.debug("Could not load ledger from DB: %s", exc)
 
     return []
 
@@ -372,10 +391,14 @@ def _load_local_delegation() -> List[Dict[str, Any]]:
             with mgr.session_scope() as session:
                 rows = session.execute(
                     text(
-                        f'SELECT edge_id, source_mandate_id, target_mandate_id, '
-                        f'source_principal_type, target_principal_type, '
-                        f'delegation_type, context_tags, granted_at, expires_at, revoked, metadata '
-                        f'FROM "{schema}".delegation_edges WHERE revoked = false'
+                        f'SELECT de.edge_id, de.source_mandate_id, de.target_mandate_id, '
+                        f'de.source_principal_type, de.target_principal_type, '
+                        f'de.delegation_type, '
+                        f'COALESCE((SELECT array_agg(det.context_tag ORDER BY det.position) '
+                        f'          FROM "{schema}".delegation_edge_tags det '
+                        f'          WHERE det.edge_id = de.edge_id), ARRAY[]::text[]) AS context_tags, '
+                        f'de.granted_at, de.expires_at, de.revoked, de.metadata '
+                        f'FROM "{schema}".delegation_edges de WHERE de.revoked = false'
                     )
                 ).fetchall()
             mgr.close()
@@ -387,8 +410,8 @@ def _load_local_delegation() -> List[Dict[str, Any]]:
                     "edge_id": str(r[0]),
                     "source_mandate_id": str(r[1]),
                     "target_mandate_id": str(r[2]),
-                    "source_principal_type": r[3] or "agent",
-                    "target_principal_type": r[4] or "agent",
+                    "source_principal_type": r[3] or "worker",
+                    "target_principal_type": r[4] or "worker",
                     "delegation_type": r[5] or "hierarchical",
                     "context_tags": r[6],
                     "granted_at": granted_at.isoformat() if granted_at else None,
@@ -410,8 +433,8 @@ def _load_local_delegation() -> List[Dict[str, Any]]:
 class EnterpriseSyncClient:
     """Client for syncing local Caracal data to Enterprise dashboard.
 
-    Uses the sync API key stored in ``enterprise.json`` (generated during
-    license validation) for authentication.
+    Uses the sync API key stored in enterprise runtime metadata (generated
+    during license validation) for authentication.
 
     In addition to pushing local data *up*, the client also pulls the
     gateway configuration *down* from the Enterprise API so that the
@@ -596,7 +619,7 @@ class EnterpriseSyncClient:
         returns the provisioned gateway endpoint, API key, deployment type,
         and enforcement settings for the authenticated organization.
 
-        On success the gateway section of ``enterprise.json`` is updated
+        On success the gateway section of enterprise runtime metadata is updated
         and the gateway feature flags are reloaded.
 
         Returns:
@@ -648,7 +671,7 @@ class EnterpriseSyncClient:
                     "message": result.get("message", "No gateway provisioned."),
                 }
 
-            # Persist to enterprise.json gateway section
+            # Persist to enterprise runtime metadata gateway section
             cfg = load_enterprise_config()
             cfg["gateway"] = {
                 "enabled": True,

@@ -93,6 +93,7 @@ class EditionManager:
         try:
             # Auto-detect based on connectivity and runtime indicators.
             edition = self._auto_detect_edition()
+            self._assert_execution_exclusivity(edition)
             self._cached_edition = edition
             self._cache_timestamp = datetime.now()
             logger.debug(
@@ -189,6 +190,50 @@ class EditionManager:
             reason="no_enterprise_indicators"
         )
         return self.DEFAULT_EDITION
+
+    def _resolve_gateway_url(self) -> Optional[str]:
+        """Resolve effective gateway URL from config or environment."""
+        return (
+            self.get_gateway_url()
+            or os.environ.get("CARACAL_ENTERPRISE_URL")
+            or os.environ.get("CARACAL_GATEWAY_ENDPOINT")
+            or os.environ.get("CARACAL_GATEWAY_URL")
+        )
+
+    def _has_local_provider_registry_entries(self) -> bool:
+        """Return True when any workspace has local broker provider entries."""
+        try:
+            from caracal.deployment.config_manager import ConfigManager
+            from caracal.provider.workspace import load_workspace_provider_registry
+
+            cfg_mgr = ConfigManager()
+            for workspace in cfg_mgr.list_workspaces():
+                try:
+                    providers = load_workspace_provider_registry(cfg_mgr, workspace)
+                except Exception:
+                    continue
+                if providers:
+                    return True
+        except Exception:
+            logger.debug("edition_provider_registry_detection_failed", exc_info=True)
+        return False
+
+    def _assert_execution_exclusivity(self, detected_edition: Edition) -> None:
+        """Reject mixed broker+gateway execution indicators in hard-cut mode."""
+        gateway_url = self._resolve_gateway_url()
+        local_provider_registry_present = self._has_local_provider_registry_entries()
+
+        if gateway_url and local_provider_registry_present:
+            raise EditionConfigurationError(
+                "Execution exclusivity violation: gateway URL and local provider registry are both configured. "
+                "Use gateway-only enterprise execution or broker-only OSS execution, never both."
+            )
+
+        if detected_edition == Edition.ENTERPRISE and not gateway_url:
+            raise EditionConfigurationError(
+                "Enterprise execution requires a gateway URL (CARACAL_ENTERPRISE_URL/CARACAL_GATEWAY_ENDPOINT/CARACAL_GATEWAY_URL). "
+                "Broker fallback is forbidden in hard-cut mode."
+            )
     
     def set_edition(self, edition: Edition, gateway_url: Optional[str] = None, 
                     gateway_token: Optional[str] = None) -> None:
@@ -335,13 +380,10 @@ class EditionManager:
         from caracal.deployment.gateway_client import GatewayClient
         
         edition = self.get_edition()
+        self._assert_execution_exclusivity(edition)
         
         if edition == Edition.ENTERPRISE:
-            gateway_url = (
-                self.get_gateway_url()
-                or os.environ.get("CARACAL_ENTERPRISE_URL")
-                or os.environ.get("CARACAL_GATEWAY_URL")
-            )
+            gateway_url = self._resolve_gateway_url()
             if not gateway_url:
                 raise EditionConfigurationError(
                     "Enterprise URL is required for Enterprise provider client"
