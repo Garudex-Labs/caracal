@@ -15,7 +15,11 @@ from uuid import UUID
 import click
 
 from caracal.core.delegation import DelegationTokenManager
-from caracal.core.principal_keys import generate_and_store_principal_keypair
+from caracal.core.principal_keys import (
+    generate_and_store_principal_keypair,
+    principal_has_key_custody,
+    resolve_principal_private_key,
+)
 from caracal.db.connection import get_db_manager
 from caracal.db.models import AuthorityPolicy, Principal
 from caracal.exceptions import CaracalError, PrincipalNotFoundError
@@ -57,7 +61,7 @@ class _DBPrincipalRegistryAdapter:
             db_manager.close()
 
     def ensure_signing_keys(self, principal_id: str, delegation_manager: DelegationTokenManager) -> None:
-        """Ensure principal has ES256 signing keys stored in PostgreSQL metadata."""
+        """Ensure principal has ES256 signing keys stored in custody tables."""
         try:
             principal_uuid = UUID(principal_id)
         except ValueError as exc:
@@ -71,17 +75,37 @@ class _DBPrincipalRegistryAdapter:
                     raise PrincipalNotFoundError(f"Principal not found: {principal_id}")
 
                 metadata = dict(row.principal_metadata or {})
-                has_private_material = any(
-                    k in metadata
-                    for k in ("private_key_ref", "aws_kms_ciphertext_b64")
-                )
-                if row.public_key_pem and has_private_material:
+                if row.public_key_pem and principal_has_key_custody(row.principal_id, session):
                     return
 
-                generated = generate_and_store_principal_keypair(row.principal_id)
+                generated = generate_and_store_principal_keypair(
+                    row.principal_id,
+                    db_session=session,
+                )
                 row.public_key_pem = generated.public_key_pem
                 metadata.update(generated.storage.metadata)
                 row.principal_metadata = metadata
+        finally:
+            db_manager.close()
+
+    def resolve_private_key(self, principal_id: str) -> str:
+        """Resolve signing key material from custody records."""
+        try:
+            principal_uuid = UUID(principal_id)
+        except ValueError as exc:
+            raise PrincipalNotFoundError(f"Invalid principal ID: {principal_id}") from exc
+
+        db_manager = get_db_manager(self._config)
+        try:
+            with db_manager.session_scope() as session:
+                row = session.query(Principal).filter_by(principal_id=principal_uuid).first()
+                if not row:
+                    raise PrincipalNotFoundError(f"Principal not found: {principal_id}")
+                return resolve_principal_private_key(
+                    principal_uuid,
+                    db_session=session,
+                    principal_metadata=row.principal_metadata,
+                )
         finally:
             db_manager.close()
 
