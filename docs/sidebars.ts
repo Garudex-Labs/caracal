@@ -13,21 +13,6 @@ const sidebars: SidebarsConfig = {
       items: [
         "open-source/end-users/index",
         "open-source/developers/index",
-        {
-          type: "category",
-          label: "SDK",
-          link: {
-            type: "doc",
-            id: "open-source/sdk/overview/index",
-          },
-          items: [
-            "open-source/sdk/installation/index",
-            "open-source/sdk/usage/index",
-            "open-source/sdk/api-surface/index",
-            "open-source/sdk/examples/index",
-            "open-source/sdk/advanced/index",
-          ],
-        },
       ],
     },
     {
@@ -45,9 +30,30 @@ const sidebars: SidebarsConfig = {
         "enterprise/deployment/index",
         "enterprise/monitoring/index",
         "enterprise/troubleshooting/index",
+      ],
+    },
+    {
+      type: "category",
+      label: "SDK",
+      items: [
         {
           type: "category",
-          label: "SDK",
+          label: "Open Source",
+          link: {
+            type: "doc",
+            id: "open-source/sdk/overview/index",
+          },
+          items: [
+            "open-source/sdk/installation/index",
+            "open-source/sdk/usage/index",
+            "open-source/sdk/api-surface/index",
+            "open-source/sdk/examples/index",
+            "open-source/sdk/advanced/index",
+          ],
+        },
+        {
+          type: "category",
+          label: "Enterprise",
           link: {
             type: "doc",
             id: "enterprise/sdk/overview/index",
