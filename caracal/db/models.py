@@ -265,7 +265,7 @@ class Principal(Base):
     Principal identity with behavioral taxonomy and lifecycle state.
     
     Represents an entity that can hold authority and perform actions.
-    Replaces AgentIdentity with more general concept for authority enforcement.
+    Replaces older identity naming with principal-centric authority enforcement.
     
     """
     
