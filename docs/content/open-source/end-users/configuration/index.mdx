@@ -1,23 +1,100 @@
 ---
 title: Configuration
-description: Placeholder for end-user configuration documentation.
+description: How Caracal resolves workspace config, environment variables, secrets, and provider metadata.
 sidebar_label: Configuration
 ---
 
-import DocPlaceholder from "@site/src/components/DocPlaceholder";
+Caracal configuration is workspace-centered, environment-aware, and opinionated about state placement.
 
-<DocPlaceholder
-  summary="Planned configuration section for workspace data, environment variables, encrypted values, provider registry entries, and runtime mode selection."
-  audience="Open-source end users."
-  prerequisites={["A workspace created or selected.", "Understanding of local versus remote enterprise connectivity."]}
-  plannedSections={[
-    "Workspace-scoped config.yaml resolution",
-    "Environment variable expansion and runtime mode rules",
-    "Secrets and config encryption commands",
-    "Provider registry records and credential references",
-  ]}
-  related={[
-    { label: "Commands", to: "/open-source/end-users/commands" },
-    { label: "Security", to: "/open-source/end-users/security" },
-  ]}
-/>
+**Audience:** User
+
+**Context:** Read this page when you need to understand where Caracal reads configuration from and which values are controlled by the active workspace.
+
+## Core Explanation
+
+### Workspace config file
+
+The primary runtime file is the active workspace's `config.yaml`.
+
+The CLI resolves it by:
+
+- using `--config` when explicitly provided
+- otherwise resolving the active workspace's `config.yaml`
+- otherwise falling back to the default workspace path
+
+### Environment variable expansion
+
+`caracal/config/settings.py` expands configuration values recursively using `${ENV_VAR}` and `${ENV_VAR:default}` syntax.
+
+Environment variables are also used directly by several subsystems, especially:
+
+- `CARACAL_DB_*` for PostgreSQL connection overrides
+- `CARACAL_ENV_MODE` for runtime mode
+- `CARACAL_DEBUG_LOGS` and `CARACAL_JSON_LOGS` for logging behavior
+- `CARACAL_HOST_IO_DIR` and related runtime path variables for host/container coordination
+
+### Encrypted config values
+
+Configuration values may be stored as encrypted `ENC[v2:...]` values. When such values are present, Caracal decrypts them through the local config-encryption subsystem before validating the final config.
+
+### Provider registry
+
+Providers are configured per workspace and stored in workspace metadata through `ConfigManager` plus the workspace provider registry helpers in `caracal/provider/workspace.py`.
+
+That registry matters operationally because policy and mandate scope validation uses the provider-scoped catalog derived from those definitions.
+
+## Internal Behavior
+
+The configuration loader is opinionated in several ways:
+
+- missing config files fall back to generated defaults
+- workspace-local operational paths are enforced even if the YAML points elsewhere
+- Redis and Merkle compatibility flags are parsed for backward compatibility but forced on in practice
+- a Merkle signing key is auto-provisioned if the expected key path does not exist
+
+This means the config layer is not a passive file reader. It actively normalizes the runtime into the supported operating model.
+
+## Runtime Modes
+
+Caracal recognizes three runtime modes:
+
+- `dev`
+- `staging`
+- `prod`
+
+Behavioral effect:
+
+- `dev` uses human-readable logs by default and only enables debug logs when explicitly requested
+- `staging` and `prod` prefer JSON logs and disable debug logging
+
+## Practical Usage
+
+Useful configuration-related commands include:
+
+```bash
+caracal config list
+caracal config get <key>
+caracal config set <key> <value>
+caracal config-encrypt status
+```
+
+Provider configuration typically enters through the provider command group, not by editing a raw provider file directly:
+
+```bash
+caracal provider list
+caracal provider add ...
+caracal provider test <name>
+```
+
+## Edge Cases And Constraints
+
+- PostgreSQL is mandatory. There is no SQLite fallback.
+- `storage.backup_dir` and `logging.file` are forced back into the active workspace if the YAML points outside the workspace layout.
+- When `config.yaml` is malformed in certain onboarding-generated cases, Caracal attempts a narrow legacy repair path before failing.
+- Provider scopes must exist in the workspace catalog before policy and mandate commands will accept them.
+
+## Related Concepts
+
+- [Concepts](/open-source/end-users/concepts)
+- [Commands](/open-source/end-users/commands)
+- [Development Setup](/open-source/developers/development-setup)
