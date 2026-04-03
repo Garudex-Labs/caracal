@@ -23,7 +23,7 @@ _FORBIDDEN_SQLITE_PREFIXES = ("sqlite://", "sqlite+")
 _FORBIDDEN_RUNTIME_COMPOSE_MARKERS = (
     "caracal_state:",
     "/home/caracal/.caracal",
-    "caracal_home",
+    "caracal_home:",
 )
 _FORBIDDEN_STATE_RELATIVE_PATHS = (
     "enterprise.json",

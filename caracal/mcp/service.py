@@ -502,7 +502,7 @@ async def main(config_path: Optional[str] = None, listen_address: Optional[str] 
     import os
     from caracal.config import load_config
     from caracal.db.connection import get_db_manager
-    from caracal.core.identity import AgentRegistry
+    from caracal.core.identity import PrincipalRegistry
     from caracal.core.authority import AuthorityEvaluator
     from caracal.core.authority_ledger import AuthorityLedgerWriter
     from caracal.core.ledger import LedgerWriter
@@ -559,7 +559,7 @@ async def main(config_path: Optional[str] = None, listen_address: Optional[str] 
     session = db_manager.get_session()
     
     # Initialize core components
-    principal_registry = AgentRegistry(session)
+    principal_registry = PrincipalRegistry(session)
     ledger_writer = LedgerWriter(session)
     authority_ledger_writer = AuthorityLedgerWriter(session)
     
