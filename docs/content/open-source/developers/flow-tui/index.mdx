@@ -1,0 +1,80 @@
+---
+title: Flow TUI Internals
+description: Internal structure of Flow, including state persistence, onboarding, menus, and screen organization.
+sidebar_label: Flow TUI Internals
+---
+
+Flow is a structured frontend over the same runtime and workspace model used by the CLI.
+
+**Audience:** Developer
+
+**Context:** Use this page when changing the terminal UI, onboarding behavior, workspace selection flow, or screen-level orchestration.
+
+## Core Explanation
+
+### App controller
+
+`caracal/flow/app.py` owns the Flow lifecycle:
+
+- configure workspace-local logging
+- load persisted Flow state
+- show welcome
+- run onboarding
+- confirm workspace readiness
+- enter the main menu loop
+
+### State model
+
+`caracal/flow/state.py` separates:
+
+- onboarding state
+- user preferences
+- transient session data
+- authority-session data
+- recent actions and favorites
+
+Persistence is intentionally narrow. It stores durable user-facing state while leaving short-lived navigation context in memory.
+
+### Workspace coupling
+
+Flow depends heavily on `caracal/flow/workspace.py`. The active workspace determines:
+
+- config path
+- state file path
+- logs path
+- cache path
+- key path
+
+That is why onboarding refuses to continue if it cannot produce a usable workspace.
+
+## Screen Organization
+
+`caracal/flow/screens` is organized by operational area:
+
+- onboarding and welcome
+- principal, policy, mandate, delegation, and ledger flows
+- workspace, provider, logs, and deployment screens
+- settings, config editor, sync monitor, and enterprise placeholders
+
+`main_menu.py` is the high-level navigation contract for the TUI.
+
+## Internal Behavior
+
+A few details matter when changing Flow:
+
+- logs are redirected to workspace-local files so the UI stays clean
+- onboarding performs real checks and mutations rather than acting as a tutorial layer
+- several screens are effectively UI wrappers over CLI-adjacent deployment and config helpers
+- Flow can mix rich presentation with direct calls into shared backend modules; it is not a separate API layer
+
+## Edge Cases And Constraints
+
+- The docs and code both still use the name `Flow`, even though the entry command is `caracal flow`.
+- Some screens reference enterprise or deployment concepts because those public boundaries are present in the runtime, even though enterprise internals are not part of the public docs.
+- A workspace switch during onboarding changes not only config resolution but also where logs and Flow state are stored.
+
+## Related Concepts
+
+- [TUI](/open-source/end-users/tui)
+- [Runtime Model](/open-source/developers/runtime-model)
+- [Storage and Data](/open-source/developers/storage-and-data)

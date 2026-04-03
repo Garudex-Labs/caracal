@@ -1,0 +1,96 @@
+---
+title: Runtime Model
+description: Entrypoints, compose resolution, container surfaces, and restricted shell behavior.
+sidebar_label: Runtime Model
+---
+
+The runtime model explains how the same repository becomes a host orchestrator, a containerized product runtime, and an interactive operational shell.
+
+**Audience:** Developer
+
+**Context:** Use this page when you need to reason about startup behavior, host-versus-runtime boundaries, or why commands behave differently inside and outside the container.
+
+## Core Explanation
+
+### Host entrypoint
+
+`pyproject.toml` exposes `caracal = "caracal.runtime.entrypoints:caracal_entrypoint"`.
+
+At runtime, `caracal_entrypoint()` checks whether execution is inside a container:
+
+- outside the container, it runs the host orchestrator
+- inside the container, it routes to the restricted Caracal command runner
+
+### Compose resolution
+
+The host entrypoint searches for compose files in the package tree and current working directory. If it cannot find a valid compose file with `mcp`, `cli`, and `flow` services, it writes and uses an embedded fallback compose file.
+
+That embedded model defines:
+
+- `postgres`
+- `redis`
+- `mcp`
+- `cli`
+- `flow`
+
+### Runtime services
+
+The runtime expects separate service roles:
+
+- `mcp` runs the HTTP service
+- `cli` is an interactive tool profile
+- `flow` is a separate TUI session
+- PostgreSQL and Redis are shared infrastructure
+
+## Restricted Shell
+
+Inside the runtime container, `caracal/runtime/restricted_shell.py` provides a Caracal-only REPL.
+
+Key behavior:
+
+- completion is derived from the Click command tree
+- history is stored under the Caracal layout
+- `help`, `clear`, and `exit` are recognized directly
+- arbitrary shell commands are not exposed
+
+This is why `caracal cli` feels shell-like while still remaining product-specific.
+
+## Runtime Environment
+
+`caracal/runtime/environment.py` resolves:
+
+- `dev`
+- `staging`
+- `prod`
+
+and derives logging behavior from those modes.
+
+The compose files also define environment variables for:
+
+- `CARACAL_HOME`
+- database and Redis connectivity
+- runtime mode
+- JSON versus human-readable logs
+- host-shared I/O
+- public enterprise connector URLs
+
+## Internal Behavior
+
+A few design decisions are especially important:
+
+- `caracal cli` targets the `mcp` container and runs `caracal` there as the `caracal` user
+- `caracal flow` runs through the dedicated `flow` service and only requires the supporting infrastructure services to be available
+- teardown logic includes network-reconciliation behavior for shared Caracal-managed Docker resources
+- `purge` enumerates and removes containers, volumes, networks, images, paths, and keyring entries, not just compose services
+
+## Edge Cases And Constraints
+
+- The runtime model assumes Docker Compose plugin support. It does not provide a fallback orchestrator.
+- Host-shared import and export behavior depends on the mounted host I/O path.
+- Some behavior changes depending on whether a compose service uses a local `build:` stanza or a published image.
+
+## Related Concepts
+
+- [Architecture](/open-source/developers/architecture)
+- [CLI](/open-source/end-users/cli)
+- [Storage and Data](/open-source/developers/storage-and-data)
