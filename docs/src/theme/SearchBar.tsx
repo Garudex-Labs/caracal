@@ -51,13 +51,16 @@ function DocResult({
   doc: SearchDocEntry;
   onSelect: (to: string) => void;
 }): React.ReactElement {
+  const kindLabel =
+    doc.type === "page" ? "Page" : doc.type === "heading" ? "Heading" : "Section";
+
   return (
     <button className="caracal-search__result" onClick={() => onSelect(doc.url)} type="button">
       <div className="caracal-search__result-main">
         <span className="caracal-search__result-title">{doc.title}</span>
-        <span className="caracal-search__result-description">{doc.breadcrumbs.join(" / ") || "Documentation"}</span>
+        <span className="caracal-search__result-description">{doc.description}</span>
       </div>
-      <span className="caracal-search__result-kind">Doc</span>
+      <span className="caracal-search__result-kind">{kindLabel}</span>
     </button>
   );
 }
@@ -133,9 +136,9 @@ export default function SearchBar(): React.ReactElement {
   return (
     <>
       <button className="caracal-search-trigger" onClick={() => setOpen(true)} type="button">
-        <span className="caracal-search-trigger__icon" aria-hidden="true">
-          /
-        </span>
+          <span className="caracal-search-trigger__icon" aria-hidden="true">
+            /
+          </span>
         <span className="caracal-search-trigger__text">Search documentation</span>
         <span className="caracal-search-trigger__hint">Ctrl K</span>
       </button>
@@ -204,7 +207,7 @@ export default function SearchBar(): React.ReactElement {
             </div>
 
             <div className="caracal-search__footer">
-              <span>Jump fast to Open Source, CLI, and Enterprise from the keyboard.</span>
+              <span>Search pages, headings, sections, and navigation from the keyboard.</span>
               <span className={clsx("caracal-search__footer-key")}>Esc</span>
             </div>
           </div>
