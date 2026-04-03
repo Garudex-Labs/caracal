@@ -1,24 +1,62 @@
 ---
 title: Monitoring
-description: Placeholder for enterprise monitoring documentation.
+description: Monitoring guidance for connected enterprise environments.
 sidebar_label: Monitoring
 slug: /enterprise/monitoring
 ---
 
-import DocPlaceholder from "@site/src/components/DocPlaceholder";
+Enterprise monitoring is about knowing whether connected environments are healthy, reachable, and operating inside the expected organization context.
 
-<DocPlaceholder
-  summary="Planned monitoring page for health endpoints, metrics, and operational observation relevant to enterprise users."
-  audience="Enterprise operators."
-  prerequisites={["Deployment access.", "Operational responsibility for service health."]}
-  plannedSections={[
-    "Health checks",
-    "Metrics and dashboard surfaces",
-    "What to monitor during sync and gateway usage",
-    "Escalation cues",
-  ]}
-  related={[
-    { label: "Troubleshooting", to: "/enterprise/troubleshooting" },
-    { label: "Deployment", to: "/enterprise/deployment" },
-  ]}
-/>
+**Audience:** Enterprise operators and administrators
+
+## What To Watch
+
+At a high level, monitor:
+
+- connected workspace or runtime health
+- enterprise connection state
+- access and sign-in issues that block operators
+- authority activity trends that need review
+- workflow or reporting jobs that are delayed or failing
+
+## Healthy Operating Signals
+
+A healthy enterprise-connected environment usually shows:
+
+- successful sign-in for authorized users
+- expected workspace visibility
+- normal activity and recent status updates
+- no unexplained disconnects or access failures
+
+## Common Monitoring Workflows
+
+### Daily review
+
+Perform a quick review of:
+
+- current environment status
+- recent operational activity
+- user-reported access problems
+
+### Change review
+
+After access, configuration, or rollout changes, confirm that:
+
+- the environment remains connected
+- the correct teams still have access
+- expected workflows and reporting surfaces still function
+
+### Escalation review
+
+Escalate when you see:
+
+- repeated connection failures
+- persistent sign-in problems
+- unexpected drops in visibility or activity
+- reporting or workflow operations that do not complete
+
+## Related Pages
+
+- [Deployment](/enterprise/deployment)
+- [Troubleshooting](/enterprise/troubleshooting)
+- [Administration](/enterprise/administration)

@@ -1,24 +1,55 @@
 ---
 title: Deployment
-description: Placeholder for enterprise deployment documentation.
+description: High-level deployment expectations for connected enterprise environments.
 sidebar_label: Deployment
 slug: /enterprise/deployment
 ---
 
-import DocPlaceholder from "@site/src/components/DocPlaceholder";
+This page describes enterprise deployment from the operator’s point of view: what is deployed, what connects, and what changes when enterprise mode is active.
 
-<DocPlaceholder
-  summary="Planned deployment page for enterprise runtime modes, hosted connectivity, and the observable deployment behaviors users need without exposing internals."
-  audience="Enterprise operators."
-  prerequisites={["Enterprise environment available.", "Understanding of the runtime mode selection."]}
-  plannedSections={[
-    "Runtime mode expectations",
-    "Hosted or remote connectivity behavior",
-    "What changes when enterprise mode is active",
-    "What remains the same as the open-source runtime",
-  ]}
-  related={[
-    { label: "Monitoring", to: "/enterprise/monitoring" },
-    { label: "Overview", to: "/enterprise/overview" },
-  ]}
-/>
+**Audience:** Enterprise operators and administrators
+
+## High-Level Model
+
+An enterprise deployment has two visible parts:
+
+- the Caracal runtime or workspace that performs enforcement work
+- the enterprise environment that provides shared management, access, and operational surfaces
+
+Those parts are connected through approved enterprise connection details.
+
+## What Changes In Enterprise Mode
+
+When a runtime or workspace is enterprise-connected, teams should expect:
+
+- organization-aware access and administration
+- connected operational status instead of purely local-only behavior
+- enterprise-visible monitoring and reporting surfaces
+- shared workflows that are managed at the organization level
+
+## What Stays The Same
+
+Enterprise does not change the core user expectation that Caracal enforces authority before protected actions proceed. The enterprise layer changes how teams manage and observe that behavior across environments.
+
+## Deployment Considerations
+
+When planning rollout, confirm:
+
+- which environments should be enterprise-connected
+- which organization owns each environment
+- how administrators will sign in and operate those environments
+- how health, troubleshooting, and support will be handled
+
+## Environment Boundaries
+
+Keep environment boundaries clear:
+
+- do not mix unrelated teams into the same organization context
+- do not share enterprise connection details across environments without approval
+- document which environments are production-facing and which are not
+
+## Related Pages
+
+- [Getting Started](/enterprise/getting-started)
+- [Configuration](/enterprise/configuration)
+- [Monitoring](/enterprise/monitoring)
