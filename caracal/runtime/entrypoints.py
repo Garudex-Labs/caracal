@@ -938,23 +938,15 @@ def _completion_artifact_paths() -> set[Path]:
 
 
 def _load_registered_workspace_paths() -> list[Path]:
-    registry_path = _caracal_home_dir() / "workspaces.json"
-    if not registry_path.exists():
-        return []
-
     try:
-        payload = json.loads(registry_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
+        from caracal.flow.workspace import WorkspaceManager
+    except Exception:
         return []
 
-    workspaces = payload.get("workspaces", [])
-    if not isinstance(workspaces, list):
-        return []
+    workspaces = WorkspaceManager.list_workspaces()
 
     paths: list[Path] = []
     for workspace in workspaces:
-        if not isinstance(workspace, dict):
-            continue
         raw_path = workspace.get("path")
         if not isinstance(raw_path, str) or not raw_path.strip():
             continue
