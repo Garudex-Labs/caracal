@@ -1376,8 +1376,8 @@ def provider_test(name: str, workspace: Optional[str]):
                 finally:
                     asyncio.run(broker.close())
 
-                is_healthy = health.is_healthy
-                error_message = health.error_message
+                is_healthy = health.healthy
+                error_message = health.error
 
             progress.update(task, completed=True)
         

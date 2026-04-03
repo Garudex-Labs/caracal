@@ -16,8 +16,9 @@ from uuid import UUID, uuid4
 from sqlalchemy.orm import Session
 
 from caracal.core.crypto import sign_mandate
+from caracal.core.identity import PrincipalRegistry
 from caracal.core.intent import Intent
-from caracal.core.principal_keys import PrincipalKeyStorageError, resolve_principal_private_key
+from caracal.core.principal_keys import PrincipalKeyStorageError
 from caracal.db.models import ExecutionMandate, AuthorityPolicy, Principal
 from caracal.logging_config import get_logger
 
@@ -367,10 +368,8 @@ class MandateManager:
             raise RuntimeError(error_msg)
 
         try:
-            issuer_private_key = resolve_principal_private_key(
-                principal_id=issuer_principal.principal_id,
-                db_session=self.db_session,
-                principal_metadata=issuer_principal.principal_metadata,
+            issuer_private_key = PrincipalRegistry(self.db_session).resolve_private_key(
+                str(issuer_principal.principal_id)
             )
         except PrincipalKeyStorageError as exc:
             error_msg = (
