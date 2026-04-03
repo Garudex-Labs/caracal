@@ -1074,3 +1074,12 @@ button {
     display: none !important;
   }
 }
+.dropdown__category-title {
+  display: block;
+  padding: 0.4rem 0.75rem 0.2rem;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ifm-color-emphasis-600);
+}

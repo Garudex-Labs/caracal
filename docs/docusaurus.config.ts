@@ -101,23 +101,18 @@ const config: Config = {
         {
           label: "Open Source",
           activeBaseRegex:
-            "^/(?:open-source/overview(?:/|$)|open-source/end-users/?$|open-source/developers/?$|open-source/sdk(?:/|$))",
+            "^/(?:open-source/overview(?:/|$)|open-source/end-users(?:/|$)|open-source/developers(?:/|$))",
           items: [
             { label: "Overview", to: "/open-source/overview" },
             { label: "End Users", to: "/open-source/end-users" },
             { label: "Developers", to: "/open-source/developers" },
-            { label: "SDK Overview", to: "/open-source/sdk/overview" },
-            { label: "SDK Installation", to: "/open-source/sdk/installation" },
-            { label: "SDK Usage", to: "/open-source/sdk/usage" },
-            { label: "SDK API Surface", to: "/open-source/sdk/api-surface" },
-            { label: "SDK Examples", to: "/open-source/sdk/examples" },
-            { label: "SDK Advanced", to: "/open-source/sdk/advanced" },
           ],
           position: "left",
         },
         {
           label: "Enterprise",
-          activeBaseRegex: "^/enterprise(?:/|$)",
+          activeBaseRegex:
+            "^/enterprise/(?:overview|getting-started|access-auth|configuration|administration|deployment|monitoring|troubleshooting|reference)(?:/|$)",
           items: [
             { label: "Overview", to: "/enterprise/overview" },
             { label: "Getting Started", to: "/enterprise/getting-started" },
@@ -127,12 +122,34 @@ const config: Config = {
             { label: "Deployment", to: "/enterprise/deployment" },
             { label: "Monitoring", to: "/enterprise/monitoring" },
             { label: "Troubleshooting", to: "/enterprise/troubleshooting" },
-            { label: "SDK Overview", to: "/enterprise/sdk/overview" },
-            { label: "SDK Installation", to: "/enterprise/sdk/installation" },
-            { label: "SDK Usage", to: "/enterprise/sdk/usage" },
-            { label: "SDK API Surface", to: "/enterprise/sdk/api-surface" },
-            { label: "SDK Examples", to: "/enterprise/sdk/examples" },
-            { label: "SDK Advanced", to: "/enterprise/sdk/advanced" },
+          ],
+          position: "left",
+        },
+        {
+          label: "SDK",
+          activeBaseRegex:
+            "^/(?:open-source/sdk|enterprise/sdk)(?:/|$)",
+          items: [
+            {
+              type: "html",
+              value: '<span class="dropdown__category-title">Open Source</span>',
+            },
+            { label: "Overview", to: "/open-source/sdk/overview" },
+            { label: "Installation", to: "/open-source/sdk/installation" },
+            { label: "Usage", to: "/open-source/sdk/usage" },
+            { label: "API Surface", to: "/open-source/sdk/api-surface" },
+            { label: "Examples", to: "/open-source/sdk/examples" },
+            { label: "Advanced", to: "/open-source/sdk/advanced" },
+            {
+              type: "html",
+              value: '<span class="dropdown__category-title">Enterprise</span>',
+            },
+            { label: "Overview", to: "/enterprise/sdk/overview" },
+            { label: "Installation", to: "/enterprise/sdk/installation" },
+            { label: "Usage", to: "/enterprise/sdk/usage" },
+            { label: "API Surface", to: "/enterprise/sdk/api-surface" },
+            { label: "Examples", to: "/enterprise/sdk/examples" },
+            { label: "Advanced", to: "/enterprise/sdk/advanced" },
           ],
           position: "left",
         },
