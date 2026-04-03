@@ -1622,6 +1622,7 @@ def run_onboarding(
         from caracal.config import load_config
         from caracal.db.connection import DatabaseConfig, DatabaseConnectionManager, get_db_manager
         from caracal.db.models import Principal, AuthorityPolicy
+        from caracal.core.principal_keys import generate_and_store_principal_keypair
         from datetime import datetime
         from uuid import uuid4
         from caracal.flow.workspace import get_workspace
@@ -1823,35 +1824,18 @@ def run_onboarding(
                         console.print(f"  [{Colors.SUCCESS}]{Icons.SUCCESS} Principal already exists, reusing.[/]")
                         console.print(f"  [{Colors.DIM}]Principal ID: {principal_id}[/]")
                     else:
-                        # Generate ECDSA P-256 key pair for the principal
-                        from cryptography.hazmat.primitives.asymmetric import ec
-                        from cryptography.hazmat.primitives import serialization
-                        from cryptography.hazmat.backends import default_backend
-                        
                         console.print(f"  [{Colors.INFO}]{Icons.INFO} Generating cryptographic keys...[/]")
-                        
-                        private_key = ec.generate_private_key(ec.SECP256R1(), default_backend())
-                        
-                        # Serialize private key to PEM format
-                        private_key_pem = private_key.private_bytes(
-                            encoding=serialization.Encoding.PEM,
-                            format=serialization.PrivateFormat.PKCS8,
-                            encryption_algorithm=serialization.NoEncryption()
-                        ).decode('utf-8')
-                        
-                        # Extract public key and serialize to PEM format
-                        public_key = private_key.public_key()
-                        public_key_pem = public_key.public_bytes(
-                            encoding=serialization.Encoding.PEM,
-                            format=serialization.PublicFormat.SubjectPublicKeyInfo
-                        ).decode('utf-8')
+
+                        principal_uuid = uuid4()
+                        generated = generate_and_store_principal_keypair(principal_uuid)
                         
                         principal = Principal(
+                            principal_id=principal_uuid,
                             name=principal_data["name"],
                             principal_type=principal_data["type"],
                             owner=principal_data["owner"],
-                            public_key_pem=public_key_pem,
-                            private_key_pem=private_key_pem,
+                            public_key_pem=generated.public_key_pem,
+                            principal_metadata=generated.storage.metadata,
                             created_at=datetime.utcnow(),
                         )
                         

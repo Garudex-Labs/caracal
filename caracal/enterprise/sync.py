@@ -224,7 +224,7 @@ def _load_local_policies() -> List[Dict[str, Any]]:
                     text(
                         f'SELECT policy_id, principal_id, max_validity_seconds, '
                         f'allowed_resource_patterns, allowed_actions, allow_delegation, '
-                        f'max_delegation_depth FROM "{schema}".authority_policies'
+                        f'max_network_distance FROM "{schema}".authority_policies'
                     )
                 ).fetchall()
             mgr.close()
@@ -236,7 +236,7 @@ def _load_local_policies() -> List[Dict[str, Any]]:
                     "allowed_resource_patterns": r[3] if r[3] else ["*"],
                     "allowed_actions": r[4] if r[4] else ["*"],
                     "allow_delegation": r[5] if r[5] is not None else True,
-                    "max_delegation_depth": r[6] if r[6] is not None else 3,
+                    "max_network_distance": r[6] if r[6] is not None else 3,
                 }
                 for r in rows
             ]
