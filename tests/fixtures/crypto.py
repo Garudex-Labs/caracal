@@ -104,9 +104,9 @@ def crypto_fixtures(db_session):
         principal_id=uuid4(),
         principal_type="user",
         name="test-issuer",
+        owner="security-test",
         private_key_pem=issuer_private_pem,
         public_key_pem=issuer_public_pem,
-        active=True
     )
     
     # Create subject principal
@@ -114,9 +114,9 @@ def crypto_fixtures(db_session):
         principal_id=uuid4(),
         principal_type="agent",
         name="test-subject",
+        owner="security-test",
         private_key_pem=subject_private_pem,
         public_key_pem=subject_public_pem,
-        active=True
     )
     
     db_session.add(issuer)
