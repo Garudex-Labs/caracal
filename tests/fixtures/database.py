@@ -2,10 +2,24 @@
 import pytest
 import os
 from typing import Generator
-from sqlalchemy import create_engine, event
+from sqlalchemy import BigInteger, create_engine, event
 from sqlalchemy.orm import sessionmaker, Session
 from sqlalchemy.pool import StaticPool
+from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.ext.compiler import compiles
 from caracal.db.models import Base
+
+
+@compiles(JSONB, "sqlite")
+def _compile_jsonb_sqlite(_type, _compiler, **_kwargs):
+    """Map PostgreSQL JSONB columns to JSON for SQLite-based tests."""
+    return "JSON"
+
+
+@compiles(BigInteger, "sqlite")
+def _compile_bigint_sqlite(_type, _compiler, **_kwargs):
+    """Map BigInteger PKs to INTEGER so SQLite autoincrement works."""
+    return "INTEGER"
 
 
 @pytest.fixture
@@ -20,8 +34,10 @@ def test_db_url() -> str:
 
 
 @pytest.fixture
-def in_memory_db_engine(test_db_url):
+def in_memory_db_engine():
     """Provide an in-memory database engine for testing."""
+    test_db_url = os.environ.get("CARACAL_TEST_DB_URL", "sqlite:///:memory:")
+
     # For SQLite, use special configuration
     if test_db_url.startswith("sqlite"):
         engine = create_engine(

@@ -8,6 +8,8 @@ import pytest
 from typing import Generator
 from unittest.mock import Mock
 
+pytest_plugins = ["tests.fixtures"]
+
 
 # ============================================================================
 # Environment Setup
