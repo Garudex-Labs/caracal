@@ -29,6 +29,7 @@ from sqlalchemy import or_
 
 from caracal.db.connection import get_db_manager
 from caracal.db.models import AuthorityLedgerEvent, AuthorityPolicy, ExecutionMandate, Principal
+from caracal.core.identity import PrincipalRegistry
 from caracal.flow.components.menu import show_menu
 from caracal.flow.components.prompt import FlowPrompt
 from caracal.flow.theme import Colors, Icons
@@ -37,6 +38,7 @@ from caracal.logging_config import get_logger
 from caracal.core.principal_keys import (
     backup_local_private_key,
     generate_and_store_principal_keypair,
+    get_principal_key_backend,
 )
 
 logger = get_logger(__name__)
@@ -135,7 +137,7 @@ class PrincipalFlow:
                     table.add_row(
                         str(principal.principal_id)[:8] + "...",
                         principal.name,
-                        principal.principal_type,
+                        principal.principal_kind,
                         str(policy_count),
                         str(mandate_count),
                     )
@@ -165,9 +167,9 @@ class PrincipalFlow:
         
         try:
             # Collect information
-            principal_type = self.prompt.select(
-                "Principal type",
-                choices=["agent", "user", "service"],
+            principal_kind = self.prompt.select(
+                "Principal kind",
+                choices=["human", "orchestrator", "worker", "service"],
             )
 
             name = self.prompt.text(
@@ -184,7 +186,7 @@ class PrincipalFlow:
             self.console.print()
             self.console.print(f"  [{Colors.INFO}]Principal Details:[/]")
             self.console.print(f"    Name: [{Colors.NEUTRAL}]{name}[/]")
-            self.console.print(f"    Type: [{Colors.NEUTRAL}]{principal_type}[/]")
+            self.console.print(f"    Kind: [{Colors.NEUTRAL}]{principal_kind}[/]")
             self.console.print(f"    Owner: [{Colors.NEUTRAL}]{owner}[/]")
             self.console.print(f"    Keys: [{Colors.DIM}]ECDSA P-256 keypair (generated automatically)[/]")
             self.console.print()
@@ -200,23 +202,18 @@ class PrincipalFlow:
             db_manager = get_db_manager()
             
             with db_manager.session_scope() as db_session:
-                principal = Principal(
+                registry = PrincipalRegistry(db_session)
+                identity = registry.register_principal(
                     name=name,
-                    principal_type=principal_type,
+                    principal_kind=principal_kind,
                     owner=owner,
-                    created_at=datetime.utcnow(),
+                    metadata=None,
+                    generate_keys=True,
                 )
-                
-                db_session.add(principal)
-                db_session.flush()  # populate principal_id before key generation
-                
-                # --- Auto-generate ECDSA P-256 keypair ---
-                key_ref = self._generate_and_store_keypair(principal, db_session)
-                
-                db_session.commit()
+                key_ref = (identity.metadata or {}).get("private_key_ref", "")
                 
                 self.console.print(f"  [{Colors.SUCCESS}]{Icons.SUCCESS} Principal registered![/]")
-                self.console.print(f"  [{Colors.NEUTRAL}]Principal ID : [{Colors.PRIMARY}]{principal.principal_id}[/]")
+                self.console.print(f"  [{Colors.NEUTRAL}]Principal ID : [{Colors.PRIMARY}]{identity.principal_id}[/]")
                 self.console.print(
                     f"  [{Colors.NEUTRAL}]Private key ({_path_scope_label()}) : [{Colors.DIM}]{key_ref}[/]"
                 )
@@ -267,7 +264,7 @@ class PrincipalFlow:
                 self.console.print()
                 self.console.print(f"  [{Colors.INFO}]Principal Information:[/]")
                 self.console.print(f"    Name: [{Colors.NEUTRAL}]{principal.name}[/]")
-                self.console.print(f"    Type: [{Colors.NEUTRAL}]{principal.principal_type}[/]")
+                self.console.print(f"    Kind: [{Colors.NEUTRAL}]{principal.principal_kind}[/]")
                 self.console.print(f"    Owner: [{Colors.NEUTRAL}]{principal.owner}[/]")
                 self.console.print()
                 
@@ -325,7 +322,10 @@ class PrincipalFlow:
             Private key storage reference.
         """
         self.console.print(f"  [{Colors.INFO}]Generating ECDSA P-256 keypair...[/]")
-        generated = generate_and_store_principal_keypair(principal_id=principal.principal_id)
+        generated = generate_and_store_principal_keypair(
+            principal_id=principal.principal_id,
+            db_session=db_session,
+        )
         principal.public_key_pem = generated.public_key_pem
 
         principal_metadata = dict(principal.principal_metadata or {})
@@ -519,9 +519,10 @@ class PrincipalFlow:
                     return
                 
                 # ---------- backup old key file ----------
-                existing_backend = (
-                    (principal.principal_metadata or {}).get("key_backend", "local")
-                )
+                existing_backend = get_principal_key_backend(
+                    principal.principal_id,
+                    db_session,
+                ) or "local"
                 if existing_backend == "local":
                     backup_path = backup_local_private_key(principal.principal_id)
                 else:

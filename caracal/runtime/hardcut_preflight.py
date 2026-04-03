@@ -37,16 +37,27 @@ _FORBIDDEN_COMPAT_ENV_VARS = (
     "CARACAL_ENABLE_DUAL_WRITE",
     "CARACAL_DUAL_WRITE_WINDOW",
 )
+_REQUIRED_SECRET_BACKEND_ENV = "CARACAL_PRINCIPAL_KEY_BACKEND"
+_ALLOWED_SECRET_BACKENDS = ("aws_kms",)
 _FORBIDDEN_CONFIG_MARKERS = (
     "enterprise.json",
     "workspaces.json",
     "sqlite://",
     "sqlite+",
+    "caracal_principal_key_backend=local",
+    "principal_key_backend = local",
+    "principal_key_backend: local",
     "dual-write",
     "dual_write",
     "compat alias",
     "compatibility alias",
 )
+_GATEWAY_URL_ENV_KEYS = (
+    "CARACAL_ENTERPRISE_URL",
+    "CARACAL_GATEWAY_ENDPOINT",
+    "CARACAL_GATEWAY_URL",
+)
+_GATEWAY_ENABLED_ENV_KEY = "CARACAL_GATEWAY_ENABLED"
 
 
 def _default_models_file() -> Path:
@@ -134,6 +145,67 @@ def _compatibility_violations(env_vars: Mapping[str, str | None] | None) -> list
     return violations
 
 
+def _secret_backend_violations(env_vars: Mapping[str, str | None] | None) -> list[str]:
+    """Reject local file secret backends in hard-cut mode."""
+    if env_vars is None:
+        return []
+
+    backend_value = (env_vars.get(_REQUIRED_SECRET_BACKEND_ENV) or "").strip().lower()
+    if not backend_value:
+        return [
+            f"{_REQUIRED_SECRET_BACKEND_ENV} is not set. "
+            "Hard-cut mode requires an explicit managed secret backend (aws_kms)."
+        ]
+
+    if backend_value in _ALLOWED_SECRET_BACKENDS:
+        return []
+
+    return [
+        f"{_REQUIRED_SECRET_BACKEND_ENV}={backend_value!r} is forbidden in hard-cut mode. "
+        "Local/file-backed secret backends are not allowed."
+    ]
+
+
+def _is_truthy(value: str | None) -> bool:
+    return (value or "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _is_falsy(value: str | None) -> bool:
+    return (value or "").strip().lower() in {"0", "false", "no", "off"}
+
+
+def _execution_exclusivity_violations(env_vars: Mapping[str, str | None] | None) -> list[str]:
+    """Reject mixed or contradictory broker/gateway execution startup signals."""
+    if env_vars is None:
+        return []
+
+    violations: list[str] = []
+    gateway_endpoints = {
+        key: (env_vars.get(key) or "").strip()
+        for key in _GATEWAY_URL_ENV_KEYS
+    }
+    has_gateway_endpoint = any(value for value in gateway_endpoints.values())
+
+    gateway_enabled_raw = env_vars.get(_GATEWAY_ENABLED_ENV_KEY)
+    gateway_enabled_truthy = _is_truthy(gateway_enabled_raw)
+    gateway_enabled_falsy = _is_falsy(gateway_enabled_raw)
+
+    if gateway_enabled_truthy and not has_gateway_endpoint:
+        violations.append(
+            f"{_GATEWAY_ENABLED_ENV_KEY} enables gateway execution but no gateway endpoint is configured "
+            f"({_GATEWAY_URL_ENV_KEYS[0]}/{_GATEWAY_URL_ENV_KEYS[1]}/{_GATEWAY_URL_ENV_KEYS[2]})."
+        )
+
+    if has_gateway_endpoint and gateway_enabled_falsy:
+        violations.append(
+            "Execution exclusivity violation: gateway endpoint is configured while "
+            f"{_GATEWAY_ENABLED_ENV_KEY} explicitly disables gateway mode. "
+            "Configure exactly one execution mode (broker or gateway)."
+        )
+
+    return violations
+
+
 def _config_path_violations(config_paths: Sequence[Path] | None) -> list[str]:
     if not config_paths:
         return []
@@ -202,6 +274,8 @@ def assert_runtime_hardcut(
     violations.extend(_runtime_compose_violations(compose_file))
     violations.extend(_state_root_violations(state_roots))
     violations.extend(_compatibility_violations(env_vars))
+    violations.extend(_execution_exclusivity_violations(env_vars))
+    violations.extend(_secret_backend_violations(env_vars))
     violations.extend(_config_path_violations(config_paths))
     violations.extend(_jsonb_violations(models_file=models_file, check_jsonb=check_jsonb))
     _raise_if_violations("runtime", violations)
@@ -221,6 +295,8 @@ def assert_enterprise_hardcut(
     violations.extend(_sqlite_violations(database_urls))
     violations.extend(_state_root_violations(state_roots))
     violations.extend(_compatibility_violations(env_vars))
+    violations.extend(_execution_exclusivity_violations(env_vars))
+    violations.extend(_secret_backend_violations(env_vars))
     violations.extend(_config_path_violations(config_paths))
     violations.extend(_jsonb_violations(models_file=models_file, check_jsonb=check_jsonb))
     _raise_if_violations("enterprise-api", violations)
@@ -240,6 +316,8 @@ def assert_migration_hardcut(
     violations.extend(_sqlite_violations(database_urls))
     violations.extend(_state_root_violations(state_roots))
     violations.extend(_compatibility_violations(env_vars))
+    violations.extend(_execution_exclusivity_violations(env_vars))
+    violations.extend(_secret_backend_violations(env_vars))
     violations.extend(_config_path_violations(config_paths))
     violations.extend(_jsonb_violations(models_file=models_file, check_jsonb=check_jsonb))
     _raise_if_violations("migration", violations)
