@@ -1,23 +1,84 @@
 ---
 title: Installation
-description: Placeholder for open-source installation documentation.
+description: Install the Caracal command and prepare the open-source runtime.
 sidebar_label: Installation
 ---
 
-import DocPlaceholder from "@site/src/components/DocPlaceholder";
+Install the host `caracal` command, then let it run the runtime stack for you.
 
-<DocPlaceholder
-  summary="Planned installation page covering the package install path, runtime prerequisites, and the container-first startup model."
-  audience="Open-source end users."
-  prerequisites={["Docker and Docker Compose available.", "A shell environment where `caracal` can be installed or invoked."]}
-  plannedSections={[
-    "uv and package-based installation path",
-    "Host command expectations",
-    "Runtime stack startup and health verification",
-    "Where local state and host I/O live",
-  ]}
-  related={[
-    { label: "Quickstart", to: "/open-source/end-users/getting-started/quickstart" },
-    { label: "CLI", to: "/open-source/end-users/cli" },
-  ]}
-/>
+**Audience:** User
+
+**Context:** This page covers the open-source install path needed to run the containerized runtime from a local machine.
+
+## Core Explanation
+
+Caracal is container-first. The local installation gives you a host command that orchestrates Docker Compose. PostgreSQL, Redis, the `mcp` service, the CLI session, and Flow all run in containers.
+
+That means installation has two parts:
+
+- install the Python package or source checkout that provides the host `caracal` command
+- make sure Docker with Compose support is available on the host
+
+## Prerequisites
+
+- Python 3.10 or newer
+- Docker with `docker compose`
+- enough local permissions to start containers and create local state directories
+
+## Practical Usage
+
+The repository-supported install path for local use is a source checkout with `uv`:
+
+```bash
+git clone https://github.com/Garudex-Labs/Caracal.git
+cd Caracal
+uv venv
+source .venv/bin/activate
+uv sync --locked
+caracal --help
+```
+
+If you are contributing, the repository also documents `make setup-dev`, but the steps above are the direct underlying workflow.
+
+After installation, verify the host command can resolve Docker Compose:
+
+```bash
+docker compose version
+caracal --help
+```
+
+## Runtime State Layout
+
+The runtime resolves state under `CARACAL_HOME`. If `CARACAL_HOME` is unset, Caracal falls back to `~/.caracal`.
+
+Important paths:
+
+- `~/.caracal/workspaces/` for workspace directories
+- `~/.caracal/keystore/` for local encryption and signing material
+- `~/.caracal/system/history/` for CLI history and system metadata
+
+When the runtime starts from the packaged image compose file, the container uses `/home/caracal/.caracal` internally and mounts host-shared I/O under `/caracal-host-io`.
+
+## Internal Behavior
+
+At startup, the host command in `caracal/runtime/entrypoints.py` tries to locate a compose file in the repository or current directory. If it cannot find one, it writes and uses an embedded compose file that defines:
+
+- `postgres`
+- `redis`
+- `mcp`
+- `cli`
+- `flow`
+
+This is why a local install does not require you to provision PostgreSQL or Redis separately for the standard open-source path.
+
+## Edge Cases And Constraints
+
+- `caracal` on the host will fail early if `docker compose version` is not available.
+- The host command can use a custom compose file through `--compose-file` or `CARACAL_DOCKER_COMPOSE_FILE`, but it must contain the expected runtime services.
+- If you install from source, local development compose files may use local image builds; packaged installs may use image-based compose instead.
+
+## Related Concepts
+
+- [Quickstart](/open-source/end-users/getting-started/quickstart)
+- [CLI](/open-source/end-users/cli)
+- [Configuration](/open-source/end-users/configuration)

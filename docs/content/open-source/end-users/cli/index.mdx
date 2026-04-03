@@ -1,23 +1,97 @@
 ---
 title: CLI
-description: Placeholder for CLI documentation.
+description: The two-layer command model in the Caracal open-source runtime.
 sidebar_label: CLI
 ---
 
-import DocPlaceholder from "@site/src/components/DocPlaceholder";
+Caracal exposes one command name with two different execution contexts.
 
-<DocPlaceholder
-  summary="Planned CLI section covering the two-layer command model: host orchestration outside the container and the restricted interactive Caracal CLI inside it."
-  audience="Open-source end users."
-  prerequisites={["Runtime installed.", "Familiarity with the difference between host and container contexts."]}
-  plannedSections={[
-    "Host commands: up, down, cli, flow, logs, reset, purge",
-    "Restricted shell behavior inside the runtime container",
-    "Workspace-aware command groups",
-    "Where `caracal --help` changes meaning",
-  ]}
-  related={[
-    { label: "Commands", to: "/open-source/end-users/commands" },
-    { label: "Concepts", to: "/open-source/end-users/concepts" },
-  ]}
-/>
+**Audience:** User
+
+**Context:** Use this page to understand when `caracal` means host orchestration and when it means the in-container product CLI.
+
+## Core Explanation
+
+### Layer 1: host orchestrator
+
+On the host, `caracal` resolves to the orchestration entrypoint in `caracal/runtime/entrypoints.py`. It manages containers and runtime state.
+
+Primary host commands:
+
+- `caracal up`
+- `caracal down`
+- `caracal reset`
+- `caracal purge`
+- `caracal logs`
+- `caracal cli`
+- `caracal flow`
+
+### Layer 2: in-container CLI
+
+Inside `caracal cli`, the runtime starts a restricted shell defined in `caracal/runtime/restricted_shell.py`. That shell only routes input to the real Click CLI in `caracal/cli/main.py`.
+
+Primary in-container command groups:
+
+- `workspace`
+- `principal`
+- `policy`
+- `authority`
+- `delegation`
+- `config`
+- `provider`
+- `audit`
+- advanced groups such as `merkle`, `snapshot`, `allowlist`, `mcp-service`, `config-encrypt`, and migration tooling
+
+## Internal Behavior
+
+The restricted shell exists to keep the in-container session focused on Caracal commands only. It provides:
+
+- command history under the Caracal storage layout
+- completion over the Click command tree
+- `help`, `clear`, and `exit` shortcuts
+- typo handling and command suggestions
+
+It does not expose a general-purpose shell.
+
+## Practical Usage
+
+Use the host command when you need to manage runtime lifecycle:
+
+```bash
+caracal up
+caracal logs -f
+caracal flow
+```
+
+Use the in-container CLI when you need to operate the product:
+
+```bash
+caracal cli
+caracal workspace list
+caracal principal list
+caracal policy list
+```
+
+## Workspace-Aware Behavior
+
+The in-container CLI is workspace-aware. At startup it:
+
+- resolves the active workspace from `ConfigManager`
+- resolves a workspace-specific `config.yaml`
+- sets the runtime workspace path early so logs, backups, cache, and keys land in the selected workspace
+- prints workspace context for most subcommand invocations
+
+This is why changing the active workspace changes both configuration loading and local operational file paths.
+
+## Edge Cases And Constraints
+
+- `caracal --help` on the host shows orchestration commands only.
+- `caracal --help` inside `caracal cli` shows the full in-container command surface.
+- `caracal cli` brings the stack up if needed before opening the session.
+- Unknown commands inside the restricted shell are handled by Caracal's command parser, not by a system shell.
+
+## Related Concepts
+
+- [Commands](/open-source/end-users/commands)
+- [TUI](/open-source/end-users/tui)
+- [Architecture](/open-source/developers/architecture)
