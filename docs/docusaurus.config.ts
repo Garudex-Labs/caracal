@@ -100,17 +100,18 @@ const config: Config = {
       items: [
         {
           label: "Open Source",
-          activeBaseRegex: "^/open-source(?:/|$)",
+          activeBaseRegex:
+            "^/(?:open-source/overview(?:/|$)|open-source/end-users/?$|open-source/developers/?$|open-source/sdk(?:/|$))",
           items: [
             { label: "Overview", to: "/open-source/overview" },
             { label: "End Users", to: "/open-source/end-users" },
             { label: "Developers", to: "/open-source/developers" },
-            { label: "CLI", to: "/open-source/end-users/cli" },
-            { label: "TUI", to: "/open-source/end-users/tui" },
-            { label: "Configuration", to: "/open-source/end-users/configuration" },
-            { label: "Commands", to: "/open-source/end-users/commands" },
-            { label: "Workflows", to: "/open-source/end-users/workflows" },
-            { label: "Architecture", to: "/open-source/developers/architecture" },
+            { label: "SDK Overview", to: "/open-source/sdk/overview" },
+            { label: "SDK Installation", to: "/open-source/sdk/installation" },
+            { label: "SDK Usage", to: "/open-source/sdk/usage" },
+            { label: "SDK API Surface", to: "/open-source/sdk/api-surface" },
+            { label: "SDK Examples", to: "/open-source/sdk/examples" },
+            { label: "SDK Advanced", to: "/open-source/sdk/advanced" },
           ],
           position: "left",
         },
@@ -120,25 +121,37 @@ const config: Config = {
           items: [
             { label: "Overview", to: "/enterprise/overview" },
             { label: "Getting Started", to: "/enterprise/getting-started" },
+            { label: "Access / Auth", to: "/enterprise/access-auth" },
             { label: "Configuration", to: "/enterprise/configuration" },
             { label: "Administration", to: "/enterprise/administration" },
-            { label: "Access / Auth", to: "/enterprise/access-auth" },
             { label: "Deployment", to: "/enterprise/deployment" },
             { label: "Monitoring", to: "/enterprise/monitoring" },
             { label: "Troubleshooting", to: "/enterprise/troubleshooting" },
-            { label: "Reference", to: "/enterprise/reference" },
+            { label: "SDK Overview", to: "/enterprise/sdk/overview" },
+            { label: "SDK Installation", to: "/enterprise/sdk/installation" },
+            { label: "SDK Usage", to: "/enterprise/sdk/usage" },
+            { label: "SDK API Surface", to: "/enterprise/sdk/api-surface" },
+            { label: "SDK Examples", to: "/enterprise/sdk/examples" },
+            { label: "SDK Advanced", to: "/enterprise/sdk/advanced" },
           ],
           position: "left",
         },
         {
           label: "Build",
-          activeBaseRegex: "^/build$",
+          activeBaseRegex:
+            "^/(?:build(?:/|$)|open-source/developers/(?:architecture|development-setup|testing|flow-tui|runtime-model|services-and-integrations|storage-and-data|core-authority-system|enterprise-connector|contributing|releases|changelog)(?:/|$))",
           items: [
             { label: "Build Hub", to: "/build" },
             { label: "Architecture", to: "/open-source/developers/architecture" },
-            { label: "Contributing", to: "/open-source/developers/contributing" },
             { label: "Development Setup", to: "/open-source/developers/development-setup" },
+            { label: "Runtime Model", to: "/open-source/developers/runtime-model" },
+            { label: "Services and Integrations", to: "/open-source/developers/services-and-integrations" },
+            { label: "Storage and Data", to: "/open-source/developers/storage-and-data" },
+            { label: "Core Authority System", to: "/open-source/developers/core-authority-system" },
+            { label: "Flow TUI", to: "/open-source/developers/flow-tui" },
             { label: "Testing", to: "/open-source/developers/testing" },
+            { label: "Enterprise Connector", to: "/open-source/developers/enterprise-connector" },
+            { label: "Contributing", to: "/open-source/developers/contributing" },
             { label: "Releases", to: "/open-source/developers/releases" },
             { label: "Changelog", to: "/open-source/developers/changelog" },
           ],
@@ -146,7 +159,8 @@ const config: Config = {
         },
         {
           label: "Manage",
-          activeBaseRegex: "^/manage$",
+          activeBaseRegex:
+            "^/(?:manage(?:/|$)|open-source/end-users/getting-started/(?:installation|quickstart)(?:/|$)|open-source/end-users/(?:cli|tui|configuration|workflows)(?:/|$))",
           items: [
             { label: "Manage Hub", to: "/manage" },
             { label: "Installation", to: "/open-source/end-users/getting-started/installation" },
@@ -155,31 +169,31 @@ const config: Config = {
             { label: "TUI", to: "/open-source/end-users/tui" },
             { label: "Configuration", to: "/open-source/end-users/configuration" },
             { label: "Workflows", to: "/open-source/end-users/workflows" },
-            { label: "Administration", to: "/enterprise/administration" },
           ],
           position: "left",
         },
         {
           label: "Reference",
-          activeBaseRegex: "^/reference$",
+          activeBaseRegex:
+            "^/(?:reference(?:/|$)|open-source/end-users/(?:commands|concepts)(?:/|$)|enterprise/reference(?:/|$))",
           items: [
             { label: "Reference Hub", to: "/reference" },
             { label: "Commands", to: "/open-source/end-users/commands" },
             { label: "Concepts", to: "/open-source/end-users/concepts" },
-            { label: "Architecture", to: "/open-source/developers/architecture" },
             { label: "Enterprise Reference", to: "/enterprise/reference" },
           ],
           position: "left",
         },
         {
           label: "Resources",
-          activeBaseRegex: "^/resources(?:/|$)",
+          activeBaseRegex:
+            "^/(?:resources(?:/|$)|open-source/end-users/(?:security|troubleshooting)(?:/|$))",
           items: [
             { label: "Resources Hub", to: "/resources" },
-            { label: "Rulebook", to: "/resources/documentation-system/rulebook" },
             { label: "Security", to: "/open-source/end-users/security" },
             { label: "Troubleshooting", to: "/open-source/end-users/troubleshooting" },
-            { label: "Contributing", to: "/open-source/developers/contributing" },
+            { label: "Rulebook", to: "/resources/documentation-system/rulebook" },
+            { label: "Structure", to: "/resources/documentation-system/structure" },
           ],
           position: "left",
         },
@@ -209,6 +223,10 @@ const config: Config = {
               label: "Open Source Overview",
               to: "/open-source/overview",
             },
+            {
+              label: "Enterprise Overview",
+              to: "/enterprise/overview",
+            },
           ],
         },
         {
@@ -234,6 +252,10 @@ const config: Config = {
             {
               label: "Rulebook",
               to: "/resources/documentation-system/rulebook",
+            },
+            {
+              label: "Structure",
+              to: "/resources/documentation-system/structure",
             },
             {
               label: "Security",
