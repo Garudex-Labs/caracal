@@ -33,6 +33,8 @@ class TestAuthorityEvaluator:
         # Assert
         assert decision.allowed is False
         assert "No mandate provided" in decision.reason or "None" in decision.reason
+        assert decision.reason_code == "AUTH_MANDATE_MISSING"
+        assert decision.boundary_stage == "mandate_state_validation"
         assert decision.requested_action == "read:secrets"
         assert decision.requested_resource == "secret/test"
     
@@ -62,6 +64,8 @@ class TestAuthorityEvaluator:
         # Assert
         assert decision.allowed is False
         assert "revoked" in decision.reason.lower()
+        assert decision.reason_code == "AUTH_MANDATE_REVOKED"
+        assert decision.boundary_stage == "mandate_state_validation"
         assert decision.mandate_id == mandate.mandate_id
     
     def test_validate_mandate_not_yet_valid(self):
@@ -138,7 +142,7 @@ class TestAuthorityEvaluator:
         issuer = Principal(
             principal_id=issuer_id,
             name="test-issuer",
-            principal_type="user",
+            principal_kind="human",
             owner="test",
             public_key_pem="test_public_key"
         )
@@ -163,6 +167,8 @@ class TestAuthorityEvaluator:
         assert decision.allowed is False
         assert "not in mandate scope" in decision.reason.lower()
         assert "action" in decision.reason.lower()
+        assert decision.reason_code == "AUTH_ACTION_SCOPE_DENIED"
+        assert decision.boundary_stage == "action_resource_authorization_checks"
     
     def test_validate_mandate_resource_not_in_scope(self):
         """Test authority validation with resource not in scope."""
@@ -184,7 +190,7 @@ class TestAuthorityEvaluator:
         issuer = Principal(
             principal_id=issuer_id,
             name="test-issuer",
-            principal_type="user",
+            principal_kind="human",
             owner="test",
             public_key_pem="test_public_key"
         )
