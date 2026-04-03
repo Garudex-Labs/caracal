@@ -1,20 +1,56 @@
 ---
 title: Changelog
-description: Placeholder for changelog policy documentation.
+description: What release-facing summaries should capture without duplicating documentation.
 sidebar_label: Changelog
 ---
 
-import DocPlaceholder from "@site/src/components/DocPlaceholder";
+The changelog summarizes externally meaningful change. The docs explain the system.
 
-<DocPlaceholder
-  summary="Planned changelog section that defines how release-facing changes are summarized and linked without duplicating entire docs pages."
-  audience="Open-source maintainers."
-  plannedSections={[
-    "Entry format and scope",
-    "What belongs in release notes versus docs pages",
-    "Linking back to commands, workflows, and architecture",
-  ]}
-  related={[
-    { label: "Releases", to: "/open-source/developers/releases" },
-  ]}
-/>
+**Audience:** Developer
+
+**Context:** Use this page when deciding what belongs in release notes versus permanent documentation.
+
+## Core Explanation
+
+A changelog entry should answer:
+
+- what changed
+- who is affected
+- whether behavior, config, or commands changed
+- where the permanent documentation now lives
+
+It should not attempt to replace:
+
+- command reference pages
+- architecture pages
+- full migration guidance
+- troubleshooting documentation
+
+## What Belongs In A Changelog
+
+- new command groups or renamed commands
+- behavioral changes to authority, policy, mandate, or delegation flows
+- config-key additions, removals, or changed defaults
+- runtime model changes such as compose behavior or state layout changes
+- migration or compatibility changes that operators must notice during upgrade
+
+## What Does Not Belong There
+
+- long conceptual explanations
+- repeated install instructions
+- full examples already documented elsewhere
+- contributor-only implementation detail without user-facing effect
+
+## Internal Behavior
+
+The repository currently keeps release scripting lightweight, so the changelog discipline matters more. Without a strong changelog boundary, release notes turn into partial docs that immediately drift.
+
+## Edge Cases And Constraints
+
+- If a change requires users to act, the changelog should link to the canonical docs page that explains the action.
+- If a change is purely internal and has no observable effect, it may not need a public changelog entry.
+
+## Related Concepts
+
+- [Releases](/open-source/developers/releases)
+- [Documentation Rulebook](/resources/documentation-system/rulebook)

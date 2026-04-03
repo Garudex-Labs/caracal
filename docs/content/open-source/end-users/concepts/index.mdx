@@ -1,23 +1,114 @@
 ---
 title: Concepts
-description: Placeholder for end-user conceptual documentation.
+description: Public mental model for how the open-source Caracal runtime works.
 sidebar_label: Concepts
 ---
 
-import DocPlaceholder from "@site/src/components/DocPlaceholder";
+These concepts explain the operational model behind the Caracal command surface.
 
-<DocPlaceholder
-  summary="Planned concepts section for the authority model: principals, policies, mandates, ledgers, and the runtime architecture a user needs to reason about."
-  audience="Open-source end users."
-  prerequisites={["Basic familiarity with the CLI or TUI workflows."]}
-  plannedSections={[
-    "What a principal is",
-    "How policies gate mandate issuance",
-    "How validation and revocation work",
-    "What the authority ledger and Merkle integrity add",
-  ]}
-  related={[
-    { label: "Commands", to: "/open-source/end-users/commands" },
-    { label: "Architecture", to: "/open-source/developers/architecture" },
-  ]}
-/>
+**Audience:** User
+
+**Context:** Read this page before policy, mandate, delegation, or provider workflows if the terminology is still unfamiliar.
+
+## Core Explanation
+
+### Workspace
+
+A workspace is the primary operational boundary in Caracal. Each workspace has its own:
+
+- `config.yaml`
+- logs
+- backups
+- cache
+- keys
+- Flow state
+
+The active workspace controls which configuration file is loaded and where runtime-local files are written.
+
+### Principal
+
+A principal is an identity that can hold authority. In the current model, principals may be users, agents, or services.
+
+Each principal is stored in PostgreSQL and can have public-key material associated with it for signing and verification workflows.
+
+### Authority policy
+
+An authority policy defines what mandates may be issued to a principal. It constrains:
+
+- maximum validity duration
+- allowed resource scopes
+- allowed action scopes
+- whether delegation is allowed
+- maximum delegation network distance
+
+Policies are issuance constraints, not direct execution permissions.
+
+### Execution mandate
+
+A mandate is a signed, time-bound authorization grant from an issuer principal to a subject principal. It includes:
+
+- issuer and subject IDs
+- validity window
+- resource scope
+- action scope
+- signature
+- optional intent binding
+- revocation state
+
+Execution checks validate mandates before protected work is allowed.
+
+### Delegation edge
+
+A delegation edge links one mandate to another in the delegation graph. Caracal uses these edges to validate authority flow across handoffs such as user to agent or agent to service.
+
+Direction matters. The graph allows downward and peer delegation according to explicit rules in `caracal/core/delegation_graph.py`.
+
+### Authority ledger
+
+The authority ledger records issuance, validation, denial, and revocation events. It answers questions such as:
+
+- who issued a mandate
+- why validation failed
+- when a revocation happened
+- which action or resource was requested
+
+### Metering ledger
+
+The separate metering ledger tracks resource usage events, for example MCP tool invocations or other consumed resources. This is the append-only usage record rather than the authority decision log.
+
+### Provider-scoped scopes
+
+Policies and mandates do not use arbitrary action strings by default. They are validated against canonical provider-scoped values:
+
+- `provider:<provider_name>:resource:<resource_id>`
+- `provider:<provider_name>:action:<action_id>`
+
+This ties authority to provider definitions stored in the current workspace.
+
+## Internal Behavior
+
+The authority flow is:
+
+```text
+principal
+  -> authority policy constrains issuance
+  -> mandate is issued and signed
+  -> delegation edge may extend authority path
+  -> execution request is validated
+  -> authority ledger records the decision
+```
+
+The validation path in `caracal/core/authority.py` is fail-closed. If the system cannot prove authority, it denies the request.
+
+## Edge Cases And Constraints
+
+- A policy can exist without an immediate mandate. It defines limits, not an active grant.
+- A mandate can be structurally present but still unusable because it is revoked, expired, not yet valid, out of scope, or on an invalid delegation path.
+- Policy and mandate scopes are checked against workspace provider definitions, so provider setup is part of the authority model, not an unrelated integration step.
+
+## Related Concepts
+
+- [CLI](/open-source/end-users/cli)
+- [Configuration](/open-source/end-users/configuration)
+- [Workflows](/open-source/end-users/workflows)
+- [Architecture](/open-source/developers/architecture)
