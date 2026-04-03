@@ -66,6 +66,8 @@ export default function SearchPage(): React.ReactElement {
 
   const onNavigation = (item: NavigationAction) => navigate(history, item.to);
   const onDoc = (item: SearchDocEntry) => navigate(history, item.url);
+  const kindLabel = (item: SearchDocEntry) =>
+    item.type === "page" ? "Page" : item.type === "heading" ? "Heading" : "Section";
 
   return (
     <Layout title={query ? `Search: ${query}` : "Search"} description="Search Caracal documentation">
@@ -73,7 +75,7 @@ export default function SearchPage(): React.ReactElement {
         <section className="caracal-search-page__hero">
           <span className="caracal-search-page__eyebrow">Search</span>
           <h1 className="caracal-search-page__title">Search Caracal docs</h1>
-          <p className="caracal-search-page__summary">Grouped results for navigation shortcuts and documentation pages.</p>
+          <p className="caracal-search-page__summary">Grouped results for navigation shortcuts plus documentation pages, headings, and section hits.</p>
           <input
             autoFocus
             className="caracal-search-page__input"
@@ -107,9 +109,9 @@ export default function SearchPage(): React.ReactElement {
             {docResults.length > 0 ? (
               docResults.map((item) => (
                 <ResultCard
-                  description={item.breadcrumbs.join(" / ") || "Documentation"}
+                  description={item.description}
                   key={`${item.url}-${item.title}`}
-                  kind="Doc"
+                  kind={kindLabel(item)}
                   onClick={() => onDoc(item)}
                   title={item.title}
                 />
