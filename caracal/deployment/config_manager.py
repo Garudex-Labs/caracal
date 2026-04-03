@@ -1382,14 +1382,6 @@ class ConfigManager:
         Raises:
             WorkspaceNotFoundError: If workspace doesn't exist
             WorkspaceOperationError: If deletion fails
-
-            # Keep workspaces.json default in sync with deployment metadata.
-            try:
-                from caracal.flow.workspace import WorkspaceManager
-
-                WorkspaceManager.set_default_workspace(name)
-            except Exception:
-                logger.debug("workspace_registry_default_sync_skipped", workspace=name)
         """
         self._validate_workspace_name(name)
         
