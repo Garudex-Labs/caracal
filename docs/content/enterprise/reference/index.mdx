@@ -1,22 +1,54 @@
 ---
 title: Reference
-description: Placeholder for enterprise reference documentation.
+description: Enterprise-visible reference behaviors, terms, and operator-facing concepts.
 sidebar_label: Reference
 slug: /enterprise/reference
 ---
 
-import DocPlaceholder from "@site/src/components/DocPlaceholder";
+This page provides enterprise-safe reference material for end users. It focuses on visible behaviors and terms, not internal implementation.
 
-<DocPlaceholder
-  summary="Planned enterprise reference page for user-visible commands, behaviors, and enterprise-safe operational reference material."
-  audience="Enterprise end users."
-  plannedSections={[
-    "User-visible command and mode reference",
-    "Enterprise-specific behavior deltas",
-    "Safe cross-links back to open-source public surfaces when appropriate",
-  ]}
-  related={[
-    { label: "Overview", to: "/enterprise/overview" },
-    { label: "Administration", to: "/enterprise/administration" },
-  ]}
-/>
+**Audience:** Enterprise end users, operators, and administrators
+
+## Key Terms
+
+### Enterprise environment
+
+The organization-level Caracal environment that connected runtimes or workspaces join for shared administration and operations.
+
+### Connected workspace
+
+A Caracal workspace that is attached to an enterprise-managed environment instead of operating only as a local open-source runtime.
+
+### Organization context
+
+The enterprise ownership boundary that determines which team, users, and administrative controls apply to a connected environment.
+
+### Enterprise-managed behavior
+
+User-visible behavior that depends on the runtime or workspace being connected to Enterprise, such as shared administration, monitoring, or reporting surfaces.
+
+## Reference Behaviors
+
+### Connection state matters
+
+Many enterprise-visible features depend on whether a runtime or workspace is actively connected. If the connection is removed, the environment returns toward open-source-only behavior.
+
+### Access is organization-aware
+
+Enterprise user access is tied to organization and role context, not just possession of a local runtime.
+
+### Shared visibility is intentional
+
+Enterprise surfaces are designed for team operations. They are meant to make connected environments reviewable by the right stakeholders, not just manageable by a single operator.
+
+## Use This Page For
+
+- quick terminology refreshers
+- understanding visible enterprise behavior differences
+- linking from user-facing runbooks without exposing internals
+
+## Related Pages
+
+- [Enterprise Overview](/enterprise/overview)
+- [Administration](/enterprise/administration)
+- [Open Source Enterprise Connector](/open-source/developers/enterprise-connector)
