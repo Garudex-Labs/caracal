@@ -28,6 +28,7 @@ from .crypto import (
     encryption_key,
     encrypted_data,
     certificate_data,
+    crypto_fixtures,
 )
 from .database import (
     in_memory_db_engine,
@@ -76,6 +77,7 @@ __all__ = [
     "encryption_key",
     "encrypted_data",
     "certificate_data",
+    "crypto_fixtures",
     # Database fixtures
     "in_memory_db_engine",
     "db_session",

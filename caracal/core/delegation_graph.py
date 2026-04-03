@@ -139,6 +139,26 @@ class DelegationGraph:
         self.db_session = db_session
         logger.info("DelegationGraph initialized")
 
+    @staticmethod
+    def _is_mandate_active(mandate: ExecutionMandate, now: Optional[datetime] = None) -> bool:
+        """Return True when mandate is currently active and not revoked."""
+        if mandate is None:
+            return False
+        current_time = now or datetime.utcnow()
+        if mandate.revoked:
+            return False
+        if mandate.valid_from and mandate.valid_from > current_time:
+            return False
+        if mandate.valid_until and mandate.valid_until <= current_time:
+            return False
+        return True
+
+    def _get_mandate(self, mandate_id: UUID) -> Optional[ExecutionMandate]:
+        """Load mandate by ID."""
+        return self.db_session.query(ExecutionMandate).filter(
+            ExecutionMandate.mandate_id == mandate_id
+        ).first()
+
     # ----------------------------------------------------------------
     # Direction Validation
     # ----------------------------------------------------------------
@@ -207,6 +227,7 @@ class DelegationGraph:
 
         Validates:
         - Both mandates exist and are active
+        - Target mandate lineage matches source_mandate_id parity
         - Delegation direction is allowed based on principal types
         - No duplicate active edge exists
 
@@ -227,22 +248,43 @@ class DelegationGraph:
         logger.info(f"Adding delegation edge: {source_mandate_id} → {target_mandate_id}")
 
         # Get source mandate
-        source_mandate = self.db_session.query(ExecutionMandate).filter(
-            ExecutionMandate.mandate_id == source_mandate_id
-        ).first()
+        source_mandate = self._get_mandate(source_mandate_id)
         if not source_mandate:
             raise ValueError(f"Source mandate {source_mandate_id} not found")
-        if source_mandate.revoked:
-            raise ValueError(f"Source mandate {source_mandate_id} is revoked")
+        if not self._is_mandate_active(source_mandate):
+            raise ValueError(f"Source mandate {source_mandate_id} is not active")
 
         # Get target mandate
-        target_mandate = self.db_session.query(ExecutionMandate).filter(
-            ExecutionMandate.mandate_id == target_mandate_id
-        ).first()
+        target_mandate = self._get_mandate(target_mandate_id)
         if not target_mandate:
             raise ValueError(f"Target mandate {target_mandate_id} not found")
-        if target_mandate.revoked:
-            raise ValueError(f"Target mandate {target_mandate_id} is revoked")
+        if not self._is_mandate_active(target_mandate):
+            raise ValueError(f"Target mandate {target_mandate_id} is not active")
+
+        source_depth = int(source_mandate.network_distance or 0)
+        target_depth = int(target_mandate.network_distance or 0)
+        if source_depth < 0:
+            raise ValueError(f"Source mandate {source_mandate_id} has invalid negative network_distance")
+        if target_depth < 0:
+            raise ValueError(f"Target mandate {target_mandate_id} has invalid negative network_distance")
+        if source_depth == 0:
+            raise ValueError(f"Source mandate {source_mandate_id} has no remaining delegation depth")
+        expected_target_depth = source_depth - 1
+        if target_depth != expected_target_depth:
+            raise ValueError(
+                "Target mandate network_distance mismatch: "
+                f"expected {expected_target_depth} from source depth {source_depth}, got {target_depth}"
+            )
+
+        # Enforce parity between denormalized mandate lineage and graph edges.
+        if target_mandate.source_mandate_id is None:
+            target_mandate.source_mandate_id = source_mandate_id
+        elif target_mandate.source_mandate_id != source_mandate_id:
+            raise ValueError(
+                "Target mandate lineage mismatch: "
+                f"target.source_mandate_id={target_mandate.source_mandate_id} "
+                f"does not match edge source={source_mandate_id}"
+            )
 
         # Get principal types
         source_principal = self.db_session.query(Principal).filter(
@@ -489,7 +531,8 @@ class DelegationGraph:
             True if a valid path exists
         """
         if source_mandate_id == target_mandate_id:
-            return True
+            source_mandate = self._get_mandate(source_mandate_id)
+            return self._is_mandate_active(source_mandate)
 
         if visited is None:
             visited = set()
@@ -498,10 +541,21 @@ class DelegationGraph:
             return False  # Cycle detection
         visited.add(source_mandate_id)
 
+        # Fail closed when either endpoint is not active.
+        source_mandate = self._get_mandate(source_mandate_id)
+        target_mandate = self._get_mandate(target_mandate_id)
+        if not self._is_mandate_active(source_mandate):
+            return False
+        if not self._is_mandate_active(target_mandate):
+            return False
+
         # Get active outgoing edges
         targets = self.get_delegated_targets(source_mandate_id, active_only=True)
 
         for edge in targets:
+            edge_target = self._get_mandate(edge.target_mandate_id)
+            if not self._is_mandate_active(edge_target):
+                continue
             if self.validate_authority_path(edge.target_mandate_id, target_mandate_id, visited):
                 return True
 
