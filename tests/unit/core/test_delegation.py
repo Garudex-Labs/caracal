@@ -51,16 +51,16 @@ class TestDelegationTokenManager:
         # Generate real key pair for testing
         private_key_pem, public_key_pem = self.manager.generate_key_pair()
         
-        # Mock resolve_principal_private_key
-        with patch('caracal.core.delegation.resolve_principal_private_key', return_value=private_key_pem):
-            # Act
-            token = self.manager.generate_token(
-                source_principal_id=source_id,
-                target_principal_id=target_id,
-                expiration_seconds=3600,
-                allowed_operations=["api_call"],
-                delegation_type="directed"
-            )
+        self.mock_principal_registry.resolve_private_key.return_value = private_key_pem
+
+        # Act
+        token = self.manager.generate_token(
+            source_principal_id=source_id,
+            target_principal_id=target_id,
+            expiration_seconds=3600,
+            allowed_operations=["api_call"],
+            delegation_type="directed"
+        )
         
         # Assert
         assert token is not None
@@ -103,12 +103,12 @@ class TestDelegationTokenManager:
         self.mock_principal_registry.get_principal.return_value = mock_principal_gen
         
         # Generate token
-        with patch('caracal.core.delegation.resolve_principal_private_key', return_value=private_key_pem):
-            token = self.manager.generate_token(
-                source_principal_id=source_id,
-                target_principal_id=target_id,
-                expiration_seconds=3600
-            )
+        self.mock_principal_registry.resolve_private_key.return_value = private_key_pem
+        token = self.manager.generate_token(
+            source_principal_id=source_id,
+            target_principal_id=target_id,
+            expiration_seconds=3600
+        )
         
         # Mock principal for validation
         self.mock_principal_registry.get_principal.return_value = mock_principal_val
@@ -138,12 +138,12 @@ class TestDelegationTokenManager:
         self.mock_principal_registry.get_principal.return_value = mock_principal_gen
         
         # Generate token with very short expiration
-        with patch('caracal.core.delegation.resolve_principal_private_key', return_value=private_key_pem):
-            token = self.manager.generate_token(
-                source_principal_id=source_id,
-                target_principal_id=target_id,
-                expiration_seconds=1  # 1 second
-            )
+        self.mock_principal_registry.resolve_private_key.return_value = private_key_pem
+        token = self.manager.generate_token(
+            source_principal_id=source_id,
+            target_principal_id=target_id,
+            expiration_seconds=1  # 1 second
+        )
         
         # Wait for token to expire
         import time
@@ -176,12 +176,12 @@ class TestDelegationTokenManager:
         self.mock_principal_registry.get_principal.return_value = mock_principal_gen
         
         # Generate token with first key
-        with patch('caracal.core.delegation.resolve_principal_private_key', return_value=private_key_pem1):
-            token = self.manager.generate_token(
-                source_principal_id=source_id,
-                target_principal_id=target_id,
-                expiration_seconds=3600
-            )
+        self.mock_principal_registry.resolve_private_key.return_value = private_key_pem1
+        token = self.manager.generate_token(
+            source_principal_id=source_id,
+            target_principal_id=target_id,
+            expiration_seconds=3600
+        )
         
         # Mock principal for validation with different public key
         mock_principal_val = Mock()

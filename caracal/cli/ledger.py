@@ -142,7 +142,7 @@ def get_principal_registry(config):
         config: Configuration object
         
     Returns:
-        AgentRegistry instance
+        Principal registry instance
     """
     return None
 
