@@ -19,7 +19,6 @@ Usage::
 
     ws.config_path   # -> /opt/myproject/config.yaml
     ws.state_path    # -> /opt/myproject/flow_state.json
-    ws.db_path       # -> /opt/myproject/caracal.db
     ws.backups_dir   # -> /opt/myproject/backups
     ws.logs_dir      # -> /opt/myproject/logs
     ws.cache_dir     # -> /opt/myproject/cache
@@ -28,20 +27,16 @@ Usage::
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from typing import Any, Optional
 
-from caracal.pathing import ensure_source_tree, source_of
+from caracal.pathing import ensure_source_tree
 from caracal.storage.layout import resolve_caracal_home
 
 
 _CARACAL_HOME_ROOT = resolve_caracal_home(require_explicit=False)
 _WORKSPACES_DIR = _CARACAL_HOME_ROOT / "workspaces"
 _RESERVED_WORKSPACE_NAMES = {"_deleted_backups"}
-
-# Global registry file lives outside any individual workspace so it can index all of them.
-_REGISTRY_PATH = _CARACAL_HOME_ROOT / "workspaces.json"
 
 
 class WorkspaceManager:
@@ -76,15 +71,6 @@ class WorkspaceManager:
         return self._root / "flow_state.json"
 
     @property
-    def db_path(self) -> Path:
-        """Legacy property — SQLite is no longer supported.
-
-        Retained only so callers that check file existence don't crash.
-        The returned path will typically not exist.
-        """
-        return self._root / "caracal.db"
-
-    @property
     def backups_dir(self) -> Path:
         """Path to ``backups/`` sub-directory."""
         return self._root / "backups"
@@ -109,13 +95,6 @@ class WorkspaceManager:
         """Path to workspace log file ``logs/caracal.log``."""
         return self.logs_dir / "caracal.log"
 
-    @property
-    def master_key_path(self) -> Path:
-        """Path to local config-encryption master key material."""
-        from caracal.storage.layout import get_caracal_layout
-
-        return get_caracal_layout().master_key_path
-
     # ------------------------------------------------------------------
     # Directory management
     # ------------------------------------------------------------------
@@ -136,34 +115,26 @@ class WorkspaceManager:
     def list_workspaces(
         registry_path: Optional[Path] = None,
     ) -> list[dict[str, Any]]:
-        """Return the list of registered workspaces.
+        """Return discovered workspaces with default selection from config manager.
 
-        Each entry has ``name``, ``path`` and ``default`` keys.
+        ``registry_path`` is accepted for compatibility and ignored.
         """
-        rp = registry_path or _REGISTRY_PATH
-        workspaces = _load_registry_workspaces(rp)
+        workspaces = _discover_workspace_directories()
+        if not workspaces:
+            return []
 
-        # Merge discovered workspace directories so onboarding/list screens
-        # reflect what actually exists on disk even when registry is stale.
-        discovered = _discover_workspace_directories()
-        if discovered:
-            known_paths = {
-                str(Path(ws.get("path", "")).expanduser().resolve())
-                for ws in workspaces
-                if ws.get("path")
-            }
-            for ws in discovered:
-                resolved_path = str(Path(ws["path"]).expanduser().resolve())
-                if resolved_path in known_paths:
-                    continue
-                workspaces.append(ws)
-                known_paths.add(resolved_path)
+        default_name: Optional[str] = None
+        try:
+            from caracal.deployment.config_manager import ConfigManager
+
+            default_name = ConfigManager().get_default_workspace_name()
+        except Exception:
+            default_name = None
+
+        for ws in workspaces:
+            ws["default"] = ws.get("name") == default_name
 
         _ensure_single_default(workspaces)
-
-        # Persist when registry exists, or bootstrap it from discovery.
-        if rp.exists() or workspaces:
-            _save_registry_workspaces(rp, workspaces)
         return workspaces
 
     @staticmethod
@@ -173,69 +144,37 @@ class WorkspaceManager:
         registry_path: Optional[Path] = None,
         is_default: Optional[bool] = None,
     ) -> None:
-        """Add a workspace to the global registry.
-
-        Duplicates (by path) are updated in place.
-        """
-        rp = registry_path or _REGISTRY_PATH
-        ensure_source_tree(source_of(rp))
-        workspaces = _load_registry_workspaces(rp)
-
-        # Deduplicate by resolved path
-        resolved = str(Path(path).resolve())
-        existing_idx = next(
-            (
-                idx
-                for idx, ws in enumerate(workspaces)
-                if str(Path(ws.get("path", "")).resolve()) == resolved
-            ),
-            None,
-        )
-
-        if existing_idx is not None:
-            workspaces[existing_idx]["name"] = name
-            target_idx = existing_idx
-        else:
-            workspaces.append({"name": name, "path": str(path), "default": False})
-            target_idx = len(workspaces) - 1
-
-        # First workspace defaults to default=true unless explicitly set.
-        if is_default is None:
-            is_default = not any(bool(ws.get("default")) for ws in workspaces)
+        """Register workspace metadata without file-backed registry persistence."""
+        workspace_path = Path(path).resolve()
+        ensure_source_tree(workspace_path)
 
         if is_default:
-            for ws in workspaces:
-                ws["default"] = False
-            workspaces[target_idx]["default"] = True
-        else:
-            workspaces[target_idx]["default"] = bool(workspaces[target_idx].get("default", False))
+            try:
+                from caracal.deployment.config_manager import ConfigManager
 
-        _ensure_single_default(workspaces)
-        _save_registry_workspaces(rp, workspaces)
+                ConfigManager().set_default_workspace(name)
+            except Exception:
+                pass
 
     @staticmethod
     def set_default_workspace(
         name: str,
         registry_path: Optional[Path] = None,
     ) -> bool:
-        """Mark one registered workspace as default by name."""
-        rp = registry_path or _REGISTRY_PATH
-        workspaces = _load_registry_workspaces(rp)
-        if not workspaces:
+        """Mark one workspace as default using config manager state."""
+        del registry_path
+
+        workspaces = WorkspaceManager.list_workspaces()
+        if not any(ws.get("name") == name for ws in workspaces):
             return False
 
-        found = False
-        for ws in workspaces:
-            if ws.get("name") == name:
-                ws["default"] = True
-                found = True
-            else:
-                ws["default"] = False
+        try:
+            from caracal.deployment.config_manager import ConfigManager
 
-        if not found:
+            ConfigManager().set_default_workspace(name)
+        except Exception:
             return False
 
-        _save_registry_workspaces(rp, workspaces)
         return True
 
     def delete_workspace(
@@ -243,11 +182,11 @@ class WorkspaceManager:
         registry_path: Optional[Path] = None,
         delete_directory: bool = False,
     ) -> bool:
-        """Remove a workspace from the global registry.
+        """Remove a workspace from discovered workspace state.
         
         Args:
             path: Workspace path to delete
-            registry_path: Optional custom registry path
+            registry_path: Deprecated compatibility argument
             delete_directory: If True, also delete the workspace directory from disk
             
         Returns:
@@ -255,75 +194,73 @@ class WorkspaceManager:
         """
         import shutil
         import re as _re
-        
-        rp = registry_path or _REGISTRY_PATH
-        if not rp.exists():
-            return False
 
-        workspaces = _load_registry_workspaces(rp)
+        del registry_path
+        workspaces = WorkspaceManager.list_workspaces()
 
         # Find and remove by resolved path
         resolved = str(Path(path).resolve())
-        original_count = len(workspaces)
         removed_ws = None
-        remaining = []
         for w in workspaces:
             if str(Path(w["path"]).resolve()) == resolved:
                 removed_ws = w
-            else:
-                remaining.append(w)
-        workspaces = remaining
+                break
 
-        if len(workspaces) < original_count:
+        if removed_ws is not None:
             # Drop the workspace's PostgreSQL schema before removing files
-            if removed_ws:
-                ws_name = removed_ws.get("name", "")
-                schema_name = "ws_" + _re.sub(r"[^a-z0-9_]", "_", ws_name.lower())
-                try:
-                    from caracal.db.connection import DatabaseConfig, DatabaseConnectionManager
-                    # Try to read DB credentials from the workspace's own config.yaml
-                    ws_config_file = Path(removed_ws["path"]) / "config.yaml"
-                    db_kwargs = {}
-                    if ws_config_file.exists():
-                        try:
-                            import yaml
-                            with open(ws_config_file, "r") as _f:
-                                _cfg = yaml.safe_load(_f) or {}
-                            _db = _cfg.get("database", {})
-                            schema_name = _db.get("schema", schema_name)
-                            db_kwargs = {
-                                "host": _db.get("host", "localhost"),
-                                "port": int(_db.get("port", 5432)),
-                                "database": _db.get("database", "caracal"),
-                                "user": _db.get("user", "caracal"),
-                                "password": _db.get("password", ""),
-                            }
-                        except Exception:
-                            pass
-                    # DatabaseConfig will also check env vars as fallback
-                    db_config = DatabaseConfig(**db_kwargs)
-                    mgr = DatabaseConnectionManager(db_config)
-                    mgr.initialize()
-                    mgr.drop_schema(schema_name=schema_name)
-                    mgr.close()
-                except Exception as _e:
-                    import logging as _log
-                    _log.getLogger(__name__).warning(
-                        "Failed to drop schema %s: %s", schema_name, _e
-                    )
-            
-            # Save updated registry
-            _ensure_single_default(workspaces)
-            _save_registry_workspaces(rp, workspaces)
-            
+            ws_name = removed_ws.get("name", "")
+            schema_name = "ws_" + _re.sub(r"[^a-z0-9_]", "_", ws_name.lower())
+            try:
+                from caracal.db.connection import DatabaseConfig, DatabaseConnectionManager
+                # Try to read DB credentials from the workspace's own config.yaml
+                ws_config_file = Path(removed_ws["path"]) / "config.yaml"
+                db_kwargs = {}
+                if ws_config_file.exists():
+                    try:
+                        import yaml
+                        with open(ws_config_file, "r") as _f:
+                            _cfg = yaml.safe_load(_f) or {}
+                        _db = _cfg.get("database", {})
+                        schema_name = _db.get("schema", schema_name)
+                        db_kwargs = {
+                            "host": _db.get("host", "localhost"),
+                            "port": int(_db.get("port", 5432)),
+                            "database": _db.get("database", "caracal"),
+                            "user": _db.get("user", "caracal"),
+                            "password": _db.get("password", ""),
+                        }
+                    except Exception:
+                        pass
+                # DatabaseConfig will also check env vars as fallback
+                db_config = DatabaseConfig(**db_kwargs)
+                mgr = DatabaseConnectionManager(db_config)
+                mgr.initialize()
+                mgr.drop_schema(schema_name=schema_name)
+                mgr.close()
+            except Exception as _e:
+                import logging as _log
+                _log.getLogger(__name__).warning(
+                    "Failed to drop schema %s: %s", schema_name, _e
+                )
+
+            # If deleting the default workspace, clear default marker.
+            try:
+                from caracal.deployment.config_manager import ConfigManager
+
+                cfg = ConfigManager()
+                if cfg.get_default_workspace_name() == removed_ws.get("name"):
+                    cfg.set_default_workspace("")
+            except Exception:
+                pass
+
             # Optionally delete the directory
             if delete_directory:
                 workspace_path = Path(path).resolve()
                 if workspace_path.exists():
                     shutil.rmtree(workspace_path)
-            
+
             return True
-        
+
         return False
 
     @staticmethod
@@ -425,17 +362,6 @@ def _resolve_initial_workspace_root() -> Path:
     except Exception:
         pass
 
-    # Fallback to default workspace from global registry if available.
-    try:
-        workspaces = WorkspaceManager.list_workspaces()
-        default_ws = next((ws for ws in workspaces if ws.get("default")), None)
-        if default_ws and default_ws.get("path"):
-            return Path(str(default_ws["path"]))
-        if workspaces and workspaces[0].get("path"):
-            return Path(str(workspaces[0]["path"]))
-    except Exception:
-        pass
-
     # Fallback to first valid workspace directory if it exists.
     try:
         if _WORKSPACES_DIR.exists():
@@ -450,44 +376,6 @@ def _resolve_initial_workspace_root() -> Path:
 
     # Last resort for brand-new installs before onboarding creates a workspace.
     return _CARACAL_HOME_ROOT
-
-
-def _load_registry_workspaces(registry_path: Path) -> list[dict[str, Any]]:
-    """Load and normalize workspaces registry entries."""
-    if not registry_path.exists():
-        return []
-
-    with open(registry_path, "r") as fh:
-        data = json.load(fh) or {}
-
-    normalized: list[dict[str, Any]] = []
-    for ws in data.get("workspaces", []):
-        if not isinstance(ws, dict):
-            continue
-        name = ws.get("name")
-        path = ws.get("path")
-        if not name or not path:
-            continue
-        if str(name) in _RESERVED_WORKSPACE_NAMES:
-            continue
-        normalized.append(
-            {
-                "name": str(name),
-                "path": str(path),
-                "default": bool(ws.get("default", False)),
-            }
-        )
-
-    _ensure_single_default(normalized)
-    return normalized
-
-
-def _save_registry_workspaces(registry_path: Path, workspaces: list[dict[str, Any]]) -> None:
-    """Persist normalized workspaces registry entries."""
-    ensure_source_tree(source_of(registry_path))
-    with open(registry_path, "w") as fh:
-        json.dump({"workspaces": workspaces}, fh, indent=2)
-
 
 def _ensure_single_default(workspaces: list[dict[str, Any]]) -> None:
     """Ensure at most one default workspace and assign one when possible."""
