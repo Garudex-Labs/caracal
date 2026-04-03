@@ -16,6 +16,7 @@ import sys
 from pathlib import Path
 from typing import Sequence
 
+from caracal.runtime.hardcut_preflight import assert_runtime_hardcut
 from caracal.storage.layout import resolve_caracal_home
 
 COMPOSE_FILE_ENV = "CARACAL_DOCKER_COMPOSE_FILE"
@@ -336,6 +337,12 @@ def _run_host_orchestrator(args: Sequence[str]) -> int:
 
 def _host_up(namespace: argparse.Namespace) -> int:
     compose_file = _resolve_compose_file(namespace.compose_file)
+    assert_runtime_hardcut(
+        compose_file=compose_file,
+        database_urls=_runtime_database_url_candidates(),
+        state_roots=[_caracal_home_dir()],
+        env_vars=os.environ,
+    )
     compose_cmd = _compose_cmd(compose_file)
     uses_local_build = _service_uses_local_build(compose_file, "mcp")
 
@@ -1074,6 +1081,12 @@ def _host_cli(namespace: argparse.Namespace) -> int:
 
 def _host_flow(namespace: argparse.Namespace) -> int:
     compose_file = _resolve_compose_file(namespace.compose_file)
+    assert_runtime_hardcut(
+        compose_file=compose_file,
+        database_urls=_runtime_database_url_candidates(),
+        state_roots=[_caracal_home_dir()],
+        env_vars=os.environ,
+    )
     compose_cmd = _compose_cmd(compose_file)
     uses_local_build = _service_uses_local_build(compose_file, "flow")
 
@@ -1250,7 +1263,22 @@ def _resolve_compose_command() -> list[str]:
 def _run_local_caracal(args: Sequence[str]) -> None:
     from caracal.runtime.restricted_shell import run_restricted_command
 
+    assert_runtime_hardcut(
+        compose_file=None,
+        database_urls=_runtime_database_url_candidates(),
+        state_roots=[_caracal_home_dir()],
+        env_vars=os.environ,
+    )
+
     raise SystemExit(run_restricted_command(list(args)))
+
+
+def _runtime_database_url_candidates() -> dict[str, str | None]:
+    return {
+        "DATABASE_URL": os.getenv("DATABASE_URL"),
+        "CARACAL_DATABASE_URL": os.getenv("CARACAL_DATABASE_URL"),
+        "CARACAL_DB_URL": os.getenv("CARACAL_DB_URL"),
+    }
 
 
 def _is_truthy(value: str | None) -> bool:

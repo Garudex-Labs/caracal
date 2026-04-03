@@ -20,12 +20,23 @@ from caracal.cli.context import pass_context, CLIContext
 from caracal.deployment.migration import MigrationManager
 from caracal.deployment.edition import Edition
 from caracal.deployment.exceptions import MigrationError
+from caracal.runtime.hardcut_preflight import (
+    HardCutPreflightError,
+    assert_migration_cli_allowed,
+)
 
 
 @click.group(name="migrate")
 def migrate_group():
     """Manage migration operations."""
     pass
+
+
+def _enforce_hardcut_migration_policy() -> None:
+    try:
+        assert_migration_cli_allowed()
+    except HardCutPreflightError as exc:
+        raise click.ClickException(str(exc)) from exc
 
 
 @migrate_group.command(name="repo-to-package")
@@ -74,6 +85,8 @@ def migrate_repo_to_package(
         caracal migrate repo-to-package --repository-path ~/caracal
         caracal migrate repo-to-package --dry-run
     """
+    _enforce_hardcut_migration_policy()
+
     try:
         migration_manager = MigrationManager()
         
@@ -181,6 +194,8 @@ def migrate_switch_edition(
         # Dry run to see what would happen
         caracal migrate switch-edition enterprise --gateway-url https://gateway.example.com --dry-run
     """
+    _enforce_hardcut_migration_policy()
+
     try:
         migration_manager = MigrationManager()
         current_edition = migration_manager.edition_manager.get_edition()
@@ -269,6 +284,8 @@ def migrate_list_backups(ctx: CLIContext, output_json: bool):
         caracal migrate list-backups
         caracal migrate list-backups --json
     """
+    _enforce_hardcut_migration_policy()
+
     try:
         migration_manager = MigrationManager()
         backups = migration_manager.list_backups()
@@ -318,6 +335,8 @@ def migrate_restore_backup(ctx: CLIContext, backup_path: Path, confirm: bool):
         caracal migrate restore-backup /path/to/backup.tar.gz
         caracal migrate restore-backup /path/to/backup.tar.gz --confirm
     """
+    _enforce_hardcut_migration_policy()
+
     try:
         if not confirm:
             click.echo("WARNING: This will replace your current configuration with the backup.")
