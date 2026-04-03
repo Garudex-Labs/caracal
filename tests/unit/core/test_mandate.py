@@ -32,10 +32,9 @@ class TestMandateManager:
         issuer = Principal(
             principal_id=issuer_id,
             name="test-issuer",
-            principal_type="user",
+            principal_kind="human",
             owner="test",
             public_key_pem="test_public_key",
-            private_key_pem="test_private_key"
         )
         
         # Mock policy
@@ -62,7 +61,7 @@ class TestMandateManager:
         self.mock_db_session.query.side_effect = mock_query_side_effect
         
         # Mock metadata-backed key resolution and signature function
-        with patch('caracal.core.mandate.resolve_principal_private_key', return_value="test_private_key"):
+        with patch('caracal.core.identity.PrincipalRegistry.resolve_private_key', return_value="test_private_key"):
             with patch('caracal.core.mandate.sign_mandate', return_value="test_signature"):
             # Act
                 mandate = self.manager.issue_mandate(
@@ -143,7 +142,7 @@ class TestMandateManager:
         issuer = Principal(
             principal_id=issuer_id,
             name="test-issuer",
-            principal_type="user",
+            principal_kind="human",
             owner="test",
             public_key_pem="test_public_key",
         )
@@ -170,7 +169,7 @@ class TestMandateManager:
         self.mock_db_session.query.side_effect = mock_query_side_effect
 
         with patch(
-            'caracal.core.mandate.resolve_principal_private_key',
+            'caracal.core.identity.PrincipalRegistry.resolve_private_key',
             side_effect=PrincipalKeyStorageError("missing private key metadata"),
         ):
             with pytest.raises(RuntimeError, match="no resolvable private key metadata"):
@@ -199,8 +198,8 @@ class TestMandateManager:
             network_distance=2,
         )
 
-        source_principal = Mock(principal_type="user")
-        target_principal = Mock(principal_type="agent")
+        source_principal = Mock(principal_kind="human")
+        target_principal = Mock(principal_kind="worker")
 
         delegated_mandate = Mock(
             mandate_id=uuid4(),

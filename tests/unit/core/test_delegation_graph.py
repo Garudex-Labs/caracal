@@ -41,8 +41,8 @@ class TestDelegationGraphLineageParity:
             network_distance=1,
         )
 
-        source_principal = Mock(principal_type="user")
-        target_principal = Mock(principal_type="agent")
+        source_principal = Mock(principal_kind="human")
+        target_principal = Mock(principal_kind="worker")
 
         mandate_query_count = {"count": 0}
         principal_query_count = {"count": 0}
@@ -100,8 +100,8 @@ class TestDelegationGraphLineageParity:
             network_distance=1,
         )
 
-        source_principal = Mock(principal_type="user")
-        target_principal = Mock(principal_type="agent")
+        source_principal = Mock(principal_kind="human")
+        target_principal = Mock(principal_kind="worker")
 
         mandate_query_count = {"count": 0}
         principal_query_count = {"count": 0}
