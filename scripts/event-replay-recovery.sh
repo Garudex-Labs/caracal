@@ -17,8 +17,6 @@
 #   --kubernetes          Use kubectl for Kubernetes deployment (default: false)
 #   --namespace NS        Kubernetes namespace (default: caracal)
 #   --confirm             Skip confirmation prompt (default: false)
-#
-# Requirements: Deployment
 
 set -euo pipefail
 

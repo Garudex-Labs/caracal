@@ -242,10 +242,10 @@ class AuthorityPolicyFlow:
                 
                 # Delegation settings
                 allow_delegation = self.prompt.confirm("Allow delegation?", default=False)
-                max_delegation_depth = 0
+                max_network_distance = 0
                 if allow_delegation:
-                    max_delegation_depth = self.prompt.number(
-                        "Maximum delegation depth",
+                    max_network_distance = self.prompt.number(
+                        "Maximum delegation network distance",
                         default=2,
                         min_value=1,
                     )
@@ -259,7 +259,7 @@ class AuthorityPolicyFlow:
                 self.console.print(f"    Actions: [{Colors.NEUTRAL}]{len(actions)} actions[/]")
                 self.console.print(f"    Delegation: [{Colors.NEUTRAL}]{'Yes' if allow_delegation else 'No'}[/]")
                 if allow_delegation:
-                    self.console.print(f"    Max Depth: [{Colors.NEUTRAL}]{int(max_delegation_depth)}[/]")
+                    self.console.print(f"    Max Network Distance: [{Colors.NEUTRAL}]{int(max_network_distance)}[/]")
                 self.console.print()
                 
                 if not self.prompt.confirm("Create this policy?", default=True):
@@ -276,7 +276,7 @@ class AuthorityPolicyFlow:
                     allowed_resource_patterns=resource_patterns,
                     allowed_actions=actions,
                     allow_delegation=allow_delegation,
-                    max_network_distance=int(max_delegation_depth),
+                    max_network_distance=int(max_network_distance),
                     created_at=datetime.utcnow(),
                     created_by="flow_user",
                     active=True,
