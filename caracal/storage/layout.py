@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-import json
 import os
-import stat
+import time
+from uuid import uuid4
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -30,18 +30,6 @@ class CaracalLayout:
     @property
     def keystore_dir(self) -> Path:
         return self.root / "keystore"
-
-    @property
-    def master_key_path(self) -> Path:
-        return self.keystore_dir / "master_key"
-
-    @property
-    def salt_path(self) -> Path:
-        return self.keystore_dir / "salt.bin"
-
-    @property
-    def encrypted_keys_dir(self) -> Path:
-        return self.keystore_dir / "encrypted_keys"
 
     @property
     def workspaces_dir(self) -> Path:
@@ -70,10 +58,6 @@ class CaracalLayout:
     @property
     def history_dir(self) -> Path:
         return self.system_dir / "history"
-
-    @property
-    def key_audit_log_path(self) -> Path:
-        return self.audit_logs_dir / "key_events.jsonl"
 
 
 def resolve_caracal_home(require_explicit: bool = False) -> Path:
@@ -112,20 +96,10 @@ def _ensure_dir(path: Path, mode: int) -> None:
         raise StorageLayoutError(f"Failed to set permissions on directory {path}: {exc}") from exc
 
 
-def _ensure_file_mode(path: Path, mode: int) -> None:
-    if not path.exists():
-        return
-
-    current_mode = stat.S_IMODE(path.stat().st_mode)
-    if current_mode != mode:
-        os.chmod(path, mode)
-
-
 def ensure_layout(layout: CaracalLayout) -> None:
     """Create canonical directory structure and enforce secure defaults."""
     _ensure_dir(layout.root, 0o700)
     _ensure_dir(layout.keystore_dir, 0o700)
-    _ensure_dir(layout.encrypted_keys_dir, 0o700)
     _ensure_dir(layout.workspaces_dir, 0o700)
     _ensure_dir(layout.ledger_dir, 0o700)
     _ensure_dir(layout.merkle_dir, 0o700)
@@ -133,9 +107,6 @@ def ensure_layout(layout: CaracalLayout) -> None:
     _ensure_dir(layout.system_dir, 0o700)
     _ensure_dir(layout.metadata_dir, 0o700)
     _ensure_dir(layout.history_dir, 0o700)
-
-    _ensure_file_mode(layout.master_key_path, 0o600)
-    _ensure_file_mode(layout.salt_path, 0o600)
 
 
 def append_key_audit_event(
@@ -145,19 +116,37 @@ def append_key_audit_event(
     operation: str,
     metadata: Optional[dict[str, Any]] = None,
 ) -> None:
-    """Append key lifecycle event to append-only JSONL audit file."""
+    """Persist key lifecycle events to PostgreSQL audit log."""
     ensure_layout(layout)
 
-    event = {
-        "timestamp": datetime.now(timezone.utc).isoformat(),
-        "event_type": event_type,
+    from caracal.config import load_config
+    from caracal.db.connection import get_db_manager
+    from caracal.db.models import AuditLog
+
+    event_time = datetime.now(timezone.utc)
+    offset = time.time_ns()
+    payload = {
         "actor": actor,
         "operation": operation,
         "metadata": metadata or {},
     }
 
+    db_manager = get_db_manager(load_config())
     try:
-        with layout.key_audit_log_path.open("a", encoding="utf-8") as handle:
-            handle.write(json.dumps(event, separators=(",", ":")) + "\n")
-    except OSError as exc:
-        raise StorageLayoutError(f"Failed to append key audit event: {exc}") from exc
+        with db_manager.session_scope() as session:
+            session.add(
+                AuditLog(
+                    event_id=f"key-audit:{offset}:{uuid4().hex[:8]}",
+                    event_type=event_type,
+                    topic="system.key_audit",
+                    partition=0,
+                    offset=offset,
+                    event_timestamp=event_time,
+                    logged_at=event_time,
+                    event_data=payload,
+                    principal_id=None,
+                    correlation_id=None,
+                )
+            )
+    finally:
+        db_manager.close()

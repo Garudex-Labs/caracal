@@ -22,6 +22,7 @@ import structlog
 from caracal.deployment.config_manager import ConfigManager
 from caracal.deployment.exceptions import (
     GatewayAuthenticationError,
+    GatewayAuthorizationError,
     GatewayConnectionError,
     GatewayQuotaExceededError,
     GatewayTimeoutError,
@@ -382,6 +383,7 @@ class GatewayClient:
         Raises:
             GatewayUnavailableError: If gateway is unavailable
             GatewayAuthenticationError: If authentication fails
+            GatewayAuthorizationError: If request is denied after authentication
             GatewayQuotaExceededError: If quota is exceeded
             GatewayTimeoutError: If request times out
             GatewayConnectionError: If connection fails
@@ -468,6 +470,12 @@ class GatewayClient:
                 raise GatewayAuthenticationError(
                     "Gateway authentication failed during request"
                 )
+
+            if response.status_code == 403:
+                reason_code, reason_message = self._extract_gateway_denial(response)
+                raise GatewayAuthorizationError(
+                    f"Gateway authorization denied ({reason_code}): {reason_message}"
+                )
             
             if response.status_code == 429:
                 raise GatewayQuotaExceededError(
@@ -498,7 +506,7 @@ class GatewayClient:
                 latency_ms=latency_ms
             )
             
-        except (GatewayAuthenticationError, GatewayQuotaExceededError, GatewayUnavailableError):
+        except (GatewayAuthenticationError, GatewayAuthorizationError, GatewayQuotaExceededError, GatewayUnavailableError):
             raise
         
         except httpx.TimeoutException as e:
@@ -555,6 +563,7 @@ class GatewayClient:
         Raises:
             GatewayUnavailableError: If gateway is unavailable
             GatewayAuthenticationError: If authentication fails
+            GatewayAuthorizationError: If request is denied after authentication
             GatewayTimeoutError: If request times out
         """
         try:
@@ -594,6 +603,12 @@ class GatewayClient:
                     raise GatewayAuthenticationError(
                         "Gateway authentication failed during streaming"
                     )
+
+                if response.status_code == 403:
+                    reason_code, reason_message = self._extract_gateway_denial(response)
+                    raise GatewayAuthorizationError(
+                        f"Gateway authorization denied ({reason_code}): {reason_message}"
+                    )
                 
                 if response.status_code == 429:
                     raise GatewayQuotaExceededError(
@@ -624,7 +639,7 @@ class GatewayClient:
                     endpoint=request.endpoint
                 )
         
-        except (GatewayAuthenticationError, GatewayQuotaExceededError):
+        except (GatewayAuthenticationError, GatewayAuthorizationError, GatewayQuotaExceededError):
             raise
         
         except httpx.TimeoutException as e:
@@ -878,6 +893,29 @@ class GatewayClient:
                 self._last_quota_check = datetime.now()
         except Exception as e:
             logger.debug("failed_to_parse_quota_headers", error=str(e))
+
+    @staticmethod
+    def _extract_gateway_denial(response: httpx.Response) -> tuple[str, str]:
+        """Extract deny reason code/message from gateway response payload."""
+        default_code = "BOUNDARY_2_OR_3_DENY"
+        default_message = f"HTTP {response.status_code}"
+        try:
+            payload = response.json()
+        except Exception:
+            return default_code, default_message
+
+        if isinstance(payload, dict):
+            error = payload.get("error")
+            if isinstance(error, dict):
+                reason_code = str(error.get("code") or default_code)
+                reason_message = str(error.get("message") or default_message)
+                return reason_code, reason_message
+            if isinstance(error, str):
+                return default_code, error
+            if isinstance(payload.get("message"), str):
+                return default_code, payload["message"]
+
+        return default_code, default_message
     
     async def _queue_request(
         self,
