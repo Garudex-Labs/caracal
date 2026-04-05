@@ -33,8 +33,9 @@ def key_status() -> None:
         status = get_key_status()
         click.echo("Config Encryption Key Status")
         click.echo(f"  Backend          : {status['backend']}")
-        click.echo(f"  KMS key          : {status.get('kms_key_id') or 'not configured'}")
-        click.echo(f"  KMS region       : {status.get('kms_region') or 'default session region'}")
+        click.echo(f"  Vault URL        : {status.get('vault_url') or 'not configured'}")
+        click.echo(f"  Vault project    : {status.get('vault_project') or 'default'}")
+        click.echo(f"  Vault env        : {status.get('vault_environment') or 'dev'}")
         click.echo(f"  Configured       : {'yes' if status.get('configured') else 'no'}")
     except Exception as exc:
         click.echo(f"Error reading key status: {exc}", err=True)
