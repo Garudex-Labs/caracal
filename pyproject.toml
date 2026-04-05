@@ -48,7 +48,6 @@ dependencies = [
     "prompt_toolkit>=3.0.0",
     "pyperclip>=1.11.0",
     "age>=0.5.1",
-    "keyring>=24.0.0",
     "textual>=0.47.0",
     "toml>=0.10.2",
 ]
