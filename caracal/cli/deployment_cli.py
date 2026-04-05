@@ -29,8 +29,6 @@ from caracal.deployment import (
     ConfigManager,
     WorkspaceConfig,
     PostgresConfig,
-    SyncDirection,
-    ConflictStrategy,
     MigrationManager,
     get_deployment_edition_adapter,
     get_version_checker,
@@ -439,7 +437,6 @@ def workspace_list(format: str):
                 workspace_data.append({
                     "name": ws,
                     "is_default": config.is_default,
-                    "sync_enabled": config.sync_enabled,
                     "created_at": config.created_at.isoformat(),
                 })
 
@@ -452,7 +449,6 @@ def workspace_list(format: str):
             table = Table(title="Workspaces")
             table.add_column("Name", style="cyan")
             table.add_column("Default", style="green")
-            table.add_column("Sync", style="yellow")
             table.add_column("Created", style="blue")
             
             for ws in workspaces:
@@ -460,7 +456,6 @@ def workspace_list(format: str):
                 table.add_row(
                     ws,
                     "✓" if config.is_default else "",
-                    "✓" if config.sync_enabled else "",
                     config.created_at.strftime("%Y-%m-%d %H:%M"),
                 )
             
@@ -591,14 +586,16 @@ def enterprise_group():
 def enterprise_login(url: str, token: str, workspace: Optional[str]):
     """Connect workspace to enterprise backend."""
     try:
-        from caracal.deployment.sync_engine import SyncEngine
+        from caracal.enterprise.license import EnterpriseLicenseValidator
         
-        config_manager = ConfigManager()
-        
-        workspace = _require_workspace(config_manager, workspace)
-        
-        sync_engine = SyncEngine()
-        sync_engine.connect(workspace, url, token)
+        validator = EnterpriseLicenseValidator(enterprise_api_url=url)
+        result = validator.validate_license(token)
+
+        if not result.valid:
+            console.print(f"[red]Error:[/red] {result.message}")
+            sys.exit(1)
+
+        resolved_api_url = result.enterprise_api_url or url
 
         # Edition is policy-driven by connectivity: migrate to Enterprise after connect.
         try:
@@ -607,8 +604,8 @@ def enterprise_login(url: str, token: str, workspace: Optional[str]):
             if current_edition != Edition.ENTERPRISE:
                 migration_manager.migrate_edition(
                     Edition.ENTERPRISE,
-                    gateway_url=url,
-                    gateway_token=token,
+                    gateway_url=resolved_api_url,
+                    gateway_token=result.sync_api_key,
                     migrate_api_keys=True,
                 )
         except Exception as migration_error:
@@ -619,8 +616,10 @@ def enterprise_login(url: str, token: str, workspace: Optional[str]):
             )
         
         console.print(f"[green]✓[/green] Workspace connected to enterprise")
-        console.print(f"  Workspace: {workspace}")
-        console.print(f"  URL: {url}")
+        console.print(f"  Workspace: {workspace or 'default'}")
+        console.print(f"  URL: {resolved_api_url}")
+        if result.tier:
+            console.print(f"  Tier: {result.tier}")
         
     except Exception as e:
         logger.error("enterprise_login_failed", error=str(e))
@@ -638,7 +637,7 @@ def enterprise_login(url: str, token: str, workspace: Optional[str]):
 def enterprise_disconnect(workspace: Optional[str], force: bool, allow_local_secrets_migration: bool):
     """Disconnect workspace from enterprise backend."""
     try:
-        from caracal.deployment.sync_engine import SyncEngine
+        from caracal.enterprise.license import EnterpriseLicenseValidator
         
         config_manager = ConfigManager()
         
@@ -663,13 +662,8 @@ def enterprise_disconnect(workspace: Optional[str], force: bool, allow_local_sec
                 migrate_api_keys=allow_local_secrets_migration,
             )
 
-        sync_engine = SyncEngine()
-        sync_engine.disconnect(workspace)
-
         # Ensure enterprise license state does not keep edition in enterprise mode.
         try:
-            from caracal.enterprise.license import EnterpriseLicenseValidator
-
             EnterpriseLicenseValidator().disconnect()
         except Exception as license_error:
             logger.debug("enterprise_disconnect_license_clear_skipped", error=str(license_error))
@@ -694,21 +688,16 @@ def enterprise_disconnect(workspace: Optional[str], force: bool, allow_local_sec
 def enterprise_sync(workspace: Optional[str], direction: str, format: str):
     """Perform immediate synchronization."""
     try:
-        from caracal.deployment.sync_engine import SyncEngine, SyncDirection as SyncDir
+        from caracal.enterprise.sync import EnterpriseSyncClient
         
         config_manager = ConfigManager()
         
         workspace = _require_workspace(config_manager, workspace)
-        
-        # Map direction
-        direction_map = {
-            "push": SyncDir.PUSH,
-            "pull": SyncDir.PULL,
-            "both": SyncDir.BIDIRECTIONAL
-        }
-        sync_direction = direction_map[direction]
-        
-        sync_engine = SyncEngine()
+
+        if direction != "both":
+            console.print("[yellow]Warning:[/yellow] Direction filtering is no longer supported; running full enterprise sync.")
+
+        sync_client = EnterpriseSyncClient()
         
         with Progress(
             SpinnerColumn(),
@@ -716,17 +705,16 @@ def enterprise_sync(workspace: Optional[str], direction: str, format: str):
             console=console,
         ) as progress:
             task = progress.add_task(f"Syncing workspace '{workspace}'...", total=None)
-            result = sync_engine.sync_now(workspace, sync_direction)
+            result = sync_client.sync()
             progress.update(task, completed=True)
         
         if format == "json":
             click.echo(json.dumps({
                 "workspace": workspace,
                 "success": result.success,
-                "uploaded": result.uploaded_count,
-                "downloaded": result.downloaded_count,
-                "conflicts": result.conflicts_count,
-                "duration_ms": result.duration_ms
+                "synced_counts": result.synced_counts,
+                "message": result.message,
+                "errors": result.errors,
             }))
         else:
             if result.success:
@@ -734,10 +722,9 @@ def enterprise_sync(workspace: Optional[str], direction: str, format: str):
             else:
                 console.print(f"[yellow]⚠[/yellow] Sync completed with errors")
             
-            console.print(f"  Uploaded: {result.uploaded_count}")
-            console.print(f"  Downloaded: {result.downloaded_count}")
-            console.print(f"  Conflicts: {result.conflicts_count}")
-            console.print(f"  Duration: {result.duration_ms}ms")
+            for key, value in sorted(result.synced_counts.items()):
+                console.print(f"  {key}: {value}")
+            console.print(f"  Message: {result.message}")
             
             if result.errors:
                 console.print("\n[red]Errors:[/red]")
@@ -756,40 +743,47 @@ def enterprise_sync(workspace: Optional[str], direction: str, format: str):
 def enterprise_status(workspace: Optional[str], format: str):
     """Show sync status."""
     try:
-        from caracal.deployment.sync_engine import SyncEngine
+        from caracal.enterprise.sync import EnterpriseSyncClient
+        from caracal.enterprise.license import EnterpriseLicenseValidator
         
         config_manager = ConfigManager()
         
         workspace = _require_workspace(config_manager, workspace)
         
-        sync_engine = SyncEngine()
-        status = sync_engine.get_sync_status(workspace)
+        sync_status = EnterpriseSyncClient().get_sync_status()
+        license_info = EnterpriseLicenseValidator().get_license_info()
         
         if format == "json":
-            click.echo(json.dumps({
-                "workspace": status.workspace,
-                "sync_enabled": status.sync_enabled,
-                "last_sync": status.last_sync_timestamp.isoformat() if status.last_sync_timestamp else None,
-                "pending_operations": len(status.pending_operations),
-                "conflicts": len(status.conflicts),
-                "remote_url": status.remote_url,
-                "local_version": status.local_version,
-                "remote_version": status.remote_version
-            }))
+            click.echo(json.dumps(
+                {
+                    "workspace": workspace,
+                    "license_active": bool(license_info.get("license_active")),
+                    "tier": license_info.get("tier"),
+                    "sync_status": sync_status,
+                }
+            ))
         else:
             console.print(f"Sync Status for workspace '{workspace}':")
-            console.print(f"  Sync enabled: {'✓' if status.sync_enabled else '✗'}")
-            if status.last_sync_timestamp:
-                console.print(f"  Last sync: {status.last_sync_timestamp.strftime('%Y-%m-%d %H:%M:%S')}")
-            else:
-                console.print(f"  Last sync: Never")
-            console.print(f"  Pending operations: {len(status.pending_operations)}")
-            console.print(f"  Conflicts: {len(status.conflicts)}")
-            if status.remote_url:
-                console.print(f"  Remote URL: {status.remote_url}")
-            console.print(f"  Local version: {status.local_version}")
-            if status.remote_version:
-                console.print(f"  Remote version: {status.remote_version}")
+            console.print(f"  License active: {'✓' if license_info.get('license_active') else '✗'}")
+            if license_info.get("tier"):
+                console.print(f"  Tier: {license_info['tier']}")
+
+            if isinstance(sync_status, dict):
+                if sync_status.get("error"):
+                    console.print(f"  Status: {sync_status.get('error')}")
+                else:
+                    last_sync = sync_status.get("last_sync")
+                    if isinstance(last_sync, dict):
+                        console.print(f"  Last sync: {last_sync.get('timestamp', 'Unknown')}")
+                    elif last_sync:
+                        console.print(f"  Last sync: {last_sync}")
+
+                    if sync_status.get("organization_name"):
+                        console.print(f"  Organization: {sync_status['organization_name']}")
+                    if sync_status.get("organization_id"):
+                        console.print(f"  Organization ID: {sync_status['organization_id']}")
+                    if sync_status.get("tier"):
+                        console.print(f"  Server tier: {sync_status['tier']}")
         
     except Exception as e:
         logger.error("enterprise_status_failed", error=str(e))
@@ -1382,8 +1376,6 @@ def migrate_command(from_type: str, backup: bool, force: bool):
 def doctor_command(format: str):
     """Run system health checks."""
     try:
-        from caracal.deployment.sync_engine import SyncEngine
-        
         config_manager = ConfigManager()
         mode_manager = ModeManager()
         edition_adapter = get_deployment_edition_adapter()

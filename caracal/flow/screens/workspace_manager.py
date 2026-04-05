@@ -144,15 +144,13 @@ def _list_workspaces(console: Console, state: FlowState) -> None:
             table = Table(show_header=True, header_style=f"bold {Colors.INFO}")
             table.add_column("Name", style=Colors.PRIMARY)
             table.add_column("Active", style=Colors.SUCCESS)
-            table.add_column("Sync", style=Colors.INFO)
             table.add_column("Created", style=Colors.DIM)
             
             for ws in workspaces:
                 default_mark = f"[{Colors.SUCCESS}]{Icons.SUCCESS}[/]" if ws.is_default else ""
-                sync_mark = f"[{Colors.SUCCESS}]Enabled[/]" if ws.sync_enabled else f"[{Colors.DIM}]Disabled[/]"
                 created = ws.created_at.strftime("%Y-%m-%d") if ws.created_at else "Unknown"
                 
-                table.add_row(ws.name, default_mark, sync_mark, created)
+                table.add_row(ws.name, default_mark, created)
             
             console.print(table)
         
