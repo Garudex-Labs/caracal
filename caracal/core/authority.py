@@ -10,12 +10,17 @@ mandates and making allow/deny decisions with fail-closed semantics.
 
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Optional
+from typing import Any, Optional
 from uuid import UUID
 
 from sqlalchemy.orm import Session
 
 from caracal.core.crypto import verify_mandate_signature
+from caracal.core.caveat_chain import (
+    CaveatChainError,
+    evaluate_caveat_chain,
+    verify_caveat_chain,
+)
 from caracal.db.models import ExecutionMandate, Principal
 from caracal.logging_config import get_logger
 
@@ -28,6 +33,7 @@ class AuthorityBoundaryStage:
     ISSUER_AUTHORITY_CHECKS = "issuer_authority_checks"
     MANDATE_STATE_VALIDATION = "mandate_state_validation"
     DELEGATION_PATH_VALIDATION = "delegation_path_validation"
+    CAVEAT_CHAIN_VALIDATION = "caveat_chain_validation"
     ACTION_RESOURCE_AUTHORIZATION_CHECKS = "action_resource_authorization_checks"
     ALLOW = "allow"
 
@@ -47,6 +53,7 @@ class AuthorityReasonCode:
     ACTION_SCOPE_DENIED = "AUTH_ACTION_SCOPE_DENIED"
     RESOURCE_SCOPE_DENIED = "AUTH_RESOURCE_SCOPE_DENIED"
     DELEGATION_PATH_INVALID = "AUTH_DELEGATION_PATH_INVALID"
+    CAVEAT_CHAIN_DENIED = "AUTH_CAVEAT_CHAIN_DENIED"
 
 # Import for type hints (avoid circular import)
 from typing import TYPE_CHECKING
@@ -475,6 +482,56 @@ class AuthorityEvaluator:
 
         return None
 
+    def _validate_caveat_chain_stage(
+        self,
+        *,
+        mandate: ExecutionMandate,
+        requested_action: str,
+        requested_resource: str,
+        caveat_chain: Optional[list[dict[str, Any]]],
+        caveat_hmac_key: Optional[str],
+        caveat_task_id: Optional[str],
+        current_time: datetime,
+    ) -> Optional[AuthorityDecision]:
+        """Stage 3.5: optional caveat-chain boundary checks."""
+        if caveat_chain is None:
+            return None
+
+        key = str(caveat_hmac_key or "").strip()
+        if not key:
+            reason = "Caveat chain validation key is missing"
+            logger.warning(reason)
+            return self._deny_decision(
+                reason=reason,
+                reason_code=AuthorityReasonCode.CAVEAT_CHAIN_DENIED,
+                boundary_stage=AuthorityBoundaryStage.CAVEAT_CHAIN_VALIDATION,
+                mandate=mandate,
+                requested_action=requested_action,
+                requested_resource=requested_resource,
+            )
+
+        try:
+            verified_chain = verify_caveat_chain(hmac_key=key, chain=caveat_chain)
+            evaluate_caveat_chain(
+                verified_chain=verified_chain,
+                requested_action=requested_action,
+                requested_resource=requested_resource,
+                task_id=caveat_task_id,
+                current_time=current_time,
+            )
+            return None
+        except CaveatChainError as exc:
+            reason = f"Caveat-chain validation denied request: {exc}"
+            logger.warning(reason)
+            return self._deny_decision(
+                reason=reason,
+                reason_code=AuthorityReasonCode.CAVEAT_CHAIN_DENIED,
+                boundary_stage=AuthorityBoundaryStage.CAVEAT_CHAIN_VALIDATION,
+                mandate=mandate,
+                requested_action=requested_action,
+                requested_resource=requested_resource,
+            )
+
     def _validate_delegation_path_stage(
         self,
         mandate: ExecutionMandate,
@@ -502,7 +559,10 @@ class AuthorityEvaluator:
         mandate: ExecutionMandate,
         requested_action: str,
         requested_resource: str,
-        current_time: Optional[datetime] = None
+        current_time: Optional[datetime] = None,
+        caveat_chain: Optional[list[dict[str, Any]]] = None,
+        caveat_hmac_key: Optional[str] = None,
+        caveat_task_id: Optional[str] = None,
     ) -> AuthorityDecision:
         """
         Validate a mandate for a specific action.
@@ -552,6 +612,15 @@ class AuthorityEvaluator:
             lambda m, a, r: self._validate_mandate_state(m, a, r, current_time),
             self._validate_issuer_authority,
             self._validate_delegation_path_stage,
+            lambda m, a, r: self._validate_caveat_chain_stage(
+                mandate=m,
+                requested_action=a,
+                requested_resource=r,
+                caveat_chain=caveat_chain,
+                caveat_hmac_key=caveat_hmac_key,
+                caveat_task_id=caveat_task_id,
+                current_time=current_time,
+            ),
             self._validate_action_and_resource_scope,
         ):
             decision = check(mandate, requested_action, requested_resource)

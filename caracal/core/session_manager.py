@@ -17,6 +17,14 @@ import jwt
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives import serialization
 
+from caracal.core.caveat_chain import (
+    CaveatChainError,
+    build_caveat_chain,
+    caveat_strings_from_chain,
+    evaluate_caveat_chain,
+    verify_caveat_chain,
+)
+
 
 class SessionError(RuntimeError):
     """Base session manager error."""
@@ -146,6 +154,8 @@ class SessionManager:
         denylist_backend: Optional[SessionDenylistBackend] = None,
         audit_sink: Optional[SessionAuditSink] = None,
         db_session_manager: Optional[SessionDbManager] = None,
+        caveat_mode: str = "jwt",
+        caveat_chain_hmac_key: Optional[str] = None,
         issuer: Optional[str] = None,
         audience: Optional[str] = None,
     ) -> None:
@@ -156,6 +166,10 @@ class SessionManager:
             raise SessionError(
                 "Unsupported session signing algorithm. Use RS256 or ES256."
             )
+        resolved_caveat_mode = self._resolve_caveat_mode(caveat_mode)
+        resolved_caveat_hmac_key = str(caveat_chain_hmac_key or signing_key or "").strip()
+        if resolved_caveat_mode == "caveat_chain" and not resolved_caveat_hmac_key:
+            raise SessionError("Caveat-chain mode requires a non-empty HMAC key")
         if verify_key_provider is not None and verify_key_cache_ttl <= timedelta(seconds=0):
             raise SessionError("verify_key_cache_ttl must be greater than zero")
 
@@ -173,6 +187,8 @@ class SessionManager:
         self._denylist = denylist_backend
         self._audit_sink = audit_sink
         self._db_session_manager = db_session_manager
+        self._caveat_mode = resolved_caveat_mode
+        self._caveat_chain_hmac_key = resolved_caveat_hmac_key
         self._issuer = issuer
         self._audience = audience
 
@@ -337,15 +353,27 @@ class SessionManager:
             raise SessionValidationError("Task token TTL must be greater than zero")
 
         requested_caveats = self._normalize_caveats(caveats)
-        parent_caveats = self._normalize_caveats(
-            parent_claims.get("task_caveats") or parent_claims.get("caveats")
-        )
+        parent_caveats = self._task_caveats_from_claims(parent_claims)
         if parent_caveats and not set(requested_caveats).issubset(set(parent_caveats)):
             raise SessionValidationError(
                 "Task token caveats must be an attenuated subset of parent caveats"
             )
 
         effective_caveats = requested_caveats or parent_caveats
+        issued_caveats = effective_caveats
+        task_extra_claims: dict[str, Any] = {
+            "task_token": True,
+            "task_id": str(task_id),
+            "issued_from_kind": parent_kind.value,
+            "parent_session_id": str(parent_claims.get("sid") or ""),
+            "can_delegate_task_tokens": False,
+        }
+
+        if self._caveat_mode == "caveat_chain":
+            task_caveat_chain = self._build_caveat_chain_for_issue(effective_caveats)
+            task_extra_claims["task_caveat_chain"] = task_caveat_chain
+            issued_caveats = caveat_strings_from_chain(task_caveat_chain)
+        task_extra_claims["task_caveats"] = issued_caveats
 
         issued = self.issue_session(
             subject_id=str(parent_claims.get("sub")),
@@ -356,14 +384,7 @@ class SessionManager:
             directory_scope=parent_claims.get("dir_scope"),
             include_refresh=False,
             access_ttl=resolved_ttl,
-            extra_claims={
-                "task_token": True,
-                "task_id": str(task_id),
-                "issued_from_kind": parent_kind.value,
-                "parent_session_id": str(parent_claims.get("sid") or ""),
-                "task_caveats": effective_caveats,
-                "can_delegate_task_tokens": False,
-            },
+            extra_claims=task_extra_claims,
         )
         self._record_audit_event(
             event_type="task_token_issued",
@@ -371,7 +392,7 @@ class SessionManager:
             metadata={
                 "task_id": str(task_id),
                 "issued_session_id": issued.session_id,
-                "task_caveats": effective_caveats,
+                "task_caveats": issued_caveats,
                 "issued_from_kind": parent_kind.value,
             },
         )
@@ -395,15 +416,14 @@ class SessionManager:
         self._assert_token_type(source_claims, expected="access")
         await self._assert_not_revoked(source_claims)
 
-        source_caveats = self._normalize_caveats(
-            source_claims.get("task_caveats") or source_claims.get("caveats")
-        )
+        source_caveats = self._task_caveats_from_claims(source_claims)
         requested_caveats = self._normalize_caveats(caveats)
         if source_caveats and requested_caveats and not set(requested_caveats).issubset(set(source_caveats)):
             raise SessionValidationError(
                 "Handoff token caveats must be an attenuated subset of source caveats"
             )
         effective_caveats = requested_caveats or source_caveats
+        issued_caveats = effective_caveats
 
         max_ttl = timedelta(minutes=2)
         resolved_ttl = ttl if ttl <= max_ttl else max_ttl
@@ -425,6 +445,19 @@ class SessionManager:
         now = datetime.now(timezone.utc)
         exp = now + resolved_ttl
         handoff_jti = uuid4().hex
+        handoff_extra_claims: dict[str, Any] = {
+            "handoff_token": True,
+            "source_subject_id": str(source_claims.get("sub")),
+            "source_token_jti": source_token_jti,
+            "can_delegate_task_tokens": False,
+        }
+
+        if self._caveat_mode == "caveat_chain":
+            task_caveat_chain = self._build_caveat_chain_for_issue(effective_caveats)
+            handoff_extra_claims["task_caveat_chain"] = task_caveat_chain
+            issued_caveats = caveat_strings_from_chain(task_caveat_chain)
+        handoff_extra_claims["task_caveats"] = issued_caveats
+
         handoff_claims = self._build_claims(
             token_type="handoff",
             token_jti=handoff_jti,
@@ -437,13 +470,7 @@ class SessionManager:
             expires_at=exp,
             workspace_id=source_claims.get("workspace_id"),
             directory_scope=source_claims.get("dir_scope"),
-            extra_claims={
-                "handoff_token": True,
-                "source_subject_id": str(source_claims.get("sub")),
-                "source_token_jti": source_token_jti,
-                "task_caveats": effective_caveats,
-                "can_delegate_task_tokens": False,
-            },
+            extra_claims=handoff_extra_claims,
         )
         token = jwt.encode(handoff_claims, self._signing_key, algorithm=self._algorithm)
 
@@ -455,7 +482,7 @@ class SessionManager:
             target_subject_id=str(target_subject_id),
             organization_id=str(source_claims.get("org") or ""),
             tenant_id=str(source_claims.get("tenant") or ""),
-            transferred_caveats=effective_caveats,
+            transferred_caveats=issued_caveats,
             source_remaining_caveats=source_remaining_caveats,
             issued_at=now,
         )
@@ -470,7 +497,7 @@ class SessionManager:
                 "target_subject_id": str(target_subject_id),
                 "handoff_jti": handoff_jti,
                 "source_token_jti": source_token_jti,
-                "task_caveats": effective_caveats,
+                "task_caveats": issued_caveats,
                 "source_remaining_caveats": source_remaining_caveats,
             },
         )
@@ -510,6 +537,25 @@ class SessionManager:
             raise SessionValidationError("Handoff token has expired")
 
         task_ttl = remaining_ttl if remaining_ttl <= timedelta(minutes=5) else timedelta(minutes=5)
+        handoff_caveat_chain = self._verified_task_caveat_chain_from_claims(claims)
+        handoff_task_caveats = (
+            caveat_strings_from_chain(handoff_caveat_chain)
+            if handoff_caveat_chain
+            else self._normalize_caveats(claims.get("task_caveats"))
+        )
+
+        task_extra_claims: dict[str, Any] = {
+            "task_token": True,
+            "issued_from_kind": "handoff",
+            "task_caveats": handoff_task_caveats,
+            "handoff_source_subject_id": str(claims.get("source_subject_id") or ""),
+            "can_delegate_task_tokens": False,
+        }
+        if self._caveat_mode == "caveat_chain":
+            if not handoff_caveat_chain:
+                handoff_caveat_chain = self._build_caveat_chain_for_issue(handoff_task_caveats)
+            task_extra_claims["task_caveat_chain"] = handoff_caveat_chain
+
         issued = self.issue_session(
             subject_id=str(claims.get("sub")),
             organization_id=str(claims.get("org")),
@@ -519,13 +565,7 @@ class SessionManager:
             directory_scope=claims.get("dir_scope"),
             include_refresh=False,
             access_ttl=task_ttl,
-            extra_claims={
-                "task_token": True,
-                "issued_from_kind": "handoff",
-                "task_caveats": self._normalize_caveats(claims.get("task_caveats")),
-                "handoff_source_subject_id": str(claims.get("source_subject_id") or ""),
-                "can_delegate_task_tokens": False,
-            },
+            extra_claims=task_extra_claims,
         )
         self._record_audit_event(
             event_type="handoff_token_consumed",
@@ -535,7 +575,7 @@ class SessionManager:
                 "source_token_jti": source_jti,
                 "consumed_handoff_jti": handoff_jti,
                 "issued_session_id": issued.session_id,
-                "task_caveats": self._normalize_caveats(claims.get("task_caveats")),
+                "task_caveats": handoff_task_caveats,
             },
         )
         return issued
@@ -545,6 +585,10 @@ class SessionManager:
         token: str,
         *,
         required_caveats: Optional[list[str]] = None,
+        required_action: Optional[str] = None,
+        required_resource: Optional[str] = None,
+        required_task_id: Optional[str] = None,
+        current_time: Optional[datetime] = None,
     ) -> dict[str, Any]:
         """Validate task token claims and required caveat subset."""
         claims = await self.validate_access_token(
@@ -561,11 +605,19 @@ class SessionManager:
             )
 
         required = self._normalize_caveats(required_caveats)
-        token_caveats = self._normalize_caveats(claims.get("task_caveats"))
+        token_caveats = self._task_caveats_from_claims(
+            claims,
+            requested_action=required_action,
+            requested_resource=required_resource,
+            task_id=required_task_id,
+            current_time=current_time,
+        )
         if required and not set(required).issubset(set(token_caveats)):
             raise SessionValidationError(
                 "Task token caveats do not satisfy required caveat subset"
             )
+
+        claims["task_caveats"] = token_caveats
 
         return claims
 
@@ -835,6 +887,76 @@ class SessionManager:
 
         value = str(caveats).strip()
         return [value] if value else []
+
+    @staticmethod
+    def _resolve_caveat_mode(mode: str) -> str:
+        normalized = str(mode or "jwt").strip().lower()
+        if normalized in {"jwt", "caveat_chain"}:
+            return normalized
+        raise SessionError("Unsupported caveat mode. Use 'jwt' or 'caveat_chain'.")
+
+    def _build_caveat_chain_for_issue(self, caveats: list[str]) -> list[dict[str, Any]]:
+        if not caveats:
+            return []
+        try:
+            return build_caveat_chain(
+                hmac_key=self._caveat_chain_hmac_key,
+                parent_chain=None,
+                append_caveats=self._normalize_caveats(caveats),
+            )
+        except CaveatChainError as exc:
+            raise SessionValidationError("Task token caveat chain construction failed") from exc
+
+    def _verified_task_caveat_chain_from_claims(self, claims: dict[str, Any]) -> list[dict[str, Any]]:
+        if self._caveat_mode != "caveat_chain":
+            return []
+
+        raw_chain = claims.get("task_caveat_chain")
+        if raw_chain is None:
+            return []
+        if not isinstance(raw_chain, list):
+            raise SessionValidationError("Task token caveat chain payload is malformed")
+
+        try:
+            return verify_caveat_chain(
+                hmac_key=self._caveat_chain_hmac_key,
+                chain=raw_chain,
+            )
+        except CaveatChainError as exc:
+            raise SessionValidationError(
+                "Task token caveat chain integrity validation failed"
+            ) from exc
+
+    def _task_caveats_from_claims(
+        self,
+        claims: dict[str, Any],
+        *,
+        requested_action: Optional[str] = None,
+        requested_resource: Optional[str] = None,
+        task_id: Optional[str] = None,
+        current_time: Optional[datetime] = None,
+    ) -> list[str]:
+        verified_chain = self._verified_task_caveat_chain_from_claims(claims)
+        if verified_chain:
+            if any(
+                value is not None and str(value).strip()
+                for value in (requested_action, requested_resource, task_id)
+            ) or current_time is not None:
+                try:
+                    evaluate_caveat_chain(
+                        verified_chain=verified_chain,
+                        requested_action=requested_action,
+                        requested_resource=requested_resource,
+                        task_id=task_id,
+                        current_time=current_time,
+                    )
+                except CaveatChainError as exc:
+                    raise SessionValidationError(
+                        "Task token caveat chain denies the requested operation"
+                    ) from exc
+            return caveat_strings_from_chain(verified_chain)
+
+        return self._normalize_caveats(claims.get("task_caveats") or claims.get("caveats"))
 
     def _record_audit_event(
         self,
