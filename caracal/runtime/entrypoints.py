@@ -1351,6 +1351,54 @@ def _consume_ais_startup_attestation(
     return normalized_principal
 
 
+def _complete_ais_startup_attestation(
+    principal_id: str,
+    *,
+    db_manager: object | None = None,
+) -> None:
+    from datetime import datetime
+    from uuid import UUID
+
+    from caracal.core.identity import PrincipalRegistry
+    from caracal.db.models import Principal, PrincipalAttestationStatus, PrincipalLifecycleStatus
+
+    resolved_db_manager = db_manager or _create_ais_db_manager()
+    normalized_principal = str(principal_id or "").strip()
+    if not normalized_principal:
+        raise RuntimeError("AIS startup attestation cannot complete for an empty principal_id")
+
+    try:
+        principal_uuid = UUID(normalized_principal)
+    except ValueError as exc:
+        raise RuntimeError(
+            f"AIS startup attestation principal '{normalized_principal}' is not a valid UUID"
+        ) from exc
+
+    with resolved_db_manager.session_scope() as session:
+        principal = (
+            session.query(Principal)
+            .filter(Principal.principal_id == principal_uuid)
+            .first()
+        )
+        if principal is None:
+            raise RuntimeError(
+                f"AIS startup attestation principal '{normalized_principal}' was not found"
+            )
+
+        principal.attestation_status = PrincipalAttestationStatus.ATTESTED.value
+        principal_metadata = dict(principal.principal_metadata or {})
+        principal_metadata["attestation_status"] = PrincipalAttestationStatus.ATTESTED.value
+        principal_metadata["attested_at"] = datetime.utcnow().isoformat() + "Z"
+        principal.principal_metadata = principal_metadata
+        session.flush()
+
+        PrincipalRegistry(session).transition_lifecycle_status(
+            normalized_principal,
+            PrincipalLifecycleStatus.ACTIVE.value,
+            actor_principal_id=normalized_principal,
+        )
+
+
 def _resolve_runtime_redis_url() -> str:
     redis_url = (os.environ.get("REDIS_URL") or "").strip()
     if redis_url:
@@ -1670,7 +1718,8 @@ def _run_ais_server() -> int:
     from caracal.identity import create_ais_app, resolve_ais_listen_target
 
     try:
-        _consume_ais_startup_attestation()
+        startup_principal = _consume_ais_startup_attestation()
+        _complete_ais_startup_attestation(startup_principal)
         ais_config = _create_ais_server_config()
         listen_target = resolve_ais_listen_target(ais_config)
         app = create_ais_app(_build_ais_handlers(), ais_config)

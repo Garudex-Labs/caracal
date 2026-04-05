@@ -9,6 +9,7 @@ from uuid import uuid4
 import pytest
 
 from caracal.core.spawn import SpawnManager
+from caracal.db.models import Principal
 from caracal.exceptions import PrincipalNotFoundError
 
 
@@ -97,12 +98,15 @@ class TestSpawnManager:
 
         self.mock_session.query.side_effect = _query_side_effect
 
+        captured_principal = {"row": None}
+
         def _capture_add(obj):
-            if getattr(obj, "name", None) == "worker-3":
+            if isinstance(obj, Principal):
                 obj.principal_id = principal_id
                 principal_row.principal_id = principal_id
-                principal_row.name = obj.name
-                principal_row.principal_kind = obj.principal_kind
+                principal_row.name = getattr(obj, "name", principal_row.name)
+                principal_row.principal_kind = getattr(obj, "principal_kind", principal_row.principal_kind)
+                captured_principal["row"] = obj
 
         self.mock_session.add.side_effect = _capture_add
 
@@ -134,6 +138,9 @@ class TestSpawnManager:
         assert result.idempotent_replay is False
         assert result.attestation_bootstrap_artifact == f"attest-bootstrap:{principal_id}"
         assert result.attestation_nonce == "nonce-123"
+        assert captured_principal["row"] is not None
+        assert captured_principal["row"].lifecycle_status == "pending_attestation"
+        assert captured_principal["row"].attestation_status == "pending"
 
         self.mock_mandate_manager.issue_mandate.assert_called_once()
         self.mock_ledger_writer.append_event.assert_called_once()
