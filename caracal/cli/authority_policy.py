@@ -171,6 +171,7 @@ def create(
         
         # Create database connection
         from caracal.core.identity import PrincipalRegistry
+        from caracal.identity.service import IdentityService
         from caracal.db.connection import get_db_manager
         from caracal.db.models import AuthorityPolicy, Principal
         from uuid import uuid4
@@ -194,7 +195,8 @@ def create(
                 principal_kind = "worker"
 
                 registry = PrincipalRegistry(session)
-                identity = registry.register_principal(
+                identity_service = IdentityService(principal_registry=registry)
+                identity = identity_service.register_principal(
                     name=principal_name,
                     owner=principal_owner,
                     principal_kind=principal_kind,
