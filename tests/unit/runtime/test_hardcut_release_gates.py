@@ -127,6 +127,27 @@ def test_runtime_and_cli_gateway_resolution_is_centralized_in_edition_adapter() 
 
 
 @pytest.mark.unit
+def test_feature_modules_do_not_branch_on_is_enterprise_directly() -> None:
+    source_root = _REPO_ROOT / "caracal"
+    offenders: list[str] = []
+    allowed_files = {
+        "caracal/deployment/edition.py",
+        "caracal/deployment/edition_adapter.py",
+    }
+
+    for py_file in source_root.rglob("*.py"):
+        relative_path = py_file.relative_to(_REPO_ROOT).as_posix()
+        if relative_path in allowed_files:
+            continue
+
+        payload = py_file.read_text(encoding="utf-8")
+        if ".is_enterprise()" in payload:
+            offenders.append(relative_path)
+
+    assert offenders == []
+
+
+@pytest.mark.unit
 def test_enterprise_license_validation_has_no_offline_acceptance_fallback() -> None:
     license_file = _REPO_ROOT / "caracal" / "enterprise" / "license.py"
     payload = license_file.read_text(encoding="utf-8")
@@ -134,6 +155,15 @@ def test_enterprise_license_validation_has_no_offline_acceptance_fallback() -> N
     assert "validated from cache" not in payload
     assert "trying cached license" not in payload
     assert "falling back to cached license" not in payload
+
+
+@pytest.mark.unit
+def test_gateway_flow_has_no_hidden_auto_sync_path() -> None:
+    gateway_flow_file = _REPO_ROOT / "caracal" / "flow" / "screens" / "gateway_flow.py"
+    payload = gateway_flow_file.read_text(encoding="utf-8")
+
+    assert "_auto_sync_gateway_if_needed" not in payload
+    assert "Gateway auto-sync attempt failed" not in payload
 
 
 @pytest.mark.unit
@@ -457,6 +487,14 @@ def test_connector_docs_use_enterprise_command_path_only() -> None:
 
 
 @pytest.mark.unit
+def test_flow_tui_docs_have_no_sync_monitor_reference() -> None:
+    docs_file = _REPO_ROOT / "docs" / "content" / "open-source" / "developers" / "flow-tui" / "index.mdx"
+    payload = docs_file.read_text(encoding="utf-8")
+
+    assert "sync monitor" not in payload.lower()
+
+
+@pytest.mark.unit
 def test_python_sdk_sync_uses_api_sync_path_only() -> None:
     authority_client = _REPO_ROOT / "sdk" / "python-sdk" / "src" / "caracal_sdk" / "authority_client.py"
     async_authority_client = _REPO_ROOT / "sdk" / "python-sdk" / "src" / "caracal_sdk" / "async_authority_client.py"
@@ -550,3 +588,40 @@ def test_migration_cli_exposes_explicit_hardcut_bidirectional_commands() -> None
 
     assert '@migrate_group.command(name="oss-to-enterprise")' in payload
     assert '@migrate_group.command(name="enterprise-to-oss")' in payload
+
+
+@pytest.mark.unit
+def test_sdk_exports_include_management_migration_and_ais_groups() -> None:
+    python_sdk_init = _REPO_ROOT / "sdk" / "python-sdk" / "src" / "caracal_sdk" / "__init__.py"
+    node_sdk_index = _REPO_ROOT / "sdk" / "node-sdk" / "src" / "index.ts"
+
+    python_payload = python_sdk_init.read_text(encoding="utf-8")
+    node_payload = node_sdk_index.read_text(encoding="utf-8")
+
+    assert 'import caracal_sdk.management as management' in python_payload
+    assert 'import caracal_sdk.migration as migration' in python_payload
+    assert 'import caracal_sdk.ais as ais' in python_payload
+    assert "export * as management from './management'" in node_payload
+    assert "export * as migration from './migration'" in node_payload
+    assert "export * as ais from './ais'" in node_payload
+
+
+@pytest.mark.unit
+def test_sdk_clients_resolve_ais_routing_when_socket_path_is_configured() -> None:
+    python_client = _REPO_ROOT / "sdk" / "python-sdk" / "src" / "caracal_sdk" / "client.py"
+    python_authority_client = _REPO_ROOT / "sdk" / "python-sdk" / "src" / "caracal_sdk" / "authority_client.py"
+    python_async_authority_client = _REPO_ROOT / "sdk" / "python-sdk" / "src" / "caracal_sdk" / "async_authority_client.py"
+    node_client = _REPO_ROOT / "sdk" / "node-sdk" / "src" / "client.ts"
+
+    combined_python = "\n".join(
+        [
+            python_client.read_text(encoding="utf-8"),
+            python_authority_client.read_text(encoding="utf-8"),
+            python_async_authority_client.read_text(encoding="utf-8"),
+        ]
+    )
+    node_payload = node_client.read_text(encoding="utf-8")
+
+    assert "resolve_sdk_base_url" in combined_python
+    assert "CARACAL_AIS_UNIX_SOCKET_PATH" in (_REPO_ROOT / "sdk" / "python-sdk" / "src" / "caracal_sdk" / "ais.py").read_text(encoding="utf-8")
+    assert "resolveSdkBaseUrl" in node_payload

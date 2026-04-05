@@ -103,7 +103,7 @@ def _build_system_info() -> Table:
         
         # Edition
         edition_adapter = get_deployment_edition_adapter()
-        edition_str = "Enterprise" if edition_adapter.is_enterprise() else "Open Source"
+        edition_str = edition_adapter.display_name()
         table.add_row("Edition:", f"[{Colors.SUCCESS}]{edition_str}[/]")
         
         # Workspace
