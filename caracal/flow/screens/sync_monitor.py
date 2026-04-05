@@ -187,7 +187,8 @@ def _connect_sync(console: Console, state: FlowState) -> None:
     """Connect sync to enterprise."""
     from caracal.deployment.sync_engine import SyncEngine
     from caracal.deployment.config_manager import ConfigManager
-    from caracal.deployment.edition import EditionManager, Edition
+    from caracal.deployment.edition import Edition
+    from caracal.deployment.edition_adapter import get_deployment_edition_adapter
     from caracal.deployment.migration import MigrationManager
     
     console.clear()
@@ -225,8 +226,8 @@ def _connect_sync(console: Console, state: FlowState) -> None:
 
         # Auto-manage edition from connectivity and migrate settings when entering Enterprise.
         try:
-            current_edition = EditionManager().get_edition()
-            if current_edition != Edition.ENTERPRISE:
+            edition_adapter = get_deployment_edition_adapter()
+            if not edition_adapter.is_enterprise():
                 MigrationManager().migrate_edition(
                     Edition.ENTERPRISE,
                     gateway_url=url,
@@ -261,7 +262,8 @@ def _disconnect_sync(console: Console, state: FlowState) -> None:
     """Disconnect sync from enterprise."""
     from caracal.deployment.sync_engine import SyncEngine
     from caracal.deployment.config_manager import ConfigManager
-    from caracal.deployment.edition import EditionManager, Edition
+    from caracal.deployment.edition import Edition
+    from caracal.deployment.edition_adapter import get_deployment_edition_adapter
     from caracal.deployment.migration import MigrationManager
     
     console.clear()
@@ -281,9 +283,10 @@ def _disconnect_sync(console: Console, state: FlowState) -> None:
             input()
             return
         
-        current_edition = EditionManager().get_edition()
+        edition_adapter = get_deployment_edition_adapter()
+        current_is_enterprise = edition_adapter.is_enterprise()
 
-        if current_edition == Edition.ENTERPRISE:
+        if current_is_enterprise:
             console.print(f"  [{Colors.WARNING}]Security warning:[/] Disconnecting Enterprise switches to Open Source mode.")
             console.print(f"  [{Colors.WARNING}]Default behavior is a fresh local start without migrating secrets.[/]")
             console.print()
@@ -294,7 +297,7 @@ def _disconnect_sync(console: Console, state: FlowState) -> None:
             input()
             return
 
-        if current_edition == Edition.ENTERPRISE:
+        if current_is_enterprise:
             if not Confirm.ask(f"[{Colors.WARNING}]Confirm switch Enterprise -> Open Source (fresh start)?[/]"):
                 console.print(f"  [{Colors.DIM}]Cancelled[/]")
                 input()
@@ -319,7 +322,7 @@ def _disconnect_sync(console: Console, state: FlowState) -> None:
         
         console.print()
         console.print(f"  [{Colors.SUCCESS}]{Icons.SUCCESS} Disconnected successfully[/]")
-        if current_edition == Edition.ENTERPRISE:
+        if current_is_enterprise:
             console.print(f"  [{Colors.INFO}]Edition switched to Open Source (fresh start policy)[/]")
         
         state.add_recent_action(RecentAction.create(

@@ -10,6 +10,10 @@ configuration, synchronization, and provider communication.
 
 from caracal.deployment.mode import Mode, ModeManager
 from caracal.deployment.edition import Edition, EditionManager
+from caracal.deployment.edition_adapter import (
+    DeploymentEditionAdapter,
+    get_deployment_edition_adapter,
+)
 from caracal.deployment.config_manager import (
     ConfigManager,
     WorkspaceConfig,
@@ -31,6 +35,8 @@ __all__ = [
     "ModeManager",
     "Edition",
     "EditionManager",
+    "DeploymentEditionAdapter",
+    "get_deployment_edition_adapter",
     "ConfigManager",
     "WorkspaceConfig",
     "PostgresConfig",
