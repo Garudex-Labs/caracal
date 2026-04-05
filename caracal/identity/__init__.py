@@ -15,7 +15,14 @@ from .ais_server import (
     resolve_ais_listen_target,
     validate_ais_bind_host,
 )
-from .service import IdentityService
+
+
+def __getattr__(name: str):
+    if name == "IdentityService":
+        from .service import IdentityService
+
+        return IdentityService
+    raise AttributeError(f"module 'caracal.identity' has no attribute {name!r}")
 
 __all__ = [
     "AISBindTargetError",

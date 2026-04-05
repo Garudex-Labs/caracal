@@ -57,9 +57,11 @@ class PrincipalKind(str, Enum):
 class PrincipalLifecycleStatus(str, Enum):
     """Principal lifecycle status values."""
 
+    PENDING_ATTESTATION = "pending_attestation"
     ACTIVE = "active"
     SUSPENDED = "suspended"
     DEACTIVATED = "deactivated"
+    EXPIRED = "expired"
     REVOKED = "revoked"
 
 
