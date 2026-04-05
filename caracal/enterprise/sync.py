@@ -46,6 +46,10 @@ from caracal.enterprise.license import (
 
 logger = logging.getLogger(__name__)
 
+_AIS_BASE_URL_ENV = "CARACAL_AIS_BASE_URL"
+_AIS_API_PREFIX_ENV = "CARACAL_AIS_API_PREFIX"
+_SESSION_KIND_ENV = "CARACAL_SESSION_KIND"
+
 
 # ---------------------------------------------------------------------------
 # Retry helper
@@ -453,6 +457,101 @@ class EnterpriseSyncClient:
         self._sync_api_key = sync_api_key or cfg.get("sync_api_key")
         self._license_key = license_key or cfg.get("license_key")
         self._client_instance_id = cfg.get("client_instance_id") or _get_or_create_client_instance_id()
+        self._runtime_session_kind = (os.environ.get(_SESSION_KIND_ENV) or "human").strip().lower() or "human"
+        self._ais_base_url = (os.environ.get(_AIS_BASE_URL_ENV) or "").strip().rstrip("/")
+        ais_prefix = (os.environ.get(_AIS_API_PREFIX_ENV) or "/v1/ais").strip() or "/v1/ais"
+        self._ais_token_path = f"{ais_prefix.rstrip('/')}/token"
+
+    def _build_ais_token_payload(self) -> Optional[Dict[str, Any]]:
+        principal_id = (
+            os.environ.get("CARACAL_AIS_PRINCIPAL_ID")
+            or os.environ.get("CARACAL_PRINCIPAL_ID")
+            or ""
+        ).strip()
+        organization_id = (
+            os.environ.get("CARACAL_AIS_ORGANIZATION_ID")
+            or os.environ.get("CARACAL_ORGANIZATION_ID")
+            or ""
+        ).strip()
+        tenant_id = (
+            os.environ.get("CARACAL_AIS_TENANT_ID")
+            or os.environ.get("CARACAL_TENANT_ID")
+            or ""
+        ).strip()
+
+        if not principal_id or not organization_id or not tenant_id:
+            return None
+
+        payload: Dict[str, Any] = {
+            "principal_id": principal_id,
+            "organization_id": organization_id,
+            "tenant_id": tenant_id,
+            "session_kind": self._runtime_session_kind or "automation",
+            "include_refresh": True,
+        }
+
+        workspace_id = (os.environ.get("CARACAL_WORKSPACE_ID") or "").strip()
+        if workspace_id:
+            payload["workspace_id"] = workspace_id
+
+        directory_scope = (os.environ.get("CARACAL_DIRECTORY_SCOPE") or "").strip()
+        if directory_scope:
+            payload["directory_scope"] = directory_scope
+
+        return payload
+
+    def _request_ais_access_token(self) -> Optional[str]:
+        if not self._ais_base_url:
+            return None
+
+        payload = self._build_ais_token_payload()
+        if payload is None:
+            if self._runtime_session_kind == "human":
+                return None
+            raise RuntimeError(
+                "AIS token sourcing requires principal, organization, and tenant identifiers"
+            )
+
+        try:
+            response = _post_json(
+                f"{self._ais_base_url}{self._ais_token_path}",
+                payload,
+                timeout=10,
+            )
+        except Exception as exc:
+            if self._runtime_session_kind == "human":
+                logger.warning("AIS token request failed; falling back to local auth: %s", exc)
+                return None
+            raise RuntimeError(f"AIS token request failed: {exc}") from exc
+
+        access_token = str(response.get("access_token") or "").strip()
+        if access_token:
+            return access_token
+
+        if self._runtime_session_kind == "human":
+            return None
+
+        raise RuntimeError("AIS token response did not include access_token")
+
+    def _resolve_enterprise_auth_headers(self) -> Dict[str, str]:
+        headers: Dict[str, str] = {
+            "X-Caracal-Client-Id": self._client_instance_id,
+        }
+
+        ais_access_token = self._request_ais_access_token()
+        if ais_access_token:
+            headers["Authorization"] = f"Bearer {ais_access_token}"
+            return headers
+
+        if self._runtime_session_kind != "human":
+            raise RuntimeError(
+                "AIS token endpoint is required for non-human enterprise sync sessions"
+            )
+
+        if self._sync_api_key:
+            headers["X-Sync-Api-Key"] = self._sync_api_key
+
+        return headers
 
     @property
     def is_configured(self) -> bool:
@@ -516,10 +615,10 @@ class EnterpriseSyncClient:
             "delegation_edges": delegation_edges,
         }
 
-        # Prefer API key auth; fall back to license key
-        if self._sync_api_key:
+        # Human sessions can still use persisted local credentials as fallback.
+        if self._runtime_session_kind == "human" and self._sync_api_key:
             payload["sync_api_key"] = self._sync_api_key
-        elif self._license_key:
+        elif self._runtime_session_kind == "human" and self._license_key:
             payload["license_key"] = self._license_key
 
         try:
@@ -532,17 +631,13 @@ class EnterpriseSyncClient:
                 url = f"{candidate_api_url}/api/sync/upload"
 
                 # Build the request manually so we can add the sync header.
+                headers = self._resolve_enterprise_auth_headers()
                 req = urllib.request.Request(
                     url,
                     data=data,
-                    headers={
-                        "Content-Type": "application/json",
-                        "X-Caracal-Client-Id": self._client_instance_id,
-                    },
+                    headers={"Content-Type": "application/json", **headers},
                     method="POST",
                 )
-                if self._sync_api_key:
-                    req.add_header("X-Sync-Api-Key", self._sync_api_key)
 
                 try:
                     with urllib.request.urlopen(req, timeout=30) as resp:
@@ -630,12 +725,7 @@ class EnterpriseSyncClient:
             return {"success": False, "message": "Enterprise sync not configured."}
 
         try:
-            headers: Dict[str, str] = {}
-            if self._sync_api_key:
-                # X-Sync-Api-Key for dedicated CLI auth; never send it as Bearer
-                # (Bearer is reserved for JWT tokens from the dashboard login)
-                headers["X-Sync-Api-Key"] = self._sync_api_key
-            headers["X-Caracal-Client-Id"] = self._client_instance_id
+            headers = self._resolve_enterprise_auth_headers()
 
             result: Optional[Dict[str, Any]] = None
             resolved_api_url = self._api_url
@@ -719,13 +809,11 @@ class EnterpriseSyncClient:
 
         try:
             url = f"{self._api_url}/api/sync/status"
-            headers: Dict[str, str] = {}
-            
-            if self._sync_api_key:
-                headers["X-Sync-Api-Key"] = self._sync_api_key
-                headers["X-Caracal-Client-Id"] = self._client_instance_id
+            headers = self._resolve_enterprise_auth_headers()
+
+            if "Authorization" in headers or "X-Sync-Api-Key" in headers:
                 return _get_json(url, headers=headers)
-            elif self._license_key:
+            elif self._runtime_session_kind == "human" and self._license_key:
                 url += f"?license_key={self._license_key}"
                 return _get_json(url)
             else:
@@ -750,11 +838,9 @@ class EnterpriseSyncClient:
                 url = f"{candidate_api_url}{probe_path}"
                 req = urllib.request.Request(
                     url,
-                    headers={"X-Caracal-Client-Id": self._client_instance_id},
+                    headers=self._resolve_enterprise_auth_headers(),
                     method="GET",
                 )
-                if self._sync_api_key:
-                    req.add_header("X-Sync-Api-Key", self._sync_api_key)
 
                 try:
                     # Any HTTP response means the API is network-reachable.

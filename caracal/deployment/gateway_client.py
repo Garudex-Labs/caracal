@@ -9,10 +9,11 @@ streaming support, connection pooling, quota monitoring, and request queuing.
 """
 
 import asyncio
+import os
 import time
 from collections import deque
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from enum import Enum
 from typing import Any, AsyncIterator, Dict, List, Optional
 
@@ -30,6 +31,12 @@ from caracal.deployment.exceptions import (
 )
 
 logger = structlog.get_logger(__name__)
+
+_AIS_TOKEN_PATH_DEFAULT = "/v1/ais/token"
+_AIS_BASE_URL_ENV = "CARACAL_AIS_BASE_URL"
+_AIS_UNIX_SOCKET_ENV = "CARACAL_AIS_UNIX_SOCKET_PATH"
+_AIS_API_PREFIX_ENV = "CARACAL_AIS_API_PREFIX"
+_SESSION_KIND_ENV = "CARACAL_SESSION_KIND"
 
 
 class RequestPriority(str, Enum):
@@ -180,6 +187,12 @@ class GatewayClient:
         self.workspace = workspace
         self.max_queue_size = max_queue_size
         self.default_ttl_seconds = default_ttl_seconds
+
+        self._runtime_session_kind = (os.environ.get(_SESSION_KIND_ENV) or "human").strip().lower() or "human"
+        self._ais_base_url = (os.environ.get(_AIS_BASE_URL_ENV) or "").strip().rstrip("/")
+        self._ais_unix_socket = (os.environ.get(_AIS_UNIX_SOCKET_ENV) or "").strip()
+        ais_prefix = (os.environ.get(_AIS_API_PREFIX_ENV) or "").strip()
+        self._ais_token_path = f"{(ais_prefix or '/v1/ais').rstrip('/')}/token"
         
         # JWT token management
         self._token: Optional[JWTToken] = None
@@ -255,6 +268,14 @@ class GatewayClient:
         Raises:
             GatewayAuthenticationError: If authentication fails
         """
+        if await self._authenticate_via_ais():
+            return
+
+        if self._runtime_session_kind != "human":
+            raise GatewayAuthenticationError(
+                "AIS token endpoint is required for non-human runtime sessions"
+            )
+
         try:
             # Get gateway credentials from config
             gateway_token_ref = f"gateway_token_{self.workspace}"
@@ -314,6 +335,137 @@ class GatewayClient:
             raise GatewayAuthenticationError(
                 f"Gateway authentication failed: {e}"
             ) from e
+
+    async def _authenticate_via_ais(self) -> bool:
+        """Attempt to source runtime tokens from AIS endpoint.
+
+        Returns:
+            True when token sourcing succeeds.
+            False when AIS is not configured or not eligible for this session.
+        """
+        if not self._ais_base_url and not self._ais_unix_socket:
+            return False
+
+        payload = self._build_ais_token_payload()
+        if payload is None:
+            if self._runtime_session_kind == "human":
+                return False
+            raise GatewayAuthenticationError(
+                "AIS token sourcing requires principal, organization, and tenant identifiers"
+            )
+
+        response_data: dict[str, Any]
+        try:
+            if self._ais_unix_socket:
+                transport = httpx.AsyncHTTPTransport(uds=self._ais_unix_socket)
+                async with httpx.AsyncClient(
+                    base_url="http://localhost",
+                    transport=transport,
+                    timeout=10.0,
+                ) as client:
+                    response = await client.post(self._ais_token_path, json=payload)
+            else:
+                async with httpx.AsyncClient(timeout=10.0) as client:
+                    response = await client.post(
+                        f"{self._ais_base_url}{self._ais_token_path}",
+                        json=payload,
+                    )
+
+            if response.status_code != 200:
+                if self._runtime_session_kind == "human":
+                    return False
+                raise GatewayAuthenticationError(
+                    f"AIS token endpoint rejected request: {response.status_code}"
+                )
+
+            response_data = response.json() if response.content else {}
+        except GatewayAuthenticationError:
+            raise
+        except Exception as exc:
+            if self._runtime_session_kind == "human":
+                logger.warning(
+                    "ais_token_sourcing_failed_fallback",
+                    workspace=self.workspace,
+                    error=str(exc),
+                )
+                return False
+            raise GatewayAuthenticationError(f"AIS token sourcing failed: {exc}") from exc
+
+        access_token = str(response_data.get("access_token") or "").strip()
+        if not access_token:
+            if self._runtime_session_kind == "human":
+                return False
+            raise GatewayAuthenticationError("AIS token response did not include access_token")
+
+        expires_at = self._parse_ais_expiration(response_data)
+        self._token = JWTToken(
+            token=access_token,
+            expires_at=expires_at,
+            refresh_token=response_data.get("refresh_token"),
+        )
+        logger.info(
+            "gateway_authenticated_via_ais",
+            workspace=self.workspace,
+            expires_at=self._token.expires_at,
+            session_kind=self._runtime_session_kind,
+        )
+        return True
+
+    def _build_ais_token_payload(self) -> Optional[dict[str, Any]]:
+        principal_id = (
+            os.environ.get("CARACAL_AIS_PRINCIPAL_ID")
+            or os.environ.get("CARACAL_PRINCIPAL_ID")
+            or ""
+        ).strip()
+        organization_id = (
+            os.environ.get("CARACAL_AIS_ORGANIZATION_ID")
+            or os.environ.get("CARACAL_ORGANIZATION_ID")
+            or ""
+        ).strip()
+        tenant_id = (
+            os.environ.get("CARACAL_AIS_TENANT_ID")
+            or os.environ.get("CARACAL_TENANT_ID")
+            or ""
+        ).strip()
+
+        if not principal_id or not organization_id or not tenant_id:
+            return None
+
+        payload: dict[str, Any] = {
+            "principal_id": principal_id,
+            "organization_id": organization_id,
+            "tenant_id": tenant_id,
+            "session_kind": self._runtime_session_kind or "automation",
+            "include_refresh": True,
+        }
+
+        workspace_id = (os.environ.get("CARACAL_WORKSPACE_ID") or "").strip()
+        if workspace_id:
+            payload["workspace_id"] = workspace_id
+
+        directory_scope = (os.environ.get("CARACAL_DIRECTORY_SCOPE") or "").strip()
+        if directory_scope:
+            payload["directory_scope"] = directory_scope
+
+        return payload
+
+    @staticmethod
+    def _parse_ais_expiration(payload: dict[str, Any]) -> datetime:
+        for key in ("access_expires_at", "expires_at"):
+            raw_value = payload.get(key)
+            if not isinstance(raw_value, str):
+                continue
+            normalized = raw_value.strip()
+            if not normalized:
+                continue
+            try:
+                return datetime.fromisoformat(normalized.replace("Z", "+00:00"))
+            except ValueError:
+                continue
+
+        # AIS responses can omit explicit expiration. Keep runtime fail-closed
+        # with a short token lifetime cache window.
+        return datetime.now(timezone.utc) + timedelta(minutes=5)
     
     async def _refresh_token(self) -> None:
         """
