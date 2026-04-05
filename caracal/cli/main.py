@@ -139,7 +139,7 @@ class WorkspaceAwareGroup(SuggestingGroup):
         if commands:
             # Group commands by category
             core_commands = ['workspace', 'principal', 'policy', 'authority', 'flow']
-            enterprise_commands = ['sync', 'delegation', 'audit']
+            enterprise_commands = ['enterprise', 'delegation', 'audit']
             system_commands = ['config', 'provider', 'doctor', 'version', 'completion']
             
             # Core Commands
@@ -558,40 +558,40 @@ delegation.add_command(del_rev, name='revoke')
 
 
 # =============================================================================
-# SYNC (Enterprise Integration)
+# ENTERPRISE (Runtime Integration)
 # =============================================================================
 
 @cli.group()
 @click.pass_context
-def sync(ctx):
+def enterprise(ctx):
     """
-    Sync with Caracal Enterprise.
+    Manage Caracal Enterprise runtime connectivity.
     
     Connect local workspace to enterprise backend for
     centralized management and multi-user collaboration.
     
     \b
     Examples:
-      caracal sync connect <url> <token>  # Connect to enterprise
-      caracal sync status                 # Show sync status
-      caracal sync now                    # Trigger sync
-      caracal sync disconnect             # Disconnect
+      caracal enterprise login <url> <token>  # Connect to enterprise
+      caracal enterprise status               # Show sync status
+      caracal enterprise sync                 # Trigger sync
+      caracal enterprise disconnect           # Disconnect
     """
     pass
 
 
 try:
     from caracal.cli.deployment_cli import (
-        sync_connect, sync_disconnect, sync_now, sync_status,
-        sync_conflicts, sync_auto_enable, sync_auto_disable
+        enterprise_login,
+        enterprise_disconnect,
+        enterprise_sync,
+        enterprise_status,
     )
-    sync.add_command(sync_connect, name='connect')
-    sync.add_command(sync_disconnect, name='disconnect')
-    sync.add_command(sync_now, name='now')
-    sync.add_command(sync_status, name='status')
-    sync.add_command(sync_conflicts, name='conflicts')
-    sync.add_command(sync_auto_enable, name='auto-enable')
-    sync.add_command(sync_auto_disable, name='auto-disable')
+
+    enterprise.add_command(enterprise_login, name='login')
+    enterprise.add_command(enterprise_disconnect, name='disconnect')
+    enterprise.add_command(enterprise_sync, name='sync')
+    enterprise.add_command(enterprise_status, name='status')
 except ImportError:
     pass
 

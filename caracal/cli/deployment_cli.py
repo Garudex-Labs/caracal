@@ -261,8 +261,8 @@ def config_edition(edition_value: Optional[str], gateway_url: Optional[str], gat
                 "[red]Error:[/red] Manual edition selection is disabled. "
                 "Edition is auto-detected from enterprise connectivity."
             )
-            console.print("  Use [bold]caracal sync connect <url> <token>[/bold] to enter Enterprise mode.")
-            console.print("  Use [bold]caracal sync disconnect[/bold] to return to Open Source mode.")
+            console.print("  Use [bold]caracal enterprise login <url> <token>[/bold] to enter Enterprise mode.")
+            console.print("  Use [bold]caracal enterprise disconnect[/bold] to return to Open Source mode.")
             sys.exit(1)
 
         edition = edition_adapter.get_edition()
@@ -577,18 +577,18 @@ def workspace_import(path: Path, name: Optional[str], lock_key: Optional[str]):
         sys.exit(1)
 
 
-# Sync command group
-@click.group(name="sync")
-def sync_group():
-    """Manage workspace synchronization."""
+# Enterprise command group
+@click.group(name="enterprise")
+def enterprise_group():
+    """Manage enterprise connectivity and synchronization."""
     pass
 
 
-@sync_group.command(name="connect")
+@enterprise_group.command(name="login")
 @click.argument("url")
 @click.argument("token")
 @click.option("--workspace", "-w", help="Workspace name (default: current workspace)")
-def sync_connect(url: str, token: str, workspace: Optional[str]):
+def enterprise_login(url: str, token: str, workspace: Optional[str]):
     """Connect workspace to enterprise backend."""
     try:
         from caracal.deployment.sync_engine import SyncEngine
@@ -612,7 +612,7 @@ def sync_connect(url: str, token: str, workspace: Optional[str]):
                     migrate_api_keys=True,
                 )
         except Exception as migration_error:
-            logger.warning("sync_connect_enterprise_migration_skipped", error=str(migration_error))
+            logger.warning("enterprise_login_migration_skipped", error=str(migration_error))
             console.print(
                 "[yellow]Warning:[/yellow] Connected, but enterprise migration had warnings: "
                 f"{migration_error}"
@@ -623,12 +623,11 @@ def sync_connect(url: str, token: str, workspace: Optional[str]):
         console.print(f"  URL: {url}")
         
     except Exception as e:
-        logger.error("sync_connect_failed", error=str(e))
+        logger.error("enterprise_login_failed", error=str(e))
         console.print(f"[red]Error:[/red] {e}")
         sys.exit(1)
 
-
-@sync_group.command(name="disconnect")
+@enterprise_group.command(name="disconnect")
 @click.option("--workspace", "-w", help="Workspace name (default: current workspace)")
 @click.option("--force", is_flag=True, help="Skip safety confirmation prompts")
 @click.option(
@@ -636,7 +635,7 @@ def sync_connect(url: str, token: str, workspace: Optional[str]):
     is_flag=True,
     help="Allow Enterprise->Open Source migration to move provider secrets to local storage",
 )
-def sync_disconnect(workspace: Optional[str], force: bool, allow_local_secrets_migration: bool):
+def enterprise_disconnect(workspace: Optional[str], force: bool, allow_local_secrets_migration: bool):
     """Disconnect workspace from enterprise backend."""
     try:
         from caracal.deployment.sync_engine import SyncEngine
@@ -673,7 +672,7 @@ def sync_disconnect(workspace: Optional[str], force: bool, allow_local_secrets_m
 
             EnterpriseLicenseValidator().disconnect()
         except Exception as license_error:
-            logger.debug("sync_disconnect_license_clear_skipped", error=str(license_error))
+            logger.debug("enterprise_disconnect_license_clear_skipped", error=str(license_error))
         
         console.print(f"[green]✓[/green] Workspace disconnected from enterprise")
         console.print(f"  Workspace: {workspace}")
@@ -683,16 +682,16 @@ def sync_disconnect(workspace: Optional[str], force: bool, allow_local_secrets_m
             console.print("  Mode: Open Source (local secret migration enabled)")
         
     except Exception as e:
-        logger.error("sync_disconnect_failed", error=str(e))
+        logger.error("enterprise_disconnect_failed", error=str(e))
         console.print(f"[red]Error:[/red] {e}")
         sys.exit(1)
 
 
-@sync_group.command(name="now")
+@enterprise_group.command(name="sync")
 @click.option("--workspace", "-w", help="Workspace name (default: current workspace)")
 @click.option("--direction", "-d", type=click.Choice(["push", "pull", "both"]), default="both", help="Sync direction")
 @click.option("--format", "-f", type=click.Choice(["table", "json"]), default="table", help="Output format")
-def sync_now(workspace: Optional[str], direction: str, format: str):
+def enterprise_sync(workspace: Optional[str], direction: str, format: str):
     """Perform immediate synchronization."""
     try:
         from caracal.deployment.sync_engine import SyncEngine, SyncDirection as SyncDir
@@ -746,15 +745,15 @@ def sync_now(workspace: Optional[str], direction: str, format: str):
                     console.print(f"  • {error}")
         
     except Exception as e:
-        logger.error("sync_now_failed", error=str(e))
+        logger.error("enterprise_sync_failed", error=str(e))
         console.print(f"[red]Error:[/red] {e}")
         sys.exit(1)
 
 
-@sync_group.command(name="status")
+@enterprise_group.command(name="status")
 @click.option("--workspace", "-w", help="Workspace name (default: current workspace)")
 @click.option("--format", "-f", type=click.Choice(["table", "json"]), default="table", help="Output format")
-def sync_status(workspace: Optional[str], format: str):
+def enterprise_status(workspace: Optional[str], format: str):
     """Show sync status."""
     try:
         from caracal.deployment.sync_engine import SyncEngine
@@ -793,111 +792,7 @@ def sync_status(workspace: Optional[str], format: str):
                 console.print(f"  Remote version: {status.remote_version}")
         
     except Exception as e:
-        logger.error("sync_status_failed", error=str(e))
-        console.print(f"[red]Error:[/red] {e}")
-        sys.exit(1)
-
-
-@sync_group.command(name="conflicts")
-@click.option("--workspace", "-w", help="Workspace name (default: current workspace)")
-@click.option("--format", "-f", type=click.Choice(["table", "json"]), default="table", help="Output format")
-def sync_conflicts(workspace: Optional[str], format: str):
-    """Show conflict history."""
-    try:
-        from caracal.deployment.sync_engine import SyncEngine
-        
-        config_manager = ConfigManager()
-        
-        workspace = _require_workspace(config_manager, workspace)
-        
-        sync_engine = SyncEngine()
-        conflicts = sync_engine.get_conflict_history(workspace, limit=100)
-        
-        if format == "json":
-            conflicts_data = []
-            for conflict in conflicts:
-                conflicts_data.append({
-                    "id": conflict.id,
-                    "entity_type": conflict.entity_type,
-                    "entity_id": conflict.entity_id,
-                    "local_timestamp": conflict.local_timestamp.isoformat(),
-                    "remote_timestamp": conflict.remote_timestamp.isoformat(),
-                    "resolved": conflict.resolution is not None
-                })
-            click.echo(json.dumps({"workspace": workspace, "conflicts": conflicts_data}))
-        else:
-            if not conflicts:
-                console.print(f"No conflicts found for workspace '{workspace}'")
-                return
-            
-            table = Table(title=f"Conflicts for workspace '{workspace}'")
-            table.add_column("Entity Type", style="cyan")
-            table.add_column("Entity ID", style="yellow")
-            table.add_column("Local Time", style="blue")
-            table.add_column("Remote Time", style="blue")
-            table.add_column("Resolved", style="green")
-            
-            for conflict in conflicts:
-                table.add_row(
-                    conflict.entity_type,
-                    conflict.entity_id[:8] + "...",
-                    conflict.local_timestamp.strftime("%Y-%m-%d %H:%M"),
-                    conflict.remote_timestamp.strftime("%Y-%m-%d %H:%M"),
-                    "✓" if conflict.resolution else "✗"
-                )
-            
-            console.print(table)
-        
-    except Exception as e:
-        logger.error("sync_conflicts_failed", error=str(e))
-        console.print(f"[red]Error:[/red] {e}")
-        sys.exit(1)
-
-
-@sync_group.command(name="auto-enable")
-@click.option("--workspace", "-w", help="Workspace name (default: current workspace)")
-@click.option("--interval", "-i", type=int, default=300, help="Sync interval in seconds (default: 300)")
-def sync_auto_enable(workspace: Optional[str], interval: int):
-    """Enable automatic background sync."""
-    try:
-        from caracal.deployment.sync_engine import SyncEngine
-        
-        config_manager = ConfigManager()
-        
-        workspace = _require_workspace(config_manager, workspace)
-        
-        sync_engine = SyncEngine()
-        sync_engine.enable_auto_sync(workspace, interval)
-        
-        console.print(f"[green]✓[/green] Auto-sync enabled")
-        console.print(f"  Workspace: {workspace}")
-        console.print(f"  Interval: {interval} seconds")
-        
-    except Exception as e:
-        logger.error("sync_auto_enable_failed", error=str(e))
-        console.print(f"[red]Error:[/red] {e}")
-        sys.exit(1)
-
-
-@sync_group.command(name="auto-disable")
-@click.option("--workspace", "-w", help="Workspace name (default: current workspace)")
-def sync_auto_disable(workspace: Optional[str]):
-    """Disable automatic background sync."""
-    try:
-        from caracal.deployment.sync_engine import SyncEngine
-        
-        config_manager = ConfigManager()
-        
-        workspace = _require_workspace(config_manager, workspace)
-        
-        sync_engine = SyncEngine()
-        sync_engine.disable_auto_sync(workspace)
-        
-        console.print(f"[green]✓[/green] Auto-sync disabled")
-        console.print(f"  Workspace: {workspace}")
-        
-    except Exception as e:
-        logger.error("sync_auto_disable_failed", error=str(e))
+        logger.error("enterprise_status_failed", error=str(e))
         console.print(f"[red]Error:[/red] {e}")
         sys.exit(1)
 
