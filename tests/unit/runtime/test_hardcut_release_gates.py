@@ -50,6 +50,16 @@ def test_runtime_code_has_no_sqlite_url_usages() -> None:
 
 
 @pytest.mark.unit
+def test_hardcut_preflight_freezes_canonical_contract_constants() -> None:
+    preflight_file = _REPO_ROOT / "caracal" / "runtime" / "hardcut_preflight.py"
+    payload = preflight_file.read_text(encoding="utf-8")
+
+    assert '_CANONICAL_ENTERPRISE_API_FAMILY = "/api/sync"' in payload
+    assert '_CANONICAL_ENTERPRISE_CLI_FAMILY = "caracal enterprise"' in payload
+    assert "_FORBIDDEN_SYNC_RUNTIME_MODEL_MARKERS" in payload
+
+
+@pytest.mark.unit
 def test_runtime_compose_has_no_file_backed_state_markers() -> None:
     compose_files = (
         _REPO_ROOT / "deploy" / "docker-compose.yml",
@@ -164,6 +174,27 @@ def test_gateway_flow_has_no_hidden_auto_sync_path() -> None:
 
     assert "_auto_sync_gateway_if_needed" not in payload
     assert "Gateway auto-sync attempt failed" not in payload
+
+
+@pytest.mark.unit
+def test_gateway_features_resolve_gateway_endpoint_through_edition_adapter() -> None:
+    gateway_features_file = _REPO_ROOT / "caracal" / "core" / "gateway_features.py"
+    payload = gateway_features_file.read_text(encoding="utf-8")
+
+    assert "get_deployment_edition_adapter" in payload
+    assert "CARACAL_ENTERPRISE_URL" not in payload
+    assert "CARACAL_GATEWAY_ENDPOINT" not in payload
+    assert "CARACAL_GATEWAY_URL" not in payload
+
+
+@pytest.mark.unit
+def test_enterprise_connect_flow_has_no_implicit_gateway_sync_or_auto_sync_copy() -> None:
+    enterprise_flow_file = _REPO_ROOT / "caracal" / "flow" / "screens" / "enterprise_flow.py"
+    payload = enterprise_flow_file.read_text(encoding="utf-8")
+
+    assert "pull_gateway_config()" not in payload
+    assert "automatic sync" not in payload.lower()
+    assert "Gateway auto-configured" not in payload
 
 
 @pytest.mark.unit
@@ -386,6 +417,7 @@ def test_runtime_code_has_no_legacy_sync_state_table_markers() -> None:
     source_root = _REPO_ROOT / "caracal"
     allowed_files = {
         "caracal/db/schema_version.py",
+        "caracal/runtime/hardcut_preflight.py",
     }
     allowed_prefixes = (
         "caracal/db/migrations/versions/",

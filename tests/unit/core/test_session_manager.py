@@ -667,6 +667,32 @@ async def test_verify_key_refresh_failure_after_cache_expiry_fails_closed() -> N
 
 
 @pytest.mark.unit
+@pytest.mark.asyncio
+async def test_validate_access_token_rejects_mismatched_verify_key() -> None:
+    signing_key, verify_key = _generate_rsa_key_pair()
+    other_signing_key, other_verify_key = _generate_rsa_key_pair()
+
+    issuing_manager = SessionManager(
+        signing_key=signing_key,
+        verify_key=verify_key,
+    )
+    validating_manager = SessionManager(
+        signing_key=other_signing_key,
+        verify_key=other_verify_key,
+    )
+
+    issued = issuing_manager.issue_session(
+        subject_id="mismatch-user",
+        organization_id="mismatch-org",
+        tenant_id="mismatch-tenant",
+        session_kind=SessionKind.INTERACTIVE,
+    )
+
+    with pytest.raises(SessionValidationError, match="Session token is invalid"):
+        await validating_manager.validate_access_token(issued.access_token)
+
+
+@pytest.mark.unit
 def test_refresh_verify_key_cache_forces_provider_reload() -> None:
     provider_calls = {"count": 0}
 
