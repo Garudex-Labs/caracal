@@ -303,7 +303,7 @@ class DelegationTokenManager:
                     audience="caracal-core",
                     algorithms=["ES256"],
                 )
-            except SigningServiceExpiredToken as e:
+            except (SigningServiceExpiredToken, jwt.ExpiredSignatureError) as e:
                 # Token expired - log and deny (Requirement 23.3)
                 error_handler = get_error_handler("delegation-token-manager")
                 error = TokenExpiredError("Delegation token has expired")
@@ -329,7 +329,7 @@ class DelegationTokenManager:
                 )
                 logger.error(f"Verification key resolution failed for agent {issuer_id} (fail-closed): {e}")
                 raise error from e
-            except SigningServiceInvalidToken as e:
+            except (SigningServiceInvalidToken, jwt.InvalidTokenError) as e:
                 # Invalid token - log and deny (Requirement 23.3)
                 error_handler = get_error_handler("delegation-token-manager")
                 error = TokenValidationError(f"Invalid delegation token: {e}")

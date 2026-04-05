@@ -71,8 +71,8 @@ class _DBPrincipalRegistryAdapter:
         finally:
             db_manager.close()
 
-    def resolve_private_key(self, principal_id: str) -> str:
-        """Resolve signing key material from custody records."""
+    def get_signing_key_reference(self, principal_id: str) -> str:
+        """Resolve signing key reference from custody records."""
         try:
             UUID(principal_id)
         except ValueError as exc:
@@ -82,7 +82,7 @@ class _DBPrincipalRegistryAdapter:
         try:
             with db_manager.session_scope() as session:
                 registry = PrincipalRegistry(session)
-                return registry.resolve_private_key(principal_id)
+                return registry.get_signing_key_reference(principal_id)
         finally:
             db_manager.close()
 
