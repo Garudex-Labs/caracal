@@ -22,7 +22,8 @@ from typing import Dict, List, Optional, Any
 import structlog
 
 from caracal.deployment.config_manager import ConfigManager
-from caracal.deployment.edition import Edition, EditionManager
+from caracal.deployment.edition import Edition
+from caracal.deployment.edition_adapter import get_deployment_edition_adapter
 from caracal.deployment.exceptions import (
     MigrationError,
     MigrationValidationError,
@@ -57,7 +58,7 @@ class MigrationManager:
     def __init__(self):
         """Initialize the migration manager."""
         self.config_manager = ConfigManager()
-        self.edition_manager = EditionManager()
+        self.edition_adapter = get_deployment_edition_adapter()
         
         # Ensure backup directory exists
         self.BACKUP_DIR.mkdir(parents=True, exist_ok=True)
@@ -250,7 +251,7 @@ class MigrationManager:
         """
         start_time = datetime.now()
         migration_id = self._generate_migration_id("edition_switch")
-        current_edition = self.edition_manager.get_edition()
+        current_edition = self.edition_adapter.get_edition()
         
         logger.info(
             "edition_migration_started",
@@ -296,7 +297,7 @@ class MigrationManager:
             
             # Step 4: Update edition configuration
             logger.info("migration_step", step="update_edition", migration_id=migration_id)
-            self.edition_manager.set_edition(
+            self.edition_adapter.set_edition(
                 target_edition,
                 gateway_url=gateway_url,
                 gateway_token=gateway_token

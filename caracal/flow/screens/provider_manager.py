@@ -22,7 +22,7 @@ from rich.panel import Panel
 from rich.prompt import Confirm, Prompt
 from rich.table import Table
 
-from caracal.deployment import ConfigManager, EditionManager
+from caracal.deployment import ConfigManager, get_deployment_edition_adapter
 from caracal.flow.components.menu import Menu, MenuItem
 from caracal.flow.components.prompt import FlowPrompt, FlowValidator
 from caracal.flow.screens._workspace_helpers import get_active_workspace_name
@@ -699,8 +699,8 @@ def _list_providers(console: Console) -> None:
 
 
 def _add_provider(console: Console, state: FlowState) -> None:
-    edition_manager = EditionManager()
-    if edition_manager.is_enterprise():
+    edition_adapter = get_deployment_edition_adapter()
+    if edition_adapter.is_enterprise():
         console.print(
             f"  [{Colors.WARNING}]{Icons.WARNING} Enterprise mode detected.[/] "
             f"[{Colors.DIM}]Register providers in the gateway vault/registry.[/]"
