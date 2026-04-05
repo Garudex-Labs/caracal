@@ -704,26 +704,14 @@ class TestModuleImports:
             pytest.skip(f"Module caracal.deployment.mode failed to import: {e}")
 
     def test_import_caracal_deployment_sync_engine(self):
-        """Test importing caracal.deployment.sync_engine."""
-        try:
+        """Legacy sync engine module must be removed in hard-cut mode."""
+        with pytest.raises(ModuleNotFoundError):
             importlib.import_module("caracal.deployment.sync_engine")
-        except ImportError as e:
-            # Some modules may have optional dependencies
-            pytest.skip(f"Module caracal.deployment.sync_engine has missing dependencies: {e}")
-        except Exception as e:
-            # Some modules may fail to import due to configuration
-            pytest.skip(f"Module caracal.deployment.sync_engine failed to import: {e}")
 
     def test_import_caracal_deployment_sync_state(self):
-        """Test importing caracal.deployment.sync_state."""
-        try:
+        """Legacy sync state module must be removed in hard-cut mode."""
+        with pytest.raises(ModuleNotFoundError):
             importlib.import_module("caracal.deployment.sync_state")
-        except ImportError as e:
-            # Some modules may have optional dependencies
-            pytest.skip(f"Module caracal.deployment.sync_state has missing dependencies: {e}")
-        except Exception as e:
-            # Some modules may fail to import due to configuration
-            pytest.skip(f"Module caracal.deployment.sync_state failed to import: {e}")
 
     def test_import_caracal_deployment_version(self):
         """Test importing caracal.deployment.version."""

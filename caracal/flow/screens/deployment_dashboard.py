@@ -129,33 +129,34 @@ def _build_system_info() -> Table:
 
 def _build_activity_info(state: FlowState) -> Table:
     """Build activity information table."""
-    from caracal.deployment.sync_engine import SyncEngine
-    from caracal.deployment.config_manager import ConfigManager
+    from caracal.enterprise.sync import EnterpriseSyncClient
+    from caracal.enterprise.license import EnterpriseLicenseValidator
     from caracal.flow.workspace import get_workspace
     
     table = Table(show_header=False, box=None, padding=(0, 1))
     table.add_column("Info", style=Colors.DIM)
     
     try:
-        config_mgr = ConfigManager()
-        default_ws = get_default_workspace(config_mgr)
-        
-        if default_ws and default_ws.sync_enabled:
-            # Sync status
-            sync_engine = SyncEngine()
-            sync_status = sync_engine.get_sync_status(default_ws.name)
-            
-            if sync_status.last_sync:
-                table.add_row(f"[{Colors.INFO}]Last Sync:[/] {sync_status.last_sync.strftime('%Y-%m-%d %H:%M:%S')}")
+        validator = EnterpriseLicenseValidator()
+        if validator.is_connected():
+            sync_status = EnterpriseSyncClient().get_sync_status()
+            last_sync = None
+            if isinstance(sync_status, dict):
+                cached = sync_status.get("last_sync")
+                if isinstance(cached, dict):
+                    last_sync = cached.get("timestamp")
+                elif cached:
+                    last_sync = str(cached)
+
+            if last_sync:
+                table.add_row(f"[{Colors.INFO}]Last Sync:[/] {last_sync}")
+                table.add_row(f"[{Colors.SUCCESS}]Enterprise connected[/]")
+            elif isinstance(sync_status, dict) and sync_status.get("error"):
+                table.add_row(f"[{Colors.WARNING}]Sync status unavailable: {sync_status['error']}[/]")
             else:
-                table.add_row(f"[{Colors.WARNING}]Never synced[/]")
-            
-            if sync_status.pending_operations > 0:
-                table.add_row(f"[{Colors.WARNING}]Pending: {sync_status.pending_operations} operations[/]")
-            else:
-                table.add_row(f"[{Colors.SUCCESS}]All synced[/]")
+                table.add_row(f"[{Colors.WARNING}]No sync activity yet[/]")
         else:
-            table.add_row(f"[{Colors.DIM}]Sync not enabled[/]")
+            table.add_row(f"[{Colors.DIM}]Enterprise not connected[/]")
         
         # Recent actions are workspace-scoped.
         active_workspace = str(get_workspace().root.resolve())
