@@ -15,10 +15,17 @@ from alembic import command
 from alembic.config import Config
 from alembic.runtime.migration import MigrationContext
 from alembic.script import ScriptDirectory
-from sqlalchemy import text
+from sqlalchemy import inspect
 from sqlalchemy.engine import Engine
 
 logger = logging.getLogger(__name__)
+
+
+_FORBIDDEN_LEGACY_SYNC_TABLES = (
+    "sync_operations",
+    "sync_conflicts",
+    "sync_metadata",
+)
 
 
 class SchemaVersionManager:
@@ -138,6 +145,17 @@ class SchemaVersionManager:
                 f"Run 'alembic upgrade head' to apply pending migrations."
             )
             raise RuntimeError(error_msg)
+
+        forbidden_tables = self.get_forbidden_legacy_sync_tables()
+        if forbidden_tables and fail_on_outdated:
+            raise RuntimeError(
+                "Database schema contains forbidden legacy sync-state tables: "
+                f"{', '.join(forbidden_tables)}. "
+                "Run the hard-cut destructive sync-state migration before startup."
+            )
+
+        if forbidden_tables:
+            return False
         
         return is_current
     
@@ -182,7 +200,19 @@ class SchemaVersionManager:
             "head_revision": head,
             "is_up_to_date": is_current,
             "pending_migrations": pending,
+            "forbidden_legacy_sync_tables": self.get_forbidden_legacy_sync_tables(),
         }
+
+    def get_forbidden_legacy_sync_tables(self) -> list[str]:
+        """Return forbidden legacy sync-state tables that are still present."""
+        with self.engine.connect() as connection:
+            available_tables = set(inspect(connection).get_table_names())
+
+        return [
+            table_name
+            for table_name in _FORBIDDEN_LEGACY_SYNC_TABLES
+            if table_name in available_tables
+        ]
 
 
 def check_schema_version_on_startup(engine: Engine, alembic_ini_path: str | Config = "alembic.ini") -> None:
