@@ -11,7 +11,7 @@ from uuid import uuid4
 
 from caracal.core.authority import AuthorityEvaluator, AuthorityDecision
 from caracal.db.models import ExecutionMandate, Principal, AuthorityPolicy
-from caracal.core.crypto import sign_mandate
+from tests.helpers.crypto_signing import sign_mandate_for_test
 
 
 @pytest.mark.security
@@ -65,7 +65,7 @@ class TestAuthorityBypassAttempts:
             "intent_hash": None
         }
         
-        signature = sign_mandate(mandate_data, issuer.private_key_pem)
+        signature = sign_mandate_for_test(mandate_data, issuer.private_key_pem)
         
         mandate = ExecutionMandate(
             mandate_id=uuid4(),
@@ -114,7 +114,7 @@ class TestAuthorityBypassAttempts:
             "intent_hash": None
         }
         
-        signature = sign_mandate(mandate_data, issuer.private_key_pem)
+        signature = sign_mandate_for_test(mandate_data, issuer.private_key_pem)
         
         mandate = ExecutionMandate(
             mandate_id=uuid4(),
@@ -163,7 +163,7 @@ class TestAuthorityBypassAttempts:
             "intent_hash": None
         }
         
-        signature = sign_mandate(mandate_data, issuer.private_key_pem)
+        signature = sign_mandate_for_test(mandate_data, issuer.private_key_pem)
         
         mandate = ExecutionMandate(
             mandate_id=uuid4(),
@@ -216,7 +216,7 @@ class TestAuthorityBypassAttempts:
             "intent_hash": None
         }
         
-        signature = sign_mandate(mandate_data, issuer.private_key_pem)
+        signature = sign_mandate_for_test(mandate_data, issuer.private_key_pem)
         
         mandate = ExecutionMandate(
             mandate_id=mandate_id,
@@ -268,7 +268,7 @@ class TestAuthorityBypassAttempts:
             "intent_hash": None
         }
         
-        signature = sign_mandate(mandate_data, issuer.private_key_pem)
+        signature = sign_mandate_for_test(mandate_data, issuer.private_key_pem)
         
         mandate = ExecutionMandate(
             mandate_id=mandate_id,
