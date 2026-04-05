@@ -134,3 +134,17 @@ def test_resolve_revocation_publisher_mode_defaults_from_edition() -> None:
 
     assert oss_adapter.resolve_revocation_publisher_mode() == "redis"
     assert enterprise_adapter.resolve_revocation_publisher_mode() == "enterprise_webhook"
+
+
+@pytest.mark.unit
+def test_adapter_capability_helpers_reflect_edition() -> None:
+    oss_adapter = DeploymentEditionAdapter(edition_manager=_FakeEditionManager(edition=Edition.OPENSOURCE))
+    enterprise_adapter = DeploymentEditionAdapter(edition_manager=_FakeEditionManager(edition=Edition.ENTERPRISE))
+
+    assert oss_adapter.display_name() == "Open Source"
+    assert oss_adapter.uses_gateway_execution() is False
+    assert oss_adapter.allows_local_provider_management() is True
+
+    assert enterprise_adapter.display_name() == "Enterprise"
+    assert enterprise_adapter.uses_gateway_execution() is True
+    assert enterprise_adapter.allows_local_provider_management() is False
