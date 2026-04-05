@@ -122,6 +122,20 @@ class TestCLICommandRegistration:
         assert result.exit_code == 0
         assert 'delegation' in result.output.lower()
 
+    def test_enterprise_command_registered(self):
+        """Test enterprise command group is registered."""
+        result = self.runner.invoke(cli, ['enterprise', '--help'])
+
+        assert result.exit_code == 0
+        assert 'enterprise' in result.output.lower()
+
+    def test_sync_command_removed(self):
+        """Test legacy top-level sync command is removed in hard-cut mode."""
+        result = self.runner.invoke(cli, ['sync', '--help'])
+
+        assert result.exit_code != 0
+        assert 'Command not found: sync' in result.output
+
 
 @pytest.mark.unit
 class TestCLIErrorHandling:

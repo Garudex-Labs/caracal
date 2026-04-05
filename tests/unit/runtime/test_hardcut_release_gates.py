@@ -333,3 +333,27 @@ def test_deployment_cli_has_hardcut_enterprise_commands_only() -> None:
 def test_flow_sync_monitor_screen_is_removed() -> None:
     sync_monitor_file = _REPO_ROOT / "caracal" / "flow" / "screens" / "sync_monitor.py"
     assert not sync_monitor_file.exists()
+
+
+@pytest.mark.unit
+def test_config_manager_has_no_sync_workspace_fields() -> None:
+    config_manager_file = _REPO_ROOT / "caracal" / "deployment" / "config_manager.py"
+    payload = config_manager_file.read_text(encoding="utf-8")
+
+    assert "sync_enabled" not in payload
+    assert "sync_url" not in payload
+    assert "sync_direction" not in payload
+    assert "auto_sync_interval" not in payload
+    assert "conflict_strategy" not in payload
+
+
+@pytest.mark.unit
+def test_edition_detection_has_no_sync_or_license_backdoor_markers() -> None:
+    edition_file = _REPO_ROOT / "caracal" / "deployment" / "edition.py"
+    payload = edition_file.read_text(encoding="utf-8")
+
+    assert "sync-enabled workspace" not in payload
+    assert "enterprise license state" not in payload
+    assert "edition_detected_enterprise_license" not in payload
+    assert "edition_license_detection_failed" not in payload
+    assert "sync_api_key" not in payload
