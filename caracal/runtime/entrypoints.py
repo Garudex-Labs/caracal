@@ -92,7 +92,7 @@ services:
             AUTH_SECRET: ${CARACAL_VAULT_SIDECAR_AUTH_SECRET:-caracal-dev-auth-secret}
             ENCRYPTION_KEY: ${CARACAL_VAULT_SIDECAR_ENCRYPTION_KEY:-f13dbc92aaaf86fa7cb0ed8ac3265f47}
             REDIS_URL: ${CARACAL_VAULT_SIDECAR_REDIS_URL:-redis://redis:6379}
-            DB_CONNECTION_URI: ${CARACAL_VAULT_SIDECAR_DB_CONNECTION_URI:-postgresql://caracal:caracal@postgres:5432/caracal}
+            DB_CONNECTION_URI: ${CARACAL_VAULT_SIDECAR_DB_CONNECTION_URI:-postgresql://${CARACAL_DB_USER:-caracal}:${CARACAL_DB_PASSWORD:-caracal}@postgres:5432/${CARACAL_DB_NAME:-caracal}}
             SITE_URL: ${CARACAL_VAULT_SIDECAR_SITE_URL:-http://localhost:8080}
         ports:
             - "${CARACAL_VAULT_SIDECAR_PORT:-8080}:8080"
