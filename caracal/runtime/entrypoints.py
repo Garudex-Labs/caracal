@@ -1170,10 +1170,8 @@ def _host_flow(namespace: argparse.Namespace) -> int:
         if build_result.returncode != 0:
             return build_result.returncode
 
-    # Flow setup only needs postgres/redis to be available; launching through
-    # the dedicated flow service avoids hard dependency on mcp container state.
     start_result = subprocess.run(
-        compose_cmd + ["up", "-d", "postgres", "redis"],
+        compose_cmd + ["up", "-d", "postgres", "redis", "vault"],
         check=False,
     )
     if start_result.returncode != 0:
