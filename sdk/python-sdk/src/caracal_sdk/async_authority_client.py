@@ -637,7 +637,7 @@ class AsyncAuthorityClient:
         try:
             session = await self._get_session()
             async with session.post(
-                f"{url}/api/connection/sync",
+                f"{url}/api/sync",
                 json=payload,
                 headers=self.headers,
                 timeout=self.timeout,

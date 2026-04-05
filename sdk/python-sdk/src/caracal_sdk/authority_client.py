@@ -966,7 +966,7 @@ class AuthorityClient:
         if client_version:
             payload["client_version"] = client_version
 
-        # Important: The '/api/connection/sync' endpoint in Enterprise
+        # Important: The '/api/sync' endpoint in Enterprise
         # is often mounted under the main API. If base_url points to
         # typical Caracal Core, this might fail unless it's an Enterprise Gateway.
         # We assume base_url points to the Enterprise API for this call.
@@ -976,7 +976,7 @@ class AuthorityClient:
 
         return self._make_request(
             method="POST",
-            endpoint="/api/connection/sync",
+            endpoint="/api/sync",
             data=payload,
         )
 
