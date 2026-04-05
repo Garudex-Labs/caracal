@@ -17,6 +17,7 @@ import warnings
 from typing import Any, List, Optional
 
 from caracal_sdk._compat import get_logger
+from caracal_sdk.ais import resolve_sdk_base_url
 from caracal_sdk.adapters.base import BaseAdapter
 from caracal_sdk.adapters.http import HttpAdapter
 from caracal_sdk.context import ContextManager, ScopeContext
@@ -68,9 +69,8 @@ class CaracalClient:
                 "CaracalClient requires either api_key or a custom adapter."
             )
 
-        resolved_base_url = base_url or os.environ.get(
-            "CARACAL_API_URL",
-            f"http://localhost:{os.environ.get('CARACAL_API_PORT', '8000')}",
+        resolved_base_url = base_url or resolve_sdk_base_url(
+            default_port=os.environ.get("CARACAL_API_PORT", "8000")
         )
 
         self._hooks = HookRegistry()
@@ -165,9 +165,8 @@ class CaracalBuilder:
 
     def __init__(self) -> None:
         self._api_key: Optional[str] = None
-        self._base_url: str = os.environ.get(
-            "CARACAL_API_URL",
-            f"http://localhost:{os.environ.get('CARACAL_API_PORT', '8000')}",
+        self._base_url: str = resolve_sdk_base_url(
+            default_port=os.environ.get("CARACAL_API_PORT", "8000")
         )
         self._adapter: Optional[BaseAdapter] = None
         self._extensions: List[CaracalExtension] = []
