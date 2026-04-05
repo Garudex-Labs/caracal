@@ -344,7 +344,6 @@ def workspace_list(ctx, format):
                 {
                     'name': ws.name,
                     'active': ws.is_default,
-                    'sync_enabled': ws.sync_enabled,
                     'created': ws.created_at.isoformat() if ws.created_at else None
                 }
                 for ws in workspace_configs
@@ -360,8 +359,7 @@ def workspace_list(ctx, format):
             click.echo()
             for ws in workspace_configs:
                 marker = click.style("●", fg='green') if ws.is_default else " "
-                sync_status = click.style("synced", fg='cyan') if ws.sync_enabled else click.style("local", fg='yellow')
-                click.echo(f"  {marker} {click.style(ws.name, bold=True)} ({sync_status})")
+                click.echo(f"  {marker} {click.style(ws.name, bold=True)}")
             click.echo()
             
     except Exception as e:
