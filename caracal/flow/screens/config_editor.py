@@ -200,8 +200,8 @@ def _set_edition(console: Console, state: FlowState) -> None:
         console.print(f"  [{Colors.INFO}]Current edition:[/] {'Enterprise' if current_edition_is_enterprise else 'Open Source'} [dim](auto)[/]")
         console.print()
         console.print(f"  [{Colors.INFO}]Edition is automatically determined by connectivity:[/]")
-        console.print(f"    - [{Colors.SUCCESS}]Enterprise[/] when connected via [bold]caracal sync connect[/bold]")
-        console.print(f"    - [{Colors.SUCCESS}]Open Source[/] after [bold]caracal sync disconnect[/bold]")
+        console.print(f"    - [{Colors.SUCCESS}]Enterprise[/] when connected via [bold]caracal enterprise login[/bold]")
+        console.print(f"    - [{Colors.SUCCESS}]Open Source[/] after [bold]caracal enterprise disconnect[/bold]")
         console.print()
         console.print(f"  [{Colors.DIM}]Manual edition switching is disabled for security and consistency.[/]")
         
