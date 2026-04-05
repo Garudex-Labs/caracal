@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from collections import deque
-from typing import Optional, Protocol
+from typing import Any, Optional, Protocol
 from uuid import UUID
 
 from sqlalchemy import or_
@@ -19,6 +19,9 @@ from caracal.db.models import (
     PrincipalLifecycleStatus,
 )
 from caracal.exceptions import PrincipalNotFoundError
+from caracal.logging_config import get_logger
+
+logger = get_logger(__name__)
 
 
 class CascadeJobDispatcher(Protocol):
@@ -39,6 +42,23 @@ class SessionDenylistBackend(Protocol):
 
     async def add(self, token_jti: str, expires_at: datetime) -> None:
         """Add a token JTI to deny-list storage."""
+
+
+class RevocationEventPublisher(Protocol):
+    """Publisher contract for principal-scoped revocation lifecycle events."""
+
+    async def publish_principal_revocation_event(
+        self,
+        *,
+        event_type: str,
+        principal_id: str,
+        reason: str,
+        actor_principal_id: Optional[str],
+        root_principal_id: Optional[str],
+        revoked_mandate_ids: Optional[list[str]] = None,
+        metadata: Optional[dict[str, Any]] = None,
+    ) -> None:
+        """Publish a principal revocation event."""
 
 
 @dataclass
@@ -71,6 +91,7 @@ class PrincipalRevocationOrchestrator:
         denylist_backend: Optional[SessionDenylistBackend] = None,
         mandate_cache=None,
         cascade_job_dispatcher: Optional[CascadeJobDispatcher] = None,
+        revocation_event_publisher: Optional[RevocationEventPublisher] = None,
         default_session_ttl: timedelta = timedelta(days=14),
     ) -> None:
         self.db_session = db_session
@@ -78,6 +99,7 @@ class PrincipalRevocationOrchestrator:
         self.denylist_backend = denylist_backend
         self.mandate_cache = mandate_cache
         self.cascade_job_dispatcher = cascade_job_dispatcher
+        self.revocation_event_publisher = revocation_event_publisher
         self.default_session_ttl = default_session_ttl
 
     async def revoke_principal(
@@ -123,6 +145,17 @@ class PrincipalRevocationOrchestrator:
                         "execution_mode": "async_cascade",
                     },
                 )
+                await self._publish_revocation_event(
+                    event_type="revocation_enqueued",
+                    principal_id=descendant_id,
+                    reason=reason,
+                    actor_principal_id=actor_principal_id,
+                    root_principal_id=principal_uuid,
+                    revoked_mandate_ids=None,
+                    metadata={
+                        "execution_mode": "async_cascade",
+                    },
+                )
             cascade_jobs_enqueued = len(descendants)
             sync_targets = [ordered_ids[-1]]
 
@@ -150,6 +183,20 @@ class PrincipalRevocationOrchestrator:
         except Exception:
             self.db_session.rollback()
             raise
+
+        for unit in revoked_units:
+            await self._publish_revocation_event(
+                event_type="principal_revoked",
+                principal_id=unit.principal_id,
+                reason=reason,
+                actor_principal_id=actor_principal_id,
+                root_principal_id=principal_uuid,
+                revoked_mandate_ids=[str(mandate_id) for mandate_id in unit.mandate_ids],
+                metadata={
+                    "leaves_first_order": True,
+                    "cascade_async_threshold": cascade_async_threshold,
+                },
+            )
 
         revoked_principal_ids = [str(unit.principal_id) for unit in revoked_units]
         revoked_mandate_ids = [str(mid) for unit in revoked_units for mid in unit.mandate_ids]
@@ -184,6 +231,43 @@ class PrincipalRevocationOrchestrator:
             await self.denylist_backend.add(value, expires_at)
             count += 1
         return count
+
+    async def _publish_revocation_event(
+        self,
+        *,
+        event_type: str,
+        principal_id: UUID,
+        reason: str,
+        actor_principal_id: Optional[str],
+        root_principal_id: Optional[UUID],
+        revoked_mandate_ids: Optional[list[str]],
+        metadata: Optional[dict[str, Any]],
+    ) -> None:
+        if self.revocation_event_publisher is None:
+            return
+
+        try:
+            await self.revocation_event_publisher.publish_principal_revocation_event(
+                event_type=event_type,
+                principal_id=str(principal_id),
+                reason=reason,
+                actor_principal_id=actor_principal_id,
+                root_principal_id=str(root_principal_id) if root_principal_id is not None else None,
+                revoked_mandate_ids=revoked_mandate_ids,
+                metadata=metadata or {},
+            )
+        except Exception as exc:
+            # Publisher failures are non-fatal after durable revocation state transitions.
+            logger.warning(
+                "Revocation publisher emit failed; continuing without rollback",
+                extra={
+                    "event_type": event_type,
+                    "principal_id": str(principal_id),
+                    "root_principal_id": str(root_principal_id) if root_principal_id else None,
+                    "error": str(exc),
+                },
+                exc_info=True,
+            )
 
     def _resolve_leaves_first_order(self, principal_id: UUID) -> list[UUID]:
         root = self._get_principal_row(principal_id)

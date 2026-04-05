@@ -41,6 +41,39 @@ class _RecordingDispatcher:
         )
 
 
+class _RecordingPublisher:
+    def __init__(self, *, commit_probe=None, fail: bool = False) -> None:
+        self.events: list[dict[str, object]] = []
+        self._commit_probe = commit_probe
+        self._fail = fail
+
+    async def publish_principal_revocation_event(
+        self,
+        *,
+        event_type: str,
+        principal_id: str,
+        reason: str,
+        actor_principal_id: str | None,
+        root_principal_id: str | None,
+        revoked_mandate_ids: list[str] | None = None,
+        metadata: dict | None = None,
+    ) -> None:
+        self.events.append(
+            {
+                "event_type": event_type,
+                "principal_id": principal_id,
+                "reason": reason,
+                "actor_principal_id": actor_principal_id,
+                "root_principal_id": root_principal_id,
+                "revoked_mandate_ids": revoked_mandate_ids or [],
+                "metadata": metadata or {},
+                "commit_seen": self._commit_probe() if self._commit_probe is not None else None,
+            }
+        )
+        if self._fail:
+            raise RuntimeError("publisher unavailable")
+
+
 @pytest.mark.unit
 @pytest.mark.asyncio
 async def test_revoke_principal_processes_leaves_first_and_flushes_cache() -> None:
@@ -123,6 +156,69 @@ async def test_revoke_principal_enqueues_large_cascade_jobs() -> None:
         str(grandchild),
     ]
     orchestrator._revoke_single_principal.assert_called_once()
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_revoke_principal_publishes_per_principal_events_after_commit() -> None:
+    session = Mock()
+    publisher = _RecordingPublisher(commit_probe=lambda: session.commit.called)
+
+    leaf_id = uuid4()
+    root_id = uuid4()
+    leaf_mandate = uuid4()
+    root_mandate = uuid4()
+
+    orchestrator = PrincipalRevocationOrchestrator(
+        db_session=session,
+        revocation_event_publisher=publisher,
+    )
+    orchestrator._resolve_leaves_first_order = Mock(return_value=[leaf_id, root_id])
+    orchestrator._revoke_single_principal = Mock(
+        side_effect=[
+            SimpleNamespace(principal_id=leaf_id, mandate_ids=[leaf_mandate]),
+            SimpleNamespace(principal_id=root_id, mandate_ids=[root_mandate]),
+        ]
+    )
+
+    result = await orchestrator.revoke_principal(
+        principal_id=str(root_id),
+        reason="policy_violation",
+        actor_principal_id="admin-2",
+    )
+
+    assert result.revoked_principal_ids == [str(leaf_id), str(root_id)]
+    assert len(publisher.events) == 2
+    assert [event["principal_id"] for event in publisher.events] == [str(leaf_id), str(root_id)]
+    assert all(event["event_type"] == "principal_revoked" for event in publisher.events)
+    assert all(event["commit_seen"] is True for event in publisher.events)
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_revoke_principal_publisher_failure_is_non_fatal() -> None:
+    session = Mock()
+    publisher = _RecordingPublisher(fail=True)
+    root_id = uuid4()
+
+    orchestrator = PrincipalRevocationOrchestrator(
+        db_session=session,
+        revocation_event_publisher=publisher,
+    )
+    orchestrator._resolve_leaves_first_order = Mock(return_value=[root_id])
+    orchestrator._revoke_single_principal = Mock(
+        return_value=SimpleNamespace(principal_id=root_id, mandate_ids=[])
+    )
+
+    result = await orchestrator.revoke_principal(
+        principal_id=str(root_id),
+        reason="security_event",
+        actor_principal_id="admin-3",
+    )
+
+    assert result.revoked_principal_ids == [str(root_id)]
+    assert session.commit.call_count == 1
+    assert len(publisher.events) == 1
 
 
 @pytest.mark.unit
