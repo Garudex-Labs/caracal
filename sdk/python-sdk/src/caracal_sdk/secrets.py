@@ -2,9 +2,9 @@
 Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 Caracal, a product of Garudex Labs
 
-SDK Secret Resolution — tier-aware, gateway-routed.
+SDK Secret Resolution — hard-cut vault-routed.
 
-SecretsAdapter resolves secret refs based on the org's subscription tier.
+SecretsAdapter resolves refs via gateway-managed vault backends.
 Secret values are NEVER logged.
 
 Usage:
@@ -15,15 +15,11 @@ Usage:
 from __future__ import annotations
 
 import logging
-from typing import Optional
 
 logger = logging.getLogger(__name__)
 
 # Sentinel to mark that a value must not be logged
 _REDACTED = "<redacted>"
-
-_STARTER_TIERS = {"starter"}
-_AWS_TIERS = {"growth", "scale", "enterprise"}
 
 
 class SecretsAdapterError(Exception):
@@ -32,11 +28,10 @@ class SecretsAdapterError(Exception):
 
 class SecretsAdapter:
     """
-    Tier-aware secret resolver for SDK consumers.
+    Hard-cut secret resolver for SDK consumers.
 
-    Delegates to the appropriate backend based on tier:
-      Starter  → CaracalVaultBackend (gateway-side resolution)
-      Growth+  → AWSSecretsManagerBackend
+    All tiers resolve through the gateway/vault path. Tier is retained for
+    backend selection metadata and compatibility with enterprise tier lookups.
 
     Secret values are never included in log output.
     """
@@ -114,14 +109,11 @@ class SecretsAdapter:
 
     def ref_for(self, name: str) -> str:
         """
-        Construct the canonical ref for *name* based on tier.
+        Construct the canonical hard-cut ref for *name*.
 
-          Starter  → caracal:{env_id}/{name}
-          Growth+  → aws:{org_id}/{env_id}/{name}
+        All tiers now use CaracalVault refs.
         """
-        if self._tier in _STARTER_TIERS:
-            return f"caracal:{self._env_id}/{name}"
-        return f"aws:{self._org_id}/{self._env_id}/{name}"
+        return f"caracal:{self._env_id}/{name}"
 
     @property
     def backend_name(self) -> str:
@@ -133,7 +125,7 @@ class SecretsAdapter:
 
 
 class _LocalCaracalVaultBackend:
-    """Starter-tier fallback backend that talks directly to CaracalVault."""
+    """Local fallback backend that talks directly to CaracalVault."""
 
     def __init__(self, org_id: str) -> None:
         self._org_id = org_id
@@ -179,100 +171,7 @@ class _LocalCaracalVaultBackend:
         return [f"caracal:{env_id}/{name}" for name in names]
 
 
-class _LocalAWSSecretsManagerBackend:
-    """Growth/enterprise fallback backend using boto3 directly."""
-
-    def __init__(self, region: Optional[str] = None) -> None:
-        import os
-
-        self._region = region or os.getenv("AWS_DEFAULT_REGION", "us-east-1")
-
-    @property
-    def name(self) -> str:
-        return "aws_secrets_manager"
-
-    def _client(self):
-        try:
-            import boto3  # type: ignore
-
-            return boto3.client("secretsmanager", region_name=self._region)
-        except ImportError as exc:
-            raise SecretsAdapterError("boto3 is not installed. Run: pip install boto3") from exc
-
-    def _parse_ref(self, ref: str) -> tuple[str, Optional[str]]:
-        clean = ref.removeprefix("aws:").strip()
-        if "#" in clean:
-            secret_id, key = clean.rsplit("#", 1)
-            return secret_id, key
-        return clean, None
-
-    def get(self, ref: str) -> str:
-        secret_id, key = self._parse_ref(ref)
-        try:
-            resp = self._client().get_secret_value(SecretId=secret_id)
-            raw = resp.get("SecretString") or resp.get("SecretBinary", b"").decode()
-            if key:
-                import json
-
-                payload = json.loads(raw)
-                if key not in payload:
-                    raise SecretsAdapterError(f"Key '{key}' not found in AWS secret '{secret_id}'.")
-                return payload[key]
-            return raw
-        except SecretsAdapterError:
-            raise
-        except Exception as exc:
-            raise SecretsAdapterError(f"AWS lookup failed for ref={ref!r}: {exc}") from exc
-
-    def put(self, ref: str, value: str) -> None:
-        secret_id, key = self._parse_ref(ref)
-        client = self._client()
-        try:
-            if key:
-                import json
-
-                try:
-                    existing = json.loads(client.get_secret_value(SecretId=secret_id)["SecretString"])
-                except client.exceptions.ResourceNotFoundException:
-                    existing = {}
-                existing[key] = value
-                payload = json.dumps(existing)
-            else:
-                payload = value
-
-            try:
-                client.put_secret_value(SecretId=secret_id, SecretString=payload)
-            except client.exceptions.ResourceNotFoundException:
-                client.create_secret(Name=secret_id, SecretString=payload)
-        except Exception as exc:
-            raise SecretsAdapterError(f"AWS write failed for ref={ref!r}: {exc}") from exc
-
-    def delete(self, ref: str) -> None:
-        secret_id, _ = self._parse_ref(ref)
-        try:
-            self._client().delete_secret(SecretId=secret_id, ForceDeleteWithoutRecovery=False)
-        except Exception as exc:
-            raise SecretsAdapterError(f"AWS delete failed for ref={ref!r}: {exc}") from exc
-
-    def list_refs(self, org_id: str, env_id: str) -> list[str]:
-        try:
-            paginator = self._client().get_paginator("list_secrets")
-            refs: list[str] = []
-            filter_prefix = f"{org_id}/{env_id}/"
-            for page in paginator.paginate(Filters=[{"Key": "name", "Values": [filter_prefix]}]):
-                for secret in page.get("SecretList", []):
-                    refs.append(f"aws:{secret['Name']}")
-            return refs
-        except Exception as exc:
-            raise SecretsAdapterError(f"AWS list failed for org={org_id} env={env_id}: {exc}") from exc
-
-
 def _local_backend_for_tier(tier: str, org_id: str):
-    t = tier.lower()
-    if t in _STARTER_TIERS:
-        return _LocalCaracalVaultBackend(org_id=org_id)
-    if t in _AWS_TIERS:
-        return _LocalAWSSecretsManagerBackend()
-    raise SecretsAdapterError(
-        f"Unsupported tier '{tier}' for secret management. Valid tiers: {sorted(_STARTER_TIERS | _AWS_TIERS)}"
-    )
+    if not tier.strip():
+        raise SecretsAdapterError("Tier must not be empty for secret management.")
+    return _LocalCaracalVaultBackend(org_id=org_id)
