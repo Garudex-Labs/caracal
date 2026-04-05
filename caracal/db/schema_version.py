@@ -45,10 +45,10 @@ class SchemaVersionManager:
             alembic_ini_path: Path to alembic.ini configuration file, or an Alembic Config
         """
         self.engine = engine
-        if isinstance(alembic_ini_path, Config):
-            self.alembic_config = alembic_ini_path
-        else:
+        if isinstance(alembic_ini_path, str):
             self.alembic_config = Config(alembic_ini_path)
+        else:
+            self.alembic_config = alembic_ini_path
     
     def get_current_revision(self) -> Optional[str]:
         """

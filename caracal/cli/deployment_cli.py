@@ -108,22 +108,6 @@ def _path_scope_label(path: Path) -> str:
     return "container path"
 
 
-def _parse_credential_assignments(entries: tuple[str, ...]) -> Dict[str, str]:
-    """Parse repeated KEY=VALUE options into a dictionary."""
-    parsed: Dict[str, str] = {}
-    for raw in entries:
-        if "=" not in raw:
-            raise click.ClickException(
-                f"Invalid credential assignment '{raw}'. Expected KEY=VALUE format."
-            )
-        key, value = raw.split("=", 1)
-        key = key.strip()
-        if not key:
-            raise click.ClickException("Credential key must not be empty.")
-        parsed[key] = value
-    return parsed
-
-
 def _resolve_workspace_name(config_manager: ConfigManager, workspace: Optional[str]) -> Optional[str]:
     """Resolve workspace name from explicit option, ConfigManager, or registry default."""
     if workspace:
@@ -599,23 +583,10 @@ def enterprise_group():
 @click.argument("url")
 @click.argument("token")
 @click.option("--workspace", "-w", help="Workspace name (default: current workspace)")
-@click.option(
-    "--migrate-credential",
-    "migrate_credentials",
-    multiple=True,
-    help="Credential key to migrate to enterprise custody (repeatable). Defaults to all local credentials.",
-)
-@click.option(
-    "--no-credential-migration",
-    is_flag=True,
-    help="Skip local->enterprise credential migration during login.",
-)
 def enterprise_login(
     url: str,
     token: str,
     workspace: Optional[str],
-    migrate_credentials: tuple[str, ...],
-    no_credential_migration: bool,
 ):
     """Connect workspace to enterprise backend."""
     try:
@@ -629,31 +600,14 @@ def enterprise_login(
             sys.exit(1)
 
         resolved_api_url = result.enterprise_api_url or url
-
-        # Edition is policy-driven by connectivity: migrate to Enterprise after connect.
-        try:
-            migration_manager = MigrationManager()
-            current_edition = get_deployment_edition_adapter().get_edition()
-            if current_edition != Edition.ENTERPRISE:
-                migration_manager.migrate_edition(
-                    Edition.ENTERPRISE,
-                    gateway_url=resolved_api_url,
-                    gateway_token=result.sync_api_key,
-                    migrate_api_keys=not no_credential_migration,
-                    credential_keys=list(migrate_credentials) or None,
-                )
-        except Exception as migration_error:
-            logger.warning("enterprise_login_migration_skipped", error=str(migration_error))
-            console.print(
-                "[yellow]Warning:[/yellow] Connected, but enterprise migration had warnings: "
-                f"{migration_error}"
-            )
         
         console.print(f"[green]✓[/green] Workspace connected to enterprise")
         console.print(f"  Workspace: {workspace or 'default'}")
         console.print(f"  URL: {resolved_api_url}")
         if result.tier:
             console.print(f"  Tier: {result.tier}")
+        console.print("  Credential migration: explicit only")
+        console.print("  Next step: run `caracal migrate oss-to-enterprise` to move local credentials into enterprise custody.")
         
     except Exception as e:
         logger.error("enterprise_login_failed", error=str(e))
@@ -663,29 +617,9 @@ def enterprise_login(
 @enterprise_group.command(name="disconnect")
 @click.option("--workspace", "-w", help="Workspace name (default: current workspace)")
 @click.option("--force", is_flag=True, help="Skip safety confirmation prompts")
-@click.option(
-    "--allow-local-secrets-migration",
-    is_flag=True,
-    help="Allow Enterprise->Open Source migration to move provider secrets to local storage",
-)
-@click.option(
-    "--migrate-credential",
-    "migrate_credentials",
-    multiple=True,
-    help="Credential key to migrate into local storage (repeatable). Defaults to all enterprise-marked credentials.",
-)
-@click.option(
-    "--import-credential",
-    "import_credentials",
-    multiple=True,
-    help="Optional enterprise export payload in KEY=VALUE form (repeatable)",
-)
 def enterprise_disconnect(
     workspace: Optional[str],
     force: bool,
-    allow_local_secrets_migration: bool,
-    migrate_credentials: tuple[str, ...],
-    import_credentials: tuple[str, ...],
 ):
     """Disconnect workspace from enterprise backend."""
     try:
@@ -706,32 +640,6 @@ def enterprise_disconnect(
                 console.print("Cancelled.")
                 return
 
-        if (migrate_credentials or import_credentials) and not allow_local_secrets_migration:
-            raise click.ClickException(
-                "Use --allow-local-secrets-migration when specifying --migrate-credential/--import-credential."
-            )
-
-        exports: Optional[Dict[str, str]] = None
-        if import_credentials:
-            if not force and not click.confirm(
-                "Import provided credential values into local encrypted storage?"
-            ):
-                console.print("Cancelled.")
-                return
-            exports = _parse_credential_assignments(import_credentials)
-
-        # Migrate edition first so gateway indicators are cleared for auto-detection.
-        if current_edition == Edition.ENTERPRISE:
-            migration_manager = MigrationManager()
-            migration_manager.migrate_edition(
-                Edition.OPENSOURCE,
-                migrate_api_keys=allow_local_secrets_migration,
-                credential_keys=list(migrate_credentials) or None,
-                enterprise_exports=exports,
-                deactivate_enterprise_license=True,
-            )
-
-        # Ensure enterprise license state does not keep edition in enterprise mode.
         try:
             EnterpriseLicenseValidator().disconnect()
         except Exception as license_error:
@@ -739,10 +647,9 @@ def enterprise_disconnect(
         
         console.print(f"[green]✓[/green] Workspace disconnected from enterprise")
         console.print(f"  Workspace: {workspace}")
-        if current_edition == Edition.ENTERPRISE and not allow_local_secrets_migration:
-            console.print("  Mode: Open Source (fresh start, local secret migration disabled)")
-        elif current_edition == Edition.ENTERPRISE:
-            console.print("  Mode: Open Source (local secret migration enabled)")
+        if current_edition == Edition.ENTERPRISE:
+            console.print("  Mode: Open Source (fresh start)")
+            console.print("  Credential migration: run `caracal migrate enterprise-to-oss` explicitly if you need a controlled export.")
         
     except Exception as e:
         logger.error("enterprise_disconnect_failed", error=str(e))
