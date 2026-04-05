@@ -74,8 +74,7 @@ class EditionManager:
         Returns current edition (OPENSOURCE or ENTERPRISE).
         
           Edition detection is policy-driven and auto-derived from runtime state:
-          1. Enterprise connectivity indicators (gateway URL, sync-enabled workspace,
-              enterprise license state)
+          1. Enterprise connectivity indicators (gateway URL)
           2. Default edition (OPENSOURCE)
         
         The result is cached to avoid repeated file I/O.
@@ -116,7 +115,6 @@ class EditionManager:
 
         Detection logic:
         - If gateway URL is configured, assume Enterprise Edition
-        - If enterprise license is connected/valid, assume Enterprise Edition
         - Otherwise, default to Open Source Edition
 
         Returns:
@@ -143,23 +141,6 @@ class EditionManager:
                 env_var="CARACAL_ENTERPRISE_URL"
             )
             return Edition.ENTERPRISE
-
-        # Check persisted enterprise license connectivity.
-        try:
-            from caracal.enterprise.license import load_enterprise_config
-
-            enterprise_cfg = load_enterprise_config()
-            if enterprise_cfg.get("valid") and (
-                enterprise_cfg.get("sync_api_key") or enterprise_cfg.get("enterprise_api_url")
-            ):
-                logger.debug(
-                    "edition_detected_enterprise_license",
-                    has_sync_api_key=bool(enterprise_cfg.get("sync_api_key")),
-                    has_api_url=bool(enterprise_cfg.get("enterprise_api_url")),
-                )
-                return Edition.ENTERPRISE
-        except Exception:
-            logger.debug("edition_license_detection_failed", exc_info=True)
         
         # Default to Open Source Edition
         logger.debug(

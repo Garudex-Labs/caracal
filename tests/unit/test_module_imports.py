@@ -989,15 +989,9 @@ class TestModuleImports:
             pytest.skip(f"Module caracal.flow.screens.secrets_flow failed to import: {e}")
 
     def test_import_caracal_flow_screens_sync_monitor(self):
-        """Test importing caracal.flow.screens.sync_monitor."""
-        try:
+        """Legacy sync monitor screen module must be removed in hard-cut mode."""
+        with pytest.raises(ModuleNotFoundError):
             importlib.import_module("caracal.flow.screens.sync_monitor")
-        except ImportError as e:
-            # Some modules may have optional dependencies
-            pytest.skip(f"Module caracal.flow.screens.sync_monitor has missing dependencies: {e}")
-        except Exception as e:
-            # Some modules may fail to import due to configuration
-            pytest.skip(f"Module caracal.flow.screens.sync_monitor failed to import: {e}")
 
     def test_import_caracal_flow_screens_welcome(self):
         """Test importing caracal.flow.screens.welcome."""
