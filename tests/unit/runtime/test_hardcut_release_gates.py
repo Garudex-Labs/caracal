@@ -51,11 +51,27 @@ def test_runtime_code_has_no_sqlite_url_usages() -> None:
 
 @pytest.mark.unit
 def test_runtime_compose_has_no_file_backed_state_markers() -> None:
-    compose_file = _REPO_ROOT / "deploy" / "docker-compose.yml"
-    payload = compose_file.read_text(encoding="utf-8").lower()
+    compose_files = (
+        _REPO_ROOT / "deploy" / "docker-compose.yml",
+        _REPO_ROOT / "deploy" / "docker-compose.image.yml",
+    )
 
-    assert "caracal_state:" not in payload
-    assert "/home/caracal/.caracal" not in payload
+    for compose_file in compose_files:
+        payload = compose_file.read_text(encoding="utf-8").lower()
+        assert "caracal_state:" not in payload, str(compose_file)
+        assert "/home/caracal/.caracal" not in payload, str(compose_file)
+
+
+@pytest.mark.unit
+def test_runtime_image_compose_has_vault_sidecar_and_hardcut_env_markers() -> None:
+    compose_file = _REPO_ROOT / "deploy" / "docker-compose.image.yml"
+    payload = compose_file.read_text(encoding="utf-8")
+
+    assert "  vault:" in payload
+    assert "CARACAL_PRINCIPAL_KEY_BACKEND" in payload
+    assert "CARACAL_VAULT_URL" in payload
+    assert "CARACAL_VAULT_SESSION_PUBLIC_KEY_REF" in payload
+    assert "CARACAL_SESSION_SIGNING_ALGORITHM" in payload
 
 
 @pytest.mark.unit
@@ -417,3 +433,42 @@ def test_python_sdk_secrets_have_no_aws_fallback_markers() -> None:
     assert "_LocalAWSSecretsManagerBackend" not in payload
     assert 'return f"aws:' not in payload
     assert 'return f"caracal:' in payload
+
+
+@pytest.mark.unit
+def test_deployment_help_has_no_sync_engine_or_legacy_secret_storage_text() -> None:
+    deployment_help_file = _REPO_ROOT / "caracal" / "flow" / "screens" / "deployment_help.py"
+    payload = deployment_help_file.read_text(encoding="utf-8")
+
+    assert "### Sync Engine" not in payload
+    assert "System keyring integration" not in payload
+    assert "PBKDF2 key derivation fallback" not in payload
+    assert "Age encryption for secrets" not in payload
+
+
+@pytest.mark.unit
+def test_sdk_sources_have_no_legacy_security_or_sync_markers() -> None:
+    sdk_roots = (
+        _REPO_ROOT / "sdk" / "python-sdk" / "src",
+        _REPO_ROOT / "sdk" / "node-sdk" / "src",
+    )
+    forbidden_patterns = (
+        r"\bboto3\b",
+        r"\bkeyring\b",
+        r"cryptography\.fernet",
+        r"\bFernet\b",
+        r"/api/connection\b",
+        r"\bSyncExtension\b",
+        r"\bcaracal_sdk\.enterprise\.sync\b",
+    )
+
+    offenders: list[str] = []
+    for root in sdk_roots:
+        for path in root.rglob("*"):
+            if not path.is_file() or path.suffix not in {".py", ".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"}:
+                continue
+            payload = path.read_text(encoding="utf-8")
+            if any(re.search(pattern, payload) for pattern in forbidden_patterns):
+                offenders.append(str(path.relative_to(_REPO_ROOT)))
+
+    assert offenders == []
