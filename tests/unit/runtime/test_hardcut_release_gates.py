@@ -304,3 +304,32 @@ def test_sync_compatibility_modules_have_no_sync_state_orm_imports() -> None:
     )
 
     assert "from caracal.db.models import Sync" not in combined
+
+
+@pytest.mark.unit
+def test_main_cli_uses_enterprise_group_and_has_no_top_level_sync_group() -> None:
+    main_cli_file = _REPO_ROOT / "caracal" / "cli" / "main.py"
+    payload = main_cli_file.read_text(encoding="utf-8")
+
+    assert "def enterprise(ctx):" in payload
+    assert "enterprise.add_command(enterprise_login, name='login')" in payload
+    assert "enterprise.add_command(enterprise_disconnect, name='disconnect')" in payload
+    assert "enterprise.add_command(enterprise_sync, name='sync')" in payload
+    assert "enterprise.add_command(enterprise_status, name='status')" in payload
+    assert "def sync(ctx):" not in payload
+    assert "caracal sync " not in payload
+
+
+@pytest.mark.unit
+def test_deployment_cli_has_hardcut_enterprise_commands_only() -> None:
+    deployment_cli_file = _REPO_ROOT / "caracal" / "cli" / "deployment_cli.py"
+    payload = deployment_cli_file.read_text(encoding="utf-8")
+
+    assert "@click.group(name=\"sync\")" not in payload
+    assert "@enterprise_group.command(name=\"login\")" in payload
+    assert "@enterprise_group.command(name=\"disconnect\")" in payload
+    assert "@enterprise_group.command(name=\"sync\")" in payload
+    assert "@enterprise_group.command(name=\"status\")" in payload
+    assert "enterprise_group.command(name=\"conflicts\")" not in payload
+    assert "enterprise_group.command(name=\"auto-enable\")" not in payload
+    assert "enterprise_group.command(name=\"auto-disable\")" not in payload

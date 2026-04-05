@@ -2,14 +2,12 @@
 Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 Caracal, a product of Garudex Labs
 
-Sync Monitor Screen.
+Enterprise Runtime Monitor Screen.
 
-Provides sync management:
-- View sync status
-- Connect/disconnect sync
-- Trigger manual sync
-- View conflict history
-- Configure auto-sync
+Provides enterprise runtime management:
+- View runtime status
+- Connect/disconnect enterprise runtime
+- Trigger manual runtime sync
 """
 
 from typing import Optional
@@ -29,15 +27,15 @@ def show_sync_monitor(console: Console, state: FlowState) -> None:
     """
     Display sync monitor interface.
     
-    CLI Equivalent: caracal sync [command]
+    CLI Equivalent: caracal enterprise [command]
     """
     while True:
         console.clear()
         
         # Show header
         console.print(Panel(
-            f"[{Colors.PRIMARY}]Sync Monitor[/]",
-            subtitle=f"[{Colors.HINT}]CLI: caracal sync[/]",
+            f"[{Colors.PRIMARY}]Enterprise Runtime[/]",
+            subtitle=f"[{Colors.HINT}]CLI: caracal enterprise[/]",
             border_style=Colors.INFO,
         ))
         console.print()
@@ -48,16 +46,14 @@ def show_sync_monitor(console: Console, state: FlowState) -> None:
         
         # Build menu
         items = [
-            MenuItem("status", "View Sync Status", "Detailed sync information", Icons.INFO),
-            MenuItem("connect", "Connect Sync", "Connect to enterprise", Icons.CONNECT),
-            MenuItem("disconnect", "Disconnect Sync", "Disconnect from enterprise", Icons.DISCONNECT),
-            MenuItem("sync", "Sync Now", "Trigger manual sync", Icons.SYNC),
-            MenuItem("conflicts", "View Conflicts", "Show conflict history", Icons.WARNING),
-            MenuItem("auto", "Configure Auto-Sync", "Enable/disable auto-sync", Icons.SETTINGS),
+            MenuItem("status", "View Runtime Status", "Detailed runtime status", Icons.INFO),
+            MenuItem("connect", "Connect Enterprise", "Authenticate to enterprise", Icons.CONNECT),
+            MenuItem("disconnect", "Disconnect Enterprise", "Return to Open Source mode", Icons.DISCONNECT),
+            MenuItem("sync", "Sync Now", "Trigger runtime sync", Icons.SYNC),
             MenuItem("back", "Back to Menu", "", Icons.ARROW_LEFT),
         ]
         
-        menu = Menu("Sync Operations", items=items)
+        menu = Menu("Enterprise Operations", items=items)
         result = menu.run()
         
         if not result or result.key == "back":
@@ -72,14 +68,10 @@ def show_sync_monitor(console: Console, state: FlowState) -> None:
             _disconnect_sync(console, state)
         elif result.key == "sync":
             _sync_now(console, state)
-        elif result.key == "conflicts":
-            _view_conflicts(console, state)
-        elif result.key == "auto":
-            _configure_auto_sync(console, state)
 
 
 def _show_sync_status(console: Console) -> None:
-    """Show brief sync status."""
+    """Show brief enterprise runtime status."""
     from caracal.deployment.sync_engine import SyncEngine
     from caracal.deployment.config_manager import ConfigManager
     
@@ -104,20 +96,22 @@ def _show_sync_status(console: Console) -> None:
         table.add_column("Value", style=Colors.NEUTRAL)
         
         table.add_row("Workspace:", default_ws.name)
-        table.add_row("Remote URL:", default_ws.sync_url or "Not configured")
+        table.add_row("Remote URL:", sync_status.remote_url or "Not configured")
         
-        if sync_status.last_sync:
-            table.add_row("Last Sync:", sync_status.last_sync.strftime("%Y-%m-%d %H:%M:%S"))
+        if sync_status.last_sync_timestamp:
+            table.add_row("Last Sync:", sync_status.last_sync_timestamp.strftime("%Y-%m-%d %H:%M:%S"))
         else:
             table.add_row("Last Sync:", f"[{Colors.WARNING}]Never[/]")
         
-        if sync_status.pending_operations > 0:
-            table.add_row("Pending:", f"[{Colors.WARNING}]{sync_status.pending_operations} operations[/]")
+        pending_count = len(sync_status.pending_operations)
+        if pending_count > 0:
+            table.add_row("Pending:", f"[{Colors.WARNING}]{pending_count} operations[/]")
         else:
             table.add_row("Pending:", f"[{Colors.SUCCESS}]None[/]")
         
-        if sync_status.conflicts_count > 0:
-            table.add_row("Conflicts:", f"[{Colors.ERROR}]{sync_status.conflicts_count} unresolved[/]")
+        conflict_count = len(sync_status.conflicts)
+        if conflict_count > 0:
+            table.add_row("Conflicts:", f"[{Colors.ERROR}]{conflict_count} unresolved[/]")
         
         console.print(table)
         
@@ -126,14 +120,14 @@ def _show_sync_status(console: Console) -> None:
 
 
 def _show_detailed_status(console: Console, state: FlowState) -> None:
-    """Show detailed sync status."""
+    """Show detailed enterprise runtime status."""
     from caracal.deployment.sync_engine import SyncEngine
     from caracal.deployment.config_manager import ConfigManager
     
     console.clear()
     console.print(Panel(
-        f"[{Colors.PRIMARY}]Sync Status[/]",
-        subtitle=f"[{Colors.HINT}]CLI: caracal sync status[/]",
+        f"[{Colors.PRIMARY}]Enterprise Runtime Status[/]",
+        subtitle=f"[{Colors.HINT}]CLI: caracal enterprise status[/]",
         border_style=Colors.INFO,
     ))
     console.print()
@@ -156,20 +150,15 @@ def _show_detailed_status(console: Console, state: FlowState) -> None:
         table.add_column("Value", style=Colors.NEUTRAL)
         
         table.add_row("Workspace", default_ws.name)
-        table.add_row("Remote URL", default_ws.sync_url or "Not configured")
-        table.add_row("Sync Direction", default_ws.sync_direction.value if default_ws.sync_direction else "bidirectional")
-        table.add_row("Auto-Sync", "Enabled" if default_ws.auto_sync_interval else "Disabled")
+        table.add_row("Remote URL", sync_status.remote_url or "Not configured")
         
-        if default_ws.auto_sync_interval:
-            table.add_row("Auto-Sync Interval", f"{default_ws.auto_sync_interval}s")
-        
-        if sync_status.last_sync:
-            table.add_row("Last Sync", sync_status.last_sync.strftime("%Y-%m-%d %H:%M:%S"))
+        if sync_status.last_sync_timestamp:
+            table.add_row("Last Sync", sync_status.last_sync_timestamp.strftime("%Y-%m-%d %H:%M:%S"))
         else:
             table.add_row("Last Sync", f"[{Colors.WARNING}]Never[/]")
         
-        table.add_row("Pending Operations", str(sync_status.pending_operations))
-        table.add_row("Conflicts", str(sync_status.conflicts_count))
+        table.add_row("Pending Operations", str(len(sync_status.pending_operations)))
+        table.add_row("Conflicts", str(len(sync_status.conflicts)))
         table.add_row("Local Version", sync_status.local_version or "Unknown")
         table.add_row("Remote Version", sync_status.remote_version or "Unknown")
         
@@ -184,7 +173,7 @@ def _show_detailed_status(console: Console, state: FlowState) -> None:
 
 
 def _connect_sync(console: Console, state: FlowState) -> None:
-    """Connect sync to enterprise."""
+    """Connect enterprise runtime."""
     from caracal.deployment.sync_engine import SyncEngine
     from caracal.deployment.config_manager import ConfigManager
     from caracal.deployment.edition import Edition
@@ -193,8 +182,8 @@ def _connect_sync(console: Console, state: FlowState) -> None:
     
     console.clear()
     console.print(Panel(
-        f"[{Colors.PRIMARY}]Connect Sync[/]",
-        subtitle=f"[{Colors.HINT}]CLI: caracal sync connect <url> <token>[/]",
+        f"[{Colors.PRIMARY}]Connect Enterprise[/]",
+        subtitle=f"[{Colors.HINT}]CLI: caracal enterprise login <url> <token>[/]",
         border_style=Colors.INFO,
     ))
     console.print()
@@ -240,16 +229,16 @@ def _connect_sync(console: Console, state: FlowState) -> None:
         console.print(f"  [{Colors.SUCCESS}]{Icons.SUCCESS} Connected successfully[/]")
         
         state.add_recent_action(RecentAction.create(
-            "sync_connect",
-            f"Connected sync for workspace: {default_ws.name}",
+            "enterprise_login",
+            f"Connected enterprise runtime for workspace: {default_ws.name}",
             success=True
         ))
         
     except Exception as e:
         console.print(f"  [{Colors.ERROR}]{Icons.ERROR} Error: {e}[/]")
         state.add_recent_action(RecentAction.create(
-            "sync_connect",
-            f"Failed to connect sync",
+            "enterprise_login",
+            f"Failed to connect enterprise runtime",
             success=False
         ))
     
@@ -259,7 +248,7 @@ def _connect_sync(console: Console, state: FlowState) -> None:
 
 
 def _disconnect_sync(console: Console, state: FlowState) -> None:
-    """Disconnect sync from enterprise."""
+    """Disconnect enterprise runtime."""
     from caracal.deployment.sync_engine import SyncEngine
     from caracal.deployment.config_manager import ConfigManager
     from caracal.deployment.edition import Edition
@@ -268,8 +257,8 @@ def _disconnect_sync(console: Console, state: FlowState) -> None:
     
     console.clear()
     console.print(Panel(
-        f"[{Colors.PRIMARY}]Disconnect Sync[/]",
-        subtitle=f"[{Colors.HINT}]CLI: caracal sync disconnect[/]",
+        f"[{Colors.PRIMARY}]Disconnect Enterprise[/]",
+        subtitle=f"[{Colors.HINT}]CLI: caracal enterprise disconnect[/]",
         border_style=Colors.INFO,
     ))
     console.print()
@@ -292,7 +281,7 @@ def _disconnect_sync(console: Console, state: FlowState) -> None:
             console.print()
 
         # Confirm disconnection
-        if not Confirm.ask(f"[{Colors.WARNING}]Disconnect sync for workspace '{default_ws.name}'?[/]"):
+        if not Confirm.ask(f"[{Colors.WARNING}]Disconnect enterprise runtime for workspace '{default_ws.name}'?[/]"):
             console.print(f"  [{Colors.DIM}]Cancelled[/]")
             input()
             return
@@ -326,8 +315,8 @@ def _disconnect_sync(console: Console, state: FlowState) -> None:
             console.print(f"  [{Colors.INFO}]Edition switched to Open Source (fresh start policy)[/]")
         
         state.add_recent_action(RecentAction.create(
-            "sync_disconnect",
-            f"Disconnected sync for workspace: {default_ws.name}",
+            "enterprise_disconnect",
+            f"Disconnected enterprise runtime for workspace: {default_ws.name}",
             success=True
         ))
         
@@ -340,14 +329,14 @@ def _disconnect_sync(console: Console, state: FlowState) -> None:
 
 
 def _sync_now(console: Console, state: FlowState) -> None:
-    """Trigger manual sync."""
+    """Trigger enterprise runtime sync."""
     from caracal.deployment.sync_engine import SyncEngine, SyncDirection
     from caracal.deployment.config_manager import ConfigManager
     
     console.clear()
     console.print(Panel(
         f"[{Colors.PRIMARY}]Sync Now[/]",
-        subtitle=f"[{Colors.HINT}]CLI: caracal sync now[/]",
+        subtitle=f"[{Colors.HINT}]CLI: caracal enterprise sync[/]",
         border_style=Colors.INFO,
     ))
     console.print()
@@ -405,7 +394,7 @@ def _sync_now(console: Console, state: FlowState) -> None:
             console.print(f"    Duration: {result.duration_ms}ms")
             
             state.add_recent_action(RecentAction.create(
-                "sync_now",
+                "enterprise_sync",
                 f"Synced workspace: {default_ws.name}",
                 success=True
             ))
@@ -415,7 +404,7 @@ def _sync_now(console: Console, state: FlowState) -> None:
                 console.print(f"    - {error}")
             
             state.add_recent_action(RecentAction.create(
-                "sync_now",
+                "enterprise_sync",
                 f"Sync failed for workspace: {default_ws.name}",
                 success=False
             ))
@@ -428,138 +417,3 @@ def _sync_now(console: Console, state: FlowState) -> None:
     input()
 
 
-def _view_conflicts(console: Console, state: FlowState) -> None:
-    """View conflict history."""
-    from caracal.deployment.sync_engine import SyncEngine
-    from caracal.deployment.config_manager import ConfigManager
-    
-    console.clear()
-    console.print(Panel(
-        f"[{Colors.PRIMARY}]Conflict History[/]",
-        subtitle=f"[{Colors.HINT}]CLI: caracal sync conflicts[/]",
-        border_style=Colors.INFO,
-    ))
-    console.print()
-    
-    try:
-        config_mgr = ConfigManager()
-        default_ws = get_default_workspace(config_mgr)
-        
-        if not default_ws or not default_ws.sync_enabled:
-            console.print(f"  [{Colors.WARNING}]{Icons.WARNING} Sync not enabled[/]")
-            input()
-            return
-        
-        sync_engine = SyncEngine()
-        conflicts = sync_engine.get_conflict_history(default_ws.name, limit=20)
-        
-        if not conflicts:
-            console.print(f"  [{Colors.SUCCESS}]{Icons.SUCCESS} No conflicts found[/]")
-        else:
-            table = Table(show_header=True, header_style=f"bold {Colors.INFO}")
-            table.add_column("Entity", style=Colors.PRIMARY)
-            table.add_column("Type", style=Colors.INFO)
-            table.add_column("Local Time", style=Colors.DIM)
-            table.add_column("Remote Time", style=Colors.DIM)
-            table.add_column("Resolution", style=Colors.NEUTRAL)
-            
-            for conflict in conflicts:
-                resolution = conflict.resolution.value if conflict.resolution else "Pending"
-                resolution_color = Colors.SUCCESS if conflict.resolution else Colors.WARNING
-                
-                table.add_row(
-                    conflict.entity_id[:20] + "..." if len(conflict.entity_id) > 20 else conflict.entity_id,
-                    conflict.entity_type,
-                    conflict.local_timestamp.strftime("%Y-%m-%d %H:%M"),
-                    conflict.remote_timestamp.strftime("%Y-%m-%d %H:%M"),
-                    f"[{resolution_color}]{resolution}[/]"
-                )
-            
-            console.print(table)
-        
-    except Exception as e:
-        console.print(f"  [{Colors.ERROR}]{Icons.ERROR} Error: {e}[/]")
-    
-    console.print()
-    console.print(f"  [{Colors.HINT}]Press Enter to continue...[/]")
-    input()
-
-
-def _configure_auto_sync(console: Console, state: FlowState) -> None:
-    """Configure auto-sync settings."""
-    from caracal.deployment.sync_engine import SyncEngine
-    from caracal.deployment.config_manager import ConfigManager
-    
-    console.clear()
-    console.print(Panel(
-        f"[{Colors.PRIMARY}]Configure Auto-Sync[/]",
-        subtitle=f"[{Colors.HINT}]CLI: caracal sync auto-enable / auto-disable[/]",
-        border_style=Colors.INFO,
-    ))
-    console.print()
-    
-    try:
-        config_mgr = ConfigManager()
-        default_ws = get_default_workspace(config_mgr)
-        
-        if not default_ws or not default_ws.sync_enabled:
-            console.print(f"  [{Colors.WARNING}]{Icons.WARNING} Sync not enabled[/]")
-            input()
-            return
-        
-        # Show current status
-        if default_ws.auto_sync_interval:
-            console.print(f"  [{Colors.INFO}]Auto-sync is currently enabled[/]")
-            console.print(f"  Interval: {default_ws.auto_sync_interval} seconds")
-        else:
-            console.print(f"  [{Colors.DIM}]Auto-sync is currently disabled[/]")
-        
-        console.print()
-        
-        # Prompt for action
-        if default_ws.auto_sync_interval:
-            if Confirm.ask(f"[{Colors.INFO}]Disable auto-sync?[/]"):
-                sync_engine = SyncEngine()
-                sync_engine.disable_auto_sync(default_ws.name)
-                
-                console.print()
-                console.print(f"  [{Colors.SUCCESS}]{Icons.SUCCESS} Auto-sync disabled[/]")
-                
-                state.add_recent_action(RecentAction.create(
-                    "auto_sync_disable",
-                    f"Disabled auto-sync for workspace: {default_ws.name}",
-                    success=True
-                ))
-        else:
-            if Confirm.ask(f"[{Colors.INFO}]Enable auto-sync?[/]"):
-                interval = Prompt.ask(
-                    f"[{Colors.INFO}]Sync interval (seconds)[/]",
-                    default="300"
-                )
-                
-                try:
-                    interval_int = int(interval)
-                    if interval_int < 60:
-                        console.print(f"  [{Colors.WARNING}]{Icons.WARNING} Minimum interval is 60 seconds[/]")
-                        interval_int = 60
-                    
-                    sync_engine = SyncEngine()
-                    sync_engine.enable_auto_sync(default_ws.name, interval_seconds=interval_int)
-                    
-                    console.print()
-                    console.print(f"  [{Colors.SUCCESS}]{Icons.SUCCESS} Auto-sync enabled (interval: {interval_int}s)[/]")
-                    
-                    state.add_recent_action(RecentAction.create(
-                        "auto_sync_enable",
-                        f"Enabled auto-sync for workspace: {default_ws.name}",
-                        success=True
-                    ))
-                except ValueError:
-                    console.print(f"  [{Colors.ERROR}]{Icons.ERROR} Invalid interval value[/]")
-        
-    except Exception as e:
-        console.print(f"  [{Colors.ERROR}]{Icons.ERROR} Error: {e}[/]")
-    
-    console.print()
-    console.print(f"  [{Colors.HINT}]Press Enter to continue...[/]")
-    input()
