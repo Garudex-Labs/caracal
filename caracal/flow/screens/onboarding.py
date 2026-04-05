@@ -25,6 +25,7 @@ from caracal.flow.components.wizard import Wizard, WizardStep
 from caracal.flow.screens._provider_scope_helpers import load_provider_scope_catalog
 from caracal.flow.state import FlowState, StatePersistence, RecentAction
 from caracal.flow.theme import Colors, Icons
+from caracal.identity.service import IdentityService
 from caracal.pathing import ensure_source_tree, source_of
 from caracal.storage.layout import resolve_caracal_home
 
@@ -1827,7 +1828,8 @@ def run_onboarding(
                         console.print(f"  [{Colors.INFO}]{Icons.INFO} Generating cryptographic keys...[/]")
 
                         registry = PrincipalRegistry(db_session)
-                        identity = registry.register_principal(
+                        identity_service = IdentityService(principal_registry=registry)
+                        identity = identity_service.register_principal(
                             name=principal_data["name"],
                             owner=principal_data["owner"],
                             principal_kind=principal_data["kind"],
