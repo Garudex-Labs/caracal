@@ -198,7 +198,7 @@ def migrate_switch_edition(
 
     try:
         migration_manager = MigrationManager()
-        current_edition = migration_manager.edition_manager.get_edition()
+        current_edition = migration_manager.edition_adapter.get_edition()
         target_edition_enum = Edition(target_edition.lower())
         
         # Validate requirements

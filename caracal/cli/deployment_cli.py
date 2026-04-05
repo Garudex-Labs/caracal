@@ -26,13 +26,13 @@ from caracal.deployment import (
     Mode,
     ModeManager,
     Edition,
-    EditionManager,
     ConfigManager,
     WorkspaceConfig,
     PostgresConfig,
     SyncDirection,
     ConflictStrategy,
     MigrationManager,
+    get_deployment_edition_adapter,
     get_version_checker,
 )
 from caracal.deployment.exceptions import (
@@ -254,7 +254,7 @@ def config_mode(mode_value: Optional[str], format: str):
 def config_edition(edition_value: Optional[str], gateway_url: Optional[str], gateway_token: Optional[str], format: str):
     """Show auto-detected edition (manual setting is disabled)."""
     try:
-        edition_manager = EditionManager()
+        edition_adapter = get_deployment_edition_adapter()
 
         if edition_value or gateway_url or gateway_token:
             console.print(
@@ -265,19 +265,19 @@ def config_edition(edition_value: Optional[str], gateway_url: Optional[str], gat
             console.print("  Use [bold]caracal sync disconnect[/bold] to return to Open Source mode.")
             sys.exit(1)
 
-        edition = edition_manager.get_edition()
+        edition = edition_adapter.get_edition()
 
         if format == "json":
             result = {"edition": edition.value, "mode": "auto"}
             if edition == Edition.ENTERPRISE:
-                detected_gateway_url = edition_manager.get_gateway_url()
+                detected_gateway_url = edition_adapter.get_gateway_url()
                 if detected_gateway_url:
                     result["enterprise_url"] = detected_gateway_url
             click.echo(json.dumps(result))
         else:
             console.print(f"Current edition: [bold]{edition.value}[/bold] [dim](auto)[/dim]")
             if edition == Edition.ENTERPRISE:
-                detected_gateway_url = edition_manager.get_gateway_url()
+                detected_gateway_url = edition_adapter.get_gateway_url()
                 if detected_gateway_url:
                     console.print(f"  Enterprise URL: {detected_gateway_url}")
                         
@@ -603,7 +603,7 @@ def sync_connect(url: str, token: str, workspace: Optional[str]):
         # Edition is policy-driven by connectivity: migrate to Enterprise after connect.
         try:
             migration_manager = MigrationManager()
-            current_edition = EditionManager().get_edition()
+            current_edition = get_deployment_edition_adapter().get_edition()
             if current_edition != Edition.ENTERPRISE:
                 migration_manager.migrate_edition(
                     Edition.ENTERPRISE,
@@ -645,7 +645,7 @@ def sync_disconnect(workspace: Optional[str], force: bool, allow_local_secrets_m
         
         workspace = _require_workspace(config_manager, workspace)
         
-        current_edition = EditionManager().get_edition()
+        current_edition = get_deployment_edition_adapter().get_edition()
 
         if current_edition == Edition.ENTERPRISE and not force:
             console.print("[yellow]Security warning:[/yellow] You are disconnecting Enterprise mode.")
@@ -1130,7 +1130,7 @@ def provider_add(
     """Add a provider configuration."""
     try:
         config_manager = ConfigManager()
-        edition_manager = EditionManager()
+        edition_adapter = get_deployment_edition_adapter()
 
         workspace = _require_workspace(config_manager, workspace)
         normalized_auth = _normalize_auth_scheme(auth_scheme)
@@ -1141,12 +1141,12 @@ def provider_add(
         effective_service_type = service_type.strip().lower() if service_type else "api"
 
         gateway_url = (
-            edition_manager.get_gateway_url()
+            edition_adapter.get_gateway_url()
             or os.environ.get("CARACAL_ENTERPRISE_URL")
             or os.environ.get("CARACAL_GATEWAY_ENDPOINT")
             or os.environ.get("CARACAL_GATEWAY_URL")
         )
-        if edition_manager.is_enterprise():
+        if edition_adapter.is_enterprise():
             raise click.ClickException(
                 "Enterprise mode is gateway-managed. Register providers in the gateway/vault instead of local workspace."
             )
@@ -1217,17 +1217,17 @@ def provider_list(workspace: Optional[str], format: str):
     """List configured providers."""
     try:
         config_manager = ConfigManager()
-        edition_manager = EditionManager()
+        edition_adapter = get_deployment_edition_adapter()
 
         workspace = _require_workspace(config_manager, workspace)
 
         providers_data: List[Dict[str, Any]] = []
 
-        if edition_manager.is_enterprise():
+        if edition_adapter.is_enterprise():
             from caracal.deployment.gateway_client import GatewayClient
 
             gateway_url = (
-                edition_manager.get_gateway_url()
+                edition_adapter.get_gateway_url()
                 or os.environ.get("CARACAL_ENTERPRISE_URL")
                 or os.environ.get("CARACAL_GATEWAY_ENDPOINT")
                 or os.environ.get("CARACAL_GATEWAY_URL")
@@ -1323,7 +1323,7 @@ def provider_test(name: str, workspace: Optional[str]):
     """Test provider connectivity."""
     try:
         config_manager = ConfigManager()
-        edition_manager = EditionManager()
+        edition_adapter = get_deployment_edition_adapter()
 
         workspace = _require_workspace(config_manager, workspace)
         
@@ -1334,11 +1334,11 @@ def provider_test(name: str, workspace: Optional[str]):
         ) as progress:
             task = progress.add_task(f"Testing provider '{name}'...", total=None)
 
-            if edition_manager.is_enterprise():
+            if edition_adapter.is_enterprise():
                 from caracal.deployment.gateway_client import GatewayClient
 
                 gateway_url = (
-                    edition_manager.get_gateway_url()
+                    edition_adapter.get_gateway_url()
                     or os.environ.get("CARACAL_ENTERPRISE_URL")
                     or os.environ.get("CARACAL_GATEWAY_ENDPOINT")
                     or os.environ.get("CARACAL_GATEWAY_URL")
@@ -1491,7 +1491,7 @@ def doctor_command(format: str):
         
         config_manager = ConfigManager()
         mode_manager = ModeManager()
-        edition_manager = EditionManager()
+        edition_adapter = get_deployment_edition_adapter()
         
         checks = []
         
@@ -1533,7 +1533,7 @@ def doctor_command(format: str):
         
         # Check 3: Edition configuration
         try:
-            edition = edition_manager.get_edition()
+            edition = edition_adapter.get_edition()
             checks.append({
                 "name": "Edition Configuration",
                 "status": "pass",
