@@ -56,6 +56,24 @@ def test_spawn_principal_delegates_to_spawn_manager() -> None:
 
 
 @pytest.mark.unit
+def test_spawn_principal_raises_when_spawn_manager_not_configured() -> None:
+    registry = Mock()
+    service = IdentityService(principal_registry=registry)
+
+    with pytest.raises(RuntimeError, match="spawn manager"):
+        service.spawn_principal(
+            issuer_principal_id="issuer-1",
+            principal_name="worker-2",
+            principal_kind="worker",
+            owner="ops",
+            resource_scope=["provider:openai"],
+            action_scope=["infer"],
+            validity_seconds=300,
+            idempotency_key="idemp-1",
+        )
+
+
+@pytest.mark.unit
 def test_get_and_list_delegate_to_registry() -> None:
     registry = Mock()
     spawn_manager = Mock()

@@ -15,7 +15,7 @@ class IdentityService:
         self,
         *,
         principal_registry: PrincipalRegistry,
-        spawn_manager: SpawnManager,
+        spawn_manager: Optional[SpawnManager] = None,
     ) -> None:
         self._principal_registry = principal_registry
         self._spawn_manager = spawn_manager
@@ -44,6 +44,8 @@ class IdentityService:
 
     def spawn_principal(self, **kwargs) -> SpawnResult:
         """Spawn a delegated principal through the canonical spawn manager path."""
+        if self._spawn_manager is None:
+            raise RuntimeError("IdentityService spawn manager is not configured")
         return self._spawn_manager.spawn_principal(**kwargs)
 
     def get_principal(self, principal_id: str) -> Optional[PrincipalIdentity]:
