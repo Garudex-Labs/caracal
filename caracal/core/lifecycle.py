@@ -4,7 +4,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from caracal.db.models import PrincipalKind, PrincipalLifecycleStatus
+from caracal.db.models import (
+    PrincipalAttestationStatus,
+    PrincipalKind,
+    PrincipalLifecycleStatus,
+)
 
 
 class LifecycleTransitionError(RuntimeError):
@@ -25,21 +29,27 @@ class LifecycleTransitionDecision:
 class PrincipalLifecycleStateMachine:
     """Typed lifecycle transition rules per principal kind."""
 
+    _PENDING_ATTESTATION = PrincipalLifecycleStatus.PENDING_ATTESTATION.value
     _ACTIVE = PrincipalLifecycleStatus.ACTIVE.value
     _SUSPENDED = PrincipalLifecycleStatus.SUSPENDED.value
     _DEACTIVATED = PrincipalLifecycleStatus.DEACTIVATED.value
+    _EXPIRED = PrincipalLifecycleStatus.EXPIRED.value
     _REVOKED = PrincipalLifecycleStatus.REVOKED.value
 
     _DEFAULT_TRANSITIONS: dict[str, set[str]] = {
+        _PENDING_ATTESTATION: {_ACTIVE, _EXPIRED, _REVOKED},
         _ACTIVE: {_SUSPENDED, _DEACTIVATED, _REVOKED},
         _SUSPENDED: {_ACTIVE, _DEACTIVATED, _REVOKED},
+        _EXPIRED: {_ACTIVE, _DEACTIVATED, _REVOKED},
         _DEACTIVATED: {_ACTIVE, _REVOKED},
         _REVOKED: set(),
     }
 
     _NON_REACTIVATING_TRANSITIONS: dict[str, set[str]] = {
-        _ACTIVE: {_SUSPENDED, _DEACTIVATED, _REVOKED},
+        _PENDING_ATTESTATION: {_ACTIVE, _EXPIRED, _REVOKED},
+        _ACTIVE: {_DEACTIVATED, _REVOKED},
         _SUSPENDED: {_DEACTIVATED, _REVOKED},
+        _EXPIRED: {_REVOKED},
         _DEACTIVATED: {_REVOKED},
         _REVOKED: set(),
     }
@@ -52,9 +62,11 @@ class PrincipalLifecycleStateMachine:
     }
 
     _VALID_STATUSES = {
+        PrincipalLifecycleStatus.PENDING_ATTESTATION.value,
         PrincipalLifecycleStatus.ACTIVE.value,
         PrincipalLifecycleStatus.SUSPENDED.value,
         PrincipalLifecycleStatus.DEACTIVATED.value,
+        PrincipalLifecycleStatus.EXPIRED.value,
         PrincipalLifecycleStatus.REVOKED.value,
     }
 
@@ -71,11 +83,13 @@ class PrincipalLifecycleStateMachine:
         principal_kind: str,
         from_status: str,
         to_status: str,
+        attestation_status: str | None = None,
     ) -> LifecycleTransitionDecision:
         """Evaluate whether a lifecycle transition is allowed."""
         kind = str(principal_kind or "").strip().lower()
         source = str(from_status or "").strip().lower()
         target = str(to_status or "").strip().lower()
+        normalized_attestation = str(attestation_status or "").strip().lower()
 
         if kind not in self._VALID_KINDS:
             return LifecycleTransitionDecision(
@@ -113,6 +127,23 @@ class PrincipalLifecycleStateMachine:
                 to_status=target,
             )
 
+        if (
+            kind in {PrincipalKind.ORCHESTRATOR.value, PrincipalKind.WORKER.value}
+            and source == self._PENDING_ATTESTATION
+            and target == self._ACTIVE
+            and normalized_attestation != PrincipalAttestationStatus.ATTESTED.value
+        ):
+            return LifecycleTransitionDecision(
+                allowed=False,
+                reason=(
+                    f"{kind} principals can transition from pending_attestation to active "
+                    "only after attestation_status becomes 'attested'"
+                ),
+                principal_kind=kind,
+                from_status=source,
+                to_status=target,
+            )
+
         allowed_targets = self._KIND_RULES[kind].get(source, set())
         if target in allowed_targets:
             return LifecycleTransitionDecision(
@@ -125,8 +156,8 @@ class PrincipalLifecycleStateMachine:
 
         if (
             kind in {PrincipalKind.ORCHESTRATOR.value, PrincipalKind.WORKER.value}
-            and target in {self._ACTIVE, self._SUSPENDED}
-            and source in {self._DEACTIVATED, self._REVOKED, self._SUSPENDED}
+            and target == self._ACTIVE
+            and source in {self._DEACTIVATED, self._EXPIRED, self._REVOKED, self._SUSPENDED}
         ):
             return LifecycleTransitionDecision(
                 allowed=False,
@@ -153,12 +184,14 @@ class PrincipalLifecycleStateMachine:
         principal_kind: str,
         from_status: str,
         to_status: str,
+        attestation_status: str | None = None,
     ) -> None:
         """Raise when a lifecycle transition is invalid for the principal kind."""
         decision = self.validate_transition(
             principal_kind=principal_kind,
             from_status=from_status,
             to_status=to_status,
+            attestation_status=attestation_status,
         )
         if not decision.allowed:
             raise LifecycleTransitionError(decision.reason)
