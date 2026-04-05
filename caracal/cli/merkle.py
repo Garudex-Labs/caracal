@@ -22,6 +22,14 @@ from caracal.merkle import KeyManager, generate_merkle_signing_key
 logger = get_logger(__name__)
 
 
+def _assert_key_file_commands_allowed() -> None:
+    if os.environ.get("CARACAL_HARDCUT_MODE", "").strip().lower() in {"1", "true", "yes", "on"}:
+        raise click.ClickException(
+            "Local Merkle key-file commands are disabled in hard-cut mode. "
+            "Use vault-backed Merkle signing references instead."
+        )
+
+
 @click.group()
 def merkle():
     """Merkle tree operations for ledger integrity."""
@@ -71,6 +79,8 @@ def generate_key(private_key, public_key, passphrase, audit_log):
         caracal merkle generate-key -k /etc/caracal/keys/private.pem -p /etc/caracal/keys/public.pem
     """
     try:
+        _assert_key_file_commands_allowed()
+
         # Get passphrase from environment if not provided
         if not passphrase:
             passphrase = os.environ.get('MERKLE_KEY_PASSPHRASE')
@@ -159,6 +169,8 @@ def verify_key(private_key, passphrase):
         caracal merkle verify-key -k /etc/caracal/keys/private.pem -P "secure_passphrase"
     """
     try:
+        _assert_key_file_commands_allowed()
+
         # Get passphrase from environment if not provided
         if not passphrase:
             passphrase = os.environ.get('MERKLE_KEY_PASSPHRASE')
@@ -241,6 +253,8 @@ def rotate_key(old_key, new_key, new_public_key, passphrase, no_backup, audit_lo
         caracal merkle rotate-key -o /etc/caracal/keys/old.pem -n /etc/caracal/keys/new.pem -p /etc/caracal/keys/new.pub --no-backup
     """
     try:
+        _assert_key_file_commands_allowed()
+
         # Get passphrase from environment if not provided
         if not passphrase:
             passphrase = os.environ.get('MERKLE_KEY_PASSPHRASE')
@@ -326,6 +340,8 @@ def export_public_key(private_key, public_key, passphrase):
         caracal merkle export-public-key -k /etc/caracal/keys/private.pem -p /etc/caracal/keys/public.pem
     """
     try:
+        _assert_key_file_commands_allowed()
+
         # Get passphrase from environment if not provided
         if not passphrase:
             passphrase = os.environ.get('MERKLE_KEY_PASSPHRASE')
