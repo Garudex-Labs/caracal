@@ -333,3 +333,9 @@ def test_deployment_cli_has_hardcut_enterprise_commands_only() -> None:
     assert "enterprise_group.command(name=\"conflicts\")" not in payload
     assert "enterprise_group.command(name=\"auto-enable\")" not in payload
     assert "enterprise_group.command(name=\"auto-disable\")" not in payload
+
+
+@pytest.mark.unit
+def test_flow_sync_monitor_screen_is_removed() -> None:
+    sync_monitor_file = _REPO_ROOT / "caracal" / "flow" / "screens" / "sync_monitor.py"
+    assert not sync_monitor_file.exists()
