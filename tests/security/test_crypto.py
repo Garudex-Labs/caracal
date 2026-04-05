@@ -11,11 +11,10 @@ from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.hazmat.backends import default_backend
 
 from caracal.core.crypto import (
-    sign_mandate,
     verify_mandate_signature,
-    sign_merkle_root,
     verify_merkle_root,
 )
+from tests.helpers.crypto_signing import sign_mandate_for_test, sign_merkle_root_for_test
 
 
 @pytest.mark.security
@@ -45,7 +44,7 @@ class TestCryptographicSecurity:
         }
         
         # P-256 key should work
-        signature = sign_mandate(mandate_data, private_key_pem_p256)
+        signature = sign_mandate_for_test(mandate_data, private_key_pem_p256)
         assert signature is not None
         assert len(signature) > 0
     
@@ -73,7 +72,7 @@ class TestCryptographicSecurity:
         
         # Non-P-256 key should be rejected
         with pytest.raises(ValueError, match="not P-256 curve"):
-            sign_mandate(mandate_data, private_key_pem_p384)
+            sign_mandate_for_test(mandate_data, private_key_pem_p384)
     
     def test_signature_tampering_detected(self):
         """Test that tampered signatures are detected."""
@@ -103,7 +102,7 @@ class TestCryptographicSecurity:
         }
         
         # Sign mandate
-        signature = sign_mandate(mandate_data, private_key_pem)
+        signature = sign_mandate_for_test(mandate_data, private_key_pem)
         
         # Valid signature should verify
         assert verify_mandate_signature(mandate_data, signature, public_key_pem) is True
@@ -142,7 +141,7 @@ class TestCryptographicSecurity:
         }
         
         # Sign mandate
-        signature = sign_mandate(mandate_data, private_key_pem)
+        signature = sign_mandate_for_test(mandate_data, private_key_pem)
         
         # Valid data should verify
         assert verify_mandate_signature(mandate_data, signature, public_key_pem) is True
@@ -183,7 +182,7 @@ class TestCryptographicSecurity:
         }
         
         # Sign with key1
-        signature = sign_mandate(mandate_data, private_key_pem1)
+        signature = sign_mandate_for_test(mandate_data, private_key_pem1)
         
         # Verify with key2 (wrong key) should fail
         assert verify_mandate_signature(mandate_data, signature, public_key_pem2) is False
@@ -207,7 +206,7 @@ class TestCryptographicSecurity:
         merkle_root = b"a" * 32
         
         # Sign Merkle root
-        signature = sign_merkle_root(merkle_root, private_key_pem)
+        signature = sign_merkle_root_for_test(merkle_root, private_key_pem)
         
         # Valid signature should verify
         assert verify_merkle_root(merkle_root, signature, public_key_pem) is True
@@ -227,7 +226,7 @@ class TestCryptographicSecurity:
         
         # Empty mandate data should be rejected
         with pytest.raises(ValueError, match="cannot be empty"):
-            sign_mandate({}, private_key_pem)
+            sign_mandate_for_test({}, private_key_pem)
     
     def test_invalid_key_format_rejected(self):
         """Test that invalid key formats are rejected."""
@@ -245,4 +244,4 @@ class TestCryptographicSecurity:
         
         # Invalid key format should be rejected
         with pytest.raises(ValueError, match="Invalid private key"):
-            sign_mandate(mandate_data, "not-a-valid-key")
+            sign_mandate_for_test(mandate_data, "not-a-valid-key")

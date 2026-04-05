@@ -6,6 +6,7 @@ from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.backends import default_backend
 from caracal.core import crypto
+from tests.helpers.crypto_signing import sign_mandate_for_test, sign_merkle_root_for_test
 
 
 @pytest.fixture
@@ -49,7 +50,7 @@ class TestSignMandate:
     def test_sign_mandate_success(self, ec_key_pair, sample_mandate):
         """Test successful mandate signing."""
         private_pem, _ = ec_key_pair
-        signature = crypto.sign_mandate(sample_mandate, private_pem)
+        signature = sign_mandate_for_test(sample_mandate, private_pem)
         
         assert signature is not None
         assert isinstance(signature, str)
@@ -61,30 +62,30 @@ class TestSignMandate:
         """Test signing with empty mandate data."""
         private_pem, _ = ec_key_pair
         with pytest.raises(ValueError, match="cannot be empty"):
-            crypto.sign_mandate({}, private_pem)
+            sign_mandate_for_test({}, private_pem)
     
     def test_sign_mandate_not_dict(self, ec_key_pair):
         """Test signing with non-dict mandate data."""
         private_pem, _ = ec_key_pair
         with pytest.raises(TypeError, match="must be a dictionary"):
-            crypto.sign_mandate("not a dict", private_pem)
+            sign_mandate_for_test("not a dict", private_pem)
     
     def test_sign_mandate_empty_key(self, sample_mandate):
         """Test signing with empty private key."""
         with pytest.raises(ValueError, match="cannot be empty"):
-            crypto.sign_mandate(sample_mandate, "")
+            sign_mandate_for_test(sample_mandate, "")
     
     def test_sign_mandate_invalid_key(self, sample_mandate):
         """Test signing with invalid private key."""
         with pytest.raises(ValueError, match="Invalid private key"):
-            crypto.sign_mandate(sample_mandate, "invalid key")
+            sign_mandate_for_test(sample_mandate, "invalid key")
     
     @pytest.mark.skip(reason="ECDSA signatures are non-deterministic by default in cryptography library")
     def test_sign_mandate_deterministic(self, ec_key_pair, sample_mandate):
         """Test that signing is deterministic."""
         private_pem, _ = ec_key_pair
-        sig1 = crypto.sign_mandate(sample_mandate, private_pem)
-        sig2 = crypto.sign_mandate(sample_mandate, private_pem)
+        sig1 = sign_mandate_for_test(sample_mandate, private_pem)
+        sig2 = sign_mandate_for_test(sample_mandate, private_pem)
         
         # ECDSA with RFC 6979 should be deterministic
         assert sig1 == sig2
@@ -97,7 +98,7 @@ class TestVerifyMandateSignature:
     def test_verify_valid_signature(self, ec_key_pair, sample_mandate):
         """Test verifying a valid signature."""
         private_pem, public_pem = ec_key_pair
-        signature = crypto.sign_mandate(sample_mandate, private_pem)
+        signature = sign_mandate_for_test(sample_mandate, private_pem)
         
         is_valid = crypto.verify_mandate_signature(sample_mandate, signature, public_pem)
         assert is_valid is True
@@ -113,7 +114,7 @@ class TestVerifyMandateSignature:
     def test_verify_tampered_data(self, ec_key_pair, sample_mandate):
         """Test verifying signature with tampered data."""
         private_pem, public_pem = ec_key_pair
-        signature = crypto.sign_mandate(sample_mandate, private_pem)
+        signature = sign_mandate_for_test(sample_mandate, private_pem)
         
         # Tamper with the data
         tampered_mandate = sample_mandate.copy()
@@ -160,7 +161,7 @@ class TestSignMerkleRoot:
         private_pem, _ = ec_key_pair
         merkle_root = b"0" * 32  # 32-byte hash
         
-        signature = crypto.sign_merkle_root(merkle_root, private_pem)
+        signature = sign_merkle_root_for_test(merkle_root, private_pem)
         
         assert signature is not None
         assert isinstance(signature, str)
@@ -171,25 +172,25 @@ class TestSignMerkleRoot:
         """Test signing empty Merkle root."""
         private_pem, _ = ec_key_pair
         with pytest.raises(ValueError, match="cannot be empty"):
-            crypto.sign_merkle_root(b"", private_pem)
+            sign_merkle_root_for_test(b"", private_pem)
     
     def test_sign_merkle_root_wrong_size(self, ec_key_pair):
         """Test signing Merkle root with wrong size."""
         private_pem, _ = ec_key_pair
         with pytest.raises(ValueError, match="must be 32 bytes"):
-            crypto.sign_merkle_root(b"0" * 16, private_pem)
+            sign_merkle_root_for_test(b"0" * 16, private_pem)
     
     def test_sign_merkle_root_empty_key(self):
         """Test signing with empty private key."""
         merkle_root = b"0" * 32
         with pytest.raises(ValueError, match="cannot be empty"):
-            crypto.sign_merkle_root(merkle_root, "")
+            sign_merkle_root_for_test(merkle_root, "")
     
     def test_sign_merkle_root_invalid_key(self):
         """Test signing with invalid private key."""
         merkle_root = b"0" * 32
         with pytest.raises(ValueError, match="Invalid private key"):
-            crypto.sign_merkle_root(merkle_root, "invalid key")
+            sign_merkle_root_for_test(merkle_root, "invalid key")
 
 
 @pytest.mark.unit
@@ -201,7 +202,7 @@ class TestVerifyMerkleRoot:
         private_pem, public_pem = ec_key_pair
         merkle_root = b"0" * 32
         
-        signature = crypto.sign_merkle_root(merkle_root, private_pem)
+        signature = sign_merkle_root_for_test(merkle_root, private_pem)
         is_valid = crypto.verify_merkle_root(merkle_root, signature, public_pem)
         
         assert is_valid is True
@@ -219,7 +220,7 @@ class TestVerifyMerkleRoot:
         """Test verifying signature with tampered Merkle root."""
         private_pem, public_pem = ec_key_pair
         merkle_root = b"0" * 32
-        signature = crypto.sign_merkle_root(merkle_root, private_pem)
+        signature = sign_merkle_root_for_test(merkle_root, private_pem)
         
         tampered_root = b"1" * 32
         is_valid = crypto.verify_merkle_root(tampered_root, signature, public_pem)
@@ -260,7 +261,7 @@ class TestCryptoIntegration:
         private_pem, public_pem = ec_key_pair
         
         # Sign
-        signature = crypto.sign_mandate(sample_mandate, private_pem)
+        signature = sign_mandate_for_test(sample_mandate, private_pem)
         
         # Verify
         is_valid = crypto.verify_mandate_signature(sample_mandate, signature, public_pem)
@@ -273,7 +274,7 @@ class TestCryptoIntegration:
         merkle_root = b"a" * 32
         
         # Sign
-        signature = crypto.sign_merkle_root(merkle_root, private_pem)
+        signature = sign_merkle_root_for_test(merkle_root, private_pem)
         
         # Verify
         is_valid = crypto.verify_merkle_root(merkle_root, signature, public_pem)
@@ -298,7 +299,7 @@ class TestCryptoIntegration:
         ).decode()
         
         # Sign with key1, verify with key2
-        signature = crypto.sign_mandate(sample_mandate, private_pem1)
+        signature = sign_mandate_for_test(sample_mandate, private_pem1)
         is_valid = crypto.verify_mandate_signature(sample_mandate, signature, public_pem2)
         
         assert is_valid is False
