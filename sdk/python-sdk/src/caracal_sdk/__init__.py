@@ -31,6 +31,9 @@ from caracal_sdk.mandates import MandateOperations
 from caracal_sdk.delegation import DelegationOperations
 from caracal_sdk.ledger import LedgerOperations
 from caracal_sdk.gateway import GatewayAdapter, GatewayAdapterError, build_gateway_adapter
+import caracal_sdk.management as management
+import caracal_sdk.migration as migration
+import caracal_sdk.ais as ais
 from caracal_sdk.adapters import (
     BaseAdapter,
     HttpAdapter,
@@ -67,6 +70,10 @@ __all__ = [
     "GatewayAdapter",
     "GatewayAdapterError",
     "build_gateway_adapter",
+    # grouped surfaces
+    "management",
+    "migration",
+    "ais",
 ]
 
 

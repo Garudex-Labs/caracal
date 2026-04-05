@@ -700,7 +700,7 @@ def _list_providers(console: Console) -> None:
 
 def _add_provider(console: Console, state: FlowState) -> None:
     edition_adapter = get_deployment_edition_adapter()
-    if edition_adapter.is_enterprise():
+    if not edition_adapter.allows_local_provider_management():
         console.print(
             f"  [{Colors.WARNING}]{Icons.WARNING} Enterprise mode detected.[/] "
             f"[{Colors.DIM}]Register providers in the gateway vault/registry.[/]"
