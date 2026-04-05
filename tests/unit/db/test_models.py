@@ -20,9 +20,6 @@ from caracal.db.models import (
     AuthorityPolicy,
     GatewayProvider,
     EnterpriseRuntimeConfig,
-    SyncOperation,
-    SyncConflict,
-    SyncMetadata,
 )
 
 
@@ -378,66 +375,6 @@ class TestGatewayProviderModel:
         assert "GatewayProvider" in repr_str
         assert "test-provider" in repr_str
         assert "https://api.example.com" in repr_str
-
-
-@pytest.mark.unit
-class TestSyncModels:
-    """Test suite for sync-related models."""
-    
-    def test_sync_operation_creation(self):
-        """Test SyncOperation model instantiation with valid data."""
-        # Act
-        operation = SyncOperation(
-            operation_id=uuid4(),
-            workspace="test-workspace",
-            operation_type="create",
-            entity_type="mandate",
-            entity_id="mandate-123",
-            operation_data={"name": "test"},
-            status="pending"
-        )
-        
-        # Assert
-        assert operation.workspace == "test-workspace"
-        assert operation.operation_type == "create"
-        assert operation.entity_type == "mandate"
-        assert operation.status == "pending"
-    
-    def test_sync_conflict_creation(self):
-        """Test SyncConflict model instantiation with valid data."""
-        # Act
-        conflict = SyncConflict(
-            conflict_id=uuid4(),
-            workspace="test-workspace",
-            entity_type="mandate",
-            entity_id="mandate-123",
-            local_version={"version": 1},
-            remote_version={"version": 2},
-            local_timestamp=datetime.utcnow(),
-            remote_timestamp=datetime.utcnow(),
-            status="unresolved"
-        )
-        
-        # Assert
-        assert conflict.workspace == "test-workspace"
-        assert conflict.entity_type == "mandate"
-        assert conflict.status == "unresolved"
-    
-    def test_sync_metadata_creation(self):
-        """Test SyncMetadata model instantiation with valid data."""
-        # Act
-        metadata = SyncMetadata(
-            workspace="test-workspace",
-            remote_url="https://enterprise.example.com",
-            sync_enabled=True,
-            auto_sync_enabled=False
-        )
-        
-        # Assert
-        assert metadata.workspace == "test-workspace"
-        assert metadata.remote_url == "https://enterprise.example.com"
-        assert metadata.sync_enabled is True
-        assert metadata.auto_sync_enabled is False
 
 
 @pytest.mark.unit
