@@ -53,6 +53,8 @@ AIS_SESSION_ALGORITHM_ENV = "CARACAL_SESSION_SIGNING_ALGORITHM"
 AIS_SESSION_ALGORITHM_FALLBACK_ENV = "CARACAL_SESSION_JWT_ALGORITHM"
 AIS_SESSION_CAVEAT_MODE_ENV = "CARACAL_SESSION_CAVEAT_MODE"
 AIS_SESSION_CAVEAT_HMAC_KEY_ENV = "CARACAL_SESSION_CAVEAT_HMAC_KEY"
+AIS_REVOCATION_EVENTS_CHANNEL_ENV = "CARACAL_REVOCATION_EVENTS_CHANNEL"
+AIS_DEFAULT_REVOCATION_EVENTS_CHANNEL = "caracal:identity:revocation_events"
 
 _EMBEDDED_COMPOSE_FILE = resolve_caracal_home(require_explicit=False) / "runtime" / "docker-compose.image.yml"
 _EMBEDDED_COMPOSE_CONTENT = """name: caracal
@@ -1632,6 +1634,36 @@ def _create_runtime_redis_client():
     return RedisClient(host=redis_host, port=redis_port, password=redis_password)
 
 
+def _create_runtime_revocation_event_publisher(*, redis_client: object | None = None):
+    from caracal.core.revocation_publishers import RedisPubSubRevocationEventPublisher
+
+    resolved_channel = (
+        os.environ.get(AIS_REVOCATION_EVENTS_CHANNEL_ENV) or AIS_DEFAULT_REVOCATION_EVENTS_CHANNEL
+    ).strip()
+    if not resolved_channel:
+        raise RuntimeError(f"{AIS_REVOCATION_EVENTS_CHANNEL_ENV} cannot be empty")
+
+    resolved_redis_client = redis_client or _create_runtime_redis_client()
+    return RedisPubSubRevocationEventPublisher(
+        resolved_redis_client,
+        channel=resolved_channel,
+    )
+
+
+def _create_ttl_revocation_orchestrator_factory(*, redis_client: object | None = None):
+    from caracal.core.revocation import PrincipalRevocationOrchestrator
+
+    publisher = _create_runtime_revocation_event_publisher(redis_client=redis_client)
+
+    def _factory(session: object) -> PrincipalRevocationOrchestrator:
+        return PrincipalRevocationOrchestrator(
+            db_session=session,
+            revocation_event_publisher=publisher,
+        )
+
+    return _factory
+
+
 def _run_sync(coro):
     import asyncio
     import threading
@@ -1843,8 +1875,17 @@ def _reconcile_principal_ttl_expiries(
 ) -> int:
     from caracal.identity.principal_ttl import PrincipalTTLExpiryProcessor, PrincipalTTLManager
 
-    resolved_manager = principal_ttl_manager or PrincipalTTLManager(_create_runtime_redis_client())
-    resolved_processor = expiry_processor or PrincipalTTLExpiryProcessor(db_manager=_create_ais_db_manager())
+    resolved_redis_client = None
+    if principal_ttl_manager is None or expiry_processor is None:
+        resolved_redis_client = _create_runtime_redis_client()
+
+    resolved_manager = principal_ttl_manager or PrincipalTTLManager(resolved_redis_client)
+    resolved_processor = expiry_processor or PrincipalTTLExpiryProcessor(
+        db_manager=_create_ais_db_manager(),
+        revocation_orchestrator_factory=_create_ttl_revocation_orchestrator_factory(
+            redis_client=resolved_redis_client,
+        ),
+    )
 
     reconcile = getattr(resolved_manager, "reconcile_expired_principals", None)
     process = getattr(resolved_processor, "process", None)
@@ -1869,8 +1910,17 @@ def _run_principal_ttl_listener(
 ) -> None:
     from caracal.identity.principal_ttl import PrincipalTTLExpiryProcessor, PrincipalTTLManager
 
-    resolved_manager = principal_ttl_manager or PrincipalTTLManager(_create_runtime_redis_client())
-    resolved_processor = expiry_processor or PrincipalTTLExpiryProcessor(db_manager=_create_ais_db_manager())
+    resolved_redis_client = None
+    if principal_ttl_manager is None or expiry_processor is None:
+        resolved_redis_client = _create_runtime_redis_client()
+
+    resolved_manager = principal_ttl_manager or PrincipalTTLManager(resolved_redis_client)
+    resolved_processor = expiry_processor or PrincipalTTLExpiryProcessor(
+        db_manager=_create_ais_db_manager(),
+        revocation_orchestrator_factory=_create_ttl_revocation_orchestrator_factory(
+            redis_client=resolved_redis_client,
+        ),
+    )
 
     iter_messages = getattr(resolved_manager, "iter_expiry_messages", None)
     claim_message = getattr(resolved_manager, "claim_expiry_message", None)
@@ -1924,7 +1974,12 @@ def _run_ais_server() -> int:
         resolved_db_manager = _create_ais_db_manager()
         resolved_redis_client = _create_runtime_redis_client()
         principal_ttl_manager = PrincipalTTLManager(resolved_redis_client)
-        expiry_processor = PrincipalTTLExpiryProcessor(db_manager=resolved_db_manager)
+        expiry_processor = PrincipalTTLExpiryProcessor(
+            db_manager=resolved_db_manager,
+            revocation_orchestrator_factory=_create_ttl_revocation_orchestrator_factory(
+                redis_client=resolved_redis_client,
+            ),
+        )
         _complete_ais_startup_attestation(
             startup_principal,
             db_manager=resolved_db_manager,
