@@ -16,9 +16,10 @@ import socket
 import subprocess
 import sys
 import time
+import urllib.parse
 import urllib.request
 from pathlib import Path
-from typing import Callable, Sequence
+from typing import Any, Callable, Sequence
 
 from caracal.runtime.hardcut_preflight import assert_runtime_hardcut
 from caracal.storage.layout import resolve_caracal_home
@@ -45,6 +46,10 @@ AIS_DEFAULT_API_PREFIX = "/v1/ais"
 AIS_DEFAULT_UNIX_SOCKET_PATH = "/tmp/caracal-ais.sock"
 AIS_DEFAULT_LISTEN_HOST = "127.0.0.1"
 AIS_DEFAULT_LISTEN_PORT = 7079
+AIS_SESSION_SIGNING_KEY_REF_ENV = "CARACAL_VAULT_SIGNING_KEY_REF"
+AIS_SESSION_VERIFY_KEY_REF_ENV = "CARACAL_VAULT_SESSION_PUBLIC_KEY_REF"
+AIS_SESSION_ALGORITHM_ENV = "CARACAL_SESSION_SIGNING_ALGORITHM"
+AIS_SESSION_ALGORITHM_FALLBACK_ENV = "CARACAL_SESSION_JWT_ALGORITHM"
 
 _EMBEDDED_COMPOSE_FILE = resolve_caracal_home(require_explicit=False) / "runtime" / "docker-compose.image.yml"
 _EMBEDDED_COMPOSE_CONTENT = """name: caracal
@@ -1346,21 +1351,316 @@ def _consume_ais_startup_attestation(
     return normalized_principal
 
 
-def _build_ais_handlers():
-    from fastapi import HTTPException
-    from caracal.identity import AISHandlers
+def _resolve_runtime_redis_url() -> str:
+    redis_url = (os.environ.get("REDIS_URL") or "").strip()
+    if redis_url:
+        return redis_url
 
-    def _unwired(_: object) -> dict[str, str]:
-        raise HTTPException(status_code=503, detail="AIS runtime handlers are not wired")
+    host = (os.environ.get("REDIS_HOST") or "localhost").strip() or "localhost"
+    port = _parse_int_env("REDIS_PORT", 6379)
+    password = (os.environ.get("REDIS_PASSWORD") or "").strip()
+    if password:
+        encoded_password = urllib.parse.quote(password, safe="")
+        return f"redis://:{encoded_password}@{host}:{port}/0"
+    return f"redis://{host}:{port}/0"
+
+
+def _resolve_ais_vault_secret(secret_ref: str) -> str:
+    from caracal.core.vault import gateway_context, get_vault
+
+    normalized_ref = str(secret_ref or "").strip().strip("/")
+    if not normalized_ref:
+        raise RuntimeError("AIS vault secret reference cannot be empty")
+
+    org_id = (
+        os.environ.get("CARACAL_VAULT_PROJECT_ID")
+        or os.environ.get("CARACAL_VAULT_PROJECT_SLUG")
+        or os.environ.get("CARACAL_VAULT_ORG_ID")
+        or "caracal"
+    )
+    env_id = (
+        os.environ.get("CARACAL_VAULT_ENVIRONMENT")
+        or os.environ.get("CARACAL_VAULT_ENV")
+        or os.environ.get("CARACAL_VAULT_ENV_ID")
+        or "runtime"
+    )
+
+    with gateway_context():
+        return get_vault().get(org_id=str(org_id), env_id=str(env_id), name=normalized_ref)
+
+
+def _resolve_session_signing_algorithm(signing_key_pem: str) -> str:
+    configured = (
+        os.environ.get(AIS_SESSION_ALGORITHM_ENV)
+        or os.environ.get(AIS_SESSION_ALGORITHM_FALLBACK_ENV)
+        or ""
+    ).strip()
+    if configured:
+        return configured.upper()
+
+    try:
+        from cryptography.hazmat.backends import default_backend
+        from cryptography.hazmat.primitives import serialization
+        from cryptography.hazmat.primitives.asymmetric import ec, rsa
+
+        private_key = serialization.load_pem_private_key(
+            signing_key_pem.encode("utf-8"),
+            password=None,
+            backend=default_backend(),
+        )
+        if isinstance(private_key, rsa.RSAPrivateKey):
+            return "RS256"
+        if isinstance(private_key, ec.EllipticCurvePrivateKey):
+            return "ES256"
+    except Exception:
+        pass
+
+    return "RS256"
+
+
+def _create_ais_session_manager():
+    from caracal.core.session_manager import RedisSessionDenylistBackend, SessionManager
+
+    signing_key_ref = (os.environ.get(AIS_SESSION_SIGNING_KEY_REF_ENV) or "").strip()
+    if not signing_key_ref:
+        raise RuntimeError(
+            f"{AIS_SESSION_SIGNING_KEY_REF_ENV} is required to issue AIS session tokens"
+        )
+
+    signing_key = _resolve_ais_vault_secret(signing_key_ref)
+
+    verify_key_ref = (os.environ.get(AIS_SESSION_VERIFY_KEY_REF_ENV) or "").strip()
+    if not verify_key_ref:
+        raise RuntimeError(
+            f"{AIS_SESSION_VERIFY_KEY_REF_ENV} is required to validate AIS session tokens"
+        )
+    verify_key = _resolve_ais_vault_secret(verify_key_ref)
+
+    return SessionManager(
+        signing_key=signing_key,
+        verify_key=verify_key,
+        algorithm=_resolve_session_signing_algorithm(signing_key),
+        denylist_backend=RedisSessionDenylistBackend(_resolve_runtime_redis_url()),
+        issuer="caracal-runtime-ais",
+        audience="caracal-session",
+    )
+
+
+def _create_ais_db_manager():
+    from caracal.config import load_config
+    from caracal.db.connection import get_db_manager
+
+    resolved_config_path = os.environ.get("CARACAL_CONFIG_PATH")
+    core_config = load_config(resolved_config_path, suppress_missing_file_log=True, emit_logs=False)
+    return get_db_manager(core_config)
+
+
+def _create_runtime_redis_client():
+    from caracal.redis.client import RedisClient
+
+    redis_host = (os.environ.get("REDIS_HOST") or "localhost").strip() or "localhost"
+    redis_port = _parse_int_env("REDIS_PORT", 6379)
+    redis_password = (os.environ.get("REDIS_PASSWORD") or "").strip() or None
+    return RedisClient(host=redis_host, port=redis_port, password=redis_password)
+
+
+def _run_sync(coro):
+    import asyncio
+    import threading
+
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return asyncio.run(coro)
+
+    result: dict[str, Any] = {}
+    failure: dict[str, BaseException] = {}
+
+    def _runner() -> None:
+        try:
+            result["value"] = asyncio.run(coro)
+        except BaseException as exc:  # pragma: no cover - defensive edge case
+            failure["error"] = exc
+
+    thread = threading.Thread(target=_runner, daemon=True)
+    thread.start()
+    thread.join()
+
+    if "error" in failure:
+        raise failure["error"]
+    return result.get("value")
+
+
+def _serialize_issued_session(issued: object) -> dict[str, Any]:
+    access_expires_at = getattr(issued, "access_expires_at", None)
+    refresh_expires_at = getattr(issued, "refresh_expires_at", None)
+    serialized_access_exp = access_expires_at.isoformat() if access_expires_at is not None else None
+    serialized_refresh_exp = refresh_expires_at.isoformat() if refresh_expires_at is not None else None
+    return {
+        "access_token": getattr(issued, "access_token"),
+        "access_expires_at": serialized_access_exp,
+        "expires_at": serialized_access_exp,
+        "session_id": getattr(issued, "session_id", None),
+        "token_jti": getattr(issued, "token_jti", None),
+        "refresh_token": getattr(issued, "refresh_token", None),
+        "refresh_expires_at": serialized_refresh_exp,
+        "refresh_jti": getattr(issued, "refresh_jti", None),
+    }
+
+
+def _build_ais_handlers(
+    *,
+    db_manager: object | None = None,
+    session_manager: object | None = None,
+    redis_client: object | None = None,
+):
+    from datetime import timedelta
+
+    from fastapi import HTTPException
+    from caracal.core.identity import PrincipalRegistry
+    from caracal.core.session_manager import SessionKind, SessionValidationError
+    from caracal.core.signing_service import SigningService
+    from caracal.core.spawn import SpawnManager
+    from caracal.exceptions import DuplicatePrincipalNameError, PrincipalNotFoundError
+    from caracal.identity import AISHandlers
+    from caracal.identity.attestation_nonce import AttestationNonceManager
+    from caracal.identity.service import IdentityService
+
+    resolved_db_manager = db_manager or _create_ais_db_manager()
+    resolved_session_manager = session_manager or _create_ais_session_manager()
+    resolved_redis_client = redis_client or _create_runtime_redis_client()
+
+    def _raise_http_error(exc: Exception) -> None:
+        if isinstance(exc, HTTPException):
+            raise exc
+        if isinstance(exc, PrincipalNotFoundError):
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        if isinstance(exc, DuplicatePrincipalNameError):
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        if isinstance(exc, SessionValidationError):
+            raise HTTPException(status_code=401, detail=str(exc)) from exc
+        if isinstance(exc, ValueError):
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise HTTPException(status_code=500, detail=f"AIS runtime operation failed: {exc}") from exc
+
+    def _get_identity(principal_id: str) -> dict[str, Any] | None:
+        try:
+            with resolved_db_manager.session_scope() as session:
+                identity_service = IdentityService(principal_registry=PrincipalRegistry(session))
+                identity = identity_service.get_principal(principal_id)
+                return identity.to_dict() if identity is not None else None
+        except Exception as exc:
+            _raise_http_error(exc)
+
+    def _issue_token(request: object) -> dict[str, Any]:
+        try:
+            session_kind = SessionKind(str(getattr(request, "session_kind", "automation")).strip().lower())
+            issued = resolved_session_manager.issue_session(
+                subject_id=str(getattr(request, "principal_id")),
+                organization_id=str(getattr(request, "organization_id")),
+                tenant_id=str(getattr(request, "tenant_id")),
+                session_kind=session_kind,
+                workspace_id=getattr(request, "workspace_id", None),
+                directory_scope=getattr(request, "directory_scope", None),
+                include_refresh=bool(getattr(request, "include_refresh", True)),
+                extra_claims=getattr(request, "extra_claims", None),
+            )
+            return _serialize_issued_session(issued)
+        except Exception as exc:
+            _raise_http_error(exc)
+
+    def _sign_payload(request: object) -> dict[str, Any]:
+        try:
+            with resolved_db_manager.session_scope() as session:
+                principal_registry = PrincipalRegistry(session)
+                signing_service = SigningService(principal_registry)
+                signature = signing_service.sign_canonical_payload_for_principal(
+                    principal_id=str(getattr(request, "principal_id")),
+                    payload=dict(getattr(request, "payload", {}) or {}),
+                )
+            return {"signature": signature}
+        except Exception as exc:
+            _raise_http_error(exc)
+
+    def _spawn_principal(request: object) -> dict[str, Any]:
+        try:
+            with resolved_db_manager.session_scope() as session:
+                principal_registry = PrincipalRegistry(session)
+                spawn_manager = SpawnManager(
+                    session,
+                    attestation_nonce_manager=AttestationNonceManager(resolved_redis_client),
+                )
+                identity_service = IdentityService(
+                    principal_registry=principal_registry,
+                    spawn_manager=spawn_manager,
+                )
+                spawn_result = identity_service.spawn_principal(
+                    issuer_principal_id=str(getattr(request, "issuer_principal_id")),
+                    principal_name=str(getattr(request, "principal_name")),
+                    principal_kind=str(getattr(request, "principal_kind")),
+                    owner=str(getattr(request, "owner")),
+                    resource_scope=list(getattr(request, "resource_scope", []) or []),
+                    action_scope=list(getattr(request, "action_scope", []) or []),
+                    validity_seconds=int(getattr(request, "validity_seconds")),
+                    idempotency_key=str(getattr(request, "idempotency_key")),
+                    source_mandate_id=getattr(request, "source_mandate_id", None),
+                    network_distance=getattr(request, "network_distance", None),
+                )
+            return {
+                "principal_id": spawn_result.principal_id,
+                "principal_name": spawn_result.principal_name,
+                "principal_kind": spawn_result.principal_kind,
+                "mandate_id": spawn_result.mandate_id,
+                "attestation_bootstrap_artifact": spawn_result.attestation_bootstrap_artifact,
+                "attestation_nonce": spawn_result.attestation_nonce,
+                "idempotent_replay": spawn_result.idempotent_replay,
+            }
+        except Exception as exc:
+            _raise_http_error(exc)
+
+    def _derive_task_token(request: object) -> dict[str, Any]:
+        try:
+            issued = resolved_session_manager.issue_task_token(
+                parent_access_token=str(getattr(request, "parent_access_token")),
+                task_id=str(getattr(request, "task_id")),
+                caveats=list(getattr(request, "caveats", []) or []),
+                ttl=timedelta(seconds=int(getattr(request, "ttl_seconds", 300))),
+            )
+            return _serialize_issued_session(issued)
+        except Exception as exc:
+            _raise_http_error(exc)
+
+    def _issue_handoff_token(request: object) -> dict[str, Any]:
+        try:
+            token = resolved_session_manager.issue_handoff_token(
+                source_access_token=str(getattr(request, "source_access_token")),
+                target_subject_id=str(getattr(request, "target_subject_id")),
+                caveats=getattr(request, "caveats", None),
+                ttl=timedelta(seconds=int(getattr(request, "ttl_seconds", 120))),
+            )
+            return {"handoff_token": token}
+        except Exception as exc:
+            _raise_http_error(exc)
+
+    def _refresh_session(request: object) -> dict[str, Any]:
+        try:
+            issued = _run_sync(
+                resolved_session_manager.refresh_session(
+                    str(getattr(request, "refresh_token")),
+                )
+            )
+            return _serialize_issued_session(issued)
+        except Exception as exc:
+            _raise_http_error(exc)
 
     return AISHandlers(
-        get_identity=lambda _principal_id: None,
-        issue_token=_unwired,
-        sign_payload=_unwired,
-        spawn_principal=_unwired,
-        derive_task_token=_unwired,
-        issue_handoff_token=_unwired,
-        refresh_session=_unwired,
+        get_identity=_get_identity,
+        issue_token=_issue_token,
+        sign_payload=_sign_payload,
+        spawn_principal=_spawn_principal,
+        derive_task_token=_derive_task_token,
+        issue_handoff_token=_issue_handoff_token,
+        refresh_session=_refresh_session,
     )
 
 

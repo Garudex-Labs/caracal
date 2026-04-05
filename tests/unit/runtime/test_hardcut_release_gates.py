@@ -180,3 +180,11 @@ def test_enterprise_code_has_no_direct_registry_or_spawn_manager_usage() -> None
             offenders.append(str(py_file.relative_to(_REPO_ROOT)))
 
     assert offenders == []
+
+
+@pytest.mark.unit
+def test_runtime_ais_handlers_are_not_stubbed() -> None:
+    runtime_entrypoints = _REPO_ROOT / "caracal" / "runtime" / "entrypoints.py"
+    payload = runtime_entrypoints.read_text(encoding="utf-8")
+
+    assert "AIS runtime handlers are not wired" not in payload
