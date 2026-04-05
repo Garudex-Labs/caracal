@@ -90,3 +90,24 @@ def test_mandate_manager_uses_signing_service_for_signature_generation() -> None
 
     assert "sign_canonical_payload_for_principal(" in payload
     assert "from caracal.core.crypto import sign_mandate" not in payload
+
+
+@pytest.mark.unit
+def test_runtime_code_has_no_direct_registry_register_callsites() -> None:
+    source_root = _REPO_ROOT / "caracal"
+    offenders: list[str] = []
+
+    for py_file in source_root.rglob("*.py"):
+        payload = py_file.read_text(encoding="utf-8")
+
+        # Core registry implementation is allowed to define registration internals.
+        if py_file.relative_to(_REPO_ROOT).as_posix() in {
+            "caracal/core/identity.py",
+            "caracal/identity/service.py",
+        }:
+            continue
+
+        if "registry.register_principal(" in payload:
+            offenders.append(str(py_file.relative_to(_REPO_ROOT)))
+
+    assert offenders == []

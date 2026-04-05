@@ -28,6 +28,7 @@ from sqlalchemy import or_
 from caracal.db.connection import get_db_manager
 from caracal.db.models import AuthorityLedgerEvent, AuthorityPolicy, ExecutionMandate, Principal
 from caracal.core.identity import PrincipalRegistry
+from caracal.identity.service import IdentityService
 from caracal.flow.components.menu import show_menu
 from caracal.flow.components.prompt import FlowPrompt
 from caracal.flow.theme import Colors, Icons
@@ -186,7 +187,8 @@ class PrincipalFlow:
             
             with db_manager.session_scope() as db_session:
                 registry = PrincipalRegistry(db_session)
-                identity = registry.register_principal(
+                identity_service = IdentityService(principal_registry=registry)
+                identity = identity_service.register_principal(
                     name=name,
                     principal_kind=principal_kind,
                     owner=owner,
