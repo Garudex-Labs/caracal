@@ -70,12 +70,6 @@ class WorkspaceConfig:
     created_at: datetime
     updated_at: datetime
     is_default: bool
-    sync_enabled: bool
-    sync_url: Optional[str]
-    sync_direction: SyncDirection
-    auto_sync_interval: Optional[int]  # seconds
-    last_sync: Optional[datetime]
-    conflict_strategy: ConflictStrategy
     metadata: Dict[str, Any]
 
 
@@ -115,17 +109,9 @@ class ConfigManager:
     # Workspace templates
     TEMPLATES = {
         "enterprise": {
-            "sync_enabled": True,
-            "sync_direction": SyncDirection.BIDIRECTIONAL,
-            "auto_sync_interval": 300,
-            "conflict_strategy": ConflictStrategy.OPERATIONAL_TRANSFORM,
             "metadata": {"template": "enterprise"}
         },
         "local-dev": {
-            "sync_enabled": False,
-            "sync_direction": SyncDirection.BIDIRECTIONAL,
-            "auto_sync_interval": None,
-            "conflict_strategy": ConflictStrategy.LAST_WRITE_WINS,
             "metadata": {"template": "local-dev"}
         }
     }
@@ -822,23 +808,12 @@ class ConfigManager:
         # Parse dates
         created_at = datetime.fromisoformat(config_dict["created_at"])
         updated_at = datetime.fromisoformat(config_dict["updated_at"])
-        last_sync = None
-        if config_dict.get("last_sync"):
-            last_sync = datetime.fromisoformat(config_dict["last_sync"])
         
         return WorkspaceConfig(
             name=config_dict["name"],
             created_at=created_at,
             updated_at=updated_at,
             is_default=config_dict.get("is_default", False),
-            sync_enabled=config_dict.get("sync_enabled", False),
-            sync_url=config_dict.get("sync_url"),
-            sync_direction=SyncDirection(config_dict.get("sync_direction", "bidirectional")),
-            auto_sync_interval=config_dict.get("auto_sync_interval"),
-            last_sync=last_sync,
-            conflict_strategy=ConflictStrategy(
-                config_dict.get("conflict_strategy", "last_write_wins")
-            ),
             metadata=config_dict.get("metadata", {})
         )
     
@@ -865,12 +840,6 @@ class ConfigManager:
             "created_at": config.created_at.isoformat(),
             "updated_at": config.updated_at.isoformat(),
             "is_default": config.is_default,
-            "sync_enabled": config.sync_enabled,
-            "sync_url": config.sync_url,
-            "sync_direction": config.sync_direction.value,
-            "auto_sync_interval": config.auto_sync_interval,
-            "last_sync": config.last_sync.isoformat() if config.last_sync else None,
-            "conflict_strategy": config.conflict_strategy.value,
             "metadata": config.metadata
         }
         
@@ -1036,12 +1005,6 @@ class ConfigManager:
                     created_at=now,
                     updated_at=now,
                     is_default=not has_default,
-                    sync_enabled=False,
-                    sync_url=None,
-                    sync_direction=SyncDirection.BIDIRECTIONAL,
-                    auto_sync_interval=None,
-                    last_sync=None,
-                    conflict_strategy=ConflictStrategy.LAST_WRITE_WINS,
                     metadata={"source": "workspace_discovery"},
                 )
                 self.set_workspace_config(name, cfg)
@@ -1149,15 +1112,6 @@ class ConfigManager:
                 created_at=now,
                 updated_at=now,
                 is_default=len(self.list_workspaces()) == 0,  # First workspace is default
-                sync_enabled=template_config.get("sync_enabled", False),
-                sync_url=None,
-                sync_direction=template_config.get("sync_direction", SyncDirection.BIDIRECTIONAL),
-                auto_sync_interval=template_config.get("auto_sync_interval"),
-                last_sync=None,
-                conflict_strategy=template_config.get(
-                    "conflict_strategy",
-                    ConflictStrategy.LAST_WRITE_WINS
-                ),
                 metadata=template_config.get("metadata", {})
             )
             

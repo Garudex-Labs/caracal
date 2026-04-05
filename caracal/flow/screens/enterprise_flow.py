@@ -651,24 +651,8 @@ class EnterpriseFlow:
         
         if confirm == "y":
             try:
-                from caracal.deployment.config_manager import ConfigManager
                 from caracal.deployment.edition import Edition
                 from caracal.deployment.migration import MigrationManager
-                from caracal.deployment.sync_engine import SyncEngine
-
-                config_mgr = ConfigManager()
-                sync_engine = SyncEngine()
-
-                for workspace in config_mgr.list_workspaces():
-                    try:
-                        ws_cfg = config_mgr.get_workspace_config(workspace)
-                    except Exception:
-                        continue
-                    if ws_cfg.sync_enabled:
-                        try:
-                            sync_engine.disconnect(workspace)
-                        except Exception:
-                            pass
 
                 try:
                     MigrationManager().migrate_edition(
