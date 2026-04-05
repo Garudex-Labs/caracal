@@ -188,3 +188,33 @@ def test_runtime_ais_handlers_are_not_stubbed() -> None:
     payload = runtime_entrypoints.read_text(encoding="utf-8")
 
     assert "AIS runtime handlers are not wired" not in payload
+
+
+@pytest.mark.unit
+def test_signing_service_uses_vault_reference_not_raw_private_key_resolution() -> None:
+    signing_service_file = _REPO_ROOT / "caracal" / "core" / "signing_service.py"
+    payload = signing_service_file.read_text(encoding="utf-8")
+
+    assert "get_signing_key_reference(" in payload
+    assert "resolve_private_key(" not in payload
+    assert "load_pem_private_key(" not in payload
+
+
+@pytest.mark.unit
+def test_embedded_runtime_compose_includes_vault_sidecar() -> None:
+    runtime_entrypoints = _REPO_ROOT / "caracal" / "runtime" / "entrypoints.py"
+    payload = runtime_entrypoints.read_text(encoding="utf-8")
+
+    assert "CARACAL_VAULT_SIDECAR_IMAGE" in payload
+    assert "CARACAL_VAULT_URL" in payload
+    assert "vault:" in payload
+    assert "/home/caracal/.caracal" not in payload
+
+
+@pytest.mark.unit
+def test_runtime_host_up_pulls_and_starts_vault_sidecar() -> None:
+    runtime_entrypoints = _REPO_ROOT / "caracal" / "runtime" / "entrypoints.py"
+    payload = runtime_entrypoints.read_text(encoding="utf-8")
+
+    assert 'pull_services = ["postgres", "redis", "vault"]' in payload
+    assert '[*up_cmd, "postgres", "redis", "vault", "mcp"]' in payload

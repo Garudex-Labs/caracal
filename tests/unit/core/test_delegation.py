@@ -4,9 +4,10 @@ Unit tests for Delegation core logic.
 This module tests the DelegationTokenManager class and delegation token operations.
 """
 import pytest
+import jwt
 from datetime import datetime, timedelta, timezone
 from uuid import uuid4
-from unittest.mock import Mock, MagicMock, patch
+from unittest.mock import Mock
 
 from caracal.core.delegation import DelegationTokenManager, DelegationTokenClaims
 from caracal.exceptions import (
@@ -48,10 +49,14 @@ class TestDelegationTokenManager:
         mock_principal.metadata = {"public_key_pem": "test_public_key"}
         self.mock_principal_registry.get_principal.return_value = mock_principal
         
-        # Generate real key pair for testing
-        private_key_pem, public_key_pem = self.manager.generate_key_pair()
-        
-        self.mock_principal_registry.resolve_private_key.return_value = private_key_pem
+        private_key_pem, _public_key_pem = self.manager.generate_key_pair()
+        self.manager._signing_service = Mock()
+        self.manager._signing_service.sign_jwt_for_principal.return_value = jwt.encode(
+            {"sub": str(target_id), "iss": str(source_id), "aud": "caracal-core"},
+            private_key_pem,
+            algorithm="ES256",
+            headers={"kid": str(source_id)},
+        )
 
         # Act
         token = self.manager.generate_token(
@@ -102,8 +107,25 @@ class TestDelegationTokenManager:
         
         self.mock_principal_registry.get_principal.return_value = mock_principal_gen
         
+        self.manager._signing_service = Mock()
+        self.manager._signing_service.sign_jwt_for_principal.side_effect = (
+            lambda **kwargs: jwt.encode(
+                kwargs["payload"],
+                private_key_pem,
+                algorithm=kwargs["algorithm"],
+                headers=kwargs["headers"],
+            )
+        )
+        self.manager._signing_service.verify_jwt_for_principal.side_effect = (
+            lambda **kwargs: jwt.decode(
+                kwargs["token"],
+                public_key_pem,
+                algorithms=kwargs["algorithms"],
+                audience=kwargs["audience"],
+            )
+        )
+
         # Generate token
-        self.mock_principal_registry.resolve_private_key.return_value = private_key_pem
         token = self.manager.generate_token(
             source_principal_id=source_id,
             target_principal_id=target_id,
@@ -137,8 +159,25 @@ class TestDelegationTokenManager:
         
         self.mock_principal_registry.get_principal.return_value = mock_principal_gen
         
+        self.manager._signing_service = Mock()
+        self.manager._signing_service.sign_jwt_for_principal.side_effect = (
+            lambda **kwargs: jwt.encode(
+                kwargs["payload"],
+                private_key_pem,
+                algorithm=kwargs["algorithm"],
+                headers=kwargs["headers"],
+            )
+        )
+        self.manager._signing_service.verify_jwt_for_principal.side_effect = (
+            lambda **kwargs: jwt.decode(
+                kwargs["token"],
+                public_key_pem,
+                algorithms=kwargs["algorithms"],
+                audience=kwargs["audience"],
+            )
+        )
+
         # Generate token with very short expiration
-        self.mock_principal_registry.resolve_private_key.return_value = private_key_pem
         token = self.manager.generate_token(
             source_principal_id=source_id,
             target_principal_id=target_id,
@@ -175,8 +214,25 @@ class TestDelegationTokenManager:
         
         self.mock_principal_registry.get_principal.return_value = mock_principal_gen
         
+        self.manager._signing_service = Mock()
+        self.manager._signing_service.sign_jwt_for_principal.side_effect = (
+            lambda **kwargs: jwt.encode(
+                kwargs["payload"],
+                private_key_pem1,
+                algorithm=kwargs["algorithm"],
+                headers=kwargs["headers"],
+            )
+        )
+        self.manager._signing_service.verify_jwt_for_principal.side_effect = (
+            lambda **kwargs: jwt.decode(
+                kwargs["token"],
+                public_key_pem2,
+                algorithms=kwargs["algorithms"],
+                audience=kwargs["audience"],
+            )
+        )
+
         # Generate token with first key
-        self.mock_principal_registry.resolve_private_key.return_value = private_key_pem1
         token = self.manager.generate_token(
             source_principal_id=source_id,
             target_principal_id=target_id,
