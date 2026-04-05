@@ -6,8 +6,7 @@ CLI commands for secret vault management.
 
 Commands:
   caracal secrets list    — list secret refs in (org, env)
-  caracal secrets rotate  — rotate the CaracalVault master key (Starter only)
-  caracal secrets migrate — plan and execute a CaracalVault → AWS SM migration
+  caracal secrets rotate  — rotate the CaracalVault master key
 """
 
 from __future__ import annotations
@@ -82,78 +81,3 @@ def rotate_key(org_id: str, env_id: str, confirm: bool) -> None:
         click.echo(f"Error: {exc}", err=True)
         sys.exit(1)
 
-
-@secrets_group.command(name="migrate")
-@click.option("--org-id", required=True, help="Organisation ID.")
-@click.option("--env-id", default="default", show_default=True, help="Environment ID.")
-@click.option(
-    "--to-tier",
-    required=True,
-    type=click.Choice(["growth", "scale", "enterprise"], case_sensitive=False),
-    help="Target tier for migration (CaracalVault → AWS SM).",
-)
-@click.option("--rotate-credentials", is_flag=True, help="Rotate credentials during migration.")
-@click.option("--dry-run", is_flag=True, help="Show migration plan without executing.")
-@click.option("--confirm", is_flag=True, help="Confirm migration without prompting.")
-def migrate_secrets(
-    org_id: str, env_id: str, to_tier: str,
-    rotate_credentials: bool, dry_run: bool, confirm: bool,
-) -> None:
-    """
-    Migrate secrets from CaracalVault (Starter) to AWS Secrets Manager (Growth+).
-
-    Shows cost estimate and impact summary before confirming.
-    """
-    try:
-        from caracalEnterprise.services.gateway.vault_migration import MigrationOrchestrator
-        orchestrator = MigrationOrchestrator()
-        plan = orchestrator.plan_upgrade(
-            org_id=org_id, env_id=env_id,
-            source_tier="starter", target_tier=to_tier,
-            rotate_credentials=rotate_credentials,
-        )
-    except Exception as exc:
-        click.echo(f"Failed to build migration plan: {exc}", err=True)
-        sys.exit(1)
-
-    # Show plan
-    click.echo(f"\n{'=' * 60}")
-    click.echo(f"  Migration Plan ({plan.plan_id})")
-    click.echo(f"{'=' * 60}")
-    click.echo(f"  Direction   : {plan.source_tier} → {plan.target_tier}")
-    click.echo(f"  Secrets     : {plan.total_secrets}")
-    click.echo(f"  Rotation    : {'yes' if rotate_credentials else 'no'}")
-    if plan.cost_estimate:
-        e = plan.cost_estimate
-        click.echo(f"\n  AWS Estimated Cost:")
-        click.echo(f"    Per month  : ${e.total_per_month_usd:.4f} USD")
-        click.echo(f"    Per year   : ${e.total_per_year_usd:.4f} USD")
-        click.echo(f"    (${e.cost_per_month_usd:.4f}/secret/month + ${e.api_call_cost_per_month_usd:.4f} API calls)")
-    for k, v in plan.impact_summary.items():
-        if k not in ("aws_region",):
-            click.echo(f"  {k.replace('_', ' ').title():30s}: {v}")
-    click.echo(f"{'=' * 60}\n")
-
-    if dry_run:
-        click.echo("Dry run — no changes made.")
-        return
-
-    if not confirm:
-        click.confirm("Proceed with migration?", abort=True)
-
-    try:
-        result = orchestrator.execute_upgrade(plan, actor="cli")
-        click.echo(
-            f"\nMigration {'complete' if result.status.value == 'completed' else 'FAILED'}.\n"
-            f"  Status           : {result.status.value}\n"
-            f"  Migrated         : {result.secrets_migrated}/{result.secrets_total}\n"
-            f"  Validated        : {result.secrets_validated}\n"
-            f"  Failed           : {result.secrets_failed}\n"
-            f"  Duration         : {result.duration_seconds}s"
-        )
-        if result.error:
-            click.echo(f"\nError: {result.error}", err=True)
-            sys.exit(1)
-    except Exception as exc:
-        click.echo(f"Migration execution failed: {exc}", err=True)
-        sys.exit(1)
