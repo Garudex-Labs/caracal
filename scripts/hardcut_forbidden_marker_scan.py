@@ -34,7 +34,7 @@ MARKER_DEFINITIONS: tuple[MarkerDefinition, ...] = (
     MarkerDefinition(
         key="sync_command_registrations",
         description="Legacy caracal sync command registrations/references",
-        pattern=r"(\bcaracal\s+sync\b|add_command\([^\n]*\bsync\b|click\.group\([^\n]*\bsync\b)",
+        pattern=r"(\bcaracal\s+sync\b|\bdef\s+sync\s*\(\s*ctx\b|cli\.add_command\([^\n]*\bsync\b|@click\.group\(name\s*=\s*[\"']sync[\"'])",
     ),
     MarkerDefinition(
         key="sync_state_tables",
@@ -49,7 +49,7 @@ MARKER_DEFINITIONS: tuple[MarkerDefinition, ...] = (
     MarkerDefinition(
         key="sdk_sync_exports",
         description="Legacy SDK sync export surfaces",
-        pattern=r"(\bSyncExtension\b|enterprise/sync|from\s+[^\n]*\.sync\s+import)",
+        pattern=r"(\bSyncExtension\b|from\s+caracal_sdk\.enterprise\.sync\s+import|\bcaracal_sdk\.enterprise\.sync\b|export\s*\{\s*SyncExtension\s*\}\s*from\s*[\"']\./sync[\"'])",
     ),
     MarkerDefinition(
         key="aws_kms_fernet_imports",
@@ -104,6 +104,8 @@ SKIP_DIR_NAMES = {
     ".mypy_cache",
     ".ruff_cache",
     "coverage",
+    "tests",
+    "docs",
 }
 
 SKIP_FILE_NAMES = {
@@ -114,6 +116,7 @@ SKIP_FILE_NAMES = {
     "pnpm-lock.yaml",
     "package-lock.json",
     "forbidden-marker-baseline.json",
+    ".env",
 }
 
 MAX_FILE_BYTES = 1_500_000

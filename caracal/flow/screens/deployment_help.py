@@ -346,29 +346,29 @@ def _show_architecture(console: Console) -> None:
 
 ### Open Source Edition
 - Direct provider API access
-- Local API key storage (encrypted)
+- Vault-backed secret references
 - Broker architecture
 - Self-hosted deployment
 
 ### Enterprise Edition
 - Gateway-based provider access
-- Centralized API key management
-- Workspace synchronization
+- Centralized secret and policy management
+- Enterprise runtime connectivity via /api/sync
 - Multi-user support
 
 ## Components
 
 ### Configuration Manager
 - System-level configuration (~/.caracal/)
-- Encrypted credential storage
+- Workspace configuration and vault reference wiring
 - Workspace management
 - PostgreSQL connection management
 
-### Sync Engine
-- Bidirectional synchronization
-- Conflict resolution (Operational Transform)
-- Offline operation queuing
-- Network resilience
+### Enterprise Runtime Client
+- On-demand enterprise sync execution
+- Runtime status and connectivity checks
+- Explicit connect/disconnect lifecycle
+- Gateway token and webhook coordination
 
 ### Broker (Open Source)
 - Direct provider communication
@@ -385,16 +385,17 @@ def _show_architecture(console: Console) -> None:
 ## Data Storage
 
 All persistent data stored in PostgreSQL:
-- Sync state and operation queues
+- Authority, lifecycle, and revocation state
 - Audit logs (append-only)
+- Runtime persistence metadata
 - Metrics and analytics
-- Conflict history
 
 ## Security
 
-- Age encryption for secrets
-- System keyring integration
-- PBKDF2 key derivation fallback
+- Vault-backed secret custody
+- No file-backed secret storage in hard-cut mode
+- Asymmetric session token signing
+- Fail-closed hard-cut preflight checks
 - File permissions (0700/0600)
 - PostgreSQL SSL support
 """
