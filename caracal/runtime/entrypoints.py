@@ -2075,12 +2075,14 @@ def _start_principal_ttl_listener(
 def _run_ais_server() -> int:
     import asyncio
 
+    from caracal.deployment.edition_adapter import get_deployment_edition_adapter
     from caracal.identity import create_ais_app, resolve_ais_listen_target
     from caracal.identity.principal_ttl import PrincipalTTLExpiryProcessor, PrincipalTTLManager
 
     ttl_listener_stop: threading.Event | None = None
 
     try:
+        get_deployment_edition_adapter(enforce_startup_license_validation=True)
         startup_principal = _consume_ais_startup_attestation()
         resolved_db_manager = _create_ais_db_manager()
         resolved_redis_client = _create_runtime_redis_client()
