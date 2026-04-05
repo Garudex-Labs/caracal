@@ -254,3 +254,14 @@ def test_principal_key_helpers_have_no_raw_private_key_resolution_api() -> None:
     payload = principal_keys_file.read_text(encoding="utf-8")
 
     assert "def resolve_principal_private_key(" not in payload
+    assert "def store_principal_private_key(" not in payload
+    assert "ec.generate_private_key(" not in payload
+    assert "private_bytes(" not in payload
+
+
+@pytest.mark.unit
+def test_delegation_manager_has_no_private_key_generation_helper() -> None:
+    delegation_file = _REPO_ROOT / "caracal" / "core" / "delegation.py"
+    payload = delegation_file.read_text(encoding="utf-8")
+
+    assert "def generate_key_pair(" not in payload

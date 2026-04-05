@@ -654,6 +654,8 @@ def _build_config_from_dict(config_data: Dict[str, Any]) -> CaracalConfig:
         signing_algorithm=merkle_data.get('signing_algorithm', default_config.merkle.signing_algorithm),
         signing_backend=merkle_data.get('signing_backend', default_config.merkle.signing_backend),
         private_key_path=os.path.expanduser(merkle_data.get('private_key_path', default_config.merkle.private_key_path)),
+        vault_key_ref=merkle_data.get('vault_key_ref', default_config.merkle.vault_key_ref),
+        vault_public_key_ref=merkle_data.get('vault_public_key_ref', default_config.merkle.vault_public_key_ref),
         key_encryption_passphrase=merkle_data.get('key_encryption_passphrase', default_config.merkle.key_encryption_passphrase),
         key_rotation_enabled=merkle_data.get('key_rotation_enabled', default_config.merkle.key_rotation_enabled),
         key_rotation_days=merkle_data.get('key_rotation_days', default_config.merkle.key_rotation_days),
@@ -723,13 +725,16 @@ def _build_config_from_dict(config_data: Dict[str, Any]) -> CaracalConfig:
     # in-memory for legacy code paths, but they are always forced on.
     _ = compatibility_data  # Parsed to tolerate legacy config keys.
 
-    if not merkle.private_key_path:
-        from caracal.flow.workspace import get_workspace
-        ws = get_workspace()
-        ws.ensure_dirs()
-        merkle.private_key_path = str(ws.keys_dir / "merkle_signing_key.pem")
+    if merkle.signing_backend == "software":
+        if not merkle.private_key_path:
+            from caracal.flow.workspace import get_workspace
 
-    _ensure_merkle_private_key(Path(merkle.private_key_path))
+            ws = get_workspace()
+            ws.ensure_dirs()
+            merkle.private_key_path = str(ws.keys_dir / "merkle_signing_key.pem")
+
+        if not _is_hardcut_mode_enabled():
+            _ensure_merkle_private_key(Path(merkle.private_key_path))
     
     # Log warnings for authority enforcement configuration
     if authority_enforcement.enabled:
@@ -850,11 +855,20 @@ def _attempt_legacy_workspace_config_repair(config_path: str) -> bool:
                 "port": 6379,
                 "db": 0,
             },
-            "merkle": {
-                "signing_backend": "software",
-                "signing_algorithm": "ES256",
-                "private_key_path": str(workspace_dir / "keys" / "merkle_signing_key.pem"),
-            },
+            "merkle": (
+                {
+                    "signing_backend": "vault",
+                    "signing_algorithm": "ES256",
+                    "vault_key_ref": os.environ.get("CARACAL_VAULT_MERKLE_SIGNING_KEY_REF", ""),
+                    "vault_public_key_ref": os.environ.get("CARACAL_VAULT_MERKLE_PUBLIC_KEY_REF", ""),
+                }
+                if _is_hardcut_mode_enabled()
+                else {
+                    "signing_backend": "software",
+                    "signing_algorithm": "ES256",
+                    "private_key_path": str(workspace_dir / "keys" / "merkle_signing_key.pem"),
+                }
+            ),
         }
 
         with open(cfg, "w") as f:
@@ -1005,12 +1019,28 @@ def _validate_config(config: CaracalConfig) -> None:
     # Enforce mandatory services regardless of legacy compatibility toggles.
     config.compatibility.enable_merkle = True
     config.compatibility.enable_redis = True
+    hardcut_enabled = _is_hardcut_mode_enabled()
 
     # Validate Merkle configuration (mandatory)
-    if config.merkle.signing_backend == "software" and not config.merkle.private_key_path:
+    if hardcut_enabled and config.merkle.signing_backend != "vault":
         raise InvalidConfigurationError(
-            "merkle private_key_path is required when signing_backend is 'software'"
+            "merkle signing_backend must be 'vault' in hard-cut mode. "
+            "Local file-backed Merkle signing is forbidden."
         )
+    if config.merkle.signing_backend == "software":
+        if not config.merkle.private_key_path:
+            raise InvalidConfigurationError(
+                "merkle private_key_path is required when signing_backend is 'software'"
+            )
+    elif config.merkle.signing_backend == "vault":
+        if not config.merkle.vault_key_ref:
+            raise InvalidConfigurationError(
+                "merkle vault_key_ref is required when signing_backend is 'vault'"
+            )
+        if not config.merkle.vault_public_key_ref:
+            raise InvalidConfigurationError(
+                "merkle vault_public_key_ref is required when signing_backend is 'vault'"
+            )
 
     # Cast to int to handle env var string values
     try:
@@ -1036,7 +1066,7 @@ def _validate_config(config: CaracalConfig) -> None:
             f"got '{config.merkle.signing_algorithm}'"
         )
 
-    valid_signing_backends = ["software", "hsm"]
+    valid_signing_backends = ["software", "vault", "hsm"]
     if config.merkle.signing_backend not in valid_signing_backends:
         raise InvalidConfigurationError(
             f"merkle signing_backend must be one of {valid_signing_backends}, "
