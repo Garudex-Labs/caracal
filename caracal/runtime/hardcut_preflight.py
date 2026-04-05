@@ -44,6 +44,11 @@ _REQUIRED_VAULT_ENV_VARS = (
     "CARACAL_VAULT_SIGNING_KEY_REF",
     "CARACAL_VAULT_SESSION_PUBLIC_KEY_REF",
 )
+_SESSION_SIGNING_ALGORITHM_ENV_VARS = (
+    "CARACAL_SESSION_SIGNING_ALGORITHM",
+    "CARACAL_SESSION_JWT_ALGORITHM",
+)
+_ALLOWED_SESSION_SIGNING_ALGORITHMS = ("RS256", "ES256")
 _VAULT_MODE_ENV = "CARACAL_VAULT_MODE"
 _HARDCUT_MODE_ENV = "CARACAL_HARDCUT_MODE"
 _LOCAL_VAULT_MODE_VALUES = ("local", "dev", "development")
@@ -197,6 +202,36 @@ def _secret_backend_violations(env_vars: Mapping[str, str | None] | None) -> lis
     return violations
 
 
+def _asymmetric_session_signing_violations(
+    env_vars: Mapping[str, str | None] | None,
+) -> list[str]:
+    """Reject symmetric/unsupported session JWT algorithms in hard-cut mode."""
+    if env_vars is None:
+        return []
+
+    violations: list[str] = []
+    for env_key in _SESSION_SIGNING_ALGORITHM_ENV_VARS:
+        raw_value = (env_vars.get(env_key) or "").strip()
+        if not raw_value:
+            continue
+
+        normalized = raw_value.upper()
+        if normalized.startswith("HS"):
+            violations.append(
+                f"{env_key}={raw_value!r} is forbidden in hard-cut mode. "
+                "Session tokens must use asymmetric signing algorithms (RS256 or ES256)."
+            )
+            continue
+
+        if normalized not in _ALLOWED_SESSION_SIGNING_ALGORITHMS:
+            violations.append(
+                f"{env_key}={raw_value!r} is unsupported for hard-cut session signing. "
+                f"Use one of {_ALLOWED_SESSION_SIGNING_ALGORITHMS}."
+            )
+
+    return violations
+
+
 def _is_truthy(value: str | None) -> bool:
     return (value or "").strip().lower() in {"1", "true", "yes", "on"}
 
@@ -307,6 +342,7 @@ def assert_runtime_hardcut(
     violations.extend(_compatibility_violations(env_vars))
     violations.extend(_execution_exclusivity_violations(env_vars))
     violations.extend(_secret_backend_violations(env_vars))
+    violations.extend(_asymmetric_session_signing_violations(env_vars))
     violations.extend(_config_path_violations(config_paths))
     violations.extend(_jsonb_violations(models_file=models_file, check_jsonb=check_jsonb))
     _raise_if_violations("runtime", violations)
@@ -328,6 +364,7 @@ def assert_enterprise_hardcut(
     violations.extend(_compatibility_violations(env_vars))
     violations.extend(_execution_exclusivity_violations(env_vars))
     violations.extend(_secret_backend_violations(env_vars))
+    violations.extend(_asymmetric_session_signing_violations(env_vars))
     violations.extend(_config_path_violations(config_paths))
     violations.extend(_jsonb_violations(models_file=models_file, check_jsonb=check_jsonb))
     _raise_if_violations("enterprise-api", violations)
@@ -349,6 +386,7 @@ def assert_migration_hardcut(
     violations.extend(_compatibility_violations(env_vars))
     violations.extend(_execution_exclusivity_violations(env_vars))
     violations.extend(_secret_backend_violations(env_vars))
+    violations.extend(_asymmetric_session_signing_violations(env_vars))
     violations.extend(_config_path_violations(config_paths))
     violations.extend(_jsonb_violations(models_file=models_file, check_jsonb=check_jsonb))
     _raise_if_violations("migration", violations)

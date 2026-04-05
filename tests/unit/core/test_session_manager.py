@@ -5,16 +5,33 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 
 import pytest
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric import rsa
 
 from caracal.core.session_manager import (
     SessionKind,
+    SessionError,
     SessionManager,
     SessionRevokedError,
     SessionValidationError,
 )
 
 
-TEST_SIGNING_KEY = "test-secret-32-bytes-minimum-key-material-0001"
+def _generate_rsa_key_pair() -> tuple[str, str]:
+    private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    private_pem = private_key.private_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PrivateFormat.PKCS8,
+        encryption_algorithm=serialization.NoEncryption(),
+    ).decode("utf-8")
+    public_pem = private_key.public_key().public_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PublicFormat.SubjectPublicKeyInfo,
+    ).decode("utf-8")
+    return private_pem, public_pem
+
+
+TEST_SIGNING_KEY, TEST_VERIFY_KEY = _generate_rsa_key_pair()
 
 
 class _InMemoryDenylist:
@@ -49,7 +66,11 @@ class _RecordingAuditSink:
 @pytest.mark.asyncio
 async def test_issue_and_validate_access_token() -> None:
     denylist = _InMemoryDenylist()
-    manager = SessionManager(signing_key=TEST_SIGNING_KEY, denylist_backend=denylist)
+    manager = SessionManager(
+        signing_key=TEST_SIGNING_KEY,
+        verify_key=TEST_VERIFY_KEY,
+        denylist_backend=denylist,
+    )
 
     issued = manager.issue_session(
         subject_id="user-1",
@@ -75,7 +96,7 @@ async def test_issue_and_validate_access_token() -> None:
 @pytest.mark.unit
 @pytest.mark.asyncio
 async def test_validate_access_token_enforces_session_kind() -> None:
-    manager = SessionManager(signing_key=TEST_SIGNING_KEY)
+    manager = SessionManager(signing_key=TEST_SIGNING_KEY, verify_key=TEST_VERIFY_KEY)
 
     issued = manager.issue_session(
         subject_id="user-2",
@@ -95,7 +116,11 @@ async def test_validate_access_token_enforces_session_kind() -> None:
 @pytest.mark.asyncio
 async def test_refresh_session_rotates_refresh_token_and_revokes_old() -> None:
     denylist = _InMemoryDenylist()
-    manager = SessionManager(signing_key=TEST_SIGNING_KEY, denylist_backend=denylist)
+    manager = SessionManager(
+        signing_key=TEST_SIGNING_KEY,
+        verify_key=TEST_VERIFY_KEY,
+        denylist_backend=denylist,
+    )
 
     issued = manager.issue_session(
         subject_id="user-3",
@@ -119,7 +144,11 @@ async def test_refresh_session_rotates_refresh_token_and_revokes_old() -> None:
 @pytest.mark.asyncio
 async def test_revoke_access_token_blocks_future_validation() -> None:
     denylist = _InMemoryDenylist()
-    manager = SessionManager(signing_key=TEST_SIGNING_KEY, denylist_backend=denylist)
+    manager = SessionManager(
+        signing_key=TEST_SIGNING_KEY,
+        verify_key=TEST_VERIFY_KEY,
+        denylist_backend=denylist,
+    )
 
     issued = manager.issue_session(
         subject_id="user-4",
@@ -137,7 +166,7 @@ async def test_revoke_access_token_blocks_future_validation() -> None:
 @pytest.mark.unit
 @pytest.mark.asyncio
 async def test_issue_task_token_is_short_lived_and_has_no_refresh_token() -> None:
-    manager = SessionManager(signing_key=TEST_SIGNING_KEY)
+    manager = SessionManager(signing_key=TEST_SIGNING_KEY, verify_key=TEST_VERIFY_KEY)
     parent = manager.issue_session(
         subject_id="user-5",
         organization_id="org-5",
@@ -165,7 +194,7 @@ async def test_issue_task_token_is_short_lived_and_has_no_refresh_token() -> Non
 @pytest.mark.unit
 @pytest.mark.asyncio
 async def test_task_token_holder_cannot_issue_new_task_token() -> None:
-    manager = SessionManager(signing_key=TEST_SIGNING_KEY)
+    manager = SessionManager(signing_key=TEST_SIGNING_KEY, verify_key=TEST_VERIFY_KEY)
     parent = manager.issue_session(
         subject_id="user-6",
         organization_id="org-6",
@@ -189,7 +218,7 @@ async def test_task_token_holder_cannot_issue_new_task_token() -> None:
 @pytest.mark.unit
 @pytest.mark.asyncio
 async def test_task_token_caveats_must_be_attenuated_subset() -> None:
-    manager = SessionManager(signing_key=TEST_SIGNING_KEY)
+    manager = SessionManager(signing_key=TEST_SIGNING_KEY, verify_key=TEST_VERIFY_KEY)
     parent = manager.issue_session(
         subject_id="user-7",
         organization_id="org-7",
@@ -221,7 +250,11 @@ async def test_task_token_caveats_must_be_attenuated_subset() -> None:
 @pytest.mark.asyncio
 async def test_handoff_token_is_one_time_and_transfers_task_scope() -> None:
     denylist = _InMemoryDenylist()
-    manager = SessionManager(signing_key=TEST_SIGNING_KEY, denylist_backend=denylist)
+    manager = SessionManager(
+        signing_key=TEST_SIGNING_KEY,
+        verify_key=TEST_VERIFY_KEY,
+        denylist_backend=denylist,
+    )
 
     source = manager.issue_session(
         subject_id="worker-a",
@@ -251,7 +284,11 @@ async def test_handoff_token_is_one_time_and_transfers_task_scope() -> None:
 @pytest.mark.asyncio
 async def test_handoff_consumption_revokes_source_token_jti() -> None:
     denylist = _InMemoryDenylist()
-    manager = SessionManager(signing_key=TEST_SIGNING_KEY, denylist_backend=denylist)
+    manager = SessionManager(
+        signing_key=TEST_SIGNING_KEY,
+        verify_key=TEST_VERIFY_KEY,
+        denylist_backend=denylist,
+    )
 
     source = manager.issue_session(
         subject_id="worker-c",
@@ -281,6 +318,7 @@ async def test_task_and_handoff_emit_audit_events() -> None:
     audit_sink = _RecordingAuditSink()
     manager = SessionManager(
         signing_key=TEST_SIGNING_KEY,
+        verify_key=TEST_VERIFY_KEY,
         denylist_backend=denylist,
         audit_sink=audit_sink,
     )
@@ -307,3 +345,9 @@ async def test_task_and_handoff_emit_audit_events() -> None:
     assert "task_token_issued" in event_types
     assert "handoff_token_issued" in event_types
     assert "handoff_token_consumed" in event_types
+
+
+@pytest.mark.unit
+def test_session_manager_rejects_symmetric_algorithms() -> None:
+    with pytest.raises(SessionError, match="Symmetric session signing algorithms"):
+        SessionManager(signing_key=TEST_SIGNING_KEY, algorithm="HS256")
