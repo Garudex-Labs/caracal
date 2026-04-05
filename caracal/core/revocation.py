@@ -163,20 +163,15 @@ class PrincipalRevocationOrchestrator:
         cache_invalidations = 0
         try:
             for target_id in sync_targets:
+                if self.mandate_cache is not None:
+                    cache_invalidations += self._invalidate_mandate_cache_for_principal(target_id)
+
                 unit = self._revoke_single_principal(
                     principal_id=target_id,
                     reason=reason,
                     actor_principal_id=actor_principal_id,
                 )
                 revoked_units.append(unit)
-
-                if self.mandate_cache is not None:
-                    for mandate_id in unit.mandate_ids:
-                        self.mandate_cache.invalidate_mandate(mandate_id)
-                        cache_invalidations += 1
-                    cache_invalidations += int(
-                        self.mandate_cache.invalidate_mandates_by_subject(unit.principal_id)
-                    )
 
             self.db_session.flush()
             self.db_session.commit()
@@ -231,6 +226,18 @@ class PrincipalRevocationOrchestrator:
             await self.denylist_backend.add(value, expires_at)
             count += 1
         return count
+
+    def _invalidate_mandate_cache_for_principal(self, principal_id: UUID) -> int:
+        if self.mandate_cache is None:
+            return 0
+
+        invalidations = 0
+        for mandate in self._list_active_mandates_for_principal(principal_id):
+            self.mandate_cache.invalidate_mandate(mandate.mandate_id)
+            invalidations += 1
+
+        invalidations += int(self.mandate_cache.invalidate_mandates_by_subject(principal_id))
+        return invalidations
 
     async def _publish_revocation_event(
         self,
