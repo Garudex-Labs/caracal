@@ -1638,6 +1638,13 @@ def _create_runtime_redis_client():
 
 def _resolve_runtime_revocation_publisher_mode(*, edition_manager: object | None = None) -> str:
     explicit_mode = (os.environ.get(AIS_REVOCATION_PUBLISHER_MODE_ENV) or "").strip().lower()
+    from caracal.deployment.edition_adapter import get_deployment_edition_adapter
+
+    adapter = edition_manager or get_deployment_edition_adapter()
+    resolve_mode = getattr(adapter, "resolve_revocation_publisher_mode", None)
+    if callable(resolve_mode):
+        return resolve_mode(explicit_mode=explicit_mode)
+
     if explicit_mode:
         if explicit_mode in {"redis", "enterprise_webhook"}:
             return explicit_mode
@@ -1645,24 +1652,15 @@ def _resolve_runtime_revocation_publisher_mode(*, edition_manager: object | None
             f"{AIS_REVOCATION_PUBLISHER_MODE_ENV} must be one of: redis, enterprise_webhook"
         )
 
-    from caracal.deployment.edition_adapter import get_deployment_edition_adapter
-
-    adapter = edition_manager or get_deployment_edition_adapter()
     resolved_is_enterprise = getattr(adapter, "is_enterprise", None)
     if callable(resolved_is_enterprise):
-        try:
-            return "enterprise_webhook" if bool(resolved_is_enterprise()) else "redis"
-        except Exception:
-            return "redis"
+        return "enterprise_webhook" if bool(resolved_is_enterprise()) else "redis"
 
     resolved_get_edition = getattr(adapter, "get_edition", None)
     if not callable(resolved_get_edition):
-        return "redis"
+        raise RuntimeError("Unable to resolve runtime revocation publisher mode from edition adapter")
 
-    try:
-        edition = resolved_get_edition()
-    except Exception:
-        return "redis"
+    edition = resolved_get_edition()
 
     normalized = str(getattr(edition, "value", edition) or "").strip().lower()
     return "enterprise_webhook" if normalized == "enterprise" else "redis"
@@ -1670,25 +1668,28 @@ def _resolve_runtime_revocation_publisher_mode(*, edition_manager: object | None
 
 def _resolve_enterprise_revocation_webhook_url(*, edition_manager: object | None = None) -> str:
     configured_url = (os.environ.get(AIS_ENTERPRISE_REVOCATION_WEBHOOK_URL_ENV) or "").strip()
+    from caracal.deployment.edition_adapter import get_deployment_edition_adapter
+
+    adapter = edition_manager or get_deployment_edition_adapter()
+    resolve_target = getattr(adapter, "resolve_enterprise_revocation_target", None)
+    if callable(resolve_target):
+        webhook_url, _sync_api_key = resolve_target(webhook_url_override=configured_url or None)
+        return webhook_url
+
     if configured_url:
         return configured_url
 
-    gateway_url = (
-        (os.environ.get("CARACAL_ENTERPRISE_URL") or "").strip()
-        or (os.environ.get("CARACAL_GATEWAY_ENDPOINT") or "").strip()
-        or (os.environ.get("CARACAL_GATEWAY_URL") or "").strip()
-    )
-
-    if not gateway_url and edition_manager is not None:
-        resolved_gateway_url = getattr(edition_manager, "get_gateway_url", None)
-        if callable(resolved_gateway_url):
-            gateway_url = str(resolved_gateway_url() or "").strip()
+    require_gateway_url = getattr(adapter, "require_gateway_url", None)
+    if callable(require_gateway_url):
+        gateway_url = str(require_gateway_url() or "").strip()
+    else:
+        resolved_gateway_url = getattr(adapter, "get_gateway_url", None)
+        if not callable(resolved_gateway_url):
+            raise RuntimeError("Enterprise revocation webhook URL is not configured")
+        gateway_url = str(resolved_gateway_url() or "").strip()
 
     if not gateway_url:
-        raise RuntimeError(
-            "Enterprise revocation webhook URL is not configured. "
-            f"Set {AIS_ENTERPRISE_REVOCATION_WEBHOOK_URL_ENV} or enterprise gateway URL settings."
-        )
+        raise RuntimeError("Enterprise revocation webhook URL is not configured")
 
     return f"{gateway_url.rstrip('/')}{AIS_DEFAULT_ENTERPRISE_REVOCATION_WEBHOOK_PATH}"
 
@@ -1709,19 +1710,27 @@ def _resolve_enterprise_revocation_sync_api_key() -> str | None:
 
 def _create_enterprise_revocation_event_publisher(*, edition_manager: object | None = None):
     from caracal.core.revocation_publishers import EnterpriseWebhookRevocationEventPublisher
+    from caracal.deployment.edition_adapter import get_deployment_edition_adapter
     from caracal.enterprise.license import resolve_revocation_webhook_target
 
     configured_url = (os.environ.get(AIS_ENTERPRISE_REVOCATION_WEBHOOK_URL_ENV) or "").strip() or None
     configured_sync_api_key = (os.environ.get(AIS_ENTERPRISE_REVOCATION_SYNC_API_KEY_ENV) or "").strip() or None
+    adapter = edition_manager or get_deployment_edition_adapter()
+    resolve_target = getattr(adapter, "resolve_enterprise_revocation_target", None)
+    if callable(resolve_target):
+        webhook_url, sync_api_key = resolve_target(
+            webhook_url_override=configured_url,
+            sync_api_key_override=configured_sync_api_key,
+        )
+    else:
+        resolved_webhook_url, resolved_sync_api_key = resolve_revocation_webhook_target(
+            webhook_url_override=configured_url,
+        )
+        webhook_url = resolved_webhook_url or _resolve_enterprise_revocation_webhook_url(
+            edition_manager=adapter,
+        )
+        sync_api_key = configured_sync_api_key or resolved_sync_api_key or _resolve_enterprise_revocation_sync_api_key()
 
-    resolved_webhook_url, resolved_sync_api_key = resolve_revocation_webhook_target(
-        webhook_url_override=configured_url,
-    )
-
-    webhook_url = resolved_webhook_url or _resolve_enterprise_revocation_webhook_url(
-        edition_manager=edition_manager,
-    )
-    sync_api_key = configured_sync_api_key or resolved_sync_api_key or _resolve_enterprise_revocation_sync_api_key()
     return EnterpriseWebhookRevocationEventPublisher(
         webhook_url=webhook_url,
         sync_api_key=sync_api_key,
