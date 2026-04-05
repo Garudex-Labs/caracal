@@ -37,6 +37,24 @@ def _generate_rsa_key_pair() -> tuple[str, str]:
 TEST_SIGNING_KEY, TEST_VERIFY_KEY = _generate_rsa_key_pair()
 
 
+class _StaticJwtSigner:
+    def __init__(self, signing_key: str) -> None:
+        self._signing_key = signing_key
+
+    def sign_token(self, *, claims: dict, algorithm: str) -> str:
+        return jwt.encode(claims, self._signing_key, algorithm=algorithm)
+
+
+def _create_manager(**kwargs) -> SessionManager:
+    signing_key = kwargs.pop("signing_key", TEST_SIGNING_KEY)
+    if "verify_key" not in kwargs and "verify_key_provider" not in kwargs:
+        kwargs["verify_key"] = TEST_VERIFY_KEY
+    return SessionManager(
+        token_signer=_StaticJwtSigner(signing_key),
+        **kwargs,
+    )
+
+
 class _InMemoryDenylist:
     """Simple deny-list backend for unit tests."""
 
@@ -69,8 +87,7 @@ class _RecordingAuditSink:
 @pytest.mark.asyncio
 async def test_issue_and_validate_access_token() -> None:
     denylist = _InMemoryDenylist()
-    manager = SessionManager(
-        signing_key=TEST_SIGNING_KEY,
+    manager = _create_manager(
         verify_key=TEST_VERIFY_KEY,
         denylist_backend=denylist,
     )
@@ -99,7 +116,7 @@ async def test_issue_and_validate_access_token() -> None:
 @pytest.mark.unit
 @pytest.mark.asyncio
 async def test_validate_access_token_enforces_session_kind() -> None:
-    manager = SessionManager(signing_key=TEST_SIGNING_KEY, verify_key=TEST_VERIFY_KEY)
+    manager = _create_manager()
 
     issued = manager.issue_session(
         subject_id="user-2",
@@ -119,8 +136,7 @@ async def test_validate_access_token_enforces_session_kind() -> None:
 @pytest.mark.asyncio
 async def test_refresh_session_rotates_refresh_token_and_revokes_old() -> None:
     denylist = _InMemoryDenylist()
-    manager = SessionManager(
-        signing_key=TEST_SIGNING_KEY,
+    manager = _create_manager(
         verify_key=TEST_VERIFY_KEY,
         denylist_backend=denylist,
     )
@@ -147,8 +163,7 @@ async def test_refresh_session_rotates_refresh_token_and_revokes_old() -> None:
 @pytest.mark.asyncio
 async def test_revoke_access_token_blocks_future_validation() -> None:
     denylist = _InMemoryDenylist()
-    manager = SessionManager(
-        signing_key=TEST_SIGNING_KEY,
+    manager = _create_manager(
         verify_key=TEST_VERIFY_KEY,
         denylist_backend=denylist,
     )
@@ -169,7 +184,7 @@ async def test_revoke_access_token_blocks_future_validation() -> None:
 @pytest.mark.unit
 @pytest.mark.asyncio
 async def test_issue_task_token_is_short_lived_and_has_no_refresh_token() -> None:
-    manager = SessionManager(signing_key=TEST_SIGNING_KEY, verify_key=TEST_VERIFY_KEY)
+    manager = _create_manager()
     parent = manager.issue_session(
         subject_id="user-5",
         organization_id="org-5",
@@ -197,7 +212,7 @@ async def test_issue_task_token_is_short_lived_and_has_no_refresh_token() -> Non
 @pytest.mark.unit
 @pytest.mark.asyncio
 async def test_task_token_holder_cannot_issue_new_task_token() -> None:
-    manager = SessionManager(signing_key=TEST_SIGNING_KEY, verify_key=TEST_VERIFY_KEY)
+    manager = _create_manager()
     parent = manager.issue_session(
         subject_id="user-6",
         organization_id="org-6",
@@ -221,7 +236,7 @@ async def test_task_token_holder_cannot_issue_new_task_token() -> None:
 @pytest.mark.unit
 @pytest.mark.asyncio
 async def test_task_token_caveats_must_be_attenuated_subset() -> None:
-    manager = SessionManager(signing_key=TEST_SIGNING_KEY, verify_key=TEST_VERIFY_KEY)
+    manager = _create_manager()
     parent = manager.issue_session(
         subject_id="user-7",
         organization_id="org-7",
@@ -252,8 +267,7 @@ async def test_task_token_caveats_must_be_attenuated_subset() -> None:
 @pytest.mark.unit
 @pytest.mark.asyncio
 async def test_issue_task_token_caveat_chain_mode_enforces_typed_constraints() -> None:
-    manager = SessionManager(
-        signing_key=TEST_SIGNING_KEY,
+    manager = _create_manager(
         verify_key=TEST_VERIFY_KEY,
         caveat_mode="caveat_chain",
         caveat_chain_hmac_key="test-caveat-chain-key",
@@ -290,8 +304,7 @@ async def test_issue_task_token_caveat_chain_mode_enforces_typed_constraints() -
 @pytest.mark.unit
 @pytest.mark.asyncio
 async def test_validate_task_token_rejects_tampered_caveat_chain() -> None:
-    manager = SessionManager(
-        signing_key=TEST_SIGNING_KEY,
+    manager = _create_manager(
         verify_key=TEST_VERIFY_KEY,
         caveat_mode="caveat_chain",
         caveat_chain_hmac_key="test-caveat-chain-key",
@@ -318,8 +331,7 @@ async def test_validate_task_token_rejects_tampered_caveat_chain() -> None:
 
 @pytest.mark.unit
 def test_issue_task_token_jwt_caveat_mode_omits_chain_claim() -> None:
-    manager = SessionManager(
-        signing_key=TEST_SIGNING_KEY,
+    manager = _create_manager(
         verify_key=TEST_VERIFY_KEY,
         caveat_mode="jwt",
     )
@@ -343,8 +355,7 @@ def test_issue_task_token_jwt_caveat_mode_omits_chain_claim() -> None:
 @pytest.mark.asyncio
 async def test_handoff_token_is_one_time_and_transfers_task_scope() -> None:
     denylist = _InMemoryDenylist()
-    manager = SessionManager(
-        signing_key=TEST_SIGNING_KEY,
+    manager = _create_manager(
         verify_key=TEST_VERIFY_KEY,
         denylist_backend=denylist,
     )
@@ -377,8 +388,7 @@ async def test_handoff_token_is_one_time_and_transfers_task_scope() -> None:
 @pytest.mark.asyncio
 async def test_handoff_issuance_revokes_source_token_jti_immediately() -> None:
     denylist = _InMemoryDenylist()
-    manager = SessionManager(
-        signing_key=TEST_SIGNING_KEY,
+    manager = _create_manager(
         verify_key=TEST_VERIFY_KEY,
         denylist_backend=denylist,
     )
@@ -410,8 +420,7 @@ async def test_handoff_issuance_revokes_source_token_jti_immediately() -> None:
 async def test_task_and_handoff_emit_audit_events() -> None:
     denylist = _InMemoryDenylist()
     audit_sink = _RecordingAuditSink()
-    manager = SessionManager(
-        signing_key=TEST_SIGNING_KEY,
+    manager = _create_manager(
         verify_key=TEST_VERIFY_KEY,
         denylist_backend=denylist,
         audit_sink=audit_sink,
@@ -459,8 +468,7 @@ async def test_handoff_issuance_persists_transactional_transfer_state() -> None:
         def session_scope(self):
             yield _Session()
 
-    manager = SessionManager(
-        signing_key=TEST_SIGNING_KEY,
+    manager = _create_manager(
         verify_key=TEST_VERIFY_KEY,
         denylist_backend=denylist,
         db_session_manager=_DbManager(),
@@ -512,8 +520,7 @@ async def test_handoff_transaction_failure_leaves_source_scope_unchanged() -> No
         def session_scope(self):
             yield _FailingSession()
 
-    manager = SessionManager(
-        signing_key=TEST_SIGNING_KEY,
+    manager = _create_manager(
         verify_key=TEST_VERIFY_KEY,
         denylist_backend=denylist,
         db_session_manager=_DbManager(),
@@ -571,8 +578,7 @@ async def test_handoff_denylist_failure_does_not_leave_partial_revocation_state(
         def session_scope(self):
             yield _Session()
 
-    manager = SessionManager(
-        signing_key=TEST_SIGNING_KEY,
+    manager = _create_manager(
         verify_key=TEST_VERIFY_KEY,
         denylist_backend=_FailingDenylist(),
         db_session_manager=_DbManager(),
@@ -601,7 +607,7 @@ async def test_handoff_denylist_failure_does_not_leave_partial_revocation_state(
 @pytest.mark.unit
 def test_session_manager_rejects_symmetric_algorithms() -> None:
     with pytest.raises(SessionError, match="Symmetric session signing algorithms"):
-        SessionManager(signing_key=TEST_SIGNING_KEY, algorithm="HS256")
+        _create_manager(algorithm="HS256")
 
 
 @pytest.mark.unit
@@ -614,7 +620,7 @@ async def test_verify_key_cache_reuses_and_refreshes_provider_value() -> None:
         provider_calls["count"] += 1
         return verify_key
 
-    manager = SessionManager(
+    manager = _create_manager(
         signing_key=signing_key,
         verify_key_provider=provider,
         verify_key_cache_ttl=timedelta(milliseconds=50),
@@ -647,7 +653,7 @@ async def test_verify_key_refresh_failure_after_cache_expiry_fails_closed() -> N
             return verify_key
         raise RuntimeError("provider unavailable")
 
-    manager = SessionManager(
+    manager = _create_manager(
         signing_key=signing_key,
         verify_key_provider=provider,
         verify_key_cache_ttl=timedelta(milliseconds=50),
@@ -672,11 +678,11 @@ async def test_validate_access_token_rejects_mismatched_verify_key() -> None:
     signing_key, verify_key = _generate_rsa_key_pair()
     other_signing_key, other_verify_key = _generate_rsa_key_pair()
 
-    issuing_manager = SessionManager(
+    issuing_manager = _create_manager(
         signing_key=signing_key,
         verify_key=verify_key,
     )
-    validating_manager = SessionManager(
+    validating_manager = _create_manager(
         signing_key=other_signing_key,
         verify_key=other_verify_key,
     )
@@ -700,8 +706,7 @@ def test_refresh_verify_key_cache_forces_provider_reload() -> None:
         provider_calls["count"] += 1
         return TEST_VERIFY_KEY
 
-    manager = SessionManager(
-        signing_key=TEST_SIGNING_KEY,
+    manager = _create_manager(
         verify_key_provider=provider,
         verify_key_cache_ttl=timedelta(minutes=1),
     )
