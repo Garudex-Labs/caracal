@@ -8,7 +8,6 @@ Provides commands for registering, listing, and retrieving principal identities.
 """
 
 import json
-import os
 import sys
 from datetime import datetime
 from typing import Optional
@@ -23,16 +22,6 @@ from caracal.exceptions import (
     CaracalError,
     DuplicatePrincipalNameError,
 )
-
-
-def _path_scope_label() -> str:
-    in_container = os.environ.get("CARACAL_RUNTIME_IN_CONTAINER", "").strip().lower() in {
-        "1",
-        "true",
-        "yes",
-        "on",
-    }
-    return "container path" if in_container else "host path"
 
 
 def _format_created(value) -> str:
@@ -166,7 +155,7 @@ def register(ctx, name: str, principal_kind: str, email: str, metadata: tuple):
                     "owner": identity.owner,
                     "created_at": identity.created_at,
                     "metadata": identity.metadata or {},
-                    "private_key_ref": (identity.metadata or {}).get("private_key_ref", ""),
+                    "vault_key_ref": (identity.metadata or {}).get("vault_key_ref", ""),
                 }
         finally:
             db_manager.close()
@@ -180,7 +169,7 @@ def register(ctx, name: str, principal_kind: str, email: str, metadata: tuple):
 
         click.echo(f"Email:       {principal['owner']}")
         click.echo(f"Created:     {_format_created(principal.get('created_at'))}")
-        click.echo(f"Private key ({_path_scope_label()}): {principal.get('private_key_ref', '')}")
+        click.echo(f"Vault key reference: {principal.get('vault_key_ref', '')}")
 
         if principal.get('metadata'):
             # Filter out keys for display (don't show private keys)
@@ -189,11 +178,8 @@ def register(ctx, name: str, principal_kind: str, email: str, metadata: tuple):
                 if k not in [
                     'public_key_pem',
                     'delegation_tokens',
-                    'aws_kms_ciphertext_b64',
-                    'private_key_ref',
+                    'vault_key_ref',
                     'key_backend',
-                    'aws_kms_key_id',
-                    'aws_kms_region',
                     'key_updated_at',
                 ]
             }

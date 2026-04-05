@@ -11,12 +11,10 @@ Principal management flows:
 - Rotate Key — replace the keypair and choose mandate disposition
 
 Key storage:
-    Default     : private key written to active workspace keys directory
-                                (or CARACAL_KEYSTORE_DIR when configured).
-    Optional    : AWS KMS backend via CARACAL_PRINCIPAL_KEY_BACKEND=aws_kms.
+    Hard-cut    : private keys are custody-managed by vault backend.
+    Runtime     : principal metadata stores only opaque vault references.
 """
 
-import os
 from datetime import datetime
 from typing import Optional
 from uuid import UUID
@@ -35,22 +33,8 @@ from caracal.flow.components.prompt import FlowPrompt
 from caracal.flow.theme import Colors, Icons
 from caracal.flow.state import FlowState, RecentAction
 from caracal.logging_config import get_logger
-from caracal.core.principal_keys import (
-    backup_local_private_key,
-    get_principal_key_backend,
-)
 
 logger = get_logger(__name__)
-
-
-def _path_scope_label() -> str:
-    in_container = os.environ.get("CARACAL_RUNTIME_IN_CONTAINER", "").strip().lower() in {
-        "1",
-        "true",
-        "yes",
-        "on",
-    }
-    return "container path" if in_container else "host path"
 
 class PrincipalFlow:
     """Principal management flow."""
@@ -209,12 +193,12 @@ class PrincipalFlow:
                     metadata=None,
                     generate_keys=True,
                 )
-                key_ref = (identity.metadata or {}).get("private_key_ref", "")
+                key_ref = (identity.metadata or {}).get("vault_key_ref", "")
                 
                 self.console.print(f"  [{Colors.SUCCESS}]{Icons.SUCCESS} Principal registered![/]")
                 self.console.print(f"  [{Colors.NEUTRAL}]Principal ID : [{Colors.PRIMARY}]{identity.principal_id}[/]")
                 self.console.print(
-                    f"  [{Colors.NEUTRAL}]Private key ({_path_scope_label()}) : [{Colors.DIM}]{key_ref}[/]"
+                    f"  [{Colors.NEUTRAL}]Vault key reference : [{Colors.DIM}]{key_ref}[/]"
                 )
                 self.console.print()
                 
@@ -470,21 +454,6 @@ class PrincipalFlow:
                     )
                     return
                 
-                # ---------- backup old key file ----------
-                existing_backend = get_principal_key_backend(
-                    principal.principal_id,
-                    db_session,
-                ) or "local"
-                if existing_backend == "local":
-                    backup_path = backup_local_private_key(principal.principal_id)
-                else:
-                    backup_path = None
-
-                if backup_path:
-                    self.console.print(
-                        f"  [{Colors.DIM}]Old private key backed up → {backup_path}[/]"
-                    )
-                
                 # ---------- generate new keypair ----------
                 self.console.print()
                 self.console.print(f"  [{Colors.INFO}]Generating ECDSA P-256 keypair...[/]")
@@ -495,10 +464,9 @@ class PrincipalFlow:
                 )
                 principal = db_session.query(Principal).filter_by(principal_id=principal.principal_id).first()
                 rotated_metadata = dict(identity.metadata or {})
-                new_key_path = (
-                    rotated_metadata.get("private_key_ref")
-                    or rotated_metadata.get("aws_kms_key_id")
-                    or "managed-by-backend"
+                new_key_ref = (
+                    rotated_metadata.get("vault_key_ref")
+                    or "managed-by-vault"
                 )
                 
                 # Audit: rotation event
@@ -508,7 +476,7 @@ class PrincipalFlow:
                     principal_id=principal.principal_id,
                     details=(
                         f"Keypair rotated for principal '{principal.name}'; "
-                        f"new private key at {new_key_path}"
+                        f"new key reference {new_key_ref}"
                     ),
                 )
                 
