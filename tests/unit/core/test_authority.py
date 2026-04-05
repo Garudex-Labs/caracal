@@ -4,11 +4,12 @@ Unit tests for Authority core logic.
 This module tests the AuthorityEvaluator class and its validation methods.
 """
 import pytest
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 from unittest.mock import Mock, MagicMock, patch
 
 from caracal.core.authority import AuthorityEvaluator, AuthorityDecision
+from caracal.core.caveat_chain import build_caveat_chain
 from caracal.db.models import ExecutionMandate, Principal
 
 
@@ -215,6 +216,104 @@ class TestAuthorityEvaluator:
         assert decision.allowed is False
         assert "not in mandate scope" in decision.reason.lower()
         assert "resource" in decision.reason.lower()
+
+    def test_validate_mandate_denies_invalid_caveat_chain(self):
+        """Test authority validation fails closed on tampered caveat chain."""
+        issuer_id = uuid4()
+        mandate = ExecutionMandate(
+            mandate_id=uuid4(),
+            issuer_id=issuer_id,
+            subject_id=uuid4(),
+            valid_from=datetime.utcnow() - timedelta(hours=1),
+            valid_until=datetime.utcnow() + timedelta(hours=1),
+            resource_scope=["tool/*"],
+            action_scope=["execute"],
+            signature="test_signature",
+            revoked=False,
+        )
+
+        issuer = Principal(
+            principal_id=issuer_id,
+            name="test-issuer",
+            principal_kind="human",
+            owner="test",
+            public_key_pem="test_public_key",
+        )
+        mock_query = Mock()
+        mock_query.filter.return_value.first.return_value = issuer
+        self.mock_db_session.query.return_value = mock_query
+
+        valid_chain = build_caveat_chain(
+            hmac_key="authority-chain-test-key",
+            parent_chain=None,
+            append_caveats=["action:execute"],
+        )
+        tampered_chain = [dict(node) for node in valid_chain]
+        tampered_chain[0]["value"] = "delete"
+
+        with patch("caracal.core.authority.verify_mandate_signature", return_value=True):
+            with patch.object(self.evaluator, "check_delegation_path", return_value=True):
+                decision = self.evaluator.validate_mandate(
+                    mandate=mandate,
+                    requested_action="execute",
+                    requested_resource="tool/list",
+                    caveat_chain=tampered_chain,
+                    caveat_hmac_key="authority-chain-test-key",
+                )
+
+        assert decision.allowed is False
+        assert decision.reason_code == "AUTH_CAVEAT_CHAIN_DENIED"
+        assert decision.boundary_stage == "caveat_chain_validation"
+
+    def test_validate_mandate_allows_valid_caveat_chain(self):
+        """Test authority validation allows requests satisfying caveat chain."""
+        issuer_id = uuid4()
+        mandate = ExecutionMandate(
+            mandate_id=uuid4(),
+            issuer_id=issuer_id,
+            subject_id=uuid4(),
+            valid_from=datetime.utcnow() - timedelta(hours=1),
+            valid_until=datetime.utcnow() + timedelta(hours=1),
+            resource_scope=["tool/*"],
+            action_scope=["execute"],
+            signature="test_signature",
+            revoked=False,
+        )
+
+        issuer = Principal(
+            principal_id=issuer_id,
+            name="test-issuer",
+            principal_kind="human",
+            owner="test",
+            public_key_pem="test_public_key",
+        )
+        mock_query = Mock()
+        mock_query.filter.return_value.first.return_value = issuer
+        self.mock_db_session.query.return_value = mock_query
+
+        valid_chain = build_caveat_chain(
+            hmac_key="authority-chain-test-key",
+            parent_chain=None,
+            append_caveats=[
+                "action:execute",
+                "resource:tool/*",
+                "task-binding:task-123",
+                f"expiry:{int((datetime.now(timezone.utc) + timedelta(minutes=5)).timestamp())}",
+            ],
+        )
+
+        with patch("caracal.core.authority.verify_mandate_signature", return_value=True):
+            with patch.object(self.evaluator, "check_delegation_path", return_value=True):
+                decision = self.evaluator.validate_mandate(
+                    mandate=mandate,
+                    requested_action="execute",
+                    requested_resource="tool/list",
+                    caveat_chain=valid_chain,
+                    caveat_hmac_key="authority-chain-test-key",
+                    caveat_task_id="task-123",
+                )
+
+        assert decision.allowed is True
     
     def test_match_pattern_exact(self):
         """Test pattern matching with exact match."""
