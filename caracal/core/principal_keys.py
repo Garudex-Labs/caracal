@@ -13,8 +13,6 @@ from datetime import datetime
 from typing import Mapping, Optional
 from uuid import UUID, uuid4
 
-from cryptography.hazmat.primitives import serialization
-from cryptography.hazmat.primitives.asymmetric import ec
 from sqlalchemy.orm import Session
 
 from caracal.core.vault import VaultError, gateway_context, get_vault
@@ -88,6 +86,10 @@ def _resolve_secret_name(principal_id: UUID) -> str:
     return f"{prefix}/{principal_id}"
 
 
+def _resolve_public_secret_name(principal_id: UUID) -> str:
+    return f"{_resolve_secret_name(principal_id)}.public"
+
+
 def _build_vault_reference(org_id: str, env_id: str, secret_name: str) -> str:
     return f"vault://{org_id}/{env_id}/{secret_name}"
 
@@ -112,13 +114,13 @@ def parse_vault_key_reference(reference: str) -> tuple[str, str, str]:
     return _parse_vault_reference(reference)
 
 
-def _vault_put_secret(org_id: str, env_id: str, secret_name: str, value: str) -> None:
+def _vault_get_secret(org_id: str, env_id: str, secret_name: str) -> str:
     try:
         with gateway_context():
-            get_vault().put(org_id=org_id, env_id=env_id, name=secret_name, plaintext=value)
+            return get_vault().get(org_id=org_id, env_id=env_id, name=secret_name)
     except VaultError as exc:
         raise PrincipalKeyStorageError(
-            f"Failed to persist principal key in vault ({org_id}/{env_id}/{secret_name})."
+            f"Failed to read principal key material from vault ({org_id}/{env_id}/{secret_name})."
         ) from exc
 
 
@@ -126,41 +128,35 @@ def generate_and_store_principal_keypair(
     principal_id: UUID,
     db_session: Optional[Session] = None,
 ) -> PrincipalKeypairResult:
-    """Generate an ECDSA P-256 keypair and persist custody via configured backend."""
-    private_key = ec.generate_private_key(ec.SECP256R1())
-    public_key = private_key.public_key()
-
-    private_pem = private_key.private_bytes(
-        encoding=serialization.Encoding.PEM,
-        format=serialization.PrivateFormat.PKCS8,
-        encryption_algorithm=serialization.NoEncryption(),
-    ).decode("utf-8")
-
-    public_pem = public_key.public_bytes(
-        encoding=serialization.Encoding.PEM,
-        format=serialization.PublicFormat.SubjectPublicKeyInfo,
-    ).decode("utf-8")
-
-    storage = store_principal_private_key(
-        principal_id=principal_id,
-        private_key_pem=private_pem,
-        db_session=db_session,
-    )
-    return PrincipalKeypairResult(public_key_pem=public_pem, storage=storage)
-
-
-def store_principal_private_key(
-    principal_id: UUID,
-    private_key_pem: str,
-    db_session: Optional[Session] = None,
-) -> PrincipalKeyStorageResult:
-    """Store a principal private key in vault custody and persist an opaque reference."""
+    """Provision a custody-backed ES256 keypair without exposing private key material."""
     backend = _resolve_backend()
     org_id, env_id = _resolve_vault_context()
-    secret_name = _resolve_secret_name(principal_id)
-    key_reference = _build_vault_reference(org_id, env_id, secret_name)
+    private_secret_name = _resolve_secret_name(principal_id)
+    public_secret_name = _resolve_public_secret_name(principal_id)
+    key_reference = _build_vault_reference(org_id, env_id, private_secret_name)
+    public_key_reference = _build_vault_reference(org_id, env_id, public_secret_name)
 
-    _vault_put_secret(org_id=org_id, env_id=env_id, secret_name=secret_name, value=private_key_pem)
+    try:
+        with gateway_context():
+            vault = get_vault()
+            vault.ensure_asymmetric_keypair(
+                org_id=org_id,
+                env_id=env_id,
+                private_key_name=private_secret_name,
+                public_key_name=public_secret_name,
+                algorithm="ES256",
+                actor=f"principal-keys:{principal_id}",
+            )
+    except VaultError as exc:
+        raise PrincipalKeyStorageError(
+            f"Failed to provision principal signing keypair in vault ({org_id}/{env_id}/{private_secret_name})."
+        ) from exc
+
+    public_pem = _vault_get_secret(
+        org_id=org_id,
+        env_id=env_id,
+        secret_name=public_secret_name,
+    )
 
     storage = PrincipalKeyStorageResult(
         backend=backend,
@@ -168,13 +164,14 @@ def store_principal_private_key(
         metadata={
             "key_backend": backend,
             "vault_key_ref": key_reference,
+            "vault_public_key_ref": public_key_reference,
             "key_updated_at": datetime.utcnow().isoformat(),
         },
     )
 
     if db_session is not None:
         _upsert_custody_record(db_session=db_session, principal_id=principal_id, storage=storage)
-    return storage
+    return PrincipalKeypairResult(public_key_pem=public_pem, storage=storage)
 
 
 def principal_has_key_custody(principal_id: UUID, db_session: Session) -> bool:
@@ -225,6 +222,7 @@ def resolve_principal_key_reference(
             f"Missing vault_key_ref for principal key resolution ({principal_id})"
         )
     return key_reference.strip()
+
 
 def _upsert_custody_record(
     db_session: Session,

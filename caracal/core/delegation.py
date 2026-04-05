@@ -18,9 +18,6 @@ from typing import Dict, List, Optional
 from uuid import UUID
 
 import jwt
-from cryptography.hazmat.backends import default_backend
-from cryptography.hazmat.primitives import hashes, serialization
-from cryptography.hazmat.primitives.asymmetric import ec
 
 from caracal.exceptions import (
     PrincipalNotFoundError,
@@ -102,35 +99,6 @@ class DelegationTokenManager:
         self.principal_registry = principal_registry
         self._signing_service = signing_service or SigningService(principal_registry)
         logger.info("DelegationTokenManager initialized")
-
-    def generate_key_pair(self) -> tuple[bytes, bytes]:
-        """
-        Generate ECDSA P-256 key pair for an agent.
-        
-        Returns:
-            Tuple of (private_key_pem, public_key_pem) as bytes
-            
-        """
-        # Generate ECDSA P-256 private key
-        private_key = ec.generate_private_key(ec.SECP256R1(), default_backend())
-        
-        # Serialize private key to PEM format
-        private_key_pem = private_key.private_bytes(
-            encoding=serialization.Encoding.PEM,
-            format=serialization.PrivateFormat.PKCS8,
-            encryption_algorithm=serialization.NoEncryption()
-        )
-        
-        # Extract public key and serialize to PEM format
-        public_key = private_key.public_key()
-        public_key_pem = public_key.public_bytes(
-            encoding=serialization.Encoding.PEM,
-            format=serialization.PublicFormat.SubjectPublicKeyInfo
-        )
-        
-        logger.debug("Generated ECDSA P-256 key pair")
-        
-        return private_key_pem, public_key_pem
 
     def generate_token(
         self,
