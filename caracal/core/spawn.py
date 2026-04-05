@@ -115,7 +115,7 @@ class SpawnManager:
                     principal_kind=principal_kind,
                     owner=owner,
                     source_principal_id=issuer_uuid,
-                    lifecycle_status=PrincipalLifecycleStatus.ACTIVE.value,
+                    lifecycle_status=PrincipalLifecycleStatus.PENDING_ATTESTATION.value,
                     attestation_status=PrincipalAttestationStatus.PENDING.value,
                     created_at=datetime.utcnow(),
                 )

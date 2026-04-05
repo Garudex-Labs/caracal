@@ -36,6 +36,25 @@ class TestPrincipalLifecycleStateMachine:
         assert decision.allowed is False
         assert "non-reactivating" in decision.reason
 
+    def test_worker_pending_attestation_requires_attested_status_for_activation(self) -> None:
+        decision = self.state_machine.validate_transition(
+            principal_kind="worker",
+            from_status="pending_attestation",
+            to_status="active",
+            attestation_status="pending",
+        )
+        assert decision.allowed is False
+        assert "only after attestation_status becomes 'attested'" in decision.reason
+
+    def test_worker_pending_attestation_allows_activation_when_attested(self) -> None:
+        decision = self.state_machine.validate_transition(
+            principal_kind="worker",
+            from_status="pending_attestation",
+            to_status="active",
+            attestation_status="attested",
+        )
+        assert decision.allowed is True
+
     def test_orchestrator_cannot_resume_from_suspended(self) -> None:
         decision = self.state_machine.validate_transition(
             principal_kind="orchestrator",
@@ -63,7 +82,7 @@ class TestPrincipalRegistryLifecycleTransition:
         principal_id = uuid4()
         row = SimpleNamespace(
             principal_id=principal_id,
-            principal_kind="worker",
+            principal_kind="human",
             lifecycle_status="active",
             principal_metadata={},
             name="worker-a",
@@ -87,6 +106,26 @@ class TestPrincipalRegistryLifecycleTransition:
         assert row.principal_metadata["lifecycle_transitioned_by"] == "human-1"
         self.mock_session.commit.assert_called_once()
         assert result.lifecycle_status == "suspended"
+
+    def test_transition_lifecycle_status_blocks_pending_attestation_activation_without_attested_status(self) -> None:
+        principal_id = uuid4()
+        row = SimpleNamespace(
+            principal_id=principal_id,
+            principal_kind="worker",
+            lifecycle_status="pending_attestation",
+            principal_metadata={},
+            name="worker-c",
+            owner="tenant-a",
+            created_at=datetime.utcnow(),
+            public_key_pem=None,
+            source_principal_id=None,
+            attestation_status="pending",
+        )
+
+        self.registry._get_row = Mock(return_value=row)
+
+        with pytest.raises(LifecycleTransitionError, match="attested"):
+            self.registry.transition_lifecycle_status(str(principal_id), "active")
 
     def test_transition_lifecycle_status_blocks_worker_reactivation(self) -> None:
         principal_id = uuid4()
