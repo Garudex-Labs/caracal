@@ -22,11 +22,9 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-import keyring
 import structlog
 import toml
 from cryptography.exceptions import InvalidTag
-from cryptography.fernet import Fernet
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
@@ -40,7 +38,6 @@ from caracal.deployment.exceptions import (
     EncryptionError,
     EncryptionKeyError,
     InvalidWorkspaceNameError,
-    KeyringError,
     SecretNotFoundError,
     WorkspaceAlreadyExistsError,
     WorkspaceNotFoundError,
@@ -113,9 +110,8 @@ class ConfigManager:
     CACHE_DIR = CONFIG_DIR / "cache"  # Legacy root cache (deprecated)
     LOGS_DIR = CONFIG_DIR / "logs"  # Legacy root logs (deprecated)
     
-    # Keyring service name for encryption keys
-    KEYRING_SERVICE = "caracal"
-    KEYRING_USERNAME = "encryption_key"
+    # Optional explicit encryption key override for workspace secrets vault.
+    CONFIG_ENCRYPTION_KEY_ENV = "CARACAL_CONFIG_ENCRYPTION_KEY"
     
     # Workspace name validation pattern
     WORKSPACE_NAME_PATTERN = re.compile(r'^[a-zA-Z0-9_-]{1,64}$')
@@ -209,11 +205,12 @@ class ConfigManager:
         """
         Get or create encryption key for secrets.
         
-        Uses system keyring for secure storage, falls back to PBKDF2
-        key derivation if keyring is unavailable.
+        Key resolution order:
+        1) CARACAL_CONFIG_ENCRYPTION_KEY environment variable
+        2) PBKDF2-derived host key fallback
         
         Returns:
-            Encryption key bytes (32 bytes for Fernet)
+            Encryption key bytes (32 bytes for AES-256-GCM)
             
         Raises:
             EncryptionKeyError: If key retrieval/generation fails
@@ -222,45 +219,13 @@ class ConfigManager:
             return self._encryption_key
         
         try:
-            # Try to get key from system keyring. In containers this may be unavailable.
-            try:
-                key_str = keyring.get_password(self.KEYRING_SERVICE, self.KEYRING_USERNAME)
-            except Exception as e:
-                logger.warning(
-                    "keyring_read_failed",
-                    error=str(e),
-                    fallback="using_pbkdf2"
-                )
-                self._encryption_key = self._derive_key_pbkdf2()
+            env_key = os.getenv(self.CONFIG_ENCRYPTION_KEY_ENV, "").strip()
+            if env_key:
+                self._encryption_key = self._normalize_config_key(env_key)
+                logger.info("encryption_key_loaded_from_env", env_var=self.CONFIG_ENCRYPTION_KEY_ENV)
                 return self._encryption_key
 
-            if key_str:
-                # Decode hex string to bytes
-                self._encryption_key = bytes.fromhex(key_str)
-                logger.debug("encryption_key_retrieved_from_keyring")
-                return self._encryption_key
-
-            # Generate new key if not found
-            key = Fernet.generate_key()
-
-            # Try to store in keyring
-            try:
-                keyring.set_password(
-                    self.KEYRING_SERVICE,
-                    self.KEYRING_USERNAME,
-                    key.hex()
-                )
-                logger.info("encryption_key_stored_in_keyring")
-            except Exception as e:
-                logger.warning(
-                    "keyring_storage_failed",
-                    error=str(e),
-                    fallback="using_pbkdf2"
-                )
-                # Fallback: derive key from system information
-                key = self._derive_key_pbkdf2()
-
-            self._encryption_key = key
+            self._encryption_key = self._derive_key_pbkdf2()
             return self._encryption_key
 
         except Exception as e:
@@ -274,10 +239,10 @@ class ConfigManager:
         """
         Derive encryption key using PBKDF2 from system information.
         
-        This is a fallback when system keyring is unavailable.
+        This is a fallback when an explicit config encryption key is not provided.
         
         Returns:
-            Derived key bytes (32 bytes for Fernet compatibility)
+            Derived key bytes (32 bytes for AES-256-GCM)
         """
         # Use system-specific information as salt
         import platform
@@ -296,30 +261,49 @@ class ConfigManager:
         password = f"caracal-{Path.home()}".encode()
         key = kdf.derive(password)
         
-        # Fernet requires base64-encoded 32-byte key
-        key = base64.urlsafe_b64encode(key)
-        
         logger.debug("encryption_key_derived_pbkdf2")
         return key
+
+    def _normalize_config_key(self, raw: str) -> bytes:
+        """Normalize a configured encryption key into a 32-byte AES key."""
+        value = raw.strip()
+        if len(value) == 64:
+            try:
+                candidate = bytes.fromhex(value)
+                if len(candidate) == 32:
+                    return candidate
+            except ValueError:
+                pass
+
+        try:
+            candidate = base64.urlsafe_b64decode(value.encode("ascii"))
+            if len(candidate) == 32:
+                return candidate
+        except Exception:
+            pass
+
+        return hashlib.sha256(value.encode("utf-8")).digest()
     
     def _encrypt_value(self, value: str) -> str:
         """
-        Encrypt a value using Fernet (symmetric encryption).
+        Encrypt a value using AES-256-GCM.
         
         Args:
             value: Value to encrypt
             
         Returns:
-            Encrypted value (base64 encoded)
+            Encrypted value envelope.
             
         Raises:
             EncryptionError: If encryption fails
         """
         try:
             key = self._get_encryption_key()
-            fernet = Fernet(key)
-            encrypted = fernet.encrypt(value.encode('utf-8'))
-            return encrypted.decode('utf-8')
+            nonce = secrets.token_bytes(12)
+            ciphertext = AESGCM(key).encrypt(nonce, value.encode("utf-8"), None)
+            nonce_b64 = base64.urlsafe_b64encode(nonce).decode("ascii")
+            ciphertext_b64 = base64.urlsafe_b64encode(ciphertext).decode("ascii")
+            return f"aead_v1:{nonce_b64}:{ciphertext_b64}"
         except Exception as e:
             logger.error(
                 "encryption_failed",
@@ -329,10 +313,10 @@ class ConfigManager:
     
     def _decrypt_value(self, encrypted_value: str) -> str:
         """
-        Decrypt a value using Fernet (symmetric encryption).
+        Decrypt a value using AES-256-GCM.
         
         Args:
-            encrypted_value: Encrypted value (base64 encoded)
+            encrypted_value: Encrypted value envelope
             
         Returns:
             Decrypted value
@@ -342,9 +326,14 @@ class ConfigManager:
         """
         try:
             key = self._get_encryption_key()
-            fernet = Fernet(key)
-            decrypted = fernet.decrypt(encrypted_value.encode('utf-8'))
-            return decrypted.decode('utf-8')
+            if not encrypted_value.startswith("aead_v1:"):
+                raise DecryptionError("Unsupported secret envelope format")
+
+            _, nonce_b64, ciphertext_b64 = encrypted_value.split(":", 2)
+            nonce = base64.urlsafe_b64decode(nonce_b64.encode("ascii"))
+            ciphertext = base64.urlsafe_b64decode(ciphertext_b64.encode("ascii"))
+            plaintext = AESGCM(key).decrypt(nonce, ciphertext, None)
+            return plaintext.decode("utf-8")
         except Exception as e:
             logger.error(
                 "decryption_failed",
