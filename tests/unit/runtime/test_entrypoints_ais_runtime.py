@@ -691,3 +691,15 @@ def test_create_runtime_revocation_event_publisher_uses_enterprise_webhook_mode(
     )
 
     assert publisher.__class__.__name__ == "EnterpriseWebhookRevocationEventPublisher"
+
+
+@pytest.mark.unit
+def test_resolve_runtime_revocation_publisher_mode_does_not_fallback_on_adapter_errors() -> None:
+    class _BrokenEditionManager:
+        def is_enterprise(self) -> bool:
+            raise RuntimeError("adapter resolution failed")
+
+    with pytest.raises(RuntimeError, match="adapter resolution failed"):
+        entrypoints._resolve_runtime_revocation_publisher_mode(
+            edition_manager=_BrokenEditionManager(),
+        )
