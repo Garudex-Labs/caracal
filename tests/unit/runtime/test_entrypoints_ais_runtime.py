@@ -2,11 +2,26 @@
 
 from __future__ import annotations
 
+from contextlib import contextmanager
 from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
 
+from fastapi import HTTPException
+from fastapi.testclient import TestClient
 import pytest
 
-from caracal.identity.attestation_nonce import AttestationNonceConsumedError
+from caracal.identity.ais_server import (
+    AISServerConfig,
+    RefreshRequest,
+    SpawnRequest,
+    TokenIssueRequest,
+    create_ais_app,
+)
+from caracal.identity.attestation_nonce import (
+    AttestationNonceConsumedError,
+    AttestationNonceValidationError,
+)
 from caracal.runtime import entrypoints
 
 
@@ -40,6 +55,55 @@ class _FakeMcpProcess:
         return value
 
 
+@dataclass
+class _FakeIssuedSession:
+    access_token: str
+    access_expires_at: datetime
+    session_id: str
+    token_jti: str
+    refresh_token: str | None = None
+    refresh_expires_at: datetime | None = None
+    refresh_jti: str | None = None
+
+
+class _FakeSessionManager:
+    def __init__(self) -> None:
+        self.issue_calls: list[dict[str, object]] = []
+        self.refresh_calls: list[str] = []
+
+    def issue_session(self, **kwargs):
+        self.issue_calls.append(kwargs)
+        now = datetime.now(timezone.utc)
+        return _FakeIssuedSession(
+            access_token="access-1",
+            access_expires_at=now + timedelta(minutes=5),
+            session_id="sid-1",
+            token_jti="jti-1",
+            refresh_token="refresh-1",
+            refresh_expires_at=now + timedelta(minutes=30),
+            refresh_jti="rjti-1",
+        )
+
+    async def refresh_session(self, refresh_token: str):
+        self.refresh_calls.append(refresh_token)
+        now = datetime.now(timezone.utc)
+        return _FakeIssuedSession(
+            access_token="access-2",
+            access_expires_at=now + timedelta(minutes=5),
+            session_id="sid-2",
+            token_jti="jti-2",
+            refresh_token="refresh-2",
+            refresh_expires_at=now + timedelta(minutes=30),
+            refresh_jti="rjti-2",
+        )
+
+
+class _FakeDbManager:
+    @contextmanager
+    def session_scope(self):
+        yield object()
+
+
 @pytest.mark.unit
 def test_consume_ais_startup_attestation_requires_nonce(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv(entrypoints.AIS_STARTUP_NONCE_ENV, raising=False)
@@ -59,6 +123,22 @@ def test_consume_ais_startup_attestation_rejects_consumed_nonce(
             raise AttestationNonceConsumedError("missing")
 
     monkeypatch.setenv(entrypoints.AIS_STARTUP_NONCE_ENV, "nonce-1")
+
+    with pytest.raises(RuntimeError, match="invalid or already consumed"):
+        entrypoints._consume_ais_startup_attestation(
+            nonce_manager_factory=lambda: _Manager(),
+        )
+
+
+@pytest.mark.unit
+def test_consume_ais_startup_attestation_rejects_expired_or_invalid_nonce(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class _Manager:
+        def consume_nonce(self, nonce: str, *, expected_principal_id: str | None = None) -> str:
+            raise AttestationNonceValidationError("expired")
+
+    monkeypatch.setenv(entrypoints.AIS_STARTUP_NONCE_ENV, "nonce-expired")
 
     with pytest.raises(RuntimeError, match="invalid or already consumed"):
         entrypoints._consume_ais_startup_attestation(
@@ -155,3 +235,151 @@ def test_run_runtime_mcp_restarts_ais_when_unhealthy(monkeypatch: pytest.MonkeyP
     assert len(started) == 2
     assert ais_processes[0] in terminated
     assert ais_processes[1] in terminated
+
+
+@pytest.mark.unit
+def test_build_ais_handlers_issues_and_refreshes_tokens() -> None:
+    session_manager = _FakeSessionManager()
+    handlers = entrypoints._build_ais_handlers(
+        db_manager=_FakeDbManager(),
+        session_manager=session_manager,
+        redis_client=object(),
+    )
+
+    token_response = handlers.issue_token(
+        TokenIssueRequest(
+            principal_id="principal-1",
+            organization_id="org-1",
+            tenant_id="tenant-1",
+            session_kind="automation",
+            include_refresh=True,
+        )
+    )
+
+    assert token_response["access_token"] == "access-1"
+    assert token_response["refresh_token"] == "refresh-1"
+    assert token_response["expires_at"] == token_response["access_expires_at"]
+    assert session_manager.issue_calls
+    assert str(session_manager.issue_calls[0]["session_kind"]) == "SessionKind.AUTOMATION"
+
+    refresh_response = handlers.refresh_session(RefreshRequest(refresh_token="refresh-1"))
+    assert refresh_response["access_token"] == "access-2"
+    assert session_manager.refresh_calls == ["refresh-1"]
+
+
+@pytest.mark.unit
+def test_build_ais_handlers_rejects_unknown_session_kind() -> None:
+    handlers = entrypoints._build_ais_handlers(
+        db_manager=_FakeDbManager(),
+        session_manager=_FakeSessionManager(),
+        redis_client=object(),
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        handlers.issue_token(
+            TokenIssueRequest(
+                principal_id="principal-1",
+                organization_id="org-1",
+                tenant_id="tenant-1",
+                session_kind="not-a-kind",
+            )
+        )
+
+    assert exc_info.value.status_code == 400
+
+
+@pytest.mark.unit
+def test_build_ais_handlers_token_endpoint_returns_bundle_over_http() -> None:
+    handlers = entrypoints._build_ais_handlers(
+        db_manager=_FakeDbManager(),
+        session_manager=_FakeSessionManager(),
+        redis_client=object(),
+    )
+    app = create_ais_app(
+        handlers,
+        AISServerConfig(unix_socket_path="", listen_host="127.0.0.1", listen_port=7079),
+    )
+    client = TestClient(app)
+
+    response = client.post(
+        "/v1/ais/token",
+        json=TokenIssueRequest(
+            principal_id="principal-1",
+            organization_id="org-1",
+            tenant_id="tenant-1",
+            session_kind="automation",
+            include_refresh=True,
+        ).model_dump(),
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["access_token"] == "access-1"
+    assert payload["refresh_token"] == "refresh-1"
+    assert payload["session_id"] == "sid-1"
+
+
+@pytest.mark.unit
+def test_build_ais_handlers_spawn_response_includes_metadata_without_private_keys(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class _FakePrincipalRegistry:
+        def __init__(self, session: object) -> None:
+            self.session = session
+
+    class _FakeAttestationNonceManager:
+        def __init__(self, redis_client: object) -> None:
+            self.redis_client = redis_client
+
+    class _FakeSpawnManager:
+        def __init__(self, session: object, attestation_nonce_manager: object | None = None) -> None:
+            self.session = session
+            self.attestation_nonce_manager = attestation_nonce_manager
+
+    class _FakeIdentityService:
+        def __init__(self, *, principal_registry: object, spawn_manager: object | None = None) -> None:
+            self.principal_registry = principal_registry
+            self.spawn_manager = spawn_manager
+
+        def spawn_principal(self, **kwargs):
+            return SimpleNamespace(
+                principal_id="principal-spawned",
+                principal_name=kwargs["principal_name"],
+                principal_kind=kwargs["principal_kind"],
+                mandate_id="mandate-1",
+                attestation_bootstrap_artifact="attest-bootstrap:principal-spawned",
+                attestation_nonce="nonce-1",
+                idempotent_replay=False,
+                private_key_pem="must-not-leak",
+            )
+
+    monkeypatch.setattr("caracal.core.identity.PrincipalRegistry", _FakePrincipalRegistry)
+    monkeypatch.setattr("caracal.core.spawn.SpawnManager", _FakeSpawnManager)
+    monkeypatch.setattr("caracal.identity.attestation_nonce.AttestationNonceManager", _FakeAttestationNonceManager)
+    monkeypatch.setattr("caracal.identity.service.IdentityService", _FakeIdentityService)
+
+    handlers = entrypoints._build_ais_handlers(
+        db_manager=_FakeDbManager(),
+        session_manager=_FakeSessionManager(),
+        redis_client=object(),
+    )
+
+    response = handlers.spawn_principal(
+        SpawnRequest(
+            issuer_principal_id="issuer-1",
+            principal_name="worker-1",
+            principal_kind="worker",
+            owner="ops",
+            resource_scope=["provider:openai"],
+            action_scope=["infer"],
+            validity_seconds=300,
+            idempotency_key="idemp-1",
+        )
+    )
+
+    assert response["principal_id"] == "principal-spawned"
+    assert response["mandate_id"] == "mandate-1"
+    assert response["attestation_bootstrap_artifact"] == "attest-bootstrap:principal-spawned"
+    assert response["attestation_nonce"] == "nonce-1"
+    assert "private_key_pem" not in response
+    assert all("private_key" not in key for key in response.keys())
