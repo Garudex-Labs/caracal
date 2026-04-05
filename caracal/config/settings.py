@@ -24,6 +24,10 @@ from caracal.logging_config import get_logger
 logger = get_logger(__name__)
 
 
+def _is_hardcut_mode_enabled() -> bool:
+    return os.environ.get("CARACAL_HARDCUT_MODE", "").strip().lower() in {"1", "true", "yes", "on"}
+
+
 def _expand_env_vars(value: Any) -> Any:
     """
     Recursively expand environment variables in configuration values.
@@ -259,8 +263,10 @@ class MerkleConfig:
     batch_size_limit: int = 1000  # Max events per batch
     batch_timeout_seconds: int = 300  # Max time before batch closes (5 minutes)
     signing_algorithm: str = "ES256"  # ECDSA P-256
-    signing_backend: str = "software"  # "software" (default) or "hsm" (Enterprise only)
+    signing_backend: str = "software"  # "software", "vault", or "hsm" (Enterprise only)
     private_key_path: str = ""  # Path to private key for software signing
+    vault_key_ref: str = ""  # Vault private signing key reference for hard-cut mode
+    vault_public_key_ref: str = ""  # Vault public verification key reference
     key_encryption_passphrase: str = ""  # Passphrase for encrypted key (from env var)
     key_rotation_enabled: bool = False  # Enable automatic key rotation
     key_rotation_days: int = 90  # Rotate keys every 90 days
@@ -386,8 +392,13 @@ def get_default_config() -> CaracalConfig:
 
     cfg.compatibility.enable_redis = True
     cfg.compatibility.enable_merkle = True
-    cfg.merkle.private_key_path = str(ws.keys_dir / "merkle_signing_key.pem")
-    _ensure_merkle_private_key(Path(cfg.merkle.private_key_path))
+    if _is_hardcut_mode_enabled():
+        cfg.merkle.signing_backend = "vault"
+        cfg.merkle.vault_key_ref = os.environ.get("CARACAL_VAULT_MERKLE_SIGNING_KEY_REF", "")
+        cfg.merkle.vault_public_key_ref = os.environ.get("CARACAL_VAULT_MERKLE_PUBLIC_KEY_REF", "")
+    else:
+        cfg.merkle.private_key_path = str(ws.keys_dir / "merkle_signing_key.pem")
+        _ensure_merkle_private_key(Path(cfg.merkle.private_key_path))
     return cfg
 
 

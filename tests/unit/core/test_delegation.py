@@ -9,6 +9,9 @@ from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 from unittest.mock import Mock
 
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric import ec
+
 from caracal.core.delegation import DelegationTokenManager, DelegationTokenClaims
 from caracal.exceptions import (
     PrincipalNotFoundError,
@@ -16,6 +19,20 @@ from caracal.exceptions import (
     TokenExpiredError,
     TokenValidationError,
 )
+
+
+def _generate_test_key_pair() -> tuple[bytes, bytes]:
+    private_key = ec.generate_private_key(ec.SECP256R1())
+    private_key_pem = private_key.private_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PrivateFormat.PKCS8,
+        encryption_algorithm=serialization.NoEncryption(),
+    )
+    public_key_pem = private_key.public_key().public_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PublicFormat.SubjectPublicKeyInfo,
+    )
+    return private_key_pem, public_key_pem
 
 
 @pytest.mark.unit
@@ -26,17 +43,6 @@ class TestDelegationTokenManager:
         """Set up test fixtures before each test method."""
         self.mock_principal_registry = Mock()
         self.manager = DelegationTokenManager(self.mock_principal_registry)
-    
-    def test_generate_key_pair(self):
-        """Test ECDSA P-256 key pair generation."""
-        # Act
-        private_key_pem, public_key_pem = self.manager.generate_key_pair()
-        
-        # Assert
-        assert private_key_pem is not None
-        assert public_key_pem is not None
-        assert b"BEGIN PRIVATE KEY" in private_key_pem
-        assert b"BEGIN PUBLIC KEY" in public_key_pem
     
     def test_generate_token_success(self):
         """Test delegation token generation with valid data."""
@@ -49,7 +55,7 @@ class TestDelegationTokenManager:
         mock_principal.metadata = {"public_key_pem": "test_public_key"}
         self.mock_principal_registry.get_principal.return_value = mock_principal
         
-        private_key_pem, _public_key_pem = self.manager.generate_key_pair()
+        private_key_pem, _public_key_pem = _generate_test_key_pair()
         self.manager._signing_service = Mock()
         self.manager._signing_service.sign_jwt_for_principal.return_value = jwt.encode(
             {"sub": str(target_id), "iss": str(source_id), "aud": "caracal-core"},
@@ -94,7 +100,7 @@ class TestDelegationTokenManager:
         target_id = uuid4()
         
         # Generate real key pair
-        private_key_pem, public_key_pem = self.manager.generate_key_pair()
+        private_key_pem, public_key_pem = _generate_test_key_pair()
         
         # Mock principal for generation
         mock_principal_gen = Mock()
@@ -151,7 +157,7 @@ class TestDelegationTokenManager:
         target_id = uuid4()
         
         # Generate real key pair
-        private_key_pem, public_key_pem = self.manager.generate_key_pair()
+        private_key_pem, public_key_pem = _generate_test_key_pair()
         
         # Mock principal for generation
         mock_principal_gen = Mock()
@@ -205,8 +211,8 @@ class TestDelegationTokenManager:
         target_id = uuid4()
         
         # Generate two different key pairs
-        private_key_pem1, _ = self.manager.generate_key_pair()
-        _, public_key_pem2 = self.manager.generate_key_pair()
+        private_key_pem1, _ = _generate_test_key_pair()
+        _, public_key_pem2 = _generate_test_key_pair()
         
         # Mock principal for generation
         mock_principal_gen = Mock()
