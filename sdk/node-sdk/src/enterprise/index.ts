@@ -12,4 +12,3 @@ export { AnalyticsExtension } from './analytics';
 export { WorkflowsExtension } from './workflows';
 export { SSOExtension } from './sso';
 export { LicenseExtension } from './license';
-export { SyncExtension } from './sync';

@@ -17,7 +17,6 @@ from caracal_sdk.enterprise.analytics import AnalyticsExtension
 from caracal_sdk.enterprise.workflows import WorkflowsExtension
 from caracal_sdk.enterprise.sso import SSOExtension
 from caracal_sdk.enterprise.license import LicenseExtension
-from caracal_sdk.enterprise.sync import SyncExtension
 
 __all__ = [
     "EnterpriseFeatureRequired",
@@ -26,5 +25,4 @@ __all__ = [
     "WorkflowsExtension",
     "SSOExtension",
     "LicenseExtension",
-    "SyncExtension",
 ]
