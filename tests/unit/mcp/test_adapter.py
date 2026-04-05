@@ -118,6 +118,15 @@ class TestMCPAdapter:
         assert self.adapter.metering_collector == self.mock_metering_collector
         assert self.adapter.mcp_server_url == "http://localhost:3001"
         assert self.adapter.request_timeout_seconds == 30
+
+    def test_adapter_rejects_invalid_caveat_mode(self):
+        """Test adapter initialization fails on unsupported caveat modes."""
+        with pytest.raises(CaracalError, match="Invalid caveat mode"):
+            MCPAdapter(
+                authority_evaluator=self.mock_authority_evaluator,
+                metering_collector=self.mock_metering_collector,
+                caveat_mode="invalid-mode",
+            )
     
     @pytest.mark.asyncio
     async def test_intercept_tool_call_missing_mandate_id(self):
@@ -242,6 +251,96 @@ class TestMCPAdapter:
         assert result.success is True
         assert result.result["output"] == "test result"
         self.mock_metering_collector.collect_event.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_intercept_tool_call_caveat_chain_mode_forwards_chain_inputs(self):
+        """Test caveat-chain mode forwards chain data into authority checks."""
+        adapter = MCPAdapter(
+            authority_evaluator=self.mock_authority_evaluator,
+            metering_collector=self.mock_metering_collector,
+            mcp_server_url="http://localhost:3001",
+            caveat_mode="caveat_chain",
+            caveat_hmac_key="global-chain-key",
+        )
+
+        mandate_id = uuid4()
+        task_chain = [{"index": 0, "type": "action", "value": "execute", "hmac": "abc", "previous_hmac": ""}]
+        context = MCPContext(
+            principal_id="agent-123",
+            metadata={
+                "mandate_id": str(mandate_id),
+                "task_caveat_chain": task_chain,
+                "task_id": "task-xyz",
+            },
+        )
+
+        mock_mandate = Mock(spec=ExecutionMandate)
+        self.mock_authority_evaluator._get_mandate_with_cache.return_value = mock_mandate
+        self.mock_authority_evaluator.validate_mandate.return_value = AuthorityDecision(
+            allowed=True,
+            reason="Authority granted",
+            mandate_id=mandate_id,
+            requested_action="execute",
+            requested_resource="test_tool",
+        )
+
+        with patch.object(adapter, "_forward_to_mcp_server", new_callable=AsyncMock) as mock_forward:
+            mock_forward.return_value = {"output": "ok"}
+            result = await adapter.intercept_tool_call(
+                tool_name="test_tool",
+                tool_args={"arg": "value"},
+                mcp_context=context,
+            )
+
+        assert result.success is True
+        call_kwargs = self.mock_authority_evaluator.validate_mandate.call_args.kwargs
+        assert call_kwargs["caveat_chain"] == task_chain
+        assert call_kwargs["caveat_hmac_key"] == "global-chain-key"
+        assert call_kwargs["caveat_task_id"] == "task-xyz"
+
+    @pytest.mark.asyncio
+    async def test_intercept_tool_call_jwt_mode_ignores_caveat_chain_metadata(self):
+        """Test JWT mode does not pass caveat-chain kwargs into authority checks."""
+        adapter = MCPAdapter(
+            authority_evaluator=self.mock_authority_evaluator,
+            metering_collector=self.mock_metering_collector,
+            mcp_server_url="http://localhost:3001",
+            caveat_mode="jwt",
+        )
+
+        mandate_id = uuid4()
+        context = MCPContext(
+            principal_id="agent-123",
+            metadata={
+                "mandate_id": str(mandate_id),
+                "task_caveat_chain": [{"index": 0, "type": "action", "value": "execute"}],
+                "task_id": "task-xyz",
+            },
+        )
+
+        mock_mandate = Mock(spec=ExecutionMandate)
+        self.mock_authority_evaluator._get_mandate_with_cache.return_value = mock_mandate
+        self.mock_authority_evaluator.validate_mandate.return_value = AuthorityDecision(
+            allowed=True,
+            reason="Authority granted",
+            mandate_id=mandate_id,
+            requested_action="execute",
+            requested_resource="test_tool",
+        )
+
+        with patch.object(adapter, "_forward_to_mcp_server", new_callable=AsyncMock) as mock_forward:
+            mock_forward.return_value = {"output": "ok"}
+            result = await adapter.intercept_tool_call(
+                tool_name="test_tool",
+                tool_args={"arg": "value"},
+                mcp_context=context,
+            )
+
+        assert result.success is True
+        call_kwargs = self.mock_authority_evaluator.validate_mandate.call_args.kwargs
+        assert "caveat_chain" not in call_kwargs
+        assert "caveat_hmac_key" not in call_kwargs
+        assert "caveat_task_id" not in call_kwargs
     
     @pytest.mark.asyncio
     async def test_intercept_resource_read_missing_mandate_id(self):

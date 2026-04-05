@@ -11,6 +11,7 @@ and resource reads, enforces authority policies, and emits metering events.
 from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
+import os
 from typing import Any, Dict, Optional
 
 import httpx
@@ -96,6 +97,8 @@ class MCPAdapter:
         metering_collector: MeteringCollector,
         mcp_server_url: Optional[str] = None,
         request_timeout_seconds: int = 30,
+        caveat_mode: Optional[str] = None,
+        caveat_hmac_key: Optional[str] = None,
     ):
         """
         Initialize MCPAdapter.
@@ -110,9 +113,18 @@ class MCPAdapter:
         self.metering_collector = metering_collector
         self.mcp_server_url = mcp_server_url.rstrip("/") if mcp_server_url else None
         self.request_timeout_seconds = request_timeout_seconds
+        resolved_mode = caveat_mode or os.environ.get("CARACAL_SESSION_CAVEAT_MODE") or "jwt"
+        self._caveat_mode = self._resolve_caveat_mode(resolved_mode)
+        self._caveat_hmac_key = str(
+            caveat_hmac_key
+            or os.environ.get("CARACAL_SESSION_CAVEAT_HMAC_KEY")
+            or ""
+        ).strip()
         self._http_client: Optional[httpx.AsyncClient] = None
         logger.info(
-            f"MCPAdapter initialized (upstream={'configured: ' + self.mcp_server_url if self.mcp_server_url else 'none'})"
+            "MCPAdapter initialized "
+            f"(upstream={'configured: ' + self.mcp_server_url if self.mcp_server_url else 'none'}, "
+            f"caveat_mode={self._caveat_mode})"
         )
 
     async def intercept_tool_call(
@@ -183,10 +195,12 @@ class MCPAdapter:
 
             # 4. Validate Authority
             # Action: execute, Resource: tool_name
+            caveat_kwargs = self._extract_caveat_authority_kwargs(mcp_context)
             decision = self.authority_evaluator.validate_mandate(
                 mandate=mandate,
                 requested_action="execute",
-                requested_resource=tool_name
+                requested_resource=tool_name,
+                **caveat_kwargs,
             )
             
             if not decision.allowed:
@@ -342,10 +356,12 @@ class MCPAdapter:
 
             # 4. Validate Authority
             # Action: read, Resource: resource_uri
+            caveat_kwargs = self._extract_caveat_authority_kwargs(mcp_context)
             decision = self.authority_evaluator.validate_mandate(
                 mandate=mandate,
                 requested_action="read",
-                requested_resource=resource_uri
+                requested_resource=resource_uri,
+                **caveat_kwargs,
             )
             
             if not decision.allowed:
@@ -468,6 +484,59 @@ class MCPAdapter:
             raise error
         
         return principal_id
+
+    @staticmethod
+    def _resolve_caveat_mode(raw_mode: str) -> str:
+        mode = str(raw_mode or "jwt").strip().lower()
+        if mode in {"jwt", "caveat_chain"}:
+            return mode
+        raise CaracalError(
+            f"Invalid caveat mode {raw_mode!r}. Use 'jwt' or 'caveat_chain'."
+        )
+
+    def _extract_caveat_authority_kwargs(self, mcp_context: MCPContext) -> Dict[str, Any]:
+        """Extract optional caveat-chain inputs for AuthorityEvaluator."""
+        if self._caveat_mode != "caveat_chain":
+            return {}
+
+        task_claims = mcp_context.get("task_token_claims")
+        if not isinstance(task_claims, dict):
+            task_claims = {}
+
+        raw_chain = (
+            mcp_context.get("task_caveat_chain")
+            or mcp_context.get("caveat_chain")
+            or task_claims.get("task_caveat_chain")
+        )
+        if raw_chain is None:
+            return {}
+        if not isinstance(raw_chain, list):
+            raise CaracalError("task_caveat_chain metadata must be a list")
+
+        caveat_hmac_key = str(
+            mcp_context.get("task_caveat_hmac_key")
+            or mcp_context.get("caveat_hmac_key")
+            or task_claims.get("task_caveat_hmac_key")
+            or self._caveat_hmac_key
+            or ""
+        ).strip()
+        if not caveat_hmac_key:
+            raise CaracalError(
+                "Caveat-chain enforcement requires a caveat HMAC key when task_caveat_chain is provided"
+            )
+
+        task_id = (
+            mcp_context.get("task_id")
+            or mcp_context.get("caveat_task_id")
+            or task_claims.get("task_id")
+        )
+        resolved_task_id = str(task_id).strip() if task_id is not None else None
+
+        return {
+            "caveat_chain": raw_chain,
+            "caveat_hmac_key": caveat_hmac_key,
+            "caveat_task_id": resolved_task_id,
+        }
 
     async def _get_http_client(self) -> httpx.AsyncClient:
         """Lazily create and return a shared httpx.AsyncClient."""
@@ -778,13 +847,30 @@ class MCPAdapter:
                 tool_name = func.__name__
                 
                 # Create MCP context
+                metadata: Dict[str, Any] = {
+                    "tool_name": tool_name,
+                    "decorator_mode": True,
+                    "mandate_id": str(mandate_id),
+                }
+                task_caveat_chain = call_kwargs.get("task_caveat_chain") or call_kwargs.get("caveat_chain")
+                if task_caveat_chain is not None:
+                    metadata["task_caveat_chain"] = task_caveat_chain
+
+                task_caveat_hmac_key = call_kwargs.get("task_caveat_hmac_key") or call_kwargs.get("caveat_hmac_key")
+                if task_caveat_hmac_key is not None:
+                    metadata["task_caveat_hmac_key"] = task_caveat_hmac_key
+
+                task_id = call_kwargs.get("task_id") or call_kwargs.get("caveat_task_id")
+                if task_id is not None:
+                    metadata["task_id"] = task_id
+
+                task_token_claims = call_kwargs.get("task_token_claims")
+                if isinstance(task_token_claims, dict):
+                    metadata["task_token_claims"] = task_token_claims
+
                 mcp_context = MCPContext(
                     principal_id=str(principal_id),
-                    metadata={
-                        "tool_name": tool_name,
-                        "decorator_mode": True,
-                        "mandate_id": str(mandate_id)
-                    }
+                    metadata=metadata,
                 )
                 
                 logger.debug(
@@ -803,10 +889,12 @@ class MCPAdapter:
                         raise CaracalError(f"Mandate not found: {mandate_id}")
 
                     # 2. Validate Authority
+                    caveat_kwargs = self._extract_caveat_authority_kwargs(mcp_context)
                     decision = self.authority_evaluator.validate_mandate(
                         mandate=mandate,
                         requested_action="execute",
-                        requested_resource=tool_name
+                        requested_resource=tool_name,
+                        **caveat_kwargs,
                     )
                     
                     if not decision.allowed:
