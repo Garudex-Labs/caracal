@@ -9,9 +9,10 @@ OSS default: broker mode (policy check → signed mandate, client routes directl
 Enterprise opt-in: network-level enforcement via gateway proxy.
 
 Feature flags are resolved in priority order:
-    1. Environment variables (CARACAL_ENTERPRISE_URL, CARACAL_GATEWAY_*)
-  2. Workspace config file (~/.caracal/config.yaml)
-  3. Compile-time defaults (all disabled)
+    1. Centralized edition adapter for enterprise/gateway execution signals
+    2. Enterprise runtime metadata for gateway-specific settings
+    3. Workspace config file (~/.caracal/config.yaml)
+    4. Compile-time defaults (all disabled)
 """
 
 from __future__ import annotations
@@ -26,9 +27,6 @@ logger = get_logger(__name__)
 
 # ── Environment variable names ──────────────────────────────────────────────
 _ENV_GATEWAY_ENABLED = "CARACAL_GATEWAY_ENABLED"
-_ENV_ENTERPRISE_URL = "CARACAL_ENTERPRISE_URL"
-_ENV_GATEWAY_ENDPOINT = "CARACAL_GATEWAY_ENDPOINT"
-_ENV_GATEWAY_URL = "CARACAL_GATEWAY_URL"
 _ENV_GATEWAY_API_KEY = "CARACAL_GATEWAY_API_KEY"
 _ENV_GATEWAY_ENFORCE_NETWORK = "CARACAL_GATEWAY_ENFORCE_NETWORK"
 _ENV_GATEWAY_FAIL_CLOSED = "CARACAL_GATEWAY_FAIL_CLOSED"
@@ -135,22 +133,27 @@ def load_gateway_features() -> GatewayFeatureFlags:
     """
     flags = GatewayFeatureFlags()
 
+    try:
+        from caracal.deployment.edition_adapter import get_deployment_edition_adapter
+
+        edition_adapter = get_deployment_edition_adapter()
+        gateway_url = str(edition_adapter.get_gateway_url() or "").strip()
+        if gateway_url:
+            flags.gateway_endpoint = gateway_url.rstrip("/")
+            flags.gateway_enabled = True
+            flags._source = "edition-adapter"
+
+        if edition_adapter.uses_gateway_execution():
+            flags.deployment_type = DEPLOYMENT_MANAGED
+            flags.fail_closed = True
+    except Exception as exc:
+        logger.debug("Could not resolve gateway base settings from edition adapter: %s", exc)
+
     # --- Environment layer ---
     env_enabled = _bool_env(_ENV_GATEWAY_ENABLED)
     if env_enabled:
         flags.gateway_enabled = True
         flags._source = "environment"
-
-    endpoint = (
-        os.getenv(_ENV_ENTERPRISE_URL)
-        or os.getenv(_ENV_GATEWAY_ENDPOINT)
-        or os.getenv(_ENV_GATEWAY_URL)
-    )
-    if endpoint:
-        flags.gateway_endpoint = endpoint.rstrip("/")
-        flags.gateway_enabled = True
-        if flags._source == "defaults":
-            flags._source = "environment"
 
     api_key = os.getenv(_ENV_GATEWAY_API_KEY)
     if api_key:

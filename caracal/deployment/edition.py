@@ -110,7 +110,19 @@ class EditionManager:
             raise EditionDetectionError(f"Failed to detect edition: {e}") from e
     
     def _gateway_url_from_config(self) -> Optional[str]:
-        """Return the configured gateway URL from persisted edition config only."""
+        """Return the configured gateway URL from persisted hard-cut state."""
+        try:
+            from caracal.enterprise.license import load_enterprise_config
+
+            enterprise_cfg = load_enterprise_config()
+            gateway_cfg = enterprise_cfg.get("gateway")
+            if isinstance(gateway_cfg, dict):
+                gateway_endpoint = str(gateway_cfg.get("endpoint") or "").strip()
+                if gateway_endpoint:
+                    return gateway_endpoint
+        except Exception:
+            logger.debug("failed_to_read_enterprise_runtime_gateway_url", exc_info=True)
+
         if self.CONFIG_FILE.exists():
             try:
                 config = toml.load(self.CONFIG_FILE)
