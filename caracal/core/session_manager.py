@@ -9,6 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from enum import Enum
+from contextlib import AbstractContextManager
 from typing import Any, Callable, Optional, Protocol
 from uuid import uuid4
 
@@ -71,6 +72,13 @@ class SessionAuditSink(Protocol):
         metadata: Optional[dict[str, Any]] = None,
     ) -> None:
         """Persist or forward a session audit event."""
+
+
+class SessionDbManager(Protocol):
+    """Protocol for DB transaction scope providers used by session flows."""
+
+    def session_scope(self) -> AbstractContextManager[Any]:
+        """Return a transactional context manager yielding a DB session."""
 
 
 class RedisSessionDenylistBackend:
@@ -137,6 +145,7 @@ class SessionManager:
         refresh_ttl: timedelta = timedelta(days=14),
         denylist_backend: Optional[SessionDenylistBackend] = None,
         audit_sink: Optional[SessionAuditSink] = None,
+        db_session_manager: Optional[SessionDbManager] = None,
         issuer: Optional[str] = None,
         audience: Optional[str] = None,
     ) -> None:
@@ -163,6 +172,7 @@ class SessionManager:
         self._refresh_ttl = refresh_ttl
         self._denylist = denylist_backend
         self._audit_sink = audit_sink
+        self._db_session_manager = db_session_manager
         self._issuer = issuer
         self._audience = audience
 
@@ -367,7 +377,7 @@ class SessionManager:
         )
         return issued
 
-    def issue_handoff_token(
+    async def issue_handoff_token(
         self,
         *,
         source_access_token: str,
@@ -375,9 +385,15 @@ class SessionManager:
         caveats: Optional[list[str]] = None,
         ttl: timedelta = timedelta(minutes=2),
     ) -> str:
-        """Issue a one-time handoff token for immediate scope transfer."""
+        """Issue a one-time handoff token and narrow issuer scope immediately."""
+        if self._denylist is None:
+            raise SessionValidationError(
+                "Handoff token issuance requires a deny-list backend"
+            )
+
         source_claims = self._decode_verified(source_access_token)
         self._assert_token_type(source_claims, expected="access")
+        await self._assert_not_revoked(source_claims)
 
         source_caveats = self._normalize_caveats(
             source_claims.get("task_caveats") or source_claims.get("caveats")
@@ -394,11 +410,24 @@ class SessionManager:
         if resolved_ttl <= timedelta(seconds=0):
             raise SessionValidationError("Handoff token TTL must be greater than zero")
 
+        source_token_jti = str(source_claims.get("jti") or "").strip()
+        if not source_token_jti:
+            raise SessionValidationError("Source access token is missing required jti claim")
+
+        source_exp_dt = self._claim_expiry_datetime(source_claims)
+        if source_exp_dt <= datetime.now(timezone.utc):
+            raise SessionValidationError("Source access token has expired")
+
+        source_remaining_caveats = [
+            caveat for caveat in source_caveats if caveat not in set(effective_caveats)
+        ]
+
         now = datetime.now(timezone.utc)
         exp = now + resolved_ttl
+        handoff_jti = uuid4().hex
         handoff_claims = self._build_claims(
             token_type="handoff",
-            token_jti=uuid4().hex,
+            token_jti=handoff_jti,
             session_id=uuid4().hex,
             subject_id=str(target_subject_id),
             organization_id=str(source_claims.get("org")),
@@ -411,19 +440,38 @@ class SessionManager:
             extra_claims={
                 "handoff_token": True,
                 "source_subject_id": str(source_claims.get("sub")),
-                "source_token_jti": str(source_claims.get("jti") or ""),
+                "source_token_jti": source_token_jti,
                 "task_caveats": effective_caveats,
                 "can_delegate_task_tokens": False,
             },
         )
         token = jwt.encode(handoff_claims, self._signing_key, algorithm=self._algorithm)
+
+        # Persist issuance + source scope narrowing in a single DB transaction.
+        self._record_handoff_transfer(
+            handoff_jti=handoff_jti,
+            source_token_jti=source_token_jti,
+            source_subject_id=str(source_claims.get("sub") or ""),
+            target_subject_id=str(target_subject_id),
+            organization_id=str(source_claims.get("org") or ""),
+            tenant_id=str(source_claims.get("tenant") or ""),
+            transferred_caveats=effective_caveats,
+            source_remaining_caveats=source_remaining_caveats,
+            issued_at=now,
+        )
+
+        # Enforce immediate source-scope loss at handoff issuance time.
+        await self._denylist.add(source_token_jti, source_exp_dt)
+
         self._record_audit_event(
             event_type="handoff_token_issued",
             principal_id=str(source_claims.get("sub")),
             metadata={
                 "target_subject_id": str(target_subject_id),
-                "handoff_jti": str(handoff_claims.get("jti") or ""),
+                "handoff_jti": handoff_jti,
+                "source_token_jti": source_token_jti,
                 "task_caveats": effective_caveats,
+                "source_remaining_caveats": source_remaining_caveats,
             },
         )
         return token
@@ -431,8 +479,8 @@ class SessionManager:
     async def consume_handoff_token(self, handoff_token: str) -> IssuedSession:
         """Consume a one-time handoff token and mint a replacement task token.
 
-        Replay prevention is enforced by deny-listing the handoff token JTI and
-        source access token JTI before returning the new task token.
+        Replay prevention is enforced by deny-listing the handoff token JTI
+        before returning the new task token.
         """
         claims = self._decode_verified(handoff_token)
         self._assert_token_type(claims, expected="handoff")
@@ -452,9 +500,10 @@ class SessionManager:
         source_jti = str(claims.get("source_token_jti") or "").strip()
 
         if handoff_jti:
+            self._consume_handoff_transfer(handoff_jti=handoff_jti)
+
+        if handoff_jti:
             await self._denylist.add(handoff_jti, exp_dt)
-        if source_jti:
-            await self._denylist.add(source_jti, exp_dt)
 
         remaining_ttl = exp_dt - datetime.now(timezone.utc)
         if remaining_ttl <= timedelta(seconds=0):
@@ -657,11 +706,95 @@ class SessionManager:
         return claims
 
     async def _assert_not_revoked(self, claims: dict[str, Any]) -> None:
+        token_jti = str(claims.get("jti") or "").strip()
+
+        if token_jti and self._is_token_revoked_by_handoff_store(token_jti):
+            raise SessionRevokedError("Session token has been revoked")
+
         if self._denylist is None:
             return
-        token_jti = str(claims.get("jti") or "").strip()
         if token_jti and await self._denylist.contains(token_jti):
             raise SessionRevokedError("Session token has been revoked")
+
+    def _is_token_revoked_by_handoff_store(self, token_jti: str) -> bool:
+        token_jti = str(token_jti or "").strip()
+        if not token_jti or self._db_session_manager is None:
+            return False
+
+        from caracal.db.models import SessionHandoffTransfer
+
+        with self._db_session_manager.session_scope() as session:
+            source_revoked = (
+                session.query(SessionHandoffTransfer)
+                .filter(SessionHandoffTransfer.source_token_jti == token_jti)
+                .filter(SessionHandoffTransfer.source_token_revoked_at.isnot(None))
+                .first()
+            )
+            if source_revoked is not None:
+                return True
+
+            consumed_handoff = (
+                session.query(SessionHandoffTransfer)
+                .filter(SessionHandoffTransfer.handoff_jti == token_jti)
+                .filter(SessionHandoffTransfer.consumed_at.isnot(None))
+                .first()
+            )
+            return consumed_handoff is not None
+
+    def _record_handoff_transfer(
+        self,
+        *,
+        handoff_jti: str,
+        source_token_jti: str,
+        source_subject_id: str,
+        target_subject_id: str,
+        organization_id: str,
+        tenant_id: str,
+        transferred_caveats: list[str],
+        source_remaining_caveats: list[str],
+        issued_at: datetime,
+    ) -> None:
+        if self._db_session_manager is None:
+            return
+
+        from caracal.db.models import SessionHandoffTransfer
+
+        with self._db_session_manager.session_scope() as session:
+            session.add(
+                SessionHandoffTransfer(
+                    handoff_jti=handoff_jti,
+                    source_token_jti=source_token_jti,
+                    source_subject_id=source_subject_id,
+                    target_subject_id=target_subject_id,
+                    organization_id=organization_id,
+                    tenant_id=tenant_id,
+                    transferred_caveats=transferred_caveats,
+                    source_remaining_caveats=source_remaining_caveats,
+                    issued_at=issued_at,
+                    source_token_revoked_at=issued_at,
+                )
+            )
+            session.flush()
+
+    def _consume_handoff_transfer(self, *, handoff_jti: str) -> None:
+        if self._db_session_manager is None:
+            return
+
+        from caracal.db.models import SessionHandoffTransfer
+
+        with self._db_session_manager.session_scope() as session:
+            transfer = (
+                session.query(SessionHandoffTransfer)
+                .filter(SessionHandoffTransfer.handoff_jti == handoff_jti)
+                .first()
+            )
+            if transfer is None:
+                raise SessionValidationError("Handoff token transfer record is missing")
+            if transfer.consumed_at is not None:
+                raise SessionRevokedError("Session token has been revoked")
+
+            transfer.consumed_at = datetime.utcnow()
+            session.flush()
 
     def _assert_token_type(self, claims: dict[str, Any], *, expected: str) -> None:
         token_type = str(claims.get("typ") or "").strip().lower()

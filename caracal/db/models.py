@@ -719,6 +719,30 @@ class DelegationEdgeTag(Base):
     edge = relationship("DelegationEdgeModel", back_populates="context_tag_entries")
 
 
+class SessionHandoffTransfer(Base):
+    """Transactional record of handoff issuance and source-scope narrowing."""
+
+    __tablename__ = "session_handoff_transfers"
+
+    transfer_id = Column(PG_UUID(as_uuid=True), primary_key=True, default=uuid4)
+    handoff_jti = Column(String(255), nullable=False, unique=True, index=True)
+    source_token_jti = Column(String(255), nullable=False, index=True)
+    source_subject_id = Column(String(255), nullable=False, index=True)
+    target_subject_id = Column(String(255), nullable=False, index=True)
+    organization_id = Column(String(255), nullable=False, index=True)
+    tenant_id = Column(String(255), nullable=False, index=True)
+    transferred_caveats = Column(JSON, nullable=False, default=list)
+    source_remaining_caveats = Column(JSON, nullable=False, default=list)
+    issued_at = Column(DateTime, nullable=False, default=datetime.utcnow, index=True)
+    source_token_revoked_at = Column(DateTime, nullable=True, index=True)
+    consumed_at = Column(DateTime, nullable=True, index=True)
+
+    __table_args__ = (
+        Index("ix_session_handoff_transfers_source_revoked", "source_token_jti", "source_token_revoked_at"),
+        Index("ix_session_handoff_transfers_handoff_consumed", "handoff_jti", "consumed_at"),
+    )
+
+
 class AuthorityLedgerEvent(Base):
     """
     Immutable ledger event for authority decisions.
