@@ -196,6 +196,27 @@ def load_enterprise_config() -> Dict[str, Any]:
     return {}
 
 
+def resolve_revocation_webhook_target(
+    *,
+    webhook_url_override: Optional[str] = None,
+) -> tuple[Optional[str], Optional[str]]:
+    """Resolve revocation webhook URL and sync API key from enterprise runtime config."""
+    normalized_override = str(webhook_url_override or "").strip() or None
+
+    config = load_enterprise_config()
+    sync_api_key = str(config.get("sync_api_key") or "").strip() or None
+
+    if normalized_override:
+        return normalized_override, sync_api_key
+
+    configured_base = str(config.get("enterprise_api_url") or "").strip() or None
+    resolved_base = _resolve_api_url(configured_base)
+    if not resolved_base:
+        return None, sync_api_key
+
+    return f"{resolved_base.rstrip('/')}/api/sync/revocation-events", sync_api_key
+
+
 def save_enterprise_config(data: Dict[str, Any]) -> None:
     """Persist enterprise config to PostgreSQL runtime metadata."""
     from caracal.config import load_config
