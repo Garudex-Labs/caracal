@@ -33,6 +33,65 @@ def test_enterprise_preflight_blocks_sqlite_when_jsonb_check_disabled() -> None:
 
 
 @pytest.mark.unit
+def test_enterprise_preflight_blocks_legacy_compose_secret_backend_markers(tmp_path: Path) -> None:
+    compose_file = tmp_path / "docker-compose.enterprise.yml"
+    compose_file.write_text(
+        """
+services:
+  gateway:
+    environment:
+      - CARACAL_SECRET_BACKEND=${CARACAL_SECRET_BACKEND:-null}
+      - AWS_REGION=${AWS_REGION:-us-east-1}
+""".strip(),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(HardCutPreflightError, match="forbidden markers"):
+        assert_enterprise_hardcut(
+            compose_file=compose_file,
+            database_urls={"DATABASE_URL": "postgresql://ok"},
+            check_jsonb=False,
+            env_vars=_valid_vault_env(),
+        )
+
+
+@pytest.mark.unit
+def test_enterprise_preflight_accepts_vault_aligned_compose_markers(tmp_path: Path) -> None:
+    compose_file = tmp_path / "docker-compose.enterprise.yml"
+    compose_file.write_text(
+        """
+services:
+  gateway:
+    depends_on:
+      vault:
+        condition: service_healthy
+    environment:
+      - CARACAL_PRINCIPAL_KEY_BACKEND=${CARACAL_PRINCIPAL_KEY_BACKEND:-vault}
+      - CARACAL_VAULT_URL=${CARACAL_VAULT_URL:-http://vault:8080}
+      - CARACAL_VAULT_TOKEN=${CARACAL_VAULT_TOKEN:-enterprise-local-token}
+      - CARACAL_VAULT_PROJECT_ID=${CARACAL_VAULT_PROJECT_ID:-caracal-enterprise-local}
+      - CARACAL_VAULT_ENVIRONMENT=${CARACAL_VAULT_ENVIRONMENT:-enterprise-dev}
+      - CARACAL_VAULT_SECRET_PATH=${CARACAL_VAULT_SECRET_PATH:-/enterprise}
+      - CARACAL_VAULT_SIGNING_KEY_REF=${CARACAL_VAULT_SIGNING_KEY_REF:-keys/mandate-signing}
+      - CARACAL_VAULT_SESSION_PUBLIC_KEY_REF=${CARACAL_VAULT_SESSION_PUBLIC_KEY_REF:-keys/session-public}
+      - CARACAL_SESSION_SIGNING_ALGORITHM=${CARACAL_SESSION_SIGNING_ALGORITHM:-RS256}
+  vault:
+    image: ${CARACAL_VAULT_SIDECAR_IMAGE:-infisical/infisical:latest}
+    ports:
+      - "${CARACAL_ENTERPRISE_VAULT_PORT:-8180}:8080"
+""".strip(),
+        encoding="utf-8",
+    )
+
+    assert_enterprise_hardcut(
+        compose_file=compose_file,
+        database_urls={"DATABASE_URL": "postgresql://ok"},
+        check_jsonb=False,
+        env_vars=_valid_vault_env(),
+    )
+
+
+@pytest.mark.unit
 def test_runtime_preflight_blocks_file_backed_state_markers(tmp_path: Path) -> None:
     compose_file = tmp_path / "docker-compose.yml"
     compose_file.write_text(

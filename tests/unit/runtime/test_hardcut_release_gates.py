@@ -98,6 +98,71 @@ def test_runtime_image_compose_has_vault_sidecar_and_hardcut_env_markers() -> No
 
 
 @pytest.mark.unit
+def test_enterprise_compose_has_vault_sidecar_and_no_aws_or_null_backend_defaults() -> None:
+    compose_file = _REPO_ROOT / ".." / "caracalEnterprise" / "docker-compose.enterprise.yml"
+    payload = compose_file.read_text(encoding="utf-8")
+
+    assert "  vault:" in payload
+    assert "infisical/infisical:latest" in payload
+    assert "CARACAL_PRINCIPAL_KEY_BACKEND=${CARACAL_PRINCIPAL_KEY_BACKEND:-vault}" in payload
+    assert "CARACAL_VAULT_URL=${CARACAL_VAULT_URL:-http://vault:8080}" in payload
+    assert "CARACAL_SECRET_BACKEND" not in payload
+    assert "VAULT_ADDR" not in payload
+    assert "VAULT_ROLE_ID" not in payload
+    assert "VAULT_SECRET_ID" not in payload
+    assert "AWS_REGION" not in payload
+    assert "AWS_ACCESS_KEY_ID" not in payload
+    assert "AWS_SECRET_ACCESS_KEY" not in payload
+    assert ":-null" not in payload
+
+
+@pytest.mark.unit
+def test_enterprise_compose_uses_separate_vault_topology_defaults_from_oss_runtime() -> None:
+    compose_file = _REPO_ROOT / ".." / "caracalEnterprise" / "docker-compose.enterprise.yml"
+    payload = compose_file.read_text(encoding="utf-8")
+
+    assert "${CARACAL_ENTERPRISE_VAULT_PORT:-8180}:8080" in payload
+    assert "CARACAL_VAULT_TOKEN=${CARACAL_VAULT_TOKEN:-enterprise-local-token}" in payload
+    assert "CARACAL_VAULT_PROJECT_ID=${CARACAL_VAULT_PROJECT_ID:-caracal-enterprise-local}" in payload
+    assert "CARACAL_VAULT_ENVIRONMENT=${CARACAL_VAULT_ENVIRONMENT:-enterprise-dev}" in payload
+    assert "CARACAL_VAULT_SECRET_PATH=${CARACAL_VAULT_SECRET_PATH:-/enterprise}" in payload
+
+
+@pytest.mark.unit
+def test_enterprise_startup_local_infra_boots_vault_sidecar() -> None:
+    main_file = _REPO_ROOT / ".." / "caracalEnterprise" / "services" / "enterprise-api" / "src" / "caracal_enterprise" / "main.py"
+    payload = main_file.read_text(encoding="utf-8")
+
+    assert '"up", "-d", "redis", "postgres", "vault"' in payload
+    assert '{"postgres", "redis", "vault"}' in payload
+    assert "5433/6380/8180" in payload
+
+
+@pytest.mark.unit
+def test_oss_env_example_uses_vault_only_hardcut_defaults() -> None:
+    env_example = _REPO_ROOT / ".env.example"
+    payload = env_example.read_text(encoding="utf-8")
+
+    assert "CARACAL_PRINCIPAL_KEY_BACKEND=vault" in payload
+    assert "CARACAL_VAULT_SIDECAR_IMAGE=infisical/infisical:latest" in payload
+    assert "CARACAL_SECRET_BACKEND" not in payload
+    assert "AWS_" not in payload
+    assert "aws_kms" not in payload.lower()
+
+
+@pytest.mark.unit
+def test_enterprise_schema_hardcut_removes_bootstrap_sql_and_license_password_hash_artifact() -> None:
+    bootstrap_sql = _REPO_ROOT / ".." / "caracalEnterprise" / "services" / "enterprise-api" / "create_caracal_tables.sql"
+    migration_file = _REPO_ROOT / ".." / "caracalEnterprise" / "services" / "enterprise-api" / "alembic" / "versions" / "029_drop_license_password_hash_hardcut.py"
+    migration_payload = migration_file.read_text(encoding="utf-8")
+
+    assert not bootstrap_sql.exists()
+    assert 'revision: str = "029"' in migration_payload
+    assert 'down_revision: Union[str, None] = "028"' in migration_payload
+    assert 'op.drop_column("licenses", "password_hash")' in migration_payload
+
+
+@pytest.mark.unit
 def test_core_crypto_module_has_no_private_key_sign_helpers() -> None:
     crypto_file = _REPO_ROOT / "caracal" / "core" / "crypto.py"
     payload = crypto_file.read_text(encoding="utf-8")
@@ -501,7 +566,7 @@ def test_merkle_config_and_cli_enforce_hardcut_vault_guard() -> None:
     assert "CARACAL_VAULT_MERKLE_SIGNING_KEY_REF" in settings_payload
     assert "CARACAL_VAULT_MERKLE_PUBLIC_KEY_REF" in settings_payload
     assert "Local file-backed Merkle signing is forbidden." in settings_payload
-    assert "Local Merkle key-file commands are disabled in hard-cut mode." in cli_payload
+    assert "Local Merkle key-file commands are disabled in runtime paths." in cli_payload
 
 
 @pytest.mark.unit
@@ -753,11 +818,11 @@ def test_enterprise_frontend_settings_copy_uses_hardcut_enterprise_commands_only
     settings_page = _REPO_ROOT / ".." / "caracalEnterprise" / "src" / "app" / "dashboard" / "settings" / "page.tsx"
     payload = settings_page.read_text(encoding="utf-8")
 
-    assert "caracal enterprise login" in payload
-    assert "caracal enterprise sync" in payload
+    assert "caracal enterprise login" not in payload
+    assert "caracal enterprise sync" not in payload
     assert "generate-sync-key" not in payload
     assert "auto-sync" not in payload
-    assert "Sync API Key" not in payload
+    assert "Sync API key readiness" in payload
 
 
 @pytest.mark.unit
