@@ -355,6 +355,7 @@ def caracal_entrypoint() -> None:
 
 
 def _run_host_orchestrator(args: Sequence[str]) -> int:
+    _ensure_dotenv_loaded()
     os_name = platform.system()
     parser = argparse.ArgumentParser(
         prog="caracal",
@@ -436,6 +437,29 @@ def _run_host_orchestrator(args: Sequence[str]) -> int:
     except RuntimeError as exc:
         print(f"Error: {exc}", file=sys.stderr)
         return 2
+
+
+def _ensure_dotenv_loaded() -> None:
+    """Load workspace .env once for host runtime commands.
+
+    Values already present in the shell environment are preserved.
+    """
+    if getattr(_ensure_dotenv_loaded, "_done", False):
+        return
+    _ensure_dotenv_loaded._done = True  # type: ignore[attr-defined]
+
+    try:
+        from dotenv import find_dotenv, load_dotenv
+    except ImportError:
+        return
+
+    repo_env = Path(__file__).resolve().parents[2] / ".env"
+    if repo_env.exists():
+        load_dotenv(dotenv_path=repo_env, override=False)
+
+    discovered = find_dotenv(usecwd=True)
+    if discovered:
+        load_dotenv(dotenv_path=discovered, override=False)
 
 
 def _host_up(namespace: argparse.Namespace) -> int:
