@@ -386,7 +386,7 @@ def _resolve_api_url(override: Optional[str] = None) -> str:
     """Return the Enterprise API base URL.
 
     Priority: *override* → persisted config → explicit env vars →
-    default env var → static default.
+    static default.
 
     In development mode only, ``CARACAL_ENTERPRISE_DEV_URL`` can be used
     as a convenience override.
@@ -418,11 +418,6 @@ def _resolve_api_url(override: Optional[str] = None) -> str:
         dev_url = _normalize_enterprise_url(_read_env("CARACAL_ENTERPRISE_DEV_URL"))
         if dev_url:
             return dev_url
-
-    # Configurable default for first-time users.
-    default_url = _normalize_enterprise_url(_read_env("CARACAL_ENTERPRISE_DEFAULT_URL"))
-    if default_url:
-        return default_url
 
     return _normalize_enterprise_url(_DEFAULT_ENTERPRISE_URL) or _DEFAULT_ENTERPRISE_URL
 
