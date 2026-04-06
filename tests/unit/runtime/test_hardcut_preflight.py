@@ -222,6 +222,19 @@ def test_runtime_preflight_allows_asymmetric_session_signing_algorithm() -> None
 
 
 @pytest.mark.unit
+def test_runtime_preflight_blocks_legacy_session_signing_alias_env() -> None:
+    with pytest.raises(HardCutPreflightError, match="Compatibility aliases"):
+        env_vars = _valid_vault_env()
+        env_vars["CARACAL_SESSION_JWT_ALGORITHM"] = "RS256"
+        assert_runtime_hardcut(
+            compose_file=None,
+            database_urls={"DATABASE_URL": "postgresql://ok"},
+            check_jsonb=False,
+            env_vars=env_vars,
+        )
+
+
+@pytest.mark.unit
 def test_migration_cli_is_always_blocked() -> None:
     with pytest.raises(HardCutPreflightError, match="migration"):
         assert_migration_cli_allowed()

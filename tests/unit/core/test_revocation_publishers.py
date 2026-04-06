@@ -91,6 +91,7 @@ async def test_enterprise_webhook_revocation_publisher_posts_payload_with_sync_h
 
     assert captured["webhook_url"] == "https://enterprise.example/api/sync/revocation-events"
     assert captured["headers"]["X-Sync-Api-Key"] == "sync-key-123"
+    assert "Authorization" not in captured["headers"]
     assert captured["headers"]["Content-Type"] == "application/json"
     assert captured["timeout_seconds"] == 7.5
     assert captured["payload"]["event_type"] == "principal_revoked"
@@ -100,4 +101,16 @@ async def test_enterprise_webhook_revocation_publisher_posts_payload_with_sync_h
 @pytest.mark.unit
 def test_enterprise_webhook_revocation_publisher_rejects_invalid_webhook_url() -> None:
     with pytest.raises(ValueError, match="webhook_url"):
-        EnterpriseWebhookRevocationEventPublisher(webhook_url="enterprise.example/no-scheme")
+        EnterpriseWebhookRevocationEventPublisher(
+            webhook_url="enterprise.example/no-scheme",
+            sync_api_key="sync-key-1",
+        )
+
+
+@pytest.mark.unit
+def test_enterprise_webhook_revocation_publisher_requires_sync_api_key() -> None:
+    with pytest.raises(ValueError, match="sync_api_key"):
+        EnterpriseWebhookRevocationEventPublisher(
+            webhook_url="https://enterprise.example/api/sync/revocation-events",
+            sync_api_key="",
+        )
