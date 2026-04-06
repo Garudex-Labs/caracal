@@ -317,12 +317,12 @@ def workspace():
     Workspaces isolate configurations, policies, and mandates.
     Similar to git branches or docker contexts.
     
-    \b
-    Examples:
-      caracal workspace list              # List all workspaces
-      caracal workspace create prod       # Create new workspace
-      caracal workspace use prod          # Switch to workspace
-      caracal workspace delete old-dev    # Delete workspace
+        \b
+        Examples:
+            caracal workspace list                        # List all workspaces
+            caracal workspace create pied-piper          # Create new workspace
+            caracal workspace use hooli                   # Switch to workspace
+            caracal workspace delete raviga-capital       # Delete workspace
     """
     pass
 
