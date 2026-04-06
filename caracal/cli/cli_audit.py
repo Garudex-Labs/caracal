@@ -157,7 +157,6 @@ def _run_workflow_execution_probe(root_command: click.Group) -> Dict[str, object
 
     with tempfile.TemporaryDirectory() as temp_dir:
         workspace = Path(temp_dir) / "audit-workspace"
-        config_path = workspace / "config.yaml"
 
         command_steps = [
             {
@@ -167,14 +166,12 @@ def _run_workflow_execution_probe(root_command: click.Group) -> Dict[str, object
             },
             {
                 "name": "db-init",
-                "args": ["--config", str(config_path), "db", "init-db"],
+                "args": ["db", "init-db"],
                 "expected_success": True,
             },
             {
                 "name": "agent-register",
                 "args": [
-                    "--config",
-                    str(config_path),
                     "agent",
                     "register",
                     "--name",
@@ -186,7 +183,7 @@ def _run_workflow_execution_probe(root_command: click.Group) -> Dict[str, object
             },
             {
                 "name": "agent-list",
-                "args": ["--config", str(config_path), "agent", "list"],
+                "args": ["agent", "list"],
                 "expected_success": True,
             },
         ]
@@ -221,8 +218,6 @@ def _run_workflow_execution_probe(root_command: click.Group) -> Dict[str, object
             {
                 "name": "policy-create",
                 "args": [
-                    "--config",
-                    str(config_path),
                     "policy",
                     "create",
                     "--principal-id",
@@ -237,11 +232,11 @@ def _run_workflow_execution_probe(root_command: click.Group) -> Dict[str, object
             },
             {
                 "name": "delegation-list",
-                "args": ["--config", str(config_path), "delegation", "list"],
+                "args": ["delegation", "list"],
             },
             {
                 "name": "authority-list",
-                "args": ["--config", str(config_path), "authority", "list"],
+                "args": ["authority", "list"],
             },
             {
                 "name": "audit-export-help",

@@ -19,7 +19,7 @@ from click import Context
 
 from caracal._version import __version__
 from caracal.pathing import source_of
-from caracal.config.settings import get_default_config_path, load_config
+from caracal.config.settings import load_config
 from caracal.exceptions import CaracalError, InvalidConfigurationError
 from caracal.logging_config import setup_runtime_logging
 from caracal.cli.context import CLIContext, pass_context
@@ -180,13 +180,6 @@ class WorkspaceAwareGroup(SuggestingGroup):
 
 @click.group(invoke_without_command=True, cls=WorkspaceAwareGroup)
 @click.option(
-    '--config',
-    '-c',
-    type=click.Path(exists=False, dir_okay=False, path_type=Path),
-    default=None,
-    help=f'Path to configuration file (default: {get_default_config_path()})',
-)
-@click.option(
     '--workspace',
     '-w',
     default=None,
@@ -208,7 +201,7 @@ class WorkspaceAwareGroup(SuggestingGroup):
 )
 @click.version_option(version=__version__, prog_name='caracal')
 @click.pass_context
-def cli(ctx, config: Optional[Path], workspace: Optional[str], log_level: str, verbose: bool):
+def cli(ctx, workspace: Optional[str], log_level: str, verbose: bool):
     """
     Caracal - Pre-execution authority enforcement for AI agents.
     
@@ -220,21 +213,19 @@ def cli(ctx, config: Optional[Path], workspace: Optional[str], log_level: str, v
     ctx.obj.verbose = verbose
     ctx.obj.workspace = workspace or get_active_workspace()
 
-    # Prefer an explicit --config, otherwise resolve workspace-scoped config.yaml.
-    if config:
-        resolved_config_path = config
-    else:
-        resolved_config_path = get_workspace_config_path(ctx.obj.workspace) or get_default_config_path()
+    # Root CLI no longer accepts --config. Resolve from active workspace when available.
+    resolved_config_path = get_workspace_config_path(ctx.obj.workspace)
 
     # Set active runtime workspace early so all path defaults (backup/log/cache)
     # resolve to the selected workspace directory.
     try:
         from caracal.flow.workspace import set_workspace
-        set_workspace(source_of(Path(resolved_config_path).expanduser()))
+        if resolved_config_path is not None:
+            set_workspace(source_of(Path(resolved_config_path).expanduser()))
     except Exception:
         pass
 
-    ctx.obj.config_path = str(resolved_config_path)
+    ctx.obj.config_path = str(resolved_config_path) if resolved_config_path is not None else None
     
     # Detect global flags used to keep setup output clean.
     # Use Click context state first (works in CliRunner and nested command help),

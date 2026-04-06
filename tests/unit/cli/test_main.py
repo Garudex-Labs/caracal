@@ -161,12 +161,12 @@ class TestCLIErrorHandling:
         """Set up test fixtures before each test method."""
         self.runner = CliRunner()
     
-    def test_invalid_config_path(self):
-        """Test CLI with invalid config path."""
+    def test_config_option_removed(self):
+        """Test legacy global --config option is rejected in hard-cut mode."""
         result = self.runner.invoke(cli, ['--config', '/nonexistent/path/config.yaml', 'workspace', 'list'])
-        
-        # Should handle gracefully
-        assert result.exit_code in [0, 1]
+
+        assert result.exit_code != 0
+        assert "No such option: --config" in result.output
     
     def test_invalid_log_level(self):
         """Test CLI with invalid log level."""
