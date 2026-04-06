@@ -120,6 +120,7 @@ async def test_revoke_principal_processes_leaves_first_and_flushes_cache() -> No
     assert result.cache_invalidations == 4
     assert result.leaves_first_order is True
     assert len(result.revoked_principal_ids) == 2
+    assert result.revoked_edge_ids == []
 
     assert cache.invalidate_mandate.call_count == 2
     assert cache.invalidate_mandates_by_subject.call_count == 2
@@ -194,6 +195,7 @@ async def test_revoke_principal_publishes_per_principal_events_after_commit() ->
     )
 
     assert result.revoked_principal_ids == [str(leaf_id), str(root_id)]
+    assert result.revoked_edge_ids == []
     assert len(publisher.events) == 2
     assert [event["principal_id"] for event in publisher.events] == [str(leaf_id), str(root_id)]
     assert all(event["event_type"] == "principal_revoked" for event in publisher.events)
@@ -223,6 +225,7 @@ async def test_revoke_principal_publisher_failure_is_non_fatal() -> None:
     )
 
     assert result.revoked_principal_ids == [str(root_id)]
+    assert result.revoked_edge_ids == []
     assert session.commit.call_count == 1
     assert len(publisher.events) == 1
 
@@ -288,6 +291,71 @@ async def test_revoke_principal_orders_denylist_cache_revoke_commit_publish() ->
 
 
 @pytest.mark.unit
+@pytest.mark.asyncio
+async def test_revoke_principal_collects_revoked_graph_edges() -> None:
+    session = Mock()
+    root_id = uuid4()
+    mandate_id = uuid4()
+    edge_id = uuid4()
+
+    orchestrator = PrincipalRevocationOrchestrator(db_session=session)
+    orchestrator._resolve_leaves_first_order = Mock(return_value=[root_id])
+    orchestrator._revoke_single_principal = Mock(
+        return_value=SimpleNamespace(
+            principal_id=root_id,
+            mandate_ids=[mandate_id],
+            edge_ids=[edge_id],
+        )
+    )
+
+    result = await orchestrator.revoke_principal(
+        principal_id=str(root_id),
+        reason="merged_source_revocation",
+        actor_principal_id="admin-7",
+    )
+
+    assert result.revoked_mandate_ids == [str(mandate_id)]
+    assert result.revoked_edge_ids == [str(edge_id)]
+
+
+@pytest.mark.unit
+def test_build_child_map_uses_delegation_edges_for_shared_upstream_graphs() -> None:
+    session = Mock()
+    orchestrator = PrincipalRevocationOrchestrator(db_session=session)
+
+    root_principal = uuid4()
+    sibling_principal = uuid4()
+    shared_principal = uuid4()
+    root_mandate = uuid4()
+    sibling_mandate = uuid4()
+    shared_mandate = uuid4()
+
+    mandate_query = Mock()
+    mandate_query.filter.return_value.all.return_value = [
+        SimpleNamespace(mandate_id=root_mandate, subject_id=root_principal),
+        SimpleNamespace(mandate_id=sibling_mandate, subject_id=sibling_principal),
+        SimpleNamespace(mandate_id=shared_mandate, subject_id=shared_principal),
+    ]
+    edge_query = Mock()
+    edge_query.filter.return_value.all.return_value = [
+        SimpleNamespace(source_mandate_id=root_mandate, target_mandate_id=shared_mandate),
+        SimpleNamespace(source_mandate_id=sibling_mandate, target_mandate_id=shared_mandate),
+    ]
+
+    def _query_side_effect(model):
+        if model.__name__ == "ExecutionMandate":
+            return mandate_query
+        return edge_query
+
+    session.query.side_effect = _query_side_effect
+
+    children = orchestrator._build_child_map()
+
+    assert children[root_principal] == [shared_principal]
+    assert children[sibling_principal] == [shared_principal]
+
+
+@pytest.mark.unit
 def test_revoke_single_principal_updates_status_and_mandates() -> None:
     session = Mock()
     orchestrator = PrincipalRevocationOrchestrator(db_session=session)
@@ -304,6 +372,7 @@ def test_revoke_single_principal_updates_status_and_mandates() -> None:
 
     orchestrator._get_principal_row = Mock(return_value=principal)
     orchestrator._list_active_mandates_for_principal = Mock(return_value=[mandate_a, mandate_b])
+    orchestrator._revoke_edges_for_mandates = Mock(return_value=[])
 
     unit = orchestrator._revoke_single_principal(
         principal_id=principal_id,

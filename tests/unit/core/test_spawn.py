@@ -359,6 +359,101 @@ class TestSpawnManager:
 
         assert self.mock_mandate_manager.issue_mandate.call_args.kwargs["network_distance"] == 2
 
+    def test_spawn_rolls_back_before_ttl_registration_when_nonce_issue_fails(self) -> None:
+        issuer_id = uuid4()
+        principal_id = uuid4()
+        mandate_id = uuid4()
+
+        self.manager._find_existing_spawn = Mock(return_value=None)
+        self.mock_nonce_manager.issue_nonce.side_effect = RuntimeError("nonce backend unavailable")
+
+        issuer_row = SimpleNamespace(principal_id=issuer_id)
+        duplicate = None
+        principal_query = Mock()
+        principal_query.filter.return_value.first.side_effect = [issuer_row, duplicate]
+        self.mock_session.query.side_effect = lambda _model: principal_query
+
+        def _capture_add(obj):
+            if isinstance(obj, Principal):
+                obj.principal_id = principal_id
+
+        self.mock_session.add.side_effect = _capture_add
+        self.mock_mandate_manager.issue_mandate.return_value = SimpleNamespace(mandate_id=mandate_id)
+
+        from caracal.core import spawn as spawn_module
+
+        original_generate = spawn_module.generate_and_store_principal_keypair
+        spawn_module.generate_and_store_principal_keypair = Mock(
+            return_value=SimpleNamespace(public_key_pem="pub", storage=SimpleNamespace(metadata={}))
+        )
+        try:
+            with pytest.raises(RuntimeError, match="nonce backend unavailable"):
+                self.manager.spawn_principal(
+                    issuer_principal_id=str(issuer_id),
+                    principal_name="worker-nonce-failure",
+                    principal_kind="worker",
+                    owner="ops",
+                    resource_scope=["provider:openai:models"],
+                    action_scope=["infer"],
+                    validity_seconds=300,
+                    idempotency_key="spawn-nonce-failure",
+                )
+        finally:
+            spawn_module.generate_and_store_principal_keypair = original_generate
+
+        self.mock_principal_ttl_manager.register_pending_principal.assert_not_called()
+
+    def test_spawn_cleans_up_nonce_when_ttl_registration_fails(self) -> None:
+        issuer_id = uuid4()
+        principal_id = uuid4()
+        mandate_id = uuid4()
+
+        self.manager._find_existing_spawn = Mock(return_value=None)
+        self.mock_principal_ttl_manager.register_pending_principal.side_effect = RuntimeError(
+            "ttl backend unavailable"
+        )
+        issued_nonce = SimpleNamespace(nonce="nonce-cleanup")
+        self.mock_nonce_manager.issue_nonce.return_value = issued_nonce
+        self.mock_nonce_manager.revoke_nonce = Mock()
+        self.mock_principal_ttl_manager.clear_principal = Mock()
+
+        issuer_row = SimpleNamespace(principal_id=issuer_id)
+        duplicate = None
+        principal_query = Mock()
+        principal_query.filter.return_value.first.side_effect = [issuer_row, duplicate]
+        self.mock_session.query.side_effect = lambda _model: principal_query
+
+        def _capture_add(obj):
+            if isinstance(obj, Principal):
+                obj.principal_id = principal_id
+
+        self.mock_session.add.side_effect = _capture_add
+        self.mock_mandate_manager.issue_mandate.return_value = SimpleNamespace(mandate_id=mandate_id)
+
+        from caracal.core import spawn as spawn_module
+
+        original_generate = spawn_module.generate_and_store_principal_keypair
+        spawn_module.generate_and_store_principal_keypair = Mock(
+            return_value=SimpleNamespace(public_key_pem="pub", storage=SimpleNamespace(metadata={}))
+        )
+        try:
+            with pytest.raises(RuntimeError, match="ttl backend unavailable"):
+                self.manager.spawn_principal(
+                    issuer_principal_id=str(issuer_id),
+                    principal_name="worker-ttl-failure",
+                    principal_kind="worker",
+                    owner="ops",
+                    resource_scope=["provider:openai:models"],
+                    action_scope=["infer"],
+                    validity_seconds=300,
+                    idempotency_key="spawn-ttl-failure",
+                )
+        finally:
+            spawn_module.generate_and_store_principal_keypair = original_generate
+
+        self.mock_nonce_manager.revoke_nonce.assert_called_once_with("nonce-cleanup")
+        self.mock_principal_ttl_manager.clear_principal.assert_called_once_with(str(principal_id))
+
     @staticmethod
     def _build_spawn_result(idempotent_replay: bool):
         return SimpleNamespace(
