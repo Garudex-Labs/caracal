@@ -77,6 +77,13 @@ class AttestationNonceManager:
 
         raise AttestationNonceValidationError("failed to allocate unique attestation nonce")
 
+    def revoke_nonce(self, nonce: str) -> None:
+        """Best-effort cleanup for a nonce issued during a failed spawn transaction."""
+        normalized_nonce = str(nonce or "").strip()
+        if not normalized_nonce:
+            return
+        self._redis.delete(self._key(normalized_nonce))
+
     def consume_nonce(self, nonce: str, *, expected_principal_id: Optional[str] = None) -> str:
         """Consume nonce exactly once and return the bound principal_id.
 

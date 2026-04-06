@@ -712,6 +712,75 @@ class MandateManager:
             logger.error(error_msg, exc_info=True)
             raise RuntimeError(error_msg)
 
+    def attach_delegation_source(
+        self,
+        *,
+        source_mandate_id: UUID,
+        target_mandate_id: UUID,
+        context_tags: Optional[List[str]] = None,
+    ) -> ExecutionMandate:
+        """Attach an additional authority source to an existing target mandate."""
+        from caracal.core.delegation_graph import DelegationGraph
+
+        source_mandate = self.db_session.query(ExecutionMandate).filter(
+            ExecutionMandate.mandate_id == source_mandate_id
+        ).first()
+        target_mandate = self.db_session.query(ExecutionMandate).filter(
+            ExecutionMandate.mandate_id == target_mandate_id
+        ).first()
+
+        if not source_mandate:
+            raise ValueError(f"Source mandate {source_mandate_id} not found")
+        if not target_mandate:
+            raise ValueError(f"Target mandate {target_mandate_id} not found")
+        if source_mandate.revoked:
+            raise ValueError(f"Source mandate {source_mandate_id} is revoked")
+        if target_mandate.revoked:
+            raise ValueError(f"Target mandate {target_mandate_id} is revoked")
+
+        current_time = datetime.utcnow()
+        if current_time > source_mandate.valid_until:
+            raise ValueError(f"Source mandate {source_mandate_id} is expired")
+        if current_time < source_mandate.valid_from:
+            raise ValueError(f"Source mandate {source_mandate_id} is not yet valid")
+        if current_time > target_mandate.valid_until:
+            raise ValueError(f"Target mandate {target_mandate_id} is expired")
+        if current_time < target_mandate.valid_from:
+            raise ValueError(f"Target mandate {target_mandate_id} is not yet valid")
+
+        source_principal = self._get_principal(source_mandate.subject_id)
+        target_principal = self._get_principal(target_mandate.subject_id)
+        if not source_principal:
+            raise ValueError(f"Source principal {source_mandate.subject_id} not found")
+        if not target_principal:
+            raise ValueError(f"Target principal {target_mandate.subject_id} not found")
+
+        DelegationGraph.validate_delegation_direction(
+            source_principal.principal_kind,
+            target_principal.principal_kind,
+        )
+
+        graph = self.delegation_graph or DelegationGraph(self.db_session)
+        graph.add_edge(
+            source_mandate_id=source_mandate_id,
+            target_mandate_id=target_mandate_id,
+            context_tags=context_tags,
+            expires_at=min(
+                expiry
+                for expiry in (
+                    target_mandate.valid_until,
+                    source_mandate.valid_until,
+                )
+                if expiry is not None
+            ),
+        )
+        logger.info(
+            "Attached additional delegation source %s to target mandate %s",
+            source_mandate_id,
+            target_mandate_id,
+        )
+        return target_mandate
+
     def peer_delegate(
         self,
         source_mandate_id: UUID,
