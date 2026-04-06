@@ -57,7 +57,7 @@ def test_assert_enterprise_license_valid_is_noop_for_opensource(monkeypatch: pyt
     def _raise_if_called() -> dict[str, object]:
         raise AssertionError("license config should not be loaded in OSS mode")
 
-    monkeypatch.setattr("caracal.enterprise.license.load_enterprise_config", _raise_if_called)
+    monkeypatch.setattr("caracal.deployment.enterprise_runtime.load_enterprise_config", _raise_if_called)
 
     adapter.assert_enterprise_license_valid()
 
@@ -66,7 +66,7 @@ def test_assert_enterprise_license_valid_is_noop_for_opensource(monkeypatch: pyt
 def test_assert_enterprise_license_valid_rejects_invalid_config(monkeypatch: pytest.MonkeyPatch) -> None:
     adapter = DeploymentEditionAdapter(edition_manager=_FakeEditionManager(edition=Edition.ENTERPRISE))
     monkeypatch.setattr(
-        "caracal.enterprise.license.load_enterprise_config",
+        "caracal.deployment.enterprise_runtime.load_enterprise_config",
         lambda: {"valid": False, "license_key": "license-1"},
     )
 
@@ -79,7 +79,7 @@ def test_assert_enterprise_license_valid_accepts_active_license(monkeypatch: pyt
     adapter = DeploymentEditionAdapter(edition_manager=_FakeEditionManager(edition=Edition.ENTERPRISE))
     expires_at = (datetime.now(timezone.utc) + timedelta(minutes=10)).isoformat()
     monkeypatch.setattr(
-        "caracal.enterprise.license.load_enterprise_config",
+        "caracal.deployment.enterprise_runtime.load_enterprise_config",
         lambda: {"valid": True, "license_key": "license-1", "expires_at": expires_at},
     )
 
@@ -141,7 +141,7 @@ def test_resolve_enterprise_revocation_target_requires_sync_key(monkeypatch: pyt
     adapter = DeploymentEditionAdapter(edition_manager=_FakeEditionManager(edition=Edition.ENTERPRISE))
 
     monkeypatch.setattr(
-        "caracal.enterprise.license.resolve_revocation_webhook_target",
+        "caracal.deployment.enterprise_runtime.resolve_revocation_webhook_target",
         lambda webhook_url_override=None: (webhook_url_override or "https://enterprise.example/api/sync/revocation-events", None),
     )
 
@@ -156,7 +156,7 @@ def test_resolve_enterprise_revocation_target_uses_override_sync_key(monkeypatch
     adapter = DeploymentEditionAdapter(edition_manager=_FakeEditionManager(edition=Edition.ENTERPRISE))
 
     monkeypatch.setattr(
-        "caracal.enterprise.license.resolve_revocation_webhook_target",
+        "caracal.deployment.enterprise_runtime.resolve_revocation_webhook_target",
         lambda webhook_url_override=None: (webhook_url_override or "https://enterprise.example/api/sync/revocation-events", "persisted-sync"),
     )
 
@@ -192,7 +192,7 @@ def test_resolve_gateway_feature_overrides_is_noop_for_opensource(
     def _raise_if_called() -> dict[str, object]:
         raise AssertionError("enterprise config should not be loaded in OSS mode")
 
-    monkeypatch.setattr("caracal.enterprise.license.load_enterprise_config", _raise_if_called)
+    monkeypatch.setattr("caracal.deployment.enterprise_runtime.load_enterprise_config", _raise_if_called)
 
     assert adapter.resolve_gateway_feature_overrides() == {}
 
@@ -204,7 +204,7 @@ def test_resolve_gateway_feature_overrides_normalizes_enterprise_gateway_config(
     adapter = DeploymentEditionAdapter(edition_manager=_FakeEditionManager(edition=Edition.ENTERPRISE))
 
     monkeypatch.setattr(
-        "caracal.enterprise.license.load_enterprise_config",
+        "caracal.deployment.enterprise_runtime.load_enterprise_config",
         lambda: {
             "gateway": {
                 "enabled": True,

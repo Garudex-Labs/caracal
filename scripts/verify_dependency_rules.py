@@ -94,7 +94,8 @@ def check_caracal_enterprise_imports(ecosystem_root: Path) -> list[str]:
 
     Rules:
       ✅  Can import from  caracal.core.*
-      ✅  Can import from  caracal.enterprise.license  (real implementation)
+      ✅  Can import from  caracal.deployment.enterprise_license
+      ✅  Can import from  caracal.deployment.enterprise_runtime
       ✅  Can import from  caracal.enterprise.exceptions
       ✅  Can use relative imports  (from .X import Y)
     ❌  Should NOT import from  caracal_sdk.enterprise  (extension stubs)
@@ -112,7 +113,7 @@ def check_caracal_enterprise_imports(ecosystem_root: Path) -> list[str]:
 
         # Should not import sdk.enterprise stubs
         if re.search(r"from\s+caracal_sdk\.enterprise", content):
-            violations.append(f"❌ {rel}: imports from caracal_sdk.enterprise (use caracal.enterprise.* instead)")
+            violations.append(f"❌ {rel}: imports from caracal_sdk.enterprise (use caracal.deployment.enterprise_* instead)")
 
         # Verify no imports from caracal.mcp
         if re.search(r"from\s+caracal\.mcp", content):
