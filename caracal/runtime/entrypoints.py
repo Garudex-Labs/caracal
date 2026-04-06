@@ -196,6 +196,7 @@ services:
             - caracal
             - runtime-mcp
         volumes:
+            - runtime_data:/home/caracal/runtime
             - ${CARACAL_HOST_IO_DIR:-./caracal-host-io}:/caracal-host-io:z
         ports:
             - ${CARACAL_API_PORT:-8000}:8080
@@ -260,6 +261,7 @@ services:
         command:
             - caracal
         volumes:
+            - runtime_data:/home/caracal/runtime
             - ${CARACAL_HOST_IO_DIR:-./caracal-host-io}:/caracal-host-io:z
         stdin_open: true
         tty: true
@@ -317,6 +319,7 @@ services:
             - -m
             - caracal.flow.main
         volumes:
+            - runtime_data:/home/caracal/runtime
             - ${CARACAL_HOST_IO_DIR:-./caracal-host-io}:/caracal-host-io:z
         stdin_open: true
         tty: true
@@ -326,6 +329,7 @@ services:
 volumes:
     postgres_data:
     redis_data:
+    runtime_data:
 
 networks:
     caracal-runtime:

@@ -87,6 +87,28 @@ def test_runtime_compose_has_no_file_backed_state_markers() -> None:
 
 
 @pytest.mark.unit
+def test_runtime_compose_persists_caracal_home_state_volume() -> None:
+    compose_files = (
+        _REPO_ROOT / "deploy" / "docker-compose.yml",
+        _REPO_ROOT / "deploy" / "docker-compose.image.yml",
+    )
+
+    for compose_file in compose_files:
+        payload = compose_file.read_text(encoding="utf-8")
+        assert "runtime_data:/home/caracal/runtime" in payload, str(compose_file)
+        assert "  runtime_data:" in payload, str(compose_file)
+
+
+@pytest.mark.unit
+def test_embedded_compose_persists_caracal_home_state_volume() -> None:
+    entrypoints_file = _REPO_ROOT / "caracal" / "runtime" / "entrypoints.py"
+    payload = entrypoints_file.read_text(encoding="utf-8")
+
+    assert "runtime_data:/home/caracal/runtime" in payload
+    assert "    runtime_data:" in payload
+
+
+@pytest.mark.unit
 def test_runtime_image_compose_has_vault_sidecar_and_hardcut_env_markers() -> None:
     compose_file = _REPO_ROOT / "deploy" / "docker-compose.image.yml"
     payload = compose_file.read_text(encoding="utf-8")
