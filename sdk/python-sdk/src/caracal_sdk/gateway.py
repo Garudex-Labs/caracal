@@ -10,7 +10,7 @@ directly.
 
 OSS: behaves identically to the standard HTTP adapter (broker mode).
 Enterprise: wraps every request with the gateway's auth headers and routes
-            through CARACAL_GATEWAY_ENDPOINT, gaining network-level enforcement.
+            through CARACAL_ENTERPRISE_URL, gaining network-level enforcement.
 
 Usage (automatic — gateway flags from environment / config):
 
@@ -63,11 +63,7 @@ except Exception:
 
     def get_gateway_features() -> GatewayFeatureFlags:
         deployment = os.getenv("CARACAL_DEPLOYMENT_TYPE", "oss").strip().lower()
-        endpoint = (
-            os.getenv("CARACAL_GATEWAY_ENDPOINT", "").strip()
-            or os.getenv("CARACAL_GATEWAY_URL", "").strip()
-            or None
-        )
+        endpoint = os.getenv("CARACAL_ENTERPRISE_URL", "").strip() or None
         api_key = os.getenv("CARACAL_GATEWAY_API_KEY", "").strip() or None
         enabled = os.getenv("CARACAL_GATEWAY_ENABLED", "").strip().lower() in {
             "1",
@@ -136,7 +132,7 @@ class GatewayAdapter(BaseAdapter):
         """
         Args:
             gateway_endpoint: Base URL of the enterprise gateway proxy.
-                              Defaults to CARACAL_GATEWAY_ENDPOINT env var.
+                              Defaults to CARACAL_ENTERPRISE_URL env var.
             gateway_api_key: API key for gateway authentication.
                              Defaults to CARACAL_GATEWAY_API_KEY env var.
             org_id: Organization identifier injected into every request.

@@ -32,6 +32,13 @@ class _OpenSourceEditionManager:
     def get_edition(self):
         return "opensource"
 
+    def resolve_revocation_publisher_mode(self, *, explicit_mode: str = "") -> str:
+        if explicit_mode:
+            if explicit_mode in {"redis", "enterprise_webhook"}:
+                return explicit_mode
+            raise RuntimeError("invalid revocation publisher mode")
+        return "redis"
+
 
 class _EnterpriseEditionManager:
     def get_edition(self):
@@ -41,6 +48,24 @@ class _EnterpriseEditionManager:
 
     def get_gateway_url(self) -> str:
         return "https://enterprise.example"
+
+    def resolve_revocation_publisher_mode(self, *, explicit_mode: str = "") -> str:
+        if explicit_mode:
+            if explicit_mode in {"redis", "enterprise_webhook"}:
+                return explicit_mode
+            raise RuntimeError("invalid revocation publisher mode")
+        return "enterprise_webhook"
+
+    def resolve_enterprise_revocation_target(
+        self,
+        *,
+        webhook_url_override: str | None = None,
+        sync_api_key_override: str | None = None,
+    ) -> tuple[str, str]:
+        webhook_url = webhook_url_override or "https://enterprise.example/api/sync/revocation-events"
+        if not sync_api_key_override:
+            raise RuntimeError(entrypoints.AIS_ENTERPRISE_REVOCATION_SYNC_API_KEY_ENV)
+        return webhook_url, sync_api_key_override
 
 
 @dataclass
@@ -572,6 +597,9 @@ def test_build_ais_handlers_spawn_response_includes_metadata_without_private_key
     assert response["attestation_bootstrap_artifact"] == "attest-bootstrap:principal-spawned"
     assert response["attestation_nonce"] == "nonce-1"
     assert "private_key_pem" not in response
+    assert "public_key_pem" not in response
+    assert "access_token" not in response
+    assert "refresh_token" not in response
     assert all("private_key" not in key for key in response.keys())
 
 
@@ -772,7 +800,8 @@ def test_create_runtime_revocation_event_publisher_requires_sync_key_in_enterpri
 @pytest.mark.unit
 def test_resolve_runtime_revocation_publisher_mode_does_not_fallback_on_adapter_errors() -> None:
     class _BrokenEditionManager:
-        def is_enterprise(self) -> bool:
+        def resolve_revocation_publisher_mode(self, *, explicit_mode: str = "") -> str:
+            del explicit_mode
             raise RuntimeError("adapter resolution failed")
 
     with pytest.raises(RuntimeError, match="adapter resolution failed"):
