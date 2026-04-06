@@ -77,7 +77,7 @@ class DeploymentEditionAdapter:
         *,
         webhook_url_override: Optional[str] = None,
         sync_api_key_override: Optional[str] = None,
-    ) -> tuple[str, Optional[str]]:
+    ) -> tuple[str, str]:
         if not self.is_enterprise():
             raise EditionConfigurationError(
                 "Enterprise revocation target resolution is only valid in enterprise mode."
@@ -95,7 +95,14 @@ class DeploymentEditionAdapter:
             gateway_url = self.require_gateway_url()
             webhook_url = f"{gateway_url.rstrip('/')}/api/sync/revocation-events"
 
-        return webhook_url, normalized_sync_override or sync_api_key
+        resolved_sync_api_key = normalized_sync_override or sync_api_key
+        if not resolved_sync_api_key:
+            raise EditionConfigurationError(
+                "Enterprise revocation webhook publishing requires a sync API key "
+                f"({sync_api_key_override!r} override or persisted runtime sync key)."
+            )
+
+        return webhook_url, resolved_sync_api_key
 
     def resolve_gateway_feature_overrides(self) -> dict[str, Any]:
         """Return enterprise runtime gateway overrides for adapter consumers.

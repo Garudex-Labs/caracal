@@ -50,7 +50,6 @@ AIS_DEFAULT_LISTEN_PORT = 7079
 AIS_SESSION_SIGNING_KEY_REF_ENV = "CARACAL_VAULT_SIGNING_KEY_REF"
 AIS_SESSION_VERIFY_KEY_REF_ENV = "CARACAL_VAULT_SESSION_PUBLIC_KEY_REF"
 AIS_SESSION_ALGORITHM_ENV = "CARACAL_SESSION_SIGNING_ALGORITHM"
-AIS_SESSION_ALGORITHM_FALLBACK_ENV = "CARACAL_SESSION_JWT_ALGORITHM"
 AIS_SESSION_CAVEAT_MODE_ENV = "CARACAL_SESSION_CAVEAT_MODE"
 AIS_SESSION_CAVEAT_HMAC_KEY_ENV = "CARACAL_SESSION_CAVEAT_HMAC_KEY"
 AIS_REVOCATION_EVENTS_CHANNEL_ENV = "CARACAL_REVOCATION_EVENTS_CHANNEL"
@@ -1571,7 +1570,6 @@ def _bootstrap_runtime_vault_refs() -> None:
     org_id, env_id = _resolve_ais_vault_context()
     algorithm = (
         os.environ.get(AIS_SESSION_ALGORITHM_ENV)
-        or os.environ.get(AIS_SESSION_ALGORITHM_FALLBACK_ENV)
         or "RS256"
     ).strip().upper()
 
@@ -1589,7 +1587,6 @@ def _bootstrap_runtime_vault_refs() -> None:
 def _resolve_session_signing_algorithm() -> str:
     configured = (
         os.environ.get(AIS_SESSION_ALGORITHM_ENV)
-        or os.environ.get(AIS_SESSION_ALGORITHM_FALLBACK_ENV)
         or ""
     ).strip()
     if configured:
@@ -1733,6 +1730,12 @@ def _create_enterprise_revocation_event_publisher(*, edition_manager: object | N
     else:
         webhook_url = _resolve_enterprise_revocation_webhook_url(edition_manager=adapter)
         sync_api_key = configured_sync_api_key
+
+    if not sync_api_key:
+        raise RuntimeError(
+            "Enterprise revocation webhook publishing requires a sync API key "
+            f"({AIS_ENTERPRISE_REVOCATION_SYNC_API_KEY_ENV})."
+        )
 
     return EnterpriseWebhookRevocationEventPublisher(
         webhook_url=webhook_url,
