@@ -250,14 +250,14 @@ def config_mode(mode_value: Optional[str], format: str):
 @click.option("--gateway-token", help="Gateway JWT token (optional)")
 @click.option("--format", "-f", type=click.Choice(["table", "json"]), default="table", help="Output format")
 def config_edition(edition_value: Optional[str], gateway_url: Optional[str], gateway_token: Optional[str], format: str):
-    """Show auto-detected edition (manual setting is disabled)."""
+    """Show explicitly resolved edition state (manual setting is disabled)."""
     try:
         edition_adapter = get_deployment_edition_adapter()
 
         if edition_value or gateway_url or gateway_token:
             console.print(
                 "[red]Error:[/red] Manual edition selection is disabled. "
-                "Edition is auto-detected from enterprise connectivity."
+                "Edition is resolved from explicit gateway execution signals and persisted state."
             )
             console.print("  Use [bold]caracal enterprise login <url> <token>[/bold] to enter Enterprise mode.")
             console.print("  Use [bold]caracal enterprise disconnect[/bold] to return to Open Source mode.")
@@ -266,14 +266,14 @@ def config_edition(edition_value: Optional[str], gateway_url: Optional[str], gat
         edition = edition_adapter.get_edition()
 
         if format == "json":
-            result = {"edition": edition.value, "mode": "auto"}
+            result = {"edition": edition.value, "mode": "explicit-resolution"}
             if edition == Edition.ENTERPRISE:
                 detected_gateway_url = edition_adapter.get_gateway_url()
                 if detected_gateway_url:
                     result["enterprise_url"] = detected_gateway_url
             click.echo(json.dumps(result))
         else:
-            console.print(f"Current edition: [bold]{edition.value}[/bold] [dim](auto)[/dim]")
+            console.print(f"Current edition: [bold]{edition.value}[/bold] [dim](explicit resolution)[/dim]")
             if edition == Edition.ENTERPRISE:
                 detected_gateway_url = edition_adapter.get_gateway_url()
                 if detected_gateway_url:

@@ -4,7 +4,8 @@ Caracal, a product of Garudex Labs
 
 Edition management for Caracal deployment architecture.
 
-Handles detection and management of editions (Open Source vs Enterprise).
+Resolves the active execution model (Open Source broker vs Enterprise gateway)
+from explicit runtime or persisted signals.
 """
 
 import os
@@ -47,7 +48,7 @@ class EditionManager:
     
     Provides methods to detect, set, and query the current edition.
 
-    Edition detection follows a strict explicit chain:
+    Edition resolution follows a strict explicit chain:
     1. CARACAL_GATEWAY_ENABLED runtime mode signal (if provided)
     2. Persisted config (~/.caracal/config.toml)
     3. Default edition (OPENSOURCE)
@@ -64,7 +65,7 @@ class EditionManager:
     DEFAULT_EDITION = Edition.OPENSOURCE
     
     def __init__(self):
-        """Initialize the edition manager with cached edition detection."""
+        """Initialize the edition manager with cached edition resolution."""
         self._cached_edition: Optional[Edition] = None
         self._cache_timestamp: Optional[datetime] = None
     
@@ -90,24 +91,24 @@ class EditionManager:
             return self._cached_edition
         
         try:
-            # Auto-detect based on connectivity and runtime indicators.
+            # Resolve from explicit runtime or persisted configuration only.
             edition = self._auto_detect_edition()
             self._assert_execution_exclusivity(edition)
             self._cached_edition = edition
             self._cache_timestamp = datetime.now()
             logger.debug(
-                "edition_auto_detected",
+                "edition_resolved",
                 edition=edition.value
             )
             return edition
             
         except Exception as e:
             logger.error(
-                "edition_detection_failed",
+                "edition_resolution_failed",
                 error=str(e),
                 error_type=type(e).__name__
             )
-            raise EditionDetectionError(f"Failed to detect edition: {e}") from e
+            raise EditionDetectionError(f"Failed to resolve edition: {e}") from e
     
     def _gateway_url_from_config(self) -> Optional[str]:
         """Return the configured gateway URL from persisted hard-cut state."""
