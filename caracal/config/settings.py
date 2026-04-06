@@ -25,7 +25,8 @@ logger = get_logger(__name__)
 
 
 def _is_hardcut_mode_enabled() -> bool:
-    return os.environ.get("CARACAL_HARDCUT_MODE", "").strip().lower() in {"1", "true", "yes", "on"}
+    # Runtime architecture is hard-cut only; legacy mode switches are intentionally ignored.
+    return True
 
 
 def _expand_env_vars(value: Any) -> Any:
