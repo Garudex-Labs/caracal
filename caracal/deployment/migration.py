@@ -1150,7 +1150,7 @@ class MigrationManager:
 
         if deactivate_license and not dry_run:
             try:
-                from caracal.enterprise.license import EnterpriseLicenseValidator
+                from caracal.deployment.enterprise_license import EnterpriseLicenseValidator
 
                 EnterpriseLicenseValidator().disconnect()
             except Exception as exc:

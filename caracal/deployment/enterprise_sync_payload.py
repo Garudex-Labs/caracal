@@ -1,9 +1,4 @@
-"""Explicit enterprise sync payload assembly outside transport clients.
-
-This module keeps workspace and database collection logic out of
-``caracal.enterprise`` so that the OSS enterprise package stays focused on
-transport and contract handling rather than local orchestration.
-"""
+"""Explicit enterprise sync payload assembly outside deployment clients."""
 
 from __future__ import annotations
 
@@ -11,7 +6,7 @@ import json
 import logging
 from typing import Any, Dict, List, Optional
 
-from caracal.enterprise.license import _build_client_metadata
+from caracal.deployment.enterprise_runtime import _build_client_metadata
 
 logger = logging.getLogger(__name__)
 
