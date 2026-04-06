@@ -60,6 +60,19 @@ def test_hardcut_preflight_freezes_canonical_contract_constants() -> None:
 
 
 @pytest.mark.unit
+def test_runtime_session_signing_has_no_legacy_env_alias_fallback() -> None:
+    entrypoints_file = _REPO_ROOT / "caracal" / "runtime" / "entrypoints.py"
+    preflight_file = _REPO_ROOT / "caracal" / "runtime" / "hardcut_preflight.py"
+
+    entrypoints_payload = entrypoints_file.read_text(encoding="utf-8")
+    preflight_payload = preflight_file.read_text(encoding="utf-8")
+
+    assert "AIS_SESSION_ALGORITHM_FALLBACK_ENV" not in entrypoints_payload
+    assert "CARACAL_SESSION_JWT_ALGORITHM" not in entrypoints_payload
+    assert "CARACAL_SESSION_JWT_ALGORITHM" in preflight_payload
+
+
+@pytest.mark.unit
 def test_runtime_compose_has_no_file_backed_state_markers() -> None:
     compose_files = (
         _REPO_ROOT / "deploy" / "docker-compose.yml",
@@ -358,8 +371,29 @@ def test_forbidden_marker_scanner_covers_phase_13_hardcut_expansion() -> None:
     assert "split_mode_markers" in payload
     assert "single_lineage_residuals" in payload
     assert "transitional_architecture_markers" in payload
+    assert "CARACAL_SESSION_JWT_ALGORITHM" in payload
     assert "owner_phase" in payload
     assert "_gate_missing_repo_violations" in payload
+
+
+@pytest.mark.unit
+def test_enterprise_sync_client_has_no_payload_or_query_auth_fallbacks() -> None:
+    sync_file = _REPO_ROOT / "caracal" / "enterprise" / "sync.py"
+    payload = sync_file.read_text(encoding="utf-8")
+
+    assert 'payload["sync_api_key"]' not in payload
+    assert 'payload["license_key"]' not in payload
+    assert "?license_key=" not in payload
+
+
+@pytest.mark.unit
+def test_revocation_webhook_publisher_has_single_sync_header_strategy() -> None:
+    publisher_file = _REPO_ROOT / "caracal" / "core" / "revocation_publishers.py"
+    payload = publisher_file.read_text(encoding="utf-8")
+
+    assert '"X-Sync-Api-Key": self._sync_api_key' in payload
+    assert "bearer_token" not in payload
+    assert 'headers["Authorization"]' not in payload
 
 
 @pytest.mark.unit
