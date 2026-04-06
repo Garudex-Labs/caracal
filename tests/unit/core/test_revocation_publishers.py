@@ -37,6 +37,7 @@ async def test_redis_revocation_publisher_emits_json_payload_to_configured_chann
         actor_principal_id="admin-1",
         root_principal_id="principal-root",
         revoked_mandate_ids=["m-1", "m-2"],
+        revoked_edge_ids=["edge-1"],
         metadata={"source": "ttl"},
     )
 
@@ -51,6 +52,7 @@ async def test_redis_revocation_publisher_emits_json_payload_to_configured_chann
     assert payload["actor_principal_id"] == "admin-1"
     assert payload["root_principal_id"] == "principal-root"
     assert payload["revoked_mandate_ids"] == ["m-1", "m-2"]
+    assert payload["revoked_edge_ids"] == ["edge-1"]
     assert payload["metadata"] == {"source": "ttl"}
     assert "published_at" in payload
 
@@ -86,6 +88,7 @@ async def test_enterprise_webhook_revocation_publisher_posts_payload_with_sync_h
         actor_principal_id="admin-1",
         root_principal_id="principal-root",
         revoked_mandate_ids=["m-1"],
+        revoked_edge_ids=["edge-1", "edge-2"],
         metadata={"source": "enterprise"},
     )
 
@@ -95,6 +98,7 @@ async def test_enterprise_webhook_revocation_publisher_posts_payload_with_sync_h
     assert captured["headers"]["Content-Type"] == "application/json"
     assert captured["timeout_seconds"] == 7.5
     assert captured["payload"]["event_type"] == "principal_revoked"
+    assert captured["payload"]["revoked_edge_ids"] == ["edge-1", "edge-2"]
     assert captured["payload"]["metadata"] == {"source": "enterprise"}
 
 

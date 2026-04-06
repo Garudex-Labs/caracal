@@ -44,6 +44,13 @@ class SessionDenylistBackend(Protocol):
     async def add(self, token_jti: str, expires_at: datetime) -> None:
         """Add a token JTI to deny-list storage."""
 
+    async def mark_principal_revoked(
+        self,
+        principal_id: str,
+        revoked_at: datetime,
+    ) -> None:
+        """Record principal-level session revocation cutoff."""
+
 
 class RevocationEventPublisher(Protocol):
     """Publisher contract for principal-scoped revocation lifecycle events."""
@@ -154,14 +161,14 @@ class PrincipalRevocationOrchestrator:
                     event_type="revocation_enqueued",
                     principal_id=descendant_id,
                     reason=reason,
-                actor_principal_id=actor_principal_id,
-                root_principal_id=principal_uuid,
-                revoked_mandate_ids=None,
-                revoked_edge_ids=None,
-                metadata={
-                    "execution_mode": "async_cascade",
-                },
-            )
+                    actor_principal_id=actor_principal_id,
+                    root_principal_id=principal_uuid,
+                    revoked_mandate_ids=None,
+                    revoked_edge_ids=None,
+                    metadata={
+                        "execution_mode": "async_cascade",
+                    },
+                )
             cascade_jobs_enqueued = len(descendants)
             sync_targets = [ordered_ids[-1]]
 
@@ -193,7 +200,10 @@ class PrincipalRevocationOrchestrator:
                 actor_principal_id=actor_principal_id,
                 root_principal_id=principal_uuid,
                 revoked_mandate_ids=[str(mandate_id) for mandate_id in unit.mandate_ids],
-                revoked_edge_ids=[str(edge_id) for edge_id in unit.edge_ids],
+                revoked_edge_ids=[
+                    str(edge_id)
+                    for edge_id in getattr(unit, "edge_ids", [])
+                ],
                 metadata={
                     "leaves_first_order": True,
                     "cascade_async_threshold": cascade_async_threshold,
