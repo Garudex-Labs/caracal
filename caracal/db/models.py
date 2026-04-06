@@ -691,12 +691,6 @@ class DelegationEdgeModel(Base):
     __table_args__ = (
         Index("ix_delegation_edges_source_target", "source_mandate_id", "target_mandate_id"),
         Index("ix_delegation_edges_types", "source_principal_type", "target_principal_type"),
-        Index(
-            "uq_delegation_edges_active_target_inbound",
-            "target_mandate_id",
-            unique=True,
-            postgresql_where=text("revoked = false"),
-        ),
     )
     
     def __repr__(self):

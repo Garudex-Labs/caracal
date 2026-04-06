@@ -19,6 +19,7 @@ def _build_revocation_event_payload(
     actor_principal_id: Optional[str],
     root_principal_id: Optional[str],
     revoked_mandate_ids: Optional[list[str]],
+    revoked_edge_ids: Optional[list[str]],
     metadata: Optional[dict[str, Any]],
 ) -> dict[str, Any]:
     return {
@@ -28,6 +29,7 @@ def _build_revocation_event_payload(
         "actor_principal_id": actor_principal_id,
         "root_principal_id": root_principal_id,
         "revoked_mandate_ids": list(revoked_mandate_ids or []),
+        "revoked_edge_ids": list(revoked_edge_ids or []),
         "metadata": dict(metadata or {}),
         "published_at": datetime.now(timezone.utc).isoformat(),
     }
@@ -53,6 +55,7 @@ class RedisPubSubRevocationEventPublisher:
         actor_principal_id: Optional[str],
         root_principal_id: Optional[str],
         revoked_mandate_ids: Optional[list[str]] = None,
+        revoked_edge_ids: Optional[list[str]] = None,
         metadata: Optional[dict[str, Any]] = None,
     ) -> None:
         payload = _build_revocation_event_payload(
@@ -62,6 +65,7 @@ class RedisPubSubRevocationEventPublisher:
             actor_principal_id=actor_principal_id,
             root_principal_id=root_principal_id,
             revoked_mandate_ids=revoked_mandate_ids,
+            revoked_edge_ids=revoked_edge_ids,
             metadata=metadata,
         )
         self._redis_client.publish(self._channel, json.dumps(payload, sort_keys=True))
@@ -127,6 +131,7 @@ class EnterpriseWebhookRevocationEventPublisher:
         actor_principal_id: Optional[str],
         root_principal_id: Optional[str],
         revoked_mandate_ids: Optional[list[str]] = None,
+        revoked_edge_ids: Optional[list[str]] = None,
         metadata: Optional[dict[str, Any]] = None,
     ) -> None:
         payload = _build_revocation_event_payload(
@@ -136,6 +141,7 @@ class EnterpriseWebhookRevocationEventPublisher:
             actor_principal_id=actor_principal_id,
             root_principal_id=root_principal_id,
             revoked_mandate_ids=revoked_mandate_ids,
+            revoked_edge_ids=revoked_edge_ids,
             metadata=metadata,
         )
 
