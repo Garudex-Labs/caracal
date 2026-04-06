@@ -66,6 +66,20 @@ class SessionDenylistBackend(Protocol):
     async def contains(self, token_jti: str) -> bool:
         """Return True if token JTI is deny-listed."""
 
+    async def mark_principal_revoked(
+        self,
+        principal_id: str,
+        revoked_at: datetime,
+    ) -> None:
+        """Record principal-level session revocation cutoff."""
+
+    async def is_principal_revoked(
+        self,
+        principal_id: str,
+        token_auth_time: datetime | int | float | str | None,
+    ) -> bool:
+        """Return True when token auth time predates principal revocation cutoff."""
+
 
 class SessionAuditSink(Protocol):
     """Sink for session-level audit events (task/handoff lifecycle)."""
@@ -111,10 +125,33 @@ class RedisSessionDenylistBackend:
         self._redis_url = redis_url
         self._key_prefix = key_prefix
         self._token_prefix = token_prefix
+        self._principal_revoked_after_prefix = "principal_session_revoked_after:"
         self._client = None
 
     def _key(self, token_jti: str) -> str:
         return f"{self._key_prefix}{self._token_prefix}{token_jti}"
+
+    def _principal_revoked_after_key(self, principal_id: str) -> str:
+        return f"{self._key_prefix}{self._principal_revoked_after_prefix}{principal_id}"
+
+    @staticmethod
+    def _as_unix_seconds(value: datetime | int | float | str | None) -> Optional[int]:
+        if value is None:
+            return None
+        if isinstance(value, datetime):
+            dt_value = value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+            return int(dt_value.timestamp())
+        if isinstance(value, (int, float)):
+            return int(value)
+        if isinstance(value, str):
+            raw = value.strip()
+            if not raw:
+                return None
+            try:
+                return int(float(raw))
+            except Exception:
+                return None
+        return None
 
     async def _get_client(self):
         if self._client is None:
@@ -146,6 +183,46 @@ class RedisSessionDenylistBackend:
             return False
         client = await self._get_client()
         return bool(await client.exists(self._key(token_jti)))
+
+    async def mark_principal_revoked(
+        self,
+        principal_id: str,
+        revoked_at: datetime,
+    ) -> None:
+        normalized_principal_id = str(principal_id or "").strip()
+        if not normalized_principal_id:
+            return
+
+        revoked_ts = self._as_unix_seconds(revoked_at)
+        if revoked_ts is None:
+            return
+
+        client = await self._get_client()
+        await client.set(
+            self._principal_revoked_after_key(normalized_principal_id),
+            str(revoked_ts),
+        )
+
+    async def is_principal_revoked(
+        self,
+        principal_id: str,
+        token_auth_time: datetime | int | float | str | None,
+    ) -> bool:
+        normalized_principal_id = str(principal_id or "").strip()
+        if not normalized_principal_id:
+            return False
+
+        token_auth_ts = self._as_unix_seconds(token_auth_time)
+        if token_auth_ts is None:
+            return False
+
+        client = await self._get_client()
+        raw_cutoff = await client.get(self._principal_revoked_after_key(normalized_principal_id))
+        cutoff_ts = self._as_unix_seconds(raw_cutoff)
+        if cutoff_ts is None:
+            return False
+
+        return token_auth_ts <= cutoff_ts
 
 
 class SessionManager:
@@ -762,6 +839,13 @@ class SessionManager:
         if self._denylist is not None and token_jti and await self._denylist.contains(token_jti):
             self._mark_token_revoked_local(token_jti, self._claim_expiry_datetime(claims))
             raise SessionRevokedError("Session token has been revoked")
+
+        if self._denylist is not None and hasattr(self._denylist, "is_principal_revoked"):
+            principal_id = str(claims.get("principal_id") or claims.get("sub") or "").strip()
+            auth_time = claims.get("auth_time") or claims.get("iat")
+            if principal_id and await self._denylist.is_principal_revoked(principal_id, auth_time):
+                self._mark_token_revoked_local(token_jti, self._claim_expiry_datetime(claims))
+                raise SessionRevokedError("Session token has been revoked")
 
         if token_jti and self._is_token_revoked_by_handoff_store(token_jti):
             self._mark_token_revoked_local(token_jti, self._claim_expiry_datetime(claims))

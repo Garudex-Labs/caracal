@@ -1080,6 +1080,87 @@ def graph(ctx, root_mandate_id: Optional[str], format: str):
         sys.exit(1)
 
 
+@click.command('attach-source')
+@click.option(
+    '--source-mandate-id',
+    '-s',
+    required=True,
+    help='Additional source mandate ID (UUID)',
+)
+@click.option(
+    '--target-mandate-id',
+    '-t',
+    required=True,
+    help='Existing target mandate ID (UUID)',
+)
+@click.option(
+    '--context-tags',
+    multiple=True,
+    help='Context tags for the graph edge',
+)
+@click.option(
+    '--format',
+    '-f',
+    type=click.Choice(['table', 'json'], case_sensitive=False),
+    default='table',
+    help='Output format (default: table)',
+)
+@click.pass_context
+def attach_source(
+    ctx,
+    source_mandate_id: str,
+    target_mandate_id: str,
+    context_tags: tuple,
+    format: str,
+):
+    """Attach an additional authority source to an existing mandate."""
+    try:
+        cli_ctx = ctx.obj
+        config = _get_cli_config(cli_ctx)
+        source_uuid = UUID(source_mandate_id)
+        target_uuid = UUID(target_mandate_id)
+        context_tags_list = list(context_tags) if context_tags else None
+
+        mandate_manager, db_manager = get_mandate_manager(config)
+        try:
+            target_mandate = mandate_manager.attach_delegation_source(
+                source_mandate_id=source_uuid,
+                target_mandate_id=target_uuid,
+                context_tags=context_tags_list,
+            )
+            db_manager.get_session().commit()
+
+            payload = {
+                'mandate_id': str(target_mandate.mandate_id),
+                'source_mandate_id': source_mandate_id,
+                'resource_scope': target_mandate.resource_scope,
+                'action_scope': target_mandate.action_scope,
+                'valid_until': target_mandate.valid_until.isoformat(),
+            }
+            if format.lower() == 'json':
+                click.echo(json.dumps(payload, indent=2))
+            else:
+                click.echo("✓ Authority source attached successfully!")
+                click.echo()
+                click.echo(f"Target Mandate ID:     {target_mandate.mandate_id}")
+                click.echo(f"Additional Source ID:  {source_mandate_id}")
+                if target_mandate.context_tags:
+                    click.echo(f"Target Context Tags:   {', '.join(target_mandate.context_tags)}")
+        finally:
+            db_manager.close()
+
+    except ValueError as e:
+        click.echo(f"Error: {e}", err=True)
+        sys.exit(1)
+    except CaracalError as e:
+        click.echo(f"Error: {e}", err=True)
+        sys.exit(1)
+    except Exception as e:
+        click.echo(f"Unexpected error: {e}", err=True)
+        logger.error(f"Failed to attach authority source: {e}", exc_info=True)
+        sys.exit(1)
+
+
 @click.command('peer-delegate')
 @click.option(
     '--source-mandate-id',
