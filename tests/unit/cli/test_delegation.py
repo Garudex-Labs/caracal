@@ -142,6 +142,27 @@ class TestDelegationGenerateCommand:
         assert result.exit_code != 0
         assert 'Invalid source mandate ID format' in result.output
 
+    @patch('caracal.cli.delegation._get_delegation_manager')
+    def test_generate_token_rejects_multiple_source_mandate_ids(self, mock_get_manager):
+        """Generate command should reject repeated source mandate options."""
+        mock_registry = Mock()
+        mock_registry.assert_exists = Mock(return_value=None)
+        mock_registry.ensure_signing_keys = Mock(return_value=None)
+
+        mock_manager = Mock()
+        mock_manager.generate_token.return_value = 'test-token-jwt'
+        mock_get_manager.return_value = (mock_registry, mock_manager)
+
+        result = self.runner.invoke(generate, [
+            '--source-id', self.source_id,
+            '--target-id', self.target_id,
+            '--source-mandate-id', str(uuid4()),
+            '--source-mandate-id', str(uuid4()),
+        ], obj={'config': Mock()})
+
+        assert result.exit_code != 0
+        assert '--source-mandate-id may be specified at most once' in result.output
+
 
 @pytest.mark.unit
 class TestDelegationListCommand:
@@ -252,7 +273,7 @@ class TestDelegationValidateCommand:
         mock_claims.expiration = datetime.utcnow()
         mock_claims.allowed_operations = ['api_call', 'mcp_tool']
         mock_claims.delegation_type = 'directed'
-        mock_claims.authority_sources = [str(uuid4())]
+        mock_claims.source_mandate_id = str(uuid4())
         
         mock_registry = Mock()
         mock_manager = Mock()
