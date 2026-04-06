@@ -1,4 +1,4 @@
-"""Unit tests for AIS-preferred gateway token sourcing behavior."""
+"""Unit tests for AIS-only gateway token sourcing behavior."""
 
 from __future__ import annotations
 
@@ -53,45 +53,22 @@ async def test_authenticate_rejects_non_human_when_ais_not_configured(monkeypatc
 
 @pytest.mark.unit
 @pytest.mark.asyncio
-async def test_authenticate_human_session_falls_back_to_local_token(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_authenticate_rejects_human_when_ais_not_configured(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("CARACAL_SESSION_KIND", "human")
     monkeypatch.delenv("CARACAL_AIS_BASE_URL", raising=False)
     monkeypatch.delenv("CARACAL_AIS_UNIX_SOCKET_PATH", raising=False)
 
     config_manager = Mock()
-    config_manager.get_secret.return_value = "legacy-local-token"
-
-    expires_at = (datetime.now(timezone.utc) + timedelta(minutes=10)).isoformat()
-    fake_http = _FakeGatewayHttpClient(
-        _FakeResponse(
-            200,
-            {
-                "access_token": "gateway-access-token",
-                "expires_at": expires_at,
-                "refresh_token": "gateway-refresh-token",
-            },
-        )
-    )
-
     client = GatewayClient(
         gateway_url="https://gateway.example",
         config_manager=config_manager,
         workspace="test",
     )
 
-    async def _client_factory():
-        return fake_http
+    with pytest.raises(GatewayAuthenticationError, match="AIS token endpoint"):
+        await client._authenticate()
 
-    monkeypatch.setattr(client, "_get_client", _client_factory)
-
-    await client._authenticate()
-
-    config_manager.get_secret.assert_called_once_with("gateway_token_test", "test")
-    assert fake_http.calls
-    assert fake_http.calls[0][0] == "https://gateway.example/auth/token"
-    assert client._token is not None
-    assert client._token.token == "gateway-access-token"
-    assert client._token.refresh_token == "gateway-refresh-token"
+    config_manager.get_secret.assert_not_called()
 
 
 @pytest.mark.unit

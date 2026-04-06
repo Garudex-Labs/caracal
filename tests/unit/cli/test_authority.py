@@ -9,7 +9,7 @@ from unittest.mock import Mock, patch, MagicMock
 from datetime import datetime, timedelta
 from uuid import uuid4
 
-from caracal.cli.authority import issue, validate, revoke, list_mandates, delegate
+from caracal.cli.authority import issue, validate, revoke, list_mandates, delegate, graph
 
 
 @pytest.mark.unit
@@ -359,3 +359,69 @@ class TestAuthorityDelegateCommand:
         assert result.exit_code == 0
         assert 'delegated successfully' in result.output
         mock_manager.delegate_mandate.assert_called_once()
+
+
+@pytest.mark.unit
+class TestAuthorityGraphCommand:
+    """Test suite for authority graph inspection command."""
+
+    def setup_method(self):
+        self.runner = CliRunner()
+
+    @patch('caracal.core.delegation_graph.DelegationGraph')
+    @patch('caracal.db.connection.get_db_manager')
+    def test_graph_json_output_includes_explicit_details(self, mock_get_db_manager, mock_graph_cls):
+        root_mandate_id = str(uuid4())
+
+        mock_db_manager = Mock()
+        mock_session = Mock()
+        mock_db_manager.get_session.return_value = mock_session
+        mock_get_db_manager.return_value = mock_db_manager
+
+        mock_graph = Mock()
+        mock_graph.get_topology.return_value = MagicMock(
+            nodes=[{"mandate_id": root_mandate_id, "principal_kind": "human"}],
+            edges=[{"edge_id": str(uuid4()), "source_principal_type": "human", "target_principal_type": "worker"}],
+            stats={"total_nodes": 1, "total_edges": 1, "nodes_by_type": {"human": 1}},
+        )
+        mock_graph.get_path_details.return_value = {
+            "root_mandate_id": root_mandate_id,
+            "path": [{"mandate_id": root_mandate_id, "network_distance": 2, "target_count": 1, "active": True, "expired": False, "principal_kind": "human"}],
+            "edges": [],
+            "stats": {"branch_nodes": 0, "leaf_nodes": 1, "is_valid": True},
+        }
+        mock_graph_cls.return_value = mock_graph
+
+        result = self.runner.invoke(
+            graph,
+            ['--root-mandate-id', root_mandate_id, '--format', 'json'],
+            obj={'config': Mock()},
+        )
+
+        assert result.exit_code == 0
+        assert '"graph_details"' in result.output
+        assert '"total_nodes": 1' in result.output
+        assert '"root_mandate_id"' in result.output
+
+    @patch('caracal.core.delegation_graph.DelegationGraph')
+    @patch('caracal.db.connection.get_db_manager')
+    def test_graph_table_output_shows_stats(self, mock_get_db_manager, mock_graph_cls):
+        mock_db_manager = Mock()
+        mock_session = Mock()
+        mock_db_manager.get_session.return_value = mock_session
+        mock_get_db_manager.return_value = mock_db_manager
+
+        mock_graph = Mock()
+        mock_graph.get_topology.return_value = MagicMock(
+            nodes=[{"mandate_id": str(uuid4()), "principal_kind": "human"}],
+            edges=[],
+            stats={"total_nodes": 1, "total_edges": 0, "nodes_by_type": {"human": 1}},
+        )
+        mock_graph_cls.return_value = mock_graph
+
+        result = self.runner.invoke(graph, [], obj={'config': Mock()})
+
+        assert result.exit_code == 0
+        assert 'Delegation Graph (1 nodes, 0 edges)' in result.output
+        assert 'Stats:' in result.output
+        assert 'human: 1 nodes' in result.output
