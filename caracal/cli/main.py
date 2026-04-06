@@ -376,16 +376,14 @@ def workspace_list(ctx, format):
 
 @workspace.command(name='create')
 @click.argument('name')
-@click.option('--template', type=click.Choice(['none', 'enterprise', 'local-dev']), default='none')
 @click.pass_context
-def workspace_create(ctx, name, template):
+def workspace_create(ctx, name):
     """Create a new workspace."""
     from caracal.deployment.config_manager import ConfigManager
     
     try:
         config_mgr = ConfigManager()
-        template_val = None if template == 'none' else template
-        config_mgr.create_workspace(name, template=template_val)
+        config_mgr.create_workspace(name)
         
         click.echo(f"✓ Workspace '{click.style(name, fg='cyan', bold=True)}' created")
         click.echo(f"  Switch to it: caracal workspace use {name}")

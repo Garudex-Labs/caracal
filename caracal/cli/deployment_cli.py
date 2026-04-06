@@ -375,20 +375,17 @@ def workspace_group():
 
 @workspace_group.command(name="create")
 @click.argument("name")
-@click.option("--template", "-t", type=click.Choice(["enterprise", "local-dev"]), help="Workspace template")
 @click.option("--format", "-f", type=click.Choice(["table", "json"]), default="table", help="Output format")
-def workspace_create(name: str, template: Optional[str], format: str):
+def workspace_create(name: str, format: str):
     """Create a new workspace."""
     try:
         config_manager = ConfigManager()
-        config_manager.create_workspace(name, template)
+        config_manager.create_workspace(name)
         
         if format == "json":
-            click.echo(json.dumps({"workspace": name, "status": "created", "template": template}))
+            click.echo(json.dumps({"workspace": name, "status": "created"}))
         else:
             console.print(f"[green]✓[/green] Workspace created: {name}")
-            if template:
-                console.print(f"  Template: {template}")
                 
     except WorkspaceAlreadyExistsError as e:
         console.print(f"[red]Error:[/red] {e}")
