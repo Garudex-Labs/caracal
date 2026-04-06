@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+
 import pytest
 
 import caracal.enterprise.license as enterprise_license
@@ -13,24 +15,19 @@ def patched_client_factory(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(enterprise_sync, "_resolve_api_url", lambda _override=None: "https://enterprise.example")
     monkeypatch.setattr(enterprise_sync, "_get_or_create_client_instance_id", lambda: "client-1")
 
-    def _factory(*, sync_api_key: str | None = "sync-key", license_key: str | None = "license-key"):
+    def _factory(*, sync_api_key: str | None = "sync-key"):
         monkeypatch.setattr(enterprise_sync, "load_enterprise_config", lambda: {})
         return enterprise_sync.EnterpriseSyncClient(
             sync_api_key=sync_api_key,
-            license_key=license_key,
         )
 
     return _factory
 
 
 @pytest.mark.unit
-def test_human_session_falls_back_to_sync_key_headers(
-    monkeypatch: pytest.MonkeyPatch,
+def test_sync_uses_canonical_sync_key_headers(
     patched_client_factory,
 ) -> None:
-    monkeypatch.setenv("CARACAL_SESSION_KIND", "human")
-    monkeypatch.delenv("CARACAL_AIS_BASE_URL", raising=False)
-
     client = patched_client_factory(sync_api_key="sync-local")
     headers = client._resolve_enterprise_auth_headers()
 
@@ -40,77 +37,90 @@ def test_human_session_falls_back_to_sync_key_headers(
 
 
 @pytest.mark.unit
-def test_non_human_session_requires_ais_token_endpoint(
-    monkeypatch: pytest.MonkeyPatch,
+def test_sync_headers_require_configured_sync_api_key(
     patched_client_factory,
 ) -> None:
-    monkeypatch.setenv("CARACAL_SESSION_KIND", "automation")
-    monkeypatch.delenv("CARACAL_AIS_BASE_URL", raising=False)
+    client = patched_client_factory(sync_api_key=None)
 
-    client = patched_client_factory(sync_api_key="sync-local")
-
-    with pytest.raises(RuntimeError, match="AIS token endpoint"):
+    with pytest.raises(RuntimeError, match="requires a configured sync API key"):
         client._resolve_enterprise_auth_headers()
 
 
 @pytest.mark.unit
-def test_non_human_session_prefers_ais_bearer_token(
-    monkeypatch: pytest.MonkeyPatch,
+def test_sync_client_requires_sync_key_to_be_configured(
     patched_client_factory,
 ) -> None:
-    monkeypatch.setenv("CARACAL_SESSION_KIND", "automation")
-    monkeypatch.setenv("CARACAL_AIS_BASE_URL", "http://ais.local")
-    monkeypatch.setenv("CARACAL_AIS_PRINCIPAL_ID", "principal-1")
-    monkeypatch.setenv("CARACAL_AIS_ORGANIZATION_ID", "org-1")
-    monkeypatch.setenv("CARACAL_AIS_TENANT_ID", "tenant-1")
-    monkeypatch.setattr(enterprise_sync, "_post_json", lambda *_args, **_kwargs: {"access_token": "ais-token"})
-
-    client = patched_client_factory(sync_api_key="sync-local")
-    headers = client._resolve_enterprise_auth_headers()
-
-    assert headers["X-Caracal-Client-Id"] == "client-1"
-    assert headers["Authorization"] == "Bearer ais-token"
-    assert "X-Sync-Api-Key" not in headers
+    assert patched_client_factory(sync_api_key="sync-local").is_configured is True
+    assert patched_client_factory(sync_api_key=None).is_configured is False
 
 
 @pytest.mark.unit
-def test_human_session_falls_back_when_ais_request_fails(
+def test_sync_upload_payload_has_no_auth_fallback_fields(
     monkeypatch: pytest.MonkeyPatch,
     patched_client_factory,
 ) -> None:
-    monkeypatch.setenv("CARACAL_SESSION_KIND", "human")
-    monkeypatch.setenv("CARACAL_AIS_BASE_URL", "http://ais.local")
-    monkeypatch.setenv("CARACAL_AIS_PRINCIPAL_ID", "principal-1")
-    monkeypatch.setenv("CARACAL_AIS_ORGANIZATION_ID", "org-1")
-    monkeypatch.setenv("CARACAL_AIS_TENANT_ID", "tenant-1")
+    captured_payload: dict[str, object] = {}
 
-    def _raise(*_args, **_kwargs):
-        raise ConnectionError("ais unreachable")
+    monkeypatch.setattr(enterprise_sync, "_load_local_principals", lambda: [{"principal_id": "p1"}])
+    monkeypatch.setattr(enterprise_sync, "_load_local_policies", lambda: [])
+    monkeypatch.setattr(enterprise_sync, "_load_local_mandates", lambda: [])
+    monkeypatch.setattr(enterprise_sync, "_load_local_ledger", lambda: [])
+    monkeypatch.setattr(enterprise_sync, "_load_local_delegation", lambda: [])
+    monkeypatch.setattr(enterprise_sync, "_candidate_api_urls", lambda base_url: [base_url])
+    monkeypatch.setattr(enterprise_sync, "save_enterprise_config", lambda _cfg: None)
+    monkeypatch.setattr(
+        enterprise_sync.EnterpriseSyncClient,
+        "pull_gateway_config",
+        lambda self: {"success": True, "message": "ok"},
+    )
 
-    monkeypatch.setattr(enterprise_sync, "_post_json", _raise)
+    class _FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            del exc_type, exc, tb
+            return False
+
+        def read(self) -> bytes:
+            return json.dumps({"success": True, "message": "ok", "synced_counts": {}}).encode()
+
+    def _capture_urlopen(req, timeout=30):
+        del timeout
+        captured_payload.update(json.loads(req.data.decode()))
+        return _FakeResponse()
+
+    monkeypatch.setattr(enterprise_sync.urllib.request, "urlopen", _capture_urlopen)
 
     client = patched_client_factory(sync_api_key="sync-local")
-    headers = client._resolve_enterprise_auth_headers()
+    result = client.sync()
 
-    assert headers["X-Sync-Api-Key"] == "sync-local"
-    assert "Authorization" not in headers
+    assert result.success is True
+    assert "sync_api_key" not in captured_payload
+    assert "license_key" not in captured_payload
 
 
 @pytest.mark.unit
-def test_non_human_session_requires_identity_triplet_for_ais(
+def test_sync_status_uses_header_auth_without_license_query_fallback(
     monkeypatch: pytest.MonkeyPatch,
     patched_client_factory,
 ) -> None:
-    monkeypatch.setenv("CARACAL_SESSION_KIND", "automation")
-    monkeypatch.setenv("CARACAL_AIS_BASE_URL", "http://ais.local")
-    monkeypatch.delenv("CARACAL_AIS_PRINCIPAL_ID", raising=False)
-    monkeypatch.delenv("CARACAL_AIS_ORGANIZATION_ID", raising=False)
-    monkeypatch.delenv("CARACAL_AIS_TENANT_ID", raising=False)
+    captured: dict[str, object] = {}
+
+    def _capture_get(url: str, headers: dict[str, str] | None = None) -> dict[str, object]:
+        captured["url"] = url
+        captured["headers"] = dict(headers or {})
+        return {"success": True}
+
+    monkeypatch.setattr(enterprise_sync, "_get_json", _capture_get)
 
     client = patched_client_factory(sync_api_key="sync-local")
+    status = client.get_sync_status()
 
-    with pytest.raises(RuntimeError, match="principal, organization, and tenant"):
-        client._resolve_enterprise_auth_headers()
+    assert status == {"success": True}
+    assert captured["url"] == "https://enterprise.example/api/sync/status"
+    assert captured["headers"]["X-Sync-Api-Key"] == "sync-local"
+    assert "Authorization" not in captured["headers"]
 
 
 @pytest.mark.unit
