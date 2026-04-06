@@ -7,9 +7,9 @@ from pathlib import Path
 import pytest
 
 from caracal.deployment.config_manager import ConfigManager
+import caracal.deployment.enterprise_license as enterprise_license_module
 from caracal.deployment.migration import MigrationManager
 import caracal.deployment.config_manager as config_manager_module
-import caracal.enterprise.license as enterprise_license_module
 
 
 def _configure_paths(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:

@@ -113,7 +113,7 @@ class EditionManager:
     def _gateway_url_from_config(self) -> Optional[str]:
         """Return the configured gateway URL from persisted hard-cut state."""
         try:
-            from caracal.enterprise.license import load_enterprise_config
+            from caracal.deployment.enterprise_runtime import load_enterprise_config
 
             enterprise_cfg = load_enterprise_config()
             gateway_cfg = enterprise_cfg.get("gateway")
