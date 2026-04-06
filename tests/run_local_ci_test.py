@@ -92,12 +92,12 @@ def main():
     # Step 2: Syntax validation
     print_step(2, "Syntax Validation")
     
-    # Check main_backup.py
+    # Check main.py
     success = run_command(
-        ["python", "-m", "py_compile", "caracal/cli/main_backup.py"],
-        "Validate main_backup.py syntax"
+        ["python", "-m", "py_compile", "caracal/cli/main.py"],
+        "Validate main.py syntax"
     )
-    results.append(("main_backup.py Syntax", success))
+    results.append(("main.py Syntax", success))
     
     # Check test_simple.py
     success = run_command(
