@@ -23,11 +23,10 @@ logger = get_logger(__name__)
 
 
 def _assert_key_file_commands_allowed() -> None:
-    if os.environ.get("CARACAL_HARDCUT_MODE", "").strip().lower() in {"1", "true", "yes", "on"}:
-        raise click.ClickException(
-            "Local Merkle key-file commands are disabled in hard-cut mode. "
-            "Use vault-backed Merkle signing references instead."
-        )
+    raise click.ClickException(
+        "Local Merkle key-file commands are disabled in runtime paths. "
+        "Use vault-backed Merkle signing references instead."
+    )
 
 
 @click.group()

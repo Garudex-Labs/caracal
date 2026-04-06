@@ -12,6 +12,8 @@ from caracal.db.models import (
     Principal,
     ExecutionMandate,
     DelegationEdgeModel,
+    PrincipalKeyCustody,
+    PrincipalWorkloadBinding,
     LedgerEvent,
     AuditLog,
     MerkleRoot,
@@ -20,6 +22,7 @@ from caracal.db.models import (
     AuthorityPolicy,
     GatewayProvider,
     EnterpriseRuntimeConfig,
+    SessionHandoffTransfer,
 )
 
 
@@ -45,7 +48,21 @@ class TestPrincipalModel:
         assert principal.owner == "test-owner"
         assert principal.public_key_pem == "test-public-key"
         assert principal.principal_metadata["env"] == "test"
-    
+
+    def test_principal_identity_fields_exclude_authority_and_runtime_session_columns(self):
+        """Identity records must stay distinct from graph-edge and session artifacts."""
+        column_names = {column.name for column in Principal.__table__.columns}
+
+        assert "source_mandate_id" not in column_names
+        assert "target_mandate_id" not in column_names
+        assert "handoff_jti" not in column_names
+        assert "refresh_token" not in column_names
+
+    def test_principal_relationships_keep_key_and_workload_artifacts_out_of_identity_columns(self):
+        """Key custody and workload bindings should remain typed side tables."""
+        assert Principal.key_custody.property.mapper.class_ is PrincipalKeyCustody
+        assert Principal.workload_bindings.property.mapper.class_ is PrincipalWorkloadBinding
+
     def test_principal_repr(self):
         """Test Principal string representation."""
         # Arrange
@@ -56,15 +73,23 @@ class TestPrincipalModel:
             principal_kind="worker",
             owner="test-owner"
         )
-        
+
         # Act
         repr_str = repr(principal)
-        
+
         # Assert
         assert "Principal" in repr_str
         assert str(principal_id) in repr_str
         assert "test-agent" in repr_str
         assert "worker" in repr_str
+
+
+@pytest.mark.unit
+def test_authority_and_runtime_session_artifacts_use_distinct_tables() -> None:
+    """Authority edges and runtime handoff state should remain isolated from identity rows."""
+    assert DelegationEdgeModel.__tablename__ == "delegation_edges"
+    assert SessionHandoffTransfer.__tablename__ == "session_handoff_transfers"
+    assert DelegationEdgeModel.__tablename__ != SessionHandoffTransfer.__tablename__
 
 
 @pytest.mark.unit
