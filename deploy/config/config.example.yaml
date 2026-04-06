@@ -34,8 +34,9 @@ merkle:
   batch_size_limit: 1000
   batch_timeout_seconds: 300
   signing_algorithm: ES256
-  signing_backend: software
-  private_key_path: ${CARACAL_HOME:~/.caracal}/keys/merkle_signing_key.pem
+  signing_backend: vault
+  vault_key_ref: ${CARACAL_VAULT_MERKLE_SIGNING_KEY_REF:keys/merkle-signing}
+  vault_public_key_ref: ${CARACAL_VAULT_MERKLE_PUBLIC_KEY_REF:keys/merkle-signing-public}
   key_rotation_enabled: false
 
 snapshot:

@@ -193,25 +193,40 @@ def test_migration_preflight_blocks_sqlite_and_compat_markers_in_config(tmp_path
 
 @pytest.mark.unit
 def test_runtime_preflight_blocks_gateway_enabled_without_endpoint() -> None:
-    with pytest.raises(HardCutPreflightError, match="gateway endpoint"):
-        env_vars = _valid_vault_env()
-        env_vars["CARACAL_GATEWAY_ENABLED"] = "true"
-        assert_runtime_hardcut(
-            compose_file=None,
-            database_urls={"DATABASE_URL": "postgresql://ok"},
-            check_jsonb=False,
-            env_vars=env_vars,
-        )
+    env_vars = _valid_vault_env()
+    env_vars["CARACAL_GATEWAY_ENABLED"] = "true"
+
+    # OSS runtime preflight is decoupled from enterprise gateway flags.
+    assert_runtime_hardcut(
+        compose_file=None,
+        database_urls={"DATABASE_URL": "postgresql://ok"},
+        check_jsonb=False,
+        env_vars=env_vars,
+    )
 
 
 @pytest.mark.unit
 def test_runtime_preflight_blocks_conflicting_gateway_enabled_and_endpoint() -> None:
+    env_vars = _valid_vault_env()
+    env_vars["CARACAL_GATEWAY_ENABLED"] = "false"
+    env_vars["CARACAL_ENTERPRISE_URL"] = "https://gateway.example"
+
+    # OSS runtime preflight is decoupled from enterprise gateway flags.
+    assert_runtime_hardcut(
+        compose_file=None,
+        database_urls={"DATABASE_URL": "postgresql://ok"},
+        check_jsonb=False,
+        env_vars=env_vars,
+    )
+
+
+@pytest.mark.unit
+def test_enterprise_preflight_blocks_conflicting_gateway_enabled_and_endpoint() -> None:
     with pytest.raises(HardCutPreflightError, match="Execution exclusivity violation"):
         env_vars = _valid_vault_env()
         env_vars["CARACAL_GATEWAY_ENABLED"] = "false"
         env_vars["CARACAL_ENTERPRISE_URL"] = "https://gateway.example"
-        assert_runtime_hardcut(
-            compose_file=None,
+        assert_enterprise_hardcut(
             database_urls={"DATABASE_URL": "postgresql://ok"},
             check_jsonb=False,
             env_vars=env_vars,

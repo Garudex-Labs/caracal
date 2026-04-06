@@ -436,7 +436,6 @@ def assert_runtime_hardcut(
     )
     violations.extend(_state_root_violations(state_roots))
     violations.extend(_compatibility_violations(env_vars))
-    violations.extend(_execution_exclusivity_violations(env_vars))
     violations.extend(_secret_backend_violations(env_vars))
     violations.extend(_asymmetric_session_signing_violations(env_vars))
     violations.extend(_config_path_violations(config_paths))
