@@ -237,8 +237,27 @@ def cli(ctx, config: Optional[Path], workspace: Optional[str], log_level: str, v
     ctx.obj.config_path = str(resolved_config_path)
     
     # Detect global flags used to keep setup output clean.
-    is_help_or_version = any(arg in {"--help", "-h", "--version"} for arg in sys.argv[1:])
-    is_version = any(arg == "--version" for arg in sys.argv[1:])
+    # Use Click context state first (works in CliRunner and nested command help),
+    # then fall back to raw argv for direct terminal invocations.
+    pending_args = tuple(getattr(ctx, "args", ()))
+    is_help_or_version = (
+        bool(ctx.resilient_parsing)
+        or any(arg in {"--help", "-h", "--version"} for arg in pending_args)
+        or any(arg in {"--help", "-h", "--version"} for arg in sys.argv[1:])
+    )
+    is_version = (
+        any(arg == "--version" for arg in pending_args)
+        or any(arg == "--version" for arg in sys.argv[1:])
+    )
+
+    # Help/version should never require loading runtime config. In hard-cut mode,
+    # config validation can fail loudly for environments that are otherwise fine
+    # to introspect via help output.
+    if is_help_or_version:
+        if ctx.invoked_subcommand is not None and not is_version:
+            active_ws = ctx.obj['workspace']
+            click.echo(format_workspace_status(active_ws))
+        return
     
     # Load configuration
     try:
@@ -262,9 +281,6 @@ def cli(ctx, config: Optional[Path], workspace: Optional[str], log_level: str, v
     if ctx.invoked_subcommand is not None and not is_version:
         active_ws = ctx.obj['workspace']
         click.echo(format_workspace_status(active_ws))
-
-    if is_help_or_version:
-        return
     
     # Set up logging
     try:

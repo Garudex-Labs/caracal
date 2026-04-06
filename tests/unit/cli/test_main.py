@@ -45,6 +45,22 @@ class TestCLIMain:
         
         assert result.exit_code == 0
         assert 'workspace' in result.output.lower()
+
+    def test_help_skips_config_loading(self):
+        """Help output should not trigger runtime config validation."""
+        with patch('caracal.cli.main.sys.argv', ['caracal', '--help']):
+            with patch('caracal.cli.main.load_config', side_effect=AssertionError('load_config should not be called')):
+                result = self.runner.invoke(cli, ['--help'])
+
+        assert result.exit_code == 0
+
+    def test_subcommand_help_skips_config_loading(self):
+        """Subcommand help should not require runtime config."""
+        with patch('caracal.cli.main.sys.argv', ['caracal', 'workspace', '--help']):
+            with patch('caracal.cli.main.load_config', side_effect=AssertionError('load_config should not be called')):
+                result = self.runner.invoke(cli, ['workspace', '--help'])
+
+        assert result.exit_code == 0
     
     def test_cli_no_command_shows_info(self):
         """Test CLI without command shows workspace info."""
