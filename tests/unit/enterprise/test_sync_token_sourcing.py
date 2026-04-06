@@ -62,11 +62,6 @@ def test_sync_upload_payload_has_no_auth_fallback_fields(
     captured_payload: dict[str, object] = {}
     captured_request: dict[str, object] = {}
 
-    monkeypatch.setattr(enterprise_sync, "_load_local_principals", lambda: [{"principal_id": "p1"}])
-    monkeypatch.setattr(enterprise_sync, "_load_local_policies", lambda: [])
-    monkeypatch.setattr(enterprise_sync, "_load_local_mandates", lambda: [])
-    monkeypatch.setattr(enterprise_sync, "_load_local_ledger", lambda: [])
-    monkeypatch.setattr(enterprise_sync, "_load_local_delegation", lambda: [])
     monkeypatch.setattr(enterprise_sync, "save_enterprise_config", lambda _cfg: None)
     monkeypatch.setattr(
         enterprise_sync.EnterpriseSyncClient,
@@ -94,7 +89,17 @@ def test_sync_upload_payload_has_no_auth_fallback_fields(
     monkeypatch.setattr(enterprise_sync.urllib.request, "urlopen", _capture_urlopen)
 
     client = patched_client_factory(sync_api_key="sync-local")
-    result = client.sync()
+    result = client.upload_payload(
+        {
+            "client_instance_id": "client-1",
+            "client_metadata": {"source": "caracal-cli"},
+            "principals": [{"principal_id": "p1"}],
+            "policies": [],
+            "mandates": [],
+            "ledger_entries": [],
+            "delegation_edges": [],
+        }
+    )
 
     assert result.success is True
     assert captured_request["url"] == "https://enterprise.example/api/sync/upload"
