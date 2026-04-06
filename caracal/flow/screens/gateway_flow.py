@@ -39,7 +39,7 @@ from caracal.core.gateway_features import (
     DEPLOYMENT_MANAGED,
     DEPLOYMENT_ON_PREM,
 )
-from caracal.enterprise.license import (
+from caracal.deployment.enterprise_runtime import (
     load_enterprise_config,
     save_enterprise_config,
 )
@@ -270,7 +270,7 @@ class GatewayFlow:
         self.console.print(f"[{Colors.DIM}]Syncing gateway configuration from Enterprise...[/]")
 
         try:
-            from caracal.enterprise.sync import EnterpriseSyncClient
+            from caracal.deployment.enterprise_sync import EnterpriseSyncClient
             client = EnterpriseSyncClient()
             result = client.pull_gateway_config()
 

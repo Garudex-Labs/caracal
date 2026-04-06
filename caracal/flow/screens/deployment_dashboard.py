@@ -129,8 +129,8 @@ def _build_system_info() -> Table:
 
 def _build_activity_info(state: FlowState) -> Table:
     """Build activity information table."""
-    from caracal.enterprise.sync import EnterpriseSyncClient
-    from caracal.enterprise.license import EnterpriseLicenseValidator
+    from caracal.deployment.enterprise_license import EnterpriseLicenseValidator
+    from caracal.deployment.enterprise_sync import EnterpriseSyncClient
     from caracal.flow.workspace import get_workspace
     
     table = Table(show_header=False, box=None, padding=(0, 1))
