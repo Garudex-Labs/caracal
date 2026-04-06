@@ -92,6 +92,37 @@ class TestDelegationTokenManager:
                 source_principal_id=source_id,
                 target_principal_id=target_id
             )
+
+    def test_generate_token_emits_single_lineage_source_mandate_claim(self):
+        """Delegation token should emit sourceMandateId and never authoritySources."""
+        source_id = uuid4()
+        target_id = uuid4()
+        source_mandate_id = uuid4()
+
+        mock_principal = Mock()
+        mock_principal.metadata = {"public_key_pem": "test_public_key"}
+        self.mock_principal_registry.get_principal.return_value = mock_principal
+
+        private_key_pem, _public_key_pem = _generate_test_key_pair()
+        self.manager._signing_service = Mock()
+        self.manager._signing_service.sign_jwt_for_principal.side_effect = (
+            lambda **kwargs: jwt.encode(
+                kwargs["payload"],
+                private_key_pem,
+                algorithm=kwargs["algorithm"],
+                headers=kwargs["headers"],
+            )
+        )
+
+        token = self.manager.generate_token(
+            source_principal_id=source_id,
+            target_principal_id=target_id,
+            source_mandate_id=source_mandate_id,
+        )
+
+        payload = jwt.decode(token, options={"verify_signature": False, "verify_exp": False})
+        assert payload.get("sourceMandateId") == str(source_mandate_id)
+        assert "authoritySources" not in payload
     
     def test_validate_token_success(self):
         """Test delegation token validation with valid token."""
