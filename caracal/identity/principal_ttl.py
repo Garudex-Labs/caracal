@@ -260,6 +260,13 @@ class PrincipalTTLManager:
             parent_principal_id=metadata.get("parent_principal_id") or None,
         )
 
+    def clear_principal(self, principal_id: str) -> None:
+        """Best-effort cleanup for leases created during failed spawn orchestration."""
+        normalized_principal = self._normalize_principal_id(principal_id)
+        self._redis.delete(self.lease_key(normalized_principal))
+        self._redis.delete(self.metadata_key(normalized_principal))
+        self._redis.zrem(self._INDEX_KEY, normalized_principal)
+
     def build_expiry_work_item(self, principal_id: str) -> Optional[PrincipalTTLExpiryWorkItem]:
         normalized_principal = self._normalize_principal_id(principal_id)
         metadata = self._read_metadata(normalized_principal)
