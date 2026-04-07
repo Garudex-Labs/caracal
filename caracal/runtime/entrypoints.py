@@ -1550,18 +1550,38 @@ def _resolve_ais_vault_secret(secret_ref: str) -> str:
 
 
 def _resolve_ais_vault_context() -> tuple[str, str]:
-    org_id = (
+    from caracal.core.vault import get_vault
+
+    configured_org = (
         os.environ.get("CARACAL_VAULT_PROJECT_ID")
         or os.environ.get("CARACAL_VAULT_PROJECT_SLUG")
         or os.environ.get("CARACAL_VAULT_ORG_ID")
-        or "caracal"
-    )
-    env_id = (
+        or ""
+    ).strip()
+    configured_env = (
         os.environ.get("CARACAL_VAULT_ENVIRONMENT")
         or os.environ.get("CARACAL_VAULT_ENV")
         or os.environ.get("CARACAL_VAULT_ENV_ID")
-        or "runtime"
-    )
+        or ""
+    ).strip()
+
+    vault = get_vault()
+    default_org = str(getattr(vault._config, "default_project", "") or "").strip()
+    default_env = str(getattr(vault._config, "default_environment", "") or "").strip()
+
+    org_id = configured_org
+    if configured_org:
+        try:
+            from uuid import UUID
+
+            UUID(configured_org)
+        except Exception:
+            if default_org:
+                org_id = default_org
+    else:
+        org_id = default_org or "caracal"
+
+    env_id = configured_env or default_env or "runtime"
     return str(org_id), str(env_id)
 
 

@@ -326,6 +326,27 @@ def test_run_runtime_mcp_bootstraps_vault_refs_before_starting_ais(
 
 
 @pytest.mark.unit
+def test_resolve_ais_vault_context_prefers_recovered_project_uuid_over_slug(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("CARACAL_VAULT_PROJECT_ID", "caracal")
+    monkeypatch.setenv("CARACAL_VAULT_ENVIRONMENT", "dev")
+
+    fake_vault = SimpleNamespace(
+        _config=SimpleNamespace(
+            default_project="11111111-2222-3333-4444-555555555555",
+            default_environment="dev",
+        )
+    )
+    monkeypatch.setattr("caracal.core.vault.get_vault", lambda: fake_vault)
+
+    org_id, env_id = entrypoints._resolve_ais_vault_context()
+
+    assert org_id == "11111111-2222-3333-4444-555555555555"
+    assert env_id == "dev"
+
+
+@pytest.mark.unit
 def test_create_ais_session_manager_uses_vault_reference_signer_without_loading_private_key(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
