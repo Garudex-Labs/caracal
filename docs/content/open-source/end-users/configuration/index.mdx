@@ -1,6 +1,6 @@
 ---
 title: Configuration
-description: How Caracal resolves workspace config, environment variables, secrets, and provider metadata.
+description: How Caracal resolves workspace config, environment variables, vault-backed secrets, and provider metadata.
 sidebar_label: Configuration
 ---
 
@@ -39,9 +39,13 @@ Configuration values may be stored as encrypted `ENC[v2:...]` values. When such 
 
 ### Provider registry
 
-Providers are configured per workspace and stored in workspace metadata through `ConfigManager` plus the workspace provider registry helpers in `caracal/provider/workspace.py`.
+Providers are configured per workspace through the provider registry helpers in `caracal/provider/workspace.py`.
+
+The workspace metadata stores provider records such as base URL, auth scheme, tags, and optional scoped definitions. Provider credentials do not live in workspace metadata anymore. OSS provider credentials are written into the OSS vault and referenced from the provider record with opaque `caracal:` refs.
 
 That registry matters operationally because policy and mandate scope validation uses the provider-scoped catalog derived from those definitions.
+
+Provider definitions are optional at creation time. A provider can start in passthrough mode with only connection settings and credentials, then move into scoped mode later through provider enrichment.
 
 ## Internal Behavior
 
@@ -83,6 +87,8 @@ Provider configuration typically enters through the provider command group, not 
 ```bash
 caracal provider list
 caracal provider add ...
+caracal provider update ...
+caracal provider enrich ...
 caracal provider test <name>
 ```
 
@@ -92,6 +98,7 @@ caracal provider test <name>
 - `storage.backup_dir` and `logging.file` are forced back into the active workspace if the YAML points outside the workspace layout.
 - When `config.yaml` is malformed in certain onboarding-generated cases, Caracal attempts a narrow legacy repair path before failing.
 - Provider scopes must exist in the workspace catalog before policy and mandate commands will accept them.
+- OSS provider execution stays broker-only. Gateway-managed enterprise providers use a separate enterprise vault and are not configured from open-source workspace metadata.
 
 ## Related Concepts
 

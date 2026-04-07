@@ -38,7 +38,7 @@ flowchart TD
 | `caracal/redis` | Redis client and mandate cache |
 | `caracal/merkle` | Tree building, batching, signing, verification, snapshots, backfill, recovery |
 | `caracal/mcp` | MCP HTTP service and adapter enforcement layer |
-| `caracal/provider` | Provider definitions, catalog helpers, workspace provider registry |
+| `caracal/provider` | Provider definitions, shared provider contract helpers, workspace provider registry, vault-backed credential custody |
 | `caracal/deployment` | Config manager, mode and edition handling, sync state, migration helpers |
 | `caracal/monitoring` | Health checks, metrics registry, metrics HTTP server |
 | `deploy/` | Compose files, Dockerfiles, runtime deployment assets |
@@ -77,11 +77,14 @@ Several implementation choices are architectural, not incidental:
 - `DatabaseConnectionManager` treats PostgreSQL as the only supported database backend.
 - workspace resolution happens early so config, logs, backups, cache, and keys stay aligned.
 - provider-scoped scopes connect external integrations directly to the authority model.
+- OSS provider execution flows through `CLI/TUI -> workspace provider registry -> OSS vault -> Broker`.
+- provider definitions are optional until scoped enforcement is enabled for a provider.
 - runtime compose resolution supports repository checkouts, packaged installs, and an embedded fallback compose file.
 
 ## Edge Cases And Constraints
 
 - The repository still contains enterprise stubs and public connector surfaces, but the open-source docs only describe public boundaries.
+- Ready-to-use enterprise provider packs are not part of the OSS repository surface. OSS only exposes custom providers and generic starter templates.
 - Some files retain legacy or compatibility behavior, but the current runtime model is container-first and PostgreSQL-backed.
 
 ## Related Concepts
