@@ -89,6 +89,7 @@ def _resolve_vault_context() -> tuple[str, str]:
             try:
                 resolved_project = str(getattr(get_vault()._config, "default_project", "") or "").strip()
                 if resolved_project:
+                    UUID(resolved_project)
                     org_id = resolved_project
             except Exception:
                 pass
