@@ -15,7 +15,7 @@ from uuid import UUID, uuid4
 
 from sqlalchemy.orm import Session
 
-from caracal.core.vault import VaultError, gateway_context, get_vault
+from caracal.core.vault import VaultError, get_vault, vault_access_context
 from caracal.db.models import (
     PrincipalKeyBackend,
     PrincipalKeyCustody,
@@ -147,7 +147,7 @@ def parse_vault_key_reference(reference: str) -> tuple[str, str, str]:
 
 def _vault_get_secret(org_id: str, env_id: str, secret_name: str) -> str:
     try:
-        with gateway_context():
+        with vault_access_context():
             return get_vault().get(org_id=org_id, env_id=env_id, name=secret_name)
     except VaultError as exc:
         raise PrincipalKeyStorageError(
@@ -168,7 +168,7 @@ def generate_and_store_principal_keypair(
     public_key_reference = _build_vault_reference(org_id, env_id, public_secret_name)
 
     try:
-        with gateway_context():
+        with vault_access_context():
             vault = get_vault()
             vault.ensure_asymmetric_keypair(
                 org_id=org_id,

@@ -708,8 +708,8 @@ def show_provider_manager(console: Console, state: FlowState) -> None:
             items=[
                 MenuItem("list", "List Providers", "View configured providers", Icons.LIST),
                 MenuItem("add", "Add Provider", "Fast passthrough provider setup", Icons.ADD),
-                MenuItem("update", "Update Provider", "Edit connection details and runtime settings", Icons.EDIT),
-                MenuItem("enrich", "Enrich Provider", "Add or edit scoped resources/actions", Icons.SETTINGS),
+                MenuItem("update", "Update Provider", "Edit connection details and runtime settings", Icons.SETTINGS),
+                MenuItem("enrich", "Enrich Provider", "Add or edit scoped resources/actions", Icons.PROVIDER),
                 MenuItem("remove", "Remove Provider", "Delete provider configuration", Icons.DELETE),
                 MenuItem("back", "Back to Menu", "", Icons.ARROW_LEFT),
             ],
