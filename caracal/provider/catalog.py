@@ -7,7 +7,7 @@ CLI, TUI, broker mode, gateway mode, and enterprise APIs.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 import base64
@@ -20,6 +20,39 @@ GATEWAY_ONLY_AUTH = {"oauth2_client_credentials", "service_account"}
 
 class ProviderCatalogError(ValueError):
     """Raised when provider catalog inputs are invalid."""
+
+
+@dataclass(frozen=True)
+class ProviderRecord:
+    provider_id: str
+    name: str
+    service_type: str
+    provider_definition: str
+    definition: Optional[Dict[str, Any]]
+    base_url: Optional[str]
+    auth_scheme: str
+    credential_ref: Optional[str]
+    credential_storage: str
+    healthcheck_path: str
+    timeout_seconds: int
+    max_retries: int
+    rate_limit_rpm: Optional[int]
+    version: Optional[str]
+    tags: List[str]
+    capabilities: List[str]
+    access_policy: Dict[str, Any]
+    auth_metadata: Dict[str, Any]
+    default_headers: Dict[str, Any]
+    metadata: Dict[str, Any]
+    resources: List[str]
+    actions: List[str]
+    enforce_scoped_requests: bool
+    provider_layer: str
+    template_id: Optional[str]
+    managed_by: Optional[str]
+    organization_id: Optional[str]
+    created_at: str
+    updated_at: str
 
 
 @dataclass(frozen=True)
@@ -562,7 +595,8 @@ def build_provider_record(
     definition_id: str,
     auth_scheme: str,
     base_url: Optional[str],
-    resources: Dict[str, Dict[str, Any]],
+    resources: Optional[Dict[str, Dict[str, Any]]] = None,
+    definition: Optional[Dict[str, Any]] = None,
     healthcheck_path: str = "/health",
     timeout_seconds: int = 30,
     max_retries: int = 3,
@@ -579,59 +613,95 @@ def build_provider_record(
     organization_id: Optional[str] = None,
     existing: Optional[Dict[str, Any]] = None,
     created_at: Optional[str] = None,
+    enforce_scoped_requests: Optional[bool] = None,
 ) -> Dict[str, Any]:
     normalized_name = ensure_identifier("Provider name", name)
     normalized_definition_id = ensure_identifier("Definition ID", definition_id)
     normalized_auth = normalize_auth_scheme(auth_scheme)
     service = str(service_type or "application").strip().lower() or "application"
-    definition_payload = build_definition_payload(
-        definition_id=normalized_definition_id,
-        service_type=service,
-        display_name=normalized_name,
-        auth_scheme=normalized_auth,
-        base_url=base_url,
-        resources=resources,
-        metadata=metadata,
-    )
-    resource_ids, action_ids = summarize_catalog(resources)
     now = datetime.now(timezone.utc).isoformat()
     preserved_existing = dict(existing or {})
     auth_metadata = dict(preserved_existing.get("auth_metadata") or {})
     if auth_header_name:
         auth_metadata["header_name"] = auth_header_name
 
-    return {
-        "provider_id": normalized_name,
-        "name": normalized_name,
-        "service_type": service,
-        "provider_definition": normalized_definition_id,
-        "definition": definition_payload,
-        "provider_definition_data": definition_payload,
-        "base_url": str(base_url).strip() if base_url else None,
-        "auth_scheme": normalized_auth,
-        "credential_ref": credential_ref,
-        "credential_storage": credential_storage,
-        "healthcheck_path": ensure_path_prefix(healthcheck_path),
-        "timeout_seconds": int(timeout_seconds),
-        "max_retries": int(max_retries),
-        "rate_limit_rpm": rate_limit_rpm,
-        "version": version,
-        "tags": list(tags or []),
-        "capabilities": list(preserved_existing.get("capabilities") or []),
-        "access_policy": dict(preserved_existing.get("access_policy") or {"scopes": []}),
-        "auth_metadata": auth_metadata,
-        "default_headers": dict(preserved_existing.get("default_headers") or {}),
-        "metadata": dict(metadata or {}),
-        "resources": resource_ids,
-        "actions": action_ids,
-        "enforce_scoped_requests": True,
-        "provider_layer": provider_layer,
-        "template_id": template_id,
-        "managed_by": managed_by,
-        "organization_id": organization_id,
-        "created_at": created_at or preserved_existing.get("created_at") or now,
-        "updated_at": now,
-    }
+    definition_payload: Optional[Dict[str, Any]] = None
+    normalized_resources: Dict[str, Dict[str, Any]] = {}
+    if definition is not None:
+        definition_payload = dict(definition)
+        normalized_resources = dict(definition_payload.get("resources") or {})
+        if normalized_resources:
+            definition_payload = build_definition_payload(
+                definition_id=str(definition_payload.get("definition_id") or normalized_definition_id),
+                service_type=str(definition_payload.get("service_type") or service),
+                display_name=str(definition_payload.get("display_name") or normalized_name),
+                auth_scheme=str(definition_payload.get("auth_scheme") or normalized_auth),
+                base_url=definition_payload.get("default_base_url", base_url),
+                resources=normalized_resources,
+                metadata=dict(definition_payload.get("metadata") or metadata or {}),
+            )
+        else:
+            definition_payload = {
+                "definition_id": normalized_definition_id,
+                "service_type": service,
+                "display_name": normalized_name,
+                "auth_scheme": normalized_auth,
+                "default_base_url": str(base_url).strip() if base_url else None,
+                "resources": {},
+                "metadata": dict(metadata or {}),
+            }
+    elif resources:
+        normalized_resources = dict(resources)
+        definition_payload = build_definition_payload(
+            definition_id=normalized_definition_id,
+            service_type=service,
+            display_name=normalized_name,
+            auth_scheme=normalized_auth,
+            base_url=base_url,
+            resources=normalized_resources,
+            metadata=metadata,
+        )
+
+    resource_ids, action_ids = summarize_catalog(normalized_resources)
+    scoped_requests_enabled = (
+        bool(normalized_resources)
+        if enforce_scoped_requests is None
+        else bool(enforce_scoped_requests)
+    )
+
+    return asdict(
+        ProviderRecord(
+            provider_id=normalized_name,
+            name=normalized_name,
+            service_type=service,
+            provider_definition=normalized_definition_id,
+            definition=definition_payload,
+            base_url=str(base_url).strip() if base_url else None,
+            auth_scheme=normalized_auth,
+            credential_ref=credential_ref,
+            credential_storage=credential_storage,
+            healthcheck_path=ensure_path_prefix(healthcheck_path),
+            timeout_seconds=int(timeout_seconds),
+            max_retries=int(max_retries),
+            rate_limit_rpm=rate_limit_rpm,
+            version=version,
+            tags=list(tags or []),
+            capabilities=list(preserved_existing.get("capabilities") or []),
+            access_policy=dict(preserved_existing.get("access_policy") or {"scopes": []}),
+            auth_metadata=auth_metadata,
+            default_headers=dict(preserved_existing.get("default_headers") or {}),
+            metadata=dict(metadata or {}),
+            resources=resource_ids,
+            actions=action_ids,
+            enforce_scoped_requests=scoped_requests_enabled,
+            provider_layer=provider_layer,
+            template_id=template_id,
+            managed_by=managed_by,
+            organization_id=organization_id,
+            created_at=created_at or preserved_existing.get("created_at") or now,
+            updated_at=now,
+        )
+    )
 
 
 def resolve_auth_headers(
@@ -681,7 +751,7 @@ def system_templates() -> List[Dict[str, Any]]:
                 auth_scheme=pattern.recommended_auth_scheme,
                 base_url=pattern.base_url_example,
                 resources=resources,
-                metadata={"system_template": True, "managed_by": "caracal_enterprise"},
+                metadata={"system_template": True, "managed_by": "caracal_catalog"},
             )
             templates.append(
                 {
@@ -697,7 +767,7 @@ def system_templates() -> List[Dict[str, Any]]:
                     "resources": sorted(resources.keys()),
                     "actions": summarize_catalog(resources)[1],
                     "provider_layer": "system_template",
-                    "managed_by": "caracal_enterprise",
+                    "managed_by": "caracal_catalog",
                     "read_only": True,
                 }
             )
@@ -725,7 +795,8 @@ def workspace_to_gateway_payload(
     organization_id: Optional[str],
     credential_storage: str = "gateway_vault",
 ) -> Dict[str, Any]:
-    resources = dict((entry.get("definition") or entry.get("provider_definition_data") or {}).get("resources") or {})
+    definition = dict(entry.get("definition") or entry.get("provider_definition_data") or {})
+    resources = dict(definition.get("resources") or {})
     if not resources:
         raise ProviderCatalogError(
             f"Provider '{provider_name}' is missing structured resources and cannot be mapped to gateway mode."
@@ -736,7 +807,7 @@ def workspace_to_gateway_payload(
         definition_id=str(entry.get("provider_definition") or provider_name),
         auth_scheme=str(entry.get("auth_scheme") or "api_key"),
         base_url=entry.get("base_url"),
-        resources=resources,
+        definition=definition,
         healthcheck_path=str(entry.get("healthcheck_path") or "/health"),
         timeout_seconds=int(entry.get("timeout_seconds") or 30),
         max_retries=int(entry.get("max_retries") or 3),
