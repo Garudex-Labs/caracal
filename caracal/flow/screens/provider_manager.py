@@ -37,7 +37,11 @@ from caracal.provider.catalog import (
     build_provider_record,
     build_resources_from_pattern as shared_build_resources_from_pattern,
 )
-from caracal.provider.definitions import build_action_scope, build_resource_scope
+from caracal.provider.definitions import (
+    build_action_scope,
+    build_resource_scope,
+    resolve_provider_definition_id,
+)
 from caracal.provider.credential_store import (
     delete_workspace_provider_credential,
     store_workspace_provider_credential,
@@ -616,6 +620,76 @@ _PROVIDER_PATTERNS = SHARED_PROVIDER_PATTERNS
 _GATEWAY_ONLY_AUTH = SHARED_GATEWAY_ONLY_AUTH
 
 
+def _available_patterns(service_type: str) -> tuple[ProviderStarterPattern, ...]:
+    return tuple(
+        pattern
+        for pattern in _PROVIDER_PATTERNS.get(service_type, ())
+        if pattern.recommended_auth_scheme not in _GATEWAY_ONLY_AUTH
+    )
+
+
+def _resolve_pattern_by_key(pattern_key: Optional[str]) -> Optional[ProviderStarterPattern]:
+    if not pattern_key:
+        return None
+    for patterns in _PROVIDER_PATTERNS.values():
+        for pattern in patterns:
+            if pattern.key == pattern_key:
+                return pattern
+    return None
+
+
+def _provider_mode(entry: dict[str, object]) -> str:
+    definition = entry.get("definition")
+    has_resources = isinstance(definition, dict) and bool(definition.get("resources"))
+    if entry.get("enforce_scoped_requests") and has_resources:
+        return "scoped"
+    return "passthrough"
+
+
+def _provider_template_label(entry: dict[str, object]) -> str:
+    template_id = entry.get("template_id")
+    if template_id:
+        return str(template_id)
+    metadata = entry.get("metadata")
+    if isinstance(metadata, dict) and metadata.get("starter_pattern"):
+        return str(metadata["starter_pattern"])
+    return "custom"
+
+
+def _provider_credential_status(entry: dict[str, object]) -> str:
+    auth_scheme = str(entry.get("auth_scheme") or "none")
+    if auth_scheme == "none":
+        return "not required"
+    return "configured" if entry.get("credential_ref") else "missing"
+
+
+def _definition_payload_for_existing_resources(
+    entry: dict[str, object],
+    *,
+    provider_name: str,
+    service_type: str,
+    definition_id: str,
+    auth_scheme: str,
+    base_url: Optional[str],
+    metadata: dict[str, object],
+) -> Optional[dict[str, object]]:
+    definition = entry.get("definition")
+    if not isinstance(definition, dict):
+        return None
+    resources = dict(definition.get("resources") or {})
+    if not resources:
+        return None
+    return {
+        "definition_id": definition_id,
+        "service_type": service_type,
+        "display_name": provider_name,
+        "auth_scheme": auth_scheme,
+        "default_base_url": base_url,
+        "resources": resources,
+        "metadata": dict(metadata),
+    }
+
+
 def show_provider_manager(console: Console, state: FlowState) -> None:
     """Display provider manager interface."""
     while True:
@@ -633,7 +707,9 @@ def show_provider_manager(console: Console, state: FlowState) -> None:
             "Provider Operations",
             items=[
                 MenuItem("list", "List Providers", "View configured providers", Icons.LIST),
-                MenuItem("add", "Add Provider", "Configure provider + secure credentials", Icons.ADD),
+                MenuItem("add", "Add Provider", "Fast passthrough provider setup", Icons.ADD),
+                MenuItem("update", "Update Provider", "Edit connection details and runtime settings", Icons.EDIT),
+                MenuItem("enrich", "Enrich Provider", "Add or edit scoped resources/actions", Icons.SETTINGS),
                 MenuItem("remove", "Remove Provider", "Delete provider configuration", Icons.DELETE),
                 MenuItem("back", "Back to Menu", "", Icons.ARROW_LEFT),
             ],
@@ -645,6 +721,10 @@ def show_provider_manager(console: Console, state: FlowState) -> None:
             _list_providers(console)
         elif result.key == "add":
             _add_provider(console, state)
+        elif result.key == "update":
+            _update_provider(console, state)
+        elif result.key == "enrich":
+            _enrich_provider(console, state)
         elif result.key == "remove":
             _remove_provider(console, state)
 
@@ -679,23 +759,21 @@ def _list_providers(console: Console) -> None:
 
     table = Table(show_header=True, header_style=f"bold {Colors.INFO}")
     table.add_column("Name", style=Colors.PRIMARY)
-    table.add_column("Definition", style=Colors.NEUTRAL)
-    table.add_column("Service", style=Colors.NEUTRAL)
+    table.add_column("Template", style=Colors.NEUTRAL)
     table.add_column("Auth", style=Colors.NEUTRAL)
     table.add_column("Endpoint", style=Colors.DIM)
-    table.add_column("Scopes", style=Colors.DIM)
+    table.add_column("Credential", style=Colors.DIM)
+    table.add_column("Mode", style=Colors.DIM)
 
     for name in sorted(providers.keys()):
         entry = providers[name]
-        resources = entry.get("resources", [])
-        actions = entry.get("actions", [])
         table.add_row(
             name,
-            str(entry.get("provider_definition") or "custom"),
-            str(entry.get("service_type") or "api"),
+            _provider_template_label(entry),
             str(entry.get("auth_scheme") or "api_key"),
             str(entry.get("base_url") or "configured"),
-            f"{len(resources)} resources / {len(actions)} actions",
+            _provider_credential_status(entry),
+            _provider_mode(entry),
         )
 
     console.print(table)

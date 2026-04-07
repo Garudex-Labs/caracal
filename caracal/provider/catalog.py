@@ -632,13 +632,13 @@ def build_provider_record(
         normalized_resources = dict(definition_payload.get("resources") or {})
         if normalized_resources:
             definition_payload = build_definition_payload(
-                definition_id=str(definition_payload.get("definition_id") or normalized_definition_id),
-                service_type=str(definition_payload.get("service_type") or service),
-                display_name=str(definition_payload.get("display_name") or normalized_name),
-                auth_scheme=str(definition_payload.get("auth_scheme") or normalized_auth),
-                base_url=definition_payload.get("default_base_url", base_url),
+                definition_id=normalized_definition_id,
+                service_type=service,
+                display_name=normalized_name,
+                auth_scheme=normalized_auth,
+                base_url=str(base_url).strip() if base_url else definition_payload.get("default_base_url"),
                 resources=normalized_resources,
-                metadata=dict(definition_payload.get("metadata") or metadata or {}),
+                metadata=dict(metadata or definition_payload.get("metadata") or {}),
             )
         else:
             definition_payload = {
