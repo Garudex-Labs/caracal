@@ -18,7 +18,7 @@ from caracal.core.vault import (
     VaultUnavailableError,
     _load_vault_config,
     _read_env_or_dotenv,
-    gateway_context,
+    vault_access_context,
 )
 
 
@@ -95,14 +95,14 @@ def test_vault_audit_event_dataclass():
 
 
 @pytest.mark.unit
-def test_gateway_context_enforced():
-    from caracal.core.vault import _assert_gateway_context
+def test_vault_access_context_enforced():
+    from caracal.core.vault import _assert_vault_access_context
 
     with pytest.raises(GatewayContextRequired):
-        _assert_gateway_context()
+        _assert_vault_access_context()
 
-    with gateway_context():
-        _assert_gateway_context()
+    with vault_access_context():
+        _assert_vault_access_context()
 
 
 @pytest.mark.unit
@@ -238,7 +238,7 @@ def test_request_raises_unavailable_after_retry_exhaustion(vault_env):
 
 
 @pytest.mark.unit
-def test_put_requires_gateway_context(vault):
+def test_put_requires_vault_access_context(vault):
     with pytest.raises(GatewayContextRequired):
         vault.put("org-1", "env-1", "name", "value")
 
@@ -247,7 +247,7 @@ def test_put_requires_gateway_context(vault):
 def test_put_success(vault):
     with patch.object(vault, "_secret_exists", return_value=False):
         with patch.object(vault, "_upsert_secret", return_value="entry-1"):
-            with gateway_context():
+            with vault_access_context():
                 entry = vault.put("org-1", "env-1", "api-key", "value")
 
     assert entry.entry_id == "entry-1"
@@ -258,7 +258,7 @@ def test_put_success(vault):
 def test_put_routes_nested_secret_name_to_secret_path(vault):
     with patch.object(vault, "_secret_exists", return_value=False):
         with patch.object(vault, "_upsert_secret", return_value="entry-1") as upsert:
-            with gateway_context():
+            with vault_access_context():
                 vault.put("org-1", "env-1", "principal-keys/abc-123", "value")
 
     upsert.assert_called_once_with(
@@ -303,7 +303,7 @@ def test_upsert_secret_ignores_existing_folder_error(vault):
 @pytest.mark.unit
 def test_get_success(vault):
     with patch.object(vault, "_get_secret_value", return_value="secret-value"):
-        with gateway_context():
+        with vault_access_context():
             value = vault.get("org-1", "env-1", "api-key")
     assert value == "secret-value"
 
@@ -311,7 +311,7 @@ def test_get_success(vault):
 @pytest.mark.unit
 def test_get_routes_nested_secret_name_to_secret_path(vault):
     with patch.object(vault, "_get_secret_value", return_value="secret-value") as get_secret:
-        with gateway_context():
+        with vault_access_context():
             value = vault.get("org-1", "env-1", "principal-keys/abc-123")
 
     assert value == "secret-value"
@@ -321,7 +321,7 @@ def test_get_routes_nested_secret_name_to_secret_path(vault):
 @pytest.mark.unit
 def test_get_secret_not_found(vault):
     with patch.object(vault, "_get_secret_value", side_effect=SecretNotFound("missing")):
-        with gateway_context():
+        with vault_access_context():
             with pytest.raises(SecretNotFound):
                 vault.get("org-1", "env-1", "api-key")
 
@@ -329,14 +329,14 @@ def test_get_secret_not_found(vault):
 @pytest.mark.unit
 def test_delete_success(vault):
     with patch.object(vault, "_delete_secret", return_value=None):
-        with gateway_context():
+        with vault_access_context():
             vault.delete("org-1", "env-1", "api-key")
 
 
 @pytest.mark.unit
 def test_list_secrets_success(vault):
     with patch.object(vault, "_list_secret_names", return_value=["one", "two"]):
-        with gateway_context():
+        with vault_access_context():
             names = vault.list_secrets("org-1", "env-1")
     assert names == ["one", "two"]
 
@@ -346,7 +346,7 @@ def test_sign_jwt_uses_vault_managed_private_key(vault):
     response = FakeResponse(status_code=200, payload={"signedJwt": "token-123"})
 
     with patch.object(vault, "_request", return_value=response) as request:
-        with gateway_context():
+        with vault_access_context():
             token = vault.sign_jwt(
                 "org-1",
                 "env-1",
@@ -367,7 +367,7 @@ def test_sign_canonical_payload_uses_vault_managed_private_key(vault):
     response = FakeResponse(status_code=200, payload={"signatureHex": "abcd1234"})
 
     with patch.object(vault, "_request", return_value=response) as request:
-        with gateway_context():
+        with vault_access_context():
             signature = vault.sign_canonical_payload(
                 "org-1",
                 "env-1",
@@ -383,7 +383,7 @@ def test_sign_canonical_payload_uses_vault_managed_private_key(vault):
 @pytest.mark.unit
 def test_ensure_asymmetric_keypair_bootstraps_missing_refs(vault):
     with patch.object(vault, "_request", return_value=FakeResponse(status_code=201, payload={"ok": True})) as request:
-        with gateway_context():
+        with vault_access_context():
             vault.ensure_asymmetric_keypair(
                 "org-1",
                 "env-1",
@@ -405,7 +405,7 @@ def test_ensure_asymmetric_keypair_bootstraps_missing_refs(vault):
 
 @pytest.mark.unit
 def test_ensure_asymmetric_keypair_rejects_same_private_and_public_ref(vault):
-    with gateway_context():
+    with vault_access_context():
         with pytest.raises(VaultConfigurationError, match="distinct private/public"):
             vault.ensure_asymmetric_keypair(
                 "org-1",
@@ -418,7 +418,7 @@ def test_ensure_asymmetric_keypair_rejects_same_private_and_public_ref(vault):
 
 @pytest.mark.unit
 def test_ensure_asymmetric_keypair_rejects_mismatched_secret_paths(vault):
-    with gateway_context():
+    with vault_access_context():
         with pytest.raises(VaultConfigurationError, match="same secret path namespace"):
             vault.ensure_asymmetric_keypair(
                 "org-1",
@@ -438,7 +438,7 @@ def test_ensure_asymmetric_keypair_falls_back_when_bootstrap_endpoint_missing(va
     with patch.object(vault, "_request", side_effect=missing_endpoint):
         with patch.object(vault, "_secret_exists", return_value=False):
             with patch.object(vault, "_upsert_secret", return_value="entry") as upsert:
-                with gateway_context():
+                with vault_access_context():
                     vault.ensure_asymmetric_keypair(
                         "org-1",
                         "env-1",
@@ -462,7 +462,7 @@ def test_ensure_asymmetric_keypair_fallback_rejects_inconsistent_secret_state(va
 
     with patch.object(vault, "_request", side_effect=missing_endpoint):
         with patch.object(vault, "_secret_exists", side_effect=[True, False]):
-            with gateway_context():
+            with vault_access_context():
                 with pytest.raises(VaultError, match="inconsistent"):
                     vault.ensure_asymmetric_keypair(
                         "org-1",
@@ -482,7 +482,7 @@ def test_rate_limiting_is_enforced(vault_env):
     with patch.object(vault, "_ensure_service_health", return_value=None):
         with patch.object(vault, "_secret_exists", return_value=False):
             with patch.object(vault, "_upsert_secret", return_value="entry"):
-                with gateway_context():
+                with vault_access_context():
                     vault.put("org-1", "env-1", "k1", "v1")
                     vault.put("org-1", "env-1", "k2", "v2")
                     with pytest.raises(VaultRateLimitExceeded, match="rate limit exceeded"):
@@ -492,7 +492,7 @@ def test_rate_limiting_is_enforced(vault_env):
 @pytest.mark.unit
 def test_rotate_master_key_requires_configured_endpoint(vault):
     with patch("caracal.core.vault._read_env_or_dotenv", return_value=""):
-        with gateway_context():
+        with vault_access_context():
             with pytest.raises(VaultError, match="rotation endpoint is not configured"):
                 vault.rotate_master_key("org-1", "env-1", actor="cli")
 
@@ -505,7 +505,7 @@ def test_rotate_master_key_success(vault):
     )
     with patch("caracal.core.vault._read_env_or_dotenv", return_value="/api/v4/rotate"):
         with patch.object(vault, "_request", return_value=response):
-            with gateway_context():
+            with vault_access_context():
                 result = vault.rotate_master_key("org-1", "env-1", actor="cli")
 
     assert isinstance(result, RotationResult)
@@ -518,7 +518,7 @@ def test_rotate_master_key_success(vault):
 def test_drain_audit_events_clears_buffer(vault):
     with patch.object(vault, "_secret_exists", return_value=False):
         with patch.object(vault, "_upsert_secret", return_value="entry-1"):
-            with gateway_context():
+            with vault_access_context():
                 vault.put("org-1", "env-1", "k", "v")
 
     events = vault.drain_audit_events()

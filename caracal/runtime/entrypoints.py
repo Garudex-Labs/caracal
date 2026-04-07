@@ -1526,7 +1526,7 @@ def _resolve_runtime_redis_url() -> str:
 
 
 def _resolve_ais_vault_secret(secret_ref: str) -> str:
-    from caracal.core.vault import gateway_context, get_vault
+    from caracal.core.vault import get_vault, vault_access_context
 
     normalized_ref = str(secret_ref or "").strip().strip("/")
     if not normalized_ref:
@@ -1545,7 +1545,7 @@ def _resolve_ais_vault_secret(secret_ref: str) -> str:
         or "runtime"
     )
 
-    with gateway_context():
+    with vault_access_context():
         return get_vault().get(org_id=str(org_id), env_id=str(env_id), name=normalized_ref)
 
 
@@ -1586,7 +1586,7 @@ def _resolve_ais_vault_context() -> tuple[str, str]:
 
 
 def _bootstrap_runtime_vault_refs() -> None:
-    from caracal.core.vault import gateway_context, get_vault
+    from caracal.core.vault import get_vault, vault_access_context
 
     signing_key_ref = (os.environ.get(AIS_SESSION_SIGNING_KEY_REF_ENV) or "").strip().strip("/")
     verify_key_ref = (os.environ.get(AIS_SESSION_VERIFY_KEY_REF_ENV) or "").strip().strip("/")
@@ -1605,7 +1605,7 @@ def _bootstrap_runtime_vault_refs() -> None:
         or "RS256"
     ).strip().upper()
 
-    with gateway_context():
+    with vault_access_context():
         get_vault().ensure_asymmetric_keypair(
             org_id=org_id,
             env_id=env_id,
