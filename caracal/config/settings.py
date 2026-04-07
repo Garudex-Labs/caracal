@@ -494,6 +494,16 @@ def load_config(
     config_data = _decrypt_config_values(config_data)
     if emit_logs:
         logger.debug("Decrypted encrypted configuration values")
+
+    # Shared hard-cut normalization for all callers (CLI, runtime, Flow).
+    config_data, normalized = _normalize_hardcut_merkle_config_data(config_data)
+    if normalized:
+        _persist_normalized_workspace_config(config_path, config_data)
+        if emit_logs:
+            logger.info(
+                "Normalized Merkle config to hard-cut vault mode",
+                config_path=config_path,
+            )
     
     # Validate and build configuration
     try:
@@ -878,6 +888,64 @@ def _attempt_legacy_workspace_config_repair(config_path: str) -> bool:
         return True
     except Exception:
         return False
+
+
+def _normalize_hardcut_merkle_config_data(
+    config_data: Dict[str, Any],
+) -> tuple[Dict[str, Any], bool]:
+    """Normalize legacy Merkle config fields for hard-cut runtime mode."""
+    if not _is_hardcut_mode_enabled() or not isinstance(config_data, dict):
+        return config_data, False
+
+    updated = dict(config_data)
+    merkle_data = updated.get("merkle")
+    if not isinstance(merkle_data, dict):
+        merkle_data = {}
+
+    normalized_merkle = dict(merkle_data)
+    changed = False
+
+    if normalized_merkle.get("signing_backend") != "vault":
+        normalized_merkle["signing_backend"] = "vault"
+        changed = True
+
+    if not normalized_merkle.get("signing_algorithm"):
+        normalized_merkle["signing_algorithm"] = "ES256"
+        changed = True
+
+    if not normalized_merkle.get("vault_key_ref"):
+        normalized_merkle["vault_key_ref"] = os.environ.get(
+            "CARACAL_VAULT_MERKLE_SIGNING_KEY_REF", ""
+        )
+        changed = True
+
+    if not normalized_merkle.get("vault_public_key_ref"):
+        normalized_merkle["vault_public_key_ref"] = os.environ.get(
+            "CARACAL_VAULT_MERKLE_PUBLIC_KEY_REF", ""
+        )
+        changed = True
+
+    if "private_key_path" in normalized_merkle:
+        normalized_merkle.pop("private_key_path", None)
+        changed = True
+
+    if changed:
+        updated["merkle"] = normalized_merkle
+
+    return updated, changed
+
+
+def _persist_normalized_workspace_config(config_path: str, config_data: Dict[str, Any]) -> None:
+    """Best-effort write-back of normalized workspace config."""
+    cfg = Path(config_path).expanduser()
+    if cfg.name != "config.yaml" or not cfg.exists():
+        return
+
+    try:
+        with open(cfg, "w") as f:
+            yaml.safe_dump(config_data, f, default_flow_style=False, sort_keys=False)
+    except Exception:
+        return
 
 
 def _validate_config(config: CaracalConfig) -> None:
