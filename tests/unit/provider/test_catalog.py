@@ -1,5 +1,7 @@
 """Unit tests for provider catalog record construction."""
 
+import pytest
+
 from caracal.provider.catalog import build_provider_record
 
 
@@ -48,3 +50,15 @@ def test_build_provider_record_without_definition_supports_passthrough_provider(
     assert record["resources"] == []
     assert record["actions"] == []
     assert record["enforce_scoped_requests"] is False
+
+
+def test_build_provider_record_rejects_scoped_mode_without_definition() -> None:
+    with pytest.raises(ValueError, match="Scoped providers require"):
+        build_provider_record(
+            name="broken-scoped",
+            service_type="application",
+            definition_id="broken-scoped",
+            auth_scheme="bearer",
+            base_url="https://api.example.com",
+            enforce_scoped_requests=True,
+        )
