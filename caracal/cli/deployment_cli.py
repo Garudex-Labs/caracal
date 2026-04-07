@@ -1644,6 +1644,11 @@ def provider_test(name: str, workspace: Optional[str]):
             console.print(f"[red]✗[/red] Provider '{name}' is unhealthy")
             if error_message:
                 console.print(f"  Error: {error_message}")
+        if not edition_adapter.uses_gateway_execution():
+            console.print(f"  Reachable: {'yes' if health.reachable else 'no'}")
+            console.print(f"  Status: {health.status_code if health.status_code is not None else 'n/a'}")
+            console.print(f"  Latency: {health.latency_ms:.1f}ms")
+            console.print(f"  Auth injected: {'yes' if health.auth_injected else 'no'}")
         
     except Exception as e:
         logger.error("provider_test_failed", error=str(e))

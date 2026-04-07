@@ -41,7 +41,11 @@ from caracal.provider.definitions import (
     parse_provider_scope,
     resolve_provider_definition_id,
 )
-from caracal.provider.catalog import ProviderCatalogError, resolve_auth_headers
+from caracal.provider.catalog import (
+    GATEWAY_ONLY_AUTH,
+    ProviderCatalogError,
+    resolve_auth_headers,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -309,6 +313,9 @@ class ProviderHealthCheck:
     provider: str
     healthy: bool
     latency_ms: float
+    reachable: bool = False
+    status_code: Optional[int] = None
+    auth_injected: bool = False
     error: Optional[str] = None
     timestamp: datetime = field(default_factory=datetime.now)
 
@@ -418,6 +425,10 @@ class Broker:
             if normalized_auth_scheme not in supported_auth_schemes:
                 raise ProviderConfigurationError(
                     f"Unsupported auth scheme: {config.auth_scheme}"
+                )
+            if normalized_auth_scheme in GATEWAY_ONLY_AUTH:
+                raise ProviderConfigurationError(
+                    f"Auth scheme '{config.auth_scheme}' requires enterprise gateway execution."
                 )
 
             if normalized_auth_scheme not in {"none"} and not config.credential_ref:
@@ -531,6 +542,9 @@ class Broker:
                 provider=provider,
                 healthy=healthy,
                 latency_ms=latency_ms,
+                reachable=True,
+                status_code=response.status_code,
+                auth_injected=bool(auth_headers),
                 error=None if healthy else f"Status code: {response.status_code}"
             )
             
@@ -545,6 +559,9 @@ class Broker:
                 provider=provider,
                 healthy=False,
                 latency_ms=0.0,
+                reachable=False,
+                status_code=None,
+                auth_injected=False,
                 error=str(e)
             )
     
