@@ -80,8 +80,7 @@ class ProviderConfig:
     name: str
     provider_type: str
     provider_definition: Optional[str] = None
-    provider_definition_data: Optional[Dict[str, Any]] = None
-    api_key_ref: Optional[str] = None
+    definition: Optional[Dict[str, Any]] = None
     auth_scheme: str = "api_key"
     credential_ref: Optional[str] = None
     base_url: Optional[str] = None
@@ -99,12 +98,6 @@ class ProviderConfig:
     enforce_scoped_requests: bool = False
 
     def __post_init__(self) -> None:
-        if self.api_key_ref and self.credential_ref and self.api_key_ref != self.credential_ref:
-            raise ValueError("ProviderConfig api_key_ref and credential_ref must match when both are provided")
-
-        if self.credential_ref is None and self.api_key_ref:
-            self.credential_ref = self.api_key_ref
-
         self.provider_definition = resolve_provider_definition_id(
             service_type=self.provider_type,
             requested_definition=self.provider_definition,
@@ -952,7 +945,7 @@ class Broker:
         provider: str,
         config: ProviderConfig,
     ) -> ProviderDefinition:
-        payload = config.provider_definition_data
+        payload = config.definition
         if not isinstance(payload, dict):
             raise ProviderConfigurationError(
                 f"Provider '{provider}' is missing structured definition payload"

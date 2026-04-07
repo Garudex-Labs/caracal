@@ -809,8 +809,6 @@ def _parse_resources(resource_specs: tuple[str, ...]) -> Dict[str, Dict[str, Any
         if not resource_id:
             raise click.ClickException(f"Invalid resource spec '{spec}'")
         resources[resource_id] = {"description": description.strip() or resource_id, "actions": {}}
-    if not resources:
-        raise click.ClickException("At least one --resource is required")
     return resources
 
 
@@ -822,7 +820,9 @@ def _parse_actions(
     Parse --action entries as <resource_id>:<action_id>:<method>:<path_prefix>.
     """
     if not action_specs:
-        raise click.ClickException("At least one --action is required")
+        if resources:
+            raise click.ClickException("Add at least one --action for each --resource")
+        return
     for spec in action_specs:
         parts = spec.split(":", 3)
         if len(parts) != 4:
@@ -892,8 +892,7 @@ def _build_oss_broker(config_manager: ConfigManager, workspace: str):
             name=provider_name,
             provider_type=entry.get("service_type", entry.get("provider_type", "api")),
             provider_definition=entry.get("provider_definition"),
-            provider_definition_data=entry.get("definition"),
-            api_key_ref=entry.get("credential_ref"),
+            definition=entry.get("definition"),
             credential_ref=entry.get("credential_ref"),
             auth_scheme=entry.get("auth_scheme", "api_key"),
             base_url=entry.get("base_url"),
@@ -960,14 +959,12 @@ def _build_oss_broker(config_manager: ConfigManager, workspace: str):
     "--resource",
     "resource_specs",
     multiple=True,
-    required=True,
     help="Resource definition: <resource_id>[=<description>] (repeatable)",
 )
 @click.option(
     "--action",
     "action_specs",
     multiple=True,
-    required=True,
     help="Action definition: <resource_id>:<action_id>:<method>:<path_prefix> (repeatable)",
 )
 @click.option("--tag", "tags", multiple=True, help="Tag (repeatable)")
@@ -1036,13 +1033,24 @@ def provider_add(
         resolved_base_url = base_url
         resources = _parse_resources(resource_specs)
         _parse_actions(action_specs, resources)
+        definition = None
+        if resources:
+            definition = {
+                "definition_id": resolved_definition_id,
+                "service_type": effective_service_type,
+                "display_name": name,
+                "auth_scheme": normalized_auth,
+                "default_base_url": resolved_base_url,
+                "resources": resources,
+                "metadata": metadata,
+            }
         providers[name] = build_provider_record(
             name=name,
             service_type=effective_service_type,
             definition_id=resolved_definition_id,
             auth_scheme=normalized_auth,
             base_url=resolved_base_url,
-            resources=resources,
+            definition=definition,
             healthcheck_path=health_path,
             timeout_seconds=timeout_seconds,
             max_retries=max_retries,
@@ -1054,6 +1062,7 @@ def provider_add(
             credential_ref=secret_ref,
             existing=existing,
             created_at=existing.get("created_at", datetime.utcnow().isoformat()),
+            enforce_scoped_requests=bool(definition),
         )
 
         _save_workspace_providers(config_manager, workspace, providers)
