@@ -477,10 +477,11 @@ class GatewayClient:
             start_time = time.time()
             
             client = await self._get_client()
-            url = f"{self.gateway_url}/providers/{provider}/{request.endpoint.lstrip('/')}"
+            url = self._gateway_request_url(request.endpoint)
             
             headers = {
                 "Authorization": f"Bearer {token}",
+                "X-Caracal-Provider-ID": provider,
                 **request.headers
             }
             if request.resource:
@@ -653,11 +654,12 @@ class GatewayClient:
             
             # Make streaming request
             client = await self._get_client()
-            url = f"{self.gateway_url}/providers/{provider}/{request.endpoint.lstrip('/')}"
+            url = self._gateway_request_url(request.endpoint)
             
             headers = {
                 "Authorization": f"Bearer {token}",
                 "Accept": "text/event-stream",
+                "X-Caracal-Provider-ID": provider,
                 **request.headers
             }
             if request.resource:
@@ -736,10 +738,10 @@ class GatewayClient:
                 provider=provider,
                 endpoint=request.endpoint,
                 error=str(e)
-            )
-            raise GatewayConnectionError(
-                f"Gateway streaming failed: {e}"
-            ) from e
+                )
+                raise GatewayConnectionError(
+                    f"Gateway streaming failed: {e}"
+                ) from e
         
         except Exception as e:
             logger.error(
@@ -751,6 +753,11 @@ class GatewayClient:
             raise GatewayConnectionError(
                 f"Gateway streaming failed: {e}"
             ) from e
+
+    def _gateway_request_url(self, endpoint: str) -> str:
+        """Build gateway URL from a raw upstream path."""
+        clean_endpoint = "/" + endpoint.lstrip("/")
+        return f"{self.gateway_url}{clean_endpoint}"
     
     async def get_available_providers(self) -> List[ProviderInfo]:
         """

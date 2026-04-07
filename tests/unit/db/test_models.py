@@ -385,6 +385,7 @@ class TestGatewayProviderModel:
         assert provider.service_type == "application"
         assert provider.definition == {}
         assert provider.credential_ref == "caracal:default/providers/test-provider/credential"
+        assert provider.enforce_scoped_requests is False
         assert provider.enabled is True
     
     def test_gateway_provider_repr(self):
