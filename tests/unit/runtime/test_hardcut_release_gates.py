@@ -543,12 +543,51 @@ def test_forbidden_marker_scanner_covers_phase_13_hardcut_expansion() -> None:
     assert "split_mode_markers" in payload
     assert "single_lineage_residuals" in payload
     assert "transitional_architecture_markers" in payload
+    assert "provider_legacy_contract_fields" in payload
+    assert "provider_legacy_secret_ref_schema_alias" in payload
+    assert "provider_configmanager_secret_usage" in payload
     assert "CARACAL_SESSION_JWT_ALGORITHM" in payload
     assert "temporary blocker" in payload
     assert "guard file" in payload
     assert "non-hardcut" in payload
     assert "owner_phase" in payload
     assert "_gate_missing_repo_violations" in payload
+
+
+@pytest.mark.unit
+def test_active_provider_code_paths_have_no_legacy_provider_markers() -> None:
+    workspace_root = _REPO_ROOT.parent
+    checked_files = (
+        _REPO_ROOT / "caracal" / "provider" / "catalog.py",
+        _REPO_ROOT / "caracal" / "provider" / "workspace.py",
+        _REPO_ROOT / "caracal" / "provider" / "credential_store.py",
+        _REPO_ROOT / "caracal" / "cli" / "deployment_cli.py",
+        _REPO_ROOT / "caracal" / "flow" / "screens" / "provider_manager.py",
+        _REPO_ROOT / "caracal" / "deployment" / "broker.py",
+        _REPO_ROOT / "caracal" / "deployment" / "gateway_client.py",
+        _REPO_ROOT / ".." / "caracalEnterprise" / "services" / "enterprise-api" / "src" / "caracal_enterprise" / "routes" / "gateway.py",
+        _REPO_ROOT / ".." / "caracalEnterprise" / "services" / "enterprise-api" / "src" / "caracal_enterprise" / "routes" / "sync.py",
+        _REPO_ROOT / ".." / "caracalEnterprise" / "services" / "gateway" / "provider_registry.py",
+        _REPO_ROOT / ".." / "caracalEnterprise" / "services" / "gateway" / "proxy.py",
+        _REPO_ROOT / ".." / "caracalEnterprise" / "src" / "app" / "dashboard" / "gateway" / "page.tsx",
+        _REPO_ROOT / ".." / "caracalEnterprise" / "src" / "lib" / "api.ts",
+    )
+    forbidden_markers = (
+        "provider_definition_data",
+        "api_key_ref",
+        '"secret_ref"',
+        "'secret_ref'",
+        "ConfigManager.get_secret(",
+        "ConfigManager.store_secret(",
+    )
+
+    offenders: list[str] = []
+    for file_path in checked_files:
+        payload = file_path.read_text(encoding="utf-8")
+        if any(marker in payload for marker in forbidden_markers):
+            offenders.append(str(file_path.relative_to(workspace_root)))
+
+    assert offenders == []
 
 
 @pytest.mark.unit

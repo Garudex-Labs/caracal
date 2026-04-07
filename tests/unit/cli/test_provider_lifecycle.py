@@ -222,3 +222,33 @@ def test_provider_update_rejects_clearing_credential_for_authenticated_provider(
     assert result.exit_code != 0
     assert "require a configured credential" in result.output
     assert deleted_credentials == []
+
+
+@pytest.mark.unit
+def test_provider_remove_deletes_workspace_credential_binding(provider_cli_env) -> None:
+    registry, _snapshots, _stored_credentials, deleted_credentials = provider_cli_env
+    registry["openai-main"] = build_provider_record(
+        name="openai-main",
+        service_type="ai",
+        definition_id="openai-main",
+        auth_scheme="bearer",
+        base_url="https://api.example.com",
+        definition=None,
+        credential_ref="caracal:default/providers/openai-main/credential",
+        enforce_scoped_requests=False,
+    )
+    runner = CliRunner()
+
+    result = runner.invoke(
+        deployment_cli.provider_remove,
+        [
+            "openai-main",
+            "--force",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "openai-main" not in registry
+    assert deleted_credentials == [
+        ("alpha", "caracal:default/providers/openai-main/credential")
+    ]
