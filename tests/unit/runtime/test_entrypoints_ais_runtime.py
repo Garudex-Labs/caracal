@@ -447,6 +447,76 @@ def test_host_flow_runs_preflight_with_resolved_compose(monkeypatch: pytest.Monk
 
 
 @pytest.mark.unit
+def test_host_cli_run_command_does_not_force_user_override(monkeypatch: pytest.MonkeyPatch) -> None:
+    compose_file = Path("/tmp/docker-compose.image.yml")
+    commands: list[list[str]] = []
+
+    monkeypatch.setattr(entrypoints, "_resolve_compose_file", lambda _override=None: compose_file)
+    monkeypatch.setattr(entrypoints, "assert_runtime_hardcut", lambda **_kwargs: None)
+    monkeypatch.setattr(entrypoints, "_runtime_database_url_candidates", lambda: ["postgresql://runtime-db"])
+    monkeypatch.setattr(entrypoints, "_caracal_home_dir", lambda: Path("/tmp/caracal-runtime"))
+    monkeypatch.setattr(entrypoints, "_runtime_hardcut_env", lambda: {"CARACAL_HARDCUT_MODE": "1"})
+    monkeypatch.setattr(entrypoints, "_compose_cmd", lambda _compose: ["docker", "compose"])
+    monkeypatch.setattr(entrypoints, "_service_uses_local_build", lambda *_args, **_kwargs: False)
+
+    def _run(cmd, **_kwargs):
+        commands.append(cmd)
+        return SimpleNamespace(returncode=0)
+
+    monkeypatch.setattr(entrypoints.subprocess, "run", _run)
+
+    exit_code = entrypoints._host_cli(SimpleNamespace(compose_file=None))
+
+    assert exit_code == 0
+    assert commands[-1] == [
+        "docker",
+        "compose",
+        "--profile",
+        "tools",
+        "run",
+        "--rm",
+        "--build",
+        "cli",
+    ]
+
+
+@pytest.mark.unit
+def test_host_flow_run_command_does_not_force_user_override(monkeypatch: pytest.MonkeyPatch) -> None:
+    compose_file = Path("/tmp/docker-compose.image.yml")
+    commands: list[list[str]] = []
+
+    monkeypatch.setattr(entrypoints, "_resolve_compose_file", lambda _override=None: compose_file)
+    monkeypatch.setattr(entrypoints, "assert_runtime_hardcut", lambda **_kwargs: None)
+    monkeypatch.setattr(entrypoints, "_runtime_database_url_candidates", lambda: ["postgresql://runtime-db"])
+    monkeypatch.setattr(entrypoints, "_caracal_home_dir", lambda: Path("/tmp/caracal-runtime"))
+    monkeypatch.setattr(entrypoints, "_runtime_hardcut_env", lambda: {"CARACAL_HARDCUT_MODE": "1"})
+    monkeypatch.setattr(entrypoints, "_compose_cmd", lambda _compose: ["docker", "compose"])
+    monkeypatch.setattr(entrypoints, "_service_uses_local_build", lambda *_args, **_kwargs: False)
+
+    def _run(cmd, **_kwargs):
+        commands.append(cmd)
+        return SimpleNamespace(returncode=0)
+
+    monkeypatch.setattr(entrypoints.subprocess, "run", _run)
+
+    exit_code = entrypoints._host_flow(SimpleNamespace(compose_file=None))
+
+    assert exit_code == 0
+    assert commands[-1] == [
+        "docker",
+        "compose",
+        "run",
+        "--rm",
+        "--build",
+        "-e",
+        "TERM=xterm-256color",
+        "-e",
+        "COLORTERM=truecolor",
+        "flow",
+    ]
+
+
+@pytest.mark.unit
 def test_build_ais_handlers_issues_and_refreshes_tokens() -> None:
     session_manager = _FakeSessionManager()
     handlers = entrypoints._build_ais_handlers(

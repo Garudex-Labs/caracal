@@ -1188,7 +1188,7 @@ def _host_cli(namespace: argparse.Namespace) -> int:
     if start_code != 0:
         return start_code
 
-    cmd = compose_cmd + ["--profile", "tools", "run", "--rm", "--build", "-u", "caracal", "cli"]
+    cmd = compose_cmd + ["--profile", "tools", "run", "--rm", "--build", "cli"]
     result = subprocess.run(cmd, check=False)
     return result.returncode
 
@@ -1223,8 +1223,6 @@ def _host_flow(namespace: argparse.Namespace) -> int:
         "run",
         "--rm",
         "--build",
-        "-u",
-        "caracal",
         "-e",
         "TERM=xterm-256color",
         "-e",
