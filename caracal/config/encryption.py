@@ -60,9 +60,9 @@ class ConfigEncryption:
         vault = self._get_vault()
         secret_name = self._secret_name()
         try:
-            from caracal.core.vault import gateway_context
+            from caracal.core.vault import vault_access_context
 
-            with gateway_context():
+            with vault_access_context():
                 vault.put(
                     org_id=self.org_id,
                     env_id=self.env_id,
@@ -94,9 +94,9 @@ class ConfigEncryption:
 
         vault = self._get_vault()
         try:
-            from caracal.core.vault import gateway_context
+            from caracal.core.vault import vault_access_context
 
-            with gateway_context():
+            with vault_access_context():
                 return vault.get(
                     org_id=self.org_id,
                     env_id=self.env_id,
@@ -152,11 +152,11 @@ def rotate_master_key(actor: str = "cli") -> RotationSummary:
     rewrapped = 0
 
     try:
-        from caracal.core.vault import get_vault, gateway_context
+        from caracal.core.vault import get_vault, vault_access_context
 
         org_id = os.getenv("CARACAL_VAULT_PROJECT_ID") or os.getenv("CARACAL_ORG_ID") or "default"
         env_id = os.getenv("CARACAL_VAULT_ENVIRONMENT") or os.getenv("CARACAL_ENV_ID") or "dev"
-        with gateway_context():
+        with vault_access_context():
             result = get_vault().rotate_master_key(org_id=org_id, env_id=env_id, actor=actor)
             rewrapped = result.secrets_rotated
     except Exception:

@@ -63,9 +63,9 @@ def rotate_key(org_id: str, env_id: str, confirm: bool) -> None:
             abort=True,
         )
     try:
-        from caracal.core.vault import get_vault, gateway_context
+        from caracal.core.vault import get_vault, vault_access_context
         vault = get_vault()
-        with gateway_context():
+        with vault_access_context():
             result = vault.rotate_master_key(org_id, env_id, actor="cli")
         click.echo(
             f"Key rotation complete.\n"
@@ -80,4 +80,3 @@ def rotate_key(org_id: str, env_id: str, confirm: bool) -> None:
     except Exception as exc:
         click.echo(f"Error: {exc}", err=True)
         sys.exit(1)
-
