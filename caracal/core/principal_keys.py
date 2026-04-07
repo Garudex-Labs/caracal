@@ -81,6 +81,26 @@ def _resolve_vault_context() -> tuple[str, str]:
         or os.getenv(_VAULT_ENVIRONMENT_ENV)
         or _DEFAULT_VAULT_ENV
     ).strip()
+
+    if org_id:
+        try:
+            UUID(org_id)
+        except Exception:
+            try:
+                resolved_project = str(getattr(get_vault()._config, "default_project", "") or "").strip()
+                if resolved_project:
+                    org_id = resolved_project
+            except Exception:
+                pass
+
+    if not env_id:
+        try:
+            resolved_env = str(getattr(get_vault()._config, "default_environment", "") or "").strip()
+            if resolved_env:
+                env_id = resolved_env
+        except Exception:
+            pass
+
     if not org_id or not env_id:
         raise PrincipalKeyStorageError(
             "Vault context is incomplete. "

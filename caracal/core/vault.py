@@ -483,7 +483,7 @@ def _load_vault_config() -> _VaultConfig:
         token = recovered_token
         if recovered_project:
             default_project = recovered_project
-            os.environ.setdefault("CARACAL_VAULT_PROJECT_ID", recovered_project)
+            os.environ["CARACAL_VAULT_PROJECT_ID"] = recovered_project
         os.environ["CARACAL_VAULT_TOKEN"] = recovered_token
 
     if not base_url:
@@ -921,7 +921,43 @@ class CaracalVault:
         except SecretNotFound:
             return False
 
+    def _ensure_secret_folder_path(self, project_id: str, environment: str, secret_path: str) -> None:
+        normalized_path = self._normalize_secret_path(secret_path)
+        if normalized_path == "/":
+            return
+
+        segments = [segment for segment in normalized_path.strip("/").split("/") if segment]
+        current_path = "/"
+
+        for segment in segments:
+            response = self._request(
+                "POST",
+                "/api/v2/folders",
+                payload={
+                    "projectId": project_id,
+                    "environment": environment,
+                    "name": segment,
+                    "path": current_path,
+                },
+                allowed_statuses={200, 201, 400, 404, 405},
+            )
+
+            if response.status_code == 400:
+                detail = (response.text or "").lower()
+                if "already exists" not in detail:
+                    raise VaultError(
+                        "Vault folder creation failed for "
+                        f"'{current_path}/{segment}'."
+                    )
+
+            if current_path == "/":
+                current_path = f"/{segment}"
+            else:
+                current_path = f"{current_path}/{segment}"
+
     def _upsert_secret(self, project_id: str, environment: str, secret_path: str, name: str, value: str) -> str:
+        self._ensure_secret_folder_path(project_id, environment, secret_path)
+
         v4_body = {
             "projectId": project_id,
             "environment": environment,
