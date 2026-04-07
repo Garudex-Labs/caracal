@@ -33,6 +33,7 @@ from caracal.deployment.exceptions import (
     ProviderTimeoutError,
     SecretNotFoundError,
 )
+from caracal.provider.credential_store import resolve_workspace_provider_credential
 from caracal.provider.definitions import (
     ProviderDefinition,
     ScopeParseError,
@@ -859,9 +860,9 @@ class Broker:
             )
 
         try:
-            credential_value = self.config_manager.get_secret(
-                config.credential_ref,
+            credential_value = resolve_workspace_provider_credential(
                 self.workspace,
+                config.credential_ref,
             )
         except SecretNotFoundError as e:
             raise ProviderAuthenticationError(

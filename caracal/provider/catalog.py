@@ -795,7 +795,7 @@ def workspace_to_gateway_payload(
     organization_id: Optional[str],
     credential_storage: str = "gateway_vault",
 ) -> Dict[str, Any]:
-    definition = dict(entry.get("definition") or entry.get("provider_definition_data") or {})
+    definition = dict(entry.get("definition") or {})
     resources = dict(definition.get("resources") or {})
     if not resources:
         raise ProviderCatalogError(
@@ -828,7 +828,7 @@ def workspace_to_gateway_payload(
 
 def gateway_to_workspace_entry(record: Dict[str, Any]) -> Dict[str, Any]:
     entry = dict(record)
-    definition = dict(record.get("definition") or record.get("provider_definition_data") or {})
+    definition = dict(record.get("definition") or {})
     entry["definition"] = definition
     entry["provider_definition"] = str(record.get("provider_definition") or definition.get("definition_id") or record.get("name") or "custom")
     entry["name"] = str(record.get("name") or record.get("provider_id") or "provider")
