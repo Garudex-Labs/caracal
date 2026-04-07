@@ -1,0 +1,152 @@
+"""Provider credential custody helpers."""
+
+from __future__ import annotations
+
+from typing import Any, Dict, Tuple
+
+from caracal.config.encryption import decrypt_value
+from caracal.core.vault import SecretNotFound, get_vault, vault_access_context
+from caracal.deployment.exceptions import SecretNotFoundError
+from caracal.provider.catalog import ensure_identifier
+
+
+DEFAULT_PROVIDER_ENV_ID = "default"
+_PROVIDER_SECRET_SUFFIX = "credential"
+
+
+def provider_credential_ref(provider_id: str, env_id: str = DEFAULT_PROVIDER_ENV_ID) -> str:
+    normalized_provider_id = ensure_identifier("Provider name", provider_id)
+    normalized_env_id = ensure_identifier("Environment ID", env_id)
+    return f"caracal:{normalized_env_id}/providers/{normalized_provider_id}/{_PROVIDER_SECRET_SUFFIX}"
+
+
+def _parse_provider_credential_ref(credential_ref: str) -> Tuple[str, str]:
+    clean = str(credential_ref or "").strip()
+    if not clean.startswith("caracal:"):
+        raise SecretNotFoundError(f"Unsupported provider credential ref: {credential_ref}")
+
+    payload = clean.removeprefix("caracal:")
+    if "/" not in payload:
+        raise SecretNotFoundError(f"Malformed provider credential ref: {credential_ref}")
+
+    env_id, secret_name = payload.split("/", 1)
+    if not env_id or not secret_name:
+        raise SecretNotFoundError(f"Malformed provider credential ref: {credential_ref}")
+    return env_id, secret_name
+
+
+def _store_secret(scope_id: str, credential_ref: str, value: str) -> str:
+    env_id, secret_name = _parse_provider_credential_ref(credential_ref)
+    with vault_access_context():
+        get_vault().put(scope_id, env_id, secret_name, value, actor="provider_credential_store")
+    return credential_ref
+
+
+def _resolve_secret(scope_id: str, credential_ref: str) -> str:
+    env_id, secret_name = _parse_provider_credential_ref(credential_ref)
+    try:
+        with vault_access_context():
+            return get_vault().get(scope_id, env_id, secret_name, actor="provider_credential_store")
+    except SecretNotFound as exc:
+        raise SecretNotFoundError(f"Secret not found: {credential_ref}") from exc
+
+
+def _delete_secret(scope_id: str, credential_ref: str) -> None:
+    env_id, secret_name = _parse_provider_credential_ref(credential_ref)
+    try:
+        with vault_access_context():
+            get_vault().delete(scope_id, env_id, secret_name, actor="provider_credential_store")
+    except SecretNotFound as exc:
+        raise SecretNotFoundError(f"Secret not found: {credential_ref}") from exc
+
+
+def store_workspace_provider_credential(
+    workspace: str,
+    provider_id: str,
+    value: str,
+    env_id: str = DEFAULT_PROVIDER_ENV_ID,
+) -> str:
+    ref = provider_credential_ref(provider_id, env_id=env_id)
+    return _store_secret(workspace, ref, value)
+
+
+def resolve_workspace_provider_credential(workspace: str, credential_ref: str) -> str:
+    return _resolve_secret(workspace, credential_ref)
+
+
+def delete_workspace_provider_credential(workspace: str, credential_ref: str) -> None:
+    _delete_secret(workspace, credential_ref)
+
+
+def store_gateway_provider_credential(
+    org_id: str,
+    tier: str,
+    provider_id: str,
+    value: str,
+    env_id: str = DEFAULT_PROVIDER_ENV_ID,
+) -> str:
+    _ = tier
+    ref = provider_credential_ref(provider_id, env_id=env_id)
+    return _store_secret(org_id, ref, value)
+
+
+def resolve_gateway_provider_credential(org_id: str, tier: str, credential_ref: str) -> str:
+    _ = tier
+    return _resolve_secret(org_id, credential_ref)
+
+
+def delete_gateway_provider_credential(org_id: str, tier: str, credential_ref: str) -> None:
+    _ = tier
+    _delete_secret(org_id, credential_ref)
+
+
+def migrate_workspace_provider_credentials(
+    *,
+    workspace: str,
+    providers: Dict[str, Dict[str, Any]],
+    legacy_secret_refs: Dict[str, str],
+    env_id: str = DEFAULT_PROVIDER_ENV_ID,
+) -> tuple[Dict[str, Dict[str, Any]], Dict[str, str], bool]:
+    updated_providers: Dict[str, Dict[str, Any]] = {
+        name: dict(entry or {}) for name, entry in providers.items()
+    }
+    remaining_legacy_refs = dict(legacy_secret_refs)
+    changed = False
+
+    for provider_id, entry in updated_providers.items():
+        auth_scheme = str(entry.get("auth_scheme") or "api_key").strip().replace("-", "_").lower()
+        if auth_scheme == "none":
+            continue
+
+        credential_ref = str(entry.get("credential_ref") or "").strip()
+        if credential_ref.startswith("caracal:"):
+            continue
+
+        candidate_keys = []
+        if credential_ref:
+            candidate_keys.append(credential_ref)
+        candidate_keys.extend(
+            [
+                f"provider_{provider_id}_credential",
+                f"provider_{provider_id}_api_key",
+            ]
+        )
+
+        legacy_key = next((key for key in candidate_keys if key in remaining_legacy_refs), None)
+        if legacy_key is None:
+            continue
+
+        decrypted_value = decrypt_value(remaining_legacy_refs[legacy_key])
+        new_ref = store_workspace_provider_credential(
+            workspace=workspace,
+            provider_id=provider_id,
+            value=decrypted_value,
+            env_id=env_id,
+        )
+        entry["credential_ref"] = new_ref
+        changed = True
+
+        for key in candidate_keys:
+            remaining_legacy_refs.pop(key, None)
+
+    return updated_providers, remaining_legacy_refs, changed

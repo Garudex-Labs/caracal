@@ -967,7 +967,7 @@ class GatewayProvider(Base):
     tags = Column(JSON, nullable=False, default=list, server_default=text("'[]'"))
     provider_metadata = Column("metadata", JSON, nullable=False, default=dict, server_default=text("'{}'"))
     provider_definition = Column(String(255), nullable=False, default="custom", server_default="custom")
-    provider_definition_data = Column(JSON, nullable=False, default=dict, server_default=text("'{}'"))
+    definition = Column(JSON, nullable=False, default=dict, server_default=text("'{}'"))
     resources = Column(JSON, nullable=False, default=list, server_default=text("'[]'"))
     actions = Column(JSON, nullable=False, default=list, server_default=text("'[]'"))
     auth_metadata = Column(JSON, nullable=False, default=dict, server_default=text("'{}'"))
@@ -981,7 +981,7 @@ class GatewayProvider(Base):
     scopes = Column(JSON, nullable=False, default=list, server_default=text("'[]'"))
 
     tls_pin = Column(String(255), nullable=True)
-    secret_ref = Column(String(512), nullable=True)
+    credential_ref = Column(String(512), nullable=True)
     healthcheck_path = Column(String(255), nullable=False, default="/health", server_default="/health")
     timeout_seconds = Column(Integer, nullable=False, default=30, server_default="30")
     max_retries = Column(Integer, nullable=False, default=3, server_default="3")
