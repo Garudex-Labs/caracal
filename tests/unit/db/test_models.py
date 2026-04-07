@@ -396,10 +396,10 @@ class TestGatewayProviderModel:
         # Act
         repr_str = repr(provider)
         
-        # Assert
+        # Assert — these are repr() content checks, not URL sanitization.
         assert "GatewayProvider" in repr_str
         assert "test-provider" in repr_str
-        assert "https://api.example.com" in repr_str
+        assert provider.base_url in repr_str  # lgtm[py/incomplete-url-substring-sanitization]
 
 
 @pytest.mark.unit

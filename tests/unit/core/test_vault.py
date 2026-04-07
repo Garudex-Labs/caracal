@@ -225,11 +225,37 @@ def test_put_success(vault):
 
 
 @pytest.mark.unit
+def test_put_routes_nested_secret_name_to_secret_path(vault):
+    with patch.object(vault, "_secret_exists", return_value=False):
+        with patch.object(vault, "_upsert_secret", return_value="entry-1") as upsert:
+            with gateway_context():
+                vault.put("org-1", "env-1", "principal-keys/abc-123", "value")
+
+    upsert.assert_called_once_with(
+        "org-1",
+        "env-1",
+        "/principal-keys",
+        "abc-123",
+        "value",
+    )
+
+
+@pytest.mark.unit
 def test_get_success(vault):
     with patch.object(vault, "_get_secret_value", return_value="secret-value"):
         with gateway_context():
             value = vault.get("org-1", "env-1", "api-key")
     assert value == "secret-value"
+
+
+@pytest.mark.unit
+def test_get_routes_nested_secret_name_to_secret_path(vault):
+    with patch.object(vault, "_get_secret_value", return_value="secret-value") as get_secret:
+        with gateway_context():
+            value = vault.get("org-1", "env-1", "principal-keys/abc-123")
+
+    assert value == "secret-value"
+    get_secret.assert_called_once_with("org-1", "env-1", "/principal-keys", "abc-123")
 
 
 @pytest.mark.unit
@@ -310,9 +336,9 @@ def test_ensure_asymmetric_keypair_bootstraps_missing_refs(vault):
     assert request.call_args.kwargs["payload"] == {
         "projectId": "org-1",
         "environment": "env-1",
-        "secretPath": "/",
-        "privateKeyName": "keys/session-private",
-        "publicKeyName": "keys/session-public",
+        "secretPath": "/keys",
+        "privateKeyName": "session-private",
+        "publicKeyName": "session-public",
         "algorithm": "RS256",
     }
 
@@ -328,6 +354,63 @@ def test_ensure_asymmetric_keypair_rejects_same_private_and_public_ref(vault):
                 public_key_name="keys/shared",
                 algorithm="ES256",
             )
+
+
+@pytest.mark.unit
+def test_ensure_asymmetric_keypair_rejects_mismatched_secret_paths(vault):
+    with gateway_context():
+        with pytest.raises(VaultConfigurationError, match="same secret path namespace"):
+            vault.ensure_asymmetric_keypair(
+                "org-1",
+                "env-1",
+                private_key_name="keys/private",
+                public_key_name="other/public",
+                algorithm="ES256",
+            )
+
+
+@pytest.mark.unit
+def test_ensure_asymmetric_keypair_falls_back_when_bootstrap_endpoint_missing(vault):
+    missing_endpoint = VaultError(
+        "Vault API request failed: POST /api/caracal/keys/bootstrap -> 404 not found"
+    )
+
+    with patch.object(vault, "_request", side_effect=missing_endpoint):
+        with patch.object(vault, "_secret_exists", return_value=False):
+            with patch.object(vault, "_upsert_secret", return_value="entry") as upsert:
+                with gateway_context():
+                    vault.ensure_asymmetric_keypair(
+                        "org-1",
+                        "env-1",
+                        private_key_name="principal-keys/private",
+                        public_key_name="principal-keys/public",
+                        algorithm="ES256",
+                    )
+
+    assert upsert.call_count == 2
+    first_call = upsert.call_args_list[0].args
+    second_call = upsert.call_args_list[1].args
+    assert first_call[:4] == ("org-1", "env-1", "/principal-keys", "private")
+    assert second_call[:4] == ("org-1", "env-1", "/principal-keys", "public")
+
+
+@pytest.mark.unit
+def test_ensure_asymmetric_keypair_fallback_rejects_inconsistent_secret_state(vault):
+    missing_endpoint = VaultError(
+        "Vault API request failed: POST /api/caracal/keys/bootstrap -> 404 not found"
+    )
+
+    with patch.object(vault, "_request", side_effect=missing_endpoint):
+        with patch.object(vault, "_secret_exists", side_effect=[True, False]):
+            with gateway_context():
+                with pytest.raises(VaultError, match="inconsistent"):
+                    vault.ensure_asymmetric_keypair(
+                        "org-1",
+                        "env-1",
+                        private_key_name="principal-keys/private",
+                        public_key_name="principal-keys/public",
+                        algorithm="ES256",
+                    )
 
 
 @pytest.mark.unit
