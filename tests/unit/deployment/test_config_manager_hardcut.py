@@ -8,6 +8,7 @@ import pytest
 
 from caracal.deployment.config_manager import ConfigManager
 import caracal.deployment.config_manager as config_manager_module
+import caracal.flow.workspace as flow_workspace
 
 
 def _configure_manager_paths(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -131,3 +132,23 @@ def test_legacy_sync_fields_load_and_are_removed_on_next_save(
     assert "auto_sync_interval" not in cleaned
     assert "last_sync" not in cleaned
     assert "conflict_strategy" not in cleaned
+
+
+@pytest.mark.unit
+def test_delete_workspace_clears_cached_flow_workspace(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    _configure_manager_paths(monkeypatch, tmp_path)
+
+    manager = ConfigManager()
+    manager.create_workspace("alpha")
+    workspace_path = manager.get_workspace_path("alpha")
+
+    flow_workspace.set_workspace(workspace_path)
+    assert flow_workspace.get_workspace().root == workspace_path
+
+    manager.delete_workspace("alpha", backup=False)
+
+    assert flow_workspace._current_workspace is None
+    assert manager.list_workspaces() == []

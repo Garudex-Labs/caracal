@@ -1230,6 +1230,12 @@ class ConfigManager:
             # Delete workspace directory
             shutil.rmtree(workspace_dir)
 
+            try:
+                from caracal.flow.workspace import clear_workspace_cache
+                clear_workspace_cache()
+            except Exception:
+                logger.debug("workspace_cache_clear_skipped", workspace=name)
+
             # Keep Flow registry synchronized with deletion.
             try:
                 from caracal.flow.workspace import WorkspaceManager

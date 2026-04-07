@@ -318,6 +318,12 @@ class WorkspaceManager:
 _current_workspace: Optional[WorkspaceManager] = None
 
 
+def clear_workspace_cache() -> None:
+    """Clear cached workspace manager so next resolution uses current metadata."""
+    global _current_workspace
+    _current_workspace = None
+
+
 def get_workspace(root: Optional[str | Path] = None) -> WorkspaceManager:
     """Return a ``WorkspaceManager`` for the given root.
 
