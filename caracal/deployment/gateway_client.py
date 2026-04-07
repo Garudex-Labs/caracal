@@ -738,10 +738,10 @@ class GatewayClient:
                 provider=provider,
                 endpoint=request.endpoint,
                 error=str(e)
-                )
-                raise GatewayConnectionError(
-                    f"Gateway streaming failed: {e}"
-                ) from e
+            )
+            raise GatewayConnectionError(
+                f"Gateway streaming failed: {e}"
+            ) from e
         
         except Exception as e:
             logger.error(
