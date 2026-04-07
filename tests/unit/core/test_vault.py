@@ -152,6 +152,36 @@ def test_load_vault_config_rejects_invalid_mode(vault_env):
 
 
 @pytest.mark.unit
+def test_load_vault_config_recovers_placeholder_local_token(vault_env):
+    env = dict(vault_env)
+    env["CARACAL_VAULT_URL"] = "http://vault:8080"
+    env["CARACAL_VAULT_TOKEN"] = "dev-local-token"
+    env["CARACAL_VAULT_PROJECT_ID"] = ""
+
+    with patch("caracal.core.vault._read_env_or_dotenv", side_effect=lambda name: env.get(name)):
+        with patch(
+            "caracal.core.vault._resolve_local_sidecar_token_and_project",
+            return_value=("token-recovered", "project-recovered"),
+        ):
+            cfg = _load_vault_config()
+
+    assert cfg.token == "token-recovered"
+    assert cfg.default_project == "project-recovered"
+
+
+@pytest.mark.unit
+def test_load_vault_config_keeps_non_local_placeholder_token_unchanged(vault_env):
+    env = dict(vault_env)
+    env["CARACAL_VAULT_URL"] = "https://vault.example.com"
+    env["CARACAL_VAULT_TOKEN"] = "dev-local-token"
+
+    with patch("caracal.core.vault._read_env_or_dotenv", side_effect=lambda name: env.get(name)):
+        cfg = _load_vault_config()
+
+    assert cfg.token == "dev-local-token"
+
+
+@pytest.mark.unit
 def test_read_env_or_dotenv_reads_environment_first(vault_env):
     with patch.dict(os.environ, vault_env, clear=True):
         assert _read_env_or_dotenv("CARACAL_VAULT_URL") == "http://vault.test"
@@ -238,6 +268,21 @@ def test_put_routes_nested_secret_name_to_secret_path(vault):
         "abc-123",
         "value",
     )
+
+
+@pytest.mark.unit
+def test_upsert_secret_uses_batch_fallback_when_v4_patch_returns_not_found(vault):
+    responses = [
+        FakeResponse(status_code=404, payload={"message": "missing"}),
+        FakeResponse(status_code=200, payload={"secrets": [{"id": "batch-id"}]}),
+    ]
+
+    with patch.object(vault, "_request", side_effect=responses) as request:
+        entry_id = vault._upsert_secret("org-1", "env-1", "/", "api-key", "value")
+
+    assert entry_id == "batch-id"
+    assert request.call_args_list[0].args[:2] == ("PATCH", "/api/v4/secrets/api-key")
+    assert request.call_args_list[1].args[:2] == ("POST", "/api/v4/secrets/batch")
 
 
 @pytest.mark.unit

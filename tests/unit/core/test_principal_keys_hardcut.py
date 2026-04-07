@@ -97,6 +97,38 @@ def test_generate_and_store_principal_keypair_updates_custody_record() -> None:
 
 
 @pytest.mark.unit
+def test_generate_and_store_principal_keypair_uses_project_environment_context_when_set() -> None:
+    principal_id = uuid4()
+    mock_vault = Mock()
+    mock_vault.get.return_value = "public-key-pem"
+
+    with patch.dict(
+        os.environ,
+        {
+            "CARACAL_PRINCIPAL_KEY_BACKEND": "vault",
+            "CARACAL_VAULT_PROJECT_ID": "project-123",
+            "CARACAL_VAULT_ENVIRONMENT": "dev",
+            "CARACAL_VAULT_PRINCIPAL_KEY_PREFIX": "principal-keys",
+        },
+        clear=False,
+    ):
+        with patch("caracal.core.principal_keys.get_vault", return_value=mock_vault):
+            generate_and_store_principal_keypair(principal_id)
+
+    expected_private_name = f"principal-keys/{principal_id}"
+    expected_public_name = f"{expected_private_name}.public"
+
+    mock_vault.ensure_asymmetric_keypair.assert_called_once_with(
+        org_id="project-123",
+        env_id="dev",
+        private_key_name=expected_private_name,
+        public_key_name=expected_public_name,
+        algorithm="ES256",
+        actor=f"principal-keys:{principal_id}",
+    )
+
+
+@pytest.mark.unit
 def test_resolve_principal_key_reference_reads_metadata_fallback() -> None:
     principal_id = uuid4()
     session = Mock()
