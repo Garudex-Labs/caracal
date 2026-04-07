@@ -43,6 +43,10 @@ from caracal.provider.definitions import (
     resolve_provider_definition_id,
 )
 from caracal.provider.catalog import build_provider_record
+from caracal.provider.credential_store import (
+    delete_workspace_provider_credential,
+    store_workspace_provider_credential,
+)
 from caracal.provider.workspace import (
     load_workspace_provider_registry,
     save_workspace_provider_registry,
@@ -1022,10 +1026,13 @@ def provider_add(
         if normalized_auth == "header" and not auth_header_name:
             raise click.ClickException("--auth-header-name is required for --auth-scheme header")
 
-        secret_ref = credential_ref
+        stored_credential_ref = credential_ref
         if credential:
-            secret_ref = f"provider_{name}_credential"
-            config_manager.store_secret(secret_ref, credential, workspace)
+            stored_credential_ref = store_workspace_provider_credential(
+                workspace=workspace,
+                provider_id=name,
+                value=credential,
+            )
 
         providers = _load_workspace_providers(config_manager, workspace)
         existing = providers.get(name, {})
@@ -1059,7 +1066,7 @@ def provider_add(
             tags=list(tags),
             metadata=metadata,
             auth_header_name=auth_header_name,
-            credential_ref=secret_ref,
+            credential_ref=stored_credential_ref,
             existing=existing,
             created_at=existing.get("created_at", datetime.utcnow().isoformat()),
             enforce_scoped_requests=bool(definition),
@@ -1268,16 +1275,13 @@ def provider_remove(name: str, workspace: Optional[str], force: bool):
 
         # Remove provider credential secret if managed by this registry.
         credential_ref = provider.get("credential_ref")
-        vault = config_manager._load_vault(workspace)
-        if credential_ref and credential_ref in vault:
-            del vault[credential_ref]
-
-        # Backward compatibility cleanup for legacy secret names.
-        for legacy_key in (f"provider_{name}_api_key", f"provider_{name}_credential"):
-            if legacy_key in vault:
-                del vault[legacy_key]
-
-        config_manager._save_vault(workspace, vault)
+        if credential_ref:
+            try:
+                delete_workspace_provider_credential(workspace, credential_ref)
+            except WorkspaceNotFoundError:
+                raise
+            except Exception:
+                pass
         
         console.print(f"[green]✓[/green] Provider removed: {name}")
         

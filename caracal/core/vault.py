@@ -536,24 +536,24 @@ class _VaultRateLimiter:
             bucket.tokens -= 1
 
 
-_GATEWAY_CONTEXT_FLAG = threading.local()
+_VAULT_ACCESS_CONTEXT_FLAG = threading.local()
 
 
-def _assert_gateway_context() -> None:
-    if not getattr(_GATEWAY_CONTEXT_FLAG, "active", False):
+def _assert_vault_access_context() -> None:
+    if not getattr(_VAULT_ACCESS_CONTEXT_FLAG, "active", False):
         raise GatewayContextRequired(
-            "CaracalVault may only be accessed from within the gateway request context. "
+            "CaracalVault may only be accessed from within an explicit vault access context. "
             "Direct application layer access is forbidden."
         )
 
 
-class gateway_context:  # noqa: N801
-    def __enter__(self) -> "gateway_context":
-        _GATEWAY_CONTEXT_FLAG.active = True
+class vault_access_context:  # noqa: N801
+    def __enter__(self) -> "vault_access_context":
+        _VAULT_ACCESS_CONTEXT_FLAG.active = True
         return self
 
     def __exit__(self, *_) -> None:
-        _GATEWAY_CONTEXT_FLAG.active = False
+        _VAULT_ACCESS_CONTEXT_FLAG.active = False
 
 
 class CaracalVault:
@@ -1140,7 +1140,7 @@ class CaracalVault:
             self._audit.append(event)
 
     def put(self, org_id: str, env_id: str, name: str, plaintext: str, actor: str = "gateway") -> VaultEntry:
-        _assert_gateway_context()
+        _assert_vault_access_context()
         self._rl.check(org_id)
         self._ensure_service_health()
 
@@ -1178,7 +1178,7 @@ class CaracalVault:
             raise VaultError(f"Failed to store secret '{name}': {exc}") from exc
 
     def get(self, org_id: str, env_id: str, name: str, actor: str = "gateway") -> str:
-        _assert_gateway_context()
+        _assert_vault_access_context()
         self._rl.check(org_id)
         self._ensure_service_health()
 
@@ -1208,7 +1208,7 @@ class CaracalVault:
         algorithm: str,
         actor: str = "gateway",
     ) -> str:
-        _assert_gateway_context()
+        _assert_vault_access_context()
         self._rl.check(org_id)
         self._ensure_service_health()
 
@@ -1241,7 +1241,7 @@ class CaracalVault:
         payload: dict[str, Any],
         actor: str = "gateway",
     ) -> str:
-        _assert_gateway_context()
+        _assert_vault_access_context()
         self._rl.check(org_id)
         self._ensure_service_health()
 
@@ -1275,7 +1275,7 @@ class CaracalVault:
             ) from exc
 
     def delete(self, org_id: str, env_id: str, name: str, actor: str = "gateway") -> None:
-        _assert_gateway_context()
+        _assert_vault_access_context()
         self._rl.check(org_id)
         self._ensure_service_health()
 
@@ -1289,7 +1289,7 @@ class CaracalVault:
             raise
 
     def list_secrets(self, org_id: str, env_id: str, actor: str = "gateway") -> list[str]:
-        _assert_gateway_context()
+        _assert_vault_access_context()
         self._rl.check(org_id)
         self._ensure_service_health()
 
@@ -1314,7 +1314,7 @@ class CaracalVault:
         algorithm: str = "RS256",
         actor: str = "gateway",
     ) -> None:
-        _assert_gateway_context()
+        _assert_vault_access_context()
         self._rl.check(org_id)
         self._ensure_service_health()
 
@@ -1397,7 +1397,7 @@ class CaracalVault:
             ) from exc
 
     def rotate_master_key(self, org_id: str, env_id: str, actor: str = "admin") -> RotationResult:
-        _assert_gateway_context()
+        _assert_vault_access_context()
         self._rl.check(org_id)
         self._ensure_service_health()
 
