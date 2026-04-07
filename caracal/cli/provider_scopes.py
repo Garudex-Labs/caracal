@@ -138,7 +138,14 @@ def validate_provider_scopes(
             "No providers configured for the active workspace. "
             "Configure providers first with 'caracal provider add ...'."
         )
-    ensure_scopes_in_workspace_catalog(resource_scopes, action_scopes, bindings)
+    scoped_bindings = [binding for binding in bindings if binding.is_scoped]
+    if not scoped_bindings:
+        raise click.ClickException(
+            "No scoped providers are configured for the active workspace. "
+            "Create a passthrough provider with 'caracal provider add ...' and then add scopes with "
+            "'caracal provider enrich ...' before issuing provider-scoped authorities."
+        )
+    ensure_scopes_in_workspace_catalog(resource_scopes, action_scopes, scoped_bindings)
 
 
 def _selected_provider_filter(ctx: click.Context) -> List[str]:

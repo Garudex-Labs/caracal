@@ -35,6 +35,7 @@ from caracal.deployment import (
 )
 from caracal.deployment.exceptions import (
     ConfigurationError,
+    SecretNotFoundError,
     WorkspaceNotFoundError,
     WorkspaceAlreadyExistsError,
     InvalidWorkspaceNameError,
@@ -42,7 +43,14 @@ from caracal.deployment.exceptions import (
 from caracal.provider.definitions import (
     resolve_provider_definition_id,
 )
-from caracal.provider.catalog import build_provider_record
+from caracal.provider.catalog import (
+    GATEWAY_ONLY_AUTH,
+    PROVIDER_PATTERNS,
+    ProviderCatalogError,
+    build_provider_record,
+    build_resources_from_pattern,
+    normalize_auth_scheme as normalize_catalog_auth_scheme,
+)
 from caracal.provider.credential_store import (
     delete_workspace_provider_credential,
     store_workspace_provider_credential,
@@ -795,7 +803,113 @@ def _parse_metadata_pairs(pairs: tuple[str, ...]) -> Dict[str, str]:
 
 def _normalize_auth_scheme(auth_scheme: str) -> str:
     """Normalize CLI auth scheme naming to internal representation."""
-    return auth_scheme.strip().replace("-", "_").lower()
+    try:
+        return normalize_catalog_auth_scheme(auth_scheme)
+    except ProviderCatalogError as exc:
+        raise click.ClickException(str(exc)) from exc
+
+
+def _resolve_oss_auth_scheme(auth_scheme: str) -> str:
+    """Normalize auth scheme and reject gateway-only modes in OSS flows."""
+    normalized_auth = _normalize_auth_scheme(auth_scheme)
+    if normalized_auth in GATEWAY_ONLY_AUTH:
+        raise click.ClickException(
+            f"Auth scheme '{auth_scheme}' requires enterprise gateway execution. "
+            "Use one of: none, api-key, bearer, basic, header."
+        )
+    return normalized_auth
+
+
+def _oss_template_catalog() -> Dict[str, Any]:
+    """Return OSS-safe starter templates keyed by template id."""
+    templates: Dict[str, Any] = {}
+    for patterns in PROVIDER_PATTERNS.values():
+        for pattern in patterns:
+            if pattern.recommended_auth_scheme in GATEWAY_ONLY_AUTH:
+                continue
+            templates[pattern.key] = pattern
+    return templates
+
+
+def _resolve_oss_template(template_id: Optional[str]):
+    """Resolve a starter template for OSS flows or return None."""
+    if not template_id:
+        return None
+    templates = _oss_template_catalog()
+    pattern = templates.get(template_id)
+    if pattern:
+        return pattern
+
+    shared_pattern = next(
+        (
+            item
+            for patterns in PROVIDER_PATTERNS.values()
+            for item in patterns
+            if item.key == template_id
+        ),
+        None,
+    )
+    if shared_pattern and shared_pattern.recommended_auth_scheme in GATEWAY_ONLY_AUTH:
+        raise click.ClickException(
+            f"Template '{template_id}' is enterprise-only because it requires gateway-managed auth."
+        )
+
+    available = ", ".join(sorted(templates.keys()))
+    raise click.ClickException(
+        f"Unknown template '{template_id}'. Available OSS templates: {available or 'none'}."
+    )
+
+
+def _provider_mode(entry: Dict[str, Any]) -> str:
+    definition = entry.get("definition")
+    has_resources = isinstance(definition, dict) and bool(definition.get("resources"))
+    if entry.get("enforce_scoped_requests") and has_resources:
+        return "scoped"
+    return "passthrough"
+
+
+def _provider_template_label(entry: Dict[str, Any]) -> str:
+    template_id = entry.get("template_id")
+    if template_id:
+        return str(template_id)
+    metadata = entry.get("metadata")
+    if isinstance(metadata, dict) and metadata.get("starter_pattern"):
+        return str(metadata["starter_pattern"])
+    return "custom"
+
+
+def _provider_credential_status(entry: Dict[str, Any]) -> str:
+    auth_scheme = str(entry.get("auth_scheme") or "none")
+    if auth_scheme == "none":
+        return "not_required"
+    return "configured" if entry.get("credential_ref") else "missing"
+
+
+def _definition_payload_for_existing_resources(
+    entry: Dict[str, Any],
+    *,
+    provider_name: str,
+    service_type: str,
+    definition_id: str,
+    auth_scheme: str,
+    base_url: Optional[str],
+    metadata: Dict[str, Any],
+) -> Optional[Dict[str, Any]]:
+    definition = entry.get("definition")
+    if not isinstance(definition, dict):
+        return None
+    resources = dict(definition.get("resources") or {})
+    if not resources:
+        return None
+    return {
+        "definition_id": definition_id,
+        "service_type": service_type,
+        "display_name": provider_name,
+        "auth_scheme": auth_scheme,
+        "default_base_url": base_url,
+        "resources": resources,
+        "metadata": dict(metadata),
+    }
 
 
 def _parse_resources(resource_specs: tuple[str, ...]) -> Dict[str, Dict[str, Any]]:
@@ -920,6 +1034,7 @@ def _build_oss_broker(config_manager: ConfigManager, workspace: str):
 
 @provider_group.command(name="add")
 @click.argument("name")
+@click.option("--template", help="OSS starter template ID")
 @click.option(
     "--service-type",
     default="api",
@@ -944,68 +1059,39 @@ def _build_oss_broker(config_manager: ConfigManager, workspace: str):
         "bearer",
         "basic",
         "header",
-        "oauth2-client-credentials",
-        "service-account",
     ]),
-    default="api-key",
-    show_default=True,
-    help="Authentication scheme",
+    default=None,
+    help="Authentication scheme (defaults to template recommendation or api-key)",
 )
 @click.option("--credential", help="Credential value to store as encrypted secret")
 @click.option("--credential-ref", help="Existing secret reference for credential")
 @click.option("--auth-header-name", help="Header name for --auth-scheme header")
-@click.option("--health-path", default="/health", show_default=True, help="Health check path for provider test")
-@click.option("--timeout-seconds", type=int, default=30, show_default=True, help="Request timeout in seconds")
-@click.option("--max-retries", type=int, default=3, show_default=True, help="Retry attempts")
-@click.option("--rate-limit-rpm", type=int, help="Client-side requests per minute limit")
 @click.option("--version", help="Provider API/version label")
-@click.option(
-    "--resource",
-    "resource_specs",
-    multiple=True,
-    help="Resource definition: <resource_id>[=<description>] (repeatable)",
-)
-@click.option(
-    "--action",
-    "action_specs",
-    multiple=True,
-    help="Action definition: <resource_id>:<action_id>:<method>:<path_prefix> (repeatable)",
-)
 @click.option("--tag", "tags", multiple=True, help="Tag (repeatable)")
 @click.option("--metadata", "metadata_pairs", multiple=True, help="Metadata key=value (repeatable)")
 @click.option("--workspace", "-w", help="Workspace name (default: current workspace)")
 def provider_add(
     name: str,
+    template: Optional[str],
     service_type: str,
     provider_definition: str,
     base_url: Optional[str],
-    auth_scheme: str,
+    auth_scheme: Optional[str],
     credential: Optional[str],
     credential_ref: Optional[str],
     auth_header_name: Optional[str],
-    health_path: str,
-    timeout_seconds: int,
-    max_retries: int,
-    rate_limit_rpm: Optional[int],
     version: Optional[str],
-    resource_specs: tuple[str, ...],
-    action_specs: tuple[str, ...],
     tags: tuple[str, ...],
     metadata_pairs: tuple[str, ...],
     workspace: Optional[str],
 ):
-    """Add a provider configuration."""
+    """Add a passthrough provider configuration."""
     try:
         config_manager = ConfigManager()
         edition_adapter = get_deployment_edition_adapter()
 
         workspace = _require_workspace(config_manager, workspace)
-        normalized_auth = _normalize_auth_scheme(auth_scheme)
-        resolved_definition_id = resolve_provider_definition_id(
-            service_type=service_type,
-            requested_definition=provider_definition or name,
-        )
-        effective_service_type = service_type.strip().lower() if service_type else "api"
+        pattern = _resolve_oss_template(template)
 
         if edition_adapter.uses_gateway_execution():
             raise click.ClickException(
@@ -1014,6 +1100,18 @@ def provider_add(
 
         if credential and credential_ref:
             raise click.ClickException("Use either --credential or --credential-ref, not both")
+
+        effective_service_type = (
+            pattern.service_type if pattern else (service_type.strip().lower() if service_type else "api")
+        )
+        normalized_auth = _resolve_oss_auth_scheme(
+            auth_scheme or (pattern.recommended_auth_scheme if pattern else "api_key")
+        )
+        resolved_base_url = base_url if base_url is not None else (pattern.base_url_example if pattern else None)
+        resolved_definition_id = resolve_provider_definition_id(
+            service_type=effective_service_type,
+            requested_definition=provider_definition or (pattern.key if pattern else name),
+        )
 
         if normalized_auth != "none" and not (credential or credential_ref):
             raise click.ClickException(
@@ -1035,41 +1133,37 @@ def provider_add(
             )
 
         providers = _load_workspace_providers(config_manager, workspace)
+        if name in providers:
+            raise click.ClickException(
+                f"Provider '{name}' already exists. Use 'caracal provider update {name}' or "
+                f"'caracal provider enrich {name}' instead."
+            )
         existing = providers.get(name, {})
         metadata = _parse_metadata_pairs(metadata_pairs)
-        resolved_base_url = base_url
-        resources = _parse_resources(resource_specs)
-        _parse_actions(action_specs, resources)
-        definition = None
-        if resources:
-            definition = {
-                "definition_id": resolved_definition_id,
-                "service_type": effective_service_type,
-                "display_name": name,
-                "auth_scheme": normalized_auth,
-                "default_base_url": resolved_base_url,
-                "resources": resources,
-                "metadata": metadata,
-            }
+        template_id = pattern.key if pattern else None
+        if pattern:
+            metadata.setdefault("starter_pattern", pattern.key)
+
         providers[name] = build_provider_record(
             name=name,
             service_type=effective_service_type,
             definition_id=resolved_definition_id,
             auth_scheme=normalized_auth,
             base_url=resolved_base_url,
-            definition=definition,
-            healthcheck_path=health_path,
-            timeout_seconds=timeout_seconds,
-            max_retries=max_retries,
-            rate_limit_rpm=rate_limit_rpm,
+            definition=None,
+            healthcheck_path=str(existing.get("healthcheck_path") or "/health"),
+            timeout_seconds=int(existing.get("timeout_seconds") or 30),
+            max_retries=int(existing.get("max_retries") or 3),
+            rate_limit_rpm=existing.get("rate_limit_rpm"),
             version=version,
             tags=list(tags),
             metadata=metadata,
             auth_header_name=auth_header_name,
             credential_ref=stored_credential_ref,
+            template_id=template_id,
             existing=existing,
             created_at=existing.get("created_at", datetime.utcnow().isoformat()),
-            enforce_scoped_requests=bool(definition),
+            enforce_scoped_requests=False,
         )
 
         _save_workspace_providers(config_manager, workspace, providers)
@@ -1077,11 +1171,304 @@ def provider_add(
         console.print(f"[green]✓[/green] Provider added: {name}")
         console.print(f"  Workspace: {workspace}")
         console.print(f"  Service Type: {effective_service_type}")
+        console.print(f"  Template: {template_id or 'custom'}")
         console.print(f"  Definition: {resolved_definition_id}")
         console.print(f"  Auth Scheme: {normalized_auth}")
+        console.print("  Mode: passthrough")
         
     except Exception as e:
         logger.error("provider_add_failed", error=str(e))
+        console.print(f"[red]Error:[/red] {e}")
+        sys.exit(1)
+
+
+@provider_group.command(name="update")
+@click.argument("name")
+@click.option("--service-type", help="Override service type")
+@click.option("--provider-definition", help="Override provider definition ID")
+@click.option("--base-url", help="Override provider base URL")
+@click.option(
+    "--auth-scheme",
+    type=click.Choice(["none", "api-key", "bearer", "basic", "header"]),
+    default=None,
+    help="Override authentication scheme",
+)
+@click.option("--credential", help="Store a new credential value for this provider")
+@click.option("--credential-ref", help="Use an existing credential ref")
+@click.option("--clear-credential", is_flag=True, help="Remove the configured credential ref")
+@click.option("--auth-header-name", help="Override header name for header auth")
+@click.option("--health-path", help="Health check path for provider test")
+@click.option("--timeout-seconds", type=int, help="Request timeout in seconds")
+@click.option("--max-retries", type=int, help="Retry attempts")
+@click.option("--rate-limit-rpm", type=int, help="Client-side requests per minute limit")
+@click.option("--clear-rate-limit", is_flag=True, help="Clear any rate limit")
+@click.option("--version", help="Provider API/version label")
+@click.option("--clear-version", is_flag=True, help="Clear provider version label")
+@click.option("--tag", "tags", multiple=True, help="Replace tags with the provided set")
+@click.option("--clear-tags", is_flag=True, help="Remove all tags")
+@click.option("--metadata", "metadata_pairs", multiple=True, help="Metadata key=value (merged into existing metadata)")
+@click.option("--clear-metadata", is_flag=True, help="Clear existing metadata before applying --metadata")
+@click.option("--clear-definition", is_flag=True, help="Return the provider to passthrough mode")
+@click.option("--workspace", "-w", help="Workspace name (default: current workspace)")
+def provider_update(
+    name: str,
+    service_type: Optional[str],
+    provider_definition: Optional[str],
+    base_url: Optional[str],
+    auth_scheme: Optional[str],
+    credential: Optional[str],
+    credential_ref: Optional[str],
+    clear_credential: bool,
+    auth_header_name: Optional[str],
+    health_path: Optional[str],
+    timeout_seconds: Optional[int],
+    max_retries: Optional[int],
+    rate_limit_rpm: Optional[int],
+    clear_rate_limit: bool,
+    version: Optional[str],
+    clear_version: bool,
+    tags: tuple[str, ...],
+    clear_tags: bool,
+    metadata_pairs: tuple[str, ...],
+    clear_metadata: bool,
+    clear_definition: bool,
+    workspace: Optional[str],
+):
+    """Update provider connectivity/runtime settings or switch back to passthrough mode."""
+    try:
+        config_manager = ConfigManager()
+        edition_adapter = get_deployment_edition_adapter()
+
+        workspace = _require_workspace(config_manager, workspace)
+        if edition_adapter.uses_gateway_execution():
+            raise click.ClickException(
+                "Enterprise mode is gateway-managed. Register providers in the gateway/vault instead of local workspace."
+            )
+
+        providers = _load_workspace_providers(config_manager, workspace)
+        existing = providers.get(name)
+        if not existing:
+            raise click.ClickException(f"Provider not found: {name}")
+
+        if credential and credential_ref:
+            raise click.ClickException("Use either --credential or --credential-ref, not both")
+        if clear_credential and (credential or credential_ref):
+            raise click.ClickException("Use --clear-credential by itself")
+
+        effective_service_type = (
+            service_type.strip().lower()
+            if service_type
+            else str(existing.get("service_type") or "api")
+        )
+        normalized_auth = _resolve_oss_auth_scheme(auth_scheme or str(existing.get("auth_scheme") or "api_key"))
+
+        if normalized_auth == "none" and (credential or credential_ref):
+            raise click.ClickException("Do not supply credentials when --auth-scheme is none")
+        if normalized_auth == "header" and not (auth_header_name or (existing.get("auth_metadata") or {}).get("header_name")):
+            raise click.ClickException("--auth-header-name is required for --auth-scheme header")
+
+        next_metadata = {} if clear_metadata else dict(existing.get("metadata") or {})
+        next_metadata.update(_parse_metadata_pairs(metadata_pairs))
+
+        next_tags = [] if clear_tags else list(existing.get("tags") or [])
+        if tags:
+            next_tags = list(tags)
+
+        next_base_url = base_url if base_url is not None else existing.get("base_url")
+        next_definition_id = resolve_provider_definition_id(
+            service_type=effective_service_type,
+            requested_definition=provider_definition or str(existing.get("provider_definition") or name),
+        )
+        next_credential_ref = None if (clear_credential or normalized_auth == "none") else existing.get("credential_ref")
+
+        if credential:
+            next_credential_ref = store_workspace_provider_credential(
+                workspace=workspace,
+                provider_id=name,
+                value=credential,
+            )
+        elif credential_ref:
+            next_credential_ref = credential_ref
+
+        if clear_credential or normalized_auth == "none":
+            stale_ref = existing.get("credential_ref")
+            if stale_ref:
+                try:
+                    delete_workspace_provider_credential(workspace, stale_ref)
+                except SecretNotFoundError:
+                    pass
+
+        definition = None
+        if not clear_definition:
+            definition = _definition_payload_for_existing_resources(
+                existing,
+                provider_name=name,
+                service_type=effective_service_type,
+                definition_id=next_definition_id,
+                auth_scheme=normalized_auth,
+                base_url=next_base_url,
+                metadata=next_metadata,
+            )
+
+        providers[name] = build_provider_record(
+            name=name,
+            service_type=effective_service_type,
+            definition_id=next_definition_id,
+            auth_scheme=normalized_auth,
+            base_url=next_base_url,
+            definition=definition,
+            healthcheck_path=health_path or str(existing.get("healthcheck_path") or "/health"),
+            timeout_seconds=timeout_seconds if timeout_seconds is not None else int(existing.get("timeout_seconds") or 30),
+            max_retries=max_retries if max_retries is not None else int(existing.get("max_retries") or 3),
+            rate_limit_rpm=None if clear_rate_limit else (rate_limit_rpm if rate_limit_rpm is not None else existing.get("rate_limit_rpm")),
+            version=None if clear_version else (version if version is not None else existing.get("version")),
+            tags=next_tags,
+            metadata=next_metadata,
+            auth_header_name=auth_header_name or (existing.get("auth_metadata") or {}).get("header_name"),
+            credential_ref=next_credential_ref,
+            template_id=existing.get("template_id"),
+            existing=existing,
+            created_at=existing.get("created_at"),
+            enforce_scoped_requests=_provider_mode(existing) == "scoped" and not clear_definition,
+        )
+        _save_workspace_providers(config_manager, workspace, providers)
+
+        console.print(f"[green]✓[/green] Provider updated: {name}")
+        console.print(f"  Mode: {_provider_mode(providers[name])}")
+        console.print(f"  Credential: {_provider_credential_status(providers[name])}")
+    except Exception as e:
+        logger.error("provider_update_failed", error=str(e))
+        console.print(f"[red]Error:[/red] {e}")
+        sys.exit(1)
+
+
+@provider_group.command(name="enrich")
+@click.argument("name")
+@click.option("--template", help="OSS starter template to apply while building the scoped definition")
+@click.option("--service-type", help="Override service type while enriching")
+@click.option("--provider-definition", help="Override provider definition ID")
+@click.option(
+    "--resource",
+    "resource_specs",
+    multiple=True,
+    help="Resource definition: <resource_id>[=<description>] (repeatable)",
+)
+@click.option(
+    "--action",
+    "action_specs",
+    multiple=True,
+    help="Action definition: <resource_id>:<action_id>:<method>:<path_prefix> (repeatable)",
+)
+@click.option("--replace", is_flag=True, help="Replace any existing scoped definition before applying the new one")
+@click.option("--workspace", "-w", help="Workspace name (default: current workspace)")
+def provider_enrich(
+    name: str,
+    template: Optional[str],
+    service_type: Optional[str],
+    provider_definition: Optional[str],
+    resource_specs: tuple[str, ...],
+    action_specs: tuple[str, ...],
+    replace: bool,
+    workspace: Optional[str],
+):
+    """Add or replace the scoped resource/action definition for an existing provider."""
+    try:
+        config_manager = ConfigManager()
+        edition_adapter = get_deployment_edition_adapter()
+
+        workspace = _require_workspace(config_manager, workspace)
+        if edition_adapter.uses_gateway_execution():
+            raise click.ClickException(
+                "Enterprise mode is gateway-managed. Register providers in the gateway/vault instead of local workspace."
+            )
+
+        providers = _load_workspace_providers(config_manager, workspace)
+        existing = providers.get(name)
+        if not existing:
+            raise click.ClickException(f"Provider not found: {name}")
+
+        pattern = _resolve_oss_template(template)
+        resources: Dict[str, Dict[str, Any]] = {}
+        if not replace:
+            existing_definition = existing.get("definition")
+            if isinstance(existing_definition, dict):
+                resources = dict(existing_definition.get("resources") or {})
+
+        if pattern:
+            pattern_resources = build_resources_from_pattern(pattern)
+            if replace or not resources:
+                resources = pattern_resources
+            else:
+                resources.update(pattern_resources)
+
+        explicit_resources = _parse_resources(resource_specs)
+        _parse_actions(action_specs, explicit_resources)
+        for resource_id, payload in explicit_resources.items():
+            current = resources.setdefault(
+                resource_id,
+                {"description": payload.get("description") or resource_id, "actions": {}},
+            )
+            current["description"] = payload.get("description") or current.get("description") or resource_id
+            current_actions = dict(current.get("actions") or {})
+            current_actions.update(payload.get("actions") or {})
+            current["actions"] = current_actions
+
+        if not resources:
+            raise click.ClickException(
+                "Scoped enrichment requires either --template or at least one --resource/--action definition."
+            )
+
+        next_service_type = (
+            pattern.service_type if pattern else (service_type.strip().lower() if service_type else str(existing.get("service_type") or "api"))
+        )
+        next_definition_id = resolve_provider_definition_id(
+            service_type=next_service_type,
+            requested_definition=provider_definition or (pattern.key if pattern else str(existing.get("provider_definition") or name)),
+        )
+        next_metadata = dict(existing.get("metadata") or {})
+        next_template_id = existing.get("template_id")
+        if pattern:
+            next_metadata["starter_pattern"] = pattern.key
+            next_template_id = pattern.key
+
+        definition = {
+            "definition_id": next_definition_id,
+            "service_type": next_service_type,
+            "display_name": name,
+            "auth_scheme": str(existing.get("auth_scheme") or "api_key"),
+            "default_base_url": existing.get("base_url"),
+            "resources": resources,
+            "metadata": next_metadata,
+        }
+        providers[name] = build_provider_record(
+            name=name,
+            service_type=next_service_type,
+            definition_id=next_definition_id,
+            auth_scheme=str(existing.get("auth_scheme") or "api_key"),
+            base_url=existing.get("base_url"),
+            definition=definition,
+            healthcheck_path=str(existing.get("healthcheck_path") or "/health"),
+            timeout_seconds=int(existing.get("timeout_seconds") or 30),
+            max_retries=int(existing.get("max_retries") or 3),
+            rate_limit_rpm=existing.get("rate_limit_rpm"),
+            version=existing.get("version"),
+            tags=list(existing.get("tags") or []),
+            metadata=next_metadata,
+            auth_header_name=(existing.get("auth_metadata") or {}).get("header_name"),
+            credential_ref=existing.get("credential_ref"),
+            template_id=next_template_id,
+            existing=existing,
+            created_at=existing.get("created_at"),
+            enforce_scoped_requests=True,
+        )
+        _save_workspace_providers(config_manager, workspace, providers)
+
+        console.print(f"[green]✓[/green] Provider enriched: {name}")
+        console.print(f"  Mode: {_provider_mode(providers[name])}")
+        console.print(f"  Resources: {len(providers[name].get('resources') or [])}")
+        console.print(f"  Actions: {len(providers[name].get('actions') or [])}")
+    except Exception as e:
+        logger.error("provider_enrich_failed", error=str(e))
         console.print(f"[red]Error:[/red] {e}")
         sys.exit(1)
 
@@ -1138,8 +1525,11 @@ def provider_list(workspace: Optional[str], format: str):
                     {
                         "name": provider.name,
                         "service_type": provider.service_type,
+                        "template": _provider_template_label(stored),
                         "auth_scheme": provider.auth_scheme,
                         "base_url": provider.base_url,
+                        "credential_status": _provider_credential_status(stored),
+                        "mode": _provider_mode(stored),
                         "version": provider.version,
                         "status": provider.status,
                         "tags": stored.get("tags", []),
@@ -1158,20 +1548,20 @@ def provider_list(workspace: Optional[str], format: str):
             
             table = Table(title=f"Providers for workspace '{workspace}'")
             table.add_column("Name", style="cyan")
-            table.add_column("Service", style="yellow")
-            table.add_column("Definition", style="white")
+            table.add_column("Template", style="yellow")
             table.add_column("Auth", style="blue")
             table.add_column("Endpoint", style="magenta")
-            table.add_column("Status", style="green")
+            table.add_column("Credential", style="green")
+            table.add_column("Mode", style="white")
             
             for provider in providers_data:
                 table.add_row(
                     provider["name"],
-                    provider["service_type"],
-                    provider.get("provider_definition") or "custom",
+                    provider.get("template") or provider.get("provider_definition") or "custom",
                     provider.get("auth_scheme") or "n/a",
                     provider.get("base_url") or "configured",
-                    provider["status"],
+                    provider.get("credential_status") or "managed",
+                    provider.get("mode") or provider.get("status") or "configured",
                 )
             
             console.print(table)
@@ -1278,9 +1668,7 @@ def provider_remove(name: str, workspace: Optional[str], force: bool):
         if credential_ref:
             try:
                 delete_workspace_provider_credential(workspace, credential_ref)
-            except WorkspaceNotFoundError:
-                raise
-            except Exception:
+            except SecretNotFoundError:
                 pass
         
         console.print(f"[green]✓[/green] Provider removed: {name}")
