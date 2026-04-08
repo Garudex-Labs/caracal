@@ -194,6 +194,7 @@ class TestMCPAdapter:
         
         # Mock mandate found
         mock_mandate = Mock(spec=ExecutionMandate)
+        mock_mandate.subject_id = "agent-123"
         self.mock_authority_evaluator._get_mandate_with_cache.return_value = mock_mandate
         
         # Mock authority denied
@@ -226,6 +227,7 @@ class TestMCPAdapter:
         
         # Mock mandate found
         mock_mandate = Mock(spec=ExecutionMandate)
+        mock_mandate.subject_id = "agent-123"
         self.mock_authority_evaluator._get_mandate_with_cache.return_value = mock_mandate
         
         # Mock authority granted
@@ -275,6 +277,7 @@ class TestMCPAdapter:
         )
 
         mock_mandate = Mock(spec=ExecutionMandate)
+        mock_mandate.subject_id = "agent-123"
         self.mock_authority_evaluator._get_mandate_with_cache.return_value = mock_mandate
         self.mock_authority_evaluator.validate_mandate.return_value = AuthorityDecision(
             allowed=True,
@@ -319,6 +322,7 @@ class TestMCPAdapter:
         )
 
         mock_mandate = Mock(spec=ExecutionMandate)
+        mock_mandate.subject_id = "agent-123"
         self.mock_authority_evaluator._get_mandate_with_cache.return_value = mock_mandate
         self.mock_authority_evaluator.validate_mandate.return_value = AuthorityDecision(
             allowed=True,
@@ -369,6 +373,7 @@ class TestMCPAdapter:
         
         # Mock mandate found
         mock_mandate = Mock(spec=ExecutionMandate)
+        mock_mandate.subject_id = "agent-123"
         self.mock_authority_evaluator._get_mandate_with_cache.return_value = mock_mandate
         
         # Mock authority denied
@@ -400,6 +405,7 @@ class TestMCPAdapter:
         
         # Mock mandate found
         mock_mandate = Mock(spec=ExecutionMandate)
+        mock_mandate.subject_id = "agent-123"
         self.mock_authority_evaluator._get_mandate_with_cache.return_value = mock_mandate
         
         # Mock authority granted
@@ -430,6 +436,29 @@ class TestMCPAdapter:
         assert result.success is True
         assert result.result.content == "test content"
         self.mock_metering_collector.collect_event.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_intercept_tool_call_denies_mandate_subject_mismatch(self):
+        """Test tool call interception denies when caller is not mandate subject."""
+        mandate_id = uuid4()
+        context = MCPContext(
+            principal_id="agent-123",
+            metadata={"mandate_id": str(mandate_id)}
+        )
+
+        mock_mandate = Mock(spec=ExecutionMandate)
+        mock_mandate.subject_id = "different-agent"
+        self.mock_authority_evaluator._get_mandate_with_cache.return_value = mock_mandate
+
+        result = await self.adapter.intercept_tool_call(
+            tool_name="test_tool",
+            tool_args={"arg": "value"},
+            mcp_context=context,
+        )
+
+        assert result.success is False
+        assert "does not match mandate subject" in result.error.lower()
+        self.mock_authority_evaluator.validate_mandate.assert_not_called()
     
     def test_extract_principal_id_success(self):
         """Test successful principal ID extraction."""

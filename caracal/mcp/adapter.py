@@ -193,6 +193,17 @@ class MCPAdapter:
                     error="Authority denied: Mandate not found"
                 )
 
+            if not self._is_mandate_subject(principal_id, mandate):
+                logger.warning(
+                    f"Mandate subject mismatch for mandate {mandate_id}: "
+                    f"caller={principal_id}, subject={getattr(mandate, 'subject_id', None)}"
+                )
+                return MCPResult(
+                    success=False,
+                    result=None,
+                    error="Authority denied: Authenticated principal does not match mandate subject",
+                )
+
             # 4. Validate Authority
             # Action: execute, Resource: tool_name
             caveat_kwargs = self._extract_caveat_authority_kwargs(mcp_context)
@@ -200,6 +211,7 @@ class MCPAdapter:
                 mandate=mandate,
                 requested_action="execute",
                 requested_resource=tool_name,
+                caller_principal_id=principal_id,
                 **caveat_kwargs,
             )
             
@@ -354,6 +366,17 @@ class MCPAdapter:
                     error="Authority denied: Mandate not found"
                 )
 
+            if not self._is_mandate_subject(principal_id, mandate):
+                logger.warning(
+                    f"Mandate subject mismatch for mandate {mandate_id}: "
+                    f"caller={principal_id}, subject={getattr(mandate, 'subject_id', None)}"
+                )
+                return MCPResult(
+                    success=False,
+                    result=None,
+                    error="Authority denied: Authenticated principal does not match mandate subject",
+                )
+
             # 4. Validate Authority
             # Action: read, Resource: resource_uri
             caveat_kwargs = self._extract_caveat_authority_kwargs(mcp_context)
@@ -361,6 +384,7 @@ class MCPAdapter:
                 mandate=mandate,
                 requested_action="read",
                 requested_resource=resource_uri,
+                caller_principal_id=principal_id,
                 **caveat_kwargs,
             )
             
@@ -484,6 +508,23 @@ class MCPAdapter:
             raise error
         
         return principal_id
+
+    @staticmethod
+    def _normalize_principal_id(raw_principal_id: Any) -> str:
+        normalized = str(raw_principal_id or "").strip()
+        if not normalized:
+            return ""
+        try:
+            return str(UUID(normalized))
+        except Exception:
+            return normalized
+
+    def _is_mandate_subject(self, principal_id: str, mandate: Any) -> bool:
+        caller = self._normalize_principal_id(principal_id)
+        subject = self._normalize_principal_id(getattr(mandate, "subject_id", None))
+        if not caller or not subject:
+            return False
+        return caller == subject
 
     @staticmethod
     def _resolve_caveat_mode(raw_mode: str) -> str:
@@ -888,12 +929,18 @@ class MCPAdapter:
                     if not mandate:
                         raise CaracalError(f"Mandate not found: {mandate_id}")
 
+                    if not self._is_mandate_subject(str(principal_id), mandate):
+                        raise CaracalError(
+                            "Authority denied: Authenticated principal does not match mandate subject"
+                        )
+
                     # 2. Validate Authority
                     caveat_kwargs = self._extract_caveat_authority_kwargs(mcp_context)
                     decision = self.authority_evaluator.validate_mandate(
                         mandate=mandate,
                         requested_action="execute",
                         requested_resource=tool_name,
+                        caller_principal_id=str(principal_id),
                         **caveat_kwargs,
                     )
                     
