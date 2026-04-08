@@ -67,10 +67,12 @@ class RedisMandateCache:
             "action_scope": mandate.action_scope,
             "signature": mandate.signature,
             "created_at": mandate.created_at.isoformat(),
-            "metadata": mandate.metadata,
+            "mandate_metadata": mandate.mandate_metadata,
             "revoked": mandate.revoked,
             "revoked_at": mandate.revoked_at.isoformat() if mandate.revoked_at else None,
             "revocation_reason": mandate.revocation_reason,
+            "delegation_type": mandate.delegation_type,
+            "context_tags": mandate.context_tags,
             "source_mandate_id": str(mandate.source_mandate_id) if mandate.source_mandate_id else None,
             "network_distance": mandate.network_distance,
             "intent_hash": mandate.intent_hash
@@ -88,6 +90,16 @@ class RedisMandateCache:
             Dictionary with mandate data
         """
         mandate_dict = json.loads(mandate_json)
+
+        # Backward compatibility: older cache entries stored metadata under "metadata".
+        if "mandate_metadata" not in mandate_dict and "metadata" in mandate_dict:
+            mandate_dict["mandate_metadata"] = mandate_dict.pop("metadata")
+        else:
+            mandate_dict.pop("metadata", None)
+
+        # Backward compatibility: older cache entries may not include delegation fields.
+        mandate_dict.setdefault("delegation_type", "directed")
+        mandate_dict.setdefault("context_tags", [])
         
         # Convert ISO format strings back to datetime objects
         mandate_dict["valid_from"] = datetime.fromisoformat(mandate_dict["valid_from"])

@@ -46,19 +46,21 @@ class SDKBridge:
         config_path: Optional[str] = None,
     ) -> None:
         if config_path:
-            # Legacy mode — backward compat with existing TUI config
-            self._client = CaracalClient(config_path=config_path)
-            self._scope: Optional[ScopeContext] = None
-        else:
-            resolved_base_url = base_url or os.environ.get(
-                "CARACAL_API_URL",
-                f"http://localhost:{os.environ.get('CARACAL_API_PORT', '8000')}",
+            logger.warning(
+                "SDKBridge received legacy config_path; using canonical CaracalClient(api_key, base_url) initialization",
+                extra={"config_path": config_path},
             )
-            self._client = CaracalClient(
-                api_key=api_key,
-                base_url=resolved_base_url,
-            )
-            self._scope = None
+
+        resolved_base_url = base_url or os.environ.get(
+            "CARACAL_API_URL",
+            f"http://localhost:{os.environ.get('CARACAL_API_PORT', '8000')}",
+        )
+        resolved_api_key = api_key or os.environ.get("CARACAL_API_KEY")
+        self._client = CaracalClient(
+            api_key=resolved_api_key,
+            base_url=resolved_base_url,
+        )
+        self._scope: Optional[ScopeContext] = None
 
         logger.info("SDKBridge initialized")
 
