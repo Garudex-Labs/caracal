@@ -82,14 +82,12 @@ class ToolCallRequest(BaseModel):
     """Request model for MCP tool call."""
     tool_name: str = Field(..., description="Name of the MCP tool to invoke")
     tool_args: Dict[str, Any] = Field(default_factory=dict, description="Arguments for the tool")
-    principal_id: str = Field(..., description="ID of the agent making the request")
     metadata: Dict[str, Any] = Field(default_factory=dict, description="Additional metadata")
 
 
 class ResourceReadRequest(BaseModel):
     """Request model for MCP resource read."""
     resource_uri: str = Field(..., description="URI of the resource to read")
-    principal_id: str = Field(..., description="ID of the agent making the request")
     metadata: Dict[str, Any] = Field(default_factory=dict, description="Additional metadata")
 
 
@@ -124,7 +122,8 @@ class MCPAdapterService:
         mcp_adapter: MCPAdapter,
         authority_evaluator: AuthorityEvaluator,
         metering_collector: MeteringCollector,
-        db_connection_manager: Optional[Any] = None
+        db_connection_manager: Optional[Any] = None,
+        session_manager: Optional[Any] = None,
     ):
         """
         Initialize MCP Adapter Service.
@@ -141,6 +140,7 @@ class MCPAdapterService:
         self.authority_evaluator = authority_evaluator
         self.metering_collector = metering_collector
         self.db_connection_manager = db_connection_manager
+        self.session_manager = session_manager
         
         # Create FastAPI app
         self.app = FastAPI(
@@ -172,6 +172,75 @@ class MCPAdapterService:
         logger.info(
             f"Initialized MCPAdapterService with {len(config.mcp_servers)} MCP servers"
         )
+
+    @staticmethod
+    def _extract_bearer_token(auth_header: Optional[str]) -> str:
+        """Extract Bearer token from Authorization header."""
+        raw = str(auth_header or "").strip()
+        if not raw:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Missing Authorization header",
+            )
+
+        parts = raw.split(" ", 1)
+        if len(parts) != 2 or parts[0].lower() != "bearer" or not parts[1].strip():
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid Authorization header format; expected Bearer token",
+            )
+        return parts[1].strip()
+
+    async def _resolve_authenticated_principal(
+        self,
+        *,
+        raw_request: Request,
+    ) -> tuple[str, Dict[str, Any]]:
+        """Validate caller token and return authenticated principal identity."""
+        if self.session_manager is None:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Session validation is not configured",
+            )
+
+        token = self._extract_bearer_token(raw_request.headers.get("Authorization"))
+        try:
+            claims = await self.session_manager.validate_access_token(token)
+        except Exception as exc:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail=f"Invalid access token: {exc}",
+            ) from exc
+
+        principal_id = str(claims.get("sub") or claims.get("principal_id") or "").strip()
+        if not principal_id:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Validated access token is missing subject claim",
+            )
+
+        return principal_id, claims
+
+    @staticmethod
+    def _validate_mandate_id_metadata(metadata: Dict[str, Any]) -> Dict[str, Any]:
+        """Require and normalize mandate_id metadata before adapter invocation."""
+        mandate_raw = str((metadata or {}).get("mandate_id") or "").strip()
+        if not mandate_raw:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Missing metadata.mandate_id",
+            )
+        try:
+            mandate_id = UUID(mandate_raw)
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid metadata.mandate_id format",
+            ) from exc
+
+        normalized = dict(metadata or {})
+        normalized["mandate_id"] = str(mandate_id)
+        return normalized
     
     def _register_routes(self):
         """Register FastAPI routes."""
@@ -278,7 +347,7 @@ class MCPAdapterService:
             }
         
         @self.app.post("/mcp/tool/call", response_model=MCPServiceResponse)
-        async def tool_call(request: ToolCallRequest):
+        async def tool_call(request: ToolCallRequest, raw_request: Request):
             """
             Intercept and forward MCP tool call.
             
@@ -301,15 +370,23 @@ class MCPAdapterService:
             self._tool_call_count += 1
             
             try:
+                principal_id, token_claims = await self._resolve_authenticated_principal(
+                    raw_request=raw_request,
+                )
+
                 logger.info(
                     f"Received tool call request: tool={request.tool_name}, "
-                    f"agent={request.principal_id}"
+                    f"agent={principal_id}"
                 )
+
+                request_metadata = self._validate_mandate_id_metadata(dict(request.metadata or {}))
+                request_metadata.setdefault("task_token_claims", token_claims)
+                request_metadata.setdefault("token_subject", principal_id)
                 
                 # Create MCP context
                 mcp_context = MCPContext(
-                    principal_id=request.principal_id,
-                    metadata=request.metadata
+                    principal_id=principal_id,
+                    metadata=request_metadata
                 )
                 
                 # Intercept tool call through MCPAdapter
@@ -328,7 +405,7 @@ class MCPAdapterService:
                 duration_ms = (time.time() - start_time) * 1000
                 logger.info(
                     f"Tool call completed: tool={request.tool_name}, "
-                    f"agent={request.principal_id}, success={result.success}, "
+                    f"agent={principal_id}, success={result.success}, "
                     f"duration={duration_ms:.2f}ms"
                 )
                 
@@ -339,11 +416,13 @@ class MCPAdapterService:
                     metadata=result.metadata
                 )
                 
+            except HTTPException:
+                raise
             except CaracalError as e:
                 self._error_count += 1
                 logger.error(
                     f"Caracal error during tool call: tool={request.tool_name}, "
-                    f"agent={request.principal_id}, error={e}"
+                    f"agent=unknown, error={e}"
                 )
                 return MCPServiceResponse(
                     success=False,
@@ -355,7 +434,7 @@ class MCPAdapterService:
                 self._error_count += 1
                 logger.error(
                     f"Unexpected error during tool call: tool={request.tool_name}, "
-                    f"agent={request.principal_id}, error={e}",
+                    f"agent=unknown, error={e}",
                     exc_info=True
                 )
                 return MCPServiceResponse(
@@ -366,7 +445,7 @@ class MCPAdapterService:
                 )
         
         @self.app.post("/mcp/resource/read", response_model=MCPServiceResponse)
-        async def resource_read(request: ResourceReadRequest):
+        async def resource_read(request: ResourceReadRequest, raw_request: Request):
             """
             Intercept and forward MCP resource read.
             
@@ -389,15 +468,23 @@ class MCPAdapterService:
             self._resource_read_count += 1
             
             try:
+                principal_id, token_claims = await self._resolve_authenticated_principal(
+                    raw_request=raw_request,
+                )
+
                 logger.info(
                     f"Received resource read request: uri={request.resource_uri}, "
-                    f"agent={request.principal_id}"
+                    f"agent={principal_id}"
                 )
+
+                request_metadata = self._validate_mandate_id_metadata(dict(request.metadata or {}))
+                request_metadata.setdefault("task_token_claims", token_claims)
+                request_metadata.setdefault("token_subject", principal_id)
                 
                 # Create MCP context
                 mcp_context = MCPContext(
-                    principal_id=request.principal_id,
-                    metadata=request.metadata
+                    principal_id=principal_id,
+                    metadata=request_metadata
                 )
                 
                 # Intercept resource read through MCPAdapter
@@ -415,7 +502,7 @@ class MCPAdapterService:
                 duration_ms = (time.time() - start_time) * 1000
                 logger.info(
                     f"Resource read completed: uri={request.resource_uri}, "
-                    f"agent={request.principal_id}, success={result.success}, "
+                    f"agent={principal_id}, success={result.success}, "
                     f"duration={duration_ms:.2f}ms"
                 )
                 
@@ -426,11 +513,13 @@ class MCPAdapterService:
                     metadata=result.metadata
                 )
                 
+            except HTTPException:
+                raise
             except CaracalError as e:
                 self._error_count += 1
                 logger.error(
                     f"Caracal error during resource read: uri={request.resource_uri}, "
-                    f"agent={request.principal_id}, error={e}"
+                    f"agent=unknown, error={e}"
                 )
                 return MCPServiceResponse(
                     success=False,
@@ -442,7 +531,7 @@ class MCPAdapterService:
                 self._error_count += 1
                 logger.error(
                     f"Unexpected error during resource read: uri={request.resource_uri}, "
-                    f"agent={request.principal_id}, error={e}",
+                    f"agent=unknown, error={e}",
                     exc_info=True
                 )
                 return MCPServiceResponse(
@@ -575,10 +664,22 @@ async def main(config_path: Optional[str] = None, listen_address: Optional[str] 
     )
     
     # Initialize MCP adapter
+    upstream_url = mcp_servers[0].url if mcp_servers else None
     mcp_adapter = MCPAdapter(
         authority_evaluator=authority_evaluator,
-        metering_collector=metering_collector
+        metering_collector=metering_collector,
+        mcp_server_url=upstream_url,
+        request_timeout_seconds=config.request_timeout_seconds,
     )
+
+    # Reuse AIS session token validation for authenticated caller identity binding.
+    try:
+        from caracal.runtime.entrypoints import _create_ais_session_manager
+
+        session_manager = _create_ais_session_manager()
+    except Exception as e:
+        logger.error(f"Failed to initialize AIS session manager for MCP auth: {e}")
+        sys.exit(1)
     
     # Initialize MCP service
     service = MCPAdapterService(
@@ -586,7 +687,8 @@ async def main(config_path: Optional[str] = None, listen_address: Optional[str] 
         mcp_adapter=mcp_adapter,
         authority_evaluator=authority_evaluator,
         metering_collector=metering_collector,
-        db_connection_manager=db_manager
+        db_connection_manager=db_manager,
+        session_manager=session_manager,
     )
     
     # Start service

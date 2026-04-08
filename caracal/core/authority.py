@@ -109,6 +109,7 @@ class AuthorityEvaluator:
         self.ledger_writer = ledger_writer
         self.mandate_cache = mandate_cache
         self.delegation_graph = delegation_graph
+        self._active_caller_principal_id: Optional[str] = None
         logger.info(f"AuthorityEvaluator initialized (cache_enabled={mandate_cache is not None})")
     
     def _get_principal(self, principal_id: UUID) -> Optional[Principal]:
@@ -248,8 +249,10 @@ class AuthorityEvaluator:
         mandate: Optional[ExecutionMandate],
         requested_action: str,
         requested_resource: str,
+        caller_principal_id: Optional[str] = None,
     ) -> AuthorityDecision:
         """Create a denied decision and emit stage-aware ledger telemetry."""
+        resolved_caller = caller_principal_id or self._active_caller_principal_id
         decision = AuthorityDecision(
             allowed=False,
             reason=reason,
@@ -271,6 +274,8 @@ class AuthorityEvaluator:
             metadata={
                 "boundary_stage": boundary_stage,
                 "reason_code": reason_code,
+                "caller_principal_id": resolved_caller,
+                "mandate_subject_id": str(mandate.subject_id) if mandate else None,
             },
         )
         return decision
@@ -282,8 +287,10 @@ class AuthorityEvaluator:
         mandate: ExecutionMandate,
         requested_action: str,
         requested_resource: str,
+        caller_principal_id: Optional[str] = None,
     ) -> AuthorityDecision:
         """Create an allow decision and emit stage-aware ledger telemetry."""
+        resolved_caller = caller_principal_id or self._active_caller_principal_id
         decision = AuthorityDecision(
             allowed=True,
             reason=reason,
@@ -305,6 +312,8 @@ class AuthorityEvaluator:
             metadata={
                 "boundary_stage": AuthorityBoundaryStage.ALLOW,
                 "reason_code": AuthorityReasonCode.ALLOW,
+                "caller_principal_id": resolved_caller,
+                "mandate_subject_id": str(mandate.subject_id),
             },
         )
         return decision
@@ -563,6 +572,7 @@ class AuthorityEvaluator:
         caveat_chain: Optional[list[dict[str, Any]]] = None,
         caveat_hmac_key: Optional[str] = None,
         caveat_task_id: Optional[str] = None,
+        caller_principal_id: Optional[str] = None,
     ) -> AuthorityDecision:
         """
         Validate a mandate for a specific action.
@@ -587,55 +597,61 @@ class AuthorityEvaluator:
         Returns:
             AuthorityDecision with allow/deny and reason
         """
-        if current_time is None:
-            current_time = datetime.utcnow()
+        self._active_caller_principal_id = caller_principal_id
+        try:
+            if current_time is None:
+                current_time = datetime.utcnow()
 
-        # Fail-closed: If mandate is None, deny
-        if mandate is None:
-            reason = "No mandate provided"
-            logger.warning(reason)
-            return self._deny_decision(
-                reason=reason,
-                reason_code=AuthorityReasonCode.MANDATE_MISSING,
-                boundary_stage=AuthorityBoundaryStage.MANDATE_STATE_VALIDATION,
-                mandate=None,
-                requested_action=requested_action,
-                requested_resource=requested_resource,
+            # Fail-closed: If mandate is None, deny
+            if mandate is None:
+                reason = "No mandate provided"
+                logger.warning(reason)
+                return self._deny_decision(
+                    reason=reason,
+                    reason_code=AuthorityReasonCode.MANDATE_MISSING,
+                    boundary_stage=AuthorityBoundaryStage.MANDATE_STATE_VALIDATION,
+                    mandate=None,
+                    requested_action=requested_action,
+                    requested_resource=requested_resource,
+                    caller_principal_id=caller_principal_id,
+                )
+
+            logger.info(
+                f"Validating mandate {mandate.mandate_id} for action={requested_action}, "
+                f"resource={requested_resource}"
             )
 
-        logger.info(
-            f"Validating mandate {mandate.mandate_id} for action={requested_action}, "
-            f"resource={requested_resource}"
-        )
-        
-        for check in (
-            lambda m, a, r: self._validate_mandate_state(m, a, r, current_time),
-            self._validate_issuer_authority,
-            self._validate_delegation_path_stage,
-            lambda m, a, r: self._validate_caveat_chain_stage(
-                mandate=m,
-                requested_action=a,
-                requested_resource=r,
-                caveat_chain=caveat_chain,
-                caveat_hmac_key=caveat_hmac_key,
-                caveat_task_id=caveat_task_id,
-                current_time=current_time,
-            ),
-            self._validate_action_and_resource_scope,
-        ):
-            decision = check(mandate, requested_action, requested_resource)
-            if decision is not None:
-                return decision
-        
-        # All checks passed - allow the action
-        reason = f"Mandate {mandate.mandate_id} is valid for action '{requested_action}' on resource '{requested_resource}'"
-        logger.info(reason)
-        return self._allow_decision(
-            reason=reason,
-            mandate=mandate,
-            requested_action=requested_action,
-            requested_resource=requested_resource,
-        )
+            for check in (
+                lambda m, a, r: self._validate_mandate_state(m, a, r, current_time),
+                self._validate_issuer_authority,
+                self._validate_delegation_path_stage,
+                lambda m, a, r: self._validate_caveat_chain_stage(
+                    mandate=m,
+                    requested_action=a,
+                    requested_resource=r,
+                    caveat_chain=caveat_chain,
+                    caveat_hmac_key=caveat_hmac_key,
+                    caveat_task_id=caveat_task_id,
+                    current_time=current_time,
+                ),
+                self._validate_action_and_resource_scope,
+            ):
+                decision = check(mandate, requested_action, requested_resource)
+                if decision is not None:
+                    return decision
+
+            # All checks passed - allow the action
+            reason = f"Mandate {mandate.mandate_id} is valid for action '{requested_action}' on resource '{requested_resource}'"
+            logger.info(reason)
+            return self._allow_decision(
+                reason=reason,
+                mandate=mandate,
+                requested_action=requested_action,
+                requested_resource=requested_resource,
+                caller_principal_id=caller_principal_id,
+            )
+        finally:
+            self._active_caller_principal_id = None
     
     def check_delegation_path(
         self,
