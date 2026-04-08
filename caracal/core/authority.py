@@ -28,6 +28,9 @@ from caracal.provider.definitions import parse_provider_scope
 
 logger = get_logger(__name__)
 
+# Canonical authorization decision API used by SDK, CLI, and TUI parity flows.
+CANONICAL_AUTHORITY_VALIDATION_METHODS = ("validate_mandate",)
+
 
 class AuthorityBoundaryStage:
     """Boundary-2 validation stages used for telemetry and deny diagnostics."""

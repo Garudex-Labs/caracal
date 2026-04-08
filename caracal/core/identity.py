@@ -29,6 +29,14 @@ from caracal.logging_config import get_logger
 
 logger = get_logger(__name__)
 
+# Canonical principal lifecycle API expected across SDK, CLI, and TUI.
+CANONICAL_PRINCIPAL_LIFECYCLE_METHODS = (
+    "register_principal",
+    "list_principals",
+    "get_principal",
+    "update_principal",
+)
+
 
 class VerificationStatus(Enum):
     UNVERIFIED = "unverified"
@@ -193,6 +201,10 @@ class PrincipalRegistry:
         self.session.flush()
         self.session.commit()
         return self._to_identity(principal)
+
+    def update_principal(self, principal_id: str, metadata: Optional[Dict[str, Any]] = None) -> PrincipalIdentity:
+        """Canonical alias for principal metadata updates across control surfaces."""
+        return self.update_agent(principal_id=principal_id, metadata=metadata)
 
     def transition_lifecycle_status(
         self,
