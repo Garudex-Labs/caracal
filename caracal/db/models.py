@@ -1002,6 +1002,21 @@ class GatewayProvider(Base):
         return f"<GatewayProvider(provider_id={self.provider_id!r}, base_url={self.base_url!r}, enabled={self.enabled})>"
 
 
+class RegisteredTool(Base):
+    """Persisted tool registration state for explicit MCP tool recognition."""
+
+    __tablename__ = "registered_tools"
+
+    tool_record_id = Column(PG_UUID(as_uuid=True), primary_key=True, default=uuid4)
+    tool_id = Column(String(255), nullable=False, unique=True, index=True)
+    active = Column(Boolean, nullable=False, default=True, index=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    def __repr__(self):
+        return f"<RegisteredTool(tool_id={self.tool_id!r}, active={self.active})>"
+
+
 
 # ============================================================================
 # Enterprise Runtime State Management Models

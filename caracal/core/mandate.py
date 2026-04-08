@@ -10,7 +10,7 @@ lifecycle including issuance, revocation, and graph-based delegation.
 """
 
 from datetime import datetime, timedelta
-from typing import List, Optional
+from typing import Any, List, Optional
 from uuid import UUID, uuid4
 
 from sqlalchemy.orm import Session
@@ -23,9 +23,17 @@ from caracal.logging_config import get_logger
 
 logger = get_logger(__name__)
 
+# Canonical mandate lifecycle API expected across SDK, CLI, and TUI.
+CANONICAL_MANDATE_LIFECYCLE_METHODS = (
+    "issue_mandate",
+    "validate_mandate",
+    "revoke_mandate",
+)
+
 # Import AuthorityLedgerWriter, RedisMandateCache, and MandateIssuanceRateLimiter for type hints (avoid circular import)
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
+    from caracal.core.authority import AuthorityDecision, AuthorityEvaluator
     from caracal.core.authority_ledger import AuthorityLedgerWriter
     from caracal.redis.mandate_cache import RedisMandateCache
     from caracal.core.rate_limiter import MandateIssuanceRateLimiter
@@ -47,6 +55,7 @@ class MandateManager:
         mandate_cache=None,
         rate_limiter=None,
         delegation_graph=None,
+        authority_evaluator=None,
         signing_service: Optional[SigningService] = None,
     ):
         """
@@ -64,12 +73,27 @@ class MandateManager:
         self.mandate_cache = mandate_cache
         self.rate_limiter = rate_limiter
         self.delegation_graph = delegation_graph
+        self._authority_evaluator = authority_evaluator
         self._signing_service = signing_service or SigningService(PrincipalRegistry(db_session))
         logger.info(
             f"MandateManager initialized (cache_enabled={mandate_cache is not None}, "
             f"rate_limiter_enabled={rate_limiter is not None}, "
             f"delegation_graph_enabled={delegation_graph is not None})"
         )
+
+    def _get_authority_evaluator(self):
+        if self._authority_evaluator is not None:
+            return self._authority_evaluator
+
+        from caracal.core.authority import AuthorityEvaluator
+
+        self._authority_evaluator = AuthorityEvaluator(
+            db_session=self.db_session,
+            ledger_writer=self.ledger_writer,
+            mandate_cache=self.mandate_cache,
+            delegation_graph=self.delegation_graph,
+        )
+        return self._authority_evaluator
     
     def _get_active_policy(self, principal_id: UUID) -> Optional[AuthorityPolicy]:
         """
@@ -463,6 +487,30 @@ class MandateManager:
                 logger.warning(f"Failed to record rate limit: {e}")
         
         return mandate
+
+    def validate_mandate(
+        self,
+        mandate: ExecutionMandate,
+        requested_action: str,
+        requested_resource: str,
+        current_time: Optional[datetime] = None,
+        caveat_chain: Optional[list[dict[str, Any]]] = None,
+        caveat_hmac_key: Optional[str] = None,
+        caveat_task_id: Optional[str] = None,
+        caller_principal_id: Optional[str] = None,
+    ) -> "AuthorityDecision":
+        """Canonical mandate validation entrypoint delegating to AuthorityEvaluator."""
+        evaluator = self._get_authority_evaluator()
+        return evaluator.validate_mandate(
+            mandate=mandate,
+            requested_action=requested_action,
+            requested_resource=requested_resource,
+            current_time=current_time,
+            caveat_chain=caveat_chain,
+            caveat_hmac_key=caveat_hmac_key,
+            caveat_task_id=caveat_task_id,
+            caller_principal_id=caller_principal_id,
+        )
 
     def revoke_mandate(
         self,
