@@ -289,12 +289,19 @@ class MandateFlow:
                 if issuer_policy and issuer_policy.allow_delegation:
                     policy_depth = int(issuer_policy.max_network_distance)
 
-                network_distance = self.prompt.number(
-                    f"Delegation depth (0-{policy_depth})",
-                    default=policy_depth,
-                    min_value=0,
-                    max_value=policy_depth,
+                use_policy_default_depth = self.prompt.confirm(
+                    "Use policy default delegation depth?",
+                    default=True,
                 )
+                network_distance = None
+                if not use_policy_default_depth:
+                    network_distance = self.prompt.number(
+                        f"Delegation depth (0-{policy_depth})",
+                        default=policy_depth,
+                        min_value=0,
+                        max_value=policy_depth,
+                    )
+                resolved_depth_for_display = policy_depth if network_distance is None else int(network_distance)
                 
                 # Summary
                 self.console.print()
@@ -304,7 +311,7 @@ class MandateFlow:
                 self.console.print(f"    Resources: [{Colors.NEUTRAL}]{len(resource_scope)} resources[/]")
                 self.console.print(f"    Actions: [{Colors.NEUTRAL}]{len(action_scope)} actions[/]")
                 self.console.print(f"    Validity: [{Colors.NEUTRAL}]{int(validity_seconds)}s[/]")
-                self.console.print(f"    Delegation Depth: [{Colors.NEUTRAL}]{int(network_distance)}[/]")
+                self.console.print(f"    Delegation Depth: [{Colors.NEUTRAL}]{int(resolved_depth_for_display)}[/]")
                 self.console.print()
                 
                 if not self.prompt.confirm("Issue this mandate?", default=True):
@@ -323,7 +330,7 @@ class MandateFlow:
                     resource_scope=resource_scope,
                     action_scope=action_scope,
                     validity_seconds=int(validity_seconds),
-                    network_distance=int(network_distance),
+                    network_distance=network_distance,
                 )
                 
                 self.console.print(f"  [{Colors.SUCCESS}]{Icons.SUCCESS} Mandate issued![/]")

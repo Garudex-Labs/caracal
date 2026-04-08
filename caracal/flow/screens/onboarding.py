@@ -20,6 +20,8 @@ from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 
+from caracal.cli.provider_scopes import validate_provider_scopes
+from caracal.deployment.config_manager import ConfigManager
 from caracal.flow.components.prompt import FlowPrompt
 from caracal.flow.components.wizard import Wizard, WizardStep
 from caracal.flow.screens._provider_scope_helpers import load_provider_scope_catalog
@@ -79,6 +81,19 @@ def _find_env_file() -> Optional[Path]:
         pass
     
     return None
+
+
+def _resolve_active_workspace_name() -> str:
+    """Resolve the active workspace name for shared provider scope validation."""
+    config_manager = ConfigManager()
+    workspace_name = config_manager.get_default_workspace_name()
+    if workspace_name:
+        return str(workspace_name)
+
+    workspaces = config_manager.list_workspaces()
+    if not workspaces:
+        raise RuntimeError("No active workspace found for provider scope validation")
+    return str(workspaces[0])
 
 
 def _get_db_config_from_env() -> dict:
@@ -1484,6 +1499,15 @@ def _step_policy(wizard: Wizard) -> Any:
         )
         return None
 
+    workspace_name = _resolve_active_workspace_name()
+    providers_for_validation = [provider_choice] if provider_choice != "all" else None
+    validate_provider_scopes(
+        workspace=workspace_name,
+        resource_scopes=resource_patterns,
+        action_scopes=actions,
+        providers=providers_for_validation,
+    )
+
     wizard.context["first_policy"] = {
         "max_validity_seconds": int(max_validity),
         "resource_patterns": resource_patterns,
@@ -1575,6 +1599,14 @@ def _step_mandate(wizard: Wizard) -> Any:
             f"  [{Colors.WARNING}]{Icons.WARNING} Mandate issuance skipped because no provider scopes were selected.[/]"
         )
         return None
+
+    workspace_name = _resolve_active_workspace_name()
+    validate_provider_scopes(
+        workspace=workspace_name,
+        resource_scopes=resource_scope,
+        action_scopes=action_scope,
+        providers=None,
+    )
 
     wizard.context["first_mandate"] = {
         "validity_seconds": int(validity),
