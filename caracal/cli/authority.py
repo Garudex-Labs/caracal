@@ -258,7 +258,7 @@ def issue(
             )
             
             # Commit transaction
-            db_manager.get_session().commit()
+            mandate_manager.db_session.commit()
             
             if format.lower() == 'json':
                 # JSON output
@@ -416,7 +416,7 @@ def validate(
             decision_label = 'allowed' if decision.allowed else 'denied'
             
             # Commit transaction (to record ledger event)
-            db_manager.get_session().commit()
+            evaluator.db_session.commit()
             
             if format.lower() == 'json':
                 # JSON output
@@ -550,7 +550,7 @@ def revoke(
             )
             
             # Commit transaction
-            db_manager.get_session().commit()
+            mandate_manager.db_session.commit()
             
             if format.lower() == 'json':
                 # JSON output
@@ -888,7 +888,7 @@ def delegate(
             )
             
             # Commit transaction
-            db_manager.get_session().commit()
+            mandate_manager.db_session.commit()
             
             if format.lower() == 'json':
                 # JSON output

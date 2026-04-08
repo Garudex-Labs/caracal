@@ -103,9 +103,6 @@ def create(
     Defines rules for how mandates can be issued to a principal,
     including scope limits and validity period constraints.
 
-    If the principal UUID does not exist yet, this command will auto-provision
-    a principal record (preferring agent registry metadata when available).
-
     Examples:
 
         # Create a provider-scoped policy for a worker principal (for example Fiona)
@@ -156,8 +153,6 @@ def create(
         )
         
         # Create database connection
-        from caracal.core.identity import PrincipalRegistry
-        from caracal.identity.service import IdentityService
         from caracal.db.connection import get_db_manager
         from caracal.db.models import AuthorityPolicy, Principal
         from uuid import uuid4
@@ -171,36 +166,13 @@ def create(
             principal = session.query(Principal).filter(
                 Principal.principal_id == principal_uuid
             ).first()
-
-            principal_auto_created = False
             if not principal:
-                # Auto-provision principal so policy workflows can be executed via CLI
-                # without requiring separate, hidden setup steps.
-                principal_name = f"principal-{principal_uuid}"
-                principal_owner = "unknown"
-                principal_kind = "worker"
-
-                registry = PrincipalRegistry(session)
-                identity_service = IdentityService(principal_registry=registry)
-                identity = identity_service.register_principal(
-                    name=principal_name,
-                    owner=principal_owner,
-                    principal_kind=principal_kind,
-                    metadata={
-                        "auto_provisioned": True,
-                        "source": "caracal policy create",
-                    },
-                    principal_id=str(principal_uuid),
-                    generate_keys=True,
+                click.echo(
+                    f"Error: Principal not found: {principal_uuid}. "
+                    "Register the principal before creating a policy.",
+                    err=True,
                 )
-                principal = session.query(Principal).filter(
-                    Principal.principal_id == UUID(str(identity.principal_id))
-                ).first()
-                if principal is None:
-                    raise RuntimeError(
-                        f"Auto-provisioned principal could not be reloaded: {identity.principal_id}"
-                    )
-                principal_auto_created = True
+                sys.exit(1)
             
             # Create policy
             policy = AuthorityPolicy(
@@ -245,8 +217,6 @@ def create(
                 click.echo(f"Max Delegation Network Distance:   {policy.max_network_distance}")
                 click.echo(f"Active:                 {'Yes' if policy.active else 'No'}")
                 click.echo(f"Created:                {policy.created_at}")
-                if principal_auto_created:
-                    click.echo("Principal Record:       Auto-provisioned")
         
         finally:
             # Close database connection
