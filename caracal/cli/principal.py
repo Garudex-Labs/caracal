@@ -152,6 +152,7 @@ def register(ctx, name: str, principal_kind: str, email: str, metadata: tuple):
                     owner=email,
                     principal_kind=principal_kind,
                     metadata=metadata_dict or None,
+                    generate_keys=True,
                 )
                 principal = {
                     "principal_id": identity.principal_id,
