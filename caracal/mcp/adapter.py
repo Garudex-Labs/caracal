@@ -260,7 +260,12 @@ class MCPAdapter:
                 tags=tags
             )
             
-            self.metering_collector.collect_event(metering_event)
+            self._collect_metering_event(
+                metering_event,
+                operation="intercept_tool_call",
+                principal_id=principal_id,
+                resource_identifier=tool_name,
+            )
             
             logger.info(
                 f"MCP tool call completed: tool={tool_name}, agent={principal_id}"
@@ -434,7 +439,12 @@ class MCPAdapter:
                 tags=tags
             )
             
-            self.metering_collector.collect_event(metering_event)
+            self._collect_metering_event(
+                metering_event,
+                operation="intercept_resource_read",
+                principal_id=principal_id,
+                resource_identifier=resource_uri,
+            )
             
             logger.info(
                 f"MCP resource read completed: uri={resource_uri}, agent={principal_id}, "
@@ -587,6 +597,29 @@ class MCPAdapter:
                 follow_redirects=True,
             )
         return self._http_client
+
+    def _collect_metering_event(
+        self,
+        metering_event: MeteringEvent,
+        *,
+        operation: str,
+        principal_id: str,
+        resource_identifier: str,
+    ) -> None:
+        """Collect metering data without turning successful execution into failure."""
+        try:
+            self.metering_collector.collect_event(metering_event)
+        except Exception as exc:
+            logger.warning(
+                "Metering collection failed after successful operation",
+                extra={
+                    "operation": operation,
+                    "principal_id": principal_id,
+                    "resource_identifier": resource_identifier,
+                    "error": str(exc),
+                },
+                exc_info=True,
+            )
 
     async def _forward_to_mcp_server(
         self,
@@ -783,7 +816,7 @@ class MCPAdapter:
         else:
             return "unknown"
 
-    def as_decorator(self):
+    def as_decorator(self, *, tool_id: str):
         """
         Return Python decorator for in-process integration.
         
@@ -793,7 +826,7 @@ class MCPAdapter:
         - Error handling and logging
         
         Usage:
-            @mcp_adapter.as_decorator()
+            @mcp_adapter.as_decorator(tool_id="provider:endframe:resource:deployments")
             async def my_mcp_tool(principal_id: str, mandate_id: str, **kwargs):
                 # Tool implementation
                 return result
@@ -804,6 +837,10 @@ class MCPAdapter:
             Decorator function that wraps MCP tool functions
             
         """
+        resolved_tool_id = str(tool_id or "").strip()
+        if not resolved_tool_id:
+            raise CaracalError("tool_id is required for MCP decorator registration")
+
         def decorator(func):
             """
             Decorator that wraps an MCP tool function.
@@ -884,12 +921,12 @@ class MCPAdapter:
                         f"mandate_id is required for MCP tool '{func.__name__}'."
                     )
                 
-                # Get tool name from function name
-                tool_name = func.__name__
+                tool_name = resolved_tool_id
                 
                 # Create MCP context
                 metadata: Dict[str, Any] = {
                     "tool_name": tool_name,
+                    "tool_id": tool_name,
                     "decorator_mode": True,
                     "mandate_id": str(mandate_id),
                 }
@@ -986,7 +1023,12 @@ class MCPAdapter:
                         tags=tags
                     )
                     
-                    self.metering_collector.collect_event(metering_event)
+                    self._collect_metering_event(
+                        metering_event,
+                        operation="decorator_tool_call",
+                        principal_id=str(principal_id),
+                        resource_identifier=tool_name,
+                    )
                     
                     logger.info(
                         f"MCP tool call completed (decorated): tool={tool_name}, agent={principal_id}"

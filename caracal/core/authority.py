@@ -10,6 +10,7 @@ mandates and making allow/deny decisions with fail-closed semantics.
 
 from dataclasses import dataclass
 from datetime import datetime
+from fnmatch import fnmatchcase
 from typing import Any, Optional
 from uuid import UUID
 
@@ -23,6 +24,7 @@ from caracal.core.caveat_chain import (
 )
 from caracal.db.models import ExecutionMandate, Principal
 from caracal.logging_config import get_logger
+from caracal.provider.definitions import parse_provider_scope
 
 logger = get_logger(__name__)
 
@@ -186,19 +188,24 @@ class AuthorityEvaluator:
         Returns:
             True if value matches pattern, False otherwise
         """
+        # Canonical provider scopes are exact-match only.
+        if self._is_canonical_provider_scope(value) or self._is_canonical_provider_scope(pattern):
+            return value == pattern
+
         # Exact match
         if value == pattern:
             return True
-        
-        # Wildcard match
-        if '*' in pattern:
-            import re
-            regex_pattern = pattern.replace('*', '.*')
-            regex_pattern = f"^{regex_pattern}$"
-            if re.match(regex_pattern, value):
-                return True
-        
-        return False
+
+        # Non-provider scopes can use shell-style wildcard matching.
+        return fnmatchcase(value, pattern)
+
+    @staticmethod
+    def _is_canonical_provider_scope(scope: str) -> bool:
+        try:
+            parse_provider_scope(str(scope))
+            return True
+        except Exception:
+            return False
     
     def _record_ledger_event(
         self,
