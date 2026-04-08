@@ -96,20 +96,17 @@ class TestToolCallRequest:
         request = ToolCallRequest(
             tool_name="test_tool",
             tool_args={"arg": "value"},
-            principal_id="agent-123",
             metadata={"key": "value"}
         )
         
         assert request.tool_name == "test_tool"
         assert request.tool_args["arg"] == "value"
-        assert request.principal_id == "agent-123"
         assert request.metadata["key"] == "value"
     
     def test_tool_call_request_defaults(self):
         """Test ToolCallRequest with default values."""
         request = ToolCallRequest(
-            tool_name="test_tool",
-            principal_id="agent-123"
+            tool_name="test_tool"
         )
         
         assert request.tool_args == {}
@@ -124,12 +121,10 @@ class TestResourceReadRequest:
         """Test ResourceReadRequest creation."""
         request = ResourceReadRequest(
             resource_uri="file://test.txt",
-            principal_id="agent-123",
             metadata={"key": "value"}
         )
         
         assert request.resource_uri == "file://test.txt"
-        assert request.principal_id == "agent-123"
         assert request.metadata["key"] == "value"
 
 
@@ -192,6 +187,10 @@ class TestMCPAdapterService:
         self.mock_authority_evaluator = Mock(spec=AuthorityEvaluator)
         self.mock_metering_collector = Mock(spec=MeteringCollector)
         self.mock_db_connection_manager = Mock()
+        self.mock_session_manager = Mock()
+        self.mock_session_manager.validate_access_token = AsyncMock(
+            return_value={"sub": "agent-123"}
+        )
         
         # Create server config
         server_config = MCPServerConfig(
@@ -209,7 +208,8 @@ class TestMCPAdapterService:
             mcp_adapter=self.mock_mcp_adapter,
             authority_evaluator=self.mock_authority_evaluator,
             metering_collector=self.mock_metering_collector,
-            db_connection_manager=self.mock_db_connection_manager
+            db_connection_manager=self.mock_db_connection_manager,
+            session_manager=self.mock_session_manager,
         )
     
     def test_service_initialization(self):
@@ -313,11 +313,14 @@ class TestMCPAdapterService:
         request_data = {
             "tool_name": "test_tool",
             "tool_args": {"arg": "value"},
-            "principal_id": "agent-123",
             "metadata": {"mandate_id": str(uuid4())}
         }
         
-        response = client.post("/mcp/tool/call", json=request_data)
+        response = client.post(
+            "/mcp/tool/call",
+            json=request_data,
+            headers={"Authorization": "Bearer test-token"},
+        )
         
         assert response.status_code == 200
         data = response.json()
@@ -341,11 +344,14 @@ class TestMCPAdapterService:
         request_data = {
             "tool_name": "test_tool",
             "tool_args": {"arg": "value"},
-            "principal_id": "agent-123",
             "metadata": {"mandate_id": str(uuid4())}
         }
         
-        response = client.post("/mcp/tool/call", json=request_data)
+        response = client.post(
+            "/mcp/tool/call",
+            json=request_data,
+            headers={"Authorization": "Bearer test-token"},
+        )
         
         assert response.status_code == 200
         data = response.json()
@@ -366,11 +372,14 @@ class TestMCPAdapterService:
         request_data = {
             "tool_name": "test_tool",
             "tool_args": {"arg": "value"},
-            "principal_id": "agent-123",
             "metadata": {"mandate_id": str(uuid4())}
         }
         
-        response = client.post("/mcp/tool/call", json=request_data)
+        response = client.post(
+            "/mcp/tool/call",
+            json=request_data,
+            headers={"Authorization": "Bearer test-token"},
+        )
         
         assert response.status_code == 200
         data = response.json()
@@ -400,11 +409,14 @@ class TestMCPAdapterService:
         
         request_data = {
             "resource_uri": "file://test.txt",
-            "principal_id": "agent-123",
             "metadata": {"mandate_id": str(uuid4())}
         }
         
-        response = client.post("/mcp/resource/read", json=request_data)
+        response = client.post(
+            "/mcp/resource/read",
+            json=request_data,
+            headers={"Authorization": "Bearer test-token"},
+        )
         
         assert response.status_code == 200
         data = response.json()
@@ -426,11 +438,14 @@ class TestMCPAdapterService:
         
         request_data = {
             "resource_uri": "file://test.txt",
-            "principal_id": "agent-123",
             "metadata": {"mandate_id": str(uuid4())}
         }
         
-        response = client.post("/mcp/resource/read", json=request_data)
+        response = client.post(
+            "/mcp/resource/read",
+            json=request_data,
+            headers={"Authorization": "Bearer test-token"},
+        )
         
         assert response.status_code == 200
         data = response.json()
@@ -456,11 +471,70 @@ class TestMCPAdapterService:
         request_data = {
             "tool_name": "test_tool",
             "tool_args": {},
-            "principal_id": "agent-123",
             "metadata": {"mandate_id": str(uuid4())}
         }
         
-        client.post("/mcp/tool/call", json=request_data)
+        client.post(
+            "/mcp/tool/call",
+            json=request_data,
+            headers={"Authorization": "Bearer test-token"},
+        )
         
         assert self.service._request_count == initial_count + 1
         assert self.service._tool_call_count == initial_tool_count + 1
+
+    def test_tool_call_endpoint_missing_authorization_header(self):
+        """Test tool call endpoint denies unauthenticated requests."""
+        from fastapi.testclient import TestClient
+        client = TestClient(self.service.app)
+
+        request_data = {
+            "tool_name": "test_tool",
+            "tool_args": {},
+            "metadata": {"mandate_id": str(uuid4())}
+        }
+
+        response = client.post("/mcp/tool/call", json=request_data)
+
+        assert response.status_code == 401
+        assert "authorization" in response.json()["detail"].lower()
+
+    def test_tool_call_endpoint_invalid_mandate_id(self):
+        """Test tool call endpoint rejects malformed mandate IDs before adapter call."""
+        from fastapi.testclient import TestClient
+        client = TestClient(self.service.app)
+
+        request_data = {
+            "tool_name": "test_tool",
+            "tool_args": {},
+            "metadata": {"mandate_id": "not-a-uuid"}
+        }
+
+        response = client.post(
+            "/mcp/tool/call",
+            json=request_data,
+            headers={"Authorization": "Bearer test-token"},
+        )
+
+        assert response.status_code == 400
+        assert "mandate_id" in response.json()["detail"].lower()
+
+    def test_tool_call_endpoint_missing_mandate_id(self):
+        """Test tool call endpoint rejects missing mandate ID metadata."""
+        from fastapi.testclient import TestClient
+        client = TestClient(self.service.app)
+
+        request_data = {
+            "tool_name": "test_tool",
+            "tool_args": {},
+            "metadata": {}
+        }
+
+        response = client.post(
+            "/mcp/tool/call",
+            json=request_data,
+            headers={"Authorization": "Bearer test-token"},
+        )
+
+        assert response.status_code == 400
+        assert "mandate_id" in response.json()["detail"].lower()

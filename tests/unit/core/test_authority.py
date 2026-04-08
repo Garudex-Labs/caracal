@@ -329,6 +329,77 @@ class TestAuthorityEvaluator:
         assert self.evaluator._match_pattern("read:secrets", "*") is True
         assert self.evaluator._match_pattern("write:secrets", "read:*") is False
 
+    def test_validate_mandate_records_caller_subject_metadata_on_deny(self):
+        """Denied validations should record caller and mandate subject metadata."""
+        ledger_writer = Mock()
+        evaluator = AuthorityEvaluator(self.mock_db_session, ledger_writer=ledger_writer)
+
+        mandate = ExecutionMandate(
+            mandate_id=uuid4(),
+            issuer_id=uuid4(),
+            subject_id=uuid4(),
+            valid_from=datetime.utcnow() - timedelta(hours=1),
+            valid_until=datetime.utcnow() + timedelta(hours=1),
+            resource_scope=["secret/*"],
+            action_scope=["read:secrets"],
+            signature="test_signature",
+            revoked=True,
+        )
+
+        evaluator.validate_mandate(
+            mandate=mandate,
+            requested_action="read:secrets",
+            requested_resource="secret/test",
+            caller_principal_id="caller-agent-1",
+        )
+
+        assert ledger_writer.record_validation.called
+        metadata = ledger_writer.record_validation.call_args.kwargs["metadata"]
+        assert metadata["caller_principal_id"] == "caller-agent-1"
+        assert metadata["mandate_subject_id"] == str(mandate.subject_id)
+
+    def test_validate_mandate_records_caller_subject_metadata_on_allow(self):
+        """Allowed validations should record caller and mandate subject metadata."""
+        ledger_writer = Mock()
+        evaluator = AuthorityEvaluator(self.mock_db_session, ledger_writer=ledger_writer)
+
+        issuer_id = uuid4()
+        mandate = ExecutionMandate(
+            mandate_id=uuid4(),
+            issuer_id=issuer_id,
+            subject_id=uuid4(),
+            valid_from=datetime.utcnow() - timedelta(hours=1),
+            valid_until=datetime.utcnow() + timedelta(hours=1),
+            resource_scope=["secret/*"],
+            action_scope=["read:secrets"],
+            signature="test_signature",
+            revoked=False,
+        )
+        issuer = Principal(
+            principal_id=issuer_id,
+            name="issuer",
+            principal_kind="human",
+            owner="test",
+            public_key_pem="test_public_key",
+        )
+        mock_query = Mock()
+        mock_query.filter.return_value.first.return_value = issuer
+        self.mock_db_session.query.return_value = mock_query
+
+        with patch("caracal.core.authority.verify_mandate_signature", return_value=True):
+            with patch.object(evaluator, "check_delegation_path", return_value=True):
+                evaluator.validate_mandate(
+                    mandate=mandate,
+                    requested_action="read:secrets",
+                    requested_resource="secret/test",
+                    caller_principal_id="caller-agent-2",
+                )
+
+        assert ledger_writer.record_validation.called
+        metadata = ledger_writer.record_validation.call_args.kwargs["metadata"]
+        assert metadata["caller_principal_id"] == "caller-agent-2"
+        assert metadata["mandate_subject_id"] == str(mandate.subject_id)
+
 
 @pytest.mark.unit
 class TestAuthorityDecision:
