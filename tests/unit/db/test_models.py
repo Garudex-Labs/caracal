@@ -21,6 +21,7 @@ from caracal.db.models import (
     AuthorityLedgerEvent,
     AuthorityPolicy,
     GatewayProvider,
+    RegisteredTool,
     EnterpriseRuntimeConfig,
     SessionHandoffTransfer,
 )
@@ -405,6 +406,26 @@ class TestGatewayProviderModel:
         assert "GatewayProvider" in repr_str
         assert "test-provider" in repr_str
         assert provider.base_url in repr_str  # lgtm[py/incomplete-url-substring-sanitization]
+
+
+@pytest.mark.unit
+class TestRegisteredToolModel:
+    """Test suite for RegisteredTool model."""
+
+    def test_registered_tool_creation_defaults(self):
+        """Registered tools should default to active state with unique external ID."""
+        tool = RegisteredTool(tool_id="tool.echo")
+
+        assert tool.tool_id == "tool.echo"
+        assert RegisteredTool.__table__.c.active.default.arg is True
+
+    def test_registered_tool_column_contract(self):
+        """Registered tools table must enforce explicit tool identity columns."""
+        columns = {column.name: column for column in RegisteredTool.__table__.columns}
+
+        assert "tool_id" in columns
+        assert columns["tool_id"].unique is True
+        assert "active" in columns
 
 
 @pytest.mark.unit

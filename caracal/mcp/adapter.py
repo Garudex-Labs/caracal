@@ -15,10 +15,12 @@ import os
 from typing import Any, Dict, Optional
 
 import httpx
+from sqlalchemy.exc import IntegrityError
 from uuid import UUID
 
 from caracal.core.metering import MeteringEvent, MeteringCollector
 from caracal.core.authority import AuthorityEvaluator
+from caracal.db.models import RegisteredTool
 from caracal.core.error_handling import (
     get_error_handler,
     handle_error_with_denial,
@@ -126,6 +128,90 @@ class MCPAdapter:
             f"(upstream={'configured: ' + self.mcp_server_url if self.mcp_server_url else 'none'}, "
             f"caveat_mode={self._caveat_mode})"
         )
+
+    def _normalize_tool_id(self, tool_id: str) -> str:
+        normalized = str(tool_id or "").strip()
+        if not normalized:
+            raise CaracalError("tool_id is required")
+        return normalized
+
+    def _get_registry_session(self):
+        session = getattr(self.authority_evaluator, "db_session", None)
+        if session is None:
+            raise CaracalError("MCP adapter requires an authority evaluator DB session")
+        return session
+
+    def register_tool(self, *, tool_id: str, active: bool = True) -> RegisteredTool:
+        """Create or update a persisted tool registration record."""
+        normalized_tool_id = self._normalize_tool_id(tool_id)
+        session = self._get_registry_session()
+
+        existing = (
+            session.query(RegisteredTool)
+            .filter_by(tool_id=normalized_tool_id)
+            .first()
+        )
+        if existing:
+            existing.active = bool(active)
+            existing.updated_at = datetime.utcnow()
+            session.flush()
+            session.commit()
+            return existing
+
+        row = RegisteredTool(tool_id=normalized_tool_id, active=bool(active))
+        session.add(row)
+        try:
+            session.flush()
+            session.commit()
+        except IntegrityError as exc:
+            session.rollback()
+            raise CaracalError(f"Tool already registered: {normalized_tool_id}") from exc
+
+        return row
+
+    def list_registered_tools(self, *, include_inactive: bool = True) -> list[RegisteredTool]:
+        """List persisted tool registrations."""
+        session = self._get_registry_session()
+        query = session.query(RegisteredTool)
+        if not include_inactive:
+            query = query.filter_by(active=True)
+        return query.order_by(RegisteredTool.created_at.asc()).all()
+
+    def deactivate_tool(self, *, tool_id: str) -> RegisteredTool:
+        """Deactivate an existing tool registration."""
+        normalized_tool_id = self._normalize_tool_id(tool_id)
+        session = self._get_registry_session()
+
+        row = session.query(RegisteredTool).filter_by(tool_id=normalized_tool_id).first()
+        if not row:
+            raise CaracalError(f"Unknown tool_id: {normalized_tool_id}")
+
+        if not row.active:
+            return row
+
+        row.active = False
+        row.updated_at = datetime.utcnow()
+        session.flush()
+        session.commit()
+        return row
+
+    def reactivate_tool(self, *, tool_id: str) -> RegisteredTool:
+        """Reactivate an existing tool registration."""
+        normalized_tool_id = self._normalize_tool_id(tool_id)
+        session = self._get_registry_session()
+
+        row = session.query(RegisteredTool).filter_by(tool_id=normalized_tool_id).first()
+        if not row:
+            raise CaracalError(f"Unknown tool_id: {normalized_tool_id}")
+
+        if row.active:
+            return row
+
+        row.active = True
+        row.updated_at = datetime.utcnow()
+        session.flush()
+        session.commit()
+        return row
 
     async def intercept_tool_call(
         self,
