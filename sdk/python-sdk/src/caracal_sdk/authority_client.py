@@ -271,7 +271,7 @@ class AuthorityClient:
             >>> client = AuthorityClient(base_url="http://localhost:8000", api_key="secret")
             >>> mandate = client.request_mandate(
             ...     issuer_id="admin-uuid",
-            ...     subject_id="agent-uuid",
+            ...     subject_id="principal-uuid",
             ...     resource_scope=["api:openai:gpt-4"],
             ...     action_scope=["api_call"],
             ...     validity_seconds=3600
@@ -570,7 +570,7 @@ class AuthorityClient:
             >>> end = datetime.utcnow()
             >>> start = end - timedelta(days=1)
             >>> result = client.query_ledger(
-            ...     principal_id="agent-uuid",
+            ...     principal_id="principal-uuid",
             ...     start_time=start,
             ...     end_time=end,
             ...     limit=50
@@ -674,7 +674,7 @@ class AuthorityClient:
             >>> client = AuthorityClient(base_url="http://localhost:8000", api_key="secret")
             >>> target_mandate = client.delegate_mandate(
             ...     source_mandate_id="source-uuid",
-            ...     target_subject_id="target-agent-uuid",
+            ...     target_subject_id="target-principal-uuid",
             ...     resource_scope=["api:openai:gpt-3.5"],  # Subset of source
             ...     action_scope=["api_call"],
             ...     validity_seconds=1800  # 30 minutes

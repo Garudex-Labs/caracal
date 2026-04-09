@@ -22,7 +22,7 @@ class MockAdapter(BaseAdapter):
     Example::
 
         adapter = MockAdapter({
-            ("GET", "/agents"): SDKResponse(status_code=200, body=[]),
+            ("GET", "/principals"): SDKResponse(status_code=200, body=[]),
         })
     """
 
