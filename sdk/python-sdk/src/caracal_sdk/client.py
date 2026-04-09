@@ -134,6 +134,11 @@ class CaracalClient:
         """Ledger operations in the default (unscoped) context."""
         return self._default_scope.ledger
 
+    @property
+    def tools(self):
+        """Tool call operations in the default (unscoped) context."""
+        return self._default_scope.tools
+
     # -- Lifecycle ---------------------------------------------------------
 
     def close(self) -> None:

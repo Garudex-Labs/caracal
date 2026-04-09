@@ -1,0 +1,88 @@
+"""
+Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+Caracal, a product of Garudex Labs
+
+SDK Tool Call Operations.
+
+Provides explicit MCP tool-call APIs within a scoped context.
+"""
+
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Any, Dict, Optional
+
+from caracal_sdk._compat import SDKConfigurationError, get_logger
+from caracal_sdk.adapters.base import SDKRequest
+
+if TYPE_CHECKING:
+    from caracal_sdk.context import ScopeContext
+
+logger = get_logger(__name__)
+
+
+class ToolOperations:
+    """Tool invocation operations within a scoped context."""
+
+    def __init__(self, scope: ScopeContext) -> None:
+        self._scope = scope
+
+    def _build_request(
+        self,
+        method: str,
+        path: str,
+        body: Optional[Dict[str, Any]] = None,
+    ) -> SDKRequest:
+        headers = dict(self._scope.scope_headers())
+        return SDKRequest(method=method, path=path, headers=headers, body=body)
+
+    async def _execute(self, request: SDKRequest) -> Any:
+        scope_ref = self._scope.to_scope_ref()
+        request = self._scope._hooks.fire_before_request(request, scope_ref)
+        try:
+            response = await self._scope._adapter.send(request)
+            self._scope._hooks.fire_after_response(response, scope_ref)
+            return response.body
+        except Exception as exc:
+            self._scope._hooks.fire_error(exc)
+            raise
+
+    async def call(
+        self,
+        *,
+        tool_id: str,
+        mandate_id: str,
+        tool_args: Optional[Dict[str, Any]] = None,
+        metadata: Optional[Dict[str, Any]] = None,
+        correlation_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Call a registered tool through the canonical MCP service endpoint."""
+        normalized_tool_id = str(tool_id or "").strip()
+        normalized_mandate_id = str(mandate_id or "").strip()
+        if not normalized_tool_id:
+            raise SDKConfigurationError("tool_id is required")
+        if not normalized_mandate_id:
+            raise SDKConfigurationError("mandate_id is required")
+
+        payload_metadata: Dict[str, Any] = dict(metadata or {})
+        if "principal_id" in payload_metadata:
+            raise SDKConfigurationError("principal_id is not allowed in tool call metadata")
+        if correlation_id:
+            payload_metadata["correlation_id"] = str(correlation_id)
+
+        payload_args = dict(tool_args or {})
+        if "principal_id" in payload_args:
+            raise SDKConfigurationError("principal_id is not allowed in tool_args")
+
+        req = self._build_request(
+            "POST",
+            "/mcp/tool/call",
+            body={
+                "tool_id": normalized_tool_id,
+                "mandate_id": normalized_mandate_id,
+                "tool_args": payload_args,
+                "metadata": payload_metadata,
+            },
+        )
+        logger.info("Calling tool via SDK", extra={"tool_id": normalized_tool_id})
+        result = await self._execute(req)
+        return result if isinstance(result, dict) else {"result": result}
