@@ -26,10 +26,7 @@ from caracal_sdk.authority_client import AuthorityClient
 from caracal_sdk.context import ContextManager, ScopeContext
 from caracal_sdk.hooks import HookRegistry, SDKRequest as _SDKRequest, SDKResponse as _SDKResponse
 from caracal_sdk.extensions import CaracalExtension
-from caracal_sdk.principals import PrincipalOperations
-from caracal_sdk.mandates import MandateOperations
-from caracal_sdk.delegation import DelegationOperations
-from caracal_sdk.ledger import LedgerOperations
+from caracal_sdk.tools import ToolOperations
 from caracal_sdk.gateway import GatewayAdapter, GatewayAdapterError, build_gateway_adapter
 import caracal_sdk.management as management
 import caracal_sdk.migration as migration
@@ -55,10 +52,7 @@ __all__ = [
     "ContextManager",
     "ScopeContext",
     # operations
-    "PrincipalOperations",
-    "MandateOperations",
-    "DelegationOperations",
-    "LedgerOperations",
+    "ToolOperations",
     # infra
     "HookRegistry",
     "CaracalExtension",

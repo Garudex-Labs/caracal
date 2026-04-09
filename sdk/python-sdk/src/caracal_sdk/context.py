@@ -4,24 +4,20 @@ Caracal, a product of Garudex Labs
 
 SDK Context & Scope Management.
 
-Implements the Organization → Workspace → Project scope hierarchy.
-All resource operations (principals, mandates, delegation, ledger) execute
-within an explicit scope context.
+Implements the Organization -> Workspace -> Project scope hierarchy.
+Runtime SDK operations are tools-first and execute within an explicit scope
+context.
 """
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Dict, Optional
+from typing import TYPE_CHECKING, Dict, Optional
 
 from caracal_sdk._compat import get_logger
 from caracal_sdk.adapters.base import BaseAdapter
 from caracal_sdk.hooks import HookRegistry, ScopeRef, StateSnapshot
 
 if TYPE_CHECKING:
-    from caracal_sdk.principals import PrincipalOperations
-    from caracal_sdk.delegation import DelegationOperations
-    from caracal_sdk.ledger import LedgerOperations
-    from caracal_sdk.mandates import MandateOperations
     from caracal_sdk.tools import ToolOperations
 
 logger = get_logger(__name__)
@@ -56,10 +52,6 @@ class ScopeContext:
         self.project_id = project_id
 
         # Lazy singletons
-        self._principals: Optional[PrincipalOperations] = None
-        self._mandates: Optional[MandateOperations] = None
-        self._delegation: Optional[DelegationOperations] = None
-        self._ledger: Optional[LedgerOperations] = None
         self._tools: Optional[ToolOperations] = None
 
     # -- Scope headers (injected into every request) -----------------------
@@ -84,35 +76,6 @@ class ScopeContext:
         )
 
     # -- Resource operation accessors (lazy) --------------------------------
-
-    @property
-    def principals(self) -> PrincipalOperations:
-        if self._principals is None:
-            from caracal_sdk.principals import PrincipalOperations
-
-            self._principals = PrincipalOperations(scope=self)
-        return self._principals
-
-    @property
-    def mandates(self) -> MandateOperations:
-        if self._mandates is None:
-            from caracal_sdk.mandates import MandateOperations
-            self._mandates = MandateOperations(scope=self)
-        return self._mandates
-
-    @property
-    def delegation(self) -> DelegationOperations:
-        if self._delegation is None:
-            from caracal_sdk.delegation import DelegationOperations
-            self._delegation = DelegationOperations(scope=self)
-        return self._delegation
-
-    @property
-    def ledger(self) -> LedgerOperations:
-        if self._ledger is None:
-            from caracal_sdk.ledger import LedgerOperations
-            self._ledger = LedgerOperations(scope=self)
-        return self._ledger
 
     @property
     def tools(self) -> ToolOperations:
