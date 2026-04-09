@@ -96,10 +96,6 @@ class SDKBridge:
         scope = self._scope or self._get_default_scope()
         return await scope.principals.list(limit=limit)
 
-    async def list_agents(self, limit: int = 100):
-        """Deprecated alias for ``list_principals``."""
-        return await self.list_principals(limit=limit)
-
     async def create_principal(self, name: str, owner: str, metadata=None):
         """Create a principal in the current scope."""
         scope = self._scope or self._get_default_scope()

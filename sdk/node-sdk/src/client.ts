@@ -10,7 +10,7 @@ import { HttpAdapter } from './adapters/http';
 import { CaracalExtension } from './extensions';
 import { HookRegistry } from './hooks';
 import { ContextManager, ScopeContext } from './context';
-import { AgentOperations } from './agents';
+import { PrincipalOperations } from './principals';
 import { MandateOperations } from './mandates';
 import { DelegationOperations } from './delegation';
 import { LedgerOperations } from './ledger';
@@ -80,9 +80,9 @@ export class CaracalClient {
     return this._contextManager;
   }
 
-  /** Agent operations (default scope). */
-  get agents(): AgentOperations {
-    return this._defaultScope.agents;
+  /** Principal operations (default scope). */
+  get principals(): PrincipalOperations {
+    return this._defaultScope.principals;
   }
 
   /** Mandate operations (default scope). */
