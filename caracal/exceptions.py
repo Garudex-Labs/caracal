@@ -282,3 +282,13 @@ class MCPToolMappingMismatchError(MCPError):
 class MCPProviderMissingError(MCPError):
     """Raised when a mapped provider is missing or unavailable for tool execution."""
     pass
+
+
+class MCPToolBindingError(MCPError):
+    """Raised when a tool binding contract is incomplete or internally inconsistent."""
+    pass
+
+
+class MCPToolTypeMismatchError(MCPError):
+    """Raised when a tool type does not match execution mode or binding semantics."""
+    pass
