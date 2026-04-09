@@ -14,9 +14,9 @@ import caracal.cli.tool_registry as tool_registry_cli
 class _AdapterStub:
     def __init__(self) -> None:
         self.register_calls: list[dict[str, object]] = []
-        self.deactivate_calls: list[tuple[str, str]] = []
-        self.reactivate_calls: list[tuple[str, str]] = []
-        self.list_calls: list[bool] = []
+        self.deactivate_calls: list[tuple[str, str, str]] = []
+        self.reactivate_calls: list[tuple[str, str, str]] = []
+        self.list_calls: list[tuple[bool, str]] = []
 
     def register_tool(
         self,
@@ -60,19 +60,19 @@ class _AdapterStub:
         )
         return SimpleNamespace(tool_id=tool_id, active=active)
 
-    def list_registered_tools(self, *, include_inactive: bool):
-        self.list_calls.append(include_inactive)
+    def list_registered_tools(self, *, include_inactive: bool, workspace_name: str):
+        self.list_calls.append((include_inactive, workspace_name))
         return [
             SimpleNamespace(tool_id="tool.active", active=True),
             SimpleNamespace(tool_id="tool.inactive", active=False),
         ]
 
-    def deactivate_tool(self, *, tool_id: str, actor_principal_id: str):
-        self.deactivate_calls.append((tool_id, actor_principal_id))
+    def deactivate_tool(self, *, tool_id: str, actor_principal_id: str, workspace_name: str):
+        self.deactivate_calls.append((tool_id, actor_principal_id, workspace_name))
         return SimpleNamespace(tool_id=tool_id, active=False)
 
-    def reactivate_tool(self, *, tool_id: str, actor_principal_id: str):
-        self.reactivate_calls.append((tool_id, actor_principal_id))
+    def reactivate_tool(self, *, tool_id: str, actor_principal_id: str, workspace_name: str):
+        self.reactivate_calls.append((tool_id, actor_principal_id, workspace_name))
         return SimpleNamespace(tool_id=tool_id, active=True)
 
 
@@ -170,12 +170,12 @@ def test_list_command_passes_include_inactive_flag(monkeypatch: pytest.MonkeyPat
 
     result = CliRunner().invoke(
         tool_registry_cli.list_tools,
-        ["--all"],
+        ["--all", "--workspace", "alpha"],
         obj=SimpleNamespace(config=object()),
     )
 
     assert result.exit_code == 0, result.output
-    assert adapter.list_calls == [True]
+    assert adapter.list_calls == [(True, "alpha")]
     assert "tool.active" in result.output
     assert "tool.inactive" in result.output
 
@@ -195,6 +195,8 @@ def test_deactivate_and_reactivate_commands_call_adapter(monkeypatch: pytest.Mon
         [
             "--tool-id",
             "tool.echo",
+            "--workspace",
+            "alpha",
             "--actor-principal-id",
             "11111111-1111-1111-1111-111111111111",
         ],
@@ -205,6 +207,8 @@ def test_deactivate_and_reactivate_commands_call_adapter(monkeypatch: pytest.Mon
         [
             "--tool-id",
             "tool.echo",
+            "--workspace",
+            "alpha",
             "--actor-principal-id",
             "11111111-1111-1111-1111-111111111111",
         ],
@@ -216,10 +220,12 @@ def test_deactivate_and_reactivate_commands_call_adapter(monkeypatch: pytest.Mon
     assert adapter.deactivate_calls == [(
         "tool.echo",
         "11111111-1111-1111-1111-111111111111",
+        "alpha",
     )]
     assert adapter.reactivate_calls == [(
         "tool.echo",
         "11111111-1111-1111-1111-111111111111",
+        "alpha",
     )]
 
 

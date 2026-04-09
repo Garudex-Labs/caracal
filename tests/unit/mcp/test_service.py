@@ -521,7 +521,10 @@ class TestMCPAdapterService:
         assert data["success"] is True
         assert len(data["result"]["tools"]) == 2
         assert data["result"]["tools"][0]["tool_id"] == "tool.one"
-        self.mock_mcp_adapter.list_registered_tools.assert_called_once_with(include_inactive=True)
+        self.mock_mcp_adapter.list_registered_tools.assert_called_once_with(
+            include_inactive=True,
+            workspace_name=None,
+        )
 
     def test_tool_registry_deactivate_and_reactivate_endpoints(self):
         """Deactivate/reactivate endpoints should call adapter lifecycle methods."""
@@ -555,10 +558,12 @@ class TestMCPAdapterService:
         self.mock_mcp_adapter.deactivate_tool.assert_called_once_with(
             tool_id="tool.echo",
             actor_principal_id=self.actor_principal_id,
+            workspace_name=None,
         )
         self.mock_mcp_adapter.reactivate_tool.assert_called_once_with(
             tool_id="tool.echo",
             actor_principal_id=self.actor_principal_id,
+            workspace_name=None,
         )
     
     @pytest.mark.asyncio
