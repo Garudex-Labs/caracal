@@ -130,7 +130,7 @@ class TestCLICommandRegistration:
         
         assert result.exit_code == 0
         assert 'authority' in result.output.lower() or 'mandate' in result.output.lower()
-    
+
     def test_delegation_command_registered(self):
         """Test delegation command is registered."""
         result = self.runner.invoke(cli, ['delegation', '--help'])

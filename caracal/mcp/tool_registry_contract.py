@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
+from datetime import datetime
 from typing import Any, Dict, Iterable, Optional
 
 from caracal.core.authority import AuthorityEvaluator
@@ -88,3 +89,137 @@ def list_tool_bindings_by_provider(
         bindings[provider_name].append(tool_id)
 
     return dict(bindings)
+
+
+def validate_active_tool_mappings(
+    *,
+    db_session,
+    named_server_urls: Optional[Dict[str, str]] = None,
+    has_default_forward_target: bool = False,
+) -> list[Dict[str, str]]:
+    """Validate active registered tools against provider/action/resource and forward routing targets."""
+    adapter = MCPAdapter(
+        authority_evaluator=AuthorityEvaluator(db_session),
+        metering_collector=_NoopMeteringCollector(),
+    )
+
+    known_server_names = {
+        str(name).strip()
+        for name in (named_server_urls or {}).keys()
+        if str(name).strip()
+    }
+
+    issues: list[Dict[str, str]] = []
+    rows = db_session.query(RegisteredTool).filter_by(active=True).order_by(RegisteredTool.tool_id.asc()).all()
+    for row in rows:
+        tool_id = str(getattr(row, "tool_id", "") or "").strip()
+        if not tool_id:
+            issues.append(
+                {
+                    "tool_id": "<unknown>",
+                    "check": "tool_id",
+                    "message": "Active registered tool is missing tool_id",
+                }
+            )
+            continue
+
+        try:
+            mapping = adapter._resolve_active_tool_mapping(
+                tool_id=tool_id,
+                mcp_context=None,
+                require_credential=False,
+            )
+        except CaracalError as exc:
+            issues.append(
+                {
+                    "tool_id": tool_id,
+                    "check": "mapping",
+                    "message": str(exc),
+                }
+            )
+            continue
+
+        execution_mode = str(mapping.get("execution_mode") or "mcp_forward").strip().lower()
+        if execution_mode != "mcp_forward":
+            continue
+
+        server_name = str(mapping.get("mcp_server_name") or "").strip()
+        if server_name and server_name not in known_server_names:
+            issues.append(
+                {
+                    "tool_id": tool_id,
+                    "check": "forward_target",
+                    "message": (
+                        f"Tool '{tool_id}' targets unknown MCP server '{server_name}'"
+                    ),
+                }
+            )
+            continue
+
+        if not server_name and not has_default_forward_target:
+            issues.append(
+                {
+                    "tool_id": tool_id,
+                    "check": "forward_target",
+                    "message": (
+                        f"Tool '{tool_id}' is forward-routed but no default MCP server URL is configured"
+                    ),
+                }
+            )
+
+    return issues
+
+
+def deactivate_invalid_provider_tools(
+    *,
+    db_session,
+    provider_name: str,
+) -> list[Dict[str, str]]:
+    """Deactivate active tools mapped to provider entries that became invalid after provider updates."""
+    normalized_provider_name = str(provider_name or "").strip()
+    if not normalized_provider_name:
+        raise CaracalError("provider_name is required")
+
+    adapter = MCPAdapter(
+        authority_evaluator=AuthorityEvaluator(db_session),
+        metering_collector=_NoopMeteringCollector(),
+    )
+
+    impacted: list[Dict[str, str]] = []
+    rows = (
+        db_session.query(RegisteredTool)
+        .filter_by(provider_name=normalized_provider_name, active=True)
+        .order_by(RegisteredTool.tool_id.asc())
+        .all()
+    )
+    for row in rows:
+        tool_id = str(getattr(row, "tool_id", "") or "").strip()
+        resource_scope = str(getattr(row, "resource_scope", "") or "").strip()
+        action_scope = str(getattr(row, "action_scope", "") or "").strip()
+        provider_definition_id = str(getattr(row, "provider_definition_id", "") or "").strip() or None
+
+        try:
+            adapter._validate_tool_mapping(
+                session=db_session,
+                provider_name=normalized_provider_name,
+                resource_scope=resource_scope,
+                action_scope=action_scope,
+                provider_definition_id=provider_definition_id,
+                action_method=None,
+                action_path_prefix=None,
+                require_provider_enabled=True,
+            )
+        except CaracalError as exc:
+            row.active = False
+            row.updated_at = datetime.utcnow()
+            impacted.append(
+                {
+                    "tool_id": tool_id or "<unknown>",
+                    "reason": str(exc),
+                }
+            )
+
+    if impacted:
+        db_session.flush()
+
+    return impacted
