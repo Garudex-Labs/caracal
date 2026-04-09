@@ -32,13 +32,20 @@ class TestAuthorityIssueCommand:
         self.subject_id = str(uuid4())
     
     @patch('caracal.cli.authority.get_mandate_manager')
+    @patch('caracal.cli.authority.resolve_issue_scopes_from_tool_ids')
     @patch('caracal.cli.authority.validate_provider_scopes')
     @patch('caracal.cli.authority.get_workspace_from_ctx')
-    def test_issue_mandate_success(self, mock_workspace, mock_validate, mock_get_manager):
+    def test_issue_mandate_success(self, mock_workspace, mock_validate, mock_resolve_scopes, mock_get_manager):
         """Test issuing a mandate successfully."""
         # Arrange
         mock_workspace.return_value = 'test-workspace'
         mock_validate.return_value = None
+        mock_resolve_scopes.return_value = {
+            'tool_ids': ['provider:test:resource:api'],
+            'providers': ['test'],
+            'resource_scope': ['provider:test:resource:api'],
+            'action_scope': ['provider:test:action:invoke'],
+        }
         
         mock_mandate = Mock()
         mock_mandate.mandate_id = uuid4()
@@ -63,8 +70,7 @@ class TestAuthorityIssueCommand:
         result = self.runner.invoke(issue, [
             '--issuer-id', self.issuer_id,
             '--subject-id', self.subject_id,
-            '--resource-scope', 'provider:test:resource:api',
-            '--action-scope', 'provider:test:action:invoke',
+            '--tool-id', 'provider:test:resource:api',
             '--validity-seconds', '3600'
         ], obj={'config': Mock()})
         
@@ -79,8 +85,7 @@ class TestAuthorityIssueCommand:
         result = self.runner.invoke(issue, [
             '--issuer-id', 'invalid-uuid',
             '--subject-id', self.subject_id,
-            '--resource-scope', 'provider:test:resource:api',
-            '--action-scope', 'provider:test:action:invoke',
+            '--tool-id', 'provider:test:resource:api',
             '--validity-seconds', '3600'
         ], obj={'config': Mock()})
         
@@ -92,8 +97,7 @@ class TestAuthorityIssueCommand:
         result = self.runner.invoke(issue, [
             '--issuer-id', self.issuer_id,
             '--subject-id', self.subject_id,
-            '--resource-scope', 'provider:test:resource:api',
-            '--action-scope', 'provider:test:action:invoke',
+            '--tool-id', 'provider:test:resource:api',
             '--validity-seconds', '-100'
         ], obj={'config': Mock()})
         
@@ -101,13 +105,20 @@ class TestAuthorityIssueCommand:
         assert 'positive' in result.output.lower()
     
     @patch('caracal.cli.authority.get_mandate_manager')
+    @patch('caracal.cli.authority.resolve_issue_scopes_from_tool_ids')
     @patch('caracal.cli.authority.validate_provider_scopes')
     @patch('caracal.cli.authority.get_workspace_from_ctx')
-    def test_issue_mandate_json_output(self, mock_workspace, mock_validate, mock_get_manager):
+    def test_issue_mandate_json_output(self, mock_workspace, mock_validate, mock_resolve_scopes, mock_get_manager):
         """Test issuing mandate with JSON output format."""
         # Arrange
         mock_workspace.return_value = 'test-workspace'
         mock_validate.return_value = None
+        mock_resolve_scopes.return_value = {
+            'tool_ids': ['provider:test:resource:api'],
+            'providers': ['test'],
+            'resource_scope': ['provider:test:resource:api'],
+            'action_scope': ['provider:test:action:invoke'],
+        }
         
         mock_mandate = Mock()
         mock_mandate.mandate_id = uuid4()
@@ -132,8 +143,7 @@ class TestAuthorityIssueCommand:
         result = self.runner.invoke(issue, [
             '--issuer-id', self.issuer_id,
             '--subject-id', self.subject_id,
-            '--resource-scope', 'provider:test:resource:api',
-            '--action-scope', 'provider:test:action:invoke',
+            '--tool-id', 'provider:test:resource:api',
             '--validity-seconds', '3600',
             '--format', 'json'
         ], obj={'config': Mock()})

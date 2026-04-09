@@ -426,6 +426,12 @@ class TestRegisteredToolModel:
         assert "tool_id" in columns
         assert columns["tool_id"].unique is True
         assert "active" in columns
+        assert "provider_name" in columns
+        assert "resource_scope" in columns
+        assert "action_scope" in columns
+        assert "provider_definition_id" in columns
+        assert "execution_mode" in columns
+        assert "mcp_server_name" in columns
 
 
 @pytest.mark.unit
