@@ -893,14 +893,16 @@ class TestMCPAdapterService:
         assert response.status_code == 400
         assert "does not match mapped provider" in response.json()["detail"].lower()
 
-    def test_tool_call_endpoint_rejects_mandate_subject_mismatch_in_service_layer(self):
+    def test_tool_call_endpoint_returns_denied_when_adapter_rejects_subject_binding(self):
         from fastapi.testclient import TestClient
 
         client = TestClient(self.service.app)
-        self.mock_authority_evaluator._get_mandate_with_cache.return_value = SimpleNamespace(
-            revoked=False,
-            valid_until=None,
-            subject_id="agent-other",
+        self.mock_mcp_adapter.intercept_tool_call = AsyncMock(
+            return_value=MCPResult(
+                success=False,
+                result=None,
+                error="Authority denied: Authenticated principal does not match mandate subject",
+            )
         )
 
         response = client.post(
@@ -914,9 +916,39 @@ class TestMCPAdapterService:
             headers={"Authorization": "Bearer test-token"},
         )
 
-        assert response.status_code == 403
-        assert "does not match mandate subject" in response.json()["detail"].lower()
-        self.mock_mcp_adapter.intercept_tool_call.assert_not_called()
+        assert response.status_code == 200
+        data = response.json()
+        assert data["success"] is False
+        assert "does not match mandate subject" in data["error"].lower()
+        assert self.service._denied_count == 1
+
+    def test_tool_call_endpoint_counts_authority_denials_in_denied_counter(self):
+        from fastapi.testclient import TestClient
+
+        client = TestClient(self.service.app)
+        self.mock_mcp_adapter.intercept_tool_call = AsyncMock(
+            return_value=MCPResult(
+                success=False,
+                result=None,
+                error="Authority denied: Missing mandate_id",
+            )
+        )
+
+        response = client.post(
+            "/mcp/tool/call",
+            json={
+                "tool_id": "test_tool",
+                "mandate_id": str(uuid4()),
+                "tool_args": {},
+                "metadata": {},
+            },
+            headers={"Authorization": "Bearer test-token"},
+        )
+
+        assert response.status_code == 200
+        assert response.json()["success"] is False
+        assert self.service._denied_count == 1
+        assert self.service._error_count == 0
 
     def test_tool_call_endpoint_rejects_resource_scope_body_header_mismatch(self):
         from fastapi.testclient import TestClient
