@@ -117,6 +117,7 @@ async def test_authenticate_via_ais_uses_http_endpoint_for_non_human(monkeypatch
         async def post(self, url: str, **kwargs):
             captured["url"] = url
             captured["payload"] = kwargs.get("json")
+            captured["headers"] = kwargs.get("headers")
             return _FakeResponse(
                 200,
                 {
@@ -140,5 +141,63 @@ async def test_authenticate_via_ais_uses_http_endpoint_for_non_human(monkeypatch
         "session_kind": "automation",
         "include_refresh": True,
     }
+    assert captured["headers"] is None
     assert client._token is not None
     assert client._token.token == "ais-access-token"
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_authenticate_via_ais_sends_caller_token_header(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("CARACAL_SESSION_KIND", "automation")
+    monkeypatch.setenv("CARACAL_AIS_BASE_URL", "http://ais.local")
+    monkeypatch.setenv("CARACAL_AIS_PRINCIPAL_ID", "principal-1")
+    monkeypatch.setenv("CARACAL_AIS_ORGANIZATION_ID", "org-1")
+    monkeypatch.setenv("CARACAL_AIS_TENANT_ID", "tenant-1")
+    monkeypatch.setenv("CARACAL_AIS_CALLER_TOKEN", "caller-access-token")
+
+    captured: dict[str, object] = {}
+
+    class _FakeAisClient:
+        def __init__(self, *args, **kwargs) -> None:
+            return None
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb) -> None:
+            return None
+
+        async def post(self, url: str, **kwargs):
+            captured["headers"] = kwargs.get("headers")
+            return _FakeResponse(
+                200,
+                {
+                    "access_token": "ais-access-token",
+                    "expires_at": (datetime.now(timezone.utc) + timedelta(minutes=4)).isoformat(),
+                },
+            )
+
+    monkeypatch.setattr("caracal.deployment.gateway_client.httpx.AsyncClient", _FakeAisClient)
+
+    client = GatewayClient(gateway_url="https://gateway.example", config_manager=Mock(), workspace="test")
+    success = await client._authenticate_via_ais()
+
+    assert success is True
+    assert captured["headers"] == {"Authorization": "Bearer caller-access-token"}
+
+
+@pytest.mark.unit
+def test_build_ais_token_payload_includes_attestation_nonce(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("CARACAL_SESSION_KIND", "automation")
+    monkeypatch.setenv("CARACAL_AIS_BASE_URL", "http://ais.local")
+    monkeypatch.setenv("CARACAL_AIS_PRINCIPAL_ID", "principal-1")
+    monkeypatch.setenv("CARACAL_AIS_ORGANIZATION_ID", "org-1")
+    monkeypatch.setenv("CARACAL_AIS_TENANT_ID", "tenant-1")
+    monkeypatch.setenv("CARACAL_AIS_ATTESTATION_NONCE", "nonce-123")
+
+    client = GatewayClient(gateway_url="https://gateway.example", config_manager=Mock(), workspace="test")
+    payload = client._build_ais_token_payload()
+
+    assert payload is not None
+    assert payload["attestation_nonce"] == "nonce-123"

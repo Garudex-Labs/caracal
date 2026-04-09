@@ -24,7 +24,7 @@ from caracal.identity.ais_server import (
 def _handlers() -> AISHandlers:
     return AISHandlers(
         get_identity=lambda principal_id: {"principal_id": principal_id},
-        issue_token=lambda req: {"access_token": f"token:{req.principal_id}"},
+        issue_token=lambda req, _authorization=None: {"access_token": f"token:{req.principal_id}"},
         sign_payload=lambda req: {"signature": f"sig:{req.principal_id}"},
         spawn_principal=lambda req: {
             "principal_id": "spawned-1",
@@ -139,6 +139,41 @@ def test_ais_endpoints_delegate_to_handlers() -> None:
     )
     assert refresh_resp.status_code == 200
     assert refresh_resp.json()["access_token"] == "refresh:r-1"
+
+
+@pytest.mark.unit
+def test_ais_token_endpoint_forwards_authorization_header() -> None:
+    seen: dict[str, str | None] = {}
+
+    app = create_ais_app(
+        AISHandlers(
+            get_identity=lambda principal_id: {"principal_id": principal_id},
+            issue_token=lambda req, authorization=None: (
+                seen.update({"authorization": authorization})
+                or {"access_token": f"token:{req.principal_id}"}
+            ),
+            sign_payload=lambda req: {"signature": f"sig:{req.principal_id}"},
+            spawn_principal=lambda req: {"principal_id": "spawned-1", "attestation_nonce": "nonce-1"},
+            derive_task_token=lambda req: {"access_token": f"task:{req.task_id}"},
+            issue_handoff_token=lambda req: {"handoff_token": f"handoff:{req.target_subject_id}"},
+            refresh_session=lambda req: {"access_token": f"refresh:{req.refresh_token}"},
+        ),
+        AISServerConfig(unix_socket_path="", listen_host="127.0.0.1"),
+    )
+    client = TestClient(app)
+
+    response = client.post(
+        "/v1/ais/token",
+        json=TokenIssueRequest(
+            principal_id="p-1",
+            organization_id="org-1",
+            tenant_id="tenant-1",
+        ).model_dump(),
+        headers={"Authorization": "Bearer caller-token"},
+    )
+
+    assert response.status_code == 200
+    assert seen["authorization"] == "Bearer caller-token"
 
 
 @pytest.mark.unit
