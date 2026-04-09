@@ -238,6 +238,7 @@ class TestMCPAdapter:
 
     def test_resolve_active_tool_mapping_reports_inactive_due_provider_drift(self):
         """Inactive tools with broken provider mappings should return an explicit drift reason."""
+        self.mock_authority_evaluator.db_session = Mock()
         self.adapter.get_registered_tool = Mock(
             side_effect=[
                 None,
