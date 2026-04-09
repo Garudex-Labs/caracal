@@ -481,10 +481,10 @@ class MCPAdapter:
             handler_ref=normalized_handler_ref,
         )
 
-        existing = (
-            session.query(RegisteredTool)
-            .filter_by(tool_id=normalized_tool_id)
-            .first()
+        existing = self.get_registered_tool(
+            tool_id=normalized_tool_id,
+            workspace_name=normalized_workspace_name,
+            require_active=False,
         )
         if existing:
             was_active = bool(existing.active)
@@ -674,31 +674,104 @@ class MCPAdapter:
             "provider_definition_id": definition.definition_id,
         }
 
-    def list_registered_tools(self, *, include_inactive: bool = True) -> list[RegisteredTool]:
+    @staticmethod
+    def _normalized_row_workspace_name(row: RegisteredTool) -> str:
+        workspace_name = str(getattr(row, "workspace_name", "") or "").strip()
+        return workspace_name or "default"
+
+    def list_registered_tools(
+        self,
+        *,
+        include_inactive: bool = True,
+        workspace_name: Optional[str] = None,
+    ) -> list[RegisteredTool]:
         """List persisted tool registrations."""
         session = self._get_registry_session()
         query = session.query(RegisteredTool)
         if not include_inactive:
             query = query.filter_by(active=True)
-        return query.order_by(RegisteredTool.created_at.asc()).all()
+        rows = query.order_by(RegisteredTool.created_at.asc()).all()
 
-    def get_registered_tool(self, *, tool_id: str, require_active: bool = False) -> Optional[RegisteredTool]:
-        """Fetch a persisted tool registration by tool_id."""
+        normalized_workspace_name = self._normalize_workspace_name(workspace_name)
+        if not normalized_workspace_name:
+            return rows
+
+        return [
+            row
+            for row in rows
+            if self._normalized_row_workspace_name(row) == normalized_workspace_name
+        ]
+
+    def get_registered_tool(
+        self,
+        *,
+        tool_id: str,
+        require_active: bool = False,
+        workspace_name: Optional[str] = None,
+    ) -> Optional[RegisteredTool]:
+        """Fetch a persisted tool registration by tool_id and optional workspace."""
         normalized_tool_id = self._normalize_tool_id(tool_id)
         session = self._get_registry_session()
-        row = session.query(RegisteredTool).filter_by(tool_id=normalized_tool_id).first()
-        if row is None:
-            return None
-        if require_active and not row.active:
-            return None
-        return row
 
-    def deactivate_tool(self, *, tool_id: str, actor_principal_id: str) -> RegisteredTool:
+        rows = (
+            session.query(RegisteredTool)
+            .filter_by(tool_id=normalized_tool_id)
+            .order_by(RegisteredTool.updated_at.desc(), RegisteredTool.created_at.desc())
+            .all()
+        )
+        if not rows:
+            return None
+
+        normalized_workspace_name = self._normalize_workspace_name(workspace_name)
+        if not normalized_workspace_name:
+            normalized_workspace_name = self._normalize_workspace_name(
+                self._resolve_workspace_name(None)
+            )
+
+        if normalized_workspace_name:
+            rows = [
+                row
+                for row in rows
+                if self._normalized_row_workspace_name(row) == normalized_workspace_name
+            ]
+            if not rows:
+                return None
+        else:
+            distinct_workspaces = {
+                self._normalized_row_workspace_name(row)
+                for row in rows
+            }
+            if len(distinct_workspaces) > 1:
+                sorted_workspaces = ", ".join(sorted(distinct_workspaces))
+                raise CaracalError(
+                    "Ambiguous tool_id "
+                    f"'{normalized_tool_id}' across workspaces ({sorted_workspaces}). "
+                    "Pass workspace_name explicitly."
+                )
+
+        if require_active:
+            rows = [row for row in rows if bool(getattr(row, "active", False))]
+            if not rows:
+                return None
+
+        return rows[0]
+
+    def deactivate_tool(
+        self,
+        *,
+        tool_id: str,
+        actor_principal_id: str,
+        workspace_name: Optional[str] = None,
+    ) -> RegisteredTool:
         """Deactivate an existing tool registration."""
         normalized_tool_id = self._normalize_tool_id(tool_id)
         session = self._get_registry_session()
 
-        row = session.query(RegisteredTool).filter_by(tool_id=normalized_tool_id).first()
+        row = self.get_registered_tool(
+            tool_id=normalized_tool_id,
+            workspace_name=workspace_name,
+            require_active=False,
+        )
         if not row:
             raise MCPUnknownToolError(f"Unknown tool_id: {normalized_tool_id}")
 
@@ -719,12 +792,22 @@ class MCPAdapter:
         session.commit()
         return row
 
-    def reactivate_tool(self, *, tool_id: str, actor_principal_id: str) -> RegisteredTool:
+    def reactivate_tool(
+        self,
+        *,
+        tool_id: str,
+        actor_principal_id: str,
+        workspace_name: Optional[str] = None,
+    ) -> RegisteredTool:
         """Reactivate an existing tool registration."""
         normalized_tool_id = self._normalize_tool_id(tool_id)
         session = self._get_registry_session()
 
-        row = session.query(RegisteredTool).filter_by(tool_id=normalized_tool_id).first()
+        row = self.get_registered_tool(
+            tool_id=normalized_tool_id,
+            workspace_name=workspace_name,
+            require_active=False,
+        )
         if not row:
             raise MCPUnknownToolError(f"Unknown tool_id: {normalized_tool_id}")
 
@@ -1343,6 +1426,10 @@ class MCPAdapter:
         workspace_name = self._normalize_workspace_name(
             getattr(tool_row, "workspace_name", None)
         )
+        if not workspace_name:
+            workspace_name = self._normalize_workspace_name(
+                self._resolve_workspace_name(mcp_context)
+            )
         tool_type = self._normalize_tool_type(
             getattr(tool_row, "tool_type", None)
         )
@@ -1400,7 +1487,6 @@ class MCPAdapter:
                     f"Mapped provider '{provider_name}' for tool '{normalized_tool_id}' has no credential_ref"
                 )
 
-            workspace_name = self._resolve_workspace_name(mcp_context)
             if not workspace_name:
                 raise CaracalError(
                     f"Mapped provider '{provider_name}' credentials cannot be resolved without an active workspace"

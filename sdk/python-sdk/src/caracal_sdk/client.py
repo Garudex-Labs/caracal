@@ -39,12 +39,20 @@ class CaracalClient:
     Quick start::
 
         client = CaracalClient(api_key="sk_test_123")
-        principals = await client.principals.list()
+        result = await client.tools.call(
+            tool_id="provider:demo:resource:jobs:action:run",
+            mandate_id="<mandate-id>",
+            tool_args={"job": "example"},
+        )
 
     Workspace-scoped::
 
         ctx = client.context.checkout(organization_id="org_1", workspace_id="ws_1")
-        await ctx.mandates.create(principal_id="a1", allowed_operations=["read"], expires_in=3600)
+        await ctx.tools.call(
+            tool_id="provider:demo:resource:jobs:action:run",
+            mandate_id="<mandate-id>",
+            tool_args={"job": "workspace-run"},
+        )
 
     Args:
         api_key: API key for authentication.
@@ -112,26 +120,6 @@ class CaracalClient:
     def context(self) -> ContextManager:
         """Context manager for scope checkout."""
         return self._context_manager
-
-    @property
-    def principals(self):
-        """Principal operations in the default (unscoped) context."""
-        return self._default_scope.principals
-
-    @property
-    def mandates(self):
-        """Mandate operations in the default (unscoped) context."""
-        return self._default_scope.mandates
-
-    @property
-    def delegation(self):
-        """Delegation operations in the default (unscoped) context."""
-        return self._default_scope.delegation
-
-    @property
-    def ledger(self):
-        """Ledger operations in the default (unscoped) context."""
-        return self._default_scope.ledger
 
     @property
     def tools(self):
