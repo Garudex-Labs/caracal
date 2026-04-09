@@ -1006,9 +1006,28 @@ class RegisteredTool(Base):
     """Persisted tool registration state for explicit MCP tool recognition."""
 
     __tablename__ = "registered_tools"
+    __table_args__ = (
+        Index(
+            "uq_registered_tools_active_workspace_tool_id",
+            "workspace_name",
+            "tool_id",
+            unique=True,
+            postgresql_where=text("active = true"),
+        ),
+        Index(
+            "uq_registered_tools_active_workspace_binding",
+            "workspace_name",
+            "provider_name",
+            "resource_scope",
+            "action_scope",
+            "tool_type",
+            unique=True,
+            postgresql_where=text("active = true"),
+        ),
+    )
 
     tool_record_id = Column(PG_UUID(as_uuid=True), primary_key=True, default=uuid4)
-    tool_id = Column(String(255), nullable=False, unique=True, index=True)
+    tool_id = Column(String(255), nullable=False, index=True)
     workspace_name = Column(String(255), nullable=True, index=True)
     provider_name = Column(String(255), nullable=True, index=True)
     resource_scope = Column(String(255), nullable=True)
