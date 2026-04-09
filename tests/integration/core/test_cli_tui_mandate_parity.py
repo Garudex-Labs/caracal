@@ -285,6 +285,11 @@ def test_cli_and_tui_provider_creation_persist_identical_provider_contract(
     )
     monkeypatch.setattr(
         provider_manager_module,
+        "sync_workspace_provider_registry_runtime",
+        lambda **_kwargs: {"upserted": 0, "disabled": 0, "active": 0},
+    )
+    monkeypatch.setattr(
+        provider_manager_module,
         "_prompt_identifier",
         lambda **_kwargs: "endframe",
     )
@@ -354,6 +359,32 @@ def test_cli_and_tui_tool_registration_call_identical_core_contract(
         yield _AdapterStub(cli_calls)
 
     monkeypatch.setattr(tool_registry_cli, "_tool_registry_adapter", _cli_adapter)
+    monkeypatch.setattr(
+        tool_registry_cli,
+        "ConfigManager",
+        lambda: SimpleNamespace(get_default_workspace_name=lambda: "test-workspace"),
+    )
+    monkeypatch.setattr(
+        tool_registry_cli,
+        "load_workspace_provider_registry",
+        lambda _cm, _ws: {
+            "endframe": {
+                "provider_definition": "endframe",
+                "definition": {
+                    "resources": {
+                        "deployments": {
+                            "actions": {
+                                "invoke": {
+                                    "method": "POST",
+                                    "path_prefix": "/v1/deployments",
+                                }
+                            }
+                        }
+                    }
+                },
+            }
+        },
+    )
 
     cli_result = runner.invoke(
         tool_registry_cli.register,
@@ -362,10 +393,10 @@ def test_cli_and_tui_tool_registration_call_identical_core_contract(
             "tool.echo",
             "--provider-name",
             "endframe",
-            "--resource-scope",
-            "provider:endframe:resource:deployments",
-            "--action-scope",
-            "provider:endframe:action:invoke",
+            "--resource-id",
+            "deployments",
+            "--action-id",
+            "invoke",
             "--provider-definition-id",
             "endframe",
             "--execution-mode",
@@ -389,18 +420,32 @@ def test_cli_and_tui_tool_registration_call_identical_core_contract(
     monkeypatch.setattr(
         provider_manager_module,
         "load_workspace_provider_registry",
-        lambda _cm, _ws: {"endframe": {"provider_definition": "endframe"}},
+        lambda _cm, _ws: {
+            "endframe": {
+                "provider_definition": "endframe",
+                "definition": {
+                    "resources": {
+                        "deployments": {
+                            "actions": {
+                                "invoke": {
+                                    "method": "POST",
+                                    "path_prefix": "/v1/deployments",
+                                }
+                            }
+                        }
+                    }
+                },
+            }
+        },
     )
     monkeypatch.setattr(provider_manager_module.Prompt, "ask", lambda *_a, **_k: "")
 
     class _ToolPrompt:
         def __init__(self, _console):
-            self._select_values = iter(["endframe", "mcp_forward"])
+            self._select_values = iter(["endframe", "deployments", "invoke", "mcp_forward", "direct_api"])
             self._text_values = iter(
                 [
                     "tool.echo",
-                    "provider:endframe:resource:deployments",
-                    "provider:endframe:action:invoke",
                     "server-0",
                     "11111111-1111-1111-1111-111111111111",
                 ]

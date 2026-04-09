@@ -29,7 +29,7 @@ def provider_cli_env(monkeypatch: pytest.MonkeyPatch):
     saved_snapshots: list[dict[str, dict]] = []
     stored_credentials: list[tuple[str, str, str]] = []
     deleted_credentials: list[tuple[str, str]] = []
-    revalidation_calls: list[str] = []
+    sync_calls: list[dict[str, object]] = []
 
     monkeypatch.setattr(deployment_cli, "ConfigManager", _FakeConfigManager)
     monkeypatch.setattr(
@@ -50,6 +50,16 @@ def provider_cli_env(monkeypatch: pytest.MonkeyPatch):
 
     monkeypatch.setattr(deployment_cli, "save_workspace_provider_registry", _save_registry)
 
+    def _sync_registry_runtime(**kwargs):
+        sync_calls.append(dict(kwargs))
+        return {"upserted": 0, "disabled": 0, "active": 0, "deactivated_tools": 0, "impacted": []}
+
+    monkeypatch.setattr(
+        deployment_cli,
+        "sync_workspace_provider_registry_runtime",
+        _sync_registry_runtime,
+    )
+
     def _store_credential(*, workspace: str, provider_id: str, value: str):
         stored_credentials.append((workspace, provider_id, value))
         return f"caracal:default/providers/{provider_id}/credential"
@@ -60,17 +70,12 @@ def provider_cli_env(monkeypatch: pytest.MonkeyPatch):
         "delete_workspace_provider_credential",
         lambda workspace, credential_ref: deleted_credentials.append((workspace, credential_ref)),
     )
-    monkeypatch.setattr(
-        deployment_cli,
-        "_revalidate_provider_tool_mappings",
-        lambda provider_name: revalidation_calls.append(provider_name) or [],
-    )
-    return registry, saved_snapshots, stored_credentials, deleted_credentials, revalidation_calls
+    return registry, saved_snapshots, stored_credentials, deleted_credentials, sync_calls
 
 
 @pytest.mark.unit
 def test_provider_add_creates_passthrough_provider_without_definition(provider_cli_env) -> None:
-    registry, _snapshots, stored_credentials, _deleted, _revalidation_calls = provider_cli_env
+    registry, _snapshots, stored_credentials, _deleted, _sync_calls = provider_cli_env
     runner = CliRunner()
 
     result = runner.invoke(
@@ -131,7 +136,7 @@ def test_provider_add_rejects_scoped_catalog_in_passthrough_mode(provider_cli_en
 
 @pytest.mark.unit
 def test_provider_add_scoped_mode_captures_resources_and_actions(provider_cli_env) -> None:
-    registry, _snapshots, _stored_credentials, _deleted, _revalidation_calls = provider_cli_env
+    registry, _snapshots, _stored_credentials, _deleted, _sync_calls = provider_cli_env
     runner = CliRunner()
 
     result = runner.invoke(
@@ -165,7 +170,7 @@ def test_provider_add_scoped_mode_captures_resources_and_actions(provider_cli_en
 
 @pytest.mark.unit
 def test_provider_update_can_return_scoped_provider_to_passthrough(provider_cli_env) -> None:
-    registry, _snapshots, _stored_credentials, _deleted, revalidation_calls = provider_cli_env
+    registry, _snapshots, _stored_credentials, _deleted, sync_calls = provider_cli_env
     registry["openai-main"] = build_provider_record(
         name="openai-main",
         service_type="ai",
@@ -212,14 +217,14 @@ def test_provider_update_can_return_scoped_provider_to_passthrough(provider_cli_
     assert record["resources"] == []
     assert record["actions"] == []
     assert record["enforce_scoped_requests"] is False
-    assert revalidation_calls == ["openai-main"]
+    assert len(sync_calls) >= 1
 
 
 @pytest.mark.unit
 def test_provider_update_rejects_clearing_credential_for_authenticated_provider(
     provider_cli_env,
 ) -> None:
-    registry, _snapshots, _stored_credentials, deleted_credentials, _revalidation_calls = provider_cli_env
+    registry, _snapshots, _stored_credentials, deleted_credentials, _sync_calls = provider_cli_env
     registry["openai-main"] = build_provider_record(
         name="openai-main",
         service_type="ai",
@@ -247,7 +252,7 @@ def test_provider_update_rejects_clearing_credential_for_authenticated_provider(
 
 @pytest.mark.unit
 def test_provider_remove_deletes_workspace_credential_binding(provider_cli_env) -> None:
-    registry, _snapshots, _stored_credentials, deleted_credentials, _revalidation_calls = provider_cli_env
+    registry, _snapshots, _stored_credentials, deleted_credentials, _sync_calls = provider_cli_env
     registry["openai-main"] = build_provider_record(
         name="openai-main",
         service_type="ai",
@@ -277,7 +282,7 @@ def test_provider_remove_deletes_workspace_credential_binding(provider_cli_env) 
 
 @pytest.mark.unit
 def test_provider_download_writes_provider_json(provider_cli_env, tmp_path) -> None:
-    registry, _snapshots, _stored_credentials, _deleted, _revalidation_calls = provider_cli_env
+    registry, _snapshots, _stored_credentials, _deleted, _sync_calls = provider_cli_env
     registry["openai-main"] = build_provider_record(
         name="openai-main",
         service_type="ai",
@@ -303,7 +308,7 @@ def test_provider_download_writes_provider_json(provider_cli_env, tmp_path) -> N
 
 @pytest.mark.unit
 def test_provider_import_validates_and_stores_provider_json(provider_cli_env, tmp_path) -> None:
-    registry, _snapshots, _stored_credentials, _deleted, _revalidation_calls = provider_cli_env
+    registry, _snapshots, _stored_credentials, _deleted, _sync_calls = provider_cli_env
     runner = CliRunner()
     input_path = tmp_path / "import-provider.json"
     input_path.write_text(
