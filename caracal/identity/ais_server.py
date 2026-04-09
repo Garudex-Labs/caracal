@@ -8,7 +8,7 @@ import os
 import socket
 from typing import Any, Callable, Optional
 
-from fastapi import APIRouter, FastAPI, HTTPException
+from fastapi import APIRouter, FastAPI, Header, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
 
 
@@ -46,7 +46,7 @@ class AISHandlers:
     """
 
     get_identity: Callable[[str], Optional[dict[str, Any]]]
-    issue_token: Callable[["TokenIssueRequest"], dict[str, Any]]
+    issue_token: Callable[["TokenIssueRequest", Optional[str]], dict[str, Any]]
     sign_payload: Callable[["SignRequest"], dict[str, Any]]
     spawn_principal: Callable[["SpawnRequest"], dict[str, Any]]
     derive_task_token: Callable[["TaskTokenDeriveRequest"], dict[str, Any]]
@@ -64,6 +64,7 @@ class TokenIssueRequest(BaseModel):
     workspace_id: Optional[str] = None
     directory_scope: Optional[str] = None
     include_refresh: bool = True
+    attestation_nonce: Optional[str] = None
     extra_claims: Optional[dict[str, Any]] = None
 
 
@@ -174,8 +175,11 @@ def create_ais_app(
         return payload
 
     @router.post("/token")
-    def token(request: TokenIssueRequest) -> dict[str, Any]:
-        return handlers.issue_token(request)
+    def token(
+        request: TokenIssueRequest,
+        authorization: Optional[str] = Header(default=None),
+    ) -> dict[str, Any]:
+        return handlers.issue_token(request, authorization)
 
     @router.post("/sign")
     def sign(request: SignRequest) -> dict[str, Any]:

@@ -293,6 +293,15 @@ class GatewayClient:
 
         response_data: dict[str, Any]
         try:
+            caller_token = (
+                os.environ.get("CARACAL_AIS_CALLER_TOKEN")
+                or os.environ.get("CARACAL_AIS_SOURCE_TOKEN")
+                or ""
+            ).strip()
+            headers: dict[str, str] | None = None
+            if caller_token:
+                headers = {"Authorization": f"Bearer {caller_token}"}
+
             if self._ais_unix_socket:
                 transport = httpx.AsyncHTTPTransport(uds=self._ais_unix_socket)
                 async with httpx.AsyncClient(
@@ -300,12 +309,13 @@ class GatewayClient:
                     transport=transport,
                     timeout=10.0,
                 ) as client:
-                    response = await client.post(self._ais_token_path, json=payload)
+                    response = await client.post(self._ais_token_path, json=payload, headers=headers)
             else:
                 async with httpx.AsyncClient(timeout=10.0) as client:
                     response = await client.post(
                         f"{self._ais_base_url}{self._ais_token_path}",
                         json=payload,
+                        headers=headers,
                     )
 
             if response.status_code != 200:
@@ -372,6 +382,14 @@ class GatewayClient:
         directory_scope = (os.environ.get("CARACAL_DIRECTORY_SCOPE") or "").strip()
         if directory_scope:
             payload["directory_scope"] = directory_scope
+
+        attestation_nonce = (
+            os.environ.get("CARACAL_AIS_ATTESTATION_NONCE")
+            or os.environ.get("CARACAL_AIS_BOOTSTRAP_NONCE")
+            or ""
+        ).strip()
+        if attestation_nonce:
+            payload["attestation_nonce"] = attestation_nonce
 
         return payload
 
