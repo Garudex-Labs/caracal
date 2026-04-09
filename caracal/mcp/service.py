@@ -143,11 +143,11 @@ class ToolRegistryRegisterRequest(ToolRegistryRequest):
     )
     tool_type: str = Field(
         "direct_api",
-        description="Tool behavior type ('direct_api' or 'logic')",
+        description="Tool behavior type: direct_api (provider-action pass-through) or logic (user-defined logic)",
     )
     handler_ref: Optional[str] = Field(
         None,
-        description="Handler reference for logic tools (module:function)",
+        description="Handler reference for local logic tools (module:function)",
     )
     mapping_version: Optional[str] = Field(
         None,

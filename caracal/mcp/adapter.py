@@ -219,19 +219,20 @@ class MCPAdapter:
         tool_type: str,
         handler_ref: Optional[str],
     ) -> None:
-        if tool_type == "direct_api" and handler_ref:
-            raise MCPToolTypeMismatchError(
-                f"Tool '{tool_id}' is direct_api and cannot set handler_ref"
-            )
+        if tool_type == "direct_api":
+            if handler_ref:
+                raise MCPToolTypeMismatchError(
+                    f"Tool '{tool_id}' is direct_api and cannot set handler_ref"
+                )
+            if execution_mode != "mcp_forward":
+                raise MCPToolTypeMismatchError(
+                    f"Tool '{tool_id}' is direct_api and must use mcp_forward execution_mode"
+                )
+            return
 
-        if tool_type == "logic" and not handler_ref:
+        if execution_mode == "local" and not handler_ref:
             raise MCPToolBindingError(
-                f"Tool '{tool_id}' is logic and requires handler_ref"
-            )
-
-        if execution_mode == "mcp_forward" and tool_type == "logic" and not handler_ref:
-            raise MCPToolBindingError(
-                f"Tool '{tool_id}' forward logic execution requires handler_ref"
+                f"Tool '{tool_id}' local logic execution requires handler_ref"
             )
 
     def _get_registry_session(self):
@@ -271,6 +272,14 @@ class MCPAdapter:
                 },
             )
         )
+
+    @staticmethod
+    def _callable_handler_ref(func: Any) -> str:
+        module_name = str(getattr(func, "__module__", "") or "").strip()
+        function_name = str(getattr(func, "__name__", "") or "").strip()
+        if not module_name or not function_name:
+            return ""
+        return f"{module_name}:{function_name}"
 
     def register_tool(
         self,
@@ -329,6 +338,8 @@ class MCPAdapter:
         )
         if existing:
             was_active = bool(existing.active)
+            previous_handler_ref = self._normalize_handler_ref(getattr(existing, "handler_ref", None))
+            previous_execution_mode = str(getattr(existing, "execution_mode", "") or "").strip().lower()
             existing.active = bool(active)
             existing.provider_name = mapping["provider_name"]
             existing.resource_scope = mapping["resource_scope"]
@@ -342,6 +353,12 @@ class MCPAdapter:
             existing.mapping_version = normalized_mapping_version
             existing.allowed_downstream_scopes = normalized_allowed_downstream_scopes
             existing.updated_at = datetime.utcnow()
+            if (
+                previous_handler_ref != normalized_handler_ref
+                or previous_execution_mode != execution_target["execution_mode"]
+                or not bool(active)
+            ):
+                self._decorator_bindings.pop(normalized_tool_id, None)
             if was_active != bool(active):
                 transition = "tool_reactivated" if bool(active) else "tool_deactivated"
                 self._record_tool_transition_event(
@@ -530,6 +547,7 @@ class MCPAdapter:
 
         row.active = False
         row.updated_at = datetime.utcnow()
+        self._decorator_bindings.pop(normalized_tool_id, None)
         self._record_tool_transition_event(
             session=session,
             actor_principal_id=actor_principal_id,
@@ -555,6 +573,7 @@ class MCPAdapter:
 
         row.active = True
         row.updated_at = datetime.utcnow()
+        self._decorator_bindings.pop(normalized_tool_id, None)
         self._record_tool_transition_event(
             session=session,
             actor_principal_id=actor_principal_id,
@@ -692,6 +711,7 @@ class MCPAdapter:
                         principal_id=principal_id,
                         mandate_id=mandate_id,
                         tool_args=tool_args,
+                        handler_ref=tool_mapping.get("handler_ref"),
                     )
                 else:
                     forward_server_url = self._resolve_forward_server_url(
@@ -760,6 +780,12 @@ class MCPAdapter:
                 metadata={
                     "mandate_id": str(mandate_id),
                     "execution_mode": execution_mode,
+                    "tool_id": tool_mapping["tool_id"],
+                    "tool_type": tool_mapping.get("tool_type"),
+                    "provider_name": tool_mapping["provider_name"],
+                    "resource_scope": tool_mapping["resource_scope"],
+                    "action_scope": tool_mapping["action_scope"],
+                    "mcp_server_name": tool_mapping.get("mcp_server_name"),
                 }
             )
             
@@ -1289,10 +1315,19 @@ class MCPAdapter:
         principal_id: str,
         mandate_id: UUID,
         tool_args: Dict[str, Any],
+        handler_ref: Optional[str] = None,
     ) -> Any:
         bound_func = self._decorator_bindings.get(tool_id)
         if bound_func is None:
             raise CaracalError(f"No local function binding found for tool '{tool_id}'")
+
+        expected_handler_ref = self._normalize_handler_ref(handler_ref)
+        if expected_handler_ref:
+            runtime_handler_ref = self._callable_handler_ref(bound_func)
+            if runtime_handler_ref != expected_handler_ref:
+                raise CaracalError(
+                    f"Local handler mismatch for tool '{tool_id}': expected {expected_handler_ref}, got {runtime_handler_ref or '<unknown>'}"
+                )
 
         call_kwargs = dict(tool_args or {})
         call_kwargs.pop("principal_id", None)
