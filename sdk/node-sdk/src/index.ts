@@ -14,7 +14,7 @@ export { CaracalClient, CaracalBuilder, SDKConfigurationError } from './client';
 export { ScopeContext, ContextManager } from './context';
 
 // Operations
-export { AgentOperations } from './agents';
+export { PrincipalOperations } from './principals';
 export { MandateOperations } from './mandates';
 export { DelegationOperations } from './delegation';
 export { LedgerOperations } from './ledger';

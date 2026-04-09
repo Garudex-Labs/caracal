@@ -3,12 +3,12 @@
  * Caracal, a product of Garudex Labs
  *
  * SDK Context & Scope Management.
- * Implements Organization → Workspace → Project → Agent scope hierarchy.
+ * Implements Organization → Workspace → Project scope hierarchy.
  */
 
 import { BaseAdapter, SDKRequest } from './adapters/base';
 import { HookRegistry, ScopeRef, StateSnapshot } from './hooks';
-import { AgentOperations } from './agents';
+import { PrincipalOperations } from './principals';
 import { MandateOperations } from './mandates';
 import { DelegationOperations } from './delegation';
 import { LedgerOperations } from './ledger';
@@ -27,7 +27,7 @@ export class ScopeContext {
   /** @internal */
   readonly _hooks: HookRegistry;
 
-  private _agents?: AgentOperations;
+  private _principals?: PrincipalOperations;
   private _mandates?: MandateOperations;
   private _delegation?: DelegationOperations;
   private _ledger?: LedgerOperations;
@@ -66,9 +66,9 @@ export class ScopeContext {
 
   // -- Resource accessors (lazy) -------------------------------------------
 
-  get agents(): AgentOperations {
-    if (!this._agents) this._agents = new AgentOperations(this);
-    return this._agents;
+  get principals(): PrincipalOperations {
+    if (!this._principals) this._principals = new PrincipalOperations(this);
+    return this._principals;
   }
 
   get mandates(): MandateOperations {
