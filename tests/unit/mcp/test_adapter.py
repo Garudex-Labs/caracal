@@ -227,6 +227,43 @@ class TestMCPAdapter:
         with pytest.raises(CaracalError, match="is inactive"):
             self.adapter.as_decorator(tool_id=_TOOL_ID)
 
+    def test_as_decorator_fails_on_import_time_mapping_drift(self):
+        """Decorator registration must fail early when mapped provider/action/resource drifted."""
+        self.adapter._resolve_active_tool_mapping = Mock(
+            side_effect=CaracalError("Mapped provider drift detected")
+        )
+
+        with pytest.raises(CaracalError, match="Mapped provider drift detected"):
+            self.adapter.as_decorator(tool_id=_TOOL_ID)
+
+    def test_resolve_active_tool_mapping_reports_inactive_due_provider_drift(self):
+        """Inactive tools with broken provider mappings should return an explicit drift reason."""
+
+        def _lookup(*, tool_id: str, require_active: bool = False):
+            del tool_id
+            if require_active:
+                return None
+            return SimpleNamespace(
+                tool_id=_TOOL_ID,
+                active=False,
+                provider_name=_MAPPED_PROVIDER_NAME,
+                resource_scope=_MAPPED_RESOURCE_SCOPE,
+                action_scope=_MAPPED_ACTION_SCOPE,
+                provider_definition_id=_MAPPED_PROVIDER_NAME,
+            )
+
+        self.adapter.get_registered_tool = Mock(side_effect=_lookup)
+        self.adapter._validate_tool_mapping = Mock(
+            side_effect=CaracalError("Mapped provider 'endframe' was removed")
+        )
+
+        with pytest.raises(CaracalError, match="inactive due provider drift"):
+            self.adapter._resolve_active_tool_mapping(
+                tool_id=_TOOL_ID,
+                mcp_context=None,
+                require_credential=False,
+            )
+
     def test_as_decorator_rejects_duplicate_local_binding(self):
         """Only one active local function binding is allowed per tool_id per process."""
         decorator = self.adapter.as_decorator(tool_id=_TOOL_ID)

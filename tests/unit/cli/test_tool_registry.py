@@ -184,3 +184,60 @@ def test_deactivate_and_reactivate_commands_call_adapter(monkeypatch: pytest.Mon
         "tool.echo",
         "11111111-1111-1111-1111-111111111111",
     )]
+
+
+@pytest.mark.unit
+def test_preflight_command_passes_when_no_issues(monkeypatch: pytest.MonkeyPatch) -> None:
+    adapter = _AdapterStub()
+    adapter.authority_evaluator = SimpleNamespace(db_session=object())
+    adapter._mcp_server_urls = {"server-0": "http://localhost:3001"}
+    adapter.mcp_server_url = "http://localhost:3001"
+
+    @contextmanager
+    def _fake_adapter(_config):
+        yield adapter
+
+    monkeypatch.setattr(tool_registry_cli, "_tool_registry_adapter", _fake_adapter)
+    monkeypatch.setattr(tool_registry_cli, "validate_active_tool_mappings", lambda **_kwargs: [])
+
+    result = CliRunner().invoke(
+        tool_registry_cli.preflight,
+        obj=SimpleNamespace(config=object()),
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "preflight passed" in result.output.lower()
+
+
+@pytest.mark.unit
+def test_preflight_command_fails_when_issues_found(monkeypatch: pytest.MonkeyPatch) -> None:
+    adapter = _AdapterStub()
+    adapter.authority_evaluator = SimpleNamespace(db_session=object())
+    adapter._mcp_server_urls = {}
+    adapter.mcp_server_url = None
+
+    @contextmanager
+    def _fake_adapter(_config):
+        yield adapter
+
+    monkeypatch.setattr(tool_registry_cli, "_tool_registry_adapter", _fake_adapter)
+    monkeypatch.setattr(
+        tool_registry_cli,
+        "validate_active_tool_mappings",
+        lambda **_kwargs: [
+            {
+                "tool_id": "tool.bad",
+                "check": "mapping",
+                "message": "Provider drift",
+            }
+        ],
+    )
+
+    result = CliRunner().invoke(
+        tool_registry_cli.preflight,
+        obj=SimpleNamespace(config=object()),
+    )
+
+    assert result.exit_code != 0
+    assert "preflight failed" in result.output.lower()
+    assert "tool.bad" in result.output
