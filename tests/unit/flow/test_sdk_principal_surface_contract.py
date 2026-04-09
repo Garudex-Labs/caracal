@@ -1,10 +1,9 @@
-"""Unit tests for principal-first SDK surfaces and removed legacy resource APIs."""
+"""Unit tests for tools-first SDK surfaces in hard-cut runtime mode."""
 
 from __future__ import annotations
 
 import pytest
 
-from caracal_sdk._compat import SDKConfigurationError
 from caracal_sdk.adapters.base import BaseAdapter, SDKRequest, SDKResponse
 from caracal_sdk.client import CaracalClient
 from caracal_sdk.context import ScopeContext
@@ -24,43 +23,38 @@ class _NoopAdapter(BaseAdapter):
 
 
 @pytest.mark.unit
-def test_scope_context_exposes_principals_only() -> None:
+def test_scope_context_exposes_tools_only() -> None:
     scope = ScopeContext(adapter=_NoopAdapter(), hooks=HookRegistry())
 
-    principals = scope.principals
-    assert principals is not None
-    assert not hasattr(scope, "agents")
+    tools = scope.tools
+    assert tools is not None
+    assert not hasattr(scope, "principals")
+    assert not hasattr(scope, "mandates")
+    assert not hasattr(scope, "delegation")
+    assert not hasattr(scope, "ledger")
 
 
 @pytest.mark.unit
-def test_client_exposes_principals_only() -> None:
+def test_client_exposes_tools_only() -> None:
     client = CaracalClient(adapter=_NoopAdapter())
 
-    principals = client.principals
-    assert principals is not None
-    assert not hasattr(client, "agents")
+    tools = client.tools
+    assert tools is not None
+    assert not hasattr(client, "principals")
+    assert not hasattr(client, "mandates")
+    assert not hasattr(client, "delegation")
+    assert not hasattr(client, "ledger")
     client.close()
 
 
 @pytest.mark.unit
 @pytest.mark.asyncio
-async def test_principal_surface_fails_closed_for_removed_agents_routes() -> None:
+async def test_tools_surface_sends_mcp_tool_call_request() -> None:
     scope = ScopeContext(adapter=_NoopAdapter(), hooks=HookRegistry())
+    payload = await scope.tools.call(
+        tool_id="tool.demo",
+        mandate_id="mandate-1",
+        tool_args={"x": 1},
+    )
 
-    with pytest.raises(SDKConfigurationError, match="Legacy compatibility is not supported"):
-        await scope.principals.list()
-
-
-@pytest.mark.unit
-@pytest.mark.asyncio
-async def test_legacy_resource_scopes_fail_closed_for_mandate_delegation_ledger() -> None:
-    scope = ScopeContext(adapter=_NoopAdapter(), hooks=HookRegistry())
-
-    with pytest.raises(SDKConfigurationError, match="Legacy compatibility is not supported"):
-        await scope.mandates.list()
-
-    with pytest.raises(SDKConfigurationError, match="Legacy compatibility is not supported"):
-        await scope.delegation.get_graph(principal_id="p-1")
-
-    with pytest.raises(SDKConfigurationError, match="Legacy compatibility is not supported"):
-        await scope.ledger.query()
+    assert payload["request"] == "/mcp/tool/call"
