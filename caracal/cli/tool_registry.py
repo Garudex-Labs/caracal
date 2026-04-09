@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
-from typing import Iterator
+from typing import Iterator, Optional
 
 import click
 
@@ -22,7 +22,11 @@ class _NoopMeteringCollector:
         return None
 
 
-def _resolve_workspace_name(workspace: str | None) -> str:
+def _resolve_workspace_name(
+    workspace: str | None,
+    *,
+    require_default: bool,
+) -> Optional[str]:
     resolved_workspace = str(workspace or "").strip()
     if resolved_workspace:
         return resolved_workspace
@@ -31,7 +35,10 @@ def _resolve_workspace_name(workspace: str | None) -> str:
     if default_workspace:
         return default_workspace
 
-    raise click.ClickException("No default workspace found. Pass --workspace explicitly.")
+    if require_default:
+        raise click.ClickException("No default workspace found. Pass --workspace explicitly.")
+
+    return None
 
 
 @contextmanager
@@ -192,7 +199,7 @@ def register(
 def list_tools(ctx, include_inactive: bool, workspace: str | None) -> None:
     """List registered tools from persisted MCP registry."""
     try:
-        resolved_workspace = _resolve_workspace_name(workspace)
+        resolved_workspace = _resolve_workspace_name(workspace, require_default=False)
         with _tool_registry_adapter(ctx.obj.config) as adapter:
             rows = adapter.list_registered_tools(
                 include_inactive=include_inactive,
@@ -221,7 +228,7 @@ def list_tools(ctx, include_inactive: bool, workspace: str | None) -> None:
 def deactivate(ctx, tool_id: str, workspace: str | None, actor_principal_id: str) -> None:
     """Deactivate an existing registered tool."""
     try:
-        resolved_workspace = _resolve_workspace_name(workspace)
+        resolved_workspace = _resolve_workspace_name(workspace, require_default=True)
         with _tool_registry_adapter(ctx.obj.config) as adapter:
             row = adapter.deactivate_tool(
                 tool_id=tool_id,
@@ -244,7 +251,7 @@ def deactivate(ctx, tool_id: str, workspace: str | None, actor_principal_id: str
 def reactivate(ctx, tool_id: str, workspace: str | None, actor_principal_id: str) -> None:
     """Reactivate an existing registered tool."""
     try:
-        resolved_workspace = _resolve_workspace_name(workspace)
+        resolved_workspace = _resolve_workspace_name(workspace, require_default=True)
         with _tool_registry_adapter(ctx.obj.config) as adapter:
             row = adapter.reactivate_tool(
                 tool_id=tool_id,

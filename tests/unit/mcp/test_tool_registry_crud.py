@@ -8,6 +8,7 @@ from unittest.mock import Mock
 from uuid import uuid4
 
 import pytest
+from sqlalchemy.exc import IntegrityError
 
 from caracal.db.models import AuthorityLedgerEvent, GatewayProvider, RegisteredTool
 from caracal.exceptions import CaracalError, MCPToolBindingError, MCPToolTypeMismatchError
@@ -74,8 +75,15 @@ class _SessionStub:
 
     def flush(self) -> None:
         rows = list(self._rows_by_model.get(RegisteredTool, []))
-        tool_ids = [row.tool_id for row in rows]
-        if len(tool_ids) != len(set(tool_ids)):
+        active_keys = [
+            (
+                row.tool_id,
+                str(getattr(row, "workspace_name", "") or "").strip() or "default",
+            )
+            for row in rows
+            if bool(getattr(row, "active", False))
+        ]
+        if len(active_keys) != len(set(active_keys)):
             raise RuntimeError("duplicate tool_id")
 
         for row in rows:
@@ -91,6 +99,34 @@ class _SessionStub:
 
     def rollback(self) -> None:
         self.rollbacks += 1
+
+
+class _PGIntegrityOrigin(Exception):
+    def __init__(self, *, pgcode: str, constraint_name: str, message: str):
+        super().__init__(message)
+        self.pgcode = pgcode
+        self.diag = SimpleNamespace(constraint_name=constraint_name)
+
+
+class _IntegrityFailSessionStub(_SessionStub):
+    def __init__(self, integrity_error: IntegrityError) -> None:
+        super().__init__()
+        self._integrity_error = integrity_error
+
+    def flush(self) -> None:
+        raise self._integrity_error
+
+
+def _make_integrity_error(*, pgcode: str, constraint_name: str, message: str) -> IntegrityError:
+    return IntegrityError(
+        "insert into registered_tools ...",
+        {},
+        _PGIntegrityOrigin(
+            pgcode=pgcode,
+            constraint_name=constraint_name,
+            message=message,
+        ),
+    )
 
 
 def _add_provider_row(session: _SessionStub, *, provider_id: str = _PROVIDER_NAME) -> None:
@@ -142,6 +178,99 @@ def test_register_and_list_registered_tools() -> None:
 
 
 @pytest.mark.unit
+def test_register_tool_maps_tool_id_uniqueness_integrity_error() -> None:
+    session = _IntegrityFailSessionStub(
+        _make_integrity_error(
+            pgcode="23505",
+            constraint_name="uq_registered_tools_active_workspace_tool_id",
+            message="duplicate key value violates unique constraint \"uq_registered_tools_active_workspace_tool_id\"",
+        )
+    )
+    _add_provider_row(session)
+    authority_evaluator = SimpleNamespace(db_session=session)
+    adapter = MCPAdapter(
+        authority_evaluator=authority_evaluator,
+        metering_collector=Mock(),
+    )
+
+    with pytest.raises(CaracalError, match="Tool already registered: tool.duplicate"):
+        adapter.register_tool(
+            tool_id="tool.duplicate",
+            actor_principal_id=_ACTOR_PRINCIPAL_ID,
+            provider_name=_PROVIDER_NAME,
+            resource_scope=_RESOURCE_SCOPE,
+            action_scope=_ACTION_SCOPE,
+            provider_definition_id=_PROVIDER_NAME,
+            action_method=_ACTION_METHOD,
+            action_path_prefix=_ACTION_PATH_PREFIX,
+        )
+
+    assert session.rollbacks == 1
+
+
+@pytest.mark.unit
+def test_register_tool_maps_binding_uniqueness_integrity_error() -> None:
+    session = _IntegrityFailSessionStub(
+        _make_integrity_error(
+            pgcode="23505",
+            constraint_name="uq_registered_tools_active_workspace_binding",
+            message="duplicate key value violates unique constraint \"uq_registered_tools_active_workspace_binding\"",
+        )
+    )
+    _add_provider_row(session)
+    authority_evaluator = SimpleNamespace(db_session=session)
+    adapter = MCPAdapter(
+        authority_evaluator=authority_evaluator,
+        metering_collector=Mock(),
+    )
+
+    with pytest.raises(CaracalError, match="Active tool binding already exists"):
+        adapter.register_tool(
+            tool_id="tool.binding-conflict",
+            actor_principal_id=_ACTOR_PRINCIPAL_ID,
+            provider_name=_PROVIDER_NAME,
+            resource_scope=_RESOURCE_SCOPE,
+            action_scope=_ACTION_SCOPE,
+            provider_definition_id=_PROVIDER_NAME,
+            action_method=_ACTION_METHOD,
+            action_path_prefix=_ACTION_PATH_PREFIX,
+        )
+
+    assert session.rollbacks == 1
+
+
+@pytest.mark.unit
+def test_register_tool_maps_actor_principal_fk_integrity_error() -> None:
+    session = _IntegrityFailSessionStub(
+        _make_integrity_error(
+            pgcode="23503",
+            constraint_name="authority_ledger_events_principal_id_fkey",
+            message="insert or update on table \"authority_ledger_events\" violates foreign key constraint \"authority_ledger_events_principal_id_fkey\"",
+        )
+    )
+    _add_provider_row(session)
+    authority_evaluator = SimpleNamespace(db_session=session)
+    adapter = MCPAdapter(
+        authority_evaluator=authority_evaluator,
+        metering_collector=Mock(),
+    )
+
+    with pytest.raises(CaracalError, match="Invalid actor_principal_id"):
+        adapter.register_tool(
+            tool_id="tool.actor-fk",
+            actor_principal_id=_ACTOR_PRINCIPAL_ID,
+            provider_name=_PROVIDER_NAME,
+            resource_scope=_RESOURCE_SCOPE,
+            action_scope=_ACTION_SCOPE,
+            provider_definition_id=_PROVIDER_NAME,
+            action_method=_ACTION_METHOD,
+            action_path_prefix=_ACTION_PATH_PREFIX,
+        )
+
+    assert session.rollbacks == 1
+
+
+@pytest.mark.unit
 def test_deactivate_and_reactivate_tool() -> None:
     session = _SessionStub()
     _add_provider_row(session)
@@ -184,6 +313,108 @@ def test_deactivate_and_reactivate_tool() -> None:
         "tool_deactivated",
         "tool_reactivated",
     ]
+
+
+@pytest.mark.unit
+def test_workspace_scoped_deactivate_only_affects_selected_workspace() -> None:
+    session = _SessionStub()
+    _add_provider_row(session)
+    authority_evaluator = SimpleNamespace(db_session=session)
+    adapter = MCPAdapter(
+        authority_evaluator=authority_evaluator,
+        metering_collector=Mock(),
+    )
+
+    adapter.register_tool(
+        tool_id="tool.shared",
+        actor_principal_id=_ACTOR_PRINCIPAL_ID,
+        provider_name=_PROVIDER_NAME,
+        resource_scope=_RESOURCE_SCOPE,
+        action_scope=_ACTION_SCOPE,
+        provider_definition_id=_PROVIDER_NAME,
+        action_method=_ACTION_METHOD,
+        action_path_prefix=_ACTION_PATH_PREFIX,
+        workspace_name="alpha",
+    )
+    adapter.register_tool(
+        tool_id="tool.shared",
+        actor_principal_id=_ACTOR_PRINCIPAL_ID,
+        provider_name=_PROVIDER_NAME,
+        resource_scope=_RESOURCE_SCOPE,
+        action_scope=_ACTION_SCOPE,
+        provider_definition_id=_PROVIDER_NAME,
+        action_method=_ACTION_METHOD,
+        action_path_prefix=_ACTION_PATH_PREFIX,
+        workspace_name="beta",
+    )
+
+    deactivated = adapter.deactivate_tool(
+        tool_id="tool.shared",
+        actor_principal_id=_ACTOR_PRINCIPAL_ID,
+        workspace_name="alpha",
+    )
+    assert deactivated.active is False
+
+    alpha_row = adapter.get_registered_tool(
+        tool_id="tool.shared",
+        workspace_name="alpha",
+        require_active=False,
+    )
+    beta_row = adapter.get_registered_tool(
+        tool_id="tool.shared",
+        workspace_name="beta",
+        require_active=False,
+    )
+    assert alpha_row is not None
+    assert beta_row is not None
+    assert alpha_row.active is False
+    assert beta_row.active is True
+
+
+@pytest.mark.unit
+def test_workspace_scoped_list_filters_rows() -> None:
+    session = _SessionStub()
+    _add_provider_row(session)
+    authority_evaluator = SimpleNamespace(db_session=session)
+    adapter = MCPAdapter(
+        authority_evaluator=authority_evaluator,
+        metering_collector=Mock(),
+    )
+
+    adapter.register_tool(
+        tool_id="tool.alpha",
+        actor_principal_id=_ACTOR_PRINCIPAL_ID,
+        provider_name=_PROVIDER_NAME,
+        resource_scope=_RESOURCE_SCOPE,
+        action_scope=_ACTION_SCOPE,
+        provider_definition_id=_PROVIDER_NAME,
+        action_method=_ACTION_METHOD,
+        action_path_prefix=_ACTION_PATH_PREFIX,
+        workspace_name="alpha",
+    )
+    adapter.register_tool(
+        tool_id="tool.beta",
+        actor_principal_id=_ACTOR_PRINCIPAL_ID,
+        provider_name=_PROVIDER_NAME,
+        resource_scope=_RESOURCE_SCOPE,
+        action_scope=_ACTION_SCOPE,
+        provider_definition_id=_PROVIDER_NAME,
+        action_method=_ACTION_METHOD,
+        action_path_prefix=_ACTION_PATH_PREFIX,
+        workspace_name="beta",
+    )
+
+    alpha_rows = adapter.list_registered_tools(
+        include_inactive=True,
+        workspace_name="alpha",
+    )
+    beta_rows = adapter.list_registered_tools(
+        include_inactive=True,
+        workspace_name="beta",
+    )
+
+    assert [row.tool_id for row in alpha_rows] == ["tool.alpha"]
+    assert [row.tool_id for row in beta_rows] == ["tool.beta"]
 
 
 @pytest.mark.unit
