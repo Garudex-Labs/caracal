@@ -908,8 +908,10 @@ class MCPAdapter:
                 )
 
             try:
+                resolved_workspace_name = self._resolve_workspace_name(mcp_context)
                 require_credential = self._requires_local_credential_for_execution(
                     tool_id=tool_name,
+                    workspace_name=resolved_workspace_name,
                 )
                 tool_mapping = self._resolve_active_tool_mapping(
                     tool_id=tool_name,
@@ -1385,10 +1387,19 @@ class MCPAdapter:
         require_credential: bool,
     ) -> Dict[str, Any]:
         normalized_tool_id = self._normalize_tool_id(tool_id)
+        resolved_workspace_name = self._resolve_workspace_name(mcp_context)
 
-        tool_row = self.get_registered_tool(tool_id=normalized_tool_id, require_active=True)
+        tool_row = self.get_registered_tool(
+            tool_id=normalized_tool_id,
+            require_active=True,
+            workspace_name=resolved_workspace_name,
+        )
         if tool_row is None:
-            any_state_row = self.get_registered_tool(tool_id=normalized_tool_id, require_active=False)
+            any_state_row = self.get_registered_tool(
+                tool_id=normalized_tool_id,
+                require_active=False,
+                workspace_name=resolved_workspace_name,
+            )
             if any_state_row is None:
                 raise MCPUnknownToolError(f"Unknown tool_id: {normalized_tool_id}")
 
@@ -1510,10 +1521,19 @@ class MCPAdapter:
             **execution_target,
         }
 
-    def _requires_local_credential_for_execution(self, *, tool_id: str) -> bool:
+    def _requires_local_credential_for_execution(
+        self,
+        *,
+        tool_id: str,
+        workspace_name: Optional[str] = None,
+    ) -> bool:
         """Only local execution requires local credential resolution."""
         try:
-            row = self.get_registered_tool(tool_id=tool_id, require_active=True)
+            row = self.get_registered_tool(
+                tool_id=tool_id,
+                require_active=True,
+                workspace_name=workspace_name,
+            )
         except CaracalError:
             return False
         if row is None:
@@ -1982,7 +2002,10 @@ class MCPAdapter:
         if not resolved_tool_id:
             raise CaracalError("tool_id is required for MCP decorator registration")
 
-        tool_row = self.get_registered_tool(tool_id=resolved_tool_id)
+        tool_row = self.get_registered_tool(
+            tool_id=resolved_tool_id,
+            workspace_name=self._resolve_workspace_name(None),
+        )
         if tool_row is None:
             raise CaracalError(
                 f"tool_id '{resolved_tool_id}' is not registered in persisted tool registry"

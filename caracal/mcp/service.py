@@ -315,6 +315,59 @@ class MCPAdapterService:
         normalized = str(value or "").strip()
         return normalized or None
 
+    def _normalize_workspace_scope_metadata(
+        self,
+        *,
+        raw_request: Request,
+        metadata: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        """Normalize workspace selector from metadata and SDK scope headers."""
+        normalized_metadata = dict(metadata or {})
+
+        metadata_workspace_values: list[str] = []
+        for key in ("workspace", "workspace_name"):
+            value = self._normalize_selector_value(normalized_metadata.get(key))
+            if value and value not in metadata_workspace_values:
+                metadata_workspace_values.append(value)
+        if len(metadata_workspace_values) > 1:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Workspace selector mismatch between metadata.workspace and metadata.workspace_name",
+            )
+
+        header_workspace_values: list[str] = []
+        for header_name in (
+            "X-Caracal-Workspace-ID",
+            "X-Caracal-Workspace-Name",
+            "X-Workspace-Id",
+        ):
+            header_value = self._normalize_selector_value(raw_request.headers.get(header_name))
+            if header_value and header_value not in header_workspace_values:
+                header_workspace_values.append(header_value)
+        if len(header_workspace_values) > 1:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Workspace selector mismatch between workspace headers",
+            )
+
+        metadata_workspace = metadata_workspace_values[0] if metadata_workspace_values else None
+        header_workspace = header_workspace_values[0] if header_workspace_values else None
+        if metadata_workspace and header_workspace and metadata_workspace != header_workspace:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=(
+                    "Workspace selector mismatch between metadata.workspace/workspace_name "
+                    "and X-Caracal-Workspace-ID header"
+                ),
+            )
+
+        selected_workspace = metadata_workspace or header_workspace
+        if selected_workspace:
+            normalized_metadata["workspace"] = selected_workspace
+            normalized_metadata["workspace_name"] = selected_workspace
+
+        return normalized_metadata
+
     def _normalize_provider_selector_metadata(
         self,
         *,
@@ -750,6 +803,10 @@ class MCPAdapterService:
                 request_metadata = dict(request.metadata or {})
                 request_metadata["mandate_id"] = request.mandate_id
                 request_metadata = self._validate_mandate_id_metadata(request_metadata)
+                request_metadata = self._normalize_workspace_scope_metadata(
+                    raw_request=raw_request,
+                    metadata=request_metadata,
+                )
                 try:
                     tool_row = self._require_active_tool(request.tool_id)
                     self._require_active_mandate(request_metadata["mandate_id"])
@@ -873,6 +930,10 @@ class MCPAdapterService:
                 )
 
                 request_metadata = self._validate_mandate_id_metadata(dict(request.metadata or {}))
+                request_metadata = self._normalize_workspace_scope_metadata(
+                    raw_request=raw_request,
+                    metadata=request_metadata,
+                )
                 request_metadata.setdefault("task_token_claims", token_claims)
                 request_metadata.setdefault("token_subject", principal_id)
                 
