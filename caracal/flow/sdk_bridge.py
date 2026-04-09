@@ -25,10 +25,8 @@ class SDKBridge:
 
     Manages an SDK client instance and exposes a simplified interface
     for TUI operations:
-    - Principal listing and creation
-    - Mandate management
+    - Registered tool invocation via MCP service
     - Context switching between workspaces
-    - Ledger queries
 
     Usage in Flow::
 
@@ -36,7 +34,10 @@ class SDKBridge:
 
         bridge = SDKBridge(api_key="sk_test_123")
         ctx = bridge.checkout(workspace_id="ws_default")
-        principals = await bridge.list_principals()
+        result = await bridge.call_tool(
+            tool_id="provider:demo:resource:jobs:action:run",
+            mandate_id="<mandate-id>",
+        )
     """
 
     def __init__(
@@ -88,55 +89,6 @@ class SDKBridge:
     def current_scope(self) -> Optional[ScopeContext]:
         """Currently active scope, if any."""
         return self._scope
-
-    # -- Principal operations (convenience wrappers) ------------------------
-
-    async def list_principals(self, limit: int = 100):
-        """List principals in the current scope."""
-        scope = self._scope or self._get_default_scope()
-        return await scope.principals.list(limit=limit)
-
-    async def create_principal(self, name: str, owner: str, metadata=None):
-        """Create a principal in the current scope."""
-        scope = self._scope or self._get_default_scope()
-        return await scope.principals.create(name=name, owner=owner, metadata=metadata)
-
-    # -- Mandate operations (convenience wrappers) --------------------------
-
-    async def create_mandate(
-        self,
-        principal_id: str,
-        allowed_operations: list,
-        expires_in: int = 3600,
-    ):
-        """Create a mandate in the current scope."""
-        scope = self._scope or self._get_default_scope()
-        return await scope.mandates.create(
-            principal_id=principal_id,
-            allowed_operations=allowed_operations,
-            expires_in=expires_in,
-        )
-
-    async def validate_mandate(
-        self,
-        mandate_id: str,
-        requested_action: str,
-        requested_resource: str,
-    ):
-        """Validate a mandate in the current scope."""
-        scope = self._scope or self._get_default_scope()
-        return await scope.mandates.validate(
-            mandate_id=mandate_id,
-            requested_action=requested_action,
-            requested_resource=requested_resource,
-        )
-
-    # -- Ledger operations (convenience wrappers) ---------------------------
-
-    async def query_ledger(self, principal_id: Optional[str] = None, limit: int = 100):
-        """Query the ledger in the current scope."""
-        scope = self._scope or self._get_default_scope()
-        return await scope.ledger.query(principal_id=principal_id, limit=limit)
 
     async def call_tool(
         self,

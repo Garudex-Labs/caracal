@@ -7,10 +7,12 @@ provider-definition-driven across all flows.
 
 from __future__ import annotations
 
+import asyncio
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime
 import json
+import os
 from pathlib import Path
 import re
 from typing import Optional
@@ -862,6 +864,7 @@ def _manage_tool_registry(console: Console, state: FlowState) -> None:
             items=[
                 MenuItem("list", "List Tools", "View registered tool mappings", Icons.LIST),
                 MenuItem("register", "Register Tool", "Create or update tool registration", Icons.ADD),
+                MenuItem("invoke", "Invoke Tool", "Execute a registered tool via SDKBridge", Icons.SUCCESS),
                 MenuItem("deactivate", "Deactivate Tool", "Disable registered tool", Icons.DELETE),
                 MenuItem("reactivate", "Reactivate Tool", "Enable registered tool", Icons.SUCCESS),
                 MenuItem("back", "Back", "", Icons.ARROW_LEFT),
@@ -875,6 +878,8 @@ def _manage_tool_registry(console: Console, state: FlowState) -> None:
             _tool_registry_list(console)
         elif result.key == "register":
             _tool_registry_register(console, state)
+        elif result.key == "invoke":
+            _tool_registry_invoke(console, state)
         elif result.key == "deactivate":
             _tool_registry_set_active(console, state, active=False)
         elif result.key == "reactivate":
@@ -1082,6 +1087,115 @@ def _tool_registry_set_active(console: Console, state: FlowState, *, active: boo
                 success=True,
             )
         )
+    Prompt.ask("Press Enter to continue", default="")
+
+
+def _tool_registry_invoke(console: Console, state: FlowState) -> None:
+    config_manager = ConfigManager()
+    workspace = _active_workspace(config_manager)
+
+    with _tool_registry_adapter() as adapter:
+        rows = adapter.list_registered_tools(include_inactive=False)
+
+    if not rows:
+        console.print(
+            f"  [{Colors.WARNING}]{Icons.WARNING} No active tools available to invoke.[/]"
+        )
+        Prompt.ask("Press Enter to continue", default="")
+        return
+
+    prompt = FlowPrompt(console)
+    tool_choices = [str(getattr(row, "tool_id", "")) for row in rows if str(getattr(row, "tool_id", ""))]
+    if not tool_choices:
+        console.print(
+            f"  [{Colors.WARNING}]{Icons.WARNING} No valid tool IDs found in active registrations.[/]"
+        )
+        Prompt.ask("Press Enter to continue", default="")
+        return
+
+    console.clear()
+    console.print(
+        Panel(
+            f"[{Colors.PRIMARY}]Invoke Registered Tool[/]",
+            subtitle=f"[{Colors.HINT}]Execution goes through SDKBridge -> /mcp/tool/call[/]",
+            border_style=Colors.INFO,
+        )
+    )
+    console.print()
+
+    selected_tool = prompt.select("Tool", sorted(tool_choices), default=sorted(tool_choices)[0])
+    mandate_id = prompt.text(
+        "Mandate ID (UUID)",
+        validator=lambda value: _validate_non_empty("Mandate ID", value),
+    ).strip()
+
+    raw_tool_args = prompt.text("Tool args JSON", default="{}").strip() or "{}"
+    try:
+        parsed_tool_args = json.loads(raw_tool_args)
+    except json.JSONDecodeError as exc:
+        console.print(f"  [{Colors.ERROR}]{Icons.ERROR} Invalid JSON for tool args: {exc}[/]")
+        Prompt.ask("Press Enter to continue", default="")
+        return
+
+    if not isinstance(parsed_tool_args, dict):
+        console.print(
+            f"  [{Colors.ERROR}]{Icons.ERROR} Tool args must be a JSON object.[/]"
+        )
+        Prompt.ask("Press Enter to continue", default="")
+        return
+
+    correlation_id = prompt.text("Correlation ID (optional)", default="").strip() or None
+
+    default_base_url = os.environ.get(
+        "CARACAL_API_URL",
+        f"http://localhost:{os.environ.get('CARACAL_API_PORT', '8080')}",
+    )
+    base_url = prompt.text("API base URL", default=default_base_url).strip() or default_base_url
+    default_api_key = os.environ.get("CARACAL_API_KEY", "")
+    api_key = prompt.text("API token (Bearer)", default=default_api_key).strip() or None
+
+    from caracal.flow.sdk_bridge import SDKBridge
+
+    bridge = SDKBridge(api_key=api_key, base_url=base_url)
+    bridge.checkout(workspace_id=workspace)
+
+    try:
+        result = asyncio.run(
+            bridge.call_tool(
+                tool_id=selected_tool,
+                mandate_id=mandate_id,
+                tool_args=parsed_tool_args,
+                correlation_id=correlation_id,
+            )
+        )
+    except Exception as exc:
+        console.print()
+        console.print(f"  [{Colors.ERROR}]{Icons.ERROR} Tool invocation failed: {exc}[/]")
+        Prompt.ask("Press Enter to continue", default="")
+        return
+    finally:
+        bridge.close()
+
+    console.print()
+    console.print(f"  [{Colors.SUCCESS}]{Icons.SUCCESS} Tool invocation completed.[/]")
+    console.print()
+    console.print(
+        Panel(
+            json.dumps(result, indent=2, default=str),
+            title=f"[bold {Colors.INFO}]Result[/]",
+            border_style=Colors.PRIMARY,
+        )
+    )
+
+    if state:
+        state.add_recent_action(
+            RecentAction.create(
+                "tool_invoke",
+                f"Invoked tool {selected_tool}",
+                success=True,
+            )
+        )
+
     Prompt.ask("Press Enter to continue", default="")
 
 
