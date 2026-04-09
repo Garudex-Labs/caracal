@@ -812,17 +812,6 @@ class MCPAdapter:
                     error=f"Authority denied: {not_found_error}"
                 )
 
-            if not self._is_mandate_subject(principal_id, mandate):
-                logger.warning(
-                    f"Mandate subject mismatch for mandate {mandate_id}: "
-                    f"caller={principal_id}, subject={getattr(mandate, 'subject_id', None)}"
-                )
-                return MCPResult(
-                    success=False,
-                    result=None,
-                    error="Authority denied: Authenticated principal does not match mandate subject",
-                )
-
             try:
                 require_credential = self._requires_local_credential_for_execution(
                     tool_id=tool_name,
@@ -1078,17 +1067,6 @@ class MCPAdapter:
                     error=f"Authority denied: {not_found_error}"
                 )
 
-            if not self._is_mandate_subject(principal_id, mandate):
-                logger.warning(
-                    f"Mandate subject mismatch for mandate {mandate_id}: "
-                    f"caller={principal_id}, subject={getattr(mandate, 'subject_id', None)}"
-                )
-                return MCPResult(
-                    success=False,
-                    result=None,
-                    error="Authority denied: Authenticated principal does not match mandate subject",
-                )
-
             # 4. Validate Authority
             # Action: read, Resource: resource_uri
             caveat_kwargs = self._extract_caveat_authority_kwargs(mcp_context)
@@ -1115,7 +1093,11 @@ class MCPAdapter:
             )
             
             # 5. Fetch resource from MCP server
-            resource = await self._fetch_resource(resource_uri)
+            server_name = str(mcp_context.get("mcp_server_name") or "").strip() or None
+            resource = await self._fetch_resource(
+                resource_uri,
+                mcp_server_name=server_name,
+            )
             
             # 6. Emit metering event (usage tracking only) with enhanced features
             # Generate correlation_id for tracing
@@ -1163,7 +1145,8 @@ class MCPAdapter:
                 result=resource,
                 metadata={
                     "resource_size": resource.size,
-                    "mandate_id": str(mandate_id)
+                    "mandate_id": str(mandate_id),
+                    "mcp_server_name": server_name,
                 }
             )
             
@@ -1235,13 +1218,6 @@ class MCPAdapter:
             return str(UUID(normalized))
         except Exception:
             return normalized
-
-    def _is_mandate_subject(self, principal_id: str, mandate: Any) -> bool:
-        caller = self._normalize_principal_id(principal_id)
-        subject = self._normalize_principal_id(getattr(mandate, "subject_id", None))
-        if not caller or not subject:
-            return False
-        return caller == subject
 
     def _resolve_workspace_name(self, mcp_context: Optional[MCPContext]) -> Optional[str]:
         if mcp_context is not None:
@@ -1725,7 +1701,12 @@ class MCPAdapter:
             )
             raise CaracalError(f"Failed to forward tool call: {exc}")
 
-    async def _fetch_resource(self, resource_uri: str) -> MCPResource:
+    async def _fetch_resource(
+        self,
+        resource_uri: str,
+        *,
+        mcp_server_name: Optional[str] = None,
+    ) -> MCPResource:
         """
         Fetch a resource from the upstream MCP server via HTTP POST.
 
@@ -1741,12 +1722,15 @@ class MCPAdapter:
         Raises:
             CaracalError: On connection, timeout, HTTP, or parse failures
         """
-        if not self.mcp_server_url:
+        normalized_server_name = str(mcp_server_name or "").strip() or None
+        if not normalized_server_name and len(self._mcp_server_urls) > 1:
             raise CaracalError(
-                "MCP server URL not configured — cannot fetch resource"
+                "Resource read requires mcp_server_name when multiple MCP servers are configured"
             )
 
-        url = f"{self.mcp_server_url}/resource/read"
+        resolved_server_url = self._resolve_forward_server_url(normalized_server_name)
+
+        url = f"{resolved_server_url}/resource/read"
         payload = {"resource_uri": resource_uri}
 
         logger.debug(
@@ -1802,7 +1786,7 @@ class MCPAdapter:
         except httpx.ConnectError as exc:
             logger.error(f"Connection failed for resource {resource_uri} to {url}: {exc}")
             raise CaracalError(
-                f"Cannot connect to upstream MCP server at {self.mcp_server_url}: {exc}"
+                f"Cannot connect to upstream MCP server at {resolved_server_url}: {exc}"
             )
         except CaracalError:
             raise
@@ -2034,11 +2018,6 @@ class MCPAdapter:
                     mandate = self.authority_evaluator._get_mandate_with_cache(mandate_uuid)
                     if not mandate:
                         raise MCPUnknownMandateError(f"Unknown mandate_id: {mandate_id}")
-
-                    if not self._is_mandate_subject(str(principal_id), mandate):
-                        raise CaracalError(
-                            "Authority denied: Authenticated principal does not match mandate subject"
-                        )
 
                     tool_mapping = self._resolve_active_tool_mapping(
                         tool_id=tool_name,

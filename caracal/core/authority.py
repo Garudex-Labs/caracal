@@ -38,6 +38,7 @@ class AuthorityBoundaryStage:
     ISSUER_AUTHORITY_CHECKS = "issuer_authority_checks"
     MANDATE_STATE_VALIDATION = "mandate_state_validation"
     DELEGATION_PATH_VALIDATION = "delegation_path_validation"
+    SUBJECT_BINDING_VALIDATION = "subject_binding_validation"
     CAVEAT_CHAIN_VALIDATION = "caveat_chain_validation"
     ACTION_RESOURCE_AUTHORIZATION_CHECKS = "action_resource_authorization_checks"
     ALLOW = "allow"
@@ -51,6 +52,7 @@ class AuthorityReasonCode:
     MANDATE_REVOKED = "AUTH_MANDATE_REVOKED"
     MANDATE_NOT_YET_VALID = "AUTH_MANDATE_NOT_YET_VALID"
     MANDATE_EXPIRED = "AUTH_MANDATE_EXPIRED"
+    SUBJECT_BINDING_DENIED = "AUTH_SUBJECT_BINDING_DENIED"
     ISSUER_NOT_FOUND = "AUTH_ISSUER_NOT_FOUND"
     ISSUER_KEY_MISSING = "AUTH_ISSUER_KEY_MISSING"
     SIGNATURE_INVALID = "AUTH_SIGNATURE_INVALID"
@@ -201,6 +203,16 @@ class AuthorityEvaluator:
 
         # Non-provider scopes can use shell-style wildcard matching.
         return fnmatchcase(value, pattern)
+
+    @staticmethod
+    def _normalize_principal_id(raw_principal_id: Any) -> str:
+        normalized = str(raw_principal_id or "").strip()
+        if not normalized:
+            return ""
+        try:
+            return str(UUID(normalized))
+        except Exception:
+            return normalized
 
     @staticmethod
     def _is_canonical_provider_scope(scope: str) -> bool:
@@ -372,6 +384,54 @@ class AuthorityEvaluator:
                 mandate=mandate,
                 requested_action=requested_action,
                 requested_resource=requested_resource,
+            )
+
+        return None
+
+    def _validate_subject_binding_stage(
+        self,
+        mandate: ExecutionMandate,
+        requested_action: str,
+        requested_resource: str,
+        caller_principal_id: Optional[str],
+    ) -> Optional[AuthorityDecision]:
+        """Stage 2.5: optional caller-to-subject binding check.
+
+        When caller identity is supplied by the control surface, enforce that
+        authority can only be exercised by the mandate subject.
+        """
+        caller = self._normalize_principal_id(caller_principal_id)
+        if not caller:
+            return None
+
+        subject = self._normalize_principal_id(getattr(mandate, "subject_id", None))
+        if not subject:
+            reason = f"Mandate {mandate.mandate_id} has no resolvable subject identity"
+            logger.warning(reason)
+            return self._deny_decision(
+                reason=reason,
+                reason_code=AuthorityReasonCode.SUBJECT_BINDING_DENIED,
+                boundary_stage=AuthorityBoundaryStage.SUBJECT_BINDING_VALIDATION,
+                mandate=mandate,
+                requested_action=requested_action,
+                requested_resource=requested_resource,
+                caller_principal_id=caller_principal_id,
+            )
+
+        if caller != subject:
+            reason = (
+                "Authenticated principal does not match mandate subject: "
+                f"caller={caller}, subject={subject}"
+            )
+            logger.warning(reason)
+            return self._deny_decision(
+                reason=reason,
+                reason_code=AuthorityReasonCode.SUBJECT_BINDING_DENIED,
+                boundary_stage=AuthorityBoundaryStage.SUBJECT_BINDING_VALIDATION,
+                mandate=mandate,
+                requested_action=requested_action,
+                requested_resource=requested_resource,
+                caller_principal_id=caller_principal_id,
             )
 
         return None
@@ -633,6 +693,12 @@ class AuthorityEvaluator:
 
             for check in (
                 lambda m, a, r: self._validate_mandate_state(m, a, r, current_time),
+                lambda m, a, r: self._validate_subject_binding_stage(
+                    mandate=m,
+                    requested_action=a,
+                    requested_resource=r,
+                    caller_principal_id=caller_principal_id,
+                ),
                 self._validate_issuer_authority,
                 self._validate_delegation_path_stage,
                 lambda m, a, r: self._validate_caveat_chain_stage(
