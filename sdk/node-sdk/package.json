@@ -1,7 +1,7 @@
 {
   "name": "@caracal/core",
   "version": "0.1.0",
-  "description": "Caracal Authority Enforcement SDK for Node.js — pre-execution authority enforcement for AI agents",
+  "description": "Caracal Authority Enforcement SDK for Node.js — pre-execution authority enforcement for delegated principals",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "exports": {
@@ -26,7 +26,7 @@
     "caracal",
     "authority",
     "enforcement",
-    "ai-agents",
+    "ai-principals",
     "mandate",
     "delegation",
     "sdk"
