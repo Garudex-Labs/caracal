@@ -788,7 +788,11 @@ class MCPAdapter:
                 return MCPResult(
                     success=False,
                     result=None,
-                    error="Authority denied: Missing mandate_id"
+                    error="Authority denied: Missing mandate_id",
+                    metadata={
+                        "error_type": "caracal_error",
+                        "error_class": "MCPMissingMandateError",
+                    },
                 )
             
             try:
@@ -798,7 +802,11 @@ class MCPAdapter:
                 return MCPResult(
                     success=False,
                     result=None,
-                    error="Authority denied: Invalid mandate_id format"
+                    error="Authority denied: Invalid mandate_id format",
+                    metadata={
+                        "error_type": "caracal_error",
+                        "error_class": "MCPInvalidMandateError",
+                    },
                 )
 
             # 3. Fetch Mandate
@@ -809,7 +817,11 @@ class MCPAdapter:
                 return MCPResult(
                     success=False,
                     result=None,
-                    error=f"Authority denied: {not_found_error}"
+                    error=f"Authority denied: {not_found_error}",
+                    metadata={
+                        "error_type": "caracal_error",
+                        "error_class": not_found_error.__class__.__name__,
+                    },
                 )
 
             try:
@@ -829,6 +841,10 @@ class MCPAdapter:
                     success=False,
                     result=None,
                     error=f"Authority denied: {exc}",
+                    metadata={
+                        "error_type": "caracal_error",
+                        "error_class": exc.__class__.__name__,
+                    },
                 )
 
             logic_execution_context = self._active_logic_execution.get()
@@ -850,6 +866,10 @@ class MCPAdapter:
                         success=False,
                         result=None,
                         error=f"Authority denied: {exc}",
+                        metadata={
+                            "error_type": "caracal_error",
+                            "error_class": exc.__class__.__name__,
+                        },
                     )
 
             # 4. Validate Authority
@@ -869,7 +889,11 @@ class MCPAdapter:
                 return MCPResult(
                     success=False,
                     result=None,
-                    error=f"Authority denied: {decision.reason}"
+                    error=f"Authority denied: {decision.reason}",
+                    metadata={
+                        "error_type": "caracal_error",
+                        "error_class": "AuthorityDenied",
+                    },
                 )
             
             logger.info(
@@ -912,6 +936,10 @@ class MCPAdapter:
                     success=False,
                     result=None,
                     error=f"Authority denied: {exc}",
+                    metadata={
+                        "error_type": "caracal_error",
+                        "error_class": exc.__class__.__name__,
+                    },
                 )
             
             # 6. Emit metering event (usage tracking only) with enhanced features
@@ -999,7 +1027,11 @@ class MCPAdapter:
             return MCPResult(
                 success=False,
                 result=None,
-                error=error_response.message
+                error=error_response.message,
+                metadata={
+                    "error_type": "internal_error",
+                    "error_class": e.__class__.__name__,
+                },
             )
 
     async def intercept_resource_read(
@@ -1043,7 +1075,11 @@ class MCPAdapter:
                 return MCPResult(
                     success=False,
                     result=None,
-                    error="Authority denied: Missing mandate_id"
+                    error="Authority denied: Missing mandate_id",
+                    metadata={
+                        "error_type": "caracal_error",
+                        "error_class": "MCPMissingMandateError",
+                    },
                 )
             
             try:
@@ -1053,7 +1089,11 @@ class MCPAdapter:
                 return MCPResult(
                     success=False,
                     result=None,
-                    error="Authority denied: Invalid mandate_id format"
+                    error="Authority denied: Invalid mandate_id format",
+                    metadata={
+                        "error_type": "caracal_error",
+                        "error_class": "MCPInvalidMandateError",
+                    },
                 )
 
             # 3. Fetch Mandate
@@ -1064,7 +1104,11 @@ class MCPAdapter:
                 return MCPResult(
                     success=False,
                     result=None,
-                    error=f"Authority denied: {not_found_error}"
+                    error=f"Authority denied: {not_found_error}",
+                    metadata={
+                        "error_type": "caracal_error",
+                        "error_class": not_found_error.__class__.__name__,
+                    },
                 )
 
             # 4. Validate Authority
@@ -1085,7 +1129,11 @@ class MCPAdapter:
                 return MCPResult(
                     success=False,
                     result=None,
-                    error=f"Authority denied: {decision.reason}"
+                    error=f"Authority denied: {decision.reason}",
+                    metadata={
+                        "error_type": "caracal_error",
+                        "error_class": "AuthorityDenied",
+                    },
                 )
             
             logger.info(
@@ -1174,7 +1222,11 @@ class MCPAdapter:
             return MCPResult(
                 success=False,
                 result=None,
-                error=error_response.message
+                error=error_response.message,
+                metadata={
+                    "error_type": "internal_error",
+                    "error_class": e.__class__.__name__,
+                },
             )
 
     def _extract_principal_id(self, mcp_context: MCPContext) -> str:

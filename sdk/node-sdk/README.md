@@ -1,6 +1,6 @@
 # @caracal/core — Node.js SDK
 
-> Pre-execution authority enforcement SDK for AI agents.  
+> Pre-execution authority enforcement SDK for delegated principals.  
 > Mirrors the Python `caracal-core` SDK API surface exactly.
 
 ## Installation
@@ -16,9 +16,9 @@ import { CaracalClient } from "@caracal/core";
 
 const client = new CaracalClient({ apiKey: "sk_test_123" });
 
-const agents = await client.agents.list();
+const principals = await client.principals.list();
 const mandate = await client.mandates.create({
-  agentId: "agent_001",
+  principalId: "principal_001",
   allowedOperations: ["read", "write"],
   expiresIn: 3600,
 });
