@@ -57,7 +57,10 @@ from caracal.provider.workspace import (
     load_workspace_provider_registry,
     save_workspace_provider_registry,
 )
-from caracal.mcp.tool_registry_contract import list_tool_bindings_by_provider
+from caracal.mcp.tool_registry_contract import (
+    deactivate_invalid_provider_tools,
+    list_tool_bindings_by_provider,
+)
 
 logger = structlog.get_logger(__name__)
 console = Console()
@@ -214,6 +217,21 @@ def _get_active_workspace_db_message() -> Optional[str]:
         logger.debug("doctor_workspace_db_detection_failed", exc_info=True)
 
     return None
+
+
+def _revalidate_provider_tool_mappings(provider_name: str) -> list[dict[str, str]]:
+    """Deactivate active tools impacted by provider mapping drift after provider updates."""
+    from caracal.db.connection import get_db_manager
+
+    db_manager = get_db_manager()
+    try:
+        with db_manager.session_scope() as db_session:
+            return deactivate_invalid_provider_tools(
+                db_session=db_session,
+                provider_name=provider_name,
+            )
+    finally:
+        db_manager.close()
 
 
 # Config command group
@@ -1364,9 +1382,17 @@ def provider_update(
         )
         _save_workspace_providers(config_manager, workspace, providers)
 
+        impacted = _revalidate_provider_tool_mappings(name)
+
         console.print(f"[green]✓[/green] Provider updated: {name}")
         console.print(f"  Mode: {_provider_mode(providers[name])}")
         console.print(f"  Credential: {_provider_credential_status(providers[name])}")
+        if impacted:
+            console.print(
+                f"[yellow]⚠[/yellow] Deactivated {len(impacted)} mapped tool(s) due provider mapping drift:"
+            )
+            for item in impacted:
+                console.print(f"  • {item['tool_id']}: {item['reason']}")
     except Exception as e:
         logger.error("provider_update_failed", error=str(e))
         console.print(f"[red]Error:[/red] {e}")

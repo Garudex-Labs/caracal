@@ -500,11 +500,13 @@ from caracal.cli.tool_registry import (
     list_tools as tool_list,
     deactivate as tool_deactivate,
     reactivate as tool_reactivate,
+    preflight as tool_preflight,
 )
 tool.add_command(tool_register)
 tool.add_command(tool_list, name='list')
 tool.add_command(tool_deactivate)
 tool.add_command(tool_reactivate)
+tool.add_command(tool_preflight)
 
 
 # =============================================================================
