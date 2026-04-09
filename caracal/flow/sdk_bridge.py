@@ -138,6 +138,24 @@ class SDKBridge:
         scope = self._scope or self._get_default_scope()
         return await scope.ledger.query(principal_id=principal_id, limit=limit)
 
+    async def call_tool(
+        self,
+        tool_id: str,
+        mandate_id: str,
+        tool_args: Optional[dict] = None,
+        metadata: Optional[dict] = None,
+        correlation_id: Optional[str] = None,
+    ):
+        """Call a registered MCP tool through the canonical SDK tool API."""
+        scope = self._scope or self._get_default_scope()
+        return await scope.tools.call(
+            tool_id=tool_id,
+            mandate_id=mandate_id,
+            tool_args=tool_args,
+            metadata=metadata,
+            correlation_id=correlation_id,
+        )
+
     # -- Internal -----------------------------------------------------------
 
     def _get_default_scope(self) -> ScopeContext:
