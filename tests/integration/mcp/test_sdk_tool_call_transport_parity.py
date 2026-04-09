@@ -6,8 +6,6 @@ import httpx
 import pytest
 from fastapi import FastAPI, Request
 
-pytest.importorskip("aiohttp")
-
 from caracal_sdk.adapters.http import HttpAdapter
 from caracal_sdk.context import ScopeContext
 from caracal_sdk.gateway import GatewayAdapter, GatewayFeatureFlags
@@ -74,7 +72,7 @@ async def test_sdk_tool_call_http_and_gateway_adapters_return_identical_shape(
                 gateway_enabled=True,
                 gateway_endpoint="http://gateway.local",
                 gateway_api_key="gw-test-key",
-                deployment_type="enterprise",
+                deployment_type="managed",
                 fail_closed=True,
             ),
             gateway_endpoint="http://gateway.local",
@@ -88,7 +86,7 @@ async def test_sdk_tool_call_http_and_gateway_adapters_return_identical_shape(
         "tool_id": "provider:endframe:resource:deployments",
         "mandate_id": "11111111-1111-1111-1111-111111111111",
         "tool_args": {"payload": "ok"},
-        "metadata": {"source": "integration-test"},
+        "metadata": {"trace_id": "integration-test"},
     }
 
     direct_response = await direct_scope.tools.call(**payload_kwargs)
@@ -101,7 +99,7 @@ async def test_sdk_tool_call_http_and_gateway_adapters_return_identical_shape(
         "tool_id": "provider:endframe:resource:deployments",
         "mandate_id": "11111111-1111-1111-1111-111111111111",
         "tool_args": {"payload": "ok"},
-        "metadata": {"source": "integration-test"},
+        "metadata": {"trace_id": "integration-test"},
     }
 
     direct_scope._adapter.close()

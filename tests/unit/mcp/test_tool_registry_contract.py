@@ -182,6 +182,102 @@ def test_validate_active_tool_mappings_reports_mapping_and_forward_target_drift(
 @pytest.mark.unit
 @patch("caracal.mcp.tool_registry_contract.MCPAdapter")
 @patch("caracal.mcp.tool_registry_contract.AuthorityEvaluator")
+def test_validate_active_tool_mappings_reports_contract_drift_rows_before_mapping_resolution(
+    _mock_authority_evaluator,
+    mock_adapter,
+) -> None:
+    class _Query:
+        def __init__(self, rows):
+            self._rows = list(rows)
+
+        def filter_by(self, **kwargs):
+            rows = [
+                row for row in self._rows
+                if all(getattr(row, key, None) == value for key, value in kwargs.items())
+            ]
+            return _Query(rows)
+
+        def order_by(self, *_args, **_kwargs):
+            return self
+
+        def all(self):
+            return list(self._rows)
+
+    class _Session:
+        def __init__(self, rows):
+            self._rows = rows
+
+        def query(self, _model):
+            return _Query(self._rows)
+
+    rows = [
+        SimpleNamespace(
+            tool_id="tool.invalid-mode",
+            active=True,
+            execution_mode="edge",
+            tool_type="logic",
+            handler_ref="module:handler",
+        ),
+        SimpleNamespace(
+            tool_id="tool.invalid-type",
+            active=True,
+            execution_mode="mcp_forward",
+            tool_type="transform",
+            handler_ref=None,
+        ),
+        SimpleNamespace(
+            tool_id="tool.logic-local-missing-handler",
+            active=True,
+            execution_mode="local",
+            tool_type="logic",
+            handler_ref=None,
+        ),
+        SimpleNamespace(
+            tool_id="tool.direct-local",
+            active=True,
+            execution_mode="local",
+            tool_type="direct_api",
+            handler_ref=None,
+        ),
+        SimpleNamespace(
+            tool_id="tool.direct-with-handler",
+            active=True,
+            execution_mode="mcp_forward",
+            tool_type="direct_api",
+            handler_ref="module:handler",
+        ),
+    ]
+
+    issues = validate_active_tool_mappings(
+        db_session=_Session(rows),
+        named_server_urls={"server-0": "http://localhost:3001"},
+        has_default_forward_target=True,
+    )
+
+    assert len(issues) == 5
+    assert issues[0]["tool_id"] == "tool.invalid-mode"
+    assert issues[0]["check"] == "execution_mode"
+    assert "invalid execution_mode" in issues[0]["message"]
+    assert issues[1]["tool_id"] == "tool.invalid-type"
+    assert issues[1]["check"] == "tool_type"
+    assert "invalid tool_type" in issues[1]["message"]
+    assert issues[2]["tool_id"] == "tool.logic-local-missing-handler"
+    assert issues[2]["check"] == "handler_ref"
+    assert "requires handler_ref" in issues[2]["message"]
+    assert issues[3]["tool_id"] == "tool.direct-local"
+    assert issues[3]["check"] == "contract"
+    assert "must use mcp_forward" in issues[3]["message"]
+    assert issues[4]["tool_id"] == "tool.direct-with-handler"
+    assert issues[4]["check"] == "handler_ref"
+    assert "cannot set handler_ref" in issues[4]["message"]
+
+    adapter_instance = mock_adapter.return_value
+    adapter_instance._resolve_active_tool_mapping.assert_not_called()
+
+
+@pytest.mark.unit
+@patch("caracal.mcp.tool_registry_contract.MCPAdapter")
+@patch("caracal.mcp.tool_registry_contract.AuthorityEvaluator")
 def test_deactivate_invalid_provider_tools_marks_only_drifted_tools_inactive(
     _mock_authority_evaluator,
     mock_adapter,
