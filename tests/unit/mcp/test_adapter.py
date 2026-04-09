@@ -403,6 +403,10 @@ class TestMCPAdapter:
         
         assert result.success is True
         assert result.result["output"] == "test result"
+        assert result.metadata["execution_mode"] == "mcp_forward"
+        assert result.metadata["provider_name"] == _MAPPED_PROVIDER_NAME
+        assert result.metadata["resource_scope"] == _MAPPED_RESOURCE_SCOPE
+        assert result.metadata["action_scope"] == _MAPPED_ACTION_SCOPE
         self.mock_metering_collector.collect_event.assert_called_once()
 
     @pytest.mark.asyncio

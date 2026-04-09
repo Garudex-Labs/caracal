@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from types import SimpleNamespace
 from unittest.mock import Mock
+from uuid import uuid4
 
 import pytest
 
@@ -322,6 +323,34 @@ def test_register_tool_rejects_logic_tool_without_handler_ref() -> None:
 
 
 @pytest.mark.unit
+def test_register_tool_allows_forward_logic_without_handler_ref() -> None:
+    session = _SessionStub()
+    _add_provider_row(session)
+    authority_evaluator = SimpleNamespace(db_session=session)
+    adapter = MCPAdapter(
+        authority_evaluator=authority_evaluator,
+        metering_collector=Mock(),
+        mcp_server_url="http://localhost:3001",
+    )
+
+    created = adapter.register_tool(
+        tool_id="tool.logic-forward",
+        actor_principal_id=_ACTOR_PRINCIPAL_ID,
+        provider_name=_PROVIDER_NAME,
+        resource_scope=_RESOURCE_SCOPE,
+        action_scope=_ACTION_SCOPE,
+        provider_definition_id=_PROVIDER_NAME,
+        execution_mode="mcp_forward",
+        tool_type="logic",
+    )
+
+    assert created.tool_id == "tool.logic-forward"
+    assert created.execution_mode == "mcp_forward"
+    assert created.tool_type == "logic"
+    assert created.handler_ref is None
+
+
+@pytest.mark.unit
 def test_register_tool_rejects_direct_api_with_handler_ref() -> None:
     session = _SessionStub()
     _add_provider_row(session)
@@ -341,6 +370,29 @@ def test_register_tool_rejects_direct_api_with_handler_ref() -> None:
             provider_definition_id=_PROVIDER_NAME,
             tool_type="direct_api",
             handler_ref="custom.tools:execute",
+        )
+
+
+@pytest.mark.unit
+def test_register_tool_rejects_direct_api_local_execution() -> None:
+    session = _SessionStub()
+    _add_provider_row(session)
+    authority_evaluator = SimpleNamespace(db_session=session)
+    adapter = MCPAdapter(
+        authority_evaluator=authority_evaluator,
+        metering_collector=Mock(),
+    )
+
+    with pytest.raises(MCPToolTypeMismatchError, match="must use mcp_forward"):
+        adapter.register_tool(
+            tool_id="tool.direct-local",
+            actor_principal_id=_ACTOR_PRINCIPAL_ID,
+            provider_name=_PROVIDER_NAME,
+            resource_scope=_RESOURCE_SCOPE,
+            action_scope=_ACTION_SCOPE,
+            provider_definition_id=_PROVIDER_NAME,
+            execution_mode="local",
+            tool_type="direct_api",
         )
 
 
@@ -366,4 +418,90 @@ def test_register_tool_rejects_unknown_mcp_server_name_for_forward_mode() -> Non
             provider_definition_id=_PROVIDER_NAME,
             execution_mode="mcp_forward",
             mcp_server_name="does-not-exist",
+        )
+
+
+@pytest.mark.unit
+def test_deactivate_tool_clears_local_binding_cache() -> None:
+    session = _SessionStub()
+    _add_provider_row(session)
+    authority_evaluator = SimpleNamespace(db_session=session)
+    adapter = MCPAdapter(
+        authority_evaluator=authority_evaluator,
+        metering_collector=Mock(),
+    )
+
+    adapter.register_tool(
+        tool_id="tool.binding-cache",
+        actor_principal_id=_ACTOR_PRINCIPAL_ID,
+        provider_name=_PROVIDER_NAME,
+        resource_scope=_RESOURCE_SCOPE,
+        action_scope=_ACTION_SCOPE,
+        provider_definition_id=_PROVIDER_NAME,
+    )
+    adapter._decorator_bindings["tool.binding-cache"] = lambda **_kwargs: {"ok": True}
+
+    adapter.deactivate_tool(
+        tool_id="tool.binding-cache",
+        actor_principal_id=_ACTOR_PRINCIPAL_ID,
+    )
+
+    assert "tool.binding-cache" not in adapter._decorator_bindings
+
+
+@pytest.mark.unit
+def test_reactivate_tool_clears_local_binding_cache() -> None:
+    session = _SessionStub()
+    _add_provider_row(session)
+    authority_evaluator = SimpleNamespace(db_session=session)
+    adapter = MCPAdapter(
+        authority_evaluator=authority_evaluator,
+        metering_collector=Mock(),
+    )
+
+    adapter.register_tool(
+        tool_id="tool.binding-cache-reactivate",
+        actor_principal_id=_ACTOR_PRINCIPAL_ID,
+        provider_name=_PROVIDER_NAME,
+        resource_scope=_RESOURCE_SCOPE,
+        action_scope=_ACTION_SCOPE,
+        provider_definition_id=_PROVIDER_NAME,
+    )
+    adapter.deactivate_tool(
+        tool_id="tool.binding-cache-reactivate",
+        actor_principal_id=_ACTOR_PRINCIPAL_ID,
+    )
+
+    adapter._decorator_bindings["tool.binding-cache-reactivate"] = lambda **_kwargs: {"ok": True}
+    adapter.reactivate_tool(
+        tool_id="tool.binding-cache-reactivate",
+        actor_principal_id=_ACTOR_PRINCIPAL_ID,
+    )
+
+    assert "tool.binding-cache-reactivate" not in adapter._decorator_bindings
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_execute_local_tool_rejects_handler_ref_mismatch() -> None:
+    session = _SessionStub()
+    _add_provider_row(session)
+    authority_evaluator = SimpleNamespace(db_session=session)
+    adapter = MCPAdapter(
+        authority_evaluator=authority_evaluator,
+        metering_collector=Mock(),
+    )
+
+    async def _other_impl(**_kwargs):
+        return {"ok": True}
+
+    adapter._decorator_bindings["tool.handler-mismatch"] = _other_impl
+
+    with pytest.raises(CaracalError, match="Local handler mismatch"):
+        await adapter._execute_local_tool(
+            tool_id="tool.handler-mismatch",
+            principal_id="agent-123",
+            mandate_id=uuid4(),
+            tool_args={"payload": "ok"},
+            handler_ref="custom.logic:execute",
         )
