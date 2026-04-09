@@ -783,16 +783,16 @@ class AuthorityClient:
     def register_principal(
         self,
         name: str,
-        principal_type: str = "agent",
+        principal_type: str = "worker",
         metadata: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """
-        Register a new principal (user, agent, or service).
+        Register a new principal (user, worker, orchestrator, or service).
 
         Args:
             name: Human-readable principal name.
-            principal_type: One of ``"user"``, ``"agent"``, ``"service"``
-                (default ``"agent"``).
+            principal_type: One of ``"user"``, ``"worker"``, ``"orchestrator"``,
+                ``"service"`` (default ``"worker"``).
             metadata: Arbitrary key/value metadata to attach.
 
         Returns:
@@ -803,8 +803,8 @@ class AuthorityClient:
 
         Example:
             >>> principal = client.register_principal(
-            ...     name="my-ai-agent",
-            ...     principal_type="agent",
+            ...     name="my-worker-principal",
+            ...     principal_type="worker",
             ...     metadata={"team": "platform"},
             ... )
             >>> print(principal["principal_id"])
