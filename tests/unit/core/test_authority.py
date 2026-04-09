@@ -68,6 +68,33 @@ class TestAuthorityEvaluator:
         assert decision.reason_code == "AUTH_MANDATE_REVOKED"
         assert decision.boundary_stage == "mandate_state_validation"
         assert decision.mandate_id == mandate.mandate_id
+
+    def test_validate_mandate_denies_subject_binding_mismatch(self):
+        """Caller identity must match mandate subject when caller context is provided."""
+        issuer_id = uuid4()
+        mandate = ExecutionMandate(
+            mandate_id=uuid4(),
+            issuer_id=issuer_id,
+            subject_id=uuid4(),
+            valid_from=datetime.utcnow() - timedelta(hours=1),
+            valid_until=datetime.utcnow() + timedelta(hours=1),
+            resource_scope=["secret/*"],
+            action_scope=["read:secrets"],
+            signature="test_signature",
+            revoked=False,
+        )
+
+        decision = self.evaluator.validate_mandate(
+            mandate=mandate,
+            requested_action="read:secrets",
+            requested_resource="secret/test",
+            caller_principal_id=str(uuid4()),
+        )
+
+        assert decision.allowed is False
+        assert "does not match mandate subject" in decision.reason.lower()
+        assert decision.reason_code == "AUTH_SUBJECT_BINDING_DENIED"
+        assert decision.boundary_stage == "subject_binding_validation"
     
     def test_validate_mandate_not_yet_valid(self):
         """Test authority validation with mandate not yet valid."""

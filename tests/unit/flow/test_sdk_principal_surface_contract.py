@@ -24,25 +24,21 @@ class _NoopAdapter(BaseAdapter):
 
 
 @pytest.mark.unit
-def test_scope_context_exposes_principals_and_deprecated_agents_alias() -> None:
+def test_scope_context_exposes_principals_only() -> None:
     scope = ScopeContext(adapter=_NoopAdapter(), hooks=HookRegistry())
 
     principals = scope.principals
-    with pytest.warns(DeprecationWarning, match="ScopeContext.agents"):
-        agents = scope.agents
-
-    assert agents is principals
+    assert principals is not None
+    assert not hasattr(scope, "agents")
 
 
 @pytest.mark.unit
-def test_client_exposes_principals_and_deprecated_agents_alias() -> None:
+def test_client_exposes_principals_only() -> None:
     client = CaracalClient(adapter=_NoopAdapter())
 
     principals = client.principals
-    with pytest.warns(DeprecationWarning, match="CaracalClient.agents"):
-        agents = client.agents
-
-    assert agents is principals
+    assert principals is not None
+    assert not hasattr(client, "agents")
     client.close()
 
 
