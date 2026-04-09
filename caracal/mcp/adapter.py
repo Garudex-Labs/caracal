@@ -970,6 +970,32 @@ class MCPAdapter:
             any_state_row = self.get_registered_tool(tool_id=normalized_tool_id, require_active=False)
             if any_state_row is None:
                 raise MCPUnknownToolError(f"Unknown tool_id: {normalized_tool_id}")
+
+            provider_name = str(getattr(any_state_row, "provider_name", "") or "").strip()
+            resource_scope = str(getattr(any_state_row, "resource_scope", "") or "").strip()
+            action_scope = str(getattr(any_state_row, "action_scope", "") or "").strip()
+            provider_definition_id = str(
+                getattr(any_state_row, "provider_definition_id", "") or ""
+            ).strip() or None
+
+            if provider_name and resource_scope and action_scope:
+                session = self._get_registry_session()
+                try:
+                    self._validate_tool_mapping(
+                        session=session,
+                        provider_name=provider_name,
+                        resource_scope=resource_scope,
+                        action_scope=action_scope,
+                        provider_definition_id=provider_definition_id,
+                        action_method=None,
+                        action_path_prefix=None,
+                        require_provider_enabled=True,
+                    )
+                except CaracalError as drift_error:
+                    raise CaracalError(
+                        f"Tool '{normalized_tool_id}' is inactive due provider drift: {drift_error}"
+                    ) from drift_error
+
             raise CaracalError(f"Tool '{normalized_tool_id}' is inactive")
 
         provider_name = str(getattr(tool_row, "provider_name", "") or "").strip()
@@ -1411,6 +1437,13 @@ class MCPAdapter:
             raise CaracalError(
                 f"tool_id '{resolved_tool_id}' is inactive and cannot be bound"
             )
+
+        # Fail import-time binding if provider/action/resource mapping drifted.
+        self._resolve_active_tool_mapping(
+            tool_id=resolved_tool_id,
+            mcp_context=None,
+            require_credential=False,
+        )
 
         def decorator(func):
             """

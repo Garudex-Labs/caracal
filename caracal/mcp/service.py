@@ -39,6 +39,7 @@ from caracal.exceptions import (
     MCPUnknownToolError,
 )
 from caracal.logging_config import get_logger, setup_runtime_logging
+from caracal.mcp.tool_registry_contract import validate_active_tool_mappings
 
 logger = get_logger(__name__)
 
@@ -284,6 +285,81 @@ class MCPAdapterService:
         normalized = dict(metadata or {})
         normalized["mandate_id"] = str(mandate_id)
         return normalized
+
+    @staticmethod
+    def _normalize_selector_value(value: Any) -> Optional[str]:
+        normalized = str(value or "").strip()
+        return normalized or None
+
+    def _normalize_provider_selector_metadata(
+        self,
+        *,
+        raw_request: Request,
+        metadata: Dict[str, Any],
+        tool_row: Any,
+    ) -> Dict[str, Any]:
+        """Normalize provider selector fields from request body + headers and reject conflicts."""
+        normalized_metadata = dict(metadata or {})
+
+        body_provider_name = self._normalize_selector_value(normalized_metadata.get("provider_name"))
+        header_provider_name = self._normalize_selector_value(
+            raw_request.headers.get("X-Caracal-Provider-Name")
+        )
+        if body_provider_name and header_provider_name and body_provider_name != header_provider_name:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=(
+                    "Provider selector mismatch between metadata.provider_name and "
+                    "X-Caracal-Provider-Name header"
+                ),
+            )
+        provider_name = body_provider_name or header_provider_name
+
+        body_definition_id = self._normalize_selector_value(normalized_metadata.get("provider_definition_id"))
+        header_definition_id = self._normalize_selector_value(
+            raw_request.headers.get("X-Caracal-Provider-Definition-ID")
+        )
+        if body_definition_id and header_definition_id and body_definition_id != header_definition_id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=(
+                    "Provider selector mismatch between metadata.provider_definition_id and "
+                    "X-Caracal-Provider-Definition-ID header"
+                ),
+            )
+        provider_definition_id = body_definition_id or header_definition_id
+
+        mapped_provider_name = self._normalize_selector_value(getattr(tool_row, "provider_name", None))
+        mapped_definition_id = self._normalize_selector_value(
+            getattr(tool_row, "provider_definition_id", None)
+        )
+        if provider_name and mapped_provider_name and provider_name != mapped_provider_name:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=(
+                    f"Provider selector '{provider_name}' does not match mapped provider "
+                    f"'{mapped_provider_name}' for requested tool"
+                ),
+            )
+        if (
+            provider_definition_id
+            and mapped_definition_id
+            and provider_definition_id != mapped_definition_id
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=(
+                    f"Provider definition selector '{provider_definition_id}' does not match mapped "
+                    f"provider definition '{mapped_definition_id}' for requested tool"
+                ),
+            )
+
+        if provider_name:
+            normalized_metadata["provider_name"] = provider_name
+        if provider_definition_id:
+            normalized_metadata["provider_definition_id"] = provider_definition_id
+
+        return normalized_metadata
 
     def _require_active_tool(self, tool_id: str):
         normalized_tool_id = str(tool_id or "").strip()
@@ -574,13 +650,18 @@ class MCPAdapterService:
                 request_metadata["mandate_id"] = request.mandate_id
                 request_metadata = self._validate_mandate_id_metadata(request_metadata)
                 try:
-                    self._require_active_tool(request.tool_id)
+                    tool_row = self._require_active_tool(request.tool_id)
                     self._require_active_mandate(request_metadata["mandate_id"])
                 except (MCPUnknownToolError, MCPUnknownMandateError) as exc:
                     raise HTTPException(
                         status_code=status.HTTP_404_NOT_FOUND,
                         detail=str(exc),
                     ) from exc
+                request_metadata = self._normalize_provider_selector_metadata(
+                    raw_request=raw_request,
+                    metadata=request_metadata,
+                    tool_row=tool_row,
+                )
                 request_metadata.setdefault("task_token_claims", token_claims)
                 request_metadata.setdefault("token_subject", principal_id)
                 
@@ -795,6 +876,7 @@ def _validate_forward_tool_server_bindings(
     db_session,
     *,
     named_server_urls: Dict[str, str],
+    has_default_forward_target: bool = False,
 ) -> None:
     """Fail startup when active forward-routed tools reference unknown named servers."""
     known_server_names = {
@@ -813,13 +895,39 @@ def _validate_forward_tool_server_bindings(
         server_name = str(getattr(row, "mcp_server_name", "") or "").strip()
         if server_name and server_name not in known_server_names:
             unknown_bindings.append(f"{getattr(row, 'tool_id', '<unknown>')}->{server_name}")
+            continue
+
+        if not server_name and not has_default_forward_target:
+            unknown_bindings.append(f"{getattr(row, 'tool_id', '<unknown>')}-><default>")
 
     if unknown_bindings:
         joined = ", ".join(sorted(unknown_bindings))
         raise RuntimeError(
-            "Active forward-routed tools reference unknown MCP server names: "
+            "Active forward-routed tools reference unresolved MCP server targets: "
             f"{joined}"
         )
+
+
+def _validate_active_tool_mapping_bindings(
+    db_session,
+    *,
+    named_server_urls: Dict[str, str],
+    has_default_forward_target: bool,
+) -> None:
+    """Fail startup when active tools have mapping or forward-target drift."""
+    issues = validate_active_tool_mappings(
+        db_session=db_session,
+        named_server_urls=named_server_urls,
+        has_default_forward_target=has_default_forward_target,
+    )
+    if not issues:
+        return
+
+    joined = "; ".join(
+        f"{issue['tool_id']}[{issue['check']}]: {issue['message']}"
+        for issue in issues
+    )
+    raise RuntimeError(f"Active tool mapping validation failed: {joined}")
 
 
 async def main(config_path: Optional[str] = None, listen_address: Optional[str] = None):
@@ -920,9 +1028,16 @@ async def main(config_path: Optional[str] = None, listen_address: Optional[str] 
     )
 
     try:
+        _validate_active_tool_mapping_bindings(
+            session,
+            named_server_urls=mcp_server_url_map,
+            has_default_forward_target=bool(upstream_url),
+        )
+
         _validate_forward_tool_server_bindings(
             session,
             named_server_urls=mcp_server_url_map,
+            has_default_forward_target=bool(upstream_url),
         )
     except RuntimeError as e:
         logger.error(f"Invalid MCP forward routing configuration: {e}")
