@@ -137,6 +137,26 @@ class ToolRegistryRegisterRequest(ToolRegistryRequest):
         None,
         description="Optional named upstream target for forward-routed execution",
     )
+    workspace_name: Optional[str] = Field(
+        None,
+        description="Optional workspace name used for deterministic binding identity",
+    )
+    tool_type: str = Field(
+        "direct_api",
+        description="Tool behavior type ('direct_api' or 'logic')",
+    )
+    handler_ref: Optional[str] = Field(
+        None,
+        description="Handler reference for logic tools (module:function)",
+    )
+    mapping_version: Optional[str] = Field(
+        None,
+        description="Optional mapping fingerprint/version for drift detection",
+    )
+    allowed_downstream_scopes: list[str] = Field(
+        default_factory=list,
+        description="Optional provider scopes that logic tools may call downstream",
+    )
 
 
 class MCPServiceResponse(BaseModel):
@@ -425,10 +445,17 @@ class MCPAdapterService:
             return {
                 "tool_id": str(getattr(row, "tool_id", "")),
                 "active": bool(getattr(row, "active", False)),
+                "workspace_name": getattr(row, "workspace_name", None),
                 "provider_name": getattr(row, "provider_name", None),
                 "resource_scope": getattr(row, "resource_scope", None),
                 "action_scope": getattr(row, "action_scope", None),
                 "provider_definition_id": getattr(row, "provider_definition_id", None),
+                "tool_type": getattr(row, "tool_type", None),
+                "handler_ref": getattr(row, "handler_ref", None),
+                "mapping_version": getattr(row, "mapping_version", None),
+                "allowed_downstream_scopes": list(
+                    getattr(row, "allowed_downstream_scopes", []) or []
+                ),
                 "execution_mode": getattr(row, "execution_mode", None),
                 "mcp_server_name": getattr(row, "mcp_server_name", None),
             }
@@ -551,6 +578,11 @@ class MCPAdapterService:
                     action_path_prefix=request.action_path_prefix,
                     execution_mode=request.execution_mode,
                     mcp_server_name=request.mcp_server_name,
+                    workspace_name=request.workspace_name,
+                    tool_type=request.tool_type,
+                    handler_ref=request.handler_ref,
+                    mapping_version=request.mapping_version,
+                    allowed_downstream_scopes=request.allowed_downstream_scopes,
                 )
             except CaracalError as exc:
                 raise HTTPException(

@@ -56,9 +56,9 @@ from caracal.provider.credential_store import (
 from caracal.provider.workspace import (
     load_workspace_provider_registry,
     save_workspace_provider_registry,
+    sync_workspace_provider_registry_runtime,
 )
 from caracal.mcp.tool_registry_contract import (
-    deactivate_invalid_provider_tools,
     list_tool_bindings_by_provider,
 )
 from caracal.runtime.hardcut_preflight import (
@@ -221,21 +221,6 @@ def _get_active_workspace_db_message() -> Optional[str]:
         logger.debug("doctor_workspace_db_detection_failed", exc_info=True)
 
     return None
-
-
-def _revalidate_provider_tool_mappings(provider_name: str) -> list[dict[str, str]]:
-    """Deactivate active tools impacted by provider mapping drift after provider updates."""
-    from caracal.db.connection import get_db_manager
-
-    db_manager = get_db_manager()
-    try:
-        with db_manager.session_scope() as db_session:
-            return deactivate_invalid_provider_tools(
-                db_session=db_session,
-                provider_name=provider_name,
-            )
-    finally:
-        db_manager.close()
 
 
 # Config command group
@@ -978,9 +963,14 @@ def _save_workspace_providers(
     config_manager: ConfigManager,
     workspace: str,
     providers: Dict[str, Dict[str, Any]],
-) -> None:
+) -> list[dict[str, str]]:
     """Persist provider registry in workspace metadata."""
     save_workspace_provider_registry(config_manager, workspace, providers)
+    sync_result = sync_workspace_provider_registry_runtime(
+        workspace=workspace,
+        providers=providers,
+    )
+    return list(sync_result.get("impacted") or [])
 
 
 def _build_oss_broker(config_manager: ConfigManager, workspace: str):
@@ -1384,9 +1374,7 @@ def provider_update(
             created_at=existing.get("created_at"),
             enforce_scoped_requests=next_mode == "scoped",
         )
-        _save_workspace_providers(config_manager, workspace, providers)
-
-        impacted = _revalidate_provider_tool_mappings(name)
+        impacted = _save_workspace_providers(config_manager, workspace, providers)
 
         console.print(f"[green]✓[/green] Provider updated: {name}")
         console.print(f"  Mode: {_provider_mode(providers[name])}")
@@ -1554,11 +1542,17 @@ def provider_import(
         )
 
         providers[str(provider_name)] = record
-        _save_workspace_providers(config_manager, workspace, providers)
+        impacted = _save_workspace_providers(config_manager, workspace, providers)
 
         console.print(f"[green]✓[/green] Provider imported: {provider_name}")
         console.print(f"  Mode: {_provider_mode(record)}")
         console.print(f"  Credential: {_provider_credential_status(record)}")
+        if impacted:
+            console.print(
+                f"[yellow]⚠[/yellow] Deactivated {len(impacted)} mapped tool(s) due provider mapping drift:"
+            )
+            for item in impacted:
+                console.print(f"  • {item['tool_id']}: {item['reason']}")
     except json.JSONDecodeError as e:
         console.print(f"[red]Error:[/red] Invalid JSON: {e}")
         sys.exit(1)
@@ -1788,7 +1782,7 @@ def provider_remove(name: str, workspace: Optional[str], force: bool):
                 return
 
         provider = providers.pop(name)
-        _save_workspace_providers(config_manager, workspace, providers)
+        impacted = _save_workspace_providers(config_manager, workspace, providers)
 
         # Remove provider credential secret if managed by this registry.
         credential_ref = provider.get("credential_ref")
@@ -1799,6 +1793,12 @@ def provider_remove(name: str, workspace: Optional[str], force: bool):
                 pass
         
         console.print(f"[green]✓[/green] Provider removed: {name}")
+        if impacted:
+            console.print(
+                f"[yellow]⚠[/yellow] Deactivated {len(impacted)} mapped tool(s) due provider removal:"
+            )
+            for item in impacted:
+                console.print(f"  • {item['tool_id']}: {item['reason']}")
         
     except Exception as e:
         logger.error("provider_remove_failed", error=str(e))
