@@ -664,6 +664,62 @@ class TestMCPAdapter:
         self.mock_metering_collector.collect_event.assert_called_once()
 
     @pytest.mark.asyncio
+    async def test_intercept_resource_read_forwards_named_server_from_context_metadata(self):
+        """Resource reads should pass mcp_server_name metadata to upstream fetch routing."""
+        mandate_id = uuid4()
+        context = MCPContext(
+            principal_id="agent-123",
+            metadata={
+                "mandate_id": str(mandate_id),
+                "mcp_server_name": "server-b",
+            },
+        )
+
+        mock_mandate = Mock(spec=ExecutionMandate)
+        mock_mandate.subject_id = "agent-123"
+        self.mock_authority_evaluator._get_mandate_with_cache.return_value = mock_mandate
+        self.mock_authority_evaluator.validate_mandate.return_value = AuthorityDecision(
+            allowed=True,
+            reason="Authority granted",
+            mandate_id=mandate_id,
+            requested_action="read",
+            requested_resource="file://test.txt",
+        )
+
+        mock_resource = MCPResource(
+            uri="file://test.txt",
+            content="test content",
+            mime_type="text/plain",
+            size=12,
+        )
+        with patch.object(self.adapter, "_fetch_resource", new_callable=AsyncMock) as mock_fetch:
+            mock_fetch.return_value = mock_resource
+
+            result = await self.adapter.intercept_resource_read(
+                resource_uri="file://test.txt",
+                mcp_context=context,
+            )
+
+        assert result.success is True
+        mock_fetch.assert_called_once_with("file://test.txt", mcp_server_name="server-b")
+
+    @pytest.mark.asyncio
+    async def test_fetch_resource_requires_named_server_in_multi_server_mode(self):
+        """Multi-server resource reads must be explicit to prevent unintended default routing."""
+        adapter = MCPAdapter(
+            authority_evaluator=self.mock_authority_evaluator,
+            metering_collector=self.mock_metering_collector,
+            mcp_server_url="http://server-a:3001",
+            mcp_server_urls={
+                "server-a": "http://server-a:3001",
+                "server-b": "http://server-b:3001",
+            },
+        )
+
+        with pytest.raises(CaracalError, match="requires mcp_server_name"):
+            await adapter._fetch_resource("file://test.txt")
+
+    @pytest.mark.asyncio
     async def test_intercept_resource_read_metering_failure_does_not_fail_read(self):
         """Metering failure after resource fetch must not fail the read response."""
         mandate_id = uuid4()
@@ -704,7 +760,7 @@ class TestMCPAdapter:
 
     @pytest.mark.asyncio
     async def test_intercept_tool_call_denies_mandate_subject_mismatch(self):
-        """Test tool call interception denies when caller is not mandate subject."""
+        """Tool call must deny when AuthorityEvaluator rejects caller/subject mismatch."""
         mandate_id = uuid4()
         context = MCPContext(
             principal_id="agent-123",
@@ -714,6 +770,13 @@ class TestMCPAdapter:
         mock_mandate = Mock(spec=ExecutionMandate)
         mock_mandate.subject_id = "different-agent"
         self.mock_authority_evaluator._get_mandate_with_cache.return_value = mock_mandate
+        self.mock_authority_evaluator.validate_mandate.return_value = AuthorityDecision(
+            allowed=False,
+            reason="Authenticated principal does not match mandate subject",
+            mandate_id=mandate_id,
+            requested_action=_MAPPED_ACTION_SCOPE,
+            requested_resource=_MAPPED_RESOURCE_SCOPE,
+        )
 
         result = await self.adapter.intercept_tool_call(
             tool_name="test_tool",
@@ -723,7 +786,7 @@ class TestMCPAdapter:
 
         assert result.success is False
         assert "does not match mandate subject" in result.error.lower()
-        self.mock_authority_evaluator.validate_mandate.assert_not_called()
+        self.mock_authority_evaluator.validate_mandate.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_as_decorator_uses_explicit_tool_id_for_authorization(self):

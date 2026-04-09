@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 import json
@@ -380,6 +380,51 @@ def test_resolve_ais_vault_context_prefers_recovered_project_uuid_over_slug(
 
     assert org_id == "11111111-2222-3333-4444-555555555555"
     assert env_id == "dev"
+
+
+@pytest.mark.unit
+def test_resolve_ais_vault_secret_uses_resolved_vault_context(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, str] = {}
+
+    class _Vault:
+        def get(self, *, org_id: str, env_id: str, name: str) -> str:
+            captured["org_id"] = org_id
+            captured["env_id"] = env_id
+            captured["name"] = name
+            return "secret-value"
+
+    monkeypatch.setattr(entrypoints, "_resolve_ais_vault_context", lambda: ("org-ctx", "env-ctx"))
+    monkeypatch.setattr("caracal.core.vault.get_vault", lambda: _Vault())
+    monkeypatch.setattr("caracal.core.vault.vault_access_context", lambda: nullcontext())
+
+    value = entrypoints._resolve_ais_vault_secret("keys/session-public")
+
+    assert value == "secret-value"
+    assert captured == {
+        "org_id": "org-ctx",
+        "env_id": "env-ctx",
+        "name": "keys/session-public",
+    }
+
+
+@pytest.mark.unit
+def test_resolve_ais_vault_context_falls_back_when_vault_unavailable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("CARACAL_VAULT_PROJECT_ID", raising=False)
+    monkeypatch.delenv("CARACAL_VAULT_PROJECT_SLUG", raising=False)
+    monkeypatch.delenv("CARACAL_VAULT_ORG_ID", raising=False)
+    monkeypatch.delenv("CARACAL_VAULT_ENVIRONMENT", raising=False)
+    monkeypatch.delenv("CARACAL_VAULT_ENV", raising=False)
+    monkeypatch.delenv("CARACAL_VAULT_ENV_ID", raising=False)
+    monkeypatch.setattr("caracal.core.vault.get_vault", lambda: (_ for _ in ()).throw(RuntimeError("offline")))
+
+    org_id, env_id = entrypoints._resolve_ais_vault_context()
+
+    assert org_id == "caracal"
+    assert env_id == "runtime"
 
 
 @pytest.mark.unit
