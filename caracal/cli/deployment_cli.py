@@ -57,6 +57,7 @@ from caracal.provider.workspace import (
     load_workspace_provider_registry,
     save_workspace_provider_registry,
 )
+from caracal.mcp.tool_registry_contract import list_tool_bindings_by_provider
 
 logger = structlog.get_logger(__name__)
 console = Console()
@@ -1548,6 +1549,21 @@ def provider_list(workspace: Optional[str], format: str):
 
         workspace = _require_workspace(config_manager, workspace)
 
+        def _read_tool_bindings() -> Dict[str, List[str]]:
+            try:
+                from caracal.db.connection import get_db_manager
+
+                db_manager = get_db_manager()
+                try:
+                    with db_manager.session_scope() as db_session:
+                        return list_tool_bindings_by_provider(db_session=db_session)
+                finally:
+                    db_manager.close()
+            except Exception:
+                return {}
+
+        tool_bindings = _read_tool_bindings()
+
         providers_data: List[Dict[str, Any]] = []
 
         if edition_adapter.uses_gateway_execution():
@@ -1577,6 +1593,7 @@ def provider_list(workspace: Optional[str], format: str):
                     "provider_definition": provider.provider_definition,
                     "resources": provider.resources,
                     "actions": provider.actions,
+                    "tool_bindings": tool_bindings.get(provider.name, []),
                 }
                 for provider in providers
             ]
@@ -1600,6 +1617,7 @@ def provider_list(workspace: Optional[str], format: str):
                         "provider_definition": stored.get("provider_definition"),
                         "resources": stored.get("resources", []),
                         "actions": stored.get("actions", []),
+                        "tool_bindings": tool_bindings.get(provider.name, []),
                     }
                 )
         
@@ -1617,8 +1635,17 @@ def provider_list(workspace: Optional[str], format: str):
             table.add_column("Endpoint", style="magenta")
             table.add_column("Credential", style="green")
             table.add_column("Mode", style="white")
+            table.add_column("Tools", style="yellow")
             
             for provider in providers_data:
+                provider_tool_bindings = list(provider.get("tool_bindings") or [])
+                if not provider_tool_bindings:
+                    tools_text = "-"
+                elif len(provider_tool_bindings) <= 2:
+                    tools_text = ", ".join(provider_tool_bindings)
+                else:
+                    tools_text = f"{len(provider_tool_bindings)} tools ({', '.join(provider_tool_bindings[:2])}...)"
+
                 table.add_row(
                     provider["name"],
                     provider.get("provider_definition") or "custom",
@@ -1626,6 +1653,7 @@ def provider_list(workspace: Optional[str], format: str):
                     provider.get("base_url") or "configured",
                     provider.get("credential_status") or "managed",
                     provider.get("mode") or provider.get("status") or "configured",
+                    tools_text,
                 )
             
             console.print(table)

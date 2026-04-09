@@ -24,7 +24,7 @@ from caracal.cli.provider_scopes import validate_provider_scopes
 from caracal.deployment.config_manager import ConfigManager
 from caracal.flow.components.menu import show_menu
 from caracal.flow.components.prompt import FlowPrompt
-from caracal.flow.screens._provider_scope_helpers import load_provider_scope_catalog
+from caracal.mcp.tool_registry_contract import resolve_issue_scopes_from_tool_ids
 from caracal.flow.theme import Colors, Icons
 from caracal.flow.state import FlowState, RecentAction
 from caracal.logging_config import get_logger
@@ -170,7 +170,7 @@ class MandateFlow:
         
         try:
             from caracal.db.connection import get_db_manager
-            from caracal.db.models import Principal, AuthorityPolicy
+            from caracal.db.models import Principal, AuthorityPolicy, RegisteredTool
             from caracal.core.mandate import MandateManager
             
             db_manager = get_db_manager()
@@ -191,86 +191,89 @@ class MandateFlow:
                 # Select subject
                 subject_id_str = self.prompt.uuid("Subject Principal ID (Tab for suggestions)", items)
                 subject_id = UUID(subject_id_str)
-                
-                scope_catalog = load_provider_scope_catalog()
-                providers = scope_catalog["providers"]
-                resources = scope_catalog["resources"]
-                actions_catalog = scope_catalog["actions"]
 
-                if not providers:
+                active_tools = (
+                    db_session.query(RegisteredTool)
+                    .filter_by(active=True)
+                    .order_by(RegisteredTool.tool_id.asc())
+                    .all()
+                )
+                if not active_tools:
                     self.console.print(
-                        f"  [{Colors.WARNING}]{Icons.WARNING} No providers configured in this workspace.[/]"
+                        f"  [{Colors.WARNING}]{Icons.WARNING} No active tool registrations found.[/]"
                     )
                     self.console.print(
-                        f"  [{Colors.HINT}]Add a provider first via 'caracal provider add ...'[/]"
+                        f"  [{Colors.HINT}]Register tools first via CLI: caracal tool register ...[/]"
+                    )
+                    return
+
+                providers = sorted(
+                    {
+                        str(getattr(row, "provider_name", "") or "").strip()
+                        for row in active_tools
+                        if str(getattr(row, "provider_name", "") or "").strip()
+                    }
+                )
+                if not providers:
+                    self.console.print(
+                        f"  [{Colors.ERROR}]{Icons.ERROR} Active tools are missing provider mappings.[/]"
                     )
                     return
 
                 provider_choice = self.prompt.select(
-                    "Scope provider",
+                    "Tool provider",
                     choices=providers + ["all"],
                     default=providers[0],
                 )
-                if provider_choice != "all":
-                    provider_prefix = f"provider:{provider_choice}:"
-                    resources = [s for s in resources if s.startswith(provider_prefix)]
-                    actions_catalog = [s for s in actions_catalog if s.startswith(provider_prefix)]
 
-                if not resources or not actions_catalog:
+                filtered_tools = [
+                    row for row in active_tools
+                    if provider_choice == "all"
+                    or str(getattr(row, "provider_name", "") or "").strip() == provider_choice
+                ]
+                if not filtered_tools:
                     self.console.print(
-                        f"  [{Colors.ERROR}]{Icons.ERROR} Selected provider has no scope catalog.[/]"
+                        f"  [{Colors.ERROR}]{Icons.ERROR} Selected provider has no active tool registrations.[/]"
                     )
                     return
 
-                # Resource scopes
+                selected_tool_ids: list[str] = []
+                tool_choices = [str(row.tool_id) for row in filtered_tools if str(row.tool_id).strip()]
+
                 self.console.print()
-                self.console.print(f"  [{Colors.INFO}]Select provider resource scopes:[/]")
-                resource_scope = []
+                self.console.print(f"  [{Colors.INFO}]Select registered tool IDs:[/]")
                 while True:
-                    remaining = [r for r in resources if r not in resource_scope]
+                    remaining = [tool for tool in tool_choices if tool not in selected_tool_ids]
                     if not remaining:
                         break
                     choice = self.prompt.select(
-                        f"Resource scope {len(resource_scope) + 1}",
+                        f"Tool ID {len(selected_tool_ids) + 1}",
                         choices=remaining + ["done"],
                         default=remaining[0],
                     )
                     if choice == "done":
                         break
-                    resource_scope.append(choice)
-                
-                if not resource_scope:
-                    self.console.print(f"  [{Colors.ERROR}]{Icons.ERROR} At least one resource is required.[/]")
+                    selected_tool_ids.append(choice)
+
+                if not selected_tool_ids:
+                    self.console.print(f"  [{Colors.ERROR}]{Icons.ERROR} At least one tool_id is required.[/]")
                     return
-                
-                # Action scopes
-                self.console.print()
-                self.console.print(f"  [{Colors.INFO}]Select provider action scopes:[/]")
-                action_scope = []
-                while True:
-                    remaining = [a for a in actions_catalog if a not in action_scope]
-                    if not remaining:
-                        break
-                    choice = self.prompt.select(
-                        f"Action scope {len(action_scope) + 1}",
-                        choices=remaining + ["done"],
-                        default=remaining[0],
-                    )
-                    if choice == "done":
-                        break
-                    action_scope.append(choice)
-                
-                if not action_scope:
-                    self.console.print(f"  [{Colors.ERROR}]{Icons.ERROR} At least one action is required.[/]")
-                    return
+
+                providers_for_resolution = [provider_choice] if provider_choice != "all" else None
+                tool_contract = resolve_issue_scopes_from_tool_ids(
+                    db_session=db_session,
+                    tool_ids=selected_tool_ids,
+                    providers=providers_for_resolution,
+                )
+                resource_scope = list(tool_contract["resource_scope"])
+                action_scope = list(tool_contract["action_scope"])
 
                 workspace_name = self._resolve_active_workspace_name()
-                providers_for_validation = [provider_choice] if provider_choice != "all" else None
                 validate_provider_scopes(
                     workspace=workspace_name,
                     resource_scopes=resource_scope,
                     action_scopes=action_scope,
-                    providers=providers_for_validation,
+                    providers=list(tool_contract["providers"]),
                 )
                 
                 # Validity period
@@ -308,6 +311,7 @@ class MandateFlow:
                 self.console.print(f"  [{Colors.INFO}]Mandate Details:[/]")
                 self.console.print(f"    Issuer: [{Colors.DIM}]{issuer_id_str[:8]}...[/]")
                 self.console.print(f"    Subject: [{Colors.DIM}]{subject_id_str[:8]}...[/]")
+                self.console.print(f"    Tools: [{Colors.NEUTRAL}]{len(tool_contract['tool_ids'])} selected[/]")
                 self.console.print(f"    Resources: [{Colors.NEUTRAL}]{len(resource_scope)} resources[/]")
                 self.console.print(f"    Actions: [{Colors.NEUTRAL}]{len(action_scope)} actions[/]")
                 self.console.print(f"    Validity: [{Colors.NEUTRAL}]{int(validity_seconds)}s[/]")
