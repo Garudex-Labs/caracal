@@ -23,6 +23,7 @@ if TYPE_CHECKING:
     from caracal_sdk.delegation import DelegationOperations
     from caracal_sdk.ledger import LedgerOperations
     from caracal_sdk.mandates import MandateOperations
+    from caracal_sdk.tools import ToolOperations
 
 logger = get_logger(__name__)
 
@@ -60,6 +61,7 @@ class ScopeContext:
         self._mandates: Optional[MandateOperations] = None
         self._delegation: Optional[DelegationOperations] = None
         self._ledger: Optional[LedgerOperations] = None
+        self._tools: Optional[ToolOperations] = None
 
     # -- Scope headers (injected into every request) -----------------------
 
@@ -111,6 +113,14 @@ class ScopeContext:
             from caracal_sdk.ledger import LedgerOperations
             self._ledger = LedgerOperations(scope=self)
         return self._ledger
+
+    @property
+    def tools(self) -> ToolOperations:
+        if self._tools is None:
+            from caracal_sdk.tools import ToolOperations
+
+            self._tools = ToolOperations(scope=self)
+        return self._tools
 
 
 class ContextManager:

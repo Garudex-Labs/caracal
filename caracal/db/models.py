@@ -1009,6 +1009,12 @@ class RegisteredTool(Base):
 
     tool_record_id = Column(PG_UUID(as_uuid=True), primary_key=True, default=uuid4)
     tool_id = Column(String(255), nullable=False, unique=True, index=True)
+    provider_name = Column(String(255), nullable=True, index=True)
+    resource_scope = Column(String(255), nullable=True)
+    action_scope = Column(String(255), nullable=True)
+    provider_definition_id = Column(String(255), nullable=True)
+    execution_mode = Column(String(32), nullable=False, default="mcp_forward", server_default="mcp_forward")
+    mcp_server_name = Column(String(255), nullable=True)
     active = Column(Boolean, nullable=False, default=True, index=True)
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
