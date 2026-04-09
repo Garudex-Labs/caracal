@@ -215,7 +215,7 @@ class GatewayAdapter(BaseAdapter):
         if self._workspace_id:
             headers[self.GATEWAY_WORKSPACE_HEADER] = self._workspace_id
 
-        # Signal to gateway that this is an SDK call (not a direct agent forward)
+        # Signal to gateway that this is an SDK call (not a direct principal forward)
         headers["X-Caracal-SDK-Call"] = "1"
         headers["X-Caracal-Deployment"] = self._flags.deployment_type
 

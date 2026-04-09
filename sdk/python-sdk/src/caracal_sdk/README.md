@@ -1,6 +1,6 @@
 # Caracal SDK
 
-> Pre-execution authority enforcement SDK for AI agents.  
+> Pre-execution authority enforcement SDK for delegated principals.  
 > Standalone package: `caracal-sdk` · License: Apache-2.0
 
 ## Installation
@@ -16,12 +16,12 @@ from caracal_sdk import CaracalClient
 
 client = CaracalClient(api_key="sk_test_123")
 
-# List agents
-agents = await client.agents.list()
+# List principals
+principals = await client.principals.list()
 
 # Create a mandate
 mandate = await client.mandates.create(
-    agent_id="agent_001",
+    principal_id="principal_001",
     allowed_operations=["read", "write"],
     expires_in=3600,
 )
@@ -41,9 +41,9 @@ ctx = client.context.checkout(
 )
 
 # All operations are scoped
-agents = await ctx.agents.list()
+principals = await ctx.principals.list()
 mandate = await ctx.mandates.create(
-    agent_id="agent_001",
+    principal_id="principal_001",
     allowed_operations=["read"],
     expires_in=3600,
 )
@@ -78,7 +78,7 @@ client = (
 | -------------- | ------------------------ | -------------------------- |
 | **Client**     | `caracal_sdk.client`     | Init, builder, config      |
 | **Context**    | `caracal_sdk.context`    | Org/Workspace scope        |
-| **Agents**     | `caracal_sdk.agents`     | Agent CRUD                 |
+| **Principals** | `caracal_sdk.principals` | Principal CRUD             |
 | **Mandates**   | `caracal_sdk.mandates`   | Mandate lifecycle          |
 | **Delegation** | `caracal_sdk.delegation` | Token management           |
 | **Ledger**     | `caracal_sdk.ledger`     | Audit queries              |
@@ -131,7 +131,7 @@ from caracal_sdk._compat import SDKConfigurationError
 
 try:
     client = CaracalClient(api_key="sk_test_123")
-    agents = await client.agents.list()
+    principals = await client.principals.list()
 except SDKConfigurationError as e:
     print(f"Config error: {e}")
 ```
