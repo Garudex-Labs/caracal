@@ -283,6 +283,126 @@ class MCPAdapter:
         )
 
     @staticmethod
+    def _extract_integrity_error_details(exc: IntegrityError) -> tuple[Optional[str], Optional[str], str]:
+        """Extract SQLSTATE, constraint name, and normalized message from IntegrityError."""
+        original = getattr(exc, "orig", None)
+        sqlstate = str(
+            getattr(original, "pgcode", None)
+            or getattr(original, "sqlstate", None)
+            or ""
+        ).strip() or None
+        diag = getattr(original, "diag", None)
+        constraint = str(getattr(diag, "constraint_name", "") or "").strip() or None
+        message = str(original or exc)
+        return sqlstate, constraint, message
+
+    @staticmethod
+    def _is_tool_id_uniqueness_violation(
+        *,
+        sqlstate: Optional[str],
+        constraint: Optional[str],
+        message: str,
+    ) -> bool:
+        if sqlstate != "23505":
+            return False
+
+        normalized_constraint = str(constraint or "").strip().lower()
+        if normalized_constraint in {
+            "uq_registered_tools_active_workspace_tool_id",
+            "uq_registered_tools_tool_id",
+        }:
+            return True
+
+        normalized_message = str(message or "").lower()
+        if "uq_registered_tools_active_workspace_tool_id" in normalized_message:
+            return True
+        if "uq_registered_tools_tool_id" in normalized_message:
+            return True
+        if "duplicate key value" in normalized_message and "(workspace_name, tool_id)" in normalized_message:
+            return True
+        return False
+
+    @staticmethod
+    def _is_binding_uniqueness_violation(
+        *,
+        sqlstate: Optional[str],
+        constraint: Optional[str],
+        message: str,
+    ) -> bool:
+        if sqlstate != "23505":
+            return False
+
+        normalized_constraint = str(constraint or "").strip().lower()
+        if normalized_constraint == "uq_registered_tools_active_workspace_binding":
+            return True
+
+        normalized_message = str(message or "").lower()
+        if "uq_registered_tools_active_workspace_binding" in normalized_message:
+            return True
+        if (
+            "duplicate key value" in normalized_message
+            and "(workspace_name, provider_name, resource_scope, action_scope, tool_type)" in normalized_message
+        ):
+            return True
+        return False
+
+    def _raise_register_tool_integrity_error(
+        self,
+        *,
+        exc: IntegrityError,
+        tool_id: str,
+        workspace_name: str,
+        actor_principal_id: str,
+    ) -> None:
+        sqlstate, constraint, message = self._extract_integrity_error_details(exc)
+        normalized_message = message.lower()
+        normalized_constraint = str(constraint or "").strip().lower()
+
+        if self._is_tool_id_uniqueness_violation(
+            sqlstate=sqlstate,
+            constraint=constraint,
+            message=message,
+        ):
+            raise CaracalError(f"Tool already registered: {tool_id}") from exc
+
+        if self._is_binding_uniqueness_violation(
+            sqlstate=sqlstate,
+            constraint=constraint,
+            message=message,
+        ):
+            raise CaracalError(
+                "Active tool binding already exists for workspace "
+                f"'{workspace_name}' (provider/resource/action/tool_type)"
+            ) from exc
+
+        if sqlstate == "23503":
+            if (
+                normalized_constraint == "authority_ledger_events_principal_id_fkey"
+                or (
+                    "authority_ledger_events" in normalized_message
+                    and "principal" in normalized_message
+                    and "foreign key" in normalized_message
+                )
+            ):
+                raise CaracalError(
+                    "Invalid actor_principal_id for tool registry transition: "
+                    f"{actor_principal_id}"
+                ) from exc
+            raise CaracalError(
+                "Tool registration failed due foreign key constraint violation"
+            ) from exc
+
+        if sqlstate:
+            raise CaracalError(
+                "Tool registration failed due integrity constraint violation "
+                f"(sqlstate={sqlstate}, constraint={constraint or 'unknown'})"
+            ) from exc
+
+        raise CaracalError(
+            "Tool registration failed due integrity constraint violation"
+        ) from exc
+
+    @staticmethod
     def _callable_handler_ref(func: Any) -> str:
         module_name = str(getattr(func, "__module__", "") or "").strip()
         function_name = str(getattr(func, "__name__", "") or "").strip()
@@ -560,7 +680,12 @@ class MCPAdapter:
             session.commit()
         except IntegrityError as exc:
             session.rollback()
-            raise CaracalError(f"Tool already registered: {normalized_tool_id}") from exc
+            self._raise_register_tool_integrity_error(
+                exc=exc,
+                tool_id=normalized_tool_id,
+                workspace_name=normalized_workspace_name,
+                actor_principal_id=actor_principal_id,
+            )
 
         return row
 

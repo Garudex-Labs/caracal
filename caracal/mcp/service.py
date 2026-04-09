@@ -108,6 +108,10 @@ class ToolRegistryRequest(BaseModel):
     """Request model for tool registry write operations."""
 
     tool_id: str = Field(..., description="Explicit tool identifier")
+    workspace_name: Optional[str] = Field(
+        None,
+        description="Optional workspace selector for deterministic registry targeting",
+    )
 
 
 class ToolRegistryRegisterRequest(ToolRegistryRequest):
@@ -464,7 +468,11 @@ class MCPAdapterService:
 
         return normalized_metadata
 
-    def _require_active_tool(self, tool_id: str):
+    def _require_active_tool(
+        self,
+        tool_id: str,
+        workspace_name: Optional[str] = None,
+    ):
         normalized_tool_id = str(tool_id or "").strip()
         if not normalized_tool_id:
             raise HTTPException(
@@ -476,6 +484,7 @@ class MCPAdapterService:
             row = self.mcp_adapter.get_registered_tool(
                 tool_id=normalized_tool_id,
                 require_active=False,
+                workspace_name=workspace_name,
             )
         except CaracalError as exc:
             raise HTTPException(
@@ -709,7 +718,16 @@ class MCPAdapterService:
         async def list_tools(raw_request: Request, include_inactive: bool = False):
             """List persisted tool registrations."""
             principal_id, _ = await self._resolve_authenticated_principal(raw_request=raw_request)
-            rows = self.mcp_adapter.list_registered_tools(include_inactive=include_inactive)
+            workspace_metadata = self._normalize_workspace_scope_metadata(
+                raw_request=raw_request,
+                metadata={},
+            )
+            rows = self.mcp_adapter.list_registered_tools(
+                include_inactive=include_inactive,
+                workspace_name=self._normalize_selector_value(
+                    workspace_metadata.get("workspace_name")
+                ),
+            )
             return MCPServiceResponse(
                 success=True,
                 result={"tools": [_serialize_tool_row(row) for row in rows]},
@@ -723,10 +741,17 @@ class MCPAdapterService:
         async def deactivate_tool(request: ToolRegistryRequest, raw_request: Request):
             """Deactivate a persisted tool registration."""
             principal_id, _ = await self._resolve_authenticated_principal(raw_request=raw_request)
+            workspace_metadata = self._normalize_workspace_scope_metadata(
+                raw_request=raw_request,
+                metadata={"workspace_name": request.workspace_name},
+            )
             try:
                 row = self.mcp_adapter.deactivate_tool(
                     tool_id=request.tool_id,
                     actor_principal_id=principal_id,
+                    workspace_name=self._normalize_selector_value(
+                        workspace_metadata.get("workspace_name")
+                    ),
                 )
             except CaracalError as exc:
                 raise HTTPException(
@@ -747,10 +772,17 @@ class MCPAdapterService:
         async def reactivate_tool(request: ToolRegistryRequest, raw_request: Request):
             """Reactivate a persisted tool registration."""
             principal_id, _ = await self._resolve_authenticated_principal(raw_request=raw_request)
+            workspace_metadata = self._normalize_workspace_scope_metadata(
+                raw_request=raw_request,
+                metadata={"workspace_name": request.workspace_name},
+            )
             try:
                 row = self.mcp_adapter.reactivate_tool(
                     tool_id=request.tool_id,
                     actor_principal_id=principal_id,
+                    workspace_name=self._normalize_selector_value(
+                        workspace_metadata.get("workspace_name")
+                    ),
                 )
             except CaracalError as exc:
                 raise HTTPException(
@@ -807,8 +839,14 @@ class MCPAdapterService:
                     raw_request=raw_request,
                     metadata=request_metadata,
                 )
+                workspace_name = self._normalize_selector_value(
+                    request_metadata.get("workspace_name")
+                )
                 try:
-                    tool_row = self._require_active_tool(request.tool_id)
+                    tool_row = self._require_active_tool(
+                        request.tool_id,
+                        workspace_name=workspace_name,
+                    )
                     self._require_active_mandate(request_metadata["mandate_id"])
                 except (MCPUnknownToolError, MCPUnknownMandateError) as exc:
                     raise HTTPException(
