@@ -16,6 +16,7 @@ from caracal.mcp.service import (
     ResourceReadRequest,
     MCPServiceResponse,
     HealthCheckResponse,
+    _validate_active_tool_mapping_bindings,
     _validate_forward_tool_server_bindings,
 )
 from caracal.mcp.adapter import MCPAdapter, MCPResult, MCPResource
@@ -277,7 +278,7 @@ class TestMCPAdapterService:
             ]
         )
 
-        with pytest.raises(RuntimeError, match="unknown MCP server names"):
+        with pytest.raises(RuntimeError, match="unresolved MCP server targets"):
             _validate_forward_tool_server_bindings(
                 session,
                 named_server_urls={"server-0": "http://localhost:3001"},
@@ -322,6 +323,65 @@ class TestMCPAdapterService:
             session,
             named_server_urls={"server-0": "http://localhost:3001"},
         )
+
+    @pytest.mark.unit
+    def test_validate_forward_tool_server_bindings_rejects_missing_default_target(self):
+        class _Query:
+            def __init__(self, rows):
+                self._rows = rows
+
+            def filter_by(self, **kwargs):
+                rows = [
+                    row for row in self._rows
+                    if all(getattr(row, key, None) == value for key, value in kwargs.items())
+                ]
+                return _Query(rows)
+
+            def all(self):
+                return list(self._rows)
+
+        class _Session:
+            def __init__(self, rows):
+                self._rows = rows
+
+            def query(self, _model):
+                return _Query(self._rows)
+
+        session = _Session(
+            [
+                SimpleNamespace(
+                    tool_id="tool.forward",
+                    active=True,
+                    execution_mode="mcp_forward",
+                    mcp_server_name=None,
+                )
+            ]
+        )
+
+        with pytest.raises(RuntimeError, match="unresolved MCP server targets"):
+            _validate_forward_tool_server_bindings(
+                session,
+                named_server_urls={},
+                has_default_forward_target=False,
+            )
+
+    @pytest.mark.unit
+    @patch("caracal.mcp.service.validate_active_tool_mappings")
+    def test_validate_active_tool_mapping_bindings_raises_on_issues(self, mock_validate):
+        mock_validate.return_value = [
+            {
+                "tool_id": "tool.bad",
+                "check": "mapping",
+                "message": "Provider mapping drift",
+            }
+        ]
+
+        with pytest.raises(RuntimeError, match="Active tool mapping validation failed"):
+            _validate_active_tool_mapping_bindings(
+                Mock(),
+                named_server_urls={"server-0": "http://localhost:3001"},
+                has_default_forward_target=True,
+            )
     
     @pytest.mark.asyncio
     async def test_health_check_all_healthy(self):
@@ -769,6 +829,63 @@ class TestMCPAdapterService:
 
         assert response.status_code == 404
         assert "unknown tool_id" in response.json()["detail"].lower()
+
+    def test_tool_call_endpoint_rejects_provider_selector_body_header_mismatch(self):
+        from fastapi.testclient import TestClient
+
+        client = TestClient(self.service.app)
+        self.mock_mcp_adapter.get_registered_tool.return_value = SimpleNamespace(
+            tool_id="test_tool",
+            active=True,
+            provider_name="endframe",
+            provider_definition_id="endframe",
+        )
+
+        response = client.post(
+            "/mcp/tool/call",
+            json={
+                "tool_id": "test_tool",
+                "mandate_id": str(uuid4()),
+                "tool_args": {},
+                "metadata": {
+                    "provider_name": "endframe",
+                },
+            },
+            headers={
+                "Authorization": "Bearer test-token",
+                "X-Caracal-Provider-Name": "other-provider",
+            },
+        )
+
+        assert response.status_code == 400
+        assert "provider selector mismatch" in response.json()["detail"].lower()
+
+    def test_tool_call_endpoint_rejects_provider_selector_mapped_tool_mismatch(self):
+        from fastapi.testclient import TestClient
+
+        client = TestClient(self.service.app)
+        self.mock_mcp_adapter.get_registered_tool.return_value = SimpleNamespace(
+            tool_id="test_tool",
+            active=True,
+            provider_name="endframe",
+            provider_definition_id="endframe",
+        )
+
+        response = client.post(
+            "/mcp/tool/call",
+            json={
+                "tool_id": "test_tool",
+                "mandate_id": str(uuid4()),
+                "tool_args": {},
+                "metadata": {
+                    "provider_name": "anthropic",
+                },
+            },
+            headers={"Authorization": "Bearer test-token"},
+        )
+
+        assert response.status_code == 400
+        assert "does not match mapped provider" in response.json()["detail"].lower()
 
     def test_require_active_tool_raises_unknown_tool_error_class(self):
         """Unknown tools should raise deterministic MCPUnknownToolError."""

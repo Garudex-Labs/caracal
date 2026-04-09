@@ -238,27 +238,26 @@ class TestMCPAdapter:
 
     def test_resolve_active_tool_mapping_reports_inactive_due_provider_drift(self):
         """Inactive tools with broken provider mappings should return an explicit drift reason."""
-
-        def _lookup(*, tool_id: str, require_active: bool = False):
-            del tool_id
-            if require_active:
-                return None
-            return SimpleNamespace(
-                tool_id=_TOOL_ID,
-                active=False,
-                provider_name=_MAPPED_PROVIDER_NAME,
-                resource_scope=_MAPPED_RESOURCE_SCOPE,
-                action_scope=_MAPPED_ACTION_SCOPE,
-                provider_definition_id=_MAPPED_PROVIDER_NAME,
-            )
-
-        self.adapter.get_registered_tool = Mock(side_effect=_lookup)
+        self.adapter.get_registered_tool = Mock(
+            side_effect=[
+                None,
+                SimpleNamespace(
+                    tool_id=_TOOL_ID,
+                    active=False,
+                    provider_name=_MAPPED_PROVIDER_NAME,
+                    resource_scope=_MAPPED_RESOURCE_SCOPE,
+                    action_scope=_MAPPED_ACTION_SCOPE,
+                    provider_definition_id=_MAPPED_PROVIDER_NAME,
+                ),
+            ]
+        )
         self.adapter._validate_tool_mapping = Mock(
             side_effect=CaracalError("Mapped provider 'endframe' was removed")
         )
 
         with pytest.raises(CaracalError, match="inactive due provider drift"):
-            self.adapter._resolve_active_tool_mapping(
+            MCPAdapter._resolve_active_tool_mapping(
+                self.adapter,
                 tool_id=_TOOL_ID,
                 mcp_context=None,
                 require_credential=False,
