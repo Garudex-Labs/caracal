@@ -40,7 +40,7 @@ class CaracalClient:
     Quick start::
 
         client = CaracalClient(api_key="sk_test_123")
-        agents = await client.agents.list()
+        principals = await client.principals.list()
 
     Workspace-scoped::
 
@@ -51,7 +51,7 @@ class CaracalClient:
         api_key: API key for authentication.
         base_url: Root URL of the Caracal API.
             Defaults to ``CARACAL_API_URL`` when set, else
-            ``http://localhost:${CARACAL_API_PORT:-8000}``.
+            ``http://localhost:${CARACAL_API_PORT:-8080}``.
         adapter: Optional custom transport adapter (overrides base_url/api_key based default).
 
     """
@@ -70,7 +70,7 @@ class CaracalClient:
             )
 
         resolved_base_url = base_url or resolve_sdk_base_url(
-            default_port=os.environ.get("CARACAL_API_PORT", "8000")
+            default_port=os.environ.get("CARACAL_API_PORT", "8080")
         )
 
         self._hooks = HookRegistry()
@@ -88,6 +88,7 @@ class CaracalClient:
         )
 
         self._extensions: List[CaracalExtension] = []
+        self._agents_alias_warned = False
         logger.info("CaracalClient initialized")
 
     # -- Extension registration --------------------------------------------
@@ -115,9 +116,22 @@ class CaracalClient:
         return self._context_manager
 
     @property
+    def principals(self):
+        """Principal operations in the default (unscoped) context."""
+        return self._default_scope.principals
+
+    @property
     def agents(self):
-        """Agent operations in the default (unscoped) context."""
-        return self._default_scope.agents
+        """Deprecated alias for principal operations."""
+        if not self._agents_alias_warned:
+            warnings.warn(
+                "CaracalClient.agents is deprecated; use CaracalClient.principals. "
+                "'agents' represent principal identities (for example orchestrator/worker).",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            self._agents_alias_warned = True
+        return self.principals
 
     @property
     def mandates(self):
@@ -171,7 +185,7 @@ class CaracalBuilder:
     def __init__(self) -> None:
         self._api_key: Optional[str] = None
         self._base_url: str = resolve_sdk_base_url(
-            default_port=os.environ.get("CARACAL_API_PORT", "8000")
+            default_port=os.environ.get("CARACAL_API_PORT", "8080")
         )
         self._adapter: Optional[BaseAdapter] = None
         self._extensions: List[CaracalExtension] = []

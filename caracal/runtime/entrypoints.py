@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 import os
 import platform
 import shutil
@@ -1532,18 +1533,7 @@ def _resolve_ais_vault_secret(secret_ref: str) -> str:
     if not normalized_ref:
         raise RuntimeError("AIS vault secret reference cannot be empty")
 
-    org_id = (
-        os.environ.get("CARACAL_VAULT_PROJECT_ID")
-        or os.environ.get("CARACAL_VAULT_PROJECT_SLUG")
-        or os.environ.get("CARACAL_VAULT_ORG_ID")
-        or "caracal"
-    )
-    env_id = (
-        os.environ.get("CARACAL_VAULT_ENVIRONMENT")
-        or os.environ.get("CARACAL_VAULT_ENV")
-        or os.environ.get("CARACAL_VAULT_ENV_ID")
-        or "runtime"
-    )
+    org_id, env_id = _resolve_ais_vault_context()
 
     with vault_access_context():
         return get_vault().get(org_id=str(org_id), env_id=str(env_id), name=normalized_ref)
@@ -1565,19 +1555,38 @@ def _resolve_ais_vault_context() -> tuple[str, str]:
         or ""
     ).strip()
 
-    vault = get_vault()
-    default_org = str(getattr(vault._config, "default_project", "") or "").strip()
-    default_env = str(getattr(vault._config, "default_environment", "") or "").strip()
+    default_org = ""
+    default_env = ""
 
-    org_id = configured_org
-    if configured_org:
+    def _is_uuid(value: str) -> bool:
         try:
             from uuid import UUID
 
-            UUID(configured_org)
+            UUID(str(value))
+            return True
         except Exception:
-            if default_org:
-                org_id = default_org
+            return False
+
+    # Only touch vault bootstrap context when we need defaults or slug remapping.
+    needs_vault_defaults = (
+        not configured_org
+        or not configured_env
+        or not _is_uuid(configured_org)
+    )
+    if needs_vault_defaults:
+        try:
+            vault = get_vault()
+            default_org = str(getattr(vault._config, "default_project", "") or "").strip()
+            default_env = str(getattr(vault._config, "default_environment", "") or "").strip()
+        except Exception as exc:
+            logging.getLogger(__name__).warning(
+                f"Failed to resolve vault defaults for AIS context, using deterministic fallbacks: {exc}"
+            )
+
+    org_id = configured_org
+    if configured_org:
+        if not _is_uuid(configured_org) and default_org:
+            org_id = default_org
     else:
         org_id = default_org or "caracal"
 
