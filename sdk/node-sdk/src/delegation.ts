@@ -49,16 +49,16 @@ export class DelegationOperations {
     return this.exec(this.buildReq('POST', '/delegations', body));
   }
 
-  /** Generate a delegation token from source agent to target agent. */
+  /** Generate a delegation token from source principal to target principal. */
   async getToken(options: {
-    sourceAgentId: string;
-    targetAgentId: string;
+    sourcePrincipalId: string;
+    targetPrincipalId: string;
     expirationSeconds?: number;
     allowedOperations?: string[];
   }): Promise<unknown> {
     const body: Record<string, unknown> = {
-      source_agent_id: options.sourceAgentId,
-      target_agent_id: options.targetAgentId,
+      source_principal_id: options.sourcePrincipalId,
+      target_principal_id: options.targetPrincipalId,
       expiration_seconds: options.expirationSeconds ?? 86400,
     };
     if (options.allowedOperations) body.allowed_operations = options.allowedOperations;
@@ -85,9 +85,9 @@ export class DelegationOperations {
     return this.exec(this.buildReq('POST', '/delegations/peer', body));
   }
 
-  /** Get delegation graph for an agent (all connected edges). */
-  async getGraph(agentId: string): Promise<unknown> {
-    return this.exec(this.buildReq('GET', `/delegations/graph/${agentId}`));
+  /** Get delegation graph for a principal (all connected edges). */
+  async getGraph(principalId: string): Promise<unknown> {
+    return this.exec(this.buildReq('GET', `/delegations/graph/${principalId}`));
   }
 
   /** Revoke a specific delegation edge. */
