@@ -517,11 +517,11 @@ class AsyncAuthorityClient:
     async def register_principal(
         self,
         name: str,
-        principal_type: str = "agent",
+        principal_type: str = "worker",
         metadata: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """
-        Register a new principal (user, agent, or service) — async.
+        Register a new principal (user, worker, orchestrator, or service) — async.
 
         See :meth:`AuthorityClient.register_principal` for full documentation.
         """

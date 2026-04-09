@@ -1,6 +1,6 @@
 /** Grouped management operations for the Node SDK. */
 
-export { AgentOperations } from './agents';
+export { PrincipalOperations } from './principals';
 export { MandateOperations } from './mandates';
 export { DelegationOperations } from './delegation';
 export { LedgerOperations } from './ledger';
