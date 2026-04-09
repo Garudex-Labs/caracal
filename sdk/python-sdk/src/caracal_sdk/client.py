@@ -13,7 +13,6 @@ Provides two entry points to initialize the SDK:
 from __future__ import annotations
 
 import os
-import warnings
 from typing import Any, List, Optional
 
 from caracal_sdk._compat import get_logger
@@ -88,7 +87,6 @@ class CaracalClient:
         )
 
         self._extensions: List[CaracalExtension] = []
-        self._agents_alias_warned = False
         logger.info("CaracalClient initialized")
 
     # -- Extension registration --------------------------------------------
@@ -119,19 +117,6 @@ class CaracalClient:
     def principals(self):
         """Principal operations in the default (unscoped) context."""
         return self._default_scope.principals
-
-    @property
-    def agents(self):
-        """Deprecated alias for principal operations."""
-        if not self._agents_alias_warned:
-            warnings.warn(
-                "CaracalClient.agents is deprecated; use CaracalClient.principals. "
-                "'agents' represent principal identities (for example orchestrator/worker).",
-                DeprecationWarning,
-                stacklevel=2,
-            )
-            self._agents_alias_warned = True
-        return self.principals
 
     @property
     def mandates(self):
