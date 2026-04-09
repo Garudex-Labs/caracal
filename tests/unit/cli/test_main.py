@@ -152,6 +152,13 @@ class TestCLICommandRegistration:
         assert result.exit_code != 0
         assert 'Command not found: sync' in result.output
 
+    def test_system_migrate_command_removed(self):
+        """Test legacy system migration command group is removed in hard-cut mode."""
+        result = self.runner.invoke(cli, ['system', 'migrate', '--help'])
+
+        assert result.exit_code != 0
+        assert 'No such command' in result.output
+
 
 @pytest.mark.unit
 class TestCLIErrorHandling:

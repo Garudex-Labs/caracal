@@ -13,6 +13,9 @@ import pytest
 from caracal.core.metering import MeteringEvent
 from caracal.mcp.adapter import MCPAdapter
 from caracal.mcp.service import MCPAdapterService, MCPServerConfig, MCPServiceConfig
+
+pytest.importorskip("aiohttp")
+
 from caracal_sdk.adapters.http import HttpAdapter
 from caracal_sdk.context import ScopeContext
 from caracal_sdk.hooks import HookRegistry
