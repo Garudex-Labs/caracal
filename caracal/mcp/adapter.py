@@ -31,7 +31,9 @@ from caracal.core.error_handling import (
 from caracal.exceptions import (
     CaracalError,
     MCPProviderMissingError,
+    MCPToolBindingError,
     MCPToolMappingMismatchError,
+    MCPToolTypeMismatchError,
     MCPUnknownMandateError,
     MCPUnknownToolError,
 )
@@ -168,11 +170,69 @@ class MCPAdapter:
         server_name = str(mcp_server_name or "").strip() or None
         if mode == "local":
             server_name = None
+        elif server_name and server_name not in self._mcp_server_urls:
+            raise CaracalError(
+                f"Unknown mcp_server_name '{server_name}' for forward execution"
+            )
 
         return {
             "execution_mode": mode,
             "mcp_server_name": server_name,
         }
+
+    @staticmethod
+    def _normalize_workspace_name(workspace_name: Optional[str]) -> Optional[str]:
+        normalized = str(workspace_name or "").strip()
+        return normalized or None
+
+    @staticmethod
+    def _normalize_tool_type(tool_type: Optional[str]) -> str:
+        normalized = str(tool_type or "direct_api").strip().lower()
+        if normalized not in {"direct_api", "logic"}:
+            raise MCPToolTypeMismatchError(
+                "tool_type must be 'direct_api' or 'logic'"
+            )
+        return normalized
+
+    @staticmethod
+    def _normalize_handler_ref(handler_ref: Optional[str]) -> Optional[str]:
+        normalized = str(handler_ref or "").strip()
+        return normalized or None
+
+    @staticmethod
+    def _normalize_allowed_downstream_scopes(
+        allowed_downstream_scopes: Optional[list[str]],
+    ) -> list[str]:
+        normalized: list[str] = []
+        for scope in allowed_downstream_scopes or []:
+            value = str(scope or "").strip()
+            if not value or value in normalized:
+                continue
+            normalized.append(value)
+        return normalized
+
+    @staticmethod
+    def _validate_tool_binding_contract(
+        *,
+        tool_id: str,
+        execution_mode: str,
+        tool_type: str,
+        handler_ref: Optional[str],
+    ) -> None:
+        if tool_type == "direct_api" and handler_ref:
+            raise MCPToolTypeMismatchError(
+                f"Tool '{tool_id}' is direct_api and cannot set handler_ref"
+            )
+
+        if tool_type == "logic" and not handler_ref:
+            raise MCPToolBindingError(
+                f"Tool '{tool_id}' is logic and requires handler_ref"
+            )
+
+        if execution_mode == "mcp_forward" and tool_type == "logic" and not handler_ref:
+            raise MCPToolBindingError(
+                f"Tool '{tool_id}' forward logic execution requires handler_ref"
+            )
 
     def _get_registry_session(self):
         session = getattr(self.authority_evaluator, "db_session", None)
@@ -226,6 +286,11 @@ class MCPAdapter:
         action_path_prefix: Optional[str] = None,
         execution_mode: Optional[str] = "mcp_forward",
         mcp_server_name: Optional[str] = None,
+        workspace_name: Optional[str] = None,
+        tool_type: Optional[str] = "direct_api",
+        handler_ref: Optional[str] = None,
+        mapping_version: Optional[str] = None,
+        allowed_downstream_scopes: Optional[list[str]] = None,
     ) -> RegisteredTool:
         """Create or update a persisted tool registration record."""
         normalized_tool_id = self._normalize_tool_id(tool_id)
@@ -243,6 +308,19 @@ class MCPAdapter:
             execution_mode=execution_mode,
             mcp_server_name=mcp_server_name,
         )
+        normalized_workspace_name = self._normalize_workspace_name(workspace_name)
+        normalized_tool_type = self._normalize_tool_type(tool_type)
+        normalized_handler_ref = self._normalize_handler_ref(handler_ref)
+        normalized_mapping_version = str(mapping_version or "").strip() or None
+        normalized_allowed_downstream_scopes = self._normalize_allowed_downstream_scopes(
+            allowed_downstream_scopes
+        )
+        self._validate_tool_binding_contract(
+            tool_id=normalized_tool_id,
+            execution_mode=execution_target["execution_mode"] or "mcp_forward",
+            tool_type=normalized_tool_type,
+            handler_ref=normalized_handler_ref,
+        )
 
         existing = (
             session.query(RegisteredTool)
@@ -258,6 +336,11 @@ class MCPAdapter:
             existing.provider_definition_id = mapping["provider_definition_id"]
             existing.execution_mode = execution_target["execution_mode"]
             existing.mcp_server_name = execution_target["mcp_server_name"]
+            existing.workspace_name = normalized_workspace_name
+            existing.tool_type = normalized_tool_type
+            existing.handler_ref = normalized_handler_ref
+            existing.mapping_version = normalized_mapping_version
+            existing.allowed_downstream_scopes = normalized_allowed_downstream_scopes
             existing.updated_at = datetime.utcnow()
             if was_active != bool(active):
                 transition = "tool_reactivated" if bool(active) else "tool_deactivated"
@@ -281,6 +364,11 @@ class MCPAdapter:
             provider_definition_id=mapping["provider_definition_id"],
             execution_mode=execution_target["execution_mode"],
             mcp_server_name=execution_target["mcp_server_name"],
+            workspace_name=normalized_workspace_name,
+            tool_type=normalized_tool_type,
+            handler_ref=normalized_handler_ref,
+            mapping_version=normalized_mapping_version,
+            allowed_downstream_scopes=normalized_allowed_downstream_scopes,
         )
         session.add(row)
         try:
@@ -1002,9 +1090,28 @@ class MCPAdapter:
         resource_scope = str(getattr(tool_row, "resource_scope", "") or "").strip()
         action_scope = str(getattr(tool_row, "action_scope", "") or "").strip()
         provider_definition_id = str(getattr(tool_row, "provider_definition_id", "") or "").strip() or None
+        workspace_name = self._normalize_workspace_name(
+            getattr(tool_row, "workspace_name", None)
+        )
+        tool_type = self._normalize_tool_type(
+            getattr(tool_row, "tool_type", None)
+        )
+        handler_ref = self._normalize_handler_ref(
+            getattr(tool_row, "handler_ref", None)
+        )
+        mapping_version = str(getattr(tool_row, "mapping_version", "") or "").strip() or None
+        allowed_downstream_scopes = self._normalize_allowed_downstream_scopes(
+            getattr(tool_row, "allowed_downstream_scopes", None)
+        )
         execution_target = self._normalize_execution_target(
             execution_mode=getattr(tool_row, "execution_mode", None),
             mcp_server_name=getattr(tool_row, "mcp_server_name", None),
+        )
+        self._validate_tool_binding_contract(
+            tool_id=normalized_tool_id,
+            execution_mode=execution_target["execution_mode"] or "mcp_forward",
+            tool_type=tool_type,
+            handler_ref=handler_ref,
         )
 
         if not provider_name or not resource_scope or not action_scope:
@@ -1059,6 +1166,11 @@ class MCPAdapter:
         return {
             "tool_id": normalized_tool_id,
             **mapping,
+            "workspace_name": workspace_name,
+            "tool_type": tool_type,
+            "handler_ref": handler_ref,
+            "mapping_version": mapping_version,
+            "allowed_downstream_scopes": allowed_downstream_scopes,
             **execution_target,
         }
 
