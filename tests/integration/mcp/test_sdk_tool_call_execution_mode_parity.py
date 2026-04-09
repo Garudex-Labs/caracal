@@ -126,9 +126,20 @@ def _provider_definition_payload() -> dict[str, Any]:
     }
 
 
-def _build_service_app(*, execution_mode: str):
+def _build_service_app(
+    *,
+    execution_mode: str,
+    tool_type: str | None = None,
+    handler_ref: str | None = None,
+):
     caller_principal_id = "11111111-1111-1111-1111-111111111111"
     tool_id = "tool.echo"
+    normalized_tool_type = str(
+        tool_type or ("logic" if execution_mode == "local" else "direct_api")
+    ).strip().lower()
+    normalized_handler_ref = str(handler_ref or "").strip() or None
+    if execution_mode == "local" and normalized_tool_type == "logic" and not normalized_handler_ref:
+        normalized_handler_ref = f"{__name__}:_local_tool"
 
     tool_row = SimpleNamespace(
         tool_id=tool_id,
@@ -137,8 +148,8 @@ def _build_service_app(*, execution_mode: str):
         resource_scope="provider:endframe:resource:deployments",
         action_scope="provider:endframe:action:invoke",
         provider_definition_id="endframe",
-        tool_type="logic" if execution_mode == "local" else "direct_api",
-        handler_ref=f"{__name__}:_local_tool" if execution_mode == "local" else None,
+        tool_type=normalized_tool_type,
+        handler_ref=normalized_handler_ref,
         execution_mode=execution_mode,
         mcp_server_name="server-0" if execution_mode == "mcp_forward" else None,
     )
@@ -164,7 +175,7 @@ def _build_service_app(*, execution_mode: str):
         mcp_server_urls={"server-0": "http://upstream.test"},
     )
 
-    if execution_mode == "local":
+    if execution_mode == "local" and normalized_handler_ref:
         @mcp_adapter.as_decorator(tool_id=tool_id)
         async def _local_tool(principal_id: str, mandate_id: str, **tool_args):
             return {
@@ -175,7 +186,7 @@ def _build_service_app(*, execution_mode: str):
             }
 
         del _local_tool
-    else:
+    elif execution_mode == "mcp_forward":
         async def _mock_forward(*_args, **_kwargs):
             return {"mode": "forward", "ok": True}
 
@@ -197,23 +208,17 @@ def _build_service_app(*, execution_mode: str):
         "app": service.app,
         "tool_id": tool_id,
         "mandate_id": str(authority_evaluator._mandate_id),
+        "tool_type": normalized_tool_type,
         "authority_evaluator": authority_evaluator,
         "metering_collector": metering_collector,
     }
 
 
-@pytest.mark.integration
-@pytest.mark.asyncio
-async def test_sdk_tool_call_local_and_forward_modes_preserve_authorization_and_ledger_outcomes(
+def _install_routed_async_client(
     monkeypatch: pytest.MonkeyPatch,
+    *,
+    app_by_host: dict[str, Any],
 ) -> None:
-    local_fixture = _build_service_app(execution_mode="local")
-    forward_fixture = _build_service_app(execution_mode="mcp_forward")
-
-    app_by_host = {
-        "local.test": local_fixture["app"],
-        "forward.test": forward_fixture["app"],
-    }
     real_async_client = httpx.AsyncClient
 
     class _RoutedAsyncClient:
@@ -250,6 +255,21 @@ async def test_sdk_tool_call_local_and_forward_modes_preserve_authorization_and_
             return self._inner.is_closed
 
     monkeypatch.setattr(httpx, "AsyncClient", _RoutedAsyncClient)
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_sdk_tool_call_local_and_forward_modes_preserve_authorization_and_ledger_outcomes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    local_fixture = _build_service_app(execution_mode="local")
+    forward_fixture = _build_service_app(execution_mode="mcp_forward")
+
+    app_by_host = {
+        "local.test": local_fixture["app"],
+        "forward.test": forward_fixture["app"],
+    }
+    _install_routed_async_client(monkeypatch, app_by_host=app_by_host)
 
     local_scope = ScopeContext(
         adapter=HttpAdapter(base_url="http://local.test", api_key="sdk-token"),
@@ -299,3 +319,67 @@ async def test_sdk_tool_call_local_and_forward_modes_preserve_authorization_and_
 
     local_scope._adapter.close()
     forward_scope._adapter.close()
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_sdk_tool_call_forward_logic_mode_preserves_authorization_and_ledger_outcomes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fixture = _build_service_app(execution_mode="mcp_forward", tool_type="logic")
+    _install_routed_async_client(monkeypatch, app_by_host={"forward-logic.test": fixture["app"]})
+
+    scope = ScopeContext(
+        adapter=HttpAdapter(base_url="http://forward-logic.test", api_key="sdk-token"),
+        hooks=HookRegistry(),
+        workspace_id="ws-123",
+    )
+
+    response = await scope.tools.call(
+        tool_id=fixture["tool_id"],
+        mandate_id=fixture["mandate_id"],
+        tool_args={"payload": "ok"},
+        metadata={"trace_id": "integration-forward-logic"},
+    )
+
+    assert response["success"] is True
+    assert response["metadata"]["execution_mode"] == "mcp_forward"
+    assert response["metadata"]["tool_type"] == "logic"
+
+    auth_records = fixture["authority_evaluator"].validation_records
+    events = fixture["metering_collector"].events
+    assert len(auth_records) == 1
+    assert len(events) == 1
+    assert events[0].metadata["tool_type"] == "logic"
+    assert events[0].metadata["mandate_id"] == fixture["mandate_id"]
+
+    scope._adapter.close()
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_sdk_tool_call_local_direct_api_contract_violation_fails_closed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fixture = _build_service_app(execution_mode="local", tool_type="direct_api", handler_ref=None)
+    _install_routed_async_client(monkeypatch, app_by_host={"local-direct-api.test": fixture["app"]})
+
+    scope = ScopeContext(
+        adapter=HttpAdapter(base_url="http://local-direct-api.test", api_key="sdk-token"),
+        hooks=HookRegistry(),
+        workspace_id="ws-123",
+    )
+
+    response = await scope.tools.call(
+        tool_id=fixture["tool_id"],
+        mandate_id=fixture["mandate_id"],
+        tool_args={"payload": "ok"},
+        metadata={"trace_id": "integration-local-direct-api"},
+    )
+
+    assert response["success"] is False
+    assert "direct_api" in str(response.get("error") or "")
+    assert "mcp_forward" in str(response.get("error") or "")
+    assert response.get("metadata", {}).get("error_type") == "caracal_error"
+
+    scope._adapter.close()

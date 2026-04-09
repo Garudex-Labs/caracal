@@ -466,3 +466,135 @@ def test_cli_and_tui_tool_registration_call_identical_core_contract(
     assert len(cli_calls) == 1
     assert len(tui_calls) == 1
     assert cli_calls[0] == tui_calls[0]
+
+
+@pytest.mark.integration
+def test_cli_and_tui_tool_registration_local_logic_contract_parity(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runner = CliRunner()
+    cli_calls: list[dict] = []
+    tui_calls: list[dict] = []
+
+    class _AdapterStub:
+        def __init__(self, sink: list[dict]) -> None:
+            self._sink = sink
+
+        def register_tool(self, **kwargs):
+            self._sink.append(dict(kwargs))
+            return SimpleNamespace(tool_id=kwargs["tool_id"], active=kwargs["active"])
+
+    @contextmanager
+    def _cli_adapter(_config):
+        yield _AdapterStub(cli_calls)
+
+    monkeypatch.setattr(tool_registry_cli, "_tool_registry_adapter", _cli_adapter)
+    monkeypatch.setattr(
+        tool_registry_cli,
+        "ConfigManager",
+        lambda: SimpleNamespace(get_default_workspace_name=lambda: "test-workspace"),
+    )
+    monkeypatch.setattr(
+        tool_registry_cli,
+        "load_workspace_provider_registry",
+        lambda _cm, _ws: {
+            "endframe": {
+                "provider_definition": "endframe",
+                "definition": {
+                    "resources": {
+                        "deployments": {
+                            "actions": {
+                                "invoke": {
+                                    "method": "POST",
+                                    "path_prefix": "/v1/deployments",
+                                }
+                            }
+                        }
+                    }
+                },
+            }
+        },
+    )
+
+    cli_result = runner.invoke(
+        tool_registry_cli.register,
+        [
+            "--tool-id",
+            "tool.echo.local.logic",
+            "--provider-name",
+            "endframe",
+            "--resource-id",
+            "deployments",
+            "--action-id",
+            "invoke",
+            "--provider-definition-id",
+            "endframe",
+            "--execution-mode",
+            "local",
+            "--tool-type",
+            "logic",
+            "--handler-ref",
+            "tests.handlers:run",
+            "--actor-principal-id",
+            "11111111-1111-1111-1111-111111111111",
+        ],
+        obj=SimpleNamespace(config=object()),
+    )
+    assert cli_result.exit_code == 0, cli_result.output
+
+    @contextmanager
+    def _tui_adapter():
+        yield _AdapterStub(tui_calls)
+
+    monkeypatch.setattr(provider_manager_module, "_tool_registry_adapter", _tui_adapter)
+    monkeypatch.setattr(provider_manager_module, "ConfigManager", lambda: SimpleNamespace())
+    monkeypatch.setattr(provider_manager_module, "_active_workspace", lambda _cm: "test-workspace")
+    monkeypatch.setattr(
+        provider_manager_module,
+        "load_workspace_provider_registry",
+        lambda _cm, _ws: {
+            "endframe": {
+                "provider_definition": "endframe",
+                "definition": {
+                    "resources": {
+                        "deployments": {
+                            "actions": {
+                                "invoke": {
+                                    "method": "POST",
+                                    "path_prefix": "/v1/deployments",
+                                }
+                            }
+                        }
+                    }
+                },
+            }
+        },
+    )
+    monkeypatch.setattr(provider_manager_module.Prompt, "ask", lambda *_a, **_k: "")
+
+    class _ToolPrompt:
+        def __init__(self, _console):
+            self._select_values = iter(["endframe", "deployments", "invoke", "local", "logic"])
+            self._text_values = iter(
+                [
+                    "tool.echo.local.logic",
+                    "tests.handlers:run",
+                    "11111111-1111-1111-1111-111111111111",
+                ]
+            )
+
+        def select(self, _label, _choices, default=None):
+            del _label, _choices, default
+            return next(self._select_values)
+
+        def text(self, _label, default=None, validator=None):
+            del _label, default, validator
+            return next(self._text_values)
+
+    monkeypatch.setattr(provider_manager_module, "FlowPrompt", _ToolPrompt)
+
+    provider_manager_module._tool_registry_register(Console(record=True), state=None)
+
+    assert len(cli_calls) == 1
+    assert len(tui_calls) == 1
+    assert cli_calls[0] == tui_calls[0]
