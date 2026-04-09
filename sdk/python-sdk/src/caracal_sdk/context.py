@@ -4,8 +4,8 @@ Caracal, a product of Garudex Labs
 
 SDK Context & Scope Management.
 
-Implements the Organization → Workspace → Project → Agent scope hierarchy.
-All resource operations (agents, mandates, delegation, ledger) execute
+Implements the Organization → Workspace → Project scope hierarchy.
+All resource operations (principals, mandates, delegation, ledger) execute
 within an explicit scope context.
 """
 
@@ -20,6 +20,7 @@ from caracal_sdk.hooks import HookRegistry, ScopeRef, StateSnapshot
 
 if TYPE_CHECKING:
     from caracal_sdk.agents import AgentOperations
+    from caracal_sdk.agents import PrincipalOperations
     from caracal_sdk.delegation import DelegationOperations
     from caracal_sdk.ledger import LedgerOperations
     from caracal_sdk.mandates import MandateOperations
@@ -57,7 +58,8 @@ class ScopeContext:
         self.project_id = project_id
 
         # Lazy singletons
-        self._agents: Optional[AgentOperations] = None
+        self._principals: Optional[PrincipalOperations] = None
+        self._agents_alias_warned = False
         self._mandates: Optional[MandateOperations] = None
         self._delegation: Optional[DelegationOperations] = None
         self._ledger: Optional[LedgerOperations] = None
@@ -87,11 +89,24 @@ class ScopeContext:
     # -- Resource operation accessors (lazy) --------------------------------
 
     @property
+    def principals(self) -> PrincipalOperations:
+        if self._principals is None:
+            from caracal_sdk.agents import PrincipalOperations
+
+            self._principals = PrincipalOperations(scope=self)
+        return self._principals
+
+    @property
     def agents(self) -> AgentOperations:
-        if self._agents is None:
-            from caracal_sdk.agents import AgentOperations
-            self._agents = AgentOperations(scope=self)
-        return self._agents
+        if not self._agents_alias_warned:
+            warnings.warn(
+                "ScopeContext.agents is deprecated; use ScopeContext.principals. "
+                "'agents' represent principal identities (for example orchestrator/worker).",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            self._agents_alias_warned = True
+        return self.principals
 
     @property
     def mandates(self) -> MandateOperations:

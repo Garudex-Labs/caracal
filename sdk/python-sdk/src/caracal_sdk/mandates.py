@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 from caracal_sdk._compat import get_logger
 from caracal_sdk.adapters.base import SDKRequest
+from caracal_sdk.runtime_surface import require_legacy_resource_api
 
 if TYPE_CHECKING:
     from caracal_sdk.context import ScopeContext
@@ -36,6 +37,7 @@ class MandateOperations:
         body: Optional[Dict[str, Any]] = None,
         params: Optional[Dict[str, Any]] = None,
     ) -> SDKRequest:
+        require_legacy_resource_api("MandateOperations", "/mandates")
         headers = dict(self._scope.scope_headers())
         return SDKRequest(
             method=method, path=path, headers=headers, body=body, params=params
