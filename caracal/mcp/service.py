@@ -30,7 +30,14 @@ from caracal._version import __version__
 from caracal.mcp.adapter import MCPAdapter, MCPContext, MCPResult
 from caracal.core.authority import AuthorityEvaluator
 from caracal.core.metering import MeteringCollector
-from caracal.exceptions import CaracalError
+from caracal.db.models import RegisteredTool
+from caracal.exceptions import (
+    CaracalError,
+    MCPProviderMissingError,
+    MCPToolMappingMismatchError,
+    MCPUnknownMandateError,
+    MCPUnknownToolError,
+)
 from caracal.logging_config import get_logger, setup_runtime_logging
 
 logger = get_logger(__name__)
@@ -80,7 +87,8 @@ class MCPServiceConfig:
 # Pydantic models for API requests/responses
 class ToolCallRequest(BaseModel):
     """Request model for MCP tool call."""
-    tool_name: str = Field(..., description="Name of the MCP tool to invoke")
+    tool_id: str = Field(..., description="Explicit registered tool identifier")
+    mandate_id: str = Field(..., description="Mandate UUID authorizing the call")
     tool_args: Dict[str, Any] = Field(default_factory=dict, description="Arguments for the tool")
     metadata: Dict[str, Any] = Field(default_factory=dict, description="Additional metadata")
 
@@ -89,6 +97,41 @@ class ResourceReadRequest(BaseModel):
     """Request model for MCP resource read."""
     resource_uri: str = Field(..., description="URI of the resource to read")
     metadata: Dict[str, Any] = Field(default_factory=dict, description="Additional metadata")
+
+
+class ToolRegistryRequest(BaseModel):
+    """Request model for tool registry write operations."""
+
+    tool_id: str = Field(..., description="Explicit tool identifier")
+
+
+class ToolRegistryRegisterRequest(ToolRegistryRequest):
+    """Request model for tool registration."""
+
+    active: bool = Field(True, description="Whether the tool should be active")
+    provider_name: str = Field(..., description="Workspace provider name")
+    resource_scope: str = Field(..., description="Canonical provider resource scope")
+    action_scope: str = Field(..., description="Canonical provider action scope")
+    provider_definition_id: Optional[str] = Field(
+        None,
+        description="Provider definition identifier",
+    )
+    action_method: Optional[str] = Field(
+        None,
+        description="Expected HTTP method for action contract validation",
+    )
+    action_path_prefix: Optional[str] = Field(
+        None,
+        description="Expected path prefix for action contract validation",
+    )
+    execution_mode: str = Field(
+        "mcp_forward",
+        description="Execution target mode ('local' or 'mcp_forward')",
+    )
+    mcp_server_name: Optional[str] = Field(
+        None,
+        description="Optional named upstream target for forward-routed execution",
+    )
 
 
 class MCPServiceResponse(BaseModel):
@@ -241,9 +284,74 @@ class MCPAdapterService:
         normalized = dict(metadata or {})
         normalized["mandate_id"] = str(mandate_id)
         return normalized
+
+    def _require_active_tool(self, tool_id: str):
+        normalized_tool_id = str(tool_id or "").strip()
+        if not normalized_tool_id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Missing tool_id",
+            )
+
+        try:
+            row = self.mcp_adapter.get_registered_tool(
+                tool_id=normalized_tool_id,
+                require_active=False,
+            )
+        except CaracalError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail=f"Tool registry unavailable: {exc}",
+            ) from exc
+
+        if row is None:
+            raise MCPUnknownToolError("Unknown tool_id")
+        if not bool(getattr(row, "active", False)):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Tool is inactive",
+            )
+        return row
+
+    def _require_active_mandate(self, mandate_id: str):
+        try:
+            mandate_uuid = UUID(str(mandate_id))
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid mandate_id format",
+            ) from exc
+
+        mandate = self.authority_evaluator._get_mandate_with_cache(mandate_uuid)
+        if mandate is None:
+            raise MCPUnknownMandateError("Unknown mandate_id")
+        if bool(getattr(mandate, "revoked", False)):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Mandate is revoked",
+            )
+        valid_until = getattr(mandate, "valid_until", None)
+        if valid_until is not None and valid_until < datetime.utcnow():
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Mandate is expired",
+            )
+        return mandate
     
     def _register_routes(self):
         """Register FastAPI routes."""
+
+        def _serialize_tool_row(row: Any) -> Dict[str, Any]:
+            return {
+                "tool_id": str(getattr(row, "tool_id", "")),
+                "active": bool(getattr(row, "active", False)),
+                "provider_name": getattr(row, "provider_name", None),
+                "resource_scope": getattr(row, "resource_scope", None),
+                "action_scope": getattr(row, "action_scope", None),
+                "provider_definition_id": getattr(row, "provider_definition_id", None),
+                "execution_mode": getattr(row, "execution_mode", None),
+                "mcp_server_name": getattr(row, "mcp_server_name", None),
+            }
         
         @self.app.get(self.config.health_check_path, response_model=HealthCheckResponse)
         async def health_check():
@@ -345,6 +453,89 @@ class MCPAdapterService:
                     for server in self.config.mcp_servers
                 ]
             }
+
+        @self.app.post("/mcp/tools/register", response_model=MCPServiceResponse)
+        async def register_tool(request: ToolRegistryRegisterRequest, raw_request: Request):
+            """Register or update persisted tool lifecycle state."""
+            principal_id, _ = await self._resolve_authenticated_principal(raw_request=raw_request)
+            try:
+                row = self.mcp_adapter.register_tool(
+                    tool_id=request.tool_id,
+                    active=request.active,
+                    actor_principal_id=principal_id,
+                    provider_name=request.provider_name,
+                    resource_scope=request.resource_scope,
+                    action_scope=request.action_scope,
+                    provider_definition_id=request.provider_definition_id,
+                    action_method=request.action_method,
+                    action_path_prefix=request.action_path_prefix,
+                    execution_mode=request.execution_mode,
+                    mcp_server_name=request.mcp_server_name,
+                )
+            except CaracalError as exc:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=str(exc),
+                ) from exc
+
+            return MCPServiceResponse(
+                success=True,
+                result=_serialize_tool_row(row),
+                metadata={"actor_principal_id": principal_id},
+            )
+
+        @self.app.get("/mcp/tools", response_model=MCPServiceResponse)
+        async def list_tools(raw_request: Request, include_inactive: bool = False):
+            """List persisted tool registrations."""
+            principal_id, _ = await self._resolve_authenticated_principal(raw_request=raw_request)
+            rows = self.mcp_adapter.list_registered_tools(include_inactive=include_inactive)
+            return MCPServiceResponse(
+                success=True,
+                result={"tools": [_serialize_tool_row(row) for row in rows]},
+                metadata={"actor_principal_id": principal_id},
+            )
+
+        @self.app.post("/mcp/tools/deactivate", response_model=MCPServiceResponse)
+        async def deactivate_tool(request: ToolRegistryRequest, raw_request: Request):
+            """Deactivate a persisted tool registration."""
+            principal_id, _ = await self._resolve_authenticated_principal(raw_request=raw_request)
+            try:
+                row = self.mcp_adapter.deactivate_tool(
+                    tool_id=request.tool_id,
+                    actor_principal_id=principal_id,
+                )
+            except CaracalError as exc:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=str(exc),
+                ) from exc
+
+            return MCPServiceResponse(
+                success=True,
+                result=_serialize_tool_row(row),
+                metadata={"actor_principal_id": principal_id},
+            )
+
+        @self.app.post("/mcp/tools/reactivate", response_model=MCPServiceResponse)
+        async def reactivate_tool(request: ToolRegistryRequest, raw_request: Request):
+            """Reactivate a persisted tool registration."""
+            principal_id, _ = await self._resolve_authenticated_principal(raw_request=raw_request)
+            try:
+                row = self.mcp_adapter.reactivate_tool(
+                    tool_id=request.tool_id,
+                    actor_principal_id=principal_id,
+                )
+            except CaracalError as exc:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=str(exc),
+                ) from exc
+
+            return MCPServiceResponse(
+                success=True,
+                result=_serialize_tool_row(row),
+                metadata={"actor_principal_id": principal_id},
+            )
         
         @self.app.post("/mcp/tool/call", response_model=MCPServiceResponse)
         async def tool_call(request: ToolCallRequest, raw_request: Request):
@@ -375,11 +566,21 @@ class MCPAdapterService:
                 )
 
                 logger.info(
-                    f"Received tool call request: tool={request.tool_name}, "
+                    f"Received tool call request: tool={request.tool_id}, "
                     f"agent={principal_id}"
                 )
 
-                request_metadata = self._validate_mandate_id_metadata(dict(request.metadata or {}))
+                request_metadata = dict(request.metadata or {})
+                request_metadata["mandate_id"] = request.mandate_id
+                request_metadata = self._validate_mandate_id_metadata(request_metadata)
+                try:
+                    self._require_active_tool(request.tool_id)
+                    self._require_active_mandate(request_metadata["mandate_id"])
+                except (MCPUnknownToolError, MCPUnknownMandateError) as exc:
+                    raise HTTPException(
+                        status_code=status.HTTP_404_NOT_FOUND,
+                        detail=str(exc),
+                    ) from exc
                 request_metadata.setdefault("task_token_claims", token_claims)
                 request_metadata.setdefault("token_subject", principal_id)
                 
@@ -392,7 +593,7 @@ class MCPAdapterService:
                 # Intercept tool call through MCPAdapter
                 # This handles authority check, forwarding, and metering
                 result = await self.mcp_adapter.intercept_tool_call(
-                    tool_name=request.tool_name,
+                    tool_name=request.tool_id,
                     tool_args=request.tool_args,
                     mcp_context=mcp_context
                 )
@@ -404,7 +605,7 @@ class MCPAdapterService:
                 
                 duration_ms = (time.time() - start_time) * 1000
                 logger.info(
-                    f"Tool call completed: tool={request.tool_name}, "
+                    f"Tool call completed: tool={request.tool_id}, "
                     f"agent={principal_id}, success={result.success}, "
                     f"duration={duration_ms:.2f}ms"
                 )
@@ -418,22 +619,31 @@ class MCPAdapterService:
                 
             except HTTPException:
                 raise
+            except (MCPToolMappingMismatchError, MCPProviderMissingError) as e:
+                self._error_count += 1
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=str(e),
+                ) from e
             except CaracalError as e:
                 self._error_count += 1
                 logger.error(
-                    f"Caracal error during tool call: tool={request.tool_name}, "
+                    f"Caracal error during tool call: tool={request.tool_id}, "
                     f"agent=unknown, error={e}"
                 )
                 return MCPServiceResponse(
                     success=False,
                     result=None,
                     error=f"Caracal error: {e}",
-                    metadata={"error_type": "caracal_error"}
+                    metadata={
+                        "error_type": "caracal_error",
+                        "error_class": e.__class__.__name__,
+                    }
                 )
             except Exception as e:
                 self._error_count += 1
                 logger.error(
-                    f"Unexpected error during tool call: tool={request.tool_name}, "
+                    f"Unexpected error during tool call: tool={request.tool_id}, "
                     f"agent=unknown, error={e}",
                     exc_info=True
                 )
@@ -581,6 +791,37 @@ class MCPAdapterService:
         logger.info("MCP Adapter Service shutdown complete")
 
 
+def _validate_forward_tool_server_bindings(
+    db_session,
+    *,
+    named_server_urls: Dict[str, str],
+) -> None:
+    """Fail startup when active forward-routed tools reference unknown named servers."""
+    known_server_names = {
+        str(name).strip()
+        for name in (named_server_urls or {}).keys()
+        if str(name).strip()
+    }
+
+    rows = db_session.query(RegisteredTool).filter_by(active=True).all()
+    unknown_bindings: list[str] = []
+    for row in rows:
+        mode = str(getattr(row, "execution_mode", "mcp_forward") or "mcp_forward").strip().lower()
+        if mode != "mcp_forward":
+            continue
+
+        server_name = str(getattr(row, "mcp_server_name", "") or "").strip()
+        if server_name and server_name not in known_server_names:
+            unknown_bindings.append(f"{getattr(row, 'tool_id', '<unknown>')}->{server_name}")
+
+    if unknown_bindings:
+        joined = ", ".join(sorted(unknown_bindings))
+        raise RuntimeError(
+            "Active forward-routed tools reference unknown MCP server names: "
+            f"{joined}"
+        )
+
+
 async def main(config_path: Optional[str] = None, listen_address: Optional[str] = None):
     """
     Main entry point for MCP Adapter Service.
@@ -664,13 +905,28 @@ async def main(config_path: Optional[str] = None, listen_address: Optional[str] 
     )
     
     # Initialize MCP adapter
+    mcp_server_url_map = {
+        server.name: server.url
+        for server in mcp_servers
+        if str(server.name).strip() and str(server.url).strip()
+    }
     upstream_url = mcp_servers[0].url if mcp_servers else None
     mcp_adapter = MCPAdapter(
         authority_evaluator=authority_evaluator,
         metering_collector=metering_collector,
         mcp_server_url=upstream_url,
+        mcp_server_urls=mcp_server_url_map,
         request_timeout_seconds=config.request_timeout_seconds,
     )
+
+    try:
+        _validate_forward_tool_server_bindings(
+            session,
+            named_server_urls=mcp_server_url_map,
+        )
+    except RuntimeError as e:
+        logger.error(f"Invalid MCP forward routing configuration: {e}")
+        sys.exit(1)
 
     # Reuse AIS session token validation for authenticated caller identity binding.
     try:

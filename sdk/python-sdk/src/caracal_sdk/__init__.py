@@ -30,6 +30,7 @@ from caracal_sdk.agents import AgentOperations
 from caracal_sdk.mandates import MandateOperations
 from caracal_sdk.delegation import DelegationOperations
 from caracal_sdk.ledger import LedgerOperations
+from caracal_sdk.tools import ToolOperations
 from caracal_sdk.gateway import GatewayAdapter, GatewayAdapterError, build_gateway_adapter
 import caracal_sdk.management as management
 import caracal_sdk.migration as migration
@@ -59,6 +60,7 @@ __all__ = [
     "MandateOperations",
     "DelegationOperations",
     "LedgerOperations",
+    "ToolOperations",
     # infra
     "HookRegistry",
     "CaracalExtension",
