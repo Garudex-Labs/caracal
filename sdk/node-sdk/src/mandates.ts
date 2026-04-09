@@ -28,14 +28,14 @@ export class MandateOperations {
   }
 
   async create(options: {
-    agentId: string;
+    principalId: string;
     allowedOperations: string[];
     expiresIn: number;
     intent?: Record<string, unknown>;
     metadata?: Record<string, unknown>;
   }): Promise<unknown> {
     const body: Record<string, unknown> = {
-      agent_id: options.agentId,
+      principal_id: options.principalId,
       allowed_operations: options.allowedOperations,
       expires_in: options.expiresIn,
     };
@@ -72,9 +72,9 @@ export class MandateOperations {
     return this.exec(this.buildReq('GET', `/mandates/${mandateId}`));
   }
 
-  async list(options?: { agentId?: string; limit?: number }): Promise<unknown> {
+  async list(options?: { principalId?: string; limit?: number }): Promise<unknown> {
     const params: Record<string, unknown> = { limit: options?.limit ?? 100 };
-    if (options?.agentId) params.agent_id = options.agentId;
+    if (options?.principalId) params.principal_id = options.principalId;
     return this.exec(this.buildReq('GET', '/mandates', undefined, params));
   }
 }

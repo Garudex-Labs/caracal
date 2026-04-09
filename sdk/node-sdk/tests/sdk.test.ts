@@ -37,7 +37,7 @@ describe('HookRegistry', () => {
       return { ...req, headers: { ...req.headers, 'X-Step': req.headers['X-Step'] + ',B' } };
     });
 
-    const req: SDKRequest = { method: 'GET', path: '/agents', headers: {} };
+    const req: SDKRequest = { method: 'GET', path: '/principals', headers: {} };
     const result = await registry.fireBeforeRequest(req, {});
     expect(result.headers['X-Step']).toBe('A,B');
   });
@@ -99,7 +99,7 @@ describe('CaracalClient', () => {
   test('creates with mock adapter', () => {
     const adapter = new MockAdapter();
     const client = new CaracalClient({ adapter });
-    expect(client.agents).toBeDefined();
+    expect(client.principals).toBeDefined();
     expect(client.mandates).toBeDefined();
     expect(client.delegation).toBeDefined();
     expect(client.ledger).toBeDefined();
@@ -131,7 +131,7 @@ describe('CaracalClient', () => {
 
     expect(ctx.organizationId).toBe('org_1');
     expect(ctx.workspaceId).toBe('ws_1');
-    expect(ctx.agents).toBeDefined();
+    expect(ctx.principals).toBeDefined();
   });
 });
 
@@ -147,7 +147,7 @@ describe('CaracalBuilder', () => {
   test('builds with mock adapter', () => {
     const adapter = new MockAdapter();
     const client = new CaracalBuilder().setTransport(adapter).build();
-    expect(client.agents).toBeDefined();
+    expect(client.principals).toBeDefined();
     client.close();
   });
 
@@ -181,9 +181,9 @@ describe('MockAdapter', () => {
 
   test('returns mocked response', async () => {
     const adapter = new MockAdapter();
-    adapter.mock('GET', '/agents', { statusCode: 200, headers: {}, body: [], elapsedMs: 0 });
+    adapter.mock('GET', '/principals', { statusCode: 200, headers: {}, body: [], elapsedMs: 0 });
 
-    const res = await adapter.send({ method: 'GET', path: '/agents', headers: {} });
+    const res = await adapter.send({ method: 'GET', path: '/principals', headers: {} });
     expect(res.statusCode).toBe(200);
     expect(res.body).toEqual([]);
   });
@@ -221,9 +221,9 @@ describe('ScopeContext', () => {
     });
   });
 
-  test('agents.list sends scoped request', async () => {
+  test('principals.list sends scoped request', async () => {
     const adapter = new MockAdapter();
-    adapter.mock('GET', '/agents', { statusCode: 200, headers: {}, body: [{ id: 'a1' }], elapsedMs: 0 });
+    adapter.mock('GET', '/principals', { statusCode: 200, headers: {}, body: [{ id: 'p1' }], elapsedMs: 0 });
 
     const hooks = new HookRegistry();
     const { ScopeContext } = require('../src/context');
@@ -234,8 +234,8 @@ describe('ScopeContext', () => {
       organizationId: 'org_1',
     });
 
-    const result = await ctx.agents.list();
-    expect(result).toEqual([{ id: 'a1' }]);
+    const result = await ctx.principals.list();
+    expect(result).toEqual([{ id: 'p1' }]);
 
     const sent = adapter.sentRequests;
     expect(sent[0].headers['X-Caracal-Org-ID']).toBe('org_1');
