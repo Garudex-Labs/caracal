@@ -20,15 +20,28 @@ from uuid import UUID
 
 from caracal.core.metering import MeteringEvent, MeteringCollector
 from caracal.core.authority import AuthorityEvaluator
-from caracal.db.models import RegisteredTool
+from caracal.db.models import AuthorityLedgerEvent, GatewayProvider, RegisteredTool
+from caracal.deployment.exceptions import SecretNotFoundError
 from caracal.core.error_handling import (
     get_error_handler,
     handle_error_with_denial,
     ErrorCategory,
     ErrorSeverity
 )
-from caracal.exceptions import CaracalError
+from caracal.exceptions import (
+    CaracalError,
+    MCPProviderMissingError,
+    MCPToolMappingMismatchError,
+    MCPUnknownMandateError,
+    MCPUnknownToolError,
+)
 from caracal.logging_config import get_logger
+from caracal.provider.credential_store import resolve_workspace_provider_credential
+from caracal.provider.definitions import (
+    ScopeParseError,
+    parse_provider_scope,
+    provider_definition_from_mapping,
+)
 
 logger = get_logger(__name__)
 
@@ -98,6 +111,7 @@ class MCPAdapter:
         authority_evaluator: AuthorityEvaluator,
         metering_collector: MeteringCollector,
         mcp_server_url: Optional[str] = None,
+        mcp_server_urls: Optional[Dict[str, str]] = None,
         request_timeout_seconds: int = 30,
         caveat_mode: Optional[str] = None,
         caveat_hmac_key: Optional[str] = None,
@@ -114,6 +128,11 @@ class MCPAdapter:
         self.authority_evaluator = authority_evaluator
         self.metering_collector = metering_collector
         self.mcp_server_url = mcp_server_url.rstrip("/") if mcp_server_url else None
+        self._mcp_server_urls: Dict[str, str] = {
+            str(name): str(url).rstrip("/")
+            for name, url in (mcp_server_urls or {}).items()
+            if str(name).strip() and str(url).strip()
+        }
         self.request_timeout_seconds = request_timeout_seconds
         resolved_mode = caveat_mode or os.environ.get("CARACAL_SESSION_CAVEAT_MODE") or "jwt"
         self._caveat_mode = self._resolve_caveat_mode(resolved_mode)
@@ -122,6 +141,7 @@ class MCPAdapter:
             or os.environ.get("CARACAL_SESSION_CAVEAT_HMAC_KEY")
             or ""
         ).strip()
+        self._decorator_bindings: dict[str, Any] = {}
         self._http_client: Optional[httpx.AsyncClient] = None
         logger.info(
             "MCPAdapter initialized "
@@ -135,16 +155,94 @@ class MCPAdapter:
             raise CaracalError("tool_id is required")
         return normalized
 
+    def _normalize_execution_target(
+        self,
+        *,
+        execution_mode: Optional[str],
+        mcp_server_name: Optional[str],
+    ) -> Dict[str, Optional[str]]:
+        mode = str(execution_mode or "mcp_forward").strip().lower()
+        if mode not in {"local", "mcp_forward"}:
+            raise CaracalError("execution_mode must be 'local' or 'mcp_forward'")
+
+        server_name = str(mcp_server_name or "").strip() or None
+        if mode == "local":
+            server_name = None
+
+        return {
+            "execution_mode": mode,
+            "mcp_server_name": server_name,
+        }
+
     def _get_registry_session(self):
         session = getattr(self.authority_evaluator, "db_session", None)
         if session is None:
             raise CaracalError("MCP adapter requires an authority evaluator DB session")
         return session
 
-    def register_tool(self, *, tool_id: str, active: bool = True) -> RegisteredTool:
+    def _record_tool_transition_event(
+        self,
+        *,
+        session,
+        actor_principal_id: str,
+        tool_id: str,
+        transition: str,
+        active: bool,
+    ) -> None:
+        try:
+            actor_uuid = UUID(str(actor_principal_id))
+        except ValueError as exc:
+            raise CaracalError("actor_principal_id must be a valid UUID") from exc
+
+        session.add(
+            AuthorityLedgerEvent(
+                event_type=transition,
+                timestamp=datetime.utcnow(),
+                principal_id=actor_uuid,
+                mandate_id=None,
+                decision="allowed",
+                denial_reason=None,
+                requested_action=f"tool_registry:{transition}",
+                requested_resource=f"mcp:tool:{tool_id}",
+                event_metadata={
+                    "tool_id": tool_id,
+                    "active": bool(active),
+                    "transition": transition,
+                },
+            )
+        )
+
+    def register_tool(
+        self,
+        *,
+        tool_id: str,
+        active: bool = True,
+        actor_principal_id: str,
+        provider_name: str,
+        resource_scope: str,
+        action_scope: str,
+        provider_definition_id: Optional[str] = None,
+        action_method: Optional[str] = None,
+        action_path_prefix: Optional[str] = None,
+        execution_mode: Optional[str] = "mcp_forward",
+        mcp_server_name: Optional[str] = None,
+    ) -> RegisteredTool:
         """Create or update a persisted tool registration record."""
         normalized_tool_id = self._normalize_tool_id(tool_id)
         session = self._get_registry_session()
+        mapping = self._validate_tool_mapping(
+            session=session,
+            provider_name=provider_name,
+            resource_scope=resource_scope,
+            action_scope=action_scope,
+            provider_definition_id=provider_definition_id,
+            action_method=action_method,
+            action_path_prefix=action_path_prefix,
+        )
+        execution_target = self._normalize_execution_target(
+            execution_mode=execution_mode,
+            mcp_server_name=mcp_server_name,
+        )
 
         existing = (
             session.query(RegisteredTool)
@@ -152,15 +250,47 @@ class MCPAdapter:
             .first()
         )
         if existing:
+            was_active = bool(existing.active)
             existing.active = bool(active)
+            existing.provider_name = mapping["provider_name"]
+            existing.resource_scope = mapping["resource_scope"]
+            existing.action_scope = mapping["action_scope"]
+            existing.provider_definition_id = mapping["provider_definition_id"]
+            existing.execution_mode = execution_target["execution_mode"]
+            existing.mcp_server_name = execution_target["mcp_server_name"]
             existing.updated_at = datetime.utcnow()
+            if was_active != bool(active):
+                transition = "tool_reactivated" if bool(active) else "tool_deactivated"
+                self._record_tool_transition_event(
+                    session=session,
+                    actor_principal_id=actor_principal_id,
+                    tool_id=normalized_tool_id,
+                    transition=transition,
+                    active=bool(active),
+                )
             session.flush()
             session.commit()
             return existing
 
-        row = RegisteredTool(tool_id=normalized_tool_id, active=bool(active))
+        row = RegisteredTool(
+            tool_id=normalized_tool_id,
+            active=bool(active),
+            provider_name=mapping["provider_name"],
+            resource_scope=mapping["resource_scope"],
+            action_scope=mapping["action_scope"],
+            provider_definition_id=mapping["provider_definition_id"],
+            execution_mode=execution_target["execution_mode"],
+            mcp_server_name=execution_target["mcp_server_name"],
+        )
         session.add(row)
         try:
+            self._record_tool_transition_event(
+                session=session,
+                actor_principal_id=actor_principal_id,
+                tool_id=normalized_tool_id,
+                transition="tool_registered",
+                active=bool(active),
+            )
             session.flush()
             session.commit()
         except IntegrityError as exc:
@@ -168,6 +298,116 @@ class MCPAdapter:
             raise CaracalError(f"Tool already registered: {normalized_tool_id}") from exc
 
         return row
+
+    def _validate_tool_mapping(
+        self,
+        *,
+        session,
+        provider_name: str,
+        resource_scope: str,
+        action_scope: str,
+        provider_definition_id: Optional[str],
+        action_method: Optional[str],
+        action_path_prefix: Optional[str],
+        require_provider_enabled: bool = False,
+    ) -> Dict[str, str]:
+        normalized_provider = str(provider_name or "").strip()
+        if not normalized_provider:
+            raise CaracalError("provider_name is required")
+
+        provider_row = (
+            session.query(GatewayProvider)
+            .filter_by(provider_id=normalized_provider)
+            .first()
+        )
+        if provider_row is None:
+            raise MCPProviderMissingError(
+                f"Provider '{normalized_provider}' is not registered in workspace provider registry"
+            )
+        if require_provider_enabled and not bool(getattr(provider_row, "enabled", True)):
+            raise MCPProviderMissingError(
+                f"Provider '{normalized_provider}' is inactive in workspace provider registry"
+            )
+
+        definition_payload = dict(getattr(provider_row, "definition", {}) or {})
+        if not definition_payload:
+            raise MCPToolMappingMismatchError(
+                f"Provider '{normalized_provider}' has no structured definition for tool mapping"
+            )
+
+        resolved_definition_id = str(
+            provider_definition_id
+            or getattr(provider_row, "provider_definition", None)
+            or normalized_provider
+        ).strip()
+
+        definition = provider_definition_from_mapping(
+            definition_payload,
+            default_definition_id=resolved_definition_id,
+            default_service_type=str(getattr(provider_row, "service_type", "api") or "api"),
+            default_display_name=str(getattr(provider_row, "name", normalized_provider) or normalized_provider),
+            default_auth_scheme=str(getattr(provider_row, "auth_scheme", "api_key") or "api_key"),
+            default_base_url=getattr(provider_row, "base_url", None),
+        )
+
+        normalized_resource_scope = str(resource_scope or "").strip()
+        normalized_action_scope = str(action_scope or "").strip()
+
+        try:
+            parsed_resource = parse_provider_scope(normalized_resource_scope)
+            parsed_action = parse_provider_scope(normalized_action_scope)
+        except ScopeParseError as exc:
+            raise MCPToolMappingMismatchError(str(exc)) from exc
+
+        if parsed_resource["kind"] != "resource":
+            raise MCPToolMappingMismatchError(
+                f"Expected resource scope, got: {normalized_resource_scope}"
+            )
+        if parsed_action["kind"] != "action":
+            raise MCPToolMappingMismatchError(
+                f"Expected action scope, got: {normalized_action_scope}"
+            )
+
+        if parsed_resource["provider_name"] != normalized_provider:
+            raise MCPToolMappingMismatchError(
+                f"Resource scope provider '{parsed_resource['provider_name']}' does not match provider_name '{normalized_provider}'"
+            )
+        if parsed_action["provider_name"] != normalized_provider:
+            raise MCPToolMappingMismatchError(
+                f"Action scope provider '{parsed_action['provider_name']}' does not match provider_name '{normalized_provider}'"
+            )
+
+        resource_id = parsed_resource["identifier"]
+        action_id = parsed_action["identifier"]
+
+        resource_definition = definition.resources.get(resource_id)
+        if resource_definition is None:
+            raise MCPToolMappingMismatchError(
+                f"Resource scope '{normalized_resource_scope}' is not present in provider definition '{definition.definition_id}'"
+            )
+
+        action_definition = resource_definition.actions.get(action_id)
+        if action_definition is None:
+            raise MCPToolMappingMismatchError(
+                f"Action scope '{normalized_action_scope}' is not present in provider definition '{definition.definition_id}' for resource '{resource_id}'"
+            )
+
+        if action_method and action_definition.method.upper() != str(action_method).upper():
+            raise MCPToolMappingMismatchError(
+                f"Action method mismatch for '{normalized_action_scope}': expected {action_definition.method}, got {action_method}"
+            )
+
+        if action_path_prefix and action_definition.path_prefix != str(action_path_prefix):
+            raise MCPToolMappingMismatchError(
+                f"Action path mismatch for '{normalized_action_scope}': expected {action_definition.path_prefix}, got {action_path_prefix}"
+            )
+
+        return {
+            "provider_name": normalized_provider,
+            "resource_scope": normalized_resource_scope,
+            "action_scope": normalized_action_scope,
+            "provider_definition_id": definition.definition_id,
+        }
 
     def list_registered_tools(self, *, include_inactive: bool = True) -> list[RegisteredTool]:
         """List persisted tool registrations."""
@@ -177,38 +417,63 @@ class MCPAdapter:
             query = query.filter_by(active=True)
         return query.order_by(RegisteredTool.created_at.asc()).all()
 
-    def deactivate_tool(self, *, tool_id: str) -> RegisteredTool:
+    def get_registered_tool(self, *, tool_id: str, require_active: bool = False) -> Optional[RegisteredTool]:
+        """Fetch a persisted tool registration by tool_id."""
+        normalized_tool_id = self._normalize_tool_id(tool_id)
+        session = self._get_registry_session()
+        row = session.query(RegisteredTool).filter_by(tool_id=normalized_tool_id).first()
+        if row is None:
+            return None
+        if require_active and not row.active:
+            return None
+        return row
+
+    def deactivate_tool(self, *, tool_id: str, actor_principal_id: str) -> RegisteredTool:
         """Deactivate an existing tool registration."""
         normalized_tool_id = self._normalize_tool_id(tool_id)
         session = self._get_registry_session()
 
         row = session.query(RegisteredTool).filter_by(tool_id=normalized_tool_id).first()
         if not row:
-            raise CaracalError(f"Unknown tool_id: {normalized_tool_id}")
+            raise MCPUnknownToolError(f"Unknown tool_id: {normalized_tool_id}")
 
         if not row.active:
             return row
 
         row.active = False
         row.updated_at = datetime.utcnow()
+        self._record_tool_transition_event(
+            session=session,
+            actor_principal_id=actor_principal_id,
+            tool_id=normalized_tool_id,
+            transition="tool_deactivated",
+            active=False,
+        )
         session.flush()
         session.commit()
         return row
 
-    def reactivate_tool(self, *, tool_id: str) -> RegisteredTool:
+    def reactivate_tool(self, *, tool_id: str, actor_principal_id: str) -> RegisteredTool:
         """Reactivate an existing tool registration."""
         normalized_tool_id = self._normalize_tool_id(tool_id)
         session = self._get_registry_session()
 
         row = session.query(RegisteredTool).filter_by(tool_id=normalized_tool_id).first()
         if not row:
-            raise CaracalError(f"Unknown tool_id: {normalized_tool_id}")
+            raise MCPUnknownToolError(f"Unknown tool_id: {normalized_tool_id}")
 
         if row.active:
             return row
 
         row.active = True
         row.updated_at = datetime.utcnow()
+        self._record_tool_transition_event(
+            session=session,
+            actor_principal_id=actor_principal_id,
+            tool_id=normalized_tool_id,
+            transition="tool_reactivated",
+            active=True,
+        )
         session.flush()
         session.commit()
         return row
@@ -273,10 +538,11 @@ class MCPAdapter:
             mandate = self.authority_evaluator._get_mandate_with_cache(mandate_id)
             if not mandate:
                 logger.warning(f"Mandate not found: {mandate_id}")
+                not_found_error = MCPUnknownMandateError(f"Unknown mandate_id: {mandate_id}")
                 return MCPResult(
                     success=False,
                     result=None,
-                    error="Authority denied: Mandate not found"
+                    error=f"Authority denied: {not_found_error}"
                 )
 
             if not self._is_mandate_subject(principal_id, mandate):
@@ -290,13 +556,28 @@ class MCPAdapter:
                     error="Authority denied: Authenticated principal does not match mandate subject",
                 )
 
+            try:
+                tool_mapping = self._resolve_active_tool_mapping(
+                    tool_id=tool_name,
+                    mcp_context=mcp_context,
+                    require_credential=True,
+                )
+            except CaracalError as exc:
+                logger.warning(
+                    f"Mapped tool/provider validation failed for tool {tool_name}: {exc}"
+                )
+                return MCPResult(
+                    success=False,
+                    result=None,
+                    error=f"Authority denied: {exc}",
+                )
+
             # 4. Validate Authority
-            # Action: execute, Resource: tool_name
             caveat_kwargs = self._extract_caveat_authority_kwargs(mcp_context)
             decision = self.authority_evaluator.validate_mandate(
                 mandate=mandate,
-                requested_action="execute",
-                requested_resource=tool_name,
+                requested_action=tool_mapping["action_scope"],
+                requested_resource=tool_mapping["resource_scope"],
                 caller_principal_id=principal_id,
                 **caveat_kwargs,
             )
@@ -314,10 +595,37 @@ class MCPAdapter:
             logger.info(
                 f"Authority granted for agent {principal_id}, tool {tool_name} (mandate {mandate_id})"
             )
-            
-            # 5. Forward to MCP server (simulated - actual forwarding in production)
-            # In a real implementation, this would call the actual MCP server
-            tool_result = await self._forward_to_mcp_server(tool_name, tool_args)
+
+            execution_mode = tool_mapping["execution_mode"]
+            try:
+                if execution_mode == "local":
+                    tool_result = await self._execute_local_tool(
+                        tool_id=tool_mapping["tool_id"],
+                        principal_id=principal_id,
+                        mandate_id=mandate_id,
+                        tool_args=tool_args,
+                    )
+                else:
+                    forward_server_url = self._resolve_forward_server_url(
+                        tool_mapping.get("mcp_server_name")
+                    )
+                    tool_result = await self._forward_to_mcp_server(
+                        tool_name,
+                        tool_args,
+                        server_url=forward_server_url,
+                        mapped_provider_name=tool_mapping["provider_name"],
+                        mapped_resource_scope=tool_mapping["resource_scope"],
+                        mapped_action_scope=tool_mapping["action_scope"],
+                    )
+            except CaracalError as exc:
+                logger.warning(
+                    f"Execution routing failed for tool {tool_name}: {exc}"
+                )
+                return MCPResult(
+                    success=False,
+                    result=None,
+                    error=f"Authority denied: {exc}",
+                )
             
             # 6. Emit metering event (usage tracking only) with enhanced features
             # Generate correlation_id for tracing
@@ -338,6 +646,7 @@ class MCPAdapter:
                 metadata={
                     "tool_name": tool_name,
                     "tool_args": tool_args,
+                    "execution_mode": execution_mode,
                     "mcp_context": mcp_context.metadata,
                     "mandate_id": str(mandate_id)
                 },
@@ -361,7 +670,8 @@ class MCPAdapter:
                 success=True,
                 result=tool_result,
                 metadata={
-                    "mandate_id": str(mandate_id)
+                    "mandate_id": str(mandate_id),
+                    "execution_mode": execution_mode,
                 }
             )
             
@@ -451,10 +761,11 @@ class MCPAdapter:
             mandate = self.authority_evaluator._get_mandate_with_cache(mandate_id)
             if not mandate:
                 logger.warning(f"Mandate not found: {mandate_id}")
+                not_found_error = MCPUnknownMandateError(f"Unknown mandate_id: {mandate_id}")
                 return MCPResult(
                     success=False,
                     result=None,
-                    error="Authority denied: Mandate not found"
+                    error=f"Authority denied: {not_found_error}"
                 )
 
             if not self._is_mandate_subject(principal_id, mandate):
@@ -622,6 +933,109 @@ class MCPAdapter:
             return False
         return caller == subject
 
+    def _resolve_workspace_name(self, mcp_context: Optional[MCPContext]) -> Optional[str]:
+        if mcp_context is not None:
+            for key in ("workspace", "workspace_name"):
+                value = str(mcp_context.get(key) or "").strip()
+                if value:
+                    return value
+
+        for env_key in (
+            "CARACAL_WORKSPACE",
+            "CARACAL_WORKSPACE_NAME",
+            "CARACAL_WORKSPACE_ID",
+        ):
+            env_value = str(os.environ.get(env_key) or "").strip()
+            if env_value:
+                return env_value
+
+        try:
+            from caracal.deployment.config_manager import ConfigManager
+
+            return ConfigManager().get_default_workspace_name()
+        except Exception:
+            return None
+
+    def _resolve_active_tool_mapping(
+        self,
+        *,
+        tool_id: str,
+        mcp_context: Optional[MCPContext],
+        require_credential: bool,
+    ) -> Dict[str, Any]:
+        normalized_tool_id = self._normalize_tool_id(tool_id)
+
+        tool_row = self.get_registered_tool(tool_id=normalized_tool_id, require_active=True)
+        if tool_row is None:
+            any_state_row = self.get_registered_tool(tool_id=normalized_tool_id, require_active=False)
+            if any_state_row is None:
+                raise MCPUnknownToolError(f"Unknown tool_id: {normalized_tool_id}")
+            raise CaracalError(f"Tool '{normalized_tool_id}' is inactive")
+
+        provider_name = str(getattr(tool_row, "provider_name", "") or "").strip()
+        resource_scope = str(getattr(tool_row, "resource_scope", "") or "").strip()
+        action_scope = str(getattr(tool_row, "action_scope", "") or "").strip()
+        provider_definition_id = str(getattr(tool_row, "provider_definition_id", "") or "").strip() or None
+        execution_target = self._normalize_execution_target(
+            execution_mode=getattr(tool_row, "execution_mode", None),
+            mcp_server_name=getattr(tool_row, "mcp_server_name", None),
+        )
+
+        if not provider_name or not resource_scope or not action_scope:
+            raise MCPToolMappingMismatchError(
+                f"Tool '{normalized_tool_id}' is missing provider/resource/action mapping"
+            )
+
+        session = self._get_registry_session()
+        provider_row = session.query(GatewayProvider).filter_by(provider_id=provider_name).first()
+        if provider_row is None:
+            raise MCPProviderMissingError(
+                f"Mapped provider '{provider_name}' for tool '{normalized_tool_id}' was removed"
+            )
+        if not bool(getattr(provider_row, "enabled", True)):
+            raise MCPProviderMissingError(
+                f"Mapped provider '{provider_name}' for tool '{normalized_tool_id}' is inactive"
+            )
+
+        mapping = self._validate_tool_mapping(
+            session=session,
+            provider_name=provider_name,
+            resource_scope=resource_scope,
+            action_scope=action_scope,
+            provider_definition_id=provider_definition_id,
+            action_method=None,
+            action_path_prefix=None,
+            require_provider_enabled=True,
+        )
+
+        auth_scheme = str(getattr(provider_row, "auth_scheme", "api_key") or "api_key")
+        normalized_auth_scheme = auth_scheme.replace("-", "_").strip().lower()
+        if require_credential and normalized_auth_scheme != "none":
+            credential_ref = str(getattr(provider_row, "credential_ref", "") or "").strip()
+            if not credential_ref:
+                raise CaracalError(
+                    f"Mapped provider '{provider_name}' for tool '{normalized_tool_id}' has no credential_ref"
+                )
+
+            workspace_name = self._resolve_workspace_name(mcp_context)
+            if not workspace_name:
+                raise CaracalError(
+                    f"Mapped provider '{provider_name}' credentials cannot be resolved without an active workspace"
+                )
+
+            try:
+                resolve_workspace_provider_credential(workspace_name, credential_ref)
+            except SecretNotFoundError as exc:
+                raise CaracalError(
+                    f"Credential not found for mapped provider '{provider_name}': {credential_ref}"
+                ) from exc
+
+        return {
+            "tool_id": normalized_tool_id,
+            **mapping,
+            **execution_target,
+        }
+
     @staticmethod
     def _resolve_caveat_mode(raw_mode: str) -> str:
         mode = str(raw_mode or "jwt").strip().lower()
@@ -707,10 +1121,62 @@ class MCPAdapter:
                 exc_info=True,
             )
 
+    def _resolve_forward_server_url(self, mcp_server_name: Optional[str]) -> str:
+        normalized_name = str(mcp_server_name or "").strip()
+        if normalized_name:
+            resolved = self._mcp_server_urls.get(normalized_name)
+            if not resolved:
+                raise CaracalError(
+                    f"Unknown mcp_server_name '{normalized_name}' for forward execution"
+                )
+            return resolved
+
+        if self.mcp_server_url:
+            return self.mcp_server_url
+
+        if len(self._mcp_server_urls) == 1:
+            return next(iter(self._mcp_server_urls.values()))
+
+        if len(self._mcp_server_urls) > 1:
+            raise CaracalError(
+                "Forward execution requires mcp_server_name when multiple MCP servers are configured"
+            )
+
+        raise CaracalError("No upstream MCP server URL configured for forward execution")
+
+    async def _execute_local_tool(
+        self,
+        *,
+        tool_id: str,
+        principal_id: str,
+        mandate_id: UUID,
+        tool_args: Dict[str, Any],
+    ) -> Any:
+        bound_func = self._decorator_bindings.get(tool_id)
+        if bound_func is None:
+            raise CaracalError(f"No local function binding found for tool '{tool_id}'")
+
+        call_kwargs = dict(tool_args or {})
+        call_kwargs.pop("principal_id", None)
+        call_kwargs.pop("mandate_id", None)
+        call_kwargs["principal_id"] = principal_id
+        call_kwargs["mandate_id"] = str(mandate_id)
+
+        import inspect
+
+        if inspect.iscoroutinefunction(bound_func):
+            return await bound_func(**call_kwargs)
+        return bound_func(**call_kwargs)
+
     async def _forward_to_mcp_server(
         self,
         tool_name: str,
-        tool_args: Dict[str, Any]
+        tool_args: Dict[str, Any],
+        *,
+        server_url: Optional[str] = None,
+        mapped_provider_name: Optional[str] = None,
+        mapped_resource_scope: Optional[str] = None,
+        mapped_action_scope: Optional[str] = None,
     ) -> Any:
         """
         Forward tool invocation to the upstream MCP server via HTTP POST.
@@ -729,16 +1195,25 @@ class MCPAdapter:
         Raises:
             CaracalError: On connection, timeout, HTTP, or parse failures
         """
-        if not self.mcp_server_url:
-            raise CaracalError(
-                "MCP server URL not configured — cannot forward tool call"
-            )
+        resolved_server_url = str(server_url or self.mcp_server_url or "").strip().rstrip("/")
+        if not resolved_server_url:
+            raise CaracalError("MCP server URL not configured — cannot forward tool call")
 
-        url = f"{self.mcp_server_url}/tool/call"
+        url = f"{resolved_server_url}/tool/call"
         payload = {
             "tool_name": tool_name,
             "tool_args": tool_args,
+            "provider_name": mapped_provider_name,
+            "resource_scope": mapped_resource_scope,
+            "action_scope": mapped_action_scope,
         }
+        headers: Dict[str, str] = {}
+        if mapped_provider_name:
+            headers["X-Caracal-Provider-ID"] = mapped_provider_name
+        if mapped_resource_scope:
+            headers["X-Caracal-Provider-Resource"] = mapped_resource_scope
+        if mapped_action_scope:
+            headers["X-Caracal-Provider-Action"] = mapped_action_scope
 
         logger.debug(
             f"Forwarding MCP tool call to upstream: url={url}, tool={tool_name}"
@@ -746,7 +1221,7 @@ class MCPAdapter:
 
         try:
             client = await self._get_http_client()
-            response = await client.post(url, json=payload)
+            response = await client.post(url, json=payload, headers=headers)
 
             if response.status_code != 200:
                 error_body = response.text[:500]
@@ -781,7 +1256,7 @@ class MCPAdapter:
         except httpx.ConnectError as exc:
             logger.error(f"Connection failed for tool {tool_name} to {url}: {exc}")
             raise CaracalError(
-                f"Cannot connect to upstream MCP server at {self.mcp_server_url}: {exc}"
+                f"Cannot connect to upstream MCP server at {resolved_server_url}: {exc}"
             )
         except CaracalError:
             raise
@@ -927,6 +1402,16 @@ class MCPAdapter:
         if not resolved_tool_id:
             raise CaracalError("tool_id is required for MCP decorator registration")
 
+        tool_row = self.get_registered_tool(tool_id=resolved_tool_id)
+        if tool_row is None:
+            raise CaracalError(
+                f"tool_id '{resolved_tool_id}' is not registered in persisted tool registry"
+            )
+        if not bool(getattr(tool_row, "active", False)):
+            raise CaracalError(
+                f"tool_id '{resolved_tool_id}' is inactive and cannot be bound"
+            )
+
         def decorator(func):
             """
             Decorator that wraps an MCP tool function.
@@ -937,6 +1422,13 @@ class MCPAdapter:
             Returns:
                 Wrapped function with authority enforcement
             """
+            existing = self._decorator_bindings.get(resolved_tool_id)
+            if existing is not None and existing is not func:
+                raise CaracalError(
+                    f"tool_id '{resolved_tool_id}' is already bound to another local function"
+                )
+            self._decorator_bindings[resolved_tool_id] = func
+
             import functools
             import inspect
             
@@ -1050,19 +1542,25 @@ class MCPAdapter:
                         
                     mandate = self.authority_evaluator._get_mandate_with_cache(mandate_uuid)
                     if not mandate:
-                        raise CaracalError(f"Mandate not found: {mandate_id}")
+                        raise MCPUnknownMandateError(f"Unknown mandate_id: {mandate_id}")
 
                     if not self._is_mandate_subject(str(principal_id), mandate):
                         raise CaracalError(
                             "Authority denied: Authenticated principal does not match mandate subject"
                         )
 
+                    tool_mapping = self._resolve_active_tool_mapping(
+                        tool_id=tool_name,
+                        mcp_context=mcp_context,
+                        require_credential=True,
+                    )
+
                     # 2. Validate Authority
                     caveat_kwargs = self._extract_caveat_authority_kwargs(mcp_context)
                     decision = self.authority_evaluator.validate_mandate(
                         mandate=mandate,
-                        requested_action="execute",
-                        requested_resource=tool_name,
+                        requested_action=tool_mapping["action_scope"],
+                        requested_resource=tool_mapping["resource_scope"],
                         caller_principal_id=str(principal_id),
                         **caveat_kwargs,
                     )
