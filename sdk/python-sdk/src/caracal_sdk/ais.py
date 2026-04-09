@@ -24,10 +24,10 @@ def resolve_ais_base_url() -> str | None:
     return f"http://{host}:{port}{normalized_prefix}"
 
 
-def resolve_sdk_base_url(default_port: str = "8000") -> str:
-    """Resolve canonical SDK base URL with AIS routing preference."""
-    ais_base = resolve_ais_base_url()
-    if ais_base:
-        return ais_base
+def resolve_sdk_base_url(default_port: str = "8080") -> str:
+    """Resolve canonical SDK base URL for runtime API operations.
 
+    SDK runtime operations target API routes like ``/mcp/*`` and should not
+    implicitly route to the AIS host/port based on socket configuration.
+    """
     return os.environ.get("CARACAL_API_URL", f"http://localhost:{default_port}")

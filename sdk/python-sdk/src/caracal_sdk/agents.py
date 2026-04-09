@@ -2,9 +2,10 @@
 Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 Caracal, a product of Garudex Labs
 
-SDK Agent Operations.
+SDK Principal Operations.
 
-Provides CRUD operations for agents scoped to an Org/Workspace/Project.
+"Agents" in this SDK correspond to principal identities such as
+orchestrators and workers.
 """
 
 from __future__ import annotations
@@ -14,6 +15,7 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 from caracal_sdk._compat import get_logger
 from caracal_sdk.adapters.base import SDKRequest
+from caracal_sdk.runtime_surface import require_legacy_resource_api
 
 if TYPE_CHECKING:
     from caracal_sdk.context import ScopeContext
@@ -21,8 +23,8 @@ if TYPE_CHECKING:
 logger = get_logger(__name__)
 
 
-class AgentOperations:
-    """Agent management within a scoped context.
+class PrincipalOperations:
+    """Principal management surface within a scoped context.
 
     All methods inject scope headers and fire lifecycle hooks.
     """
@@ -37,6 +39,7 @@ class AgentOperations:
         body: Optional[Dict[str, Any]] = None,
         params: Optional[Dict[str, Any]] = None,
     ) -> SDKRequest:
+        require_legacy_resource_api("PrincipalOperations", "/agents")
         headers = dict(self._scope.scope_headers())
         return SDKRequest(
             method=method, path=path, headers=headers, body=body, params=params
@@ -108,3 +111,7 @@ class AgentOperations:
             "POST", f"/agents/{source_principal_id}/delegate", body=body
         )
         return await self._execute(req)
+
+
+# Backward compatibility alias for existing imports.
+AgentOperations = PrincipalOperations
