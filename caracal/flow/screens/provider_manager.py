@@ -887,13 +887,20 @@ def _manage_tool_registry(console: Console, state: FlowState) -> None:
 
 
 def _tool_registry_list(console: Console) -> None:
+    config_manager = ConfigManager()
+    workspace = _active_workspace(config_manager)
+
     with _tool_registry_adapter() as adapter:
-        rows = adapter.list_registered_tools(include_inactive=True)
+        rows = adapter.list_registered_tools(
+            include_inactive=True,
+            workspace_name=workspace,
+        )
 
     console.clear()
     console.print(
         Panel(
             f"[{Colors.PRIMARY}]Registered Tools[/]",
+            subtitle=f"[{Colors.HINT}]Workspace: {workspace}[/]",
             border_style=Colors.INFO,
         )
     )
@@ -1043,9 +1050,14 @@ def _tool_registry_register(console: Console, state: FlowState) -> None:
 
 def _tool_registry_set_active(console: Console, state: FlowState, *, active: bool) -> None:
     action_name = "Reactivate" if active else "Deactivate"
+    config_manager = ConfigManager()
+    workspace = _active_workspace(config_manager)
 
     with _tool_registry_adapter() as adapter:
-        rows = adapter.list_registered_tools(include_inactive=True)
+        rows = adapter.list_registered_tools(
+            include_inactive=True,
+            workspace_name=workspace,
+        )
 
     candidates = [
         row for row in rows
@@ -1069,11 +1081,13 @@ def _tool_registry_set_active(console: Console, state: FlowState, *, active: boo
             row = adapter.reactivate_tool(
                 tool_id=selected_tool,
                 actor_principal_id=actor_principal_id,
+                workspace_name=workspace,
             )
         else:
             row = adapter.deactivate_tool(
                 tool_id=selected_tool,
                 actor_principal_id=actor_principal_id,
+                workspace_name=workspace,
             )
 
     status_text = "active" if bool(getattr(row, "active", False)) else "inactive"
@@ -1095,7 +1109,10 @@ def _tool_registry_invoke(console: Console, state: FlowState) -> None:
     workspace = _active_workspace(config_manager)
 
     with _tool_registry_adapter() as adapter:
-        rows = adapter.list_registered_tools(include_inactive=False)
+        rows = adapter.list_registered_tools(
+            include_inactive=False,
+            workspace_name=workspace,
+        )
 
     if not rows:
         console.print(

@@ -22,6 +22,18 @@ class _NoopMeteringCollector:
         return None
 
 
+def _resolve_workspace_name(workspace: str | None) -> str:
+    resolved_workspace = str(workspace or "").strip()
+    if resolved_workspace:
+        return resolved_workspace
+
+    default_workspace = ConfigManager().get_default_workspace_name()
+    if default_workspace:
+        return default_workspace
+
+    raise click.ClickException("No default workspace found. Pass --workspace explicitly.")
+
+
 @contextmanager
 def _tool_registry_adapter(config) -> Iterator[MCPAdapter]:
     mcp_server_url = None
@@ -175,12 +187,17 @@ def register(
 
 @click.command("list")
 @click.option("--all", "include_inactive", is_flag=True, help="Include inactive tools")
+@click.option("--workspace", required=False, help="Workspace name (defaults to current workspace)")
 @click.pass_context
-def list_tools(ctx, include_inactive: bool) -> None:
+def list_tools(ctx, include_inactive: bool, workspace: str | None) -> None:
     """List registered tools from persisted MCP registry."""
     try:
+        resolved_workspace = _resolve_workspace_name(workspace)
         with _tool_registry_adapter(ctx.obj.config) as adapter:
-            rows = adapter.list_registered_tools(include_inactive=include_inactive)
+            rows = adapter.list_registered_tools(
+                include_inactive=include_inactive,
+                workspace_name=resolved_workspace,
+            )
 
         if not rows:
             click.echo("No registered tools found.")
@@ -198,15 +215,18 @@ def list_tools(ctx, include_inactive: bool) -> None:
 
 @click.command("deactivate")
 @click.option("--tool-id", required=True, help="Tool identifier to deactivate")
+@click.option("--workspace", required=False, help="Workspace name (defaults to current workspace)")
 @click.option("--actor-principal-id", required=True, help="Actor principal UUID for audit ledger")
 @click.pass_context
-def deactivate(ctx, tool_id: str, actor_principal_id: str) -> None:
+def deactivate(ctx, tool_id: str, workspace: str | None, actor_principal_id: str) -> None:
     """Deactivate an existing registered tool."""
     try:
+        resolved_workspace = _resolve_workspace_name(workspace)
         with _tool_registry_adapter(ctx.obj.config) as adapter:
             row = adapter.deactivate_tool(
                 tool_id=tool_id,
                 actor_principal_id=actor_principal_id,
+                workspace_name=resolved_workspace,
             )
 
         click.echo("Tool deactivated")
@@ -218,15 +238,18 @@ def deactivate(ctx, tool_id: str, actor_principal_id: str) -> None:
 
 @click.command("reactivate")
 @click.option("--tool-id", required=True, help="Tool identifier to reactivate")
+@click.option("--workspace", required=False, help="Workspace name (defaults to current workspace)")
 @click.option("--actor-principal-id", required=True, help="Actor principal UUID for audit ledger")
 @click.pass_context
-def reactivate(ctx, tool_id: str, actor_principal_id: str) -> None:
+def reactivate(ctx, tool_id: str, workspace: str | None, actor_principal_id: str) -> None:
     """Reactivate an existing registered tool."""
     try:
+        resolved_workspace = _resolve_workspace_name(workspace)
         with _tool_registry_adapter(ctx.obj.config) as adapter:
             row = adapter.reactivate_tool(
                 tool_id=tool_id,
                 actor_principal_id=actor_principal_id,
+                workspace_name=resolved_workspace,
             )
 
         click.echo("Tool reactivated")
