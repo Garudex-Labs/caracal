@@ -474,6 +474,40 @@ principal.add_command(principal_get, name='get')
 
 
 # =============================================================================
+# TOOL REGISTRY MANAGEMENT
+# =============================================================================
+
+@cli.group()
+@click.pass_context
+def tool(ctx):
+    """
+    Manage persisted MCP tool registrations.
+
+    Tool records define explicit tool identity lifecycle state.
+
+    \b
+    Examples:
+        caracal tool register --tool-id provider:endframe:resource:deployments
+        caracal tool list --all
+        caracal tool deactivate --tool-id provider:endframe:resource:deployments
+        caracal tool reactivate --tool-id provider:endframe:resource:deployments
+    """
+    pass
+
+
+from caracal.cli.tool_registry import (
+    register as tool_register,
+    list_tools as tool_list,
+    deactivate as tool_deactivate,
+    reactivate as tool_reactivate,
+)
+tool.add_command(tool_register)
+tool.add_command(tool_list, name='list')
+tool.add_command(tool_deactivate)
+tool.add_command(tool_reactivate)
+
+
+# =============================================================================
 # POLICY MANAGEMENT
 # =============================================================================
 

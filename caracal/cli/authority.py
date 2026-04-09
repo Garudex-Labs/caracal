@@ -25,6 +25,7 @@ from caracal.cli.provider_scopes import (
 )
 from caracal.exceptions import CaracalError
 from caracal.logging_config import get_logger
+from caracal.mcp.tool_registry_contract import resolve_issue_scopes_from_tool_ids
 
 logger = get_logger(__name__)
 
@@ -124,23 +125,14 @@ def get_authority_evaluator(config):
     '--provider',
     multiple=True,
     shell_complete=provider_name_shell_complete,
-    help='Provider name used for scope autocompletion and filtering (repeatable)',
+    help='Provider name filter for selected tools (repeatable)',
 )
 @click.option(
-    '--resource-scope',
-    '-r',
+    '--tool-id',
+    '-t',
     required=True,
     multiple=True,
-    shell_complete=resource_scope_shell_complete,
-    help='Provider resource scopes (repeatable)',
-)
-@click.option(
-    '--action-scope',
-    '-a',
-    required=True,
-    multiple=True,
-    shell_complete=action_scope_shell_complete,
-    help='Provider action scopes (repeatable)',
+    help='Registered tool ID to include in the issued mandate (repeatable)',
 )
 @click.option(
     '--validity-seconds',
@@ -171,8 +163,7 @@ def issue(
     issuer_id: str,
     subject_id: str,
     provider: tuple,
-    resource_scope: tuple,
-    action_scope: tuple,
+    tool_id: tuple,
     validity_seconds: int,
     network_distance: Optional[int],
     format: str,
@@ -190,22 +181,19 @@ def issue(
             --issuer-id 550e8400-e29b-41d4-a716-446655440000 \\
             --subject-id 660e8400-e29b-41d4-a716-446655440001 \\
             --provider openai-main \\
-            --resource-scope "provider:openai-main:resource:chat.completions" \\
-            --action-scope "provider:openai-main:action:invoke" \\
+                        --tool-id provider:openai-main:resource:chat.completions \
             --validity-seconds 3600
         
-        # Issue a mandate with multiple scopes
+                # Issue a mandate from multiple registered tools
         caracal authority mandate \\
             -i 550e8400-e29b-41d4-a716-446655440000 \\
             -s 660e8400-e29b-41d4-a716-446655440001 \\
-            -r "provider:openai-main:resource:chat.completions" \\
-            -a "provider:openai-main:action:invoke" \\
+                        -t "provider:openai-main:resource:chat.completions" \
             -v 7200
         
         # JSON output
         caracal authority mandate -i <issuer> -s <subject> \\
-          -r "provider:<provider>:resource:<resource>" \\
-          -a "provider:<provider>:action:<action>" -v 3600 --format json
+                    -t "provider:<provider>:resource:<resource>" -v 3600 --format json
     """
     try:
         # Get CLI context
@@ -232,21 +220,33 @@ def issue(
         workspace = get_workspace_from_ctx(ctx)
 
         # Convert tuples to lists
-        providers = [str(p) for p in provider]
-        resource_scope_list = list(resource_scope)
-        action_scope_list = list(action_scope)
-
-        validate_provider_scopes(
-            workspace=workspace,
-            resource_scopes=resource_scope_list,
-            action_scopes=action_scope_list,
-            providers=providers or None,
-        )
+        providers = [str(p).strip() for p in provider if str(p).strip()]
+        selected_tool_ids = [str(value).strip() for value in tool_id if str(value).strip()]
+        if not selected_tool_ids:
+            click.echo("Error: At least one --tool-id is required", err=True)
+            sys.exit(1)
         
         # Create mandate manager
         mandate_manager, db_manager = get_mandate_manager(config)
         
         try:
+            tool_contract = resolve_issue_scopes_from_tool_ids(
+                db_session=mandate_manager.db_session,
+                tool_ids=selected_tool_ids,
+                providers=providers or None,
+            )
+
+            resource_scope_list = list(tool_contract["resource_scope"])
+            action_scope_list = list(tool_contract["action_scope"])
+            providers_for_validation = list(tool_contract["providers"])
+
+            validate_provider_scopes(
+                workspace=workspace,
+                resource_scopes=resource_scope_list,
+                action_scopes=action_scope_list,
+                providers=providers_for_validation,
+            )
+
             # Issue mandate
             mandate = mandate_manager.issue_mandate(
                 issuer_id=issuer_uuid,
@@ -286,6 +286,7 @@ def issue(
                 click.echo(f"Subject ID:       {mandate.subject_id}")
                 click.echo(f"Valid From:       {mandate.valid_from}")
                 click.echo(f"Valid Until:      {mandate.valid_until}")
+                click.echo(f"Tool IDs:         {', '.join(tool_contract['tool_ids'])}")
                 click.echo(f"Resource Scope:   {', '.join(mandate.resource_scope)}")
                 click.echo(f"Action Scope:     {', '.join(mandate.action_scope)}")
                 click.echo(f"Delegation Type:  {mandate.delegation_type}")
