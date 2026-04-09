@@ -19,6 +19,9 @@ if TYPE_CHECKING:
 
 logger = get_logger(__name__)
 
+# Canonical SDK->MCP tool-call contract version.
+CANONICAL_TOOL_CALL_CONTRACT_VERSION = "v1"
+
 
 class ToolOperations:
     """Tool invocation operations within a scoped context."""
@@ -55,7 +58,11 @@ class ToolOperations:
         metadata: Optional[Dict[str, Any]] = None,
         correlation_id: Optional[str] = None,
     ) -> Dict[str, Any]:
-        """Call a registered tool through the canonical MCP service endpoint."""
+        """Call a registered tool through the canonical MCP service endpoint.
+
+        Contract version: ``v1`` payload with keys
+        ``{tool_id, mandate_id, tool_args, metadata}``.
+        """
         normalized_tool_id = str(tool_id or "").strip()
         normalized_mandate_id = str(mandate_id or "").strip()
         if not normalized_tool_id:

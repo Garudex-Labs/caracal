@@ -43,6 +43,10 @@ from caracal.mcp.tool_registry_contract import validate_active_tool_mappings
 
 logger = get_logger(__name__)
 
+# Canonical MCP payload contracts (hard-cut release gates depend on these markers).
+CANONICAL_TOOL_CALL_CONTRACT_VERSION = "v1"
+CANONICAL_TOOL_REGISTRY_CONTRACT_VERSION = "v1"
+
 
 @dataclass
 class MCPServerConfig:
@@ -557,7 +561,10 @@ class MCPAdapterService:
             return MCPServiceResponse(
                 success=True,
                 result=_serialize_tool_row(row),
-                metadata={"actor_principal_id": principal_id},
+                metadata={
+                    "actor_principal_id": principal_id,
+                    "contract_version": CANONICAL_TOOL_REGISTRY_CONTRACT_VERSION,
+                },
             )
 
         @self.app.get("/mcp/tools", response_model=MCPServiceResponse)
@@ -568,7 +575,10 @@ class MCPAdapterService:
             return MCPServiceResponse(
                 success=True,
                 result={"tools": [_serialize_tool_row(row) for row in rows]},
-                metadata={"actor_principal_id": principal_id},
+                metadata={
+                    "actor_principal_id": principal_id,
+                    "contract_version": CANONICAL_TOOL_REGISTRY_CONTRACT_VERSION,
+                },
             )
 
         @self.app.post("/mcp/tools/deactivate", response_model=MCPServiceResponse)
@@ -589,7 +599,10 @@ class MCPAdapterService:
             return MCPServiceResponse(
                 success=True,
                 result=_serialize_tool_row(row),
-                metadata={"actor_principal_id": principal_id},
+                metadata={
+                    "actor_principal_id": principal_id,
+                    "contract_version": CANONICAL_TOOL_REGISTRY_CONTRACT_VERSION,
+                },
             )
 
         @self.app.post("/mcp/tools/reactivate", response_model=MCPServiceResponse)
@@ -610,7 +623,10 @@ class MCPAdapterService:
             return MCPServiceResponse(
                 success=True,
                 result=_serialize_tool_row(row),
-                metadata={"actor_principal_id": principal_id},
+                metadata={
+                    "actor_principal_id": principal_id,
+                    "contract_version": CANONICAL_TOOL_REGISTRY_CONTRACT_VERSION,
+                },
             )
         
         @self.app.post("/mcp/tool/call", response_model=MCPServiceResponse)
@@ -695,7 +711,10 @@ class MCPAdapterService:
                     success=result.success,
                     result=result.result,
                     error=result.error,
-                    metadata=result.metadata
+                    metadata={
+                        **dict(result.metadata or {}),
+                        "contract_version": CANONICAL_TOOL_CALL_CONTRACT_VERSION,
+                    },
                 )
                 
             except HTTPException:
