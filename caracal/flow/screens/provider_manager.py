@@ -52,9 +52,9 @@ from caracal.provider.credential_store import (
 from caracal.provider.workspace import (
     load_workspace_provider_registry,
     save_workspace_provider_registry,
+    sync_workspace_provider_registry_runtime,
 )
 from caracal.mcp.tool_registry_contract import (
-    deactivate_invalid_provider_tools,
     list_tool_bindings_by_provider,
 )
 
@@ -831,19 +831,18 @@ def _tool_registry_adapter():
         db_manager.close()
 
 
-def _revalidate_provider_tool_mappings(provider_name: str) -> list[dict[str, str]]:
-    """Deactivate active tools impacted by provider mapping drift after provider updates."""
-    from caracal.db.connection import get_db_manager
-
-    db_manager = get_db_manager()
-    try:
-        with db_manager.session_scope() as db_session:
-            return deactivate_invalid_provider_tools(
-                db_session=db_session,
-                provider_name=provider_name,
-            )
-    finally:
-        db_manager.close()
+def _persist_workspace_providers(
+    config_manager: ConfigManager,
+    workspace: str,
+    providers: dict[str, dict],
+) -> list[dict[str, str]]:
+    """Persist workspace provider metadata and mirror it into runtime provider rows."""
+    save_workspace_provider_registry(config_manager, workspace, providers)
+    sync_result = sync_workspace_provider_registry_runtime(
+        workspace=workspace,
+        providers=providers,
+    )
+    return list(sync_result.get("impacted") or [])
 
 
 def _manage_tool_registry(console: Console, state: FlowState) -> None:
@@ -938,8 +937,24 @@ def _tool_registry_register(console: Console, state: FlowState) -> None:
         Prompt.ask("Press Enter to continue", default="")
         return
 
+    scoped_provider_names: list[str] = []
+    provider_resources: dict[str, dict[str, dict]] = {}
+    for provider_name in sorted(providers.keys()):
+        entry = dict(providers.get(provider_name) or {})
+        definition = entry.get("definition")
+        resources = dict(definition.get("resources") or {}) if isinstance(definition, dict) else {}
+        if resources:
+            scoped_provider_names.append(provider_name)
+            provider_resources[provider_name] = resources
+
+    if not scoped_provider_names:
+        console.print(
+            f"  [{Colors.WARNING}]{Icons.WARNING} No scoped providers available. Add resource/action definitions first.[/]"
+        )
+        Prompt.ask("Press Enter to continue", default="")
+        return
+
     prompt = FlowPrompt(console)
-    provider_names = sorted(providers.keys())
 
     console.clear()
     console.print(
@@ -955,16 +970,31 @@ def _tool_registry_register(console: Console, state: FlowState) -> None:
         "Tool ID",
         validator=lambda value: _validate_non_empty("Tool ID", value),
     ).strip()
-    provider_name = prompt.select("Provider", provider_names, default=provider_names[0])
-    resource_scope = prompt.text(
-        "Resource scope",
-        validator=lambda value: _validate_non_empty("Resource scope", value),
-    ).strip()
-    action_scope = prompt.text(
-        "Action scope",
-        validator=lambda value: _validate_non_empty("Action scope", value),
-    ).strip()
+    provider_name = prompt.select("Provider", scoped_provider_names, default=scoped_provider_names[0])
+    resource_choices = sorted(provider_resources[provider_name].keys())
+    resource_id = prompt.select("Resource", resource_choices, default=resource_choices[0])
+
+    action_payload = dict(provider_resources[provider_name][resource_id].get("actions") or {})
+    action_choices = sorted(action_payload.keys())
+    if not action_choices:
+        console.print(
+            f"  [{Colors.ERROR}]{Icons.ERROR} Resource '{resource_id}' has no actions defined.[/]"
+        )
+        Prompt.ask("Press Enter to continue", default="")
+        return
+    action_id = prompt.select("Action", action_choices, default=action_choices[0])
+
+    selected_action = dict(action_payload.get(action_id) or {})
+    resource_scope = build_resource_scope(provider_name, resource_id)
+    action_scope = build_action_scope(provider_name, action_id)
     execution_mode = prompt.select("Execution mode", ["local", "mcp_forward"], default="mcp_forward")
+    tool_type = prompt.select("Tool type", ["direct_api", "logic"], default="direct_api")
+    handler_ref = None
+    if tool_type == "logic":
+        handler_ref = prompt.text(
+            "Handler reference (module:function)",
+            validator=lambda value: _validate_non_empty("Handler reference", value),
+        ).strip()
     mcp_server_name = None
     if execution_mode == "mcp_forward":
         mcp_server_name = prompt.text("MCP server name (optional)", default="").strip() or None
@@ -986,10 +1016,15 @@ def _tool_registry_register(console: Console, state: FlowState) -> None:
             resource_scope=resource_scope,
             action_scope=action_scope,
             provider_definition_id=provider_definition_id,
-            action_method=None,
-            action_path_prefix=None,
+            action_method=str(selected_action.get("method") or "").strip().upper() or None,
+            action_path_prefix=str(selected_action.get("path_prefix") or "").strip() or None,
             execution_mode=execution_mode,
             mcp_server_name=mcp_server_name,
+            workspace_name=workspace,
+            tool_type=tool_type,
+            handler_ref=handler_ref,
+            mapping_version=None,
+            allowed_downstream_scopes=[],
         )
 
     console.print()
@@ -1174,7 +1209,7 @@ def _add_provider(console: Console, state: FlowState) -> None:
         created_at=datetime.utcnow().isoformat(),
         enforce_scoped_requests=mode == "scoped",
     )
-    save_workspace_provider_registry(config_manager, workspace, providers)
+    _persist_workspace_providers(config_manager, workspace, providers)
 
     console.print()
     console.print(f"  [{Colors.SUCCESS}]{Icons.SUCCESS} Provider '{name}' added.[/]")
@@ -1343,9 +1378,7 @@ def _update_provider(console: Console, state: FlowState) -> None:
         created_at=str(entry.get("created_at") or datetime.utcnow().isoformat()),
         enforce_scoped_requests=mode == "scoped",
     )
-    save_workspace_provider_registry(config_manager, workspace, providers)
-
-    impacted = _revalidate_provider_tool_mappings(selected)
+    impacted = _persist_workspace_providers(config_manager, workspace, providers)
 
     console.print()
     console.print(f"  [{Colors.SUCCESS}]{Icons.SUCCESS} Provider '{selected}' updated.[/]")
@@ -1484,10 +1517,16 @@ def _enrich_provider(console: Console, state: FlowState) -> None:
         created_at=str(entry.get("created_at") or datetime.utcnow().isoformat()),
         enforce_scoped_requests=True,
     )
-    save_workspace_provider_registry(config_manager, workspace, providers)
+    impacted = _persist_workspace_providers(config_manager, workspace, providers)
 
     console.print()
     console.print(f"  [{Colors.SUCCESS}]{Icons.SUCCESS} Provider '{selected}' enriched.[/]")
+    if impacted:
+        console.print(
+            f"  [{Colors.WARNING}]{Icons.WARNING} Deactivated {len(impacted)} mapped tool(s) due provider mapping drift.[/]"
+        )
+        for item in impacted:
+            console.print(f"    • {item['tool_id']}: {item['reason']}")
     if state:
         state.add_recent_action(
             RecentAction.create("provider_enrich", f"Enriched provider {selected}", success=True)
@@ -2661,9 +2700,15 @@ def _import_provider(console: Console, state: FlowState) -> None:
         created_at=str((existing or {}).get("created_at") or payload.get("created_at") or datetime.utcnow().isoformat()),
         enforce_scoped_requests=scoped_mode,
     )
-    save_workspace_provider_registry(config_manager, workspace, providers)
+    impacted = _persist_workspace_providers(config_manager, workspace, providers)
 
     console.print(f"  [{Colors.SUCCESS}]{Icons.SUCCESS} Provider '{provider_name}' imported.[/]")
+    if impacted:
+        console.print(
+            f"  [{Colors.WARNING}]{Icons.WARNING} Deactivated {len(impacted)} mapped tool(s) due provider mapping drift.[/]"
+        )
+        for item in impacted:
+            console.print(f"    • {item['tool_id']}: {item['reason']}")
     if state:
         state.add_recent_action(
             RecentAction.create("provider_import", f"Imported provider {provider_name}", success=True)
@@ -2702,7 +2747,7 @@ def _remove_provider(console: Console, state: FlowState) -> None:
         return
 
     removed = providers.pop(selected)
-    save_workspace_provider_registry(config_manager, workspace, providers)
+    impacted = _persist_workspace_providers(config_manager, workspace, providers)
 
     credential_ref = removed.get("credential_ref")
     if credential_ref:
@@ -2712,6 +2757,12 @@ def _remove_provider(console: Console, state: FlowState) -> None:
             pass
 
     console.print(f"  [{Colors.SUCCESS}]{Icons.SUCCESS} Provider '{selected}' removed.[/]")
+    if impacted:
+        console.print(
+            f"  [{Colors.WARNING}]{Icons.WARNING} Deactivated {len(impacted)} mapped tool(s) due provider removal.[/]"
+        )
+        for item in impacted:
+            console.print(f"    • {item['tool_id']}: {item['reason']}")
     if state:
         state.add_recent_action(
             RecentAction.create("provider_remove", f"Removed provider {selected}", success=True)
