@@ -22,6 +22,23 @@ logger = get_logger(__name__)
 # Canonical SDK->MCP tool-call contract version.
 CANONICAL_TOOL_CALL_CONTRACT_VERSION = "v1"
 
+# SDK metadata is correlation-only; binding/policy selectors are backend-owned.
+_ALLOWED_CORRELATION_METADATA_KEYS = {
+    "correlation_id",
+    "trace_id",
+    "request_id",
+}
+_PROHIBITED_CALLER_SPOOFING_FIELDS = {
+    "principal_id",
+    "token_subject",
+    "task_token_claims",
+    "task_caveat_chain",
+    "task_caveat_hmac_key",
+    "caveat_chain",
+    "caveat_hmac_key",
+    "caveat_task_id",
+}
+
 
 class ToolOperations:
     """Tool invocation operations within a scoped context."""
@@ -62,6 +79,8 @@ class ToolOperations:
 
         Contract version: ``v1`` payload with keys
         ``{tool_id, mandate_id, tool_args, metadata}``.
+
+        Metadata is limited to correlation keys only.
         """
         normalized_tool_id = str(tool_id or "").strip()
         normalized_mandate_id = str(mandate_id or "").strip()
@@ -70,15 +89,46 @@ class ToolOperations:
         if not normalized_mandate_id:
             raise SDKConfigurationError("mandate_id is required")
 
+        if metadata is not None and not isinstance(metadata, dict):
+            raise SDKConfigurationError("metadata must be a dictionary")
+        if tool_args is not None and not isinstance(tool_args, dict):
+            raise SDKConfigurationError("tool_args must be a dictionary")
+
         payload_metadata: Dict[str, Any] = dict(metadata or {})
-        if "principal_id" in payload_metadata:
-            raise SDKConfigurationError("principal_id is not allowed in tool call metadata")
+        prohibited_metadata_keys = sorted(
+            key
+            for key in payload_metadata.keys()
+            if str(key) in _PROHIBITED_CALLER_SPOOFING_FIELDS
+        )
+        if prohibited_metadata_keys:
+            raise SDKConfigurationError(
+                f"Caller identity fields are not allowed in tool call metadata: {', '.join(prohibited_metadata_keys)}"
+            )
+
+        invalid_metadata_keys = sorted(
+            key
+            for key in payload_metadata.keys()
+            if str(key) not in _ALLOWED_CORRELATION_METADATA_KEYS
+        )
+        if invalid_metadata_keys:
+            raise SDKConfigurationError(
+                "metadata supports correlation keys only: "
+                f"{', '.join(sorted(_ALLOWED_CORRELATION_METADATA_KEYS))}"
+            )
+
         if correlation_id:
             payload_metadata["correlation_id"] = str(correlation_id)
 
         payload_args = dict(tool_args or {})
-        if "principal_id" in payload_args:
-            raise SDKConfigurationError("principal_id is not allowed in tool_args")
+        prohibited_tool_args = sorted(
+            key
+            for key in payload_args.keys()
+            if str(key) in _PROHIBITED_CALLER_SPOOFING_FIELDS
+        )
+        if prohibited_tool_args:
+            raise SDKConfigurationError(
+                f"Caller identity fields are not allowed in tool_args: {', '.join(prohibited_tool_args)}"
+            )
 
         req = self._build_request(
             "POST",
