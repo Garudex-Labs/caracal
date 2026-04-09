@@ -866,6 +866,58 @@ class TestMCPAdapterService:
         assert response.status_code == 400
         assert "provider selector mismatch" in response.json()["detail"].lower()
 
+    def test_tool_call_endpoint_maps_workspace_scope_header_into_canonical_metadata(self):
+        from fastapi.testclient import TestClient
+
+        client = TestClient(self.service.app)
+        self.mock_mcp_adapter.intercept_tool_call = AsyncMock(
+            return_value=MCPResult(success=True, result={"ok": True}, error=None)
+        )
+
+        response = client.post(
+            "/mcp/tool/call",
+            json={
+                "tool_id": "test_tool",
+                "mandate_id": str(uuid4()),
+                "tool_args": {},
+                "metadata": {},
+            },
+            headers={
+                "Authorization": "Bearer test-token",
+                "X-Caracal-Workspace-ID": "ws-sdk",
+            },
+        )
+
+        assert response.status_code == 200
+        mcp_context = self.mock_mcp_adapter.intercept_tool_call.call_args.kwargs["mcp_context"]
+        assert mcp_context.get("workspace") == "ws-sdk"
+        assert mcp_context.get("workspace_name") == "ws-sdk"
+
+    def test_tool_call_endpoint_rejects_workspace_scope_body_header_mismatch(self):
+        from fastapi.testclient import TestClient
+
+        client = TestClient(self.service.app)
+
+        response = client.post(
+            "/mcp/tool/call",
+            json={
+                "tool_id": "test_tool",
+                "mandate_id": str(uuid4()),
+                "tool_args": {},
+                "metadata": {
+                    "workspace": "workspace-from-body",
+                },
+            },
+            headers={
+                "Authorization": "Bearer test-token",
+                "X-Caracal-Workspace-ID": "workspace-from-header",
+            },
+        )
+
+        assert response.status_code == 400
+        assert "workspace selector mismatch" in response.json()["detail"].lower()
+        self.mock_mcp_adapter.intercept_tool_call.assert_not_called()
+
     def test_tool_call_endpoint_rejects_provider_selector_mapped_tool_mismatch(self):
         from fastapi.testclient import TestClient
 

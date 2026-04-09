@@ -1532,6 +1532,92 @@ class TestMCPAdapter:
                     mcp_context=MCPContext(principal_id="agent-123", metadata={"workspace": "default"}),
                     require_credential=True,
                 )
+
+    def test_resolve_active_tool_mapping_prefers_persisted_workspace_for_credentials(self):
+        """Credential resolution should prefer persisted tool workspace over request metadata."""
+        tool_row = SimpleNamespace(
+            tool_id=_TOOL_ID,
+            active=True,
+            provider_name=_MAPPED_PROVIDER_NAME,
+            resource_scope=_MAPPED_RESOURCE_SCOPE,
+            action_scope=_MAPPED_ACTION_SCOPE,
+            provider_definition_id=_MAPPED_PROVIDER_NAME,
+            workspace_name="persisted-workspace",
+        )
+        provider_row = GatewayProvider(
+            provider_id=_MAPPED_PROVIDER_NAME,
+            name="Endframe",
+            base_url="https://api.endframe.dev",
+            auth_scheme="api_key",
+            credential_ref="caracal:default/providers/endframe/credential",
+            definition=_definition_payload(),
+            enabled=True,
+        )
+
+        self.adapter.get_registered_tool = Mock(return_value=tool_row)
+        self.mock_authority_evaluator.db_session = _RuntimeSessionStub([provider_row])
+
+        mapping_fn = MCPAdapter._resolve_active_tool_mapping.__get__(self.adapter, MCPAdapter)
+        with patch(
+            "caracal.mcp.adapter.resolve_workspace_provider_credential",
+        ) as mock_resolve_credential:
+            mapping = mapping_fn(
+                tool_id=_TOOL_ID,
+                mcp_context=MCPContext(
+                    principal_id="agent-123",
+                    metadata={"workspace": "request-workspace"},
+                ),
+                require_credential=True,
+            )
+
+        mock_resolve_credential.assert_called_once_with(
+            "persisted-workspace",
+            "caracal:default/providers/endframe/credential",
+        )
+        assert mapping["workspace_name"] == "persisted-workspace"
+
+    def test_resolve_active_tool_mapping_falls_back_to_context_workspace_when_mapping_missing(self):
+        """Credential resolution should use request workspace only when mapping workspace is missing."""
+        tool_row = SimpleNamespace(
+            tool_id=_TOOL_ID,
+            active=True,
+            provider_name=_MAPPED_PROVIDER_NAME,
+            resource_scope=_MAPPED_RESOURCE_SCOPE,
+            action_scope=_MAPPED_ACTION_SCOPE,
+            provider_definition_id=_MAPPED_PROVIDER_NAME,
+            workspace_name=None,
+        )
+        provider_row = GatewayProvider(
+            provider_id=_MAPPED_PROVIDER_NAME,
+            name="Endframe",
+            base_url="https://api.endframe.dev",
+            auth_scheme="api_key",
+            credential_ref="caracal:default/providers/endframe/credential",
+            definition=_definition_payload(),
+            enabled=True,
+        )
+
+        self.adapter.get_registered_tool = Mock(return_value=tool_row)
+        self.mock_authority_evaluator.db_session = _RuntimeSessionStub([provider_row])
+
+        mapping_fn = MCPAdapter._resolve_active_tool_mapping.__get__(self.adapter, MCPAdapter)
+        with patch(
+            "caracal.mcp.adapter.resolve_workspace_provider_credential",
+        ) as mock_resolve_credential:
+            mapping = mapping_fn(
+                tool_id=_TOOL_ID,
+                mcp_context=MCPContext(
+                    principal_id="agent-123",
+                    metadata={"workspace_name": "request-workspace"},
+                ),
+                require_credential=True,
+            )
+
+        mock_resolve_credential.assert_called_once_with(
+            "request-workspace",
+            "caracal:default/providers/endframe/credential",
+        )
+        assert mapping["workspace_name"] == "request-workspace"
     
     def test_extract_principal_id_success(self):
         """Test successful principal ID extraction."""
