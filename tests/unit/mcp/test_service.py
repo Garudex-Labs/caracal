@@ -205,6 +205,7 @@ class TestMCPAdapterService:
         self.mock_authority_evaluator._get_mandate_with_cache.return_value = SimpleNamespace(
             revoked=False,
             valid_until=None,
+            subject_id=self.actor_principal_id,
         )
         
         # Create server config
@@ -493,6 +494,11 @@ class TestMCPAdapterService:
             action_path_prefix="/v1/deployments",
             execution_mode="mcp_forward",
             mcp_server_name="server-0",
+            workspace_name=None,
+            tool_type="direct_api",
+            handler_ref=None,
+            mapping_version=None,
+            allowed_downstream_scopes=[],
         )
 
     def test_tool_registry_list_endpoint_success(self):
@@ -886,6 +892,92 @@ class TestMCPAdapterService:
 
         assert response.status_code == 400
         assert "does not match mapped provider" in response.json()["detail"].lower()
+
+    def test_tool_call_endpoint_rejects_mandate_subject_mismatch_in_service_layer(self):
+        from fastapi.testclient import TestClient
+
+        client = TestClient(self.service.app)
+        self.mock_authority_evaluator._get_mandate_with_cache.return_value = SimpleNamespace(
+            revoked=False,
+            valid_until=None,
+            subject_id="agent-other",
+        )
+
+        response = client.post(
+            "/mcp/tool/call",
+            json={
+                "tool_id": "test_tool",
+                "mandate_id": str(uuid4()),
+                "tool_args": {},
+                "metadata": {},
+            },
+            headers={"Authorization": "Bearer test-token"},
+        )
+
+        assert response.status_code == 403
+        assert "does not match mandate subject" in response.json()["detail"].lower()
+        self.mock_mcp_adapter.intercept_tool_call.assert_not_called()
+
+    def test_tool_call_endpoint_rejects_resource_scope_body_header_mismatch(self):
+        from fastapi.testclient import TestClient
+
+        client = TestClient(self.service.app)
+        self.mock_mcp_adapter.get_registered_tool.return_value = SimpleNamespace(
+            tool_id="test_tool",
+            active=True,
+            provider_name="endframe",
+            provider_definition_id="endframe",
+            resource_scope="provider:endframe:resource:deployments",
+            action_scope="provider:endframe:action:invoke",
+        )
+
+        response = client.post(
+            "/mcp/tool/call",
+            json={
+                "tool_id": "test_tool",
+                "mandate_id": str(uuid4()),
+                "tool_args": {},
+                "metadata": {
+                    "resource_scope": "provider:endframe:resource:deployments",
+                },
+            },
+            headers={
+                "Authorization": "Bearer test-token",
+                "X-Caracal-Resource-Scope": "provider:endframe:resource:pipelines",
+            },
+        )
+
+        assert response.status_code == 400
+        assert "resource scope selector mismatch" in response.json()["detail"].lower()
+
+    def test_tool_call_endpoint_rejects_action_scope_mapped_tool_mismatch(self):
+        from fastapi.testclient import TestClient
+
+        client = TestClient(self.service.app)
+        self.mock_mcp_adapter.get_registered_tool.return_value = SimpleNamespace(
+            tool_id="test_tool",
+            active=True,
+            provider_name="endframe",
+            provider_definition_id="endframe",
+            resource_scope="provider:endframe:resource:deployments",
+            action_scope="provider:endframe:action:invoke",
+        )
+
+        response = client.post(
+            "/mcp/tool/call",
+            json={
+                "tool_id": "test_tool",
+                "mandate_id": str(uuid4()),
+                "tool_args": {},
+                "metadata": {
+                    "action_scope": "provider:endframe:action:destroy",
+                },
+            },
+            headers={"Authorization": "Bearer test-token"},
+        )
+
+        assert response.status_code == 400
+        assert "does not match mapped action scope" in response.json()["detail"].lower()
 
     def test_require_active_tool_raises_unknown_tool_error_class(self):
         """Unknown tools should raise deterministic MCPUnknownToolError."""

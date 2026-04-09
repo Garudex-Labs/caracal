@@ -422,16 +422,20 @@ class TestRegisteredToolModel:
     def test_registered_tool_column_contract(self):
         """Registered tools table must enforce explicit tool identity columns."""
         columns = {column.name: column for column in RegisteredTool.__table__.columns}
+        index_names = {index.name for index in RegisteredTool.__table__.indexes}
 
         assert "tool_id" in columns
-        assert columns["tool_id"].unique is True
+        assert columns["tool_id"].unique is not True
         assert "active" in columns
+        assert "workspace_name" in columns
         assert "provider_name" in columns
         assert "resource_scope" in columns
         assert "action_scope" in columns
         assert "provider_definition_id" in columns
         assert "execution_mode" in columns
         assert "mcp_server_name" in columns
+        assert "uq_registered_tools_active_workspace_tool_id" in index_names
+        assert "uq_registered_tools_active_workspace_binding" in index_names
 
 
 @pytest.mark.unit
