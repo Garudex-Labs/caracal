@@ -10,6 +10,18 @@ from unittest.mock import Mock, patch, MagicMock
 from caracal.cli.main import cli, get_active_workspace, format_workspace_status
 
 
+@pytest.fixture(autouse=True)
+def _writable_caracal_home(tmp_path, monkeypatch):
+    """Ensure CLI tests run with writable runtime state roots."""
+    monkeypatch.setenv("CARACAL_HOME", str(tmp_path / ".caracal"))
+
+
+def _invoke_cli(runner: CliRunner, args: list[str]):
+    """Invoke CLI with argv patched to mirror real terminal invocation."""
+    with patch('caracal.cli.main.sys.argv', ['caracal', *args]):
+        return runner.invoke(cli, args)
+
+
 @pytest.mark.unit
 class TestCLIMain:
     """Test suite for CLI main commands."""
@@ -41,7 +53,7 @@ class TestCLIMain:
     
     def test_cli_subcommand_help(self):
         """Test CLI subcommand help displays subcommand info."""
-        result = self.runner.invoke(cli, ['workspace', '--help'])
+        result = _invoke_cli(self.runner, ['workspace', '--help'])
         
         assert result.exit_code == 0
         assert 'workspace' in result.output.lower()
@@ -112,35 +124,35 @@ class TestCLICommandRegistration:
     
     def test_workspace_command_registered(self):
         """Test workspace command is registered."""
-        result = self.runner.invoke(cli, ['workspace', '--help'])
+        result = _invoke_cli(self.runner, ['workspace', '--help'])
         
         assert result.exit_code == 0
         assert 'workspace' in result.output.lower()
     
     def test_principal_command_registered(self):
         """Test principal command is registered."""
-        result = self.runner.invoke(cli, ['principal', '--help'])
+        result = _invoke_cli(self.runner, ['principal', '--help'])
         
         assert result.exit_code == 0
         assert 'principal' in result.output.lower()
     
     def test_authority_command_registered(self):
         """Test authority command is registered."""
-        result = self.runner.invoke(cli, ['authority', '--help'])
+        result = _invoke_cli(self.runner, ['authority', '--help'])
         
         assert result.exit_code == 0
         assert 'authority' in result.output.lower() or 'mandate' in result.output.lower()
 
     def test_delegation_command_registered(self):
         """Test delegation command is registered."""
-        result = self.runner.invoke(cli, ['delegation', '--help'])
+        result = _invoke_cli(self.runner, ['delegation', '--help'])
         
         assert result.exit_code == 0
         assert 'delegation' in result.output.lower()
 
     def test_enterprise_command_registered(self):
         """Test enterprise command group is registered."""
-        result = self.runner.invoke(cli, ['enterprise', '--help'])
+        result = _invoke_cli(self.runner, ['enterprise', '--help'])
 
         assert result.exit_code == 0
         assert 'enterprise' in result.output.lower()
@@ -154,10 +166,10 @@ class TestCLICommandRegistration:
 
     def test_system_migrate_command_removed(self):
         """Test legacy system migration command group is removed in hard-cut mode."""
-        result = self.runner.invoke(cli, ['system', 'migrate', '--help'])
+        result = _invoke_cli(self.runner, ['system', 'migrate', '--help'])
 
         assert result.exit_code != 0
-        assert 'No such command' in result.output
+        assert 'Command not found: migrate' in result.output
 
 
 @pytest.mark.unit

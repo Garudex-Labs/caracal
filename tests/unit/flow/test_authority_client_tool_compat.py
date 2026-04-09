@@ -1,8 +1,8 @@
-"""Unit tests for legacy AuthorityClient tool-call compatibility paths."""
+"""Unit tests for disabled legacy AuthorityClient tool-call paths."""
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, Mock
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -16,29 +16,16 @@ _MANDATE_ID = "11111111-1111-1111-1111-111111111111"
 
 
 @pytest.mark.unit
-def test_legacy_authority_client_call_tool_routes_to_canonical_endpoint() -> None:
+def test_legacy_authority_client_call_tool_is_disabled() -> None:
     client = AuthorityClient(base_url="http://localhost:8000")
-    client._make_request = Mock(return_value={"success": True})
 
-    with pytest.warns(DeprecationWarning, match="non-canonical"):
-        result = client.call_tool(
+    with pytest.raises(SDKConfigurationError, match="disabled in hard-cut mode"):
+        client.call_tool(
             tool_name="tool.echo",
             mandate_id=_MANDATE_ID,
             tool_args={"payload": "ok"},
             metadata={"source": "legacy"},
         )
-
-    assert result == {"success": True}
-    client._make_request.assert_called_once_with(
-        method="POST",
-        endpoint="/mcp/tool/call",
-        data={
-            "tool_id": "tool.echo",
-            "mandate_id": _MANDATE_ID,
-            "tool_args": {"payload": "ok"},
-            "metadata": {"source": "legacy"},
-        },
-    )
     client.close()
 
 
@@ -46,14 +33,14 @@ def test_legacy_authority_client_call_tool_routes_to_canonical_endpoint() -> Non
 def test_legacy_authority_client_call_tool_rejects_principal_id() -> None:
     client = AuthorityClient(base_url="http://localhost:8000")
 
-    with pytest.raises(SDKConfigurationError, match="principal_id"):
+    with pytest.raises(SDKConfigurationError, match="disabled in hard-cut mode"):
         client.call_tool(
             tool_id="tool.echo",
             mandate_id=_MANDATE_ID,
             metadata={"principal_id": "forbidden"},
         )
 
-    with pytest.raises(SDKConfigurationError, match="principal_id"):
+    with pytest.raises(SDKConfigurationError, match="disabled in hard-cut mode"):
         client.call_tool(
             tool_id="tool.echo",
             mandate_id=_MANDATE_ID,
@@ -65,30 +52,18 @@ def test_legacy_authority_client_call_tool_rejects_principal_id() -> None:
 
 @pytest.mark.unit
 @pytest.mark.asyncio
-async def test_legacy_async_authority_client_call_tool_routes_to_canonical_endpoint() -> None:
+async def test_legacy_async_authority_client_call_tool_is_disabled() -> None:
     pytest.importorskip("aiohttp")
     from caracal_sdk.async_authority_client import AsyncAuthorityClient
 
     client = AsyncAuthorityClient(base_url="http://localhost:8000")
     client._make_request = AsyncMock(return_value={"success": True})
 
-    with pytest.warns(DeprecationWarning, match="non-canonical"):
-        result = await client.call_tool(
+    with pytest.raises(SDKConfigurationError, match="disabled in hard-cut mode"):
+        await client.call_tool(
             tool_id="tool.echo",
             mandate_id=_MANDATE_ID,
             tool_args={"payload": "ok"},
             metadata={"source": "legacy"},
         )
-
-    assert result == {"success": True}
-    client._make_request.assert_awaited_once_with(
-        method="POST",
-        endpoint="/mcp/tool/call",
-        data={
-            "tool_id": "tool.echo",
-            "mandate_id": _MANDATE_ID,
-            "tool_args": {"payload": "ok"},
-            "metadata": {"source": "legacy"},
-        },
-    )
     await client.close()
