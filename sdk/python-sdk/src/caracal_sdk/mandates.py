@@ -121,7 +121,7 @@ class MandateOperations:
         principal_id: Optional[str] = None,
         limit: int = 100,
     ) -> List[Dict[str, Any]]:
-        """List mandates, optionally filtered by agent."""
+        """List mandates, optionally filtered by principal."""
         params: Dict[str, Any] = {"limit": limit}
         if principal_id:
             params["principal_id"] = principal_id

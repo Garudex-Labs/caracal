@@ -85,7 +85,7 @@ class DelegationOperations:
         expiration_seconds: int = 86400,
         allowed_operations: Optional[List[str]] = None,
     ) -> Dict[str, Any]:
-        """Generate a delegation token from source to target agent."""
+        """Generate a delegation token from source to target principal."""
         body: Dict[str, Any] = {
             "source_principal_id": source_principal_id,
             "target_principal_id": target_principal_id,
@@ -97,6 +97,6 @@ class DelegationOperations:
         return await self._execute(req)
 
     async def get_graph(self, principal_id: str) -> Dict[str, Any]:
-        """Get the delegation graph for an agent."""
+        """Get the delegation graph for a principal."""
         req = self._build_request("GET", f"/delegations/graph/{principal_id}")
         return await self._execute(req)
