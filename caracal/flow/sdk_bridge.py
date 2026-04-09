@@ -25,7 +25,7 @@ class SDKBridge:
 
     Manages an SDK client instance and exposes a simplified interface
     for TUI operations:
-    - Agent listing and creation
+    - Principal listing and creation
     - Mandate management
     - Context switching between workspaces
     - Ledger queries
@@ -36,7 +36,7 @@ class SDKBridge:
 
         bridge = SDKBridge(api_key="sk_test_123")
         ctx = bridge.checkout(workspace_id="ws_default")
-        agents = await bridge.list_agents()
+        principals = await bridge.list_principals()
     """
 
     def __init__(
@@ -53,7 +53,7 @@ class SDKBridge:
 
         resolved_base_url = base_url or os.environ.get(
             "CARACAL_API_URL",
-            f"http://localhost:{os.environ.get('CARACAL_API_PORT', '8000')}",
+            f"http://localhost:{os.environ.get('CARACAL_API_PORT', '8080')}",
         )
         resolved_api_key = api_key or os.environ.get("CARACAL_API_KEY")
         self._client = CaracalClient(
@@ -89,17 +89,21 @@ class SDKBridge:
         """Currently active scope, if any."""
         return self._scope
 
-    # -- Agent operations (convenience wrappers) ----------------------------
+    # -- Principal operations (convenience wrappers) ------------------------
+
+    async def list_principals(self, limit: int = 100):
+        """List principals in the current scope."""
+        scope = self._scope or self._get_default_scope()
+        return await scope.principals.list(limit=limit)
 
     async def list_agents(self, limit: int = 100):
-        """List agents in the current scope."""
-        scope = self._scope or self._get_default_scope()
-        return await scope.agents.list(limit=limit)
+        """Deprecated alias for ``list_principals``."""
+        return await self.list_principals(limit=limit)
 
     async def create_principal(self, name: str, owner: str, metadata=None):
-        """Create an agent in the current scope."""
+        """Create a principal in the current scope."""
         scope = self._scope or self._get_default_scope()
-        return await scope.agents.create(name=name, owner=owner, metadata=metadata)
+        return await scope.principals.create(name=name, owner=owner, metadata=metadata)
 
     # -- Mandate operations (convenience wrappers) --------------------------
 

@@ -315,16 +315,6 @@ class MCPAdapterService:
         normalized = str(value or "").strip()
         return normalized or None
 
-    @staticmethod
-    def _normalize_principal_id(raw_principal_id: Any) -> str:
-        normalized = str(raw_principal_id or "").strip()
-        if not normalized:
-            return ""
-        try:
-            return str(UUID(normalized))
-        except Exception:
-            return normalized
-
     def _normalize_provider_selector_metadata(
         self,
         *,
@@ -474,14 +464,32 @@ class MCPAdapterService:
             )
         return mandate
 
-    def _require_mandate_subject(self, *, principal_id: str, mandate: Any) -> None:
-        caller = self._normalize_principal_id(principal_id)
-        subject = self._normalize_principal_id(getattr(mandate, "subject_id", None))
-        if caller and subject and caller != subject:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Authenticated principal does not match mandate subject",
-            )
+    @staticmethod
+    def _is_denied_error_message(message: Optional[str]) -> bool:
+        normalized = str(message or "").strip().lower()
+        if not normalized:
+            return False
+        return (
+            "authority denied" in normalized
+            or "mandate subject" in normalized
+            or "missing mandate_id" in normalized
+            or "invalid mandate_id" in normalized
+        )
+
+    def _record_result_outcome(self, result: MCPResult) -> None:
+        if result.success:
+            self._allowed_count += 1
+            return
+        if self._is_denied_error_message(result.error):
+            self._denied_count += 1
+            return
+        self._error_count += 1
+
+    def _record_http_exception_outcome(self, exc: HTTPException) -> None:
+        if exc.status_code < 500:
+            self._denied_count += 1
+            return
+        self._error_count += 1
     
     def _register_routes(self):
         """Register FastAPI routes."""
@@ -744,11 +752,7 @@ class MCPAdapterService:
                 request_metadata = self._validate_mandate_id_metadata(request_metadata)
                 try:
                     tool_row = self._require_active_tool(request.tool_id)
-                    mandate = self._require_active_mandate(request_metadata["mandate_id"])
-                    self._require_mandate_subject(
-                        principal_id=principal_id,
-                        mandate=mandate,
-                    )
+                    self._require_active_mandate(request_metadata["mandate_id"])
                 except (MCPUnknownToolError, MCPUnknownMandateError) as exc:
                     raise HTTPException(
                         status_code=status.HTTP_404_NOT_FOUND,
@@ -775,11 +779,7 @@ class MCPAdapterService:
                     tool_args=request.tool_args,
                     mcp_context=mcp_context
                 )
-                
-                if result.success:
-                    self._allowed_count += 1
-                else:
-                    self._error_count += 1
+                self._record_result_outcome(result)
                 
                 duration_ms = (time.time() - start_time) * 1000
                 logger.info(
@@ -798,16 +798,20 @@ class MCPAdapterService:
                     },
                 )
                 
-            except HTTPException:
+            except HTTPException as exc:
+                self._record_http_exception_outcome(exc)
                 raise
             except (MCPToolMappingMismatchError, MCPProviderMissingError) as e:
-                self._error_count += 1
+                self._denied_count += 1
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
                     detail=str(e),
                 ) from e
             except CaracalError as e:
-                self._error_count += 1
+                if self._is_denied_error_message(str(e)):
+                    self._denied_count += 1
+                else:
+                    self._error_count += 1
                 logger.error(
                     f"Caracal error during tool call: tool={request.tool_id}, "
                     f"agent=unknown, error={e}"
@@ -884,11 +888,7 @@ class MCPAdapterService:
                     resource_uri=request.resource_uri,
                     mcp_context=mcp_context
                 )
-                
-                if result.success:
-                    self._allowed_count += 1
-                else:
-                    self._error_count += 1
+                self._record_result_outcome(result)
                 
                 duration_ms = (time.time() - start_time) * 1000
                 logger.info(
@@ -904,10 +904,14 @@ class MCPAdapterService:
                     metadata=result.metadata
                 )
                 
-            except HTTPException:
+            except HTTPException as exc:
+                self._record_http_exception_outcome(exc)
                 raise
             except CaracalError as e:
-                self._error_count += 1
+                if self._is_denied_error_message(str(e)):
+                    self._denied_count += 1
+                else:
+                    self._error_count += 1
                 logger.error(
                     f"Caracal error during resource read: uri={request.resource_uri}, "
                     f"agent=unknown, error={e}"
