@@ -39,7 +39,7 @@ class PrincipalOperations:
         body: Optional[Dict[str, Any]] = None,
         params: Optional[Dict[str, Any]] = None,
     ) -> SDKRequest:
-        require_legacy_resource_api("PrincipalOperations", "/agents")
+        require_legacy_resource_api("PrincipalOperations", "/principals")
         headers = dict(self._scope.scope_headers())
         return SDKRequest(
             method=method, path=path, headers=headers, body=body, params=params
@@ -59,15 +59,15 @@ class PrincipalOperations:
     # -- Public API --------------------------------------------------------
 
     async def list(self, limit: int = 100, offset: int = 0) -> List[Dict[str, Any]]:
-        """List agents in the current scope."""
+        """List principals in the current scope."""
         req = self._build_request(
-            "GET", "/agents", params={"limit": limit, "offset": offset}
+            "GET", "/principals", params={"limit": limit, "offset": offset}
         )
         return await self._execute(req)
 
     async def get(self, principal_id: str) -> Dict[str, Any]:
-        """Get an agent by ID."""
-        req = self._build_request("GET", f"/agents/{principal_id}")
+        """Get a principal by ID."""
+        req = self._build_request("GET", f"/principals/{principal_id}")
         return await self._execute(req)
 
     async def create(
@@ -76,21 +76,21 @@ class PrincipalOperations:
         owner: str,
         metadata: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
-        """Register a new agent."""
+        """Register a new principal."""
         body: Dict[str, Any] = {"name": name, "owner": owner}
         if metadata:
             body["metadata"] = metadata
-        req = self._build_request("POST", "/agents", body=body)
+        req = self._build_request("POST", "/principals", body=body)
         return await self._execute(req)
 
     async def update(self, principal_id: str, **kwargs: Any) -> Dict[str, Any]:
-        """Update an existing agent."""
-        req = self._build_request("PATCH", f"/agents/{principal_id}", body=kwargs)
+        """Update an existing principal."""
+        req = self._build_request("PATCH", f"/principals/{principal_id}", body=kwargs)
         return await self._execute(req)
 
     async def delete(self, principal_id: str) -> Dict[str, Any]:
-        """Delete an agent."""
-        req = self._build_request("DELETE", f"/agents/{principal_id}")
+        """Delete a principal."""
+        req = self._build_request("DELETE", f"/principals/{principal_id}")
         return await self._execute(req)
 
     async def delegate_authority(
@@ -100,7 +100,7 @@ class PrincipalOperations:
         delegation_type: str = "directed",
         context_tags: Optional[List[str]] = None,
     ) -> Dict[str, Any]:
-        """Delegate authority from source agent to target agent via delegation graph."""
+        """Delegate authority from source principal to target principal via delegation graph."""
         body: Dict[str, Any] = {
             "target_principal_id": target_principal_id,
             "delegation_type": delegation_type,
@@ -108,10 +108,6 @@ class PrincipalOperations:
         if context_tags:
             body["context_tags"] = context_tags
         req = self._build_request(
-            "POST", f"/agents/{source_principal_id}/delegate", body=body
+            "POST", f"/principals/{source_principal_id}/delegate", body=body
         )
         return await self._execute(req)
-
-
-# Backward compatibility alias for existing imports.
-AgentOperations = PrincipalOperations

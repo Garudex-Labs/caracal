@@ -11,7 +11,6 @@ within an explicit scope context.
 
 from __future__ import annotations
 
-import warnings
 from typing import TYPE_CHECKING, Any, Dict, Optional
 
 from caracal_sdk._compat import get_logger
@@ -19,7 +18,6 @@ from caracal_sdk.adapters.base import BaseAdapter
 from caracal_sdk.hooks import HookRegistry, ScopeRef, StateSnapshot
 
 if TYPE_CHECKING:
-    from caracal_sdk.agents import AgentOperations
     from caracal_sdk.agents import PrincipalOperations
     from caracal_sdk.delegation import DelegationOperations
     from caracal_sdk.ledger import LedgerOperations
@@ -59,7 +57,6 @@ class ScopeContext:
 
         # Lazy singletons
         self._principals: Optional[PrincipalOperations] = None
-        self._agents_alias_warned = False
         self._mandates: Optional[MandateOperations] = None
         self._delegation: Optional[DelegationOperations] = None
         self._ledger: Optional[LedgerOperations] = None
@@ -95,18 +92,6 @@ class ScopeContext:
 
             self._principals = PrincipalOperations(scope=self)
         return self._principals
-
-    @property
-    def agents(self) -> AgentOperations:
-        if not self._agents_alias_warned:
-            warnings.warn(
-                "ScopeContext.agents is deprecated; use ScopeContext.principals. "
-                "'agents' represent principal identities (for example orchestrator/worker).",
-                DeprecationWarning,
-                stacklevel=2,
-            )
-            self._agents_alias_warned = True
-        return self.principals
 
     @property
     def mandates(self) -> MandateOperations:
