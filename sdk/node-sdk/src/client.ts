@@ -14,6 +14,8 @@ import { PrincipalOperations } from './principals';
 import { MandateOperations } from './mandates';
 import { DelegationOperations } from './delegation';
 import { LedgerOperations } from './ledger';
+import { ToolOperations } from './tools';
+import { SDKConfigurationError } from './errors';
 import { resolveSdkBaseUrl } from './ais';
 
 const DEFAULT_BASE_URL = (() => {
@@ -21,16 +23,7 @@ const DEFAULT_BASE_URL = (() => {
   return resolveSdkBaseUrl(proc?.env ?? {});
 })();
 
-// ---------------------------------------------------------------------------
-// Errors
-// ---------------------------------------------------------------------------
-
-export class SDKConfigurationError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = 'SDKConfigurationError';
-  }
-}
+export { SDKConfigurationError } from './errors';
 
 // ---------------------------------------------------------------------------
 // CaracalClient
@@ -98,6 +91,11 @@ export class CaracalClient {
   /** Ledger operations (default scope). */
   get ledger(): LedgerOperations {
     return this._defaultScope.ledger;
+  }
+
+  /** Tool call operations (default scope). */
+  get tools(): ToolOperations {
+    return this._defaultScope.tools;
   }
 
   /** Release all resources. */
