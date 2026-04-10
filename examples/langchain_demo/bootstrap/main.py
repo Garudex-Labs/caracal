@@ -166,7 +166,7 @@ class BootstrapRunner:
                 action_id="read",
                 execution_mode="local",
                 tool_type="logic",
-                handler_ref="examples.caracal_langchain_swarm_demo.caracal.runtime_bridge:finance_governed_handler",
+                handler_ref="examples.langchain_demo.caracal.runtime_bridge:finance_governed_handler",
                 allowed_downstream_scopes=(
                     "provider:swarm-openai:resource:chat.completions",
                     "provider:swarm-openai:action:invoke",
@@ -181,7 +181,7 @@ class BootstrapRunner:
                 action_id="read",
                 execution_mode="local",
                 tool_type="logic",
-                handler_ref="examples.caracal_langchain_swarm_demo.caracal.runtime_bridge:ops_governed_handler",
+                handler_ref="examples.langchain_demo.caracal.runtime_bridge:ops_governed_handler",
                 allowed_downstream_scopes=(
                     "provider:swarm-gemini:resource:generateContent",
                     "provider:swarm-gemini:action:invoke",
@@ -196,7 +196,7 @@ class BootstrapRunner:
                 action_id="summarize",
                 execution_mode="local",
                 tool_type="logic",
-                handler_ref="examples.caracal_langchain_swarm_demo.caracal.runtime_bridge:orchestrator_governed_handler",
+                handler_ref="examples.langchain_demo.caracal.runtime_bridge:orchestrator_governed_handler",
                 allowed_downstream_scopes=(
                     "provider:swarm-internal:resource:finance",
                     "provider:swarm-internal:resource:ops",

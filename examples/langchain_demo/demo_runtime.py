@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import json
 import os
@@ -583,36 +584,64 @@ class DemoEnvironment:
 
         class _RoutedAsyncClient:
             def __init__(self, *args: Any, **kwargs: Any) -> None:
-                base_url = str(kwargs.get("base_url") or "").rstrip("/")
-                host = base_url.replace("http://", "").replace("https://", "").split("/", 1)[0]
-                app = app_by_host.get(host)
-                if app is None:
-                    self._inner = real_async_client(*args, **kwargs)
-                    return
+                self._args = args
+                self._kwargs = dict(kwargs)
+                self._inner: httpx.AsyncClient | None = None
+                self._base_url = str(self._kwargs.get("base_url") or "").rstrip("/")
 
-                headers = kwargs.pop("headers", None)
-                timeout = kwargs.pop("timeout", None)
-                follow_redirects = kwargs.pop("follow_redirects", False)
-                kwargs.pop("base_url", None)
-                self._inner = real_async_client(
-                    base_url=base_url,
-                    headers=headers,
-                    timeout=timeout,
-                    follow_redirects=follow_redirects,
-                    transport=httpx.ASGITransport(app=app),
-                )
+            def _host_for_url(self, url: str) -> str:
+                normalized = str(url or "").strip()
+                if not normalized and self._base_url:
+                    normalized = self._base_url
+                if not normalized:
+                    return ""
+                return normalized.replace("http://", "").replace("https://", "").split("/", 1)[0]
+
+            def _build_client(self, host: str) -> httpx.AsyncClient:
+                if host in app_by_host:
+                    routed_kwargs = dict(self._kwargs)
+                    headers = routed_kwargs.pop("headers", None)
+                    timeout = routed_kwargs.pop("timeout", None)
+                    follow_redirects = routed_kwargs.pop("follow_redirects", False)
+                    base_url = self._base_url or f"http://{host}"
+                    routed_kwargs.pop("base_url", None)
+                    return real_async_client(
+                        base_url=base_url,
+                        headers=headers,
+                        timeout=timeout,
+                        follow_redirects=follow_redirects,
+                        transport=httpx.ASGITransport(app=app_by_host[host]),
+                    )
+                return real_async_client(*self._args, **self._kwargs)
+
+            async def _ensure_client(self, url: str = "") -> httpx.AsyncClient:
+                host = self._host_for_url(url)
+                if self._inner is None or self._inner.is_closed:
+                    self._inner = self._build_client(host)
+                return self._inner
 
             async def request(self, *args: Any, **kwargs: Any) -> Any:
-                return await self._inner.request(*args, **kwargs)
+                url = kwargs.get("url")
+                if len(args) >= 2:
+                    url = args[1]
+                client = await self._ensure_client(str(url or ""))
+                return await client.request(*args, **kwargs)
 
             async def post(self, *args: Any, **kwargs: Any) -> Any:
-                return await self._inner.post(*args, **kwargs)
+                url = kwargs.get("url")
+                if args:
+                    url = args[0]
+                client = await self._ensure_client(str(url or ""))
+                return await client.post(*args, **kwargs)
 
             async def aclose(self) -> None:
-                await self._inner.aclose()
+                if self._inner is not None:
+                    await self._inner.aclose()
 
             @property
             def is_closed(self) -> bool:
+                if self._inner is None:
+                    return False
                 return self._inner.is_closed
 
         httpx.AsyncClient = _RoutedAsyncClient
@@ -1131,4 +1160,4 @@ async def run_demo_workflow_async(
 
 
 def run_demo_workflow(scenario: dict[str, Any], config: DemoRunConfig) -> dict[str, Any]:
-    return httpx._models._asyncio.run(run_demo_workflow_async(scenario, config))
+    return asyncio.run(run_demo_workflow_async(scenario, config))
