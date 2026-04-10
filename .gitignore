@@ -70,3 +70,9 @@ Thumbs.db
 
 # Exported Workspace
 deploy/caracal-host-io/*
+
+# AI tools
+.codex
+.kiro/*
+.claude
+.claude/*
