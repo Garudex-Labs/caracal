@@ -1,0 +1,75 @@
+{
+  "company": "Northstar Retail",
+  "currency": "USD",
+  "department_spend": {
+    "finance": 148000,
+    "ops": 289000,
+    "platform": 362500
+  },
+  "department_budgets": {
+    "finance": 160000,
+    "ops": 300000,
+    "platform": 350000
+  },
+  "invoices": [
+    {
+      "id": "INV-1001",
+      "vendor": "CloudShip",
+      "amount": 42000,
+      "status": "reconciled"
+    },
+    {
+      "id": "INV-1002",
+      "vendor": "ByteForge",
+      "amount": 18000,
+      "status": "pending"
+    },
+    {
+      "id": "INV-1003",
+      "vendor": "SignalOps",
+      "amount": 9500,
+      "status": "pending"
+    }
+  ],
+  "services": [
+    {
+      "name": "checkout",
+      "status": "healthy"
+    },
+    {
+      "name": "inventory",
+      "status": "degraded"
+    },
+    {
+      "name": "fraud-scoring",
+      "status": "healthy"
+    }
+  ],
+  "incidents": [
+    {
+      "id": "INC-91",
+      "severity": "high",
+      "summary": "Inventory API latency spike",
+      "hours_ago": 3
+    },
+    {
+      "id": "INC-90",
+      "severity": "medium",
+      "summary": "Shipment event backlog",
+      "hours_ago": 17
+    }
+  ],
+  "vendors": [
+    {
+      "name": "CloudShip",
+      "sla_target": 99.9,
+      "sla_actual": 99.95
+    },
+    {
+      "name": "ByteForge",
+      "sla_target": 99.5,
+      "sla_actual": 99.2
+    }
+  ],
+  "user_prompt": "Act as the company orchestrator. Ask the finance and ops specialists for analysis, then provide one consolidated recommendation with immediate actions."
+}
