@@ -187,6 +187,17 @@ class MCPAdapterService:
     enforcing authority policies, and forwarding requests to MCP servers.
     
     """
+
+    _SERVER_CONTROLLED_SECURITY_METADATA_FIELDS = (
+        "task_token_claims",
+        "token_subject",
+        "task_caveat_chain",
+        "task_caveat_hmac_key",
+        "task_id",
+        "caveat_chain",
+        "caveat_hmac_key",
+        "caveat_task_id",
+    )
     
     def __init__(
         self,
@@ -284,6 +295,12 @@ class MCPAdapterService:
                 detail=f"Invalid access token: {exc}",
             ) from exc
 
+        if not isinstance(claims, dict):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid access token: claims payload must be an object",
+            )
+
         principal_id = str(claims.get("sub") or claims.get("principal_id") or "").strip()
         if not principal_id:
             raise HTTPException(
@@ -318,6 +335,64 @@ class MCPAdapterService:
     def _normalize_selector_value(value: Any) -> Optional[str]:
         normalized = str(value or "").strip()
         return normalized or None
+
+    def _reject_spoofed_security_metadata(self, metadata: Dict[str, Any]) -> Dict[str, Any]:
+        """Reject caller-supplied security metadata fields that are server-controlled."""
+        normalized_metadata = dict(metadata or {})
+        spoofed_fields = [
+            field
+            for field in self._SERVER_CONTROLLED_SECURITY_METADATA_FIELDS
+            if field in normalized_metadata
+        ]
+        if spoofed_fields:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=(
+                    "Request metadata contains server-controlled security fields: "
+                    + ", ".join(sorted(spoofed_fields))
+                ),
+            )
+
+        return normalized_metadata
+
+    def _apply_trusted_security_metadata(
+        self,
+        *,
+        metadata: Dict[str, Any],
+        token_claims: Dict[str, Any],
+        principal_id: str,
+    ) -> Dict[str, Any]:
+        """Inject trusted security metadata derived from validated token claims."""
+        normalized_metadata = dict(metadata or {})
+        trusted_claims = dict(token_claims or {})
+
+        normalized_metadata["task_token_claims"] = trusted_claims
+        normalized_metadata["token_subject"] = principal_id
+
+        task_chain = trusted_claims.get("task_caveat_chain")
+        if task_chain is None:
+            task_chain = trusted_claims.get("caveat_chain")
+        if task_chain is not None:
+            normalized_metadata["task_caveat_chain"] = task_chain
+
+        task_hmac_key = trusted_claims.get("task_caveat_hmac_key")
+        if task_hmac_key is None:
+            task_hmac_key = trusted_claims.get("caveat_hmac_key")
+        if task_hmac_key is not None:
+            normalized_metadata["task_caveat_hmac_key"] = task_hmac_key
+
+        task_id = trusted_claims.get("task_id")
+        if task_id is None:
+            task_id = trusted_claims.get("caveat_task_id")
+        if task_id is not None:
+            normalized_metadata["task_id"] = task_id
+
+        # Keep only canonical keys in metadata passed to adapter.
+        normalized_metadata.pop("caveat_chain", None)
+        normalized_metadata.pop("caveat_hmac_key", None)
+        normalized_metadata.pop("caveat_task_id", None)
+
+        return normalized_metadata
 
     def _normalize_workspace_scope_metadata(
         self,
@@ -832,7 +907,7 @@ class MCPAdapterService:
                     f"agent={principal_id}"
                 )
 
-                request_metadata = dict(request.metadata or {})
+                request_metadata = self._reject_spoofed_security_metadata(request.metadata or {})
                 request_metadata["mandate_id"] = request.mandate_id
                 request_metadata = self._validate_mandate_id_metadata(request_metadata)
                 request_metadata = self._normalize_workspace_scope_metadata(
@@ -858,8 +933,11 @@ class MCPAdapterService:
                     metadata=request_metadata,
                     tool_row=tool_row,
                 )
-                request_metadata.setdefault("task_token_claims", token_claims)
-                request_metadata.setdefault("token_subject", principal_id)
+                request_metadata = self._apply_trusted_security_metadata(
+                    metadata=request_metadata,
+                    token_claims=token_claims,
+                    principal_id=principal_id,
+                )
                 
                 # Create MCP context
                 mcp_context = MCPContext(
@@ -967,13 +1045,17 @@ class MCPAdapterService:
                     f"agent={principal_id}"
                 )
 
-                request_metadata = self._validate_mandate_id_metadata(dict(request.metadata or {}))
+                request_metadata = self._reject_spoofed_security_metadata(request.metadata or {})
+                request_metadata = self._validate_mandate_id_metadata(request_metadata)
                 request_metadata = self._normalize_workspace_scope_metadata(
                     raw_request=raw_request,
                     metadata=request_metadata,
                 )
-                request_metadata.setdefault("task_token_claims", token_claims)
-                request_metadata.setdefault("token_subject", principal_id)
+                request_metadata = self._apply_trusted_security_metadata(
+                    metadata=request_metadata,
+                    token_claims=token_claims,
+                    principal_id=principal_id,
+                )
                 
                 # Create MCP context
                 mcp_context = MCPContext(

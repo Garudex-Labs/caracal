@@ -12,6 +12,7 @@ import { PrincipalOperations } from './principals';
 import { MandateOperations } from './mandates';
 import { DelegationOperations } from './delegation';
 import { LedgerOperations } from './ledger';
+import { ToolOperations } from './tools';
 
 // ---------------------------------------------------------------------------
 // ScopeContext
@@ -31,6 +32,7 @@ export class ScopeContext {
   private _mandates?: MandateOperations;
   private _delegation?: DelegationOperations;
   private _ledger?: LedgerOperations;
+  private _tools?: ToolOperations;
 
   constructor(options: {
     adapter: BaseAdapter;
@@ -84,6 +86,11 @@ export class ScopeContext {
   get ledger(): LedgerOperations {
     if (!this._ledger) this._ledger = new LedgerOperations(this);
     return this._ledger;
+  }
+
+  get tools(): ToolOperations {
+    if (!this._tools) this._tools = new ToolOperations(this);
+    return this._tools;
   }
 }
 
