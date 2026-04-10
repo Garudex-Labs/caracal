@@ -55,7 +55,7 @@ That means the business result is judged against one shared contract even when t
 Run:
 
 ```bash
-python -m examples.caracal_langchain_swarm_demo.compare_tracks
+python -m examples.langchain_demo.compare_tracks
 ```
 
 Inspect:

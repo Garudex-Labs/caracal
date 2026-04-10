@@ -1,91 +1,104 @@
-# Caracal LangChain Swarm Demo
+# Caracal LangChain Demo
 
-This demo is built in two tracks:
-- `baseline/`: plain LangChain multi-agent swarm (no Caracal authority boundary)
-- `caracal/`: Caracal-governed swarm with explicit mandate, delegation, and revocation behavior
+This example now has one real Caracal-backed app surface inside the existing demo package:
+- `app.py`: local FastAPI UI for mock and real governed runs
+- `caracal/`: governed workflow entrypoints and local logic handlers
+- `baseline/`: plain LangChain comparison track
+- `bootstrap/`: external-runtime bootstrap flow for fuller broker-mode setups
 
-Bootstrap automation is available in `bootstrap/` for workspace/provider/tool/policy setup.
-Shared acceptance and comparison artifacts live at the demo root:
-- `fixtures/expected_outcomes.json`
-- `outputs/comparison.json`
+## Quick Start
 
-## Why this baseline uses LangChain built-ins
-
-The baseline uses LangChain built-ins directly so the demo focuses on workflow logic:
-- `create_agent(...)` for specialist and supervisor agents
-- `@tool` for structured callable tools
-- streaming via `agent.stream(..., stream_mode="values")`
-- sub-agent-as-tool wrapper pattern for supervisor orchestration
-
-## Quick Start (Baseline)
-
-1. Install demo dependencies:
+Install demo dependencies:
 
 ```bash
-python -m pip install -r examples/caracal_langchain_swarm_demo/requirements.txt
+python -m pip install -r examples/langchain_demo/requirements.txt
 ```
 
-2. Run baseline in deterministic mock mode:
+Run the local UI:
 
 ```bash
-python -m examples.caracal_langchain_swarm_demo.baseline.main --mock always
+python -m examples.langchain_demo.app
 ```
 
-3. Run baseline with OpenAI key (auto-falls back to mock when key is missing):
+Then open `http://127.0.0.1:8090`.
+
+## Caracal App Modes
+
+Mock mode:
+- upstream provider responses are simulated
+- Caracal itself is still real and active
+- the run still exercises SDK calls, MCP routing, provider mapping, mandate checks, delegation, metering, and revocation
+
+Real mode:
+- the same governed flow runs against real providers
+- set `OPENAI_API_KEY` for OpenAI-backed routes
+- set `GOOGLE_API_KEY` or `GEMINI_API_KEY` for Gemini-backed routes
+
+Run one governed artifact without starting the UI:
 
 ```bash
-OPENAI_API_KEY=... python -m examples.caracal_langchain_swarm_demo.baseline.main --provider openai --mock auto
+python -m examples.langchain_demo.app --run-once --mode mock --provider-strategy mixed
 ```
 
-4. Run baseline with Gemini key:
+## Governed CLI
+
+Mock governed run:
 
 ```bash
-GOOGLE_API_KEY=... python -m examples.caracal_langchain_swarm_demo.baseline.main --provider gemini --mock auto
+python -m examples.langchain_demo.caracal.main --mode mock --provider-strategy mixed
 ```
 
-Output artifact is written to `examples/caracal_langchain_swarm_demo/baseline/outputs/latest.json` by default.
-Both baseline and governed artifacts now include:
-- `business_outcomes`: deterministic scenario findings shared across tracks
-- `acceptance`: pass/fail checks against `fixtures/expected_outcomes.json`
-
-## Quick Start (Bootstrap)
-
-Preview bootstrap operations without mutating state:
+Real governed run:
 
 ```bash
-python -m examples.caracal_langchain_swarm_demo.bootstrap.main
+OPENAI_API_KEY=... \
+GOOGLE_API_KEY=... \
+python -m examples.langchain_demo.caracal.main --mode real --provider-strategy mixed
 ```
 
-Run full bootstrap provisioning:
+Default governed artifact:
+- `examples/langchain_demo/caracal/outputs/latest.json`
+
+## Baseline CLI
+
+Deterministic baseline mode:
 
 ```bash
-python -m examples.caracal_langchain_swarm_demo.bootstrap.main --apply
+python -m examples.langchain_demo.baseline.main --mock always
 ```
 
-## Quick Start (Caracal Governed)
-
-Run governed mock path:
+OpenAI-backed baseline mode:
 
 ```bash
-python -m examples.caracal_langchain_swarm_demo.caracal.main --mock always
+OPENAI_API_KEY=... python -m examples.langchain_demo.baseline.main --provider openai --mock auto
 ```
 
-Run governed live path (requires API key + mandates):
+Gemini-backed baseline mode:
 
 ```bash
-CARACAL_API_KEY=... \
-CARACAL_ORCHESTRATOR_MANDATE_ID=... \
-CARACAL_FINANCE_MANDATE_ID=... \
-CARACAL_OPS_MANDATE_ID=... \
-python -m examples.caracal_langchain_swarm_demo.caracal.main --mock never
+GOOGLE_API_KEY=... python -m examples.langchain_demo.baseline.main --provider gemini --mock auto
 ```
 
-## Quick Start (Comparison)
+## Bootstrap
 
-Run the same scenario through both mock tracks and write a side-by-side comparison artifact:
+Dry-run:
 
 ```bash
-python -m examples.caracal_langchain_swarm_demo.compare_tracks
+python -m examples.langchain_demo.bootstrap.main
 ```
 
-This writes `examples/caracal_langchain_swarm_demo/outputs/comparison.json`.
+Apply:
+
+```bash
+python -m examples.langchain_demo.bootstrap.main --apply
+```
+
+## Comparison
+
+Run both mock tracks and write the comparison artifact:
+
+```bash
+python -m examples.langchain_demo.compare_tracks
+```
+
+This writes `examples/langchain_demo/outputs/comparison.json`.
