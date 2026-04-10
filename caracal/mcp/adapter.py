@@ -1712,32 +1712,34 @@ class MCPAdapter:
         if not isinstance(task_claims, dict):
             task_claims = {}
 
-        raw_chain = (
-            mcp_context.get("task_caveat_chain")
-            or mcp_context.get("caveat_chain")
-            or task_claims.get("task_caveat_chain")
-        )
+        # If validated task claims are present, trust claims first over top-level metadata.
+        raw_chain = task_claims.get("task_caveat_chain") or task_claims.get("caveat_chain")
+        if raw_chain is None:
+            raw_chain = mcp_context.get("task_caveat_chain") or mcp_context.get("caveat_chain")
         if raw_chain is None:
             return {}
         if not isinstance(raw_chain, list):
             raise CaracalError("task_caveat_chain metadata must be a list")
 
-        caveat_hmac_key = str(
-            mcp_context.get("task_caveat_hmac_key")
+        raw_hmac_key = (
+            task_claims.get("task_caveat_hmac_key")
+            or task_claims.get("caveat_hmac_key")
+            or mcp_context.get("task_caveat_hmac_key")
             or mcp_context.get("caveat_hmac_key")
-            or task_claims.get("task_caveat_hmac_key")
             or self._caveat_hmac_key
             or ""
-        ).strip()
+        )
+        caveat_hmac_key = str(raw_hmac_key).strip()
         if not caveat_hmac_key:
             raise CaracalError(
                 "Caveat-chain enforcement requires a caveat HMAC key when task_caveat_chain is provided"
             )
 
         task_id = (
-            mcp_context.get("task_id")
+            task_claims.get("task_id")
+            or task_claims.get("caveat_task_id")
+            or mcp_context.get("task_id")
             or mcp_context.get("caveat_task_id")
-            or task_claims.get("task_id")
         )
         resolved_task_id = str(task_id).strip() if task_id is not None else None
 
