@@ -418,6 +418,39 @@ def test_workspace_scoped_list_filters_rows() -> None:
 
 
 @pytest.mark.unit
+def test_get_registered_tool_falls_back_to_default_registration_for_scoped_lookup() -> None:
+    session = _SessionStub()
+    _add_provider_row(session)
+    authority_evaluator = SimpleNamespace(db_session=session)
+    adapter = MCPAdapter(
+        authority_evaluator=authority_evaluator,
+        metering_collector=Mock(),
+    )
+
+    adapter.register_tool(
+        tool_id="tool.shared-default",
+        actor_principal_id=_ACTOR_PRINCIPAL_ID,
+        provider_name=_PROVIDER_NAME,
+        resource_scope=_RESOURCE_SCOPE,
+        action_scope=_ACTION_SCOPE,
+        provider_definition_id=_PROVIDER_NAME,
+        action_method=_ACTION_METHOD,
+        action_path_prefix=_ACTION_PATH_PREFIX,
+        workspace_name=None,
+    )
+
+    row = adapter.get_registered_tool(
+        tool_id="tool.shared-default",
+        workspace_name="workspace-from-sdk-scope",
+        require_active=True,
+    )
+
+    assert row is not None
+    assert row.tool_id == "tool.shared-default"
+    assert (getattr(row, "workspace_name", None) or "") in {"", "default"}
+
+
+@pytest.mark.unit
 def test_deactivate_unknown_tool_raises() -> None:
     session = _SessionStub()
     authority_evaluator = SimpleNamespace(db_session=session)

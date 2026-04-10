@@ -854,13 +854,24 @@ class MCPAdapter:
             )
 
         if normalized_workspace_name:
-            rows = [
+            scoped_rows = [
                 row
                 for row in rows
                 if self._normalized_row_workspace_name(row) == normalized_workspace_name
             ]
-            if not rows:
-                return None
+            if scoped_rows:
+                rows = scoped_rows
+            else:
+                # Allow globally registered tools to be reused from a scoped SDK context
+                # when no workspace-specific override exists for the requested tool_id.
+                default_rows = [
+                    row
+                    for row in rows
+                    if self._normalized_row_workspace_name(row) == "default"
+                ]
+                if not default_rows:
+                    return None
+                rows = default_rows
         else:
             distinct_workspaces = {
                 self._normalized_row_workspace_name(row)
