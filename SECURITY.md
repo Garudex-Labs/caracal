@@ -78,6 +78,12 @@ Repeated, low-quality, or spam reports reduce our ability to respond effectively
 
 ---
 
+## Preferred Languages
+
+We prefer all communications to be in English.
+
+---
+
 ## Acknowledgment
 
 We value responsible disclosures and meaningful contributions. Where appropriate, contributors may be acknowledged for valid findings, though recognition is not guaranteed and is subject to internal review.
