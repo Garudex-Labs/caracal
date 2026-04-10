@@ -1,0 +1,184 @@
+{
+  "mode": "mock",
+  "provider": "mock",
+  "timestamp": "2026-04-10T09:43:53.787226+00:00",
+  "input_prompt": "Act as the company orchestrator. Ask the finance and ops specialists for analysis, then provide one consolidated recommendation with immediate actions.",
+  "timeline": [
+    {
+      "step": 1,
+      "actor": "finance",
+      "action": "snapshot",
+      "output": "[\n  {\n    \"department\": \"finance\",\n    \"spent\": 148000.0,\n    \"budget\": 160000.0,\n    \"delta\": -12000.0,\n    \"status\": \"within\"\n  },\n  {\n    \"department\": \"ops\",\n    \"spent\": 289000.0,\n    \"budget\": 300000.0,\n    \"delta\": -11000.0,\n    \"status\": \"within\"\n  },\n  {\n    \"department\": \"platform\",\n    \"spent\": 362500.0,\n    \"budget\": 350000.0,\n    \"delta\": 12500.0,\n    \"status\": \"over\"\n  }\n]"
+    },
+    {
+      "step": 2,
+      "actor": "finance",
+      "action": "invoices",
+      "output": "[\n  {\n    \"id\": \"INV-1002\",\n    \"vendor\": \"ByteForge\",\n    \"amount\": 18000,\n    \"status\": \"pending\"\n  },\n  {\n    \"id\": \"INV-1003\",\n    \"vendor\": \"SignalOps\",\n    \"amount\": 9500,\n    \"status\": \"pending\"\n  }\n]"
+    },
+    {
+      "step": 3,
+      "actor": "finance",
+      "action": "risk",
+      "output": "[\n  {\n    \"department\": \"platform\",\n    \"overrun_percent\": 3.57,\n    \"risk\": \"medium\"\n  }\n]"
+    },
+    {
+      "step": 4,
+      "actor": "ops",
+      "action": "snapshot",
+      "output": "[\n  {\n    \"name\": \"checkout\",\n    \"status\": \"healthy\"\n  },\n  {\n    \"name\": \"inventory\",\n    \"status\": \"degraded\"\n  },\n  {\n    \"name\": \"fraud-scoring\",\n    \"status\": \"healthy\"\n  }\n]"
+    },
+    {
+      "step": 5,
+      "actor": "ops",
+      "action": "incidents",
+      "output": "[\n  {\n    \"id\": \"INC-91\",\n    \"severity\": \"high\",\n    \"summary\": \"Inventory API latency spike\",\n    \"hours_ago\": 3\n  },\n  {\n    \"id\": \"INC-90\",\n    \"severity\": \"medium\",\n    \"summary\": \"Shipment event backlog\",\n    \"hours_ago\": 17\n  }\n]"
+    },
+    {
+      "step": 6,
+      "actor": "ops",
+      "action": "sla",
+      "output": "[\n  {\n    \"vendor\": \"ByteForge\",\n    \"sla_target\": 99.5,\n    \"sla_actual\": 99.2\n  }\n]"
+    }
+  ],
+  "tool_invocation_summary": {
+    "total": 6,
+    "by_tool": {
+      "get_finance_snapshot": 1,
+      "list_unreconciled_invoices": 1,
+      "assess_budget_risk": 1,
+      "get_ops_snapshot": 1,
+      "summarize_recent_incidents": 1,
+      "check_vendor_sla_breaches": 1
+    }
+  },
+  "business_outcomes": {
+    "company": "Northstar Retail",
+    "currency": "USD",
+    "over_budget_departments": [
+      {
+        "department": "platform",
+        "overrun_percent": 3.57,
+        "risk": "medium"
+      }
+    ],
+    "pending_invoice_ids": [
+      "INV-1002",
+      "INV-1003"
+    ],
+    "degraded_services": [
+      "inventory"
+    ],
+    "recent_incident_ids": [
+      "INC-91",
+      "INC-90"
+    ],
+    "vendor_sla_breaches": [
+      "ByteForge"
+    ],
+    "priority_actions": [
+      {
+        "action_id": "mitigate_budget_overrun",
+        "owner": "finance",
+        "summary": "Apply spend controls to over-budget departments."
+      },
+      {
+        "action_id": "reconcile_pending_invoices",
+        "owner": "finance",
+        "summary": "Reconcile pending invoices and approvals."
+      },
+      {
+        "action_id": "remediate_vendor_sla_breach",
+        "owner": "ops",
+        "summary": "Open a corrective action with vendors below SLA."
+      },
+      {
+        "action_id": "stabilize_degraded_services",
+        "owner": "ops",
+        "summary": "Stabilize degraded services and monitor current incidents."
+      }
+    ]
+  },
+  "final_summary": "Mock orchestrator summary: prioritize platform budget overrun mitigation, and clear pending invoices (INV-1002, INV-1003), and open a corrective action for ByteForge SLA underperformance, and monitor and stabilize inventory service degradation.",
+  "acceptance": {
+    "passed": true,
+    "checks": [
+      {
+        "name": "company",
+        "passed": true,
+        "expected": "Northstar Retail",
+        "observed": "Northstar Retail"
+      },
+      {
+        "name": "over_budget_departments",
+        "passed": true,
+        "expected": [
+          "platform"
+        ],
+        "observed": [
+          "platform"
+        ]
+      },
+      {
+        "name": "pending_invoice_ids",
+        "passed": true,
+        "expected": [
+          "INV-1002",
+          "INV-1003"
+        ],
+        "observed": [
+          "INV-1002",
+          "INV-1003"
+        ]
+      },
+      {
+        "name": "degraded_services",
+        "passed": true,
+        "expected": [
+          "inventory"
+        ],
+        "observed": [
+          "inventory"
+        ]
+      },
+      {
+        "name": "recent_incident_ids",
+        "passed": true,
+        "expected": [
+          "INC-90",
+          "INC-91"
+        ],
+        "observed": [
+          "INC-90",
+          "INC-91"
+        ]
+      },
+      {
+        "name": "vendor_sla_breaches",
+        "passed": true,
+        "expected": [
+          "ByteForge"
+        ],
+        "observed": [
+          "ByteForge"
+        ]
+      },
+      {
+        "name": "priority_action_ids",
+        "passed": true,
+        "expected": [
+          "mitigate_budget_overrun",
+          "reconcile_pending_invoices",
+          "remediate_vendor_sla_breach",
+          "stabilize_degraded_services"
+        ],
+        "observed": [
+          "mitigate_budget_overrun",
+          "reconcile_pending_invoices",
+          "remediate_vendor_sla_breach",
+          "stabilize_degraded_services"
+        ]
+      }
+    ]
+  }
+}
