@@ -7,11 +7,13 @@
 
 import { SDKRequest } from './adapters/base';
 import { ScopeContext } from './context';
+import { requireLegacyResourceApi } from './runtime_surface';
 
 export class DelegationOperations {
   constructor(private readonly scope: ScopeContext) {}
 
   private buildReq(method: string, path: string, body?: Record<string, unknown>, params?: Record<string, unknown>): SDKRequest {
+    requireLegacyResourceApi('DelegationOperations', '/delegations');
     return { method, path, headers: { ...this.scope.scopeHeaders() }, body, params };
   }
 
