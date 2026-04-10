@@ -1,0 +1,398 @@
+{
+  "mode": "mock-governed",
+  "provider": "caracal-mock",
+  "timestamp": "2026-04-10T09:43:53.605950+00:00",
+  "input_prompt": "Act as the company orchestrator. Ask the finance and ops specialists for analysis, then provide one consolidated recommendation with immediate actions.",
+  "timeline": [
+    {
+      "step": 1,
+      "role": "finance",
+      "tool_id": "demo:swarm:logic:finance:analyze",
+      "mandate_id": "mock-mandate-delegated-finance-6935e246-e4b6-40b0-8513-10ccd0f9ab84",
+      "output": {
+        "department_snapshot": [
+          {
+            "department": "finance",
+            "spent": 148000.0,
+            "budget": 160000.0,
+            "delta": -12000.0,
+            "status": "within"
+          },
+          {
+            "department": "ops",
+            "spent": 289000.0,
+            "budget": 300000.0,
+            "delta": -11000.0,
+            "status": "within"
+          },
+          {
+            "department": "platform",
+            "spent": 362500.0,
+            "budget": 350000.0,
+            "delta": 12500.0,
+            "status": "over"
+          }
+        ],
+        "pending_invoices": [
+          {
+            "id": "INV-1002",
+            "vendor": "ByteForge",
+            "amount": 18000,
+            "status": "pending"
+          },
+          {
+            "id": "INV-1003",
+            "vendor": "SignalOps",
+            "amount": 9500,
+            "status": "pending"
+          }
+        ],
+        "risk_flags": [
+          {
+            "department": "platform",
+            "overrun_percent": 3.57,
+            "risk": "medium"
+          }
+        ],
+        "mock": true
+      }
+    },
+    {
+      "step": 2,
+      "role": "ops",
+      "tool_id": "demo:swarm:logic:ops:analyze",
+      "mandate_id": "mock-mandate-delegated-ops-9be518f7-21d6-493b-abe6-ca1337fd074d",
+      "output": {
+        "service_summary": [
+          {
+            "name": "checkout",
+            "status": "healthy"
+          },
+          {
+            "name": "inventory",
+            "status": "degraded"
+          },
+          {
+            "name": "fraud-scoring",
+            "status": "healthy"
+          }
+        ],
+        "recent_incidents": [
+          {
+            "id": "INC-91",
+            "severity": "high",
+            "summary": "Inventory API latency spike",
+            "hours_ago": 3
+          },
+          {
+            "id": "INC-90",
+            "severity": "medium",
+            "summary": "Shipment event backlog",
+            "hours_ago": 17
+          }
+        ],
+        "vendor_sla_breaches": [
+          {
+            "vendor": "ByteForge",
+            "sla_target": 99.5,
+            "sla_actual": 99.2
+          }
+        ],
+        "mock": true
+      }
+    },
+    {
+      "step": 3,
+      "role": "orchestrator",
+      "tool_id": "demo:swarm:logic:orchestrator:summarize",
+      "mandate_id": "mock-mandate-delegated-orchestrator-ec3ddaa0-d7cb-496d-b493-7836c05a67e0",
+      "output": {
+        "summary": "Governed orchestrator summary: prioritize platform budget overrun mitigation, and clear pending invoices (INV-1002, INV-1003), and open a corrective action for ByteForge SLA underperformance, and monitor and stabilize inventory service degradation.",
+        "recommended_actions": [
+          "Apply spend controls to over-budget departments.",
+          "Reconcile pending invoices and approvals.",
+          "Open a corrective action with vendors below SLA.",
+          "Stabilize degraded services and monitor current incidents."
+        ],
+        "business_outcomes": {
+          "company": "Northstar Retail",
+          "currency": "USD",
+          "over_budget_departments": [
+            {
+              "department": "platform",
+              "overrun_percent": 3.57,
+              "risk": "medium"
+            }
+          ],
+          "pending_invoice_ids": [
+            "INV-1002",
+            "INV-1003"
+          ],
+          "degraded_services": [
+            "inventory"
+          ],
+          "recent_incident_ids": [
+            "INC-91",
+            "INC-90"
+          ],
+          "vendor_sla_breaches": [
+            "ByteForge"
+          ],
+          "priority_actions": [
+            {
+              "action_id": "mitigate_budget_overrun",
+              "owner": "finance",
+              "summary": "Apply spend controls to over-budget departments."
+            },
+            {
+              "action_id": "reconcile_pending_invoices",
+              "owner": "finance",
+              "summary": "Reconcile pending invoices and approvals."
+            },
+            {
+              "action_id": "remediate_vendor_sla_breach",
+              "owner": "ops",
+              "summary": "Open a corrective action with vendors below SLA."
+            },
+            {
+              "action_id": "stabilize_degraded_services",
+              "owner": "ops",
+              "summary": "Stabilize degraded services and monitor current incidents."
+            }
+          ]
+        },
+        "mock": true
+      }
+    },
+    {
+      "step": 4,
+      "role": "orchestrator",
+      "event": "revocation",
+      "revoked_mandate_id": "mock-mandate-delegated-finance-6935e246-e4b6-40b0-8513-10ccd0f9ab84",
+      "denial_evidence": {
+        "denied": true,
+        "reason": "Authority denied: revoked mandate mock-mandate-delegated-finance-6935e246-e4b6-40b0-8513-10ccd0f9ab84",
+        "timestamp": "2026-04-10T09:43:53.605943+00:00",
+        "mandate_id": "mock-mandate-delegated-finance-6935e246-e4b6-40b0-8513-10ccd0f9ab84"
+      }
+    }
+  ],
+  "business_outcomes": {
+    "company": "Northstar Retail",
+    "currency": "USD",
+    "over_budget_departments": [
+      {
+        "department": "platform",
+        "overrun_percent": 3.57,
+        "risk": "medium"
+      }
+    ],
+    "pending_invoice_ids": [
+      "INV-1002",
+      "INV-1003"
+    ],
+    "degraded_services": [
+      "inventory"
+    ],
+    "recent_incident_ids": [
+      "INC-91",
+      "INC-90"
+    ],
+    "vendor_sla_breaches": [
+      "ByteForge"
+    ],
+    "priority_actions": [
+      {
+        "action_id": "mitigate_budget_overrun",
+        "owner": "finance",
+        "summary": "Apply spend controls to over-budget departments."
+      },
+      {
+        "action_id": "reconcile_pending_invoices",
+        "owner": "finance",
+        "summary": "Reconcile pending invoices and approvals."
+      },
+      {
+        "action_id": "remediate_vendor_sla_breach",
+        "owner": "ops",
+        "summary": "Open a corrective action with vendors below SLA."
+      },
+      {
+        "action_id": "stabilize_degraded_services",
+        "owner": "ops",
+        "summary": "Stabilize degraded services and monitor current incidents."
+      }
+    ]
+  },
+  "final_summary": "Governed orchestrator summary: prioritize platform budget overrun mitigation, and clear pending invoices (INV-1002, INV-1003), and open a corrective action for ByteForge SLA underperformance, and monitor and stabilize inventory service degradation. Revocation check: subsequent finance call denied as expected.",
+  "delegation": {
+    "source_mandate_id": "mock-mandate-source-77ba53dc-f5ce-43a1-8f1b-80eb0a70e524",
+    "edges": [
+      {
+        "source_mandate_id": "mock-mandate-source-77ba53dc-f5ce-43a1-8f1b-80eb0a70e524",
+        "target_role": "finance",
+        "target_mandate_id": "mock-mandate-delegated-finance-6935e246-e4b6-40b0-8513-10ccd0f9ab84"
+      },
+      {
+        "source_mandate_id": "mock-mandate-source-77ba53dc-f5ce-43a1-8f1b-80eb0a70e524",
+        "target_role": "ops",
+        "target_mandate_id": "mock-mandate-delegated-ops-9be518f7-21d6-493b-abe6-ca1337fd074d"
+      },
+      {
+        "source_mandate_id": "mock-mandate-source-77ba53dc-f5ce-43a1-8f1b-80eb0a70e524",
+        "target_role": "orchestrator",
+        "target_mandate_id": "mock-mandate-delegated-orchestrator-ec3ddaa0-d7cb-496d-b493-7836c05a67e0"
+      }
+    ],
+    "verified": true
+  },
+  "revocation": {
+    "executed": true,
+    "revoked_mandate_id": "mock-mandate-delegated-finance-6935e246-e4b6-40b0-8513-10ccd0f9ab84",
+    "denial_captured": true,
+    "denial_evidence": {
+      "denied": true,
+      "reason": "Authority denied: revoked mandate mock-mandate-delegated-finance-6935e246-e4b6-40b0-8513-10ccd0f9ab84",
+      "timestamp": "2026-04-10T09:43:53.605943+00:00",
+      "mandate_id": "mock-mandate-delegated-finance-6935e246-e4b6-40b0-8513-10ccd0f9ab84"
+    }
+  },
+  "authority_evidence": [
+    {
+      "event": "source_issued",
+      "mandate_id": "mock-mandate-source-77ba53dc-f5ce-43a1-8f1b-80eb0a70e524",
+      "role": "orchestrator",
+      "timestamp": "2026-04-10T09:43:53.605840+00:00"
+    },
+    {
+      "event": "delegated",
+      "mandate_id": "mock-mandate-delegated-finance-6935e246-e4b6-40b0-8513-10ccd0f9ab84",
+      "source_mandate_id": "mock-mandate-source-77ba53dc-f5ce-43a1-8f1b-80eb0a70e524",
+      "target_role": "finance",
+      "timestamp": "2026-04-10T09:43:53.605859+00:00"
+    },
+    {
+      "event": "delegated",
+      "mandate_id": "mock-mandate-delegated-ops-9be518f7-21d6-493b-abe6-ca1337fd074d",
+      "source_mandate_id": "mock-mandate-source-77ba53dc-f5ce-43a1-8f1b-80eb0a70e524",
+      "target_role": "ops",
+      "timestamp": "2026-04-10T09:43:53.605865+00:00"
+    },
+    {
+      "event": "delegated",
+      "mandate_id": "mock-mandate-delegated-orchestrator-ec3ddaa0-d7cb-496d-b493-7836c05a67e0",
+      "source_mandate_id": "mock-mandate-source-77ba53dc-f5ce-43a1-8f1b-80eb0a70e524",
+      "target_role": "orchestrator",
+      "timestamp": "2026-04-10T09:43:53.605869+00:00"
+    },
+    {
+      "event": "validated",
+      "mandate_id": "mock-mandate-delegated-finance-6935e246-e4b6-40b0-8513-10ccd0f9ab84",
+      "requested_resource": "provider:swarm-internal:resource:finance",
+      "requested_action": "provider:swarm-internal:action:read",
+      "timestamp": "2026-04-10T09:43:53.605871+00:00"
+    },
+    {
+      "event": "validated",
+      "mandate_id": "mock-mandate-delegated-ops-9be518f7-21d6-493b-abe6-ca1337fd074d",
+      "requested_resource": "provider:swarm-internal:resource:ops",
+      "requested_action": "provider:swarm-internal:action:read",
+      "timestamp": "2026-04-10T09:43:53.605907+00:00"
+    },
+    {
+      "event": "validated",
+      "mandate_id": "mock-mandate-delegated-orchestrator-ec3ddaa0-d7cb-496d-b493-7836c05a67e0",
+      "requested_resource": "provider:swarm-internal:resource:orchestrator",
+      "requested_action": "provider:swarm-internal:action:summarize",
+      "timestamp": "2026-04-10T09:43:53.605920+00:00"
+    },
+    {
+      "event": "revoked",
+      "mandate_id": "mock-mandate-delegated-finance-6935e246-e4b6-40b0-8513-10ccd0f9ab84",
+      "revoker_role": "orchestrator",
+      "reason": "Demo revocation check",
+      "timestamp": "2026-04-10T09:43:53.605940+00:00"
+    }
+  ],
+  "acceptance": {
+    "passed": true,
+    "checks": [
+      {
+        "name": "company",
+        "passed": true,
+        "expected": "Northstar Retail",
+        "observed": "Northstar Retail"
+      },
+      {
+        "name": "over_budget_departments",
+        "passed": true,
+        "expected": [
+          "platform"
+        ],
+        "observed": [
+          "platform"
+        ]
+      },
+      {
+        "name": "pending_invoice_ids",
+        "passed": true,
+        "expected": [
+          "INV-1002",
+          "INV-1003"
+        ],
+        "observed": [
+          "INV-1002",
+          "INV-1003"
+        ]
+      },
+      {
+        "name": "degraded_services",
+        "passed": true,
+        "expected": [
+          "inventory"
+        ],
+        "observed": [
+          "inventory"
+        ]
+      },
+      {
+        "name": "recent_incident_ids",
+        "passed": true,
+        "expected": [
+          "INC-90",
+          "INC-91"
+        ],
+        "observed": [
+          "INC-90",
+          "INC-91"
+        ]
+      },
+      {
+        "name": "vendor_sla_breaches",
+        "passed": true,
+        "expected": [
+          "ByteForge"
+        ],
+        "observed": [
+          "ByteForge"
+        ]
+      },
+      {
+        "name": "priority_action_ids",
+        "passed": true,
+        "expected": [
+          "mitigate_budget_overrun",
+          "reconcile_pending_invoices",
+          "remediate_vendor_sla_breach",
+          "stabilize_degraded_services"
+        ],
+        "observed": [
+          "mitigate_budget_overrun",
+          "reconcile_pending_invoices",
+          "remediate_vendor_sla_breach",
+          "stabilize_degraded_services"
+        ]
+      }
+    ]
+  }
+}
