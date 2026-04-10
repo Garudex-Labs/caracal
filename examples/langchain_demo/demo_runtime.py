@@ -591,6 +591,8 @@ class DemoEnvironment:
 
             def _host_for_url(self, url: str) -> str:
                 normalized = str(url or "").strip()
+                if normalized.startswith("/") and self._base_url:
+                    normalized = self._base_url
                 if not normalized and self._base_url:
                     normalized = self._base_url
                 if not normalized:
