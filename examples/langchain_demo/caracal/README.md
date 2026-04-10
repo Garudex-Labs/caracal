@@ -1,58 +1,48 @@
 # Caracal Track
 
-This folder now contains a first governed implementation with:
-- SDK `tools.call(...)` authority boundary via [examples/caracal_langchain_swarm_demo/caracal/client.py](examples/caracal_langchain_swarm_demo/caracal/client.py)
-- local logic runtime bridge handlers for `handler_ref` binding in [examples/caracal_langchain_swarm_demo/caracal/runtime_bridge.py](examples/caracal_langchain_swarm_demo/caracal/runtime_bridge.py)
-- governed workflow runner in [examples/caracal_langchain_swarm_demo/caracal/workflow.py](examples/caracal_langchain_swarm_demo/caracal/workflow.py)
-- CLI runner in [examples/caracal_langchain_swarm_demo/caracal/main.py](examples/caracal_langchain_swarm_demo/caracal/main.py)
-- deterministic delegation and revocation simulation with denial evidence capture in governed artifacts
-- explicit orchestrator authority scope: `provider:swarm-internal:resource:orchestrator` + `provider:swarm-internal:action:summarize`
-- shared `business_outcomes` and `acceptance` payloads matching the baseline track
+This track is now a real Caracal-backed application workflow, not just a static artifact generator.
 
-## Quick Start (Mock Governed)
+Key pieces:
+- `main.py`: governed CLI entrypoint
+- `workflow.py`: wrapper around the shared in-process Caracal runtime
+- `runtime_bridge.py`: local logic handlers used by Caracal `handler_ref` execution
+- `../app.py`: FastAPI UI for visual local runs
 
-```bash
-python -m examples.caracal_langchain_swarm_demo.caracal.main --mock always
-```
-
-## Quick Start (Live Governed)
-
-Live mode expects:
-- `CARACAL_API_KEY`
-- role mandate IDs for orchestrator/finance/ops
-- logic tool registrations completed by bootstrap apply flow
-- optional revoker principal id for live revocation test (`CARACAL_REVOCATION_REVOKER_ID`)
-
-Example:
+## Mock Mode
 
 ```bash
-CARACAL_API_KEY=... \
-CARACAL_ORCHESTRATOR_MANDATE_ID=... \
-CARACAL_FINANCE_MANDATE_ID=... \
-CARACAL_OPS_MANDATE_ID=... \
-python -m examples.caracal_langchain_swarm_demo.caracal.main --mock never
+python -m examples.langchain_demo.caracal.main --mode mock --provider-strategy mixed
 ```
 
-Live revocation validation example:
+## Real Mode
+
+OpenAI only:
 
 ```bash
-CARACAL_API_KEY=... \
-CARACAL_ORCHESTRATOR_MANDATE_ID=... \
-CARACAL_FINANCE_MANDATE_ID=... \
-CARACAL_OPS_MANDATE_ID=... \
-CARACAL_REVOCATION_REVOKER_ID=... \
-python -m examples.caracal_langchain_swarm_demo.caracal.main \
-	--mock never \
-	--enable-live-revocation \
-	--require-revocation-denial
+OPENAI_API_KEY=... \
+python -m examples.langchain_demo.caracal.main --mode real --provider-strategy openai
 ```
 
-Output artifact default path:
-- [examples/caracal_langchain_swarm_demo/caracal/outputs/latest.json](examples/caracal_langchain_swarm_demo/caracal/outputs/latest.json)
+Gemini only:
 
-Artifact fields include:
-- `delegation`: source mandate, edge list, edge verification flag
-- `revocation`: revoked mandate id and denied-after-revoke evidence
-- `authority_evidence`: ordered authority events for audit-style inspection
-- `business_outcomes`: deterministic scenario findings shared with the baseline track
-- `acceptance`: pass/fail checks against the locked expected output fixture
+```bash
+GOOGLE_API_KEY=... \
+python -m examples.langchain_demo.caracal.main --mode real --provider-strategy gemini
+```
+
+Mixed routing:
+
+```bash
+OPENAI_API_KEY=... \
+GOOGLE_API_KEY=... \
+python -m examples.langchain_demo.caracal.main --mode real --provider-strategy mixed
+```
+
+## What The Governed Flow Shows
+
+- identity-bound callers for orchestrator, finance, and ops
+- delegated subset mandates per role
+- provider mapping across internal data, OpenAI, Gemini, and local logic execution
+- runtime enforcement on every tool call
+- revocation with a denied follow-up finance call
+- metering and authority evidence in the final artifact
