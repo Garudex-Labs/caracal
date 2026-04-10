@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import asyncio
 import json
 from pathlib import Path
 
@@ -449,7 +450,7 @@ UI_HTML = """<!doctype html>
 
 def create_app() -> FastAPI:
     app = FastAPI(title="Caracal Demo App")
-    app.state.run_lock = __import__("asyncio").Lock()
+    app.state.run_lock = asyncio.Lock()
 
     @app.get("/", response_class=HTMLResponse)
     async def index() -> str:

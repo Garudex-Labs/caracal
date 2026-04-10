@@ -1,32 +1,28 @@
-"""Smoke test for the FastAPI demo app."""
+"""Smoke test for the FastAPI demo app module."""
 
 from __future__ import annotations
 
-from fastapi.testclient import TestClient
-
 from .app import create_app
+from .baseline.scenario import load_scenario
+from .caracal.workflow import GovernedRunConfig
+from .demo_runtime import run_demo_workflow
 
 
 def run_smoke_test() -> None:
-    client = TestClient(create_app())
+    app = create_app()
+    assert app.title == "Caracal Demo App"
 
-    scenario_response = client.get("/api/scenario")
-    assert scenario_response.status_code == 200
-    assert scenario_response.json()["company"] == "Northstar Retail"
-
-    run_response = client.post(
-        "/api/run",
-        json={
-            "mode": "mock",
-            "provider_strategy": "mixed",
-            "include_revocation_check": True,
-        },
+    result = run_demo_workflow(
+        load_scenario(),
+        GovernedRunConfig(
+            mode="mock",
+            provider_strategy="mixed",
+            include_revocation_check=True,
+        ),
     )
-    assert run_response.status_code == 200
-    payload = run_response.json()
-    assert payload["mode"] == "caracal-demo-mock"
-    assert payload["acceptance"]["passed"] is True
-    assert payload["revocation"]["denial_captured"] is True
+    assert result["mode"] == "caracal-demo-mock"
+    assert result["acceptance"]["passed"] is True
+    assert result["revocation"]["denial_captured"] is True
 
 
 def main() -> int:

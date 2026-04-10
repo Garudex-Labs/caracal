@@ -45,18 +45,19 @@
     "final_summary": "Mock orchestrator summary: prioritize platform budget overrun mitigation, and clear pending invoices (INV-1002, INV-1003), and open a corrective action for ByteForge SLA underperformance, and monitor and stabilize inventory service degradation."
   },
   "governed": {
-    "mode": "mock-governed",
+    "mode": "caracal-demo-mock",
     "acceptance_passed": true,
     "has_authority_evidence": true,
     "revocation": {
       "executed": true,
-      "revoked_mandate_id": "mock-mandate-delegated-finance-1bfeae58-8aa9-4fbc-9554-daafb0b310d4",
+      "revoked_mandate_id": "b6f3761b-428a-4c0b-9228-91e89b7d39d8",
       "denial_captured": true,
       "denial_evidence": {
+        "timestamp": "2026-04-10T11:29:35Z",
         "denied": true,
-        "reason": "Authority denied: revoked mandate mock-mandate-delegated-finance-1bfeae58-8aa9-4fbc-9554-daafb0b310d4",
-        "timestamp": "2026-04-10T09:49:02.812493+00:00",
-        "mandate_id": "mock-mandate-delegated-finance-1bfeae58-8aa9-4fbc-9554-daafb0b310d4"
+        "response": {
+          "detail": "Mandate is revoked"
+        }
       }
     },
     "final_summary": "Governed orchestrator summary: prioritize platform budget overrun mitigation, and clear pending invoices (INV-1002, INV-1003), and open a corrective action for ByteForge SLA underperformance, and monitor and stabilize inventory service degradation. Revocation check: subsequent finance call denied as expected."
