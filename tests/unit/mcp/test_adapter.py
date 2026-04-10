@@ -571,6 +571,37 @@ class TestMCPAdapter:
         assert "caveat_chain" not in call_kwargs
         assert "caveat_hmac_key" not in call_kwargs
         assert "caveat_task_id" not in call_kwargs
+
+    def test_extract_caveat_authority_kwargs_prefers_task_claims_over_top_level_metadata(self):
+        adapter = MCPAdapter(
+            authority_evaluator=self.mock_authority_evaluator,
+            metering_collector=self.mock_metering_collector,
+            caveat_mode="caveat_chain",
+            caveat_hmac_key="global-fallback",
+        )
+
+        context = MCPContext(
+            principal_id="agent-123",
+            metadata={
+                "task_caveat_chain": [{"index": 0, "type": "action", "value": "spoof"}],
+                "task_caveat_hmac_key": "spoofed-hmac",
+                "task_id": "spoofed-task",
+                "task_token_claims": {
+                    "sub": "agent-123",
+                    "task_caveat_chain": [{"index": 0, "type": "action", "value": "trusted"}],
+                    "task_caveat_hmac_key": "trusted-hmac",
+                    "task_id": "trusted-task",
+                },
+            },
+        )
+
+        caveat_kwargs = adapter._extract_caveat_authority_kwargs(context)
+
+        assert caveat_kwargs["caveat_chain"] == [
+            {"index": 0, "type": "action", "value": "trusted"}
+        ]
+        assert caveat_kwargs["caveat_hmac_key"] == "trusted-hmac"
+        assert caveat_kwargs["caveat_task_id"] == "trusted-task"
     
     @pytest.mark.asyncio
     async def test_intercept_resource_read_missing_mandate_id(self):
