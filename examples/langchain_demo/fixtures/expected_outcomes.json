@@ -1,0 +1,26 @@
+{
+  "company": "Northstar Retail",
+  "over_budget_departments": [
+    "platform"
+  ],
+  "pending_invoice_ids": [
+    "INV-1002",
+    "INV-1003"
+  ],
+  "degraded_services": [
+    "inventory"
+  ],
+  "recent_incident_ids": [
+    "INC-91",
+    "INC-90"
+  ],
+  "vendor_sla_breaches": [
+    "ByteForge"
+  ],
+  "priority_action_ids": [
+    "mitigate_budget_overrun",
+    "reconcile_pending_invoices",
+    "remediate_vendor_sla_breach",
+    "stabilize_degraded_services"
+  ]
+}
