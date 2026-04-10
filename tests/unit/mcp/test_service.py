@@ -728,6 +728,61 @@ class TestMCPAdapterService:
         data = response.json()
         assert data["success"] is False
         assert "denied" in data["error"].lower()
+
+    def test_resource_read_endpoint_rejects_spoofed_security_metadata(self):
+        from fastapi.testclient import TestClient
+
+        client = TestClient(self.service.app)
+
+        response = client.post(
+            "/mcp/resource/read",
+            json={
+                "resource_uri": "file://test.txt",
+                "metadata": {
+                    "mandate_id": str(uuid4()),
+                    "task_caveat_hmac_key": "spoofed",
+                },
+            },
+            headers={"Authorization": "Bearer test-token"},
+        )
+
+        assert response.status_code == 400
+        assert "server-controlled security fields" in response.json()["detail"].lower()
+        self.mock_mcp_adapter.intercept_resource_read.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_resource_read_endpoint_overwrites_trusted_security_metadata_from_claims(self):
+        from fastapi.testclient import TestClient
+
+        client = TestClient(self.service.app)
+        self.mock_session_manager.validate_access_token = AsyncMock(
+            return_value={
+                "sub": self.actor_principal_id,
+                "task_caveat_chain": [{"index": 0, "type": "action", "value": "read"}],
+                "task_caveat_hmac_key": "trusted-read-hmac",
+                "task_id": "task-read-trusted",
+            }
+        )
+        self.mock_mcp_adapter.intercept_resource_read = AsyncMock(
+            return_value=MCPResult(success=True, result={"ok": True}, error=None)
+        )
+
+        response = client.post(
+            "/mcp/resource/read",
+            json={
+                "resource_uri": "file://test.txt",
+                "metadata": {"mandate_id": str(uuid4())},
+            },
+            headers={"Authorization": "Bearer test-token"},
+        )
+
+        assert response.status_code == 200
+        mcp_context = self.mock_mcp_adapter.intercept_resource_read.call_args.kwargs["mcp_context"]
+        assert mcp_context.get("token_subject") == self.actor_principal_id
+        assert isinstance(mcp_context.get("task_token_claims"), dict)
+        assert mcp_context.get("task_token_claims")["sub"] == self.actor_principal_id
+        assert mcp_context.get("task_caveat_hmac_key") == "trusted-read-hmac"
+        assert mcp_context.get("task_id") == "task-read-trusted"
     
     def test_service_statistics_increment(self):
         """Test that service statistics are incremented correctly."""
@@ -922,6 +977,64 @@ class TestMCPAdapterService:
         assert response.status_code == 400
         assert "workspace selector mismatch" in response.json()["detail"].lower()
         self.mock_mcp_adapter.intercept_tool_call.assert_not_called()
+
+    def test_tool_call_endpoint_rejects_spoofed_security_metadata(self):
+        from fastapi.testclient import TestClient
+
+        client = TestClient(self.service.app)
+
+        response = client.post(
+            "/mcp/tool/call",
+            json={
+                "tool_id": "test_tool",
+                "mandate_id": str(uuid4()),
+                "tool_args": {},
+                "metadata": {
+                    "task_token_claims": {"sub": "spoofed"},
+                    "task_caveat_chain": [{"index": 0, "type": "action", "value": "spoof"}],
+                },
+            },
+            headers={"Authorization": "Bearer test-token"},
+        )
+
+        assert response.status_code == 400
+        assert "server-controlled security fields" in response.json()["detail"].lower()
+        self.mock_mcp_adapter.intercept_tool_call.assert_not_called()
+
+    def test_tool_call_endpoint_overwrites_trusted_security_metadata_from_claims(self):
+        from fastapi.testclient import TestClient
+
+        client = TestClient(self.service.app)
+        self.mock_session_manager.validate_access_token = AsyncMock(
+            return_value={
+                "sub": self.actor_principal_id,
+                "task_caveat_chain": [{"index": 0, "type": "action", "value": "execute"}],
+                "task_caveat_hmac_key": "trusted-hmac",
+                "task_id": "task-trusted",
+            }
+        )
+        self.mock_mcp_adapter.intercept_tool_call = AsyncMock(
+            return_value=MCPResult(success=True, result={"ok": True}, error=None)
+        )
+
+        response = client.post(
+            "/mcp/tool/call",
+            json={
+                "tool_id": "test_tool",
+                "mandate_id": str(uuid4()),
+                "tool_args": {},
+                "metadata": {},
+            },
+            headers={"Authorization": "Bearer test-token"},
+        )
+
+        assert response.status_code == 200
+        mcp_context = self.mock_mcp_adapter.intercept_tool_call.call_args.kwargs["mcp_context"]
+        assert mcp_context.get("token_subject") == self.actor_principal_id
+        assert isinstance(mcp_context.get("task_token_claims"), dict)
+        assert mcp_context.get("task_token_claims")["sub"] == self.actor_principal_id
+        assert mcp_context.get("task_caveat_hmac_key") == "trusted-hmac"
+        assert mcp_context.get("task_id") == "task-trusted"
 
     def test_tool_call_endpoint_rejects_provider_selector_mapped_tool_mismatch(self):
         from fastapi.testclient import TestClient

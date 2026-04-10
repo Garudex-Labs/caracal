@@ -103,6 +103,7 @@ describe('CaracalClient', () => {
     expect(client.mandates).toBeDefined();
     expect(client.delegation).toBeDefined();
     expect(client.ledger).toBeDefined();
+    expect(client.tools).toBeDefined();
     client.close();
   });
 
@@ -221,9 +222,14 @@ describe('ScopeContext', () => {
     });
   });
 
-  test('principals.list sends scoped request', async () => {
+  test('tools.call sends scoped request', async () => {
     const adapter = new MockAdapter();
-    adapter.mock('GET', '/principals', { statusCode: 200, headers: {}, body: [{ id: 'p1' }], elapsedMs: 0 });
+    adapter.mock('POST', '/mcp/tool/call', {
+      statusCode: 200,
+      headers: {},
+      body: { success: true, result: { ok: true } },
+      elapsedMs: 0,
+    });
 
     const hooks = new HookRegistry();
     const { ScopeContext } = require('../src/context');
@@ -234,10 +240,73 @@ describe('ScopeContext', () => {
       organizationId: 'org_1',
     });
 
-    const result = await ctx.principals.list();
-    expect(result).toEqual([{ id: 'p1' }]);
+    const result = await ctx.tools.call({
+      toolId: 'provider:demo:resource:jobs:action:run',
+      mandateId: 'mandate-123',
+      toolArgs: { job: 'example' },
+    });
+    expect(result).toEqual({ success: true, result: { ok: true } });
 
     const sent = adapter.sentRequests;
     expect(sent[0].headers['X-Caracal-Org-ID']).toBe('org_1');
+    expect(sent[0].path).toBe('/mcp/tool/call');
+  });
+
+  test('legacy resource operations fail closed in hard-cut mode', async () => {
+    const adapter = new MockAdapter();
+    const hooks = new HookRegistry();
+    const { ScopeContext } = require('../src/context');
+
+    const ctx = new ScopeContext({
+      adapter,
+      hooks,
+      organizationId: 'org_1',
+    });
+
+    await expect(ctx.principals.list()).rejects.toThrow(SDKConfigurationError);
+    await expect(ctx.mandates.list()).rejects.toThrow(SDKConfigurationError);
+    await expect(ctx.delegation.getGraph('principal-1')).rejects.toThrow(SDKConfigurationError);
+    await expect(ctx.ledger.query()).rejects.toThrow(SDKConfigurationError);
+    expect(adapter.sentRequests).toHaveLength(0);
+  });
+
+  test('tools.call rejects metadata keys outside correlation surface', async () => {
+    const adapter = new MockAdapter();
+    const hooks = new HookRegistry();
+    const { ScopeContext } = require('../src/context');
+
+    const ctx = new ScopeContext({ adapter, hooks });
+
+    await expect(
+      ctx.tools.call({
+        toolId: 'provider:demo:resource:jobs:action:run',
+        mandateId: 'mandate-123',
+        metadata: { workspace_name: 'ws-1' },
+      }),
+    ).rejects.toThrow('metadata supports correlation keys only');
+  });
+
+  test('tools.call blocks caller spoofing fields', async () => {
+    const adapter = new MockAdapter();
+    const hooks = new HookRegistry();
+    const { ScopeContext } = require('../src/context');
+
+    const ctx = new ScopeContext({ adapter, hooks });
+
+    await expect(
+      ctx.tools.call({
+        toolId: 'provider:demo:resource:jobs:action:run',
+        mandateId: 'mandate-123',
+        metadata: { principal_id: 'spoofed' },
+      }),
+    ).rejects.toThrow('Caller identity fields are not allowed in tool call metadata');
+
+    await expect(
+      ctx.tools.call({
+        toolId: 'provider:demo:resource:jobs:action:run',
+        mandateId: 'mandate-123',
+        toolArgs: { task_token_claims: {} },
+      }),
+    ).rejects.toThrow('Caller identity fields are not allowed in toolArgs');
   });
 });
