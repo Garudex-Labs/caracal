@@ -6,7 +6,7 @@ import json
 import tempfile
 from pathlib import Path
 
-from examples.langchain.bootstrap.main import main
+from examples.langchain_demo.bootstrap.main import main
 
 
 def run_smoke_test() -> None:

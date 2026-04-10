@@ -10,9 +10,9 @@ def run_smoke_test() -> None:
     scenario = load_scenario()
     result = run_mock_governed_workflow(scenario)
 
-    assert result["mode"] == "mock-governed"
+    assert result["mode"] == "caracal-demo-mock"
     assert isinstance(result.get("timeline"), list)
-    assert len(result["timeline"]) >= 4
+    assert len(result["timeline"]) >= 5
     assert isinstance(result.get("final_summary"), str)
     assert result["final_summary"].strip()
 
@@ -28,6 +28,10 @@ def run_smoke_test() -> None:
     authority_evidence = result.get("authority_evidence")
     assert isinstance(authority_evidence, list)
     assert authority_evidence
+
+    metering_events = result.get("metering_events")
+    assert isinstance(metering_events, list)
+    assert len(metering_events) >= 5
 
 
 if __name__ == "__main__":
