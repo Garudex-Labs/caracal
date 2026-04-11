@@ -212,4 +212,4 @@ Act under time pressure. Prioritize containment over completeness. Make the smal
 
 ## Final Note
 
-This IRP is intended to be followed step by step. Each phase produces explicit artifacts, and all work is recorded in a single advisory. The emphasis is on **fast containment**, **minimal change**, and **verifiable outcomes
+This IRP is intended to be followed step by step. Each phase produces explicit artifacts, and all work is recorded in a single advisory. The emphasis is on **fast containment**, **minimal change**, and **verifiable outcomes.**
