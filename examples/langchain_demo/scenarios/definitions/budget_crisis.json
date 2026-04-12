@@ -1,0 +1,215 @@
+{
+  "scenario_id": "budget_crisis",
+  "name": "Q4 Budget Crisis",
+  "description": "Emergency budget review due to significant overspending in Engineering and Marketing departments",
+  "version": "1.0",
+  "company": {
+    "name": "TechCorp Industries",
+    "industry": "Technology",
+    "size": "500 employees",
+    "fiscal_year": "2026"
+  },
+  "context": {
+    "quarter": "Q4",
+    "month": "November",
+    "trigger_event": "CFO requested emergency budget review due to overspending alerts",
+    "additional_context": {
+      "review_type": "emergency",
+      "urgency": "high",
+      "stakeholders": ["CEO", "CFO", "COO", "Engineering VP", "Marketing VP"],
+      "board_notification_required": true
+    }
+  },
+  "finance_data": {
+    "departments": [
+      {
+        "name": "Engineering",
+        "budget": 2000000,
+        "spent": 2160000,
+        "variance_percent": 8.0,
+        "status": "over_budget",
+        "notes": "Unplanned cloud infrastructure scaling and contractor costs"
+      },
+      {
+        "name": "Marketing",
+        "budget": 800000,
+        "spent": 856000,
+        "variance_percent": 7.0,
+        "status": "over_budget",
+        "notes": "Additional campaign spending to meet Q4 targets"
+      },
+      {
+        "name": "Sales",
+        "budget": 1200000,
+        "spent": 1195000,
+        "variance_percent": -0.42,
+        "status": "on_budget",
+        "notes": "Within acceptable range"
+      },
+      {
+        "name": "Operations",
+        "budget": 600000,
+        "spent": 615000,
+        "variance_percent": 2.5,
+        "status": "over_budget",
+        "notes": "Emergency infrastructure upgrades"
+      }
+    ],
+    "pending_invoices": [
+      {
+        "invoice_id": "INV-2026-1234",
+        "vendor": "AWS",
+        "amount": 45000,
+        "due_date": "2026-11-30",
+        "department": "Engineering",
+        "status": "pending",
+        "notes": "Increased cloud usage - urgent payment required"
+      },
+      {
+        "invoice_id": "INV-2026-1235",
+        "vendor": "Contractor Services Inc",
+        "amount": 85000,
+        "due_date": "2026-11-25",
+        "department": "Engineering",
+        "status": "pending",
+        "notes": "Emergency development work"
+      },
+      {
+        "invoice_id": "INV-2026-1236",
+        "vendor": "Google Ads",
+        "amount": 42000,
+        "due_date": "2026-11-20",
+        "department": "Marketing",
+        "status": "pending",
+        "notes": "Extended campaign spending"
+      },
+      {
+        "invoice_id": "INV-2026-1237",
+        "vendor": "LinkedIn Ads",
+        "amount": 18000,
+        "due_date": "2026-11-22",
+        "department": "Marketing",
+        "status": "pending",
+        "notes": "Additional B2B campaign"
+      },
+      {
+        "invoice_id": "INV-2026-1238",
+        "vendor": "DataCenter Co",
+        "amount": 28000,
+        "due_date": "2026-12-01",
+        "department": "Operations",
+        "status": "pending",
+        "notes": "Emergency hardware replacement"
+      }
+    ],
+    "total_budget": 4600000,
+    "total_spent": 4826000,
+    "additional_metrics": {
+      "burn_rate": 1608667,
+      "runway_months": 16,
+      "cash_reserves": 26000000,
+      "overspend_total": 226000,
+      "projected_year_end_overspend": 340000
+    }
+  },
+  "ops_data": {
+    "services": [
+      {
+        "name": "API Gateway",
+        "status": "degraded",
+        "uptime_percent": 97.5,
+        "incidents_24h": 3,
+        "notes": "Increased latency due to traffic surge"
+      },
+      {
+        "name": "Database Cluster",
+        "status": "healthy",
+        "uptime_percent": 99.95,
+        "incidents_24h": 0,
+        "notes": "Performance stable after scaling"
+      },
+      {
+        "name": "Web Application",
+        "status": "degraded",
+        "uptime_percent": 98.2,
+        "incidents_24h": 2,
+        "notes": "Intermittent slowdowns during peak hours"
+      },
+      {
+        "name": "Background Jobs",
+        "status": "healthy",
+        "uptime_percent": 99.7,
+        "incidents_24h": 1,
+        "notes": "Queue backlog cleared"
+      }
+    ],
+    "incidents": [
+      {
+        "incident_id": "INC-2026-567",
+        "severity": "high",
+        "service": "API Gateway",
+        "description": "Increased latency affecting customer transactions",
+        "status": "investigating",
+        "created_at": "2026-11-15T14:30:00Z",
+        "resolved_at": null
+      },
+      {
+        "incident_id": "INC-2026-568",
+        "severity": "medium",
+        "service": "Web Application",
+        "description": "Slow page load times during peak traffic",
+        "status": "identified",
+        "created_at": "2026-11-15T16:00:00Z",
+        "resolved_at": null
+      },
+      {
+        "incident_id": "INC-2026-569",
+        "severity": "medium",
+        "service": "API Gateway",
+        "description": "Rate limiting triggered unexpectedly",
+        "status": "resolved",
+        "created_at": "2026-11-15T10:15:00Z",
+        "resolved_at": "2026-11-15T12:30:00Z"
+      }
+    ],
+    "sla_compliance": 97.8,
+    "additional_metrics": {
+      "mean_time_to_resolve": 125,
+      "customer_satisfaction": 4.1,
+      "support_tickets_open": 47,
+      "escalated_tickets": 8
+    }
+  },
+  "expected_outcomes": {
+    "finance_actions": [
+      "Freeze all non-critical spending in Engineering and Marketing",
+      "Review and prioritize pending invoices",
+      "Defer contractor payments where possible",
+      "Implement spending approval process for amounts over $5,000",
+      "Prepare cost reduction plan for Q1",
+      "Schedule emergency board meeting to discuss budget situation"
+    ],
+    "ops_actions": [
+      "Scale API Gateway resources to address latency",
+      "Investigate root cause of performance degradation",
+      "Implement temporary rate limiting adjustments",
+      "Escalate to cloud provider if infrastructure issues persist",
+      "Prepare incident post-mortem",
+      "Review capacity planning procedures"
+    ],
+    "executive_summary": "Critical budget overspend of $226K with projected year-end overspend of $340K. Engineering and Marketing significantly over budget. Operations experiencing service degradation. Immediate cost controls and performance improvements required. Board notification recommended.",
+    "success_criteria": [
+      "Reduce monthly burn rate by 15%",
+      "Restore service uptime to >99%",
+      "Clear all high-severity incidents within 24 hours",
+      "Implement spending freeze on non-critical items",
+      "Develop Q1 cost reduction plan"
+    ]
+  },
+  "metadata": {
+    "created_at": "2026-11-15",
+    "complexity": "high",
+    "estimated_duration_minutes": 30,
+    "requires_executive_approval": true
+  }
+}

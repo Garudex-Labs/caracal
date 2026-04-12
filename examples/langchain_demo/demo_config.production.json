@@ -1,11 +1,12 @@
 {
   "_config_version": "2.0",
+  "_description": "Production configuration with optimized settings and file logging",
   "caracal": {
-    "base_url": "http://127.0.0.1:8080",
+    "base_url": "https://caracal.example.com",
     "api_key_env": "CARACAL_API_KEY",
-    "organization_id": null,
-    "workspace_id": "langchain-demo",
-    "project_id": null
+    "organization_id": "org-production",
+    "workspace_id": "langchain-demo-prod",
+    "project_id": "proj-demo"
   },
   "modes": {
     "mock": {
@@ -39,32 +40,32 @@
   },
   "scenario": {
     "default_scenario": "default",
-    "scenarios_path": null,
+    "scenarios_path": "/opt/caracal/scenarios",
     "auto_load": true
   },
   "ui": {
-    "host": "127.0.0.1",
+    "host": "0.0.0.0",
     "port": 8000,
     "enable_websocket": true,
-    "websocket_ping_interval": 30,
-    "max_message_history": 1000,
+    "websocket_ping_interval": 60,
+    "max_message_history": 500,
     "enable_logs_panel": true,
     "enable_tool_panel": true,
     "enable_caracal_panel": true
   },
   "logging": {
     "level": "INFO",
-    "format": "detailed",
-    "log_to_file": false,
-    "log_file_path": null,
-    "max_file_size_mb": 10,
-    "backup_count": 3
+    "format": "json",
+    "log_to_file": true,
+    "log_file_path": "/var/log/caracal/demo.log",
+    "max_file_size_mb": 100,
+    "backup_count": 10
   },
   "mock_system": {
-    "enabled": true,
+    "enabled": false,
     "config_path": null,
     "cache_responses": true,
-    "simulate_delays": true,
+    "simulate_delays": false,
     "default_llm_provider": "openai"
   },
   "agent": {
