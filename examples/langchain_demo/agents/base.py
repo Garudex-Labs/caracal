@@ -74,7 +74,7 @@ class AgentState:
     Attributes:
         agent_id: Unique identifier for the agent instance
         agent_role: Role of the agent
-        mandate_id: Caracal mandate ID for this agent
+        principal_id: Caracal principal ID for this agent (used for Bearer token auth)
         parent_agent_id: ID of parent agent (if this is a sub-agent)
         messages: List of messages produced by this agent
         tool_calls: List of tool call IDs made by this agent
@@ -87,7 +87,7 @@ class AgentState:
     
     agent_id: str
     agent_role: AgentRole
-    mandate_id: str
+    principal_id: str
     parent_agent_id: Optional[str] = None
     messages: List[AgentMessage] = field(default_factory=list)
     tool_calls: List[str] = field(default_factory=list)
@@ -124,7 +124,7 @@ class AgentState:
         return {
             "agent_id": self.agent_id,
             "agent_role": self.agent_role.value,
-            "mandate_id": self.mandate_id,
+            "principal_id": self.principal_id,
             "parent_agent_id": self.parent_agent_id,
             "messages": [msg.to_dict() for msg in self.messages],
             "tool_calls": self.tool_calls,
@@ -147,7 +147,7 @@ class BaseAgent(ABC):
     Attributes:
         agent_id: Unique identifier for this agent instance
         role: The role this agent plays (orchestrator, finance, ops, etc.)
-        mandate_id: Caracal mandate ID for authority enforcement
+        principal_id: Caracal principal ID for Bearer token authentication
         state: Current state of the agent
         parent_agent: Reference to parent agent (if this is a sub-agent)
     """
@@ -155,7 +155,7 @@ class BaseAgent(ABC):
     def __init__(
         self,
         role: AgentRole,
-        mandate_id: str,
+        principal_id: str,
         parent_agent: Optional["BaseAgent"] = None,
         agent_id: Optional[str] = None,
         context: Optional[Dict[str, Any]] = None,
@@ -165,14 +165,14 @@ class BaseAgent(ABC):
         
         Args:
             role: The role this agent plays
-            mandate_id: Caracal mandate ID for this agent
+            principal_id: Caracal principal ID for this agent (used for Bearer token)
             parent_agent: Parent agent if this is a sub-agent
             agent_id: Optional custom agent ID (generated if not provided)
             context: Optional initial context data
         """
         self.agent_id = agent_id or str(uuid4())
         self.role = role
-        self.mandate_id = mandate_id
+        self.principal_id = principal_id
         self.parent_agent = parent_agent
         
         # Initialize state
@@ -180,7 +180,7 @@ class BaseAgent(ABC):
         self.state = AgentState(
             agent_id=self.agent_id,
             agent_role=role,
-            mandate_id=mandate_id,
+            principal_id=principal_id,
             parent_agent_id=parent_id,
             context=context or {},
         )
@@ -224,7 +224,7 @@ class BaseAgent(ABC):
     def spawn_sub_agent(
         self,
         sub_agent_role: AgentRole,
-        sub_agent_mandate_id: str,
+        sub_agent_principal_id: str,
         context: Optional[Dict[str, Any]] = None,
     ) -> "BaseAgent":
         """
@@ -236,7 +236,7 @@ class BaseAgent(ABC):
         
         Args:
             sub_agent_role: Role for the sub-agent
-            sub_agent_mandate_id: Mandate ID for the sub-agent
+            sub_agent_principal_id: Principal ID for the sub-agent
             context: Optional context to pass to the sub-agent
         
         Returns:

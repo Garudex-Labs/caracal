@@ -31,16 +31,17 @@ class OrchestratorAgent(BaseAgent):
     5. Aggregates results from sub-agents
     6. Produces final executive summary
     
-    # CARACAL INTEGRATION POINT
-    # The orchestrator uses its mandate to:
-    # - Call tools for task analysis
-    # - Delegate mandates to sub-agents
-    # - Coordinate authority across the agent hierarchy
+    # CARACAL INTEGRATION POINT (THIN SDK)
+    # The orchestrator uses its principal identity to:
+    # - Authenticate via Bearer token (generated from principal_id)
+    # - Call tools for task analysis (authority resolved internally)
+    # - Delegate to sub-agents (each with their own principal_id)
+    # - No manual mandate_id parameters in tool calls
     """
     
     def __init__(
         self,
-        mandate_id: str,
+        principal_id: str,
         caracal_client: Any,
         scenario: Optional[Scenario] = None,
         parent_agent: Optional[BaseAgent] = None,
@@ -52,7 +53,7 @@ class OrchestratorAgent(BaseAgent):
         Initialize the orchestrator agent.
         
         Args:
-            mandate_id: Caracal mandate ID for this agent
+            principal_id: Caracal principal ID for this agent (used for Bearer token)
             caracal_client: Caracal client for governed tool calls
             scenario: Optional scenario context
             parent_agent: Parent agent (should be None for orchestrator)
@@ -62,7 +63,7 @@ class OrchestratorAgent(BaseAgent):
         """
         super().__init__(
             role=AgentRole.ORCHESTRATOR,
-            mandate_id=mandate_id,
+            principal_id=principal_id,
             parent_agent=parent_agent,
             agent_id=agent_id,
             context=context,
@@ -77,7 +78,7 @@ class OrchestratorAgent(BaseAgent):
         
         logger.info(
             f"Initialized OrchestratorAgent {self.agent_id[:8]} "
-            f"with mandate {mandate_id[:8]}"
+            f"with principal {principal_id[:8]}"
         )
     
     async def execute(self, task: str, **kwargs) -> Dict[str, Any]:
@@ -88,9 +89,9 @@ class OrchestratorAgent(BaseAgent):
             task: High-level task description
             **kwargs: Additional parameters
                 - scenario: Scenario object (overrides self.scenario)
-                - finance_mandate_id: Mandate ID for finance agent
-                - ops_mandate_id: Mandate ID for ops agent
-                - reporter_mandate_id: Mandate ID for reporter agent
+                - finance_principal_id: Principal ID for finance agent
+                - ops_principal_id: Principal ID for ops agent
+                - reporter_principal_id: Principal ID for reporter agent
         
         Returns:
             Dictionary containing:
@@ -142,25 +143,25 @@ class OrchestratorAgent(BaseAgent):
                 
                 # Delegate based on task type
                 if task_type == "finance":
-                    finance_mandate_id = kwargs.get("finance_mandate_id")
-                    if not finance_mandate_id:
-                        raise ValueError("finance_mandate_id required for finance tasks")
+                    finance_principal_id = kwargs.get("finance_principal_id")
+                    if not finance_principal_id:
+                        raise ValueError("finance_principal_id required for finance tasks")
                     
                     result = await self._delegate_to_finance(
                         task_description,
-                        finance_mandate_id,
+                        finance_principal_id,
                         scenario
                     )
                     results["finance"] = result
                 
                 elif task_type == "ops":
-                    ops_mandate_id = kwargs.get("ops_mandate_id")
-                    if not ops_mandate_id:
-                        raise ValueError("ops_mandate_id required for ops tasks")
+                    ops_principal_id = kwargs.get("ops_principal_id")
+                    if not ops_principal_id:
+                        raise ValueError("ops_principal_id required for ops tasks")
                     
                     result = await self._delegate_to_ops(
                         task_description,
-                        ops_mandate_id,
+                        ops_principal_id,
                         scenario
                     )
                     results["ops"] = result
@@ -272,21 +273,22 @@ class OrchestratorAgent(BaseAgent):
     async def _delegate_to_finance(
         self,
         task: str,
-        mandate_id: str,
+        principal_id: str,
         scenario: Scenario
     ) -> Dict[str, Any]:
         """
         Delegate task to finance agent.
         
-        # CARACAL INTEGRATION POINT
+        # CARACAL INTEGRATION POINT (THIN SDK)
         # This method demonstrates agent-to-agent delegation:
-        # 1. The orchestrator has a mandate with broad authority
-        # 2. It delegates a scoped mandate to the finance agent
+        # 1. The orchestrator has a principal with broad authority
+        # 2. It delegates to the finance agent (with its own principal)
         # 3. The finance agent can only access finance-related tools
+        # 4. Authority resolved internally by Caracal from principal_id
         
         Args:
             task: Task description for finance agent
-            mandate_id: Mandate ID for finance agent
+            principal_id: Principal ID for finance agent
             scenario: Scenario context
         
         Returns:
@@ -294,7 +296,7 @@ class OrchestratorAgent(BaseAgent):
         """
         self.emit_message(
             MessageType.ACTION,
-            f"Delegating to finance agent with mandate {mandate_id[:8]}"
+            f"Delegating to finance agent with principal {principal_id[:8]}"
         )
         
         # Import here to avoid circular dependency
@@ -302,7 +304,7 @@ class OrchestratorAgent(BaseAgent):
         
         # Create finance agent
         finance_agent = FinanceAgent(
-            mandate_id=mandate_id,
+            principal_id=principal_id,
             caracal_client=self.caracal_client,
             scenario=scenario,
             parent_agent=self,
@@ -325,18 +327,18 @@ class OrchestratorAgent(BaseAgent):
     async def _delegate_to_ops(
         self,
         task: str,
-        mandate_id: str,
+        principal_id: str,
         scenario: Scenario
     ) -> Dict[str, Any]:
         """
         Delegate task to ops agent.
         
-        # CARACAL INTEGRATION POINT
+        # CARACAL INTEGRATION POINT (THIN SDK)
         # Similar to finance delegation, but for ops-related tasks
         
         Args:
             task: Task description for ops agent
-            mandate_id: Mandate ID for ops agent
+            principal_id: Principal ID for ops agent
             scenario: Scenario context
         
         Returns:
@@ -344,7 +346,7 @@ class OrchestratorAgent(BaseAgent):
         """
         self.emit_message(
             MessageType.ACTION,
-            f"Delegating to ops agent with mandate {mandate_id[:8]}"
+            f"Delegating to ops agent with principal {principal_id[:8]}"
         )
         
         # Import here to avoid circular dependency
@@ -352,7 +354,7 @@ class OrchestratorAgent(BaseAgent):
         
         # Create ops agent
         ops_agent = OpsAgent(
-            mandate_id=mandate_id,
+            principal_id=principal_id,
             caracal_client=self.caracal_client,
             scenario=scenario,
             parent_agent=self,
@@ -481,7 +483,7 @@ class OrchestratorAgent(BaseAgent):
     def spawn_sub_agent(
         self,
         sub_agent_role: AgentRole,
-        sub_agent_mandate_id: str,
+        sub_agent_principal_id: str,
         context: Optional[Dict[str, Any]] = None,
     ) -> BaseAgent:
         """
@@ -489,7 +491,7 @@ class OrchestratorAgent(BaseAgent):
         
         Args:
             sub_agent_role: Role for the sub-agent
-            sub_agent_mandate_id: Mandate ID for the sub-agent
+            sub_agent_principal_id: Principal ID for the sub-agent
             context: Optional context to pass to the sub-agent
         
         Returns:
@@ -501,7 +503,7 @@ class OrchestratorAgent(BaseAgent):
         if sub_agent_role == AgentRole.FINANCE:
             from examples.langchain_demo.agents.finance_agent import FinanceAgent
             agent = FinanceAgent(
-                mandate_id=sub_agent_mandate_id,
+                principal_id=sub_agent_principal_id,
                 caracal_client=self.caracal_client,
                 scenario=self.scenario,
                 parent_agent=self,
@@ -510,7 +512,7 @@ class OrchestratorAgent(BaseAgent):
         elif sub_agent_role == AgentRole.OPS:
             from examples.langchain_demo.agents.ops_agent import OpsAgent
             agent = OpsAgent(
-                mandate_id=sub_agent_mandate_id,
+                principal_id=sub_agent_principal_id,
                 caracal_client=self.caracal_client,
                 scenario=self.scenario,
                 parent_agent=self,
