@@ -661,6 +661,7 @@ class TestMCPAdapterService:
                 "tool_id": "test_tool",
                 "tool_args": {"arg": "value"},
                 "metadata": {},
+                "mandate_id": str(uuid4()),
             },
             headers={"Authorization": "Bearer test-token"},
         )

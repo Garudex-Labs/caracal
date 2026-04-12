@@ -25,6 +25,11 @@ from fastapi import FastAPI, Request, Response, HTTPException, status
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
+try:
+    from pydantic import ConfigDict
+except ImportError:  # pragma: no cover - pydantic<2 fallback
+    ConfigDict = None
+
 from caracal._version import __version__
 from caracal.mcp.adapter import MCPAdapter, MCPContext, MCPResult
 from caracal.core.authority import AuthorityEvaluator
@@ -88,26 +93,27 @@ class MCPServiceConfig:
 
 
 # Pydantic models for API requests/responses
-class ToolCallRequest(BaseModel):
+if ConfigDict is not None:
+    class _StrictRequestModel(BaseModel):
+        model_config = ConfigDict(extra="forbid")
+else:  # pragma: no cover - pydantic<2 fallback
+    class _StrictRequestModel(BaseModel):
+        class Config:
+            extra = "forbid"
+
+
+class ToolCallRequest(_StrictRequestModel):
     """Request model for MCP tool call."""
     tool_id: str = Field(..., description="Explicit registered tool identifier")
     tool_args: Dict[str, Any] = Field(default_factory=dict, description="Arguments for the tool")
     metadata: Dict[str, Any] = Field(default_factory=dict, description="Additional metadata")
 
-    class Config:
-        extra = "forbid"
-
-
-class ResourceReadRequest(BaseModel):
+class ResourceReadRequest(_StrictRequestModel):
     """Request model for MCP resource read."""
     resource_uri: str = Field(..., description="URI of the resource to read")
     metadata: Dict[str, Any] = Field(default_factory=dict, description="Additional metadata")
 
-    class Config:
-        extra = "forbid"
-
-
-class ToolRegistryRequest(BaseModel):
+class ToolRegistryRequest(_StrictRequestModel):
     """Request model for tool registry write operations."""
 
     tool_id: str = Field(..., description="Explicit tool identifier")
@@ -115,10 +121,6 @@ class ToolRegistryRequest(BaseModel):
         None,
         description="Optional workspace selector for deterministic registry targeting",
     )
-
-    class Config:
-        extra = "forbid"
-
 
 class ToolRegistryRegisterRequest(ToolRegistryRequest):
     """Request model for tool registration."""

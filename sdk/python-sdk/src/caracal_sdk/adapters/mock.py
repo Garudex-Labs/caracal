@@ -22,7 +22,7 @@ class MockAdapter(BaseAdapter):
     Example::
 
         adapter = MockAdapter({
-            ("GET", "/principals"): SDKResponse(status_code=200, body=[]),
+            ("POST", "/mcp/tool/call"): SDKResponse(status_code=200, body={"success": True}),
         })
     """
 
