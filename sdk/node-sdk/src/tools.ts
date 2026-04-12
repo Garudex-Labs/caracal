@@ -23,6 +23,7 @@ const PROHIBITED_CALLER_SPOOFING_FIELDS = new Set([
   'principal_id',
   'mandate_id',
   'resolved_mandate_id',
+  'policy_id',
   'token_subject',
   'task_token_claims',
   'task_caveat_chain',

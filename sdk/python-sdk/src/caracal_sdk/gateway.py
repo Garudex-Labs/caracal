@@ -4,9 +4,8 @@ Caracal, a product of Garudex Labs
 
 SDK Gateway Adapter.
 
-Provides a transport adapter that routes mandate issuance, validation,
-and revocation through the enterprise gateway instead of the Caracal API
-directly.
+Provides a transport adapter that routes runtime SDK requests through the
+enterprise gateway instead of calling the broker API directly.
 
 OSS: behaves identically to the standard HTTP adapter (broker mode).
 Enterprise: wraps every request with the gateway's auth headers and routes
@@ -108,7 +107,7 @@ class GatewayAdapter(BaseAdapter):
 
     In enterprise mode (gateway_endpoint + api_key configured) every
     request is forwarded to the gateway, which performs:
-      - Mandate revocation check (fail-closed)
+            - Runtime authority enforcement (fail-closed)
       - Provider registry resolution
       - Per-tenant quota enforcement
       - Secret binding for upstream credentials

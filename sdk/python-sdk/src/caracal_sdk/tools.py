@@ -32,6 +32,7 @@ _PROHIBITED_CALLER_SPOOFING_FIELDS = {
     "principal_id",
     "mandate_id",
     "resolved_mandate_id",
+    "policy_id",
     "token_subject",
     "task_token_claims",
     "task_caveat_chain",

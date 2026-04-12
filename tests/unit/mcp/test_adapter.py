@@ -317,7 +317,7 @@ class TestMCPAdapter:
         mandate_id = uuid4()
         context = MCPContext(
             principal_id="agent-123",
-            metadata={"mandate_id": str(mandate_id)}
+            metadata={}
         )
         
         # Mock mandate found
@@ -398,7 +398,7 @@ class TestMCPAdapter:
         mandate_id = uuid4()
         context = MCPContext(
             principal_id="agent-123",
-            metadata={"mandate_id": str(mandate_id)}
+            metadata={}
         )
         
         # Mock mandate found
@@ -446,7 +446,7 @@ class TestMCPAdapter:
         mandate_id = uuid4()
         context = MCPContext(
             principal_id="agent-123",
-            metadata={"mandate_id": str(mandate_id)}
+            metadata={}
         )
 
         mock_mandate = Mock(spec=ExecutionMandate)
@@ -501,7 +501,6 @@ class TestMCPAdapter:
         context = MCPContext(
             principal_id="agent-123",
             metadata={
-                "mandate_id": str(mandate_id),
                 "task_caveat_chain": task_chain,
                 "task_id": "task-xyz",
             },
@@ -557,7 +556,6 @@ class TestMCPAdapter:
         context = MCPContext(
             principal_id="agent-123",
             metadata={
-                "mandate_id": str(mandate_id),
                 "task_caveat_chain": [{"index": 0, "type": "action", "value": "execute"}],
                 "task_id": "task-xyz",
             },
@@ -643,7 +641,7 @@ class TestMCPAdapter:
         mandate_id = uuid4()
         context = MCPContext(
             principal_id="agent-123",
-            metadata={"mandate_id": str(mandate_id)}
+            metadata={}
         )
         
         # Mock mandate found
@@ -675,7 +673,7 @@ class TestMCPAdapter:
         mandate_id = uuid4()
         context = MCPContext(
             principal_id="agent-123",
-            metadata={"mandate_id": str(mandate_id)}
+            metadata={}
         )
         
         # Mock mandate found
@@ -719,7 +717,6 @@ class TestMCPAdapter:
         context = MCPContext(
             principal_id="agent-123",
             metadata={
-                "mandate_id": str(mandate_id),
                 "mcp_server_name": "server-b",
             },
         )
@@ -774,7 +771,7 @@ class TestMCPAdapter:
         mandate_id = uuid4()
         context = MCPContext(
             principal_id="agent-123",
-            metadata={"mandate_id": str(mandate_id)}
+            metadata={}
         )
 
         mock_mandate = Mock(spec=ExecutionMandate)
@@ -813,7 +810,7 @@ class TestMCPAdapter:
         mandate_id = uuid4()
         context = MCPContext(
             principal_id="agent-123",
-            metadata={"mandate_id": str(mandate_id)}
+            metadata={}
         )
 
         mock_mandate = Mock(spec=ExecutionMandate)
@@ -931,7 +928,7 @@ class TestMCPAdapter:
 
         context = MCPContext(
             principal_id="agent-123",
-            metadata={"mandate_id": str(mandate_id)},
+            metadata={},
         )
 
         with patch.object(self.adapter, "_forward_to_mcp_server", new_callable=AsyncMock) as mock_forward:
@@ -970,7 +967,7 @@ class TestMCPAdapter:
         mandate_id = uuid4()
         context = MCPContext(
             principal_id="agent-123",
-            metadata={"mandate_id": str(mandate_id)},
+            metadata={},
         )
 
         mock_mandate = Mock(spec=ExecutionMandate)
@@ -1006,7 +1003,7 @@ class TestMCPAdapter:
         mandate_id = uuid4()
         context = MCPContext(
             principal_id="agent-123",
-            metadata={"mandate_id": str(mandate_id)},
+            metadata={},
         )
 
         mock_mandate = Mock(spec=ExecutionMandate)
@@ -1031,7 +1028,7 @@ class TestMCPAdapter:
         mandate_id = uuid4()
         context = MCPContext(
             principal_id="agent-123",
-            metadata={"mandate_id": str(mandate_id)},
+            metadata={},
         )
 
         mock_mandate = Mock(spec=ExecutionMandate)
@@ -1081,7 +1078,7 @@ class TestMCPAdapter:
         mandate_id = uuid4()
         context = MCPContext(
             principal_id="agent-123",
-            metadata={"mandate_id": str(mandate_id)},
+            metadata={},
         )
 
         mock_mandate = Mock(spec=ExecutionMandate)
@@ -1142,7 +1139,7 @@ class TestMCPAdapter:
         mandate_id = uuid4()
         context = MCPContext(
             principal_id="agent-123",
-            metadata={"mandate_id": str(mandate_id)},
+            metadata={},
         )
 
         mock_mandate = Mock(spec=ExecutionMandate)
@@ -1333,7 +1330,7 @@ class TestMCPAdapter:
         mandate_id = uuid4()
         context = MCPContext(
             principal_id="agent-123",
-            metadata={"mandate_id": str(mandate_id)},
+            metadata={},
         )
 
         mock_mandate = Mock(spec=ExecutionMandate)
@@ -1375,7 +1372,7 @@ class TestMCPAdapter:
         mandate_id = uuid4()
         context = MCPContext(
             principal_id="agent-123",
-            metadata={"mandate_id": str(mandate_id)},
+            metadata={},
         )
 
         mock_mandate = Mock(spec=ExecutionMandate)

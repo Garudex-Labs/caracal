@@ -1422,22 +1422,22 @@ class MCPAdapter:
         mcp_context: Optional[MCPContext],
         require_credential: bool,
     ) -> Dict[str, Any]:
-        normalized_tool_id = self._normalize_tool_id(tool_id)
-        resolved_workspace_name = self._resolve_workspace_name(mcp_context)
+        tool_id = self._normalize_tool_id(tool_id)
+        workspace_name = self._resolve_workspace_name(mcp_context)
 
         tool_row = self.get_registered_tool(
-            tool_id=normalized_tool_id,
+            tool_id=tool_id,
             require_active=True,
-            workspace_name=resolved_workspace_name,
+            workspace_name=workspace_name,
         )
         if tool_row is None:
             any_state_row = self.get_registered_tool(
-                tool_id=normalized_tool_id,
+                tool_id=tool_id,
                 require_active=False,
-                workspace_name=resolved_workspace_name,
+                workspace_name=workspace_name,
             )
             if any_state_row is None:
-                raise MCPUnknownToolError(f"Unknown tool_id: {normalized_tool_id}")
+                raise MCPUnknownToolError(f"Unknown tool_id: {tool_id}")
 
             provider_name = str(getattr(any_state_row, "provider_name", "") or "").strip()
             resource_scope = str(getattr(any_state_row, "resource_scope", "") or "").strip()
@@ -1461,10 +1461,10 @@ class MCPAdapter:
                     )
                 except CaracalError as drift_error:
                     raise CaracalError(
-                        f"Tool '{normalized_tool_id}' is inactive due provider drift: {drift_error}"
+                        f"Tool '{tool_id}' is inactive due provider drift: {drift_error}"
                     ) from drift_error
 
-            raise CaracalError(f"Tool '{normalized_tool_id}' is inactive")
+            raise CaracalError(f"Tool '{tool_id}' is inactive")
 
         provider_name = str(getattr(tool_row, "provider_name", "") or "").strip()
         resource_scope = str(getattr(tool_row, "resource_scope", "") or "").strip()
@@ -1492,7 +1492,7 @@ class MCPAdapter:
             mcp_server_name=getattr(tool_row, "mcp_server_name", None),
         )
         self._validate_tool_binding_contract(
-            tool_id=normalized_tool_id,
+            tool_id=tool_id,
             execution_mode=execution_target["execution_mode"] or "mcp_forward",
             tool_type=tool_type,
             handler_ref=handler_ref,
@@ -1500,18 +1500,18 @@ class MCPAdapter:
 
         if not provider_name or not resource_scope or not action_scope:
             raise MCPToolMappingMismatchError(
-                f"Tool '{normalized_tool_id}' is missing provider/resource/action mapping"
+                f"Tool '{tool_id}' is missing provider/resource/action mapping"
             )
 
         session = self._get_registry_session()
         provider_row = session.query(GatewayProvider).filter_by(provider_id=provider_name).first()
         if provider_row is None:
             raise MCPProviderMissingError(
-                f"Mapped provider '{provider_name}' for tool '{normalized_tool_id}' was removed"
+                f"Mapped provider '{provider_name}' for tool '{tool_id}' was removed"
             )
         if not bool(getattr(provider_row, "enabled", True)):
             raise MCPProviderMissingError(
-                f"Mapped provider '{provider_name}' for tool '{normalized_tool_id}' is inactive"
+                f"Mapped provider '{provider_name}' for tool '{tool_id}' is inactive"
             )
 
         mapping = self._validate_tool_mapping(
@@ -1526,12 +1526,12 @@ class MCPAdapter:
         )
 
         auth_scheme = str(getattr(provider_row, "auth_scheme", "api_key") or "api_key")
-        normalized_auth_scheme = auth_scheme.replace("-", "_").strip().lower()
-        if require_credential and normalized_auth_scheme != "none":
+        auth_scheme = auth_scheme.replace("-", "_").strip().lower()
+        if require_credential and auth_scheme != "none":
             credential_ref = str(getattr(provider_row, "credential_ref", "") or "").strip()
             if not credential_ref:
                 raise CaracalError(
-                    f"Mapped provider '{provider_name}' for tool '{normalized_tool_id}' has no credential_ref"
+                    f"Mapped provider '{provider_name}' for tool '{tool_id}' has no credential_ref"
                 )
 
             if not workspace_name:
@@ -1547,7 +1547,7 @@ class MCPAdapter:
                 ) from exc
 
         return {
-            "tool_id": normalized_tool_id,
+            "tool_id": tool_id,
             **mapping,
             "workspace_name": workspace_name,
             "tool_type": tool_type,
@@ -1652,12 +1652,12 @@ class MCPAdapter:
             or mcp_context.get("task_id")
             or mcp_context.get("caveat_task_id")
         )
-        resolved_task_id = str(task_id).strip() if task_id is not None else None
+        task_id = str(task_id).strip() if task_id is not None else None
 
         return {
             "caveat_chain": raw_chain,
             "caveat_hmac_key": caveat_hmac_key,
-            "caveat_task_id": resolved_task_id,
+            "caveat_task_id": task_id,
         }
 
     def _resolve_applicable_mandates(

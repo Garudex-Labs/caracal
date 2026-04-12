@@ -661,7 +661,6 @@ class TestMCPAdapterService:
                 "tool_id": "test_tool",
                 "tool_args": {"arg": "value"},
                 "metadata": {},
-                "mandate_id": str(uuid4()),
             },
             headers={"Authorization": "Bearer test-token"},
         )
@@ -802,14 +801,12 @@ class TestMCPAdapterService:
             error=None
         )
         self.mock_mcp_adapter.intercept_tool_call = AsyncMock(return_value=mock_result)
-        mandate_id = str(uuid4())
         
         initial_count = self.service._request_count
         initial_tool_count = self.service._tool_call_count
         
         request_data = {
             "tool_id": "test_tool",
-            "mandate_id": mandate_id,
             "tool_args": {},
             "metadata": {},
         }
@@ -830,7 +827,6 @@ class TestMCPAdapterService:
 
         request_data = {
             "tool_id": "test_tool",
-            "mandate_id": str(uuid4()),
             "tool_args": {},
             "metadata": {},
         }
@@ -840,8 +836,8 @@ class TestMCPAdapterService:
         assert response.status_code == 401
         assert "authorization" in response.json()["detail"].lower()
 
-    def test_tool_call_endpoint_ignores_legacy_mandate_id_field(self):
-        """Legacy mandate_id payload field should be ignored by the service contract."""
+    def test_tool_call_endpoint_uses_principal_bound_context(self):
+        """Principal-bound context should not include caller-selected mandate metadata."""
         from fastapi.testclient import TestClient
         client = TestClient(self.service.app)
 
@@ -851,7 +847,6 @@ class TestMCPAdapterService:
 
         request_data = {
             "tool_id": "test_tool",
-            "mandate_id": "not-a-uuid",
             "tool_args": {},
             "metadata": {},
         }
@@ -878,7 +873,6 @@ class TestMCPAdapterService:
                 "tool_id": "test_tool",
                 "tool_args": {
                     "principal_id": self.actor_principal_id,
-                    "mandate_id": str(uuid4()),
                 },
                 "metadata": {},
             },
@@ -965,7 +959,6 @@ class TestMCPAdapterService:
             "/mcp/tool/call",
             json={
                 "tool_id": "missing.tool",
-                "mandate_id": str(uuid4()),
                 "tool_args": {},
                 "metadata": {},
             },
@@ -990,7 +983,6 @@ class TestMCPAdapterService:
             "/mcp/tool/call",
             json={
                 "tool_id": "test_tool",
-                "mandate_id": str(uuid4()),
                 "tool_args": {},
                 "metadata": {
                     "provider_name": "endframe",
@@ -1017,7 +1009,6 @@ class TestMCPAdapterService:
             "/mcp/tool/call",
             json={
                 "tool_id": "test_tool",
-                "mandate_id": str(uuid4()),
                 "tool_args": {},
                 "metadata": {},
             },
@@ -1041,7 +1032,6 @@ class TestMCPAdapterService:
             "/mcp/tool/call",
             json={
                 "tool_id": "test_tool",
-                "mandate_id": str(uuid4()),
                 "tool_args": {},
                 "metadata": {
                     "workspace": "workspace-from-body",
@@ -1066,7 +1056,6 @@ class TestMCPAdapterService:
             "/mcp/tool/call",
             json={
                 "tool_id": "test_tool",
-                "mandate_id": str(uuid4()),
                 "tool_args": {},
                 "metadata": {
                     "task_token_claims": {"sub": "spoofed"},
@@ -1100,7 +1089,6 @@ class TestMCPAdapterService:
             "/mcp/tool/call",
             json={
                 "tool_id": "test_tool",
-                "mandate_id": str(uuid4()),
                 "tool_args": {},
                 "metadata": {},
             },
@@ -1130,7 +1118,6 @@ class TestMCPAdapterService:
             "/mcp/tool/call",
             json={
                 "tool_id": "test_tool",
-                "mandate_id": str(uuid4()),
                 "tool_args": {},
                 "metadata": {
                     "provider_name": "anthropic",
@@ -1158,7 +1145,6 @@ class TestMCPAdapterService:
             "/mcp/tool/call",
             json={
                 "tool_id": "test_tool",
-                "mandate_id": str(uuid4()),
                 "tool_args": {},
                 "metadata": {},
             },
@@ -1187,7 +1173,6 @@ class TestMCPAdapterService:
             "/mcp/tool/call",
             json={
                 "tool_id": "test_tool",
-                "mandate_id": str(uuid4()),
                 "tool_args": {},
                 "metadata": {},
             },
@@ -1216,7 +1201,6 @@ class TestMCPAdapterService:
             "/mcp/tool/call",
             json={
                 "tool_id": "test_tool",
-                "mandate_id": str(uuid4()),
                 "tool_args": {},
                 "metadata": {
                     "resource_scope": "provider:endframe:resource:deployments",
@@ -1248,7 +1232,6 @@ class TestMCPAdapterService:
             "/mcp/tool/call",
             json={
                 "tool_id": "test_tool",
-                "mandate_id": str(uuid4()),
                 "tool_args": {},
                 "metadata": {
                     "action_scope": "provider:endframe:action:destroy",
@@ -1281,7 +1264,6 @@ class TestMCPAdapterService:
             "/mcp/tool/call",
             json={
                 "tool_id": "test_tool",
-                "mandate_id": str(uuid4()),
                 "tool_args": {},
                 "metadata": {},
             },
