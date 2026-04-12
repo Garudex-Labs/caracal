@@ -6,11 +6,17 @@ from .app import create_app
 from .baseline.scenario import load_scenario
 from .caracal.workflow import GovernedRunConfig
 from .demo_runtime import run_demo_workflow
+from .runtime_config import config_status
 
 
 def run_smoke_test() -> None:
     app = create_app()
     assert app.title == "Caracal Demo App"
+
+    status = config_status()
+    if not bool(status.get("configured")):
+        print("App smoke test skipped governed run: demo_config.json is not configured")
+        return
 
     result = run_demo_workflow(
         load_scenario(),
