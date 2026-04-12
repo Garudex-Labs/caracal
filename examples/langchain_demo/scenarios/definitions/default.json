@@ -1,0 +1,168 @@
+{
+  "scenario_id": "default",
+  "name": "Quarterly Business Review",
+  "description": "Standard quarterly review of finance and operations for TechCorp Industries",
+  "version": "1.0",
+  "company": {
+    "name": "TechCorp Industries",
+    "industry": "Technology",
+    "size": "500 employees",
+    "fiscal_year": "2026"
+  },
+  "context": {
+    "quarter": "Q4",
+    "month": "October",
+    "trigger_event": "Routine quarterly business review",
+    "additional_context": {
+      "review_type": "standard",
+      "stakeholders": ["CFO", "COO", "Engineering VP", "Marketing VP"]
+    }
+  },
+  "finance_data": {
+    "departments": [
+      {
+        "name": "Engineering",
+        "budget": 2000000,
+        "spent": 1950000,
+        "variance_percent": -2.5,
+        "status": "on_budget",
+        "notes": "Slightly under budget due to delayed hiring"
+      },
+      {
+        "name": "Marketing",
+        "budget": 800000,
+        "spent": 785000,
+        "variance_percent": -1.875,
+        "status": "on_budget",
+        "notes": "Campaign spending on track"
+      },
+      {
+        "name": "Sales",
+        "budget": 1200000,
+        "spent": 1180000,
+        "variance_percent": -1.67,
+        "status": "on_budget",
+        "notes": "Travel expenses lower than expected"
+      },
+      {
+        "name": "Operations",
+        "budget": 600000,
+        "spent": 595000,
+        "variance_percent": -0.83,
+        "status": "on_budget",
+        "notes": "Infrastructure costs stable"
+      }
+    ],
+    "pending_invoices": [
+      {
+        "invoice_id": "INV-2026-1001",
+        "vendor": "AWS",
+        "amount": 35000,
+        "due_date": "2026-11-15",
+        "department": "Engineering",
+        "status": "pending",
+        "notes": "Monthly cloud infrastructure"
+      },
+      {
+        "invoice_id": "INV-2026-1002",
+        "vendor": "Salesforce",
+        "amount": 12000,
+        "due_date": "2026-11-20",
+        "department": "Sales",
+        "status": "pending",
+        "notes": "Annual CRM subscription"
+      },
+      {
+        "invoice_id": "INV-2026-1003",
+        "vendor": "Google Ads",
+        "amount": 25000,
+        "due_date": "2026-11-10",
+        "department": "Marketing",
+        "status": "pending",
+        "notes": "Q4 advertising campaign"
+      }
+    ],
+    "total_budget": 4600000,
+    "total_spent": 4510000,
+    "additional_metrics": {
+      "burn_rate": 1503333,
+      "runway_months": 18,
+      "cash_reserves": 27000000
+    }
+  },
+  "ops_data": {
+    "services": [
+      {
+        "name": "API Gateway",
+        "status": "healthy",
+        "uptime_percent": 99.95,
+        "incidents_24h": 0,
+        "notes": "All systems operational"
+      },
+      {
+        "name": "Database Cluster",
+        "status": "healthy",
+        "uptime_percent": 99.99,
+        "incidents_24h": 0,
+        "notes": "Performance within normal parameters"
+      },
+      {
+        "name": "Web Application",
+        "status": "healthy",
+        "uptime_percent": 99.92,
+        "incidents_24h": 1,
+        "notes": "Minor CDN issue resolved quickly"
+      },
+      {
+        "name": "Background Jobs",
+        "status": "healthy",
+        "uptime_percent": 99.85,
+        "incidents_24h": 0,
+        "notes": "Queue processing normally"
+      }
+    ],
+    "incidents": [
+      {
+        "incident_id": "INC-2026-301",
+        "severity": "low",
+        "service": "Web Application",
+        "description": "Brief CDN cache invalidation delay",
+        "status": "resolved",
+        "created_at": "2026-10-15T08:30:00Z",
+        "resolved_at": "2026-10-15T09:15:00Z"
+      }
+    ],
+    "sla_compliance": 99.9,
+    "additional_metrics": {
+      "mean_time_to_resolve": 45,
+      "customer_satisfaction": 4.7,
+      "support_tickets_open": 12
+    }
+  },
+  "expected_outcomes": {
+    "finance_actions": [
+      "Approve pending invoices for payment",
+      "Continue current spending trajectory",
+      "Monitor Q4 hiring pipeline",
+      "Prepare Q1 budget planning"
+    ],
+    "ops_actions": [
+      "Maintain current service levels",
+      "Continue monitoring for anomalies",
+      "Schedule routine maintenance windows",
+      "Review incident response procedures"
+    ],
+    "executive_summary": "All departments operating within budget. Services healthy with excellent uptime. No immediate concerns. Continue monitoring and prepare for Q1 planning.",
+    "success_criteria": [
+      "All departments remain within 5% of budget",
+      "Service uptime above 99.9%",
+      "All critical invoices paid on time",
+      "No high-severity incidents"
+    ]
+  },
+  "metadata": {
+    "created_at": "2026-10-01",
+    "complexity": "low",
+    "estimated_duration_minutes": 15
+  }
+}
