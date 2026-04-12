@@ -25,13 +25,9 @@ classifiers = [
 ]
 dependencies = [
   "httpx>=0.25.0",
-  "requests>=2.31.0",
 ]
 
 [project.optional-dependencies]
-async = [
-  "aiohttp>=3.9.0",
-]
 core = [
   "caracal-core>=0.1.0",
 ]

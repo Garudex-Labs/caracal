@@ -864,24 +864,14 @@ def test_python_sdk_sync_uses_api_sync_path_only() -> None:
     authority_client = _REPO_ROOT / "sdk" / "python-sdk" / "src" / "caracal_sdk" / "authority_client.py"
     async_authority_client = _REPO_ROOT / "sdk" / "python-sdk" / "src" / "caracal_sdk" / "async_authority_client.py"
 
-    payload = "\n".join(
-        [
-            authority_client.read_text(encoding="utf-8"),
-            async_authority_client.read_text(encoding="utf-8"),
-        ]
-    )
-
-    assert "/api/sync" in payload
-    assert "/api/connection/sync" not in payload
+    assert not authority_client.exists()
+    assert not async_authority_client.exists()
 
 
 @pytest.mark.unit
 def test_async_python_sdk_has_no_legacy_sync_metadata_helper() -> None:
     async_authority_client = _REPO_ROOT / "sdk" / "python-sdk" / "src" / "caracal_sdk" / "async_authority_client.py"
-    payload = async_authority_client.read_text(encoding="utf-8")
-
-    assert "def sync_metadata(" not in payload
-    assert "metadata sync" not in payload.lower()
+    assert not async_authority_client.exists()
 
 
 @pytest.mark.unit
@@ -915,7 +905,7 @@ def test_node_sdk_dist_has_no_removed_sync_artifacts() -> None:
 
 @pytest.mark.unit
 def test_python_sdk_secrets_have_no_aws_fallback_markers() -> None:
-    secrets_adapter = _REPO_ROOT / "sdk" / "python-sdk" / "src" / "caracal_sdk" / "secrets.py"
+    secrets_adapter = _REPO_ROOT / "caracal" / "deployment" / "secrets_adapter.py"
     payload = secrets_adapter.read_text(encoding="utf-8")
 
     assert "boto3" not in payload
@@ -1119,8 +1109,6 @@ def test_python_sdk_public_surface_remains_minimal_and_explicit() -> None:
         "__version__",
         "CaracalClient",
         "CaracalBuilder",
-        "AuthorityClient",
-        "AsyncAuthorityClient",
         "SDKConfigurationError",
         "ContextManager",
         "ScopeContext",
@@ -1134,8 +1122,6 @@ def test_python_sdk_public_surface_remains_minimal_and_explicit() -> None:
         "GatewayAdapter",
         "GatewayAdapterError",
         "build_gateway_adapter",
-        "management",
-        "migration",
         "ais",
     }
 
@@ -1235,28 +1221,20 @@ def test_sdk_exports_include_management_migration_and_ais_groups() -> None:
     python_payload = python_sdk_init.read_text(encoding="utf-8")
     node_payload = node_sdk_index.read_text(encoding="utf-8")
 
-    assert 'import caracal_sdk.management as management' in python_payload
-    assert 'import caracal_sdk.migration as migration' in python_payload
+    assert 'import caracal_sdk.management as management' not in python_payload
+    assert 'import caracal_sdk.migration as migration' not in python_payload
     assert 'import caracal_sdk.ais as ais' in python_payload
-    assert "export * as management from './management'" in node_payload
-    assert "export * as migration from './migration'" in node_payload
+    assert "export * as management from './management'" not in node_payload
+    assert "export * as migration from './migration'" not in node_payload
     assert "export * as ais from './ais'" in node_payload
 
 
 @pytest.mark.unit
 def test_sdk_clients_resolve_ais_routing_when_socket_path_is_configured() -> None:
     python_client = _REPO_ROOT / "sdk" / "python-sdk" / "src" / "caracal_sdk" / "client.py"
-    python_authority_client = _REPO_ROOT / "sdk" / "python-sdk" / "src" / "caracal_sdk" / "authority_client.py"
-    python_async_authority_client = _REPO_ROOT / "sdk" / "python-sdk" / "src" / "caracal_sdk" / "async_authority_client.py"
     node_client = _REPO_ROOT / "sdk" / "node-sdk" / "src" / "client.ts"
 
-    combined_python = "\n".join(
-        [
-            python_client.read_text(encoding="utf-8"),
-            python_authority_client.read_text(encoding="utf-8"),
-            python_async_authority_client.read_text(encoding="utf-8"),
-        ]
-    )
+    combined_python = python_client.read_text(encoding="utf-8")
     node_payload = node_client.read_text(encoding="utf-8")
 
     assert "resolve_sdk_base_url" in combined_python

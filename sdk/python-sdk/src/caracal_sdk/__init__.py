@@ -22,14 +22,11 @@ __version__ = get_version()
 # -- Core API (primary) -------------------------------------------------
 
 from caracal_sdk.client import CaracalClient, CaracalBuilder, SDKConfigurationError
-from caracal_sdk.authority_client import AuthorityClient
 from caracal_sdk.context import ContextManager, ScopeContext
 from caracal_sdk.hooks import HookRegistry, SDKRequest as _SDKRequest, SDKResponse as _SDKResponse
 from caracal_sdk.extensions import CaracalExtension
 from caracal_sdk.tools import ToolOperations
 from caracal_sdk.gateway import GatewayAdapter, GatewayAdapterError, build_gateway_adapter
-import caracal_sdk.management as management
-import caracal_sdk.migration as migration
 import caracal_sdk.ais as ais
 from caracal_sdk.adapters import (
     BaseAdapter,
@@ -45,8 +42,6 @@ __all__ = [
     # client
     "CaracalClient",
     "CaracalBuilder",
-    "AuthorityClient",
-    "AsyncAuthorityClient",
     "SDKConfigurationError",
     # context
     "ContextManager",
@@ -65,23 +60,5 @@ __all__ = [
     "GatewayAdapterError",
     "build_gateway_adapter",
     # grouped surfaces
-    "management",
-    "migration",
     "ais",
 ]
-
-
-def __getattr__(name: str):
-    if name == "AsyncAuthorityClient":
-        try:
-            from caracal_sdk.async_authority_client import AsyncAuthorityClient
-        except ModuleNotFoundError as exc:
-            if exc.name == "aiohttp":
-                raise ImportError(
-                    "AsyncAuthorityClient requires optional dependency 'aiohttp'. "
-                    "Install with: pip install 'caracal-sdk[async]'"
-                ) from exc
-            raise
-
-        return AsyncAuthorityClient
-    raise AttributeError(f"module 'caracal_sdk' has no attribute {name!r}")
