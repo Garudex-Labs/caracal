@@ -188,7 +188,6 @@ def _build_service_app(
         async def _local_tool(principal_id: str, **tool_args):
             return {
                 "principal_id": principal_id,
-                "resolved_mandate_id": tool_args.get("resolved_mandate_id"),
                 "tool_args": tool_args,
                 "mode": "local",
             }
@@ -215,7 +214,6 @@ def _build_service_app(
     return {
         "app": service.app,
         "tool_id": tool_id,
-        "resolved_mandate_id": str(authority_evaluator._mandate_id),
         "tool_type": normalized_tool_type,
         "authority_evaluator": authority_evaluator,
         "metering_collector": metering_collector,
@@ -319,8 +317,6 @@ async def test_sdk_tool_call_local_and_forward_modes_preserve_authorization_and_
     assert local_events[0].principal_id == forward_events[0].principal_id
     assert local_events[0].resource_type == forward_events[0].resource_type
     assert local_events[0].metadata["tool_name"] == forward_events[0].metadata["tool_name"]
-    assert local_events[0].metadata["resolved_mandate_id"] == local_fixture["resolved_mandate_id"]
-    assert forward_events[0].metadata["resolved_mandate_id"] == forward_fixture["resolved_mandate_id"]
     assert local_events[0].metadata["mcp_context"]["token_subject"] == forward_events[0].metadata["mcp_context"]["token_subject"]
 
     local_scope._adapter.close()
@@ -356,7 +352,6 @@ async def test_sdk_tool_call_forward_logic_mode_preserves_authorization_and_ledg
     assert len(auth_records) == 1
     assert len(events) == 1
     assert events[0].metadata["tool_type"] == "logic"
-    assert events[0].metadata["resolved_mandate_id"] == fixture["resolved_mandate_id"]
 
     scope._adapter.close()
 
