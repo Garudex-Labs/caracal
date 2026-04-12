@@ -19,7 +19,6 @@ client = CaracalClient(api_key="sk_test_123")
 # Route tool execution through Caracal runtime
 result = await client.tools.call(
     tool_id="provider:github:resource:issues:action:create",
-    mandate_id="mandate_123",
     tool_args={"title": "Investigate regression"},
 )
 ```
@@ -40,7 +39,6 @@ ctx = client.context.checkout(
 # Tool calls automatically include scope headers
 result = await ctx.tools.call(
     tool_id="provider:slack:resource:messages:action:post",
-    mandate_id="mandate_123",
     tool_args={"channel": "alerts", "text": "Runtime check complete"},
 )
 
@@ -87,6 +85,7 @@ The SDK intentionally does not expose control-plane CRUD APIs.
 - No principal CRUD operations.
 - No mandate or delegation lifecycle operations.
 - No policy or ledger management APIs.
+- No caller-specified mandate or policy selection in tool calls.
 
 Control-plane ownership remains in Caracal runtime, broker, and enterprise gateway layers.
 
@@ -137,7 +136,6 @@ try:
     client = CaracalClient(api_key="sk_test_123")
     result = await client.tools.call(
         tool_id="provider:demo:resource:jobs:action:run",
-        mandate_id="m_1",
     )
 except SDKConfigurationError as e:
     print(f"Config error: {e}")

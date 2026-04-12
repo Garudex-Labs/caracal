@@ -70,7 +70,6 @@ class ToolOperations:
         self,
         *,
         tool_id: str,
-        mandate_id: str,
         tool_args: Optional[Dict[str, Any]] = None,
         metadata: Optional[Dict[str, Any]] = None,
         correlation_id: Optional[str] = None,
@@ -78,16 +77,13 @@ class ToolOperations:
         """Call a registered tool through the canonical MCP service endpoint.
 
         Contract version: ``v1`` payload with keys
-        ``{tool_id, mandate_id, tool_args, metadata}``.
+        ``{tool_id, tool_args, metadata}``.
 
         Metadata is limited to correlation keys only.
         """
         normalized_tool_id = str(tool_id or "").strip()
-        normalized_mandate_id = str(mandate_id or "").strip()
         if not normalized_tool_id:
             raise SDKConfigurationError("tool_id is required")
-        if not normalized_mandate_id:
-            raise SDKConfigurationError("mandate_id is required")
 
         if metadata is not None and not isinstance(metadata, dict):
             raise SDKConfigurationError("metadata must be a dictionary")
@@ -135,7 +131,6 @@ class ToolOperations:
             "/mcp/tool/call",
             body={
                 "tool_id": normalized_tool_id,
-                "mandate_id": normalized_mandate_id,
                 "tool_args": payload_args,
                 "metadata": payload_metadata,
             },

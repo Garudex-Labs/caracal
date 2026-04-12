@@ -22,7 +22,7 @@ from caracal.mcp.service import (
 from caracal.mcp.adapter import MCPAdapter, MCPResult, MCPResource
 from caracal.core.authority import AuthorityEvaluator
 from caracal.core.metering import MeteringCollector
-from caracal.exceptions import CaracalError, MCPUnknownMandateError, MCPUnknownToolError
+from caracal.exceptions import CaracalError, MCPUnknownToolError
 
 
 @pytest.mark.unit
@@ -98,13 +98,11 @@ class TestToolCallRequest:
         """Test ToolCallRequest creation."""
         request = ToolCallRequest(
             tool_id="test_tool",
-            mandate_id=str(uuid4()),
             tool_args={"arg": "value"},
             metadata={"key": "value"}
         )
 
         assert request.tool_id == "test_tool"
-        assert request.mandate_id
         assert request.tool_args["arg"] == "value"
         assert request.metadata["key"] == "value"
     
@@ -112,7 +110,6 @@ class TestToolCallRequest:
         """Test ToolCallRequest with default values."""
         request = ToolCallRequest(
             tool_id="test_tool",
-            mandate_id=str(uuid4()),
         )
         
         assert request.tool_args == {}
@@ -201,11 +198,6 @@ class TestMCPAdapterService:
         self.mock_mcp_adapter.get_registered_tool.return_value = SimpleNamespace(
             tool_id="test_tool",
             active=True,
-        )
-        self.mock_authority_evaluator._get_mandate_with_cache.return_value = SimpleNamespace(
-            revoked=False,
-            valid_until=None,
-            subject_id=self.actor_principal_id,
         )
         
         # Create server config
@@ -834,10 +826,14 @@ class TestMCPAdapterService:
         assert response.status_code == 401
         assert "authorization" in response.json()["detail"].lower()
 
-    def test_tool_call_endpoint_invalid_mandate_id(self):
-        """Test tool call endpoint rejects malformed mandate IDs before adapter call."""
+    def test_tool_call_endpoint_ignores_legacy_mandate_id_field(self):
+        """Legacy mandate_id payload field should be ignored by the service contract."""
         from fastapi.testclient import TestClient
         client = TestClient(self.service.app)
+
+        self.mock_mcp_adapter.intercept_tool_call = AsyncMock(
+            return_value=MCPResult(success=True, result={"ok": True}, error=None)
+        )
 
         request_data = {
             "tool_id": "test_tool",
@@ -852,13 +848,18 @@ class TestMCPAdapterService:
             headers={"Authorization": "Bearer test-token"},
         )
 
-        assert response.status_code == 400
-        assert "mandate_id" in response.json()["detail"].lower()
+        assert response.status_code == 200
+        mcp_context = self.mock_mcp_adapter.intercept_tool_call.call_args.kwargs["mcp_context"]
+        assert mcp_context.get("mandate_id") is None
 
-    def test_tool_call_endpoint_missing_mandate_id(self):
-        """Test tool call endpoint rejects missing mandate ID payload."""
+    def test_tool_call_endpoint_without_mandate_id_payload(self):
+        """Mandate-free tool call payloads should be accepted."""
         from fastapi.testclient import TestClient
         client = TestClient(self.service.app)
+
+        self.mock_mcp_adapter.intercept_tool_call = AsyncMock(
+            return_value=MCPResult(success=True, result={"ok": True}, error=None)
+        )
 
         request_data = {
             "tool_id": "test_tool",
@@ -872,8 +873,8 @@ class TestMCPAdapterService:
             headers={"Authorization": "Bearer test-token"},
         )
 
-        assert response.status_code == 422
-        assert "mandate_id" in str(response.json()).lower()
+        assert response.status_code == 200
+        assert response.json()["success"] is True
 
     def test_tool_call_endpoint_unknown_tool_id(self):
         """Service layer should reject unknown tool IDs before adapter invocation."""
@@ -1100,7 +1101,7 @@ class TestMCPAdapterService:
             return_value=MCPResult(
                 success=False,
                 result=None,
-                error="Authority denied: Missing mandate_id",
+                error="Authority denied: No applicable mandate found for principal",
             )
         )
 
@@ -1212,30 +1213,3 @@ class TestMCPAdapterService:
         assert response.status_code == 400
         assert "inactive" in response.json()["detail"].lower()
 
-    def test_tool_call_endpoint_unknown_mandate_id(self):
-        """Service layer should reject unknown mandates before adapter invocation."""
-        from fastapi.testclient import TestClient
-        client = TestClient(self.service.app)
-
-        self.mock_authority_evaluator._get_mandate_with_cache.return_value = None
-
-        response = client.post(
-            "/mcp/tool/call",
-            json={
-                "tool_id": "test_tool",
-                "mandate_id": str(uuid4()),
-                "tool_args": {},
-                "metadata": {},
-            },
-            headers={"Authorization": "Bearer test-token"},
-        )
-
-        assert response.status_code == 404
-        assert "unknown mandate_id" in response.json()["detail"].lower()
-
-    def test_require_active_mandate_raises_unknown_mandate_error_class(self):
-        """Unknown mandates should raise deterministic MCPUnknownMandateError."""
-        self.mock_authority_evaluator._get_mandate_with_cache.return_value = None
-
-        with pytest.raises(MCPUnknownMandateError, match="Unknown mandate_id"):
-            self.service._require_active_mandate(str(uuid4()))
