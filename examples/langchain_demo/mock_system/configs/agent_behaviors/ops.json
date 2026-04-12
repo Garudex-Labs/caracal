@@ -1,0 +1,13 @@
+{
+  "version": "1.0",
+  "agent_id": "ops",
+  "description": "Operations agent behavior configuration",
+  "delegation_strategy": "sequential",
+  "sub_agents": [],
+  "max_iterations": 5,
+  "behavior": {
+    "response_priority": "immediate",
+    "monitoring_frequency": "continuous",
+    "escalation_speed": "fast"
+  }
+}

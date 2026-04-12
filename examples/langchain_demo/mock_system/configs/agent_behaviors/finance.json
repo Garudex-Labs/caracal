@@ -1,0 +1,13 @@
+{
+  "version": "1.0",
+  "agent_id": "finance",
+  "description": "Finance agent behavior configuration",
+  "delegation_strategy": "sequential",
+  "sub_agents": ["analyst"],
+  "max_iterations": 5,
+  "behavior": {
+    "analysis_depth": "detailed",
+    "risk_tolerance": "conservative",
+    "reporting_style": "comprehensive"
+  }
+}
