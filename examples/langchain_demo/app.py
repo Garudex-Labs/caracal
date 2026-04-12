@@ -7,21 +7,7 @@ import asyncio
 import json
 from pathlib import Path
 
-from fastapi import FastAPI
-from fastapi.responses import HTMLResponse, JSONResponse
-from pydantic import BaseModel, Field
-
-from .baseline.scenario import load_scenario
-from .caracal.workflow import GovernedRunConfig
-from .demo_runtime import run_demo_workflow_async
-
-
-class DemoRunRequest(BaseModel):
-    mode: str = Field(default="mock", pattern="^(mock|real)$")
-    provider_strategy: str = Field(default="mixed", pattern="^(mixed|openai|gemini)$")
-    include_revocation_check: bool = True
-
-
+from fastapi import FastAPI, HTTPException
 UI_HTML = """<!doctype html>
 <html lang="en">
 <head>
@@ -30,289 +16,243 @@ UI_HTML = """<!doctype html>
   <title>Caracal Demo App</title>
   <style>
     :root {
-      --bg: #f5efe3;
-      --panel: rgba(255, 252, 246, 0.86);
-      --panel-strong: #fffaf0;
-      --ink: #1e1b18;
-      --muted: #655d52;
-      --accent: #a34722;
-      --accent-soft: #f0d8c8;
-      --good: #1d6b4f;
-      --warn: #a36213;
-      --line: rgba(74, 55, 35, 0.14);
-      --shadow: 0 20px 60px rgba(77, 50, 22, 0.12);
+      --bg: #f6f7f8;
+      --surface: #ffffff;
+      --fg: #0f1720;
+      --muted: #6b7280;
+      --accent: #0b61ff;
+      --good: #059669;
+      --warn: #b45309;
+      --border: #e6e9ef;
+      --radius: 4px;
+      --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, "Roboto Mono", monospace;
+      --ui-font: Inter, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;
     }
 
     * { box-sizing: border-box; }
+    html,body { height: 100%; }
     body {
       margin: 0;
-      font-family: "Iowan Old Style", "Palatino Linotype", "Book Antiqua", Palatino, serif;
-      color: var(--ink);
-      background:
-        radial-gradient(circle at top left, rgba(255,255,255,0.75), transparent 28%),
-        radial-gradient(circle at bottom right, rgba(163,71,34,0.12), transparent 20%),
-        linear-gradient(180deg, #efe2cf 0%, #f7f2e9 100%);
-      min-height: 100vh;
+      font-family: var(--ui-font);
+      color: var(--fg);
+      background: var(--bg);
+      -webkit-font-smoothing:antialiased;
+      -moz-osx-font-smoothing:grayscale;
     }
 
-    .shell {
-      max-width: 1280px;
-      margin: 0 auto;
-      padding: 24px;
+    .container {
+      max-width: 1100px;
+      margin: 28px auto;
+      padding: 18px;
     }
 
-    .hero {
-      padding: 28px;
-      border: 1px solid var(--line);
-      border-radius: 28px;
-      background: var(--panel);
-      box-shadow: var(--shadow);
-      backdrop-filter: blur(10px);
-    }
-
-    .eyebrow {
-      text-transform: uppercase;
-      letter-spacing: 0.18em;
-      font-size: 12px;
-      color: var(--accent);
-      margin-bottom: 10px;
-    }
-
-    h1 {
-      margin: 0 0 12px;
-      font-size: clamp(2rem, 5vw, 4rem);
-      line-height: 0.95;
-    }
-
-    .subhead {
-      max-width: 860px;
-      color: var(--muted);
-      font-size: 1.05rem;
-      line-height: 1.5;
-    }
-
-    .grid {
-      display: grid;
-      grid-template-columns: 340px minmax(0, 1fr);
-      gap: 18px;
-      margin-top: 18px;
-    }
-
-    .panel {
-      border: 1px solid var(--line);
-      border-radius: 24px;
-      background: var(--panel);
-      padding: 20px;
-      box-shadow: var(--shadow);
-    }
-
-    .panel h2, .panel h3 {
-      margin: 0 0 12px;
-      font-size: 1rem;
-      letter-spacing: 0.04em;
-      text-transform: uppercase;
-      color: var(--muted);
-    }
-
-    label {
-      display: block;
-      font-size: 0.9rem;
-      color: var(--muted);
-      margin-bottom: 8px;
-    }
-
-    select, button {
-      width: 100%;
-      border-radius: 14px;
-      border: 1px solid var(--line);
-      padding: 12px 14px;
-      font: inherit;
-      background: var(--panel-strong);
-      color: var(--ink);
-      margin-bottom: 12px;
-    }
-
-    button {
-      background: linear-gradient(135deg, #9f4523, #c96b39);
-      color: #fff;
-      border: none;
-      cursor: pointer;
-      font-weight: 700;
-      transition: transform 160ms ease, box-shadow 160ms ease;
-    }
-
-    button:hover { transform: translateY(-1px); box-shadow: 0 10px 20px rgba(159,69,35,0.22); }
-    button:disabled { opacity: 0.6; cursor: wait; transform: none; }
-
-    .checkbox {
+    /* Pre-demo centered entry */
+    .pre-demo {
       display: flex;
       align-items: center;
-      gap: 10px;
-      margin: 8px 0 16px;
-      color: var(--muted);
+      justify-content: center;
+      min-height: 60vh;
     }
 
-    .checkbox input { width: auto; margin: 0; }
-
-    .status {
-      min-height: 22px;
-      color: var(--accent);
-      font-size: 0.92rem;
+    .pre-card {
+      width: 680px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 20px 24px;
     }
 
-    .cards {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-      gap: 12px;
-      margin-bottom: 16px;
-    }
-
-    .card {
-      background: var(--panel-strong);
-      border: 1px solid var(--line);
-      border-radius: 18px;
-      padding: 14px;
-      animation: rise 260ms ease;
-    }
-
-    .card .k {
-      display: block;
-      color: var(--muted);
-      font-size: 0.82rem;
-      margin-bottom: 8px;
-      text-transform: uppercase;
-      letter-spacing: 0.04em;
-    }
-
-    .card .v {
-      font-size: 1.1rem;
-      line-height: 1.35;
-    }
-
-    .section {
-      margin-top: 16px;
-      border-top: 1px solid var(--line);
-      padding-top: 16px;
-    }
-
-    .table {
-      width: 100%;
-      border-collapse: collapse;
-      font-size: 0.93rem;
-    }
-
-    .table th, .table td {
-      text-align: left;
-      padding: 10px 8px;
-      border-bottom: 1px solid var(--line);
-      vertical-align: top;
-    }
-
-    .table th {
-      color: var(--muted);
-      text-transform: uppercase;
-      letter-spacing: 0.04em;
-      font-size: 0.78rem;
-    }
-
-    .pill {
-      display: inline-block;
-      border-radius: 999px;
-      padding: 4px 10px;
-      font-size: 0.78rem;
+    .pre-card h1 {
+      margin: 0 0 8px;
+      font-size: 20px;
       font-weight: 700;
-      background: var(--accent-soft);
-      color: var(--accent);
+      letter-spacing: -0.01em;
     }
 
-    .pill.good { background: rgba(29,107,79,0.12); color: var(--good); }
-    .pill.warn { background: rgba(163,98,19,0.12); color: var(--warn); }
+    .muted { color: var(--muted); font-size: 14px; line-height:1.45; }
 
-    pre {
-      margin: 0;
+    .pre-list { margin: 12px 0 18px; padding-left: 18px; color: var(--muted); }
+
+    .pre-actions { display:flex; gap:12px; align-items:center; margin-top:12px; }
+
+    .btn {
+      display:inline-block;
+      padding:8px 12px;
+      border-radius: var(--radius);
+      border: 1px solid var(--border);
+      background: transparent;
+      font-weight: 600;
+      cursor: pointer;
+    }
+
+    .btn[disabled] { opacity: 0.6; cursor: not-allowed; }
+
+    .btn-primary { background: var(--accent); color: #fff; border-color: transparent; }
+
+    /* Main layout */
+    .main-grid { display: grid; grid-template-columns: 320px 1fr; gap: 18px; margin-top: 18px; }
+
+    .panel {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
       padding: 14px;
-      overflow: auto;
-      border-radius: 18px;
-      background: #1d1a17;
-      color: #f8f1e7;
-      font-family: "IBM Plex Mono", "SFMono-Regular", Consolas, monospace;
-      font-size: 0.83rem;
-      line-height: 1.45;
     }
 
-    .empty {
-      color: var(--muted);
-      padding: 24px 4px;
+    .controls h2 { margin: 0 0 10px; font-size: 13px; color: var(--muted); text-transform: uppercase; letter-spacing:0.06em; }
+
+    .group { margin-bottom: 12px; }
+
+    label { display:block; font-size:13px; color:var(--muted); margin-bottom:6px; }
+
+    select, input[type="checkbox"], input[type="text"] { font: inherit; }
+
+    select, .control-input {
+      width:100%; padding:8px 10px; border:1px solid var(--border); border-radius:var(--radius); background:transparent; font-size:13px; color:var(--fg);
     }
 
-    @keyframes rise {
-      from { opacity: 0; transform: translateY(8px); }
-      to { opacity: 1; transform: translateY(0); }
-    }
+    .checkbox-row { display:flex; align-items:center; gap:10px; color:var(--muted); }
 
-    @media (max-width: 980px) {
-      .grid { grid-template-columns: 1fr; }
-    }
+    .primary-row { margin-top: 8px; display:flex; gap:10px; align-items:center; }
+
+    .status { display:flex; align-items:center; gap:10px; font-size:13px; color:var(--muted); }
+    .dot { width:10px; height:10px; border-radius:2px; background:#9ca3af; display:inline-block; }
+    .dot.running { background: #f59e0b; }
+    .dot.success { background: var(--good); }
+    .dot.error { background: #ef4444; }
+
+    /* Minimal rows for key/value summary */
+    .cards { display:flex; flex-direction:column; gap:6px; margin-bottom:10px; }
+    .card { display:flex; justify-content:space-between; padding:8px 6px; border-bottom:1px solid var(--border); }
+    .card .k { color:var(--muted); font-size:12px; text-transform:uppercase; letter-spacing:0.06em; }
+    .card .v { font-weight:600; }
+
+    /* Tables kept but simplified */
+    .table { width:100%; border-collapse:collapse; font-size:13px; }
+    .table th, .table td { text-align:left; padding:8px 6px; border-bottom:1px solid var(--border); }
+    .table th { color:var(--muted); font-size:12px; text-transform:uppercase; }
+
+    .pill { display:inline-block; padding:3px 8px; border-radius:6px; font-size:12px; font-weight:700; color:var(--fg); background:transparent; border:1px solid var(--border); }
+    .pill.good { color:var(--good); border-color: rgba(5,150,105,0.08); }
+    .pill.warn { color:var(--warn); border-color: rgba(180,83,9,0.08); }
+
+    /* Output console */
+    .output { background:#0b0f14; color:#e6eefb; padding:12px; border-radius:var(--radius); font-family:var(--mono); font-size:13px; min-height:360px; overflow:auto; }
+
+    pre { margin:0; font-family:var(--mono); font-size:13px; line-height:1.45; }
+
+    .empty { color:var(--muted); padding:18px 4px; }
+
+    @media (max-width: 900px) { .main-grid { grid-template-columns: 1fr; } .pre-card{width:92vw;} }
   </style>
 </head>
 <body>
-  <div class="shell">
-    <section class="hero">
-      <div class="eyebrow">Caracal Demo App</div>
-      <h1>Authority, provider routing, delegation, and enforcement in one local run.</h1>
-      <p class="subhead">
-        This app runs a realistic AI employee workflow through a real Caracal MCP service path.
-        In mock mode, upstream providers are simulated but Caracal is still live. In real mode,
-        the same governed workflow calls actual providers if your keys are set.
-      </p>
-    </section>
+  <div class="container">
+    <!-- Pre-demo entry -->
+    <div id="pre-demo" class="pre-demo">
+      <div class="pre-card" role="dialog" aria-labelledby="pre-title">
+        <h1 id="pre-title">Caracal Demo — Local Governance Showcase</h1>
+        <p class="muted">A compact demo that walks through authority, provider routing, delegation, and enforcement. You will see a step-by-step execution trace, provider routing decisions, and any enforcement or revocation outcomes.</p>
 
-    <div class="grid">
-      <aside class="panel">
-        <h2>Run Controls</h2>
-        <label for="mode">Execution mode</label>
-        <select id="mode">
-          <option value="mock">Mock mode</option>
-          <option value="real">Real mode</option>
-        </select>
+        <ul class="pre-list">
+          <li><strong>Authority</strong>: who can request actions and with what mandate.</li>
+          <li><strong>Provider routing</strong>: which provider (mock or real) handles a tool call.</li>
+          <li><strong>Delegation & enforcement</strong>: how mandates delegate actions and how revocation is enforced.</li>
+        </ul>
 
-        <label for="strategy">Provider mapping</label>
-        <select id="strategy">
-          <option value="mixed">Mixed (finance OpenAI, ops Gemini)</option>
-          <option value="openai">OpenAI only</option>
-          <option value="gemini">Gemini only</option>
-        </select>
+        <div style="display:flex;align-items:center;gap:12px;">
+          <label style="display:flex;gap:8px;align-items:center;">
+            <input id="accept-demo" type="checkbox" />
+            <span class="muted">I understand this is a demo environment</span>
+          </label>
+        </div>
 
-        <label class="checkbox">
-          <input id="revocation" type="checkbox" checked />
-          <span>Run the revocation check</span>
-        </label>
+        <div class="pre-actions">
+          <button id="enter-demo" class="btn btn-primary" disabled>Enter Demo</button>
+        </div>
+      </div>
+    </div>
 
-        <button id="run">Run governed workflow</button>
-        <div class="status" id="status"></div>
+    <!-- Main app (hidden until entry) -->
+    <div id="main-app" style="display:none;">
+      <header style="display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin-bottom:8px;">
+        <div>
+          <div style="color:var(--muted);font-size:12px;text-transform:uppercase;letter-spacing:0.08em;">Caracal Demo</div>
+          <h1 style="margin:6px 0 0;font-size:18px;font-weight:700;">Authority, provider routing, delegation, enforcement</h1>
+          <div class="muted" style="margin-top:8px;">Run the demo to see a trace of the governed workflow and its enforcement decisions.</div>
+        </div>
+        <div style="text-align:right;color:var(--muted);font-size:12px;">Developer-focused demo • Local only</div>
+      </header>
 
-        <div class="section">
-          <h3>What To Watch</h3>
-          <div class="empty">
-            Look for per-role identity, delegated mandates, provider-specific tool routing,
-            local logic execution, and the denied post-revocation finance call.
+      <div class="main-grid">
+        <aside class="panel controls">
+          <h2>Run Controls</h2>
+
+          <div class="group">
+            <label for="mode">Execution</label>
+            <select id="mode" class="control-input">
+              <option value="mock">Mock mode</option>
+              <option value="real">Real mode</option>
+            </select>
           </div>
-        </div>
-      </aside>
 
-      <main class="panel">
-        <h2>Run Output</h2>
-        <div id="result">
-          <div class="empty">Run the demo to inspect the workflow.</div>
-        </div>
-      </main>
+          <div class="group">
+            <label for="strategy">Providers</label>
+            <select id="strategy" class="control-input">
+              <option value="mixed">Mixed (finance OpenAI, ops Gemini)</option>
+              <option value="openai">OpenAI only</option>
+              <option value="gemini">Gemini only</option>
+            </select>
+          </div>
+
+          <div class="group">
+            <label>Security</label>
+            <div class="checkbox-row">
+              <label class="checkbox-row"><input id="revocation" type="checkbox" checked /> <span class="muted">Run revocation check</span></label>
+            </div>
+          </div>
+
+          <div class="primary-row">
+            <button id="run" class="btn btn-primary" style="flex:1;">Run workflow</button>
+          </div>
+
+          <div style="margin-top:12px; display:flex;align-items:center;justify-content:space-between;">
+            <div class="status"><span id="status-dot" class="dot"></span><span id="status">Idle</span></div>
+            <div style="font-size:12px;color:var(--muted);">&nbsp;</div>
+          </div>
+
+          <div style="margin-top:14px;border-top:1px solid var(--border);padding-top:12px;">
+            <h3 style="margin:0 0 10px;font-size:12px;color:var(--muted);text-transform:uppercase;">Setup Status</h3>
+            <div id="setup-status" class="muted">Not checked yet.</div>
+          </div>
+
+          <div style="margin-top:12px;border-top:1px solid var(--border);padding-top:12px;">
+            <h3 style="margin:0 0 10px;font-size:12px;color:var(--muted);text-transform:uppercase;">What to watch</h3>
+            <div class="muted">Per-role identity, delegated mandates, provider routing, local execution, and post-revocation denial.</div>
+          </div>
+        </aside>
+
+        <main class="panel">
+          <h2 style="margin:0 0 10px;font-size:13px;color:var(--muted);text-transform:uppercase;">Run Output</h2>
+          <div id="result" class="output">
+            <div class="empty">Run the demo to see the execution flow and logs here.</div>
+          </div>
+        </main>
+      </div>
     </div>
   </div>
 
   <script>
     const statusEl = document.getElementById("status");
+    const statusDot = document.getElementById("status-dot");
     const resultEl = document.getElementById("result");
     const runBtn = document.getElementById("run");
+    const setupStatusEl = document.getElementById("setup-status");
+
+    const preDemo = document.getElementById("pre-demo");
+    const mainApp = document.getElementById("main-app");
+    const acceptBox = document.getElementById("accept-demo");
+    const enterBtn = document.getElementById("enter-demo");
 
     function esc(value) {
       return String(value ?? "")
@@ -321,15 +261,24 @@ UI_HTML = """<!doctype html>
         .replaceAll(">", "&gt;");
     }
 
+    function setStatus(state, text) {
+      if (statusDot) {
+        statusDot.className = 'dot ' + (state || '');
+      }
+      if (statusEl) {
+        statusEl.textContent = text || '';
+      }
+    }
+
     function renderCards(result) {
       const acceptance = result.acceptance?.passed ? "Accepted" : "Review needed";
       const revocation = result.revocation?.denial_captured ? "Denied after revoke" : "No denial recorded";
       return `
         <div class="cards">
-          <div class="card"><span class="k">Mode</span><div class="v">${esc(result.mode)}</div></div>
-          <div class="card"><span class="k">Provider strategy</span><div class="v">${esc(result.provider_strategy)}</div></div>
-          <div class="card"><span class="k">Acceptance</span><div class="v">${esc(acceptance)}</div></div>
-          <div class="card"><span class="k">Revocation</span><div class="v">${esc(revocation)}</div></div>
+          <div class="card"><span class="k">Mode</span><span class="v">${esc(result.mode)}</span></div>
+          <div class="card"><span class="k">Provider</span><span class="v">${esc(result.provider_strategy)}</span></div>
+          <div class="card"><span class="k">Acceptance</span><span class="v">${esc(acceptance)}</span></div>
+          <div class="card"><span class="k">Revocation</span><span class="v">${esc(revocation)}</span></div>
         </div>
       `;
     }
@@ -344,8 +293,8 @@ UI_HTML = """<!doctype html>
         </tr>
       `).join("");
       return `
-        <div class="section">
-          <h3>Identity And Delegation</h3>
+        <div style="margin-top:12px;">
+          <h3 style="margin:0 0 8px;font-size:13px;color:var(--muted);text-transform:uppercase;">Identity & Delegation</h3>
           <table class="table">
             <thead><tr><th>Role</th><th>Principal</th><th>Mandate</th><th>Token</th></tr></thead>
             <tbody>${rows}</tbody>
@@ -365,8 +314,8 @@ UI_HTML = """<!doctype html>
         </tr>
       `).join("");
       return `
-        <div class="section">
-          <h3>Timeline</h3>
+        <div style="margin-top:12px;">
+          <h3 style="margin:0 0 8px;font-size:13px;color:var(--muted);text-transform:uppercase;">Timeline</h3>
           <table class="table">
             <thead><tr><th>Step</th><th>Role</th><th>Tool / Event</th><th>Route</th><th>Output excerpt</th></tr></thead>
             <tbody>${rows}</tbody>
@@ -386,8 +335,8 @@ UI_HTML = """<!doctype html>
         </tr>
       `).join("");
       return `
-        <div class="section">
-          <h3>Authority Checks</h3>
+        <div style="margin-top:12px;">
+          <h3 style="margin:0 0 8px;font-size:13px;color:var(--muted);text-transform:uppercase;">Authority Checks</h3>
           <table class="table">
             <thead><tr><th>Caller</th><th>Resource</th><th>Action</th><th>Decision</th><th>Reason</th></tr></thead>
             <tbody>${rows}</tbody>
@@ -396,28 +345,64 @@ UI_HTML = """<!doctype html>
       `;
     }
 
+    function renderProviderUsage(result) {
+      const rows = (result.provider_usage || []).map((entry) => `
+        <tr>
+          <td>${esc(entry.provider_name)}</td>
+          <td>${esc(entry.call_count)}</td>
+        </tr>
+      `).join("");
+      return `
+        <div style="margin-top:12px;">
+          <h3 style="margin:0 0 8px;font-size:13px;color:var(--muted);text-transform:uppercase;">Provider Usage</h3>
+          <table class="table">
+            <thead><tr><th>Provider</th><th>Calls</th></tr></thead>
+            <tbody>${rows}</tbody>
+          </table>
+        </div>
+      `;
+    }
+
     function renderJson(result) {
       return `
-        <div class="section">
-          <h3>Raw Artifact</h3>
+        <div style="margin-top:12px;">
+          <h3 style="margin:0 0 8px;font-size:13px;color:var(--muted);text-transform:uppercase;">Raw Artifact</h3>
           <pre>${esc(JSON.stringify(result, null, 2))}</pre>
         </div>
       `;
     }
 
     function renderResult(result) {
-      resultEl.innerHTML =
-        renderCards(result) +
-        `<div class="section"><h3>Executive Summary</h3><div class="empty">${esc(result.final_summary)}</div></div>` +
-        renderIdentities(result) +
-        renderTimeline(result) +
-        renderAuthority(result) +
-        renderJson(result);
+      resultEl.innerHTML = '';
+      resultEl.innerHTML += renderCards(result);
+      resultEl.innerHTML += `<div style="margin-top:12px;"><h3 style=\"margin:0 0 8px;font-size:13px;color:var(--muted);text-transform:uppercase;\">Executive Summary</h3><div class=\"muted\">${esc(result.final_summary)}</div></div>`;
+      resultEl.innerHTML += renderIdentities(result);
+      resultEl.innerHTML += renderTimeline(result);
+      resultEl.innerHTML += renderAuthority(result);
+      resultEl.innerHTML += renderProviderUsage(result);
+      resultEl.innerHTML += renderJson(result);
+    }
+
+    async function loadSetupStatus() {
+      try {
+        const response = await fetch("/api/config/status");
+        const payload = await response.json();
+        if (payload.configured) {
+          setupStatusEl.textContent = `Configured: ${payload.config_path}`;
+          setupStatusEl.style.color = "var(--good)";
+        } else {
+          setupStatusEl.textContent = payload.message || "Configuration is incomplete.";
+          setupStatusEl.style.color = "var(--warn)";
+        }
+      } catch (error) {
+        setupStatusEl.textContent = `Unable to read setup status: ${error.message || String(error)}`;
+        setupStatusEl.style.color = "var(--warn)";
+      }
     }
 
     async function runDemo() {
       runBtn.disabled = true;
-      statusEl.textContent = "Running the governed workflow...";
+      setStatus('running', 'Running the governed workflow...');
       try {
         const response = await fetch("/api/run", {
           method: "POST",
@@ -432,13 +417,26 @@ UI_HTML = """<!doctype html>
         if (!response.ok) {
           throw new Error(payload.detail || "Request failed");
         }
-        statusEl.textContent = "Workflow complete.";
+        setStatus('success', 'Workflow complete.');
         renderResult(payload);
       } catch (error) {
-        statusEl.textContent = error.message || String(error);
+        setStatus('error', error.message || String(error));
       } finally {
         runBtn.disabled = false;
       }
+    }
+
+    // Pre-demo interactions
+    if (enterBtn && acceptBox) {
+      enterBtn.disabled = true;
+      acceptBox.addEventListener('change', () => { enterBtn.disabled = !acceptBox.checked; });
+      enterBtn.addEventListener('click', () => {
+        preDemo.style.display = 'none';
+        mainApp.style.display = 'block';
+        setTimeout(() => { document.getElementById('mode')?.focus(); }, 40);
+        setStatus('idle', 'Idle');
+        loadSetupStatus();
+      });
     }
 
     runBtn.addEventListener("click", runDemo);
@@ -446,10 +444,12 @@ UI_HTML = """<!doctype html>
 </body>
 </html>
 """
+    
 
 
 def create_app() -> FastAPI:
     app = FastAPI(title="Caracal Demo App")
+    app.include_router(mock_router)
     app.state.run_lock = asyncio.Lock()
 
     @app.get("/", response_class=HTMLResponse)
@@ -460,17 +460,24 @@ def create_app() -> FastAPI:
     async def scenario() -> JSONResponse:
         return JSONResponse(load_scenario())
 
+    @app.get("/api/config/status")
+    async def setup_status() -> JSONResponse:
+        return JSONResponse(config_status())
+
     @app.post("/api/run")
     async def run_demo(request: DemoRunRequest) -> JSONResponse:
         async with app.state.run_lock:
-            result = await run_demo_workflow_async(
-                load_scenario(),
-                GovernedRunConfig(
-                    mode=request.mode,
-                    provider_strategy=request.provider_strategy,
-                    include_revocation_check=request.include_revocation_check,
-                ),
-            )
+            try:
+                result = await run_demo_workflow_async(
+                    load_scenario(),
+                    GovernedRunConfig(
+                        mode=request.mode,
+                        provider_strategy=request.provider_strategy,
+                        include_revocation_check=request.include_revocation_check,
+                    ),
+                )
+            except Exception as exc:  # pragma: no cover - surfaced directly in UI
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
         return JSONResponse(result)
 
     return app
@@ -501,16 +508,21 @@ def main(argv: list[str] | None = None) -> int:
     if args.run_once:
         import asyncio
 
-        result = asyncio.run(
-            run_demo_workflow_async(
-                load_scenario(),
-                GovernedRunConfig(
-                    mode=args.mode,
-                    provider_strategy=args.provider_strategy,
-                    include_revocation_check=True,
-                ),
+        try:
+            result = asyncio.run(
+                run_demo_workflow_async(
+                    load_scenario(),
+                    GovernedRunConfig(
+                        mode=args.mode,
+                        provider_strategy=args.provider_strategy,
+                        include_revocation_check=True,
+                    ),
+                )
             )
-        )
+        except Exception as exc:
+            print(f"Run failed: {exc}")
+            return 1
+
         if args.output:
             output_path = Path(args.output)
             output_path.parent.mkdir(parents=True, exist_ok=True)
