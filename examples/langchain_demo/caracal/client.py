@@ -81,6 +81,23 @@ class GovernedToolClient:
             requested_resource=requested_resource,
         )
 
+    def query_ledger(
+        self,
+        *,
+        principal_id: Optional[str] = None,
+        mandate_id: Optional[str] = None,
+        event_type: Optional[str] = None,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> dict[str, Any]:
+        return self._authority_client.query_ledger(
+            principal_id=principal_id,
+            mandate_id=mandate_id,
+            event_type=event_type,
+            limit=limit,
+            offset=offset,
+        )
+
     def close(self) -> None:
         self._authority_client.close()
         self._client.close()
