@@ -29,16 +29,17 @@ class FinanceAgent(BaseAgent):
     4. Assesses financial risks
     5. Provides actionable recommendations
     
-    # CARACAL INTEGRATION POINT
-    # The finance agent uses its mandate to:
-    # - Call finance-related tools (budget queries, invoice data, etc.)
+    # CARACAL INTEGRATION POINT (THIN SDK)
+    # The finance agent uses its principal identity to:
+    # - Authenticate via Bearer token (generated from principal_id)
+    # - Call finance-related tools (authority resolved internally)
     # - Access finance APIs through Caracal's provider routing
-    # - All tool calls are governed by the agent's mandate authority
+    # - No manual mandate_id parameters in tool calls
     """
     
     def __init__(
         self,
-        mandate_id: str,
+        principal_id: str,
         caracal_client: Any,
         scenario: Optional[Scenario] = None,
         parent_agent: Optional[BaseAgent] = None,
@@ -49,7 +50,7 @@ class FinanceAgent(BaseAgent):
         Initialize the finance agent.
         
         Args:
-            mandate_id: Caracal mandate ID for this agent
+            principal_id: Caracal principal ID for this agent (used for Bearer token)
             caracal_client: Caracal client for governed tool calls
             scenario: Optional scenario context
             parent_agent: Parent agent (typically orchestrator)
@@ -58,7 +59,7 @@ class FinanceAgent(BaseAgent):
         """
         super().__init__(
             role=AgentRole.FINANCE,
-            mandate_id=mandate_id,
+            principal_id=principal_id,
             parent_agent=parent_agent,
             agent_id=agent_id,
             context=context,
@@ -69,7 +70,7 @@ class FinanceAgent(BaseAgent):
         
         logger.info(
             f"Initialized FinanceAgent {self.agent_id[:8]} "
-            f"with mandate {mandate_id[:8]}"
+            f"with principal {principal_id[:8]}"
         )
     
     async def execute(self, task: str, **kwargs) -> Dict[str, Any]:

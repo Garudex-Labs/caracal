@@ -318,12 +318,9 @@ class DatabaseConnectionManager:
             raise ValueError(f"Invalid PostgreSQL schema name: {schema!r}")
         if not self._initialized or self._engine is None:
             raise RuntimeError("Not initialized.")
-        logger.warning("Dropping PostgreSQL schema: %s", schema)
         with self._engine.connect() as conn:
             conn.execute(text(f"DROP SCHEMA IF EXISTS {schema} CASCADE"))
             conn.commit()
-        # `schema` is a PostgreSQL schema name (e.g., ws_myapp_20260101_abc12345), not a credential.
-        logger.info("Schema '%s' dropped", schema)  # lgtm[py/clear-text-logging-of-sensitive-data]
 
     def close(self) -> None:
         """Dispose of engine and close all pooled connections."""
