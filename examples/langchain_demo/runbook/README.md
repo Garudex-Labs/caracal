@@ -1,94 +1,35 @@
 # Runbook
 
-This demo supports two practical local paths:
-- lightweight local app mode through `examples.langchain_demo.app`
-- fuller broker-mode setup through `examples.langchain_demo.bootstrap.main`
+## Goal
 
-## Local App
+Run the LangChain demo through a real Caracal workspace with two execution modes:
 
-Install dependencies:
+- `mock`: deterministic external responses, placeholder credentials
+- `real`: live providers and real credentials
 
-```bash
-python -m pip install -r examples/langchain_demo/requirements.txt
-```
+Both modes use the same governed execution path.
 
-Serve the UI:
+## Steps
 
-```bash
-python -m examples.langchain_demo.app
-```
-
-Open `http://127.0.0.1:8090` and run:
-- `mock` mode for deterministic provider simulation through real Caracal routing
-- `real` mode for actual provider calls through the same governed workflow
-
-One-shot governed artifact:
+1. Start the demo app server:
 
 ```bash
-python -m examples.langchain_demo.app --run-once --mode mock --provider-strategy mixed
+uvicorn examples.langchain_demo.app:app --host 127.0.0.1 --port 8090
 ```
 
-## Governed CLI
+2. Configure Caracal runtime MCP server name `demo-upstream` pointing to `http://127.0.0.1:8090`.
+3. Manually configure workspace, principals, providers, tools, mandates, and delegation.
+4. Populate `examples/langchain_demo/demo_config.json`.
+5. Run UI or CLI governed execution.
 
-Mock:
+Full command-by-command setup is in `examples/langchain_demo/README.md`.
 
-```bash
-python -m examples.langchain_demo.caracal.main --mode mock --provider-strategy mixed
-```
+## Verification checks
 
-Real mixed routing:
+In each run artifact, verify:
 
-```bash
-OPENAI_API_KEY=... \
-GOOGLE_API_KEY=... \
-python -m examples.langchain_demo.caracal.main --mode real --provider-strategy mixed
-```
-
-Real OpenAI-only routing:
-
-```bash
-OPENAI_API_KEY=... \
-python -m examples.langchain_demo.caracal.main --mode real --provider-strategy openai
-```
-
-Real Gemini-only routing:
-
-```bash
-GOOGLE_API_KEY=... \
-python -m examples.langchain_demo.caracal.main --mode real --provider-strategy gemini
-```
-
-## Baseline CLI
-
-```bash
-python -m examples.langchain_demo.baseline.main --mock always
-```
-
-## Broker Mode
-
-Dry-run bootstrap:
-
-```bash
-python -m examples.langchain_demo.bootstrap.main
-```
-
-Apply bootstrap:
-
-```bash
-python -m examples.langchain_demo.bootstrap.main --apply
-```
-
-## What To Inspect
-
-- `caracal/outputs/latest.json`
-- `baseline/outputs/latest.json`
-- `outputs/comparison.json`
-- runtime logs in the terminal while the app runs
-
-The governed artifact includes:
-- role identities
-- delegation edges
-- authority validations
-- metering events
-- upstream provider requests
-- revocation denial evidence
+- role-specific mandates are used
+- provider usage appears in timeline/usage summary
+- authority validations include expected allow/deny decisions
+- revocation check denies a post-revoke finance call
+- acceptance checks pass against shared expected outcomes

@@ -3,10 +3,16 @@
 from __future__ import annotations
 
 from ..baseline.scenario import load_scenario
+from ..runtime_config import config_status
 from .workflow import run_mock_governed_workflow
 
 
 def run_smoke_test() -> None:
+    status = config_status()
+    if not bool(status.get("configured")):
+        print("Governed smoke test skipped: demo_config.json is not configured")
+        return
+
     scenario = load_scenario()
     result = run_mock_governed_workflow(scenario)
 
