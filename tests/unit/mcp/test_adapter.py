@@ -34,11 +34,11 @@ _MAPPED_RESOURCE_SCOPE = "provider:endframe:resource:deployments"
 _MAPPED_ACTION_SCOPE = "provider:endframe:action:invoke"
 
 
-async def _local_handler_ref_impl(*, principal_id: str, mandate_id: str, payload: str):
+async def _local_handler_ref_impl(*, principal_id: str, resolved_mandate_id: str, payload: str):
     return {
         "mode": "handler_ref",
         "principal_id": principal_id,
-        "mandate_id": mandate_id,
+        "resolved_mandate_id": resolved_mandate_id,
         "payload": payload,
     }
 
@@ -94,7 +94,7 @@ class TestMCPContext:
         """Test MCPContext creation."""
         context = MCPContext(
             principal_id="agent-123",
-            metadata={"key": "value", "mandate_id": "mandate-456"}
+            metadata={"key": "value"}
         )
         
         assert context.principal_id == "agent-123"
@@ -141,7 +141,7 @@ class TestMCPResult:
             success=True,
             result={"output": "test"},
             error=None,
-            metadata={"mandate_id": "mandate-123"}
+            metadata={"resolved_mandate_id": "mandate-123"}
         )
         
         assert result.success is True
@@ -196,6 +196,11 @@ class TestMCPAdapter:
                 "execution_mode": "mcp_forward",
                 "mcp_server_name": None,
             }
+        )
+        self.mock_authority_evaluator.resolve_mandate_for_principal.return_value = Mock(
+            spec=ExecutionMandate,
+            subject_id="agent-123",
+            mandate_id=uuid4(),
         )
     
     def test_adapter_initialization(self):
@@ -277,11 +282,11 @@ class TestMCPAdapter:
         """Only one active local function binding is allowed per tool_id per process."""
         decorator = self.adapter.as_decorator(tool_id=_TOOL_ID)
 
-        async def first(principal_id: str, mandate_id: str):
-            return {"principal_id": principal_id, "mandate_id": mandate_id}
+        async def first(principal_id: str, resolved_mandate_id: str):
+            return {"principal_id": principal_id, "resolved_mandate_id": resolved_mandate_id}
 
-        async def second(principal_id: str, mandate_id: str):
-            return {"principal_id": principal_id, "mandate_id": mandate_id}
+        async def second(principal_id: str, resolved_mandate_id: str):
+            return {"principal_id": principal_id, "resolved_mandate_id": resolved_mandate_id}
 
         decorator(first)
 
@@ -289,12 +294,14 @@ class TestMCPAdapter:
             decorator(second)
     
     @pytest.mark.asyncio
-    async def test_intercept_tool_call_missing_mandate_id(self):
-        """Test tool call interception with missing mandate_id."""
+    async def test_intercept_tool_call_no_applicable_mandate(self):
+        """Tool calls should deny when no applicable mandate can be resolved."""
         context = MCPContext(
             principal_id="agent-123",
-            metadata={}  # No mandate_id
+            metadata={}
         )
+
+        self.mock_authority_evaluator.resolve_mandate_for_principal.return_value = None
         
         result = await self.adapter.intercept_tool_call(
             tool_name="test_tool",
@@ -303,45 +310,7 @@ class TestMCPAdapter:
         )
         
         assert result.success is False
-        assert "mandate_id" in result.error.lower()
-    
-    @pytest.mark.asyncio
-    async def test_intercept_tool_call_invalid_mandate_id(self):
-        """Test tool call interception with invalid mandate_id format."""
-        context = MCPContext(
-            principal_id="agent-123",
-            metadata={"mandate_id": "invalid-uuid"}
-        )
-        
-        result = await self.adapter.intercept_tool_call(
-            tool_name="test_tool",
-            tool_args={"arg": "value"},
-            mcp_context=context
-        )
-        
-        assert result.success is False
-        assert "invalid" in result.error.lower()
-    
-    @pytest.mark.asyncio
-    async def test_intercept_tool_call_mandate_not_found(self):
-        """Test tool call interception with non-existent mandate."""
-        mandate_id = uuid4()
-        context = MCPContext(
-            principal_id="agent-123",
-            metadata={"mandate_id": str(mandate_id)}
-        )
-        
-        # Mock mandate not found
-        self.mock_authority_evaluator._get_mandate_with_cache.return_value = None
-        
-        result = await self.adapter.intercept_tool_call(
-            tool_name="test_tool",
-            tool_args={"arg": "value"},
-            mcp_context=context
-        )
-        
-        assert result.success is False
-        assert "unknown mandate_id" in result.error.lower()
+        assert "no applicable mandate" in result.error.lower()
     
     @pytest.mark.asyncio
     async def test_intercept_tool_call_authority_denied(self):
@@ -355,7 +324,7 @@ class TestMCPAdapter:
         # Mock mandate found
         mock_mandate = Mock(spec=ExecutionMandate)
         mock_mandate.subject_id = "agent-123"
-        self.mock_authority_evaluator._get_mandate_with_cache.return_value = mock_mandate
+        self.mock_authority_evaluator.resolve_mandate_for_principal.return_value = mock_mandate
         
         # Mock authority denied
         mock_decision = AuthorityDecision(
@@ -388,7 +357,7 @@ class TestMCPAdapter:
         # Mock mandate found
         mock_mandate = Mock(spec=ExecutionMandate)
         mock_mandate.subject_id = "agent-123"
-        self.mock_authority_evaluator._get_mandate_with_cache.return_value = mock_mandate
+        self.mock_authority_evaluator.resolve_mandate_for_principal.return_value = mock_mandate
         
         # Mock authority granted
         mock_decision = AuthorityDecision(
@@ -435,7 +404,7 @@ class TestMCPAdapter:
 
         mock_mandate = Mock(spec=ExecutionMandate)
         mock_mandate.subject_id = "agent-123"
-        self.mock_authority_evaluator._get_mandate_with_cache.return_value = mock_mandate
+        self.mock_authority_evaluator.resolve_mandate_for_principal.return_value = mock_mandate
         self.mock_authority_evaluator.validate_mandate.return_value = AuthorityDecision(
             allowed=True,
             reason="Authority granted",
@@ -493,7 +462,7 @@ class TestMCPAdapter:
 
         mock_mandate = Mock(spec=ExecutionMandate)
         mock_mandate.subject_id = "agent-123"
-        self.mock_authority_evaluator._get_mandate_with_cache.return_value = mock_mandate
+        self.mock_authority_evaluator.resolve_mandate_for_principal.return_value = mock_mandate
         self.mock_authority_evaluator.validate_mandate.return_value = AuthorityDecision(
             allowed=True,
             reason="Authority granted",
@@ -549,7 +518,7 @@ class TestMCPAdapter:
 
         mock_mandate = Mock(spec=ExecutionMandate)
         mock_mandate.subject_id = "agent-123"
-        self.mock_authority_evaluator._get_mandate_with_cache.return_value = mock_mandate
+        self.mock_authority_evaluator.resolve_mandate_for_principal.return_value = mock_mandate
         self.mock_authority_evaluator.validate_mandate.return_value = AuthorityDecision(
             allowed=True,
             reason="Authority granted",
@@ -604,12 +573,14 @@ class TestMCPAdapter:
         assert caveat_kwargs["caveat_task_id"] == "trusted-task"
     
     @pytest.mark.asyncio
-    async def test_intercept_resource_read_missing_mandate_id(self):
-        """Test resource read interception with missing mandate_id."""
+    async def test_intercept_resource_read_no_applicable_mandate(self):
+        """Resource reads should deny when no applicable mandate can be resolved."""
         context = MCPContext(
             principal_id="agent-123",
-            metadata={}  # No mandate_id
+            metadata={}
         )
+
+        self.mock_authority_evaluator.resolve_mandate_for_principal.return_value = None
         
         result = await self.adapter.intercept_resource_read(
             resource_uri="file://test.txt",
@@ -617,7 +588,7 @@ class TestMCPAdapter:
         )
         
         assert result.success is False
-        assert "mandate_id" in result.error.lower()
+        assert "no applicable mandate" in result.error.lower()
     
     @pytest.mark.asyncio
     async def test_intercept_resource_read_authority_denied(self):
@@ -631,7 +602,7 @@ class TestMCPAdapter:
         # Mock mandate found
         mock_mandate = Mock(spec=ExecutionMandate)
         mock_mandate.subject_id = "agent-123"
-        self.mock_authority_evaluator._get_mandate_with_cache.return_value = mock_mandate
+        self.mock_authority_evaluator.resolve_mandate_for_principal.return_value = mock_mandate
         
         # Mock authority denied
         mock_decision = AuthorityDecision(
@@ -663,7 +634,7 @@ class TestMCPAdapter:
         # Mock mandate found
         mock_mandate = Mock(spec=ExecutionMandate)
         mock_mandate.subject_id = "agent-123"
-        self.mock_authority_evaluator._get_mandate_with_cache.return_value = mock_mandate
+        self.mock_authority_evaluator.resolve_mandate_for_principal.return_value = mock_mandate
         
         # Mock authority granted
         mock_decision = AuthorityDecision(
@@ -708,7 +679,7 @@ class TestMCPAdapter:
 
         mock_mandate = Mock(spec=ExecutionMandate)
         mock_mandate.subject_id = "agent-123"
-        self.mock_authority_evaluator._get_mandate_with_cache.return_value = mock_mandate
+        self.mock_authority_evaluator.resolve_mandate_for_principal.return_value = mock_mandate
         self.mock_authority_evaluator.validate_mandate.return_value = AuthorityDecision(
             allowed=True,
             reason="Authority granted",
@@ -761,7 +732,7 @@ class TestMCPAdapter:
 
         mock_mandate = Mock(spec=ExecutionMandate)
         mock_mandate.subject_id = "agent-123"
-        self.mock_authority_evaluator._get_mandate_with_cache.return_value = mock_mandate
+        self.mock_authority_evaluator.resolve_mandate_for_principal.return_value = mock_mandate
         self.mock_authority_evaluator.validate_mandate.return_value = AuthorityDecision(
             allowed=True,
             reason="Authority granted",
@@ -800,7 +771,7 @@ class TestMCPAdapter:
 
         mock_mandate = Mock(spec=ExecutionMandate)
         mock_mandate.subject_id = "different-agent"
-        self.mock_authority_evaluator._get_mandate_with_cache.return_value = mock_mandate
+        self.mock_authority_evaluator.resolve_mandate_for_principal.return_value = mock_mandate
         self.mock_authority_evaluator.validate_mandate.return_value = AuthorityDecision(
             allowed=False,
             reason="Authenticated principal does not match mandate subject",
@@ -826,7 +797,7 @@ class TestMCPAdapter:
 
         mock_mandate = Mock(spec=ExecutionMandate)
         mock_mandate.subject_id = "agent-123"
-        self.mock_authority_evaluator._get_mandate_with_cache.return_value = mock_mandate
+        self.mock_authority_evaluator.resolve_mandate_for_principal.return_value = mock_mandate
         self.mock_authority_evaluator.validate_mandate.return_value = AuthorityDecision(
             allowed=True,
             reason="Authority granted",
@@ -859,7 +830,7 @@ class TestMCPAdapter:
 
         mock_mandate = Mock(spec=ExecutionMandate)
         mock_mandate.subject_id = "agent-123"
-        self.mock_authority_evaluator._get_mandate_with_cache.return_value = mock_mandate
+        self.mock_authority_evaluator.resolve_mandate_for_principal.return_value = mock_mandate
         self.mock_authority_evaluator.validate_mandate.return_value = AuthorityDecision(
             allowed=True,
             reason="Authority granted",
@@ -890,7 +861,7 @@ class TestMCPAdapter:
 
         mock_mandate = Mock(spec=ExecutionMandate)
         mock_mandate.subject_id = "agent-123"
-        self.mock_authority_evaluator._get_mandate_with_cache.return_value = mock_mandate
+        self.mock_authority_evaluator.resolve_mandate_for_principal.return_value = mock_mandate
         self.mock_authority_evaluator.validate_mandate.return_value = AuthorityDecision(
             allowed=True,
             reason="Authority granted",
@@ -946,7 +917,7 @@ class TestMCPAdapter:
 
         mock_mandate = Mock(spec=ExecutionMandate)
         mock_mandate.subject_id = "agent-123"
-        self.mock_authority_evaluator._get_mandate_with_cache.return_value = mock_mandate
+        self.mock_authority_evaluator.resolve_mandate_for_principal.return_value = mock_mandate
         self.mock_authority_evaluator.validate_mandate.return_value = AuthorityDecision(
             allowed=True,
             reason="Authority granted",
@@ -982,7 +953,7 @@ class TestMCPAdapter:
 
         mock_mandate = Mock(spec=ExecutionMandate)
         mock_mandate.subject_id = "agent-123"
-        self.mock_authority_evaluator._get_mandate_with_cache.return_value = mock_mandate
+        self.mock_authority_evaluator.resolve_mandate_for_principal.return_value = mock_mandate
         self.adapter._resolve_active_tool_mapping.side_effect = CaracalError("Mapped provider 'endframe' for tool is inactive")
 
         result = await self.adapter.intercept_tool_call(
@@ -1007,7 +978,7 @@ class TestMCPAdapter:
 
         mock_mandate = Mock(spec=ExecutionMandate)
         mock_mandate.subject_id = "agent-123"
-        self.mock_authority_evaluator._get_mandate_with_cache.return_value = mock_mandate
+        self.mock_authority_evaluator.resolve_mandate_for_principal.return_value = mock_mandate
         self.mock_authority_evaluator.validate_mandate.return_value = AuthorityDecision(
             allowed=True,
             reason="Authority granted",
@@ -1025,11 +996,11 @@ class TestMCPAdapter:
             "mcp_server_name": None,
         }
 
-        async def _local_impl(*, principal_id: str, mandate_id: str, payload: str):
+        async def _local_impl(*, principal_id: str, resolved_mandate_id: str, payload: str):
             return {
                 "mode": "local",
                 "principal_id": principal_id,
-                "mandate_id": mandate_id,
+                "resolved_mandate_id": resolved_mandate_id,
                 "payload": payload,
             }
 
@@ -1058,7 +1029,7 @@ class TestMCPAdapter:
 
         mock_mandate = Mock(spec=ExecutionMandate)
         mock_mandate.subject_id = "agent-123"
-        self.mock_authority_evaluator._get_mandate_with_cache.return_value = mock_mandate
+        self.mock_authority_evaluator.resolve_mandate_for_principal.return_value = mock_mandate
         self.mock_authority_evaluator.validate_mandate.return_value = AuthorityDecision(
             allowed=True,
             reason="Authority granted",
@@ -1119,7 +1090,7 @@ class TestMCPAdapter:
 
         mock_mandate = Mock(spec=ExecutionMandate)
         mock_mandate.subject_id = "agent-123"
-        self.mock_authority_evaluator._get_mandate_with_cache.return_value = mock_mandate
+        self.mock_authority_evaluator.resolve_mandate_for_principal.return_value = mock_mandate
         self.mock_authority_evaluator.validate_mandate.return_value = AuthorityDecision(
             allowed=True,
             reason="Authority granted",
@@ -1181,10 +1152,10 @@ class TestMCPAdapter:
             }
         )
 
-        async def _local_impl(*, principal_id: str, mandate_id: str, payload: str):
+        async def _local_impl(*, principal_id: str, resolved_mandate_id: str, payload: str):
             return {
                 "principal_id": principal_id,
-                "mandate_id": mandate_id,
+                "resolved_mandate_id": resolved_mandate_id,
                 "payload": payload,
             }
 
@@ -1213,7 +1184,7 @@ class TestMCPAdapter:
             "tool_args",
             "execution_mode",
             "mcp_context",
-            "mandate_id",
+            "resolved_mandate_id",
         }
         assert expected_keys.issubset(set(forward_metering_event.metadata.keys()))
         assert expected_keys.issubset(set(local_metering_event.metadata.keys()))
@@ -1288,7 +1259,7 @@ class TestMCPAdapter:
         result = await self.adapter._execute_local_tool(
             tool_id=_TOOL_ID,
             principal_id="agent-123",
-            mandate_id=uuid4(),
+            resolved_mandate_id=str(uuid4()),
             tool_args={"payload": "ok"},
             handler_ref=f"{__name__}:_local_handler_ref_impl",
             workspace_name="default",
@@ -1313,7 +1284,7 @@ class TestMCPAdapter:
 
         mock_mandate = Mock(spec=ExecutionMandate)
         mock_mandate.subject_id = "agent-123"
-        self.mock_authority_evaluator._get_mandate_with_cache.return_value = mock_mandate
+        self.mock_authority_evaluator.resolve_mandate_for_principal.return_value = mock_mandate
 
         self.adapter._resolve_active_tool_mapping.return_value = {
             "tool_id": "downstream.tool",
@@ -1355,7 +1326,7 @@ class TestMCPAdapter:
 
         mock_mandate = Mock(spec=ExecutionMandate)
         mock_mandate.subject_id = "agent-123"
-        self.mock_authority_evaluator._get_mandate_with_cache.return_value = mock_mandate
+        self.mock_authority_evaluator.resolve_mandate_for_principal.return_value = mock_mandate
         self.mock_authority_evaluator.validate_mandate.return_value = AuthorityDecision(
             allowed=True,
             reason="Authority granted",

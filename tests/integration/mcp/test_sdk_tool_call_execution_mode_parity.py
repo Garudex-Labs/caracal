@@ -61,6 +61,14 @@ class _AuthorityEvaluatorStub:
         self.validation_records: list[dict[str, Any]] = []
         self._mandate_id = uuid4()
 
+    def resolve_mandate_for_principal(self, **_kwargs):
+        return SimpleNamespace(
+            mandate_id=self._mandate_id,
+            subject_id=self._caller_principal_id,
+            revoked=False,
+            valid_until=datetime.utcnow() + timedelta(hours=1),
+        )
+
     def _get_mandate_with_cache(self, mandate_id: UUID):
         if mandate_id != self._mandate_id:
             return None
@@ -177,10 +185,10 @@ def _build_service_app(
 
     if execution_mode == "local" and normalized_handler_ref:
         @mcp_adapter.as_decorator(tool_id=tool_id)
-        async def _local_tool(principal_id: str, mandate_id: str, **tool_args):
+        async def _local_tool(principal_id: str, **tool_args):
             return {
                 "principal_id": principal_id,
-                "mandate_id": mandate_id,
+                "resolved_mandate_id": tool_args.get("resolved_mandate_id"),
                 "tool_args": tool_args,
                 "mode": "local",
             }
@@ -207,7 +215,7 @@ def _build_service_app(
     return {
         "app": service.app,
         "tool_id": tool_id,
-        "mandate_id": str(authority_evaluator._mandate_id),
+        "resolved_mandate_id": str(authority_evaluator._mandate_id),
         "tool_type": normalized_tool_type,
         "authority_evaluator": authority_evaluator,
         "metering_collector": metering_collector,
@@ -284,13 +292,11 @@ async def test_sdk_tool_call_local_and_forward_modes_preserve_authorization_and_
 
     local_response = await local_scope.tools.call(
         tool_id=local_fixture["tool_id"],
-        mandate_id=local_fixture["mandate_id"],
         tool_args={"payload": "ok"},
         metadata={"trace_id": "integration"},
     )
     forward_response = await forward_scope.tools.call(
         tool_id=forward_fixture["tool_id"],
-        mandate_id=forward_fixture["mandate_id"],
         tool_args={"payload": "ok"},
         metadata={"trace_id": "integration"},
     )
@@ -313,8 +319,8 @@ async def test_sdk_tool_call_local_and_forward_modes_preserve_authorization_and_
     assert local_events[0].principal_id == forward_events[0].principal_id
     assert local_events[0].resource_type == forward_events[0].resource_type
     assert local_events[0].metadata["tool_name"] == forward_events[0].metadata["tool_name"]
-    assert local_events[0].metadata["mandate_id"] == local_fixture["mandate_id"]
-    assert forward_events[0].metadata["mandate_id"] == forward_fixture["mandate_id"]
+    assert local_events[0].metadata["resolved_mandate_id"] == local_fixture["resolved_mandate_id"]
+    assert forward_events[0].metadata["resolved_mandate_id"] == forward_fixture["resolved_mandate_id"]
     assert local_events[0].metadata["mcp_context"]["token_subject"] == forward_events[0].metadata["mcp_context"]["token_subject"]
 
     local_scope._adapter.close()
@@ -337,7 +343,6 @@ async def test_sdk_tool_call_forward_logic_mode_preserves_authorization_and_ledg
 
     response = await scope.tools.call(
         tool_id=fixture["tool_id"],
-        mandate_id=fixture["mandate_id"],
         tool_args={"payload": "ok"},
         metadata={"trace_id": "integration-forward-logic"},
     )
@@ -351,7 +356,7 @@ async def test_sdk_tool_call_forward_logic_mode_preserves_authorization_and_ledg
     assert len(auth_records) == 1
     assert len(events) == 1
     assert events[0].metadata["tool_type"] == "logic"
-    assert events[0].metadata["mandate_id"] == fixture["mandate_id"]
+    assert events[0].metadata["resolved_mandate_id"] == fixture["resolved_mandate_id"]
 
     scope._adapter.close()
 
@@ -372,7 +377,6 @@ async def test_sdk_tool_call_local_direct_api_contract_violation_fails_closed(
 
     response = await scope.tools.call(
         tool_id=fixture["tool_id"],
-        mandate_id=fixture["mandate_id"],
         tool_args={"payload": "ok"},
         metadata={"trace_id": "integration-local-direct-api"},
     )

@@ -40,7 +40,6 @@ async def test_scope_tools_call_uses_canonical_payload_and_scope_headers() -> No
 
     result = await scope.tools.call(
         tool_id="provider:endframe:resource:deployments",
-        mandate_id="11111111-1111-1111-1111-111111111111",
         tool_args={"payload": "ok"},
         metadata={"trace_id": "trace-sdk"},
         correlation_id="corr-123",
@@ -56,7 +55,6 @@ async def test_scope_tools_call_uses_canonical_payload_and_scope_headers() -> No
     assert req.headers["X-Caracal-Workspace-ID"] == "ws-123"
     assert req.body == {
         "tool_id": "provider:endframe:resource:deployments",
-        "mandate_id": "11111111-1111-1111-1111-111111111111",
         "tool_args": {"payload": "ok"},
         "metadata": {
             "trace_id": "trace-sdk",
@@ -74,14 +72,12 @@ async def test_scope_tools_call_forbids_principal_id_payload() -> None:
     with pytest.raises(SDKConfigurationError, match="Caller identity fields"):
         await scope.tools.call(
             tool_id="provider:endframe:resource:deployments",
-            mandate_id="11111111-1111-1111-1111-111111111111",
             metadata={"principal_id": "forbidden"},
         )
 
     with pytest.raises(SDKConfigurationError, match="Caller identity fields"):
         await scope.tools.call(
             tool_id="provider:endframe:resource:deployments",
-            mandate_id="11111111-1111-1111-1111-111111111111",
             tool_args={"principal_id": "forbidden"},
         )
 
@@ -95,7 +91,6 @@ async def test_scope_tools_call_rejects_non_correlation_metadata_keys() -> None:
     with pytest.raises(SDKConfigurationError, match="correlation keys only"):
         await scope.tools.call(
             tool_id="provider:endframe:resource:deployments",
-            mandate_id="11111111-1111-1111-1111-111111111111",
             metadata={"source": "sdk"},
         )
 
@@ -111,12 +106,10 @@ async def test_tool_call_transport_parity_across_adapters() -> None:
 
     direct_result = await direct_scope.tools.call(
         tool_id="provider:endframe:resource:deployments",
-        mandate_id="11111111-1111-1111-1111-111111111111",
         tool_args={"payload": "ok"},
     )
     gateway_result = await gateway_scope.tools.call(
         tool_id="provider:endframe:resource:deployments",
-        mandate_id="11111111-1111-1111-1111-111111111111",
         tool_args={"payload": "ok"},
     )
 

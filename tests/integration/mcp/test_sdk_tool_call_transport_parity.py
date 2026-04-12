@@ -84,7 +84,6 @@ async def test_sdk_tool_call_http_and_gateway_adapters_return_identical_shape(
 
     payload_kwargs = {
         "tool_id": "provider:endframe:resource:deployments",
-        "mandate_id": "11111111-1111-1111-1111-111111111111",
         "tool_args": {"payload": "ok"},
         "metadata": {"trace_id": "integration-test"},
     }
@@ -94,10 +93,9 @@ async def test_sdk_tool_call_http_and_gateway_adapters_return_identical_shape(
 
     assert direct_response == gateway_response
     assert direct_response["success"] is True
-    assert direct_response["shape"] == ["mandate_id", "metadata", "tool_args", "tool_id"]
+    assert direct_response["shape"] == ["metadata", "tool_args", "tool_id"]
     assert direct_response["echo"] == {
         "tool_id": "provider:endframe:resource:deployments",
-        "mandate_id": "11111111-1111-1111-1111-111111111111",
         "tool_args": {"payload": "ok"},
         "metadata": {"trace_id": "integration-test"},
     }
