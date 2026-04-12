@@ -37,7 +37,7 @@ describe('HookRegistry', () => {
       return { ...req, headers: { ...req.headers, 'X-Step': req.headers['X-Step'] + ',B' } };
     });
 
-    const req: SDKRequest = { method: 'GET', path: '/principals', headers: {} };
+    const req: SDKRequest = { method: 'POST', path: '/mcp/tool/call', headers: {} };
     const result = await registry.fireBeforeRequest(req, {});
     expect(result.headers['X-Step']).toBe('A,B');
   });
@@ -99,10 +99,6 @@ describe('CaracalClient', () => {
   test('creates with mock adapter', () => {
     const adapter = new MockAdapter();
     const client = new CaracalClient({ adapter });
-    expect(client.principals).toBeDefined();
-    expect(client.mandates).toBeDefined();
-    expect(client.delegation).toBeDefined();
-    expect(client.ledger).toBeDefined();
     expect(client.tools).toBeDefined();
     client.close();
   });
@@ -132,7 +128,7 @@ describe('CaracalClient', () => {
 
     expect(ctx.organizationId).toBe('org_1');
     expect(ctx.workspaceId).toBe('ws_1');
-    expect(ctx.principals).toBeDefined();
+    expect(ctx.tools).toBeDefined();
   });
 });
 
@@ -148,7 +144,7 @@ describe('CaracalBuilder', () => {
   test('builds with mock adapter', () => {
     const adapter = new MockAdapter();
     const client = new CaracalBuilder().setTransport(adapter).build();
-    expect(client.principals).toBeDefined();
+    expect(client.tools).toBeDefined();
     client.close();
   });
 
@@ -182,18 +178,28 @@ describe('MockAdapter', () => {
 
   test('returns mocked response', async () => {
     const adapter = new MockAdapter();
-    adapter.mock('GET', '/principals', { statusCode: 200, headers: {}, body: [], elapsedMs: 0 });
+    adapter.mock('POST', '/mcp/tool/call', {
+      statusCode: 200,
+      headers: {},
+      body: { success: true, result: { ok: true } },
+      elapsedMs: 0,
+    });
 
-    const res = await adapter.send({ method: 'GET', path: '/principals', headers: {} });
+    const res = await adapter.send({ method: 'POST', path: '/mcp/tool/call', headers: {} });
     expect(res.statusCode).toBe(200);
-    expect(res.body).toEqual([]);
+    expect(res.body).toEqual({ success: true, result: { ok: true } });
   });
 
   test('records sent requests', async () => {
     const adapter = new MockAdapter();
-    await adapter.send({ method: 'POST', path: '/mandates', headers: {}, body: { test: true } });
+    await adapter.send({
+      method: 'POST',
+      path: '/mcp/tool/call',
+      headers: {},
+      body: { toolId: 'provider:demo:resource:jobs:action:run', mandateId: 'm_123' },
+    });
     expect(adapter.sentRequests).toHaveLength(1);
-    expect(adapter.sentRequests[0].path).toBe('/mandates');
+    expect(adapter.sentRequests[0].path).toBe('/mcp/tool/call');
   });
 });
 
@@ -252,7 +258,7 @@ describe('ScopeContext', () => {
     expect(sent[0].path).toBe('/mcp/tool/call');
   });
 
-  test('legacy resource operations fail closed in hard-cut mode', async () => {
+  test('scope context does not expose legacy resource accessors', () => {
     const adapter = new MockAdapter();
     const hooks = new HookRegistry();
     const { ScopeContext } = require('../src/context');
@@ -263,11 +269,11 @@ describe('ScopeContext', () => {
       organizationId: 'org_1',
     });
 
-    await expect(ctx.principals.list()).rejects.toThrow(SDKConfigurationError);
-    await expect(ctx.mandates.list()).rejects.toThrow(SDKConfigurationError);
-    await expect(ctx.delegation.getGraph('principal-1')).rejects.toThrow(SDKConfigurationError);
-    await expect(ctx.ledger.query()).rejects.toThrow(SDKConfigurationError);
-    expect(adapter.sentRequests).toHaveLength(0);
+    const record = ctx as unknown as Record<string, unknown>;
+    expect('principals' in record).toBe(false);
+    expect('mandates' in record).toBe(false);
+    expect('delegation' in record).toBe(false);
+    expect('ledger' in record).toBe(false);
   });
 
   test('tools.call rejects metadata keys outside correlation surface', async () => {
