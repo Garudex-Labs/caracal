@@ -182,7 +182,7 @@ class AuthorityEvaluator:
             logger.error(f"Failed to get mandate {mandate_id}: {e}", exc_info=True)
             return None
 
-    def resolve_mandate_for_principal(
+    def resolve_applicable_mandates_for_principal(
         self,
         *,
         requested_action: str,
@@ -192,19 +192,19 @@ class AuthorityEvaluator:
         caveat_chain: Optional[list[dict[str, Any]]] = None,
         caveat_hmac_key: Optional[str] = None,
         caveat_task_id: Optional[str] = None,
-    ) -> Optional[ExecutionMandate]:
-        """Resolve the most applicable active mandate for a caller principal.
+    ) -> list[ExecutionMandate]:
+        """Resolve active mandates applicable to a principal/action/resource.
 
         Resolution is internal and principal-driven: callers do not provide mandate IDs.
         This helper narrows candidates by subject binding, active time window, and
-        action/resource scope match before returning a candidate for full validation.
+        action/resource scope match before runtime validation.
         """
         del caveat_chain, caveat_hmac_key, caveat_task_id
 
         resolved_caller = self._normalize_principal_id(caller_principal_id)
         if not resolved_caller:
             logger.warning("Cannot resolve mandate: caller principal ID is missing")
-            return None
+            return []
 
         try:
             caller_uuid = UUID(str(resolved_caller))
@@ -213,7 +213,7 @@ class AuthorityEvaluator:
                 "Cannot resolve mandate: caller principal ID is not a valid UUID "
                 f"({resolved_caller})"
             )
-            return None
+            return []
 
         evaluation_time = current_time or datetime.utcnow()
         try:
@@ -237,7 +237,9 @@ class AuthorityEvaluator:
                 f"{resolved_caller}: {exc}",
                 exc_info=True,
             )
-            return None
+            return []
+
+        applicable_mandates: list[ExecutionMandate] = []
 
         for mandate in candidate_mandates:
             allowed_actions = list(getattr(mandate, "action_scope", []) or [])
@@ -257,14 +259,17 @@ class AuthorityEvaluator:
             if not resource_match:
                 continue
 
+            applicable_mandates.append(mandate)
+
+        if applicable_mandates:
             logger.debug(
-                "Resolved mandate %s for caller %s action=%s resource=%s",
-                getattr(mandate, "mandate_id", None),
+                "Resolved %d applicable mandate candidate(s) for caller %s action=%s resource=%s",
+                len(applicable_mandates),
                 resolved_caller,
                 requested_action,
                 requested_resource,
             )
-            return mandate
+            return applicable_mandates
 
         logger.warning(
             "No applicable mandate resolved for caller %s action=%s resource=%s",
@@ -272,7 +277,30 @@ class AuthorityEvaluator:
             requested_action,
             requested_resource,
         )
-        return None
+        return []
+
+    def resolve_mandate_for_principal(
+        self,
+        *,
+        requested_action: str,
+        requested_resource: str,
+        caller_principal_id: Optional[str],
+        current_time: Optional[datetime] = None,
+        caveat_chain: Optional[list[dict[str, Any]]] = None,
+        caveat_hmac_key: Optional[str] = None,
+        caveat_task_id: Optional[str] = None,
+    ) -> Optional[ExecutionMandate]:
+        """Compatibility wrapper returning the first applicable mandate, if any."""
+        mandates = self.resolve_applicable_mandates_for_principal(
+            requested_action=requested_action,
+            requested_resource=requested_resource,
+            caller_principal_id=caller_principal_id,
+            current_time=current_time,
+            caveat_chain=caveat_chain,
+            caveat_hmac_key=caveat_hmac_key,
+            caveat_task_id=caveat_task_id,
+        )
+        return mandates[0] if mandates else None
     
     def _match_pattern(self, value: str, pattern: str) -> bool:
         """

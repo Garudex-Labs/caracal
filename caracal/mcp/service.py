@@ -18,6 +18,7 @@ import time
 from dataclasses import dataclass
 from decimal import Decimal
 from typing import Any, Dict, Optional
+from uuid import UUID
 
 import httpx
 from fastapi import FastAPI, Request, Response, HTTPException, status
@@ -185,6 +186,7 @@ class MCPAdapterService:
     """
 
     _SERVER_CONTROLLED_SECURITY_METADATA_FIELDS = (
+        "principal_id",
         "task_token_claims",
         "token_subject",
         "task_caveat_chain",
@@ -193,6 +195,11 @@ class MCPAdapterService:
         "caveat_chain",
         "caveat_hmac_key",
         "caveat_task_id",
+    )
+    _SERVER_CONTROLLED_TOOL_ARGUMENT_FIELDS = (
+        "principal_id",
+        "mandate_id",
+        "resolved_mandate_id",
     )
     
     def __init__(
@@ -297,12 +304,28 @@ class MCPAdapterService:
                 detail="Invalid access token: claims payload must be an object",
             )
 
-        principal_id = str(claims.get("sub") or claims.get("principal_id") or "").strip()
+        sub_claim = str(claims.get("sub") or "").strip()
+        principal_claim = str(claims.get("principal_id") or "").strip()
+        if sub_claim and principal_claim and sub_claim != principal_claim:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Validated access token has mismatched principal subject claims",
+            )
+
+        principal_id = sub_claim or principal_claim
         if not principal_id:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Validated access token is missing subject claim",
             )
+
+        try:
+            principal_id = str(UUID(principal_id))
+        except Exception as exc:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Validated access token subject claim must be a UUID",
+            ) from exc
 
         return principal_id, claims
 
@@ -329,6 +352,24 @@ class MCPAdapterService:
             )
 
         return normalized_metadata
+
+    def _reject_spoofed_tool_args(self, tool_args: Dict[str, Any]) -> Dict[str, Any]:
+        """Reject caller-supplied tool args that attempt to override identity binding."""
+        normalized_tool_args = dict(tool_args or {})
+        spoofed_fields = [
+            field
+            for field in self._SERVER_CONTROLLED_TOOL_ARGUMENT_FIELDS
+            if field in normalized_tool_args
+        ]
+        if spoofed_fields:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=(
+                    "Tool arguments contain server-controlled security fields: "
+                    + ", ".join(sorted(spoofed_fields))
+                ),
+            )
+        return normalized_tool_args
 
     def _apply_trusted_security_metadata(
         self,
@@ -829,14 +870,14 @@ class MCPAdapterService:
             Intercept and forward MCP tool call.
             
             This endpoint:
-            1. Extracts agent ID and tool information from request
+            1. Extracts principal ID and tool information from request
             2. Performs authority check via MCPAdapter
             3. Forwards tool call to appropriate MCP server
             4. Emits metering event
             5. Returns result
             
             Args:
-                request: ToolCallRequest with tool name, args, and agent ID
+                request: ToolCallRequest with tool name, args, and principal ID
                 
             Returns:
                 MCPServiceResponse with tool execution result
@@ -853,7 +894,7 @@ class MCPAdapterService:
 
                 logger.info(
                     f"Received tool call request: tool={request.tool_id}, "
-                    f"agent={principal_id}"
+                    f"principal={principal_id}"
                 )
 
                 request_metadata = self._reject_spoofed_security_metadata(request.metadata or {})
@@ -884,6 +925,7 @@ class MCPAdapterService:
                     token_claims=token_claims,
                     principal_id=principal_id,
                 )
+                request_tool_args = self._reject_spoofed_tool_args(request.tool_args or {})
                 
                 # Create MCP context
                 mcp_context = MCPContext(
@@ -895,7 +937,7 @@ class MCPAdapterService:
                 # This handles authority check, forwarding, and metering
                 result = await self.mcp_adapter.intercept_tool_call(
                     tool_name=request.tool_id,
-                    tool_args=request.tool_args,
+                    tool_args=request_tool_args,
                     mcp_context=mcp_context
                 )
                 self._record_result_outcome(result)
@@ -903,7 +945,7 @@ class MCPAdapterService:
                 duration_ms = (time.time() - start_time) * 1000
                 logger.info(
                     f"Tool call completed: tool={request.tool_id}, "
-                    f"agent={principal_id}, success={result.success}, "
+                    f"principal={principal_id}, success={result.success}, "
                     f"duration={duration_ms:.2f}ms"
                 )
                 
@@ -933,7 +975,7 @@ class MCPAdapterService:
                     self._error_count += 1
                 logger.error(
                     f"Caracal error during tool call: tool={request.tool_id}, "
-                    f"agent=unknown, error={e}"
+                    f"principal=unknown, error={e}"
                 )
                 return MCPServiceResponse(
                     success=False,
@@ -948,7 +990,7 @@ class MCPAdapterService:
                 self._error_count += 1
                 logger.error(
                     f"Unexpected error during tool call: tool={request.tool_id}, "
-                    f"agent=unknown, error={e}",
+                    f"principal=unknown, error={e}",
                     exc_info=True
                 )
                 return MCPServiceResponse(
@@ -964,14 +1006,14 @@ class MCPAdapterService:
             Intercept and forward MCP resource read.
             
             This endpoint:
-            1. Extracts agent ID and resource URI from request
+            1. Extracts principal ID and resource URI from request
             2. Performs authority check via MCPAdapter
             3. Forwards resource read to appropriate MCP server
             4. Emits metering event
             5. Returns resource
             
             Args:
-                request: ResourceReadRequest with resource URI and agent ID
+                request: ResourceReadRequest with resource URI and principal ID
                 
             Returns:
                 MCPServiceResponse with resource content
@@ -988,7 +1030,7 @@ class MCPAdapterService:
 
                 logger.info(
                     f"Received resource read request: uri={request.resource_uri}, "
-                    f"agent={principal_id}"
+                    f"principal={principal_id}"
                 )
 
                 request_metadata = self._reject_spoofed_security_metadata(request.metadata or {})
@@ -1019,7 +1061,7 @@ class MCPAdapterService:
                 duration_ms = (time.time() - start_time) * 1000
                 logger.info(
                     f"Resource read completed: uri={request.resource_uri}, "
-                    f"agent={principal_id}, success={result.success}, "
+                    f"principal={principal_id}, success={result.success}, "
                     f"duration={duration_ms:.2f}ms"
                 )
                 
@@ -1040,7 +1082,7 @@ class MCPAdapterService:
                     self._error_count += 1
                 logger.error(
                     f"Caracal error during resource read: uri={request.resource_uri}, "
-                    f"agent=unknown, error={e}"
+                    f"principal=unknown, error={e}"
                 )
                 return MCPServiceResponse(
                     success=False,
@@ -1052,7 +1094,7 @@ class MCPAdapterService:
                 self._error_count += 1
                 logger.error(
                     f"Unexpected error during resource read: uri={request.resource_uri}, "
-                    f"agent=unknown, error={e}",
+                    f"principal=unknown, error={e}",
                     exc_info=True
                 )
                 return MCPServiceResponse(

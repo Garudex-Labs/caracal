@@ -55,7 +55,7 @@ class MCPContext:
     Context information for an MCP request.
     
     Attributes:
-        principal_id: ID of the agent making the request
+        principal_id: ID of the principal making the request
         metadata: Additional metadata from the MCP request
     """
     principal_id: str
@@ -973,7 +973,7 @@ class MCPAdapter:
         Intercept MCP tool invocation.
         
         This method:
-        1. Extracts agent ID from MCP context
+        1. Extracts principal ID from MCP context
         2. Resolves applicable mandate(s) for the authenticated principal
         3. Validates authority via Authority Evaluator
         4. If allowed, forwards to MCP server
@@ -983,7 +983,7 @@ class MCPAdapter:
         Args:
             tool_name: Name of the MCP tool being invoked
             tool_args: Arguments passed to the tool
-            mcp_context: MCP context containing agent ID and metadata
+            mcp_context: MCP context containing principal ID and metadata
             
         Returns:
             MCPResult with success status and result/error
@@ -993,10 +993,10 @@ class MCPAdapter:
             
         """
         try:
-            # 1. Extract agent ID from MCP context
+            # 1. Extract principal ID from MCP context
             principal_id = self._extract_principal_id(mcp_context)
             logger.debug(
-                f"Intercepting MCP tool call: tool={tool_name}, agent={principal_id}"
+                f"Intercepting MCP tool call: tool={tool_name}, principal={principal_id}"
             )
 
             try:
@@ -1050,54 +1050,27 @@ class MCPAdapter:
                     )
 
             caveat_kwargs = self._extract_caveat_authority_kwargs(mcp_context)
-            mandate = self.authority_evaluator.resolve_mandate_for_principal(
+            mandate, denial_reason, denial_error_class = self._authorize_principal_request(
                 requested_action=tool_mapping["action_scope"],
                 requested_resource=tool_mapping["resource_scope"],
-                caller_principal_id=principal_id,
-                **caveat_kwargs,
+                principal_id=principal_id,
+                caveat_kwargs=caveat_kwargs,
             )
             if not mandate:
-                logger.warning(
-                    "No applicable mandate resolved for principal "
-                    f"{principal_id} and tool {tool_name}"
-                )
+                logger.warning(f"Authority denied for principal {principal_id}: {denial_reason}")
                 return MCPResult(
                     success=False,
                     result=None,
-                    error="Authority denied: No applicable mandate found for principal",
+                    error=f"Authority denied: {denial_reason}",
                     metadata={
                         "error_type": "caracal_error",
-                        "error_class": "MCPNoApplicableMandateError",
-                    },
-                )
-
-            # 4. Validate Authority
-            decision = self.authority_evaluator.validate_mandate(
-                mandate=mandate,
-                requested_action=tool_mapping["action_scope"],
-                requested_resource=tool_mapping["resource_scope"],
-                caller_principal_id=principal_id,
-                **caveat_kwargs,
-            )
-            
-            if not decision.allowed:
-                logger.warning(
-                    f"Authority denied for agent {principal_id}: {decision.reason}"
-                )
-                return MCPResult(
-                    success=False,
-                    result=None,
-                    error=f"Authority denied: {decision.reason}",
-                    metadata={
-                        "error_type": "caracal_error",
-                        "error_class": "AuthorityDenied",
+                        "error_class": denial_error_class or "AuthorityDenied",
                     },
                 )
             
             logger.info(
-                "Authority granted for agent "
-                f"{principal_id}, tool {tool_name}, "
-                f"resolved_mandate={getattr(mandate, 'mandate_id', None)}"
+                "Authority granted for principal "
+                f"{principal_id}, tool {tool_name}"
             )
 
             execution_mode = tool_mapping["execution_mode"]
@@ -1106,7 +1079,6 @@ class MCPAdapter:
                     tool_result = await self._execute_local_tool(
                         tool_id=tool_mapping["tool_id"],
                         principal_id=principal_id,
-                        resolved_mandate_id=str(getattr(mandate, "mandate_id", "") or "") or None,
                         tool_args=tool_args,
                         handler_ref=tool_mapping.get("handler_ref"),
                         workspace_name=tool_mapping.get("workspace_name"),
@@ -1169,7 +1141,6 @@ class MCPAdapter:
                     "tool_args": tool_args,
                     "execution_mode": execution_mode,
                     "mcp_context": mcp_context.metadata,
-                    "resolved_mandate_id": str(getattr(mandate, "mandate_id", "") or "") or None,
                 },
                 correlation_id=correlation_id,
                 source_event_id=source_event_id,
@@ -1184,14 +1155,13 @@ class MCPAdapter:
             )
             
             logger.info(
-                f"MCP tool call completed: tool={tool_name}, agent={principal_id}"
+                f"MCP tool call completed: tool={tool_name}, principal={principal_id}"
             )
             
             return MCPResult(
                 success=True,
                 result=tool_result,
                 metadata={
-                    "resolved_mandate_id": str(getattr(mandate, "mandate_id", "") or "") or None,
                     "execution_mode": execution_mode,
                     "tool_id": tool_mapping["tool_id"],
                     "tool_type": tool_mapping.get("tool_type"),
@@ -1220,7 +1190,7 @@ class MCPAdapter:
             error_response = error_handler.create_error_response(context, include_details=False)
             
             logger.error(
-                f"Failed to intercept MCP tool call '{tool_name}' for agent {mcp_context.principal_id} (fail-closed): {e}",
+                f"Failed to intercept MCP tool call '{tool_name}' for principal {mcp_context.principal_id} (fail-closed): {e}",
                 exc_info=True
             )
             
@@ -1243,7 +1213,7 @@ class MCPAdapter:
         Intercept MCP resource read.
         
         This method:
-        1. Extracts agent ID from MCP context
+        1. Extracts principal ID from MCP context
         2. Resolves applicable mandate(s) for the authenticated principal
         3. Validates authority via Authority Evaluator
         4. If allowed, forwards to MCP server
@@ -1252,7 +1222,7 @@ class MCPAdapter:
         
         Args:
             resource_uri: URI of the resource to read
-            mcp_context: MCP context containing agent ID and metadata
+            mcp_context: MCP context containing principal ID and metadata
             
         Returns:
             MCPResult with success status and resource/error
@@ -1262,62 +1232,34 @@ class MCPAdapter:
             
         """
         try:
-            # 1. Extract agent ID from MCP context
+            # 1. Extract principal ID from MCP context
             principal_id = self._extract_principal_id(mcp_context)
             logger.debug(
-                f"Intercepting MCP resource read: uri={resource_uri}, agent={principal_id}"
+                f"Intercepting MCP resource read: uri={resource_uri}, principal={principal_id}"
             )
 
             caveat_kwargs = self._extract_caveat_authority_kwargs(mcp_context)
-            mandate = self.authority_evaluator.resolve_mandate_for_principal(
+            mandate, denial_reason, denial_error_class = self._authorize_principal_request(
                 requested_action="read",
                 requested_resource=resource_uri,
-                caller_principal_id=principal_id,
-                **caveat_kwargs,
+                principal_id=principal_id,
+                caveat_kwargs=caveat_kwargs,
             )
             if not mandate:
-                logger.warning(
-                    "No applicable mandate resolved for principal "
-                    f"{principal_id} and resource {resource_uri}"
-                )
+                logger.warning(f"Authority denied for principal {principal_id}: {denial_reason}")
                 return MCPResult(
                     success=False,
                     result=None,
-                    error="Authority denied: No applicable mandate found for principal",
+                    error=f"Authority denied: {denial_reason}",
                     metadata={
                         "error_type": "caracal_error",
-                        "error_class": "MCPNoApplicableMandateError",
-                    },
-                )
-
-            # 4. Validate Authority
-            # Action: read, Resource: resource_uri
-            decision = self.authority_evaluator.validate_mandate(
-                mandate=mandate,
-                requested_action="read",
-                requested_resource=resource_uri,
-                caller_principal_id=principal_id,
-                **caveat_kwargs,
-            )
-            
-            if not decision.allowed:
-                logger.warning(
-                    f"Authority denied for agent {principal_id}: {decision.reason}"
-                )
-                return MCPResult(
-                    success=False,
-                    result=None,
-                    error=f"Authority denied: {decision.reason}",
-                    metadata={
-                        "error_type": "caracal_error",
-                        "error_class": "AuthorityDenied",
+                        "error_class": denial_error_class or "AuthorityDenied",
                     },
                 )
             
             logger.info(
-                "Authority granted for agent "
-                f"{principal_id}, resource {resource_uri}, "
-                f"resolved_mandate={getattr(mandate, 'mandate_id', None)}"
+                "Authority granted for principal "
+                f"{principal_id}, resource {resource_uri}"
             )
             
             # 5. Fetch resource from MCP server
@@ -1349,7 +1291,6 @@ class MCPAdapter:
                     "mime_type": resource.mime_type,
                     "size_bytes": resource.size,
                     "mcp_context": mcp_context.metadata,
-                    "resolved_mandate_id": str(getattr(mandate, "mandate_id", "") or "") or None,
                 },
                 correlation_id=correlation_id,
                 source_event_id=source_event_id,
@@ -1364,7 +1305,7 @@ class MCPAdapter:
             )
             
             logger.info(
-                f"MCP resource read completed: uri={resource_uri}, agent={principal_id}, "
+                f"MCP resource read completed: uri={resource_uri}, principal={principal_id}, "
                 f"size={resource.size} bytes"
             )
             
@@ -1373,7 +1314,6 @@ class MCPAdapter:
                 result=resource,
                 metadata={
                     "resource_size": resource.size,
-                    "resolved_mandate_id": str(getattr(mandate, "mandate_id", "") or "") or None,
                     "mcp_server_name": server_name,
                 }
             )
@@ -1395,7 +1335,7 @@ class MCPAdapter:
             error_response = error_handler.create_error_response(context, include_details=False)
             
             logger.error(
-                f"Failed to intercept MCP resource read '{resource_uri}' for agent {mcp_context.principal_id} (fail-closed): {e}",
+                f"Failed to intercept MCP resource read '{resource_uri}' for principal {mcp_context.principal_id} (fail-closed): {e}",
                 exc_info=True
             )
             
@@ -1411,23 +1351,23 @@ class MCPAdapter:
 
     def _extract_principal_id(self, mcp_context: MCPContext) -> str:
         """
-        Extract agent ID from MCP context.
+        Extract principal ID from MCP context.
         
         Args:
             mcp_context: MCP context
             
         Returns:
-            Agent ID as string
+            Principal ID as string
             
         Raises:
-            CaracalError: If agent ID not found in context (fail-closed)
+            CaracalError: If principal ID not found in context (fail-closed)
         """
         principal_id = mcp_context.principal_id
             
         if not principal_id:
-            # Fail closed: deny operation if agent ID cannot be determined (Requirement 23.3)
+            # Fail closed: deny operation if principal ID cannot be determined (Requirement 23.3)
             error_handler = get_error_handler("mcp-adapter")
-            error = CaracalError("Agent ID not found in MCP context")
+            error = CaracalError("Principal ID not found in MCP context")
             error_handler.handle_error(
                 error=error,
                 category=ErrorCategory.VALIDATION,
@@ -1436,7 +1376,7 @@ class MCPAdapter:
                 severity=ErrorSeverity.CRITICAL
             )
             
-            logger.error("Agent ID not found in MCP context (fail-closed)")
+            logger.error("Principal ID not found in MCP context (fail-closed)")
             raise error
         
         return principal_id
@@ -1719,6 +1659,80 @@ class MCPAdapter:
             "caveat_task_id": resolved_task_id,
         }
 
+    def _resolve_applicable_mandates(
+        self,
+        *,
+        requested_action: str,
+        requested_resource: str,
+        principal_id: str,
+        caveat_kwargs: Dict[str, Any],
+    ) -> list[Any]:
+        resolver = getattr(self.authority_evaluator, "resolve_applicable_mandates_for_principal", None)
+        if callable(resolver):
+            resolved = resolver(
+                requested_action=requested_action,
+                requested_resource=requested_resource,
+                caller_principal_id=principal_id,
+                **caveat_kwargs,
+            )
+            if resolved is None:
+                return []
+            if isinstance(resolved, list):
+                return [mandate for mandate in resolved if mandate is not None]
+            try:
+                return [mandate for mandate in list(resolved) if mandate is not None]
+            except TypeError:
+                return [resolved] if resolved is not None else []
+
+        mandate = self.authority_evaluator.resolve_mandate_for_principal(
+            requested_action=requested_action,
+            requested_resource=requested_resource,
+            caller_principal_id=principal_id,
+            **caveat_kwargs,
+        )
+        return [mandate] if mandate else []
+
+    def _authorize_principal_request(
+        self,
+        *,
+        requested_action: str,
+        requested_resource: str,
+        principal_id: str,
+        caveat_kwargs: Dict[str, Any],
+    ) -> tuple[Optional[Any], Optional[str], Optional[str]]:
+        applicable_mandates = self._resolve_applicable_mandates(
+            requested_action=requested_action,
+            requested_resource=requested_resource,
+            principal_id=principal_id,
+            caveat_kwargs=caveat_kwargs,
+        )
+
+        if not applicable_mandates:
+            return (
+                None,
+                "No applicable mandate found for principal",
+                "MCPNoApplicableMandateError",
+            )
+
+        deny_reason: Optional[str] = None
+        for mandate in applicable_mandates:
+            decision = self.authority_evaluator.validate_mandate(
+                mandate=mandate,
+                requested_action=requested_action,
+                requested_resource=requested_resource,
+                caller_principal_id=principal_id,
+                **caveat_kwargs,
+            )
+            if decision.allowed:
+                return mandate, None, None
+            deny_reason = decision.reason
+
+        return (
+            None,
+            deny_reason or "No applicable mandate grants requested action/resource for principal",
+            "AuthorityDenied",
+        )
+
     async def _get_http_client(self) -> httpx.AsyncClient:
         """Lazily create and return a shared httpx.AsyncClient."""
         if self._http_client is None or self._http_client.is_closed:
@@ -1779,7 +1793,6 @@ class MCPAdapter:
         *,
         tool_id: str,
         principal_id: str,
-        resolved_mandate_id: Optional[str],
         tool_args: Dict[str, Any],
         handler_ref: Optional[str] = None,
         workspace_name: Optional[str] = None,
@@ -1802,10 +1815,7 @@ class MCPAdapter:
         call_kwargs = dict(tool_args or {})
         call_kwargs.pop("principal_id", None)
         call_kwargs.pop("mandate_id", None)
-        call_kwargs.pop("resolved_mandate_id", None)
         call_kwargs["principal_id"] = principal_id
-        if resolved_mandate_id:
-            call_kwargs["resolved_mandate_id"] = str(resolved_mandate_id)
 
         import inspect
 
@@ -2198,13 +2208,6 @@ class MCPAdapter:
                 elif len(args) > 0 and len(param_names) > 0 and param_names[0] == 'principal_id':
                     principal_id = args[0]
                 
-                # If principal_id not found in args, try alternative names
-                if not principal_id:
-                    for key in ['agent', 'caracal_principal_id']:
-                        if key in call_kwargs:
-                            principal_id = call_kwargs.pop(key)
-                            break
-                
                 if not principal_id:
                     logger.error(
                         f"principal_id not provided to decorated MCP tool '{func.__name__}'"
@@ -2235,6 +2238,15 @@ class MCPAdapter:
 
                 task_token_claims = call_kwargs.get("task_token_claims")
                 if isinstance(task_token_claims, dict):
+                    trusted_subject = str(
+                        task_token_claims.get("sub")
+                        or task_token_claims.get("principal_id")
+                        or ""
+                    ).strip()
+                    if trusted_subject and trusted_subject != str(principal_id):
+                        raise CaracalError(
+                            "principal_id does not match authenticated token subject"
+                        )
                     metadata["task_token_claims"] = task_token_claims
 
                 mcp_context = MCPContext(
@@ -2243,7 +2255,7 @@ class MCPAdapter:
                 )
                 
                 logger.debug(
-                    f"Decorator intercepting MCP tool: tool={tool_name}, agent={principal_id}"
+                    f"Decorator intercepting MCP tool: tool={tool_name}, principal={principal_id}"
                 )
                 
                 try:
@@ -2255,31 +2267,20 @@ class MCPAdapter:
 
                     # 1. Resolve and validate authority using principal identity.
                     caveat_kwargs = self._extract_caveat_authority_kwargs(mcp_context)
-                    mandate = self.authority_evaluator.resolve_mandate_for_principal(
+                    mandate, denial_reason, _denial_error_class = self._authorize_principal_request(
                         requested_action=tool_mapping["action_scope"],
                         requested_resource=tool_mapping["resource_scope"],
-                        caller_principal_id=str(principal_id),
-                        **caveat_kwargs,
+                        principal_id=str(principal_id),
+                        caveat_kwargs=caveat_kwargs,
                     )
                     if not mandate:
-                        raise CaracalError("Authority denied: No applicable mandate found for principal")
-
-                    decision = self.authority_evaluator.validate_mandate(
-                        mandate=mandate,
-                        requested_action=tool_mapping["action_scope"],
-                        requested_resource=tool_mapping["resource_scope"],
-                        caller_principal_id=str(principal_id),
-                        **caveat_kwargs,
-                    )
-                    
-                    if not decision.allowed:
                         logger.warning(
-                            f"Authority denied for agent {principal_id}: {decision.reason}"
+                            f"Authority denied for principal {principal_id}: {denial_reason}"
                         )
-                        raise CaracalError(f"Authority denied: {decision.reason}")
+                        raise CaracalError(f"Authority denied: {denial_reason}")
                     
                     logger.info(
-                        f"Authority granted for agent {principal_id}, tool {tool_name}"
+                        f"Authority granted for principal {principal_id}, tool {tool_name}"
                     )
                     
                     # 2. Execute the actual tool function
@@ -2307,7 +2308,6 @@ class MCPAdapter:
                         metadata={
                             "tool_name": tool_name,
                             "decorator_mode": True,
-                            "resolved_mandate_id": str(getattr(mandate, "mandate_id", "") or "") or None,
                         },
                         correlation_id=correlation_id,
                         source_event_id=source_event_id,
@@ -2322,7 +2322,7 @@ class MCPAdapter:
                     )
                     
                     logger.info(
-                        f"MCP tool call completed (decorated): tool={tool_name}, agent={principal_id}"
+                        f"MCP tool call completed (decorated): tool={tool_name}, principal={principal_id}"
                     )
                     
                     return tool_result
@@ -2332,7 +2332,7 @@ class MCPAdapter:
                 except Exception as e:
                     # Fail closed
                     logger.error(
-                        f"Failed to execute decorated tool '{tool_name}' for agent {principal_id}: {e}",
+                        f"Failed to execute decorated tool '{tool_name}' for principal {principal_id}: {e}",
                         exc_info=True
                     )
                     raise CaracalError(f"Tool execution failed: {e}")
