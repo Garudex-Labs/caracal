@@ -36,7 +36,6 @@ from caracal.exceptions import (
     MCPToolBindingError,
     MCPToolMappingMismatchError,
     MCPToolTypeMismatchError,
-    MCPUnknownMandateError,
     MCPUnknownToolError,
 )
 from caracal.logging_config import get_logger
@@ -975,7 +974,7 @@ class MCPAdapter:
         
         This method:
         1. Extracts agent ID from MCP context
-        2. Extracts Mandate ID from metadata
+        2. Resolves applicable mandate(s) for the authenticated principal
         3. Validates authority via Authority Evaluator
         4. If allowed, forwards to MCP server
         5. Emits metering event
@@ -999,49 +998,6 @@ class MCPAdapter:
             logger.debug(
                 f"Intercepting MCP tool call: tool={tool_name}, agent={principal_id}"
             )
-            
-            # 2. Extract Mandate ID
-            mandate_id_str = mcp_context.get("mandate_id")
-            if not mandate_id_str:
-                logger.warning(f"No mandate_id provided for agent {principal_id}, tool {tool_name}")
-                return MCPResult(
-                    success=False,
-                    result=None,
-                    error="Authority denied: Missing mandate_id",
-                    metadata={
-                        "error_type": "caracal_error",
-                        "error_class": "MCPMissingMandateError",
-                    },
-                )
-            
-            try:
-                mandate_id = UUID(mandate_id_str)
-            except ValueError:
-                logger.warning(f"Invalid mandate_id format: {mandate_id_str}")
-                return MCPResult(
-                    success=False,
-                    result=None,
-                    error="Authority denied: Invalid mandate_id format",
-                    metadata={
-                        "error_type": "caracal_error",
-                        "error_class": "MCPInvalidMandateError",
-                    },
-                )
-
-            # 3. Fetch Mandate
-            mandate = self.authority_evaluator._get_mandate_with_cache(mandate_id)
-            if not mandate:
-                logger.warning(f"Mandate not found: {mandate_id}")
-                not_found_error = MCPUnknownMandateError(f"Unknown mandate_id: {mandate_id}")
-                return MCPResult(
-                    success=False,
-                    result=None,
-                    error=f"Authority denied: {not_found_error}",
-                    metadata={
-                        "error_type": "caracal_error",
-                        "error_class": not_found_error.__class__.__name__,
-                    },
-                )
 
             try:
                 resolved_workspace_name = self._resolve_workspace_name(mcp_context)
@@ -1093,8 +1049,29 @@ class MCPAdapter:
                         },
                     )
 
-            # 4. Validate Authority
             caveat_kwargs = self._extract_caveat_authority_kwargs(mcp_context)
+            mandate = self.authority_evaluator.resolve_mandate_for_principal(
+                requested_action=tool_mapping["action_scope"],
+                requested_resource=tool_mapping["resource_scope"],
+                caller_principal_id=principal_id,
+                **caveat_kwargs,
+            )
+            if not mandate:
+                logger.warning(
+                    "No applicable mandate resolved for principal "
+                    f"{principal_id} and tool {tool_name}"
+                )
+                return MCPResult(
+                    success=False,
+                    result=None,
+                    error="Authority denied: No applicable mandate found for principal",
+                    metadata={
+                        "error_type": "caracal_error",
+                        "error_class": "MCPNoApplicableMandateError",
+                    },
+                )
+
+            # 4. Validate Authority
             decision = self.authority_evaluator.validate_mandate(
                 mandate=mandate,
                 requested_action=tool_mapping["action_scope"],
@@ -1118,7 +1095,9 @@ class MCPAdapter:
                 )
             
             logger.info(
-                f"Authority granted for agent {principal_id}, tool {tool_name} (mandate {mandate_id})"
+                "Authority granted for agent "
+                f"{principal_id}, tool {tool_name}, "
+                f"resolved_mandate={getattr(mandate, 'mandate_id', None)}"
             )
 
             execution_mode = tool_mapping["execution_mode"]
@@ -1127,7 +1106,7 @@ class MCPAdapter:
                     tool_result = await self._execute_local_tool(
                         tool_id=tool_mapping["tool_id"],
                         principal_id=principal_id,
-                        mandate_id=mandate_id,
+                        resolved_mandate_id=str(getattr(mandate, "mandate_id", "") or "") or None,
                         tool_args=tool_args,
                         handler_ref=tool_mapping.get("handler_ref"),
                         workspace_name=tool_mapping.get("workspace_name"),
@@ -1190,7 +1169,7 @@ class MCPAdapter:
                     "tool_args": tool_args,
                     "execution_mode": execution_mode,
                     "mcp_context": mcp_context.metadata,
-                    "mandate_id": str(mandate_id)
+                    "resolved_mandate_id": str(getattr(mandate, "mandate_id", "") or "") or None,
                 },
                 correlation_id=correlation_id,
                 source_event_id=source_event_id,
@@ -1212,7 +1191,7 @@ class MCPAdapter:
                 success=True,
                 result=tool_result,
                 metadata={
-                    "mandate_id": str(mandate_id),
+                    "resolved_mandate_id": str(getattr(mandate, "mandate_id", "") or "") or None,
                     "execution_mode": execution_mode,
                     "tool_id": tool_mapping["tool_id"],
                     "tool_type": tool_mapping.get("tool_type"),
@@ -1265,7 +1244,7 @@ class MCPAdapter:
         
         This method:
         1. Extracts agent ID from MCP context
-        2. Extracts Mandate ID from metadata
+        2. Resolves applicable mandate(s) for the authenticated principal
         3. Validates authority via Authority Evaluator
         4. If allowed, forwards to MCP server
         5. Emits metering event
@@ -1288,53 +1267,31 @@ class MCPAdapter:
             logger.debug(
                 f"Intercepting MCP resource read: uri={resource_uri}, agent={principal_id}"
             )
-            
-            # 2. Extract Mandate ID
-            mandate_id_str = mcp_context.get("mandate_id")
-            if not mandate_id_str:
-                logger.warning(f"No mandate_id provided for agent {principal_id}, resource {resource_uri}")
-                return MCPResult(
-                    success=False,
-                    result=None,
-                    error="Authority denied: Missing mandate_id",
-                    metadata={
-                        "error_type": "caracal_error",
-                        "error_class": "MCPMissingMandateError",
-                    },
-                )
-            
-            try:
-                mandate_id = UUID(mandate_id_str)
-            except ValueError:
-                logger.warning(f"Invalid mandate_id format: {mandate_id_str}")
-                return MCPResult(
-                    success=False,
-                    result=None,
-                    error="Authority denied: Invalid mandate_id format",
-                    metadata={
-                        "error_type": "caracal_error",
-                        "error_class": "MCPInvalidMandateError",
-                    },
-                )
 
-            # 3. Fetch Mandate
-            mandate = self.authority_evaluator._get_mandate_with_cache(mandate_id)
+            caveat_kwargs = self._extract_caveat_authority_kwargs(mcp_context)
+            mandate = self.authority_evaluator.resolve_mandate_for_principal(
+                requested_action="read",
+                requested_resource=resource_uri,
+                caller_principal_id=principal_id,
+                **caveat_kwargs,
+            )
             if not mandate:
-                logger.warning(f"Mandate not found: {mandate_id}")
-                not_found_error = MCPUnknownMandateError(f"Unknown mandate_id: {mandate_id}")
+                logger.warning(
+                    "No applicable mandate resolved for principal "
+                    f"{principal_id} and resource {resource_uri}"
+                )
                 return MCPResult(
                     success=False,
                     result=None,
-                    error=f"Authority denied: {not_found_error}",
+                    error="Authority denied: No applicable mandate found for principal",
                     metadata={
                         "error_type": "caracal_error",
-                        "error_class": not_found_error.__class__.__name__,
+                        "error_class": "MCPNoApplicableMandateError",
                     },
                 )
 
             # 4. Validate Authority
             # Action: read, Resource: resource_uri
-            caveat_kwargs = self._extract_caveat_authority_kwargs(mcp_context)
             decision = self.authority_evaluator.validate_mandate(
                 mandate=mandate,
                 requested_action="read",
@@ -1358,7 +1315,9 @@ class MCPAdapter:
                 )
             
             logger.info(
-                f"Authority granted for agent {principal_id}, resource {resource_uri} (mandate {mandate_id})"
+                "Authority granted for agent "
+                f"{principal_id}, resource {resource_uri}, "
+                f"resolved_mandate={getattr(mandate, 'mandate_id', None)}"
             )
             
             # 5. Fetch resource from MCP server
@@ -1390,7 +1349,7 @@ class MCPAdapter:
                     "mime_type": resource.mime_type,
                     "size_bytes": resource.size,
                     "mcp_context": mcp_context.metadata,
-                    "mandate_id": str(mandate_id)
+                    "resolved_mandate_id": str(getattr(mandate, "mandate_id", "") or "") or None,
                 },
                 correlation_id=correlation_id,
                 source_event_id=source_event_id,
@@ -1414,7 +1373,7 @@ class MCPAdapter:
                 result=resource,
                 metadata={
                     "resource_size": resource.size,
-                    "mandate_id": str(mandate_id),
+                    "resolved_mandate_id": str(getattr(mandate, "mandate_id", "") or "") or None,
                     "mcp_server_name": server_name,
                 }
             )
@@ -1820,7 +1779,7 @@ class MCPAdapter:
         *,
         tool_id: str,
         principal_id: str,
-        mandate_id: UUID,
+        resolved_mandate_id: Optional[str],
         tool_args: Dict[str, Any],
         handler_ref: Optional[str] = None,
         workspace_name: Optional[str] = None,
@@ -1843,8 +1802,10 @@ class MCPAdapter:
         call_kwargs = dict(tool_args or {})
         call_kwargs.pop("principal_id", None)
         call_kwargs.pop("mandate_id", None)
+        call_kwargs.pop("resolved_mandate_id", None)
         call_kwargs["principal_id"] = principal_id
-        call_kwargs["mandate_id"] = str(mandate_id)
+        if resolved_mandate_id:
+            call_kwargs["resolved_mandate_id"] = str(resolved_mandate_id)
 
         import inspect
 
@@ -2120,17 +2081,17 @@ class MCPAdapter:
         Return Python decorator for in-process integration.
         
         This decorator wraps MCP tool functions to automatically handle:
-        - Mandate validation before execution
+        - Principal-based mandate resolution and authority validation before execution
         - Metering events after execution
         - Error handling and logging
         
         Usage:
             @mcp_adapter.as_decorator(tool_id="provider:endframe:resource:deployments")
-            async def my_mcp_tool(principal_id: str, mandate_id: str, **kwargs):
+            async def my_mcp_tool(principal_id: str, **kwargs):
                 # Tool implementation
                 return result
         
-        The decorated function must accept principal_id and mandate_id as arguments.
+        The decorated function must accept principal_id as an argument.
         
         Returns:
             Decorator function that wraps MCP tool functions
@@ -2221,10 +2182,8 @@ class MCPAdapter:
                 Raises:
                     CaracalError: If validation fails
                 """
-                # Extract principal_id and mandate_id from arguments
+                # Extract principal_id from arguments
                 principal_id = None
-                mandate_id = None
-                tool_args = {}
                 
                 # Get function signature to understand parameters
                 sig = inspect.signature(func)
@@ -2239,23 +2198,12 @@ class MCPAdapter:
                 elif len(args) > 0 and len(param_names) > 0 and param_names[0] == 'principal_id':
                     principal_id = args[0]
                 
-                # Extract mandate_id
-                if 'mandate_id' in call_kwargs:
-                    mandate_id = call_kwargs.pop('mandate_id')
-                # Check positional args if mandate_id is expected
-                elif len(args) > 1 and len(param_names) > 1 and param_names[1] == 'mandate_id':
-                    mandate_id = args[1]
-                
                 # If principal_id not found in args, try alternative names
                 if not principal_id:
                     for key in ['agent', 'caracal_principal_id']:
                         if key in call_kwargs:
                             principal_id = call_kwargs.pop(key)
                             break
-                            
-                # Collect remaining args as tool_args
-                # This is a simplification; in reality we'd need to map remaining args to param names
-                tool_args = call_kwargs
                 
                 if not principal_id:
                     logger.error(
@@ -2263,14 +2211,6 @@ class MCPAdapter:
                     )
                     raise CaracalError(
                         f"principal_id is required for MCP tool '{func.__name__}'."
-                    )
-                    
-                if not mandate_id:
-                    logger.error(
-                        f"mandate_id not provided to decorated MCP tool '{func.__name__}'"
-                    )
-                    raise CaracalError(
-                        f"mandate_id is required for MCP tool '{func.__name__}'."
                     )
                 
                 tool_name = resolved_tool_id
@@ -2280,7 +2220,6 @@ class MCPAdapter:
                     "tool_name": tool_name,
                     "tool_id": tool_name,
                     "decorator_mode": True,
-                    "mandate_id": str(mandate_id),
                 }
                 task_caveat_chain = call_kwargs.get("task_caveat_chain") or call_kwargs.get("caveat_chain")
                 if task_caveat_chain is not None:
@@ -2308,24 +2247,23 @@ class MCPAdapter:
                 )
                 
                 try:
-                    # 1. Fetch Mandate
-                    try:
-                        mandate_uuid = UUID(str(mandate_id))
-                    except ValueError:
-                        raise CaracalError(f"Invalid mandate_id format: {mandate_id}")
-                        
-                    mandate = self.authority_evaluator._get_mandate_with_cache(mandate_uuid)
-                    if not mandate:
-                        raise MCPUnknownMandateError(f"Unknown mandate_id: {mandate_id}")
-
                     tool_mapping = self._resolve_active_tool_mapping(
                         tool_id=tool_name,
                         mcp_context=mcp_context,
                         require_credential=True,
                     )
 
-                    # 2. Validate Authority
+                    # 1. Resolve and validate authority using principal identity.
                     caveat_kwargs = self._extract_caveat_authority_kwargs(mcp_context)
+                    mandate = self.authority_evaluator.resolve_mandate_for_principal(
+                        requested_action=tool_mapping["action_scope"],
+                        requested_resource=tool_mapping["resource_scope"],
+                        caller_principal_id=str(principal_id),
+                        **caveat_kwargs,
+                    )
+                    if not mandate:
+                        raise CaracalError("Authority denied: No applicable mandate found for principal")
+
                     decision = self.authority_evaluator.validate_mandate(
                         mandate=mandate,
                         requested_action=tool_mapping["action_scope"],
@@ -2344,13 +2282,13 @@ class MCPAdapter:
                         f"Authority granted for agent {principal_id}, tool {tool_name}"
                     )
                     
-                    # 3. Execute the actual tool function
+                    # 2. Execute the actual tool function
                     if inspect.iscoroutinefunction(func):
                         tool_result = await func(*args, **kwargs)
                     else:
                         tool_result = func(*args, **kwargs)
                     
-                    # 4. Emit metering event with enhanced features
+                    # 3. Emit metering event with enhanced features
                     # Generate correlation_id for tracing
                     import uuid
                     correlation_id = str(uuid.uuid4())
@@ -2369,7 +2307,7 @@ class MCPAdapter:
                         metadata={
                             "tool_name": tool_name,
                             "decorator_mode": True,
-                            "mandate_id": str(mandate_id)
+                            "resolved_mandate_id": str(getattr(mandate, "mandate_id", "") or "") or None,
                         },
                         correlation_id=correlation_id,
                         source_event_id=source_event_id,

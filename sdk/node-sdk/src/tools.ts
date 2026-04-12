@@ -55,19 +55,14 @@ export class ToolOperations {
 
   async call(options: {
     toolId: string;
-    mandateId: string;
     toolArgs?: Record<string, unknown>;
     metadata?: Record<string, unknown>;
     correlationId?: string;
   }): Promise<Record<string, unknown>> {
     const normalizedToolId = String(options.toolId ?? '').trim();
-    const normalizedMandateId = String(options.mandateId ?? '').trim();
 
     if (!normalizedToolId) {
       throw new SDKConfigurationError('toolId is required');
-    }
-    if (!normalizedMandateId) {
-      throw new SDKConfigurationError('mandateId is required');
     }
 
     if (options.metadata !== undefined && !isObjectRecord(options.metadata)) {
@@ -112,7 +107,6 @@ export class ToolOperations {
 
     const req = this.buildReq('POST', '/mcp/tool/call', {
       tool_id: normalizedToolId,
-      mandate_id: normalizedMandateId,
       tool_args: payloadToolArgs,
       metadata: payloadMetadata,
     });

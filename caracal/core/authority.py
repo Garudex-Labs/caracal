@@ -181,6 +181,98 @@ class AuthorityEvaluator:
         except Exception as e:
             logger.error(f"Failed to get mandate {mandate_id}: {e}", exc_info=True)
             return None
+
+    def resolve_mandate_for_principal(
+        self,
+        *,
+        requested_action: str,
+        requested_resource: str,
+        caller_principal_id: Optional[str],
+        current_time: Optional[datetime] = None,
+        caveat_chain: Optional[list[dict[str, Any]]] = None,
+        caveat_hmac_key: Optional[str] = None,
+        caveat_task_id: Optional[str] = None,
+    ) -> Optional[ExecutionMandate]:
+        """Resolve the most applicable active mandate for a caller principal.
+
+        Resolution is internal and principal-driven: callers do not provide mandate IDs.
+        This helper narrows candidates by subject binding, active time window, and
+        action/resource scope match before returning a candidate for full validation.
+        """
+        del caveat_chain, caveat_hmac_key, caveat_task_id
+
+        resolved_caller = self._normalize_principal_id(caller_principal_id)
+        if not resolved_caller:
+            logger.warning("Cannot resolve mandate: caller principal ID is missing")
+            return None
+
+        try:
+            caller_uuid = UUID(str(resolved_caller))
+        except Exception:
+            logger.warning(
+                "Cannot resolve mandate: caller principal ID is not a valid UUID "
+                f"({resolved_caller})"
+            )
+            return None
+
+        evaluation_time = current_time or datetime.utcnow()
+        try:
+            candidate_mandates = (
+                self.db_session.query(ExecutionMandate)
+                .filter(
+                    ExecutionMandate.subject_id == caller_uuid,
+                    ExecutionMandate.revoked.is_(False),
+                    ExecutionMandate.valid_from <= evaluation_time,
+                    ExecutionMandate.valid_until >= evaluation_time,
+                )
+                .order_by(
+                    ExecutionMandate.valid_until.asc(),
+                    ExecutionMandate.created_at.desc(),
+                )
+                .all()
+            )
+        except Exception as exc:
+            logger.error(
+                "Failed to resolve mandates for caller principal "
+                f"{resolved_caller}: {exc}",
+                exc_info=True,
+            )
+            return None
+
+        for mandate in candidate_mandates:
+            allowed_actions = list(getattr(mandate, "action_scope", []) or [])
+            allowed_resources = list(getattr(mandate, "resource_scope", []) or [])
+
+            action_match = any(
+                self._match_pattern(str(requested_action), str(allowed_action))
+                for allowed_action in allowed_actions
+            )
+            if not action_match:
+                continue
+
+            resource_match = any(
+                self._match_pattern(str(requested_resource), str(allowed_resource))
+                for allowed_resource in allowed_resources
+            )
+            if not resource_match:
+                continue
+
+            logger.debug(
+                "Resolved mandate %s for caller %s action=%s resource=%s",
+                getattr(mandate, "mandate_id", None),
+                resolved_caller,
+                requested_action,
+                requested_resource,
+            )
+            return mandate
+
+        logger.warning(
+            "No applicable mandate resolved for caller %s action=%s resource=%s",
+            resolved_caller,
+            requested_action,
+            requested_resource,
+        )
+        return None
     
     def _match_pattern(self, value: str, pattern: str) -> bool:
         """

@@ -16,10 +16,8 @@ import asyncio
 import logging
 import time
 from dataclasses import dataclass
-from datetime import datetime
 from decimal import Decimal
 from typing import Any, Dict, Optional
-from uuid import UUID
 
 import httpx
 from fastapi import FastAPI, Request, Response, HTTPException, status
@@ -35,7 +33,6 @@ from caracal.exceptions import (
     CaracalError,
     MCPProviderMissingError,
     MCPToolMappingMismatchError,
-    MCPUnknownMandateError,
     MCPUnknownToolError,
 )
 from caracal.logging_config import get_logger, setup_runtime_logging
@@ -93,7 +90,6 @@ class MCPServiceConfig:
 class ToolCallRequest(BaseModel):
     """Request model for MCP tool call."""
     tool_id: str = Field(..., description="Explicit registered tool identifier")
-    mandate_id: str = Field(..., description="Mandate UUID authorizing the call")
     tool_args: Dict[str, Any] = Field(default_factory=dict, description="Arguments for the tool")
     metadata: Dict[str, Any] = Field(default_factory=dict, description="Additional metadata")
 
@@ -309,27 +305,6 @@ class MCPAdapterService:
             )
 
         return principal_id, claims
-
-    @staticmethod
-    def _validate_mandate_id_metadata(metadata: Dict[str, Any]) -> Dict[str, Any]:
-        """Require and normalize mandate_id metadata before adapter invocation."""
-        mandate_raw = str((metadata or {}).get("mandate_id") or "").strip()
-        if not mandate_raw:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Missing metadata.mandate_id",
-            )
-        try:
-            mandate_id = UUID(mandate_raw)
-        except ValueError as exc:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Invalid metadata.mandate_id format",
-            ) from exc
-
-        normalized = dict(metadata or {})
-        normalized["mandate_id"] = str(mandate_id)
-        return normalized
 
     @staticmethod
     def _normalize_selector_value(value: Any) -> Optional[str]:
@@ -576,31 +551,6 @@ class MCPAdapterService:
             )
         return row
 
-    def _require_active_mandate(self, mandate_id: str):
-        try:
-            mandate_uuid = UUID(str(mandate_id))
-        except ValueError as exc:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Invalid mandate_id format",
-            ) from exc
-
-        mandate = self.authority_evaluator._get_mandate_with_cache(mandate_uuid)
-        if mandate is None:
-            raise MCPUnknownMandateError("Unknown mandate_id")
-        if bool(getattr(mandate, "revoked", False)):
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Mandate is revoked",
-            )
-        valid_until = getattr(mandate, "valid_until", None)
-        if valid_until is not None and valid_until < datetime.utcnow():
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Mandate is expired",
-            )
-        return mandate
-
     @staticmethod
     def _is_denied_error_message(message: Optional[str]) -> bool:
         normalized = str(message or "").strip().lower()
@@ -609,8 +559,7 @@ class MCPAdapterService:
         return (
             "authority denied" in normalized
             or "mandate subject" in normalized
-            or "missing mandate_id" in normalized
-            or "invalid mandate_id" in normalized
+            or "no applicable mandate" in normalized
         )
 
     def _record_result_outcome(self, result: MCPResult) -> None:
@@ -908,8 +857,6 @@ class MCPAdapterService:
                 )
 
                 request_metadata = self._reject_spoofed_security_metadata(request.metadata or {})
-                request_metadata["mandate_id"] = request.mandate_id
-                request_metadata = self._validate_mandate_id_metadata(request_metadata)
                 request_metadata = self._normalize_workspace_scope_metadata(
                     raw_request=raw_request,
                     metadata=request_metadata,
@@ -922,8 +869,7 @@ class MCPAdapterService:
                         request.tool_id,
                         workspace_name=workspace_name,
                     )
-                    self._require_active_mandate(request_metadata["mandate_id"])
-                except (MCPUnknownToolError, MCPUnknownMandateError) as exc:
+                except MCPUnknownToolError as exc:
                     raise HTTPException(
                         status_code=status.HTTP_404_NOT_FOUND,
                         detail=str(exc),
@@ -1046,7 +992,6 @@ class MCPAdapterService:
                 )
 
                 request_metadata = self._reject_spoofed_security_metadata(request.metadata or {})
-                request_metadata = self._validate_mandate_id_metadata(request_metadata)
                 request_metadata = self._normalize_workspace_scope_metadata(
                     raw_request=raw_request,
                     metadata=request_metadata,
