@@ -59,11 +59,11 @@ class MockCaracalClient:
     def __init__(self):
         self.call_history = []
     
-    async def call_tool(self, tool_id, mandate_id, tool_args, correlation_id=None):
+    async def call_tool(self, tool_id, principal_id, tool_args, correlation_id=None):
         """Mock tool call."""
         call_record = {
             "tool_id": tool_id,
-            "mandate_id": mandate_id,
+            "principal_id": principal_id,
             "tool_args": tool_args,
             "correlation_id": correlation_id,
         }
@@ -168,13 +168,13 @@ class TestOrchestratorAgent:
     async def test_init(self, mock_caracal_client, test_scenario):
         """Test orchestrator initialization."""
         agent = OrchestratorAgent(
-            mandate_id="mandate-orch",
+            principal_id="mandate-orch",
             caracal_client=mock_caracal_client,
             scenario=test_scenario,
         )
         
         assert agent.role == AgentRole.ORCHESTRATOR
-        assert agent.mandate_id == "mandate-orch"
+        assert agent.principal_id == "mandate-orch"
         assert agent.scenario is test_scenario
         assert agent.caracal_client is mock_caracal_client
         assert len(agent.delegated_agents) == 0
@@ -183,7 +183,7 @@ class TestOrchestratorAgent:
     async def test_decompose_task(self, mock_caracal_client, test_scenario):
         """Test task decomposition."""
         agent = OrchestratorAgent(
-            mandate_id="mandate-orch",
+            principal_id="mandate-orch",
             caracal_client=mock_caracal_client,
             scenario=test_scenario,
         )
@@ -201,7 +201,7 @@ class TestOrchestratorAgent:
     async def test_execute_with_delegation(self, mock_caracal_client, test_scenario):
         """Test orchestrator execution with delegation."""
         agent = OrchestratorAgent(
-            mandate_id="mandate-orch",
+            principal_id="mandate-orch",
             caracal_client=mock_caracal_client,
             scenario=test_scenario,
         )
@@ -209,8 +209,8 @@ class TestOrchestratorAgent:
         result = await agent.execute(
             "Prepare quarterly review",
             scenario=test_scenario,
-            finance_mandate_id="mandate-finance",
-            ops_mandate_id="mandate-ops",
+            finance_principal_id="mandate-finance",
+            ops_principal_id="mandate-ops",
         )
         
         assert result["status"] == "success"
@@ -224,7 +224,7 @@ class TestOrchestratorAgent:
     async def test_generate_executive_summary(self, mock_caracal_client, test_scenario):
         """Test executive summary generation."""
         agent = OrchestratorAgent(
-            mandate_id="mandate-orch",
+            principal_id="mandate-orch",
             caracal_client=mock_caracal_client,
             scenario=test_scenario,
         )
@@ -261,20 +261,20 @@ class TestFinanceAgent:
     async def test_init(self, mock_caracal_client, test_scenario):
         """Test finance agent initialization."""
         agent = FinanceAgent(
-            mandate_id="mandate-finance",
+            principal_id="mandate-finance",
             caracal_client=mock_caracal_client,
             scenario=test_scenario,
         )
         
         assert agent.role == AgentRole.FINANCE
-        assert agent.mandate_id == "mandate-finance"
+        assert agent.principal_id == "mandate-finance"
         assert agent.scenario is test_scenario
     
     @pytest.mark.asyncio
     async def test_analyze_budgets(self, mock_caracal_client, test_scenario):
         """Test budget analysis."""
         agent = FinanceAgent(
-            mandate_id="mandate-finance",
+            principal_id="mandate-finance",
             caracal_client=mock_caracal_client,
             scenario=test_scenario,
         )
@@ -291,7 +291,7 @@ class TestFinanceAgent:
     async def test_analyze_invoices(self, mock_caracal_client, test_scenario):
         """Test invoice analysis."""
         agent = FinanceAgent(
-            mandate_id="mandate-finance",
+            principal_id="mandate-finance",
             caracal_client=mock_caracal_client,
             scenario=test_scenario,
         )
@@ -306,7 +306,7 @@ class TestFinanceAgent:
     async def test_assess_risks(self, mock_caracal_client, test_scenario):
         """Test risk assessment."""
         agent = FinanceAgent(
-            mandate_id="mandate-finance",
+            principal_id="mandate-finance",
             caracal_client=mock_caracal_client,
             scenario=test_scenario,
         )
@@ -328,7 +328,7 @@ class TestFinanceAgent:
     async def test_execute(self, mock_caracal_client, test_scenario):
         """Test finance agent execution."""
         agent = FinanceAgent(
-            mandate_id="mandate-finance",
+            principal_id="mandate-finance",
             caracal_client=mock_caracal_client,
             scenario=test_scenario,
         )
@@ -355,20 +355,20 @@ class TestOpsAgent:
     async def test_init(self, mock_caracal_client, test_scenario):
         """Test ops agent initialization."""
         agent = OpsAgent(
-            mandate_id="mandate-ops",
+            principal_id="mandate-ops",
             caracal_client=mock_caracal_client,
             scenario=test_scenario,
         )
         
         assert agent.role == AgentRole.OPS
-        assert agent.mandate_id == "mandate-ops"
+        assert agent.principal_id == "mandate-ops"
         assert agent.scenario is test_scenario
     
     @pytest.mark.asyncio
     async def test_analyze_services(self, mock_caracal_client, test_scenario):
         """Test service analysis."""
         agent = OpsAgent(
-            mandate_id="mandate-ops",
+            principal_id="mandate-ops",
             caracal_client=mock_caracal_client,
             scenario=test_scenario,
         )
@@ -385,7 +385,7 @@ class TestOpsAgent:
     async def test_analyze_incidents(self, mock_caracal_client, test_scenario):
         """Test incident analysis."""
         agent = OpsAgent(
-            mandate_id="mandate-ops",
+            principal_id="mandate-ops",
             caracal_client=mock_caracal_client,
             scenario=test_scenario,
         )
@@ -400,7 +400,7 @@ class TestOpsAgent:
     async def test_analyze_sla(self, mock_caracal_client, test_scenario):
         """Test SLA analysis."""
         agent = OpsAgent(
-            mandate_id="mandate-ops",
+            principal_id="mandate-ops",
             caracal_client=mock_caracal_client,
             scenario=test_scenario,
         )
@@ -415,7 +415,7 @@ class TestOpsAgent:
     async def test_execute(self, mock_caracal_client, test_scenario):
         """Test ops agent execution."""
         agent = OpsAgent(
-            mandate_id="mandate-ops",
+            principal_id="mandate-ops",
             caracal_client=mock_caracal_client,
             scenario=test_scenario,
         )
@@ -446,12 +446,12 @@ class TestToolBinding:
         """Test tool binding initialization."""
         binding = ToolBinding(
             agent_id="agent-1",
-            mandate_id="mandate-1",
+            principal_id="mandate-1",
             caracal_client=mock_caracal_client,
         )
         
         assert binding.agent_id == "agent-1"
-        assert binding.mandate_id == "mandate-1"
+        assert binding.principal_id == "mandate-1"
         assert len(binding.available_tools) == 0
         assert len(binding.call_history) == 0
     
@@ -459,7 +459,7 @@ class TestToolBinding:
         """Test registering a tool."""
         binding = ToolBinding(
             agent_id="agent-1",
-            mandate_id="mandate-1",
+            principal_id="mandate-1",
             caracal_client=mock_caracal_client,
         )
         
@@ -479,7 +479,7 @@ class TestToolBinding:
         """Test listing tools."""
         binding = ToolBinding(
             agent_id="agent-1",
-            mandate_id="mandate-1",
+            principal_id="mandate-1",
             caracal_client=mock_caracal_client,
         )
         
@@ -502,7 +502,7 @@ class TestToolBinding:
         """Test calling a tool."""
         binding = ToolBinding(
             agent_id="agent-1",
-            mandate_id="mandate-1",
+            principal_id="mandate-1",
             caracal_client=mock_caracal_client,
         )
         
@@ -521,7 +521,7 @@ class TestToolBinding:
         assert isinstance(tool_call, ToolCall)
         assert tool_call.tool_id == "tool-1"
         assert tool_call.agent_id == "agent-1"
-        assert tool_call.mandate_id == "mandate-1"
+        assert tool_call.principal_id == "mandate-1"
         assert tool_call.status == "success"
         assert tool_call.result is not None
         assert len(binding.call_history) == 1
@@ -531,7 +531,7 @@ class TestToolBinding:
         """Test calling unavailable tool."""
         binding = ToolBinding(
             agent_id="agent-1",
-            mandate_id="mandate-1",
+            principal_id="mandate-1",
             caracal_client=mock_caracal_client,
         )
         
@@ -545,7 +545,7 @@ class TestToolBinding:
         """Test getting call statistics."""
         binding = ToolBinding(
             agent_id="agent-1",
-            mandate_id="mandate-1",
+            principal_id="mandate-1",
             caracal_client=mock_caracal_client,
         )
         
@@ -554,7 +554,7 @@ class TestToolBinding:
             call_id="call-1",
             tool_id="tool-1",
             agent_id="agent-1",
-            mandate_id="mandate-1",
+            principal_id="mandate-1",
             tool_args={},
             status="success",
             duration_ms=100,
@@ -563,7 +563,7 @@ class TestToolBinding:
             call_id="call-2",
             tool_id="tool-2",
             agent_id="agent-1",
-            mandate_id="mandate-1",
+            principal_id="mandate-1",
             tool_args={},
             status="error",
             duration_ms=50,
@@ -621,16 +621,16 @@ class TestDelegationProtocol:
         
         delegation = await protocol.delegate_mandate(
             source_agent_id="agent-1",
-            source_mandate_id="mandate-1",
+            source_principal_id="mandate-1",
             target_agent_id="agent-2",
-            target_mandate_id="mandate-2",
+            target_principal_id="mandate-2",
             resource_scopes=["finance:budgets"],
             action_scopes=["read"],
         )
         
         assert isinstance(delegation, MandateDelegation)
-        assert delegation.source_mandate_id == "mandate-1"
-        assert delegation.target_mandate_id == "mandate-2"
+        assert delegation.source_principal_id == "mandate-1"
+        assert delegation.target_principal_id == "mandate-2"
         assert delegation.resource_scopes == ["finance:budgets"]
         assert delegation.action_scopes == ["read"]
         assert not delegation.revoked
@@ -672,8 +672,8 @@ class TestDelegationProtocol:
         # Create delegation
         delegation = MandateDelegation(
             delegation_id="del-1",
-            source_mandate_id="mandate-1",
-            target_mandate_id="mandate-2",
+            source_principal_id="mandate-1",
+            target_principal_id="mandate-2",
             source_agent_id="agent-1",
             target_agent_id="agent-2",
         )
@@ -703,8 +703,8 @@ class TestDelegationProtocol:
         
         delegation = MandateDelegation(
             delegation_id="del-1",
-            source_mandate_id="mandate-1",
-            target_mandate_id="mandate-2",
+            source_principal_id="mandate-1",
+            target_principal_id="mandate-2",
             source_agent_id="agent-1",
             target_agent_id="agent-2",
         )
@@ -726,7 +726,7 @@ class TestMultiAgentWorkflow:
         """Test complete orchestration workflow with finance and ops agents."""
         # Create orchestrator
         orchestrator = OrchestratorAgent(
-            mandate_id="mandate-orch",
+            principal_id="mandate-orch",
             caracal_client=mock_caracal_client,
             scenario=test_scenario,
         )
@@ -735,8 +735,8 @@ class TestMultiAgentWorkflow:
         result = await orchestrator.execute(
             "Prepare quarterly review",
             scenario=test_scenario,
-            finance_mandate_id="mandate-finance",
-            ops_mandate_id="mandate-ops",
+            finance_principal_id="mandate-finance",
+            ops_principal_id="mandate-ops",
         )
         
         # Verify orchestrator completed successfully

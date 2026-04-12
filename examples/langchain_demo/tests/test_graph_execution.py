@@ -52,7 +52,7 @@ def mock_scenario():
 
 
 @pytest.fixture
-def mandate_ids():
+def principal_ids():
     """Create test mandate IDs."""
     return {
         "orchestrator": "mandate_orchestrator_123",
@@ -64,29 +64,29 @@ def mandate_ids():
 
 
 @pytest.fixture
-def graph_builder(mock_caracal_client, mock_scenario, mandate_ids):
+def graph_builder(mock_caracal_client, mock_scenario, principal_ids):
     """Create a GraphBuilder instance."""
     return GraphBuilder(
         caracal_client=mock_caracal_client,
         scenario=mock_scenario,
-        mandate_ids=mandate_ids,
+        principal_ids=principal_ids,
     )
 
 
 class TestGraphBuilder:
     """Tests for the GraphBuilder class."""
     
-    def test_initialization(self, mock_caracal_client, mock_scenario, mandate_ids):
+    def test_initialization(self, mock_caracal_client, mock_scenario, principal_ids):
         """Test GraphBuilder initialization."""
         builder = GraphBuilder(
             caracal_client=mock_caracal_client,
             scenario=mock_scenario,
-            mandate_ids=mandate_ids,
+            principal_ids=principal_ids,
         )
         
         assert builder.caracal_client == mock_caracal_client
         assert builder.scenario == mock_scenario
-        assert builder.mandate_ids == mandate_ids
+        assert builder.principal_ids == principal_ids
         assert builder._agent_cache == {}
     
     def test_initialization_without_langgraph(self, mock_caracal_client):
@@ -128,18 +128,18 @@ class TestWorkflowState:
             "scenario_id": "test_scenario",
             "scenario_data": {},
             "orchestrator_id": "orch_123",
-            "orchestrator_mandate_id": "mandate_123",
+            "orchestrator_principal_id": "mandate_123",
             "finance_agent_id": None,
-            "finance_mandate_id": None,
+            "finance_principal_id": None,
             "finance_results": None,
             "ops_agent_id": None,
-            "ops_mandate_id": None,
+            "ops_principal_id": None,
             "ops_results": None,
             "analyst_agent_id": None,
-            "analyst_mandate_id": None,
+            "analyst_principal_id": None,
             "analyst_results": None,
             "reporter_agent_id": None,
-            "reporter_mandate_id": None,
+            "reporter_principal_id": None,
             "reporter_results": None,
             "aggregated_results": None,
             "executive_summary": None,
@@ -170,7 +170,7 @@ class TestConditionalRouting:
             "scenario_id": "test",
             "scenario_data": {},
             "orchestrator_id": "orch",
-            "orchestrator_mandate_id": "mandate",
+            "orchestrator_principal_id": "mandate",
             "messages": [],
             "errors": [],
             "current_step": "orchestrator",
@@ -189,7 +189,7 @@ class TestConditionalRouting:
             "scenario_id": "test",
             "scenario_data": {},
             "orchestrator_id": "orch",
-            "orchestrator_mandate_id": "mandate",
+            "orchestrator_principal_id": "mandate",
             "messages": [],
             "errors": [],
             "current_step": "orchestrator",
@@ -208,7 +208,7 @@ class TestConditionalRouting:
             "scenario_id": "test",
             "scenario_data": {},
             "orchestrator_id": "orch",
-            "orchestrator_mandate_id": "mandate",
+            "orchestrator_principal_id": "mandate",
             "messages": [],
             "errors": [],
             "current_step": "orchestrator",
@@ -228,7 +228,7 @@ class TestConditionalRouting:
             "scenario_id": "test",
             "scenario_data": {},
             "orchestrator_id": "orch",
-            "orchestrator_mandate_id": "mandate",
+            "orchestrator_principal_id": "mandate",
             "messages": [],
             "errors": [],
             "current_step": "finance",
@@ -248,7 +248,7 @@ class TestConditionalRouting:
             "scenario_id": "test",
             "scenario_data": {},
             "orchestrator_id": "orch",
-            "orchestrator_mandate_id": "mandate",
+            "orchestrator_principal_id": "mandate",
             "messages": [],
             "errors": [],
             "current_step": "ops",
@@ -268,7 +268,7 @@ class TestConditionalRouting:
             "scenario_id": "test",
             "scenario_data": {},
             "orchestrator_id": "orch",
-            "orchestrator_mandate_id": "mandate",
+            "orchestrator_principal_id": "mandate",
             "messages": [],
             "current_step": "analyst",
             "iteration": 0,
@@ -288,7 +288,7 @@ class TestConditionalRouting:
             "scenario_id": "test",
             "scenario_data": {},
             "orchestrator_id": "orch",
-            "orchestrator_mandate_id": "mandate",
+            "orchestrator_principal_id": "mandate",
             "messages": [],
             "errors": [],
             "current_step": "orchestrator",
@@ -309,7 +309,7 @@ class TestConditionalRouting:
             "scenario_id": "test",
             "scenario_data": {},
             "orchestrator_id": "orch",
-            "orchestrator_mandate_id": "mandate",
+            "orchestrator_principal_id": "mandate",
             "messages": [],
             "errors": [],
             "current_step": "finance",
@@ -330,7 +330,7 @@ class TestConditionalRouting:
             "scenario_id": "test",
             "scenario_data": {},
             "orchestrator_id": "orch",
-            "orchestrator_mandate_id": "mandate",
+            "orchestrator_principal_id": "mandate",
             "messages": [],
             "errors": [],
             "current_step": "ops",
@@ -463,7 +463,7 @@ class TestWorkflowExecutionEngine:
             "scenario_id": "test",
             "scenario_data": {},
             "orchestrator_id": "orch",
-            "orchestrator_mandate_id": "mandate",
+            "orchestrator_principal_id": "mandate",
             "messages": [],
             "errors": [],
             "current_step": "end",
@@ -499,13 +499,13 @@ class TestWorkflowExecutionEngine:
         assert engine._current_execution_id is None
     
     @pytest.mark.asyncio
-    async def test_execute_success(self, execution_engine, mandate_ids):
+    async def test_execute_success(self, execution_engine, principal_ids):
         """Test successful workflow execution."""
         result = await execution_engine.execute(
             task="Test task",
             scenario_id="test_scenario",
             scenario_data={"test": "data"},
-            mandate_ids=mandate_ids,
+            principal_ids=principal_ids,
             max_iterations=10,
         )
         
@@ -517,7 +517,7 @@ class TestWorkflowExecutionEngine:
         assert isinstance(result["duration_ms"], int)
     
     @pytest.mark.asyncio
-    async def test_execute_with_errors(self, execution_engine, mandate_ids):
+    async def test_execute_with_errors(self, execution_engine, principal_ids):
         """Test workflow execution with errors."""
         # Mock workflow to return errors
         execution_engine.workflow.invoke = Mock(return_value={
@@ -525,7 +525,7 @@ class TestWorkflowExecutionEngine:
             "scenario_id": "test",
             "scenario_data": {},
             "orchestrator_id": "orch",
-            "orchestrator_mandate_id": "mandate",
+            "orchestrator_principal_id": "mandate",
             "messages": [],
             "errors": ["Test error"],
             "current_step": "end",
@@ -540,7 +540,7 @@ class TestWorkflowExecutionEngine:
             task="Test task",
             scenario_id="test_scenario",
             scenario_data={"test": "data"},
-            mandate_ids=mandate_ids,
+            principal_ids=principal_ids,
             max_iterations=10,
         )
         
@@ -548,7 +548,7 @@ class TestWorkflowExecutionEngine:
         assert len(result["errors"]) > 0
     
     @pytest.mark.asyncio
-    async def test_execute_exception_handling(self, execution_engine, mandate_ids):
+    async def test_execute_exception_handling(self, execution_engine, principal_ids):
         """Test workflow execution exception handling."""
         # Mock workflow to raise exception
         execution_engine.workflow.invoke = Mock(
@@ -559,7 +559,7 @@ class TestWorkflowExecutionEngine:
             task="Test task",
             scenario_id="test_scenario",
             scenario_data={"test": "data"},
-            mandate_ids=mandate_ids,
+            principal_ids=principal_ids,
             max_iterations=10,
         )
         

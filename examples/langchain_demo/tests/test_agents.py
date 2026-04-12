@@ -122,12 +122,12 @@ class TestAgentState:
         state = AgentState(
             agent_id="test-agent-1",
             agent_role=AgentRole.ANALYST,
-            mandate_id="mandate-123"
+            principal_id="mandate-123"
         )
         
         assert state.agent_id == "test-agent-1"
         assert state.agent_role == AgentRole.ANALYST
-        assert state.mandate_id == "mandate-123"
+        assert state.principal_id == "mandate-123"
         assert state.parent_agent_id is None
         assert state.messages == []
         assert state.tool_calls == []
@@ -142,7 +142,7 @@ class TestAgentState:
         state = AgentState(
             agent_id="sub-agent-1",
             agent_role=AgentRole.ANALYST,
-            mandate_id="mandate-456",
+            principal_id="mandate-456",
             parent_agent_id="parent-agent-1"
         )
         
@@ -153,7 +153,7 @@ class TestAgentState:
         state = AgentState(
             agent_id="test-agent-1",
             agent_role=AgentRole.FINANCE,
-            mandate_id="mandate-123"
+            principal_id="mandate-123"
         )
         
         msg = AgentMessage(
@@ -173,7 +173,7 @@ class TestAgentState:
         state = AgentState(
             agent_id="test-agent-1",
             agent_role=AgentRole.OPS,
-            mandate_id="mandate-123"
+            principal_id="mandate-123"
         )
         
         state.add_tool_call("tool-call-1")
@@ -188,7 +188,7 @@ class TestAgentState:
         state = AgentState(
             agent_id="parent-agent-1",
             agent_role=AgentRole.ORCHESTRATOR,
-            mandate_id="mandate-123"
+            principal_id="mandate-123"
         )
         
         state.add_sub_agent("sub-agent-1")
@@ -203,7 +203,7 @@ class TestAgentState:
         state = AgentState(
             agent_id="test-agent-1",
             agent_role=AgentRole.REPORTER,
-            mandate_id="mandate-123"
+            principal_id="mandate-123"
         )
         
         assert state.status == "active"
@@ -219,7 +219,7 @@ class TestAgentState:
         state = AgentState(
             agent_id="test-agent-1",
             agent_role=AgentRole.FINANCE,
-            mandate_id="mandate-123"
+            principal_id="mandate-123"
         )
         
         state.mark_error()
@@ -232,7 +232,7 @@ class TestAgentState:
         state = AgentState(
             agent_id="test-agent-1",
             agent_role=AgentRole.ORCHESTRATOR,
-            mandate_id="mandate-123",
+            principal_id="mandate-123",
             parent_agent_id="parent-1"
         )
         
@@ -252,7 +252,7 @@ class TestAgentState:
         assert isinstance(result, dict)
         assert result["agent_id"] == "test-agent-1"
         assert result["agent_role"] == "orchestrator"
-        assert result["mandate_id"] == "mandate-123"
+        assert result["principal_id"] == "mandate-123"
         assert result["parent_agent_id"] == "parent-1"
         assert len(result["messages"]) == 1
         assert result["tool_calls"] == ["tool-1"]
@@ -269,11 +269,11 @@ class TestBaseAgent:
         """Test agent initialization."""
         agent = TestAgent(
             role=AgentRole.FINANCE,
-            mandate_id="mandate-123"
+            principal_id="mandate-123"
         )
         
         assert agent.role == AgentRole.FINANCE
-        assert agent.mandate_id == "mandate-123"
+        assert agent.principal_id == "mandate-123"
         assert agent.parent_agent is None
         assert isinstance(agent.agent_id, str)
         assert len(agent.agent_id) > 0
@@ -284,12 +284,12 @@ class TestBaseAgent:
         """Test agent initialization with parent."""
         parent = TestAgent(
             role=AgentRole.ORCHESTRATOR,
-            mandate_id="mandate-parent"
+            principal_id="mandate-parent"
         )
         
         child = TestAgent(
             role=AgentRole.ANALYST,
-            mandate_id="mandate-child",
+            principal_id="mandate-child",
             parent_agent=parent
         )
         
@@ -300,7 +300,7 @@ class TestBaseAgent:
         """Test agent initialization with custom ID."""
         agent = TestAgent(
             role=AgentRole.OPS,
-            mandate_id="mandate-123",
+            principal_id="mandate-123",
             agent_id="custom-agent-id"
         )
         
@@ -311,7 +311,7 @@ class TestBaseAgent:
         context = {"key": "value", "count": 42}
         agent = TestAgent(
             role=AgentRole.REPORTER,
-            mandate_id="mandate-123",
+            principal_id="mandate-123",
             context=context
         )
         
@@ -321,7 +321,7 @@ class TestBaseAgent:
         """Test emitting messages."""
         agent = TestAgent(
             role=AgentRole.FINANCE,
-            mandate_id="mandate-123"
+            principal_id="mandate-123"
         )
         
         msg = agent.emit_message(
@@ -345,7 +345,7 @@ class TestBaseAgent:
         """Test recording tool calls."""
         agent = TestAgent(
             role=AgentRole.OPS,
-            mandate_id="mandate-123"
+            principal_id="mandate-123"
         )
         
         agent.record_tool_call("tool-call-1")
@@ -359,7 +359,7 @@ class TestBaseAgent:
         """Test that spawn_sub_agent raises NotImplementedError by default."""
         agent = TestAgent(
             role=AgentRole.ORCHESTRATOR,
-            mandate_id="mandate-123"
+            principal_id="mandate-123"
         )
         
         with pytest.raises(NotImplementedError):
@@ -373,7 +373,7 @@ class TestBaseAgent:
         """Test executing agent task."""
         agent = TestAgent(
             role=AgentRole.ANALYST,
-            mandate_id="mandate-123"
+            principal_id="mandate-123"
         )
         
         result = await agent.execute("analyze data", result="success")
@@ -392,7 +392,7 @@ class TestBaseAgent:
         """Test getting agent state."""
         agent = TestAgent(
             role=AgentRole.FINANCE,
-            mandate_id="mandate-123"
+            principal_id="mandate-123"
         )
         
         state = agent.get_state()
@@ -404,7 +404,7 @@ class TestBaseAgent:
         """Test getting agent messages."""
         agent = TestAgent(
             role=AgentRole.OPS,
-            mandate_id="mandate-123"
+            principal_id="mandate-123"
         )
         
         agent.emit_message(MessageType.THOUGHT, "Thought 1")
@@ -420,7 +420,7 @@ class TestBaseAgent:
         """Test string representation."""
         agent = TestAgent(
             role=AgentRole.REPORTER,
-            mandate_id="mandate-123",
+            principal_id="mandate-123",
             agent_id="test-agent-123"
         )
         
@@ -453,7 +453,7 @@ class TestAgentStateManager:
         state = AgentState(
             agent_id="agent-1",
             agent_role=AgentRole.FINANCE,
-            mandate_id="mandate-1"
+            principal_id="mandate-1"
         )
         
         manager.register_agent(state)
@@ -468,14 +468,14 @@ class TestAgentStateManager:
         state1 = AgentState(
             agent_id="agent-1",
             agent_role=AgentRole.OPS,
-            mandate_id="mandate-1"
+            principal_id="mandate-1"
         )
         manager.register_agent(state1)
         
         state2 = AgentState(
             agent_id="agent-1",
             agent_role=AgentRole.OPS,
-            mandate_id="mandate-1"
+            principal_id="mandate-1"
         )
         state2.mark_completed()
         
@@ -491,7 +491,7 @@ class TestAgentStateManager:
         state = AgentState(
             agent_id="agent-1",
             agent_role=AgentRole.ANALYST,
-            mandate_id="mandate-1"
+            principal_id="mandate-1"
         )
         
         with pytest.raises(KeyError):
@@ -501,9 +501,9 @@ class TestAgentStateManager:
         """Test getting agents by role."""
         manager = AgentStateManager()
         
-        state1 = AgentState(agent_id="agent-1", agent_role=AgentRole.FINANCE, mandate_id="m1")
-        state2 = AgentState(agent_id="agent-2", agent_role=AgentRole.FINANCE, mandate_id="m2")
-        state3 = AgentState(agent_id="agent-3", agent_role=AgentRole.OPS, mandate_id="m3")
+        state1 = AgentState(agent_id="agent-1", agent_role=AgentRole.FINANCE, principal_id="m1")
+        state2 = AgentState(agent_id="agent-2", agent_role=AgentRole.FINANCE, principal_id="m2")
+        state3 = AgentState(agent_id="agent-3", agent_role=AgentRole.OPS, principal_id="m3")
         
         manager.register_agent(state1)
         manager.register_agent(state2)
@@ -519,10 +519,10 @@ class TestAgentStateManager:
         """Test getting agents by status."""
         manager = AgentStateManager()
         
-        state1 = AgentState(agent_id="agent-1", agent_role=AgentRole.ORCHESTRATOR, mandate_id="m1")
-        state2 = AgentState(agent_id="agent-2", agent_role=AgentRole.FINANCE, mandate_id="m2")
+        state1 = AgentState(agent_id="agent-1", agent_role=AgentRole.ORCHESTRATOR, principal_id="m1")
+        state2 = AgentState(agent_id="agent-2", agent_role=AgentRole.FINANCE, principal_id="m2")
         state2.mark_completed()
-        state3 = AgentState(agent_id="agent-3", agent_role=AgentRole.OPS, mandate_id="m3")
+        state3 = AgentState(agent_id="agent-3", agent_role=AgentRole.OPS, principal_id="m3")
         state3.mark_error()
         
         manager.register_agent(state1)
@@ -541,10 +541,10 @@ class TestAgentStateManager:
         """Test getting sub-agents."""
         manager = AgentStateManager()
         
-        parent = AgentState(agent_id="parent", agent_role=AgentRole.ORCHESTRATOR, mandate_id="m1")
-        child1 = AgentState(agent_id="child1", agent_role=AgentRole.FINANCE, mandate_id="m2", parent_agent_id="parent")
-        child2 = AgentState(agent_id="child2", agent_role=AgentRole.OPS, mandate_id="m3", parent_agent_id="parent")
-        other = AgentState(agent_id="other", agent_role=AgentRole.ANALYST, mandate_id="m4")
+        parent = AgentState(agent_id="parent", agent_role=AgentRole.ORCHESTRATOR, principal_id="m1")
+        child1 = AgentState(agent_id="child1", agent_role=AgentRole.FINANCE, principal_id="m2", parent_agent_id="parent")
+        child2 = AgentState(agent_id="child2", agent_role=AgentRole.OPS, principal_id="m3", parent_agent_id="parent")
+        other = AgentState(agent_id="other", agent_role=AgentRole.ANALYST, principal_id="m4")
         
         manager.register_agent(parent)
         manager.register_agent(child1)
@@ -561,8 +561,8 @@ class TestAgentStateManager:
         """Test getting statistics."""
         manager = AgentStateManager()
         
-        state1 = AgentState(agent_id="agent-1", agent_role=AgentRole.ORCHESTRATOR, mandate_id="m1")
-        state2 = AgentState(agent_id="agent-2", agent_role=AgentRole.FINANCE, mandate_id="m2")
+        state1 = AgentState(agent_id="agent-1", agent_role=AgentRole.ORCHESTRATOR, principal_id="m1")
+        state2 = AgentState(agent_id="agent-2", agent_role=AgentRole.FINANCE, principal_id="m2")
         state2.mark_completed()
         
         msg = AgentMessage(agent_id="agent-1", agent_role=AgentRole.ORCHESTRATOR, message_type=MessageType.THOUGHT, content="test")
@@ -671,7 +671,7 @@ class TestCommunicationBus:
         
         delegation_request = DelegationRequest(
             task_description="test task",
-            delegated_mandate_id="mandate-2"
+            delegated_principal_id="mandate-2"
         )
         
         result = await bus.delegate(
@@ -732,12 +732,12 @@ class TestAgentRegistry:
         
         agent = registry.create_agent(
             role=AgentRole.OPS,
-            mandate_id="mandate-123"
+            principal_id="mandate-123"
         )
         
         assert isinstance(agent, TestAgent)
         assert agent.role == AgentRole.OPS
-        assert agent.mandate_id == "mandate-123"
+        assert agent.principal_id == "mandate-123"
         assert len(registry) == 1
     
     def test_list_instances_by_role(self):

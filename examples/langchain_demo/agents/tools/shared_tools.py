@@ -6,7 +6,7 @@ with mandate-based authority validation and provider routing.
 
 # CARACAL INTEGRATION POINT
 # All tools in this module are registered with Caracal and executed through
-# the Caracal SDK with mandate_id for authority enforcement.
+# the Caracal SDK with principal_id for authority enforcement.
 """
 
 from dataclasses import dataclass
@@ -44,7 +44,7 @@ class SharedTools:
     
     # CARACAL INTEGRATION POINT
     # These tools are executed through Caracal's governed pipeline:
-    # 1. Tool call initiated with mandate_id
+    # 1. Tool call initiated with principal_id
     # 2. Caracal validates mandate has authority for the tool
     # 3. Caracal routes to appropriate provider (mock or real)
     # 4. Provider executes tool with injected credentials
@@ -60,7 +60,7 @@ class SharedTools:
     # WITH CARACAL:
     # result = await client.call_tool(
     #     tool_id="demo:employee:mock:shared:ticket",
-    #     mandate_id=mandate_id,
+    #     principal_id=principal_id,
     #     tool_args=args
     # )
     """
@@ -83,7 +83,7 @@ class SharedTools:
     
     async def create_ticket(
         self,
-        mandate_id: str,
+        principal_id: str,
         title: str,
         description: str,
         priority: str = "medium",
@@ -97,7 +97,7 @@ class SharedTools:
         # This tool call goes through Caracal's authority enforcement pipeline
         
         Args:
-            mandate_id: Caracal mandate ID for authority validation
+            principal_id: Caracal mandate ID for authority validation
             title: Ticket title
             description: Ticket description
             priority: Priority level (low, medium, high, critical)
@@ -118,14 +118,13 @@ class SharedTools:
         
         try:
             logger.info(
-                f"Calling create_ticket tool: {tool_id} with mandate {mandate_id[:8]}"
+                f"Calling create_ticket tool: {tool_id} with mandate {principal_id[:8]}"
             )
             
             # CARACAL_MARKER: MANDATE_REQUIRED
-            # Every governed call must be bound to an explicit mandate_id
+            # Every governed call must be bound to an explicit principal_id
             result = await self.caracal_client.call_tool(
                 tool_id=tool_id,
-                mandate_id=mandate_id,
                 tool_args=tool_args,
             )
             
@@ -145,7 +144,7 @@ class SharedTools:
     
     async def get_tickets(
         self,
-        mandate_id: str,
+        principal_id: str,
         status: Optional[str] = None,
         priority: Optional[str] = None,
         assignee: Optional[str] = None,
@@ -157,7 +156,7 @@ class SharedTools:
         # CARACAL_MARKER: TOOL_CALL
         
         Args:
-            mandate_id: Caracal mandate ID for authority validation
+            principal_id: Caracal mandate ID for authority validation
             status: Optional status filter (open, in_progress, resolved, closed)
             priority: Optional priority filter (low, medium, high, critical)
             assignee: Optional assignee filter
@@ -176,12 +175,11 @@ class SharedTools:
         
         try:
             logger.info(
-                f"Calling get_tickets tool: {tool_id} with mandate {mandate_id[:8]}"
+                f"Calling get_tickets tool: {tool_id} with mandate {principal_id[:8]}"
             )
             
             result = await self.caracal_client.call_tool(
                 tool_id=tool_id,
-                mandate_id=mandate_id,
                 tool_args=tool_args,
             )
             
@@ -201,7 +199,7 @@ class SharedTools:
     
     async def update_ticket(
         self,
-        mandate_id: str,
+        principal_id: str,
         ticket_id: str,
         status: Optional[str] = None,
         priority: Optional[str] = None,
@@ -215,7 +213,7 @@ class SharedTools:
         # This is a write operation requiring authority
         
         Args:
-            mandate_id: Caracal mandate ID for authority validation
+            principal_id: Caracal mandate ID for authority validation
             ticket_id: Ticket ID to update
             status: Optional new status
             priority: Optional new priority
@@ -236,12 +234,11 @@ class SharedTools:
         
         try:
             logger.info(
-                f"Calling update_ticket tool: {tool_id} with mandate {mandate_id[:8]}"
+                f"Calling update_ticket tool: {tool_id} with mandate {principal_id[:8]}"
             )
             
             result = await self.caracal_client.call_tool(
                 tool_id=tool_id,
-                mandate_id=mandate_id,
                 tool_args=tool_args,
             )
             
@@ -261,7 +258,7 @@ class SharedTools:
     
     async def send_notification(
         self,
-        mandate_id: str,
+        principal_id: str,
         recipient: str,
         subject: str,
         message: str,
@@ -275,7 +272,7 @@ class SharedTools:
         # This is a write operation that sends external communications
         
         Args:
-            mandate_id: Caracal mandate ID for authority validation
+            principal_id: Caracal mandate ID for authority validation
             recipient: Recipient identifier (email, user ID, etc.)
             subject: Notification subject
             message: Notification message
@@ -296,14 +293,13 @@ class SharedTools:
         
         try:
             logger.info(
-                f"Calling notify tool: {tool_id} with mandate {mandate_id[:8]}"
+                f"Calling notify tool: {tool_id} with mandate {principal_id[:8]}"
             )
             
             # CARACAL_MARKER: AUTHORITY_CHECK
             # Write operations require explicit authority validation
             result = await self.caracal_client.call_tool(
                 tool_id=tool_id,
-                mandate_id=mandate_id,
                 tool_args=tool_args,
             )
             
@@ -323,7 +319,7 @@ class SharedTools:
     
     async def generate_report(
         self,
-        mandate_id: str,
+        principal_id: str,
         report_type: str,
         parameters: Dict[str, Any],
         format: str = "json",
@@ -334,7 +330,7 @@ class SharedTools:
         # CARACAL_MARKER: TOOL_CALL
         
         Args:
-            mandate_id: Caracal mandate ID for authority validation
+            principal_id: Caracal mandate ID for authority validation
             report_type: Type of report (financial, operational, executive)
             parameters: Report parameters (date range, filters, etc.)
             format: Output format (json, pdf, csv)
@@ -351,12 +347,11 @@ class SharedTools:
         
         try:
             logger.info(
-                f"Calling report tool: {tool_id} with mandate {mandate_id[:8]}"
+                f"Calling report tool: {tool_id} with mandate {principal_id[:8]}"
             )
             
             result = await self.caracal_client.call_tool(
                 tool_id=tool_id,
-                mandate_id=mandate_id,
                 tool_args=tool_args,
             )
             
@@ -376,7 +371,7 @@ class SharedTools:
     
     async def query_data(
         self,
-        mandate_id: str,
+        principal_id: str,
         query: str,
         data_source: str,
         parameters: Optional[Dict[str, Any]] = None,
@@ -387,7 +382,7 @@ class SharedTools:
         # CARACAL_MARKER: TOOL_CALL
         
         Args:
-            mandate_id: Caracal mandate ID for authority validation
+            principal_id: Caracal mandate ID for authority validation
             query: Query string or identifier
             data_source: Data source identifier (database, api, warehouse)
             parameters: Optional query parameters
@@ -404,12 +399,11 @@ class SharedTools:
         
         try:
             logger.info(
-                f"Calling query tool: {tool_id} with mandate {mandate_id[:8]}"
+                f"Calling query tool: {tool_id} with mandate {principal_id[:8]}"
             )
             
             result = await self.caracal_client.call_tool(
                 tool_id=tool_id,
-                mandate_id=mandate_id,
                 tool_args=tool_args,
             )
             
@@ -429,7 +423,7 @@ class SharedTools:
     
     async def send_alert(
         self,
-        mandate_id: str,
+        principal_id: str,
         alert_type: str,
         severity: str,
         message: str,
@@ -443,7 +437,7 @@ class SharedTools:
         # This is a write operation for critical communications
         
         Args:
-            mandate_id: Caracal mandate ID for authority validation
+            principal_id: Caracal mandate ID for authority validation
             alert_type: Type of alert (incident, budget, security, etc.)
             severity: Alert severity (info, warning, error, critical)
             message: Alert message
@@ -464,12 +458,11 @@ class SharedTools:
         
         try:
             logger.info(
-                f"Calling alert tool: {tool_id} with mandate {mandate_id[:8]}"
+                f"Calling alert tool: {tool_id} with mandate {principal_id[:8]}"
             )
             
             result = await self.caracal_client.call_tool(
                 tool_id=tool_id,
-                mandate_id=mandate_id,
                 tool_args=tool_args,
             )
             
@@ -489,7 +482,7 @@ class SharedTools:
     
     async def log_event(
         self,
-        mandate_id: str,
+        principal_id: str,
         event_type: str,
         event_data: Dict[str, Any],
         severity: str = "info",
@@ -500,7 +493,7 @@ class SharedTools:
         # CARACAL_MARKER: TOOL_CALL
         
         Args:
-            mandate_id: Caracal mandate ID for authority validation
+            principal_id: Caracal mandate ID for authority validation
             event_type: Type of event to log
             event_data: Event data to log
             severity: Event severity (debug, info, warning, error)
@@ -517,12 +510,11 @@ class SharedTools:
         
         try:
             logger.info(
-                f"Calling log tool: {tool_id} with mandate {mandate_id[:8]}"
+                f"Calling log tool: {tool_id} with mandate {principal_id[:8]}"
             )
             
             result = await self.caracal_client.call_tool(
                 tool_id=tool_id,
-                mandate_id=mandate_id,
                 tool_args=tool_args,
             )
             

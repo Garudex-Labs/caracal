@@ -95,7 +95,7 @@ class TestFinanceTools:
         }
         
         result = await self.tools.get_budget_data(
-            mandate_id="mandate-123",
+            principal_id="mandate-123",
             department="Engineering"
         )
         
@@ -107,7 +107,7 @@ class TestFinanceTools:
         self.mock_client.call_tool.assert_called_once()
         call_args = self.mock_client.call_tool.call_args
         assert call_args.kwargs["tool_id"] == "demo:employee:mock:finance:budget"
-        assert call_args.kwargs["mandate_id"] == "mandate-123"
+        assert call_args.kwargs["principal_id"] == "mandate-123"
         assert call_args.kwargs["tool_args"]["department"] == "Engineering"
     
     @pytest.mark.asyncio
@@ -116,7 +116,7 @@ class TestFinanceTools:
         self.mock_client.call_tool.side_effect = Exception("API error")
         
         result = await self.tools.get_budget_data(
-            mandate_id="mandate-123"
+            principal_id="mandate-123"
         )
         
         assert result.success is False
@@ -132,7 +132,7 @@ class TestFinanceTools:
         }
         
         result = await self.tools.get_spending_data(
-            mandate_id="mandate-456",
+            principal_id="mandate-456",
             department="Marketing",
             start_date="2024-01-01",
             end_date="2024-12-31"
@@ -155,7 +155,7 @@ class TestFinanceTools:
         }
         
         result = await self.tools.get_invoice_data(
-            mandate_id="mandate-789",
+            principal_id="mandate-789",
             status="pending"
         )
         
@@ -174,7 +174,7 @@ class TestFinanceTools:
         }
         
         result = await self.tools.calculate_risk_score(
-            mandate_id="mandate-abc",
+            principal_id="mandate-abc",
             department="Engineering",
             include_projections=True
         )
@@ -196,7 +196,7 @@ class TestFinanceTools:
         }
         
         result = await self.tools.get_variance_report(
-            mandate_id="mandate-def",
+            principal_id="mandate-def",
             threshold_percent=5.0
         )
         
@@ -212,7 +212,7 @@ class TestFinanceTools:
         }
         
         result = await self.tools.approve_payment(
-            mandate_id="mandate-ghi",
+            principal_id="mandate-ghi",
             invoice_id="INV-001",
             approver_id="user-123",
             notes="Approved for payment"
@@ -233,7 +233,7 @@ class TestFinanceTools:
         }
         
         result = await self.tools.freeze_spending(
-            mandate_id="mandate-jkl",
+            principal_id="mandate-jkl",
             department="Engineering",
             reason="Budget overrun",
             duration_days=30
@@ -276,7 +276,7 @@ class TestOpsTools:
         }
         
         result = await self.tools.get_incidents(
-            mandate_id="mandate-123",
+            principal_id="mandate-123",
             severity="high",
             time_range_hours=24
         )
@@ -299,7 +299,7 @@ class TestOpsTools:
         }
         
         result = await self.tools.get_service_health(
-            mandate_id="mandate-456",
+            principal_id="mandate-456",
             service="API Gateway",
             include_metrics=True
         )
@@ -319,7 +319,7 @@ class TestOpsTools:
         }
         
         result = await self.tools.get_sla_status(
-            mandate_id="mandate-789",
+            principal_id="mandate-789",
             period="current_month"
         )
         
@@ -337,7 +337,7 @@ class TestOpsTools:
         }
         
         result = await self.tools.get_performance_metrics(
-            mandate_id="mandate-abc",
+            principal_id="mandate-abc",
             service="API Gateway",
             metric_type="latency"
         )
@@ -354,7 +354,7 @@ class TestOpsTools:
         }
         
         result = await self.tools.escalate_incident(
-            mandate_id="mandate-def",
+            principal_id="mandate-def",
             incident_id="INC-001",
             escalation_level="L3",
             reason="Critical issue",
@@ -376,7 +376,7 @@ class TestOpsTools:
         }
         
         result = await self.tools.update_incident_status(
-            mandate_id="mandate-ghi",
+            principal_id="mandate-ghi",
             incident_id="INC-001",
             new_status="resolved",
             notes="Issue fixed"
@@ -394,7 +394,7 @@ class TestOpsTools:
         }
         
         result = await self.tools.scale_service(
-            mandate_id="mandate-jkl",
+            principal_id="mandate-jkl",
             service="API Gateway",
             target_instances=10,
             reason="High load"
@@ -412,7 +412,7 @@ class TestOpsTools:
         }
         
         result = await self.tools.trigger_runbook(
-            mandate_id="mandate-mno",
+            principal_id="mandate-mno",
             runbook_id="RB-001",
             incident_id="INC-001",
             parameters={"param1": "value1"}
@@ -427,7 +427,7 @@ class TestOpsTools:
         self.mock_client.call_tool.side_effect = Exception("Connection error")
         
         result = await self.tools.get_incidents(
-            mandate_id="mandate-123"
+            principal_id="mandate-123"
         )
         
         assert result.success is False
@@ -467,7 +467,7 @@ class TestSharedTools:
         }
         
         result = await self.tools.create_ticket(
-            mandate_id="mandate-123",
+            principal_id="mandate-123",
             title="Test ticket",
             description="Test description",
             priority="high"
@@ -491,7 +491,7 @@ class TestSharedTools:
         }
         
         result = await self.tools.get_tickets(
-            mandate_id="mandate-456",
+            principal_id="mandate-456",
             status="open",
             limit=50
         )
@@ -508,7 +508,7 @@ class TestSharedTools:
         }
         
         result = await self.tools.update_ticket(
-            mandate_id="mandate-789",
+            principal_id="mandate-789",
             ticket_id="TKT-001",
             status="resolved",
             notes="Issue fixed"
@@ -526,7 +526,7 @@ class TestSharedTools:
         }
         
         result = await self.tools.send_notification(
-            mandate_id="mandate-abc",
+            principal_id="mandate-abc",
             recipient="user@example.com",
             subject="Test notification",
             message="Test message",
@@ -548,7 +548,7 @@ class TestSharedTools:
         }
         
         result = await self.tools.generate_report(
-            mandate_id="mandate-def",
+            principal_id="mandate-def",
             report_type="financial",
             parameters={"date_range": "Q4"},
             format="json"
@@ -565,7 +565,7 @@ class TestSharedTools:
         }
         
         result = await self.tools.query_data(
-            mandate_id="mandate-ghi",
+            principal_id="mandate-ghi",
             query="SELECT * FROM table",
             data_source="database",
             parameters={"limit": 10}
@@ -583,7 +583,7 @@ class TestSharedTools:
         }
         
         result = await self.tools.send_alert(
-            mandate_id="mandate-jkl",
+            principal_id="mandate-jkl",
             alert_type="incident",
             severity="critical",
             message="Critical alert",
@@ -602,7 +602,7 @@ class TestSharedTools:
         }
         
         result = await self.tools.log_event(
-            mandate_id="mandate-mno",
+            principal_id="mandate-mno",
             event_type="user_action",
             event_data={"action": "login"},
             severity="info"
@@ -617,7 +617,7 @@ class TestSharedTools:
         self.mock_client.call_tool.side_effect = Exception("API error")
         
         result = await self.tools.create_ticket(
-            mandate_id="mandate-123",
+            principal_id="mandate-123",
             title="Test",
             description="Test"
         )
@@ -694,16 +694,16 @@ class TestToolCaracalIntegration:
         self.mock_client.call_tool = AsyncMock()
     
     @pytest.mark.asyncio
-    async def test_mandate_id_required(self):
-        """Test that all tool calls require mandate_id."""
+    async def test_principal_id_required(self):
+        """Test that all tool calls require principal_id."""
         tools = FinanceTools(self.mock_client, mode="mock")
         self.mock_client.call_tool.return_value = {"data": "test"}
         
-        await tools.get_budget_data(mandate_id="mandate-123")
+        await tools.get_budget_data(principal_id="mandate-123")
         
         call_args = self.mock_client.call_tool.call_args
-        assert "mandate_id" in call_args.kwargs
-        assert call_args.kwargs["mandate_id"] == "mandate-123"
+        assert "principal_id" in call_args.kwargs
+        assert call_args.kwargs["principal_id"] == "mandate-123"
     
     @pytest.mark.asyncio
     async def test_tool_id_format(self):
@@ -711,7 +711,7 @@ class TestToolCaracalIntegration:
         tools = FinanceTools(self.mock_client, mode="mock")
         self.mock_client.call_tool.return_value = {"data": "test"}
         
-        await tools.get_budget_data(mandate_id="mandate-123")
+        await tools.get_budget_data(principal_id="mandate-123")
         
         call_args = self.mock_client.call_tool.call_args
         tool_id = call_args.kwargs["tool_id"]
@@ -732,7 +732,7 @@ class TestToolCaracalIntegration:
         self.mock_client.call_tool.return_value = {"data": "test"}
         
         await tools.get_incidents(
-            mandate_id="mandate-123",
+            principal_id="mandate-123",
             severity="high",
             status="open",
             time_range_hours=48
@@ -753,10 +753,10 @@ class TestToolCaracalIntegration:
         
         self.mock_client.call_tool.return_value = {"data": "test"}
         
-        await mock_tools.get_budget_data(mandate_id="m1")
+        await mock_tools.get_budget_data(principal_id="m1")
         mock_tool_id = self.mock_client.call_tool.call_args.kwargs["tool_id"]
         
-        await real_tools.get_budget_data(mandate_id="m2")
+        await real_tools.get_budget_data(principal_id="m2")
         real_tool_id = self.mock_client.call_tool.call_args.kwargs["tool_id"]
         
         assert "mock" in mock_tool_id

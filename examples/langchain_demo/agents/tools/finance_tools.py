@@ -6,7 +6,7 @@ with mandate-based authority validation and provider routing.
 
 # CARACAL INTEGRATION POINT
 # All tools in this module are registered with Caracal and executed through
-# the Caracal SDK with mandate_id for authority enforcement.
+# the Caracal SDK with principal_id for authority enforcement.
 """
 
 from dataclasses import dataclass
@@ -44,7 +44,7 @@ class FinanceTools:
     
     # CARACAL INTEGRATION POINT
     # These tools are executed through Caracal's governed pipeline:
-    # 1. Tool call initiated with mandate_id
+    # 1. Tool call initiated with principal_id
     # 2. Caracal validates mandate has authority for the tool
     # 3. Caracal routes to appropriate provider (mock or real)
     # 4. Provider executes tool with injected credentials
@@ -60,7 +60,7 @@ class FinanceTools:
     # WITH CARACAL:
     # result = await client.call_tool(
     #     tool_id="demo:employee:mock:finance:budget",
-    #     mandate_id=mandate_id,
+    #     principal_id=principal_id,
     #     tool_args=args
     # )
     """
@@ -83,7 +83,7 @@ class FinanceTools:
     
     async def get_budget_data(
         self,
-        mandate_id: str,
+        principal_id: str,
         department: Optional[str] = None,
         fiscal_year: Optional[str] = None,
     ) -> ToolCallResult:
@@ -94,7 +94,7 @@ class FinanceTools:
         # This tool call goes through Caracal's authority enforcement pipeline
         
         Args:
-            mandate_id: Caracal mandate ID for authority validation
+            principal_id: Caracal mandate ID for authority validation
             department: Optional specific department to query
             fiscal_year: Optional fiscal year (defaults to current)
         
@@ -109,14 +109,13 @@ class FinanceTools:
         
         try:
             logger.info(
-                f"Calling budget tool: {tool_id} with mandate {mandate_id[:8]}"
+                f"Calling budget tool: {tool_id} with mandate {principal_id[:8]}"
             )
             
             # CARACAL_MARKER: MANDATE_REQUIRED
-            # Every governed call must be bound to an explicit mandate_id
+            # Every governed call must be bound to an explicit principal_id
             result = await self.caracal_client.call_tool(
                 tool_id=tool_id,
-                mandate_id=mandate_id,
                 tool_args=tool_args,
             )
             
@@ -136,7 +135,7 @@ class FinanceTools:
     
     async def get_spending_data(
         self,
-        mandate_id: str,
+        principal_id: str,
         department: Optional[str] = None,
         start_date: Optional[str] = None,
         end_date: Optional[str] = None,
@@ -147,7 +146,7 @@ class FinanceTools:
         # CARACAL_MARKER: TOOL_CALL
         
         Args:
-            mandate_id: Caracal mandate ID for authority validation
+            principal_id: Caracal mandate ID for authority validation
             department: Optional specific department to query
             start_date: Optional start date (ISO format)
             end_date: Optional end date (ISO format)
@@ -164,12 +163,11 @@ class FinanceTools:
         
         try:
             logger.info(
-                f"Calling spending tool: {tool_id} with mandate {mandate_id[:8]}"
+                f"Calling spending tool: {tool_id} with mandate {principal_id[:8]}"
             )
             
             result = await self.caracal_client.call_tool(
                 tool_id=tool_id,
-                mandate_id=mandate_id,
                 tool_args=tool_args,
             )
             
@@ -189,7 +187,7 @@ class FinanceTools:
     
     async def get_invoice_data(
         self,
-        mandate_id: str,
+        principal_id: str,
         status: Optional[str] = None,
         department: Optional[str] = None,
         vendor: Optional[str] = None,
@@ -200,7 +198,7 @@ class FinanceTools:
         # CARACAL_MARKER: TOOL_CALL
         
         Args:
-            mandate_id: Caracal mandate ID for authority validation
+            principal_id: Caracal mandate ID for authority validation
             status: Optional invoice status filter (pending, paid, overdue)
             department: Optional department filter
             vendor: Optional vendor filter
@@ -217,12 +215,11 @@ class FinanceTools:
         
         try:
             logger.info(
-                f"Calling invoice tool: {tool_id} with mandate {mandate_id[:8]}"
+                f"Calling invoice tool: {tool_id} with mandate {principal_id[:8]}"
             )
             
             result = await self.caracal_client.call_tool(
                 tool_id=tool_id,
-                mandate_id=mandate_id,
                 tool_args=tool_args,
             )
             
@@ -242,7 +239,7 @@ class FinanceTools:
     
     async def calculate_risk_score(
         self,
-        mandate_id: str,
+        principal_id: str,
         department: Optional[str] = None,
         include_projections: bool = False,
     ) -> ToolCallResult:
@@ -252,7 +249,7 @@ class FinanceTools:
         # CARACAL_MARKER: TOOL_CALL
         
         Args:
-            mandate_id: Caracal mandate ID for authority validation
+            principal_id: Caracal mandate ID for authority validation
             department: Optional specific department to analyze
             include_projections: Whether to include future projections
         
@@ -267,12 +264,11 @@ class FinanceTools:
         
         try:
             logger.info(
-                f"Calling risk tool: {tool_id} with mandate {mandate_id[:8]}"
+                f"Calling risk tool: {tool_id} with mandate {principal_id[:8]}"
             )
             
             result = await self.caracal_client.call_tool(
                 tool_id=tool_id,
-                mandate_id=mandate_id,
                 tool_args=tool_args,
             )
             
@@ -292,7 +288,7 @@ class FinanceTools:
     
     async def get_variance_report(
         self,
-        mandate_id: str,
+        principal_id: str,
         department: Optional[str] = None,
         threshold_percent: float = 5.0,
     ) -> ToolCallResult:
@@ -302,7 +298,7 @@ class FinanceTools:
         # CARACAL_MARKER: TOOL_CALL
         
         Args:
-            mandate_id: Caracal mandate ID for authority validation
+            principal_id: Caracal mandate ID for authority validation
             department: Optional specific department to analyze
             threshold_percent: Variance threshold for flagging (default 5%)
         
@@ -317,12 +313,11 @@ class FinanceTools:
         
         try:
             logger.info(
-                f"Calling variance tool: {tool_id} with mandate {mandate_id[:8]}"
+                f"Calling variance tool: {tool_id} with mandate {principal_id[:8]}"
             )
             
             result = await self.caracal_client.call_tool(
                 tool_id=tool_id,
-                mandate_id=mandate_id,
                 tool_args=tool_args,
             )
             
@@ -342,7 +337,7 @@ class FinanceTools:
     
     async def approve_payment(
         self,
-        mandate_id: str,
+        principal_id: str,
         invoice_id: str,
         approver_id: str,
         notes: Optional[str] = None,
@@ -354,7 +349,7 @@ class FinanceTools:
         # This is a write operation requiring elevated authority
         
         Args:
-            mandate_id: Caracal mandate ID for authority validation
+            principal_id: Caracal mandate ID for authority validation
             invoice_id: Invoice ID to approve
             approver_id: ID of the approver
             notes: Optional approval notes
@@ -371,14 +366,13 @@ class FinanceTools:
         
         try:
             logger.info(
-                f"Calling approve_payment tool: {tool_id} with mandate {mandate_id[:8]}"
+                f"Calling approve_payment tool: {tool_id} with mandate {principal_id[:8]}"
             )
             
             # CARACAL_MARKER: AUTHORITY_CHECK
             # Write operations require explicit authority validation
             result = await self.caracal_client.call_tool(
                 tool_id=tool_id,
-                mandate_id=mandate_id,
                 tool_args=tool_args,
             )
             
@@ -398,7 +392,7 @@ class FinanceTools:
     
     async def freeze_spending(
         self,
-        mandate_id: str,
+        principal_id: str,
         department: str,
         reason: str,
         duration_days: Optional[int] = None,
@@ -410,7 +404,7 @@ class FinanceTools:
         # This is a critical write operation requiring high authority
         
         Args:
-            mandate_id: Caracal mandate ID for authority validation
+            principal_id: Caracal mandate ID for authority validation
             department: Department to freeze spending for
             reason: Reason for spending freeze
             duration_days: Optional duration in days (indefinite if not specified)
@@ -427,12 +421,11 @@ class FinanceTools:
         
         try:
             logger.info(
-                f"Calling freeze_spending tool: {tool_id} with mandate {mandate_id[:8]}"
+                f"Calling freeze_spending tool: {tool_id} with mandate {principal_id[:8]}"
             )
             
             result = await self.caracal_client.call_tool(
                 tool_id=tool_id,
-                mandate_id=mandate_id,
                 tool_args=tool_args,
             )
             
