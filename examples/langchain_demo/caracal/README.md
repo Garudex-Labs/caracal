@@ -1,48 +1,45 @@
 # Caracal Track
 
-This track is now a real Caracal-backed application workflow, not just a static artifact generator.
+This track runs against your real Caracal workspace configuration.
 
-Key pieces:
-- `main.py`: governed CLI entrypoint
-- `workflow.py`: wrapper around the shared in-process Caracal runtime
-- `runtime_bridge.py`: local logic handlers used by Caracal `handler_ref` execution
-- `../app.py`: FastAPI UI for visual local runs
+Core points:
 
-## Mock Mode
+- no in-process authority simulation
+- no automatic workspace/provider/tool/mandate bootstrap in runtime code
+- same governed execution flow in mock and real modes
+- mock mode only changes external provider responses to deterministic payloads
+
+## Entry points
+
+- `examples/langchain_demo/app.py`: FastAPI app + UI, served with uvicorn
+- `examples/langchain_demo/demo_runtime.py`: config-driven governed workflow
+- `examples/langchain_demo/caracal/runtime_bridge.py`: local logic handlers for registered logic tools
+- `examples/langchain_demo/runtime_config.py`: loader for manual `demo_config.json`
+
+## Commands
+
+Run governed artifact from CLI:
 
 ```bash
 python -m examples.langchain_demo.caracal.main --mode mock --provider-strategy mixed
-```
-
-## Real Mode
-
-OpenAI only:
-
-```bash
-OPENAI_API_KEY=... \
-python -m examples.langchain_demo.caracal.main --mode real --provider-strategy openai
-```
-
-Gemini only:
-
-```bash
-GOOGLE_API_KEY=... \
-python -m examples.langchain_demo.caracal.main --mode real --provider-strategy gemini
-```
-
-Mixed routing:
-
-```bash
-OPENAI_API_KEY=... \
-GOOGLE_API_KEY=... \
 python -m examples.langchain_demo.caracal.main --mode real --provider-strategy mixed
 ```
 
-## What The Governed Flow Shows
+Serve UI:
 
-- identity-bound callers for orchestrator, finance, and ops
-- delegated subset mandates per role
-- provider mapping across internal data, OpenAI, Gemini, and local logic execution
-- runtime enforcement on every tool call
-- revocation with a denied follow-up finance call
-- metering and authority evidence in the final artifact
+```bash
+uvicorn examples.langchain_demo.app:app --host 127.0.0.1 --port 8090
+```
+
+## Required setup
+
+Complete manual workspace setup before running:
+
+- workspace
+- principals
+- providers (mock + real)
+- tools (mock + real + local logic)
+- source mandate + delegated mandates
+- `examples/langchain_demo/demo_config.json`
+
+See `examples/langchain_demo/README.md` for full CLI/TUI steps and exact provider/tool IDs.
