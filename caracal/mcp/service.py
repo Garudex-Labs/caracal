@@ -331,16 +331,16 @@ class MCPAdapterService:
 
     @staticmethod
     def _normalize_selector_value(value: Any) -> Optional[str]:
-        normalized = str(value or "").strip()
-        return normalized or None
+        value = str(value or "").strip()
+        return value or None
 
     def _reject_spoofed_security_metadata(self, metadata: Dict[str, Any]) -> Dict[str, Any]:
         """Reject caller-supplied security metadata fields that are server-controlled."""
-        normalized_metadata = dict(metadata or {})
+        metadata = dict(metadata or {})
         spoofed_fields = [
             field
             for field in self._SERVER_CONTROLLED_SECURITY_METADATA_FIELDS
-            if field in normalized_metadata
+            if field in metadata
         ]
         if spoofed_fields:
             raise HTTPException(
@@ -351,15 +351,15 @@ class MCPAdapterService:
                 ),
             )
 
-        return normalized_metadata
+        return metadata
 
     def _reject_spoofed_tool_args(self, tool_args: Dict[str, Any]) -> Dict[str, Any]:
         """Reject caller-supplied tool args that attempt to override identity binding."""
-        normalized_tool_args = dict(tool_args or {})
+        tool_args = dict(tool_args or {})
         spoofed_fields = [
             field
             for field in self._SERVER_CONTROLLED_TOOL_ARGUMENT_FIELDS
-            if field in normalized_tool_args
+            if field in tool_args
         ]
         if spoofed_fields:
             raise HTTPException(
@@ -369,7 +369,7 @@ class MCPAdapterService:
                     + ", ".join(sorted(spoofed_fields))
                 ),
             )
-        return normalized_tool_args
+        return tool_args
 
     def _apply_trusted_security_metadata(
         self,
@@ -379,36 +379,36 @@ class MCPAdapterService:
         principal_id: str,
     ) -> Dict[str, Any]:
         """Inject trusted security metadata derived from validated token claims."""
-        normalized_metadata = dict(metadata or {})
+        metadata = dict(metadata or {})
         trusted_claims = dict(token_claims or {})
 
-        normalized_metadata["task_token_claims"] = trusted_claims
-        normalized_metadata["token_subject"] = principal_id
+        metadata["task_token_claims"] = trusted_claims
+        metadata["token_subject"] = principal_id
 
         task_chain = trusted_claims.get("task_caveat_chain")
         if task_chain is None:
             task_chain = trusted_claims.get("caveat_chain")
         if task_chain is not None:
-            normalized_metadata["task_caveat_chain"] = task_chain
+            metadata["task_caveat_chain"] = task_chain
 
         task_hmac_key = trusted_claims.get("task_caveat_hmac_key")
         if task_hmac_key is None:
             task_hmac_key = trusted_claims.get("caveat_hmac_key")
         if task_hmac_key is not None:
-            normalized_metadata["task_caveat_hmac_key"] = task_hmac_key
+            metadata["task_caveat_hmac_key"] = task_hmac_key
 
         task_id = trusted_claims.get("task_id")
         if task_id is None:
             task_id = trusted_claims.get("caveat_task_id")
         if task_id is not None:
-            normalized_metadata["task_id"] = task_id
+            metadata["task_id"] = task_id
 
         # Keep only canonical keys in metadata passed to adapter.
-        normalized_metadata.pop("caveat_chain", None)
-        normalized_metadata.pop("caveat_hmac_key", None)
-        normalized_metadata.pop("caveat_task_id", None)
+        metadata.pop("caveat_chain", None)
+        metadata.pop("caveat_hmac_key", None)
+        metadata.pop("caveat_task_id", None)
 
-        return normalized_metadata
+        return metadata
 
     def _normalize_workspace_scope_metadata(
         self,
@@ -417,11 +417,11 @@ class MCPAdapterService:
         metadata: Dict[str, Any],
     ) -> Dict[str, Any]:
         """Normalize workspace selector from metadata and SDK scope headers."""
-        normalized_metadata = dict(metadata or {})
+        metadata = dict(metadata or {})
 
         metadata_workspace_values: list[str] = []
         for key in ("workspace", "workspace_name"):
-            value = self._normalize_selector_value(normalized_metadata.get(key))
+            value = self._normalize_selector_value(metadata.get(key))
             if value and value not in metadata_workspace_values:
                 metadata_workspace_values.append(value)
         if len(metadata_workspace_values) > 1:
@@ -458,10 +458,10 @@ class MCPAdapterService:
 
         selected_workspace = metadata_workspace or header_workspace
         if selected_workspace:
-            normalized_metadata["workspace"] = selected_workspace
-            normalized_metadata["workspace_name"] = selected_workspace
+            metadata["workspace"] = selected_workspace
+            metadata["workspace_name"] = selected_workspace
 
-        return normalized_metadata
+        return metadata
 
     def _normalize_provider_selector_metadata(
         self,
@@ -471,7 +471,7 @@ class MCPAdapterService:
         tool_row: Any,
     ) -> Dict[str, Any]:
         """Normalize provider selector fields from request body + headers and reject conflicts."""
-        normalized_metadata = dict(metadata or {})
+        metadata = dict(metadata or {})
 
         selector_specs = (
             ("provider_name", "X-Caracal-Provider-Name", "Provider"),
@@ -486,7 +486,7 @@ class MCPAdapterService:
         selected_values: Dict[str, Optional[str]] = {}
 
         for metadata_key, header_name, label in selector_specs:
-            body_value = self._normalize_selector_value(normalized_metadata.get(metadata_key))
+            body_value = self._normalize_selector_value(metadata.get(metadata_key))
             header_value = self._normalize_selector_value(raw_request.headers.get(header_name))
             if body_value and header_value and body_value != header_value:
                 raise HTTPException(
@@ -546,26 +546,26 @@ class MCPAdapterService:
                 ),
             )
 
-        normalized_metadata["provider_name"] = mapped_provider_name or provider_name
-        normalized_metadata["provider_definition_id"] = mapped_definition_id or provider_definition_id
-        normalized_metadata["resource_scope"] = mapped_resource_scope or resource_scope
-        normalized_metadata["action_scope"] = mapped_action_scope or action_scope
+        metadata["provider_name"] = mapped_provider_name or provider_name
+        metadata["provider_definition_id"] = mapped_definition_id or provider_definition_id
+        metadata["resource_scope"] = mapped_resource_scope or resource_scope
+        metadata["action_scope"] = mapped_action_scope or action_scope
 
-        normalized_metadata = {
+        metadata = {
             key: value
-            for key, value in normalized_metadata.items()
+            for key, value in metadata.items()
             if value is not None
         }
 
-        return normalized_metadata
+        return metadata
 
     def _require_active_tool(
         self,
         tool_id: str,
         workspace_name: Optional[str] = None,
     ):
-        normalized_tool_id = str(tool_id or "").strip()
-        if not normalized_tool_id:
+        tool_id = str(tool_id or "").strip()
+        if not tool_id:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Missing tool_id",
@@ -573,7 +573,7 @@ class MCPAdapterService:
 
         try:
             row = self.mcp_adapter.get_registered_tool(
-                tool_id=normalized_tool_id,
+                tool_id=tool_id,
                 require_active=False,
                 workspace_name=workspace_name,
             )
@@ -594,13 +594,13 @@ class MCPAdapterService:
 
     @staticmethod
     def _is_denied_error_message(message: Optional[str]) -> bool:
-        normalized = str(message or "").strip().lower()
-        if not normalized:
+        message = str(message or "").strip().lower()
+        if not message:
             return False
         return (
-            "authority denied" in normalized
-            or "mandate subject" in normalized
-            or "no applicable mandate" in normalized
+            "authority denied" in message
+            or "mandate subject" in message
+            or "no applicable mandate" in message
         )
 
     def _record_result_outcome(self, result: MCPResult) -> None:
@@ -1232,8 +1232,8 @@ async def main(config_path: Optional[str] = None, listen_address: Optional[str] 
     
     # Load production config
     try:
-        resolved_config_path = config_path or os.environ.get("CARACAL_CONFIG_PATH")
-        core_config = load_config(resolved_config_path)
+        config_path = config_path or os.environ.get("CARACAL_CONFIG_PATH")
+        core_config = load_config(config_path)
     except Exception as e:
         logger.error(f"Failed to load core config: {e}")
         sys.exit(1)

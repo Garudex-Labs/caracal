@@ -78,13 +78,12 @@ class ToolOperations:
     ) -> Dict[str, Any]:
         """Call a registered tool through the canonical MCP service endpoint.
 
-        Contract version: ``v1`` payload with keys
         ``{tool_id, tool_args, metadata}``.
 
         Metadata is limited to correlation keys only.
         """
-        normalized_tool_id = str(tool_id or "").strip()
-        if not normalized_tool_id:
+        tool_id = str(tool_id or "").strip()
+        if not tool_id:
             raise SDKConfigurationError("tool_id is required")
 
         if metadata is not None and not isinstance(metadata, dict):
@@ -132,11 +131,11 @@ class ToolOperations:
             "POST",
             "/mcp/tool/call",
             body={
-                "tool_id": normalized_tool_id,
+                "tool_id": tool_id,
                 "tool_args": payload_args,
                 "metadata": payload_metadata,
             },
         )
-        logger.info("Calling tool via SDK", extra={"tool_id": normalized_tool_id})
+        logger.info("Calling tool via SDK", extra={"tool_id": tool_id})
         result = await self._execute(req)
         return result if isinstance(result, dict) else {"result": result}

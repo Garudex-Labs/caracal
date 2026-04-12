@@ -61,9 +61,9 @@ export class ToolOperations {
     metadata?: Record<string, unknown>;
     correlationId?: string;
   }): Promise<Record<string, unknown>> {
-    const normalizedToolId = String(options.toolId ?? '').trim();
+    const toolId = String(options.toolId ?? '').trim();
 
-    if (!normalizedToolId) {
+    if (!toolId) {
       throw new SDKConfigurationError('toolId is required');
     }
 
@@ -108,7 +108,7 @@ export class ToolOperations {
     }
 
     const req = this.buildReq('POST', '/mcp/tool/call', {
-      tool_id: normalizedToolId,
+      tool_id: toolId,
       tool_args: payloadToolArgs,
       metadata: payloadMetadata,
     });

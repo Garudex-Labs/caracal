@@ -137,8 +137,9 @@ class MCPAdapter:
             if str(name).strip() and str(url).strip()
         }
         self.request_timeout_seconds = request_timeout_seconds
-        resolved_mode = caveat_mode or os.environ.get("CARACAL_SESSION_CAVEAT_MODE") or "jwt"
-        self._caveat_mode = self._resolve_caveat_mode(resolved_mode)
+        self._caveat_mode = self._resolve_caveat_mode(
+            caveat_mode or os.environ.get("CARACAL_SESSION_CAVEAT_MODE") or "jwt"
+        )
         self._caveat_hmac_key = str(
             caveat_hmac_key
             or os.environ.get("CARACAL_SESSION_CAVEAT_HMAC_KEY")
@@ -2107,26 +2108,26 @@ class MCPAdapter:
             Decorator function that wraps MCP tool functions
             
         """
-        resolved_tool_id = str(tool_id or "").strip()
-        if not resolved_tool_id:
+        tool_id = str(tool_id or "").strip()
+        if not tool_id:
             raise CaracalError("tool_id is required for MCP decorator registration")
 
         tool_row = self.get_registered_tool(
-            tool_id=resolved_tool_id,
+            tool_id=tool_id,
             workspace_name=self._resolve_workspace_name(None),
         )
         if tool_row is None:
             raise CaracalError(
-                f"tool_id '{resolved_tool_id}' is not registered in persisted tool registry"
+                f"tool_id '{tool_id}' is not registered in persisted tool registry"
             )
         if not bool(getattr(tool_row, "active", False)):
             raise CaracalError(
-                f"tool_id '{resolved_tool_id}' is inactive and cannot be bound"
+                f"tool_id '{tool_id}' is inactive and cannot be bound"
             )
 
         # Fail import-time binding if provider/action/resource mapping drifted.
         tool_mapping = self._resolve_active_tool_mapping(
-            tool_id=resolved_tool_id,
+            tool_id=tool_id,
             mcp_context=None,
             require_credential=False,
         )
@@ -2149,27 +2150,27 @@ class MCPAdapter:
             Returns:
                 Wrapped function with authority enforcement
             """
-            existing = self._decorator_bindings.get(resolved_tool_id)
+            existing = self._decorator_bindings.get(tool_id)
             if existing is not None and existing is not func:
                 raise CaracalError(
-                    f"tool_id '{resolved_tool_id}' is already bound to another local function"
+                    f"tool_id '{tool_id}' is already bound to another local function"
                 )
 
             runtime_handler_ref = self._callable_handler_ref(func)
             if expected_handler_ref and runtime_handler_ref != expected_handler_ref:
                 raise CaracalError(
-                    f"Local handler mismatch for tool '{resolved_tool_id}': expected {expected_handler_ref}, got {runtime_handler_ref or '<unknown>'}"
+                    f"Local handler mismatch for tool '{tool_id}': expected {expected_handler_ref}, got {runtime_handler_ref or '<unknown>'}"
                 )
 
-            self._decorator_bindings[resolved_tool_id] = func
+            self._decorator_bindings[tool_id] = func
             if contract_key is not None:
                 existing_contract_binding = self._decorator_bindings_by_contract.get(contract_key)
                 if existing_contract_binding is not None and existing_contract_binding is not func:
                     raise CaracalError(
-                        f"Binding contract for tool '{resolved_tool_id}' is already bound to another local function"
+                        f"Binding contract for tool '{tool_id}' is already bound to another local function"
                     )
                 self._decorator_bindings_by_contract[contract_key] = func
-                self._tool_binding_contract_keys[resolved_tool_id] = contract_key
+                self._tool_binding_contract_keys[tool_id] = contract_key
 
             if runtime_handler_ref:
                 self._handler_ref_bindings[runtime_handler_ref] = func
@@ -2216,7 +2217,7 @@ class MCPAdapter:
                         f"principal_id is required for MCP tool '{func.__name__}'."
                     )
                 
-                tool_name = resolved_tool_id
+                tool_name = tool_id
                 
                 # Create MCP context
                 metadata: Dict[str, Any] = {
