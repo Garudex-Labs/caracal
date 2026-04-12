@@ -1,0 +1,23 @@
+{
+  "version": "1.0",
+  "provider": "gemini",
+  "description": "Mock Gemini LLM responses for various prompts",
+  "prompt_patterns": [
+    {
+      "pattern": ".*explain.*",
+      "response_template": "Explanation: {explanation_text}",
+      "variables": {
+        "explanation_text": "Detailed explanation with context and examples"
+      },
+      "match_type": "regex"
+    },
+    {
+      "pattern": ".*compare.*",
+      "response_template": "Comparison: {comparison_text}",
+      "variables": {
+        "comparison_text": "Side-by-side comparison showing differences and similarities"
+      },
+      "match_type": "regex"
+    }
+  ]
+}
