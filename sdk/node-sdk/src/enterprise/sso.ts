@@ -3,7 +3,7 @@
  * Caracal, a product of Garudex Labs
  *
  * SSO Extension (Enterprise Stub).
- * PROPRIETARY LICENSE — not covered by AGPLv3.
+ * PROPRIETARY LICENSE — not covered by Apache 2.0.
  */
 
 import { CaracalExtension } from '../extensions';

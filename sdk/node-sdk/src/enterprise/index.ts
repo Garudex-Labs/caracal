@@ -3,7 +3,7 @@
  * Caracal, a product of Garudex Labs
  *
  * Enterprise Extensions — barrel export.
- * PROPRIETARY LICENSE — not covered by AGPLv3.
+ * PROPRIETARY LICENSE — not covered by Apache 2.0.
  */
 
 export { EnterpriseFeatureRequired } from './exceptions';

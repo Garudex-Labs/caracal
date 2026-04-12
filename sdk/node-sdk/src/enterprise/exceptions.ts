@@ -3,7 +3,7 @@
  * Caracal, a product of Garudex Labs
  *
  * Enterprise feature exception.
- * PROPRIETARY LICENSE — not covered by AGPLv3.
+ * PROPRIETARY LICENSE — not covered by Apache 2.0.
  */
 
 export class EnterpriseFeatureRequired extends Error {

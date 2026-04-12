@@ -16,18 +16,15 @@ from caracal_sdk import CaracalClient
 
 client = CaracalClient(api_key="sk_test_123")
 
-# List principals
-principals = await client.principals.list()
-
-# Create a mandate
-mandate = await client.mandates.create(
-    principal_id="principal_001",
-    allowed_operations=["read", "write"],
-    expires_in=3600,
+# Route tool execution through Caracal runtime
+result = await client.tools.call(
+    tool_id="provider:github:resource:issues:action:create",
+    mandate_id="mandate_123",
+    tool_args={"title": "Investigate regression"},
 )
 ```
 
-## Workspace-Scoped Operations
+## Scoped Runtime Calls
 
 ```python
 from caracal_sdk import CaracalClient
@@ -40,12 +37,11 @@ ctx = client.context.checkout(
     workspace_id="ws_xyz789",
 )
 
-# All operations are scoped
-principals = await ctx.principals.list()
-mandate = await ctx.mandates.create(
-    principal_id="principal_001",
-    allowed_operations=["read"],
-    expires_in=3600,
+# Tool calls automatically include scope headers
+result = await ctx.tools.call(
+    tool_id="provider:slack:resource:messages:action:post",
+    mandate_id="mandate_123",
+    tool_args={"channel": "alerts", "text": "Runtime check complete"},
 )
 
 # Switch context explicitly
@@ -78,13 +74,21 @@ client = (
 | -------------- | ------------------------ | -------------------------- |
 | **Client**     | `caracal_sdk.client`     | Init, builder, config      |
 | **Context**    | `caracal_sdk.context`    | Org/Workspace scope        |
-| **Principals** | `caracal_sdk.principals` | Principal CRUD             |
-| **Mandates**   | `caracal_sdk.mandates`   | Mandate lifecycle          |
-| **Delegation** | `caracal_sdk.delegation` | Token management           |
-| **Ledger**     | `caracal_sdk.ledger`     | Audit queries              |
+| **Tools**      | `caracal_sdk.tools`      | MCP tool-call bridge       |
 | **Adapters**   | `caracal_sdk.adapters`   | Transport (HTTP, WS, Mock) |
 | **Hooks**      | `caracal_sdk.hooks`      | Lifecycle events           |
 | **Extensions** | `caracal_sdk.extensions` | Plugin interface           |
+| **AIS**        | `caracal_sdk.ais`        | Runtime endpoint resolver  |
+
+## Removed From SDK Surface
+
+The SDK intentionally does not expose control-plane CRUD APIs.
+
+- No principal CRUD operations.
+- No mandate or delegation lifecycle operations.
+- No policy or ledger management APIs.
+
+Control-plane ownership remains in Caracal runtime, broker, and enterprise gateway layers.
 
 ## Writing Extensions
 
@@ -131,7 +135,7 @@ from caracal_sdk._compat import SDKConfigurationError
 
 try:
     client = CaracalClient(api_key="sk_test_123")
-    principals = await client.principals.list()
+    client.tools.call(tool_id="provider:demo:resource:jobs:action:run", mandate_id="m_1")
 except SDKConfigurationError as e:
     print(f"Config error: {e}")
 ```

@@ -16,13 +16,37 @@ import { CaracalClient } from "@caracal/core";
 
 const client = new CaracalClient({ apiKey: "sk_test_123" });
 
-const principals = await client.principals.list();
-const mandate = await client.mandates.create({
-  principalId: "principal_001",
-  allowedOperations: ["read", "write"],
-  expiresIn: 3600,
+const result = await client.tools.call({
+  toolId: "provider:github:resource:issues:action:create",
+  mandateId: "mandate_123",
+  toolArgs: { title: "Investigate regression" },
 });
 ```
+
+## Scoped Runtime Calls
+
+```typescript
+import { CaracalClient } from "@caracal/core";
+
+const client = new CaracalClient({ apiKey: "sk_test_123" });
+const ctx = client.context.checkout({
+  organizationId: "org_abc123",
+  workspaceId: "ws_xyz789",
+});
+
+const result = await ctx.tools.call({
+  toolId: "provider:slack:resource:messages:action:post",
+  mandateId: "mandate_123",
+  toolArgs: { channel: "alerts", text: "Runtime check complete" },
+});
+```
+
+## SDK Scope
+
+- Includes: client, context, tools bridge, hooks/extensions, adapters, runtime endpoint helpers.
+- Excludes: control-plane admin APIs such as principals, mandates, delegation, policy, and ledger CRUD.
+
+Control-plane ownership remains in Caracal runtime (OSS broker path) and enterprise gateway layers.
 
 ## Runtime Endpoint
 
@@ -36,5 +60,5 @@ export CARACAL_API_URL=http://localhost:8000
 
 ## License
 
-AGPLv3 — see LICENSE.  
+Apache 2.0 — see LICENSE.  
 Enterprise extensions (`src/enterprise/`) are proprietary.

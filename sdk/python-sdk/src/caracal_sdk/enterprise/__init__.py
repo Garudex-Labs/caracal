@@ -4,7 +4,7 @@ Caracal, a product of Garudex Labs
 
 Caracal SDK Enterprise Extensions.
 
-PROPRIETARY LICENSE — this directory is NOT covered by AGPLv3.
+PROPRIETARY LICENSE — this directory is NOT covered by Apache 2.0.
 See LICENSE in this directory for terms.
 
 All extensions implement CaracalExtension and raise EnterpriseFeatureRequired
