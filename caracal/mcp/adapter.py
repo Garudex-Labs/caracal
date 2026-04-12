@@ -1816,6 +1816,8 @@ class MCPAdapter:
         call_kwargs = dict(tool_args or {})
         call_kwargs.pop("principal_id", None)
         call_kwargs.pop("mandate_id", None)
+        call_kwargs.pop("resolved_mandate_id", None)
+        call_kwargs.pop("policy_id", None)
         call_kwargs["principal_id"] = principal_id
 
         import inspect

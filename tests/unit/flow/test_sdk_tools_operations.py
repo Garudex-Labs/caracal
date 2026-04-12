@@ -90,7 +90,19 @@ async def test_scope_tools_call_forbids_identity_and_mandate_payload_fields() ->
     with pytest.raises(SDKConfigurationError, match="Caller identity fields"):
         await scope.tools.call(
             tool_id="provider:endframe:resource:deployments",
+            metadata={"policy_id": "forbidden"},
+        )
+
+    with pytest.raises(SDKConfigurationError, match="Caller identity fields"):
+        await scope.tools.call(
+            tool_id="provider:endframe:resource:deployments",
             tool_args={"resolved_mandate_id": "forbidden"},
+        )
+
+    with pytest.raises(SDKConfigurationError, match="Caller identity fields"):
+        await scope.tools.call(
+            tool_id="provider:endframe:resource:deployments",
+            tool_args={"policy_id": "forbidden"},
         )
 
 

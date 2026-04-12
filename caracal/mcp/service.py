@@ -94,11 +94,17 @@ class ToolCallRequest(BaseModel):
     tool_args: Dict[str, Any] = Field(default_factory=dict, description="Arguments for the tool")
     metadata: Dict[str, Any] = Field(default_factory=dict, description="Additional metadata")
 
+    class Config:
+        extra = "forbid"
+
 
 class ResourceReadRequest(BaseModel):
     """Request model for MCP resource read."""
     resource_uri: str = Field(..., description="URI of the resource to read")
     metadata: Dict[str, Any] = Field(default_factory=dict, description="Additional metadata")
+
+    class Config:
+        extra = "forbid"
 
 
 class ToolRegistryRequest(BaseModel):
@@ -109,6 +115,9 @@ class ToolRegistryRequest(BaseModel):
         None,
         description="Optional workspace selector for deterministic registry targeting",
     )
+
+    class Config:
+        extra = "forbid"
 
 
 class ToolRegistryRegisterRequest(ToolRegistryRequest):
@@ -187,6 +196,9 @@ class MCPAdapterService:
 
     _SERVER_CONTROLLED_SECURITY_METADATA_FIELDS = (
         "principal_id",
+        "mandate_id",
+        "resolved_mandate_id",
+        "policy_id",
         "task_token_claims",
         "token_subject",
         "task_caveat_chain",
@@ -200,6 +212,7 @@ class MCPAdapterService:
         "principal_id",
         "mandate_id",
         "resolved_mandate_id",
+        "policy_id",
     )
     
     def __init__(
@@ -877,7 +890,7 @@ class MCPAdapterService:
             5. Returns result
             
             Args:
-                request: ToolCallRequest with tool name, args, and principal ID
+                request: ToolCallRequest with tool name and args
                 
             Returns:
                 MCPServiceResponse with tool execution result

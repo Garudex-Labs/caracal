@@ -321,7 +321,21 @@ describe('ScopeContext', () => {
     await expect(
       ctx.tools.call({
         toolId: 'provider:demo:resource:jobs:action:run',
+        metadata: { policy_id: 'spoofed' },
+      }),
+    ).rejects.toThrow('Caller identity fields are not allowed in tool call metadata');
+
+    await expect(
+      ctx.tools.call({
+        toolId: 'provider:demo:resource:jobs:action:run',
         toolArgs: { resolved_mandate_id: 'spoofed' },
+      }),
+    ).rejects.toThrow('Caller identity fields are not allowed in toolArgs');
+
+    await expect(
+      ctx.tools.call({
+        toolId: 'provider:demo:resource:jobs:action:run',
+        toolArgs: { policy_id: 'spoofed' },
       }),
     ).rejects.toThrow('Caller identity fields are not allowed in toolArgs');
   });

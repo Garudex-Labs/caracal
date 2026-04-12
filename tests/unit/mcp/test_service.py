@@ -572,11 +572,9 @@ class TestMCPAdapterService:
             metadata={"mandate_id": "mandate-123"}
         )
         self.mock_mcp_adapter.intercept_tool_call = AsyncMock(return_value=mock_result)
-        mandate_id = str(uuid4())
         
         request_data = {
             "tool_id": "test_tool",
-            "mandate_id": mandate_id,
             "tool_args": {"arg": "value"},
             "metadata": {},
         }
@@ -605,11 +603,9 @@ class TestMCPAdapterService:
             error="Authority denied: Insufficient permissions"
         )
         self.mock_mcp_adapter.intercept_tool_call = AsyncMock(return_value=mock_result)
-        mandate_id = str(uuid4())
         
         request_data = {
             "tool_id": "test_tool",
-            "mandate_id": mandate_id,
             "tool_args": {"arg": "value"},
             "metadata": {},
         }
@@ -635,11 +631,9 @@ class TestMCPAdapterService:
         self.mock_mcp_adapter.intercept_tool_call = AsyncMock(
             side_effect=CaracalError("Test error")
         )
-        mandate_id = str(uuid4())
         
         request_data = {
             "tool_id": "test_tool",
-            "mandate_id": mandate_id,
             "tool_args": {"arg": "value"},
             "metadata": {},
         }
@@ -654,6 +648,26 @@ class TestMCPAdapterService:
         data = response.json()
         assert data["success"] is False
         assert "error" in data["error"].lower()
+
+    def test_tool_call_endpoint_rejects_legacy_top_level_authority_fields(self):
+        """Top-level legacy authority fields should be rejected at request validation."""
+        from fastapi.testclient import TestClient
+
+        client = TestClient(self.service.app)
+
+        response = client.post(
+            "/mcp/tool/call",
+            json={
+                "tool_id": "test_tool",
+                "tool_args": {"arg": "value"},
+                "metadata": {},
+                "mandate_id": str(uuid4()),
+            },
+            headers={"Authorization": "Bearer test-token"},
+        )
+
+        assert response.status_code == 422
+        self.mock_mcp_adapter.intercept_tool_call.assert_not_called()
     
     @pytest.mark.asyncio
     async def test_resource_read_endpoint_success(self):
@@ -678,7 +692,7 @@ class TestMCPAdapterService:
         
         request_data = {
             "resource_uri": "file://test.txt",
-            "metadata": {"mandate_id": str(uuid4())}
+            "metadata": {},
         }
         
         response = client.post(
@@ -707,7 +721,7 @@ class TestMCPAdapterService:
         
         request_data = {
             "resource_uri": "file://test.txt",
-            "metadata": {"mandate_id": str(uuid4())}
+            "metadata": {},
         }
         
         response = client.post(
@@ -731,7 +745,7 @@ class TestMCPAdapterService:
             json={
                 "resource_uri": "file://test.txt",
                 "metadata": {
-                    "mandate_id": str(uuid4()),
+                    "policy_id": str(uuid4()),
                     "task_caveat_hmac_key": "spoofed",
                 },
             },
@@ -763,7 +777,7 @@ class TestMCPAdapterService:
             "/mcp/resource/read",
             json={
                 "resource_uri": "file://test.txt",
-                "metadata": {"mandate_id": str(uuid4())},
+                "metadata": {},
             },
             headers={"Authorization": "Bearer test-token"},
         )
