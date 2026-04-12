@@ -18,7 +18,11 @@ Usage (explicit gateway execution signals from environment / config):
 
     # GatewayAdapter uses explicit gateway execution signals when enabled
     client = CaracalClient(api_key="…")
-    mandate = await client.scope(...).mandates.create(...)
+    result = await client.tools.call(
+        tool_id="provider:demo:resource:jobs:action:run",
+        mandate_id="mandate_123",
+        tool_args={"job": "sync"},
+    )
 
 Manual override:
 

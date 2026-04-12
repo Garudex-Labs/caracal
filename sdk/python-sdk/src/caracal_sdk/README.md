@@ -135,7 +135,10 @@ from caracal_sdk._compat import SDKConfigurationError
 
 try:
     client = CaracalClient(api_key="sk_test_123")
-    client.tools.call(tool_id="provider:demo:resource:jobs:action:run", mandate_id="m_1")
+    result = await client.tools.call(
+        tool_id="provider:demo:resource:jobs:action:run",
+        mandate_id="m_1",
+    )
 except SDKConfigurationError as e:
     print(f"Config error: {e}")
 ```
