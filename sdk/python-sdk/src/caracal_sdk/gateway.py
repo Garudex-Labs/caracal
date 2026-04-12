@@ -20,7 +20,6 @@ Usage (explicit gateway execution signals from environment / config):
     client = CaracalClient(api_key="…")
     result = await client.tools.call(
         tool_id="provider:demo:resource:jobs:action:run",
-        mandate_id="mandate_123",
         tool_args={"job": "sync"},
     )
 

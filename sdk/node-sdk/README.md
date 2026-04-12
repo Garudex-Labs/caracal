@@ -18,7 +18,6 @@ const client = new CaracalClient({ apiKey: "sk_test_123" });
 
 const result = await client.tools.call({
   toolId: "provider:github:resource:issues:action:create",
-  mandateId: "mandate_123",
   toolArgs: { title: "Investigate regression" },
 });
 ```
@@ -36,7 +35,6 @@ const ctx = client.context.checkout({
 
 const result = await ctx.tools.call({
   toolId: "provider:slack:resource:messages:action:post",
-  mandateId: "mandate_123",
   toolArgs: { channel: "alerts", text: "Runtime check complete" },
 });
 ```
@@ -45,6 +43,7 @@ const result = await ctx.tools.call({
 
 - Includes: client, context, tools bridge, hooks/extensions, adapters, runtime endpoint helpers.
 - Excludes: control-plane admin APIs such as principals, mandates, delegation, policy, and ledger CRUD.
+- Excludes: caller-provided mandate or policy selection in runtime tool calls.
 
 Control-plane ownership remains in Caracal runtime (OSS broker path) and enterprise gateway layers.
 

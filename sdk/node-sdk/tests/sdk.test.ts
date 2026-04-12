@@ -196,7 +196,7 @@ describe('MockAdapter', () => {
       method: 'POST',
       path: '/mcp/tool/call',
       headers: {},
-      body: { toolId: 'provider:demo:resource:jobs:action:run', mandateId: 'm_123' },
+      body: { toolId: 'provider:demo:resource:jobs:action:run' },
     });
     expect(adapter.sentRequests).toHaveLength(1);
     expect(adapter.sentRequests[0].path).toBe('/mcp/tool/call');
@@ -248,7 +248,6 @@ describe('ScopeContext', () => {
 
     const result = await ctx.tools.call({
       toolId: 'provider:demo:resource:jobs:action:run',
-      mandateId: 'mandate-123',
       toolArgs: { job: 'example' },
     });
     expect(result).toEqual({ success: true, result: { ok: true } });
@@ -286,7 +285,6 @@ describe('ScopeContext', () => {
     await expect(
       ctx.tools.call({
         toolId: 'provider:demo:resource:jobs:action:run',
-        mandateId: 'mandate-123',
         metadata: { workspace_name: 'ws-1' },
       }),
     ).rejects.toThrow('metadata supports correlation keys only');
@@ -302,7 +300,6 @@ describe('ScopeContext', () => {
     await expect(
       ctx.tools.call({
         toolId: 'provider:demo:resource:jobs:action:run',
-        mandateId: 'mandate-123',
         metadata: { principal_id: 'spoofed' },
       }),
     ).rejects.toThrow('Caller identity fields are not allowed in tool call metadata');
@@ -310,7 +307,6 @@ describe('ScopeContext', () => {
     await expect(
       ctx.tools.call({
         toolId: 'provider:demo:resource:jobs:action:run',
-        mandateId: 'mandate-123',
         toolArgs: { task_token_claims: {} },
       }),
     ).rejects.toThrow('Caller identity fields are not allowed in toolArgs');

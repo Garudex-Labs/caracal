@@ -41,7 +41,6 @@ class CaracalClient:
         client = CaracalClient(api_key="sk_test_123")
         result = await client.tools.call(
             tool_id="provider:demo:resource:jobs:action:run",
-            mandate_id="<mandate-id>",
             tool_args={"job": "example"},
         )
 
@@ -50,7 +49,6 @@ class CaracalClient:
         ctx = client.context.checkout(organization_id="org_1", workspace_id="ws_1")
         await ctx.tools.call(
             tool_id="provider:demo:resource:jobs:action:run",
-            mandate_id="<mandate-id>",
             tool_args={"job": "workspace-run"},
         )
 
