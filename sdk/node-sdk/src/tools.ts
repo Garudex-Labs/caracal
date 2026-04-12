@@ -21,6 +21,8 @@ const ALLOWED_CORRELATION_METADATA_KEYS = new Set([
 
 const PROHIBITED_CALLER_SPOOFING_FIELDS = new Set([
   'principal_id',
+  'mandate_id',
+  'resolved_mandate_id',
   'token_subject',
   'task_token_claims',
   'task_caveat_chain',
