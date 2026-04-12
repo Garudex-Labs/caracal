@@ -65,7 +65,7 @@ async def test_scope_tools_call_uses_canonical_payload_and_scope_headers() -> No
 
 @pytest.mark.unit
 @pytest.mark.asyncio
-async def test_scope_tools_call_forbids_principal_id_payload() -> None:
+async def test_scope_tools_call_forbids_identity_and_mandate_payload_fields() -> None:
     adapter = _CaptureAdapter()
     scope = ScopeContext(adapter=adapter, hooks=HookRegistry())
 
@@ -79,6 +79,18 @@ async def test_scope_tools_call_forbids_principal_id_payload() -> None:
         await scope.tools.call(
             tool_id="provider:endframe:resource:deployments",
             tool_args={"principal_id": "forbidden"},
+        )
+
+    with pytest.raises(SDKConfigurationError, match="Caller identity fields"):
+        await scope.tools.call(
+            tool_id="provider:endframe:resource:deployments",
+            metadata={"mandate_id": "forbidden"},
+        )
+
+    with pytest.raises(SDKConfigurationError, match="Caller identity fields"):
+        await scope.tools.call(
+            tool_id="provider:endframe:resource:deployments",
+            tool_args={"resolved_mandate_id": "forbidden"},
         )
 
 

@@ -141,7 +141,7 @@ class TestMCPServiceResponse:
             success=True,
             result={"output": "test"},
             error=None,
-            metadata={"mandate_id": "mandate-123"}
+            metadata={"status": "ok"}
         )
         
         assert response.success is True
@@ -851,6 +851,70 @@ class TestMCPAdapterService:
         assert response.status_code == 200
         mcp_context = self.mock_mcp_adapter.intercept_tool_call.call_args.kwargs["mcp_context"]
         assert mcp_context.get("mandate_id") is None
+
+    def test_tool_call_endpoint_rejects_server_controlled_tool_args(self):
+        """Service must reject caller attempts to inject identity/mandate tool args."""
+        from fastapi.testclient import TestClient
+
+        client = TestClient(self.service.app)
+
+        response = client.post(
+            "/mcp/tool/call",
+            json={
+                "tool_id": "test_tool",
+                "tool_args": {
+                    "principal_id": self.actor_principal_id,
+                    "mandate_id": str(uuid4()),
+                },
+                "metadata": {},
+            },
+            headers={"Authorization": "Bearer test-token"},
+        )
+
+        assert response.status_code == 400
+        assert "server-controlled security fields" in response.json()["detail"].lower()
+        self.mock_mcp_adapter.intercept_tool_call.assert_not_called()
+
+    def test_tool_call_endpoint_rejects_mismatched_subject_claims(self):
+        """Service must reject tokens with conflicting subject claims."""
+        from fastapi.testclient import TestClient
+
+        client = TestClient(self.service.app)
+        self.mock_session_manager.validate_access_token = AsyncMock(
+            return_value={
+                "sub": self.actor_principal_id,
+                "principal_id": "22222222-2222-2222-2222-222222222222",
+            }
+        )
+
+        response = client.post(
+            "/mcp/tool/call",
+            json={"tool_id": "test_tool", "tool_args": {}, "metadata": {}},
+            headers={"Authorization": "Bearer test-token"},
+        )
+
+        assert response.status_code == 401
+        assert "mismatched principal subject claims" in response.json()["detail"].lower()
+        self.mock_mcp_adapter.intercept_tool_call.assert_not_called()
+
+    def test_tool_call_endpoint_rejects_non_uuid_subject_claim(self):
+        """Service must reject non-UUID subject claims to prevent ambiguous identity binding."""
+        from fastapi.testclient import TestClient
+
+        client = TestClient(self.service.app)
+        self.mock_session_manager.validate_access_token = AsyncMock(
+            return_value={"sub": "not-a-uuid"}
+        )
+
+        response = client.post(
+            "/mcp/tool/call",
+            json={"tool_id": "test_tool", "tool_args": {}, "metadata": {}},
+            headers={"Authorization": "Bearer test-token"},
+        )
+
+        assert response.status_code == 401
+        assert "subject claim must be a uuid" in response.json()["detail"].lower()
+        self.mock_mcp_adapter.intercept_tool_call.assert_not_called()
 
     def test_tool_call_endpoint_without_mandate_id_payload(self):
         """Mandate-free tool call payloads should be accepted."""

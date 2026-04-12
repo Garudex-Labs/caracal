@@ -53,7 +53,6 @@ async def test_tools_surface_sends_mcp_tool_call_request() -> None:
     scope = ScopeContext(adapter=_NoopAdapter(), hooks=HookRegistry())
     payload = await scope.tools.call(
         tool_id="tool.demo",
-        mandate_id="mandate-1",
         tool_args={"x": 1},
     )
 
