@@ -71,14 +71,14 @@ class DelegationRequest:
     Attributes:
         task_description: Description of the task to delegate
         task_parameters: Parameters for the task
-        delegated_mandate_id: Mandate ID for the delegated agent
+        delegated_principal_id: Mandate ID for the delegated agent
         expected_result_type: Expected type of result
         timeout_seconds: Maximum time to wait for result
     """
     
     task_description: str
     task_parameters: Dict[str, Any] = field(default_factory=dict)
-    delegated_mandate_id: str = ""
+    delegated_principal_id: str = ""
     expected_result_type: str = "dict"
     timeout_seconds: int = 300
     
@@ -87,7 +87,7 @@ class DelegationRequest:
         return {
             "task_description": self.task_description,
             "task_parameters": self.task_parameters,
-            "delegated_mandate_id": self.delegated_mandate_id,
+            "delegated_principal_id": self.delegated_principal_id,
             "expected_result_type": self.expected_result_type,
             "timeout_seconds": self.timeout_seconds,
         }

@@ -51,10 +51,10 @@ class ComplexWorkflowOrchestrator:
         self,
         orchestrator_agent: Any,
         scenario: Scenario,
-        finance_mandate_id: str,
-        ops_mandate_id: str,
-        analyst_mandate_id: str,
-        reporter_mandate_id: str,
+        finance_principal_id: str,
+        ops_principal_id: str,
+        analyst_principal_id: str,
+        reporter_principal_id: str,
     ) -> Dict[str, Any]:
         """
         Execute a deep analysis workflow with nested sub-agents.
@@ -77,10 +77,10 @@ class ComplexWorkflowOrchestrator:
         Args:
             orchestrator_agent: The orchestrator agent
             scenario: Scenario context
-            finance_mandate_id: Mandate ID for finance agent
-            ops_mandate_id: Mandate ID for ops agent
-            analyst_mandate_id: Mandate ID for analyst agents
-            reporter_mandate_id: Mandate ID for reporter agent
+            finance_principal_id: Mandate ID for finance agent
+            ops_principal_id: Mandate ID for ops agent
+            analyst_principal_id: Mandate ID for analyst agents
+            reporter_principal_id: Mandate ID for reporter agent
         
         Returns:
             Dictionary containing workflow results
@@ -101,7 +101,7 @@ class ComplexWorkflowOrchestrator:
             parent_agent=orchestrator_agent,
             sub_agent_role=AgentRole.FINANCE,
             task_description=f"Analyze financial data for {scenario.company.name}",
-            sub_agent_mandate_id=finance_mandate_id,
+            sub_agent_principal_id=finance_principal_id,
             scenario=scenario,
         )
         
@@ -128,7 +128,7 @@ class ComplexWorkflowOrchestrator:
                         parent_agent=finance_agent,
                         sub_agent_role=AgentRole.ANALYST,
                         task_description="Perform deep financial data analysis",
-                        sub_agent_mandate_id=analyst_mandate_id,
+                        sub_agent_principal_id=analyst_principal_id,
                         scenario=scenario,
                         analysis_type="financial",
                         data_source="all",
@@ -142,7 +142,7 @@ class ComplexWorkflowOrchestrator:
             parent_agent=orchestrator_agent,
             sub_agent_role=AgentRole.OPS,
             task_description=f"Analyze operational data for {scenario.company.name}",
-            sub_agent_mandate_id=ops_mandate_id,
+            sub_agent_principal_id=ops_principal_id,
             scenario=scenario,
         )
         
@@ -169,7 +169,7 @@ class ComplexWorkflowOrchestrator:
                         parent_agent=ops_agent,
                         sub_agent_role=AgentRole.ANALYST,
                         task_description="Perform deep operational data analysis",
-                        sub_agent_mandate_id=analyst_mandate_id,
+                        sub_agent_principal_id=analyst_principal_id,
                         scenario=scenario,
                         analysis_type="operational",
                         data_source="all",
@@ -223,7 +223,7 @@ class ComplexWorkflowOrchestrator:
             parent_agent=orchestrator_agent,
             sub_agent_role=AgentRole.REPORTER,
             task_description=f"Generate executive briefing for {scenario.company.name}",
-            sub_agent_mandate_id=reporter_mandate_id,
+            sub_agent_principal_id=reporter_principal_id,
             scenario=scenario,
             report_type="executive",
             agent_results=agent_results_for_report,
@@ -243,9 +243,9 @@ class ComplexWorkflowOrchestrator:
         self,
         orchestrator_agent: Any,
         scenario: Scenario,
-        finance_mandate_id: str,
-        ops_mandate_id: str,
-        analyst_mandate_id: str,
+        finance_principal_id: str,
+        ops_principal_id: str,
+        analyst_principal_id: str,
     ) -> Dict[str, Any]:
         """
         Execute a parallel analysis workflow.
@@ -258,9 +258,9 @@ class ComplexWorkflowOrchestrator:
         Args:
             orchestrator_agent: The orchestrator agent
             scenario: Scenario context
-            finance_mandate_id: Mandate ID for finance agent
-            ops_mandate_id: Mandate ID for ops agent
-            analyst_mandate_id: Mandate ID for analyst agent
+            finance_principal_id: Mandate ID for finance agent
+            ops_principal_id: Mandate ID for ops agent
+            analyst_principal_id: Mandate ID for analyst agent
         
         Returns:
             Dictionary containing workflow results
@@ -283,7 +283,7 @@ class ComplexWorkflowOrchestrator:
             parent_agent=orchestrator_agent,
             sub_agent_role=AgentRole.FINANCE,
             task_description=f"Analyze financial data for {scenario.company.name}",
-            sub_agent_mandate_id=finance_mandate_id,
+            sub_agent_principal_id=finance_principal_id,
             scenario=scenario,
         )
         
@@ -292,7 +292,7 @@ class ComplexWorkflowOrchestrator:
             parent_agent=orchestrator_agent,
             sub_agent_role=AgentRole.OPS,
             task_description=f"Analyze operational data for {scenario.company.name}",
-            sub_agent_mandate_id=ops_mandate_id,
+            sub_agent_principal_id=ops_principal_id,
             scenario=scenario,
         )
         
@@ -301,7 +301,7 @@ class ComplexWorkflowOrchestrator:
             parent_agent=orchestrator_agent,
             sub_agent_role=AgentRole.ANALYST,
             task_description="Perform comprehensive data analysis",
-            sub_agent_mandate_id=analyst_mandate_id,
+            sub_agent_principal_id=analyst_principal_id,
             scenario=scenario,
             analysis_type="general",
             data_source="all",
@@ -347,10 +347,10 @@ class ComplexWorkflowOrchestrator:
         self,
         orchestrator_agent: Any,
         scenario: Scenario,
-        finance_mandate_id: str,
-        ops_mandate_id: str,
-        analyst_mandate_id: str,
-        reporter_mandate_id: str,
+        finance_principal_id: str,
+        ops_principal_id: str,
+        analyst_principal_id: str,
+        reporter_principal_id: str,
     ) -> Dict[str, Any]:
         """
         Execute a conditional workflow with dynamic routing.
@@ -366,10 +366,10 @@ class ComplexWorkflowOrchestrator:
         Args:
             orchestrator_agent: The orchestrator agent
             scenario: Scenario context
-            finance_mandate_id: Mandate ID for finance agent
-            ops_mandate_id: Mandate ID for ops agent
-            analyst_mandate_id: Mandate ID for analyst agent
-            reporter_mandate_id: Mandate ID for reporter agent
+            finance_principal_id: Mandate ID for finance agent
+            ops_principal_id: Mandate ID for ops agent
+            analyst_principal_id: Mandate ID for analyst agent
+            reporter_principal_id: Mandate ID for reporter agent
         
         Returns:
             Dictionary containing workflow results
@@ -391,7 +391,7 @@ class ComplexWorkflowOrchestrator:
             parent_agent=orchestrator_agent,
             sub_agent_role=AgentRole.FINANCE,
             task_description=f"Analyze financial data for {scenario.company.name}",
-            sub_agent_mandate_id=finance_mandate_id,
+            sub_agent_principal_id=finance_principal_id,
             scenario=scenario,
         )
         
@@ -412,7 +412,7 @@ class ComplexWorkflowOrchestrator:
                 parent_agent=orchestrator_agent,
                 sub_agent_role=AgentRole.ANALYST,
                 task_description="Perform deep financial analysis",
-                sub_agent_mandate_id=analyst_mandate_id,
+                sub_agent_principal_id=analyst_principal_id,
                 scenario=scenario,
                 analysis_type="financial",
             )
@@ -439,7 +439,7 @@ class ComplexWorkflowOrchestrator:
                 parent_agent=orchestrator_agent,
                 sub_agent_role=AgentRole.OPS,
                 task_description=f"Analyze operational data for {scenario.company.name}",
-                sub_agent_mandate_id=ops_mandate_id,
+                sub_agent_principal_id=ops_principal_id,
                 scenario=scenario,
             )
             
@@ -462,7 +462,7 @@ class ComplexWorkflowOrchestrator:
             parent_agent=orchestrator_agent,
             sub_agent_role=AgentRole.REPORTER,
             task_description=f"Generate briefing for {scenario.company.name}",
-            sub_agent_mandate_id=reporter_mandate_id,
+            sub_agent_principal_id=reporter_principal_id,
             scenario=scenario,
             report_type="briefing",
             agent_results=agent_results_for_report,
@@ -534,7 +534,7 @@ async def example_deep_analysis(
     orchestrator_agent: Any,
     scenario: Scenario,
     caracal_client: Any,
-    mandate_ids: Dict[str, str],
+    principal_ids: Dict[str, str],
 ) -> Dict[str, Any]:
     """
     Example: Execute a deep analysis workflow.
@@ -543,7 +543,7 @@ async def example_deep_analysis(
         orchestrator_agent: The orchestrator agent
         scenario: Scenario to analyze
         caracal_client: Caracal client
-        mandate_ids: Dictionary of mandate IDs for each agent role
+        principal_ids: Dictionary of mandate IDs for each agent role
     
     Returns:
         Workflow results
@@ -553,10 +553,10 @@ async def example_deep_analysis(
     return await orchestrator.execute_deep_analysis_workflow(
         orchestrator_agent=orchestrator_agent,
         scenario=scenario,
-        finance_mandate_id=mandate_ids["finance"],
-        ops_mandate_id=mandate_ids["ops"],
-        analyst_mandate_id=mandate_ids["analyst"],
-        reporter_mandate_id=mandate_ids["reporter"],
+        finance_principal_id=principal_ids["finance"],
+        ops_principal_id=principal_ids["ops"],
+        analyst_principal_id=principal_ids["analyst"],
+        reporter_principal_id=principal_ids["reporter"],
     )
 
 
@@ -564,7 +564,7 @@ async def example_parallel_analysis(
     orchestrator_agent: Any,
     scenario: Scenario,
     caracal_client: Any,
-    mandate_ids: Dict[str, str],
+    principal_ids: Dict[str, str],
 ) -> Dict[str, Any]:
     """
     Example: Execute a parallel analysis workflow.
@@ -573,7 +573,7 @@ async def example_parallel_analysis(
         orchestrator_agent: The orchestrator agent
         scenario: Scenario to analyze
         caracal_client: Caracal client
-        mandate_ids: Dictionary of mandate IDs for each agent role
+        principal_ids: Dictionary of mandate IDs for each agent role
     
     Returns:
         Workflow results
@@ -583,9 +583,9 @@ async def example_parallel_analysis(
     return await orchestrator.execute_parallel_analysis_workflow(
         orchestrator_agent=orchestrator_agent,
         scenario=scenario,
-        finance_mandate_id=mandate_ids["finance"],
-        ops_mandate_id=mandate_ids["ops"],
-        analyst_mandate_id=mandate_ids["analyst"],
+        finance_principal_id=principal_ids["finance"],
+        ops_principal_id=principal_ids["ops"],
+        analyst_principal_id=principal_ids["analyst"],
     )
 
 
@@ -593,7 +593,7 @@ async def example_conditional_workflow(
     orchestrator_agent: Any,
     scenario: Scenario,
     caracal_client: Any,
-    mandate_ids: Dict[str, str],
+    principal_ids: Dict[str, str],
 ) -> Dict[str, Any]:
     """
     Example: Execute a conditional workflow.
@@ -602,7 +602,7 @@ async def example_conditional_workflow(
         orchestrator_agent: The orchestrator agent
         scenario: Scenario to analyze
         caracal_client: Caracal client
-        mandate_ids: Dictionary of mandate IDs for each agent role
+        principal_ids: Dictionary of mandate IDs for each agent role
     
     Returns:
         Workflow results
@@ -612,8 +612,8 @@ async def example_conditional_workflow(
     return await orchestrator.execute_conditional_workflow(
         orchestrator_agent=orchestrator_agent,
         scenario=scenario,
-        finance_mandate_id=mandate_ids["finance"],
-        ops_mandate_id=mandate_ids["ops"],
-        analyst_mandate_id=mandate_ids["analyst"],
-        reporter_mandate_id=mandate_ids["reporter"],
+        finance_principal_id=principal_ids["finance"],
+        ops_principal_id=principal_ids["ops"],
+        analyst_principal_id=principal_ids["analyst"],
+        reporter_principal_id=principal_ids["reporter"],
     )

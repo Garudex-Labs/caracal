@@ -6,7 +6,7 @@ with mandate-based authority validation and provider routing.
 
 # CARACAL INTEGRATION POINT
 # All tools in this module are registered with Caracal and executed through
-# the Caracal SDK with mandate_id for authority enforcement.
+# the Caracal SDK with principal_id for authority enforcement.
 """
 
 from dataclasses import dataclass
@@ -44,7 +44,7 @@ class OpsTools:
     
     # CARACAL INTEGRATION POINT
     # These tools are executed through Caracal's governed pipeline:
-    # 1. Tool call initiated with mandate_id
+    # 1. Tool call initiated with principal_id
     # 2. Caracal validates mandate has authority for the tool
     # 3. Caracal routes to appropriate provider (mock or real)
     # 4. Provider executes tool with injected credentials
@@ -60,7 +60,7 @@ class OpsTools:
     # WITH CARACAL:
     # result = await client.call_tool(
     #     tool_id="demo:employee:mock:ops:incidents",
-    #     mandate_id=mandate_id,
+    #     principal_id=principal_id,
     #     tool_args=args
     # )
     """
@@ -83,7 +83,7 @@ class OpsTools:
     
     async def get_incidents(
         self,
-        mandate_id: str,
+        principal_id: str,
         severity: Optional[str] = None,
         status: Optional[str] = None,
         service: Optional[str] = None,
@@ -96,7 +96,7 @@ class OpsTools:
         # This tool call goes through Caracal's authority enforcement pipeline
         
         Args:
-            mandate_id: Caracal mandate ID for authority validation
+            principal_id: Caracal mandate ID for authority validation
             severity: Optional severity filter (low, medium, high, critical)
             status: Optional status filter (open, investigating, resolved)
             service: Optional service name filter
@@ -115,14 +115,13 @@ class OpsTools:
         
         try:
             logger.info(
-                f"Calling incidents tool: {tool_id} with mandate {mandate_id[:8]}"
+                f"Calling incidents tool: {tool_id} with mandate {principal_id[:8]}"
             )
             
             # CARACAL_MARKER: MANDATE_REQUIRED
-            # Every governed call must be bound to an explicit mandate_id
+            # Every governed call must be bound to an explicit principal_id
             result = await self.caracal_client.call_tool(
                 tool_id=tool_id,
-                mandate_id=mandate_id,
                 tool_args=tool_args,
             )
             
@@ -142,7 +141,7 @@ class OpsTools:
     
     async def get_service_health(
         self,
-        mandate_id: str,
+        principal_id: str,
         service: Optional[str] = None,
         include_metrics: bool = True,
     ) -> ToolCallResult:
@@ -152,7 +151,7 @@ class OpsTools:
         # CARACAL_MARKER: TOOL_CALL
         
         Args:
-            mandate_id: Caracal mandate ID for authority validation
+            principal_id: Caracal mandate ID for authority validation
             service: Optional specific service to query
             include_metrics: Whether to include detailed metrics
         
@@ -167,12 +166,11 @@ class OpsTools:
         
         try:
             logger.info(
-                f"Calling health tool: {tool_id} with mandate {mandate_id[:8]}"
+                f"Calling health tool: {tool_id} with mandate {principal_id[:8]}"
             )
             
             result = await self.caracal_client.call_tool(
                 tool_id=tool_id,
-                mandate_id=mandate_id,
                 tool_args=tool_args,
             )
             
@@ -192,7 +190,7 @@ class OpsTools:
     
     async def get_sla_status(
         self,
-        mandate_id: str,
+        principal_id: str,
         service: Optional[str] = None,
         period: str = "current_month",
     ) -> ToolCallResult:
@@ -202,7 +200,7 @@ class OpsTools:
         # CARACAL_MARKER: TOOL_CALL
         
         Args:
-            mandate_id: Caracal mandate ID for authority validation
+            principal_id: Caracal mandate ID for authority validation
             service: Optional specific service to query
             period: Time period (current_month, last_month, quarter, year)
         
@@ -217,12 +215,11 @@ class OpsTools:
         
         try:
             logger.info(
-                f"Calling SLA tool: {tool_id} with mandate {mandate_id[:8]}"
+                f"Calling SLA tool: {tool_id} with mandate {principal_id[:8]}"
             )
             
             result = await self.caracal_client.call_tool(
                 tool_id=tool_id,
-                mandate_id=mandate_id,
                 tool_args=tool_args,
             )
             
@@ -242,7 +239,7 @@ class OpsTools:
     
     async def get_performance_metrics(
         self,
-        mandate_id: str,
+        principal_id: str,
         service: Optional[str] = None,
         metric_type: Optional[str] = None,
         time_range_hours: int = 24,
@@ -253,7 +250,7 @@ class OpsTools:
         # CARACAL_MARKER: TOOL_CALL
         
         Args:
-            mandate_id: Caracal mandate ID for authority validation
+            principal_id: Caracal mandate ID for authority validation
             service: Optional specific service to query
             metric_type: Optional metric type (latency, throughput, errors)
             time_range_hours: Time range to query (default 24 hours)
@@ -270,12 +267,11 @@ class OpsTools:
         
         try:
             logger.info(
-                f"Calling metrics tool: {tool_id} with mandate {mandate_id[:8]}"
+                f"Calling metrics tool: {tool_id} with mandate {principal_id[:8]}"
             )
             
             result = await self.caracal_client.call_tool(
                 tool_id=tool_id,
-                mandate_id=mandate_id,
                 tool_args=tool_args,
             )
             
@@ -295,7 +291,7 @@ class OpsTools:
     
     async def escalate_incident(
         self,
-        mandate_id: str,
+        principal_id: str,
         incident_id: str,
         escalation_level: str,
         reason: str,
@@ -308,7 +304,7 @@ class OpsTools:
         # This is a write operation requiring elevated authority
         
         Args:
-            mandate_id: Caracal mandate ID for authority validation
+            principal_id: Caracal mandate ID for authority validation
             incident_id: Incident ID to escalate
             escalation_level: Target escalation level (L2, L3, executive)
             reason: Reason for escalation
@@ -327,14 +323,13 @@ class OpsTools:
         
         try:
             logger.info(
-                f"Calling escalate tool: {tool_id} with mandate {mandate_id[:8]}"
+                f"Calling escalate tool: {tool_id} with mandate {principal_id[:8]}"
             )
             
             # CARACAL_MARKER: AUTHORITY_CHECK
             # Write operations require explicit authority validation
             result = await self.caracal_client.call_tool(
                 tool_id=tool_id,
-                mandate_id=mandate_id,
                 tool_args=tool_args,
             )
             
@@ -354,7 +349,7 @@ class OpsTools:
     
     async def update_incident_status(
         self,
-        mandate_id: str,
+        principal_id: str,
         incident_id: str,
         new_status: str,
         notes: Optional[str] = None,
@@ -366,7 +361,7 @@ class OpsTools:
         # This is a write operation requiring authority
         
         Args:
-            mandate_id: Caracal mandate ID for authority validation
+            principal_id: Caracal mandate ID for authority validation
             incident_id: Incident ID to update
             new_status: New status (investigating, mitigating, resolved, closed)
             notes: Optional status update notes
@@ -383,12 +378,11 @@ class OpsTools:
         
         try:
             logger.info(
-                f"Calling update_incident tool: {tool_id} with mandate {mandate_id[:8]}"
+                f"Calling update_incident tool: {tool_id} with mandate {principal_id[:8]}"
             )
             
             result = await self.caracal_client.call_tool(
                 tool_id=tool_id,
-                mandate_id=mandate_id,
                 tool_args=tool_args,
             )
             
@@ -408,7 +402,7 @@ class OpsTools:
     
     async def scale_service(
         self,
-        mandate_id: str,
+        principal_id: str,
         service: str,
         target_instances: int,
         reason: str,
@@ -420,7 +414,7 @@ class OpsTools:
         # This is a critical write operation requiring high authority
         
         Args:
-            mandate_id: Caracal mandate ID for authority validation
+            principal_id: Caracal mandate ID for authority validation
             service: Service name to scale
             target_instances: Target number of instances
             reason: Reason for scaling
@@ -437,12 +431,11 @@ class OpsTools:
         
         try:
             logger.info(
-                f"Calling scale tool: {tool_id} with mandate {mandate_id[:8]}"
+                f"Calling scale tool: {tool_id} with mandate {principal_id[:8]}"
             )
             
             result = await self.caracal_client.call_tool(
                 tool_id=tool_id,
-                mandate_id=mandate_id,
                 tool_args=tool_args,
             )
             
@@ -462,7 +455,7 @@ class OpsTools:
     
     async def trigger_runbook(
         self,
-        mandate_id: str,
+        principal_id: str,
         runbook_id: str,
         incident_id: Optional[str] = None,
         parameters: Optional[Dict[str, Any]] = None,
@@ -474,7 +467,7 @@ class OpsTools:
         # This is a write operation that may trigger automated actions
         
         Args:
-            mandate_id: Caracal mandate ID for authority validation
+            principal_id: Caracal mandate ID for authority validation
             runbook_id: Runbook ID to execute
             incident_id: Optional incident ID to associate with
             parameters: Optional runbook parameters
@@ -491,12 +484,11 @@ class OpsTools:
         
         try:
             logger.info(
-                f"Calling runbook tool: {tool_id} with mandate {mandate_id[:8]}"
+                f"Calling runbook tool: {tool_id} with mandate {principal_id[:8]}"
             )
             
             result = await self.caracal_client.call_tool(
                 tool_id=tool_id,
-                mandate_id=mandate_id,
                 tool_args=tool_args,
             )
             

@@ -58,7 +58,7 @@ class ToolCall:
         call_id: Unique identifier for this tool call
         tool_id: ID of the tool that was called
         agent_id: ID of the agent that made the call
-        mandate_id: Mandate ID used for the call
+        principal_id: Mandate ID used for the call
         tool_args: Arguments passed to the tool
         result: Result returned by the tool
         status: Status of the call (pending, success, error)
@@ -71,7 +71,7 @@ class ToolCall:
     call_id: str
     tool_id: str
     agent_id: str
-    mandate_id: str
+    principal_id: str
     tool_args: Dict[str, Any]
     result: Optional[Dict[str, Any]] = None
     status: str = "pending"
@@ -86,7 +86,7 @@ class ToolCall:
             "call_id": self.call_id,
             "tool_id": self.tool_id,
             "agent_id": self.agent_id,
-            "mandate_id": self.mandate_id,
+            "principal_id": self.principal_id,
             "tool_args": self.tool_args,
             "result": self.result,
             "status": self.status,
@@ -117,7 +117,7 @@ class ToolBinding:
     def __init__(
         self,
         agent_id: str,
-        mandate_id: str,
+        principal_id: str,
         caracal_client: Any,
         available_tools: Optional[List[ToolDefinition]] = None,
     ):
@@ -126,12 +126,12 @@ class ToolBinding:
         
         Args:
             agent_id: ID of the agent
-            mandate_id: Mandate ID for the agent
+            principal_id: Mandate ID for the agent
             caracal_client: Caracal client for governed tool calls
             available_tools: List of tools available to this agent
         """
         self.agent_id = agent_id
-        self.mandate_id = mandate_id
+        self.principal_id = principal_id
         self.caracal_client = caracal_client
         self.available_tools: Dict[str, ToolDefinition] = {}
         self.call_history: List[ToolCall] = []
@@ -253,7 +253,6 @@ class ToolBinding:
             call_id=call_id,
             tool_id=tool_id,
             agent_id=self.agent_id,
-            mandate_id=self.mandate_id,
             tool_args=tool_args,
             status="pending",
             timestamp=time.time(),
@@ -270,7 +269,6 @@ class ToolBinding:
             # This tool call goes through Caracal's authority enforcement pipeline
             result = await self.caracal_client.call_tool(
                 tool_id=tool_id,
-                mandate_id=self.mandate_id,
                 tool_args=tool_args,
                 correlation_id=call_id,
             )

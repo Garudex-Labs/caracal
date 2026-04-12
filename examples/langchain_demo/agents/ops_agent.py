@@ -38,7 +38,7 @@ class OpsAgent(BaseAgent):
     
     def __init__(
         self,
-        mandate_id: str,
+        principal_id: str,
         caracal_client: Any,
         scenario: Optional[Scenario] = None,
         parent_agent: Optional[BaseAgent] = None,
@@ -49,7 +49,7 @@ class OpsAgent(BaseAgent):
         Initialize the ops agent.
         
         Args:
-            mandate_id: Caracal mandate ID for this agent
+            principal_id: Caracal mandate ID for this agent
             caracal_client: Caracal client for governed tool calls
             scenario: Optional scenario context
             parent_agent: Parent agent (typically orchestrator)
@@ -58,7 +58,7 @@ class OpsAgent(BaseAgent):
         """
         super().__init__(
             role=AgentRole.OPS,
-            mandate_id=mandate_id,
+            principal_id=principal_id,
             parent_agent=parent_agent,
             agent_id=agent_id,
             context=context,
@@ -69,7 +69,7 @@ class OpsAgent(BaseAgent):
         
         logger.info(
             f"Initialized OpsAgent {self.agent_id[:8]} "
-            f"with mandate {mandate_id[:8]}"
+            f"with mandate {principal_id[:8]}"
         )
     
     async def execute(self, task: str, **kwargs) -> Dict[str, Any]:
@@ -196,7 +196,7 @@ class OpsAgent(BaseAgent):
         # In a real implementation, this would call ops tools through Caracal:
         # result = await self.caracal_client.call_tool(
         #     tool_id="demo:employee:mock:ops:health",
-        #     mandate_id=self.mandate_id,
+        #     principal_id=self.principal_id,
         #     tool_args={"query": "service_health"}
         # )
         

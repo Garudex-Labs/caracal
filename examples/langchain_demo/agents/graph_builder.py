@@ -42,18 +42,18 @@ class WorkflowState(TypedDict, total=False):
         scenario_id: ID of the scenario being executed
         scenario_data: Full scenario data dictionary
         orchestrator_id: ID of the orchestrator agent
-        orchestrator_mandate_id: Mandate ID for orchestrator
+        orchestrator_principal_id: Mandate ID for orchestrator
         finance_agent_id: ID of the finance agent (if spawned)
-        finance_mandate_id: Mandate ID for finance agent
+        finance_principal_id: Mandate ID for finance agent
         finance_results: Results from finance agent execution
         ops_agent_id: ID of the ops agent (if spawned)
-        ops_mandate_id: Mandate ID for ops agent
+        ops_principal_id: Mandate ID for ops agent
         ops_results: Results from ops agent execution
         analyst_agent_id: ID of the analyst agent (if spawned)
-        analyst_mandate_id: Mandate ID for analyst agent
+        analyst_principal_id: Mandate ID for analyst agent
         analyst_results: Results from analyst agent execution
         reporter_agent_id: ID of the reporter agent (if spawned)
-        reporter_mandate_id: Mandate ID for reporter agent
+        reporter_principal_id: Mandate ID for reporter agent
         reporter_results: Results from reporter agent execution
         aggregated_results: Aggregated results from all agents
         executive_summary: Final executive summary
@@ -72,26 +72,26 @@ class WorkflowState(TypedDict, total=False):
     
     # Orchestrator
     orchestrator_id: str
-    orchestrator_mandate_id: str
+    orchestrator_principal_id: str
     
     # Finance agent
     finance_agent_id: Optional[str]
-    finance_mandate_id: Optional[str]
+    finance_principal_id: Optional[str]
     finance_results: Optional[Dict[str, Any]]
     
     # Ops agent
     ops_agent_id: Optional[str]
-    ops_mandate_id: Optional[str]
+    ops_principal_id: Optional[str]
     ops_results: Optional[Dict[str, Any]]
     
     # Analyst agent
     analyst_agent_id: Optional[str]
-    analyst_mandate_id: Optional[str]
+    analyst_principal_id: Optional[str]
     analyst_results: Optional[Dict[str, Any]]
     
     # Reporter agent
     reporter_agent_id: Optional[str]
-    reporter_mandate_id: Optional[str]
+    reporter_principal_id: Optional[str]
     reporter_results: Optional[Dict[str, Any]]
     
     # Aggregated results
@@ -139,7 +139,7 @@ class GraphBuilder:
         self,
         caracal_client: Any,
         scenario: Optional[Any] = None,
-        mandate_ids: Optional[Dict[str, str]] = None,
+        principal_ids: Optional[Dict[str, str]] = None,
     ):
         """
         Initialize the graph builder.
@@ -147,7 +147,7 @@ class GraphBuilder:
         Args:
             caracal_client: Caracal client for governed tool calls
             scenario: Optional scenario object for context
-            mandate_ids: Optional dictionary of mandate IDs for each agent role
+            principal_ids: Optional dictionary of mandate IDs for each agent role
                         (e.g., {"orchestrator": "...", "finance": "...", "ops": "..."})
         
         Raises:
@@ -161,7 +161,7 @@ class GraphBuilder:
         
         self.caracal_client = caracal_client
         self.scenario = scenario
-        self.mandate_ids = mandate_ids or {}
+        self.principal_ids = principal_ids or {}
         
         # Cache for agent instances
         self._agent_cache: Dict[str, Any] = {}
@@ -553,13 +553,13 @@ class GraphBuilder:
             return self._agent_cache[cache_key]
         
         # Get mandate ID for this role
-        mandate_id = self.mandate_ids.get(agent_role.value)
-        if not mandate_id:
+        principal_id = self.principal_ids.get(agent_role.value)
+        if not principal_id:
             # Try to get from state
-            mandate_key = f"{agent_role.value}_mandate_id"
-            mandate_id = state.get(mandate_key)
+            mandate_key = f"{agent_role.value}_principal_id"
+            principal_id = state.get(mandate_key)
         
-        if not mandate_id:
+        if not principal_id:
             raise ValueError(
                 f"No mandate ID provided for {agent_role.value} agent"
             )
@@ -568,35 +568,35 @@ class GraphBuilder:
         if agent_role == AgentRole.ORCHESTRATOR:
             from examples.langchain_demo.agents.orchestrator import OrchestratorAgent
             agent = OrchestratorAgent(
-                mandate_id=mandate_id,
+                principal_id=principal_id,
                 caracal_client=self.caracal_client,
                 scenario=self.scenario,
             )
         elif agent_role == AgentRole.FINANCE:
             from examples.langchain_demo.agents.finance_agent import FinanceAgent
             agent = FinanceAgent(
-                mandate_id=mandate_id,
+                principal_id=principal_id,
                 caracal_client=self.caracal_client,
                 scenario=self.scenario,
             )
         elif agent_role == AgentRole.OPS:
             from examples.langchain_demo.agents.ops_agent import OpsAgent
             agent = OpsAgent(
-                mandate_id=mandate_id,
+                principal_id=principal_id,
                 caracal_client=self.caracal_client,
                 scenario=self.scenario,
             )
         elif agent_role == AgentRole.ANALYST:
             from examples.langchain_demo.agents.analyst_agent import AnalystAgent
             agent = AnalystAgent(
-                mandate_id=mandate_id,
+                principal_id=principal_id,
                 caracal_client=self.caracal_client,
                 scenario=self.scenario,
             )
         elif agent_role == AgentRole.REPORTER:
             from examples.langchain_demo.agents.reporter_agent import ReporterAgent
             agent = ReporterAgent(
-                mandate_id=mandate_id,
+                principal_id=principal_id,
                 caracal_client=self.caracal_client,
                 scenario=self.scenario,
             )
@@ -1532,7 +1532,7 @@ class WorkflowExecutionEngine:
         task: str,
         scenario_id: str,
         scenario_data: Dict[str, Any],
-        mandate_ids: Dict[str, str],
+        principal_ids: Dict[str, str],
         max_iterations: int = 10,
     ) -> Dict[str, Any]:
         """
@@ -1542,7 +1542,7 @@ class WorkflowExecutionEngine:
             task: High-level task description
             scenario_id: ID of the scenario to execute
             scenario_data: Full scenario data dictionary
-            mandate_ids: Dictionary mapping agent roles to mandate IDs
+            principal_ids: Dictionary mapping agent roles to mandate IDs
             max_iterations: Maximum number of workflow iterations
         
         Returns:
@@ -1577,12 +1577,12 @@ class WorkflowExecutionEngine:
                 task=task,
                 scenario_id=scenario_id,
                 scenario_data=scenario_data,
-                mandate_ids=mandate_ids,
+                principal_ids=principal_ids,
                 max_iterations=max_iterations,
             )
             
             # Validate mandates before execution
-            await self._validate_mandates(mandate_ids)
+            await self._validate_mandates(principal_ids)
             
             # Execute the workflow
             logger.info("Executing workflow...")
@@ -1639,7 +1639,7 @@ class WorkflowExecutionEngine:
         task: str,
         scenario_id: str,
         scenario_data: Dict[str, Any],
-        mandate_ids: Dict[str, str],
+        principal_ids: Dict[str, str],
         max_iterations: int,
     ) -> WorkflowState:
         """
@@ -1649,7 +1649,7 @@ class WorkflowExecutionEngine:
             task: High-level task description
             scenario_id: ID of the scenario
             scenario_data: Full scenario data
-            mandate_ids: Mandate IDs for each agent
+            principal_ids: Mandate IDs for each agent
             max_iterations: Maximum iterations
         
         Returns:
@@ -1662,18 +1662,18 @@ class WorkflowExecutionEngine:
             "scenario_id": scenario_id,
             "scenario_data": scenario_data,
             "orchestrator_id": "",
-            "orchestrator_mandate_id": mandate_ids.get("orchestrator", ""),
+            "orchestrator_principal_id": principal_ids.get("orchestrator", ""),
             "finance_agent_id": None,
-            "finance_mandate_id": mandate_ids.get("finance"),
+            "finance_principal_id": principal_ids.get("finance"),
             "finance_results": None,
             "ops_agent_id": None,
-            "ops_mandate_id": mandate_ids.get("ops"),
+            "ops_principal_id": principal_ids.get("ops"),
             "ops_results": None,
             "analyst_agent_id": None,
-            "analyst_mandate_id": mandate_ids.get("analyst"),
+            "analyst_principal_id": principal_ids.get("analyst"),
             "analyst_results": None,
             "reporter_agent_id": None,
-            "reporter_mandate_id": mandate_ids.get("reporter"),
+            "reporter_principal_id": principal_ids.get("reporter"),
             "reporter_results": None,
             "aggregated_results": None,
             "executive_summary": None,
@@ -1689,13 +1689,13 @@ class WorkflowExecutionEngine:
     
     async def _validate_mandates(
         self,
-        mandate_ids: Dict[str, str]
+        principal_ids: Dict[str, str]
     ) -> None:
         """
         Validate that all required mandates exist and are valid.
         
         Args:
-            mandate_ids: Dictionary of mandate IDs to validate
+            principal_ids: Dictionary of mandate IDs to validate
         
         Raises:
             ValueError: If any mandate is invalid
@@ -1706,14 +1706,14 @@ class WorkflowExecutionEngine:
         """
         logger.info("Validating mandates before execution")
         
-        for role, mandate_id in mandate_ids.items():
-            if not mandate_id:
+        for role, principal_id in principal_ids.items():
+            if not principal_id:
                 logger.warning(f"No mandate ID provided for {role}")
                 continue
             
             # In a full implementation, we would validate with Caracal
             # For now, just log
-            logger.info(f"Mandate {mandate_id} for {role} - validation skipped")
+            logger.info(f"Mandate {principal_id} for {role} - validation skipped")
     
     async def _execute_workflow(
         self,
@@ -1773,7 +1773,7 @@ def create_execution_engine(
     caracal_client: Any,
     workflow_type: str = "standard",
     scenario: Optional[Any] = None,
-    mandate_ids: Optional[Dict[str, str]] = None,
+    principal_ids: Optional[Dict[str, str]] = None,
 ) -> WorkflowExecutionEngine:
     """
     Convenience function to create a workflow execution engine.
@@ -1782,7 +1782,7 @@ def create_execution_engine(
         caracal_client: Caracal client for governed tool calls
         workflow_type: Type of workflow ("standard", "parallel", "dynamic")
         scenario: Optional scenario object
-        mandate_ids: Optional mandate IDs for agents
+        principal_ids: Optional mandate IDs for agents
     
     Returns:
         Configured workflow execution engine
@@ -1791,7 +1791,7 @@ def create_execution_engine(
         ValueError: If workflow_type is not supported
     """
     # Build the appropriate workflow
-    builder = GraphBuilder(caracal_client, scenario, mandate_ids)
+    builder = GraphBuilder(caracal_client, scenario, principal_ids)
     
     if workflow_type == "standard":
         workflow = builder.build_standard_workflow()

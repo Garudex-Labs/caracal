@@ -115,8 +115,8 @@ class MandateDelegation:
     
     Attributes:
         delegation_id: Unique identifier for this delegation
-        source_mandate_id: Mandate ID of the delegating agent
-        target_mandate_id: Mandate ID of the delegate agent
+        source_principal_id: Mandate ID of the delegating agent
+        target_principal_id: Mandate ID of the delegate agent
         source_agent_id: ID of the delegating agent
         target_agent_id: ID of the delegate agent
         resource_scopes: List of resource scopes delegated
@@ -129,8 +129,8 @@ class MandateDelegation:
     """
     
     delegation_id: str
-    source_mandate_id: str
-    target_mandate_id: str
+    source_principal_id: str
+    target_principal_id: str
     source_agent_id: str
     target_agent_id: str
     resource_scopes: List[str] = field(default_factory=list)
@@ -145,8 +145,8 @@ class MandateDelegation:
         """Convert mandate delegation to dictionary."""
         return {
             "delegation_id": self.delegation_id,
-            "source_mandate_id": self.source_mandate_id,
-            "target_mandate_id": self.target_mandate_id,
+            "source_principal_id": self.source_principal_id,
+            "target_principal_id": self.target_principal_id,
             "source_agent_id": self.source_agent_id,
             "target_agent_id": self.target_agent_id,
             "resource_scopes": self.resource_scopes,
@@ -243,9 +243,9 @@ class DelegationProtocol:
     async def delegate_mandate(
         self,
         source_agent_id: str,
-        source_mandate_id: str,
+        source_principal_id: str,
         target_agent_id: str,
-        target_mandate_id: str,
+        target_principal_id: str,
         resource_scopes: Optional[List[str]] = None,
         action_scopes: Optional[List[str]] = None,
         metadata: Optional[Dict[str, Any]] = None,
@@ -263,9 +263,9 @@ class DelegationProtocol:
         
         Args:
             source_agent_id: ID of the delegating agent
-            source_mandate_id: Mandate ID of the delegating agent
+            source_principal_id: Mandate ID of the delegating agent
             target_agent_id: ID of the delegate agent
-            target_mandate_id: Mandate ID for the delegate agent
+            target_principal_id: Mandate ID for the delegate agent
             resource_scopes: List of resource scopes to delegate
             action_scopes: List of action scopes to delegate
             metadata: Additional metadata about the delegation
@@ -279,8 +279,8 @@ class DelegationProtocol:
         """
         delegation = MandateDelegation(
             delegation_id=str(uuid4()),
-            source_mandate_id=source_mandate_id,
-            target_mandate_id=target_mandate_id,
+            source_principal_id=source_principal_id,
+            target_principal_id=target_principal_id,
             source_agent_id=source_agent_id,
             target_agent_id=target_agent_id,
             resource_scopes=resource_scopes or [],
@@ -291,13 +291,13 @@ class DelegationProtocol:
         self.mandate_delegations[delegation.delegation_id] = delegation
         
         logger.info(
-            f"Delegated mandate {source_mandate_id[:8]} → {target_mandate_id[:8]} "
+            f"Delegated mandate {source_principal_id[:8]} → {target_principal_id[:8]} "
             f"(delegation: {delegation.delegation_id[:8]})"
         )
         
         # In a real implementation, this would call Caracal's delegation API:
         # result = await self.caracal_client.delegate_mandate(
-        #     source_mandate_id=source_mandate_id,
+        #     source_principal_id=source_principal_id,
         #     target_principal_id=target_principal_id,
         #     resource_scopes=resource_scopes,
         #     action_scopes=action_scopes,
@@ -422,7 +422,7 @@ class DelegationProtocol:
     def get_delegation_chain(
         self,
         agent_id: str,
-        mandate_id: str,
+        principal_id: str,
     ) -> List[MandateDelegation]:
         """
         Get the complete delegation chain for an agent.
@@ -432,21 +432,21 @@ class DelegationProtocol:
         
         Args:
             agent_id: ID of the agent
-            mandate_id: Mandate ID of the agent
+            principal_id: Mandate ID of the agent
         
         Returns:
             List of MandateDelegation records in chain order
         """
         chain = []
-        current_mandate_id = mandate_id
+        current_principal_id = principal_id
         
         # Trace backwards through delegations
         while True:
             found = False
             for delegation in self.mandate_delegations.values():
-                if delegation.target_mandate_id == current_mandate_id:
+                if delegation.target_principal_id == current_principal_id:
                     chain.insert(0, delegation)
-                    current_mandate_id = delegation.source_mandate_id
+                    current_principal_id = delegation.source_principal_id
                     found = True
                     break
             
@@ -489,7 +489,7 @@ class DelegationProtocol:
         
         # In a real implementation:
         # await self.caracal_client.revoke_mandate(
-        #     mandate_id=delegation.target_mandate_id,
+        #     principal_id=delegation.target_principal_id,
         #     revoker_id=delegation.source_agent_id,
         #     reason=reason,
         #     cascade=True,

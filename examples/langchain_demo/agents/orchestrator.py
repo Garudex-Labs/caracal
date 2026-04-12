@@ -36,7 +36,7 @@ class OrchestratorAgent(BaseAgent):
     # - Authenticate via Bearer token (generated from principal_id)
     # - Call tools for task analysis (authority resolved internally)
     # - Delegate to sub-agents (each with their own principal_id)
-    # - No manual mandate_id parameters in tool calls
+    # - No manual principal_id parameters in tool calls
     """
     
     def __init__(

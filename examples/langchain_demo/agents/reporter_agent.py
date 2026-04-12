@@ -43,7 +43,7 @@ class ReporterAgent(BaseAgent):
     
     def __init__(
         self,
-        mandate_id: str,
+        principal_id: str,
         caracal_client: Any,
         scenario: Optional[Scenario] = None,
         parent_agent: Optional[BaseAgent] = None,
@@ -54,7 +54,7 @@ class ReporterAgent(BaseAgent):
         Initialize the reporter agent.
         
         Args:
-            mandate_id: Caracal mandate ID for this agent (delegated from parent)
+            principal_id: Caracal mandate ID for this agent (delegated from parent)
             caracal_client: Caracal client for governed tool calls
             scenario: Optional scenario context
             parent_agent: Parent agent (typically orchestrator)
@@ -63,7 +63,7 @@ class ReporterAgent(BaseAgent):
         """
         super().__init__(
             role=AgentRole.REPORTER,
-            mandate_id=mandate_id,
+            principal_id=principal_id,
             parent_agent=parent_agent,
             agent_id=agent_id,
             context=context,
@@ -74,7 +74,7 @@ class ReporterAgent(BaseAgent):
         
         logger.info(
             f"Initialized ReporterAgent {self.agent_id[:8]} "
-            f"with mandate {mandate_id[:8]} "
+            f"with mandate {principal_id[:8]} "
             f"(parent: {parent_agent.agent_id[:8] if parent_agent else 'none'})"
         )
     

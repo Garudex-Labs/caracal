@@ -33,7 +33,7 @@ class AgentFactory:
     
     def create(
         self,
-        mandate_id: str,
+        principal_id: str,
         parent_agent: Optional[BaseAgent] = None,
         config: Optional[Dict[str, Any]] = None,
         **kwargs
@@ -42,7 +42,7 @@ class AgentFactory:
         Create an instance of the agent.
         
         Args:
-            mandate_id: Caracal mandate ID for the agent
+            principal_id: Caracal mandate ID for the agent
             parent_agent: Parent agent if this is a sub-agent
             config: Configuration overrides
             **kwargs: Additional arguments to pass to agent constructor
@@ -58,7 +58,7 @@ class AgentFactory:
         # Create agent instance
         return self.agent_class(
             role=self.role,
-            mandate_id=mandate_id,
+            principal_id=principal_id,
             parent_agent=parent_agent,
             context=final_config,
             **kwargs
@@ -74,7 +74,7 @@ class AgentRegistration:
         agent_id: Unique identifier for the agent
         agent: The agent instance
         role: The agent's role
-        mandate_id: Caracal mandate ID
+        principal_id: Caracal mandate ID
         parent_agent_id: ID of parent agent (if sub-agent)
         created_at: When the agent was registered
         metadata: Additional metadata about the agent
@@ -83,7 +83,7 @@ class AgentRegistration:
     agent_id: str
     agent: BaseAgent
     role: AgentRole
-    mandate_id: str
+    principal_id: str
     parent_agent_id: Optional[str]
     created_at: float
     metadata: Dict[str, Any]
@@ -93,7 +93,7 @@ class AgentRegistration:
         return {
             "agent_id": self.agent_id,
             "role": self.role.value,
-            "mandate_id": self.mandate_id,
+            "principal_id": self.principal_id,
             "parent_agent_id": self.parent_agent_id,
             "created_at": self.created_at,
             "metadata": self.metadata,
@@ -174,7 +174,7 @@ class AgentRegistry:
     def create_agent(
         self,
         role: AgentRole,
-        mandate_id: str,
+        principal_id: str,
         parent_agent: Optional[BaseAgent] = None,
         config: Optional[Dict[str, Any]] = None,
         metadata: Optional[Dict[str, Any]] = None,
@@ -185,7 +185,7 @@ class AgentRegistry:
         
         Args:
             role: The role for the new agent
-            mandate_id: Caracal mandate ID
+            principal_id: Caracal mandate ID
             parent_agent: Parent agent if this is a sub-agent
             config: Configuration for the agent
             metadata: Additional metadata to store
@@ -203,7 +203,7 @@ class AgentRegistry:
         
         # Create agent
         agent = factory.create(
-            mandate_id=mandate_id,
+            principal_id=principal_id,
             parent_agent=parent_agent,
             config=config,
             **kwargs
@@ -215,7 +215,7 @@ class AgentRegistry:
             agent_id=agent.agent_id,
             agent=agent,
             role=role,
-            mandate_id=mandate_id,
+            principal_id=principal_id,
             parent_agent_id=parent_agent.agent_id if parent_agent else None,
             created_at=time.time(),
             metadata=metadata or {},
@@ -243,7 +243,7 @@ class AgentRegistry:
             agent_id=agent.agent_id,
             agent=agent,
             role=agent.role,
-            mandate_id=agent.mandate_id,
+            principal_id=agent.principal_id,
             parent_agent_id=agent.parent_agent.agent_id if agent.parent_agent else None,
             created_at=time.time(),
             metadata=metadata or {},

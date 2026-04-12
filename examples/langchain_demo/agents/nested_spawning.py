@@ -33,7 +33,7 @@ class SpawnRequest:
         sub_agent_role: Role of the sub-agent to spawn
         task_description: Description of the task for the sub-agent
         context: Context to pass to the sub-agent
-        mandate_id: Mandate ID for the sub-agent (delegated from parent)
+        principal_id: Mandate ID for the sub-agent (delegated from parent)
         priority: Priority level (1=highest, 5=lowest)
         created_at: When the request was created
     """
@@ -44,7 +44,7 @@ class SpawnRequest:
     sub_agent_role: AgentRole
     task_description: str
     context: Dict[str, Any] = field(default_factory=dict)
-    mandate_id: Optional[str] = None
+    principal_id: Optional[str] = None
     priority: int = 3
     created_at: datetime = field(default_factory=datetime.utcnow)
     
@@ -57,7 +57,7 @@ class SpawnRequest:
             "sub_agent_role": self.sub_agent_role.value,
             "task_description": self.task_description,
             "context": self.context,
-            "mandate_id": self.mandate_id,
+            "principal_id": self.principal_id,
             "priority": self.priority,
             "created_at": self.created_at.isoformat(),
         }
@@ -155,7 +155,7 @@ class NestedAgentSpawner:
         parent_agent: BaseAgent,
         sub_agent_role: AgentRole,
         task_description: str,
-        sub_agent_mandate_id: str,
+        sub_agent_principal_id: str,
         context: Optional[Dict[str, Any]] = None,
         scenario: Optional[Any] = None,
         priority: int = 3,
@@ -175,7 +175,7 @@ class NestedAgentSpawner:
             parent_agent: The parent agent spawning the sub-agent
             sub_agent_role: Role for the sub-agent
             task_description: Description of the task for the sub-agent
-            sub_agent_mandate_id: Mandate ID for the sub-agent (delegated)
+            sub_agent_principal_id: Mandate ID for the sub-agent (delegated)
             context: Optional context to pass to the sub-agent
             scenario: Optional scenario context
             priority: Priority level (1=highest, 5=lowest)
@@ -194,7 +194,7 @@ class NestedAgentSpawner:
             sub_agent_role=sub_agent_role,
             task_description=task_description,
             context=context or {},
-            mandate_id=sub_agent_mandate_id,
+            principal_id=sub_agent_principal_id,
             priority=priority,
         )
         
@@ -224,7 +224,7 @@ class NestedAgentSpawner:
         
         # Instantiate sub-agent
         sub_agent = agent_class(
-            mandate_id=sub_agent_mandate_id,
+            principal_id=sub_agent_principal_id,
             caracal_client=self.caracal_client,
             scenario=scenario,
             parent_agent=parent_agent,
@@ -246,9 +246,9 @@ class NestedAgentSpawner:
         # Delegate mandate (track in delegation protocol)
         await self.delegation_protocol.delegate_mandate(
             source_agent_id=parent_agent.agent_id,
-            source_mandate_id=parent_agent.mandate_id,
+            source_principal_id=parent_agent.principal_id,
             target_agent_id=sub_agent.agent_id,
-            target_mandate_id=sub_agent_mandate_id,
+            target_principal_id=sub_agent_principal_id,
             metadata={
                 "spawn_id": spawn_request.spawn_id,
                 "task_description": task_description,
@@ -264,7 +264,7 @@ class NestedAgentSpawner:
         
         logger.info(
             f"Spawned sub-agent {sub_agent.agent_id[:8]} "
-            f"(role: {sub_agent_role.value}, mandate: {sub_agent_mandate_id[:8]})"
+            f"(role: {sub_agent_role.value}, mandate: {sub_agent_principal_id[:8]})"
         )
         
         return sub_agent
@@ -356,7 +356,7 @@ class NestedAgentSpawner:
         parent_agent: BaseAgent,
         sub_agent_role: AgentRole,
         task_description: str,
-        sub_agent_mandate_id: str,
+        sub_agent_principal_id: str,
         context: Optional[Dict[str, Any]] = None,
         scenario: Optional[Any] = None,
         priority: int = 3,
@@ -371,7 +371,7 @@ class NestedAgentSpawner:
             parent_agent: The parent agent spawning the sub-agent
             sub_agent_role: Role for the sub-agent
             task_description: Description of the task for the sub-agent
-            sub_agent_mandate_id: Mandate ID for the sub-agent (delegated)
+            sub_agent_principal_id: Mandate ID for the sub-agent (delegated)
             context: Optional context to pass to the sub-agent
             scenario: Optional scenario context
             priority: Priority level (1=highest, 5=lowest)
@@ -385,7 +385,7 @@ class NestedAgentSpawner:
             parent_agent=parent_agent,
             sub_agent_role=sub_agent_role,
             task_description=task_description,
-            sub_agent_mandate_id=sub_agent_mandate_id,
+            sub_agent_principal_id=sub_agent_principal_id,
             context=context,
             scenario=scenario,
             priority=priority,

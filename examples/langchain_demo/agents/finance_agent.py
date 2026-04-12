@@ -34,7 +34,7 @@ class FinanceAgent(BaseAgent):
     # - Authenticate via Bearer token (generated from principal_id)
     # - Call finance-related tools (authority resolved internally)
     # - Access finance APIs through Caracal's provider routing
-    # - No manual mandate_id parameters in tool calls
+    # - No manual principal_id parameters in tool calls
     """
     
     def __init__(
@@ -201,7 +201,7 @@ class FinanceAgent(BaseAgent):
         # In a real implementation, this would call finance tools through Caracal:
         # result = await self.caracal_client.call_tool(
         #     tool_id="demo:employee:mock:finance:data",
-        #     mandate_id=self.mandate_id,
+        #     principal_id=self.principal_id,
         #     tool_args={"query": "department_budgets"}
         # )
         

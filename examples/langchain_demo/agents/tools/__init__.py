@@ -6,7 +6,7 @@ with Caracal SDK for governed execution with mandate-based authority validation.
 
 # CARACAL INTEGRATION POINT
 # All tools in this package are designed to be executed through Caracal's
-# governed pipeline with mandate_id for authority enforcement and provider routing.
+# governed pipeline with principal_id for authority enforcement and provider routing.
 
 Usage:
     from examples.langchain_demo.agents.tools import FinanceTools, OpsTools, SharedTools
@@ -16,9 +16,9 @@ Usage:
     ops_tools = OpsTools(caracal_client, mode="mock")
     shared_tools = SharedTools(caracal_client, mode="mock")
     
-    # Call tools with mandate_id
+    # Call tools with principal_id
     result = await finance_tools.get_budget_data(
-        mandate_id=agent_mandate_id,
+        principal_id=agent_principal_id,
         department="Engineering"
     )
 """
