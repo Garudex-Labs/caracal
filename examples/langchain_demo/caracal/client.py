@@ -18,15 +18,9 @@ class GovernedClientConfig:
 class GovernedToolClient:
     def __init__(self, config: GovernedClientConfig) -> None:
         from caracal_sdk.client import CaracalClient
-        from caracal_sdk.authority_client import AuthorityClient
 
         self._config = config
         self._client = CaracalClient(api_key=config.api_key, base_url=config.base_url)
-        self._authority_client = AuthorityClient(
-            base_url=config.base_url,
-            api_key=config.api_key,
-            workspace_id=config.workspace_id,
-        )
 
     async def call_tool(
         self,
@@ -61,11 +55,9 @@ class GovernedToolClient:
         reason: str,
         cascade: bool = True,
     ) -> dict[str, Any]:
-        return self._authority_client.revoke_mandate(
-            mandate_id=mandate_id,
-            revoker_id=revoker_id,
-            reason=reason,
-            cascade=cascade,
+        raise NotImplementedError(
+            "Mandate admin operations are not exposed by the SDK in hard-cut mode. "
+            "Use Caracal control surfaces (CLI/runtime/gateway)."
         )
 
     def validate_mandate(
@@ -75,10 +67,9 @@ class GovernedToolClient:
         requested_action: str,
         requested_resource: str,
     ) -> dict[str, Any]:
-        return self._authority_client.validate_mandate(
-            mandate_id=mandate_id,
-            requested_action=requested_action,
-            requested_resource=requested_resource,
+        raise NotImplementedError(
+            "Mandate admin operations are not exposed by the SDK in hard-cut mode. "
+            "Use Caracal control surfaces (CLI/runtime/gateway)."
         )
 
     def query_ledger(
@@ -90,14 +81,10 @@ class GovernedToolClient:
         limit: int = 100,
         offset: int = 0,
     ) -> dict[str, Any]:
-        return self._authority_client.query_ledger(
-            principal_id=principal_id,
-            mandate_id=mandate_id,
-            event_type=event_type,
-            limit=limit,
-            offset=offset,
+        raise NotImplementedError(
+            "Ledger admin operations are not exposed by the SDK in hard-cut mode. "
+            "Use Caracal control surfaces (CLI/runtime/gateway)."
         )
 
     def close(self) -> None:
-        self._authority_client.close()
         self._client.close()
