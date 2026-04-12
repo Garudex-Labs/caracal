@@ -1,0 +1,170 @@
+{
+  "version": "1.0",
+  "scenario_id": "default",
+  "description": "Standard quarterly review scenario with balanced finance and operations data",
+  "llm_responses": {
+    "openai": [
+      {
+        "pattern": ".*finance.*budget.*",
+        "response_template": "Based on the financial data, I can see that {departments} are currently over budget. The Engineering department has exceeded its budget by 8%, while Marketing is 7% over. I recommend immediate cost controls and a review of pending invoices totaling ${total_pending}.",
+        "variables": {
+          "departments": ["Engineering", "Marketing"],
+          "total_pending": "125000"
+        },
+        "match_type": "regex"
+      },
+      {
+        "pattern": ".*operations.*incident.*",
+        "response_template": "The operations data shows {incident_count} incidents in the last 24 hours. The API Gateway service is experiencing degraded performance with {uptime}% uptime. I recommend scaling resources and investigating the root cause.",
+        "variables": {
+          "incident_count": "3",
+          "uptime": "97.5"
+        },
+        "match_type": "regex"
+      },
+      {
+        "pattern": ".*orchestrate.*coordinate.*",
+        "response_template": "I will coordinate with the Finance and Operations teams to gather comprehensive data. Let me delegate to the specialized agents for detailed analysis.",
+        "match_type": "regex"
+      }
+    ],
+    "gemini": [
+      {
+        "pattern": ".*analyze.*data.*",
+        "response_template": "Analysis complete. Key findings: {findings}",
+        "variables": {
+          "findings": "Budget overruns in 2 departments, 3 operational incidents, immediate action required"
+        },
+        "match_type": "regex"
+      }
+    ]
+  },
+  "tool_responses": {
+    "finance_data": {
+      "response": {
+        "status": "success",
+        "data": {
+          "departments": [
+            {
+              "name": "Engineering",
+              "budget": 2000000,
+              "spent": 2160000,
+              "variance_percent": 8.0,
+              "status": "over_budget"
+            },
+            {
+              "name": "Marketing",
+              "budget": 800000,
+              "spent": 856000,
+              "variance_percent": 7.0,
+              "status": "over_budget"
+            },
+            {
+              "name": "Sales",
+              "budget": 1200000,
+              "spent": 1140000,
+              "variance_percent": -5.0,
+              "status": "under_budget"
+            }
+          ],
+          "pending_invoices": [
+            {
+              "invoice_id": "INV-2024-1234",
+              "vendor": "AWS",
+              "amount": 45000,
+              "due_date": "2026-11-30",
+              "department": "Engineering"
+            },
+            {
+              "invoice_id": "INV-2024-1235",
+              "vendor": "Google Ads",
+              "amount": 80000,
+              "due_date": "2026-12-05",
+              "department": "Marketing"
+            }
+          ],
+          "total_pending": 125000
+        }
+      },
+      "delay_ms": 50
+    },
+    "ops_data": {
+      "response": {
+        "status": "success",
+        "data": {
+          "services": [
+            {
+              "name": "API Gateway",
+              "status": "degraded",
+              "uptime_percent": 97.5,
+              "incidents_24h": 3
+            },
+            {
+              "name": "Database",
+              "status": "healthy",
+              "uptime_percent": 99.9,
+              "incidents_24h": 0
+            },
+            {
+              "name": "Cache Layer",
+              "status": "healthy",
+              "uptime_percent": 99.8,
+              "incidents_24h": 1
+            }
+          ],
+          "incidents": [
+            {
+              "incident_id": "INC-2024-567",
+              "severity": "high",
+              "service": "API Gateway",
+              "description": "Increased latency on /api/v1 endpoints",
+              "status": "investigating",
+              "created_at": "2026-11-15T10:30:00Z"
+            },
+            {
+              "incident_id": "INC-2024-568",
+              "severity": "medium",
+              "service": "API Gateway",
+              "description": "Intermittent 502 errors",
+              "status": "investigating",
+              "created_at": "2026-11-15T11:45:00Z"
+            },
+            {
+              "incident_id": "INC-2024-569",
+              "severity": "low",
+              "service": "Cache Layer",
+              "description": "Cache miss rate elevated",
+              "status": "resolved",
+              "created_at": "2026-11-15T09:00:00Z"
+            }
+          ]
+        }
+      },
+      "delay_ms": 50
+    }
+  },
+  "agent_decisions": {
+    "orchestrator": {
+      "delegation_strategy": "parallel",
+      "sub_agents": ["finance", "ops"],
+      "max_iterations": 10
+    },
+    "finance": {
+      "delegation_strategy": "sequential",
+      "sub_agents": ["analyst"],
+      "max_iterations": 5
+    },
+    "ops": {
+      "delegation_strategy": "sequential",
+      "sub_agents": [],
+      "max_iterations": 5
+    }
+  },
+  "metadata": {
+    "company": "TechCorp Industries",
+    "quarter": "Q4",
+    "year": 2026,
+    "created_by": "mock_system",
+    "created_at": "2026-11-15"
+  }
+}
