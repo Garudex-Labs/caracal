@@ -14,19 +14,12 @@ export { CaracalClient, CaracalBuilder, SDKConfigurationError } from './client';
 export { ScopeContext, ContextManager } from './context';
 
 // Operations
-export { PrincipalOperations } from './principals';
-export { MandateOperations } from './mandates';
-export { DelegationOperations } from './delegation';
-export { LedgerOperations } from './ledger';
 export {
 	ToolOperations,
 	CANONICAL_TOOL_CALL_CONTRACT_VERSION,
 } from './tools';
-export { requireLegacyResourceApi } from './runtime_surface';
 
 // Grouped surfaces
-export * as management from './management';
-export * as migration from './migration';
 export * as ais from './ais';
 
 // Infrastructure

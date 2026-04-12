@@ -8,10 +8,6 @@
 
 import { BaseAdapter, SDKRequest } from './adapters/base';
 import { HookRegistry, ScopeRef, StateSnapshot } from './hooks';
-import { PrincipalOperations } from './principals';
-import { MandateOperations } from './mandates';
-import { DelegationOperations } from './delegation';
-import { LedgerOperations } from './ledger';
 import { ToolOperations } from './tools';
 
 // ---------------------------------------------------------------------------
@@ -28,10 +24,6 @@ export class ScopeContext {
   /** @internal */
   readonly _hooks: HookRegistry;
 
-  private _principals?: PrincipalOperations;
-  private _mandates?: MandateOperations;
-  private _delegation?: DelegationOperations;
-  private _ledger?: LedgerOperations;
   private _tools?: ToolOperations;
 
   constructor(options: {
@@ -67,26 +59,6 @@ export class ScopeContext {
   }
 
   // -- Resource accessors (lazy) -------------------------------------------
-
-  get principals(): PrincipalOperations {
-    if (!this._principals) this._principals = new PrincipalOperations(this);
-    return this._principals;
-  }
-
-  get mandates(): MandateOperations {
-    if (!this._mandates) this._mandates = new MandateOperations(this);
-    return this._mandates;
-  }
-
-  get delegation(): DelegationOperations {
-    if (!this._delegation) this._delegation = new DelegationOperations(this);
-    return this._delegation;
-  }
-
-  get ledger(): LedgerOperations {
-    if (!this._ledger) this._ledger = new LedgerOperations(this);
-    return this._ledger;
-  }
 
   get tools(): ToolOperations {
     if (!this._tools) this._tools = new ToolOperations(this);

@@ -10,10 +10,6 @@ import { HttpAdapter } from './adapters/http';
 import { CaracalExtension } from './extensions';
 import { HookRegistry } from './hooks';
 import { ContextManager, ScopeContext } from './context';
-import { PrincipalOperations } from './principals';
-import { MandateOperations } from './mandates';
-import { DelegationOperations } from './delegation';
-import { LedgerOperations } from './ledger';
 import { ToolOperations } from './tools';
 import { SDKConfigurationError } from './errors';
 import { resolveSdkBaseUrl } from './ais';
@@ -71,26 +67,6 @@ export class CaracalClient {
   /** Context manager for scope checkout. */
   get context(): ContextManager {
     return this._contextManager;
-  }
-
-  /** Principal operations (default scope). */
-  get principals(): PrincipalOperations {
-    return this._defaultScope.principals;
-  }
-
-  /** Mandate operations (default scope). */
-  get mandates(): MandateOperations {
-    return this._defaultScope.mandates;
-  }
-
-  /** Delegation operations (default scope). */
-  get delegation(): DelegationOperations {
-    return this._defaultScope.delegation;
-  }
-
-  /** Ledger operations (default scope). */
-  get ledger(): LedgerOperations {
-    return this._defaultScope.ledger;
   }
 
   /** Tool call operations (default scope). */
