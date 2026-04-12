@@ -1,0 +1,77 @@
+{
+  "_config_version": "2.0",
+  "_description": "Testing configuration optimized for automated tests and CI/CD",
+  "caracal": {
+    "base_url": "http://127.0.0.1:8080",
+    "api_key_env": "CARACAL_API_KEY",
+    "organization_id": null,
+    "workspace_id": "langchain-demo-test",
+    "project_id": null
+  },
+  "modes": {
+    "mock": {
+      "source_mandate_id": "test-mock-source-mandate",
+      "revoker_id": "test-revoker-principal",
+      "principal_ids": {
+        "orchestrator": "test-orchestrator-principal",
+        "finance": "test-finance-principal",
+        "ops": "test-ops-principal"
+      },
+      "mandates": {
+        "orchestrator": "test-mock-orchestrator-mandate",
+        "finance": "test-mock-finance-mandate",
+        "ops": "test-mock-ops-mandate"
+      }
+    },
+    "real": {
+      "source_mandate_id": "test-real-source-mandate",
+      "revoker_id": "test-revoker-principal",
+      "principal_ids": {
+        "orchestrator": "test-orchestrator-principal",
+        "finance": "test-finance-principal",
+        "ops": "test-ops-principal"
+      },
+      "mandates": {
+        "orchestrator": "test-real-orchestrator-mandate",
+        "finance": "test-real-finance-mandate",
+        "ops": "test-real-ops-mandate"
+      }
+    }
+  },
+  "scenario": {
+    "default_scenario": "default",
+    "scenarios_path": null,
+    "auto_load": true
+  },
+  "ui": {
+    "host": "127.0.0.1",
+    "port": 8001,
+    "enable_websocket": false,
+    "websocket_ping_interval": 30,
+    "max_message_history": 100,
+    "enable_logs_panel": false,
+    "enable_tool_panel": false,
+    "enable_caracal_panel": false
+  },
+  "logging": {
+    "level": "WARNING",
+    "format": "simple",
+    "log_to_file": false,
+    "log_file_path": null,
+    "max_file_size_mb": 10,
+    "backup_count": 1
+  },
+  "mock_system": {
+    "enabled": true,
+    "config_path": null,
+    "cache_responses": true,
+    "simulate_delays": false,
+    "default_llm_provider": "openai"
+  },
+  "agent": {
+    "max_iterations": 5,
+    "timeout_seconds": 60,
+    "enable_sub_agents": false,
+    "max_delegation_depth": 2
+  }
+}
