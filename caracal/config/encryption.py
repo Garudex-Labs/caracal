@@ -9,7 +9,8 @@ from datetime import datetime, timezone
 from typing import Any, Optional
 
 from caracal.logging_config import get_logger
-from caracal.storage.layout import CaracalLayout, append_key_audit_event, get_caracal_layout
+from caracal.storage.key_audit import append_key_audit_event
+from caracal.storage.layout import CaracalLayout, get_caracal_layout
 
 logger = get_logger(__name__)
 

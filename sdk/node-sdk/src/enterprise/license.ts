@@ -22,11 +22,11 @@ export class LicenseExtension implements CaracalExtension {
     });
   }
 
-  validate(): Record<string, unknown> {
+  validate(): never {
     throw new EnterpriseFeatureRequired('License Validation');
   }
 
-  getEntitlements(): unknown[] {
+  getEntitlements(): never {
     throw new EnterpriseFeatureRequired('License Entitlements');
   }
 }

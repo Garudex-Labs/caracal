@@ -19,6 +19,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Mapping, Sequence
 
+from caracal.runtime.host_io import is_truthy_env
+
 
 class HardCutPreflightError(RuntimeError):
     """Raised when strict hard-cut preflight constraints are violated."""
@@ -321,7 +323,7 @@ def _asymmetric_session_signing_violations(
 
 
 def _is_truthy(value: str | None) -> bool:
-    return (value or "").strip().lower() in {"1", "true", "yes", "on"}
+    return is_truthy_env(value)
 
 
 def _is_falsy(value: str | None) -> bool:

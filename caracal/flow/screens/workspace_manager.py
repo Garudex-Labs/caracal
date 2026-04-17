@@ -14,7 +14,6 @@ Provides workspace management:
 
 import os
 import time
-from pathlib import Path
 from typing import Optional
 from rich.console import Console
 from rich.panel import Panel
@@ -25,52 +24,19 @@ from caracal.flow.theme import Colors, Icons
 from caracal.flow.state import FlowState, RecentAction
 from caracal.flow.components.menu import Menu, MenuItem
 from caracal.flow.screens._workspace_helpers import list_workspace_configs, set_default_workspace
-
-
-_CONTAINER_RUNTIME_ENV = "CARACAL_RUNTIME_IN_CONTAINER"
-_HOST_IO_ROOT_ENV = "CARACAL_HOST_IO_ROOT"
-_DEFAULT_HOST_IO_ROOT = Path("/caracal-host-io")
-
-
-def _in_container_runtime() -> bool:
-    return os.environ.get(_CONTAINER_RUNTIME_ENV, "").strip().lower() in {"1", "true", "yes", "on"}
-
-
-def _host_io_root() -> Path:
-    return Path(os.environ.get(_HOST_IO_ROOT_ENV, str(_DEFAULT_HOST_IO_ROOT))).resolve(strict=False)
-
-
-def _resolve_workspace_transfer_path(raw_path: str) -> Path:
-    candidate = Path(raw_path).expanduser()
-    if not _in_container_runtime():
-        return candidate.resolve(strict=False)
-
-    root = _host_io_root()
-    if candidate.is_absolute():
-        resolved = candidate.resolve(strict=False)
-        if resolved == root or root in resolved.parents:
-            return resolved
-        raise ValueError(
-            f"In container runtime, workspace import/export paths must be under {root}."
-        )
-
-    return (root / candidate).resolve(strict=False)
+from caracal.runtime.host_io import (
+    host_io_root,
+    in_container_runtime,
+    normalize_optional_text,
+    path_scope_label,
+    resolve_workspace_transfer_path,
+)
 
 
 def _default_export_path(workspace_name: str) -> str:
-    if _in_container_runtime():
-        return str((_host_io_root() / f"{workspace_name}_export.tar.gz").resolve(strict=False))
+    if in_container_runtime():
+        return str((host_io_root() / f"{workspace_name}_export.tar.gz").resolve(strict=False))
     return f"./{workspace_name}_export.tar.gz"
-
-
-def _path_scope_label(path: Path) -> str:
-    if not _in_container_runtime():
-        return "host path"
-
-    root = _host_io_root()
-    if path == root or root in path.parents:
-        return "container path (host-shared mount)"
-    return "container path"
 
 
 def show_workspace_manager(console: Console, state: FlowState) -> None:
@@ -189,17 +155,12 @@ def _create_workspace(console: Console, state: FlowState) -> None:
 
         # Auto-apply PostgreSQL settings from environment/defaults (no prompt),
         # matching onboarding's non-interactive behavior.
-        in_container_runtime = os.getenv("CARACAL_RUNTIME_IN_CONTAINER", "").strip().lower() in {
-            "1",
-            "true",
-            "yes",
-            "on",
-        }
-        host = os.getenv("CARACAL_DB_HOST") or ("postgres" if in_container_runtime else "localhost")
+        running_in_container = in_container_runtime()
+        host = os.getenv("CARACAL_DB_HOST") or ("postgres" if running_in_container else "localhost")
         port_raw = os.getenv("CARACAL_DB_PORT") or "5432"
         database = os.getenv("CARACAL_DB_NAME") or "caracal"
         user = os.getenv("CARACAL_DB_USER") or "caracal"
-        password = os.getenv("CARACAL_DB_PASSWORD") or ("caracal" if in_container_runtime else "")
+        password = os.getenv("CARACAL_DB_PASSWORD") or ("caracal" if running_in_container else "")
 
         try:
             port = int(port_raw)
@@ -446,16 +407,16 @@ def _export_workspace(console: Console, state: FlowState) -> None:
         if result and result.key != "back":
             # Prompt for export path
             console.print()
-            if _in_container_runtime():
+            if in_container_runtime():
                 console.print(
-                    f"  [{Colors.DIM}]Export target is host-shared path under {_host_io_root()}[/]"
+                    f"  [{Colors.DIM}]Export target is host-shared path under {host_io_root()}[/]"
                 )
             export_path = Prompt.ask(
                 f"[{Colors.INFO}]Export path[/]",
                 default=_default_export_path(result.key)
             )
 
-            resolved_export_path = _resolve_workspace_transfer_path(export_path)
+            resolved_export_path = resolve_workspace_transfer_path(export_path)
             resolved_export_path.parent.mkdir(parents=True, exist_ok=True)
             
             # Ask about including secrets
@@ -484,7 +445,7 @@ def _export_workspace(console: Console, state: FlowState) -> None:
                     input()
                     return
 
-            normalized_lock_key = lock_key.strip() if lock_key else None
+            normalized_lock_key = normalize_optional_text(lock_key)
             if include_secrets and not normalized_lock_key:
                 console.print(
                     f"  [{Colors.ERROR}]{Icons.ERROR} Archive lock key is required when including secrets[/]"
@@ -502,7 +463,7 @@ def _export_workspace(console: Console, state: FlowState) -> None:
             
             console.print()
             console.print(
-                f"  [{Colors.SUCCESS}]{Icons.SUCCESS} Workspace exported to ({_path_scope_label(resolved_export_path)}): {resolved_export_path}[/]"
+                f"  [{Colors.SUCCESS}]{Icons.SUCCESS} Workspace exported to ({path_scope_label(resolved_export_path)}): {resolved_export_path}[/]"
             )
             
             state.add_recent_action(RecentAction.create(
@@ -534,17 +495,17 @@ def _import_workspace(console: Console, state: FlowState) -> None:
     
     try:
         # Prompt for import path
-        if _in_container_runtime():
+        if in_container_runtime():
             console.print(
-                f"  [{Colors.DIM}]Import source must be under host-shared path {_host_io_root()}[/]"
+                f"  [{Colors.DIM}]Import source must be under host-shared path {host_io_root()}[/]"
             )
         import_path = Prompt.ask(f"[{Colors.INFO}]Import file path[/]")
 
-        resolved_import_path = _resolve_workspace_transfer_path(import_path)
+        resolved_import_path = resolve_workspace_transfer_path(import_path)
 
         if not resolved_import_path.exists():
             console.print(
-                f"  [{Colors.ERROR}]{Icons.ERROR} File not found ({_path_scope_label(resolved_import_path)}): {resolved_import_path}[/]"
+                f"  [{Colors.ERROR}]{Icons.ERROR} File not found ({path_scope_label(resolved_import_path)}): {resolved_import_path}[/]"
             )
             input()
             return
@@ -562,7 +523,7 @@ def _import_workspace(console: Console, state: FlowState) -> None:
             default="",
             password=True,
         )
-        normalized_lock_key = lock_key.strip() if lock_key else None
+        normalized_lock_key = normalize_optional_text(lock_key)
         
         # Import
         config_mgr = ConfigManager()
@@ -574,7 +535,7 @@ def _import_workspace(console: Console, state: FlowState) -> None:
         
         console.print()
         console.print(
-            f"  [{Colors.SUCCESS}]{Icons.SUCCESS} Workspace imported successfully from ({_path_scope_label(resolved_import_path)}): {resolved_import_path}[/]"
+            f"  [{Colors.SUCCESS}]{Icons.SUCCESS} Workspace imported successfully from ({path_scope_label(resolved_import_path)}): {resolved_import_path}[/]"
         )
         
         state.add_recent_action(RecentAction.create(

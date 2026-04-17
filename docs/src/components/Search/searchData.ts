@@ -79,6 +79,10 @@ function normalize(value: string): string {
   return value.trim().toLowerCase();
 }
 
+function formatBreadcrumbs(breadcrumbs: string[]): string {
+  return breadcrumbs.join(" / ");
+}
+
 function dedupeStrings(values: Array<string | undefined>): string[] {
   return Array.from(
     new Set(
@@ -104,10 +108,10 @@ function summarize(text: string, limit = 140): string {
 
 function buildDescription(entry: SearchDocEntry): string {
   if (entry.type === "page") {
-    return entry.breadcrumbs.join(" / ") || "Documentation";
+    return formatBreadcrumbs(entry.breadcrumbs) || "Documentation";
   }
 
-  const location = dedupeStrings([entry.breadcrumbs.join(" / "), entry.parentTitle]).join(" / ");
+  const location = dedupeStrings([formatBreadcrumbs(entry.breadcrumbs), entry.parentTitle]).join(" / ");
   if (entry.type === "heading") {
     return location || "Documentation";
   }
@@ -150,6 +154,32 @@ function scoreMatch(parts: string[], query: string): number {
   return score;
 }
 
+function rankMatches<T>(
+  entries: T[],
+  query: string,
+  limit: number,
+  resolveParts: (entry: T) => string[],
+): T[] {
+  const normalizedQuery = normalize(query);
+  if (!normalizedQuery) {
+    return entries.slice(0, limit);
+  }
+
+  return entries
+    .map((entry) => {
+      const parts = resolveParts(entry);
+      return {
+        entry,
+        score: scoreMatch(parts, normalizedQuery),
+        matches: includesAllTerms(parts.join(" ").toLowerCase(), normalizedQuery),
+      };
+    })
+    .filter((entry) => entry.matches)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, limit)
+    .map((entry) => entry.entry);
+}
+
 export async function loadSearchDocs(baseUrl: string): Promise<SearchDocEntry[]> {
   if (!searchDocsPromise) {
     const resolvedSearchIndexUrl = `${baseUrl}${searchIndexUrl.replace("{dir}", "").replace(/^\//, "")}`;
@@ -177,7 +207,7 @@ export async function loadSearchDocs(baseUrl: string): Promise<SearchDocEntry[]>
             title,
             url,
             breadcrumbs,
-            description: breadcrumbs.join(" / ") || "Documentation",
+            description: formatBreadcrumbs(breadcrumbs) || "Documentation",
             searchText: [title, ...breadcrumbs, url].join(" "),
             type: "page",
           });
@@ -263,44 +293,22 @@ export async function loadSearchDocs(baseUrl: string): Promise<SearchDocEntry[]>
 }
 
 export function getNavigationResults(query: string, limit = 6): NavigationAction[] {
-  if (!normalize(query)) {
-    return navigationActions.slice(0, limit);
-  }
-
-  return navigationActions
-    .map((item) => {
-      const haystack = [item.title, item.description, ...item.keywords].join(" ").toLowerCase();
-      return {
-        item,
-        score: scoreMatch([item.title, item.description, ...item.keywords], query),
-        matches: includesAllTerms(haystack, query),
-      };
-    })
-    .filter((entry) => entry.matches)
-    .sort((a, b) => b.score - a.score)
-    .slice(0, limit)
-    .map((entry) => entry.item);
+  return rankMatches(navigationActions, query, limit, (item) => [
+    item.title,
+    item.description,
+    ...item.keywords,
+  ]);
 }
 
 export function getDocResults(docs: SearchDocEntry[], query: string, limit = 8): SearchDocEntry[] {
-  if (!normalize(query)) {
-    return docs.slice(0, limit);
-  }
-
-  return docs
-    .map((doc) => {
-      const parts = [doc.title, doc.parentTitle ?? "", doc.description, ...doc.breadcrumbs, doc.searchText, doc.url];
-      const haystack = parts.join(" ").toLowerCase();
-      return {
-        doc,
-        score: scoreMatch(parts, query),
-        matches: includesAllTerms(haystack, query),
-      };
-    })
-    .filter((entry) => entry.matches)
-    .sort((a, b) => b.score - a.score)
-    .slice(0, limit)
-    .map((entry) => entry.doc);
+  return rankMatches(docs, query, limit, (doc) => [
+    doc.title,
+    doc.parentTitle ?? "",
+    doc.description,
+    ...doc.breadcrumbs,
+    doc.searchText,
+    doc.url,
+  ]);
 }
 
 export function getQuickActions(): NavigationAction[] {

@@ -22,7 +22,7 @@ class EnterpriseFeatureRequired(Exception):
         )
         super().__init__(f"Enterprise Feature Required: {feature}. {self.message}")
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, str]:
         return {
             "error": "enterprise_feature_required",
             "feature": self.feature,

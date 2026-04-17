@@ -4,7 +4,6 @@ from unittest.mock import AsyncMock
 pytest.importorskip("aiohttp")
 
 from caracal.flow import sdk_bridge
-from caracal.exceptions import SDKConfigurationError
 
 
 class _FakeClient:
@@ -41,12 +40,12 @@ class _FakeClientWithTools:
         return None
 
 
-def test_sdk_bridge_uses_canonical_client_init_with_legacy_config_path(monkeypatch) -> None:
+def test_sdk_bridge_uses_environment_defaults(monkeypatch) -> None:
     monkeypatch.setattr(sdk_bridge, "CaracalClient", _FakeClient)
     monkeypatch.setenv("CARACAL_API_KEY", "env-api-key")
     monkeypatch.setenv("CARACAL_API_PORT", "9010")
 
-    bridge = sdk_bridge.SDKBridge(config_path="/tmp/legacy-config.yaml")
+    bridge = sdk_bridge.SDKBridge()
 
     assert _FakeClient.captured_kwargs == {
         "api_key": "env-api-key",
@@ -88,12 +87,12 @@ async def test_sdk_bridge_call_tool_uses_default_scope_tools_surface(monkeypatch
 
 
 @pytest.mark.parametrize(
-    "legacy_name",
+    "removed_name",
     ["list_principals", "create_mandate", "validate_mandate", "query_ledger"],
 )
-def test_sdk_bridge_legacy_wrappers_fail_closed(legacy_name: str, monkeypatch) -> None:
+def test_sdk_bridge_has_no_removed_legacy_wrappers(removed_name: str, monkeypatch) -> None:
     monkeypatch.setattr(sdk_bridge, "CaracalClient", _FakeClient)
     bridge = sdk_bridge.SDKBridge(api_key="explicit-key", base_url="https://api.example")
 
-    with pytest.raises(SDKConfigurationError, match="removed in hard-cut mode"):
-        getattr(bridge, legacy_name)
+    with pytest.raises(AttributeError):
+        getattr(bridge, removed_name)

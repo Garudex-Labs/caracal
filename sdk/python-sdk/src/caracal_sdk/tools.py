@@ -9,13 +9,11 @@ Provides explicit MCP tool-call APIs within a scoped context.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Dict, Optional
+from typing import Optional
 
 from caracal_sdk._compat import SDKConfigurationError, get_logger
 from caracal_sdk.adapters.base import SDKRequest
-
-if TYPE_CHECKING:
-    from caracal_sdk.context import ScopeContext
+from caracal_sdk.json_types import JsonObject, JsonValue
 
 logger = get_logger(__name__)
 
@@ -46,19 +44,19 @@ _PROHIBITED_CALLER_SPOOFING_FIELDS = {
 class ToolOperations:
     """Tool invocation operations within a scoped context."""
 
-    def __init__(self, scope: ScopeContext) -> None:
+    def __init__(self, scope: "ScopeContext") -> None:
         self._scope = scope
 
     def _build_request(
         self,
         method: str,
         path: str,
-        body: Optional[Dict[str, Any]] = None,
+        body: JsonObject | None = None,
     ) -> SDKRequest:
         headers = dict(self._scope.scope_headers())
         return SDKRequest(method=method, path=path, headers=headers, body=body)
 
-    async def _execute(self, request: SDKRequest) -> Any:
+    async def _execute(self, request: SDKRequest) -> JsonValue | None:
         scope_ref = self._scope.to_scope_ref()
         request = self._scope._hooks.fire_before_request(request, scope_ref)
         try:
@@ -73,10 +71,10 @@ class ToolOperations:
         self,
         *,
         tool_id: str,
-        tool_args: Optional[Dict[str, Any]] = None,
-        metadata: Optional[Dict[str, Any]] = None,
+        tool_args: JsonObject | None = None,
+        metadata: JsonObject | None = None,
         correlation_id: Optional[str] = None,
-    ) -> Dict[str, Any]:
+    ) -> JsonObject:
         """Call a registered tool through the canonical MCP service endpoint.
 
         ``{tool_id, tool_args, metadata}``.
@@ -92,7 +90,7 @@ class ToolOperations:
         if tool_args is not None and not isinstance(tool_args, dict):
             raise SDKConfigurationError("tool_args must be a dictionary")
 
-        payload_metadata: Dict[str, Any] = dict(metadata or {})
+        payload_metadata: JsonObject = dict(metadata or {})
         prohibited_metadata_keys = sorted(
             key
             for key in payload_metadata.keys()
@@ -117,7 +115,7 @@ class ToolOperations:
         if correlation_id:
             payload_metadata["correlation_id"] = str(correlation_id)
 
-        payload_args = dict(tool_args or {})
+        payload_args: JsonObject = dict(tool_args or {})
         prohibited_tool_args = sorted(
             key
             for key in payload_args.keys()

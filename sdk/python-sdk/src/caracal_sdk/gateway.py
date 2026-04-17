@@ -41,16 +41,17 @@ import asyncio
 import os
 import time
 from dataclasses import dataclass
-from typing import Any, Optional
+from typing import Optional
 
 import httpx
 
 from caracal_sdk._compat import get_logger
 from caracal_sdk.adapters.base import BaseAdapter, SDKRequest, SDKResponse
+from caracal_sdk.json_types import JsonValue
 
 try:
     from caracal.core.gateway_features import GatewayFeatureFlags, get_gateway_features
-except Exception:
+except ImportError:
     @dataclass
     class GatewayFeatureFlags:
         gateway_enabled: bool = False
@@ -316,7 +317,7 @@ class GatewayAdapter(BaseAdapter):
             raise GatewayAdapterError("Gateway unavailable (503).")
 
     @staticmethod
-    def _parse_body(resp: httpx.Response) -> Any:
+    def _parse_body(resp: httpx.Response) -> JsonValue | None:
         ct = resp.headers.get("content-type", "")
         if "application/json" in ct:
             try:

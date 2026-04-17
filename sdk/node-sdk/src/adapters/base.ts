@@ -5,20 +5,22 @@
  * SDK Transport Adapter — base class and data structures.
  */
 
+import { JsonObject, JsonValue, QueryValue } from '../json';
+
 /** Outbound SDK request representation. */
 export interface SDKRequest {
   method: string;
   path: string;
   headers: Record<string, string>;
-  body?: Record<string, unknown>;
-  params?: Record<string, unknown>;
+  body?: JsonObject;
+  params?: Record<string, QueryValue>;
 }
 
 /** Inbound SDK response representation. */
 export interface SDKResponse {
   statusCode: number;
   headers: Record<string, string>;
-  body: unknown;
+  body: JsonValue;
   elapsedMs: number;
 }
 

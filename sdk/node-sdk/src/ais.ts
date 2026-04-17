@@ -1,10 +1,15 @@
 /** AIS routing helpers for Node SDK clients. */
 
-export function isAisSocketConfigured(env: Record<string, string | undefined> = process.env): boolean {
+function defaultEnv(): Record<string, string | undefined> {
+  const proc = (globalThis as { process?: { env?: Record<string, string | undefined> } }).process;
+  return proc?.env ?? {};
+}
+
+export function isAisSocketConfigured(env: Record<string, string | undefined> = defaultEnv()): boolean {
   return Boolean((env.CARACAL_AIS_UNIX_SOCKET_PATH ?? '').trim());
 }
 
-export function resolveAisBaseUrl(env: Record<string, string | undefined> = process.env): string | undefined {
+export function resolveAisBaseUrl(env: Record<string, string | undefined> = defaultEnv()): string | undefined {
   if (!isAisSocketConfigured(env)) {
     return undefined;
   }
@@ -17,6 +22,6 @@ export function resolveAisBaseUrl(env: Record<string, string | undefined> = proc
   return `http://${host}:${port}${prefix}`;
 }
 
-export function resolveSdkBaseUrl(env: Record<string, string | undefined> = process.env): string {
+export function resolveSdkBaseUrl(env: Record<string, string | undefined> = defaultEnv()): string {
   return resolveAisBaseUrl(env) ?? env.CARACAL_API_URL ?? `http://localhost:${env.CARACAL_API_PORT ?? '8000'}`;
 }

@@ -27,8 +27,11 @@ Usage::
 
 from __future__ import annotations
 
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Optional
+
+import toml
 
 from caracal.pathing import ensure_source_tree
 from caracal.storage.layout import resolve_caracal_home
@@ -112,25 +115,13 @@ class WorkspaceManager:
     # ------------------------------------------------------------------
 
     @staticmethod
-    def list_workspaces(
-        registry_path: Optional[Path] = None,
-    ) -> list[dict[str, Any]]:
-        """Return discovered workspaces with default selection from config manager.
-
-        ``registry_path`` is accepted for compatibility and ignored.
-        """
+    def list_workspaces() -> list[dict[str, Any]]:
+        """Return discovered workspaces with default selection from workspace metadata."""
         workspaces = _discover_workspace_directories()
         if not workspaces:
             return []
 
-        default_name: Optional[str] = None
-        try:
-            from caracal.deployment.config_manager import ConfigManager
-
-            default_name = ConfigManager().get_default_workspace_name()
-        except Exception:
-            default_name = None
-
+        default_name = _resolve_default_workspace_name(workspaces)
         for ws in workspaces:
             ws["default"] = ws.get("name") == default_name
 
@@ -141,144 +132,61 @@ class WorkspaceManager:
     def register_workspace(
         name: str,
         path: str | Path,
-        registry_path: Optional[Path] = None,
         is_default: Optional[bool] = None,
     ) -> None:
         """Register workspace metadata without file-backed registry persistence."""
         workspace_path = Path(path).resolve()
         ensure_source_tree(workspace_path)
-
+        _ensure_workspace_metadata_file(name, workspace_path, is_default=bool(is_default))
         if is_default:
-            try:
-                from caracal.deployment.config_manager import ConfigManager
-
-                ConfigManager().set_default_workspace(name)
-            except Exception:
-                pass
+            _set_default_workspace_name(name)
 
     @staticmethod
-    def set_default_workspace(
-        name: str,
-        registry_path: Optional[Path] = None,
-    ) -> bool:
+    def set_default_workspace(name: str) -> bool:
         """Mark one workspace as default using config manager state."""
-        del registry_path
-
         workspaces = WorkspaceManager.list_workspaces()
         if not any(ws.get("name") == name for ws in workspaces):
             return False
 
-        try:
-            from caracal.deployment.config_manager import ConfigManager
-
-            ConfigManager().set_default_workspace(name)
-        except Exception:
-            return False
-
+        _set_default_workspace_name(name)
         return True
 
-    def delete_workspace(
-        path: str | Path,
-        registry_path: Optional[Path] = None,
-        delete_directory: bool = False,
-    ) -> bool:
+    def delete_workspace(path: str | Path, delete_directory: bool = False) -> bool:
         """Remove a workspace from discovered workspace state.
         
         Args:
             path: Workspace path to delete
-            registry_path: Deprecated compatibility argument
             delete_directory: If True, also delete the workspace directory from disk
             
         Returns:
             True if workspace was deleted, False otherwise
         """
         import shutil
-        import re as _re
+        workspace_path = Path(path).resolve()
+        workspace_name = workspace_path.name
+        workspace_exists = workspace_path.exists()
+        was_default = bool(_load_workspace_metadata(workspace_name).get("is_default"))
 
-        del registry_path
-        workspaces = WorkspaceManager.list_workspaces()
+        if delete_directory and workspace_exists:
+            shutil.rmtree(workspace_path)
 
-        # Find and remove by resolved path
-        resolved = str(Path(path).resolve())
-        removed_ws = None
-        for w in workspaces:
-            if str(Path(w["path"]).resolve()) == resolved:
-                removed_ws = w
-                break
+        if was_default:
+            remaining = [ws["name"] for ws in _discover_workspace_directories() if ws["name"] != workspace_name]
+            _set_default_workspace_name(remaining[0] if remaining else None)
 
-        if removed_ws is not None:
-            # Drop the workspace's PostgreSQL schema before removing files
-            ws_name = removed_ws.get("name", "")
-            schema_name = "ws_" + _re.sub(r"[^a-z0-9_]", "_", ws_name.lower())
-            try:
-                from caracal.db.connection import DatabaseConfig, DatabaseConnectionManager
-                # Try to read DB credentials from the workspace's own config.yaml
-                ws_config_file = Path(removed_ws["path"]) / "config.yaml"
-                db_kwargs = {}
-                if ws_config_file.exists():
-                    try:
-                        import yaml
-                        with open(ws_config_file, "r") as _f:
-                            _cfg = yaml.safe_load(_f) or {}
-                        _db = _cfg.get("database", {})
-                        schema_name = _db.get("schema", schema_name)
-                        db_kwargs = {
-                            "host": _db.get("host", "localhost"),
-                            "port": int(_db.get("port", 5432)),
-                            "database": _db.get("database", "caracal"),
-                            "user": _db.get("user", "caracal"),
-                            "password": _db.get("password", ""),
-                        }
-                    except Exception:
-                        pass
-                # DatabaseConfig will also check env vars as fallback
-                db_config = DatabaseConfig(**db_kwargs)
-                mgr = DatabaseConnectionManager(db_config)
-                mgr.initialize()
-                mgr.drop_schema(schema_name=schema_name)
-                mgr.close()
-            except Exception as _e:
-                import logging as _log
-                _log.getLogger(__name__).warning(
-                    "Failed to drop schema %s: %s", schema_name, _e
-                )
-
-            # If deleting the default workspace, clear default marker.
-            try:
-                from caracal.deployment.config_manager import ConfigManager
-
-                cfg = ConfigManager()
-                if cfg.get_default_workspace_name() == removed_ws.get("name"):
-                    cfg.set_default_workspace("")
-            except Exception:
-                pass
-
-            # Optionally delete the directory
-            if delete_directory:
-                workspace_path = Path(path).resolve()
-                if workspace_path.exists():
-                    shutil.rmtree(workspace_path)
-
-            return True
-
-        return False
+        return workspace_exists or was_default
 
     @staticmethod
-    def delete_all_workspaces(
-        registry_path: Optional[Path] = None,
-        delete_directories: bool = False,
-    ) -> int:
+    def delete_all_workspaces(delete_directories: bool = False) -> int:
         """Delete all registered workspaces.
 
         Args:
-            registry_path: Optional custom registry path.
             delete_directories: If True, also remove workspace directories from disk.
 
         Returns:
             Number of workspaces successfully removed from the registry.
         """
-        rp = registry_path or _REGISTRY_PATH
-        workspaces = WorkspaceManager.list_workspaces(rp)
+        workspaces = WorkspaceManager.list_workspaces()
         if not workspaces:
             return 0
 
@@ -286,11 +194,7 @@ class WorkspaceManager:
         # contains the registry file (e.g. ~/.caracal) does not interrupt the loop.
         deleted_count = 0
         for ws in workspaces:
-            if WorkspaceManager.delete_workspace(
-                ws["path"],
-                registry_path=rp,
-                delete_directory=False,
-            ):
+            if WorkspaceManager.delete_workspace(ws["path"], delete_directory=False):
                 deleted_count += 1
 
         if delete_directories:
@@ -358,15 +262,11 @@ def set_workspace(root: str | Path) -> WorkspaceManager:
 
 def _resolve_initial_workspace_root() -> Path:
     """Resolve initial workspace root from active/default workspace metadata."""
-    try:
-        from caracal.deployment.config_manager import ConfigManager
-
-        cfg = ConfigManager()
-        default_name = cfg.get_default_workspace_name()
-        if default_name:
-            return cfg.get_workspace_path(default_name)
-    except Exception:
-        pass
+    default_name = _resolve_default_workspace_name(_discover_workspace_directories())
+    if default_name:
+        candidate = _WORKSPACES_DIR / default_name
+        if candidate.exists():
+            return candidate
 
     # Fallback to first valid workspace directory if it exists.
     try:
@@ -382,6 +282,80 @@ def _resolve_initial_workspace_root() -> Path:
 
     # Last resort for brand-new installs before onboarding creates a workspace.
     return _CARACAL_HOME_ROOT
+
+
+def _workspace_metadata_path(name: str) -> Path:
+    return _WORKSPACES_DIR / name / "workspace.toml"
+
+
+def _load_workspace_metadata(name: str) -> dict[str, Any]:
+    config_path = _workspace_metadata_path(name)
+    if not config_path.exists():
+        return {}
+    try:
+        loaded = toml.load(config_path)
+    except Exception:
+        return {}
+    return loaded if isinstance(loaded, dict) else {}
+
+
+def _save_workspace_metadata(name: str, metadata: dict[str, Any]) -> None:
+    config_path = _workspace_metadata_path(name)
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    config_path.write_text(toml.dumps(metadata))
+
+
+def _ensure_workspace_metadata_file(
+    name: str,
+    workspace_path: Path,
+    *,
+    is_default: bool = False,
+) -> None:
+    config = _load_workspace_metadata(name)
+    if config:
+        if is_default and not config.get("is_default"):
+            config["is_default"] = True
+            config["updated_at"] = datetime.now().isoformat()
+            _save_workspace_metadata(name, config)
+        return
+
+    now = datetime.now().isoformat()
+    _save_workspace_metadata(
+        name,
+        {
+            "name": name,
+            "created_at": now,
+            "updated_at": now,
+            "is_default": is_default,
+            "metadata": {"source": "flow.workspace"},
+        },
+    )
+
+
+def _resolve_default_workspace_name(workspaces: list[dict[str, Any]]) -> Optional[str]:
+    if not workspaces:
+        return None
+
+    names = [str(ws.get("name")) for ws in workspaces if ws.get("name")]
+    for name in names:
+        if _load_workspace_metadata(name).get("is_default"):
+            return name
+    return names[0] if names else None
+
+
+def _set_default_workspace_name(name: Optional[str]) -> None:
+    discovered = _discover_workspace_directories()
+    discovered_names = [str(ws["name"]) for ws in discovered]
+    for workspace_name in discovered_names:
+        workspace_path = _WORKSPACES_DIR / workspace_name
+        _ensure_workspace_metadata_file(workspace_name, workspace_path)
+        metadata = _load_workspace_metadata(workspace_name)
+        should_be_default = name is not None and workspace_name == name
+        if bool(metadata.get("is_default")) == should_be_default:
+            continue
+        metadata["is_default"] = should_be_default
+        metadata["updated_at"] = datetime.now().isoformat()
+        _save_workspace_metadata(workspace_name, metadata)
 
 def _ensure_single_default(workspaces: list[dict[str, Any]]) -> None:
     """Ensure at most one default workspace and assign one when possible."""

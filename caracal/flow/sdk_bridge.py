@@ -13,19 +13,11 @@ from __future__ import annotations
 import os
 from typing import Optional
 
-from caracal.exceptions import SDKConfigurationError
 from caracal.logging_config import get_logger
 from caracal_sdk.client import CaracalClient
 from caracal_sdk.context import ContextManager, ScopeContext
 
 logger = get_logger(__name__)
-
-_LEGACY_BRIDGE_METHOD_NAMES = {
-    "list_principals",
-    "create_mandate",
-    "validate_mandate",
-    "query_ledger",
-}
 
 
 class SDKBridge:
@@ -52,14 +44,7 @@ class SDKBridge:
         self,
         api_key: Optional[str] = None,
         base_url: Optional[str] = None,
-        config_path: Optional[str] = None,
     ) -> None:
-        if config_path:
-            logger.warning(
-                "SDKBridge received legacy config_path; using canonical CaracalClient(api_key, base_url) initialization",
-                extra={"config_path": config_path},
-            )
-
         resolved_base_url = base_url or os.environ.get(
             "CARACAL_API_URL",
             f"http://localhost:{os.environ.get('CARACAL_API_PORT', '8080')}",
@@ -97,15 +82,6 @@ class SDKBridge:
     def current_scope(self) -> Optional[ScopeContext]:
         """Currently active scope, if any."""
         return self._scope
-
-    def __getattr__(self, name: str):
-        """Fail closed for removed legacy bridge wrappers in hard-cut mode."""
-        if name in _LEGACY_BRIDGE_METHOD_NAMES:
-            raise SDKConfigurationError(
-                f"SDKBridge.{name}() is removed in hard-cut mode. "
-                "Use SDKBridge.call_tool(...) for canonical execution via /mcp/tool/call."
-            )
-        raise AttributeError(f"{self.__class__.__name__!s} has no attribute {name!r}")
 
     async def call_tool(
         self,

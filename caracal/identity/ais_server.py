@@ -6,14 +6,17 @@ from dataclasses import dataclass
 import ipaddress
 import os
 import socket
-from typing import Any, Callable, Optional
+from typing import Callable, Optional
 
 from fastapi import APIRouter, FastAPI, Header, HTTPException
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, JsonValue
 
 
 class AISBindTargetError(RuntimeError):
     """Raised when AIS is configured to listen on a non-local bind target."""
+
+
+JsonObject = dict[str, JsonValue]
 
 
 @dataclass(frozen=True)
@@ -45,13 +48,13 @@ class AISHandlers:
     without leaking transport concerns into core logic.
     """
 
-    get_identity: Callable[[str], Optional[dict[str, Any]]]
-    issue_token: Callable[["TokenIssueRequest", Optional[str]], dict[str, Any]]
-    sign_payload: Callable[["SignRequest"], dict[str, Any]]
-    spawn_principal: Callable[["SpawnRequest"], dict[str, Any]]
-    derive_task_token: Callable[["TaskTokenDeriveRequest"], dict[str, Any]]
-    issue_handoff_token: Callable[["HandoffRequest"], dict[str, Any]]
-    refresh_session: Callable[["RefreshRequest"], dict[str, Any]]
+    get_identity: Callable[[str], JsonObject | None]
+    issue_token: Callable[["TokenIssueRequest", Optional[str]], JsonObject]
+    sign_payload: Callable[["SignRequest"], JsonObject]
+    spawn_principal: Callable[["SpawnRequest"], JsonObject]
+    derive_task_token: Callable[["TaskTokenDeriveRequest"], JsonObject]
+    issue_handoff_token: Callable[["HandoffRequest"], JsonObject]
+    refresh_session: Callable[["RefreshRequest"], JsonObject]
 
 
 class TokenIssueRequest(BaseModel):
@@ -65,14 +68,14 @@ class TokenIssueRequest(BaseModel):
     directory_scope: Optional[str] = None
     include_refresh: bool = True
     attestation_nonce: Optional[str] = None
-    extra_claims: Optional[dict[str, Any]] = None
+    extra_claims: JsonObject | None = None
 
 
 class SignRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     principal_id: str = Field(..., min_length=1)
-    payload: dict[str, Any]
+    payload: JsonObject
 
 
 class SpawnRequest(BaseModel):
@@ -168,7 +171,7 @@ def create_ais_app(
         return {"status": "ok"}
 
     @router.get("/identity/{principal_id}")
-    def identity(principal_id: str) -> dict[str, Any]:
+    def identity(principal_id: str) -> JsonObject:
         payload = handlers.get_identity(principal_id)
         if payload is None:
             raise HTTPException(status_code=404, detail="principal not found")
@@ -178,27 +181,27 @@ def create_ais_app(
     def token(
         request: TokenIssueRequest,
         authorization: Optional[str] = Header(default=None),
-    ) -> dict[str, Any]:
+    ) -> JsonObject:
         return handlers.issue_token(request, authorization)
 
     @router.post("/sign")
-    def sign(request: SignRequest) -> dict[str, Any]:
+    def sign(request: SignRequest) -> JsonObject:
         return handlers.sign_payload(request)
 
     @router.post("/spawn")
-    def spawn(request: SpawnRequest) -> dict[str, Any]:
+    def spawn(request: SpawnRequest) -> JsonObject:
         return handlers.spawn_principal(request)
 
     @router.post("/task-token/derive")
-    def task_token_derive(request: TaskTokenDeriveRequest) -> dict[str, Any]:
+    def task_token_derive(request: TaskTokenDeriveRequest) -> JsonObject:
         return handlers.derive_task_token(request)
 
     @router.post("/handoff")
-    def handoff(request: HandoffRequest) -> dict[str, Any]:
+    def handoff(request: HandoffRequest) -> JsonObject:
         return handlers.issue_handoff_token(request)
 
     @router.post("/refresh")
-    def refresh(request: RefreshRequest) -> dict[str, Any]:
+    def refresh(request: RefreshRequest) -> JsonObject:
         return handlers.refresh_session(request)
 
     app.include_router(router)

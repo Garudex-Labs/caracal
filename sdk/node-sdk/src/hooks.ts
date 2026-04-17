@@ -1,11 +1,5 @@
-/**
- * Copyright (C) 2026 Garudex Labs. All Rights Reserved.
- * Caracal, a product of Garudex Labs
- *
- * SDK Lifecycle Hook Registry.
- */
-
 import { SDKRequest, SDKResponse } from './adapters/base';
+import { JsonObject } from './json';
 
 // ---------------------------------------------------------------------------
 // Data structures
@@ -21,19 +15,19 @@ export interface StateSnapshot {
   organizationId?: string;
   workspaceId?: string;
   projectId?: string;
-  metadata?: Record<string, unknown>;
+  metadata?: JsonObject;
 }
 
 // ---------------------------------------------------------------------------
 // Callback types
 // ---------------------------------------------------------------------------
 
-export type InitializeCallback = () => void;
-export type BeforeRequestCallback = (req: SDKRequest, scope: ScopeRef) => SDKRequest | Promise<SDKRequest>;
-export type AfterResponseCallback = (res: SDKResponse, scope: ScopeRef) => void;
-export type StateChangeCallback = (state: StateSnapshot) => void;
-export type ErrorCallback = (err: Error) => void;
-export type ContextSwitchCallback = (from: ScopeRef | null, to: ScopeRef) => void;
+type InitializeCallback = () => void;
+type BeforeRequestCallback = (req: SDKRequest, scope: ScopeRef) => SDKRequest | Promise<SDKRequest>;
+type AfterResponseCallback = (res: SDKResponse, scope: ScopeRef) => void;
+type StateChangeCallback = (state: StateSnapshot) => void;
+type ErrorCallback = (err: Error) => void;
+type ContextSwitchCallback = (from: ScopeRef | null, to: ScopeRef) => void;
 
 // ---------------------------------------------------------------------------
 // HookRegistry

@@ -268,11 +268,10 @@ describe('ScopeContext', () => {
       organizationId: 'org_1',
     });
 
-    const record = ctx as unknown as Record<string, unknown>;
-    expect('principals' in record).toBe(false);
-    expect('mandates' in record).toBe(false);
-    expect('delegation' in record).toBe(false);
-    expect('ledger' in record).toBe(false);
+    expect(Object.prototype.hasOwnProperty.call(ctx, 'principals')).toBe(false);
+    expect(Object.prototype.hasOwnProperty.call(ctx, 'mandates')).toBe(false);
+    expect(Object.prototype.hasOwnProperty.call(ctx, 'delegation')).toBe(false);
+    expect(Object.prototype.hasOwnProperty.call(ctx, 'ledger')).toBe(false);
   });
 
   test('tools.call rejects metadata keys outside correlation surface', async () => {

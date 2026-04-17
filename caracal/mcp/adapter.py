@@ -1389,7 +1389,7 @@ class MCPAdapter:
             return ""
         try:
             return str(UUID(normalized))
-        except Exception:
+        except ValueError:
             return normalized
 
     def _resolve_workspace_name(self, mcp_context: Optional[MCPContext]) -> Optional[str]:
@@ -1410,7 +1410,6 @@ class MCPAdapter:
 
         try:
             from caracal.deployment.config_manager import ConfigManager
-
             return ConfigManager().get_default_workspace_name()
         except Exception:
             return None

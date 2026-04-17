@@ -11,10 +11,11 @@ In the open-source edition, all methods raise EnterpriseFeatureRequired.
 from __future__ import annotations
 from caracal_sdk._compat import get_version
 
-from typing import Any, Optional
+from typing import NoReturn
 
 from caracal_sdk.extensions import CaracalExtension
-from caracal_sdk.hooks import HookRegistry
+from caracal_sdk.hooks import HookRegistry, ScopeRef
+from caracal_sdk.transport_types import SDKResponse
 from caracal_sdk.enterprise.exceptions import EnterpriseFeatureRequired
 
 
@@ -39,13 +40,13 @@ class AnalyticsExtension(CaracalExtension):
     def install(self, hooks: HookRegistry) -> None:
         hooks.on_after_response(self._collect_metrics)
 
-    def _collect_metrics(self, response: Any, scope: Any) -> None:
+    def _collect_metrics(self, response: SDKResponse, scope: ScopeRef) -> None:
         raise EnterpriseFeatureRequired(
             feature="Analytics Metrics Collection",
             message="Advanced analytics requires Caracal Enterprise.",
         )
 
-    def export(self, format: str = "json") -> Any:
+    def export(self, format: str = "json") -> NoReturn:
         """Export analytics data."""
         raise EnterpriseFeatureRequired(
             feature="Analytics Export",

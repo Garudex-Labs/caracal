@@ -1,14 +1,6 @@
-/**
- * Copyright (C) 2026 Garudex Labs. All Rights Reserved.
- * Caracal, a product of Garudex Labs
- *
- * SDK Tool Call Operations.
- * Provides explicit MCP tool-call APIs within a scoped context.
- */
-
-import { SDKRequest } from './adapters/base';
-import { ScopeContext } from './context';
+import { SDKRequest, SDKResponse } from './adapters/base';
 import { SDKConfigurationError } from './errors';
+import { JsonObject, JsonValue } from './json';
 
 // Canonical SDK->MCP tool-call contract version.
 export const CANONICAL_TOOL_CALL_CONTRACT_VERSION = 'v1';
@@ -33,18 +25,38 @@ const PROHIBITED_CALLER_SPOOFING_FIELDS = new Set([
   'caveat_task_id',
 ]);
 
-function isObjectRecord(value: unknown): value is Record<string, unknown> {
+function isObjectRecord(value: JsonValue | null | undefined): value is JsonObject {
   return !!value && typeof value === 'object' && !Array.isArray(value);
 }
 
-export class ToolOperations {
-  constructor(private readonly scope: ScopeContext) {}
+export interface ToolScope {
+  scopeHeaders(): Record<string, string>;
+  toScopeRef(): {
+    organizationId?: string;
+    workspaceId?: string;
+    projectId?: string;
+  };
+  readonly _adapter: {
+    send(request: SDKRequest): Promise<SDKResponse>;
+  };
+  readonly _hooks: {
+    fireBeforeRequest(
+      request: SDKRequest,
+      scope: ReturnType<ToolScope['toScopeRef']>,
+    ): Promise<SDKRequest>;
+    fireAfterResponse(response: SDKResponse, scope: ReturnType<ToolScope['toScopeRef']>): void;
+    fireError(error: Error): void;
+  };
+}
 
-  private buildReq(method: string, path: string, body?: Record<string, unknown>): SDKRequest {
+export class ToolOperations {
+  constructor(private readonly scope: ToolScope) {}
+
+  private buildReq(method: string, path: string, body?: JsonObject): SDKRequest {
     return { method, path, headers: { ...this.scope.scopeHeaders() }, body };
   }
 
-  private async exec(req: SDKRequest): Promise<unknown> {
+  private async exec(req: SDKRequest): Promise<JsonValue> {
     const scoped = await this.scope._hooks.fireBeforeRequest(req, this.scope.toScopeRef());
     try {
       const res = await this.scope._adapter.send(scoped);
@@ -58,10 +70,10 @@ export class ToolOperations {
 
   async call(options: {
     toolId: string;
-    toolArgs?: Record<string, unknown>;
-    metadata?: Record<string, unknown>;
+    toolArgs?: JsonObject;
+    metadata?: JsonObject;
     correlationId?: string;
-  }): Promise<Record<string, unknown>> {
+  }): Promise<JsonObject> {
     const toolId = String(options.toolId ?? '').trim();
 
     if (!toolId) {
@@ -75,7 +87,7 @@ export class ToolOperations {
       throw new SDKConfigurationError('toolArgs must be a dictionary');
     }
 
-    const payloadMetadata: Record<string, unknown> = { ...(options.metadata ?? {}) };
+    const payloadMetadata: JsonObject = { ...(options.metadata ?? {}) };
     const prohibitedMetadataKeys = Object.keys(payloadMetadata)
       .filter((key) => PROHIBITED_CALLER_SPOOFING_FIELDS.has(String(key)))
       .sort();
@@ -98,7 +110,7 @@ export class ToolOperations {
       payloadMetadata.correlation_id = String(options.correlationId);
     }
 
-    const payloadToolArgs: Record<string, unknown> = { ...(options.toolArgs ?? {}) };
+    const payloadToolArgs: JsonObject = { ...(options.toolArgs ?? {}) };
     const prohibitedToolArgKeys = Object.keys(payloadToolArgs)
       .filter((key) => PROHIBITED_CALLER_SPOOFING_FIELDS.has(String(key)))
       .sort();
@@ -115,8 +127,6 @@ export class ToolOperations {
     });
 
     const result = await this.exec(req);
-    return (result && typeof result === 'object')
-      ? (result as Record<string, unknown>)
-      : { result };
+    return isObjectRecord(result) ? result : { result };
   }
 }

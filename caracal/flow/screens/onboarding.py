@@ -29,6 +29,12 @@ from caracal.flow.state import FlowState, StatePersistence, RecentAction
 from caracal.flow.theme import Colors, Icons
 from caracal.identity.service import IdentityService
 from caracal.pathing import ensure_source_tree, source_of
+from caracal.runtime.host_io import (
+    host_io_root,
+    in_container_runtime,
+    map_common_host_io_path,
+    normalize_optional_text,
+)
 from caracal.storage.layout import resolve_caracal_home
 
 
@@ -107,13 +113,13 @@ def _get_db_config_from_env() -> dict:
     In container runtime mode, defaults are container-aware so onboarding can
     proceed without requiring a local .env file.
     """
-    in_container_runtime = (os.environ.get("CARACAL_RUNTIME_IN_CONTAINER", "").strip().lower() in {"1", "true", "yes", "on"})
+    running_in_container = in_container_runtime()
     config = {
-        "host": "postgres" if in_container_runtime else "localhost",
+        "host": "postgres" if running_in_container else "localhost",
         "port": 5432,
         "database": "caracal",
         "username": "caracal",
-        "password": "caracal" if in_container_runtime else "",
+        "password": "caracal" if running_in_container else "",
     }
     loaded_from_env_file = False
     loaded_from_runtime_env = False
@@ -262,42 +268,13 @@ def _sync_workspace_selection(workspace_name: str) -> None:
         pass
 
 
-def _in_container_runtime() -> bool:
-    return os.environ.get("CARACAL_RUNTIME_IN_CONTAINER", "").strip().lower() in {"1", "true", "yes", "on"}
-
-
-def _host_io_root() -> Path:
-    return Path(os.environ.get("CARACAL_HOST_IO_ROOT", "/caracal-host-io")).resolve(strict=False)
-
-
-def _map_common_host_import_path(candidate: Path, root: Path) -> Optional[Path]:
-    """Best-effort mapping of host absolute paths to container host-io mount.
-
-    This helps when a user pastes a host path like
-    ``.../deploy/caracal-host-io/workspace.tar.gz`` while running in container
-    mode where the same file is mounted under ``/caracal-host-io/workspace.tar.gz``.
-    """
-    parts = list(candidate.parts)
-    if "caracal-host-io" in parts:
-        idx = parts.index("caracal-host-io")
-        trailing = parts[idx + 1 :]
-        mapped = root.joinpath(*trailing).resolve(strict=False)
-        return mapped
-
-    mapped_by_name = (root / candidate.name).resolve(strict=False)
-    if mapped_by_name.exists():
-        return mapped_by_name
-
-    return None
-
-
 def _resolve_workspace_import_path(path: str) -> Path:
     normalized_path = path.strip().replace("\r", "").replace("\n", "")
     candidate = Path(normalized_path).expanduser()
     resolved = candidate.resolve(strict=False)
 
     # Outside container runtime, use the exact user-provided path.
-    if not _in_container_runtime():
+    if not in_container_runtime():
         return resolved
 
     # In container runtime, prefer direct paths that already exist.
@@ -305,8 +282,8 @@ def _resolve_workspace_import_path(path: str) -> Path:
         return resolved
 
     # In container runtime, help users by mapping common host-export paths.
-    root = _host_io_root()
-    mapped = _map_common_host_import_path(resolved, root)
+    root = host_io_root()
+    mapped = map_common_host_io_path(resolved, root)
     if mapped is not None:
         return mapped
 
@@ -452,9 +429,9 @@ def _step_workspace(wizard: Wizard) -> Any:
         from caracal.deployment.config_manager import ConfigManager
 
         console.print()
-        if _in_container_runtime():
+        if in_container_runtime():
             console.print(
-                f"  [{Colors.DIM}]Tip: In container runtime, host-shared files are usually under {_host_io_root()}[/]"
+                f"  [{Colors.DIM}]Tip: In container runtime, host-shared files are usually under {host_io_root()}[/]"
             )
 
         import_path_text = prompt.text("Import file path")
@@ -484,7 +461,7 @@ def _step_workspace(wizard: Wizard) -> Any:
             "Import key (leave empty for unlocked archive)",
             default="",
         )
-        normalized_import_lock_key = import_lock_key.strip() if import_lock_key else None
+        normalized_import_lock_key = normalize_optional_text(import_lock_key)
 
         existing_names = set(ConfigManager().list_workspaces())
 
@@ -1083,7 +1060,7 @@ def _step_database(wizard: Wizard) -> Any:
             for issue in env_issues:
                 console.print(f"    [{Colors.WARNING}]• {issue}[/]")
             console.print()
-            host_hint = "postgres" if (os.environ.get("CARACAL_RUNTIME_IN_CONTAINER", "").strip().lower() in {"1", "true", "yes", "on"}) else "localhost"
+            host_hint = "postgres" if in_container_runtime() else "localhost"
             console.print(f"  [{Colors.INFO}]{Icons.INFO} Please set these variables in runtime env or your .env file:[/]")
             console.print(f"  [{Colors.DIM}]  CARACAL_DB_HOST={host_hint}[/]")
             console.print(f"  [{Colors.DIM}]  CARACAL_DB_PORT=5432[/]")
@@ -1252,7 +1229,7 @@ def _show_connection_error_details(console: Console, error: str, config: dict) -
 
 def _is_container_runtime() -> bool:
     """Return True when Flow is running inside the runtime container."""
-    return (os.environ.get("CARACAL_RUNTIME_IN_CONTAINER", "").strip().lower() in {"1", "true", "yes", "on"})
+    return in_container_runtime()
 
 
 def _persist_workspace_db_password(config_file: Optional[Path], password: str) -> None:

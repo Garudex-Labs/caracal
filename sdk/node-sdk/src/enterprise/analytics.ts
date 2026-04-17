@@ -22,7 +22,7 @@ export class AnalyticsExtension implements CaracalExtension {
     });
   }
 
-  export(_format?: string): unknown {
+  export(_format?: string): never {
     throw new EnterpriseFeatureRequired('Analytics Export');
   }
 

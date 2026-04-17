@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
+from caracal.runtime.host_io import is_truthy_env
 
 
 ENV_MODE_VAR = "CARACAL_ENV_MODE"
@@ -27,19 +28,6 @@ _MODE_ALIASES = {
     "production": MODE_PROD,
     "prod": MODE_PROD,
 }
-
-
-def _is_truthy(value: str | None, default: bool = False) -> bool:
-    if value is None:
-        return default
-    normalized = value.strip().lower()
-    if normalized in {"1", "true", "yes", "on"}:
-        return True
-    if normalized in {"0", "false", "no", "off"}:
-        return False
-    return default
-
-
 def resolve_runtime_mode(explicit_mode: str | None = None) -> str:
     """Resolve the runtime mode as one of dev, staging, or prod."""
     if explicit_mode:
@@ -58,7 +46,7 @@ def debug_logs_enabled(mode: str | None = None) -> bool:
     resolved_mode = resolve_runtime_mode(mode)
     if resolved_mode != MODE_DEV:
         return False
-    return _is_truthy(os.getenv(DEBUG_LOGS_VAR), default=False)
+    return is_truthy_env(os.getenv(DEBUG_LOGS_VAR), default=False)
 
 
 def prefers_json_logs(mode: str | None = None) -> bool:
@@ -66,7 +54,7 @@ def prefers_json_logs(mode: str | None = None) -> bool:
     resolved_mode = resolve_runtime_mode(mode)
     if resolved_mode in {MODE_STAGING, MODE_PROD}:
         return True
-    return _is_truthy(os.getenv(JSON_LOGS_VAR), default=False)
+    return is_truthy_env(os.getenv(JSON_LOGS_VAR), default=False)
 
 
 @dataclass(frozen=True)

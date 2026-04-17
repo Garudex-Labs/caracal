@@ -5,8 +5,6 @@ This module provides shared fixtures and configuration for all tests.
 """
 import os
 import pytest
-from typing import Generator
-from unittest.mock import Mock
 
 pytest_plugins = ["tests.fixtures"]
 
@@ -24,112 +22,6 @@ def setup_test_environment():
     # Cleanup after all tests
     os.environ.pop("CARACAL_ENV", None)
     os.environ.pop("CARACAL_LOG_LEVEL", None)
-
-
-# ============================================================================
-# Database Fixtures
-# ============================================================================
-
-@pytest.fixture
-def mock_db_session():
-    """Provide a mock database session."""
-    session = Mock()
-    session.commit = Mock()
-    session.rollback = Mock()
-    session.close = Mock()
-    return session
-
-
-@pytest.fixture
-def mock_db_connection():
-    """Provide a mock database connection."""
-    connection = Mock()
-    connection.execute = Mock()
-    connection.close = Mock()
-    return connection
-
-
-# ============================================================================
-# Redis Fixtures
-# ============================================================================
-
-@pytest.fixture
-def mock_redis_client():
-    """Provide a mock Redis client."""
-    client = Mock()
-    client.get = Mock(return_value=None)
-    client.set = Mock(return_value=True)
-    client.delete = Mock(return_value=1)
-    client.exists = Mock(return_value=False)
-    return client
-
-
-# ============================================================================
-# HTTP Client Fixtures
-# ============================================================================
-
-@pytest.fixture
-def mock_http_client():
-    """Provide a mock HTTP client."""
-    client = Mock()
-    client.get = Mock()
-    client.post = Mock()
-    client.put = Mock()
-    client.delete = Mock()
-    return client
-
-
-# ============================================================================
-# Cryptographic Fixtures
-# ============================================================================
-
-@pytest.fixture
-def mock_keypair():
-    """Provide a mock cryptographic keypair."""
-    return {
-        "private_key": "mock_private_key_data",
-        "public_key": "mock_public_key_data"
-    }
-
-
-# ============================================================================
-# Test Data Fixtures
-# ============================================================================
-
-@pytest.fixture
-def sample_authority_data():
-    """Provide sample authority data for testing."""
-    return {
-        "id": "auth-test-001",
-        "name": "test-authority",
-        "scope": "read:secrets",
-        "created_at": "2024-01-01T00:00:00Z"
-    }
-
-
-@pytest.fixture
-def sample_mandate_data():
-    """Provide sample mandate data for testing."""
-    return {
-        "id": "mandate-test-001",
-        "authority_id": "auth-test-001",
-        "principal_id": "user-test-001",
-        "scope": "read:secrets",
-        "status": "active",
-        "created_at": "2024-01-01T00:00:00Z"
-    }
-
-
-@pytest.fixture
-def sample_delegation_data():
-    """Provide sample delegation data for testing."""
-    return {
-        "id": "delegation-test-001",
-        "from_principal": "user-test-001",
-        "to_principal": "user-test-002",
-        "scope": "read:secrets",
-        "created_at": "2024-01-01T00:00:00Z"
-    }
 
 
 # ============================================================================

@@ -12,6 +12,7 @@ from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from caracal.core.lifecycle import PrincipalLifecycleStateMachine
+from caracal.core.session_contracts import SessionDenylistBackend
 from caracal.db.models import (
     AuthorityLedgerEvent,
     DelegationEdgeModel,
@@ -36,20 +37,6 @@ class CascadeJobDispatcher(Protocol):
         actor_principal_id: Optional[str],
     ) -> None:
         """Queue an asynchronous principal revocation job."""
-
-
-class SessionDenylistBackend(Protocol):
-    """Minimal deny-list backend contract used by revocation orchestration."""
-
-    async def add(self, token_jti: str, expires_at: datetime) -> None:
-        """Add a token JTI to deny-list storage."""
-
-    async def mark_principal_revoked(
-        self,
-        principal_id: str,
-        revoked_at: datetime,
-    ) -> None:
-        """Record principal-level session revocation cutoff."""
 
 
 class RevocationEventPublisher(Protocol):

@@ -1,20 +1,12 @@
-/**
- * Copyright (C) 2026 Garudex Labs. All Rights Reserved.
- * Caracal, a product of Garudex Labs
- *
- * SDK Context & Scope Management.
- * Implements Organization → Workspace → Project scope hierarchy.
- */
-
-import { BaseAdapter, SDKRequest } from './adapters/base';
-import { HookRegistry, ScopeRef, StateSnapshot } from './hooks';
-import { ToolOperations } from './tools';
+import { BaseAdapter } from './adapters/base';
+import { HookRegistry, ScopeRef } from './hooks';
+import { ToolOperations, ToolScope } from './tools';
 
 // ---------------------------------------------------------------------------
 // ScopeContext
 // ---------------------------------------------------------------------------
 
-export class ScopeContext {
+export class ScopeContext implements ToolScope {
   readonly organizationId?: string;
   readonly workspaceId?: string;
   readonly projectId?: string;

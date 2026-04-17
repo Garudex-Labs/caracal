@@ -12,25 +12,15 @@ Provides commands for:
 """
 
 import sys
-import os
 from pathlib import Path
 
 import click
 
 from caracal.logging_config import get_logger
 from caracal.merkle.key_management import KeyManager
+from caracal.runtime.host_io import path_scope_label
 
 logger = get_logger(__name__)
-
-
-def _path_scope_label() -> str:
-    in_container = os.environ.get("CARACAL_RUNTIME_IN_CONTAINER", "").strip().lower() in {
-        "1",
-        "true",
-        "yes",
-        "on",
-    }
-    return "container path" if in_container else "host path"
 
 
 @click.group(name="keys")
@@ -102,8 +92,8 @@ def generate_key(private_key: str, public_key: str, passphrase: str, audit_log: 
         )
         
         click.echo(f"✓ Generated key pair:")
-        click.echo(f"  Private key ({_path_scope_label()}): {private_key}")
-        click.echo(f"  Public key ({_path_scope_label()}): {public_key}")
+        click.echo(f"  Private key ({path_scope_label()}): {private_key}")
+        click.echo(f"  Public key ({path_scope_label()}): {public_key}")
         
         if passphrase:
             click.echo(f"  Private key is encrypted with passphrase")
@@ -111,7 +101,7 @@ def generate_key(private_key: str, public_key: str, passphrase: str, audit_log: 
             click.echo(f"  WARNING: Private key is NOT encrypted")
         
         if audit_log:
-            click.echo(f"  Audit log ({_path_scope_label()}): {audit_log}")
+            click.echo(f"  Audit log ({path_scope_label()}): {audit_log}")
         
     except FileExistsError as e:
         click.echo(f"Error: {e}", err=True)
@@ -219,8 +209,8 @@ def rotate_key(
         )
         
         click.echo(f"✓ Key rotation completed:")
-        click.echo(f"  New private key ({_path_scope_label()}): {new_key}")
-        click.echo(f"  New public key ({_path_scope_label()}): {new_public_key}")
+        click.echo(f"  New private key ({path_scope_label()}): {new_key}")
+        click.echo(f"  New public key ({path_scope_label()}): {new_public_key}")
         
         if not no_backup:
             click.echo(f"  Old key backed up")
@@ -228,7 +218,7 @@ def rotate_key(
             click.echo(f"  Old key deleted (no backup)")
         
         if audit_log:
-            click.echo(f"  Audit log ({_path_scope_label()}): {audit_log}")
+            click.echo(f"  Audit log ({path_scope_label()}): {audit_log}")
         
     except FileNotFoundError as e:
         click.echo(f"Error: {e}", err=True)
@@ -290,10 +280,10 @@ def verify_key(private_key: str, passphrase: str, audit_log: str):
         is_valid = key_manager.verify_key(private_key, passphrase=passphrase)
         
         if is_valid:
-            click.echo(f"✓ Key is valid ({_path_scope_label()}): {private_key}")
+            click.echo(f"✓ Key is valid ({path_scope_label()}): {private_key}")
             sys.exit(0)
         else:
-            click.echo(f"✗ Key is invalid ({_path_scope_label()}): {private_key}", err=True)
+            click.echo(f"✗ Key is invalid ({path_scope_label()}): {private_key}", err=True)
             sys.exit(1)
         
     except Exception as e:
@@ -360,11 +350,11 @@ def export_public_key(private_key: str, public_key: str, passphrase: str, audit_
         )
         
         click.echo(f"✓ Exported public key:")
-        click.echo(f"  From ({_path_scope_label()}): {private_key}")
-        click.echo(f"  To ({_path_scope_label()}): {public_key}")
+        click.echo(f"  From ({path_scope_label()}): {private_key}")
+        click.echo(f"  To ({path_scope_label()}): {public_key}")
         
         if audit_log:
-            click.echo(f"  Audit log ({_path_scope_label()}): {audit_log}")
+            click.echo(f"  Audit log ({path_scope_label()}): {audit_log}")
         
     except FileNotFoundError as e:
         click.echo(f"Error: {e}", err=True)

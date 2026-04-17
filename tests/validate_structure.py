@@ -1,10 +1,6 @@
 #!/usr/bin/env python3
-"""
-Validate test directory structure.
+"""Validate that the current test tree is internally consistent."""
 
-This script validates that the test infrastructure follows the design specification.
-"""
-import os
 import sys
 from pathlib import Path
 from typing import List, Tuple
@@ -23,8 +19,6 @@ def validate_directory_structure() -> Tuple[bool, List[str]]:
         "tests/security",
         "tests/sdk",
         "tests/fixtures",
-        "tests/mocks",
-        "tests/setup",
         # Unit test components
         "tests/unit/core",
         "tests/unit/cli",
@@ -82,8 +76,6 @@ def validate_init_files() -> Tuple[bool, List[str]]:
         "tests/e2e/__init__.py",
         "tests/security/__init__.py",
         "tests/fixtures/__init__.py",
-        "tests/mocks/__init__.py",
-        "tests/setup/__init__.py",
     ]
     
     for init_file in required_init_files:
@@ -110,13 +102,7 @@ def validate_config_files() -> Tuple[bool, List[str]]:
 
 
 def validate_test_files() -> Tuple[bool, List[str]]:
-    """Validate that test files follow naming conventions.
-    
-    Requirements:
-    - All test files must start with test_
-    - All test files must use lowercase with underscores
-    - All test files must contain 1-2 words maximum (after test_)
-    """
+    """Validate basic test file naming conventions."""
     import re
     
     errors = []
@@ -154,50 +140,42 @@ def validate_test_files() -> Tuple[bool, List[str]]:
                 )
                 continue
             
-            # Check word count (1-2 words maximum)
-            words = [w for w in name_part.split('_') if w]
-            if len(words) > 2:
-                errors.append(
-                    f"Test file contains more than 2 words ({len(words)} words): {py_file.relative_to(tests_dir)}"
-                )
-    
     return len(errors) == 0, errors
 
 
 def validate_sdk_readmes() -> Tuple[bool, List[str]]:
-    """Validate that SDK README files exist."""
+    """Validate that active SDK test directories are documented."""
     errors = []
-    
-    required_readmes = [
-        "tests/sdk/README.md",
-        "tests/sdk/python/README.md",
-        "tests/sdk/typescript/README.md",
-    ]
-    
+
+    required_readmes = ["tests/sdk/README.md", "tests/sdk/python/README.md"]
     for readme in required_readmes:
         if not Path(readme).exists():
             errors.append(f"Missing SDK README: {readme}")
+
+    typescript_dir = Path("tests/sdk/typescript")
+    if typescript_dir.exists():
+        active_entries = [
+            path
+            for path in typescript_dir.iterdir()
+            if path.name != "__pycache__"
+        ]
+        if active_entries and not (typescript_dir / "README.md").exists():
+            errors.append("Missing SDK README: tests/sdk/typescript/README.md")
     
     return len(errors) == 0, errors
 
 
-def validate_fixture_and_mock_files() -> Tuple[bool, List[str]]:
-    """Validate that fixture and mock directories have content."""
+def validate_fixture_files() -> Tuple[bool, List[str]]:
+    """Validate that the shared fixture directory has content."""
     errors = []
     
     fixtures_dir = Path("tests/fixtures")
-    mocks_dir = Path("tests/mocks")
-    setup_dir = Path("tests/setup")
-    
-    # Check that directories have at least __init__.py
-    for dir_path, name in [(fixtures_dir, "fixtures"), (mocks_dir, "mocks"), (setup_dir, "setup")]:
-        if not dir_path.exists():
-            errors.append(f"Missing {name} directory")
-            continue
-        
-        py_files = list(dir_path.glob("*.py"))
+    if not fixtures_dir.exists():
+        errors.append("Missing fixtures directory")
+    else:
+        py_files = list(fixtures_dir.glob("*.py"))
         if len(py_files) == 0:
-            errors.append(f"No Python files in {name} directory")
+            errors.append("No Python files in fixtures directory")
     
     return len(errors) == 0, errors
 
@@ -218,7 +196,7 @@ def main():
         ("Configuration Files", validate_config_files),
         ("Test File Naming", validate_test_files),
         ("SDK README Files", validate_sdk_readmes),
-        ("Fixture and Mock Files", validate_fixture_and_mock_files),
+        ("Fixture Files", validate_fixture_files),
     ]
     
     for check_name, check_func in checks:

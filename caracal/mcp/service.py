@@ -23,12 +23,7 @@ from uuid import UUID
 import httpx
 from fastapi import FastAPI, Request, Response, HTTPException, status
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, Field
-
-try:
-    from pydantic import ConfigDict
-except ImportError:  # pragma: no cover - pydantic<2 fallback
-    ConfigDict = None
+from pydantic import BaseModel, ConfigDict, Field
 
 from caracal._version import __version__
 from caracal.mcp.adapter import MCPAdapter, MCPContext, MCPResult
@@ -93,13 +88,8 @@ class MCPServiceConfig:
 
 
 # Pydantic models for API requests/responses
-if ConfigDict is not None:
-    class _StrictRequestModel(BaseModel):
-        model_config = ConfigDict(extra="forbid")
-else:  # pragma: no cover - pydantic<2 fallback
-    class _StrictRequestModel(BaseModel):
-        class Config:
-            extra = "forbid"
+class _StrictRequestModel(BaseModel):
+    model_config = ConfigDict(extra="forbid")
 
 
 class ToolCallRequest(_StrictRequestModel):

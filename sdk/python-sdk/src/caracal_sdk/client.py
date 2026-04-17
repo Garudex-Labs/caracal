@@ -13,7 +13,7 @@ Provides two entry points to initialize the SDK:
 from __future__ import annotations
 
 import os
-from typing import Any, List, Optional
+from typing import List, Optional
 
 from caracal_sdk._compat import get_logger
 from caracal_sdk.ais import resolve_sdk_base_url
@@ -23,6 +23,7 @@ from caracal_sdk.context import ContextManager, ScopeContext
 from caracal_sdk.extensions import CaracalExtension
 from caracal_sdk.hooks import HookRegistry
 from caracal_sdk._compat import SDKConfigurationError
+from caracal_sdk.tools import ToolOperations
 
 logger = get_logger(__name__)
 
@@ -120,7 +121,7 @@ class CaracalClient:
         return self._context_manager
 
     @property
-    def tools(self):
+    def tools(self) -> ToolOperations:
         """Tool call operations in the default (unscoped) context."""
         return self._default_scope.tools
 
