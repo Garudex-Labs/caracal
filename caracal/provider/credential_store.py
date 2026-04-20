@@ -137,7 +137,7 @@ def delete_workspace_provider_credential(workspace: str, credential_ref: str) ->
 
 
 def store_gateway_provider_credential(
-    org_id: str,
+    workspace_id: str,
     tier: str,
     provider_id: str,
     value: str,
@@ -145,17 +145,17 @@ def store_gateway_provider_credential(
 ) -> str:
     _ = tier
     ref = provider_credential_ref(provider_id, env_id=env_id)
-    return _store_secret(org_id, ref, value)
+    return _store_secret(workspace_id, ref, value)
 
 
-def resolve_gateway_provider_credential(org_id: str, tier: str, credential_ref: str) -> str:
+def resolve_gateway_provider_credential(workspace_id: str, tier: str, credential_ref: str) -> str:
     _ = tier
-    return _resolve_secret(org_id, credential_ref)
+    return _resolve_secret(workspace_id, credential_ref)
 
 
-def delete_gateway_provider_credential(org_id: str, tier: str, credential_ref: str) -> None:
+def delete_gateway_provider_credential(workspace_id: str, tier: str, credential_ref: str) -> None:
     _ = tier
-    _delete_secret(org_id, credential_ref)
+    _delete_secret(workspace_id, credential_ref)
 
 
 def migrate_workspace_provider_credentials(

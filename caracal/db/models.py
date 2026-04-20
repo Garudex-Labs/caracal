@@ -728,7 +728,7 @@ class SessionHandoffTransfer(Base):
     source_token_jti = Column(String(255), nullable=False, index=True)
     source_subject_id = Column(String(255), nullable=False, index=True)
     target_subject_id = Column(String(255), nullable=False, index=True)
-    organization_id = Column(String(255), nullable=False, index=True)
+    workspace_id = Column(String(255), nullable=False, index=True)
     tenant_id = Column(String(255), nullable=False, index=True)
     transferred_caveats = Column(JSON, nullable=False, default=list)
     source_remaining_caveats = Column(JSON, nullable=False, default=list)
@@ -957,7 +957,7 @@ class GatewayProvider(Base):
     __tablename__ = "gateway_providers"
 
     provider_id = Column(String(255), primary_key=True)
-    organization_id = Column(PG_UUID(as_uuid=True), nullable=True, index=True)
+    workspace_id = Column(PG_UUID(as_uuid=True), nullable=True, index=True)
     name = Column(String(255), nullable=False)
     base_url = Column(String(2048), nullable=False)
     service_type = Column(String(100), nullable=False, default="application", server_default="application")
