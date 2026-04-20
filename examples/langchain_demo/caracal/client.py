@@ -1,4 +1,4 @@
-"""Caracal SDK wrapper for governed tool calls with thin SDK architecture."""
+"""Caracal SDK wrapper for governed tool calls with the thin SDK contract."""
 
 from __future__ import annotations
 
@@ -6,22 +6,23 @@ from dataclasses import dataclass
 from typing import Any, Optional
 
 
+def _normalize_api_key(api_key: str) -> str:
+    """Accept raw JWT tokens and tolerate accidental ``Bearer `` prefixes."""
+    normalized = str(api_key or "").strip()
+    if normalized.lower().startswith("bearer "):
+        return normalized[7:].strip()
+    return normalized
+
+
 @dataclass(frozen=True)
 class GovernedClientConfig:
-    """Configuration for Caracal client with Bearer token authentication.
-    
-    # BEARER_TOKEN_AUTH: Principal identity from token, not parameters
-    # The api_key field contains a Bearer token with principal identity in claims
-    # Token format: "Bearer <jwt_token>"
-    # Token claims include: principal_id (in 'sub' or 'principal_id' field)
-    # 
-    # SECURITY_REASONING:
-    # - Prevents impersonation: Token cryptographically verified by Caracal
-    # - Reduces attack surface: No identity parameters in SDK calls
-    # - Centralized enforcement: Authority resolved by runtime/broker/gateway
-    # - Audit trail: All actions logged with verified principal_id from token
+    """Configuration for token-scoped Caracal SDK access.
+
+    ``api_key`` should be the raw token value. The SDK transport adds the
+    ``Authorization: Bearer`` prefix.
     """
-    api_key: str  # Bearer token containing principal identity
+
+    api_key: str
     base_url: str
     organization_id: Optional[str] = None
     workspace_id: Optional[str] = None
@@ -30,47 +31,20 @@ class GovernedClientConfig:
 
 class GovernedToolClient:
     """Thin SDK client for governed tool execution.
-    
-    # THIN SDK ARCHITECTURE
-    # This client demonstrates Caracal's thin SDK model where:
-    # 1. SDK is execution-only (no control-plane operations)
-    # 2. Principal identity from Bearer token (not parameters)
-    # 3. Authority resolved internally by Caracal
-    # 4. All setup via CLI/TUI (not SDK)
-    # 
-    # SETUP_VIA_CLI:
-    # Before using this client, complete setup via Caracal CLI:
-    # 
-    # 1. Register principal:
-    #    caracal principal register --name "Finance Agent" --email finance@company.com
-    # 
-    # 2. Issue mandate:
-    #    caracal authority mandate issue \
-    #      --issuer-id <issuer-principal-id> \
-    #      --subject-id <finance-principal-id> \
-    #      --tool-id <tool-id> \
-    #      --validity-seconds 3600
-    # 
-    # 3. Generate Bearer token for principal (via session manager)
-    # 
-    # AUTHENTICATION:
-    # - Bearer token passed in api_key parameter
-    # - Token contains principal_id in claims (sub or principal_id field)
-    # - Caracal MCP service validates token and extracts principal_id
-    # - No way to spoof identity - token cryptographically verified
+
+    The SDK is execution-only. Identity comes from the validated bearer token;
+    control-plane operations remain in CLI, Flow, or gateway surfaces.
     """
-    
+
     def __init__(self, config: GovernedClientConfig) -> None:
-        """Initialize client with Bearer token authentication.
-        
-        Args:
-            config: Client configuration with Bearer token in api_key field
-        """
+        """Initialize the execution client."""
         from caracal_sdk.client import CaracalClient
 
         self._config = config
-        # BEARER_TOKEN_AUTH: api_key contains Bearer token with principal identity
-        self._client = CaracalClient(api_key=config.api_key, base_url=config.base_url)
+        self._client = CaracalClient(
+            api_key=_normalize_api_key(config.api_key),
+            base_url=config.base_url,
+        )
 
     async def call_tool(
         self,
@@ -79,14 +53,7 @@ class GovernedToolClient:
         tool_args: dict[str, Any],
         correlation_id: Optional[str] = None,
     ) -> dict[str, Any]:
-        """THIN_SDK_TOOL_CALL: Execute tool with principal identity from Bearer token.
-
-        The thin SDK model:
-        - Principal identity comes from Bearer token (not parameters)
-        - Authority resolved internally by Caracal runtime/broker/gateway
-        - No manual mandate_id, policy_id, or principal_id parameters
-        - Prevents impersonation and reduces attack surface
-        """
+        """Execute a governed tool call using token-derived caller identity."""
         scope = self._client.context.checkout(
             organization_id=self._config.organization_id,
             workspace_id=self._config.workspace_id,
@@ -108,8 +75,8 @@ class GovernedToolClient:
         cascade: bool = True,
     ) -> dict[str, Any]:
         raise NotImplementedError(
-            "Mandate admin operations are not exposed by the SDK in hard-cut mode. "
-            "Use Caracal control surfaces (CLI/runtime/gateway)."
+            "The SDK is execution-only. Use Caracal control surfaces (CLI/Flow/gateway) "
+            "for mandate revocation."
         )
 
     def validate_mandate(
@@ -120,8 +87,8 @@ class GovernedToolClient:
         requested_resource: str,
     ) -> dict[str, Any]:
         raise NotImplementedError(
-            "Mandate admin operations are not exposed by the SDK in hard-cut mode. "
-            "Use Caracal control surfaces (CLI/runtime/gateway)."
+            "The SDK is execution-only. Use Caracal control surfaces (CLI/Flow/gateway) "
+            "for mandate validation."
         )
 
     def query_ledger(
@@ -134,8 +101,8 @@ class GovernedToolClient:
         offset: int = 0,
     ) -> dict[str, Any]:
         raise NotImplementedError(
-            "Ledger admin operations are not exposed by the SDK in hard-cut mode. "
-            "Use Caracal control surfaces (CLI/runtime/gateway)."
+            "The SDK is execution-only. Use Caracal control surfaces (CLI/Flow/gateway) "
+            "for ledger queries."
         )
 
     def close(self) -> None:

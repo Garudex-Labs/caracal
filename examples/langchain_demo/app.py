@@ -8,6 +8,23 @@ import json
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
+from fastapi.responses import HTMLResponse, JSONResponse
+from pydantic import BaseModel, ConfigDict, Field
+
+from .baseline.scenario import load_scenario
+from .caracal.workflow import GovernedRunConfig
+from .demo_runtime import run_demo_workflow_async
+from .mock_services import router as mock_router
+from .runtime_config import config_status
+
+
+class DemoRunRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    mode: str = Field(default="mock", pattern="^(mock|real)$")
+    provider_strategy: str = Field(default="mixed", pattern="^(mixed|openai|gemini)$")
+    include_revocation_check: bool = True
+
 UI_HTML = """<!doctype html>
 <html lang="en">
 <head>
@@ -272,7 +289,9 @@ UI_HTML = """<!doctype html>
 
     function renderCards(result) {
       const acceptance = result.acceptance?.passed ? "Accepted" : "Review needed";
-      const revocation = result.revocation?.denial_captured ? "Denied after revoke" : "No denial recorded";
+      const revocation = result.revocation?.denial_captured
+        ? "Denied after revoke"
+        : (result.revocation?.skipped_reason ? "Manual control-plane step" : "No denial recorded");
       return `
         <div class="cards">
           <div class="card"><span class="k">Mode</span><span class="v">${esc(result.mode)}</span></div>

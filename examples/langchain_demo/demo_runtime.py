@@ -1,10 +1,9 @@
 """Shared runtime for the Caracal-backed LangChain demo application.
 
 This runtime intentionally uses the same governed Caracal flow in both modes:
-- SDK tool calls with explicit mandate IDs
-- runtime authority validation
-- provider/tool mapping in Caracal registry
-- optional revocation check
+- SDK tool calls through the current thin SDK
+- provider/tool mapping in the Caracal registry
+- token-scoped execution with runtime-owned authority enforcement
 
 Mock mode differs only in which providers/tools are selected. The configured
 mock providers return deterministic payloads and do not require real API keys.
@@ -74,6 +73,39 @@ def _response_error_text(response: dict[str, Any]) -> str:
     return str(error or "unknown error")
 
 
+def _authority_validation_record(
+    *,
+    role: str,
+    tool_id: str,
+    mandate_id: str,
+    principal_id: str | None,
+    resource_scope: str,
+    action_scope: str,
+    response: dict[str, Any],
+) -> dict[str, Any]:
+    metadata = dict(response.get("metadata") or {})
+    success = _response_success(response)
+    reason = (
+        "Tool execution accepted by the Caracal runtime."
+        if success
+        else _response_error_text(response)
+    )
+    return {
+        "timestamp": _iso_now(),
+        "role": role,
+        "tool_id": tool_id,
+        "configured_mandate_id": mandate_id,
+        "caller_principal_id": principal_id,
+        "requested_resource": resource_scope,
+        "requested_action": action_scope,
+        "allowed": success,
+        "reason": reason,
+        "validation_source": "mcp.tool.call",
+        "provider_name": metadata.get("provider_name"),
+        "execution_mode": metadata.get("execution_mode"),
+    }
+
+
 async def _call_governed_tool(
     client: GovernedToolClient,
     *,
@@ -91,29 +123,21 @@ async def _call_governed_tool(
     tool_id = TOOL_IDS[mode][tool_key]
     resource_scope, action_scope = _scope_pair(tool_id)
 
-    validation = client.validate_mandate(
-        mandate_id=mandate_id,
-        requested_action=action_scope,
-        requested_resource=resource_scope,
-    )
-    validation_record = {
-        "timestamp": _iso_now(),
-        "role": role,
-        "tool_id": tool_id,
-        "caller_principal_id": validation.get("principal_id") or validation.get("subject_id"),
-        "requested_resource": resource_scope,
-        "requested_action": action_scope,
-        "allowed": bool(validation.get("allowed")),
-        "reason": str(validation.get("denial_reason") or validation.get("reason") or "Authority granted"),
-        "validation_source": "authority.validate_mandate",
-    }
-    authority_validations.append(validation_record)
-
     response = await client.call_tool(
         tool_id=tool_id,
-        mandate_id=mandate_id,
         tool_args=tool_args,
         correlation_id=trace_id,
+    )
+    authority_validations.append(
+        _authority_validation_record(
+            role=role,
+            tool_id=tool_id,
+            mandate_id=mandate_id,
+            principal_id=None,
+            resource_scope=resource_scope,
+            action_scope=action_scope,
+            response=response,
+        )
     )
     if not _response_success(response):
         raise RuntimeError(
@@ -168,6 +192,7 @@ async def run_demo_workflow_async(
     finance_mandate = mode_config.mandates["finance"]
     ops_mandate = mode_config.mandates["ops"]
     orchestrator_mandate = mode_config.mandates["orchestrator"]
+    principal_ids = mode_config.principal_ids or {}
 
     try:
         finance_data, finance_data_response = await _call_governed_tool(
@@ -183,6 +208,7 @@ async def run_demo_workflow_async(
             authority_validations=authority_validations,
             provider_counts=provider_counts,
         )
+        authority_validations[-1]["caller_principal_id"] = principal_ids.get("finance")
 
         finance_brief, finance_brief_response = await _call_governed_tool(
             client,
@@ -203,6 +229,7 @@ async def run_demo_workflow_async(
             authority_validations=authority_validations,
             provider_counts=provider_counts,
         )
+        authority_validations[-1]["caller_principal_id"] = principal_ids.get("finance")
 
         ops_data, ops_data_response = await _call_governed_tool(
             client,
@@ -217,6 +244,7 @@ async def run_demo_workflow_async(
             authority_validations=authority_validations,
             provider_counts=provider_counts,
         )
+        authority_validations[-1]["caller_principal_id"] = principal_ids.get("ops")
 
         ops_brief, ops_brief_response = await _call_governed_tool(
             client,
@@ -237,6 +265,7 @@ async def run_demo_workflow_async(
             authority_validations=authority_validations,
             provider_counts=provider_counts,
         )
+        authority_validations[-1]["caller_principal_id"] = principal_ids.get("ops")
 
         assembled, assemble_response = await _call_governed_tool(
             client,
@@ -258,6 +287,7 @@ async def run_demo_workflow_async(
             authority_validations=authority_validations,
             provider_counts=provider_counts,
         )
+        authority_validations[-1]["caller_principal_id"] = principal_ids.get("orchestrator")
 
         ticket_payload = {
             "title": f"{scenario.get('company', 'company')}: governed action plan",
@@ -277,6 +307,7 @@ async def run_demo_workflow_async(
             authority_validations=authority_validations,
             provider_counts=provider_counts,
         )
+        authority_validations[-1]["caller_principal_id"] = principal_ids.get("orchestrator")
 
         revocation: dict[str, Any] = {
             "executed": False,
@@ -287,85 +318,26 @@ async def run_demo_workflow_async(
             "skipped_reason": None,
         }
         if config.include_revocation_check:
-            if not mode_config.revoker_id:
-                revocation["skipped_reason"] = (
-                    "revoker_id is missing in demo_config.json for this mode"
-                )
-            else:
-                revoke_response = client.revoke_mandate(
-                    mandate_id=finance_mandate,
-                    revoker_id=mode_config.revoker_id,
-                    reason="LangChain demo revocation check",
-                    cascade=False,
-                )
-                revocation["executed"] = True
-                revocation["revoke_response"] = revoke_response
-                revocation["revoked_mandate_id"] = finance_mandate
-
-                finance_scope_resource, finance_scope_action = _scope_pair(mode_tools["finance_data"])
-                post_validation = client.validate_mandate(
-                    mandate_id=finance_mandate,
-                    requested_action=finance_scope_action,
-                    requested_resource=finance_scope_resource,
-                )
-                authority_validations.append(
-                    {
-                        "timestamp": _iso_now(),
-                        "role": "finance",
-                        "tool_id": mode_tools["finance_data"],
-                        "caller_principal_id": post_validation.get("principal_id") or post_validation.get("subject_id"),
-                        "requested_resource": finance_scope_resource,
-                        "requested_action": finance_scope_action,
-                        "allowed": bool(post_validation.get("allowed")),
-                        "reason": str(
-                            post_validation.get("denial_reason")
-                            or post_validation.get("reason")
-                            or "Authority denied after revocation"
-                        ),
-                        "validation_source": "authority.validate_mandate",
-                    }
-                )
-
-                denied_response = await client.call_tool(
-                    tool_id=mode_tools["finance_data"],
-                    mandate_id=finance_mandate,
-                    tool_args={"scenario": scenario},
-                    correlation_id="finance-denied-after-revoke",
-                )
-                denied = not _response_success(denied_response)
-                revocation["denial_captured"] = denied
-                revocation["denial_evidence"] = {
-                    "timestamp": _iso_now(),
-                    "denied": denied,
-                    "response": denied_response,
-                }
-                timeline.append(
-                    {
-                        "step": 7,
-                        "role": "orchestrator",
-                        "event": "revocation_check",
-                        "revoked_mandate_id": finance_mandate,
-                        "denial_evidence": revocation["denial_evidence"],
-                    }
-                )
-
-        authority_ledger_events: list[dict[str, Any]] = []
-        for role in ROLE_ORDER:
-            mandate_id = mode_config.mandates[role]
-            ledger_payload = client.query_ledger(
-                mandate_id=mandate_id,
-                limit=50,
-                offset=0,
+            revocation["skipped_reason"] = (
+                "The current SDK is execution-only. Revoke mandates via Caracal CLI/Flow "
+                "and rerun the demo to observe denial through the runtime."
             )
-            events = list(ledger_payload.get("events") or [])
-            for event in events:
-                authority_ledger_events.append(
-                    {
-                        "role": role,
-                        "mandate_id": mandate_id,
-                        **dict(event),
-                    }
-                )
+
+        authority_ledger_events = [
+            {
+                "event_type": "tool_call",
+                "role": validation["role"],
+                "tool_id": validation["tool_id"],
+                "mandate_id": validation["configured_mandate_id"],
+                "principal_id": validation["caller_principal_id"],
+                "provider_name": validation.get("provider_name"),
+                "execution_mode": validation.get("execution_mode"),
+                "allowed": validation["allowed"],
+                "reason": validation["reason"],
+                "timestamp": validation["timestamp"],
+            }
+            for validation in authority_validations
+        ]
 
         outcomes = assembled.get("business_outcomes") if isinstance(assembled, dict) else None
         if not isinstance(outcomes, dict):
@@ -407,7 +379,7 @@ async def run_demo_workflow_async(
             "identities": [
                 {
                     "role": role,
-                    "principal_id": (mode_config.principal_ids or {}).get(role),
+                    "principal_id": principal_ids.get(role),
                     "mandate_id": mode_config.mandates[role],
                     "access_token": "managed-by-CARACAL_API_KEY",
                 }

@@ -8,6 +8,8 @@ Core points:
 - no automatic workspace/provider/tool/mandate bootstrap in runtime code
 - same governed execution flow in mock and real modes
 - mock mode only changes external provider responses to deterministic payloads
+- SDK calls are execution-only; mandate validation, revocation, and ledger queries
+  stay in Caracal CLI, Flow, or gateway control surfaces
 
 ## Entry points
 

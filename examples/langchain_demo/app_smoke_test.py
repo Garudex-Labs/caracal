@@ -28,7 +28,8 @@ def run_smoke_test() -> None:
     )
     assert result["mode"] == "caracal-demo-mock"
     assert result["acceptance"]["passed"] is True
-    assert result["revocation"]["denial_captured"] is True
+    assert result["revocation"]["executed"] is False
+    assert isinstance(result["revocation"]["skipped_reason"], str)
 
 
 def main() -> int:
