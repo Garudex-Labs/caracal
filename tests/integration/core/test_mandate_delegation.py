@@ -77,7 +77,7 @@ class TestMandateDelegationIntegration:
         db_session.add(policy)
 
         subject_id = uuid4()
-        subject = _make_principal(subject_id, "test-subject", "agent", with_keys=True)
+        subject = _make_principal(subject_id, "test-subject", "worker", with_keys=True)
         db_session.add(subject)
 
         target_id = uuid4()
@@ -128,8 +128,8 @@ class TestMandateDelegationIntegration:
         policy = _make_policy(user_id, allow_delegation=True, max_network_distance=3)
         db_session.add(policy)
 
-        agent_id = uuid4()
-        agent = _make_principal(agent_id, "test-agent", "agent", with_keys=True)
+        worker_id = uuid4()
+        agent = _make_principal(worker_id, "test-worker", "worker", with_keys=True)
         db_session.add(agent)
 
         service_id = uuid4()
@@ -141,7 +141,7 @@ class TestMandateDelegationIntegration:
         # user -> agent
         mandate1 = mandate_manager.issue_mandate(
             issuer_id=user_id,
-            subject_id=agent_id,
+            subject_id=worker_id,
             resource_scope=["test:resource"],
             action_scope=["read"],
             validity_seconds=3600,
@@ -184,7 +184,7 @@ class TestMandateDelegationIntegration:
         db_session.add(policy)
 
         subject_id = uuid4()
-        subject = _make_principal(subject_id, "test-subject", "agent", with_keys=True)
+        subject = _make_principal(subject_id, "test-subject", "worker", with_keys=True)
         db_session.add(subject)
 
         target_id = uuid4()

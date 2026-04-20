@@ -365,7 +365,7 @@ def test_run_runtime_mcp_bootstraps_vault_refs_before_starting_ais(
 def test_resolve_ais_vault_context_prefers_recovered_project_uuid_over_slug(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv("CARACAL_VAULT_PROJECT_ID", "caracal")
+    monkeypatch.setenv("CARACAL_VAULT_WORKSPACE_ID", "caracal")
     monkeypatch.setenv("CARACAL_VAULT_ENVIRONMENT", "dev")
 
     fake_vault = SimpleNamespace(
@@ -376,9 +376,9 @@ def test_resolve_ais_vault_context_prefers_recovered_project_uuid_over_slug(
     )
     monkeypatch.setattr("caracal.core.vault.get_vault", lambda: fake_vault)
 
-    org_id, env_id = entrypoints._resolve_ais_vault_context()
+    workspace_id, env_id = entrypoints._resolve_ais_vault_context()
 
-    assert org_id == "11111111-2222-3333-4444-555555555555"
+    assert workspace_id == "11111111-2222-3333-4444-555555555555"
     assert env_id == "dev"
 
 
@@ -389,8 +389,8 @@ def test_resolve_ais_vault_secret_uses_resolved_vault_context(
     captured: dict[str, str] = {}
 
     class _Vault:
-        def get(self, *, org_id: str, env_id: str, name: str) -> str:
-            captured["org_id"] = org_id
+        def get(self, *, workspace_id: str, env_id: str, name: str) -> str:
+            captured["workspace_id"] = workspace_id
             captured["env_id"] = env_id
             captured["name"] = name
             return "secret-value"
@@ -403,7 +403,7 @@ def test_resolve_ais_vault_secret_uses_resolved_vault_context(
 
     assert value == "secret-value"
     assert captured == {
-        "org_id": "org-ctx",
+        "workspace_id": "org-ctx",
         "env_id": "env-ctx",
         "name": "keys/session-public",
     }
@@ -413,17 +413,17 @@ def test_resolve_ais_vault_secret_uses_resolved_vault_context(
 def test_resolve_ais_vault_context_falls_back_when_vault_unavailable(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.delenv("CARACAL_VAULT_PROJECT_ID", raising=False)
+    monkeypatch.delenv("CARACAL_VAULT_WORKSPACE_ID", raising=False)
     monkeypatch.delenv("CARACAL_VAULT_PROJECT_SLUG", raising=False)
-    monkeypatch.delenv("CARACAL_VAULT_ORG_ID", raising=False)
+    monkeypatch.delenv("CARACAL_VAULT_WORKSPACE_ID", raising=False)
     monkeypatch.delenv("CARACAL_VAULT_ENVIRONMENT", raising=False)
     monkeypatch.delenv("CARACAL_VAULT_ENV", raising=False)
     monkeypatch.delenv("CARACAL_VAULT_ENV_ID", raising=False)
     monkeypatch.setattr("caracal.core.vault.get_vault", lambda: (_ for _ in ()).throw(RuntimeError("offline")))
 
-    org_id, env_id = entrypoints._resolve_ais_vault_context()
+    workspace_id, env_id = entrypoints._resolve_ais_vault_context()
 
-    assert org_id == "caracal"
+    assert workspace_id == "caracal"
     assert env_id == "runtime"
 
 
@@ -632,7 +632,7 @@ def test_build_ais_handlers_issues_and_refreshes_tokens(monkeypatch: pytest.Monk
     token_response = handlers.issue_token(
         TokenIssueRequest(
             principal_id="principal-1",
-            organization_id="org-1",
+            workspace_id="org-1",
             tenant_id="tenant-1",
             session_kind="automation",
             include_refresh=True,
@@ -664,7 +664,7 @@ def test_build_ais_handlers_rejects_unknown_session_kind() -> None:
         handlers.issue_token(
             TokenIssueRequest(
                 principal_id="principal-1",
-                organization_id="org-1",
+                workspace_id="org-1",
                 tenant_id="tenant-1",
                 session_kind="not-a-kind",
             ),
@@ -690,7 +690,7 @@ def test_build_ais_handlers_rejects_token_issue_for_unknown_principal(
         handlers.issue_token(
             TokenIssueRequest(
                 principal_id="principal-unknown",
-                organization_id="org-1",
+                workspace_id="org-1",
                 tenant_id="tenant-1",
                 session_kind="automation",
             ),
@@ -719,7 +719,7 @@ def test_build_ais_handlers_rejects_token_issue_for_inactive_principal(
         handlers.issue_token(
             TokenIssueRequest(
                 principal_id="principal-1",
-                organization_id="org-1",
+                workspace_id="org-1",
                 tenant_id="tenant-1",
                 session_kind="automation",
             ),
@@ -750,7 +750,7 @@ def test_build_ais_handlers_token_endpoint_returns_bundle_over_http(
         "/v1/ais/token",
         json=TokenIssueRequest(
             principal_id="principal-1",
-            organization_id="org-1",
+            workspace_id="org-1",
             tenant_id="tenant-1",
             session_kind="automation",
             include_refresh=True,
@@ -781,7 +781,7 @@ def test_build_ais_handlers_rejects_token_issue_without_caller_context(
         handlers.issue_token(
             TokenIssueRequest(
                 principal_id="principal-1",
-                organization_id="org-1",
+                workspace_id="org-1",
                 tenant_id="tenant-1",
                 session_kind="automation",
             )
@@ -817,7 +817,7 @@ def test_build_ais_handlers_accepts_attestation_nonce_bootstrap(
     response = handlers.issue_token(
         TokenIssueRequest(
             principal_id="principal-1",
-            organization_id="org-1",
+            workspace_id="org-1",
             tenant_id="tenant-1",
             session_kind="automation",
             attestation_nonce="nonce-1",
@@ -844,7 +844,7 @@ def test_build_ais_handlers_allows_local_bootstrap_principal_without_auth(
     response = handlers.issue_token(
         TokenIssueRequest(
             principal_id="principal-1",
-            organization_id="org-1",
+            workspace_id="org-1",
             tenant_id="tenant-1",
             session_kind="automation",
         )
@@ -872,7 +872,7 @@ def test_build_ais_handlers_rejects_authenticated_caller_without_delegation(
         handlers.issue_token(
             TokenIssueRequest(
                 principal_id="principal-1",
-                organization_id="org-1",
+                workspace_id="org-1",
                 tenant_id="tenant-1",
                 session_kind="automation",
             ),

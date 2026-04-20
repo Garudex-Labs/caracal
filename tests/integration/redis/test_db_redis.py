@@ -92,7 +92,7 @@ class TestDatabaseRedisIntegration:
         subject = Principal(
             principal_id=subject_id,
             principal_name="test-subject",
-            principal_type="agent"
+            principal_type="worker"
         )
         db_session.add(subject)
         db_session.commit()
@@ -161,7 +161,7 @@ class TestDatabaseRedisIntegration:
         subject = Principal(
             principal_id=subject_id,
             principal_name="test-subject",
-            principal_type="agent"
+            principal_type="worker"
         )
         db_session.add(subject)
         db_session.commit()
@@ -220,7 +220,7 @@ class TestDatabaseRedisIntegration:
         subject = Principal(
             principal_id=subject_id,
             principal_name="test-subject",
-            principal_type="agent"
+            principal_type="worker"
         )
         db_session.add(subject)
         db_session.commit()

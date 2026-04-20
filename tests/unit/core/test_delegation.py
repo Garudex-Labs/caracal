@@ -311,7 +311,7 @@ class TestDelegationTokenClaims:
             allowed_operations=["api_call"],
             delegation_type="directed",
             source_principal_type="user",
-            target_principal_type="agent"
+            target_principal_type="worker"
         )
         
         # Assert
@@ -320,7 +320,7 @@ class TestDelegationTokenClaims:
         assert claims.audience == "caracal-core"
         assert claims.delegation_type == "directed"
         assert claims.source_principal_type == "user"
-        assert claims.target_principal_type == "agent"
+        assert claims.target_principal_type == "worker"
     
     def test_delegation_token_claims_with_context_tags(self):
         """Test DelegationTokenClaims with context tags."""

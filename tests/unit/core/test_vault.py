@@ -38,7 +38,7 @@ def vault_env():
     return {
         "CARACAL_VAULT_URL": "http://vault.test",
         "CARACAL_VAULT_TOKEN": "token-123",
-        "CARACAL_VAULT_PROJECT_ID": "proj-default",
+        "CARACAL_VAULT_WORKSPACE_ID": "proj-default",
         "CARACAL_VAULT_ENVIRONMENT": "dev",
         "CARACAL_VAULT_SECRET_PATH": "/",
         "CARACAL_VAULT_MODE": "managed",
@@ -49,7 +49,7 @@ def vault_env():
 def sample_vault_entry():
     return VaultEntry(
         entry_id="entry-123",
-        org_id="org-456",
+        workspace_id="org-456",
         env_id="env-789",
         secret_name="api-key",
         ciphertext_b64="",
@@ -81,7 +81,7 @@ def test_vault_entry_dataclass(sample_vault_entry):
 def test_vault_audit_event_dataclass():
     event = VaultAuditEvent(
         event_id="event-123",
-        org_id="org-1",
+        workspace_id="org-1",
         env_id="env-1",
         secret_name="k",
         operation="create",
@@ -156,7 +156,7 @@ def test_load_vault_config_recovers_placeholder_local_token(vault_env):
     env = dict(vault_env)
     env["CARACAL_VAULT_URL"] = "http://vault:8080"
     env["CARACAL_VAULT_TOKEN"] = "dev-local-token"
-    env["CARACAL_VAULT_PROJECT_ID"] = ""
+    env["CARACAL_VAULT_WORKSPACE_ID"] = ""
 
     with patch("caracal.core.vault._read_env_or_dotenv", side_effect=lambda name: env.get(name)):
         with patch(

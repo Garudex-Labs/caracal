@@ -228,7 +228,7 @@ class TestPrincipalRegistry:
         assert len(identities) == 3
         assert all(isinstance(i, PrincipalIdentity) for i in identities)
     
-    def test_update_agent_metadata(self):
+    def test_update_principal_metadata(self):
         """Test updating principal metadata."""
         # Arrange
         principal_id = uuid4()
