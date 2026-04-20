@@ -706,8 +706,7 @@ def _build_config_from_dict(config_data: Dict[str, Any]) -> CaracalConfig:
         default_behavior=allowlist_data.get('default_behavior', default_config.allowlist.default_behavior),
         cache_ttl=allowlist_data.get('cache_ttl', default_config.allowlist.cache_ttl),
         max_patterns_per_principal=allowlist_data.get(
-            'max_patterns_per_principal',
-            allowlist_data.get('max_patterns_per_agent', default_config.allowlist.max_patterns_per_principal),
+            'max_patterns_per_principal', default_config.allowlist.max_patterns_per_principal,
         ),
     )
     

@@ -41,7 +41,7 @@ class ConfigEncryption:
         self.layout = layout or get_caracal_layout()
         self.actor = actor
         self.dek_name = dek_name
-        self.org_id = os.getenv("CARACAL_VAULT_PROJECT_ID") or os.getenv("CARACAL_ORG_ID") or "default"
+        self.workspace_id = os.getenv("CARACAL_VAULT_WORKSPACE_ID") or os.getenv("CARACAL_WORKSPACE_ID") or "default"
         self.env_id = os.getenv("CARACAL_VAULT_ENVIRONMENT") or os.getenv("CARACAL_ENV_ID") or "dev"
 
     def _get_vault(self):
@@ -64,7 +64,7 @@ class ConfigEncryption:
 
             with vault_access_context():
                 vault.put(
-                    org_id=self.org_id,
+                    workspace_id=self.workspace_id,
                     env_id=self.env_id,
                     name=secret_name,
                     plaintext=plaintext,
@@ -74,7 +74,7 @@ class ConfigEncryption:
             raise MasterKeyError(f"Failed to store config secret in vault: {exc}") from exc
 
         # Envelope stores only an opaque vault reference, never key material.
-        return f"{self.ENCRYPTED_PREFIX}vault://{self.org_id}/{self.env_id}/{secret_name}{self.ENCRYPTED_SUFFIX}"
+        return f"{self.ENCRYPTED_PREFIX}vault://{self.workspace_id}/{self.env_id}/{secret_name}{self.ENCRYPTED_SUFFIX}"
 
     def decrypt(self, encrypted: str) -> str:
         """Resolve an ENC[v4:...] vault reference envelope."""
@@ -85,7 +85,7 @@ class ConfigEncryption:
             raise MasterKeyError("Unsupported encrypted payload version; only ENC[v4:...] is allowed")
 
         ref = encrypted[len(self.ENCRYPTED_PREFIX):-len(self.ENCRYPTED_SUFFIX)]
-        prefix = f"vault://{self.org_id}/{self.env_id}/"
+        prefix = f"vault://{self.workspace_id}/{self.env_id}/"
         if not ref.startswith(prefix):
             raise ValueError("Encrypted payload reference is malformed")
         secret_name = ref[len(prefix):]
@@ -98,7 +98,7 @@ class ConfigEncryption:
 
             with vault_access_context():
                 return vault.get(
-                    org_id=self.org_id,
+                    workspace_id=self.workspace_id,
                     env_id=self.env_id,
                     name=secret_name,
                     actor=self.actor,
@@ -154,10 +154,10 @@ def rotate_master_key(actor: str = "cli") -> RotationSummary:
     try:
         from caracal.core.vault import get_vault, vault_access_context
 
-        org_id = os.getenv("CARACAL_VAULT_PROJECT_ID") or os.getenv("CARACAL_ORG_ID") or "default"
+        workspace_id = os.getenv("CARACAL_VAULT_WORKSPACE_ID") or os.getenv("CARACAL_WORKSPACE_ID") or "default"
         env_id = os.getenv("CARACAL_VAULT_ENVIRONMENT") or os.getenv("CARACAL_ENV_ID") or "dev"
         with vault_access_context():
-            result = get_vault().rotate_master_key(org_id=org_id, env_id=env_id, actor=actor)
+            result = get_vault().rotate_master_key(workspace_id=workspace_id, env_id=env_id, actor=actor)
             rewrapped = result.secrets_rotated
     except Exception:
         # Rotation endpoint can be unavailable in some environments; audit event is still recorded.
@@ -176,12 +176,12 @@ def rotate_master_key(actor: str = "cli") -> RotationSummary:
 def get_key_status() -> dict[str, Any]:
     """Return current key status for CLI diagnostics."""
     vault_url = os.getenv("CARACAL_VAULT_URL")
-    project = os.getenv("CARACAL_VAULT_PROJECT_ID") or os.getenv("CARACAL_ORG_ID")
+    workspace = os.getenv("CARACAL_VAULT_WORKSPACE_ID") or os.getenv("CARACAL_WORKSPACE_ID")
     environment = os.getenv("CARACAL_VAULT_ENVIRONMENT") or os.getenv("CARACAL_ENV_ID")
     return {
         "backend": "vault",
         "vault_url": vault_url,
-        "vault_project": project,
+        "vault_workspace": workspace,
         "vault_environment": environment,
         "configured": bool(vault_url),
         "local_master_key_supported": False,
