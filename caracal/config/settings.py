@@ -244,7 +244,7 @@ class AllowlistConfig:
     enabled: bool = True
     default_behavior: str = "allow"  # "allow" or "deny" when no allowlist defined
     cache_ttl: int = 60  # Cache compiled patterns for 60 seconds
-    max_patterns_per_agent: int = 1000  # Maximum patterns per agent
+    max_patterns_per_principal: int = 1000
 
 
 @dataclass
@@ -705,7 +705,10 @@ def _build_config_from_dict(config_data: Dict[str, Any]) -> CaracalConfig:
         enabled=allowlist_data.get('enabled', default_config.allowlist.enabled),
         default_behavior=allowlist_data.get('default_behavior', default_config.allowlist.default_behavior),
         cache_ttl=allowlist_data.get('cache_ttl', default_config.allowlist.cache_ttl),
-        max_patterns_per_agent=allowlist_data.get('max_patterns_per_agent', default_config.allowlist.max_patterns_per_agent),
+        max_patterns_per_principal=allowlist_data.get(
+            'max_patterns_per_principal',
+            allowlist_data.get('max_patterns_per_agent', default_config.allowlist.max_patterns_per_principal),
+        ),
     )
     
     # Parse event replay configuration
@@ -1238,10 +1241,10 @@ def _validate_config(config: CaracalConfig) -> None:
                 f"allowlist cache_ttl must be at least 1, got {config.allowlist.cache_ttl}"
             )
         
-        if config.allowlist.max_patterns_per_agent < 1:
+        if config.allowlist.max_patterns_per_principal < 1:
             raise InvalidConfigurationError(
-                f"allowlist max_patterns_per_agent must be at least 1, "
-                f"got {config.allowlist.max_patterns_per_agent}"
+                f"allowlist max_patterns_per_principal must be at least 1, "
+                f"got {config.allowlist.max_patterns_per_principal}"
             )
     
     # Validate event replay configuration 
