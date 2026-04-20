@@ -55,7 +55,7 @@ def create_snapshot(ctx):
     Create a ledger snapshot.
     
     Creates a point-in-time snapshot of the ledger including:
-    - Aggregated usage per agent
+    - Aggregated usage per principal
     - Current Merkle root
     - Total event count
     

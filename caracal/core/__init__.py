@@ -5,7 +5,7 @@ Caracal, a product of Garudex Labs
 Core components for Caracal Core.
 
 This module contains the core primitives:
-- Agent identity management
+- Principal identity management
 - Policy evaluation
 - Ledger writer and query
 - Metering collector
