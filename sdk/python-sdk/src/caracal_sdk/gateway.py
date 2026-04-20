@@ -30,7 +30,7 @@ Manual override:
     adapter = GatewayAdapter(
         gateway_endpoint="https://gw.example.com",
         gateway_api_key="gw_key",
-        org_id="org_123",
+        workspace_id="ws_123",
     )
     client = CaracalClient(adapter=adapter)
 """
@@ -116,14 +116,12 @@ class GatewayAdapter(BaseAdapter):
 
     # Headers injected on every outbound request
     GATEWAY_API_KEY_HEADER = "X-Gateway-Key"
-    GATEWAY_ORG_HEADER = "X-Caracal-Org-ID"
     GATEWAY_WORKSPACE_HEADER = "X-Caracal-Workspace-ID"
 
     def __init__(
         self,
         gateway_endpoint: Optional[str] = None,
         gateway_api_key: Optional[str] = None,
-        org_id: Optional[str] = None,
         workspace_id: Optional[str] = None,
         broker_base_url: Optional[str] = None,
         timeout_seconds: int = _GW_REQUEST_TIMEOUT,
@@ -135,7 +133,6 @@ class GatewayAdapter(BaseAdapter):
                               Defaults to CARACAL_ENTERPRISE_URL env var.
             gateway_api_key: API key for gateway authentication.
                              Defaults to CARACAL_GATEWAY_API_KEY env var.
-            org_id: Organization identifier injected into every request.
             workspace_id: Workspace identifier injected into every request.
             broker_base_url: Caracal API URL used for explicit broker-mode calls.
             timeout_seconds: HTTP request timeout.
@@ -146,7 +143,6 @@ class GatewayAdapter(BaseAdapter):
             gateway_endpoint or self._flags.gateway_endpoint or ""
         ).rstrip("/")
         self._api_key = gateway_api_key or self._flags.gateway_api_key or ""
-        self._org_id = org_id or ""
         self._workspace_id = workspace_id or ""
         self._broker_base = (broker_base_url or "").rstrip("/")
         self._timeout = timeout_seconds
@@ -212,8 +208,6 @@ class GatewayAdapter(BaseAdapter):
         # Inject gateway auth headers
         if self._api_key:
             headers[self.GATEWAY_API_KEY_HEADER] = self._api_key
-        if self._org_id:
-            headers[self.GATEWAY_ORG_HEADER] = self._org_id
         if self._workspace_id:
             headers[self.GATEWAY_WORKSPACE_HEADER] = self._workspace_id
 
@@ -327,7 +321,6 @@ class GatewayAdapter(BaseAdapter):
 
 
 def build_gateway_adapter(
-    org_id: Optional[str] = None,
     workspace_id: Optional[str] = None,
     broker_base_url: Optional[str] = None,
 ) -> GatewayAdapter:
@@ -342,7 +335,6 @@ def build_gateway_adapter(
     return GatewayAdapter(
         gateway_endpoint=flags.gateway_endpoint,
         gateway_api_key=flags.gateway_api_key,
-        org_id=org_id,
         workspace_id=workspace_id,
         broker_base_url=broker_base_url,
         feature_flags=flags,
