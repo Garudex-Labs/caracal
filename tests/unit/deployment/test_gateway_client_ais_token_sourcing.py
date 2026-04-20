@@ -33,7 +33,7 @@ class _FakeGatewayHttpClient:
 
 @pytest.mark.unit
 @pytest.mark.asyncio
-async def test_authenticate_rejects_non_human_when_ais_not_configured(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_authenticate_rejects_automation_when_ais_not_configured(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("CARACAL_SESSION_KIND", "automation")
     monkeypatch.delenv("CARACAL_AIS_BASE_URL", raising=False)
     monkeypatch.delenv("CARACAL_AIS_UNIX_SOCKET_PATH", raising=False)
@@ -53,8 +53,8 @@ async def test_authenticate_rejects_non_human_when_ais_not_configured(monkeypatc
 
 @pytest.mark.unit
 @pytest.mark.asyncio
-async def test_authenticate_rejects_human_when_ais_not_configured(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("CARACAL_SESSION_KIND", "human")
+async def test_authenticate_rejects_interactive_when_ais_not_configured(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("CARACAL_SESSION_KIND", "interactive")
     monkeypatch.delenv("CARACAL_AIS_BASE_URL", raising=False)
     monkeypatch.delenv("CARACAL_AIS_UNIX_SOCKET_PATH", raising=False)
 
@@ -94,7 +94,7 @@ def test_parse_ais_expiration_falls_back_to_short_ttl() -> None:
 
 @pytest.mark.unit
 @pytest.mark.asyncio
-async def test_authenticate_via_ais_uses_http_endpoint_for_non_human(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_authenticate_via_ais_uses_http_endpoint_for_automation(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("CARACAL_SESSION_KIND", "automation")
     monkeypatch.setenv("CARACAL_AIS_BASE_URL", "http://ais.local")
     monkeypatch.delenv("CARACAL_AIS_UNIX_SOCKET_PATH", raising=False)

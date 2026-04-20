@@ -404,7 +404,7 @@ class TestAuthorityGraphCommand:
         mock_graph = Mock()
         mock_graph.get_topology.return_value = MagicMock(
             nodes=[{"mandate_id": root_mandate_id, "principal_kind": "human"}],
-            edges=[{"edge_id": str(uuid4()), "source_principal_type": "human", "target_principal_type": "worker"}],
+            edges=[{"edge_id": str(uuid4()), "source_principal_kind": "human", "target_principal_kind": "worker"}],
             stats={"total_nodes": 1, "total_edges": 1, "nodes_by_type": {"human": 1}},
         )
         mock_graph.get_path_details.return_value = {

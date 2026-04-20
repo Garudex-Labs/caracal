@@ -199,8 +199,8 @@ class TestDelegationListCommand:
         mock_edge.edge_id = uuid4()
         mock_edge.source_mandate_id = uuid4()
         mock_edge.target_mandate_id = uuid4()
-        mock_edge.source_principal_type = 'user'
-        mock_edge.target_principal_type = 'agent'
+        mock_edge.source_principal_kind = 'human'
+        mock_edge.target_principal_kind = 'worker'
         mock_edge.delegation_type = 'directed'
         mock_edge.context_tags = ['production']
         mock_edge.granted_at = datetime.utcnow()
@@ -229,8 +229,8 @@ class TestDelegationListCommand:
         mock_edge.edge_id = uuid4()
         mock_edge.source_mandate_id = uuid4()
         mock_edge.target_mandate_id = uuid4()
-        mock_edge.source_principal_type = 'user'
-        mock_edge.target_principal_type = 'agent'
+        mock_edge.source_principal_kind = 'human'
+        mock_edge.target_principal_kind = 'worker'
         mock_edge.delegation_type = 'directed'
         mock_edge.context_tags = ['production']
         mock_edge.granted_at = datetime.utcnow()
