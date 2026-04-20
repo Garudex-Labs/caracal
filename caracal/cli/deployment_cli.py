@@ -774,9 +774,9 @@ def enterprise_status(workspace: Optional[str], format: str):
                         console.print(f"  Last sync: {last_sync}")
 
                     if sync_status.get("organization_name"):
-                        console.print(f"  Organization: {sync_status['organization_name']}")
+                        console.print(f"  Workspace: {sync_status['organization_name']}")
                     if sync_status.get("organization_id"):
-                        console.print(f"  Organization ID: {sync_status['organization_id']}")
+                        console.print(f"  Workspace ID: {sync_status['organization_id']}")
                     if sync_status.get("tier"):
                         console.print(f"  Server tier: {sync_status['tier']}")
         

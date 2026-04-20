@@ -203,7 +203,7 @@ class WorkspaceAwareGroup(SuggestingGroup):
 @click.pass_context
 def cli(ctx, workspace: Optional[str], log_level: str, verbose: bool):
     """
-    Caracal - Pre-execution authority enforcement for AI agents.
+    Caracal - Pre-execution authority enforcement for principals.
     
     Workspace-centric authority management with real-time revocation
     and immutable audit trails.
@@ -521,7 +521,7 @@ def policy(ctx):
     """
     Manage authority policies.
     
-    Policies define what actions agents can perform.
+    Policies define what actions principals can perform.
     
     \b
     Examples:
@@ -547,7 +547,7 @@ def authority(ctx):
     """
     Manage execution mandates and authority enforcement.
     
-    Mandates grant specific execution rights to agents.
+    Mandates grant specific execution rights to principals.
     
     \b
     Examples:
@@ -579,7 +579,7 @@ def delegation(ctx):
     """
     Manage delegation relationships.
     
-    Delegation allows agents to grant subsets of their authority to others.
+    Delegation allows principals to grant subsets of their authority to others.
     
     \b
     Examples:

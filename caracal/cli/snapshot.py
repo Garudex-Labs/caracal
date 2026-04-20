@@ -237,7 +237,7 @@ def restore_snapshot(ctx, snapshot_id: str, dry_run: bool):
             click.echo(f"✓ Recovery completed successfully")
             click.echo(f"  Snapshot ID: {result.snapshot_id}")
             click.echo(f"  Snapshot timestamp: {result.snapshot_timestamp}")
-            click.echo(f"  Agents restored: {result.agents_restored}")
+            click.echo(f"  Principals restored: {result.agents_restored}")
             click.echo(f"  Replay from: {result.replay_from_timestamp}")
             
         finally:
