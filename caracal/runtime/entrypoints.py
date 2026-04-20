@@ -160,7 +160,7 @@ services:
             CARACAL_PRINCIPAL_KEY_BACKEND: ${CARACAL_PRINCIPAL_KEY_BACKEND:-vault}
             CARACAL_VAULT_URL: ${CARACAL_VAULT_URL:-http://vault:8080}
             CARACAL_VAULT_TOKEN: ${CARACAL_VAULT_TOKEN:-dev-local-token}
-            CARACAL_VAULT_PROJECT_ID: ${CARACAL_VAULT_PROJECT_ID:-}
+            CARACAL_VAULT_WORKSPACE_ID: ${CARACAL_VAULT_WORKSPACE_ID:-}
             CARACAL_VAULT_ENVIRONMENT: ${CARACAL_VAULT_ENVIRONMENT:-dev}
             CARACAL_VAULT_SECRET_PATH: ${CARACAL_VAULT_SECRET_PATH:-/}
             CARACAL_VAULT_SIGNING_KEY_REF: ${CARACAL_VAULT_SIGNING_KEY_REF:-keys/mandate-signing}
@@ -236,7 +236,7 @@ services:
             CARACAL_PRINCIPAL_KEY_BACKEND: ${CARACAL_PRINCIPAL_KEY_BACKEND:-vault}
             CARACAL_VAULT_URL: ${CARACAL_VAULT_URL:-http://vault:8080}
             CARACAL_VAULT_TOKEN: ${CARACAL_VAULT_TOKEN:-dev-local-token}
-            CARACAL_VAULT_PROJECT_ID: ${CARACAL_VAULT_PROJECT_ID:-}
+            CARACAL_VAULT_WORKSPACE_ID: ${CARACAL_VAULT_WORKSPACE_ID:-}
             CARACAL_VAULT_ENVIRONMENT: ${CARACAL_VAULT_ENVIRONMENT:-dev}
             CARACAL_VAULT_SECRET_PATH: ${CARACAL_VAULT_SECRET_PATH:-/}
             CARACAL_VAULT_SIGNING_KEY_REF: ${CARACAL_VAULT_SIGNING_KEY_REF:-keys/mandate-signing}
@@ -290,7 +290,7 @@ services:
             CARACAL_PRINCIPAL_KEY_BACKEND: ${CARACAL_PRINCIPAL_KEY_BACKEND:-vault}
             CARACAL_VAULT_URL: ${CARACAL_VAULT_URL:-http://vault:8080}
             CARACAL_VAULT_TOKEN: ${CARACAL_VAULT_TOKEN:-dev-local-token}
-            CARACAL_VAULT_PROJECT_ID: ${CARACAL_VAULT_PROJECT_ID:-}
+            CARACAL_VAULT_WORKSPACE_ID: ${CARACAL_VAULT_WORKSPACE_ID:-}
             CARACAL_VAULT_ENVIRONMENT: ${CARACAL_VAULT_ENVIRONMENT:-dev}
             CARACAL_VAULT_SECRET_PATH: ${CARACAL_VAULT_SECRET_PATH:-/}
             CARACAL_VAULT_SIGNING_KEY_REF: ${CARACAL_VAULT_SIGNING_KEY_REF:-keys/mandate-signing}
@@ -1536,16 +1536,16 @@ def _resolve_ais_vault_secret(secret_ref: str) -> str:
     org_id, env_id = _resolve_ais_vault_context()
 
     with vault_access_context():
-        return get_vault().get(org_id=str(org_id), env_id=str(env_id), name=normalized_ref)
+        return get_vault().get(workspace_id=str(org_id), env_id=str(env_id), name=normalized_ref)
 
 
 def _resolve_ais_vault_context() -> tuple[str, str]:
     from caracal.core.vault import get_vault
 
     configured_org = (
-        os.environ.get("CARACAL_VAULT_PROJECT_ID")
+        os.environ.get("CARACAL_VAULT_WORKSPACE_ID")
         or os.environ.get("CARACAL_VAULT_PROJECT_SLUG")
-        or os.environ.get("CARACAL_VAULT_ORG_ID")
+        or os.environ.get("CARACAL_VAULT_WORKSPACE_ID")
         or ""
     ).strip()
     configured_env = (
@@ -1616,7 +1616,7 @@ def _bootstrap_runtime_vault_refs() -> None:
 
     with vault_access_context():
         get_vault().ensure_asymmetric_keypair(
-            org_id=org_id,
+            workspace_id=org_id,
             env_id=env_id,
             private_key_name=signing_key_ref,
             public_key_name=verify_key_ref,
@@ -1663,7 +1663,7 @@ def _create_ais_session_manager():
 
     return SessionManager(
         token_signer=VaultReferenceJwtSigner(
-            org_id=org_id,
+            workspace_id=org_id,
             env_id=env_id,
             key_name=signing_key_ref,
             actor="runtime-ais-session-manager",
@@ -2039,10 +2039,9 @@ def _build_ais_handlers(
             )
             issued = resolved_session_manager.issue_session(
                 subject_id=principal_id,
-                organization_id=str(getattr(request, "organization_id")),
+                workspace_id=str(getattr(request, "workspace_id")),
                 tenant_id=str(getattr(request, "tenant_id")),
                 session_kind=session_kind,
-                workspace_id=getattr(request, "workspace_id", None),
                 directory_scope=getattr(request, "directory_scope", None),
                 include_refresh=bool(getattr(request, "include_refresh", True)),
                 extra_claims=getattr(request, "extra_claims", None),
