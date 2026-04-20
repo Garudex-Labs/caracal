@@ -1533,19 +1533,18 @@ def _resolve_ais_vault_secret(secret_ref: str) -> str:
     if not normalized_ref:
         raise RuntimeError("AIS vault secret reference cannot be empty")
 
-    org_id, env_id = _resolve_ais_vault_context()
+    workspace_id, env_id = _resolve_ais_vault_context()
 
     with vault_access_context():
-        return get_vault().get(workspace_id=str(org_id), env_id=str(env_id), name=normalized_ref)
+        return get_vault().get(workspace_id=str(workspace_id), env_id=str(env_id), name=normalized_ref)
 
 
 def _resolve_ais_vault_context() -> tuple[str, str]:
     from caracal.core.vault import get_vault
 
-    configured_org = (
+    configured_workspace = (
         os.environ.get("CARACAL_VAULT_WORKSPACE_ID")
         or os.environ.get("CARACAL_VAULT_PROJECT_SLUG")
-        or os.environ.get("CARACAL_VAULT_WORKSPACE_ID")
         or ""
     ).strip()
     configured_env = (
@@ -1555,7 +1554,7 @@ def _resolve_ais_vault_context() -> tuple[str, str]:
         or ""
     ).strip()
 
-    default_org = ""
+    default_workspace = ""
     default_env = ""
 
     def _is_uuid(value: str) -> bool:
@@ -1569,29 +1568,29 @@ def _resolve_ais_vault_context() -> tuple[str, str]:
 
     # Only touch vault bootstrap context when we need defaults or slug remapping.
     needs_vault_defaults = (
-        not configured_org
+        not configured_workspace
         or not configured_env
-        or not _is_uuid(configured_org)
+        or not _is_uuid(configured_workspace)
     )
     if needs_vault_defaults:
         try:
             vault = get_vault()
-            default_org = str(getattr(vault._config, "default_project", "") or "").strip()
+            default_workspace = str(getattr(vault._config, "default_project", "") or "").strip()
             default_env = str(getattr(vault._config, "default_environment", "") or "").strip()
         except Exception as exc:
             logging.getLogger(__name__).warning(
                 f"Failed to resolve vault defaults for AIS context, using deterministic fallbacks: {exc}"
             )
 
-    org_id = configured_org
-    if configured_org:
-        if not _is_uuid(configured_org) and default_org:
-            org_id = default_org
+    workspace_id = configured_workspace
+    if configured_workspace:
+        if not _is_uuid(configured_workspace) and default_workspace:
+            workspace_id = default_workspace
     else:
-        org_id = default_org or "caracal"
+        workspace_id = default_workspace or "caracal"
 
     env_id = configured_env or default_env or "runtime"
-    return str(org_id), str(env_id)
+    return str(workspace_id), str(env_id)
 
 
 def _bootstrap_runtime_vault_refs() -> None:
@@ -1608,7 +1607,7 @@ def _bootstrap_runtime_vault_refs() -> None:
             f"{AIS_SESSION_VERIFY_KEY_REF_ENV} is required to bootstrap AIS session verification"
         )
 
-    org_id, env_id = _resolve_ais_vault_context()
+    workspace_id, env_id = _resolve_ais_vault_context()
     algorithm = (
         os.environ.get(AIS_SESSION_ALGORITHM_ENV)
         or "RS256"
@@ -1616,7 +1615,7 @@ def _bootstrap_runtime_vault_refs() -> None:
 
     with vault_access_context():
         get_vault().ensure_asymmetric_keypair(
-            workspace_id=org_id,
+            workspace_id=workspace_id,
             env_id=env_id,
             private_key_name=signing_key_ref,
             public_key_name=verify_key_ref,
@@ -1659,11 +1658,11 @@ def _create_ais_session_manager():
         raise RuntimeError(
             f"{AIS_SESSION_CAVEAT_HMAC_KEY_ENV} is required when {AIS_SESSION_CAVEAT_MODE_ENV}=caveat_chain"
         )
-    org_id, env_id = _resolve_ais_vault_context()
+    workspace_id, env_id = _resolve_ais_vault_context()
 
     return SessionManager(
         token_signer=VaultReferenceJwtSigner(
-            workspace_id=org_id,
+            workspace_id=workspace_id,
             env_id=env_id,
             key_name=signing_key_ref,
             actor="runtime-ais-session-manager",

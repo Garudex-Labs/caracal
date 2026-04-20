@@ -18,7 +18,7 @@ The database module provides:
    - Primary key: `principal_id` (UUID)
    - Unique constraint: `name`
    - Self-referential foreign key: `source_principal_id`
-   - Indexes: `name`, `source_principal_id`, `principal_type`
+   - Indexes: `name`, `source_principal_id`, `principal_kind`
 
 2. **execution_mandates**: Authority mandates
    - Primary key: `mandate_id` (UUID)
@@ -144,7 +144,7 @@ from caracal.db import Principal
 
 principal = Principal(
     name="my-worker",
-    principal_type="worker",
+    principal_kind="worker",
     owner="user@example.com",
     source_principal_id=source_id,  # Optional
     principal_metadata={"key": "value"},  # Optional JSONB
