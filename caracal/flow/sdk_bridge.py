@@ -80,15 +80,15 @@ class SDKBridge:
 
     def checkout(
         self,
-        organization_id: Optional[str] = None,
         workspace_id: Optional[str] = None,
-        project_id: Optional[str] = None,
+        workspace_id: Optional[str] = None,
+        workspace_id: Optional[str] = None,
     ) -> ScopeContext:
         """Activate a workspace scope for the TUI session."""
         self._scope = self._client.context.checkout(
-            organization_id=organization_id,
             workspace_id=workspace_id,
-            project_id=project_id,
+            workspace_id=workspace_id,
+            workspace_id=workspace_id,
         )
         logger.info(f"TUI scope changed: ws={workspace_id}")
         return self._scope
