@@ -549,11 +549,14 @@ def _assert_vault_access_context() -> None:
 
 class vault_access_context:  # noqa: N801
     def __enter__(self) -> "vault_access_context":
+        _VAULT_ACCESS_CONTEXT_FLAG.depth = getattr(_VAULT_ACCESS_CONTEXT_FLAG, "depth", 0) + 1
         _VAULT_ACCESS_CONTEXT_FLAG.active = True
         return self
 
     def __exit__(self, *_) -> None:
-        _VAULT_ACCESS_CONTEXT_FLAG.active = False
+        _VAULT_ACCESS_CONTEXT_FLAG.depth = getattr(_VAULT_ACCESS_CONTEXT_FLAG, "depth", 1) - 1
+        if _VAULT_ACCESS_CONTEXT_FLAG.depth <= 0:
+            _VAULT_ACCESS_CONTEXT_FLAG.active = False
 
 
 class CaracalVault:
@@ -609,6 +612,9 @@ class CaracalVault:
         segments = [segment.strip() for segment in normalized_name.split("/") if segment.strip()]
         if not segments:
             raise VaultConfigurationError("Vault secret name must not be empty.")
+
+        if any(seg in (".", "..") for seg in segments):
+            raise VaultConfigurationError("Vault secret names must not contain path traversal segments.")
 
         name = segments[-1]
         if len(segments) == 1:

@@ -284,7 +284,7 @@ class AllowlistManager:
             if allowlist.pattern_type == "regex":
                 # Use cached compiled pattern
                 compiled_pattern = cached_entry.compiled_patterns.get(allowlist.resource_pattern)
-                if compiled_pattern and compiled_pattern.match(resource_url):
+                if compiled_pattern and compiled_pattern.fullmatch(resource_url):
                     logger.info(
                         f"Resource {resource_url} allowed for principal {principal_id}: "
                         f"matched regex pattern '{allowlist.resource_pattern[:50]}...'"
@@ -465,6 +465,8 @@ class AllowlistManager:
         
         """
         if pattern_type == "regex":
+            if len(pattern) > 500:
+                raise ValidationError("Regex pattern exceeds maximum length of 500 characters")
             try:
                 re.compile(pattern)
             except re.error as e:
@@ -504,7 +506,7 @@ class AllowlistManager:
                 logger.error(f"Failed to compile regex pattern '{pattern}': {e}")
                 return False
         
-        return bool(compiled_pattern.match(resource_url))
+        return bool(compiled_pattern.fullmatch(resource_url))
     
     def _match_glob(self, pattern: str, resource_url: str) -> bool:
         """
