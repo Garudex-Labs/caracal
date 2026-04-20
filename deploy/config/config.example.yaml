@@ -51,7 +51,7 @@ allowlist:
   enabled: true
   default_behavior: allow
   cache_ttl: 60
-  max_patterns_per_agent: 1000
+  max_patterns_per_principal: 1000
 
 defaults:
   time_window: daily

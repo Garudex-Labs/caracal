@@ -194,7 +194,7 @@ PROVIDER_PATTERNS: Dict[str, Tuple[ProviderStarterPattern, ...]] = {
         ),
         ProviderStarterPattern(
             key="ai_assistant_runtime",
-            label="Assistant / agent runtime",
+            label="Assistant / orchestrator runtime",
             description="Assistant, thread, run, and tool-driven AI execution surface.",
             service_type="ai",
             recommended_auth_scheme="bearer",
