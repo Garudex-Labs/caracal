@@ -53,7 +53,7 @@ class PrincipalIdentity:
     metadata: Dict[str, Any]
     principal_kind: str = PrincipalKind.WORKER.value
     public_key: Optional[str] = None
-    org_id: Optional[str] = None
+    workspace_id: Optional[str] = None
     role: Optional[str] = None
     source_principal_id: Optional[str] = None
     lifecycle_status: str = PrincipalLifecycleStatus.ACTIVE.value
@@ -72,7 +72,7 @@ class PrincipalIdentity:
             "created_at": self.created_at,
             "metadata": self.metadata,
             "public_key": self.public_key,
-            "org_id": self.org_id,
+            "workspace_id": self.workspace_id,
             "role": self.role,
             "source_principal_id": self.source_principal_id,
             "lifecycle_status": self.lifecycle_status,
@@ -96,7 +96,7 @@ class PrincipalIdentity:
             created_at=str(data["created_at"]),
             metadata=data.get("metadata", {}) or {},
             public_key=data.get("public_key"),
-            org_id=data.get("org_id"),
+            workspace_id=data.get("workspace_id"),
             role=data.get("role"),
             source_principal_id=data.get("source_principal_id"),
             lifecycle_status=data.get("lifecycle_status", PrincipalLifecycleStatus.ACTIVE.value),

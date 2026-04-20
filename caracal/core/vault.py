@@ -367,7 +367,7 @@ class SecretNotFound(VaultError):
 
 
 class VaultRateLimitExceeded(VaultError):
-    """Raised when org rate limit is exceeded."""
+    """Raised when workspace rate limit is exceeded."""
 
 
 class VaultConfigurationError(VaultError):
@@ -381,7 +381,7 @@ class VaultUnavailableError(VaultError):
 @dataclass
 class VaultEntry:
     entry_id: str
-    org_id: str
+    workspace_id: str
     env_id: str
     secret_name: str
     ciphertext_b64: str
@@ -396,7 +396,7 @@ class VaultEntry:
 @dataclass
 class VaultAuditEvent:
     event_id: str
-    org_id: str
+    workspace_id: str
     env_id: str
     secret_name: str
     operation: str
@@ -434,8 +434,8 @@ def _load_vault_config() -> _VaultConfig:
     token = (_read_env_or_dotenv("CARACAL_VAULT_TOKEN") or "").strip()
     mode = (_read_env_or_dotenv("CARACAL_VAULT_MODE") or "managed").strip().lower()
     default_project = (
-        _read_env_or_dotenv("CARACAL_VAULT_PROJECT_ID")
-        or _read_env_or_dotenv("CARACAL_VAULT_PROJECT_SLUG")
+        _read_env_or_dotenv("CARACAL_VAULT_WORKSPACE_ID")
+        or _read_env_or_dotenv("CARACAL_VAULT_WORKSPACE_SLUG")
         or ""
     ).strip()
     default_environment = (
@@ -483,7 +483,7 @@ def _load_vault_config() -> _VaultConfig:
         token = recovered_token
         if recovered_project:
             default_project = recovered_project
-            os.environ["CARACAL_VAULT_PROJECT_ID"] = recovered_project
+            os.environ["CARACAL_VAULT_WORKSPACE_ID"] = recovered_project
         os.environ["CARACAL_VAULT_TOKEN"] = recovered_token
 
     if not base_url:
@@ -518,19 +518,19 @@ class _VaultRateLimiter:
         self._buckets: dict[str, _RateBucket] = {}
         self._lock = threading.Lock()
 
-    def check(self, org_id: str) -> None:
+    def check(self, workspace_id: str) -> None:
         with self._lock:
             now = time.monotonic()
-            bucket = self._buckets.get(org_id)
+            bucket = self._buckets.get(workspace_id)
             if bucket is None:
-                self._buckets[org_id] = _RateBucket(tokens=self._limit - 1, last_refill=now)
+                self._buckets[workspace_id] = _RateBucket(tokens=self._limit - 1, last_refill=now)
                 return
             elapsed = now - bucket.last_refill
             bucket.tokens = min(self._limit, bucket.tokens + elapsed * (self._limit / self._window))
             bucket.last_refill = now
             if bucket.tokens < 1:
                 raise VaultRateLimitExceeded(
-                    f"Vault rate limit exceeded for org {org_id}. "
+                    f"Vault rate limit exceeded for workspace {workspace_id}. "
                     f"Limit: {self._limit} requests per {int(self._window)}s."
                 )
             bucket.tokens -= 1
@@ -582,13 +582,13 @@ class CaracalVault:
         self._last_health_check_at = 0.0
         self._health_ok = False
 
-    def _resolve_context(self, org_id: str, env_id: str) -> tuple[str, str, str]:
-        project_id = (org_id or self._config.default_project).strip()
+    def _resolve_context(self, workspace_id: str, env_id: str) -> tuple[str, str, str]:
+        project_id = (workspace_id or self._config.default_project).strip()
         environment = (env_id or self._config.default_environment).strip()
         secret_path = self._config.default_secret_path
         if not project_id:
             raise VaultConfigurationError(
-                "Vault project context is missing. Provide org_id or CARACAL_VAULT_PROJECT_ID."
+                "Vault workspace context is missing. Provide workspace_id or set CARACAL_VAULT_WORKSPACE_ID."
             )
         if not environment:
             raise VaultConfigurationError("Vault environment context is missing.")
@@ -1042,7 +1042,7 @@ class CaracalVault:
 
         if response.status_code == 404:
             raise SecretNotFound(
-                f"Secret '{name}' not found in env '{environment}' for project '{project_id}'."
+                f"Secret '{name}' not found in env '{environment}' for workspace '{project_id}'."
             )
 
         payload = self._json(response)
@@ -1068,7 +1068,7 @@ class CaracalVault:
             return
         if response.status_code == 404:
             raise SecretNotFound(
-                f"Secret '{name}' not found in env '{environment}' for project '{project_id}'."
+                f"Secret '{name}' not found in env '{environment}' for workspace '{project_id}'."
             )
 
         raise VaultError(
@@ -1096,7 +1096,7 @@ class CaracalVault:
 
     def _audit_event(
         self,
-        org_id: str,
+        workspace_id: str,
         env_id: str,
         name: str,
         op: str,
@@ -1107,7 +1107,7 @@ class CaracalVault:
     ) -> None:
         event = VaultAuditEvent(
             event_id=str(uuid4()),
-            org_id=org_id,
+            workspace_id=workspace_id,
             env_id=env_id,
             secret_name=name,
             operation=op,
@@ -1120,11 +1120,11 @@ class CaracalVault:
         with self._audit_lock:
             self._audit.append(event)
 
-    def put(self, org_id: str, env_id: str, name: str, plaintext: str, actor: str = "gateway") -> VaultEntry:
+    def put(self, workspace_id: str, env_id: str, name: str, plaintext: str, actor: str = "gateway") -> VaultEntry:
         _assert_vault_access_context()
         self._ensure_service_health()
 
-        project_id, environment, secret_path = self._resolve_context(org_id, env_id)
+        project_id, environment, secret_path = self._resolve_context(workspace_id, env_id)
         self._rl.check(project_id)
         secret_path, name = self._resolve_secret_locator(secret_path, name)
         existed = self._secret_exists(project_id, environment, secret_path, name)
@@ -1138,10 +1138,10 @@ class CaracalVault:
                 plaintext,
             )
             now = datetime.now(timezone.utc).isoformat()
-            self._audit_event(org_id, env_id, name, "update" if existed else "create", 1, actor, True)
+            self._audit_event(workspace_id, env_id, name, "update" if existed else "create", 1, actor, True)
             return VaultEntry(
                 entry_id=entry_id,
-                org_id=org_id,
+                workspace_id=workspace_id,
                 env_id=env_id,
                 secret_name=name,
                 ciphertext_b64="",
@@ -1153,34 +1153,34 @@ class CaracalVault:
                 updated_at=now,
             )
         except Exception as exc:
-            self._audit_event(org_id, env_id, name, "create", 0, actor, False, type(exc).__name__)
+            self._audit_event(workspace_id, env_id, name, "create", 0, actor, False, type(exc).__name__)
             if isinstance(exc, VaultError):
                 raise
             raise VaultError(f"Failed to store secret '{name}': {exc}") from exc
 
-    def get(self, org_id: str, env_id: str, name: str, actor: str = "gateway") -> str:
+    def get(self, workspace_id: str, env_id: str, name: str, actor: str = "gateway") -> str:
         _assert_vault_access_context()
         self._ensure_service_health()
 
-        project_id, environment, secret_path = self._resolve_context(org_id, env_id)
+        project_id, environment, secret_path = self._resolve_context(workspace_id, env_id)
         self._rl.check(project_id)
         secret_path, name = self._resolve_secret_locator(secret_path, name)
         try:
             value = self._get_secret_value(project_id, environment, secret_path, name)
-            self._audit_event(org_id, env_id, name, "read", 1, actor, True)
+            self._audit_event(workspace_id, env_id, name, "read", 1, actor, True)
             return value
         except SecretNotFound:
-            self._audit_event(org_id, env_id, name, "read", 0, actor, False, "SecretNotFound")
+            self._audit_event(workspace_id, env_id, name, "read", 0, actor, False, "SecretNotFound")
             raise
         except Exception as exc:
-            self._audit_event(org_id, env_id, name, "read", 0, actor, False, type(exc).__name__)
+            self._audit_event(workspace_id, env_id, name, "read", 0, actor, False, type(exc).__name__)
             if isinstance(exc, VaultError):
                 raise
             raise VaultError(f"Failed to retrieve secret '{name}': {exc}") from exc
 
     def sign_jwt(
         self,
-        org_id: str,
+        workspace_id: str,
         env_id: str,
         name: str,
         *,
@@ -1192,7 +1192,7 @@ class CaracalVault:
         _assert_vault_access_context()
         self._ensure_service_health()
 
-        project_id, environment, secret_path = self._resolve_context(org_id, env_id)
+        project_id, environment, secret_path = self._resolve_context(workspace_id, env_id)
         self._rl.check(project_id)
         secret_path, name = self._resolve_secret_locator(secret_path, name)
         try:
@@ -1205,17 +1205,17 @@ class CaracalVault:
                 headers=headers,
                 algorithm=algorithm,
             )
-            self._audit_event(org_id, env_id, name, "sign_jwt", 1, actor, True)
+            self._audit_event(workspace_id, env_id, name, "sign_jwt", 1, actor, True)
             return token
         except Exception as exc:
-            self._audit_event(org_id, env_id, name, "sign_jwt", 0, actor, False, type(exc).__name__)
+            self._audit_event(workspace_id, env_id, name, "sign_jwt", 0, actor, False, type(exc).__name__)
             if isinstance(exc, VaultError):
                 raise
             raise VaultError(f"Failed to sign JWT with vault-backed key '{name}': {exc}") from exc
 
     def sign_canonical_payload(
         self,
-        org_id: str,
+        workspace_id: str,
         env_id: str,
         name: str,
         *,
@@ -1223,10 +1223,10 @@ class CaracalVault:
         actor: str = "gateway",
     ) -> str:
         _assert_vault_access_context()
-        self._rl.check(org_id)
+        self._rl.check(workspace_id)
         self._ensure_service_health()
 
-        project_id, environment, secret_path = self._resolve_context(org_id, env_id)
+        project_id, environment, secret_path = self._resolve_context(workspace_id, env_id)
         secret_path, name = self._resolve_secret_locator(secret_path, name)
         try:
             signature = self._sign_canonical_payload_via_vault_api(
@@ -1236,11 +1236,11 @@ class CaracalVault:
                 key_name=name,
                 payload=payload,
             )
-            self._audit_event(org_id, env_id, name, "sign_canonical_payload", 1, actor, True)
+            self._audit_event(workspace_id, env_id, name, "sign_canonical_payload", 1, actor, True)
             return signature
         except Exception as exc:
             self._audit_event(
-                org_id,
+                workspace_id,
                 env_id,
                 name,
                 "sign_canonical_payload",
@@ -1255,39 +1255,39 @@ class CaracalVault:
                 f"Failed to sign canonical payload with vault-backed key '{name}': {exc}"
             ) from exc
 
-    def delete(self, org_id: str, env_id: str, name: str, actor: str = "gateway") -> None:
+    def delete(self, workspace_id: str, env_id: str, name: str, actor: str = "gateway") -> None:
         _assert_vault_access_context()
-        self._rl.check(org_id)
+        self._rl.check(workspace_id)
         self._ensure_service_health()
 
-        project_id, environment, secret_path = self._resolve_context(org_id, env_id)
+        project_id, environment, secret_path = self._resolve_context(workspace_id, env_id)
         secret_path, name = self._resolve_secret_locator(secret_path, name)
         try:
             self._delete_secret(project_id, environment, secret_path, name)
-            self._audit_event(org_id, env_id, name, "delete", 1, actor, True)
+            self._audit_event(workspace_id, env_id, name, "delete", 1, actor, True)
         except SecretNotFound:
-            self._audit_event(org_id, env_id, name, "delete", 0, actor, False, "SecretNotFound")
+            self._audit_event(workspace_id, env_id, name, "delete", 0, actor, False, "SecretNotFound")
             raise
 
-    def list_secrets(self, org_id: str, env_id: str, actor: str = "gateway") -> list[str]:
+    def list_secrets(self, workspace_id: str, env_id: str, actor: str = "gateway") -> list[str]:
         _assert_vault_access_context()
-        self._rl.check(org_id)
+        self._rl.check(workspace_id)
         self._ensure_service_health()
 
-        project_id, environment, secret_path = self._resolve_context(org_id, env_id)
+        project_id, environment, secret_path = self._resolve_context(workspace_id, env_id)
         try:
             names = self._list_secret_names(project_id, environment, secret_path)
-            self._audit_event(org_id, env_id, "*", "list", 1, actor, True)
+            self._audit_event(workspace_id, env_id, "*", "list", 1, actor, True)
             return names
         except Exception as exc:
-            self._audit_event(org_id, env_id, "*", "list", 0, actor, False, type(exc).__name__)
+            self._audit_event(workspace_id, env_id, "*", "list", 0, actor, False, type(exc).__name__)
             if isinstance(exc, VaultError):
                 raise
             raise VaultError(f"Failed to list secrets: {exc}") from exc
 
     def ensure_asymmetric_keypair(
         self,
-        org_id: str,
+        workspace_id: str,
         env_id: str,
         *,
         private_key_name: str,
@@ -1296,7 +1296,7 @@ class CaracalVault:
         actor: str = "gateway",
     ) -> None:
         _assert_vault_access_context()
-        self._rl.check(org_id)
+        self._rl.check(workspace_id)
         self._ensure_service_health()
 
         normalized_algorithm = str(algorithm or "RS256").strip().upper()
@@ -1310,10 +1310,10 @@ class CaracalVault:
                 "Vault bootstrap requires distinct private/public key references."
             )
 
-        project_id, environment, secret_path = self._resolve_context(org_id, env_id)
+        project_id, environment, secret_path = self._resolve_context(workspace_id, env_id)
         secret_path, private_key_name = self._resolve_secret_locator(secret_path, private_key_name)
 
-        _, _, public_secret_path = self._resolve_context(org_id, env_id)
+        _, _, public_secret_path = self._resolve_context(workspace_id, env_id)
         public_secret_path, public_key_name = self._resolve_secret_locator(
             public_secret_path,
             public_key_name,
@@ -1347,11 +1347,11 @@ class CaracalVault:
                     algorithm=normalized_algorithm,
                 )
 
-            self._audit_event(org_id, env_id, private_key_name, "create", 1, actor, True)
-            self._audit_event(org_id, env_id, public_key_name, "create", 1, actor, True)
+            self._audit_event(workspace_id, env_id, private_key_name, "create", 1, actor, True)
+            self._audit_event(workspace_id, env_id, public_key_name, "create", 1, actor, True)
         except Exception as exc:
             self._audit_event(
-                org_id,
+                workspace_id,
                 env_id,
                 private_key_name,
                 "bootstrap_keypair",
@@ -1361,7 +1361,7 @@ class CaracalVault:
                 type(exc).__name__,
             )
             self._audit_event(
-                org_id,
+                workspace_id,
                 env_id,
                 public_key_name,
                 "bootstrap_keypair",
@@ -1377,9 +1377,9 @@ class CaracalVault:
                 f"({private_key_name}, {public_key_name}): {exc}"
             ) from exc
 
-    def rotate_master_key(self, org_id: str, env_id: str, actor: str = "admin") -> RotationResult:
+    def rotate_master_key(self, workspace_id: str, env_id: str, actor: str = "admin") -> RotationResult:
         _assert_vault_access_context()
-        self._rl.check(org_id)
+        self._rl.check(workspace_id)
         self._ensure_service_health()
 
         rotate_endpoint = (_read_env_or_dotenv("CARACAL_VAULT_ROTATE_ENDPOINT") or "").strip()
@@ -1389,7 +1389,7 @@ class CaracalVault:
                 "Set CARACAL_VAULT_ROTATE_ENDPOINT to enable rotate_master_key."
             )
 
-        project_id, environment, secret_path = self._resolve_context(org_id, env_id)
+        project_id, environment, secret_path = self._resolve_context(workspace_id, env_id)
         started_at = time.monotonic()
         response = self._request(
             "POST",
@@ -1408,7 +1408,7 @@ class CaracalVault:
         failed = int(payload.get("secrets_failed") or payload.get("failed") or 0)
         key_version = int(payload.get("new_key_version") or payload.get("key_version") or 0)
 
-        self._audit_event(org_id, env_id, "*", "rotate", key_version, actor, failed == 0)
+        self._audit_event(workspace_id, env_id, "*", "rotate", key_version, actor, failed == 0)
 
         return RotationResult(
             secrets_rotated=rotated,

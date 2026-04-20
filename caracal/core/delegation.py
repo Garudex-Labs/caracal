@@ -248,8 +248,8 @@ class DelegationTokenManager:
                 raise error
             
             # Get issuer principal
-            issuer_agent = self.principal_registry.get_principal(issuer_id)
-            if issuer_agent is None:
+            issuer_principal = self.principal_registry.get_principal(issuer_id)
+            if issuer_principal is None:
                 # Fail closed: deny if issuer principal doesn't exist (Requirement 23.3)
                 error_handler = get_error_handler("delegation-token-manager")
                 error = PrincipalNotFoundError(f"Issuer principal with ID '{issuer_id}' does not exist")
