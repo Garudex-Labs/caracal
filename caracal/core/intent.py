@@ -18,9 +18,9 @@ from uuid import UUID, uuid4
 @dataclass
 class Intent:
     """
-    Structured declaration of what an agent wants to do.
+    Structured declaration of what a principal wants to do.
     
-    An intent represents a specific action an agent wants to perform on a
+    An intent represents a specific action a principal wants to perform on a
     specific resource, with optional parameters and context. Intents are used
     to request authority and validate that actions are within mandate scope.
     
@@ -108,7 +108,7 @@ class IntentHandler:
     """
     Handles intent parsing and validation.
     
-    Intents are structured declarations of what an agent wants to do.
+    Intents are structured declarations of what a principal wants to do.
     The IntentHandler parses intent data, validates structure, and manages
     intent-based mandate requests.
     """

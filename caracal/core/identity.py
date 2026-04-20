@@ -193,7 +193,7 @@ class PrincipalRegistry:
     def create_principal(self, *args, **kwargs) -> PrincipalIdentity:
         return self.register_principal(*args, **kwargs)
 
-    def update_agent(self, principal_id: str, metadata: Optional[Dict[str, Any]] = None) -> PrincipalIdentity:
+    def update_principal(self, principal_id: str, metadata: Optional[Dict[str, Any]] = None) -> PrincipalIdentity:
         principal = self._get_row(principal_id)
         principal_metadata = dict(principal.principal_metadata or {})
         principal_metadata.update(metadata or {})
@@ -201,10 +201,6 @@ class PrincipalRegistry:
         self.session.flush()
         self.session.commit()
         return self._to_identity(principal)
-
-    def update_principal(self, principal_id: str, metadata: Optional[Dict[str, Any]] = None) -> PrincipalIdentity:
-        """Canonical alias for principal metadata updates across control surfaces."""
-        return self.update_agent(principal_id=principal_id, metadata=metadata)
 
     def transition_lifecycle_status(
         self,
@@ -351,8 +347,8 @@ class PrincipalRegistry:
         expiration_seconds: int = 86400,
         allowed_operations: Optional[List[str]] = None,
         delegation_type: str = "directed",
-        source_principal_type: str = "agent",
-        target_principal_type: str = "agent",
+        source_principal_type: str = "worker",
+        target_principal_type: str = "worker",
         context_tags: Optional[List[str]] = None,
     ) -> Optional[str]:
         if self.delegation_token_manager is None:

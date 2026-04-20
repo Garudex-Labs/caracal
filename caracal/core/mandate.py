@@ -842,7 +842,7 @@ class MandateManager:
         Create a peer delegation — non-directed authority sharing.
         
         Unlike delegate_mandate, peer delegation:
-        - Only works between same principal types (user↔user, agent↔agent)
+        - Only works between same principal types (human↔human, worker↔worker)
         - Creates a DelegationEdge with type='peer'
         - Both source and target retain their existing authority level
         - Scope must still be a subset of source's scope
