@@ -54,7 +54,6 @@ class PrincipalIdentity:
     principal_kind: str = PrincipalKind.WORKER.value
     public_key: Optional[str] = None
     workspace_id: Optional[str] = None
-    role: Optional[str] = None
     source_principal_id: Optional[str] = None
     lifecycle_status: str = PrincipalLifecycleStatus.ACTIVE.value
     attestation_status: str = PrincipalAttestationStatus.UNATTESTED.value
@@ -73,7 +72,6 @@ class PrincipalIdentity:
             "metadata": self.metadata,
             "public_key": self.public_key,
             "workspace_id": self.workspace_id,
-            "role": self.role,
             "source_principal_id": self.source_principal_id,
             "lifecycle_status": self.lifecycle_status,
             "attestation_status": self.attestation_status,
@@ -97,7 +95,6 @@ class PrincipalIdentity:
             metadata=data.get("metadata", {}) or {},
             public_key=data.get("public_key"),
             workspace_id=data.get("workspace_id"),
-            role=data.get("role"),
             source_principal_id=data.get("source_principal_id"),
             lifecycle_status=data.get("lifecycle_status", PrincipalLifecycleStatus.ACTIVE.value),
             attestation_status=data.get("attestation_status", PrincipalAttestationStatus.UNATTESTED.value),
@@ -347,8 +344,8 @@ class PrincipalRegistry:
         expiration_seconds: int = 86400,
         allowed_operations: Optional[List[str]] = None,
         delegation_type: str = "directed",
-        source_principal_type: str = "worker",
-        target_principal_type: str = "worker",
+        source_principal_kind: str = "worker",
+        target_principal_kind: str = "worker",
         context_tags: Optional[List[str]] = None,
     ) -> Optional[str]:
         if self.delegation_token_manager is None:
@@ -375,8 +372,8 @@ class PrincipalRegistry:
             expiration_seconds=expiration_seconds,
             allowed_operations=allowed_operations,
             delegation_type=delegation_type,
-            source_principal_type=source_principal_type,
-            target_principal_type=target_principal_type,
+            source_principal_kind=source_principal_kind,
+            target_principal_kind=target_principal_kind,
             context_tags=context_tags,
         )
 

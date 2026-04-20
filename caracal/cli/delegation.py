@@ -226,8 +226,8 @@ def generate(ctx, source_id: str, target_id: str,
             expiration_seconds=expiration,
             allowed_operations=allowed_operations,
             delegation_type=delegation_type,
-            source_principal_type=source_type,
-            target_principal_type=target_type,
+            source_principal_kind=source_type,
+            target_principal_kind=target_type,
             context_tags=tags_list,
             source_mandate_id=source_mandate_uuid,
         )
@@ -330,8 +330,8 @@ def list_delegations(ctx, principal_id: str, format: str):
                     'edge_id': str(edge.edge_id),
                     'source_mandate_id': str(edge.source_mandate_id),
                     'target_mandate_id': str(edge.target_mandate_id),
-                    'source_principal_type': edge.source_principal_type,
-                    'target_principal_type': edge.target_principal_type,
+                    'source_principal_kind': edge.source_principal_kind,
+                    'target_principal_kind': edge.target_principal_kind,
                     'delegation_type': edge.delegation_type,
                     'context_tags': edge.context_tags,
                     'granted_at': edge.granted_at.isoformat() if edge.granted_at else None,
@@ -364,14 +364,14 @@ def list_delegations(ctx, principal_id: str, format: str):
                 
                 # Print delegations
                 for d in delegations:
-                    src_icon = type_icons.get(d['source_principal_type'], '?')
-                    tgt_icon = type_icons.get(d['target_principal_type'], '?')
+                    src_icon = type_icons.get(d['source_principal_kind'], '?')
+                    tgt_icon = type_icons.get(d['target_principal_kind'], '?')
                     tags = ', '.join(d['context_tags']) if d.get('context_tags') else ''
                     
                     click.echo(
                         f"{d['edge_id']:<38}  "
-                        f"{src_icon} {d['source_principal_type']:<9}  "
-                        f"{tgt_icon} {d['target_principal_type']:<9}  "
+                        f"{src_icon} {d['source_principal_kind']:<9}  "
+                        f"{tgt_icon} {d['target_principal_kind']:<9}  "
                         f"{d['delegation_type']:<14}  "
                         f"{tags}"
                     )

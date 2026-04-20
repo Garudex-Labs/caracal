@@ -188,7 +188,7 @@ class GatewayClient:
         self.max_queue_size = max_queue_size
         self.default_ttl_seconds = default_ttl_seconds
 
-        self._runtime_session_kind = (os.environ.get(_SESSION_KIND_ENV) or "human").strip().lower() or "human"
+        self._runtime_session_kind = (os.environ.get(_SESSION_KIND_ENV) or "automation").strip().lower() or "automation"
         self._ais_base_url = (os.environ.get(_AIS_BASE_URL_ENV) or "").strip().rstrip("/")
         self._ais_unix_socket = (os.environ.get(_AIS_UNIX_SOCKET_ENV) or "").strip()
         ais_prefix = (os.environ.get(_AIS_API_PREFIX_ENV) or "").strip()

@@ -102,7 +102,7 @@ def crypto_fixtures(db_session):
     # Create issuer principal
     issuer = Principal(
         principal_id=uuid4(),
-        principal_type="user",
+        principal_kind="human",
         name="test-issuer",
         owner="security-test",
         private_key_pem=issuer_private_pem,
@@ -112,7 +112,7 @@ def crypto_fixtures(db_session):
     # Create subject principal
     subject = Principal(
         principal_id=uuid4(),
-        principal_type="agent",
+        principal_kind="worker",
         name="test-subject",
         owner="security-test",
         private_key_pem=subject_private_pem,

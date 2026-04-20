@@ -60,8 +60,8 @@ class DelegationTokenClaims:
         token_id: Unique token identifier (jti claim)
         allowed_operations: List of allowed operation types
         delegation_type: Type of delegation (directed/peer)
-        source_principal_type: Type of the delegating principal
-        target_principal_type: Type of the receiving principal
+        source_principal_kind: Type of the delegating principal
+        target_principal_kind: Type of the receiving principal
         context_tags: Context tags for dynamic authority filtering
         source_mandate_id: Canonical source mandate lineage ID
     """
@@ -73,8 +73,8 @@ class DelegationTokenClaims:
     token_id: UUID
     allowed_operations: List[str]
     delegation_type: str = "directed"
-    source_principal_type: str = "worker"
-    target_principal_type: str = "worker"
+    source_principal_kind: str = "worker"
+    target_principal_kind: str = "worker"
     context_tags: Optional[List[str]] = None
     source_mandate_id: Optional[UUID] = None
 
@@ -107,8 +107,8 @@ class DelegationTokenManager:
         expiration_seconds: int = 86400,
         allowed_operations: Optional[List[str]] = None,
         delegation_type: str = "directed",
-        source_principal_type: str = "worker",
-        target_principal_type: str = "worker",
+        source_principal_kind: str = "worker",
+        target_principal_kind: str = "worker",
         context_tags: Optional[List[str]] = None,
         source_mandate_id: Optional[UUID] = None,
     ) -> str:
@@ -124,8 +124,8 @@ class DelegationTokenManager:
             expiration_seconds: Token validity duration (default: 86400 = 24 hours)
             allowed_operations: List of allowed operations (default: ["api_call", "mcp_tool"])
             delegation_type: Type of delegation (directed/peer)
-            source_principal_type: Type of delegating principal
-            target_principal_type: Type of receiving principal
+            source_principal_kind: Type of delegating principal
+            target_principal_kind: Type of receiving principal
             context_tags: Context tags for dynamic authority filtering
             source_mandate_id: Canonical source mandate lineage ID
             
@@ -170,8 +170,8 @@ class DelegationTokenManager:
             # Delegation claims
             "allowedOperations": allowed_operations,
             "delegationType": delegation_type,
-            "sourcePrincipalType": source_principal_type,
-            "targetPrincipalType": target_principal_type,
+            "sourcePrincipalKind": source_principal_kind,
+            "targetPrincipalKind": target_principal_kind,
         }
         
         # Optional claims
@@ -203,7 +203,7 @@ class DelegationTokenManager:
         
         logger.info(
             f"Generated delegation token: source={source_principal_id}, target={target_principal_id}, "
-            f"type={delegation_type}, {source_principal_type}→{target_principal_type}, "
+            f"type={delegation_type}, {source_principal_kind}→{target_principal_kind}, "
             f"expires={expiration.isoformat()}"
         )
         
@@ -321,8 +321,8 @@ class DelegationTokenManager:
                 token_id = UUID(payload["jti"])
                 allowed_operations = payload["allowedOperations"]
                 delegation_type = payload.get("delegationType", "directed")
-                source_principal_type = payload.get("sourcePrincipalType", "worker")
-                target_principal_type = payload.get("targetPrincipalType", "worker")
+                source_principal_kind = payload.get("sourcePrincipalKind", "worker")
+                target_principal_kind = payload.get("targetPrincipalKind", "worker")
                 context_tags = payload.get("contextTags")
                 source_mandate_claim = payload.get("sourceMandateId")
                 source_mandate_id = UUID(source_mandate_claim) if source_mandate_claim else None
@@ -352,8 +352,8 @@ class DelegationTokenManager:
                 token_id=token_id,
                 allowed_operations=allowed_operations,
                 delegation_type=delegation_type,
-                source_principal_type=source_principal_type,
-                target_principal_type=target_principal_type,
+                source_principal_kind=source_principal_kind,
+                target_principal_kind=target_principal_kind,
                 context_tags=context_tags,
                 source_mandate_id=source_mandate_id,
             )

@@ -1019,13 +1019,13 @@ def graph(ctx, root_mandate_id: Optional[str], format: str):
                     click.echo("-" * 110)
                     
                     for edge in topology.edges:
-                        src_icon = type_icons.get(edge['source_principal_type'], '?')
-                        tgt_icon = type_icons.get(edge['target_principal_type'], '?')
+                        src_icon = type_icons.get(edge['source_principal_kind'], '?')
+                        tgt_icon = type_icons.get(edge['target_principal_kind'], '?')
                         tags = ', '.join(edge.get('context_tags', []))
                         click.echo(
                             f"{edge['edge_id']:<38}  "
-                            f"{src_icon} {edge['source_principal_type']:<14}  "
-                            f"{tgt_icon} {edge['target_principal_type']:<14}  "
+                            f"{src_icon} {edge['source_principal_kind']:<14}  "
+                            f"{tgt_icon} {edge['target_principal_kind']:<14}  "
                             f"{edge['delegation_type']:<14}  "
                             f"{tags}"
                         )

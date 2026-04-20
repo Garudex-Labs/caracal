@@ -637,9 +637,9 @@ class DelegationEdgeModel(Base):
         index=True,
     )
     
-    # Principal type tracking
-    source_principal_type = Column(String(50), nullable=False, index=True)  # human, orchestrator, worker, service
-    target_principal_type = Column(String(50), nullable=False, index=True)  # human, orchestrator, worker, service
+    # Principal kind tracking
+    source_principal_kind = Column(String(50), nullable=False, index=True)  # human, orchestrator, worker, service
+    target_principal_kind = Column(String(50), nullable=False, index=True)  # human, orchestrator, worker, service
     
     # Delegation metadata
     delegation_type = Column(
@@ -689,13 +689,13 @@ class DelegationEdgeModel(Base):
     # Composite indexes
     __table_args__ = (
         Index("ix_delegation_edges_source_target", "source_mandate_id", "target_mandate_id"),
-        Index("ix_delegation_edges_types", "source_principal_type", "target_principal_type"),
+        Index("ix_delegation_edges_types", "source_principal_kind", "target_principal_kind"),
     )
     
     def __repr__(self):
         return (
             f"<DelegationEdge(edge_id={self.edge_id}, "
-            f"{self.source_principal_type}→{self.target_principal_type}, "
+            f"{self.source_principal_kind}→{self.target_principal_kind}, "
             f"type={self.delegation_type}, revoked={self.revoked})>"
         )
 

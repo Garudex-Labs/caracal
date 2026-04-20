@@ -288,7 +288,7 @@ def _load_local_delegation() -> List[Dict[str, Any]]:
                 rows = session.execute(
                     text(
                         f'SELECT de.edge_id, de.source_mandate_id, de.target_mandate_id, '
-                        f'de.source_principal_type, de.target_principal_type, '
+                        f'de.source_principal_kind, de.target_principal_kind, '
                         f'de.delegation_type, '
                         f'COALESCE((SELECT array_agg(det.context_tag ORDER BY det.position) '
                         f'          FROM "{schema}".delegation_edge_tags det '
@@ -307,8 +307,8 @@ def _load_local_delegation() -> List[Dict[str, Any]]:
                         "edge_id": str(r[0]),
                         "source_mandate_id": str(r[1]),
                         "target_mandate_id": str(r[2]),
-                        "source_principal_type": r[3] or "worker",
-                        "target_principal_type": r[4] or "worker",
+                        "source_principal_kind": r[3] or "worker",
+                        "target_principal_kind": r[4] or "worker",
                         "delegation_type": r[5] or "hierarchical",
                         "context_tags": r[6],
                         "granted_at": granted_at.isoformat() if granted_at else None,

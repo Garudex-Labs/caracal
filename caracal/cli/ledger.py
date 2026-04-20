@@ -812,7 +812,7 @@ def delegation_path(
                         {
                             "edge_id": str(e.edge_id),
                             "source_mandate_id": str(e.source_mandate_id),
-                            "source_principal_type": e.source_principal_type,
+                            "source_principal_kind": e.source_principal_kind,
                             "delegation_type": e.delegation_type,
                             "context_tags": e.context_tags,
                         }
@@ -822,7 +822,7 @@ def delegation_path(
                         {
                             "edge_id": str(e.edge_id),
                             "target_mandate_id": str(e.target_mandate_id),
-                            "target_principal_type": e.target_principal_type,
+                            "target_principal_kind": e.target_principal_kind,
                             "delegation_type": e.delegation_type,
                             "context_tags": e.context_tags,
                         }
@@ -847,10 +847,10 @@ def delegation_path(
                     click.echo(f"Inbound Edges ({len(inbound_edges)} authority sources):")
                     click.echo("-" * 70)
                     for edge in inbound_edges:
-                        icon = type_icons.get(edge.source_principal_type, '?')
+                        icon = type_icons.get(edge.source_principal_kind, '?')
                         tags = ', '.join(edge.context_tags) if edge.context_tags else ''
                         click.echo(
-                            f"  {icon} {edge.source_principal_type} "
+                            f"  {icon} {edge.source_principal_kind} "
                             f"({str(edge.source_mandate_id)[:8]}...) "
                             f"\u2192 [{edge.delegation_type}] "
                             f"{tags}"
@@ -864,10 +864,10 @@ def delegation_path(
                     click.echo(f"Outbound Edges ({len(outbound_edges)} delegated targets):")
                     click.echo("-" * 70)
                     for edge in outbound_edges:
-                        icon = type_icons.get(edge.target_principal_type, '?')
+                        icon = type_icons.get(edge.target_principal_kind, '?')
                         tags = ', '.join(edge.context_tags) if edge.context_tags else ''
                         click.echo(
-                            f"  \u2192 {icon} {edge.target_principal_type} "
+                            f"  \u2192 {icon} {edge.target_principal_kind} "
                             f"({str(edge.target_mandate_id)[:8]}...) "
                             f"[{edge.delegation_type}] "
                             f"{tags}"
