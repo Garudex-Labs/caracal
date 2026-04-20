@@ -353,9 +353,8 @@ class GatewayClient:
             or os.environ.get("CARACAL_PRINCIPAL_ID")
             or ""
         ).strip()
-        organization_id = (
-            os.environ.get("CARACAL_AIS_ORGANIZATION_ID")
-            or os.environ.get("CARACAL_ORGANIZATION_ID")
+        workspace_id = (
+            os.environ.get("CARACAL_WORKSPACE_ID")
             or ""
         ).strip()
         tenant_id = (
@@ -364,12 +363,12 @@ class GatewayClient:
             or ""
         ).strip()
 
-        if not principal_id or not organization_id or not tenant_id:
+        if not principal_id or not workspace_id or not tenant_id:
             return None
 
         payload: dict[str, Any] = {
             "principal_id": principal_id,
-            "organization_id": organization_id,
+            "workspace_id": workspace_id,
             "tenant_id": tenant_id,
             "session_kind": self._runtime_session_kind or "automation",
             "include_refresh": True,
