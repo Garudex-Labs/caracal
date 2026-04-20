@@ -14,7 +14,7 @@ This directory contains Grafana dashboard JSON files for monitoring Caracal Core
    - Policy version creation rate
    - Version history queries
    - Policy change audit trail
-   - Active policies per agent
+   - Active policies per principal
 
 4. **allowlists.json** - Resource allowlist dashboard
    - Allowlist check rate
@@ -23,7 +23,7 @@ This directory contains Grafana dashboard JSON files for monitoring Caracal Core
    - Cache hit rate
 
 5. **spending-trends.json** - Spending trends dashboard
-   - Spending over time per agent
+   - Spending over time per principal
    - Budget utilization
    - Spending anomalies
    - Top spenders

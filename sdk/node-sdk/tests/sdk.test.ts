@@ -122,11 +122,9 @@ describe('CaracalClient', () => {
     const client = new CaracalClient({ adapter });
 
     const ctx = client.context.checkout({
-      organizationId: 'org_1',
       workspaceId: 'ws_1',
     });
 
-    expect(ctx.organizationId).toBe('org_1');
     expect(ctx.workspaceId).toBe('ws_1');
     expect(ctx.tools).toBeDefined();
   });
