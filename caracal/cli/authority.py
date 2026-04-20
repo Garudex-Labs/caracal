@@ -819,15 +819,15 @@ def delegate(
     scope and validity, then creates a delegation edge in the graph.
     
     Respects delegation direction rules:
-      ✅ user → agent/service, agent → service, peer delegation (user↔user, agent↔agent)
-      ❌ service → any, agent → user
+      ✅ human → orchestrator/worker/service, orchestrator → worker/service, peer delegation (human↔human, worker↔worker)
+      ❌ service → any, worker → human
     
     Examples:
     
-        # Delegate from user mandate to agent
+        # Delegate from human mandate to worker
         caracal authority delegate \\
             --source-mandate-id <source-id> \\
-            --target-subject-id <agent-id> \\
+            --target-subject-id <worker-id> \\
             --provider openai-main \\
             --resource-scope "provider:openai-main:resource:chat.completions" \\
             --action-scope "provider:openai-main:action:invoke" \\
@@ -1005,7 +1005,12 @@ def graph(ctx, root_mandate_id: Optional[str], format: str):
                 click.echo(json.dumps(output, indent=2))
             else:
                 # Table output
-                type_icons = {'user': '👤', 'agent': '🤖', 'service': '⚙️'}
+                type_icons = {
+                    'human': '👤',
+                    'orchestrator': '🏛️',
+                    'worker': '🤖',
+                    'service': '⚙️',
+                }
                 click.echo(f"Delegation Graph ({topology.stats['total_nodes']} nodes, {topology.stats['total_edges']} edges)")
                 click.echo()
                 
@@ -1233,11 +1238,11 @@ def peer_delegate_cmd(
     Create a peer delegation between same-type principals.
     
     Peer delegation allows authority sharing between principals of
-    the same type (user↔user, agent↔agent).
+    the same type (human↔human, worker↔worker).
     
     Examples:
     
-        # Peer delegate between two agents
+        # Peer delegate between two workers
         caracal authority peer-delegate \\
             --source-mandate-id <source-id> \\
             --target-subject-id <target-id> \\
