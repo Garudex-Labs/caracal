@@ -38,7 +38,7 @@ class TestPrincipalIdentity:
         assert identity.owner == "test-owner"
         assert identity.created_at == "2024-01-01T00:00:00Z"
         assert identity.metadata == {"key": "value"}
-        assert identity.principal_type == "agent"
+        assert identity.principal_kind == "worker"
         assert identity.verification_status == VerificationStatus.UNVERIFIED
     
     def test_principal_to_dict(self):
@@ -103,7 +103,7 @@ class TestPrincipalRegistry:
         mock_principal = Principal(
             principal_id=principal_id,
             name="test-principal",
-            principal_type="agent",
+            principal_kind="worker",
             owner="test-owner",
             created_at=datetime.utcnow(),
             principal_metadata={}
@@ -138,7 +138,7 @@ class TestPrincipalRegistry:
         existing_principal = Principal(
             principal_id=uuid4(),
             name="existing-principal",
-            principal_type="agent",
+            principal_kind="worker",
             owner="test-owner",
             created_at=datetime.utcnow()
         )
@@ -161,7 +161,7 @@ class TestPrincipalRegistry:
         mock_principal = Principal(
             principal_id=principal_id,
             name="test-principal",
-            principal_type="agent",
+            principal_kind="worker",
             owner="test-owner",
             created_at=datetime.utcnow(),
             principal_metadata={},
@@ -209,7 +209,7 @@ class TestPrincipalRegistry:
             Principal(
                 principal_id=uuid4(),
                 name=f"principal-{i}",
-                principal_type="agent",
+                principal_kind="worker",
                 owner="test-owner",
                 created_at=datetime.utcnow(),
                 principal_metadata={}
@@ -235,7 +235,7 @@ class TestPrincipalRegistry:
         mock_principal = Principal(
             principal_id=principal_id,
             name="test-principal",
-            principal_type="agent",
+            principal_kind="worker",
             owner="test-owner",
             created_at=datetime.utcnow(),
             principal_metadata={"old_key": "old_value"}
@@ -246,7 +246,7 @@ class TestPrincipalRegistry:
         self.mock_session.query.return_value = mock_query
         
         # Act
-        identity = self.registry.update_agent(
+        identity = self.registry.update_principal(
             str(principal_id),
             metadata={"new_key": "new_value"}
         )
