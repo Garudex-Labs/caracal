@@ -28,9 +28,6 @@ class CaracalRuntimeConfig:
 
 @dataclass(frozen=True)
 class ModeConfig:
-    mandates: dict[str, str]
-    revoker_id: str | None = None
-    source_mandate_id: str | None = None
     principal_ids: dict[str, str] | None = None
 
 
@@ -115,29 +112,15 @@ def _optional_str(container: dict[str, Any], key: str) -> str | None:
 
 
 def _load_mode_config(name: str, payload: dict[str, Any]) -> ModeConfig:
-    mandates_payload = payload.get("mandates")
-    if not isinstance(mandates_payload, dict):
-        raise DemoConfigurationError(f"Mode '{name}' is missing a mandates object")
-
-    mandates = {
-        role: _required_str(mandates_payload, role, context=f"modes.{name}.mandates")
-        for role in ("orchestrator", "finance", "ops")
-    }
     principal_ids_payload = payload.get("principal_ids")
     principal_ids: dict[str, str] | None = None
     if isinstance(principal_ids_payload, dict):
         principal_ids = {
-            role: _required_str(principal_ids_payload, role, context=f"modes.{name}.principal_ids")
+            role: str(principal_ids_payload[role]).strip()
             for role in ("orchestrator", "finance", "ops")
             if str(principal_ids_payload.get(role) or "").strip()
         }
-
-    return ModeConfig(
-        mandates=mandates,
-        revoker_id=_optional_str(payload, "revoker_id"),
-        source_mandate_id=_optional_str(payload, "source_mandate_id"),
-        principal_ids=principal_ids,
-    )
+    return ModeConfig(principal_ids=principal_ids)
 
 
 def _load_scenario_config(payload: dict[str, Any]) -> ScenarioConfig:
@@ -369,7 +352,7 @@ def config_status() -> dict[str, Any]:
             "configured": False,
             "config_path": str(path),
             "template_path": str(TEMPLATE_CONFIG_PATH),
-            "message": "Create a demo config file from the example template and populate mandate IDs.",
+            "message": "Create a demo config file from the example template and configure Caracal connection.",
         }
 
     try:
@@ -392,9 +375,6 @@ def config_status() -> dict[str, Any]:
         "project_id": config.caracal.project_id,
         "modes": {
             name: {
-                "roles": sorted(mode.mandates.keys()),
-                "revoker_id": mode.revoker_id,
-                "source_mandate_id": mode.source_mandate_id,
                 "principal_ids": sorted((mode.principal_ids or {}).keys()),
             }
             for name, mode in config.modes.items()
@@ -449,16 +429,8 @@ def validate_config(config: DemoRuntimeConfig) -> list[str]:
         errors.append("caracal.api_key is required (check environment variable)")
     
     # Validate modes
-    for mode_name, mode in config.modes.items():
-        if not mode.mandates:
-            errors.append(f"modes.{mode_name}.mandates is required")
-        else:
-            required_roles = {"orchestrator", "finance", "ops"}
-            missing_roles = required_roles - set(mode.mandates.keys())
-            if missing_roles:
-                errors.append(
-                    f"modes.{mode_name}.mandates is missing roles: {', '.join(missing_roles)}"
-                )
+    if not config.modes:
+        errors.append("At least one mode (mock or real) must be configured")
     
     # Validate scenario configuration
     if config.scenario.scenarios_path:

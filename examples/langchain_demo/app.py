@@ -8,6 +8,18 @@ import json
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
+from fastapi.responses import HTMLResponse, JSONResponse
+from pydantic import BaseModel
+
+from .baseline.scenario import load_scenario
+from .demo_runtime import DemoRunConfig, run_demo_workflow_async
+from .mock_services import router as mock_router
+from .runtime_config import config_status
+
+
+class DemoRunRequest(BaseModel):
+    mode: str = "mock"
+    provider_strategy: str = "mixed"
 UI_HTML = """<!doctype html>
 <html lang="en">
 <head>
@@ -152,12 +164,12 @@ UI_HTML = """<!doctype html>
     <div id="pre-demo" class="pre-demo">
       <div class="pre-card" role="dialog" aria-labelledby="pre-title">
         <h1 id="pre-title">Caracal Demo — Local Governance Showcase</h1>
-        <p class="muted">A compact demo that walks through authority, provider routing, delegation, and enforcement. You will see a step-by-step execution trace, provider routing decisions, and any enforcement or revocation outcomes.</p>
+        <p class="muted">A compact demo that walks through authority, provider routing, and enforcement. You will see a step-by-step execution trace, provider routing decisions, and authority enforcement outcomes.</p>
 
         <ul class="pre-list">
-          <li><strong>Authority</strong>: who can request actions and with what mandate.</li>
+          <li><strong>Authority</strong>: who can request actions, enforced by Caracal via Bearer token identity.</li>
           <li><strong>Provider routing</strong>: which provider (mock or real) handles a tool call.</li>
-          <li><strong>Delegation & enforcement</strong>: how mandates delegate actions and how revocation is enforced.</li>
+          <li><strong>Enforcement</strong>: authority decisions are visible through tool call success or failure.</li>
         </ul>
 
         <div style="display:flex;align-items:center;gap:12px;">
@@ -205,13 +217,6 @@ UI_HTML = """<!doctype html>
             </select>
           </div>
 
-          <div class="group">
-            <label>Security</label>
-            <div class="checkbox-row">
-              <label class="checkbox-row"><input id="revocation" type="checkbox" checked /> <span class="muted">Run revocation check</span></label>
-            </div>
-          </div>
-
           <div class="primary-row">
             <button id="run" class="btn btn-primary" style="flex:1;">Run workflow</button>
           </div>
@@ -228,7 +233,7 @@ UI_HTML = """<!doctype html>
 
           <div style="margin-top:12px;border-top:1px solid var(--border);padding-top:12px;">
             <h3 style="margin:0 0 10px;font-size:12px;color:var(--muted);text-transform:uppercase;">What to watch</h3>
-            <div class="muted">Per-role identity, delegated mandates, provider routing, local execution, and post-revocation denial.</div>
+            <div class="muted">Per-role identity, provider routing, authority enforcement, and execution trace.</div>
           </div>
         </aside>
 
@@ -272,13 +277,14 @@ UI_HTML = """<!doctype html>
 
     function renderCards(result) {
       const acceptance = result.acceptance?.passed ? "Accepted" : "Review needed";
-      const revocation = result.revocation?.denial_captured ? "Denied after revoke" : "No denial recorded";
+      const decisions = (result.authority_decisions || []).length;
+      const denied = (result.authority_decisions || []).filter(d => !d.allowed).length;
       return `
         <div class="cards">
           <div class="card"><span class="k">Mode</span><span class="v">${esc(result.mode)}</span></div>
           <div class="card"><span class="k">Provider</span><span class="v">${esc(result.provider_strategy)}</span></div>
           <div class="card"><span class="k">Acceptance</span><span class="v">${esc(acceptance)}</span></div>
-          <div class="card"><span class="k">Revocation</span><span class="v">${esc(revocation)}</span></div>
+          <div class="card"><span class="k">Authority</span><span class="v">${decisions} checks, ${denied} denied</span></div>
         </div>
       `;
     }
@@ -288,15 +294,13 @@ UI_HTML = """<!doctype html>
         <tr>
           <td>${esc(entry.role)}</td>
           <td>${esc(entry.principal_id)}</td>
-          <td>${esc(entry.mandate_id)}</td>
-          <td>${esc(entry.access_token)}</td>
         </tr>
       `).join("");
       return `
         <div style="margin-top:12px;">
-          <h3 style="margin:0 0 8px;font-size:13px;color:var(--muted);text-transform:uppercase;">Identity & Delegation</h3>
+          <h3 style="margin:0 0 8px;font-size:13px;color:var(--muted);text-transform:uppercase;">Identity</h3>
           <table class="table">
-            <thead><tr><th>Role</th><th>Principal</th><th>Mandate</th><th>Token</th></tr></thead>
+            <thead><tr><th>Role</th><th>Principal</th></tr></thead>
             <tbody>${rows}</tbody>
           </table>
         </div>
@@ -325,20 +329,20 @@ UI_HTML = """<!doctype html>
     }
 
     function renderAuthority(result) {
-      const rows = (result.authority_validations || []).map((entry) => `
+      const rows = (result.authority_decisions || []).map((entry) => `
         <tr>
-          <td>${esc(entry.caller_principal_id)}</td>
-          <td>${esc(entry.requested_resource)}</td>
-          <td>${esc(entry.requested_action)}</td>
+          <td>${esc(entry.role)}</td>
+          <td>${esc(entry.resource_scope)}</td>
+          <td>${esc(entry.action_scope)}</td>
           <td><span class="pill ${entry.allowed ? "good" : "warn"}">${esc(entry.allowed ? "allowed" : "denied")}</span></td>
           <td>${esc(entry.reason)}</td>
         </tr>
       `).join("");
       return `
         <div style="margin-top:12px;">
-          <h3 style="margin:0 0 8px;font-size:13px;color:var(--muted);text-transform:uppercase;">Authority Checks</h3>
+          <h3 style="margin:0 0 8px;font-size:13px;color:var(--muted);text-transform:uppercase;">Authority Decisions</h3>
           <table class="table">
-            <thead><tr><th>Caller</th><th>Resource</th><th>Action</th><th>Decision</th><th>Reason</th></tr></thead>
+            <thead><tr><th>Role</th><th>Resource</th><th>Action</th><th>Decision</th><th>Reason</th></tr></thead>
             <tbody>${rows}</tbody>
           </table>
         </div>
@@ -410,7 +414,6 @@ UI_HTML = """<!doctype html>
           body: JSON.stringify({
             mode: document.getElementById("mode").value,
             provider_strategy: document.getElementById("strategy").value,
-            include_revocation_check: document.getElementById("revocation").checked,
           }),
         });
         const payload = await response.json();
@@ -470,10 +473,9 @@ def create_app() -> FastAPI:
             try:
                 result = await run_demo_workflow_async(
                     load_scenario(),
-                    GovernedRunConfig(
+                    DemoRunConfig(
                         mode=request.mode,
                         provider_strategy=request.provider_strategy,
-                        include_revocation_check=request.include_revocation_check,
                     ),
                 )
             except Exception as exc:  # pragma: no cover - surfaced directly in UI
@@ -506,16 +508,13 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     if args.run_once:
-        import asyncio
-
         try:
             result = asyncio.run(
                 run_demo_workflow_async(
                     load_scenario(),
-                    GovernedRunConfig(
+                    DemoRunConfig(
                         mode=args.mode,
                         provider_strategy=args.provider_strategy,
-                        include_revocation_check=True,
                     ),
                 )
             )
