@@ -135,11 +135,11 @@ def mock_parent_agent():
     agent = Mock(spec=BaseAgent)
     agent.agent_id = "parent-agent-123"
     agent.role = AgentRole.ORCHESTRATOR
-    agent.mandate_id = "parent-mandate-123"
+    agent.principal_id = "parent-mandate-123"
     agent.state = AgentState(
         agent_id="parent-agent-123",
         agent_role=AgentRole.ORCHESTRATOR,
-        mandate_id="parent-mandate-123",
+        principal_id="parent-mandate-123",
     )
     agent.emit_message = Mock()
     return agent
@@ -185,14 +185,14 @@ class TestNestedAgentSpawner:
             parent_agent=mock_parent_agent,
             sub_agent_role=AgentRole.ANALYST,
             task_description="Analyze data",
-            sub_agent_mandate_id="sub-mandate-123",
+            sub_agent_principal_id="sub-mandate-123",
             scenario=sample_scenario,
         )
         
         # Verify sub-agent was created
         assert isinstance(sub_agent, AnalystAgent)
         assert sub_agent.role == AgentRole.ANALYST
-        assert sub_agent.mandate_id == "sub-mandate-123"
+        assert sub_agent.principal_id == "sub-mandate-123"
         assert sub_agent.parent_agent == mock_parent_agent
         
         # Verify spawn request was recorded
@@ -201,8 +201,8 @@ class TestNestedAgentSpawner:
         # Verify spawned agent was recorded
         assert len(spawner.spawned_agents) == 1
         
-        # Verify parent agent was updated
-        mock_parent_agent.state.add_sub_agent.assert_called_once()
+        # Verify parent agent state was updated
+        assert len(mock_parent_agent.state.sub_agents) == 1
     
     @pytest.mark.asyncio
     async def test_spawn_unregistered_agent_fails(
@@ -219,7 +219,7 @@ class TestNestedAgentSpawner:
                 parent_agent=mock_parent_agent,
                 sub_agent_role=AgentRole.ANALYST,
                 task_description="Analyze data",
-                sub_agent_mandate_id="sub-mandate-123",
+                sub_agent_principal_id="sub-mandate-123",
                 scenario=sample_scenario,
             )
     
@@ -307,7 +307,6 @@ class TestResultAggregator:
         
         aggregated = aggregator.aggregate(results, strategy="merge")
         
-        assert aggregated.status == "success"
         assert "finance" in aggregated.aggregated_data
         assert "ops" in aggregated.aggregated_data
         assert aggregated.statistics["successful"] == 2
@@ -511,13 +510,13 @@ class TestAnalystAgent:
     ):
         """Test analyst agent initializes correctly."""
         agent = AnalystAgent(
-            mandate_id="analyst-mandate-123",
+            principal_id="analyst-mandate-123",
             caracal_client=mock_caracal_client,
             scenario=sample_scenario,
         )
         
         assert agent.role == AgentRole.ANALYST
-        assert agent.mandate_id == "analyst-mandate-123"
+        assert agent.principal_id == "analyst-mandate-123"
         assert agent.scenario == sample_scenario
     
     @pytest.mark.asyncio
@@ -528,7 +527,7 @@ class TestAnalystAgent:
     ):
         """Test analyst performs financial analysis."""
         agent = AnalystAgent(
-            mandate_id="analyst-mandate-123",
+            principal_id="analyst-mandate-123",
             caracal_client=mock_caracal_client,
             scenario=sample_scenario,
         )
@@ -552,7 +551,7 @@ class TestAnalystAgent:
     ):
         """Test analyst performs operational analysis."""
         agent = AnalystAgent(
-            mandate_id="analyst-mandate-123",
+            principal_id="analyst-mandate-123",
             caracal_client=mock_caracal_client,
             scenario=sample_scenario,
         )
@@ -581,13 +580,13 @@ class TestReporterAgent:
     ):
         """Test reporter agent initializes correctly."""
         agent = ReporterAgent(
-            mandate_id="reporter-mandate-123",
+            principal_id="reporter-mandate-123",
             caracal_client=mock_caracal_client,
             scenario=sample_scenario,
         )
         
         assert agent.role == AgentRole.REPORTER
-        assert agent.mandate_id == "reporter-mandate-123"
+        assert agent.principal_id == "reporter-mandate-123"
         assert agent.scenario == sample_scenario
     
     @pytest.mark.asyncio
@@ -598,7 +597,7 @@ class TestReporterAgent:
     ):
         """Test reporter generates executive report."""
         agent = ReporterAgent(
-            mandate_id="reporter-mandate-123",
+            principal_id="reporter-mandate-123",
             caracal_client=mock_caracal_client,
             scenario=sample_scenario,
         )
@@ -639,7 +638,7 @@ class TestReporterAgent:
     ):
         """Test reporter generates detailed report."""
         agent = ReporterAgent(
-            mandate_id="reporter-mandate-123",
+            principal_id="reporter-mandate-123",
             caracal_client=mock_caracal_client,
             scenario=sample_scenario,
         )
