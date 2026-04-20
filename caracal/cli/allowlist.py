@@ -3,12 +3,9 @@ Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 Caracal, a product of Garudex Labs
 
 CLI commands for resource allowlist management.
-
-Provides commands for creating, listing, deleting, and testing resource allowlists.
 """
 
 import sys
-from typing import Optional
 from uuid import UUID
 
 import click
@@ -19,15 +16,6 @@ from caracal.exceptions import CaracalError, ValidationError
 
 
 def get_allowlist_manager(config) -> AllowlistManager:
-    """
-    Create AllowlistManager instance from configuration.
-    
-    Args:
-        config: Configuration object
-        
-    Returns:
-        AllowlistManager instance
-    """
     db_manager = get_db_manager(config)
     db_session = db_manager.get_session()
     cache_ttl = getattr(config, 'allowlist_cache_ttl', 60)
@@ -36,14 +24,13 @@ def get_allowlist_manager(config) -> AllowlistManager:
 
 @click.command('create')
 @click.option(
-    '--agent-id',
-    '-a',
+    '--principal-id',
+    '-p',
     required=True,
-    help='Agent ID (UUID)',
+    help='Principal ID (UUID)',
 )
 @click.option(
     '--pattern',
-    '-p',
     required=True,
     help='Resource pattern (regex or glob)',
 )
@@ -59,54 +46,43 @@ def get_allowlist_manager(config) -> AllowlistManager:
 def create(ctx, principal_id: str, pattern: str, pattern_type: str):
     """
     Create a new resource allowlist entry.
-    
-    Adds a pattern to the agent's allowlist. Once an agent has any allowlist entries,
-    only resources matching at least one pattern will be allowed.
-    
+
+    Adds a pattern to the principal's allowlist.  Once a principal has any
+    allowlist entries, only resources matching at least one pattern are allowed.
+
+    \b
     Pattern Types:
-    
-        regex: Python regular expression (e.g., "^https://api\\.openai\\.com/.*$")
-        glob:  Shell-style glob pattern (e.g., "https://api.anthropic.com/*")
-    
+        regex  Python regular expression
+        glob   Shell-style glob pattern
+
+    \b
     Examples:
-    
-        # Allow all OpenAI API endpoints
-        caracal allowlist create -a 550e8400-e29b-41d4-a716-446655440000 \\
-            -p "^https://api\\.openai\\.com/.*$" -t regex
-        
-        # Allow all Anthropic API endpoints using glob
-        caracal allowlist create -a 550e8400-e29b-41d4-a716-446655440000 \\
-            -p "https://api.anthropic.com/*" -t glob
-        
-        # Allow specific model endpoint
-        caracal allowlist create -a 550e8400-e29b-41d4-a716-446655440000 \\
-            -p "^https://api\\.openai\\.com/v1/chat/completions$" -t regex
+        caracal allowlist create -p <UUID> --pattern "^https://api\\.openai\\.com/.*$" -t regex
+        caracal allowlist create -p <UUID> --pattern "https://api.anthropic.com/*" -t glob
     """
     try:
         config = ctx.obj['config']
         allowlist_manager = get_allowlist_manager(config)
-        
-        # Parse agent ID
+
         try:
-            agent_uuid = UUID(principal_id)
+            parsed_id = UUID(principal_id)
         except ValueError:
-            click.echo(f"Error: Invalid agent ID format: {principal_id}", err=True)
+            click.echo(f"Error: Invalid principal ID format: {principal_id}", err=True)
             sys.exit(1)
-        
-        # Create allowlist
+
         allowlist = allowlist_manager.create_allowlist(
-            principal_id=agent_uuid,
+            principal_id=parsed_id,
             resource_pattern=pattern,
             pattern_type=pattern_type.lower()
         )
-        
+
         click.echo(f"✓ Created allowlist entry:")
-        click.echo(f"  Allowlist ID: {allowlist.allowlist_id}")
-        click.echo(f"  Agent ID:     {allowlist.principal_id}")
-        click.echo(f"  Pattern:      {allowlist.resource_pattern}")
-        click.echo(f"  Type:         {allowlist.pattern_type}")
-        click.echo(f"  Created:      {allowlist.created_at}")
-        
+        click.echo(f"  Allowlist ID:  {allowlist.allowlist_id}")
+        click.echo(f"  Principal ID:  {allowlist.principal_id}")
+        click.echo(f"  Pattern:       {allowlist.resource_pattern}")
+        click.echo(f"  Type:          {allowlist.pattern_type}")
+        click.echo(f"  Created:       {allowlist.created_at}")
+
     except ValidationError as e:
         click.echo(f"Error: {e}", err=True)
         sys.exit(1)
@@ -120,10 +96,10 @@ def create(ctx, principal_id: str, pattern: str, pattern_type: str):
 
 @click.command('list')
 @click.option(
-    '--agent-id',
-    '-a',
+    '--principal-id',
+    '-p',
     required=True,
-    help='Agent ID (UUID)',
+    help='Principal ID (UUID)',
 )
 @click.option(
     '--format',
@@ -135,37 +111,30 @@ def create(ctx, principal_id: str, pattern: str, pattern_type: str):
 @click.pass_context
 def list_allowlists(ctx, principal_id: str, format: str):
     """
-    List all active allowlist entries for an agent.
-    
-    Shows all resource patterns that are allowed for the specified agent.
-    
+    List all active allowlist entries for a principal.
+
+    \b
     Examples:
-    
-        # List allowlists in table format
-        caracal allowlist list -a 550e8400-e29b-41d4-a716-446655440000
-        
-        # List allowlists in JSON format
-        caracal allowlist list -a 550e8400-e29b-41d4-a716-446655440000 -f json
+        caracal allowlist list -p <UUID>
+        caracal allowlist list -p <UUID> -f json
     """
     try:
         config = ctx.obj['config']
         allowlist_manager = get_allowlist_manager(config)
-        
-        # Parse agent ID
+
         try:
-            agent_uuid = UUID(principal_id)
+            parsed_id = UUID(principal_id)
         except ValueError:
-            click.echo(f"Error: Invalid agent ID format: {principal_id}", err=True)
+            click.echo(f"Error: Invalid principal ID format: {principal_id}", err=True)
             sys.exit(1)
-        
-        # List allowlists
-        allowlists = allowlist_manager.list_allowlists(agent_uuid)
-        
+
+        allowlists = allowlist_manager.list_allowlists(parsed_id)
+
         if not allowlists:
-            click.echo(f"No allowlists configured for agent {principal_id}")
+            click.echo(f"No allowlists configured for principal {principal_id}")
             click.echo("(All resources are allowed by default)")
             return
-        
+
         if format == 'json':
             import json
             data = [
@@ -181,24 +150,23 @@ def list_allowlists(ctx, principal_id: str, format: str):
             ]
             click.echo(json.dumps(data, indent=2))
         else:
-            # Table format
-            click.echo(f"\nAllowlists for agent {principal_id}:")
+            click.echo(f"\nAllowlists for principal {principal_id}:")
             click.echo(f"{'ID':<38} {'Type':<8} {'Pattern':<60}")
             click.echo("-" * 110)
-            
+
             for allowlist in allowlists:
                 pattern_display = allowlist.resource_pattern
                 if len(pattern_display) > 57:
                     pattern_display = pattern_display[:54] + "..."
-                
+
                 click.echo(
                     f"{str(allowlist.allowlist_id):<38} "
                     f"{allowlist.pattern_type:<8} "
                     f"{pattern_display:<60}"
                 )
-            
+
             click.echo(f"\nTotal: {len(allowlists)} allowlist(s)")
-        
+
     except CaracalError as e:
         click.echo(f"Error: {e}", err=True)
         sys.exit(1)
@@ -224,40 +192,34 @@ def list_allowlists(ctx, principal_id: str, format: str):
 def delete(ctx, allowlist_id: str, yes: bool):
     """
     Delete (deactivate) an allowlist entry.
-    
-    Soft-deletes the allowlist entry by marking it as inactive. The entry
+
+    Soft-deletes the allowlist entry by marking it as inactive.  The entry
     remains in the database for audit purposes but is no longer enforced.
-    
+
+    \b
     Examples:
-    
-        # Delete with confirmation
-        caracal allowlist delete -i 123e4567-e89b-12d3-a456-426614174000
-        
-        # Delete without confirmation
-        caracal allowlist delete -i 123e4567-e89b-12d3-a456-426614174000 -y
+        caracal allowlist delete -i <UUID>
+        caracal allowlist delete -i <UUID> -y
     """
     try:
         config = ctx.obj['config']
         allowlist_manager = get_allowlist_manager(config)
-        
-        # Parse allowlist ID
+
         try:
             allowlist_uuid = UUID(allowlist_id)
         except ValueError:
             click.echo(f"Error: Invalid allowlist ID format: {allowlist_id}", err=True)
             sys.exit(1)
-        
-        # Confirm deletion
+
         if not yes:
             if not click.confirm(f"Delete allowlist {allowlist_id}?"):
                 click.echo("Cancelled.")
                 return
-        
-        # Delete allowlist
+
         allowlist_manager.deactivate_allowlist(allowlist_uuid)
-        
+
         click.echo(f"✓ Deleted allowlist {allowlist_id}")
-        
+
     except ValueError as e:
         click.echo(f"Error: {e}", err=True)
         sys.exit(1)
@@ -271,10 +233,10 @@ def delete(ctx, allowlist_id: str, yes: bool):
 
 @click.command('test')
 @click.option(
-    '--agent-id',
-    '-a',
+    '--principal-id',
+    '-p',
     required=True,
-    help='Agent ID (UUID)',
+    help='Principal ID (UUID)',
 )
 @click.option(
     '--resource',
@@ -285,51 +247,42 @@ def delete(ctx, allowlist_id: str, yes: bool):
 @click.pass_context
 def test(ctx, principal_id: str, resource: str):
     """
-    Test if a resource would be allowed for an agent.
-    
-    Checks the agent's allowlist patterns against the specified resource URL
+    Test if a resource would be allowed for a principal.
+
+    Checks the principal's allowlist patterns against the specified resource URL
     and reports whether the resource would be allowed or denied.
-    
+
+    \b
     Examples:
-    
-        # Test OpenAI API endpoint
-        caracal allowlist test -a 550e8400-e29b-41d4-a716-446655440000 \\
-            -r "https://api.openai.com/v1/chat/completions"
-        
-        # Test Anthropic API endpoint
-        caracal allowlist test -a 550e8400-e29b-41d4-a716-446655440000 \\
-            -r "https://api.anthropic.com/v1/messages"
+        caracal allowlist test -p <UUID> -r "https://api.openai.com/v1/chat/completions"
     """
     try:
         config = ctx.obj['config']
         allowlist_manager = get_allowlist_manager(config)
-        
-        # Parse agent ID
+
         try:
-            agent_uuid = UUID(principal_id)
+            parsed_id = UUID(principal_id)
         except ValueError:
-            click.echo(f"Error: Invalid agent ID format: {principal_id}", err=True)
+            click.echo(f"Error: Invalid principal ID format: {principal_id}", err=True)
             sys.exit(1)
-        
-        # Check resource
-        decision = allowlist_manager.check_resource(agent_uuid, resource)
-        
-        click.echo(f"\nAllowlist check for agent {principal_id}:")
+
+        decision = allowlist_manager.check_resource(parsed_id, resource)
+
+        click.echo(f"\nAllowlist check for principal {principal_id}:")
         click.echo(f"  Resource: {resource}")
         click.echo(f"  Result:   {'✓ ALLOWED' if decision.allowed else '✗ DENIED'}")
         click.echo(f"  Reason:   {decision.reason}")
-        
+
         if decision.matched_pattern:
             click.echo(f"  Pattern:  {decision.matched_pattern}")
-        
-        # Get cache stats
+
         cache_stats = allowlist_manager.get_cache_stats()
         click.echo(f"\nCache statistics:")
         click.echo(f"  Hit rate:      {cache_stats['hit_rate']:.1%}")
         click.echo(f"  Cache size:    {cache_stats['cache_size']}")
         click.echo(f"  Cache hits:    {cache_stats['cache_hits']}")
         click.echo(f"  Cache misses:  {cache_stats['cache_misses']}")
-        
+
     except CaracalError as e:
         click.echo(f"Error: {e}", err=True)
         sys.exit(1)
@@ -342,15 +295,14 @@ def test(ctx, principal_id: str, resource: str):
 def allowlist_group():
     """
     Manage resource allowlists for fine-grained access control.
-    
-    Allowlists enable restricting agents to specific API endpoints or resources.
-    Once an agent has any allowlist entries, only resources matching at least
-    one pattern will be allowed.
+
+    Allowlists restrict principals to specific API endpoints or resources.
+    Once a principal has any allowlist entries, only resources matching at
+    least one pattern are allowed.
     """
     pass
 
 
-# Register commands
 allowlist_group.add_command(create)
 allowlist_group.add_command(list_allowlists)
 allowlist_group.add_command(delete)

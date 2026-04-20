@@ -98,7 +98,7 @@ class _PostgresLedgerQuery:
     ) -> Decimal:
         return Decimal(len(self.get_events(principal_id=principal_id, start_time=start_time, end_time=end_time)))
 
-    def aggregate_by_agent(self, start_time: datetime, end_time: datetime) -> dict[str, Decimal]:
+    def aggregate_by_principal(self, start_time: datetime, end_time: datetime) -> dict[str, Decimal]:
         events = self.get_events(start_time=start_time, end_time=end_time)
         totals: dict[str, Decimal] = {}
         for event in events:
@@ -185,10 +185,10 @@ def parse_datetime(date_str: str) -> datetime:
 
 @click.command('query')
 @click.option(
-    '--agent-id',
+    '--principal-id',
     '-a',
     default=None,
-    help='Filter by agent ID (optional)',
+    help='Filter by principal ID (optional)',
 )
 @click.option(
     '--start',
@@ -218,7 +218,7 @@ def parse_datetime(date_str: str) -> datetime:
 @click.pass_context
 def query(
     ctx,
-    agent_id: Optional[str],
+    principal_id: Optional[str],
     start: Optional[str],
     end: Optional[str],
     resource: Optional[str],
@@ -235,8 +235,8 @@ def query(
         # Query all events
         caracal ledger query
         
-        # Query events for a specific agent
-        caracal ledger query --agent-id 550e8400-e29b-41d4-a716-446655440000
+        # Query events for a specific principal
+        caracal ledger query --principal-id 550e8400-e29b-41d4-a716-446655440000
         
         # Query events in a date range
         caracal ledger query --start 2024-01-01 --end 2024-01-31
@@ -286,7 +286,7 @@ def query(
         
         # Query events
         events = ledger_query.get_events(
-            principal_id=agent_id,
+            principal_id=principal_id,
             start_time=start_time,
             end_time=end_time,
             resource_type=resource,
@@ -313,14 +313,14 @@ def query(
             
             # Ensure minimum widths for headers
             event_id_width = max(max_event_id_len, len("Event ID"))
-            principal_id_width = max(max_principal_id_len, len("Agent ID"))
+            principal_id_width = max(max_principal_id_len, len("Principal ID"))
             resource_width = max(max_resource_len, len("Resource Type"))
             quantity_width = max(max_quantity_len, len("Quantity"))
             
             # Print header
             header = (
                 f"{'Event ID':<{event_id_width}}  "
-                f"{'Agent ID':<{principal_id_width}}  "
+                f"{'Principal ID':<{principal_id_width}}  "
                 f"{'Resource Type':<{resource_width}}  "
                 f"{'Quantity':<{quantity_width}}  "
                 f"Timestamp"
@@ -351,10 +351,10 @@ def query(
 
 @click.command('summary')
 @click.option(
-    '--agent-id',
+    '--principal-id',
     '-a',
     default=None,
-    help='Filter by agent ID (optional)',
+    help='Filter by principal ID (optional)',
 )
 @click.option(
     '--start',
@@ -371,12 +371,12 @@ def query(
 @click.option(
     '--aggregate-targetren',
     is_flag=True,
-    help='Include usage from target agents in the total (graph aggregation)',
+    help='Include usage from target principals in the total (graph aggregation)',
 )
 @click.option(
     '--breakdown',
     is_flag=True,
-    help='Show directed breakdown of usage by agent and targetren',
+    help='Show directed breakdown of usage by principal and targetren',
 )
 @click.option(
     '--format',
@@ -388,7 +388,7 @@ def query(
 @click.pass_context
 def summary(
     ctx,
-    agent_id: Optional[str],
+    principal_id: Optional[str],
     start: Optional[str],
     end: Optional[str],
     aggregate_targetren: bool,
@@ -396,28 +396,28 @@ def summary(
     format: str,
 ):
     """
-    Summarize usage with aggregation by agent.
+    Summarize usage with aggregation by principal.
     
-    Calculates total usage for each agent in the specified time window.
-    If agent-id is specified, shows detailed breakdown for that agent only.
+    Calculates total usage for each principal in the specified time window.
+    If principal-id is specified, shows detailed breakdown for that principal only.
     
-    With --aggregate-targetren, includes usage from all target agents in the total.
+    With --aggregate-targetren, includes usage from all target principals in the total.
     With --breakdown, shows directed view with indentation for source-target relationships.
     
     Examples:
     
-        # Summary of all agents
+        # Summary of all principals
         caracal ledger summary
         
-        # Summary for a specific agent
-        caracal ledger summary --agent-id 550e8400-e29b-41d4-a716-446655440000
+        # Summary for a specific principal
+        caracal ledger summary --principal-id 550e8400-e29b-41d4-a716-446655440000
         
-        # Summary with target agent usage included
-        caracal ledger summary --agent-id 550e8400-e29b-41d4-a716-446655440000 \\
+        # Summary with target principal usage included
+        caracal ledger summary --principal-id 550e8400-e29b-41d4-a716-446655440000 \\
             --aggregate-targetren --start 2024-01-01 --end 2024-01-31
         
         # directed breakdown view
-        caracal ledger summary --agent-id 550e8400-e29b-41d4-a716-446655440000 \\
+        caracal ledger summary --principal-id 550e8400-e29b-41d4-a716-446655440000 \\
             --breakdown --start 2024-01-01 --end 2024-01-31
         
         # Summary for a date range
@@ -459,16 +459,16 @@ def summary(
         # Create ledger query
         ledger_query = get_ledger_query(cli_ctx.config)
         
-        # Get agent registry if needed for directed features
+        # Get principal registry if needed for directed features
         principal_registry = None
         if aggregate_targetren or breakdown:
             principal_registry = get_principal_registry(cli_ctx.config)
         
-        if agent_id:
-            # Single agent summary with optional directed features
+        if principal_id:
+            # Single principal summary with optional directed features
             if not start_time or not end_time:
                 click.echo(
-                    "Error: --start and --end are required when using --agent-id",
+                    "Error: --start and --end are required when using --principal-id",
                     err=True
                 )
                 sys.exit(1)
@@ -476,7 +476,7 @@ def summary(
             # Handle directed breakdown view
             if breakdown:
                 breakdown_data = ledger_query.get_usage_breakdown(
-                    principal_id=agent_id,
+                    principal_id=principal_id,
                     start_time=start_time,
                     end_time=end_time,
                     principal_registry=principal_registry
@@ -508,7 +508,7 @@ def summary(
                         indent_str = "  " * indent
                         principal_name = data.get("principal_name", data["principal_id"])
                         
-                        # Print agent line
+                        # Print principal line
                         if indent == 0:
                             click.echo(f"{indent_str}Principal: {principal_name} ({data['principal_id']})")
                         else:
@@ -533,28 +533,28 @@ def summary(
             # Handle aggregate targetren (sum with targetren)
             if aggregate_targetren:
                 usage_with_targetren = ledger_query.sum_usage_with_targetren(
-                    principal_id=agent_id,
+                    principal_id=principal_id,
                     start_time=start_time,
                     end_time=end_time,
                     principal_registry=principal_registry
                 )
                 
                 # Calculate totals
-                own_usage = usage_with_targetren.get(agent_id, Decimal('0'))
+                own_usage = usage_with_targetren.get(principal_id, Decimal('0'))
                 total_usage = sum(usage_with_targetren.values())
                 targetren_usage = total_usage - own_usage
                 
                 if format.lower() == 'json':
                     # JSON output
                     output = {
-                        "principal_id": agent_id,
+                        "principal_id": principal_id,
                         "start_time": start_time.isoformat() if start_time else None,
                         "end_time": end_time.isoformat() if end_time else None,
                         "own_usage": str(own_usage),
                         "targetren_usage": str(targetren_usage),
                         "total_usage": str(total_usage),
                         "unit": "requests",
-                        "breakdown_by_agent": {
+                        "breakdown_by_principal": {
                             aid: str(amount)
                             for aid, amount in usage_with_targetren.items()
                         }
@@ -562,7 +562,7 @@ def summary(
                     click.echo(json.dumps(output, indent=2))
                 else:
                     # Table output
-                    click.echo(f"Usage Summary for Agent: {principal_id} (with targetren)")
+                    click.echo(f"Usage Summary for Principal: {principal_id} (with targetren)")
                     click.echo("=" * 70)
                     click.echo()
                     click.echo(f"Time Period: {start_time} to {end_time}")
@@ -572,15 +572,15 @@ def summary(
                     click.echo()
                     
                     if len(usage_with_targetren) > 1:
-                        click.echo("Breakdown by Agent:")
+                        click.echo("Breakdown by Principal:")
                         click.echo("-" * 70)
                         
                         # Calculate column width
                         max_principal_id_len = max(len(aid) for aid in usage_with_targetren.keys())
-                        principal_id_width = max(max_principal_id_len, len("Agent ID"))
+                        principal_id_width = max(max_principal_id_len, len("Principal ID"))
                         
                         # Print header
-                        click.echo(f"{'Agent ID':<{principal_id_width}}  Usage")
+                        click.echo(f"{'Principal ID':<{principal_id_width}}  Usage")
                         click.echo("-" * 70)
                         
                         # Print breakdown sorted by usage (descending)
@@ -589,22 +589,22 @@ def summary(
                             key=lambda x: x[1],
                             reverse=True
                         ):
-                            marker = " (self)" if aid == agent_id else ""
+                            marker = " (self)" if aid == principal_id else ""
                             click.echo(f"{aid:<{principal_id_width}}  {usage}{marker}")
                 
                 return
             
-            # Standard single agent summary (no directed features)
+            # Standard single principal summary (no directed features)
             # Calculate total usage
             total_usage = ledger_query.sum_usage(
-                principal_id=agent_id,
+                principal_id=principal_id,
                 start_time=start_time,
                 end_time=end_time,
             )
             
             # Get events for breakdown by resource type
             events = ledger_query.get_events(
-                principal_id=agent_id,
+                principal_id=principal_id,
                 start_time=start_time,
                 end_time=end_time,
             )
@@ -624,7 +624,7 @@ def summary(
             if format.lower() == 'json':
                 # JSON output
                 output = {
-                    "principal_id": agent_id,
+                    "principal_id": principal_id,
                     "start_time": start_time.isoformat() if start_time else None,
                     "end_time": end_time.isoformat() if end_time else None,
                     "total_usage": str(total_usage),
@@ -637,7 +637,7 @@ def summary(
                 click.echo(json.dumps(output, indent=2))
             else:
                 # Table output
-                click.echo(f"Usage Summary for Agent: {agent_id}")
+                click.echo(f"Usage Summary for Principal: {principal_id}")
                 click.echo("=" * 70)
                 click.echo()
                 click.echo(f"Time Period: {start_time} to {end_time}")
@@ -667,16 +667,16 @@ def summary(
                     click.echo("No usage recorded in this time period.")
         
         else:
-            # Multi-agent aggregation
+            # Multi-principal aggregation
             if not start_time or not end_time:
                 click.echo(
-                    "Error: --start and --end are required for multi-agent summary",
+                    "Error: --start and --end are required for multi-principal summary",
                     err=True
                 )
                 sys.exit(1)
             
-            # Aggregate by agent
-            aggregation = ledger_query.aggregate_by_agent(
+            # Aggregate by principal
+            aggregation = ledger_query.aggregate_by_principal(
                 start_time=start_time,
                 end_time=end_time,
             )
@@ -691,7 +691,7 @@ def summary(
                     "start_time": start_time.isoformat() if start_time else None,
                     "end_time": end_time.isoformat() if end_time else None,
                     "unit": "requests",
-                    "agents": {
+                    "principals": {
                         principal_id: str(usage)
                         for principal_id, usage in aggregation.items()
                     }
@@ -699,27 +699,27 @@ def summary(
                 click.echo(json.dumps(output, indent=2))
             else:
                 # Table output
-                click.echo("Usage Summary by Agent")
+                click.echo("Usage Summary by Principal")
                 click.echo("=" * 70)
                 click.echo()
                 click.echo(f"Time Period: {start_time} to {end_time}")
-                click.echo(f"Total Agents: {len(aggregation)}")
+                click.echo(f"Total Principals: {len(aggregation)}")
                 click.echo()
                 
-                # Calculate total usage across all agents
+                # Calculate total usage across all principals
                 total_usage = sum(aggregation.values())
                 click.echo(f"Total Usage: {total_usage}")
                 click.echo()
                 
                 # Calculate column widths
                 max_principal_id_len = max(len(principal_id) for principal_id in aggregation.keys())
-                principal_id_width = max(max_principal_id_len, len("Agent ID"))
+                principal_id_width = max(max_principal_id_len, len("Principal ID"))
                 
                 # Print header
-                click.echo(f"{'Agent ID':<{principal_id_width}}  Usage")
+                click.echo(f"{'Principal ID':<{principal_id_width}}  Usage")
                 click.echo("-" * 70)
                 
-                # Print agents sorted by usage (descending)
+                # Print principals sorted by usage (descending)
                 for principal_id, usage in sorted(
                     aggregation.items(),
                     key=lambda x: x[1],
@@ -738,10 +738,10 @@ def summary(
 
 @click.command('delegation-path')
 @click.option(
-    '--agent-id',
+    '--principal-id',
     '-a',
     required=True,
-    help='Agent ID to query delegation graph for',
+    help='Principal ID to query delegation graph for',
 )
 @click.option(
     '--format',
@@ -757,15 +757,15 @@ def delegation_path(
     format: str,
 ):
     """
-    Query the delegation graph for an agent.
+    Query the delegation graph for a principal.
     
     Shows all delegation edges (inbound and outbound) for the mandates
-    belonging to the specified agent.
+    belonging to the specified principal.
     
     Examples:
     
-        # Show delegation graph for an agent
-        caracal ledger delegation-path --agent-id 550e8400-e29b-41d4-a716-446655440000
+        # Show delegation graph for a principal
+        caracal ledger delegation-path --principal-id 550e8400-e29b-41d4-a716-446655440000
         
         # JSON output
         caracal ledger delegation-path -a 550e8400-e29b-41d4-a716-446655440000 --format json
@@ -781,24 +781,24 @@ def delegation_path(
         session = db_manager.get_session()
         
         try:
-            # Get mandates for this agent
+            # Get mandates for this principal
             mandates = session.query(ExecutionMandate).filter(
                 ExecutionMandate.subject_id == principal_id
             ).all()
             
             if not mandates:
-                click.echo(f"No mandates found for agent: {principal_id}")
+                click.echo(f"No mandates found for principal: {principal_id}")
                 return
             
             mandate_ids = [m.mandate_id for m in mandates]
             
-            # Get inbound edges (delegations TO this agent)
+            # Get inbound edges (delegations TO this principal)
             inbound_edges = session.query(DelegationEdgeModel).filter(
                 DelegationEdgeModel.target_mandate_id.in_(mandate_ids),
                 DelegationEdgeModel.revoked == False,
             ).all()
             
-            # Get outbound edges (delegations FROM this agent)
+            # Get outbound edges (delegations FROM this principal)
             outbound_edges = session.query(DelegationEdgeModel).filter(
                 DelegationEdgeModel.source_mandate_id.in_(mandate_ids),
                 DelegationEdgeModel.revoked == False,
@@ -831,8 +831,13 @@ def delegation_path(
                 }
                 click.echo(json.dumps(output, indent=2))
             else:
-                type_icons = {'user': '\ud83d\udc64', 'agent': '\ud83e\udd16', 'service': '\u2699\ufe0f'}
-                click.echo(f"Delegation Graph for Agent: {principal_id}")
+                type_icons = {
+                    'human': '👤',
+                    'orchestrator': '🎛️',
+                    'worker': '🤖',
+                    'service': '⚙️',
+                }
+                click.echo(f"Delegation Graph for Principal: {principal_id}")
                 click.echo("=" * 70)
                 click.echo()
                 click.echo(f"Mandates: {len(mandates)}")
