@@ -179,8 +179,8 @@ class DatabaseCircuitBreakerManager:
         
         Example:
             result = await db_circuit_breaker.execute_with_circuit_breaker(
-                lambda session: session.query(Agent).filter_by(id=principal_id).first(),
-                "query_agent"
+                lambda session: session.query(PrincipalIdentity).filter_by(id=principal_id).first(),
+                "query_principal"
             )
         """
         breaker = await self._get_circuit_breaker()

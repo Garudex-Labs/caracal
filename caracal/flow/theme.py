@@ -187,7 +187,6 @@ class Icons:
     # Content
     FOLDER = ""
     FILE = ""
-    AGENT = ""
     PRINCIPAL = ""
     POLICY = ""
     LEDGER = ""
