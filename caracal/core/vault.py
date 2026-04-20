@@ -1122,10 +1122,10 @@ class CaracalVault:
 
     def put(self, org_id: str, env_id: str, name: str, plaintext: str, actor: str = "gateway") -> VaultEntry:
         _assert_vault_access_context()
-        self._rl.check(org_id)
         self._ensure_service_health()
 
         project_id, environment, secret_path = self._resolve_context(org_id, env_id)
+        self._rl.check(project_id)
         secret_path, name = self._resolve_secret_locator(secret_path, name)
         existed = self._secret_exists(project_id, environment, secret_path, name)
 
@@ -1160,10 +1160,10 @@ class CaracalVault:
 
     def get(self, org_id: str, env_id: str, name: str, actor: str = "gateway") -> str:
         _assert_vault_access_context()
-        self._rl.check(org_id)
         self._ensure_service_health()
 
         project_id, environment, secret_path = self._resolve_context(org_id, env_id)
+        self._rl.check(project_id)
         secret_path, name = self._resolve_secret_locator(secret_path, name)
         try:
             value = self._get_secret_value(project_id, environment, secret_path, name)
@@ -1190,10 +1190,10 @@ class CaracalVault:
         actor: str = "gateway",
     ) -> str:
         _assert_vault_access_context()
-        self._rl.check(org_id)
         self._ensure_service_health()
 
         project_id, environment, secret_path = self._resolve_context(org_id, env_id)
+        self._rl.check(project_id)
         secret_path, name = self._resolve_secret_locator(secret_path, name)
         try:
             token = self._sign_jwt_via_vault_api(

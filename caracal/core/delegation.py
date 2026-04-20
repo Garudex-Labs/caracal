@@ -316,8 +316,8 @@ class DelegationTokenManager:
                 issuer = UUID(payload["iss"])
                 subject = UUID(payload["sub"])
                 audience = payload["aud"]
-                expiration = datetime.fromtimestamp(payload["exp"])
-                issued_at = datetime.fromtimestamp(payload["iat"])
+                expiration = datetime.fromtimestamp(payload["exp"], tz=timezone.utc)
+                issued_at = datetime.fromtimestamp(payload["iat"], tz=timezone.utc)
                 token_id = UUID(payload["jti"])
                 allowed_operations = payload["allowedOperations"]
                 delegation_type = payload.get("delegationType", "directed")
