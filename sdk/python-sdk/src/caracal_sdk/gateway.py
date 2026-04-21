@@ -37,7 +37,6 @@ Manual override:
 
 from __future__ import annotations
 
-import asyncio
 import os
 import time
 from dataclasses import dataclass
@@ -166,16 +165,7 @@ class GatewayAdapter(BaseAdapter):
         return await self._send_direct(client, request)
 
     def close(self) -> None:
-        if self._client:
-            try:
-                loop = asyncio.get_event_loop()
-                if loop.is_running():
-                    loop.create_task(self._client.aclose())
-                else:
-                    loop.run_until_complete(self._client.aclose())
-            except Exception:
-                pass
-            self._client = None
+        self._client = None
         self._connected = False
 
     # ── Internal helpers ──────────────────────────────────────────────────────

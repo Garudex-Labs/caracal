@@ -34,7 +34,6 @@ async def test_scope_tools_call_uses_canonical_payload_and_scope_headers() -> No
     scope = ScopeContext(
         adapter=adapter,
         hooks=HookRegistry(),
-        workspace_id="org-123",
         workspace_id="ws-123",
     )
 
@@ -51,7 +50,6 @@ async def test_scope_tools_call_uses_canonical_payload_and_scope_headers() -> No
     req = adapter.sent_requests[0]
     assert req.method == "POST"
     assert req.path == "/mcp/tool/call"
-    assert req.headers["X-Caracal-Org-ID"] == "org-123"
     assert req.headers["X-Caracal-Workspace-ID"] == "ws-123"
     assert req.body == {
         "tool_id": "provider:endframe:resource:deployments",

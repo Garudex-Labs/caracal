@@ -32,9 +32,7 @@ function isObjectRecord(value: JsonValue | null | undefined): value is JsonObjec
 export interface ToolScope {
   scopeHeaders(): Record<string, string>;
   toScopeRef(): {
-    organizationId?: string;
     workspaceId?: string;
-    projectId?: string;
   };
   readonly _adapter: {
     send(request: SDKRequest): Promise<SDKResponse>;

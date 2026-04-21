@@ -20,7 +20,7 @@ Available hooks:
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Callable, Optional
+from typing import Any, Callable, Optional
 
 from caracal_sdk._compat import get_logger
 from caracal_sdk.json_types import JsonObject
@@ -37,8 +37,8 @@ logger = get_logger(__name__)
 @dataclass
 class StateSnapshot:
     """Immutable snapshot of SDK state at a point in time."""
-    workspace_id: Optional[str] = Non
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    workspace_id: Optional[str] = None
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 # ---------------------------------------------------------------------------
