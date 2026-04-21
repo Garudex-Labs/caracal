@@ -131,11 +131,9 @@ class ConfigManager:
     def _ensure_config_dir(self) -> None:
         """Ensure configuration directory exists with proper permissions."""
         try:
-            # Create main config directory
             self.CONFIG_DIR.mkdir(parents=True, exist_ok=True)
             self.CONFIG_DIR.chmod(0o700)
             
-            # Create subdirectories
             self.WORKSPACES_DIR.mkdir(exist_ok=True)
             # Root-level cache/log directories are deprecated.
             # Runtime artifacts are stored under each workspace directory.
@@ -796,7 +794,6 @@ class ConfigManager:
         self._validate_workspace_name(workspace)
         config_dict = self._load_workspace_toml(workspace)
         
-        # Parse dates
         created_at = datetime.fromisoformat(config_dict["created_at"])
         updated_at = datetime.fromisoformat(config_dict["updated_at"])
         
@@ -822,10 +819,8 @@ class ConfigManager:
         """
         self._validate_workspace_name(workspace)
         
-        # Update timestamp
         config.updated_at = datetime.now()
         
-        # Convert to dictionary
         config_dict = {
             "name": config.name,
             "created_at": config.created_at.isoformat(),
@@ -1083,7 +1078,6 @@ class ConfigManager:
             raise WorkspaceAlreadyExistsError(f"Workspace already exists: {name}")
         
         try:
-            # Create workspace directory
             workspace_dir.mkdir(parents=True)
             workspace_dir.chmod(0o700)
             (workspace_dir / "backups").mkdir(exist_ok=True)
@@ -1091,12 +1085,10 @@ class ConfigManager:
             (workspace_dir / "cache").mkdir(exist_ok=True)
             (workspace_dir / "keys").mkdir(exist_ok=True)
             
-            # Get template configuration
             template_config = {}
             if template and template in self.TEMPLATES:
                 template_config = self.TEMPLATES[template].copy()
             
-            # Create workspace configuration
             now = datetime.now()
             config = WorkspaceConfig(
                 name=name,
@@ -1200,7 +1192,6 @@ class ConfigManager:
                 except Exception as e:
                     logger.warning("workspace_schema_drop_failed", workspace=name, schema=schema_name, error=str(e))
 
-            # Create backup if requested
             if backup:
                 backup_dir = self.WORKSPACES_DIR / "_deleted_backups"
                 backup_dir.mkdir(parents=True, exist_ok=True)
@@ -1420,7 +1411,6 @@ class ConfigManager:
 
                 self._normalize_workspace_ownership(target_dir)
                 
-                # Update workspace name in configuration if renamed
                 if name and name != source_dir.name:
                     config = self.get_workspace_config(workspace_name)
                     config.name = workspace_name
@@ -1508,7 +1498,6 @@ class ConfigManager:
             ConfigurationValidationError: If connectivity validation fails
         """
         try:
-            # Load existing configuration
             main_config = {}
             if self.CONFIG_FILE.exists():
                 try:
@@ -1517,7 +1506,6 @@ class ConfigManager:
                     logger.warning("config_file_corrupted", action="creating_new")
                     main_config = {}
             
-            # Update PostgreSQL configuration
             main_config["postgres"] = {
                 "host": config.host,
                 "port": config.port,
@@ -1599,7 +1587,6 @@ class ConfigManager:
             if not password:
                 logger.debug("postgres_password_not_found", password_ref=config.password_ref)
             
-            # Create database config
             db_config = DatabaseConfig(
                 host=config.host,
                 port=config.port,

@@ -176,10 +176,8 @@ def setup_logging(
         json_format: If True, use JSON format. If False, use human-readable format.
         redact_sensitive: If True, redact sensitive fields from event payloads.
     """
-    # Convert string level to logging constant
     numeric_level = getattr(logging, level.upper(), logging.INFO)
     
-    # Get root logger and set level
     root_logger = logging.getLogger()
     root_logger.setLevel(numeric_level)
     
@@ -201,29 +199,21 @@ def setup_logging(
         file_handler.setFormatter(logging.Formatter("%(message)s"))
         root_logger.addHandler(file_handler)
     else:
-        # Add stderr handler if no file specified
         stderr_handler = logging.StreamHandler(sys.stderr)
         stderr_handler.setLevel(numeric_level)
         stderr_handler.setFormatter(logging.Formatter("%(message)s"))
         root_logger.addHandler(stderr_handler)
     
-    # Build processor chain
     processors: list = [
-        # Add log level
         structlog.stdlib.add_log_level,
-        # Add logger name
         structlog.stdlib.add_logger_name,
-        # Add timestamp
         structlog.processors.TimeStamper(fmt="iso"),
-        # Add correlation ID if present
         add_correlation_id,
         # Optionally redact secrets and credentials before rendering
         redact_sensitive_fields if redact_sensitive else (lambda _l, _m, e: e),
-        # Add stack info for exceptions
         structlog.processors.StackInfoRenderer(),
     ]
     
-    # Add appropriate renderer based on format
     if json_format:
         # JSON format for production
         processors.extend([
@@ -751,7 +741,6 @@ def log_authority_decision(
         **kwargs: Additional context to log
 
     """
-    # Get correlation ID from context
     correlation_id = get_correlation_id()
     
     log_data: Dict[str, Any] = {

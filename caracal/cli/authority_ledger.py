@@ -138,7 +138,6 @@ def query(
         caracal ledger query --format json
         """
     try:
-        # Get CLI context
         cli_ctx = ctx.obj
         
         # Parse UUIDs if provided
@@ -159,7 +158,6 @@ def query(
                 click.echo(f"Error: Invalid mandate ID format: {e}", err=True)
                 sys.exit(1)
         
-        # Parse date/time filters
         start_time = None
         end_time = None
         
@@ -327,7 +325,6 @@ def export(
             --format json
     """
     try:
-        # Get CLI context
         cli_ctx = ctx.obj
         
         # Parse principal ID if provided
@@ -339,7 +336,6 @@ def export(
                 click.echo(f"Error: Invalid principal ID format: {e}", err=True)
                 sys.exit(1)
         
-        # Parse date/time filters
         try:
             start_time = parse_datetime(start)
             end_time = parse_datetime(end)

@@ -659,7 +659,6 @@ class MCPAdapterService:
             """
             mcp_server_statuses = {}
             
-            # Check connectivity to each MCP server
             for server_name, client in self.mcp_clients.items():
                 try:
                     # Try to connect to the MCP server's health endpoint
@@ -676,7 +675,6 @@ class MCPAdapterService:
                 except Exception as e:
                     mcp_server_statuses[server_name] = f"unhealthy ({type(e).__name__})"
             
-            # Check database connectivity
             db_healthy = True
             db_status = "not_configured"
             if self.db_connection_manager:
@@ -688,7 +686,6 @@ class MCPAdapterService:
                     db_status = f"unhealthy ({type(e).__name__})"
                     logger.error(f"Database health check failed: {e}")
             
-            # Add database status to response
             mcp_server_statuses["database"] = db_status
             
             # Determine overall status
@@ -1115,7 +1112,6 @@ class MCPAdapterService:
         """
         import uvicorn
         
-        # Parse listen address
         host, port = self.config.listen_address.rsplit(":", 1)
         port = int(port)
         
@@ -1215,9 +1211,7 @@ async def main(config_path: Optional[str] = None, listen_address: Optional[str] 
     import os
     from caracal.config import load_config
     from caracal.db.connection import get_db_manager
-    from caracal.core.identity import PrincipalRegistry
     from caracal.core.authority import AuthorityEvaluator
-    from caracal.core.authority_ledger import AuthorityLedgerWriter
     from caracal.core.ledger import LedgerWriter
     
     runtime_policy = setup_runtime_logging(
@@ -1233,7 +1227,6 @@ async def main(config_path: Optional[str] = None, listen_address: Optional[str] 
 
     logger.info("Initializing Caracal Core components...")
     
-    # Load production config
     try:
         config_path = config_path or os.environ.get("CARACAL_CONFIG_PATH")
         core_config = load_config(config_path)
@@ -1267,25 +1260,20 @@ async def main(config_path: Optional[str] = None, listen_address: Optional[str] 
         log_level=runtime_policy.level.lower(),
     )
     
-    # Initialize database connection via standard manager
     db_manager = get_db_manager(core_config)
     session = db_manager.get_session()
     
-    # Initialize core components
     ledger_writer = LedgerWriter(session)
 
-    # Initialize authority evaluator
     authority_evaluator = AuthorityEvaluator(
         db_session=session,
         # authority_ledger=authority_ledger_writer  # If needed by evaluator, but currently it takes session
     )
     
-    # Initialize metering collector
     metering_collector = MeteringCollector(
         ledger_writer=ledger_writer
     )
     
-    # Initialize MCP adapter
     mcp_server_url_map = {
         server.name: server.url
         for server in mcp_servers
@@ -1325,7 +1313,6 @@ async def main(config_path: Optional[str] = None, listen_address: Optional[str] 
         logger.error(f"Failed to initialize AIS session manager for MCP auth: {e}")
         sys.exit(1)
     
-    # Initialize MCP service
     service = MCPAdapterService(
         config=config,
         mcp_adapter=mcp_adapter,

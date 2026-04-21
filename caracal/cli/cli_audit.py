@@ -1,14 +1,13 @@
 """
-CLI command audits and workflow validation helpers.
+Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+Caracal, a product of Garudex Labs
 
-Provides structural checks to ensure the CLI surface stays coherent,
-discoverable, and aligned with expected operational flows.
+CLI command audits and workflow validation helpers.
 """
 
 import json
 import sys
 import tempfile
-from pathlib import Path
 from typing import Dict, List, Tuple
 
 import click
@@ -155,7 +154,7 @@ def _run_workflow_execution_probe(root_command: click.Group) -> Dict[str, object
     runner = CliRunner()
     steps: List[Dict[str, object]] = []
 
-    with tempfile.TemporaryDirectory() as temp_dir:
+    with tempfile.TemporaryDirectory():
         command_steps = [
             {
                 "name": "workspace-create",
