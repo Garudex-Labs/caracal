@@ -18,7 +18,7 @@ from typing import Optional
 import click
 
 from caracal.db.connection import get_db_manager
-from caracal.db.models import AuthorityLedgerEvent
+from caracal.db.models import LedgerEvent
 from caracal.exceptions import CaracalError
 
 
@@ -41,7 +41,7 @@ class _LedgerEventView:
 
 
 class _PostgresLedgerQuery:
-    """Compatibility query facade backed by authority_ledger_events."""
+    """Compatibility query facade backed by ledger_events (metering ledger)."""
 
     def __init__(self, config):
         self._config = config
@@ -66,23 +66,23 @@ class _PostgresLedgerQuery:
         db_manager = get_db_manager(self._config)
         try:
             with db_manager.session_scope() as session:
-                query = session.query(AuthorityLedgerEvent)
+                query = session.query(LedgerEvent)
                 if principal_uuid:
-                    query = query.filter(AuthorityLedgerEvent.principal_id == principal_uuid)
+                    query = query.filter(LedgerEvent.principal_id == principal_uuid)
                 if start_time:
-                    query = query.filter(AuthorityLedgerEvent.timestamp >= start_time)
+                    query = query.filter(LedgerEvent.timestamp >= start_time)
                 if end_time:
-                    query = query.filter(AuthorityLedgerEvent.timestamp <= end_time)
+                    query = query.filter(LedgerEvent.timestamp <= end_time)
                 if resource_type:
-                    query = query.filter(AuthorityLedgerEvent.requested_resource.ilike(f"%{resource_type}%"))
+                    query = query.filter(LedgerEvent.resource_type.ilike(f"%{resource_type}%"))
 
-                rows = query.order_by(AuthorityLedgerEvent.event_id.desc()).all()
+                rows = query.order_by(LedgerEvent.event_id.desc()).all()
                 return [
                     _LedgerEventView(
                         event_id=row.event_id,
                         principal_id=str(row.principal_id),
-                        resource_type=row.requested_resource or row.event_type or "unknown",
-                        quantity="1",
+                        resource_type=row.resource_type,
+                        quantity=str(row.quantity),
                         timestamp=row.timestamp.isoformat(),
                     )
                     for row in rows
@@ -96,16 +96,17 @@ class _PostgresLedgerQuery:
         start_time: Optional[datetime],
         end_time: Optional[datetime],
     ) -> Decimal:
-        return Decimal(len(self.get_events(principal_id=principal_id, start_time=start_time, end_time=end_time)))
+        events = self.get_events(principal_id=principal_id, start_time=start_time, end_time=end_time)
+        return sum((Decimal(e.quantity) for e in events), Decimal("0"))
 
     def aggregate_by_principal(self, start_time: datetime, end_time: datetime) -> dict[str, Decimal]:
         events = self.get_events(start_time=start_time, end_time=end_time)
         totals: dict[str, Decimal] = {}
         for event in events:
-            totals[event.principal_id] = totals.get(event.principal_id, Decimal("0")) + Decimal("1")
+            totals[event.principal_id] = totals.get(event.principal_id, Decimal("0")) + Decimal(event.quantity)
         return totals
 
-    def sum_usage_with_targetren(self, principal_id: str, start_time: datetime, end_time: datetime, principal_registry=None) -> dict[str, Decimal]:
+    def sum_usage_with_children(self, principal_id: str, start_time: datetime, end_time: datetime, principal_registry=None) -> dict[str, Decimal]:
         # Delegation-aware recursive rollup has moved to PostgreSQL graph queries.
         # This compatibility method currently returns direct usage for the requested principal.
         return {principal_id: self.sum_usage(principal_id, start_time, end_time)}
@@ -116,8 +117,8 @@ class _PostgresLedgerQuery:
             "principal_id": principal_id,
             "principal_name": principal_id,
             "usage": str(own_usage),
-            "targetren": [],
-            "total_with_targetren": str(own_usage),
+            "children": [],
+            "total_with_children": str(own_usage),
         }
 
 
@@ -365,14 +366,14 @@ def query(
     help='End time (YYYY-MM-DD or YYYY-MM-DD HH:MM:SS)',
 )
 @click.option(
-    '--aggregate-targetren',
+    '--aggregate-children',
     is_flag=True,
-    help='Include usage from target principals in the total (graph aggregation)',
+    help='Include usage from delegated child principals in the total (graph aggregation)',
 )
 @click.option(
     '--breakdown',
     is_flag=True,
-    help='Show directed breakdown of usage by principal and targetren',
+    help='Show directed breakdown of usage by principal and delegated children',
 )
 @click.option(
     '--format',
@@ -387,7 +388,7 @@ def summary(
     principal_id: Optional[str],
     start: Optional[str],
     end: Optional[str],
-    aggregate_targetren: bool,
+    aggregate_children: bool,
     breakdown: bool,
     format: str,
 ):
@@ -397,7 +398,7 @@ def summary(
     Calculates total usage for each principal in the specified time window.
     If principal-id is specified, shows detailed breakdown for that principal only.
     
-    With --aggregate-targetren, includes usage from all target principals in the total.
+    With --aggregate-children, includes usage from all delegated child principals in the total.
     With --breakdown, shows directed view with indentation for source-target relationships.
     
     Examples:
@@ -408,9 +409,9 @@ def summary(
         # Summary for a specific principal
         caracal ledger summary --principal-id 550e8400-e29b-41d4-a716-446655440000
         
-        # Summary with target principal usage included
+        # Summary with delegated child principal usage included
         caracal ledger summary --principal-id 550e8400-e29b-41d4-a716-446655440000 \\
-            --aggregate-targetren --start 2024-01-01 --end 2024-01-31
+            --aggregate-children --start 2024-01-01 --end 2024-01-31
         
         # directed breakdown view
         caracal ledger summary --principal-id 550e8400-e29b-41d4-a716-446655440000 \\
@@ -453,7 +454,7 @@ def summary(
         ledger_query = get_ledger_query(cli_ctx.config)
         
         principal_registry = None
-        if aggregate_targetren or breakdown:
+        if aggregate_children or breakdown:
             principal_registry = get_principal_registry(cli_ctx.config)
         
         if principal_id:
@@ -508,23 +509,23 @@ def summary(
                         
                         click.echo(f"{indent_str}   Own Usage: {data['usage']} USD")
                         
-                        # Print targetren recursively
-                        if data.get("targetren"):
-                            for target in data["targetren"]:
-                                print_breakdown(target, indent + 1)
+                        # Print delegated children recursively
+                        if data.get("children"):
+                            for child in data["children"]:
+                                print_breakdown(child, indent + 1)
                         
                         # Print total at root level
                         if indent == 0:
                             click.echo()
-                            click.echo(f"{indent_str}Total (with targetren): {data['total_with_targetren']} USD")
+                            click.echo(f"{indent_str}Total (with children): {data['total_with_children']} USD")
                     
                     print_breakdown(breakdown_data)
                 
                 return
             
-            # Handle aggregate targetren (sum with targetren)
-            if aggregate_targetren:
-                usage_with_targetren = ledger_query.sum_usage_with_targetren(
+            # Handle aggregate children (sum with delegated children)
+            if aggregate_children:
+                usage_with_children = ledger_query.sum_usage_with_children(
                     principal_id=principal_id,
                     start_time=start_time,
                     end_time=end_time,
@@ -532,9 +533,9 @@ def summary(
                 )
                 
                 # Calculate totals
-                own_usage = usage_with_targetren.get(principal_id, Decimal('0'))
-                total_usage = sum(usage_with_targetren.values())
-                targetren_usage = total_usage - own_usage
+                own_usage = usage_with_children.get(principal_id, Decimal('0'))
+                total_usage = sum(usage_with_children.values())
+                children_usage = total_usage - own_usage
                 
                 if format.lower() == 'json':
                     # JSON output
@@ -543,32 +544,32 @@ def summary(
                         "start_time": start_time.isoformat() if start_time else None,
                         "end_time": end_time.isoformat() if end_time else None,
                         "own_usage": str(own_usage),
-                        "targetren_usage": str(targetren_usage),
+                        "children_usage": str(children_usage),
                         "total_usage": str(total_usage),
                         "unit": "requests",
                         "breakdown_by_principal": {
                             aid: str(amount)
-                            for aid, amount in usage_with_targetren.items()
+                            for aid, amount in usage_with_children.items()
                         }
                     }
                     click.echo(json.dumps(output, indent=2))
                 else:
                     # Table output
-                    click.echo(f"Usage Summary for Principal: {principal_id} (with targetren)")
+                    click.echo(f"Usage Summary for Principal: {principal_id} (with children)")
                     click.echo("=" * 70)
                     click.echo()
                     click.echo(f"Time Period: {start_time} to {end_time}")
                     click.echo(f"Own Usage: {own_usage}")
-                    click.echo(f"targetren Usage: {targetren_usage}")
+                    click.echo(f"Children Usage: {children_usage}")
                     click.echo(f"Total Usage: {total_usage}")
                     click.echo()
                     
-                    if len(usage_with_targetren) > 1:
+                    if len(usage_with_children) > 1:
                         click.echo("Breakdown by Principal:")
                         click.echo("-" * 70)
                         
                         # Calculate column width
-                        max_principal_id_len = max(len(aid) for aid in usage_with_targetren.keys())
+                        max_principal_id_len = max(len(aid) for aid in usage_with_children.keys())
                         principal_id_width = max(max_principal_id_len, len("Principal ID"))
                         
                         # Print header
@@ -577,7 +578,7 @@ def summary(
                         
                         # Print breakdown sorted by usage (descending)
                         for aid, usage in sorted(
-                            usage_with_targetren.items(),
+                            usage_with_children.items(),
                             key=lambda x: x[1],
                             reverse=True
                         ):

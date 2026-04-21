@@ -155,7 +155,7 @@ class LedgerQuery:
             totals[event.principal_id] = totals.get(event.principal_id, Decimal("0")) + Decimal(event.quantity)
         return totals
 
-    def sum_usage_with_targetren(
+    def sum_usage_with_children(
         self,
         principal_id: str,
         start_time: datetime,
@@ -177,6 +177,6 @@ class LedgerQuery:
             "principal_id": principal_id,
             "principal_name": principal_id,
             "usage": str(own_usage),
-            "targetren": [],
-            "total_with_targetren": str(own_usage),
+            "children": [],
+            "total_with_children": str(own_usage),
         }
