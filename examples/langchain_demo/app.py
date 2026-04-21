@@ -1,539 +1,562 @@
-"""FastAPI app for the Caracal-backed LangChain demo."""
+"""
+Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+Caracal, a product of Garudex Labs
+
+FastAPI application combining MCPAdapterService routes with demo UI and observability.
+"""
 
 from __future__ import annotations
 
-import argparse
-import asyncio
-import json
-from pathlib import Path
+import dataclasses
+import os
+from typing import Any, Optional
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, JSONResponse
-from pydantic import BaseModel
-
-from .baseline.scenario import load_scenario
-from .demo_runtime import DemoRunConfig, run_demo_workflow_async
-from .mock_services import router as mock_router
-from .runtime_config import config_status
-
-
-class DemoRunRequest(BaseModel):
-    mode: str = "mock"
-    provider_strategy: str = "mixed"
-UI_HTML = """<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Caracal Demo App</title>
-  <style>
-    :root {
-      --bg: #f6f7f8;
-      --surface: #ffffff;
-      --fg: #0f1720;
-      --muted: #6b7280;
-      --accent: #0b61ff;
-      --good: #059669;
-      --warn: #b45309;
-      --border: #e6e9ef;
-      --radius: 4px;
-      --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, "Roboto Mono", monospace;
-      --ui-font: Inter, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;
-    }
-
-    * { box-sizing: border-box; }
-    html,body { height: 100%; }
-    body {
-      margin: 0;
-      font-family: var(--ui-font);
-      color: var(--fg);
-      background: var(--bg);
-      -webkit-font-smoothing:antialiased;
-      -moz-osx-font-smoothing:grayscale;
-    }
-
-    .container {
-      max-width: 1100px;
-      margin: 28px auto;
-      padding: 18px;
-    }
-
-    /* Pre-demo centered entry */
-    .pre-demo {
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      min-height: 60vh;
-    }
-
-    .pre-card {
-      width: 680px;
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: var(--radius);
-      padding: 20px 24px;
-    }
-
-    .pre-card h1 {
-      margin: 0 0 8px;
-      font-size: 20px;
-      font-weight: 700;
-      letter-spacing: -0.01em;
-    }
-
-    .muted { color: var(--muted); font-size: 14px; line-height:1.45; }
-
-    .pre-list { margin: 12px 0 18px; padding-left: 18px; color: var(--muted); }
-
-    .pre-actions { display:flex; gap:12px; align-items:center; margin-top:12px; }
-
-    .btn {
-      display:inline-block;
-      padding:8px 12px;
-      border-radius: var(--radius);
-      border: 1px solid var(--border);
-      background: transparent;
-      font-weight: 600;
-      cursor: pointer;
-    }
-
-    .btn[disabled] { opacity: 0.6; cursor: not-allowed; }
-
-    .btn-primary { background: var(--accent); color: #fff; border-color: transparent; }
-
-    /* Main layout */
-    .main-grid { display: grid; grid-template-columns: 320px 1fr; gap: 18px; margin-top: 18px; }
-
-    .panel {
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: var(--radius);
-      padding: 14px;
-    }
-
-    .controls h2 { margin: 0 0 10px; font-size: 13px; color: var(--muted); text-transform: uppercase; letter-spacing:0.06em; }
-
-    .group { margin-bottom: 12px; }
-
-    label { display:block; font-size:13px; color:var(--muted); margin-bottom:6px; }
-
-    select, input[type="checkbox"], input[type="text"] { font: inherit; }
-
-    select, .control-input {
-      width:100%; padding:8px 10px; border:1px solid var(--border); border-radius:var(--radius); background:transparent; font-size:13px; color:var(--fg);
-    }
-
-    .checkbox-row { display:flex; align-items:center; gap:10px; color:var(--muted); }
-
-    .primary-row { margin-top: 8px; display:flex; gap:10px; align-items:center; }
-
-    .status { display:flex; align-items:center; gap:10px; font-size:13px; color:var(--muted); }
-    .dot { width:10px; height:10px; border-radius:2px; background:#9ca3af; display:inline-block; }
-    .dot.running { background: #f59e0b; }
-    .dot.success { background: var(--good); }
-    .dot.error { background: #ef4444; }
-
-    /* Minimal rows for key/value summary */
-    .cards { display:flex; flex-direction:column; gap:6px; margin-bottom:10px; }
-    .card { display:flex; justify-content:space-between; padding:8px 6px; border-bottom:1px solid var(--border); }
-    .card .k { color:var(--muted); font-size:12px; text-transform:uppercase; letter-spacing:0.06em; }
-    .card .v { font-weight:600; }
-
-    /* Tables kept but simplified */
-    .table { width:100%; border-collapse:collapse; font-size:13px; }
-    .table th, .table td { text-align:left; padding:8px 6px; border-bottom:1px solid var(--border); }
-    .table th { color:var(--muted); font-size:12px; text-transform:uppercase; }
-
-    .pill { display:inline-block; padding:3px 8px; border-radius:6px; font-size:12px; font-weight:700; color:var(--fg); background:transparent; border:1px solid var(--border); }
-    .pill.good { color:var(--good); border-color: rgba(5,150,105,0.08); }
-    .pill.warn { color:var(--warn); border-color: rgba(180,83,9,0.08); }
-
-    /* Output console */
-    .output { background:#0b0f14; color:#e6eefb; padding:12px; border-radius:var(--radius); font-family:var(--mono); font-size:13px; min-height:360px; overflow:auto; }
-
-    pre { margin:0; font-family:var(--mono); font-size:13px; line-height:1.45; }
-
-    .empty { color:var(--muted); padding:18px 4px; }
-
-    @media (max-width: 900px) { .main-grid { grid-template-columns: 1fr; } .pre-card{width:92vw;} }
-  </style>
-</head>
-<body>
-  <div class="container">
-    <!-- Pre-demo entry -->
-    <div id="pre-demo" class="pre-demo">
-      <div class="pre-card" role="dialog" aria-labelledby="pre-title">
-        <h1 id="pre-title">Caracal Demo — Local Governance Showcase</h1>
-        <p class="muted">A compact demo that walks through authority, provider routing, and enforcement. You will see a step-by-step execution trace, provider routing decisions, and authority enforcement outcomes.</p>
-
-        <ul class="pre-list">
-          <li><strong>Authority</strong>: who can request actions, enforced by Caracal via Bearer token identity.</li>
-          <li><strong>Provider routing</strong>: which provider (mock or real) handles a tool call.</li>
-          <li><strong>Enforcement</strong>: authority decisions are visible through tool call success or failure.</li>
-        </ul>
-
-        <div style="display:flex;align-items:center;gap:12px;">
-          <label style="display:flex;gap:8px;align-items:center;">
-            <input id="accept-demo" type="checkbox" />
-            <span class="muted">I understand this is a demo environment</span>
-          </label>
-        </div>
-
-        <div class="pre-actions">
-          <button id="enter-demo" class="btn btn-primary" disabled>Enter Demo</button>
-        </div>
-      </div>
-    </div>
-
-    <!-- Main app (hidden until entry) -->
-    <div id="main-app" style="display:none;">
-      <header style="display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin-bottom:8px;">
-        <div>
-          <div style="color:var(--muted);font-size:12px;text-transform:uppercase;letter-spacing:0.08em;">Caracal Demo</div>
-          <h1 style="margin:6px 0 0;font-size:18px;font-weight:700;">Authority, provider routing, delegation, enforcement</h1>
-          <div class="muted" style="margin-top:8px;">Run the demo to see a trace of the governed workflow and its enforcement decisions.</div>
-        </div>
-        <div style="text-align:right;color:var(--muted);font-size:12px;">Developer-focused demo • Local only</div>
-      </header>
-
-      <div class="main-grid">
-        <aside class="panel controls">
-          <h2>Run Controls</h2>
-
-          <div class="group">
-            <label for="mode">Execution</label>
-            <select id="mode" class="control-input">
-              <option value="mock">Mock mode</option>
-              <option value="real">Real mode</option>
-            </select>
-          </div>
-
-          <div class="group">
-            <label for="strategy">Providers</label>
-            <select id="strategy" class="control-input">
-              <option value="mixed">Mixed (finance OpenAI, ops Gemini)</option>
-              <option value="openai">OpenAI only</option>
-              <option value="gemini">Gemini only</option>
-            </select>
-          </div>
-
-          <div class="primary-row">
-            <button id="run" class="btn btn-primary" style="flex:1;">Run workflow</button>
-          </div>
-
-          <div style="margin-top:12px; display:flex;align-items:center;justify-content:space-between;">
-            <div class="status"><span id="status-dot" class="dot"></span><span id="status">Idle</span></div>
-            <div style="font-size:12px;color:var(--muted);">&nbsp;</div>
-          </div>
-
-          <div style="margin-top:14px;border-top:1px solid var(--border);padding-top:12px;">
-            <h3 style="margin:0 0 10px;font-size:12px;color:var(--muted);text-transform:uppercase;">Setup Status</h3>
-            <div id="setup-status" class="muted">Not checked yet.</div>
-          </div>
-
-          <div style="margin-top:12px;border-top:1px solid var(--border);padding-top:12px;">
-            <h3 style="margin:0 0 10px;font-size:12px;color:var(--muted);text-transform:uppercase;">What to watch</h3>
-            <div class="muted">Per-role identity, provider routing, authority enforcement, and execution trace.</div>
-          </div>
-        </aside>
-
-        <main class="panel">
-          <h2 style="margin:0 0 10px;font-size:13px;color:var(--muted);text-transform:uppercase;">Run Output</h2>
-          <div id="result" class="output">
-            <div class="empty">Run the demo to see the execution flow and logs here.</div>
-          </div>
-        </main>
-      </div>
-    </div>
-  </div>
-
-  <script>
-    const statusEl = document.getElementById("status");
-    const statusDot = document.getElementById("status-dot");
-    const resultEl = document.getElementById("result");
-    const runBtn = document.getElementById("run");
-    const setupStatusEl = document.getElementById("setup-status");
-
-    const preDemo = document.getElementById("pre-demo");
-    const mainApp = document.getElementById("main-app");
-    const acceptBox = document.getElementById("accept-demo");
-    const enterBtn = document.getElementById("enter-demo");
-
-    function esc(value) {
-      return String(value ?? "")
-        .replaceAll("&", "&amp;")
-        .replaceAll("<", "&lt;")
-        .replaceAll(">", "&gt;");
-    }
-
-    function setStatus(state, text) {
-      if (statusDot) {
-        statusDot.className = 'dot ' + (state || '');
-      }
-      if (statusEl) {
-        statusEl.textContent = text || '';
-      }
-    }
-
-    function renderCards(result) {
-      const acceptance = result.acceptance?.passed ? "Accepted" : "Review needed";
-      const decisions = (result.authority_decisions || []).length;
-      const denied = (result.authority_decisions || []).filter(d => !d.allowed).length;
-      return `
-        <div class="cards">
-          <div class="card"><span class="k">Mode</span><span class="v">${esc(result.mode)}</span></div>
-          <div class="card"><span class="k">Provider</span><span class="v">${esc(result.provider_strategy)}</span></div>
-          <div class="card"><span class="k">Acceptance</span><span class="v">${esc(acceptance)}</span></div>
-          <div class="card"><span class="k">Authority</span><span class="v">${decisions} checks, ${denied} denied</span></div>
-        </div>
-      `;
-    }
-
-    function renderIdentities(result) {
-      const rows = (result.identities || []).map((entry) => `
-        <tr>
-          <td>${esc(entry.role)}</td>
-          <td>${esc(entry.principal_id)}</td>
-        </tr>
-      `).join("");
-      return `
-        <div style="margin-top:12px;">
-          <h3 style="margin:0 0 8px;font-size:13px;color:var(--muted);text-transform:uppercase;">Identity</h3>
-          <table class="table">
-            <thead><tr><th>Role</th><th>Principal</th></tr></thead>
-            <tbody>${rows}</tbody>
-          </table>
-        </div>
-      `;
-    }
-
-    function renderTimeline(result) {
-      const rows = (result.timeline || []).map((step) => `
-        <tr>
-          <td>${esc(step.step)}</td>
-          <td>${esc(step.role || step.event)}</td>
-          <td>${esc(step.tool_id || step.event || "")}</td>
-          <td><span class="pill">${esc(step.provider_name || step.execution_mode || "event")}</span></td>
-          <td>${esc((step.output && JSON.stringify(step.output).slice(0, 200)) || (step.denial_evidence && JSON.stringify(step.denial_evidence).slice(0, 200)) || "")}</td>
-        </tr>
-      `).join("");
-      return `
-        <div style="margin-top:12px;">
-          <h3 style="margin:0 0 8px;font-size:13px;color:var(--muted);text-transform:uppercase;">Timeline</h3>
-          <table class="table">
-            <thead><tr><th>Step</th><th>Role</th><th>Tool / Event</th><th>Route</th><th>Output excerpt</th></tr></thead>
-            <tbody>${rows}</tbody>
-          </table>
-        </div>
-      `;
-    }
-
-    function renderAuthority(result) {
-      const rows = (result.authority_decisions || []).map((entry) => `
-        <tr>
-          <td>${esc(entry.role)}</td>
-          <td>${esc(entry.resource_scope)}</td>
-          <td>${esc(entry.action_scope)}</td>
-          <td><span class="pill ${entry.allowed ? "good" : "warn"}">${esc(entry.allowed ? "allowed" : "denied")}</span></td>
-          <td>${esc(entry.reason)}</td>
-        </tr>
-      `).join("");
-      return `
-        <div style="margin-top:12px;">
-          <h3 style="margin:0 0 8px;font-size:13px;color:var(--muted);text-transform:uppercase;">Authority Decisions</h3>
-          <table class="table">
-            <thead><tr><th>Role</th><th>Resource</th><th>Action</th><th>Decision</th><th>Reason</th></tr></thead>
-            <tbody>${rows}</tbody>
-          </table>
-        </div>
-      `;
-    }
-
-    function renderProviderUsage(result) {
-      const rows = (result.provider_usage || []).map((entry) => `
-        <tr>
-          <td>${esc(entry.provider_name)}</td>
-          <td>${esc(entry.call_count)}</td>
-        </tr>
-      `).join("");
-      return `
-        <div style="margin-top:12px;">
-          <h3 style="margin:0 0 8px;font-size:13px;color:var(--muted);text-transform:uppercase;">Provider Usage</h3>
-          <table class="table">
-            <thead><tr><th>Provider</th><th>Calls</th></tr></thead>
-            <tbody>${rows}</tbody>
-          </table>
-        </div>
-      `;
-    }
-
-    function renderJson(result) {
-      return `
-        <div style="margin-top:12px;">
-          <h3 style="margin:0 0 8px;font-size:13px;color:var(--muted);text-transform:uppercase;">Raw Artifact</h3>
-          <pre>${esc(JSON.stringify(result, null, 2))}</pre>
-        </div>
-      `;
-    }
-
-    function renderResult(result) {
-      resultEl.innerHTML = '';
-      resultEl.innerHTML += renderCards(result);
-      resultEl.innerHTML += `<div style="margin-top:12px;"><h3 style=\"margin:0 0 8px;font-size:13px;color:var(--muted);text-transform:uppercase;\">Executive Summary</h3><div class=\"muted\">${esc(result.final_summary)}</div></div>`;
-      resultEl.innerHTML += renderIdentities(result);
-      resultEl.innerHTML += renderTimeline(result);
-      resultEl.innerHTML += renderAuthority(result);
-      resultEl.innerHTML += renderProviderUsage(result);
-      resultEl.innerHTML += renderJson(result);
-    }
-
-    async function loadSetupStatus() {
-      try {
-        const response = await fetch("/api/config/status");
-        const payload = await response.json();
-        if (payload.configured) {
-          setupStatusEl.textContent = `Configured: ${payload.config_path}`;
-          setupStatusEl.style.color = "var(--good)";
-        } else {
-          setupStatusEl.textContent = payload.message || "Configuration is incomplete.";
-          setupStatusEl.style.color = "var(--warn)";
-        }
-      } catch (error) {
-        setupStatusEl.textContent = `Unable to read setup status: ${error.message || String(error)}`;
-        setupStatusEl.style.color = "var(--warn)";
-      }
-    }
-
-    async function runDemo() {
-      runBtn.disabled = true;
-      setStatus('running', 'Running the governed workflow...');
-      try {
-        const response = await fetch("/api/run", {
-          method: "POST",
-          headers: {"Content-Type": "application/json"},
-          body: JSON.stringify({
-            mode: document.getElementById("mode").value,
-            provider_strategy: document.getElementById("strategy").value,
-          }),
-        });
-        const payload = await response.json();
-        if (!response.ok) {
-          throw new Error(payload.detail || "Request failed");
-        }
-        setStatus('success', 'Workflow complete.');
-        renderResult(payload);
-      } catch (error) {
-        setStatus('error', error.message || String(error));
-      } finally {
-        runBtn.disabled = false;
-      }
-    }
-
-    // Pre-demo interactions
-    if (enterBtn && acceptBox) {
-      enterBtn.disabled = true;
-      acceptBox.addEventListener('change', () => { enterBtn.disabled = !acceptBox.checked; });
-      enterBtn.addEventListener('click', () => {
-        preDemo.style.display = 'none';
-        mainApp.style.display = 'block';
-        setTimeout(() => { document.getElementById('mode')?.focus(); }, 40);
-        setStatus('idle', 'Idle');
-        loadSetupStatus();
-      });
-    }
-
-    runBtn.addEventListener("click", runDemo);
-  </script>
-</body>
-</html>
-"""
-    
-
-
-def create_app() -> FastAPI:
-    app = FastAPI(title="Caracal Demo App")
-    app.include_router(mock_router)
-    app.state.run_lock = asyncio.Lock()
-
-    @app.get("/", response_class=HTMLResponse)
-    async def index() -> str:
-        return UI_HTML
-
-    @app.get("/api/scenario")
-    async def scenario() -> JSONResponse:
-        return JSONResponse(load_scenario())
-
-    @app.get("/api/config/status")
-    async def setup_status() -> JSONResponse:
-        return JSONResponse(config_status())
-
-    @app.post("/api/run")
-    async def run_demo(request: DemoRunRequest) -> JSONResponse:
-        async with app.state.run_lock:
-            try:
-                result = await run_demo_workflow_async(
-                    load_scenario(),
-                    DemoRunConfig(
-                        mode=request.mode,
-                        provider_strategy=request.provider_strategy,
-                    ),
+
+from caracal.core.authority import AuthorityEvaluator
+from caracal.core.ledger import LedgerWriter
+from caracal.core.metering import MeteringCollector
+from caracal.db.connection import DatabaseConfig, DatabaseConnectionManager
+from caracal.mcp.adapter import MCPAdapter
+from caracal.mcp.service import MCPAdapterService, MCPServiceConfig
+
+from .demo_runtime import DemoRuntime, RunConfig
+from .preflight import WorkspacePreflight
+from .trace_store import TraceStore
+
+_DEMO_PORT = int(os.environ.get("CARACAL_DEMO_PORT", "8090"))
+_DEMO_LISTEN = os.environ.get("CARACAL_DEMO_LISTEN", "0.0.0.0")
+_REDIS_URL = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
+_MCP_BASE_URL = f"http://localhost:{_DEMO_PORT}"
+_WORKSPACE_NAME = os.environ.get("CARACAL_DEMO_WORKSPACE", "")
+
+_trace_store = TraceStore(maxsize=2000)
+_db_manager: Optional[DatabaseConnectionManager] = None
+_runtime: Optional[DemoRuntime] = None
+
+
+def _make_db_manager() -> DatabaseConnectionManager:
+    config = DatabaseConfig()
+    mgr = DatabaseConnectionManager(config)
+    mgr.initialize()
+    return mgr
+
+
+def _make_runtime(db_manager: DatabaseConnectionManager, workspace_id: str) -> DemoRuntime:
+    with db_manager.session_scope() as session:
+        return DemoRuntime(
+            db_session=session,
+            workspace_id=workspace_id,
+            mcp_base_url=_MCP_BASE_URL,
+            trace_store=_trace_store,
+            redis_url=_REDIS_URL,
+        )
+
+
+def _workspace_id() -> str:
+    if _WORKSPACE_NAME:
+        return _WORKSPACE_NAME
+    try:
+        from caracal.deployment.config_manager import ConfigManager
+        return ConfigManager().get_default_workspace_name() or "default"
+    except Exception:
+        return "default"
+
+
+def build_app() -> FastAPI:
+    """Build the combined demo FastAPI app.
+
+    Reuses MCPAdapterService.app and attaches demo routes to it.
+    """
+    db_manager = _make_db_manager()
+
+    with db_manager.session_scope() as session:
+        ledger = LedgerWriter(session)
+        evaluator = AuthorityEvaluator(session)
+        metering = MeteringCollector(ledger)
+        adapter = MCPAdapter(
+            authority_evaluator=evaluator,
+            metering_collector=metering,
+        )
+        config = MCPServiceConfig(
+            listen_address=f"{_DEMO_LISTEN}:{_DEMO_PORT}",
+            mcp_servers=[],
+        )
+        mcp_service = MCPAdapterService(
+            config=config,
+            mcp_adapter=adapter,
+            authority_evaluator=evaluator,
+            metering_collector=metering,
+            db_connection_manager=db_manager,
+        )
+
+    app: FastAPI = mcp_service.app
+    ws_id = _workspace_id()
+
+    global _db_manager
+    _db_manager = db_manager
+
+    # ------------------------------------------------------------------
+    # Customer-facing UI
+    # ------------------------------------------------------------------
+
+    @app.get("/", response_class=HTMLResponse, tags=["demo"])
+    async def customer_ui() -> HTMLResponse:
+        return HTMLResponse(_CUSTOMER_HTML)
+
+    # ------------------------------------------------------------------
+    # Internal observability UI
+    # ------------------------------------------------------------------
+
+    @app.get("/caracal", response_class=HTMLResponse, tags=["demo"])
+    async def caracal_ui() -> HTMLResponse:
+        return HTMLResponse(_CARACAL_HTML)
+
+    # ------------------------------------------------------------------
+    # API
+    # ------------------------------------------------------------------
+
+    @app.get("/api/preflight", tags=["demo"])
+    async def api_preflight() -> JSONResponse:
+        with db_manager.session_scope() as session:
+            pf = WorkspacePreflight(session, ws_id)
+            return JSONResponse(pf.summary())
+
+    @app.post("/api/run", tags=["demo"])
+    async def api_run(request: Request) -> JSONResponse:
+        body = {}
+        try:
+            body = await request.json()
+        except Exception:
+            pass
+
+        with db_manager.session_scope() as session:
+            pf = WorkspacePreflight(session, ws_id)
+            if not pf.passed():
+                summary = pf.summary()
+                failed = [c["name"] for c in summary["checks"] if not c["passed"]]
+                return JSONResponse(
+                    {"error": f"Preflight failed: {', '.join(failed)}. Fix issues before running."},
+                    status_code=400,
                 )
-            except Exception as exc:  # pragma: no cover - surfaced directly in UI
-                raise HTTPException(status_code=400, detail=str(exc)) from exc
-        return JSONResponse(result)
+
+        mode = str(body.get("mode", "mock"))
+        config = RunConfig(mode=mode, workspace_id=ws_id)
+        with db_manager.session_scope() as session:
+            runtime = DemoRuntime(
+                db_session=session,
+                workspace_id=ws_id,
+                mcp_base_url=_MCP_BASE_URL,
+                trace_store=_trace_store,
+                redis_url=_REDIS_URL,
+            )
+            result = await runtime.execute(config)
+        return JSONResponse(_serialize_run_result(result))
+
+    @app.get("/api/traces", tags=["demo"])
+    async def api_traces() -> JSONResponse:
+        events = _trace_store.recent(200)
+        return JSONResponse([dataclasses.asdict(e) for e in events])
+
+    @app.get("/api/workspace", tags=["demo"])
+    async def api_workspace() -> JSONResponse:
+        with db_manager.session_scope() as session:
+            pf = WorkspacePreflight(session, ws_id)
+            return JSONResponse(pf.summary())
+
+    @app.get("/api/runs", tags=["demo"])
+    async def api_runs() -> JSONResponse:
+        return JSONResponse({"run_ids": _trace_store.run_ids()})
+
+    @app.get("/api/runs/{run_id}", tags=["demo"])
+    async def api_run_events(run_id: str) -> JSONResponse:
+        events = _trace_store.get_by_run(run_id)
+        return JSONResponse([dataclasses.asdict(e) for e in events])
+
+    @app.get("/api/principals", tags=["demo"])
+    async def api_principals() -> JSONResponse:
+        from caracal.db.models import AuthorityPolicy, ExecutionMandate, Principal
+
+        with db_manager.session_scope() as session:
+            rows = session.query(Principal).order_by(Principal.principal_kind).all()
+            out = []
+            for r in rows:
+                active_policies = (
+                    session.query(AuthorityPolicy)
+                    .filter_by(principal_id=r.principal_id, active=True)
+                    .count()
+                )
+                active_mandates = (
+                    session.query(ExecutionMandate)
+                    .filter(
+                        ExecutionMandate.subject_id == r.principal_id,
+                        ExecutionMandate.revoked.is_(False),
+                    )
+                    .count()
+                )
+                out.append({
+                    "principal_id": str(r.principal_id),
+                    "name": str(r.principal_name),
+                    "kind": str(r.principal_kind),
+                    "lifecycle_status": str(r.lifecycle_status),
+                    "active_policies": active_policies,
+                    "active_mandates": active_mandates,
+                })
+        return JSONResponse(out)
+
+    @app.get("/api/delegation", tags=["demo"])
+    async def api_delegation() -> JSONResponse:
+        from caracal.db.models import DelegationEdgeModel
+
+        with db_manager.session_scope() as session:
+            rows = (
+                session.query(DelegationEdgeModel)
+                .order_by(DelegationEdgeModel.granted_at.desc())
+                .limit(100)
+                .all()
+            )
+            out = []
+            for r in rows:
+                out.append({
+                    "edge_id": str(r.edge_id),
+                    "source_mandate_id": str(r.source_mandate_id),
+                    "target_mandate_id": str(r.target_mandate_id),
+                    "source_kind": str(r.source_principal_kind),
+                    "target_kind": str(r.target_principal_kind),
+                    "delegation_type": str(r.delegation_type),
+                    "granted_at": r.granted_at.isoformat() if r.granted_at else None,
+                    "expires_at": r.expires_at.isoformat() if r.expires_at else None,
+                    "revoked": bool(r.revoked),
+                })
+        return JSONResponse(out)
+
+    @app.get("/api/tools", tags=["demo"])
+    async def api_tools() -> JSONResponse:
+        from caracal.db.models import RegisteredTool
+
+        with db_manager.session_scope() as session:
+            rows = (
+                session.query(RegisteredTool)
+                .filter_by(workspace_name=ws_id)
+                .order_by(RegisteredTool.tool_id)
+                .all()
+            )
+            out = []
+            for r in rows:
+                out.append({
+                    "tool_id": str(r.tool_id),
+                    "provider_name": str(r.provider_name or ""),
+                    "resource_scope": str(r.resource_scope or ""),
+                    "action_scope": str(r.action_scope or ""),
+                    "tool_type": str(r.tool_type or ""),
+                    "execution_mode": str(r.execution_mode or ""),
+                    "handler_ref": str(r.handler_ref or ""),
+                    "active": bool(r.active),
+                    "provider_definition_id": str(r.provider_definition_id or ""),
+                })
+        return JSONResponse(out)
+
+    @app.get("/api/mandates", tags=["demo"])
+    async def api_mandates() -> JSONResponse:
+        from caracal.db.models import ExecutionMandate, Principal
+        from datetime import datetime
+
+        with db_manager.session_scope() as session:
+            now = datetime.utcnow()
+            rows = (
+                session.query(ExecutionMandate)
+                .filter(
+                    ExecutionMandate.revoked.is_(False),
+                    (ExecutionMandate.valid_until == None)  # noqa: E711
+                    | (ExecutionMandate.valid_until > now),
+                )
+                .order_by(ExecutionMandate.issued_at.desc())
+                .limit(50)
+                .all()
+            )
+            out = []
+            for r in rows:
+                principal = (
+                    session.query(Principal)
+                    .filter_by(principal_id=r.subject_id)
+                    .first()
+                )
+                out.append({
+                    "mandate_id": str(r.mandate_id),
+                    "subject_id": str(r.subject_id),
+                    "subject_name": str(principal.principal_name) if principal else "",
+                    "subject_kind": str(principal.principal_kind) if principal else "",
+                    "resource_scope": (
+                        r.resource_scope
+                        if isinstance(r.resource_scope, list)
+                        else [str(r.resource_scope or "")]
+                    ),
+                    "action_scope": (
+                        r.action_scope
+                        if isinstance(r.action_scope, list)
+                        else [str(r.action_scope or "")]
+                    ),
+                    "issued_at": r.issued_at.isoformat() if getattr(r, "issued_at", None) else None,
+                    "valid_until": r.valid_until.isoformat() if r.valid_until else None,
+                })
+        return JSONResponse(out)
+
+    @app.get("/api/authority_ledger", tags=["demo"])
+    async def api_authority_ledger() -> JSONResponse:
+        from caracal.core.authority_ledger import AuthorityLedgerQuery
+
+        with db_manager.session_scope() as session:
+            q = AuthorityLedgerQuery(session)
+            events = q.get_events(limit=100)
+            out = []
+            for e in events:
+                out.append({
+                    "event_id": e.event_id,
+                    "event_type": str(e.event_type),
+                    "timestamp": e.timestamp.isoformat() if e.timestamp else None,
+                    "principal_id": str(e.principal_id),
+                    "mandate_id": str(e.mandate_id) if e.mandate_id else None,
+                    "decision": str(e.decision or ""),
+                    "denial_reason": str(e.denial_reason or ""),
+                    "requested_action": str(e.requested_action or ""),
+                    "requested_resource": str(e.requested_resource or ""),
+                    "correlation_id": str(e.correlation_id or ""),
+                })
+        return JSONResponse(out)
 
     return app
 
 
-app = create_app()
+def _serialize_run_result(result: Any) -> dict:
+    d = dataclasses.asdict(result)
+    for worker in d.get("workers", []):
+        if not isinstance(worker.get("result"), (dict, list, str, int, float, bool, type(None))):
+            worker["result"] = str(worker["result"])
+    trace_events = d.pop("trace_events", [])
+    d["trace_count"] = len(trace_events)
+    return d
 
 
-def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Serve the Caracal demo app with uvicorn")
-    parser.add_argument("--host", default="127.0.0.1")
-    parser.add_argument("--port", default=8090, type=int)
-    parser.add_argument(
-        "--output",
-        default=None,
-        help="Optional path. When set together with --run-once, write one artifact and exit.",
-    )
-    parser.add_argument("--run-once", action="store_true", help="Execute one run and exit instead of serving UI")
-    parser.add_argument("--mode", default="mock", choices=["mock", "real"])
-    parser.add_argument("--provider-strategy", default="mixed", choices=["mixed", "openai", "gemini"])
-    return parser
+# ------------------------------------------------------------------
+# HTML templates (inline, no static file serving dependency)
+# ------------------------------------------------------------------
+
+_CUSTOMER_HTML = """<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Caracal Governed Demo</title>
+  <style>
+    body{font-family:system-ui,sans-serif;max-width:900px;margin:40px auto;padding:0 20px;background:#f8f9fa}
+    h1{color:#1a1a2e}
+    .card{background:#fff;border-radius:8px;padding:20px;margin:16px 0;box-shadow:0 1px 4px rgba(0,0,0,.1)}
+    .btn{padding:10px 20px;border:none;border-radius:6px;cursor:pointer;font-size:14px}
+    .btn-primary{background:#4361ee;color:#fff}
+    .check-pass{color:#28a745;font-weight:600}
+    .check-fail{color:#dc3545;font-weight:600}
+    pre{background:#1e1e2e;color:#cdd6f4;border-radius:6px;padding:16px;overflow-x:auto;font-size:13px}
+    .nav a{margin-right:16px;color:#4361ee;text-decoration:none;font-weight:500}
+    .badge{display:inline-block;padding:2px 8px;border-radius:12px;font-size:12px;font-weight:600}
+    .badge-ok{background:#d4edda;color:#155724}
+    .badge-fail{background:#f8d7da;color:#721c24}
+    .badge-deny{background:#fff3cd;color:#856404}
+    .worker-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px;margin-top:12px}
+    .worker-card{border:1px solid #dee2e6;border-radius:6px;padding:12px;font-size:13px}
+    #status{margin-top:8px;color:#666;font-size:14px}
+  </style>
+</head>
+<body>
+<nav class="nav">
+  <a href="/">Customer View</a>
+  <a href="/caracal">Caracal Internal</a>
+  <a href="/docs">API Docs</a>
+</nav>
+<h1>Caracal Governed Demo</h1>
+<div class="card" id="preflight-card">
+  <h2>Workspace Readiness</h2>
+  <div id="preflight-content">Loading&hellip;</div>
+</div>
+<div class="card">
+  <h2>Run Demo</h2>
+  <label>Mode: <select id="mode-select">
+    <option value="mock">mock</option>
+    <option value="real">real</option>
+  </select></label>&nbsp;
+  <button class="btn btn-primary" onclick="runDemo()">Run Governed Workflow</button>
+  <div id="status"></div>
+</div>
+<div class="card" id="workers-card" style="display:none">
+  <h2>Worker Fan-Out</h2>
+  <div id="workers-grid" class="worker-grid"></div>
+</div>
+<div class="card" id="result-card" style="display:none">
+  <h2>Last Run Result</h2>
+  <pre id="result-pre"></pre>
+</div>
+<script>
+async function loadPreflight(){
+  const r=await fetch('/api/preflight');const d=await r.json();
+  const checks=d.checks||[];
+  const passed=checks.filter(c=>c.passed).length;
+  const html='<p><strong>'+passed+'/'+checks.length+' checks passed</strong> &mdash; workspace: <code>'+(d.workspace||'')+'</code></p>'+
+    checks.map(c=>'<div style="margin:4px 0"><span class="'+(c.passed?'check-pass':'check-fail')+'">'+(c.passed?'&#10003;':'&#10007;')+' '+c.name+'</span>: '+c.detail+(!c.passed&&c.cli_fix?'<br/><small>Fix: <code>'+c.cli_fix+'</code>'+(c.tui_screen?' or '+c.tui_screen:'')+'</small>':'')+'</div>').join('');
+  document.getElementById('preflight-content').innerHTML=html;
+}
+async function runDemo(){
+  document.getElementById('status').textContent='Running\u2026';
+  document.getElementById('result-card').style.display='none';
+  document.getElementById('workers-card').style.display='none';
+  const mode=document.getElementById('mode-select').value;
+  const r=await fetch('/api/run',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({mode})});
+  const d=await r.json();
+  if(d.error){
+    document.getElementById('status').innerHTML='<span style="color:#dc3545">'+d.error+'</span>';
+  } else {
+    const w=d.workers||[];
+    const ok=w.filter(x=>x.success).length;
+    const denied=w.filter(x=>x.result_type==='enforcement_deny').length;
+    document.getElementById('status').textContent='Run complete. '+ok+'/'+w.length+' workers succeeded, '+denied+' enforcement denial(s). '+d.trace_count+' trace events.';
+    renderWorkers(w);
+  }
+  document.getElementById('result-pre').textContent=JSON.stringify(d,null,2);
+  document.getElementById('result-card').style.display='block';
+}
+function renderWorkers(workers){
+  const grid=document.getElementById('workers-grid');
+  grid.innerHTML=workers.map(function(w){
+    const cls=w.success?'badge-ok':w.result_type==='enforcement_deny'?'badge-deny':'badge-fail';
+    const label=w.success?'allowed':w.result_type==='enforcement_deny'?'enforcement_deny':(w.result_type||'error');
+    return '<div class="worker-card"><div><strong>'+w.worker_name+'</strong></div>'+
+      '<div style="font-size:11px;color:#666">'+w.tool_id+'</div>'+
+      '<div style="margin-top:6px"><span class="badge '+cls+'">'+label+'</span></div>'+
+      (w.denial_reason?'<div style="font-size:11px;color:#856404;margin-top:4px">'+w.denial_reason.slice(0,80)+'</div>':'')+
+      '<div style="font-size:11px;margin-top:4px">'+(w.latency_ms?w.latency_ms.toFixed(1)+'ms':'')+'</div></div>';
+  }).join('');
+  document.getElementById('workers-card').style.display='block';
+}
+loadPreflight();
+</script>
+</body>
+</html>"""
+
+_CARACAL_HTML = """<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Caracal Internal View</title>
+  <style>
+    body{font-family:system-ui,sans-serif;max-width:1200px;margin:40px auto;padding:0 20px;background:#f8f9fa}
+    h1{color:#1a1a2e}h2{color:#333;border-bottom:1px solid #dee2e6;padding-bottom:4px}
+    .card{background:#fff;border-radius:8px;padding:20px;margin:16px 0;box-shadow:0 1px 4px rgba(0,0,0,.1)}
+    pre{background:#1e1e2e;color:#cdd6f4;border-radius:6px;padding:16px;overflow-x:auto;font-size:12px;max-height:400px}
+    .nav a{margin-right:16px;color:#4361ee;text-decoration:none;font-weight:500}
+    table{width:100%;border-collapse:collapse;font-size:13px}
+    th,td{padding:6px 10px;text-align:left;border-bottom:1px solid #dee2e6}
+    th{background:#f1f3f5;font-weight:600}
+    .badge{display:inline-block;padding:2px 7px;border-radius:10px;font-size:11px;font-weight:600}
+    .badge-ok{background:#d4edda;color:#155724}
+    .badge-warn{background:#fff3cd;color:#856404}
+    .badge-err{background:#f8d7da;color:#721c24}
+    .badge-deny{background:#fff3cd;color:#856404}
+    .refresh-btn{float:right;padding:6px 14px;background:#4361ee;color:#fff;border:none;border-radius:5px;cursor:pointer;font-size:13px}
+    .empty{color:#999;font-style:italic}
+  </style>
+</head>
+<body>
+<nav class="nav">
+  <a href="/">Customer View</a>
+  <a href="/caracal">Caracal Internal</a>
+  <a href="/docs">API Docs</a>
+</nav>
+<h1>Caracal Internal Observability</h1>
+
+<div class="card">
+  <h2>Preflight Checks <button class="refresh-btn" onclick="loadPreflight()">Refresh</button></h2>
+  <div id="preflight-content">Loading&hellip;</div>
+</div>
+
+<div class="card">
+  <h2>Principals <button class="refresh-btn" onclick="loadPrincipals()">Refresh</button></h2>
+  <div id="principals-content">Loading&hellip;</div>
+</div>
+
+<div class="card">
+  <h2>Registered Tools <button class="refresh-btn" onclick="loadTools()">Refresh</button></h2>
+  <div id="tools-content">Loading&hellip;</div>
+</div>
+
+<div class="card">
+  <h2>Active Mandates <button class="refresh-btn" onclick="loadMandates()">Refresh</button></h2>
+  <div id="mandates-content">Loading&hellip;</div>
+</div>
+
+<div class="card">
+  <h2>Delegation Graph <button class="refresh-btn" onclick="loadDelegation()">Refresh</button></h2>
+  <div id="delegation-content">Loading&hellip;</div>
+</div>
+
+<div class="card">
+  <h2>Authority Ledger <button class="refresh-btn" onclick="loadLedger()">Refresh</button></h2>
+  <div id="ledger-content">Loading&hellip;</div>
+</div>
+
+<div class="card">
+  <h2>Trace Events <button class="refresh-btn" onclick="loadTraces()">Refresh</button></h2>
+  <div id="traces-content">Loading&hellip;</div>
+</div>
+
+<script>
+function badge(cls,text){return '<span class="badge '+cls+'">'+text+'</span>';}
+async function loadPreflight(){
+  const r=await fetch('/api/preflight');const d=await r.json();
+  const checks=d.checks||[];
+  if(!checks.length){document.getElementById('preflight-content').innerHTML='<p class="empty">No checks.</p>';return;}
+  const rows=checks.map(function(c){return '<tr><td>'+badge(c.passed?'badge-ok':'badge-err',c.passed?'\\u2713':'\\u2717')+'</td><td>'+c.name+'</td><td>'+c.detail+'</td><td>'+(c.cli_fix?'<code>'+c.cli_fix+'</code>':'')+'</td><td>'+(c.tui_screen||'')+'</td></tr>';}).join('');
+  document.getElementById('preflight-content').innerHTML='<table><thead><tr><th>Status</th><th>Check</th><th>Detail</th><th>CLI Fix</th><th>TUI</th></tr></thead><tbody>'+rows+'</tbody></table>';
+}
+async function loadPrincipals(){
+  const r=await fetch('/api/principals');const items=await r.json();
+  if(!items.length){document.getElementById('principals-content').innerHTML='<p class="empty">No principals found.</p>';return;}
+  const rows=items.map(function(p){var ls=p.lifecycle_status;return '<tr><td>'+p.name+'</td><td>'+badge('badge-ok',p.kind)+'</td><td>'+badge(ls==='active'?'badge-ok':ls==='provisioned'?'badge-warn':'badge-err',ls)+'</td><td>'+p.active_policies+'</td><td>'+p.active_mandates+'</td><td style="font-size:11px;color:#999">'+p.principal_id.slice(0,12)+'&hellip;</td></tr>';}).join('');
+  document.getElementById('principals-content').innerHTML='<table><thead><tr><th>Name</th><th>Kind</th><th>Lifecycle</th><th>Policies</th><th>Mandates</th><th>ID</th></tr></thead><tbody>'+rows+'</tbody></table>';
+}
+async function loadTools(){
+  const r=await fetch('/api/tools');const items=await r.json();
+  if(!items.length){document.getElementById('tools-content').innerHTML='<p class="empty">No tools registered for workspace.</p>';return;}
+  const rows=items.map(function(t){return '<tr><td>'+t.tool_id+'</td><td>'+t.provider_name+'</td><td>'+t.tool_type+'</td><td>'+t.execution_mode+'</td><td style="font-size:11px">'+t.resource_scope+'</td><td style="font-size:11px">'+t.action_scope+'</td><td>'+badge(t.active?'badge-ok':'badge-err',t.active?'active':'inactive')+'</td></tr>';}).join('');
+  document.getElementById('tools-content').innerHTML='<table><thead><tr><th>Tool ID</th><th>Provider</th><th>Type</th><th>Mode</th><th>Resource Scope</th><th>Action Scope</th><th>Status</th></tr></thead><tbody>'+rows+'</tbody></table>';
+}
+async function loadMandates(){
+  const r=await fetch('/api/mandates');const items=await r.json();
+  if(!items.length){document.getElementById('mandates-content').innerHTML='<p class="empty">No active mandates.</p>';return;}
+  const rows=items.map(function(m){return '<tr><td>'+m.subject_name+'</td><td>'+badge('badge-ok',m.subject_kind)+'</td><td style="font-size:11px">'+((m.resource_scope||[]).join(', '))+'</td><td style="font-size:11px">'+((m.action_scope||[]).join(', '))+'</td><td style="font-size:11px">'+(m.valid_until||'no expiry')+'</td></tr>';}).join('');
+  document.getElementById('mandates-content').innerHTML='<table><thead><tr><th>Subject</th><th>Kind</th><th>Resource Scope</th><th>Action Scope</th><th>Valid Until</th></tr></thead><tbody>'+rows+'</tbody></table>';
+}
+async function loadDelegation(){
+  const r=await fetch('/api/delegation');const items=await r.json();
+  if(!items.length){document.getElementById('delegation-content').innerHTML='<p class="empty">No delegation edges found.</p>';return;}
+  const rows=items.map(function(e){return '<tr><td>'+e.source_kind+' &rarr; '+e.target_kind+'</td><td>'+e.delegation_type+'</td><td style="font-size:11px">'+(e.granted_at||'')+'</td><td style="font-size:11px">'+(e.expires_at||'no expiry')+'</td><td>'+badge(e.revoked?'badge-err':'badge-ok',e.revoked?'revoked':'active')+'</td></tr>';}).join('');
+  document.getElementById('delegation-content').innerHTML='<table><thead><tr><th>Direction</th><th>Type</th><th>Granted</th><th>Expires</th><th>Status</th></tr></thead><tbody>'+rows+'</tbody></table>';
+}
+async function loadLedger(){
+  const r=await fetch('/api/authority_ledger');const items=await r.json();
+  if(!items.length){document.getElementById('ledger-content').innerHTML='<p class="empty">No authority ledger events yet.</p>';return;}
+  const rows=items.slice(0,50).map(function(e){var ts=e.timestamp?e.timestamp.replace('T',' ').slice(0,19):'';return '<tr><td>'+ts+'</td><td>'+badge(e.event_type==='validated'?'badge-ok':e.event_type==='denied'?'badge-deny':'badge-warn',e.event_type)+'</td><td style="font-size:11px">'+e.principal_id.slice(0,12)+'&hellip;</td><td>'+(e.decision||'')+'</td><td style="font-size:11px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="'+(e.denial_reason||'')+'">'+(e.denial_reason||'')+'</td><td style="font-size:11px">'+(e.requested_action||'')+'</td><td style="font-size:11px">'+(e.requested_resource||'')+'</td></tr>';}).join('');
+  document.getElementById('ledger-content').innerHTML='<table><thead><tr><th>Timestamp</th><th>Event</th><th>Principal</th><th>Decision</th><th>Denial Reason</th><th>Action</th><th>Resource</th></tr></thead><tbody>'+rows+'</tbody></table>';
+}
+async function loadTraces(){
+  const r=await fetch('/api/traces');const evts=await r.json();
+  if(!evts.length){document.getElementById('traces-content').innerHTML='<p class="empty">No trace events yet.</p>';return;}
+  const rows=evts.slice(-50).reverse().map(function(e){var cls=e.result_type==='allowed'?'badge-ok':e.result_type==='enforcement_deny'?'badge-deny':e.result_type==='provider_error'?'badge-err':'badge-warn';return '<tr><td>'+(e.timestamp||'')+'</td><td>'+(e.run_id?e.run_id.slice(0,8):'')+'</td><td>'+(e.principal_kind||'')+'</td><td>'+(e.tool_id||'')+'</td><td>'+badge(cls,e.result_type||'')+'</td><td>'+(e.lifecycle_event||'')+'</td><td>'+(e.latency_ms?e.latency_ms.toFixed(1)+'ms':'')+'</td><td style="font-size:11px;max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="'+(e.detail||'')+'">'+(e.detail||'')+'</td></tr>';}).join('');
+  document.getElementById('traces-content').innerHTML='<table><thead><tr><th>Time</th><th>Run</th><th>Kind</th><th>Tool</th><th>Result</th><th>Event</th><th>Latency</th><th>Detail</th></tr></thead><tbody>'+rows+'</tbody></table>';
+}
+loadPreflight();loadPrincipals();loadTools();loadMandates();loadDelegation();loadLedger();loadTraces();
+</script>
+</body>
+</html>"""
 
 
-def main(argv: list[str] | None = None) -> int:
-    parser = build_parser()
-    args = parser.parse_args(argv)
-
-    if args.run_once:
-        try:
-            result = asyncio.run(
-                run_demo_workflow_async(
-                    load_scenario(),
-                    DemoRunConfig(
-                        mode=args.mode,
-                        provider_strategy=args.provider_strategy,
-                    ),
-                )
-            )
-        except Exception as exc:
-            print(f"Run failed: {exc}")
-            return 1
-
-        if args.output:
-            output_path = Path(args.output)
-            output_path.parent.mkdir(parents=True, exist_ok=True)
-            output_path.write_text(json.dumps(result, indent=2), encoding="utf-8")
-        print(json.dumps(result, indent=2))
-        return 0
-
-    import uvicorn
-
-    uvicorn.run("examples.langchain_demo.app:app", host=args.host, port=args.port, reload=False)
-    return 0
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())
+app = build_app()
