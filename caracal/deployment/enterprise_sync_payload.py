@@ -4,11 +4,20 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from typing import Any, Dict, List, Optional
 
 from caracal.deployment.enterprise_runtime import _build_client_metadata
 
 logger = logging.getLogger(__name__)
+
+_SAFE_SCHEMA_RE = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
+
+
+def _validate_schema(schema: str) -> str:
+    if not _SAFE_SCHEMA_RE.match(schema):
+        raise ValueError(f"Invalid schema name: {schema!r}")
+    return schema
 
 
 def _load_local_principals() -> List[Dict[str, Any]]:
@@ -43,7 +52,7 @@ def _load_local_principals() -> List[Dict[str, Any]]:
             with open(config_path) as f:
                 cfg = yaml.safe_load(f) or {}
             db_cfg = cfg.get("database", {})
-            schema = db_cfg.get("schema", cfg.get("schema", f"ws_{ws.root.name}"))
+            schema = _validate_schema(db_cfg.get("schema", cfg.get("schema", f"ws_{ws.root.name}")))
             db_config = DatabaseConfig(
                 host=db_cfg.get("host", "localhost"),
                 port=int(db_cfg.get("port", 5432)),
@@ -105,7 +114,7 @@ def _load_local_policies() -> List[Dict[str, Any]]:
             with open(config_path) as f:
                 cfg = yaml.safe_load(f) or {}
             db_cfg = cfg.get("database", {})
-            schema = db_cfg.get("schema", cfg.get("schema", f"ws_{ws.root.name}"))
+            schema = _validate_schema(db_cfg.get("schema", cfg.get("schema", f"ws_{ws.root.name}")))
             db_config = DatabaseConfig(
                 host=db_cfg.get("host", "localhost"),
                 port=int(db_cfg.get("port", 5432)),
@@ -156,7 +165,7 @@ def _load_local_mandates() -> List[Dict[str, Any]]:
             with open(config_path) as f:
                 cfg = yaml.safe_load(f) or {}
             db_cfg = cfg.get("database", {})
-            schema = db_cfg.get("schema", cfg.get("schema", f"ws_{ws.root.name}"))
+            schema = _validate_schema(db_cfg.get("schema", cfg.get("schema", f"ws_{ws.root.name}")))
             db_config = DatabaseConfig(
                 host=db_cfg.get("host", "localhost"),
                 port=int(db_cfg.get("port", 5432)),
@@ -265,7 +274,7 @@ def _load_local_delegation() -> List[Dict[str, Any]]:
             with open(config_path) as f:
                 cfg = yaml.safe_load(f) or {}
             db_cfg = cfg.get("database", {})
-            schema = db_cfg.get("schema", cfg.get("schema", f"ws_{ws.root.name}"))
+            schema = _validate_schema(db_cfg.get("schema", cfg.get("schema", f"ws_{ws.root.name}")))
             db_config = DatabaseConfig(
                 host=db_cfg.get("host", "localhost"),
                 port=int(db_cfg.get("port", 5432)),
@@ -279,7 +288,7 @@ def _load_local_delegation() -> List[Dict[str, Any]]:
                 rows = session.execute(
                     text(
                         f'SELECT de.edge_id, de.source_mandate_id, de.target_mandate_id, '
-                        f'de.source_principal_type, de.target_principal_type, '
+                        f'de.source_principal_kind, de.target_principal_kind, '
                         f'de.delegation_type, '
                         f'COALESCE((SELECT array_agg(det.context_tag ORDER BY det.position) '
                         f'          FROM "{schema}".delegation_edge_tags det '
@@ -298,8 +307,8 @@ def _load_local_delegation() -> List[Dict[str, Any]]:
                         "edge_id": str(r[0]),
                         "source_mandate_id": str(r[1]),
                         "target_mandate_id": str(r[2]),
-                        "source_principal_type": r[3] or "worker",
-                        "target_principal_type": r[4] or "worker",
+                        "source_principal_kind": r[3] or "worker",
+                        "target_principal_kind": r[4] or "worker",
                         "delegation_type": r[5] or "hierarchical",
                         "context_tags": r[6],
                         "granted_at": granted_at.isoformat() if granted_at else None,

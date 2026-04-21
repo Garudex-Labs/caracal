@@ -27,16 +27,16 @@ def secrets_group():
 @click.option("--tier", required=True,
               type=click.Choice(["starter", "growth", "scale", "enterprise"], case_sensitive=False),
               help="Subscription tier (determines backend).")
-def list_secrets(org_id: str, env_id: str, tier: str) -> None:
+def list_secrets(workspace_id: str, env_id: str, tier: str) -> None:
     """List secret refs in the vault for (org, env)."""
     try:
         from caracal.deployment.secrets_adapter import SecretsAdapter
-        adapter = SecretsAdapter(tier=tier, org_id=org_id, env_id=env_id)
+        adapter = SecretsAdapter(tier=tier, workspace_id=workspace_id, env_id=env_id)
         refs = adapter.list_refs()
         if not refs:
-            click.echo(f"No secrets found for org={org_id} env={env_id} (backend: {adapter.backend_name}).")
+            click.echo(f"No secrets found for workspace={workspace_id} env={env_id} (backend: {adapter.backend_name}).")
             return
-        click.echo(f"Secrets in {adapter.backend_name} for org={org_id} env={env_id}:\n")
+        click.echo(f"Secrets in {adapter.backend_name} for workspace={workspace_id} env={env_id}:\n")
         for ref in refs:
             click.echo(f"  {ref}")
         click.echo(f"\nTotal: {len(refs)}")
@@ -49,7 +49,7 @@ def list_secrets(org_id: str, env_id: str, tier: str) -> None:
 @click.option("--org-id", required=True, help="Organisation ID.")
 @click.option("--env-id", default="default", show_default=True, help="Environment ID.")
 @click.option("--confirm", is_flag=True, help="Confirm the rotation without prompting.")
-def rotate_key(org_id: str, env_id: str, confirm: bool) -> None:
+def rotate_key(workspace_id: str, env_id: str, confirm: bool) -> None:
     """
     Rotate the CaracalVault master key for (org, env).
 
@@ -58,7 +58,7 @@ def rotate_key(org_id: str, env_id: str, confirm: bool) -> None:
     """
     if not confirm:
         click.confirm(
-            f"Rotate master key for org={org_id} env={env_id}? "
+            f"Rotate master key for workspace={workspace_id} env={env_id}? "
             "All DEKs will be re-wrapped under a new key version.",
             abort=True,
         )
@@ -66,7 +66,7 @@ def rotate_key(org_id: str, env_id: str, confirm: bool) -> None:
         from caracal.core.vault import get_vault, vault_access_context
         vault = get_vault()
         with vault_access_context():
-            result = vault.rotate_master_key(org_id, env_id, actor="cli")
+            result = vault.rotate_master_key(workspace_id, env_id, actor="cli")
         click.echo(
             f"Key rotation complete.\n"
             f"  Secrets rotated : {result.secrets_rotated}\n"

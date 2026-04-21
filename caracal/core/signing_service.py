@@ -91,10 +91,10 @@ class SigningService:
         algorithm: str = "ES256",
     ) -> str:
         try:
-            org_id, env_id, secret_name = self._resolve_signing_key_reference(principal_id)
+            workspace_id, env_id, secret_name = self._resolve_signing_key_reference(principal_id)
             with vault_access_context():
                 return get_vault().sign_jwt(
-                    org_id=org_id,
+                    workspace_id=workspace_id,
                     env_id=env_id,
                     name=secret_name,
                     payload=payload,
@@ -127,10 +127,10 @@ class SigningService:
             raise SigningServiceError("payload cannot be empty")
 
         try:
-            org_id, env_id, secret_name = self._resolve_signing_key_reference(principal_id)
+            workspace_id, env_id, secret_name = self._resolve_signing_key_reference(principal_id)
             with vault_access_context():
                 return get_vault().sign_canonical_payload(
-                    org_id=org_id,
+                    workspace_id=workspace_id,
                     env_id=env_id,
                     name=secret_name,
                     payload=payload,
@@ -175,17 +175,17 @@ class VaultReferenceJwtSigner:
     def __init__(
         self,
         *,
-        org_id: str,
+        workspace_id: str,
         env_id: str,
         key_name: str,
         actor: str,
     ) -> None:
-        self._org_id = str(org_id or "").strip()
+        self._workspace_id = str(workspace_id or "").strip()
         self._env_id = str(env_id or "").strip()
         self._key_name = str(key_name or "").strip()
         self._actor = str(actor or "signing-service").strip() or "signing-service"
-        if not self._org_id or not self._env_id or not self._key_name:
-            raise SigningServiceKeyError("Vault signer requires org_id, env_id, and key_name")
+        if not self._workspace_id or not self._env_id or not self._key_name:
+            raise SigningServiceKeyError("Vault signer requires workspace_id, env_id, and key_name")
 
     def sign_token(
         self,
@@ -196,7 +196,7 @@ class VaultReferenceJwtSigner:
         try:
             with vault_access_context():
                 return get_vault().sign_jwt(
-                    org_id=self._org_id,
+                    workspace_id=self._workspace_id,
                     env_id=self._env_id,
                     name=self._key_name,
                     payload=claims,
@@ -208,5 +208,5 @@ class VaultReferenceJwtSigner:
             if isinstance(exc, SigningServiceError):
                 raise
             raise SigningServiceError(
-                f"Failed to sign JWT with vault reference '{self._org_id}/{self._env_id}/{self._key_name}': {exc}"
+                f"Failed to sign JWT with vault reference '{self._workspace_id}/{self._env_id}/{self._key_name}': {exc}"
             ) from exc

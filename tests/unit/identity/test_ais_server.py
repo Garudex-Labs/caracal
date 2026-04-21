@@ -89,7 +89,7 @@ def test_ais_endpoints_delegate_to_handlers() -> None:
         "/v1/ais/token",
         json=TokenIssueRequest(
             principal_id="p-1",
-            organization_id="org-1",
+            workspace_id="org-1",
             tenant_id="tenant-1",
         ).model_dump(),
     )
@@ -166,7 +166,7 @@ def test_ais_token_endpoint_forwards_authorization_header() -> None:
         "/v1/ais/token",
         json=TokenIssueRequest(
             principal_id="p-1",
-            organization_id="org-1",
+            workspace_id="org-1",
             tenant_id="tenant-1",
         ).model_dump(),
         headers={"Authorization": "Bearer caller-token"},
@@ -211,7 +211,7 @@ def test_other_ais_request_models_reject_extra_fields() -> None:
     with pytest.raises(Exception):
         TokenIssueRequest(
             principal_id="p-1",
-            organization_id="org-1",
+            workspace_id="org-1",
             tenant_id="tenant-1",
             authority_sources=["m-1"],
         )

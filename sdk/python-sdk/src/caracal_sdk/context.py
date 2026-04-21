@@ -4,9 +4,8 @@ Caracal, a product of Garudex Labs
 
 SDK Context & Scope Management.
 
-Implements the Organization -> Workspace -> Project scope hierarchy.
-Runtime SDK operations are tools-first and execute within an explicit scope
-context.
+Runtime SDK operations are tools-first and execute within an explicit
+workspace scope context.
 """
 
 from __future__ import annotations
@@ -24,7 +23,7 @@ logger = get_logger(__name__)
 
 
 class ScopeContext:
-    """Scoped execution context bound to an Org/Workspace/Project.
+    """Scoped execution context bound to a workspace.
 
     All resource operations obtained from this context automatically
     include the correct scope headers on outbound requests.
@@ -32,24 +31,18 @@ class ScopeContext:
     Args:
         adapter: Transport adapter to send requests.
         hooks: Lifecycle hook registry.
-        organization_id: Active organization (optional).
         workspace_id: Active workspace (optional).
-        project_id: Active project (optional).
     """
 
     def __init__(
         self,
         adapter: BaseAdapter,
         hooks: HookRegistry,
-        organization_id: Optional[str] = None,
         workspace_id: Optional[str] = None,
-        project_id: Optional[str] = None,
     ) -> None:
         self._adapter = adapter
         self._hooks = hooks
-        self.organization_id = organization_id
         self.workspace_id = workspace_id
-        self.project_id = project_id
 
         # Lazy singletons
         self._tools: Optional[ToolOperations] = None
@@ -59,20 +52,14 @@ class ScopeContext:
     def scope_headers(self) -> Dict[str, str]:
         """Return HTTP headers encoding the current scope."""
         headers: Dict[str, str] = {}
-        if self.organization_id:
-            headers["X-Caracal-Org-ID"] = self.organization_id
         if self.workspace_id:
             headers["X-Caracal-Workspace-ID"] = self.workspace_id
-        if self.project_id:
-            headers["X-Caracal-Project-ID"] = self.project_id
         return headers
 
     def to_scope_ref(self) -> ScopeRef:
         """Return a lightweight ScopeRef for hook callbacks."""
         return ScopeRef(
-            organization_id=self.organization_id,
             workspace_id=self.workspace_id,
-            project_id=self.project_id,
         )
 
     # -- Resource operation accessors (lazy) --------------------------------
@@ -106,9 +93,7 @@ class ContextManager:
 
     def checkout(
         self,
-        organization_id: Optional[str] = None,
         workspace_id: Optional[str] = None,
-        project_id: Optional[str] = None,
     ) -> ScopeContext:
         """Activate a new scope context.
 
@@ -122,9 +107,7 @@ class ContextManager:
         new_ctx = ScopeContext(
             adapter=self._adapter,
             hooks=self._hooks,
-            organization_id=organization_id,
             workspace_id=workspace_id,
-            project_id=project_id,
         )
         new_ref = new_ctx.to_scope_ref()
 
@@ -132,16 +115,11 @@ class ContextManager:
         self._hooks.fire_context_switch(old_ref, new_ref)
 
         state = StateSnapshot(
-            organization_id=organization_id,
             workspace_id=workspace_id,
-            project_id=project_id,
         )
         self._hooks.fire_state_change(state)
 
-        logger.info(
-            f"Scope checked out: org={organization_id} "
-            f"ws={workspace_id} proj={project_id}"
-        )
+        logger.info(f"Scope checked out: ws={workspace_id}")
         return new_ctx
 
 

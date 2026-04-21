@@ -188,7 +188,7 @@ class GatewayClient:
         self.max_queue_size = max_queue_size
         self.default_ttl_seconds = default_ttl_seconds
 
-        self._runtime_session_kind = (os.environ.get(_SESSION_KIND_ENV) or "human").strip().lower() or "human"
+        self._runtime_session_kind = (os.environ.get(_SESSION_KIND_ENV) or "automation").strip().lower() or "automation"
         self._ais_base_url = (os.environ.get(_AIS_BASE_URL_ENV) or "").strip().rstrip("/")
         self._ais_unix_socket = (os.environ.get(_AIS_UNIX_SOCKET_ENV) or "").strip()
         ais_prefix = (os.environ.get(_AIS_API_PREFIX_ENV) or "").strip()
@@ -353,9 +353,8 @@ class GatewayClient:
             or os.environ.get("CARACAL_PRINCIPAL_ID")
             or ""
         ).strip()
-        organization_id = (
-            os.environ.get("CARACAL_AIS_ORGANIZATION_ID")
-            or os.environ.get("CARACAL_ORGANIZATION_ID")
+        workspace_id = (
+            os.environ.get("CARACAL_WORKSPACE_ID")
             or ""
         ).strip()
         tenant_id = (
@@ -364,12 +363,12 @@ class GatewayClient:
             or ""
         ).strip()
 
-        if not principal_id or not organization_id or not tenant_id:
+        if not principal_id or not workspace_id or not tenant_id:
             return None
 
         payload: dict[str, Any] = {
             "principal_id": principal_id,
-            "organization_id": organization_id,
+            "workspace_id": workspace_id,
             "tenant_id": tenant_id,
             "session_kind": self._runtime_session_kind or "automation",
             "include_refresh": True,

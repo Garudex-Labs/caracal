@@ -50,7 +50,7 @@ class ProviderRecord:
     provider_layer: str
     template_id: Optional[str]
     managed_by: Optional[str]
-    organization_id: Optional[str]
+    workspace_id: Optional[str]
     created_at: str
     updated_at: str
 
@@ -194,7 +194,7 @@ PROVIDER_PATTERNS: Dict[str, Tuple[ProviderStarterPattern, ...]] = {
         ),
         ProviderStarterPattern(
             key="ai_assistant_runtime",
-            label="Assistant / agent runtime",
+            label="Assistant / orchestrator runtime",
             description="Assistant, thread, run, and tool-driven AI execution surface.",
             service_type="ai",
             recommended_auth_scheme="bearer",
@@ -610,7 +610,7 @@ def build_provider_record(
     provider_layer: str = "user_provider",
     template_id: Optional[str] = None,
     managed_by: Optional[str] = None,
-    organization_id: Optional[str] = None,
+    workspace_id: Optional[str] = None,
     existing: Optional[Dict[str, Any]] = None,
     created_at: Optional[str] = None,
     enforce_scoped_requests: Optional[bool] = None,
@@ -701,7 +701,7 @@ def build_provider_record(
             provider_layer=provider_layer,
             template_id=template_id,
             managed_by=managed_by,
-            organization_id=organization_id,
+            workspace_id=workspace_id,
             created_at=created_at or preserved_existing.get("created_at") or now,
             updated_at=now,
         )
@@ -768,7 +768,7 @@ def workspace_to_gateway_sync_record(
     provider_name: str,
     entry: Dict[str, Any],
     *,
-    organization_id: Optional[str],
+    workspace_id: Optional[str],
     credential_storage: str = "gateway_vault",
 ) -> Dict[str, Any]:
     """Map an OSS workspace provider into enterprise sync metadata only.
@@ -799,6 +799,6 @@ def workspace_to_gateway_sync_record(
         provider_layer="user_provider",
         template_id=None,
         managed_by=None,
-        organization_id=organization_id,
+        workspace_id=workspace_id,
         existing=entry,
     )

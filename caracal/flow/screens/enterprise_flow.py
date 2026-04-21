@@ -678,10 +678,10 @@ class EnterpriseFlow:
                 try:
                     cfg = load_enterprise_config()
                     tier = str(cfg.get("tier") or "starter")
-                    org_id = str(cfg.get("org_id") or "")
+                    workspace_id = str(cfg.get("workspace_id") or "")
                 except Exception:
-                    tier, org_id = "starter", ""
-                SecretsFlow(tier=tier, org_id=org_id, console=self.console).show()
+                    tier, workspace_id = "starter", ""
+                SecretsFlow(tier=tier, workspace_id=workspace_id, console=self.console).show()
             elif action == "connect":
                 self.connect_enterprise()
             elif action == "status":

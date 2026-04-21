@@ -396,7 +396,6 @@ class MerkleVerifier:
             event_hashes = []
             
             for i, event in enumerate(events):
-                # Compute event hash
                 event_data = (
                     f"{event.event_id}|{event.principal_id}|{event.timestamp.isoformat()}|"
                     f"{event.resource_type}|{event.quantity}"
@@ -411,7 +410,7 @@ class MerkleVerifier:
                 logger.error(f"Event {event_id} not found in batch events")
                 return False
             
-            # Build Merkle tree
+            # Build Merkle tree from pre-hashed event data (same as batcher)
             merkle_tree = MerkleTree(event_hashes)
             
             # Generate proof for the event
@@ -420,15 +419,8 @@ class MerkleVerifier:
             # Get stored root
             stored_root = bytes.fromhex(merkle_root_record.merkle_root)
             
-            # Verify proof
-            # Note: We need to pass the original event data, not the hash
-            event_data = (
-                f"{events[event_index].event_id}|{events[event_index].principal_id}|"
-                f"{events[event_index].timestamp.isoformat()}|"
-                f"{events[event_index].resource_type}|{events[event_index].quantity}"
-            ).encode()
-            
-            is_valid = MerkleTree.verify_proof(event_data, proof, stored_root)
+            # Verify proof using the pre-hashed leaf (matches what MerkleTree hashes internally)
+            is_valid = MerkleTree.verify_proof(event_hashes[event_index], proof, stored_root)
             
             if is_valid:
                 logger.info(f"Event {event_id} inclusion verified successfully")

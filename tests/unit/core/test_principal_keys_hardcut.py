@@ -25,7 +25,7 @@ def test_generate_and_store_principal_keypair_bootstraps_only_via_vault() -> Non
         os.environ,
         {
             "CARACAL_PRINCIPAL_KEY_BACKEND": "vault",
-            "CARACAL_VAULT_ORG_ID": "caracal",
+            "CARACAL_VAULT_WORKSPACE_ID": "caracal",
             "CARACAL_VAULT_ENV_ID": "runtime",
             "CARACAL_VAULT_PRINCIPAL_KEY_PREFIX": "principal-keys",
         },
@@ -38,7 +38,7 @@ def test_generate_and_store_principal_keypair_bootstraps_only_via_vault() -> Non
     expected_public_name = f"{expected_private_name}.public"
 
     mock_vault.ensure_asymmetric_keypair.assert_called_once_with(
-        org_id="caracal",
+        workspace_id="caracal",
         env_id="runtime",
         private_key_name=expected_private_name,
         public_key_name=expected_public_name,
@@ -46,7 +46,7 @@ def test_generate_and_store_principal_keypair_bootstraps_only_via_vault() -> Non
         actor=f"principal-keys:{principal_id}",
     )
     mock_vault.get.assert_called_once_with(
-        org_id="caracal",
+        workspace_id="caracal",
         env_id="runtime",
         name=expected_public_name,
     )
@@ -77,7 +77,7 @@ def test_generate_and_store_principal_keypair_updates_custody_record() -> None:
         os.environ,
         {
             "CARACAL_PRINCIPAL_KEY_BACKEND": "vault",
-            "CARACAL_VAULT_ORG_ID": "caracal",
+            "CARACAL_VAULT_WORKSPACE_ID": "caracal",
             "CARACAL_VAULT_ENV_ID": "runtime",
             "CARACAL_VAULT_PRINCIPAL_KEY_PREFIX": "principal-keys",
         },
@@ -106,7 +106,7 @@ def test_generate_and_store_principal_keypair_uses_project_environment_context_w
         os.environ,
         {
             "CARACAL_PRINCIPAL_KEY_BACKEND": "vault",
-            "CARACAL_VAULT_PROJECT_ID": "project-123",
+            "CARACAL_VAULT_WORKSPACE_ID": "project-123",
             "CARACAL_VAULT_ENVIRONMENT": "dev",
             "CARACAL_VAULT_PRINCIPAL_KEY_PREFIX": "principal-keys",
         },
@@ -119,7 +119,7 @@ def test_generate_and_store_principal_keypair_uses_project_environment_context_w
     expected_public_name = f"{expected_private_name}.public"
 
     mock_vault.ensure_asymmetric_keypair.assert_called_once_with(
-        org_id="project-123",
+        workspace_id="project-123",
         env_id="dev",
         private_key_name=expected_private_name,
         public_key_name=expected_public_name,
@@ -139,7 +139,7 @@ def test_generate_and_store_principal_keypair_resolves_project_uuid_from_vault_c
         os.environ,
         {
             "CARACAL_PRINCIPAL_KEY_BACKEND": "vault",
-            "CARACAL_VAULT_PROJECT_ID": "caracal",
+            "CARACAL_VAULT_WORKSPACE_ID": "caracal",
             "CARACAL_VAULT_ENVIRONMENT": "dev",
             "CARACAL_VAULT_PRINCIPAL_KEY_PREFIX": "principal-keys",
         },
@@ -152,7 +152,7 @@ def test_generate_and_store_principal_keypair_resolves_project_uuid_from_vault_c
     expected_public_name = f"{expected_private_name}.public"
 
     mock_vault.ensure_asymmetric_keypair.assert_called_once_with(
-        org_id="205db281-d6e7-4268-8dc8-20dba46b5067",
+        workspace_id="205db281-d6e7-4268-8dc8-20dba46b5067",
         env_id="dev",
         private_key_name=expected_private_name,
         public_key_name=expected_public_name,

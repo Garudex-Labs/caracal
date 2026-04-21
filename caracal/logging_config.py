@@ -296,7 +296,7 @@ def log_authentication_failure(
     Args:
         logger: Logger instance
         auth_method: Authentication method used ("mtls", "jwt", "api_key")
-        principal_id: Agent ID if available
+        principal_id: Principal ID if available
         reason: Reason for failure
         **kwargs: Additional context to log
     """
@@ -356,8 +356,8 @@ def log_delegation_token_validation(
     
     Args:
         logger: Logger instance
-        source_principal_id: Source (delegating) agent ID
-        target_principal_id: Target (delegated-to) agent ID
+        source_principal_id: Source (delegating) principal ID
+        target_principal_id: Target (delegated-to) principal ID
         success: Whether validation succeeded
         reason: Reason for failure if not successful
         **kwargs: Additional context to log
@@ -504,7 +504,7 @@ def log_policy_version_change(
     Args:
         logger: Logger instance
         policy_id: Policy ID
-        principal_id: Agent ID
+        principal_id: Principal ID
         change_type: Type of change (created, modified, deactivated)
         version_number: New version number
         changed_by: Identity of who made the change
@@ -548,7 +548,7 @@ def log_allowlist_check(
     
     Args:
         logger: Logger instance
-        principal_id: Agent ID
+        principal_id: Principal ID
         resource: Resource being checked
         result: Check result (allowed, denied, no_allowlist)
         matched_pattern: Pattern that matched (if allowed)

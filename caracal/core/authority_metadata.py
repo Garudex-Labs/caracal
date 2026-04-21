@@ -20,11 +20,11 @@ class AuthorityMetadata:
     
     Attributes:
         version: Caracal authority protocol version
-        principal_identity: Identity of the agent performing the operation
+        principal_identity: Identity of the principal performing the operation
         mandate_id: Optional link to Caracal mandate
         audit_reference: Optional reference to audit trail
         delegation_token: Optional JWT delegation token
-        delegation_path: List of agent IDs in the delegation path
+        delegation_path: List of principal IDs in the delegation path
         timestamp: When the metadata was created
         signature: Optional cryptographic signature
     """

@@ -18,7 +18,7 @@ The database module provides:
    - Primary key: `principal_id` (UUID)
    - Unique constraint: `name`
    - Self-referential foreign key: `source_principal_id`
-   - Indexes: `name`, `source_principal_id`, `principal_type`
+   - Indexes: `name`, `source_principal_id`, `principal_kind`
 
 2. **execution_mandates**: Authority mandates
    - Primary key: `mandate_id` (UUID)
@@ -27,8 +27,8 @@ The database module provides:
 
 3. **ledger_events**: Immutable ledger events for spending tracking
    - Primary key: `event_id` (BIGSERIAL auto-increment)
-   - Foreign key: `agent_id` (references `principals.principal_id`)
-   - Indexes: `agent_id`, `timestamp`, `(agent_id, timestamp)`
+   - Foreign key: `principal_id` (references `principals.principal_id`)
+   - Indexes: `principal_id`, `timestamp`, `(principal_id, timestamp)`
 
 4. **authority_ledger_events**: Immutable authority events
    - Primary key: `event_id` (BIGSERIAL auto-increment)
@@ -71,7 +71,7 @@ db_manager = initialize_connection_manager(config)
 # Use with context manager for transactions
 with db_manager.session_scope() as session:
     # Perform database operations
-    principal = Principal(name="test-agent", type="agent", owner="user@example.com")
+    principal = Principal(name="test-worker", type="worker", owner="user@example.com")
     session.add(principal)
     # Commit happens automatically on success
 ```
@@ -143,8 +143,8 @@ Migrations are stored in: `caracal/db/migrations/versions/`
 from caracal.db import Principal
 
 principal = Principal(
-    name="my-agent",
-    principal_type="agent",
+    name="my-worker",
+    principal_kind="worker",
     owner="user@example.com",
     source_principal_id=source_id,  # Optional
     principal_metadata={"key": "value"},  # Optional JSONB
@@ -176,7 +176,7 @@ from decimal import Decimal
 from datetime import datetime
 
 event = LedgerEvent(
-    agent_id=principal.principal_id,
+    principal_id=principal.principal_id,
     timestamp=datetime.utcnow(),
     resource_type="api.openai.gpt4",
     quantity=Decimal("1000"),  # tokens

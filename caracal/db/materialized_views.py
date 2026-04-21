@@ -39,11 +39,11 @@ class MaterializedViewManager:
         """
         self.db_session = db_session
     
-    def refresh_usage_by_agent(self, concurrent: bool = True) -> None:
+    def refresh_usage_by_principal(self, concurrent: bool = True) -> None:
         """
         Refresh the usage_by_agent_mv materialized view.
         
-        This view aggregates total usage per agent.
+        This view aggregates total usage per principal.
         
         Args:
             concurrent: If True, use CONCURRENTLY to avoid blocking reads
@@ -115,7 +115,7 @@ class MaterializedViewManager:
         logger.info("Refreshing all materialized views")
         start_time = datetime.utcnow()
         
-        self.refresh_usage_by_agent(concurrent=concurrent)
+        self.refresh_usage_by_principal(concurrent=concurrent)
         self.refresh_usage_by_time_window(concurrent=concurrent)
         
         duration = (datetime.utcnow() - start_time).total_seconds()

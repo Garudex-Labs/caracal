@@ -122,7 +122,7 @@ async def test_issue_and_validate_access_token() -> None:
 
     issued = manager.issue_session(
         subject_id="user-1",
-        organization_id="org-1",
+        workspace_id="org-1",
         tenant_id="tenant-1",
         session_kind=SessionKind.INTERACTIVE,
         extra_claims={"role": "admin"},
@@ -148,7 +148,7 @@ async def test_validate_access_token_enforces_session_kind() -> None:
 
     issued = manager.issue_session(
         subject_id="user-2",
-        organization_id="org-2",
+        workspace_id="org-2",
         tenant_id="tenant-2",
         session_kind=SessionKind.TASK,
     )
@@ -171,7 +171,7 @@ async def test_refresh_session_rotates_refresh_token_and_revokes_old() -> None:
 
     issued = manager.issue_session(
         subject_id="user-3",
-        organization_id="org-3",
+        workspace_id="org-3",
         tenant_id="tenant-3",
         session_kind=SessionKind.AUTOMATION,
     )
@@ -198,7 +198,7 @@ async def test_revoke_access_token_blocks_future_validation() -> None:
 
     issued = manager.issue_session(
         subject_id="user-4",
-        organization_id="org-4",
+        workspace_id="org-4",
         tenant_id="tenant-4",
         session_kind=SessionKind.INTERACTIVE,
     )
@@ -220,7 +220,7 @@ async def test_validate_access_token_rejects_principal_revoked_session() -> None
 
     issued = manager.issue_session(
         subject_id="principal-1",
-        organization_id="org-principal-1",
+        workspace_id="org-principal-1",
         tenant_id="tenant-principal-1",
         session_kind=SessionKind.INTERACTIVE,
     )
@@ -242,7 +242,7 @@ async def test_issue_session_ignores_reserved_principal_id_extra_claim() -> None
 
     issued = manager.issue_session(
         subject_id="subject-canonical",
-        organization_id="org-canonical",
+        workspace_id="org-canonical",
         tenant_id="tenant-canonical",
         session_kind=SessionKind.INTERACTIVE,
         extra_claims={"principal_id": "spoofed-subject", "role": "operator"},
@@ -265,7 +265,7 @@ async def test_validate_access_token_uses_subject_when_principal_id_claim_missin
 
     issued = manager.issue_session(
         subject_id="user-subject-fallback",
-        organization_id="org-subject-fallback",
+        workspace_id="org-subject-fallback",
         tenant_id="tenant-subject-fallback",
         session_kind=SessionKind.INTERACTIVE,
     )
@@ -285,7 +285,7 @@ async def test_revoke_access_token_blocks_validation_without_denylist_backend() 
 
     issued = manager.issue_session(
         subject_id="user-4b",
-        organization_id="org-4b",
+        workspace_id="org-4b",
         tenant_id="tenant-4b",
         session_kind=SessionKind.INTERACTIVE,
     )
@@ -302,7 +302,7 @@ async def test_issue_task_token_is_short_lived_and_has_no_refresh_token() -> Non
     manager = _create_manager()
     parent = manager.issue_session(
         subject_id="user-5",
-        organization_id="org-5",
+        workspace_id="org-5",
         tenant_id="tenant-5",
         session_kind=SessionKind.AUTOMATION,
     )
@@ -330,7 +330,7 @@ async def test_task_token_holder_cannot_issue_new_task_token() -> None:
     manager = _create_manager()
     parent = manager.issue_session(
         subject_id="user-6",
-        organization_id="org-6",
+        workspace_id="org-6",
         tenant_id="tenant-6",
         session_kind=SessionKind.AUTOMATION,
     )
@@ -354,7 +354,7 @@ async def test_task_token_caveats_must_be_attenuated_subset() -> None:
     manager = _create_manager()
     parent = manager.issue_session(
         subject_id="user-7",
-        organization_id="org-7",
+        workspace_id="org-7",
         tenant_id="tenant-7",
         session_kind=SessionKind.AUTOMATION,
         extra_claims={"task_caveats": ["provider:openai", "action:infer"]},
@@ -389,7 +389,7 @@ async def test_issue_task_token_caveat_chain_mode_enforces_typed_constraints() -
     )
     parent = manager.issue_session(
         subject_id="user-chain-1",
-        organization_id="org-chain-1",
+        workspace_id="org-chain-1",
         tenant_id="tenant-chain-1",
         session_kind=SessionKind.AUTOMATION,
     )
@@ -426,7 +426,7 @@ async def test_validate_task_token_rejects_tampered_caveat_chain() -> None:
     )
     parent = manager.issue_session(
         subject_id="user-chain-2",
-        organization_id="org-chain-2",
+        workspace_id="org-chain-2",
         tenant_id="tenant-chain-2",
         session_kind=SessionKind.AUTOMATION,
     )
@@ -452,7 +452,7 @@ def test_issue_task_token_jwt_caveat_mode_omits_chain_claim() -> None:
     )
     parent = manager.issue_session(
         subject_id="user-jwt-1",
-        organization_id="org-jwt-1",
+        workspace_id="org-jwt-1",
         tenant_id="tenant-jwt-1",
         session_kind=SessionKind.AUTOMATION,
     )
@@ -477,7 +477,7 @@ async def test_handoff_token_is_one_time_and_transfers_task_scope() -> None:
 
     source = manager.issue_session(
         subject_id="worker-a",
-        organization_id="org-8",
+        workspace_id="org-8",
         tenant_id="tenant-8",
         session_kind=SessionKind.TASK,
         include_refresh=False,
@@ -510,7 +510,7 @@ async def test_handoff_issuance_revokes_source_token_jti_immediately() -> None:
 
     source = manager.issue_session(
         subject_id="worker-c",
-        organization_id="org-9",
+        workspace_id="org-9",
         tenant_id="tenant-9",
         session_kind=SessionKind.TASK,
         include_refresh=False,
@@ -565,7 +565,7 @@ async def test_handoff_revocation_check_uses_local_cache_before_db_lookup() -> N
 
     source = manager.issue_session(
         subject_id="worker-local-cache",
-        organization_id="org-local-cache",
+        workspace_id="org-local-cache",
         tenant_id="tenant-local-cache",
         session_kind=SessionKind.TASK,
         include_refresh=False,
@@ -600,7 +600,7 @@ async def test_task_and_handoff_emit_audit_events() -> None:
 
     source = manager.issue_session(
         subject_id="worker-e",
-        organization_id="org-10",
+        workspace_id="org-10",
         tenant_id="tenant-10",
         session_kind=SessionKind.AUTOMATION,
     )
@@ -652,7 +652,7 @@ async def test_handoff_issuance_persists_transactional_transfer_state() -> None:
 
     source = manager.issue_session(
         subject_id="worker-g",
-        organization_id="org-11",
+        workspace_id="org-11",
         tenant_id="tenant-11",
         session_kind=SessionKind.TASK,
         include_refresh=False,
@@ -701,7 +701,7 @@ async def test_handoff_transaction_failure_leaves_source_scope_unchanged() -> No
 
     source = manager.issue_session(
         subject_id="worker-i",
-        organization_id="org-12",
+        workspace_id="org-12",
         tenant_id="tenant-12",
         session_kind=SessionKind.TASK,
         include_refresh=False,
@@ -759,7 +759,7 @@ async def test_handoff_denylist_failure_does_not_leave_partial_revocation_state(
 
     source = manager.issue_session(
         subject_id="worker-k",
-        organization_id="org-13",
+        workspace_id="org-13",
         tenant_id="tenant-13",
         session_kind=SessionKind.TASK,
         include_refresh=False,
@@ -799,7 +799,7 @@ async def test_verify_key_cache_reuses_and_refreshes_provider_value() -> None:
     )
     issued = manager.issue_session(
         subject_id="cache-user",
-        organization_id="cache-org",
+        workspace_id="cache-org",
         tenant_id="cache-tenant",
         session_kind=SessionKind.INTERACTIVE,
     )
@@ -832,7 +832,7 @@ async def test_verify_key_refresh_failure_after_cache_expiry_fails_closed() -> N
     )
     issued = manager.issue_session(
         subject_id="refresh-user",
-        organization_id="refresh-org",
+        workspace_id="refresh-org",
         tenant_id="refresh-tenant",
         session_kind=SessionKind.INTERACTIVE,
     )
@@ -861,7 +861,7 @@ async def test_validate_access_token_rejects_mismatched_verify_key() -> None:
 
     issued = issuing_manager.issue_session(
         subject_id="mismatch-user",
-        organization_id="mismatch-org",
+        workspace_id="mismatch-org",
         tenant_id="mismatch-tenant",
         session_kind=SessionKind.INTERACTIVE,
     )

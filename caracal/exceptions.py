@@ -20,17 +20,17 @@ class IdentityError(CaracalError):
 
 
 class PrincipalNotFoundError(IdentityError):
-    """Raised when an agent ID is not found in the registry."""
+    """Raised when a principal ID is not found in the registry."""
     pass
 
 
 class DuplicatePrincipalNameError(IdentityError):
-    """Raised when attempting to register an agent with a duplicate name."""
+    """Raised when attempting to register a principal with a duplicate name."""
     pass
 
 
 class InvalidPrincipalIDError(IdentityError):
-    """Raised when an agent ID is invalid or malformed."""
+    """Raised when a principal ID is invalid or malformed."""
     pass
 
 

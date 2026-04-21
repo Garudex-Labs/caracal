@@ -175,7 +175,7 @@ def _run_workflow_execution_probe(root_command: click.Group) -> Dict[str, object
                     "principal",
                     "register",
                     "--name",
-                    "workflow-agent",
+                    "workflow-worker",
                     "--email",
                     "ops@example.com",
                 ],

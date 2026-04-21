@@ -1,5 +1,6 @@
 {
-  "_config_version": "2.0",
+  "_config_version": "3.0",
+  "_comment": "Copy this file to demo_config.json and set CARACAL_API_KEY in your environment.",
   "caracal": {
     "base_url": "http://127.0.0.1:8080",
     "api_key_env": "CARACAL_API_KEY",
@@ -9,31 +10,17 @@
   },
   "modes": {
     "mock": {
-      "source_mandate_id": "REPLACE_WITH_MOCK_SOURCE_MANDATE_ID",
-      "revoker_id": "REPLACE_WITH_PRINCIPAL_ID_USED_FOR_REVOCATION",
       "principal_ids": {
         "orchestrator": "REPLACE_WITH_ORCHESTRATOR_PRINCIPAL_ID",
         "finance": "REPLACE_WITH_FINANCE_PRINCIPAL_ID",
         "ops": "REPLACE_WITH_OPS_PRINCIPAL_ID"
-      },
-      "mandates": {
-        "orchestrator": "REPLACE_WITH_MOCK_ORCHESTRATOR_MANDATE_ID",
-        "finance": "REPLACE_WITH_MOCK_FINANCE_MANDATE_ID",
-        "ops": "REPLACE_WITH_MOCK_OPS_MANDATE_ID"
       }
     },
     "real": {
-      "source_mandate_id": "REPLACE_WITH_REAL_SOURCE_MANDATE_ID",
-      "revoker_id": "REPLACE_WITH_PRINCIPAL_ID_USED_FOR_REVOCATION",
       "principal_ids": {
         "orchestrator": "REPLACE_WITH_ORCHESTRATOR_PRINCIPAL_ID",
         "finance": "REPLACE_WITH_FINANCE_PRINCIPAL_ID",
         "ops": "REPLACE_WITH_OPS_PRINCIPAL_ID"
-      },
-      "mandates": {
-        "orchestrator": "REPLACE_WITH_REAL_ORCHESTRATOR_MANDATE_ID",
-        "finance": "REPLACE_WITH_REAL_FINANCE_MANDATE_ID",
-        "ops": "REPLACE_WITH_REAL_OPS_MANDATE_ID"
       }
     }
   },

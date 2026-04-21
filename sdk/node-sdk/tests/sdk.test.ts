@@ -122,11 +122,9 @@ describe('CaracalClient', () => {
     const client = new CaracalClient({ adapter });
 
     const ctx = client.context.checkout({
-      organizationId: 'org_1',
       workspaceId: 'ws_1',
     });
 
-    expect(ctx.organizationId).toBe('org_1');
     expect(ctx.workspaceId).toBe('ws_1');
     expect(ctx.tools).toBeDefined();
   });
@@ -216,15 +214,11 @@ describe('ScopeContext', () => {
     const ctx = new ScopeContext({
       adapter,
       hooks,
-      organizationId: 'org_1',
       workspaceId: 'ws_1',
-      projectId: 'proj_1',
     });
 
     expect(ctx.scopeHeaders()).toEqual({
-      'X-Caracal-Org-ID': 'org_1',
       'X-Caracal-Workspace-ID': 'ws_1',
-      'X-Caracal-Project-ID': 'proj_1',
     });
   });
 
@@ -243,7 +237,7 @@ describe('ScopeContext', () => {
     const ctx = new ScopeContext({
       adapter,
       hooks,
-      organizationId: 'org_1',
+      workspaceId: 'ws_1',
     });
 
     const result = await ctx.tools.call({
@@ -253,7 +247,7 @@ describe('ScopeContext', () => {
     expect(result).toEqual({ success: true, result: { ok: true } });
 
     const sent = adapter.sentRequests;
-    expect(sent[0].headers['X-Caracal-Org-ID']).toBe('org_1');
+    expect(sent[0].headers['X-Caracal-Workspace-ID']).toBe('ws_1');
     expect(sent[0].path).toBe('/mcp/tool/call');
   });
 
@@ -265,7 +259,7 @@ describe('ScopeContext', () => {
     const ctx = new ScopeContext({
       adapter,
       hooks,
-      organizationId: 'org_1',
+      workspaceId: 'ws_1',
     });
 
     expect(Object.prototype.hasOwnProperty.call(ctx, 'principals')).toBe(false);

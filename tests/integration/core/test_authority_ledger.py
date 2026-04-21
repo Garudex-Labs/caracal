@@ -19,7 +19,7 @@ from tests.fixtures.database import db_session, in_memory_db_engine
 def _make_principal(
     principal_id,
     name,
-    principal_type,
+    principal_kind,
     *,
     owner="integration-test",
     with_keys=False,
@@ -34,7 +34,7 @@ def _make_principal(
     return Principal(
         principal_id=principal_id,
         name=name,
-        principal_type=principal_type,
+        principal_kind=principal_kind,
         owner=owner,
         public_key_pem=public_key_pem,
         principal_metadata=metadata,
@@ -66,7 +66,7 @@ class TestAuthorityLedgerIntegration:
         
         # Create issuer principal with keys
         issuer_id = uuid4()
-        issuer = _make_principal(issuer_id, "test-issuer", "user", with_keys=True)
+        issuer = _make_principal(issuer_id, "test-issuer", "human", with_keys=True)
         db_session.add(issuer)
 
         # Create authority policy for issuer
@@ -75,7 +75,7 @@ class TestAuthorityLedgerIntegration:
 
         # Create subject principal
         subject_id = uuid4()
-        subject = _make_principal(subject_id, "test-subject", "agent")
+        subject = _make_principal(subject_id, "test-subject", "worker")
         db_session.add(subject)
         db_session.commit()
         
@@ -106,14 +106,14 @@ class TestAuthorityLedgerIntegration:
         
         # Create principals
         issuer_id = uuid4()
-        issuer = _make_principal(issuer_id, "test-issuer", "user", with_keys=True)
+        issuer = _make_principal(issuer_id, "test-issuer", "human", with_keys=True)
         db_session.add(issuer)
 
         policy = _make_policy(issuer_id)
         db_session.add(policy)
 
         subject_id = uuid4()
-        subject = _make_principal(subject_id, "test-subject", "agent")
+        subject = _make_principal(subject_id, "test-subject", "worker")
         db_session.add(subject)
         db_session.commit()
         
@@ -154,14 +154,14 @@ class TestAuthorityLedgerIntegration:
         
         # Create principals with keys
         issuer_id = uuid4()
-        issuer = _make_principal(issuer_id, "test-issuer", "user", with_keys=True)
+        issuer = _make_principal(issuer_id, "test-issuer", "human", with_keys=True)
         db_session.add(issuer)
 
         policy = _make_policy(issuer_id)
         db_session.add(policy)
 
         subject_id = uuid4()
-        subject = _make_principal(subject_id, "test-subject", "agent")
+        subject = _make_principal(subject_id, "test-subject", "worker")
         db_session.add(subject)
         db_session.commit()
         

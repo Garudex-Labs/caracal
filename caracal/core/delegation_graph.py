@@ -87,8 +87,8 @@ class DelegationEdge:
     edge_id: UUID
     source_mandate_id: UUID
     target_mandate_id: UUID
-    source_principal_type: str
-    target_principal_type: str
+    source_principal_kind: str
+    target_principal_kind: str
     delegation_type: str  # "directed" | "peer"
     context_tags: List[str] = field(default_factory=list)
     granted_at: datetime = field(default_factory=datetime.utcnow)
@@ -104,8 +104,8 @@ class DelegationEdge:
             edge_id=model.edge_id,
             source_mandate_id=model.source_mandate_id,
             target_mandate_id=model.target_mandate_id,
-            source_principal_type=model.source_principal_type,
-            target_principal_type=model.target_principal_type,
+            source_principal_kind=model.source_principal_kind,
+            target_principal_kind=model.target_principal_kind,
             delegation_type=model.delegation_type,
             context_tags=model.context_tags or [],
             granted_at=model.granted_at,
@@ -417,8 +417,8 @@ class DelegationGraph:
             edge_id=edge_id,
             source_mandate_id=source_mandate_id,
             target_mandate_id=target_mandate_id,
-            source_principal_type=source_type,
-            target_principal_type=target_type,
+            source_principal_kind=source_type,
+            target_principal_kind=target_type,
             delegation_type=delegation_type,
             context_tags=context_tags or [],
             granted_at=datetime.utcnow(),
@@ -610,9 +610,9 @@ class DelegationGraph:
         query = self.db_session.query(DelegationEdgeModel)
 
         if source_type:
-            query = query.filter(DelegationEdgeModel.source_principal_type == source_type)
+            query = query.filter(DelegationEdgeModel.source_principal_kind == source_type)
         if target_type:
-            query = query.filter(DelegationEdgeModel.target_principal_type == target_type)
+            query = query.filter(DelegationEdgeModel.target_principal_kind == target_type)
         if active_only:
             query = query.filter(DelegationEdgeModel.revoked == False)
 
@@ -812,8 +812,8 @@ class DelegationGraph:
                 "edge_id": str(e.edge_id),
                 "source_mandate_id": str(e.source_mandate_id),
                 "target_mandate_id": str(e.target_mandate_id),
-                "source_principal_type": e.source_principal_type,
-                "target_principal_type": e.target_principal_type,
+                "source_principal_kind": e.source_principal_kind,
+                "target_principal_kind": e.target_principal_kind,
                 "delegation_type": dtype,
                 "context_tags": e.context_tags or [],
                 "granted_at": e.granted_at.isoformat() if e.granted_at else None,

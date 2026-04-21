@@ -84,7 +84,17 @@ class TestPrincipalRegistry:
         mock_query = Mock()
         mock_query.filter_by.return_value.first.return_value = None
         self.mock_session.query.return_value = mock_query
-
+        
+        principal_id = uuid4()
+        mock_principal = Principal(
+            principal_id=principal_id,
+            name="test-principal",
+            principal_kind="worker",
+            owner="test-owner",
+            created_at=datetime.utcnow(),
+            principal_metadata={}
+        )
+        
         self.mock_session.add = Mock()
         self.mock_session.flush = Mock()
         self.mock_session.commit = Mock()
@@ -179,7 +189,7 @@ class TestPrincipalRegistry:
         assert len(identities) == 3
         assert all(isinstance(i, PrincipalIdentity) for i in identities)
     
-    def test_update_agent_metadata(self):
+    def test_update_principal_metadata(self):
         """Test updating principal metadata."""
         principal_id = uuid4()
         mock_principal = Principal(
@@ -194,7 +204,9 @@ class TestPrincipalRegistry:
         mock_query = Mock()
         mock_query.filter_by.return_value.first.return_value = mock_principal
         self.mock_session.query.return_value = mock_query
-        identity = self.registry.update_agent(
+        
+        # Act
+        identity = self.registry.update_principal(
             str(principal_id),
             metadata={"new_key": "new_value"}
         )

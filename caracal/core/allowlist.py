@@ -138,7 +138,7 @@ class AllowlistManager:
     
     optimizations:
     - LRU cache for compiled regex patterns (max 1000 patterns)
-    - LRU cache for agent allowlists (max 500 agents)
+    - LRU cache for principal allowlists (max 500 principals)
     - Target p99 latency < 2ms for pattern matching
     """
     
@@ -155,7 +155,7 @@ class AllowlistManager:
         
         # LRU caches for performance (v0.3 optimization)
         self._pattern_cache = LRUCache(max_size=1000)  # Compiled regex patterns
-        self._allowlist_cache: Dict[UUID, CachedAllowlistEntry] = {}  # Agent allowlists
+        self._allowlist_cache: Dict[UUID, CachedAllowlistEntry] = {}  # Principal allowlists
         
         # Cache statistics
         self._cache_hits = 0
@@ -176,7 +176,7 @@ class AllowlistManager:
         basic validation.
         
         Args:
-            principal_id: UUID of the agent
+            principal_id: UUID of the principal
             resource_pattern: Pattern to match resources against
             pattern_type: Type of pattern ("regex" or "glob")
         
@@ -209,11 +209,11 @@ class AllowlistManager:
         self.db_session.commit()
         self.db_session.refresh(allowlist)
         
-        # Invalidate cache for this agent
+        # Invalidate cache for this principal
         self.invalidate_cache(principal_id)
         
         logger.info(
-            f"Created allowlist {allowlist.allowlist_id} for agent {principal_id}: "
+            f"Created allowlist {allowlist.allowlist_id} for principal {principal_id}: "
             f"{pattern_type} pattern '{resource_pattern[:50]}...'"
         )
         
@@ -221,10 +221,10 @@ class AllowlistManager:
     
     def check_resource(self, principal_id: UUID, resource_url: str) -> AllowlistDecision:
         """
-        Check if a resource is allowed for an agent.
+        Check if a resource is allowed for a principal.
         
         Implements the following logic:
-        1. Check cache for agent's allowlists
+        1. Check cache for principal's allowlists
         2. If cache miss or expired, query database and cache results
         3. If no allowlists exist, return allowed (default allow)
         4. For each allowlist, test if the pattern matches
@@ -232,7 +232,7 @@ class AllowlistManager:
         6. If no patterns match, return denied
         
         Args:
-            principal_id: UUID of the agent
+            principal_id: UUID of the principal
             resource_url: URL of the resource to check
         
         Returns:
@@ -263,7 +263,7 @@ class AllowlistManager:
             )
             self._allowlist_cache[principal_id] = cached_entry
             
-            logger.debug(f"Cached {len(allowlists)} allowlist(s) for agent {principal_id}")
+            logger.debug(f"Cached {len(allowlists)} allowlist(s) for principal {principal_id}")
         else:
             self._cache_hits += 1
             allowlists = cached_entry.allowlists
@@ -271,7 +271,7 @@ class AllowlistManager:
         # Default allow if no allowlists configured
         if not allowlists:
             logger.debug(
-                f"No allowlists configured for agent {principal_id}, allowing resource: {resource_url}"
+                f"No allowlists configured for principal {principal_id}, allowing resource: {resource_url}"
             )
             return AllowlistDecision(
                 allowed=True,
@@ -284,9 +284,9 @@ class AllowlistManager:
             if allowlist.pattern_type == "regex":
                 # Use cached compiled pattern
                 compiled_pattern = cached_entry.compiled_patterns.get(allowlist.resource_pattern)
-                if compiled_pattern and compiled_pattern.match(resource_url):
+                if compiled_pattern and compiled_pattern.fullmatch(resource_url):
                     logger.info(
-                        f"Resource {resource_url} allowed for agent {principal_id}: "
+                        f"Resource {resource_url} allowed for principal {principal_id}: "
                         f"matched regex pattern '{allowlist.resource_pattern[:50]}...'"
                     )
                     return AllowlistDecision(
@@ -298,7 +298,7 @@ class AllowlistManager:
                 # Use fnmatch for glob patterns
                 if fnmatch.fnmatch(resource_url, allowlist.resource_pattern):
                     logger.info(
-                        f"Resource {resource_url} allowed for agent {principal_id}: "
+                        f"Resource {resource_url} allowed for principal {principal_id}: "
                         f"matched glob pattern '{allowlist.resource_pattern[:50]}...'"
                     )
                     return AllowlistDecision(
@@ -309,7 +309,7 @@ class AllowlistManager:
         
         # No patterns matched, deny
         logger.warning(
-            f"Resource {resource_url} denied for agent {principal_id}: "
+            f"Resource {resource_url} denied for principal {principal_id}: "
             f"no matching patterns in {len(allowlists)} allowlist(s)"
         )
         return AllowlistDecision(
@@ -348,10 +348,10 @@ class AllowlistManager:
     
     def list_allowlists(self, principal_id: UUID) -> List[ResourceAllowlist]:
         """
-        List all active allowlists for an agent.
+        List all active allowlists for a principal.
         
         Args:
-            principal_id: UUID of the agent
+            principal_id: UUID of the principal
         
         Returns:
             List of active ResourceAllowlist objects
@@ -387,25 +387,25 @@ class AllowlistManager:
         allowlist.active = False
         self.db_session.commit()
         
-        # Invalidate cache for this agent
+        # Invalidate cache for this principal
         self.invalidate_cache(allowlist.principal_id)
         
-        logger.info(f"Deactivated allowlist {allowlist_id} for agent {allowlist.principal_id}")
+        logger.info(f"Deactivated allowlist {allowlist_id} for principal {allowlist.principal_id}")
     
     def invalidate_cache(self, principal_id: UUID) -> None:
         """
-        Invalidate cached allowlists for an agent.
+        Invalidate cached allowlists for a principal.
         
         Should be called when allowlists are created, modified, or deleted.
         
         Args:
-            principal_id: UUID of the agent
+            principal_id: UUID of the principal
         
         """
         if principal_id in self._allowlist_cache:
             del self._allowlist_cache[principal_id]
             self._cache_invalidations += 1
-            logger.debug(f"Invalidated allowlist cache for agent {principal_id}")
+            logger.debug(f"Invalidated allowlist cache for principal {principal_id}")
     
     def get_cache_stats(self) -> Dict[str, int]:
         """
@@ -427,10 +427,10 @@ class AllowlistManager:
     
     def _get_cached_allowlists(self, principal_id: UUID) -> Optional[CachedAllowlistEntry]:
         """
-        Get cached allowlists for an agent if not expired.
+        Get cached allowlists for a principal if not expired.
         
         Args:
-            principal_id: UUID of the agent
+            principal_id: UUID of the principal
         
         Returns:
             CachedAllowlistEntry if found and not expired, None otherwise
@@ -444,7 +444,7 @@ class AllowlistManager:
         if age_seconds > self.cache_ttl_seconds:
             # Cache expired
             del self._allowlist_cache[principal_id]
-            logger.debug(f"Allowlist cache expired for agent {principal_id} (age={age_seconds:.1f}s)")
+            logger.debug(f"Allowlist cache expired for principal {principal_id} (age={age_seconds:.1f}s)")
             return None
         
         return cached_entry
@@ -465,6 +465,8 @@ class AllowlistManager:
         
         """
         if pattern_type == "regex":
+            if len(pattern) > 500:
+                raise ValidationError("Regex pattern exceeds maximum length of 500 characters")
             try:
                 re.compile(pattern)
             except re.error as e:
@@ -504,7 +506,7 @@ class AllowlistManager:
                 logger.error(f"Failed to compile regex pattern '{pattern}': {e}")
                 return False
         
-        return bool(compiled_pattern.match(resource_url))
+        return bool(compiled_pattern.fullmatch(resource_url))
     
     def _match_glob(self, pattern: str, resource_url: str) -> bool:
         """

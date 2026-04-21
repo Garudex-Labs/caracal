@@ -6,7 +6,7 @@ Delegation token management for Caracal Core.
 
 This module provides the DelegationTokenManager for generating and validating
 delegation tokens using JWT with ECDSA P-256 signatures. Supports graph-based
-authority delegation across principal types (user, agent, service).
+authority delegation across principal types (human, orchestrator, worker, service).
 
 """
 
@@ -60,8 +60,8 @@ class DelegationTokenClaims:
         token_id: Unique token identifier (jti claim)
         allowed_operations: List of allowed operation types
         delegation_type: Type of delegation (directed/peer)
-        source_principal_type: Type of the delegating principal
-        target_principal_type: Type of the receiving principal
+        source_principal_kind: Type of the delegating principal
+        target_principal_kind: Type of the receiving principal
         context_tags: Context tags for dynamic authority filtering
         source_mandate_id: Canonical source mandate lineage ID
     """
@@ -73,8 +73,8 @@ class DelegationTokenClaims:
     token_id: UUID
     allowed_operations: List[str]
     delegation_type: str = "directed"
-    source_principal_type: str = "agent"
-    target_principal_type: str = "agent"
+    source_principal_kind: str = "worker"
+    target_principal_kind: str = "worker"
     context_tags: Optional[List[str]] = None
     source_mandate_id: Optional[UUID] = None
 
@@ -85,7 +85,7 @@ class DelegationTokenManager:
     
     Generates JWT tokens signed with ECDSA P-256 (ES256) and validates
     token signatures, expiration, and authority limits.
-    Supports delegation across principal types (user, agent, service).
+    Supports delegation across principal types (human, orchestrator, worker, service).
     
     """
 
@@ -107,8 +107,8 @@ class DelegationTokenManager:
         expiration_seconds: int = 86400,
         allowed_operations: Optional[List[str]] = None,
         delegation_type: str = "directed",
-        source_principal_type: str = "agent",
-        target_principal_type: str = "agent",
+        source_principal_kind: str = "worker",
+        target_principal_kind: str = "worker",
         context_tags: Optional[List[str]] = None,
         source_mandate_id: Optional[UUID] = None,
     ) -> str:
@@ -124,8 +124,8 @@ class DelegationTokenManager:
             expiration_seconds: Token validity duration (default: 86400 = 24 hours)
             allowed_operations: List of allowed operations (default: ["api_call", "mcp_tool"])
             delegation_type: Type of delegation (directed/peer)
-            source_principal_type: Type of delegating principal
-            target_principal_type: Type of receiving principal
+            source_principal_kind: Type of delegating principal
+            target_principal_kind: Type of receiving principal
             context_tags: Context tags for dynamic authority filtering
             source_mandate_id: Canonical source mandate lineage ID
             
@@ -137,7 +137,7 @@ class DelegationTokenManager:
             InvalidDelegationTokenError: If source principal has no private key
             
         """
-        # Get source agent
+        # Get source principal
         source_principal = self.principal_registry.get_principal(str(source_principal_id))
         if source_principal is None:
             logger.error(f"Source principal not found: {source_principal_id}")
@@ -170,8 +170,8 @@ class DelegationTokenManager:
             # Delegation claims
             "allowedOperations": allowed_operations,
             "delegationType": delegation_type,
-            "sourcePrincipalType": source_principal_type,
-            "targetPrincipalType": target_principal_type,
+            "sourcePrincipalKind": source_principal_kind,
+            "targetPrincipalKind": target_principal_kind,
         }
         
         # Optional claims
@@ -203,7 +203,7 @@ class DelegationTokenManager:
         
         logger.info(
             f"Generated delegation token: source={source_principal_id}, target={target_principal_id}, "
-            f"type={delegation_type}, {source_principal_type}→{target_principal_type}, "
+            f"type={delegation_type}, {source_principal_kind}→{target_principal_kind}, "
             f"expires={expiration.isoformat()}"
         )
         
@@ -212,7 +212,7 @@ class DelegationTokenManager:
     def validate_token(self, token: str) -> DelegationTokenClaims:
         """        
         Verifies:
-        1. Token signature using source agent's public key
+        1. Token signature using source principal's public key
         2. Token expiration
         3. Required claims presence
         
@@ -225,7 +225,7 @@ class DelegationTokenManager:
         Raises:
             TokenValidationError: If token is invalid or signature verification fails
             TokenExpiredError: If token has expired
-            PrincipalNotFoundError: If issuer agent does not exist
+            PrincipalNotFoundError: If issuer principal does not exist
             
         """
         try:
@@ -247,12 +247,12 @@ class DelegationTokenManager:
                 logger.error("Token missing 'kid' header (fail-closed)")
                 raise error
             
-            # Get issuer agent
-            issuer_agent = self.principal_registry.get_principal(issuer_id)
-            if issuer_agent is None:
-                # Fail closed: deny if issuer agent doesn't exist (Requirement 23.3)
+            # Get issuer principal
+            issuer_principal = self.principal_registry.get_principal(issuer_id)
+            if issuer_principal is None:
+                # Fail closed: deny if issuer principal doesn't exist (Requirement 23.3)
                 error_handler = get_error_handler("delegation-token-manager")
-                error = PrincipalNotFoundError(f"Issuer agent with ID '{issuer_id}' does not exist")
+                error = PrincipalNotFoundError(f"Issuer principal with ID '{issuer_id}' does not exist")
                 error_handler.handle_error(
                     error=error,
                     category=ErrorCategory.DELEGATION,
@@ -260,7 +260,7 @@ class DelegationTokenManager:
                     metadata={"issuer_id": issuer_id},
                     severity=ErrorSeverity.CRITICAL
                 )
-                logger.error(f"Issuer agent not found (fail-closed): {issuer_id}")
+                logger.error(f"Issuer principal not found (fail-closed): {issuer_id}")
                 raise error
             
             # Verify and decode token through signing service abstraction.
@@ -287,7 +287,7 @@ class DelegationTokenManager:
             except SigningServiceKeyError as e:
                 # Fail closed: deny if public key cannot be resolved/loaded
                 error_handler = get_error_handler("delegation-token-manager")
-                error = TokenValidationError(f"Failed to resolve verification key for agent '{issuer_id}': {e}")
+                error = TokenValidationError(f"Failed to resolve verification key for principal '{issuer_id}': {e}")
                 error_handler.handle_error(
                     error=error,
                     category=ErrorCategory.DELEGATION,
@@ -295,7 +295,7 @@ class DelegationTokenManager:
                     principal_id=issuer_id,
                     severity=ErrorSeverity.CRITICAL
                 )
-                logger.error(f"Verification key resolution failed for agent {issuer_id} (fail-closed): {e}")
+                logger.error(f"Verification key resolution failed for principal {issuer_id} (fail-closed): {e}")
                 raise error from e
             except (SigningServiceInvalidToken, jwt.InvalidTokenError) as e:
                 # Invalid token - log and deny (Requirement 23.3)
@@ -316,13 +316,13 @@ class DelegationTokenManager:
                 issuer = UUID(payload["iss"])
                 subject = UUID(payload["sub"])
                 audience = payload["aud"]
-                expiration = datetime.fromtimestamp(payload["exp"])
-                issued_at = datetime.fromtimestamp(payload["iat"])
+                expiration = datetime.fromtimestamp(payload["exp"], tz=timezone.utc)
+                issued_at = datetime.fromtimestamp(payload["iat"], tz=timezone.utc)
                 token_id = UUID(payload["jti"])
                 allowed_operations = payload["allowedOperations"]
                 delegation_type = payload.get("delegationType", "directed")
-                source_principal_type = payload.get("sourcePrincipalType", "agent")
-                target_principal_type = payload.get("targetPrincipalType", "agent")
+                source_principal_kind = payload.get("sourcePrincipalKind", "worker")
+                target_principal_kind = payload.get("targetPrincipalKind", "worker")
                 context_tags = payload.get("contextTags")
                 source_mandate_claim = payload.get("sourceMandateId")
                 source_mandate_id = UUID(source_mandate_claim) if source_mandate_claim else None
@@ -352,8 +352,8 @@ class DelegationTokenManager:
                 token_id=token_id,
                 allowed_operations=allowed_operations,
                 delegation_type=delegation_type,
-                source_principal_type=source_principal_type,
-                target_principal_type=target_principal_type,
+                source_principal_kind=source_principal_kind,
+                target_principal_kind=target_principal_kind,
                 context_tags=context_tags,
                 source_mandate_id=source_mandate_id,
             )

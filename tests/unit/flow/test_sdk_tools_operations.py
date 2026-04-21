@@ -34,7 +34,7 @@ async def test_scope_tools_call_uses_canonical_payload_and_scope_headers() -> No
     scope = ScopeContext(
         adapter=adapter,
         hooks=HookRegistry(),
-        organization_id="org-123",
+        workspace_id="org-123",
         workspace_id="ws-123",
     )
 

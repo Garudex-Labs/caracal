@@ -146,7 +146,7 @@ def test_enterprise_compose_uses_separate_vault_topology_defaults_from_oss_runti
 
     assert "${CARACAL_ENTERPRISE_VAULT_PORT:-8180}:8080" in payload
     assert "CARACAL_VAULT_TOKEN=${CARACAL_VAULT_TOKEN:-enterprise-local-token}" in payload
-    assert "CARACAL_VAULT_PROJECT_ID=${CARACAL_VAULT_PROJECT_ID:-caracal-enterprise-local}" in payload
+    assert "CARACAL_VAULT_WORKSPACE_ID=${CARACAL_VAULT_WORKSPACE_ID:-caracal-enterprise-local}" in payload
     assert "CARACAL_VAULT_ENVIRONMENT=${CARACAL_VAULT_ENVIRONMENT:-enterprise-dev}" in payload
     assert "CARACAL_VAULT_SECRET_PATH=${CARACAL_VAULT_SECRET_PATH:-/enterprise}" in payload
 

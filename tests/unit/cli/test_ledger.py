@@ -44,7 +44,7 @@ class TestLedgerQueryCommand:
         mock_get_query.return_value = mock_query
         
         # Act
-        result = self.runner.invoke(query, [], obj={'config': Mock()})
+        result = self.runner.invoke(query, [], obj=Mock(config=Mock()))
         
         # Assert
         assert result.exit_code == 0
@@ -59,7 +59,7 @@ class TestLedgerQueryCommand:
         mock_get_query.return_value = mock_query
         
         # Act
-        result = self.runner.invoke(query, [], obj={'config': Mock()})
+        result = self.runner.invoke(query, [], obj=Mock(config=Mock()))
         
         # Assert
         assert result.exit_code == 0
@@ -90,11 +90,11 @@ class TestLedgerQueryCommand:
         
         # Act
         result = self.runner.invoke(query, [
-            '--agent-id', principal_id,
+            '--principal-id', principal_id,
             '--start', '2024-01-01',
             '--end', '2024-01-31',
             '--resource', 'test-resource'
-        ], obj={'config': Mock()})
+        ], obj=Mock(config=Mock()))
         
         # Assert
         assert result.exit_code == 0
@@ -123,7 +123,7 @@ class TestLedgerQueryCommand:
         mock_get_query.return_value = mock_query
         
         # Act
-        result = self.runner.invoke(query, ['--format', 'json'], obj={'config': Mock()})
+        result = self.runner.invoke(query, ['--format', 'json'], obj=Mock(config=Mock()))
         
         # Assert
         assert result.exit_code == 0
@@ -133,7 +133,7 @@ class TestLedgerQueryCommand:
         """Test querying with invalid date format."""
         result = self.runner.invoke(query, [
             '--start', 'invalid-date'
-        ], obj={'config': Mock()})
+        ], obj=Mock(config=Mock()))
         
         assert result.exit_code != 0
         assert 'Invalid' in result.output
@@ -143,7 +143,7 @@ class TestLedgerQueryCommand:
         result = self.runner.invoke(query, [
             '--start', '2024-12-31',
             '--end', '2024-01-01'
-        ], obj={'config': Mock()})
+        ], obj=Mock(config=Mock()))
         
         assert result.exit_code != 0
         assert 'before or equal' in result.output
@@ -162,7 +162,7 @@ class TestLedgerSummaryCommand:
         """Test summary for multiple agents."""
         # Arrange
         mock_query = Mock()
-        mock_query.aggregate_by_agent.return_value = {
+        mock_query.aggregate_by_principal.return_value = {
             str(uuid4()): Decimal('100'),
             str(uuid4()): Decimal('50')
         }
@@ -172,12 +172,12 @@ class TestLedgerSummaryCommand:
         result = self.runner.invoke(summary, [
             '--start', '2024-01-01',
             '--end', '2024-01-31'
-        ], obj={'config': Mock()})
+        ], obj=Mock(config=Mock()))
         
         # Assert
         assert result.exit_code == 0
-        assert 'Usage Summary by Agent' in result.output
-        assert 'Total Agents: 2' in result.output
+        assert 'Usage Summary by Principal' in result.output
+        assert 'Total Principals: 2' in result.output
     
     @patch('caracal.cli.ledger.get_ledger_query')
     def test_summary_single_agent(self, mock_get_query):
@@ -197,14 +197,14 @@ class TestLedgerSummaryCommand:
         
         # Act
         result = self.runner.invoke(summary, [
-            '--agent-id', principal_id,
+            '--principal-id', principal_id,
             '--start', '2024-01-01',
             '--end', '2024-01-31'
-        ], obj={'config': Mock()})
+        ], obj=Mock(config=Mock()))
         
         # Assert
         assert result.exit_code == 0
-        assert 'Usage Summary for Agent' in result.output
+        assert 'Usage Summary for Principal' in result.output
         assert 'Total Usage: 10' in result.output
     
     @patch('caracal.cli.ledger.get_ledger_query')
@@ -224,11 +224,11 @@ class TestLedgerSummaryCommand:
         
         # Act
         result = self.runner.invoke(summary, [
-            '--agent-id', principal_id,
+            '--principal-id', principal_id,
             '--start', '2024-01-01',
             '--end', '2024-01-31',
             '--aggregate-targetren'
-        ], obj={'config': Mock()})
+        ], obj=Mock(config=Mock()))
         
         # Assert
         assert result.exit_code == 0
@@ -254,11 +254,11 @@ class TestLedgerSummaryCommand:
         
         # Act
         result = self.runner.invoke(summary, [
-            '--agent-id', principal_id,
+            '--principal-id', principal_id,
             '--start', '2024-01-01',
             '--end', '2024-01-31',
             '--breakdown'
-        ], obj={'config': Mock()})
+        ], obj=Mock(config=Mock()))
         
         # Assert
         assert result.exit_code == 0
@@ -269,14 +269,14 @@ class TestLedgerSummaryCommand:
         """Test summary when no usage recorded."""
         # Arrange
         mock_query = Mock()
-        mock_query.aggregate_by_agent.return_value = {}
+        mock_query.aggregate_by_principal.return_value = {}
         mock_get_query.return_value = mock_query
         
         # Act
         result = self.runner.invoke(summary, [
             '--start', '2024-01-01',
             '--end', '2024-01-31'
-        ], obj={'config': Mock()})
+        ], obj=Mock(config=Mock()))
         
         # Assert
         assert result.exit_code == 0
@@ -284,7 +284,7 @@ class TestLedgerSummaryCommand:
     
     def test_summary_missing_dates(self):
         """Test summary without required date range."""
-        result = self.runner.invoke(summary, [], obj={'config': Mock()})
+        result = self.runner.invoke(summary, [], obj=Mock(config=Mock()))
         
         assert result.exit_code != 0
         assert 'required' in result.output.lower()
@@ -389,7 +389,7 @@ class TestLedgerOutputFormatting:
         mock_get_query.return_value = mock_query
         
         # Act
-        result = self.runner.invoke(query, ['--format', 'table'], obj={'config': Mock()})
+        result = self.runner.invoke(query, ['--format', 'table'], obj=Mock(config=Mock()))
         
         # Assert
         assert result.exit_code == 0
@@ -400,7 +400,7 @@ class TestLedgerOutputFormatting:
         """Test summary with JSON output format."""
         # Arrange
         mock_query = Mock()
-        mock_query.aggregate_by_agent.return_value = {
+        mock_query.aggregate_by_principal.return_value = {
             str(uuid4()): Decimal('100')
         }
         mock_get_query.return_value = mock_query
@@ -410,8 +410,8 @@ class TestLedgerOutputFormatting:
             '--start', '2024-01-01',
             '--end', '2024-01-31',
             '--format', 'json'
-        ], obj={'config': Mock()})
+        ], obj=Mock(config=Mock()))
         
         # Assert
         assert result.exit_code == 0
-        assert 'agents' in result.output
+        assert 'principals' in result.output

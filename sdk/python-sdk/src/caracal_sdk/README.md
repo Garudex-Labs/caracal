@@ -32,7 +32,6 @@ client = CaracalClient(api_key="sk_test_123")
 
 # Checkout a specific scope
 ctx = client.context.checkout(
-    organization_id="org_abc123",
     workspace_id="ws_xyz789",
 )
 
@@ -44,7 +43,6 @@ result = await ctx.tools.call(
 
 # Switch context explicitly
 other_ctx = client.context.checkout(
-    organization_id="org_abc123",
     workspace_id="ws_other",
 )
 ```
@@ -71,7 +69,7 @@ client = (
 | Module         | Import                   | Responsibility             |
 | -------------- | ------------------------ | -------------------------- |
 | **Client**     | `caracal_sdk.client`     | Init, builder, config      |
-| **Context**    | `caracal_sdk.context`    | Org/Workspace scope        |
+| **Context**    | `caracal_sdk.context`    | Workspace scope            |
 | **Tools**      | `caracal_sdk.tools`      | MCP tool-call bridge       |
 | **Adapters**   | `caracal_sdk.adapters`   | Transport (HTTP, WS, Mock) |
 | **Hooks**      | `caracal_sdk.hooks`      | Lifecycle events           |
