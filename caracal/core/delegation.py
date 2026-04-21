@@ -10,11 +10,9 @@ authority delegation across principal types (human, orchestrator, worker, servic
 
 """
 
-import json
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from decimal import Decimal
-from typing import Dict, List, Optional
+from typing import List, Optional
 from uuid import UUID
 
 import jwt

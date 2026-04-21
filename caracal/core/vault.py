@@ -16,7 +16,7 @@ import urllib.parse
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Optional, Tuple
+from typing import Any, Optional
 from uuid import uuid4
 
 import httpx

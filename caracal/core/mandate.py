@@ -33,10 +33,7 @@ CANONICAL_MANDATE_LIFECYCLE_METHODS = (
 # Import AuthorityLedgerWriter, RedisMandateCache, and MandateIssuanceRateLimiter for type hints (avoid circular import)
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    from caracal.core.authority import AuthorityDecision, AuthorityEvaluator
-    from caracal.core.authority_ledger import AuthorityLedgerWriter
-    from caracal.redis.mandate_cache import RedisMandateCache
-    from caracal.core.rate_limiter import MandateIssuanceRateLimiter
+    from caracal.core.authority import AuthorityDecision
 
 
 class MandateManager:
@@ -175,19 +172,8 @@ class MandateManager:
         Returns:
             True if value matches pattern, False otherwise
         """
-        # Exact match
-        if value == pattern:
-            return True
-        
-        # Wildcard match
-        if '*' in pattern:
-            import re
-            regex_pattern = pattern.replace('*', '.*')
-            regex_pattern = f"^{regex_pattern}$"
-            if re.match(regex_pattern, value):
-                return True
-        
-        return False
+        from fnmatch import fnmatchcase
+        return fnmatchcase(value, pattern)
     
     def _record_ledger_event(
         self,

@@ -9,8 +9,7 @@ fair resource allocation across principals.
 
 """
 
-from datetime import datetime, timedelta
-from typing import Optional
+from datetime import datetime
 from uuid import UUID
 
 from caracal.redis.client import RedisClient

@@ -5,7 +5,6 @@ from __future__ import annotations
 import difflib
 import importlib
 import shlex
-import sys
 from pathlib import Path
 from typing import Iterable
 

@@ -14,7 +14,7 @@ import secrets
 import shutil
 import subprocess
 import tempfile
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
@@ -30,7 +30,6 @@ from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 from caracal.deployment.exceptions import (
     ConfigurationCorruptedError,
     ConfigurationError,
-    ConfigurationNotFoundError,
     ConfigurationValidationError,
     DecryptionError,
     EncryptionError,

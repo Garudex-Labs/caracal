@@ -18,7 +18,7 @@ from typing import Any, Dict, Optional
 
 import yaml
 
-from caracal.exceptions import ConfigurationError, InvalidConfigurationError
+from caracal.exceptions import InvalidConfigurationError
 from caracal.logging_config import get_logger
 
 logger = get_logger(__name__)

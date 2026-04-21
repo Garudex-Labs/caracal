@@ -18,7 +18,6 @@ Creates materialized views and indexes for optimized ledger queries:
 from typing import Sequence, Union
 
 from alembic import op
-import sqlalchemy as sa
 
 
 # revision identifiers, used by Alembic.

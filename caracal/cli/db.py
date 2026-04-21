@@ -8,7 +8,6 @@ Provides CLI commands for database initialization, migrations, and status checks
 
 """
 
-import logging
 import sys
 from pathlib import Path
 from typing import Optional
@@ -19,7 +18,6 @@ from alembic.config import Config
 from sqlalchemy import text
 
 from caracal.cli.context import pass_context
-from caracal.pathing import source_of
 from caracal.db import (
     Base,
     DatabaseConfig,

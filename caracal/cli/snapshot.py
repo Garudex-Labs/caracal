@@ -9,12 +9,9 @@ Provides commands for creating, listing, and restoring ledger snapshots.
 
 import sys
 from datetime import datetime
-from pathlib import Path
 from uuid import UUID
 
 import click
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
 
 from caracal.db.connection import get_db_manager
 from caracal.logging_config import get_logger

@@ -14,9 +14,9 @@ from typing import Optional, List, Dict, Any
 from uuid import UUID
 
 from sqlalchemy import and_, or_
-from sqlalchemy.orm import Session, joinedload, selectinload
+from sqlalchemy.orm import Session, joinedload
 
-from caracal.db.models import ExecutionMandate, AuthorityLedgerEvent, AuthorityPolicy, Principal
+from caracal.db.models import ExecutionMandate, AuthorityLedgerEvent, AuthorityPolicy
 from caracal.logging_config import get_logger
 
 logger = get_logger(__name__)

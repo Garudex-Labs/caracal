@@ -11,15 +11,12 @@ Provides centralized error handling with fail-closed semantics:
 
 """
 
-import logging
 import traceback
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
 from typing import Optional, Dict, Any
-from uuid import UUID
 
-from caracal.exceptions import CaracalError
 from caracal.logging_config import get_logger
 
 logger = get_logger(__name__)

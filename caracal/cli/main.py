@@ -22,7 +22,7 @@ from caracal.pathing import source_of
 from caracal.config.settings import load_config
 from caracal.exceptions import CaracalError, InvalidConfigurationError
 from caracal.logging_config import setup_runtime_logging
-from caracal.cli.context import CLIContext, pass_context
+from caracal.cli.context import CLIContext
 
 
 def get_active_workspace() -> Optional[str]:

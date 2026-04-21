@@ -9,13 +9,13 @@ and AuthorityLedgerQuery for querying authority ledger events.
 
 """
 
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Dict, List, Optional
 from uuid import UUID
 
 from sqlalchemy.orm import Session
 
-from caracal.db.models import AuthorityLedgerEvent, ExecutionMandate, Principal
+from caracal.db.models import AuthorityLedgerEvent
 from caracal.logging_config import get_logger
 
 logger = get_logger(__name__)

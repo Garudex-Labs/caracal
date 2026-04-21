@@ -10,7 +10,7 @@ to prevent cascading failures when the database is unavailable.
 """
 
 from contextlib import contextmanager
-from typing import Optional, TypeVar, Callable, Any
+from typing import Optional, TypeVar, Callable
 
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import OperationalError, DatabaseError, InterfaceError, InternalError

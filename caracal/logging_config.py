@@ -18,7 +18,7 @@ from dataclasses import dataclass
 from typing import Any, Dict, Optional
 
 import structlog
-from structlog.types import EventDict, Processor
+from structlog.types import EventDict
 
 from caracal.pathing import ensure_source_tree, source_of
 from caracal.runtime.environment import (

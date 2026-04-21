@@ -10,7 +10,7 @@ to improve query performance and enable efficient data archival.
 """
 
 from datetime import datetime, timedelta
-from typing import List, Optional
+from typing import List
 
 from sqlalchemy import text
 from sqlalchemy.orm import Session

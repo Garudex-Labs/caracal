@@ -11,7 +11,7 @@ validating, and managing intents in the authority enforcement system.
 import hashlib
 import json
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 from uuid import UUID, uuid4
 
 

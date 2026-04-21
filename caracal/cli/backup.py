@@ -18,7 +18,7 @@ from typing import Optional
 import click
 
 from caracal.cli.context import CLIContext
-from caracal.exceptions import CaracalError, FileReadError, FileWriteError
+from caracal.exceptions import CaracalError
 from caracal.logging_config import get_logger
 from caracal.pathing import ensure_source_tree
 

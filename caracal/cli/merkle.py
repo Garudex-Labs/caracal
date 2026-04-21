@@ -841,7 +841,6 @@ def backfill(source_version, batch_size, dry_run, config):
         # Backfill from specific version
         caracal merkle backfill --source-version v0.2
     """
-    import asyncio
     from caracal.config.settings import load_config
     from caracal.db.connection import get_session
     from caracal.merkle import create_merkle_signer
@@ -962,7 +961,7 @@ def backfill_status(config):
     """
     from caracal.config.settings import load_config
     from caracal.db.connection import get_session
-    from sqlalchemy import func, select
+    from sqlalchemy import func
     from caracal.db.models import LedgerEvent, MerkleRoot
     
     try:

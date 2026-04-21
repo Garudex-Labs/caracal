@@ -8,8 +8,6 @@ Provides shared context object and decorators for CLI commands.
 """
 
 import click
-from typing import Optional
-from pathlib import Path
 
 
 # Global context object to share configuration across commands

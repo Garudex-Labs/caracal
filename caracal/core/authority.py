@@ -22,7 +22,7 @@ from caracal.core.caveat_chain import (
     evaluate_caveat_chain,
     verify_caveat_chain,
 )
-from caracal.db.models import ExecutionMandate, Principal
+from caracal.db.models import ExecutionMandate, Principal, PrincipalLifecycleStatus
 from caracal.logging_config import get_logger
 from caracal.provider.definitions import parse_provider_scope
 
@@ -61,13 +61,12 @@ class AuthorityReasonCode:
     RESOURCE_SCOPE_DENIED = "AUTH_RESOURCE_SCOPE_DENIED"
     DELEGATION_PATH_INVALID = "AUTH_DELEGATION_PATH_INVALID"
     CAVEAT_CHAIN_DENIED = "AUTH_CAVEAT_CHAIN_DENIED"
+    PRINCIPAL_NOT_ACTIVE = "AUTH_PRINCIPAL_NOT_ACTIVE"
 
 # Import for type hints (avoid circular import)
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    from caracal.core.authority_ledger import AuthorityLedgerWriter
-    from caracal.redis.mandate_cache import RedisMandateCache
-    from caracal.core.delegation_graph import DelegationGraph
+    pass
 
 
 @dataclass
@@ -500,6 +499,20 @@ class AuthorityEvaluator:
             return self._deny_decision(
                 reason=reason,
                 reason_code=AuthorityReasonCode.MANDATE_EXPIRED,
+                boundary_stage=AuthorityBoundaryStage.MANDATE_STATE_VALIDATION,
+                mandate=mandate,
+                requested_action=requested_action,
+                requested_resource=requested_resource,
+            )
+
+        principal = self._get_principal(mandate.subject_id)
+        if principal is None or principal.lifecycle_status != PrincipalLifecycleStatus.ACTIVE.value:
+            status = principal.lifecycle_status if principal else "not_found"
+            reason = f"Mandate {mandate.mandate_id} subject principal is not active (status={status})"
+            logger.warning(reason)
+            return self._deny_decision(
+                reason=reason,
+                reason_code=AuthorityReasonCode.PRINCIPAL_NOT_ACTIVE,
                 boundary_stage=AuthorityBoundaryStage.MANDATE_STATE_VALIDATION,
                 mandate=mandate,
                 requested_action=requested_action,
