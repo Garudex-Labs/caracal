@@ -11,7 +11,7 @@ Authority ledger exploration:
 - Export events as JSON or CSV
 """
 
-from typing import Optional, Dict, Any, List
+from typing import Optional, Any, List
 from uuid import UUID
 import json
 import csv

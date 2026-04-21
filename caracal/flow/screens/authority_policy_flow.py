@@ -86,7 +86,6 @@ class AuthorityPolicyFlow:
         try:
             from caracal.db.connection import get_db_manager
             from caracal.db.models import AuthorityPolicy
-            from uuid import uuid4
             
             db_manager = get_db_manager()
             

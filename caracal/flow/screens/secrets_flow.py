@@ -24,7 +24,7 @@ from rich.table import Table
 from rich.text import Text
 
 from caracal.flow.components.menu import Menu, MenuItem
-from caracal.flow.theme import Colors, Icons
+from caracal.flow.theme import Icons
 from caracal.logging_config import get_logger
 
 logger = get_logger(__name__)

@@ -26,7 +26,6 @@ from caracal.db.models import AuthorityLedgerEvent, GatewayProvider, RegisteredT
 from caracal.deployment.exceptions import SecretNotFoundError
 from caracal.core.error_handling import (
     get_error_handler,
-    handle_error_with_denial,
     ErrorCategory,
     ErrorSeverity
 )

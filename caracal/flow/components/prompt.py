@@ -10,7 +10,7 @@ Enhanced input prompts with:
 - Rich formatting
 """
 
-from typing import Any, Callable, Optional
+from typing import Callable, Optional
 
 from prompt_toolkit import prompt as pt_prompt
 from prompt_toolkit.completion import Completer, Completion, WordCompleter

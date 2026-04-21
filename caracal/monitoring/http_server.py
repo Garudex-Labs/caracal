@@ -8,7 +8,6 @@ Provides HTTP endpoint for Prometheus to scrape metrics from Caracal Core.
 
 """
 
-import asyncio
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from threading import Thread
 from typing import Optional

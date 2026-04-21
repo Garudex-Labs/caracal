@@ -16,7 +16,6 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
 from uuid import UUID
 
 from cryptography.hazmat.primitives import hashes, serialization
@@ -257,8 +256,6 @@ class SoftwareSigner(MerkleSigner):
         try:
             # Import here to avoid circular dependency
             from caracal.db.models import Base
-            from sqlalchemy import Column, DateTime, Integer, LargeBinary, String
-            from sqlalchemy.dialects.postgresql import UUID as PG_UUID
             
             # Check if MerkleRoot model exists, if not create it
             if not hasattr(Base.metadata.tables, 'merkle_roots'):

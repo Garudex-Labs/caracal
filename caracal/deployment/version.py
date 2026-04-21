@@ -11,7 +11,7 @@ between local and enterprise instances.
 import re
 from dataclasses import dataclass
 from enum import Enum
-from typing import Optional, Tuple
+from typing import Optional
 
 from caracal._version import __version__
 from caracal.deployment.exceptions import VersionParseError, VersionIncompatibleError

@@ -12,7 +12,6 @@ Handles migration operations including:
 """
 
 import hashlib
-import json
 import shutil
 import tarfile
 import tempfile
@@ -27,7 +26,6 @@ from caracal.deployment.edition_adapter import get_deployment_edition_adapter
 from caracal.deployment.exceptions import (
     MigrationError,
     MigrationValidationError,
-    MigrationDataError,
     MigrationRollbackError,
     BackupError,
     RestoreError,

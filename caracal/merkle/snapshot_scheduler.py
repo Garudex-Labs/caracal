@@ -11,7 +11,7 @@ This module provides a scheduler for creating ledger snapshots at regular interv
 import asyncio
 import signal
 import sys
-from datetime import datetime, time, timedelta
+from datetime import datetime
 from typing import Optional
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler

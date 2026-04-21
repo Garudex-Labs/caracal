@@ -16,16 +16,13 @@ from pathlib import Path
 from typing import Any, Optional
 
 from rich.console import Console
-from rich.panel import Panel
-from rich.table import Table
-from rich.text import Text
 
 from caracal.cli.provider_scopes import validate_provider_scopes
 from caracal.deployment.config_manager import ConfigManager
 from caracal.flow.components.prompt import FlowPrompt
 from caracal.flow.components.wizard import Wizard, WizardStep
 from caracal.flow.screens._provider_scope_helpers import load_provider_scope_catalog
-from caracal.flow.state import FlowState, StatePersistence, RecentAction
+from caracal.flow.state import FlowState, StatePersistence
 from caracal.flow.theme import Colors, Icons
 from caracal.identity.service import IdentityService
 from caracal.pathing import ensure_source_tree, source_of
@@ -1716,7 +1713,7 @@ def run_onboarding(
     try:
         from pathlib import Path
         from caracal.config import load_config
-        from caracal.db.connection import DatabaseConfig, DatabaseConnectionManager, get_db_manager
+        from caracal.db.connection import DatabaseConfig, DatabaseConnectionManager
         from caracal.db.models import Principal, AuthorityPolicy
         from caracal.core.identity import PrincipalRegistry
         from datetime import datetime

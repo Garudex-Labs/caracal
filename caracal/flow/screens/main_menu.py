@@ -19,7 +19,6 @@ Central navigation hub for all Caracal Flow features:
 from typing import Optional
 
 from rich.console import Console
-from rich.panel import Panel
 
 from caracal.flow.components.menu import Menu, MenuItem
 from caracal.flow.screens._workspace_helpers import get_active_workspace_name

@@ -12,11 +12,10 @@ v0.2 ledger events that were created before Merkle tree support was added.
 import hashlib
 from dataclasses import dataclass
 from datetime import datetime
-from decimal import Decimal
-from typing import List, Optional, Tuple
+from typing import List, Optional
 from uuid import UUID, uuid4
 
-from sqlalchemy import and_, func, select
+from sqlalchemy import and_, func
 from sqlalchemy.orm import Session
 
 from caracal.db.models import LedgerEvent, MerkleRoot

@@ -11,7 +11,6 @@ Provides comprehensive health checks for:
 
 """
 
-import asyncio
 import time
 from dataclasses import dataclass
 from datetime import datetime

@@ -9,8 +9,7 @@ Provides connection management and basic operations for Redis caching.
 """
 
 import redis
-from typing import Optional, Dict, Any, List
-from datetime import timedelta
+from typing import Optional, Dict, List
 
 from caracal.logging_config import get_logger
 from caracal.exceptions import RedisConnectionError

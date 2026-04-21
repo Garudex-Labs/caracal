@@ -8,15 +8,12 @@ This module provides the SnapshotManager for creating and managing ledger snapsh
 for fast recovery without replaying all events from the beginning.
 """
 
-import asyncio
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from decimal import Decimal
-from typing import Any, Dict, List, Optional
+from typing import List, Optional
 from uuid import UUID, uuid4
 
 from sqlalchemy import select, func
-from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session
 
 from caracal.db.models import LedgerSnapshot, LedgerEvent, MerkleRoot

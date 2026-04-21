@@ -14,12 +14,10 @@ from dataclasses import dataclass
 from typing import Any, Callable, Optional
 
 from prompt_toolkit import Application
-from prompt_toolkit.buffer import Buffer
 from prompt_toolkit.key_binding import KeyBindings
-from prompt_toolkit.layout import HSplit, Layout, Window
+from prompt_toolkit.layout import Layout, Window
 from prompt_toolkit.layout.controls import FormattedTextControl
 from prompt_toolkit.formatted_text import FormattedText
-from rich.console import Console
 
 from caracal.flow.theme import Colors, Icons
 

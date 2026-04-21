@@ -14,7 +14,7 @@ from typing import Optional
 
 from rich.console import Console
 
-from caracal.flow.state import FlowState, StatePersistence
+from caracal.flow.state import StatePersistence
 from caracal.flow.theme import FLOW_THEME, Colors, Icons
 from caracal.flow.screens.welcome import show_welcome, wait_for_action
 from caracal.flow.screens.main_menu import show_main_menu, show_submenu
@@ -580,7 +580,6 @@ ledger capabilities.[/]
         """Run data backup flow using pg_dump."""
         import subprocess
         import datetime
-        from pathlib import Path
         from caracal.config import load_config
         from caracal.flow.workspace import get_workspace
         

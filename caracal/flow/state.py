@@ -203,7 +203,7 @@ class StatePersistence:
             if self.path.exists():
                 data = json.loads(self.path.read_text())
                 return self._deserialize(data)
-        except (json.JSONDecodeError, KeyError, TypeError) as e:
+        except (json.JSONDecodeError, KeyError, TypeError):
             # Invalid state file, start fresh
             pass
         return FlowState()

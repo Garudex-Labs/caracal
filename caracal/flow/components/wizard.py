@@ -16,11 +16,9 @@ from typing import Any, Callable, Optional
 
 from rich.console import Console
 from rich.panel import Panel
-from rich.progress import Progress, BarColumn, TextColumn
 from rich.table import Table
-from rich.text import Text
 
-from caracal.flow.theme import Colors, Icons, Styles
+from caracal.flow.theme import Colors, Icons
 
 
 class StepStatus(Enum):

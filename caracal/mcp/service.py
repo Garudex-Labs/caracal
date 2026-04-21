@@ -13,15 +13,13 @@ Provides HTTP API for MCP request proxying with authority enforcement:
 """
 
 import asyncio
-import logging
 import time
 from dataclasses import dataclass
-from decimal import Decimal
 from typing import Any, Dict, Optional
 from uuid import UUID
 
 import httpx
-from fastapi import FastAPI, Request, Response, HTTPException, status
+from fastapi import FastAPI, Request, HTTPException, status
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
 

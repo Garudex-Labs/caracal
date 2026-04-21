@@ -8,7 +8,6 @@ Handles detection and management of installation modes (Development vs User).
 """
 
 import os
-import sys
 import toml
 from datetime import datetime
 from enum import Enum

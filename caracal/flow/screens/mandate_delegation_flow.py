@@ -12,7 +12,7 @@ Mandate delegation management flows:
 - Revoke delegation edge with cascade option
 """
 
-from typing import Optional, List, Dict, Any
+from typing import Optional, Any
 from uuid import UUID
 
 from rich.console import Console
@@ -272,7 +272,7 @@ class MandateDelegationFlow:
                     return
                 
                 # Validity period (must be within source)
-                from datetime import datetime, timedelta
+                from datetime import datetime
                 
                 source_remaining = (source_mandate.valid_until - datetime.utcnow()).total_seconds()
                 max_validity = int(source_remaining) if source_remaining > 0 else 0

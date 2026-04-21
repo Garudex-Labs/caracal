@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import List, Tuple
 
-from caracal.storage.layout import CaracalLayout, ensure_layout, get_caracal_layout
+from caracal.storage.layout import ensure_layout, get_caracal_layout
 
 
 @dataclass

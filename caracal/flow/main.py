@@ -8,7 +8,6 @@ This is the main entry point for the Caracal Flow interactive CLI.
 """
 
 import sys
-from typing import Optional
 
 import click
 

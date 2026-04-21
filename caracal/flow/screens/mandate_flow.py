@@ -12,9 +12,8 @@ Mandate management flows:
 - Revoke mandate with cascade impact preview
 """
 
-from typing import Optional, List, Any
+from typing import Optional
 from uuid import UUID
-from datetime import datetime, timedelta
 
 from rich.console import Console
 from rich.panel import Panel

@@ -11,7 +11,6 @@ Provides help and documentation:
 - Architecture overview
 """
 
-from typing import Optional
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
