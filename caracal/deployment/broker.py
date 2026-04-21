@@ -702,7 +702,10 @@ class Broker:
                     except Exception:
                         base_url = None
                 if not base_url:
-                    base_url = self._get_default_base_url(config.provider_type)
+                    raise ProviderConfigurationError(
+                        f"Provider '{provider}' has no base_url configured and its "
+                        "definition has no default_base_url"
+                    )
                 url = f"{base_url}/{request.endpoint.lstrip('/')}"
                 
                 headers = {
@@ -712,18 +715,42 @@ class Broker:
                 }
                 
                 # Make request
-                if request.method.upper() == "GET":
+                method = request.method.strip().upper()
+                if method == "GET":
                     response = await client.get(
                         url,
                         params=request.params,
                         headers=headers,
                         timeout=config.timeout_seconds
                     )
-                elif request.method.upper() == "POST":
+                elif method == "POST":
                     response = await client.post(
                         url,
                         params=request.params,
                         json=request.body,
+                        headers=headers,
+                        timeout=config.timeout_seconds
+                    )
+                elif method == "PUT":
+                    response = await client.put(
+                        url,
+                        params=request.params,
+                        json=request.body,
+                        headers=headers,
+                        timeout=config.timeout_seconds
+                    )
+                elif method == "PATCH":
+                    response = await client.patch(
+                        url,
+                        params=request.params,
+                        json=request.body,
+                        headers=headers,
+                        timeout=config.timeout_seconds
+                    )
+                elif method == "DELETE":
+                    response = await client.delete(
+                        url,
+                        params=request.params,
                         headers=headers,
                         timeout=config.timeout_seconds
                     )
@@ -765,9 +792,13 @@ class Broker:
                     attempt=attempt + 1
                 )
                 
+                try:
+                    data = response.json() if response.content else {}
+                except Exception:
+                    data = {}
                 return ProviderResponse(
                     status_code=response.status_code,
-                    data=response.json() if response.content else {},
+                    data=data,
                     error=None,
                     latency_ms=latency_ms
                 )
@@ -803,8 +834,8 @@ class Broker:
                         f"Provider connection failed after {config.max_retries} attempts: {e}"
                     ) from e
             
-            except (ProviderAuthenticationError, ProviderAuthorizationError):
-                # Don't retry authn/authz denials.
+            except (ProviderAuthenticationError, ProviderAuthorizationError, ProviderConfigurationError):
+                # Don't retry authn/authz denials or configuration errors.
                 self._metrics[provider]["failed_requests"] += 1
                 raise
             

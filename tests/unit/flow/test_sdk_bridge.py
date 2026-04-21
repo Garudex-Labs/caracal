@@ -44,6 +44,7 @@ def test_sdk_bridge_uses_environment_defaults(monkeypatch) -> None:
     monkeypatch.setattr(sdk_bridge, "CaracalClient", _FakeClient)
     monkeypatch.setenv("CARACAL_API_KEY", "env-api-key")
     monkeypatch.setenv("CARACAL_API_PORT", "9010")
+    monkeypatch.delenv("CARACAL_API_URL", raising=False)
 
     bridge = sdk_bridge.SDKBridge()
 

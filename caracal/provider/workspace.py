@@ -16,7 +16,6 @@ from caracal.deployment.exceptions import WorkspaceNotFoundError
 from caracal.provider.definitions import (
     build_action_scope,
     build_resource_scope,
-    parse_provider_scope,
     provider_definition_from_mapping,
     resolve_provider_definition_id,
 )
@@ -397,15 +396,6 @@ def ensure_scopes_in_workspace_catalog(
         if unknown_actions:
             message_parts.append(f"Unknown action scope(s): {', '.join(unknown_actions)}")
         raise ValueError("; ".join(message_parts))
-
-    for scope in resource_scopes:
-        parsed = parse_provider_scope(scope)
-        if parsed["kind"] != "resource":
-            raise ValueError(f"Expected resource scope, got: {scope}")
-    for scope in action_scopes:
-        parsed = parse_provider_scope(scope)
-        if parsed["kind"] != "action":
-            raise ValueError(f"Expected action scope, got: {scope}")
 
 
 def split_scope_by_provider(scope: str) -> Tuple[str, str]:
