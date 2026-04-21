@@ -11,10 +11,11 @@ In the open-source edition, all methods raise EnterpriseFeatureRequired.
 from __future__ import annotations
 from caracal_sdk._compat import get_version
 
-from typing import Any, Optional
+from typing import NoReturn, Optional
 
 from caracal_sdk.extensions import CaracalExtension
-from caracal_sdk.hooks import HookRegistry
+from caracal_sdk.hooks import HookRegistry, ScopeRef, StateSnapshot
+from caracal_sdk.transport_types import SDKResponse
 from caracal_sdk.enterprise.exceptions import EnterpriseFeatureRequired
 
 
@@ -49,13 +50,13 @@ class ComplianceExtension(CaracalExtension):
             hooks.on_state_change(self._on_state_change)
         hooks.on_after_response(self._audit_response)
 
-    def _on_state_change(self, state: Any) -> None:
+    def _on_state_change(self, state: StateSnapshot) -> None:
         raise EnterpriseFeatureRequired(
             feature="Compliance Auto-Report",
             message="Automatic compliance reporting requires Caracal Enterprise.",
         )
 
-    def _audit_response(self, response: Any, scope: Any) -> None:
+    def _audit_response(self, response: SDKResponse, scope: ScopeRef) -> None:
         raise EnterpriseFeatureRequired(
             feature="Compliance Audit",
             message="Response auditing requires Caracal Enterprise.",
@@ -65,14 +66,14 @@ class ComplianceExtension(CaracalExtension):
         self,
         time_range: tuple[str, str],
         report_type: str = "type2",
-    ) -> bytes:
+    ) -> NoReturn:
         """Generate compliance report for the configured standard."""
         raise EnterpriseFeatureRequired(
             feature=f"Compliance Report ({self._standard})",
             message=f"{self._standard.upper()} compliance reports require Caracal Enterprise.",
         )
 
-    def run_compliance_check(self, framework: Optional[str] = None) -> dict:
+    def run_compliance_check(self, framework: Optional[str] = None) -> NoReturn:
         """Run automated compliance check."""
         raise EnterpriseFeatureRequired(
             feature="Compliance Check",

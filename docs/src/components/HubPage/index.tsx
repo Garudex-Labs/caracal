@@ -1,18 +1,12 @@
 import React from "react";
 import Link from "@docusaurus/Link";
-
-type HubCard = {
-  title: string;
-  description: string;
-  to: string;
-  tag: string;
-};
+import type { DocCard } from "@site/src/components/types";
 
 type HubPageProps = {
   eyebrow: string;
   title: string;
   summary: string;
-  cards: HubCard[];
+  cards: DocCard[];
 };
 
 export default function HubPage({ eyebrow, title, summary, cards }: HubPageProps): React.ReactElement {

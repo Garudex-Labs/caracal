@@ -3,12 +3,9 @@
 from __future__ import annotations
 
 import os
-import time
-from uuid import uuid4
 from dataclasses import dataclass
-from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Optional
+from typing import Optional
 
 from caracal.logging_config import get_logger
 
@@ -107,46 +104,3 @@ def ensure_layout(layout: CaracalLayout) -> None:
     _ensure_dir(layout.system_dir, 0o700)
     _ensure_dir(layout.metadata_dir, 0o700)
     _ensure_dir(layout.history_dir, 0o700)
-
-
-def append_key_audit_event(
-    layout: CaracalLayout,
-    event_type: str,
-    actor: str,
-    operation: str,
-    metadata: Optional[dict[str, Any]] = None,
-) -> None:
-    """Persist key lifecycle events to PostgreSQL audit log."""
-    ensure_layout(layout)
-
-    from caracal.config import load_config
-    from caracal.db.connection import get_db_manager
-    from caracal.db.models import AuditLog
-
-    event_time = datetime.now(timezone.utc)
-    offset = time.time_ns()
-    payload = {
-        "actor": actor,
-        "operation": operation,
-        "metadata": metadata or {},
-    }
-
-    db_manager = get_db_manager(load_config())
-    try:
-        with db_manager.session_scope() as session:
-            session.add(
-                AuditLog(
-                    event_id=f"key-audit:{offset}:{uuid4().hex[:8]}",
-                    event_type=event_type,
-                    topic="system.key_audit",
-                    partition=0,
-                    offset=offset,
-                    event_timestamp=event_time,
-                    logged_at=event_time,
-                    event_data=payload,
-                    principal_id=None,
-                    correlation_id=None,
-                )
-            )
-    finally:
-        db_manager.close()

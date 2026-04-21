@@ -8,6 +8,7 @@
 
 import { CaracalExtension } from '../extensions';
 import { HookRegistry } from '../hooks';
+import { JsonObject } from '../json';
 import { EnterpriseFeatureRequired } from './exceptions';
 
 export class SSOExtension implements CaracalExtension {
@@ -22,11 +23,11 @@ export class SSOExtension implements CaracalExtension {
     });
   }
 
-  authenticate(_credentials: Record<string, unknown>): Record<string, unknown> {
+  authenticate(_credentials: JsonObject): never {
     throw new EnterpriseFeatureRequired(`SSO Authentication (${this.options?.provider ?? 'oidc'})`);
   }
 
-  getUserInfo(_token: string): Record<string, unknown> {
+  getUserInfo(_token: string): never {
     throw new EnterpriseFeatureRequired('SSO User Info');
   }
 }

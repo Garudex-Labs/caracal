@@ -22,6 +22,7 @@ from caracal.core.caveat_chain import (
     evaluate_caveat_chain,
     verify_caveat_chain,
 )
+from caracal.core.session_contracts import SessionDenylistBackend
 
 
 class SessionError(RuntimeError):
@@ -55,30 +56,6 @@ class IssuedSession:
     refresh_token: Optional[str] = None
     refresh_expires_at: Optional[datetime] = None
     refresh_jti: Optional[str] = None
-
-
-class SessionDenylistBackend(Protocol):
-    """Protocol for async deny-list stores."""
-
-    async def add(self, token_jti: str, expires_at: datetime) -> None:
-        """Record token JTI with TTL."""
-
-    async def contains(self, token_jti: str) -> bool:
-        """Return True if token JTI is deny-listed."""
-
-    async def mark_principal_revoked(
-        self,
-        principal_id: str,
-        revoked_at: datetime,
-    ) -> None:
-        """Record principal-level session revocation cutoff."""
-
-    async def is_principal_revoked(
-        self,
-        principal_id: str,
-        token_auth_time: datetime | int | float | str | None,
-    ) -> bool:
-        """Return True when token auth time predates principal revocation cutoff."""
 
 
 class SessionAuditSink(Protocol):

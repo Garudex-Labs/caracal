@@ -666,14 +666,12 @@ button {
   text-transform: uppercase;
 }
 
-.caracal-doc-actions,
-.caracal-helpful {
+.caracal-doc-actions {
   display: grid;
   gap: 4px;
 }
 
-.caracal-doc-actions__item,
-.caracal-helpful__button {
+.caracal-doc-actions__item {
   width: 100%;
   display: inline-flex;
   align-items: center;
@@ -689,8 +687,7 @@ button {
   cursor: pointer;
 }
 
-.caracal-doc-actions__item:hover,
-.caracal-helpful__button:hover {
+.caracal-doc-actions__item:hover {
   color: var(--caracal-text);
 }
 
@@ -701,26 +698,10 @@ button {
   text-align: center;
 }
 
-.caracal-doc-actions__status,
-.caracal-helpful__text {
+.caracal-doc-actions__status {
   margin-top: 4px;
   color: var(--caracal-text-subtle);
   font-size: 0.78rem;
-}
-
-.caracal-helpful__heading {
-  color: var(--caracal-text-muted);
-  font-size: 0.84rem;
-  font-weight: 500;
-}
-
-.caracal-helpful__buttons {
-  display: flex;
-  gap: 12px;
-}
-
-.caracal-helpful__button[data-selected="true"] {
-  color: var(--caracal-text);
 }
 
 .table-of-contents {

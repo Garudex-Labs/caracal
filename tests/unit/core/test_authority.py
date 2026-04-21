@@ -480,3 +480,26 @@ class TestAuthorityDecision:
         # Assert
         assert decision.timestamp is not None
         assert before <= decision.timestamp <= after
+
+
+@pytest.mark.unit
+def test_normalize_principal_id_propagates_unexpected_uuid_failures(monkeypatch):
+    class _ExplodingUUID:
+        def __init__(self, _value):
+            raise RuntimeError("uuid internals failed")
+
+    monkeypatch.setattr("caracal.core.authority.UUID", _ExplodingUUID)
+
+    with pytest.raises(RuntimeError, match="uuid internals failed"):
+        AuthorityEvaluator._normalize_principal_id("11111111-2222-3333-4444-555555555555")
+
+
+@pytest.mark.unit
+def test_is_canonical_provider_scope_propagates_unexpected_parser_failures(monkeypatch):
+    def _explode(_scope: str) -> None:
+        raise RuntimeError("parser internals failed")
+
+    monkeypatch.setattr("caracal.core.authority.parse_provider_scope", _explode)
+
+    with pytest.raises(RuntimeError, match="parser internals failed"):
+        AuthorityEvaluator._is_canonical_provider_scope("provider:demo:resource:item")

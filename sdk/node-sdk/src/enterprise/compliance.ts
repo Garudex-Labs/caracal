@@ -31,7 +31,7 @@ export class ComplianceExtension implements CaracalExtension {
     throw new EnterpriseFeatureRequired(`Compliance Report (${this.options?.standard ?? 'soc2'})`);
   }
 
-  runComplianceCheck(): Record<string, unknown> {
+  runComplianceCheck(): never {
     throw new EnterpriseFeatureRequired('Compliance Check');
   }
 }

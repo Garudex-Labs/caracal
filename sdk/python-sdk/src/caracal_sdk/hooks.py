@@ -20,40 +20,24 @@ Available hooks:
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, List, Optional
+from typing import Callable, Optional
 
 from caracal_sdk._compat import get_logger
+from caracal_sdk.json_types import JsonObject
+from caracal_sdk.transport_types import SDKRequest, SDKResponse
 
 logger = get_logger(__name__)
 
 
 # ---------------------------------------------------------------------------
-# Request / Response / State data structures
+# State data structures
 # ---------------------------------------------------------------------------
-
-@dataclass
-class SDKRequest:
-    """Outbound SDK request representation."""
-    method: str
-    path: str
-    headers: Dict[str, str] = field(default_factory=dict)
-    body: Optional[Dict[str, Any]] = None
-    params: Optional[Dict[str, Any]] = None
-
-
-@dataclass
-class SDKResponse:
-    """Inbound SDK response representation."""
-    status_code: int
-    headers: Dict[str, str] = field(default_factory=dict)
-    body: Any = None
-    elapsed_ms: float = 0.0
 
 
 @dataclass
 class StateSnapshot:
     """Immutable snapshot of SDK state at a point in time."""
-    workspace_id: Optional[str] = None
+    workspace_id: Optional[str] = Non
     metadata: Dict[str, Any] = field(default_factory=dict)
 
 
@@ -71,7 +55,7 @@ class ScopeRef:
 # Hook callback type aliases
 # ---------------------------------------------------------------------------
 
-InitializeCallback = Callable[..., None]
+InitializeCallback = Callable[[], None]
 BeforeRequestCallback = Callable[[SDKRequest, ScopeRef], SDKRequest]
 AfterResponseCallback = Callable[[SDKResponse, ScopeRef], None]
 StateChangeCallback = Callable[[StateSnapshot], None]
@@ -93,12 +77,12 @@ class HookRegistry:
     """
 
     def __init__(self) -> None:
-        self._initialize_callbacks: List[InitializeCallback] = []
-        self._before_request_callbacks: List[BeforeRequestCallback] = []
-        self._after_response_callbacks: List[AfterResponseCallback] = []
-        self._state_change_callbacks: List[StateChangeCallback] = []
-        self._error_callbacks: List[ErrorCallback] = []
-        self._context_switch_callbacks: List[ContextSwitchCallback] = []
+        self._initialize_callbacks: list[InitializeCallback] = []
+        self._before_request_callbacks: list[BeforeRequestCallback] = []
+        self._after_response_callbacks: list[AfterResponseCallback] = []
+        self._state_change_callbacks: list[StateChangeCallback] = []
+        self._error_callbacks: list[ErrorCallback] = []
+        self._context_switch_callbacks: list[ContextSwitchCallback] = []
 
     # -- Registration methods ------------------------------------------------
 
@@ -138,11 +122,11 @@ class HookRegistry:
 
     # -- Firing methods (called by the SDK engine) ---------------------------
 
-    def fire_initialize(self, **kwargs: Any) -> None:
+    def fire_initialize(self) -> None:
         """Fire all registered on_initialize callbacks."""
         for cb in self._initialize_callbacks:
             try:
-                cb(**kwargs)
+                cb()
             except Exception as exc:
                 logger.error(f"on_initialize hook error: {exc}", exc_info=True)
                 self.fire_error(exc)

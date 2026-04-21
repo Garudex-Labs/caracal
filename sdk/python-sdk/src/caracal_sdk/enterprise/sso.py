@@ -11,10 +11,12 @@ In the open-source edition, all methods raise EnterpriseFeatureRequired.
 from __future__ import annotations
 from caracal_sdk._compat import get_version
 
-from typing import Any, Optional
+from typing import NoReturn, Optional
 
 from caracal_sdk.extensions import CaracalExtension
-from caracal_sdk.hooks import HookRegistry
+from caracal_sdk.hooks import HookRegistry, ScopeRef
+from caracal_sdk.json_types import JsonObject
+from caracal_sdk.transport_types import SDKRequest
 from caracal_sdk.enterprise.exceptions import EnterpriseFeatureRequired
 
 
@@ -31,7 +33,7 @@ class SSOExtension(CaracalExtension):
     def __init__(
         self,
         provider: str = "oidc",
-        config: Optional[dict] = None,
+        config: JsonObject | None = None,
     ) -> None:
         self._provider = provider
         self._config = config or {}
@@ -47,20 +49,20 @@ class SSOExtension(CaracalExtension):
     def install(self, hooks: HookRegistry) -> None:
         hooks.on_before_request(self._inject_sso_token)
 
-    def _inject_sso_token(self, request: Any, scope: Any) -> Any:
+    def _inject_sso_token(self, request: SDKRequest, scope: ScopeRef) -> SDKRequest:
         raise EnterpriseFeatureRequired(
             feature="SSO Token Injection",
             message="SSO integration requires Caracal Enterprise.",
         )
 
-    def authenticate(self, credentials: dict) -> dict:
+    def authenticate(self, credentials: JsonObject) -> NoReturn:
         """Authenticate via SSO provider."""
         raise EnterpriseFeatureRequired(
             feature=f"SSO Authentication ({self._provider})",
             message=f"{self._provider.upper()} SSO authentication requires Caracal Enterprise.",
         )
 
-    def get_user_info(self, token: str) -> dict:
+    def get_user_info(self, token: str) -> NoReturn:
         """Get user info from SSO token."""
         raise EnterpriseFeatureRequired(
             feature="SSO User Info",

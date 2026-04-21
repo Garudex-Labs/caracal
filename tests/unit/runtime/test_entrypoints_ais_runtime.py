@@ -428,6 +428,22 @@ def test_resolve_ais_vault_context_falls_back_when_vault_unavailable(
 
 
 @pytest.mark.unit
+def test_resolve_ais_vault_context_propagates_unexpected_uuid_failures(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("CARACAL_VAULT_PROJECT_ID", "11111111-2222-3333-4444-555555555555")
+    monkeypatch.setenv("CARACAL_VAULT_ENVIRONMENT", "dev")
+
+    def _explode_uuid(_value: object) -> None:
+        raise RuntimeError("uuid internals failed")
+
+    monkeypatch.setattr("uuid.UUID", _explode_uuid)
+
+    with pytest.raises(RuntimeError, match="uuid internals failed"):
+        entrypoints._resolve_ais_vault_context()
+
+
+@pytest.mark.unit
 def test_create_ais_session_manager_uses_vault_reference_signer_without_loading_private_key(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

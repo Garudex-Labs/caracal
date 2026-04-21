@@ -19,6 +19,7 @@ from caracal.flow.theme import FLOW_THEME, Colors, Icons
 from caracal.flow.screens.welcome import show_welcome, wait_for_action
 from caracal.flow.screens.main_menu import show_main_menu, show_submenu
 from caracal.flow.screens.onboarding import run_onboarding
+from caracal.runtime.host_io import in_container_runtime
 
 
 class FlowApp:
@@ -329,7 +330,6 @@ class FlowApp:
         from rich.panel import Panel
         from rich.table import Table
         import socket
-        import os
         
         self.console.print(Panel(
             f"[{Colors.NEUTRAL}]Service Health Check[/]",
@@ -356,7 +356,7 @@ class FlowApp:
         table.add_column("Endpoint", style=Colors.DIM)
         
         # Detect if running inside container runtime
-        in_container = os.environ.get("CARACAL_RUNTIME_IN_CONTAINER", "").strip().lower() in {"1", "true", "yes", "on"}
+        in_container = in_container_runtime()
         
         def _check_tcp(host: str, port: int) -> bool:
             try:

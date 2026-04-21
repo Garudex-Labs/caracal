@@ -48,9 +48,7 @@ tests/
 │   ├── python/       # Python SDK tests
 │   └── typescript/   # TypeScript SDK tests
 │
-├── fixtures/         # Reusable test fixtures
-├── mocks/            # Mock implementations
-├── setup/            # Test configuration utilities
+├── fixtures/         # Reusable shared fixtures
 │
 ├── conftest.py       # Global pytest configuration
 ├── test_simple.py    # Basic sanity tests
@@ -183,27 +181,11 @@ class TestAuthorityProperties:
         assert authority.name == name
 ```
 
-## Fixtures and Mocks
-
-### Available Fixtures
+## Shared Fixtures
 
 Located in `fixtures/`:
-- `authority.py` - Authority-related fixtures
 - `crypto.py` - Cryptographic fixtures
 - `database.py` - Database fixtures
-- `delegation.py` - Delegation fixtures
-- `mandate.py` - Mandate fixtures
-- `redis.py` - Redis fixtures
-- `users.py` - User fixtures
-
-### Available Mocks
-
-Located in `mocks/`:
-- `mock_authority.py` - Mock authority implementations
-- `mock_database.py` - Mock database
-- `mock_gateway.py` - Mock gateway
-- `mock_providers.py` - Mock providers
-- `mock_redis.py` - Mock Redis
 
 ## Validation Scripts
 

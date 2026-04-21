@@ -18,6 +18,7 @@ export {
 	ToolOperations,
 	CANONICAL_TOOL_CALL_CONTRACT_VERSION,
 } from './tools';
+export type { JsonArray, JsonObject, JsonPrimitive, JsonValue, QueryValue } from './json';
 
 // Grouped surfaces
 export * as ais from './ais';

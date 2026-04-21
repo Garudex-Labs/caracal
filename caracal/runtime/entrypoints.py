@@ -24,6 +24,7 @@ from pathlib import Path
 from typing import Any, Callable, Sequence
 
 from caracal.runtime.hardcut_preflight import assert_runtime_hardcut
+from caracal.runtime.host_io import in_container_runtime
 from caracal.storage.layout import resolve_caracal_home
 
 COMPOSE_FILE_ENV = "CARACAL_DOCKER_COMPOSE_FILE"
@@ -1563,7 +1564,7 @@ def _resolve_ais_vault_context() -> tuple[str, str]:
 
             UUID(str(value))
             return True
-        except Exception:
+        except ValueError:
             return False
 
     # Only touch vault bootstrap context when we need defaults or slug remapping.
@@ -2491,9 +2492,5 @@ def _runtime_hardcut_env() -> dict[str, str]:
     return normalized
 
 
-def _is_truthy(value: str | None) -> bool:
-    return (value or "").strip().lower() in {"1", "true", "yes", "on"}
-
-
 def _in_container_runtime() -> bool:
-    return _is_truthy(os.environ.get(IN_CONTAINER_ENV)) or Path("/.dockerenv").exists()
+    return in_container_runtime(detect_dockerenv=True)

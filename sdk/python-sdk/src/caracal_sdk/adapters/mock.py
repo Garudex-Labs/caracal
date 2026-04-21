@@ -7,7 +7,7 @@ Mock transport adapter for local testing.
 
 from __future__ import annotations
 
-from typing import Any, Dict, Optional, Tuple
+from typing import Optional
 
 from caracal_sdk.adapters.base import BaseAdapter, SDKRequest, SDKResponse
 
@@ -28,9 +28,9 @@ class MockAdapter(BaseAdapter):
 
     def __init__(
         self,
-        responses: Optional[Dict[Tuple[str, str], SDKResponse]] = None,
+        responses: Optional[dict[tuple[str, str], SDKResponse]] = None,
     ) -> None:
-        self._responses: Dict[Tuple[str, str], SDKResponse] = responses or {}
+        self._responses: dict[tuple[str, str], SDKResponse] = responses or {}
         self._sent: list[SDKRequest] = []
 
     async def send(self, request: SDKRequest) -> SDKResponse:

@@ -209,6 +209,16 @@ class TestMCPAdapter:
         assert self.adapter.mcp_server_url == "http://localhost:3001"
         assert self.adapter.request_timeout_seconds == 30
 
+    def test_normalize_principal_id_propagates_unexpected_uuid_failures(self, monkeypatch):
+        class _ExplodingUUID:
+            def __init__(self, _value):
+                raise RuntimeError("uuid internals failed")
+
+        monkeypatch.setattr("caracal.mcp.adapter.UUID", _ExplodingUUID)
+
+        with pytest.raises(RuntimeError, match="uuid internals failed"):
+            self.adapter._normalize_principal_id("11111111-2222-3333-4444-555555555555")
+
     def test_adapter_rejects_invalid_caveat_mode(self):
         """Test adapter initialization fails on unsupported caveat modes."""
         with pytest.raises(CaracalError, match="Invalid caveat mode"):

@@ -8,6 +8,7 @@
 
 import { CaracalExtension } from '../extensions';
 import { HookRegistry } from '../hooks';
+import { JsonObject } from '../json';
 import { EnterpriseFeatureRequired } from './exceptions';
 
 export class WorkflowsExtension implements CaracalExtension {
@@ -20,7 +21,7 @@ export class WorkflowsExtension implements CaracalExtension {
     });
   }
 
-  registerWorkflow(_name: string, _trigger: string, _action: unknown): void {
+  registerWorkflow(_name: string, _trigger: string, _action: JsonObject): never {
     throw new EnterpriseFeatureRequired('Workflow Registration');
   }
 }

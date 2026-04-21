@@ -331,7 +331,7 @@ class AuthorityEvaluator:
             return ""
         try:
             return str(UUID(normalized))
-        except Exception:
+        except ValueError:
             return normalized
 
     @staticmethod
@@ -339,7 +339,7 @@ class AuthorityEvaluator:
         try:
             parse_provider_scope(str(scope))
             return True
-        except Exception:
+        except ValueError:
             return False
     
     def _record_ledger_event(

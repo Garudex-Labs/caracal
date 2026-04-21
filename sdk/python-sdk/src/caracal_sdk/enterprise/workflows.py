@@ -11,10 +11,11 @@ In the open-source edition, all methods raise EnterpriseFeatureRequired.
 from __future__ import annotations
 from caracal_sdk._compat import get_version
 
-from typing import Any
+from typing import NoReturn
 
 from caracal_sdk.extensions import CaracalExtension
-from caracal_sdk.hooks import HookRegistry
+from caracal_sdk.hooks import HookRegistry, StateSnapshot
+from caracal_sdk.json_types import JsonObject
 from caracal_sdk.enterprise.exceptions import EnterpriseFeatureRequired
 
 
@@ -32,13 +33,13 @@ class WorkflowsExtension(CaracalExtension):
     def install(self, hooks: HookRegistry) -> None:
         hooks.on_state_change(self._trigger_workflows)
 
-    def _trigger_workflows(self, state: Any) -> None:
+    def _trigger_workflows(self, state: StateSnapshot) -> None:
         raise EnterpriseFeatureRequired(
             feature="Workflow Automation",
             message="Event-driven workflows require Caracal Enterprise.",
         )
 
-    def register_workflow(self, name: str, trigger: str, action: Any) -> None:
+    def register_workflow(self, name: str, trigger: str, action: JsonObject) -> NoReturn:
         """Register a workflow trigger → action pair."""
         raise EnterpriseFeatureRequired(
             feature="Workflow Registration",

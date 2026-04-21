@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import difflib
+import importlib
 import shlex
 import sys
 from pathlib import Path
@@ -37,10 +38,14 @@ REPL_STYLE = Style.from_dict(
 )
 
 
+def _load_root_cli() -> click.Command:
+    cli_module = importlib.import_module("caracal.cli.main")
+    return cli_module.cli
+
+
 def run_restricted_repl() -> int:
     """Run the in-container restricted command loop."""
-    from caracal.cli.main import cli
-
+    cli = _load_root_cli()
     _ensure_history_parent(REPL_HISTORY_PATH)
     session = PromptSession(
         history=FileHistory(str(REPL_HISTORY_PATH)),
@@ -158,8 +163,7 @@ def parse_restricted_tokens(tokens: list[str]) -> ParsedRestrictedInput:
 
 
 def _run_cli_command(args: list[str]) -> int:
-    from caracal.cli.main import cli
-
+    cli = _load_root_cli()
     try:
         cli.main(args=args, prog_name=ROOT_COMMAND, standalone_mode=False)
         return 0

@@ -1,1 +1,0 @@
-"""Python SDK tests placeholder."""

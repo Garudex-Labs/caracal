@@ -17,6 +17,7 @@ from typing import Optional
 
 import click
 
+from caracal.cli.context import CLIContext
 from caracal.exceptions import CaracalError, FileReadError, FileWriteError
 from caracal.logging_config import get_logger
 from caracal.pathing import ensure_source_tree
@@ -26,7 +27,6 @@ logger = get_logger(__name__)
 
 def get_config(ctx):
     """Get configuration from CLI context."""
-    from caracal.cli.main import CLIContext
     cli_ctx = ctx.find_object(CLIContext)
     if not cli_ctx or not cli_ctx.config:
         raise CaracalError(

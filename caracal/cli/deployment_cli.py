@@ -65,13 +65,14 @@ from caracal.runtime.hardcut_preflight import (
     HardCutPreflightError,
     assert_migration_cli_allowed,
 )
+from caracal.runtime.host_io import (
+    normalize_optional_text,
+    path_scope_label,
+    resolve_workspace_transfer_path,
+)
 
 logger = structlog.get_logger(__name__)
 console = Console()
-
-_CONTAINER_RUNTIME_ENV = "CARACAL_RUNTIME_IN_CONTAINER"
-_HOST_IO_ROOT_ENV = "CARACAL_HOST_IO_ROOT"
-_DEFAULT_HOST_IO_ROOT = Path("/caracal-host-io")
 
 
 # Output formatting helpers
@@ -84,46 +85,10 @@ def format_output(data, format_type: str = "table"):
         return data
 
 
-def _in_container_runtime() -> bool:
-    return os.environ.get(_CONTAINER_RUNTIME_ENV, "").strip().lower() in {"1", "true", "yes", "on"}
-
-
-def _host_io_root() -> Path:
-    return Path(os.environ.get(_HOST_IO_ROOT_ENV, str(_DEFAULT_HOST_IO_ROOT))).resolve(strict=False)
-
-
-def _resolve_workspace_transfer_path(path: Path) -> Path:
-    candidate = Path(path).expanduser()
-    if not _in_container_runtime():
-        return candidate.resolve(strict=False)
-
-    root = _host_io_root()
-    if candidate.is_absolute():
-        resolved = candidate.resolve(strict=False)
-        if resolved == root or root in resolved.parents:
-            return resolved
-        raise ValueError(f"In container runtime, workspace import/export paths must be under {root}.")
-
-    return (root / candidate).resolve(strict=False)
-
-
 def _resolve_workspace_lock_key(lock_key: Optional[str]) -> Optional[str]:
     """Resolve workspace archive lock key from option or environment."""
     candidate = lock_key if lock_key is not None else os.environ.get("CARACAL_WORKSPACE_LOCK_KEY")
-    if candidate is None:
-        return None
-    normalized = candidate.strip()
-    return normalized if normalized else None
-
-
-def _path_scope_label(path: Path) -> str:
-    if not _in_container_runtime():
-        return "host path"
-
-    root = _host_io_root()
-    if path == root or root in path.parents:
-        return "container path (host-shared mount)"
-    return "container path"
+    return normalize_optional_text(candidate)
 
 
 def _resolve_workspace_name(config_manager: ConfigManager, workspace: Optional[str]) -> Optional[str]:
@@ -522,7 +487,7 @@ def workspace_export(name: str, path: Path, include_secrets: bool, lock_key: Opt
     """Export workspace configuration."""
     try:
         config_manager = ConfigManager()
-        resolved_path = _resolve_workspace_transfer_path(path)
+        resolved_path = resolve_workspace_transfer_path(path)
         resolved_path.parent.mkdir(parents=True, exist_ok=True)
         resolved_lock_key = _resolve_workspace_lock_key(lock_key)
         config_manager.export_workspace(
@@ -533,7 +498,7 @@ def workspace_export(name: str, path: Path, include_secrets: bool, lock_key: Opt
         )
         
         console.print(f"[green]✓[/green] Workspace exported: {name}")
-        console.print(f"  Export file ({_path_scope_label(resolved_path)}): {resolved_path}")
+        console.print(f"  Export file ({path_scope_label(resolved_path)}): {resolved_path}")
         if include_secrets:
             console.print("  [yellow]Warning:[/yellow] Secrets included in export")
         if resolved_lock_key:
@@ -561,10 +526,10 @@ def workspace_import(path: Path, name: Optional[str], lock_key: Optional[str]):
     """Import workspace from backup."""
     try:
         config_manager = ConfigManager()
-        resolved_path = _resolve_workspace_transfer_path(path)
+        resolved_path = resolve_workspace_transfer_path(path)
         if not resolved_path.exists():
             console.print(
-                f"[red]Error:[/red] Import file not found ({_path_scope_label(resolved_path)}): {resolved_path}"
+                f"[red]Error:[/red] Import file not found ({path_scope_label(resolved_path)}): {resolved_path}"
             )
             sys.exit(1)
 
@@ -572,7 +537,7 @@ def workspace_import(path: Path, name: Optional[str], lock_key: Optional[str]):
         config_manager.import_workspace(resolved_path, name=name, lock_key=resolved_lock_key)
         
         console.print(f"[green]✓[/green] Workspace imported")
-        console.print(f"  Import file ({_path_scope_label(resolved_path)}): {resolved_path}")
+        console.print(f"  Import file ({path_scope_label(resolved_path)}): {resolved_path}")
         if name:
             console.print(f"  Workspace name: {name}")
     except ValueError as e:

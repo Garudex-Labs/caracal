@@ -393,8 +393,10 @@ def get_db_manager(config: Optional["CaracalConfig"] = None) -> DatabaseConnecti
     followed by the YAML config values.
     """
     if config is None:
-        from caracal.config import load_config
-        config = load_config()
+        import importlib
+
+        config_module = importlib.import_module("caracal.config")
+        config = config_module.load_config()
 
     db_config = DatabaseConfig(
         host=getattr(config.database, "host", "localhost"),

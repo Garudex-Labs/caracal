@@ -42,6 +42,7 @@ from caracal.deployment.exceptions import (
 )
 from caracal.config.encryption import decrypt_value, encrypt_value
 from caracal.runtime.environment import debug_logs_enabled
+from caracal.runtime.host_io import in_container_runtime, normalize_optional_text
 from caracal.storage.layout import resolve_caracal_home
 
 logger = structlog.get_logger(__name__)
@@ -416,10 +417,7 @@ class ConfigManager:
 
     def _normalize_lock_key(self, lock_key: Optional[str]) -> Optional[str]:
         """Normalize optional lock key input."""
-        if lock_key is None:
-            return None
-        normalized = lock_key.strip()
-        return normalized if normalized else None
+        return normalize_optional_text(lock_key)
 
     def _validate_lock_key(self, lock_key: str) -> None:
         """Validate archive lock key quality constraints."""
@@ -754,13 +752,7 @@ class ConfigManager:
         later operations run as the unprivileged `caracal` user can fail with
         permission errors. Normalize ownership to `caracal` when possible.
         """
-        in_container_runtime = os.environ.get("CARACAL_RUNTIME_IN_CONTAINER", "").strip().lower() in {
-            "1",
-            "true",
-            "yes",
-            "on",
-        }
-        if not in_container_runtime:
+        if not in_container_runtime():
             return
 
         if not hasattr(os, "geteuid") or os.geteuid() != 0:
@@ -1357,13 +1349,7 @@ class ConfigManager:
                 include_secrets=include_secrets
             )
         except PermissionError as e:
-            in_container_runtime = os.environ.get("CARACAL_RUNTIME_IN_CONTAINER", "").strip().lower() in {
-                "1",
-                "true",
-                "yes",
-                "on",
-            }
-            if in_container_runtime:
+            if in_container_runtime():
                 raise WorkspaceOperationError(
                     "Failed to export workspace due to ownership mismatch on workspace files. "
                     "Run 'caracal down && caracal up' to repair permissions, then retry export. "

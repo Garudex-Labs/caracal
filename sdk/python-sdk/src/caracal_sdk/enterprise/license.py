@@ -11,7 +11,7 @@ In the open-source edition, all methods raise EnterpriseFeatureRequired.
 from __future__ import annotations
 from caracal_sdk._compat import get_version
 
-from typing import Any, Optional
+from typing import NoReturn, Optional
 
 from caracal_sdk.extensions import CaracalExtension
 from caracal_sdk.hooks import HookRegistry
@@ -47,14 +47,14 @@ class LicenseExtension(CaracalExtension):
             message="License validation requires Caracal Enterprise.",
         )
 
-    def validate(self) -> dict:
+    def validate(self) -> NoReturn:
         """Validate the current license key."""
         raise EnterpriseFeatureRequired(
             feature="License Validation",
             message="License validation requires Caracal Enterprise.",
         )
 
-    def get_entitlements(self) -> list:
+    def get_entitlements(self) -> NoReturn:
         """Get feature entitlements for the current license."""
         raise EnterpriseFeatureRequired(
             feature="License Entitlements",

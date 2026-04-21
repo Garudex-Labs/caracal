@@ -1,15 +1,9 @@
 import React, { FormEvent, useState } from "react";
 import Link from "@docusaurus/Link";
 import useBaseUrl from "@docusaurus/useBaseUrl";
+import type { DocCard } from "@site/src/components/types";
 
-type HomepageCard = {
-  title: string;
-  description: string;
-  to: string;
-  tag: string;
-};
-
-const primaryCards: HomepageCard[] = [
+const primaryCards: DocCard[] = [
   {
     title: "Getting Started",
     description: "Install the runtime, understand the host/container split, and reach first success quickly.",
@@ -48,7 +42,7 @@ const primaryCards: HomepageCard[] = [
   },
 ];
 
-const secondaryCards: HomepageCard[] = [
+const secondaryCards: DocCard[] = [
   {
     title: "Development",
     description: "Set up the repo, run tests, and contribute with confidence.",
@@ -75,7 +69,7 @@ const secondaryCards: HomepageCard[] = [
   },
 ];
 
-function HomepageCard({ title, description, to, tag }: HomepageCard): React.ReactElement {
+function HomepageCard({ title, description, to, tag }: DocCard): React.ReactElement {
   return (
     <Link className="caracal-card" to={to}>
       <span className="caracal-card__tag">{tag}</span>
