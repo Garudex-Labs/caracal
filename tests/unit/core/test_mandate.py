@@ -519,6 +519,136 @@ class TestMandateManager:
         assert self.manager._match_pattern("secret/test", "*") is True
         assert self.manager._match_pattern("other/test", "secret/*") is False
 
+    def test_match_pattern_provider_scope_requires_exact_match(self):
+        """Canonical provider scopes must match exactly — wildcards are rejected."""
+        # A provider scope wildcard must NOT match a specific provider scope.
+        assert self.manager._match_pattern(
+            "provider:openai:action:invoke",
+            "provider:openai:action:*",
+        ) is False
+        assert self.manager._match_pattern(
+            "provider:openai:resource:models",
+            "provider:openai:resource:*",
+        ) is False
+        # Exact match still works.
+        assert self.manager._match_pattern(
+            "provider:openai:action:invoke",
+            "provider:openai:action:invoke",
+        ) is True
+
+    def test_match_pattern_non_provider_scope_allows_wildcard(self):
+        """Non-provider scopes continue to support shell-style wildcards."""
+        assert self.manager._match_pattern("secret/test", "secret/*") is True
+        assert self.manager._match_pattern("read:secrets", "read:*") is True
+        assert self.manager._match_pattern("read:secrets", "write:*") is False
+
+    def test_delegate_mandate_denies_exhausted_depth(self):
+        """Delegation must fail when source mandate has no remaining depth."""
+        source_mandate_id = uuid4()
+        target_subject_id = uuid4()
+
+        source_mandate = Mock(
+            mandate_id=source_mandate_id,
+            subject_id=uuid4(),
+            revoked=False,
+            valid_from=datetime.utcnow() - timedelta(minutes=5),
+            valid_until=datetime.utcnow() + timedelta(hours=1),
+            resource_scope=["secret/*"],
+            action_scope=["read:secrets"],
+            network_distance=0,
+        )
+        source_principal = Mock(principal_kind="human")
+        target_principal = Mock(principal_kind="worker")
+
+        def mock_query_side_effect(model):
+            mock_query = Mock()
+            if model == ExecutionMandate:
+                mock_query.filter.return_value.first.return_value = source_mandate
+            elif model == Principal:
+                call_count = mock_query_side_effect.count
+                mock_query_side_effect.count += 1
+                mock_query.filter.return_value.first.return_value = (
+                    source_principal if call_count == 0 else target_principal
+                )
+            return mock_query
+
+        mock_query_side_effect.count = 0
+        self.mock_db_session.query.side_effect = mock_query_side_effect
+
+        with pytest.raises(ValueError, match="no remaining delegation depth"):
+            self.manager.delegate_mandate(
+                source_mandate_id=source_mandate_id,
+                target_subject_id=target_subject_id,
+                resource_scope=["secret/test"],
+                action_scope=["read:secrets"],
+                validity_seconds=1800,
+            )
+
+    def test_delegate_mandate_denies_scope_amplification(self):
+        """Delegation must fail when target resource scope is wider than source scope."""
+        source_mandate_id = uuid4()
+        target_subject_id = uuid4()
+
+        source_mandate = Mock(
+            mandate_id=source_mandate_id,
+            subject_id=uuid4(),
+            revoked=False,
+            valid_from=datetime.utcnow() - timedelta(minutes=5),
+            valid_until=datetime.utcnow() + timedelta(hours=1),
+            resource_scope=["secret/project-a"],
+            action_scope=["read:secrets"],
+            network_distance=2,
+        )
+
+        mock_query = Mock()
+        mock_query.filter.return_value.first.return_value = source_mandate
+        self.mock_db_session.query.return_value = mock_query
+
+        with pytest.raises(ValueError, match="must be subset"):
+            self.manager.delegate_mandate(
+                source_mandate_id=source_mandate_id,
+                target_subject_id=target_subject_id,
+                resource_scope=["secret/*"],
+                action_scope=["read:secrets"],
+                validity_seconds=1800,
+            )
+
+    def test_revoke_mandate_denies_unauthorized_revoker(self):
+        """Revocation must fail when revoker is neither issuer, subject, nor admin."""
+        mandate_id = uuid4()
+        issuer_id = uuid4()
+        subject_id = uuid4()
+        unauthorized_revoker_id = uuid4()
+
+        mandate = ExecutionMandate(
+            mandate_id=mandate_id,
+            issuer_id=issuer_id,
+            subject_id=subject_id,
+            valid_from=datetime.utcnow() - timedelta(hours=1),
+            valid_until=datetime.utcnow() + timedelta(hours=1),
+            resource_scope=["secret/*"],
+            action_scope=["read:secrets"],
+            signature="test_signature",
+            revoked=False,
+        )
+
+        def mock_query_side_effect(model):
+            mock_query = Mock()
+            if model == ExecutionMandate:
+                mock_query.filter.return_value.first.return_value = mandate
+            else:
+                mock_query.filter.return_value.first.return_value = None
+            return mock_query
+
+        self.mock_db_session.query.side_effect = mock_query_side_effect
+
+        with pytest.raises(ValueError, match="does not have authority to revoke"):
+            self.manager.revoke_mandate(
+                mandate_id=mandate_id,
+                revoker_id=unauthorized_revoker_id,
+                reason="Unauthorized attempt",
+            )
+
 
 @pytest.mark.unit
 class TestMandateValidation:

@@ -215,7 +215,7 @@ class TestLedgerSummaryCommand:
         principal_id = str(uuid4())
         
         mock_query = Mock()
-        mock_query.sum_usage_with_targetren.return_value = {
+        mock_query.sum_usage_with_children.return_value = {
             principal_id: Decimal('100'),
             str(uuid4()): Decimal('50')
         }
@@ -227,12 +227,12 @@ class TestLedgerSummaryCommand:
             '--principal-id', principal_id,
             '--start', '2024-01-01',
             '--end', '2024-01-31',
-            '--aggregate-targetren'
+            '--aggregate-children'
         ], obj=Mock(config=Mock()))
         
         # Assert
         assert result.exit_code == 0
-        assert 'with targetren' in result.output
+        assert 'with children' in result.output
     
     @patch('caracal.cli.ledger.get_ledger_query')
     @patch('caracal.cli.ledger.get_principal_registry')
@@ -246,8 +246,8 @@ class TestLedgerSummaryCommand:
             'principal_id': principal_id,
             'principal_name': 'test-principal',
             'usage': '100',
-            'targetren': [],
-            'total_with_targetren': '100'
+            'children': [],
+            'total_with_children': '100'
         }
         mock_get_query.return_value = mock_query
         mock_get_registry.return_value = Mock()

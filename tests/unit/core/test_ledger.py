@@ -425,5 +425,5 @@ class TestLedgerQuery:
         
         assert breakdown["principal_id"] == sample_principal_id
         assert breakdown["usage"] == "100.50"
-        assert breakdown["total_with_targetren"] == "100.50"
-        assert breakdown["targetren"] == []
+        assert breakdown["total_with_children"] == "100.50"
+        assert breakdown["children"] == []

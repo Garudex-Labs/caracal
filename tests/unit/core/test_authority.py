@@ -84,6 +84,10 @@ class TestAuthorityEvaluator:
             revoked=False,
         )
 
+        self.mock_db_session.query.return_value.filter.return_value.first.return_value = Mock(
+            lifecycle_status="active"
+        )
+
         decision = self.evaluator.validate_mandate(
             mandate=mandate,
             requested_action="read:secrets",
@@ -172,7 +176,8 @@ class TestAuthorityEvaluator:
             name="test-issuer",
             principal_kind="human",
             owner="test",
-            public_key_pem="test_public_key"
+            public_key_pem="test_public_key",
+            lifecycle_status="active",
         )
         
         # Mock database query
@@ -220,7 +225,8 @@ class TestAuthorityEvaluator:
             name="test-issuer",
             principal_kind="human",
             owner="test",
-            public_key_pem="test_public_key"
+            public_key_pem="test_public_key",
+            lifecycle_status="active",
         )
         
         # Mock database query
@@ -265,6 +271,7 @@ class TestAuthorityEvaluator:
             principal_kind="human",
             owner="test",
             public_key_pem="test_public_key",
+            lifecycle_status="active",
         )
         mock_query = Mock()
         mock_query.filter.return_value.first.return_value = issuer
@@ -313,6 +320,7 @@ class TestAuthorityEvaluator:
             principal_kind="human",
             owner="test",
             public_key_pem="test_public_key",
+            lifecycle_status="active",
         )
         mock_query = Mock()
         mock_query.filter.return_value.first.return_value = issuer
