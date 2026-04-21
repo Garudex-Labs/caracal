@@ -36,7 +36,6 @@ class SDKBridge:
         ctx = bridge.checkout(workspace_id="ws_default")
         result = await bridge.call_tool(
             tool_id="provider:demo:resource:jobs:action:run",
-            mandate_id="<mandate-id>",
         )
     """
 
@@ -82,7 +81,6 @@ class SDKBridge:
     async def call_tool(
         self,
         tool_id: str,
-        mandate_id: str,
         tool_args: Optional[dict] = None,
         metadata: Optional[dict] = None,
         correlation_id: Optional[str] = None,
@@ -91,7 +89,6 @@ class SDKBridge:
         scope = self._scope or self._get_default_scope()
         return await scope.tools.call(
             tool_id=tool_id,
-            mandate_id=mandate_id,
             tool_args=tool_args,
             metadata=metadata,
             correlation_id=correlation_id,

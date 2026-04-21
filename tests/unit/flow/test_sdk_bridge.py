@@ -80,11 +80,13 @@ async def test_sdk_bridge_call_tool_uses_default_scope_tools_surface(monkeypatch
 
     result = await bridge.call_tool(
         tool_id="provider:demo:resource:jobs:action:run",
-        mandate_id="11111111-1111-1111-1111-111111111111",
         tool_args={"job": "example"},
     )
 
     assert result == {"ok": True}
+    called = bridge._client._default_scope.tools.call.call_args
+    assert called is not None
+    assert "mandate_id" not in (called.kwargs or {})
 
 
 @pytest.mark.parametrize(

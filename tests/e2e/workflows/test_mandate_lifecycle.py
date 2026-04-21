@@ -1,116 +1,175 @@
 """
-End-to-end tests for mandate lifecycle.
+Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+Caracal, a product of Garudex Labs
 
-This module tests complete mandate lifecycle from creation to revocation.
+End-to-end tests for the mandate lifecycle across issue, validate, revoke, expire.
 """
+
+from __future__ import annotations
+
+from datetime import datetime, timedelta
+from uuid import uuid4
+
 import pytest
+
+from caracal.core.authority import AuthorityEvaluator, AuthorityReasonCode
+from caracal.core.authority_ledger import AuthorityLedgerWriter, AuthorityLedgerQuery
+from caracal.core.mandate import MandateManager
+from caracal.core.principal_keys import generate_and_store_principal_keypair
+from caracal.db.models import AuthorityPolicy, Principal
+from tests.fixtures.database import db_session, in_memory_db_engine
+
+
+def _make_principal(principal_id, name, kind, *, with_keys: bool = False):
+    public_key_pem = None
+    metadata = None
+    if with_keys:
+        generated = generate_and_store_principal_keypair(principal_id)
+        public_key_pem = generated.public_key_pem
+        metadata = generated.storage.metadata
+    return Principal(
+        principal_id=principal_id,
+        name=name,
+        principal_kind=kind,
+        owner="e2e-test",
+        lifecycle_status="active",
+        public_key_pem=public_key_pem,
+        principal_metadata=metadata,
+    )
+
+
+def _make_policy(principal_id, *, allow_delegation: bool = False, max_distance: int = 0):
+    return AuthorityPolicy(
+        principal_id=principal_id,
+        allowed_resource_patterns=["provider:ops-api:resource:*"],
+        allowed_actions=["provider:ops-api:action:*"],
+        max_validity_seconds=3600,
+        allow_delegation=allow_delegation,
+        max_network_distance=max_distance,
+        created_by="e2e-test",
+        active=True,
+    )
 
 
 @pytest.mark.e2e
 class TestMandateLifecycle:
-    """Test complete mandate lifecycle workflows."""
-    
-    @pytest.fixture(autouse=True)
-    def setup(self, full_system):
-        """Set up full system for e2e testing."""
-        # self.system = full_system
-        # Setup will include database, API server, and all components
-        pass
-    
-    async def test_complete_mandate_lifecycle(self):
-        """Test complete mandate lifecycle from creation to expiration."""
-        # from caracal.core.authority import Authority
-        # from caracal.core.mandate import Mandate
-        
-        # Step 1: Create authority
-        # authority = await Authority.create(
-        #     name="e2e-test-authority",
-        #     scope="read:secrets"
-        # )
-        # assert authority.id is not None
-        
-        # Step 2: Create mandate
-        # mandate = await Mandate.create(
-        #     authority_id=authority.id,
-        #     principal_id="user-123",
-        #     scope="read:secrets"
-        # )
-        # assert mandate.id is not None
-        # assert mandate.status == "active"
-        
-        # Step 3: Use mandate
-        # result = await mandate.execute(action="read", resource="secret-1")
-        # assert result.success is True
-        
-        # Step 4: Revoke mandate
-        # await mandate.revoke()
-        # assert mandate.status == "revoked"
-        
-        # Step 5: Verify mandate cannot be used after revocation
-        # with pytest.raises(Exception, match="revoked"):
-        #     await mandate.execute(action="read", resource="secret-1")
-        pass
-    
-    async def test_mandate_with_delegation(self):
-        """Test mandate lifecycle with delegation chain."""
-        # from caracal.core.authority import Authority
-        # from caracal.core.mandate import Mandate
-        
-        # Step 1: Create parent authority
-        # parent_authority = await Authority.create(
-        #     name="parent-authority",
-        #     scope="admin:*"
-        # )
-        
-        # Step 2: Create delegated authority
-        # child_authority = await Authority.create(
-        #     name="child-authority",
-        #     scope="read:secrets",
-        #     parent_id=parent_authority.id
-        # )
-        
-        # Step 3: Create mandate from delegated authority
-        # mandate = await Mandate.create(
-        #     authority_id=child_authority.id,
-        #     principal_id="user-123",
-        #     scope="read:secrets"
-        # )
-        
-        # Step 4: Verify mandate works
-        # result = await mandate.execute(action="read", resource="secret-1")
-        # assert result.success is True
-        
-        # Step 5: Revoke parent authority
-        # await parent_authority.revoke()
-        
-        # Step 6: Verify child mandate is also revoked
-        # mandate_refreshed = await Mandate.get(mandate.id)
-        # assert mandate_refreshed.status == "revoked"
-        pass
-    
-    async def test_mandate_expiration_workflow(self):
-        """Test mandate expiration in full system."""
-        # from caracal.core.mandate import Mandate
-        # from datetime import datetime, timedelta
-        
-        # Step 1: Create mandate with short expiration
-        # expires_at = datetime.utcnow() + timedelta(seconds=2)
-        # mandate = await Mandate.create(
-        #     authority_id="auth-123",
-        #     principal_id="user-123",
-        #     scope="read:secrets",
-        #     expires_at=expires_at
-        # )
-        
-        # Step 2: Use mandate before expiration
-        # result = await mandate.execute(action="read", resource="secret-1")
-        # assert result.success is True
-        
-        # Step 3: Wait for expiration
-        # import asyncio
-        # await asyncio.sleep(3)
-        
-        # Step 4: Verify mandate cannot be used after expiration
-        # with pytest.raises(Exception, match="expired"):
-        #     await mandate.execute(action="read", resource="secret-1")
-        pass
+    """Full issue → validate → revoke → deny lifecycle."""
+
+    def test_issue_validate_revoke_deny(self, db_session) -> None:
+        issuer_id = uuid4()
+        subject_id = uuid4()
+        db_session.add_all([
+            _make_principal(issuer_id, "issuer", "human", with_keys=True),
+            _make_principal(subject_id, "subject", "worker"),
+            _make_policy(issuer_id),
+        ])
+        db_session.commit()
+
+        ledger = AuthorityLedgerWriter(db_session)
+        manager = MandateManager(db_session=db_session, ledger_writer=ledger)
+        evaluator = AuthorityEvaluator(db_session, ledger_writer=ledger)
+
+        mandate = manager.issue_mandate(
+            issuer_id=issuer_id,
+            subject_id=subject_id,
+            resource_scope=["provider:ops-api:resource:incident"],
+            action_scope=["provider:ops-api:action:read_incident"],
+            validity_seconds=3600,
+        )
+        db_session.commit()
+
+        allow = evaluator.validate_mandate(
+            mandate=mandate,
+            requested_action="provider:ops-api:action:read_incident",
+            requested_resource="provider:ops-api:resource:incident",
+        )
+        assert allow.allowed is True
+
+        manager.revoke_mandate(
+            mandate_id=mandate.mandate_id,
+            revoker_id=issuer_id,
+            reason="e2e test revocation",
+        )
+        db_session.commit()
+
+        deny = evaluator.validate_mandate(
+            mandate=mandate,
+            requested_action="provider:ops-api:action:read_incident",
+            requested_resource="provider:ops-api:resource:incident",
+        )
+        assert deny.allowed is False
+        assert deny.reason_code == AuthorityReasonCode.MANDATE_REVOKED
+
+    def test_ledger_records_all_lifecycle_events(self, db_session) -> None:
+        issuer_id = uuid4()
+        subject_id = uuid4()
+        db_session.add_all([
+            _make_principal(issuer_id, "issuer-lc", "human", with_keys=True),
+            _make_principal(subject_id, "subject-lc", "worker"),
+            _make_policy(issuer_id),
+        ])
+        db_session.commit()
+
+        ledger = AuthorityLedgerWriter(db_session)
+        manager = MandateManager(db_session=db_session, ledger_writer=ledger)
+        evaluator = AuthorityEvaluator(db_session, ledger_writer=ledger)
+
+        mandate = manager.issue_mandate(
+            issuer_id=issuer_id,
+            subject_id=subject_id,
+            resource_scope=["provider:ops-api:resource:incident"],
+            action_scope=["provider:ops-api:action:read_incident"],
+            validity_seconds=3600,
+        )
+        db_session.commit()
+        evaluator.validate_mandate(
+            mandate=mandate,
+            requested_action="provider:ops-api:action:read_incident",
+            requested_resource="provider:ops-api:resource:incident",
+        )
+        manager.revoke_mandate(
+            mandate_id=mandate.mandate_id,
+            revoker_id=issuer_id,
+            reason="e2e lifecycle check",
+        )
+        db_session.commit()
+
+        query = AuthorityLedgerQuery(db_session)
+        events = query.get_events(mandate_id=mandate.mandate_id)
+        event_types = {e.event_type for e in events}
+        assert "issued" in event_types
+        assert "validated" in event_types
+        assert "revoked" in event_types
+
+    def test_expired_mandate_denied_without_revocation(self, db_session) -> None:
+        issuer_id = uuid4()
+        subject_id = uuid4()
+        db_session.add_all([
+            _make_principal(issuer_id, "issuer-exp", "human", with_keys=True),
+            _make_principal(subject_id, "subject-exp", "worker"),
+            _make_policy(issuer_id),
+        ])
+        db_session.commit()
+
+        ledger = AuthorityLedgerWriter(db_session)
+        manager = MandateManager(db_session=db_session, ledger_writer=ledger)
+        mandate = manager.issue_mandate(
+            issuer_id=issuer_id,
+            subject_id=subject_id,
+            resource_scope=["provider:ops-api:resource:incident"],
+            action_scope=["provider:ops-api:action:read_incident"],
+            validity_seconds=3600,
+        )
+        db_session.commit()
+
+        mandate.valid_until = datetime.utcnow() - timedelta(hours=1)
+        db_session.commit()
+
+        evaluator = AuthorityEvaluator(db_session, ledger_writer=ledger)
+        decision = evaluator.validate_mandate(
+            mandate=mandate,
+            requested_action="provider:ops-api:action:read_incident",
+            requested_resource="provider:ops-api:resource:incident",
+        )
+        assert decision.allowed is False
+        assert decision.reason_code == AuthorityReasonCode.MANDATE_EXPIRED

@@ -1,117 +1,192 @@
 """
-End-to-end tests for delegation chains.
+Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+Caracal, a product of Garudex Labs
 
-This module tests complete delegation chain workflows.
+End-to-end tests for delegation chain mandate workflows.
 """
+
+from __future__ import annotations
+
+from uuid import uuid4
+
 import pytest
+
+from caracal.core.authority import AuthorityEvaluator, AuthorityReasonCode
+from caracal.core.authority_ledger import AuthorityLedgerWriter
+from caracal.core.mandate import MandateManager
+from caracal.core.principal_keys import generate_and_store_principal_keypair
+from caracal.db.models import AuthorityPolicy, Principal
+from tests.fixtures.database import db_session, in_memory_db_engine
+
+
+def _make_principal(principal_id, name, kind, *, with_keys: bool = False):
+    public_key_pem = None
+    metadata = None
+    if with_keys:
+        generated = generate_and_store_principal_keypair(principal_id)
+        public_key_pem = generated.public_key_pem
+        metadata = generated.storage.metadata
+    return Principal(
+        principal_id=principal_id,
+        name=name,
+        principal_kind=kind,
+        owner="e2e-chain-test",
+        lifecycle_status="active",
+        public_key_pem=public_key_pem,
+        principal_metadata=metadata,
+    )
+
+
+def _make_policy(principal_id, *, allow_delegation: bool = False, max_distance: int = 0):
+    return AuthorityPolicy(
+        principal_id=principal_id,
+        allowed_resource_patterns=["provider:ops-api:resource:*"],
+        allowed_actions=["provider:ops-api:action:*"],
+        max_validity_seconds=3600,
+        allow_delegation=allow_delegation,
+        max_network_distance=max_distance,
+        created_by="e2e-chain-test",
+        active=True,
+    )
 
 
 @pytest.mark.e2e
 class TestDelegationChain:
-    """Test complete delegation chain workflows."""
-    
-    @pytest.fixture(autouse=True)
-    def setup(self, full_system):
-        """Set up full system for e2e testing."""
-        # self.system = full_system
-        pass
-    
-    async def test_multi_level_delegation_chain(self):
-        """Test multi-level delegation chain."""
-        # from caracal.core.authority import Authority
-        # from caracal.core.mandate import Mandate
-        
-        # Step 1: Create root authority
-        # root = await Authority.create(
-        #     name="root-authority",
-        #     scope="admin:*"
-        # )
-        
-        # Step 2: Create level 1 delegation
-        # level1 = await Authority.create(
-        #     name="level1-authority",
-        #     scope="write:secrets",
-        #     parent_id=root.id
-        # )
-        
-        # Step 3: Create level 2 delegation
-        # level2 = await Authority.create(
-        #     name="level2-authority",
-        #     scope="read:secrets",
-        #     parent_id=level1.id
-        # )
-        
-        # Step 4: Create mandate from level 2
-        # mandate = await Mandate.create(
-        #     authority_id=level2.id,
-        #     principal_id="user-123",
-        #     scope="read:secrets"
-        # )
-        
-        # Step 5: Verify mandate works
-        # result = await mandate.execute(action="read", resource="secret-1")
-        # assert result.success is True
-        
-        # Step 6: Revoke root authority
-        # await root.revoke()
-        
-        # Step 7: Verify entire chain is revoked
-        # level1_refreshed = await Authority.get(level1.id)
-        # level2_refreshed = await Authority.get(level2.id)
-        # mandate_refreshed = await Mandate.get(mandate.id)
-        # assert level1_refreshed.status == "revoked"
-        # assert level2_refreshed.status == "revoked"
-        # assert mandate_refreshed.status == "revoked"
-        pass
-    
-    async def test_delegation_scope_inheritance(self):
-        """Test scope inheritance in delegation chain."""
-        # from caracal.core.authority import Authority
-        
-        # Step 1: Create parent with specific scope
-        # parent = await Authority.create(
-        #     name="parent",
-        #     scope="read:secrets,write:secrets"
-        # )
-        
-        # Step 2: Create child with subset of parent scope
-        # child = await Authority.create(
-        #     name="child",
-        #     scope="read:secrets",
-        #     parent_id=parent.id
-        # )
-        # assert child.scope == "read:secrets"
-        
-        # Step 3: Attempt to create child with scope beyond parent
-        # with pytest.raises(ValueError, match="scope exceeds parent"):
-        #     await Authority.create(
-        #         name="invalid-child",
-        #         scope="admin:*",
-        #         parent_id=parent.id
-        #     )
-        pass
-    
-    async def test_delegation_chain_verification(self):
-        """Test verification of delegation chain."""
-        # from caracal.core.authority import Authority
-        # from caracal.core.delegation import verify_delegation_chain
-        
-        # Step 1: Create delegation chain
-        # root = await Authority.create(name="root", scope="admin:*")
-        # child = await Authority.create(
-        #     name="child",
-        #     scope="read:secrets",
-        #     parent_id=root.id
-        # )
-        
-        # Step 2: Verify chain is valid
-        # is_valid = await verify_delegation_chain(child.id)
-        # assert is_valid is True
-        
-        # Step 3: Revoke parent
-        # await root.revoke()
-        
-        # Step 4: Verify chain is no longer valid
-        # is_valid = await verify_delegation_chain(child.id)
-        # assert is_valid is False
-        pass
+    """Delegation chain: human issues to orchestrator, orchestrator to worker."""
+
+    def test_human_to_orchestrator_to_worker(self, db_session) -> None:
+        human_id = uuid4()
+        orch_id = uuid4()
+        worker_id = uuid4()
+        db_session.add_all([
+            _make_principal(human_id, "human", "human", with_keys=True),
+            _make_principal(orch_id, "orchestrator", "orchestrator", with_keys=True),
+            _make_principal(worker_id, "worker", "worker"),
+            _make_policy(human_id, allow_delegation=True, max_distance=2),
+            _make_policy(orch_id, allow_delegation=True, max_distance=1),
+        ])
+        db_session.commit()
+
+        ledger = AuthorityLedgerWriter(db_session)
+        manager = MandateManager(db_session=db_session, ledger_writer=ledger)
+
+        parent_mandate = manager.issue_mandate(
+            issuer_id=human_id,
+            subject_id=orch_id,
+            resource_scope=["provider:ops-api:resource:incident"],
+            action_scope=["provider:ops-api:action:read_incident"],
+            validity_seconds=3600,
+            delegation_type="directed",
+            network_distance=2,
+        )
+        db_session.commit()
+
+        child_mandate = manager.issue_mandate(
+            issuer_id=orch_id,
+            subject_id=worker_id,
+            resource_scope=["provider:ops-api:resource:incident"],
+            action_scope=["provider:ops-api:action:read_incident"],
+            validity_seconds=3600,
+            delegation_type="directed",
+            source_mandate_id=parent_mandate.mandate_id,
+            network_distance=1,
+        )
+        db_session.commit()
+
+        evaluator = AuthorityEvaluator(db_session, ledger_writer=ledger)
+        decision = evaluator.validate_mandate(
+            mandate=child_mandate,
+            requested_action="provider:ops-api:action:read_incident",
+            requested_resource="provider:ops-api:resource:incident",
+        )
+        assert decision.allowed is True
+
+    def test_revoked_parent_denies_child(self, db_session) -> None:
+        human_id = uuid4()
+        orch_id = uuid4()
+        worker_id = uuid4()
+        db_session.add_all([
+            _make_principal(human_id, "human-r", "human", with_keys=True),
+            _make_principal(orch_id, "orchestrator-r", "orchestrator", with_keys=True),
+            _make_principal(worker_id, "worker-r", "worker"),
+            _make_policy(human_id, allow_delegation=True, max_distance=2),
+            _make_policy(orch_id, allow_delegation=True, max_distance=1),
+        ])
+        db_session.commit()
+
+        ledger = AuthorityLedgerWriter(db_session)
+        manager = MandateManager(db_session=db_session, ledger_writer=ledger)
+
+        parent_mandate = manager.issue_mandate(
+            issuer_id=human_id,
+            subject_id=orch_id,
+            resource_scope=["provider:ops-api:resource:incident"],
+            action_scope=["provider:ops-api:action:read_incident"],
+            validity_seconds=3600,
+            delegation_type="directed",
+            network_distance=2,
+        )
+        db_session.commit()
+
+        child_mandate = manager.issue_mandate(
+            issuer_id=orch_id,
+            subject_id=worker_id,
+            resource_scope=["provider:ops-api:resource:incident"],
+            action_scope=["provider:ops-api:action:read_incident"],
+            validity_seconds=3600,
+            delegation_type="directed",
+            source_mandate_id=parent_mandate.mandate_id,
+            network_distance=1,
+        )
+        db_session.commit()
+
+        manager.revoke_mandate(
+            mandate_id=parent_mandate.mandate_id,
+            revoker_id=human_id,
+            reason="cascade revocation e2e test",
+            cascade=True,
+        )
+        db_session.commit()
+
+        evaluator = AuthorityEvaluator(db_session, ledger_writer=ledger)
+        decision = evaluator.validate_mandate(
+            mandate=child_mandate,
+            requested_action="provider:ops-api:action:read_incident",
+            requested_resource="provider:ops-api:resource:incident",
+        )
+        assert decision.allowed is False
+
+    def test_scope_narrowing_in_delegation(self, db_session) -> None:
+        human_id = uuid4()
+        worker_id = uuid4()
+        db_session.add_all([
+            _make_principal(human_id, "human-sn", "human", with_keys=True),
+            _make_principal(worker_id, "worker-sn", "worker"),
+            _make_policy(human_id),
+        ])
+        db_session.commit()
+
+        ledger = AuthorityLedgerWriter(db_session)
+        manager = MandateManager(db_session=db_session, ledger_writer=ledger)
+        mandate = manager.issue_mandate(
+            issuer_id=human_id,
+            subject_id=worker_id,
+            resource_scope=["provider:ops-api:resource:incident"],
+            action_scope=["provider:ops-api:action:read_incident"],
+            validity_seconds=3600,
+        )
+        db_session.commit()
+
+        evaluator = AuthorityEvaluator(db_session, ledger_writer=ledger)
+        allow = evaluator.validate_mandate(
+            mandate=mandate,
+            requested_action="provider:ops-api:action:read_incident",
+            requested_resource="provider:ops-api:resource:incident",
+        )
+        deny = evaluator.validate_mandate(
+            mandate=mandate,
+            requested_action="provider:ops-api:action:delete_incident",
+            requested_resource="provider:ops-api:resource:incident",
+        )
+        assert allow.allowed is True
+        assert deny.allowed is False
