@@ -120,14 +120,11 @@ def init_db(ctx):
     try:
         click.echo("Initializing database schema...")
         
-        # Get database configuration
         db_config = get_database_config_from_context(ctx)
         
-        # Create connection manager
         db_manager = DatabaseConnectionManager(db_config)
         db_manager.initialize()
         
-        # Check database connectivity
         if not db_manager.health_check():
             raise click.ClickException(
                 f"Cannot connect to database at {db_config.host}:{db_config.port}. "
@@ -136,15 +133,12 @@ def init_db(ctx):
         
         click.echo(f"✓ Connected to database: {db_config.database}")
         
-        # Create all tables using SQLAlchemy
         Base.metadata.create_all(db_manager._engine)
         
         click.echo("✓ Database tables created successfully")
         
-        # Initialize Alembic version table
         alembic_config = get_alembic_config()
         
-        # Override database URL in alembic config
         alembic_config.set_main_option(
             "sqlalchemy.url",
             _escape_alembic_url(db_config.get_connection_url())
@@ -155,7 +149,6 @@ def init_db(ctx):
         
         click.echo("✓ Alembic version table initialized")
         
-        # Display schema info
         schema_manager = SchemaVersionManager(db_manager._engine, alembic_config)
         schema_info = schema_manager.get_schema_info()
         
@@ -202,13 +195,10 @@ def migrate(ctx, direction: str, revision: str, sql: bool):
     
     """
     try:
-        # Get database configuration
         db_config = get_database_config_from_context(ctx)
         
-        # Get Alembic configuration
         alembic_config = get_alembic_config()
         
-        # Override database URL in alembic config
         alembic_config.set_main_option(
             "sqlalchemy.url",
             _escape_alembic_url(db_config.get_connection_url())
@@ -231,7 +221,6 @@ def migrate(ctx, direction: str, revision: str, sql: bool):
         else:
             click.echo(f"{action} migrations to {target}...")
             
-            # Create connection manager to check connectivity
             db_manager = DatabaseConnectionManager(db_config)
             db_manager.initialize()
             
@@ -246,13 +235,11 @@ def migrate(ctx, direction: str, revision: str, sql: bool):
             
             click.echo(f"  Current revision: {before_info['current_revision']}")
             
-            # Run migration
             if direction.lower() == 'up':
                 command.upgrade(alembic_config, target)
             else:
                 command.downgrade(alembic_config, target)
             
-            # Get schema info after migration
             after_info = schema_manager.get_schema_info()
             
             click.echo(f"✓ Migration completed successfully")
@@ -289,7 +276,6 @@ def db_status(ctx, verbose: bool):
     
     """
     try:
-        # Get database configuration
         db_config = get_database_config_from_context(ctx)
         
         click.echo("Database Status")
@@ -301,7 +287,6 @@ def db_status(ctx, verbose: bool):
         click.echo(f"  Database: {db_config.database}")
         click.echo(f"  User: {db_config.user}")
         
-        # Create connection manager
         db_manager = DatabaseConnectionManager(db_config)
         db_manager.initialize()
         
@@ -324,7 +309,6 @@ def db_status(ctx, verbose: bool):
         click.echo(f"  Checked out: {pool_status['checked_out']}")
         click.echo(f"  Overflow: {pool_status['overflow']}")
         
-        # Get Alembic configuration
         alembic_config = get_alembic_config()
         
         # Override database URL

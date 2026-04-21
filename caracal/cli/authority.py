@@ -63,17 +63,9 @@ def get_mandate_manager(config):
     from caracal.core.delegation_graph import DelegationGraph
     
     db_manager = get_db_manager(config)
-    
-    # Get session
     session = db_manager.get_session()
-    
-    # Create ledger writer
     ledger_writer = AuthorityLedgerWriter(session)
-    
-    # Create delegation graph
     delegation_graph = DelegationGraph(session)
-    
-    # Create mandate manager
     return MandateManager(session, ledger_writer, delegation_graph=delegation_graph), db_manager
 
 
@@ -93,17 +85,9 @@ def get_authority_evaluator(config):
     from caracal.core.delegation_graph import DelegationGraph
     
     db_manager = get_db_manager(config)
-    
-    # Get session
     session = db_manager.get_session()
-    
-    # Create ledger writer
     ledger_writer = AuthorityLedgerWriter(session)
-    
-    # Create delegation graph
     delegation_graph = DelegationGraph(session)
-    
-    # Create authority evaluator
     return AuthorityEvaluator(session, ledger_writer, delegation_graph=delegation_graph), db_manager
 
 
@@ -195,11 +179,9 @@ def issue(
                     -t "provider:<provider>:resource:<resource>" -v 3600 --format json
     """
     try:
-        # Get CLI context
         cli_ctx = ctx.obj
         config = _get_cli_config(cli_ctx)
         
-        # Parse UUIDs
         try:
             issuer_uuid = UUID(issuer_id)
             subject_uuid = UUID(subject_id)
@@ -218,14 +200,12 @@ def issue(
         
         workspace = get_workspace_from_ctx(ctx)
 
-        # Convert tuples to lists
         providers = [str(p).strip() for p in provider if str(p).strip()]
         selected_tool_ids = [str(value).strip() for value in tool_id if str(value).strip()]
         if not selected_tool_ids:
             click.echo("Error: At least one --tool-id is required", err=True)
             sys.exit(1)
         
-        # Create mandate manager
         mandate_manager, db_manager = get_mandate_manager(config)
         
         try:
@@ -246,7 +226,6 @@ def issue(
                 providers=providers_for_validation,
             )
 
-            # Issue mandate
             mandate = mandate_manager.issue_mandate(
                 issuer_id=issuer_uuid,
                 subject_id=subject_uuid,
@@ -256,7 +235,6 @@ def issue(
                 network_distance=network_distance,
             )
             
-            # Commit transaction
             mandate_manager.db_session.commit()
             
             if format.lower() == 'json':
@@ -374,11 +352,9 @@ def validate(
     
     """
     try:
-        # Get CLI context
         cli_ctx = ctx.obj
         config = _get_cli_config(cli_ctx)
         
-        # Parse UUID
         try:
             mandate_uuid = UUID(mandate_id)
         except ValueError as e:
@@ -393,11 +369,9 @@ def validate(
             providers=[provider] if provider else None,
         )
         
-        # Create authority evaluator
         evaluator, db_manager = get_authority_evaluator(config)
         
         try:
-            # Get mandate from database
             from caracal.db.models import ExecutionMandate
             mandate = db_manager.get_session().query(ExecutionMandate).filter(
                 ExecutionMandate.mandate_id == mandate_uuid
@@ -407,15 +381,12 @@ def validate(
                 click.echo(f"Error: Mandate not found: {mandate_id}", err=True)
                 sys.exit(1)
             
-            # Validate mandate
             decision = evaluator.validate_mandate(
                 mandate=mandate,
                 requested_action=action,
                 requested_resource=resource
             )
             decision_label = 'allowed' if decision.allowed else 'denied'
-            
-            # Commit transaction (to record ledger event)
             evaluator.db_session.commit()
             
             if format.lower() == 'json':
@@ -525,11 +496,9 @@ def revoke(
         caracal authority revoke -m <mandate-id> -r <revoker-id> -e "Reason" --format json
     """
     try:
-        # Get CLI context
         cli_ctx = ctx.obj
         config = _get_cli_config(cli_ctx)
         
-        # Parse UUIDs
         try:
             mandate_uuid = UUID(mandate_id)
             revoker_uuid = UUID(revoker_id)
@@ -537,7 +506,6 @@ def revoke(
             click.echo(f"Error: Invalid UUID format: {e}", err=True)
             sys.exit(1)
         
-        # Create mandate manager
         mandate_manager, db_manager = get_mandate_manager(config)
         
         try:
@@ -549,7 +517,6 @@ def revoke(
                 cascade=cascade
             )
             
-            # Commit transaction
             mandate_manager.db_session.commit()
             
             if format.lower() == 'json':
@@ -635,7 +602,6 @@ def list_mandates(
     
     """
     try:
-        # Get CLI context
         cli_ctx = ctx.obj
         config = _get_cli_config(cli_ctx)
         
@@ -648,7 +614,6 @@ def list_mandates(
                 click.echo(f"Error: Invalid principal ID format: {e}", err=True)
                 sys.exit(1)
         
-        # Create database connection
         from caracal.db.connection import get_db_manager
         from caracal.db.models import ExecutionMandate
         
@@ -841,11 +806,9 @@ def delegate(
     
     """
     try:
-        # Get CLI context
         cli_ctx = ctx.obj
         config = _get_cli_config(cli_ctx)
         
-        # Parse UUIDs
         try:
             source_uuid = UUID(source_mandate_id)
             target_uuid = UUID(target_subject_id)
@@ -873,7 +836,6 @@ def delegate(
             providers=providers or None,
         )
         
-        # Create mandate manager
         mandate_manager, db_manager = get_mandate_manager(config)
         
         try:
@@ -887,7 +849,6 @@ def delegate(
                 context_tags=context_tags_list,
             )
             
-            # Commit transaction
             mandate_manager.db_session.commit()
             
             if format.lower() == 'json':

@@ -61,6 +61,22 @@ def test_register_principal_accepts_explicit_principal_id() -> None:
 
 
 @pytest.mark.unit
+def test_register_principal_rejects_unknown_kind() -> None:
+    session = Mock()
+    registry = PrincipalRegistry(session)
+
+    with pytest.raises(ValueError, match="Unknown principal_kind"):
+        registry.register_principal(
+            name="bad-kind-principal",
+            owner="tenant-x",
+            principal_kind="superagent",
+        )
+
+    session.query.assert_not_called()
+    session.add.assert_not_called()
+
+
+@pytest.mark.unit
 def test_ensure_signing_keys_generates_when_missing() -> None:
     session = Mock()
     principal_id = uuid4()

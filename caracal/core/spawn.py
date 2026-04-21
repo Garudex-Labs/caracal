@@ -135,6 +135,11 @@ class SpawnManager:
                             f"Issuer principal '{issuer_principal_id}' does not exist"
                         )
 
+                    if issuer.principal_kind == PrincipalKind.SERVICE.value:
+                        raise ValueError(
+                            f"Service principal '{issuer_principal_id}' is not authorized to spawn principals"
+                        )
+
                     duplicate = (
                         self.db_session.query(Principal)
                         .filter(Principal.name == principal_name)

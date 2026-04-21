@@ -62,7 +62,6 @@ def create_snapshot(ctx):
     try:
         click.echo("Creating ledger snapshot...")
         
-        # Create database session
         session = get_db_session(ctx.config)
         
         try:
@@ -112,7 +111,6 @@ def list_snapshots(ctx, limit: int):
         caracal snapshot list --limit 20
     """
     try:
-        # Create database session
         session = get_db_session(ctx.config)
         
         try:
@@ -183,7 +181,6 @@ def restore_snapshot(ctx, snapshot_id: str, dry_run: bool):
         if dry_run:
             click.echo("DRY RUN: No changes will be made\n")
         
-        # Create database session
         session = get_db_session(ctx.config)
         
         try:
@@ -261,7 +258,6 @@ def snapshot_status(ctx):
         caracal snapshot status
     """
     try:
-        # Create database session
         session = get_db_session(ctx.config)
         
         try:
@@ -342,7 +338,6 @@ def cleanup_snapshots(ctx, retention_days: int, dry_run: bool):
         
         click.echo(f"Cleaning up snapshots older than {retention_days} days...")
         
-        # Create database session
         session = get_db_session(ctx.config)
         
         try:

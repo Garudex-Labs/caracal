@@ -1679,7 +1679,6 @@ def run_onboarding(
         ),
     ]
     
-    # Run wizard
     wizard = Wizard(
         title="Welcome to Caracal Flow",
         steps=steps,

@@ -115,7 +115,6 @@ def create(
         caracal policy create -p <seefood-principal-id> -v 3600 -r "provider:seefood:resource:classifications" -a "provider:seefood:action:invoke" --format json
     """
     try:
-        # Get CLI context
         cli_ctx = ctx.obj
         
         # Parse UUID
@@ -275,7 +274,6 @@ def list_policies(
         caracal policy list --format json
     """
     try:
-        # Get CLI context
         cli_ctx = ctx.obj
         
         # Parse principal ID if provided

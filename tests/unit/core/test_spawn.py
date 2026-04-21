@@ -91,7 +91,7 @@ class TestSpawnManager:
 
         self.manager._find_existing_spawn = Mock(return_value=None)
 
-        issuer_row = SimpleNamespace(principal_id=issuer_id)
+        issuer_row = SimpleNamespace(principal_id=issuer_id, principal_kind="orchestrator")
         principal_row = SimpleNamespace(
             principal_id=principal_id,
             name="worker-3",
@@ -175,7 +175,7 @@ class TestSpawnManager:
             truncated=True,
         )
 
-        issuer_row = SimpleNamespace(principal_id=issuer_id)
+        issuer_row = SimpleNamespace(principal_id=issuer_id, principal_kind="orchestrator")
         duplicate = None
         principal_query = Mock()
         principal_query.filter.return_value.first.side_effect = [issuer_row, duplicate]
@@ -315,7 +315,7 @@ class TestSpawnManager:
         source_query = Mock()
         source_query.filter.return_value.first.return_value = source_mandate
 
-        issuer_row = SimpleNamespace(principal_id=issuer_id)
+        issuer_row = SimpleNamespace(principal_id=issuer_id, principal_kind="orchestrator")
         duplicate = None
         principal_query = Mock()
         principal_query.filter.return_value.first.side_effect = [issuer_row, duplicate]
@@ -367,7 +367,7 @@ class TestSpawnManager:
         self.manager._find_existing_spawn = Mock(return_value=None)
         self.mock_nonce_manager.issue_nonce.side_effect = RuntimeError("nonce backend unavailable")
 
-        issuer_row = SimpleNamespace(principal_id=issuer_id)
+        issuer_row = SimpleNamespace(principal_id=issuer_id, principal_kind="orchestrator")
         duplicate = None
         principal_query = Mock()
         principal_query.filter.return_value.first.side_effect = [issuer_row, duplicate]
@@ -417,7 +417,7 @@ class TestSpawnManager:
         self.mock_nonce_manager.revoke_nonce = Mock()
         self.mock_principal_ttl_manager.clear_principal = Mock()
 
-        issuer_row = SimpleNamespace(principal_id=issuer_id)
+        issuer_row = SimpleNamespace(principal_id=issuer_id, principal_kind="orchestrator")
         duplicate = None
         principal_query = Mock()
         principal_query.filter.return_value.first.side_effect = [issuer_row, duplicate]
@@ -453,6 +453,31 @@ class TestSpawnManager:
 
         self.mock_nonce_manager.revoke_nonce.assert_called_once_with("nonce-cleanup")
         self.mock_principal_ttl_manager.clear_principal.assert_called_once_with(str(principal_id))
+
+    def test_spawn_rejects_service_principal_as_issuer(self) -> None:
+        issuer_id = uuid4()
+
+        self.manager._find_existing_spawn = Mock(return_value=None)
+
+        service_issuer = SimpleNamespace(principal_id=issuer_id, principal_kind="service")
+        principal_query = Mock()
+        principal_query.filter.return_value.first.return_value = service_issuer
+        self.mock_session.query.return_value = principal_query
+
+        with pytest.raises(ValueError, match="Service principal"):
+            self.manager.spawn_principal(
+                issuer_principal_id=str(issuer_id),
+                principal_name="worker-bad-issuer",
+                principal_kind="worker",
+                owner="ops",
+                resource_scope=["provider:openai:models"],
+                action_scope=["infer"],
+                validity_seconds=300,
+                idempotency_key="spawn-service-issuer",
+            )
+
+        self.mock_session.add.assert_not_called()
+        self.mock_mandate_manager.issue_mandate.assert_not_called()
 
     @staticmethod
     def _build_spawn_result(idempotent_replay: bool):

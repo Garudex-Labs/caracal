@@ -145,6 +145,10 @@ class PrincipalRegistry:
         attestation_status: str = PrincipalAttestationStatus.UNATTESTED.value,
         generate_keys: bool = True,
     ) -> PrincipalIdentity:
+        known_kinds = {k.value for k in PrincipalKind}
+        if principal_kind not in known_kinds:
+            raise ValueError(f"Unknown principal_kind '{principal_kind}'")
+
         if self.session.query(Principal).filter_by(name=name).first():
             raise DuplicatePrincipalNameError(f"Principal with name '{name}' already exists")
 
