@@ -1625,7 +1625,7 @@ class MCPAdapter:
         raw_chain = task_claims.get("task_caveat_chain") or task_claims.get("caveat_chain")
         if raw_chain is None:
             raw_chain = mcp_context.get("task_caveat_chain") or mcp_context.get("caveat_chain")
-        if raw_chain is None:
+        if not raw_chain:
             return {}
         if not isinstance(raw_chain, list):
             raise CaracalError("task_caveat_chain metadata must be a list")
@@ -2285,10 +2285,17 @@ class MCPAdapter:
                     )
                     
                     # 2. Execute the actual tool function
+                    _MCP_INTERNAL_KWARG_KEYS = frozenset({
+                        "task_caveat_chain", "caveat_chain",
+                        "task_caveat_hmac_key", "caveat_hmac_key",
+                        "task_id", "caveat_task_id",
+                        "task_token_claims",
+                    })
+                    func_kwargs = {k: v for k, v in kwargs.items() if k not in _MCP_INTERNAL_KWARG_KEYS}
                     if inspect.iscoroutinefunction(func):
-                        tool_result = await func(*args, **kwargs)
+                        tool_result = await func(*args, **func_kwargs)
                     else:
-                        tool_result = func(*args, **kwargs)
+                        tool_result = func(*args, **func_kwargs)
                     
                     # 3. Emit metering event with enhanced features
                     # Generate correlation_id for tracing
