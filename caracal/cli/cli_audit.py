@@ -156,8 +156,6 @@ def _run_workflow_execution_probe(root_command: click.Group) -> Dict[str, object
     steps: List[Dict[str, object]] = []
 
     with tempfile.TemporaryDirectory() as temp_dir:
-        workspace = Path(temp_dir) / "audit-workspace"
-
         command_steps = [
             {
                 "name": "workspace-create",

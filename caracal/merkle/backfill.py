@@ -153,8 +153,6 @@ class LedgerBackfillManager:
             # Query events in batches, ordered by event_id
             offset = 0
             while offset < total_events:
-                batch_start_time = datetime.utcnow()
-                
                 # Fetch batch of events
                 events = self.db_session.query(LedgerEvent).filter(
                     LedgerEvent.merkle_root_id.is_(None)
@@ -167,9 +165,9 @@ class LedgerBackfillManager:
                 try:
                     batch_id = uuid4()
                     self._progress.current_batch_id = batch_id
-                    
-                    root_id = self._process_batch(events, batch_id)
-                    
+
+                    self._process_batch(events, batch_id)
+
                     processed_batches += 1
                     processed_events += len(events)
                     

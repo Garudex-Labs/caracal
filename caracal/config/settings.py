@@ -360,8 +360,7 @@ def get_default_config() -> CaracalConfig:
     from caracal.flow.workspace import get_workspace
     ws = get_workspace()
     ws.ensure_dirs()
-    home_dir = str(ws.root)
-    
+
     storage = StorageConfig(
         backup_dir=str(ws.backups_dir),
         backup_count=3,

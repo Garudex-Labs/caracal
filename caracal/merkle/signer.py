@@ -247,44 +247,24 @@ class SoftwareSigner(MerkleSigner):
         return signature_record
     
     async def _store_signature(self, signature_record: MerkleRootSignature):
-        """
-        Store signature in merkle_roots table.
-        
-        Args:
-            signature_record: Signature record to store
-        """
+        """Store signature in merkle_roots table."""
         try:
-            # Import here to avoid circular dependency
-            from caracal.db.models import Base
-            
-            # Check if MerkleRoot model exists, if not create it
-            if not hasattr(Base.metadata.tables, 'merkle_roots'):
-                # Model will be created by migration, just log for now
-                logger.warning("merkle_roots table not found, signature not stored in database")
-                return
-            
-            # Create MerkleRoot record
-            # Note: This assumes the MerkleRoot model exists in db.models
-            # For now, we'll just log since the table might not exist yet
-            logger.debug(f"Storing signature for root {signature_record.root_id} in database")
-            
-            # TODO: Implement database storage once MerkleRoot model is added
-            # merkle_root = MerkleRoot(
-            #     root_id=signature_record.root_id,
-            #     batch_id=signature_record.batch_id,
-            #     merkle_root=signature_record.merkle_root,
-            #     signature=signature_record.signature,
-            #     event_count=signature_record.event_count,
-            #     first_event_id=signature_record.first_event_id,
-            #     last_event_id=signature_record.last_event_id,
-            #     created_at=signature_record.signed_at,
-            # )
-            # self.db_session.add(merkle_root)
-            # await self.db_session.commit()
-            
+            from caracal.db.models import MerkleRoot
+
+            record = MerkleRoot(
+                root_id=signature_record.root_id,
+                batch_id=signature_record.batch_id,
+                merkle_root=signature_record.merkle_root.hex(),
+                signature=signature_record.signature.hex(),
+                event_count=signature_record.event_count,
+                first_event_id=signature_record.first_event_id,
+                last_event_id=signature_record.last_event_id,
+                created_at=signature_record.signed_at,
+            )
+            self.db_session.add(record)
+            self.db_session.commit()
         except Exception as e:
             logger.error(f"Failed to store signature in database: {e}", exc_info=True)
-            # Don't raise - signature is still valid even if storage fails
     
     async def verify_signature(self, root: bytes, signature: bytes) -> bool:
         """

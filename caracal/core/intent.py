@@ -284,9 +284,6 @@ class IntentHandler:
                 "This will be implemented when MandateManager is available."
             )
         
-        # Generate intent hash for binding
-        intent_hash = intent.generate_hash()
-        
         # Create mandate with scope limited to intent
         # The resource scope contains only the specific resource from the intent
         # The action scope contains only the specific action from the intent

@@ -627,8 +627,7 @@ def _step_workspace(wizard: Wizard) -> Any:
 def _step_config(wizard: Wizard) -> Any:
     """Step 1: Configuration setup."""
     console = wizard.console
-    prompt = FlowPrompt(console)
-    
+
     from caracal.flow.workspace import get_workspace
     
     # If workspace was selected/created in previous step, use that
@@ -1218,8 +1217,6 @@ def _step_database(wizard: Wizard) -> Any:
 
 def _show_connection_error_details(console: Console, error: str, config: dict) -> None:
     """Show detailed, actionable error messages based on the connection error."""
-    error_lower = error.lower()
-    
     console.print(f"  [{Colors.DIM}]Error: {error}[/]")
     console.print()
 

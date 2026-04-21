@@ -91,16 +91,6 @@ class RedisMandateCache:
         """
         mandate_dict = json.loads(mandate_json)
 
-        # Backward compatibility: older cache entries stored metadata under "metadata".
-        if "mandate_metadata" not in mandate_dict and "metadata" in mandate_dict:
-            mandate_dict["mandate_metadata"] = mandate_dict.pop("metadata")
-        else:
-            mandate_dict.pop("metadata", None)
-
-        # Backward compatibility: older cache entries may not include delegation fields.
-        mandate_dict.setdefault("delegation_type", "directed")
-        mandate_dict.setdefault("context_tags", [])
-        
         # Convert ISO format strings back to datetime objects
         mandate_dict["valid_from"] = datetime.fromisoformat(mandate_dict["valid_from"])
         mandate_dict["valid_until"] = datetime.fromisoformat(mandate_dict["valid_until"])

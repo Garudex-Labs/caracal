@@ -193,7 +193,6 @@ def _set_edition(console: Console, state: FlowState) -> None:
     
     try:
         edition_adapter = get_deployment_edition_adapter()
-        current_edition_is_enterprise = edition_adapter.uses_gateway_execution()
 
         console.print(f"  [{Colors.INFO}]Current edition:[/] {edition_adapter.display_name()} [dim](auto)[/]")
         console.print()

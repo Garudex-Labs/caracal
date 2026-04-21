@@ -1272,10 +1272,8 @@ async def main(config_path: Optional[str] = None, listen_address: Optional[str] 
     session = db_manager.get_session()
     
     # Initialize core components
-    principal_registry = PrincipalRegistry(session)
     ledger_writer = LedgerWriter(session)
-    authority_ledger_writer = AuthorityLedgerWriter(session)
-    
+
     # Initialize authority evaluator
     authority_evaluator = AuthorityEvaluator(
         db_session=session,

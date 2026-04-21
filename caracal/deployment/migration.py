@@ -1182,27 +1182,6 @@ class MigrationManager:
             from_edition=from_edition.value,
             to_edition=to_edition.value
         )
-        
-        # In a real implementation, this would:
-        # 1. Identify compatible settings between editions
-        # 2. Migrate common settings (workspace configurations, etc.)
-        # 3. Handle edition-specific settings:
-        #    - For Open Source -> Enterprise: Remove broker-specific settings
-        #    - For Enterprise -> Open Source: Remove gateway-specific settings
-        # 4. Prompt for any required edition-specific settings
-        # For now, we just log the operation
-        
-        # Example settings that would be migrated:
-        # - Workspace configurations (names, metadata)
-        # - Sync preferences (if applicable)
-        # - Logging configurations
-        # - General application settings
-        
-        # Example settings that would NOT be migrated:
-        # - Provider-specific configurations (handled by API key migration)
-        # - Gateway URLs and tokens (edition-specific)
-        # - Broker circuit breaker settings (edition-specific)
-        
         logger.info("settings_migration_completed")
     
     def _cleanup_old_backups(self) -> None:

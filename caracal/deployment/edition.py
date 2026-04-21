@@ -12,7 +12,6 @@ import os
 import toml
 from datetime import datetime
 from enum import Enum
-from pathlib import Path
 from typing import Optional, Union
 import structlog
 

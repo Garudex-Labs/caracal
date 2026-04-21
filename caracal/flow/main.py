@@ -60,7 +60,7 @@ def main(reset: bool, compact: bool, no_onboarding: bool) -> None:
         from rich.console import Console
         
         from caracal.flow.app import FlowApp
-        from caracal.flow.state import StatePersistence, FlowState
+        from caracal.flow.state import StatePersistence
         from caracal.flow.theme import FLOW_THEME
         
         # Handle reset flag
