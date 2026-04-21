@@ -64,7 +64,7 @@ pytest tests/test_mock_system.py::TestMockConfigLoader::test_load_scenario_confi
 ## Test Requirements
 
 The tests require:
-- pytest >= 7.0.0
+- pytest >= 9.0.3
 - pytest-asyncio >= 0.21.0
 - pytest-cov >= 4.0.0 (for coverage)
 - jsonschema >= 4.0.0
