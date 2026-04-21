@@ -107,7 +107,7 @@ class TestFinanceTools:
         self.mock_client.call_tool.assert_called_once()
         call_args = self.mock_client.call_tool.call_args
         assert call_args.kwargs["tool_id"] == "demo:employee:mock:finance:budget"
-        assert call_args.kwargs["principal_id"] == "mandate-123"
+        assert "principal_id" not in call_args.kwargs
         assert call_args.kwargs["tool_args"]["department"] == "Engineering"
     
     @pytest.mark.asyncio
@@ -694,16 +694,15 @@ class TestToolCaracalIntegration:
         self.mock_client.call_tool = AsyncMock()
     
     @pytest.mark.asyncio
-    async def test_principal_id_required(self):
-        """Test that all tool calls require principal_id."""
+    async def test_principal_id_not_forwarded(self):
+        """Test that agent identity is not caller-forwarded into SDK tool kwargs."""
         tools = FinanceTools(self.mock_client, mode="mock")
         self.mock_client.call_tool.return_value = {"data": "test"}
-        
+
         await tools.get_budget_data(principal_id="mandate-123")
-        
+
         call_args = self.mock_client.call_tool.call_args
-        assert "principal_id" in call_args.kwargs
-        assert call_args.kwargs["principal_id"] == "mandate-123"
+        assert "principal_id" not in call_args.kwargs
     
     @pytest.mark.asyncio
     async def test_tool_id_format(self):

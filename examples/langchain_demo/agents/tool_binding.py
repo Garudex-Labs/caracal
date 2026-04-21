@@ -6,6 +6,7 @@ agents to discover and call tools through Caracal's governed execution pipeline.
 """
 
 import logging
+import inspect
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional
 from uuid import uuid4
@@ -58,7 +59,7 @@ class ToolCall:
         call_id: Unique identifier for this tool call
         tool_id: ID of the tool that was called
         agent_id: ID of the agent that made the call
-        principal_id: Mandate ID used for the call
+        principal_id: Principal identity associated with the agent making the call
         tool_args: Arguments passed to the tool
         result: Result returned by the tool
         status: Status of the call (pending, success, error)
@@ -126,7 +127,7 @@ class ToolBinding:
         
         Args:
             agent_id: ID of the agent
-            principal_id: Mandate ID for the agent
+            principal_id: Principal identity for the agent
             caracal_client: Caracal client for governed tool calls
             available_tools: List of tools available to this agent
         """
@@ -253,6 +254,7 @@ class ToolBinding:
             call_id=call_id,
             tool_id=tool_id,
             agent_id=self.agent_id,
+            principal_id=self.principal_id,
             tool_args=tool_args,
             status="pending",
             timestamp=time.time(),
@@ -267,10 +269,20 @@ class ToolBinding:
             
             # CARACAL_MARKER: TOOL_CALL
             # This tool call goes through Caracal's authority enforcement pipeline
+            call_kwargs = {
+                "tool_id": tool_id,
+                "tool_args": tool_args,
+                "correlation_id": call_id,
+            }
+            try:
+                signature = inspect.signature(self.caracal_client.call_tool)
+            except (TypeError, ValueError):
+                signature = None
+            if signature and "principal_id" in signature.parameters:
+                call_kwargs["principal_id"] = self.principal_id
+
             result = await self.caracal_client.call_tool(
-                tool_id=tool_id,
-                tool_args=tool_args,
-                correlation_id=call_id,
+                **call_kwargs,
             )
             
             end_time = time.time()

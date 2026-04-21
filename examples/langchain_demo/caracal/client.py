@@ -17,6 +17,14 @@ from dataclasses import dataclass
 from typing import Any, Optional
 
 
+def _normalize_api_key(api_key: str) -> str:
+    """Accept raw JWT tokens and tolerate accidental ``Bearer `` prefixes."""
+    normalized = str(api_key or "").strip()
+    if normalized.lower().startswith("bearer "):
+        return normalized[7:].strip()
+    return normalized
+
+
 @dataclass(frozen=True)
 class GovernedClientConfig:
     """Configuration for the Caracal SDK client.
@@ -59,7 +67,7 @@ class GovernedToolClient:
         from caracal_sdk.client import CaracalClient
 
         self._config = config
-        self._client = CaracalClient(api_key=config.api_key, base_url=config.base_url)
+        self._client = CaracalClient(api_key=_normalize_api_key(config.api_key), base_url=config.base_url)
 
     async def call_tool(
         self,

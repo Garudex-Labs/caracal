@@ -2,15 +2,19 @@
 
 This demo uses one governed execution path in both modes:
 
-- Caracal SDK tool calls with explicit `mandate_id`
+- Caracal SDK tool calls with token-scoped caller identity
 - Caracal MCP/runtime enforcement
 - provider -> tool -> runtime routing from your registered workspace config
-- delegation + revocation evidence driven by real mandates
+- configured delegation evidence driven by real mandates
 
 The mode switch does not bypass Caracal. It only switches which provider/tool set is used:
 
 - `mock`: deterministic external responses and placeholder credentials
 - `real`: live external provider/API calls
+
+The current Python SDK is execution-only. This demo reads configured mandate IDs
+for traceability and operator setup, but it does not send caller-selected
+`principal_id` or `mandate_id` fields on SDK tool calls.
 
 ## 1. Install dependencies
 
