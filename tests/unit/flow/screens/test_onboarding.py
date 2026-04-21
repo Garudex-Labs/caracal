@@ -56,7 +56,9 @@ def test_initialize_caracal_dir_uses_vault_merkle_defaults(tmp_path) -> None:
     assert "private_key_path" not in cfg["merkle"]
 
 
-def test_normalize_workspace_merkle_hardcut_config_migrates_software_backend(tmp_path) -> None:
+def test_normalize_workspace_merkle_hardcut_config_migrates_software_backend(tmp_path, monkeypatch) -> None:
+    monkeypatch.delenv("CARACAL_VAULT_MERKLE_SIGNING_KEY_REF", raising=False)
+    monkeypatch.delenv("CARACAL_VAULT_MERKLE_PUBLIC_KEY_REF", raising=False)
     workspace = tmp_path / "legacy-ws"
     workspace.mkdir(parents=True)
     cfg_path = workspace / "config.yaml"

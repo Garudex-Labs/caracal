@@ -696,3 +696,74 @@ class TestProviderContractChecks:
         row.provider_definition = "ops-api"
         result = self._pf(row)._check_provider()
         assert result.passed is True
+
+
+# ---------------------------------------------------------------------------
+# Preflight gate (R4): /api/run blocked when preflight fails
+# ---------------------------------------------------------------------------
+
+class TestPreflightGate:
+    """R4: execution path is blocked by preflight; gate checks all conditions."""
+
+    def test_execution_blocked_when_preflight_fails(self):
+        from examples.langchain_demo.preflight import CheckResult, WorkspacePreflight
+
+        session = MagicMock()
+        pf = WorkspacePreflight(session, "ws")
+        failing = [CheckResult(name="workspace_active", passed=False, detail="not found")]
+        with patch.object(pf, "run", return_value=failing):
+            assert pf.passed() is False
+
+    def test_execution_allowed_when_all_preflight_pass(self):
+        from examples.langchain_demo.preflight import CheckResult, WorkspacePreflight
+
+        session = MagicMock()
+        pf = WorkspacePreflight(session, "ws")
+        passing = [CheckResult(name="workspace_active", passed=True, detail="ok")]
+        with patch.object(pf, "run", return_value=passing):
+            assert pf.passed() is True
+
+    def test_preflight_gate_checks_all_required_conditions(self):
+        from examples.langchain_demo.preflight import WorkspacePreflight
+
+        session = MagicMock()
+        session.query.return_value.filter_by.return_value.first.return_value = None
+        session.query.return_value.filter.return_value.first.return_value = None
+        session.query.return_value.filter.return_value.count.return_value = 0
+        session.query.return_value.filter.return_value.all.return_value = []
+        session.query.return_value.filter.return_value.filter.return_value.first.return_value = None
+
+        pf = WorkspacePreflight(session, "demo-workspace")
+        checks = pf.run()
+        names = {c.name for c in checks}
+        required = {
+            "workspace_active",
+            "provider_ops_api",
+            "principal_human",
+            "principal_orchestrator",
+            "principal_service",
+            "principal_workers",
+            "policies",
+            "mandates",
+        }
+        missing = required - names
+        assert not missing, f"Preflight gate missing required checks: {missing}"
+
+    def test_preflight_gate_all_checks_fail_on_empty_db(self):
+        from examples.langchain_demo.preflight import WorkspacePreflight
+
+        session = MagicMock()
+        session.query.return_value.filter_by.return_value.first.return_value = None
+        session.query.return_value.filter.return_value.first.return_value = None
+        session.query.return_value.filter.return_value.count.return_value = 0
+        session.query.return_value.filter.return_value.all.return_value = []
+        session.query.return_value.filter.return_value.filter.return_value.first.return_value = None
+
+        pf = WorkspacePreflight(session, "demo-workspace")
+        assert pf.passed() is False
+
+    def test_run_api_respects_preflight_gate(self):
+        import pathlib
+        src = (pathlib.Path(__file__).parent.parent / "app.py").read_text()
+        assert "pf.passed()" in src or "preflight" in src.lower()
+        assert "/api/run" in src

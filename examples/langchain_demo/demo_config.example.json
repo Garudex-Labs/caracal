@@ -1,63 +1,13 @@
 {
-  "_config_version": "3.0",
-  "_comment": "Copy this file to demo_config.json and set CARACAL_API_KEY in your environment.",
-  "caracal": {
-    "base_url": "http://127.0.0.1:8080",
-    "api_key_env": "CARACAL_API_KEY",
-    "organization_id": null,
-    "workspace_id": "langchain-demo",
-    "project_id": null
+  "_config_version": "4.0",
+  "_comment": "Copy this file to demo_config.json and set provider credentials in your environment. Most settings are controlled via environment variables; see CONFIG_SCHEMA.md.",
+  "workspace": {
+    "name": "demo-workspace"
   },
-  "modes": {
-    "mock": {
-      "principal_ids": {
-        "orchestrator": "REPLACE_WITH_ORCHESTRATOR_PRINCIPAL_ID",
-        "finance": "REPLACE_WITH_FINANCE_PRINCIPAL_ID",
-        "ops": "REPLACE_WITH_OPS_PRINCIPAL_ID"
-      }
-    },
-    "real": {
-      "principal_ids": {
-        "orchestrator": "REPLACE_WITH_ORCHESTRATOR_PRINCIPAL_ID",
-        "finance": "REPLACE_WITH_FINANCE_PRINCIPAL_ID",
-        "ops": "REPLACE_WITH_OPS_PRINCIPAL_ID"
-      }
-    }
-  },
-  "scenario": {
-    "default_scenario": "default",
-    "scenarios_path": null,
-    "auto_load": true
-  },
-  "ui": {
-    "host": "127.0.0.1",
-    "port": 8000,
-    "enable_websocket": true,
-    "websocket_ping_interval": 30,
-    "max_message_history": 1000,
-    "enable_logs_panel": true,
-    "enable_tool_panel": true,
-    "enable_caracal_panel": true
-  },
-  "logging": {
-    "level": "INFO",
-    "format": "detailed",
-    "log_to_file": false,
-    "log_file_path": null,
-    "max_file_size_mb": 10,
-    "backup_count": 3
-  },
-  "mock_system": {
-    "enabled": true,
-    "config_path": null,
-    "cache_responses": true,
-    "simulate_delays": true,
-    "default_llm_provider": "openai"
-  },
-  "agent": {
-    "max_iterations": 10,
-    "timeout_seconds": 300,
-    "enable_sub_agents": true,
-    "max_delegation_depth": 3
+  "provider": {
+    "name": "ops-api",
+    "base_url": "https://ops-api.example.com",
+    "credential_env": "OPS_API_TOKEN"
   }
 }
+

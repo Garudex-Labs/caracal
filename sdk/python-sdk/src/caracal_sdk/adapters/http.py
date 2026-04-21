@@ -26,6 +26,8 @@ class HttpAdapter(BaseAdapter):
         api_key: Optional API key added as ``Authorization: Bearer`` header.
         timeout: Request timeout in seconds.
         max_retries: Maximum retry attempts on transient failures.
+        transport: Optional httpx transport override (e.g. ``MockTransport`` for
+            intercepting outbound responses beneath broker request construction).
     """
 
     def __init__(
@@ -34,11 +36,13 @@ class HttpAdapter(BaseAdapter):
         api_key: Optional[str] = None,
         timeout: int = 30,
         max_retries: int = 3,
+        transport: Optional[httpx.AsyncBaseTransport] = None,
     ) -> None:
         self._base_url = base_url.rstrip("/")
         self._api_key = api_key
         self._timeout = timeout
         self._max_retries = max_retries
+        self._transport = transport
         self._client: Optional[httpx.AsyncClient] = None
         self._connected = False
 
@@ -47,11 +51,14 @@ class HttpAdapter(BaseAdapter):
             headers = {}
             if self._api_key:
                 headers["Authorization"] = f"Bearer {self._api_key}"
-            self._client = httpx.AsyncClient(
+            kwargs: dict = dict(
                 base_url=self._base_url,
                 headers=headers,
                 timeout=self._timeout,
             )
+            if self._transport is not None:
+                kwargs["transport"] = self._transport
+            self._client = httpx.AsyncClient(**kwargs)
             self._connected = True
         return self._client
 

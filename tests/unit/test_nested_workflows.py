@@ -20,7 +20,7 @@ class TestWorkerLifecycleStates:
     def test_worker_is_non_reactivating_once_deactivated(self) -> None:
         from caracal.core.lifecycle import PrincipalLifecycleStateMachine
 
-        decision = PrincipalLifecycleStateMachine.validate_transition(
+        decision = PrincipalLifecycleStateMachine().validate_transition(
             principal_kind="worker",
             from_status="deactivated",
             to_status="active",
@@ -31,7 +31,7 @@ class TestWorkerLifecycleStates:
     def test_orchestrator_is_non_reactivating_once_deactivated(self) -> None:
         from caracal.core.lifecycle import PrincipalLifecycleStateMachine
 
-        decision = PrincipalLifecycleStateMachine.validate_transition(
+        decision = PrincipalLifecycleStateMachine().validate_transition(
             principal_kind="orchestrator",
             from_status="deactivated",
             to_status="active",
@@ -42,7 +42,7 @@ class TestWorkerLifecycleStates:
     def test_human_can_suspend_and_reactivate(self) -> None:
         from caracal.core.lifecycle import PrincipalLifecycleStateMachine
 
-        suspend = PrincipalLifecycleStateMachine.validate_transition(
+        suspend = PrincipalLifecycleStateMachine().validate_transition(
             principal_kind="human",
             from_status="active",
             to_status="suspended",
@@ -50,7 +50,7 @@ class TestWorkerLifecycleStates:
         )
         assert suspend.allowed is True
 
-        reactivate = PrincipalLifecycleStateMachine.validate_transition(
+        reactivate = PrincipalLifecycleStateMachine().validate_transition(
             principal_kind="human",
             from_status="suspended",
             to_status="active",
@@ -117,13 +117,13 @@ class TestDelegationDirectionRules:
 
         if should_allow:
             graph.validate_delegation_direction(
-                source_principal_kind=source,
-                target_principal_kind=target,
+                source_type=source,
+                target_type=target,
             )
         else:
             with pytest.raises(Exception):
                 graph.validate_delegation_direction(
-                    source_principal_kind=source,
-                    target_principal_kind=target,
+                    source_type=source,
+                    target_type=target,
                 )
 

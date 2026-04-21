@@ -154,11 +154,6 @@ def build_app() -> FastAPI:
             result = await runtime.execute(config)
         return JSONResponse(_serialize_run_result(result))
 
-    @app.get("/api/traces", tags=["demo"])
-    async def api_traces() -> JSONResponse:
-        events = _trace_store.recent(200)
-        return JSONResponse([dataclasses.asdict(e) for e in events])
-
     @app.get("/api/workspace", tags=["demo"])
     async def api_workspace() -> JSONResponse:
         with db_manager.session_scope() as session:
@@ -318,7 +313,7 @@ def build_app() -> FastAPI:
         return JSONResponse(out)
 
     @app.get("/api/authority_ledger", tags=["demo"])
-    async def api_authority_ledger() -> JSONResponse:
+    async def api_authority_ledger(correlation_id: Optional[str] = None) -> JSONResponse:
         from caracal.core.authority_ledger import AuthorityLedgerQuery
 
         with db_manager.session_scope() as session:
@@ -326,6 +321,9 @@ def build_app() -> FastAPI:
             events = q.get_events(limit=100)
             out = []
             for e in events:
+                cid = str(e.correlation_id or "")
+                if correlation_id and correlation_id not in cid:
+                    continue
                 out.append({
                     "event_id": e.event_id,
                     "event_type": str(e.event_type),
@@ -336,9 +334,60 @@ def build_app() -> FastAPI:
                     "denial_reason": str(e.denial_reason or ""),
                     "requested_action": str(e.requested_action or ""),
                     "requested_resource": str(e.requested_resource or ""),
-                    "correlation_id": str(e.correlation_id or ""),
+                    "correlation_id": cid,
                 })
         return JSONResponse(out)
+
+    @app.get("/api/traces", tags=["demo"])
+    async def api_traces_filtered(
+        correlation_id: Optional[str] = None,
+        limit: int = 200,
+    ) -> JSONResponse:
+        import dataclasses as _dc
+
+        events = _trace_store.recent(limit)
+        if correlation_id:
+            events = [e for e in events if correlation_id in (e.correlation_id or "")]
+        return JSONResponse([_dc.asdict(e) for e in events])
+
+    @app.get("/api/ledger", tags=["demo"])
+    async def api_ledger(limit: int = 100) -> JSONResponse:
+        from caracal.core.ledger import LedgerReader
+
+        with db_manager.session_scope() as session:
+            reader = LedgerReader(session)
+            events = reader.get_events(limit=limit)
+            out = []
+            for e in events:
+                out.append({
+                    "event_id": str(e.event_id),
+                    "event_type": str(e.event_type or ""),
+                    "principal_id": str(e.principal_id) if e.principal_id else None,
+                    "mandate_id": str(e.mandate_id) if getattr(e, "mandate_id", None) else None,
+                    "amount": str(e.amount) if getattr(e, "amount", None) is not None else None,
+                    "resource": str(e.resource or "") if getattr(e, "resource", None) else None,
+                    "timestamp": e.timestamp.isoformat() if getattr(e, "timestamp", None) else None,
+                    "correlation_id": str(e.correlation_id or "") if getattr(e, "correlation_id", None) else None,
+                })
+        return JSONResponse(out)
+
+    @app.get("/api/audit", tags=["demo"])
+    async def api_audit(
+        correlation_id: Optional[str] = None,
+        event_type: Optional[str] = None,
+        limit: int = 100,
+    ) -> JSONResponse:
+        import json as _json
+        from caracal.core.audit import AuditLogManager
+
+        with db_manager.session_scope() as session:
+            mgr = AuditLogManager(session)
+            raw = mgr.export_json(
+                correlation_id=correlation_id,
+                event_type=event_type,
+                limit=limit,
+            )
+        return JSONResponse(_json.loads(raw))
 
     return app
 
@@ -519,7 +568,19 @@ _CARACAL_HTML = """<!doctype html>
 </div>
 
 <div class="card">
+  <h2>Usage Ledger (metering) <button class="refresh-btn" onclick="loadUsageLedger()">Refresh</button></h2>
+  <div id="usage-ledger-content">Loading&hellip;</div>
+</div>
+
+<div class="card">
+  <h2>Audit Log <button class="refresh-btn" onclick="loadAudit()">Refresh</button></h2>
+  <div style="margin-bottom:8px"><input id="audit-corr" placeholder="Filter by correlation_id" style="padding:4px 8px;border:1px solid #ccc;border-radius:4px;font-size:13px;width:300px"/> <button onclick="loadAudit()" style="padding:4px 10px;background:#4361ee;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:13px">Filter</button></div>
+  <div id="audit-content">Loading&hellip;</div>
+</div>
+
+<div class="card">
   <h2>Trace Events <button class="refresh-btn" onclick="loadTraces()">Refresh</button></h2>
+  <div style="margin-bottom:8px"><input id="trace-corr" placeholder="Filter by correlation_id" style="padding:4px 8px;border:1px solid #ccc;border-radius:4px;font-size:13px;width:300px"/> <button onclick="loadTraces()" style="padding:4px 10px;background:#4361ee;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:13px">Filter</button></div>
   <div id="traces-content">Loading&hellip;</div>
 </div>
 
@@ -568,13 +629,29 @@ async function loadLedger(){
   const rows=items.slice(0,50).map(function(e){var ts=e.timestamp?e.timestamp.replace('T',' ').slice(0,19):'';return '<tr><td>'+ts+'</td><td>'+badge(e.event_type==='validated'?'badge-ok':e.event_type==='denied'?'badge-deny':'badge-warn',e.event_type)+'</td><td style="font-size:11px">'+e.principal_id.slice(0,12)+'&hellip;</td><td>'+(e.decision||'')+'</td><td style="font-size:11px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="'+(e.denial_reason||'')+'">'+(e.denial_reason||'')+'</td><td style="font-size:11px">'+(e.requested_action||'')+'</td><td style="font-size:11px">'+(e.requested_resource||'')+'</td></tr>';}).join('');
   document.getElementById('ledger-content').innerHTML='<table><thead><tr><th>Timestamp</th><th>Event</th><th>Principal</th><th>Decision</th><th>Denial Reason</th><th>Action</th><th>Resource</th></tr></thead><tbody>'+rows+'</tbody></table>';
 }
+async function loadUsageLedger(){
+  try{const r=await fetch('/api/ledger');const items=await r.json();
+  if(!items.length){document.getElementById('usage-ledger-content').innerHTML='<p class="empty">No usage ledger events yet.</p>';return;}
+  const rows=items.slice(0,50).map(function(e){return '<tr><td style="font-size:11px">'+(e.timestamp||'')+'</td><td>'+(e.event_type||'')+'</td><td style="font-size:11px">'+(e.principal_id?e.principal_id.slice(0,12)+'&hellip;':'')+'</td><td>'+(e.amount||'')+'</td><td style="font-size:11px">'+(e.resource||'')+'</td><td style="font-size:11px">'+(e.correlation_id||'')+'</td></tr>';}).join('');
+  document.getElementById('usage-ledger-content').innerHTML='<table><thead><tr><th>Timestamp</th><th>Event Type</th><th>Principal</th><th>Amount</th><th>Resource</th><th>Correlation</th></tr></thead><tbody>'+rows+'</tbody></table>';
+  }catch(ex){document.getElementById('usage-ledger-content').innerHTML='<p class="empty">No usage ledger data.</p>';}}
+async function loadAudit(){
+  var corrId=document.getElementById('audit-corr')?document.getElementById('audit-corr').value:'';
+  var url='/api/audit'+(corrId?'?correlation_id='+encodeURIComponent(corrId):'');
+  try{const r=await fetch(url);const items=await r.json();
+  if(!items.length){document.getElementById('audit-content').innerHTML='<p class="empty">No audit log entries.</p>';return;}
+  const rows=items.slice(0,50).map(function(e){return '<tr><td style="font-size:11px">'+(e.event_timestamp||'')+'</td><td>'+(e.event_type||'')+'</td><td style="font-size:11px">'+(e.principal_id?e.principal_id.slice(0,12)+'&hellip;':'')+'</td><td style="font-size:11px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="'+(e.correlation_id||'')+'">'+(e.correlation_id||'')+'</td></tr>';}).join('');
+  document.getElementById('audit-content').innerHTML='<table><thead><tr><th>Timestamp</th><th>Event Type</th><th>Principal</th><th>Correlation ID</th></tr></thead><tbody>'+rows+'</tbody></table>';
+  }catch(ex){document.getElementById('audit-content').innerHTML='<p class="empty">No audit data available.</p>';}}
 async function loadTraces(){
-  const r=await fetch('/api/traces');const evts=await r.json();
+  var corrId=document.getElementById('trace-corr')?document.getElementById('trace-corr').value:'';
+  var url='/api/traces'+(corrId?'?correlation_id='+encodeURIComponent(corrId):'');
+  const r=await fetch(url);const evts=await r.json();
   if(!evts.length){document.getElementById('traces-content').innerHTML='<p class="empty">No trace events yet.</p>';return;}
   const rows=evts.slice(-50).reverse().map(function(e){var cls=e.result_type==='allowed'?'badge-ok':e.result_type==='enforcement_deny'?'badge-deny':e.result_type==='provider_error'?'badge-err':'badge-warn';return '<tr><td>'+(e.timestamp||'')+'</td><td>'+(e.run_id?e.run_id.slice(0,8):'')+'</td><td>'+(e.principal_kind||'')+'</td><td>'+(e.tool_id||'')+'</td><td>'+badge(cls,e.result_type||'')+'</td><td>'+(e.lifecycle_event||'')+'</td><td>'+(e.latency_ms?e.latency_ms.toFixed(1)+'ms':'')+'</td><td style="font-size:11px;max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="'+(e.detail||'')+'">'+(e.detail||'')+'</td></tr>';}).join('');
   document.getElementById('traces-content').innerHTML='<table><thead><tr><th>Time</th><th>Run</th><th>Kind</th><th>Tool</th><th>Result</th><th>Event</th><th>Latency</th><th>Detail</th></tr></thead><tbody>'+rows+'</tbody></table>';
 }
-loadPreflight();loadPrincipals();loadTools();loadMandates();loadDelegation();loadLedger();loadTraces();
+loadPreflight();loadPrincipals();loadTools();loadMandates();loadDelegation();loadLedger();loadUsageLedger();loadAudit();loadTraces();
 </script>
 </body>
 </html>"""
