@@ -252,10 +252,8 @@ def query(
         caracal ledger query --format json
     """
     try:
-        # Get CLI context
         cli_ctx = ctx.obj
         
-        # Parse date/time filters
         start_time = None
         end_time = None
         
@@ -281,10 +279,8 @@ def query(
             )
             sys.exit(1)
         
-        # Create ledger query
         ledger_query = get_ledger_query(cli_ctx.config)
         
-        # Query events
         events = ledger_query.get_events(
             principal_id=principal_id,
             start_time=start_time,
@@ -427,10 +423,8 @@ def summary(
         caracal ledger summary --format json
     """
     try:
-        # Get CLI context
         cli_ctx = ctx.obj
         
-        # Parse date/time filters
         start_time = None
         end_time = None
         
@@ -456,10 +450,8 @@ def summary(
             )
             sys.exit(1)
         
-        # Create ledger query
         ledger_query = get_ledger_query(cli_ctx.config)
         
-        # Get principal registry if needed for directed features
         principal_registry = None
         if aggregate_targetren or breakdown:
             principal_registry = get_principal_registry(cli_ctx.config)
@@ -771,7 +763,6 @@ def delegation_path(
         caracal ledger delegation-path -a 550e8400-e29b-41d4-a716-446655440000 --format json
     """
     try:
-        # Get CLI context
         cli_ctx = ctx.obj
         
         from caracal.db.connection import get_db_manager

@@ -447,7 +447,6 @@ def load_config(
             logger.info(f"Configuration file not found at {config_path}, using defaults")
         return get_default_config()
     
-    # Load YAML file
     try:
         with open(config_path, 'r') as f:
             config_data = yaml.safe_load(f)

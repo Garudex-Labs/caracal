@@ -190,7 +190,6 @@ def generate(ctx, source_id: str, target_id: str,
             -o api_call -o mcp_tool
     """
     try:
-        # Get CLI context
         config = _get_cli_config(ctx.obj)
         
         # Build PostgreSQL-backed principal adapter + delegation manager
@@ -285,7 +284,6 @@ def list_delegations(ctx, principal_id: str, format: str):
         caracal delegation list --format json
     """
     try:
-        # Get CLI context
         config = _get_cli_config(ctx.obj)
 
         from caracal.db.models import DelegationEdgeModel
@@ -399,7 +397,6 @@ def validate(ctx, token: str):
         caracal delegation validate --token eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCJ9...
     """
     try:
-        # Get CLI context
         config = _get_cli_config(ctx.obj)
         
         # Create PostgreSQL-backed delegation manager
@@ -459,7 +456,6 @@ def revoke(ctx, policy_id: str, confirm: bool):
         caracal delegation revoke -p <anton-policy-id> --confirm
     """
     try:
-        # Get CLI context
         config = _get_cli_config(ctx.obj)
 
         try:

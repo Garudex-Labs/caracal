@@ -722,7 +722,6 @@ class MandateManager:
                 context_tags=context_tags,
             )
             
-            # Create delegation edge in graph
             graph = self.delegation_graph or DelegationGraph(self.db_session)
             graph.add_edge(
                 source_mandate_id=source_mandate_id,

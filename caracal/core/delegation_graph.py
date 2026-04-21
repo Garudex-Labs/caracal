@@ -330,14 +330,12 @@ class DelegationGraph:
         """
         logger.info(f"Adding delegation edge: {source_mandate_id} → {target_mandate_id}")
 
-        # Get source mandate
         source_mandate = self._get_mandate(source_mandate_id)
         if not source_mandate:
             raise ValueError(f"Source mandate {source_mandate_id} not found")
         if not self._is_mandate_active(source_mandate):
             raise ValueError(f"Source mandate {source_mandate_id} is not active")
 
-        # Get target mandate
         target_mandate = self._get_mandate(target_mandate_id)
         if not target_mandate:
             raise ValueError(f"Target mandate {target_mandate_id} not found")
@@ -373,7 +371,6 @@ class DelegationGraph:
                 f"adding {source_mandate_id} -> {target_mandate_id} creates a cycle"
             )
 
-        # Get principal kinds
         source_principal = self.db_session.query(Principal).filter(
             Principal.principal_id == source_mandate.subject_id
         ).first()
@@ -396,7 +393,6 @@ class DelegationGraph:
             target_mandate=target_mandate,
         )
 
-        # Check for duplicate active edge
         existing_edge = self.db_session.query(DelegationEdgeModel).filter(
             DelegationEdgeModel.source_mandate_id == source_mandate_id,
             DelegationEdgeModel.target_mandate_id == target_mandate_id,
@@ -411,7 +407,6 @@ class DelegationGraph:
         # Determine delegation type
         delegation_type = self.get_delegation_type(source_type, target_type)
 
-        # Create edge
         edge_id = uuid4()
         edge_model = DelegationEdgeModel(
             edge_id=edge_id,
@@ -502,7 +497,6 @@ class DelegationGraph:
         visited.add(mandate_id)
         revoked_count = 0
 
-        # Get all active outgoing edges
         outgoing_edges = self.db_session.query(DelegationEdgeModel).filter(
             DelegationEdgeModel.source_mandate_id == mandate_id,
             DelegationEdgeModel.revoked == False,
@@ -654,7 +648,6 @@ class DelegationGraph:
         if not self._is_mandate_active(target_mandate):
             return False
 
-        # Get active outgoing edges
         targets = self.get_delegated_targets(source_mandate_id, active_only=True)
 
         for edge in targets:
@@ -686,7 +679,6 @@ class DelegationGraph:
         if not mandate:
             return {"resource_scope": [], "action_scope": []}
 
-        # Get authority sources
         sources = self.get_authority_sources(mandate_id, active_only=True)
 
         if not sources:
@@ -744,7 +736,6 @@ class DelegationGraph:
         Returns:
             DelegationGraphTopology with nodes, edges, and stats
         """
-        # Get edges
         edge_query = self.db_session.query(DelegationEdgeModel)
         if active_only:
             edge_query = edge_query.filter(DelegationEdgeModel.revoked == False)
@@ -777,7 +768,6 @@ class DelegationGraph:
             mandate_ids.add(e.source_mandate_id)
             mandate_ids.add(e.target_mandate_id)
 
-        # Build nodes
         nodes = []
         by_type_count = {"human": 0, "orchestrator": 0, "worker": 0, "service": 0}
         for mid in mandate_ids:
@@ -802,7 +792,6 @@ class DelegationGraph:
                     "valid_until": mandate.valid_until.isoformat() if mandate.valid_until else None,
                 })
 
-        # Build edges
         edges_out = []
         by_delegation_type = {"directed": 0, "peer": 0}
         for e in all_edges:

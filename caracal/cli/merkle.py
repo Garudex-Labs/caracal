@@ -80,11 +80,9 @@ def generate_key(private_key, public_key, passphrase, audit_log):
     try:
         _assert_key_file_commands_allowed()
 
-        # Get passphrase from environment if not provided
         if not passphrase:
             passphrase = os.environ.get('MERKLE_KEY_PASSPHRASE')
         
-        # Expand paths
         private_key_path = Path(private_key).expanduser()
         public_key_path = Path(public_key).expanduser()
         
@@ -170,11 +168,9 @@ def verify_key(private_key, passphrase):
     try:
         _assert_key_file_commands_allowed()
 
-        # Get passphrase from environment if not provided
         if not passphrase:
             passphrase = os.environ.get('MERKLE_KEY_PASSPHRASE')
         
-        # Expand path
         private_key_path = Path(private_key).expanduser()
         
         if not private_key_path.exists():
@@ -183,7 +179,6 @@ def verify_key(private_key, passphrase):
         
         click.echo(f"Verifying private key: {private_key_path}")
         
-        # Verify key
         key_manager = KeyManager()
         is_valid = key_manager.verify_key(str(private_key_path), passphrase=passphrase)
         
@@ -254,11 +249,9 @@ def rotate_key(old_key, new_key, new_public_key, passphrase, no_backup, audit_lo
     try:
         _assert_key_file_commands_allowed()
 
-        # Get passphrase from environment if not provided
         if not passphrase:
             passphrase = os.environ.get('MERKLE_KEY_PASSPHRASE')
         
-        # Expand paths
         old_key_path = Path(old_key).expanduser()
         new_key_path = Path(new_key).expanduser()
         new_public_key_path = Path(new_public_key).expanduser()
@@ -341,11 +334,9 @@ def export_public_key(private_key, public_key, passphrase):
     try:
         _assert_key_file_commands_allowed()
 
-        # Get passphrase from environment if not provided
         if not passphrase:
             passphrase = os.environ.get('MERKLE_KEY_PASSPHRASE')
         
-        # Expand paths
         private_key_path = Path(private_key).expanduser()
         public_key_path = Path(public_key).expanduser()
         
@@ -416,16 +407,13 @@ def verify_batch(batch_id, config):
             click.echo("Batch ID must be a valid UUID", err=True)
             sys.exit(1)
         
-        # Load configuration
         cfg = load_config(config)
         
-        # Create signer for verification
         signer = create_merkle_signer(cfg.merkle)
         
         click.echo(f"Verifying batch: {batch_uuid}")
         click.echo()
         
-        # Run verification
         async def run_verification():
             async with get_async_session(cfg.database) as session:
                 verifier = MerkleVerifier(session, signer)
@@ -434,7 +422,6 @@ def verify_batch(batch_id, config):
         
         result = asyncio.run(run_verification())
         
-        # Display results
         if result.verified:
             click.echo("✓ Batch verification PASSED")
             click.echo()
@@ -522,16 +509,13 @@ def verify_range(start_time, end_time, config, verbose):
             click.echo("Error: Start time must be before end time", err=True)
             sys.exit(1)
         
-        # Load configuration
         cfg = load_config(config)
         
-        # Create signer for verification
         signer = create_merkle_signer(cfg.merkle)
         
         click.echo(f"Verifying batches from {start_dt} to {end_dt}")
         click.echo()
         
-        # Run verification
         async def run_verification():
             async with get_async_session(cfg.database) as session:
                 verifier = MerkleVerifier(session, signer)
@@ -606,16 +590,13 @@ def verify_event(event_id, config):
             click.echo(f"Error: Event ID must be non-negative", err=True)
             sys.exit(1)
         
-        # Load configuration
         cfg = load_config(config)
         
-        # Create signer for verification
         signer = create_merkle_signer(cfg.merkle)
         
         click.echo(f"Verifying inclusion of event: {event_id}")
         click.echo()
         
-        # Run verification
         async def run_verification():
             async with get_async_session(cfg.database) as session:
                 verifier = MerkleVerifier(session, signer)
@@ -712,7 +693,6 @@ def export_roots(output, start_time, end_time, config):
             click.echo("Error: Start time must be before end time", err=True)
             sys.exit(1)
         
-        # Load configuration
         cfg = load_config(config)
         
         # Expand output path
@@ -851,7 +831,6 @@ def backfill(source_version, batch_size, dry_run, config):
             click.echo("Error: Batch size must be at least 1", err=True)
             sys.exit(1)
         
-        # Load configuration
         cfg = load_config(config)
         
         # Create signer
@@ -880,7 +859,6 @@ def backfill(source_version, batch_size, dry_run, config):
         click.echo("Starting backfill process...")
         click.echo()
         
-        # Run backfill
         with get_session(cfg.database) as session:
             manager = LedgerBackfillManager(
                 db_session=session,
@@ -965,7 +943,6 @@ def backfill_status(config):
     from caracal.db.models import LedgerEvent, MerkleRoot
     
     try:
-        # Load configuration
         cfg = load_config(config)
         
         click.echo("Ledger Backfill Status")
@@ -1053,10 +1030,8 @@ def verify_backfill(config, verbose):
     from caracal.merkle import create_merkle_signer, MerkleVerifier
     
     try:
-        # Load configuration
         cfg = load_config(config)
         
-        # Create signer for verification
         signer = create_merkle_signer(cfg.merkle)
         
         click.echo("Verifying Migration Batches (v0.2 Backfill)")
@@ -1066,7 +1041,6 @@ def verify_backfill(config, verbose):
         click.echo("Signatures were created retroactively during v0.2 to v0.3 migration.")
         click.echo()
         
-        # Run verification
         async def run_verification():
             async with get_async_session(cfg.database) as session:
                 verifier = MerkleVerifier(session, signer)
@@ -1155,7 +1129,6 @@ def list_batches(source, limit, config):
             click.echo("Error: Limit must be at least 1", err=True)
             sys.exit(1)
         
-        # Load configuration
         cfg = load_config(config)
         
         click.echo(f"Merkle Batches (source: {source}, limit: {limit})")
