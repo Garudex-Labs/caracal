@@ -1,68 +1,40 @@
-# Baseline vs Governed
+# Enforcement Demonstration
 
-This demo now makes the before/after difference explicit in both code and artifacts.
+This demo makes authority enforcement explicit through the 4th worker's intentional denial.
 
-## Shared Ground Truth
+## What the Demo Shows
 
-Both tracks use the same:
-- input scenario: `baseline/fixtures/scenario.json`
-- expected outcomes: `fixtures/expected_outcomes.json`
-- acceptance evaluator: `acceptance.py`
-- deterministic business analysis helpers: `scenario_analysis.py`
+Three workers are authorized and succeed:
 
-That means the business result is judged against one shared contract even when the execution model changes.
+| Worker | Tool | Action scope | Decision |
+|---|---|---|---|
+| incidents-reader | `demo:ops:incidents:read` | `action:ops-api:incidents:read` | ALLOW |
+| deployments-reader | `demo:ops:deployments:read` | `action:ops-api:deployments:read` | ALLOW |
+| logs-reader | `demo:ops:logs:read` | `action:ops-api:logs:read` | ALLOW |
 
-## Execution Boundary
+One worker is denied:
 
-- Baseline:
-  - LangChain supervisor calls local tools and sub-agent wrappers directly.
-  - There is no authority gate between the orchestrator and the tools.
-- Governed:
-  - Tool calls go through Caracal with an explicit `mandate_id`.
-  - Local logic tools are bound through `handler_ref`.
-  - Source comments mark the control points:
-    - `CARACAL_MARKER: AUTH_BOUNDARY`
-    - `CARACAL_MARKER: MANDATE_REQUIRED`
-    - `CARACAL_MARKER: REVOCABLE_CALL`
+| Worker | Tool | Requested action | Decision |
+|---|---|---|---|
+| denial-demo | `demo:ops:deployments:read` | `action:ops-api:incidents:read` | DENY |
 
-## Permission Model
+The denial-demo worker holds a deployments mandate but requests an incidents action — a scope mismatch. Caracal denies the call before the handler runs.
 
-- Baseline:
-  - Execution is permitted because the process can call the tool.
-- Governed:
-  - Execution is permitted only when the mandate scope matches the requested provider resource and action.
-  - The orchestrator now has an explicit authority scope:
-    - `provider:swarm-internal:resource:orchestrator`
-    - `provider:swarm-internal:action:summarize`
+## Enforcement Path
 
-## Revocation Behavior
+Every tool call goes through:
 
-- Baseline:
-  - There is no native mid-run revocation story.
-- Governed:
-  - The mock governed path revokes the finance mandate during the workflow.
-  - The artifact captures denied-after-revoke evidence in `revocation.denial_evidence`.
+1. `MCPAdapterService` receives the request
+2. `AuthorityEvaluator` validates the active mandate scope against the requested action and resource
+3. Decision written to the Authority Ledger (ALLOW or DENY with reason code)
+4. DENY → 403 response; result classified as `enforcement_deny` in traces
 
-## Auditability
+## Mock vs Real Mode
 
-- Baseline:
-  - Records timeline steps and tool invocation counts.
-- Governed:
-  - Records timeline steps plus delegation edges, validation events, revocation events, and denial evidence.
+The enforcement path is identical in both modes. The only difference is the transport layer:
 
-## Comparison Artifact
+- **mock**: handlers return deterministic responses via `MockTransport`
+- **real**: handlers proxy to `OPS_API_URL`
 
-Run:
+Authority evaluation runs in-process against the same database in both modes.
 
-```bash
-python -m examples.langchain_demo.compare_tracks
-```
-
-Inspect:
-- `outputs/comparison.json`
-
-Key checks in that artifact:
-- `shared_business_outcomes_match`
-- `baseline.acceptance_passed`
-- `governed.acceptance_passed`
-- authority/revocation differences

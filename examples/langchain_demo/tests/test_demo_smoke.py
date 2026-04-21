@@ -432,3 +432,267 @@ class TestPreflightEnforcement:
         failing = [CheckResult(name="c1", passed=False, detail="fail")]
         with patch.object(pf, "run", return_value=failing):
             assert pf.passed() is False
+
+
+# ---------------------------------------------------------------------------
+# Provider misconfiguration (R1)
+# ---------------------------------------------------------------------------
+
+class TestProviderMisconfiguration:
+    def test_preflight_reports_missing_provider(self):
+        from examples.langchain_demo.preflight import WorkspacePreflight
+
+        session = MagicMock()
+        session.query.return_value.filter_by.return_value.first.return_value = None
+        session.query.return_value.filter.return_value.first.return_value = None
+        session.query.return_value.filter.return_value.filter.return_value.first.return_value = None
+
+        pf = WorkspacePreflight(session, "demo-workspace")
+        checks = pf.run()
+        names = [c.name for c in checks]
+        assert "provider_ops_api" in names
+        provider = next(c for c in checks if c.name == "provider_ops_api")
+        assert provider.passed is False
+
+    def test_preflight_reports_missing_tools(self):
+        from examples.langchain_demo.preflight import WorkspacePreflight
+
+        session = MagicMock()
+        session.query.return_value.filter_by.return_value.first.return_value = None
+        session.query.return_value.filter.return_value.count.return_value = 0
+        session.query.return_value.filter.return_value.all.return_value = []
+        session.query.return_value.filter.return_value.first.return_value = None
+        session.query.return_value.filter.return_value.filter.return_value.first.return_value = None
+
+        pf = WorkspacePreflight(session, "demo-workspace")
+        checks = pf.run()
+        names = [c.name for c in checks]
+        # Each tool has its own check named "tool_<tool_id>"
+        tool_checks = [n for n in names if n.startswith("tool_") and not n == "tool_mapping_drift"]
+        assert len(tool_checks) > 0
+        for tc in tool_checks:
+            check = next(c for c in checks if c.name == tc)
+            assert check.passed is False
+
+    def test_preflight_check_names_are_complete(self):
+        from examples.langchain_demo.preflight import WorkspacePreflight
+
+        session = MagicMock()
+        session.query.return_value.filter_by.return_value.first.return_value = None
+        session.query.return_value.filter.return_value.first.return_value = None
+        session.query.return_value.filter.return_value.count.return_value = 0
+        session.query.return_value.filter.return_value.all.return_value = []
+
+        pf = WorkspacePreflight(session, "demo-workspace")
+        checks = pf.run()
+        names = {c.name for c in checks}
+        # Workspace check uses name "workspace_active"
+        assert "workspace_active" in names
+        # Provider check uses name "provider_ops_api"
+        assert "provider_ops_api" in names
+        # Per-principal-kind checks for static required principals
+        for kind in ("human", "orchestrator", "service"):
+            assert f"principal_{kind}" in names, f"Missing check: principal_{kind}"
+        # Worker readiness check (plural — checks count of registered workers)
+        assert "principal_workers" in names, "Missing check: principal_workers"
+        # Standard aggregate checks
+        for expected in ("policies", "mandates"):
+            assert expected in names, f"Missing check: {expected}"
+
+
+# ---------------------------------------------------------------------------
+# /caracal route visibility (R1)
+# ---------------------------------------------------------------------------
+
+class TestCaracalVisibility:
+    def _app_src(self) -> str:
+        import pathlib
+        return (pathlib.Path(__file__).parent.parent / "app.py").read_text()
+
+    def test_caracal_html_has_required_sections(self):
+        src = self._app_src()
+        for section in ("Preflight", "Principals", "Tools", "Mandates", "Authority Ledger", "Traces"):
+            assert section in src, f"Missing section in _CARACAL_HTML: {section}"
+
+    def test_caracal_html_has_api_endpoints(self):
+        src = self._app_src()
+        for endpoint in ("/api/preflight", "/api/principals", "/api/tools", "/api/mandates",
+                         "/api/authority_ledger", "/api/traces"):
+            assert endpoint in src, f"Missing endpoint reference: {endpoint}"
+
+    def test_customer_html_has_worker_grid_and_run_endpoint(self):
+        src = self._app_src()
+        assert "renderWorkers" in src or "worker" in src.lower()
+        assert "/api/run" in src
+
+
+# ---------------------------------------------------------------------------
+# Worker fan-out configuration (R1a)
+# ---------------------------------------------------------------------------
+
+class TestWorkerFanOutConfig:
+    def test_all_worker_config_lists_same_length(self):
+        from examples.langchain_demo.demo_runtime import (
+            _WORKER_ACTION_SCOPES,
+            _WORKER_LABELS,
+            _WORKER_RESOURCE_SCOPES,
+            _WORKER_TOOLS,
+        )
+
+        assert len(_WORKER_LABELS) == len(_WORKER_TOOLS)
+        assert len(_WORKER_TOOLS) == len(_WORKER_RESOURCE_SCOPES)
+        assert len(_WORKER_RESOURCE_SCOPES) == len(_WORKER_ACTION_SCOPES)
+
+    def test_worker_labels_are_distinct(self):
+        from examples.langchain_demo.demo_runtime import _WORKER_LABELS
+
+        assert len(set(_WORKER_LABELS)) == len(_WORKER_LABELS)
+
+    def test_first_three_workers_are_not_denial(self):
+        from examples.langchain_demo.demo_runtime import _WORKER_LABELS
+
+        for label in _WORKER_LABELS[:3]:
+            assert "denial" not in label
+
+    def test_fourth_worker_causes_scope_mismatch(self):
+        from examples.langchain_demo.demo_runtime import (
+            _WORKER_ACTION_SCOPES,
+            _WORKER_TOOLS,
+        )
+
+        tool = _WORKER_TOOLS[3]
+        action = _WORKER_ACTION_SCOPES[3]
+        tool_resource = tool.split(":")[-2] if ":" in tool else ""
+        action_resource = action.split(":")[-2] if ":" in action else ""
+        assert tool_resource != action_resource, (
+            "denial-demo worker should have tool and action scope mismatch"
+        )
+
+
+# ---------------------------------------------------------------------------
+# Run result aggregation (R1a)
+# ---------------------------------------------------------------------------
+
+class TestRunResultAggregation:
+    def test_worker_result_has_required_fields(self):
+        from examples.langchain_demo.demo_runtime import WorkerResult
+
+        wr = WorkerResult(
+            worker_name="test-worker",
+            principal_id="pid",
+            tool_id="demo:ops:incidents:read",
+            success=True,
+            result={"data": 1},
+            error=None,
+            latency_ms=10.0,
+        )
+        assert wr.result_type == "allowed"
+        assert wr.denial_reason == ""
+        assert wr.lifecycle_events == []
+
+    def test_worker_result_denial_fields(self):
+        from examples.langchain_demo.demo_runtime import WorkerResult
+
+        wr = WorkerResult(
+            worker_name="denial-demo",
+            principal_id="pid",
+            tool_id="demo:ops:deployments:read",
+            success=False,
+            result=None,
+            error="authority denied",
+            latency_ms=5.0,
+            result_type="enforcement_deny",
+            denial_reason="authority denied",
+        )
+        assert wr.result_type == "enforcement_deny"
+        assert wr.denial_reason == "authority denied"
+
+    def test_run_result_workers_list(self):
+        from examples.langchain_demo.demo_runtime import RunResult, WorkerResult
+
+        w = WorkerResult(
+            worker_name="w", principal_id="p", tool_id="t",
+            success=True, result={}, error=None, latency_ms=1.0,
+        )
+        rr = RunResult(
+            run_id="run1",
+            workspace_id="ws",
+            mode="mock",
+            orchestrator_principal_id="orch",
+            workers=[w],
+            recommendation={},
+            trace_events=[],
+        )
+        assert len(rr.workers) == 1
+        assert rr.workers[0].worker_name == "w"
+
+
+# ---------------------------------------------------------------------------
+# Enforcement regression: P0.14 provider credential checks (mock-based)
+# ---------------------------------------------------------------------------
+
+class TestProviderContractChecks:
+    """P0.14: provider check verifies resource/action contracts and credential refs."""
+
+    def _pf(self, row):
+        from unittest.mock import MagicMock
+        from examples.langchain_demo.preflight import WorkspacePreflight
+
+        session = MagicMock()
+        session.query.return_value.filter_by.return_value.first.return_value = row
+        return WorkspacePreflight(session, "demo-workspace")
+
+    def test_fails_when_auth_scheme_needs_credential_ref(self):
+        from unittest.mock import MagicMock
+
+        row = MagicMock()
+        row.enabled = True
+        row.resources = ["incidents"]
+        row.actions = ["read"]
+        row.auth_scheme = "oauth2_client_credentials"
+        row.credential_ref = None
+        row.provider_definition = "ops-api"
+        result = self._pf(row)._check_provider()
+        assert result.passed is False
+        assert "credential" in result.detail.lower()
+
+    def test_passes_with_resource_action_contracts_no_auth(self):
+        from unittest.mock import MagicMock
+
+        row = MagicMock()
+        row.enabled = True
+        row.resources = ["incidents", "deployments"]
+        row.actions = ["read", "write"]
+        row.auth_scheme = "api_key"
+        row.credential_ref = None
+        row.provider_definition = "ops-api"
+        result = self._pf(row)._check_provider()
+        assert result.passed is True
+        assert "resources=2" in result.detail
+
+    def test_fails_when_resource_action_contracts_empty(self):
+        from unittest.mock import MagicMock
+
+        row = MagicMock()
+        row.enabled = True
+        row.resources = []
+        row.actions = []
+        row.auth_scheme = "none"
+        row.credential_ref = None
+        row.provider_definition = "custom"
+        result = self._pf(row)._check_provider()
+        assert result.passed is False
+        assert "resource" in result.detail.lower() or "contract" in result.detail.lower()
+
+    def test_passes_with_gateway_only_auth_when_credential_ref_set(self):
+        from unittest.mock import MagicMock
+
+        row = MagicMock()
+        row.enabled = True
+        row.resources = ["incidents"]
+        row.actions = ["read"]
+        row.auth_scheme = "service_account"
+        row.credential_ref = "ops-api-cred-ref"
+        row.provider_definition = "ops-api"
+        result = self._pf(row)._check_provider()
+        assert result.passed is True

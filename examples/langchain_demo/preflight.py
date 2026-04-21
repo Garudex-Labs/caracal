@@ -26,7 +26,8 @@ class CheckResult:
 class WorkspacePreflight:
     """Inspect live workspace state and report readiness for the demo."""
 
-    REQUIRED_PRINCIPAL_KINDS = {"human", "orchestrator", "worker", "service"}
+    REQUIRED_PRINCIPAL_KINDS = {"human", "orchestrator", "service"}
+    WORKER_MIN = 2
     DEMO_PROVIDER_NAME = "ops-api"
     DEMO_TOOL_IDS = [
         "demo:ops:incidents:read",
@@ -43,6 +44,7 @@ class WorkspacePreflight:
         results: list[CheckResult] = []
         results.append(self._check_workspace())
         results.extend(self._check_principals())
+        results.append(self._check_worker_readiness())
         results.append(self._check_provider())
         results.extend(self._check_tools())
         results.append(self._check_tools_mapping_drift())
@@ -130,8 +132,51 @@ class WorkspacePreflight:
             ))
         return results
 
+    def _check_worker_readiness(self) -> CheckResult:
+        from caracal.db.models import Principal, PrincipalLifecycleStatus
+
+        try:
+            rows = self._session.query(Principal).filter_by(principal_kind="worker").all()
+            active_count = sum(
+                1 for r in rows
+                if str(r.lifecycle_status) == PrincipalLifecycleStatus.ACTIVE.value
+            )
+            total = len(rows)
+            if total >= self.WORKER_MIN:
+                return CheckResult(
+                    name="principal_workers",
+                    passed=True,
+                    detail=(
+                        f"{active_count} of {total} worker principal(s) active. "
+                        f"Minimum {self.WORKER_MIN} registered — satisfied."
+                    ),
+                )
+            return CheckResult(
+                name="principal_workers",
+                passed=False,
+                detail=(
+                    f"At least {self.WORKER_MIN} worker principals must be registered, "
+                    f"found {total}. Workers are also spawned dynamically per run."
+                ),
+                cli_fix=(
+                    "caracal principal register --kind worker --name demo-worker-1 && "
+                    "caracal principal activate demo-worker-1 && "
+                    "caracal principal register --kind worker --name demo-worker-2 && "
+                    "caracal principal activate demo-worker-2"
+                ),
+                tui_screen="Flow TUI → Principal Hub",
+            )
+        except Exception as exc:
+            return CheckResult(
+                name="principal_workers",
+                passed=False,
+                detail=f"Worker readiness check failed: {exc}",
+                cli_fix="caracal principal list",
+            )
+
     def _check_provider(self) -> CheckResult:
         from caracal.db.models import GatewayProvider
+        from caracal.provider.catalog import GATEWAY_ONLY_AUTH
 
         try:
             row = (
@@ -155,10 +200,42 @@ class WorkspacePreflight:
                     cli_fix=f"caracal provider update --name {self.DEMO_PROVIDER_NAME} --enabled",
                     tui_screen="Flow TUI → Provider Manager",
                 )
+            resources = getattr(row, "resources", None) or []
+            actions = getattr(row, "actions", None) or []
+            if not resources or not actions:
+                return CheckResult(
+                    name="provider_ops_api",
+                    passed=False,
+                    detail=(
+                        f"Provider '{self.DEMO_PROVIDER_NAME}' is missing resource/action contracts "
+                        f"(resources={bool(resources)}, actions={bool(actions)}). "
+                        f"Update the provider definition to include scope contracts."
+                    ),
+                    cli_fix=f"caracal provider update --name {self.DEMO_PROVIDER_NAME} --definition-file ops-api.json",
+                    tui_screen="Flow TUI → Provider Manager",
+                )
+            auth_scheme = str(getattr(row, "auth_scheme", "none") or "none")
+            credential_ref = getattr(row, "credential_ref", None)
+            if auth_scheme in GATEWAY_ONLY_AUTH and not credential_ref:
+                return CheckResult(
+                    name="provider_ops_api",
+                    passed=False,
+                    detail=(
+                        f"Provider '{self.DEMO_PROVIDER_NAME}' uses auth_scheme='{auth_scheme}' "
+                        f"but has no credential_ref. Store a credential and link it."
+                    ),
+                    cli_fix=f"caracal provider credential set --name {self.DEMO_PROVIDER_NAME} --secret <value>",
+                    tui_screen="Flow TUI → Provider Manager → Credentials",
+                )
+            definition = getattr(row, "provider_definition", "custom") or "custom"
             return CheckResult(
                 name="provider_ops_api",
                 passed=True,
-                detail=f"Provider '{self.DEMO_PROVIDER_NAME}' is active.",
+                detail=(
+                    f"Provider '{self.DEMO_PROVIDER_NAME}' active. "
+                    f"definition={definition}, auth={auth_scheme}, "
+                    f"resources={len(resources)}, actions={len(actions)}."
+                ),
             )
         except Exception as exc:
             return CheckResult(
@@ -250,14 +327,6 @@ class WorkspacePreflight:
                 detail=f"Tool registry contract check failed: {exc}",
                 cli_fix="caracal tool list --workspace <name>",
             )
-        except Exception as exc:
-            results.append(CheckResult(
-                name="tools",
-                passed=False,
-                detail=f"Tool check failed: {exc}",
-                cli_fix="caracal tool list",
-            ))
-        return results
 
     def _check_policies(self) -> CheckResult:
         from caracal.db.models import AuthorityPolicy

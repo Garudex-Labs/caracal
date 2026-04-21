@@ -1,35 +1,91 @@
-# Runbook
+# Demo Runbook
 
-## Goal
+## Overview
 
-Run the LangChain demo through a real Caracal workspace with two execution modes:
+This runbook covers operating the Caracal governed demo in mock and real modes.
+The demo runs four parallel workers under full authority enforcement: three read
+tools that succeed and one intentionally denied to show enforcement in action.
 
-- `mock`: deterministic external responses, placeholder credentials
-- `real`: live providers and real credentials
+## Prerequisites
 
-Both modes use the same governed execution path.
+1. PostgreSQL running with `alembic upgrade head` applied
+2. Redis running
+3. Demo workspace configured (see `examples/langchain_demo/README.md`)
 
-## Steps
+## Starting the Server
 
-1. Start the demo app server:
+**Mock mode** (no external deps, deterministic handlers):
 
 ```bash
-uvicorn examples.langchain_demo.app:app --host 127.0.0.1 --port 8090
+CARACAL_DEMO_MODE=mock uvicorn examples.langchain_demo.app:app --port 8090
 ```
 
-2. Configure Caracal runtime MCP server name `demo-upstream` pointing to `http://127.0.0.1:8090`.
-3. Manually configure workspace, principals, providers, tools, mandates, and delegation.
-4. Populate `examples/langchain_demo/demo_config.json`.
-5. Run UI or CLI governed execution.
+**Real mode** (live Caracal workspace, PostgreSQL, Redis):
 
-Full command-by-command setup is in `examples/langchain_demo/README.md`.
+```bash
+uvicorn examples.langchain_demo.app:app --port 8090
+```
 
-## Verification checks
+## Preflight
 
-In each run artifact, verify:
+Before triggering a run, verify workspace readiness:
 
-- role-specific mandates are used
-- provider usage appears in timeline/usage summary
-- authority validations include expected allow/deny decisions
-- revocation check denies a post-revoke finance call
-- acceptance checks pass against shared expected outcomes
+```bash
+curl http://localhost:8090/api/preflight | python3 -m json.tool
+```
+
+All 9 checks must show `"passed": true`. If any fail, inspect the `detail` field
+for what is missing (missing principal kind, provider not found, mandate gap, etc.).
+
+The customer UI at `http://localhost:8090/` also shows the readiness checklist inline.
+
+## Triggering a Run
+
+```bash
+curl -X POST http://localhost:8090/api/run | python3 -m json.tool
+```
+
+Expected shape:
+
+```json
+{
+  "run_id": "...",
+  "workers": [
+    { "label": "incidents-reader",   "result_type": "success" },
+    { "label": "deployments-reader", "result_type": "success" },
+    { "label": "logs-reader",        "result_type": "success" },
+    { "label": "denial-demo",        "result_type": "enforcement_deny",
+      "denial_reason": "authority denied" }
+  ]
+}
+```
+
+## Viewing Results
+
+| URL | What it shows |
+|---|---|
+| `http://localhost:8090/` | Worker fan-out grid with enforcement badges |
+| `http://localhost:8090/caracal` | Operator view: Preflight, Principals, Tools, Mandates, Delegation, Authority Ledger, Traces |
+| `GET /api/traces` | Raw trace events (last 200) |
+| `GET /api/authority_ledger` | Authority decisions with reason codes |
+
+## Verifying Enforcement
+
+The 4th worker (`denial-demo`) is intentionally denied. It presents:
+- tool: `demo:ops:deployments:read` (action scope: `action:ops-api:deployments:read`)
+- requested action: `action:ops-api:incidents:read` (scope mismatch)
+
+In the Authority Ledger section of `/caracal` you should see a DENY event with
+`reason_code: MANDATE_EXPIRED` or similar for this worker. The customer UI shows
+a red enforcement badge for that worker slot.
+
+## Mock vs Real Mode
+
+| Feature | `mock` | `real` |
+|---|---|---|
+| Transport | `MockTransport` (registry-based) | Live `OPS_API_URL` |
+| Credentials | Placeholder JWTs | Real ES256 keypairs via SpawnManager |
+| Authority evaluation | Full (in-process) | Full (PostgreSQL-backed) |
+| Worker spawn | Real `SpawnManager` | Real `SpawnManager` |
+| Enforcement path | Identical | Identical |
+

@@ -1,30 +1,76 @@
-# Governed Mock Transcript
+# Governed Mock Transcript — Enforcement Visible
 
-Scenario: Northstar Retail
+This transcript shows a full governed run in mock mode with enforcement active.
 
-Input prompt:
+## Environment
 
-```text
-Act as the company orchestrator. Ask the finance and ops specialists for analysis, then provide one consolidated recommendation with immediate actions.
+```
+CARACAL_DEMO_MODE=mock
 ```
 
-Observed steps:
+## Trigger
 
-1. Orchestrator source mandate was issued.
-2. Finance, ops, and orchestrator mandates were delegated from that source.
-3. Finance governed tool executed under `provider:swarm-internal:resource:finance` + `read`.
-4. Ops governed tool executed under `provider:swarm-internal:resource:ops` + `read`.
-5. Orchestrator governed tool executed under `provider:swarm-internal:resource:orchestrator` + `summarize`.
-6. Finance mandate was revoked mid-workflow.
-7. Post-revocation validation denied the follow-up finance call.
-
-Final summary:
-
-```text
-Governed orchestrator summary: prioritize platform budget overrun mitigation, and clear pending invoices (INV-1002, INV-1003), and open a corrective action for ByteForge SLA underperformance, and monitor and stabilize inventory service degradation. Revocation check: subsequent finance call denied as expected.
+```
+$ curl -X POST http://localhost:8090/api/run
 ```
 
-Acceptance:
-- Passed
-- Shared business outcomes matched `fixtures/expected_outcomes.json`
-- Revocation denial evidence was captured in the artifact
+## Response
+
+```json
+{
+  "run_id": "a1b2c3d4-...",
+  "workers": [
+    {
+      "label": "incidents-reader",
+      "principal_id": "...",
+      "result_type": "success",
+      "denial_reason": null,
+      "data": { "incident_id": "INC-001", "severity": "high" }
+    },
+    {
+      "label": "deployments-reader",
+      "principal_id": "...",
+      "result_type": "success",
+      "denial_reason": null,
+      "data": { "deployment_id": "DEP-042", "status": "healthy" }
+    },
+    {
+      "label": "logs-reader",
+      "principal_id": "...",
+      "result_type": "success",
+      "denial_reason": null,
+      "data": { "log_count": 12, "error_count": 1 }
+    },
+    {
+      "label": "denial-demo",
+      "principal_id": "...",
+      "result_type": "enforcement_deny",
+      "denial_reason": "authority denied",
+      "data": null
+    }
+  ]
+}
+```
+
+## Enforcement Evidence
+
+In the `/caracal` operator UI → Authority Ledger section:
+
+```
+ALLOW  incidents-reader   action:ops-api:incidents:read    → success
+ALLOW  deployments-reader action:ops-api:deployments:read  → success
+ALLOW  logs-reader        action:ops-api:logs:read          → success
+DENY   denial-demo        action:ops-api:incidents:read     ← scope mismatch
+```
+
+The denial-demo worker requested `action:ops-api:incidents:read` but its spawned
+mandate was scoped to `action:ops-api:deployments:read`. Caracal enforced the
+boundary before the handler ran.
+
+## Outcome
+
+- 3 workers: success
+- 1 worker: enforcement_deny (expected)
+- Authority ledger: 4 entries (3 ALLOW, 1 DENY)
+- Trace events: spawn/activate/call/cleanup for all 4 workers
+

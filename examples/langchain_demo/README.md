@@ -70,13 +70,19 @@ caracal principal register --name demo-human --kind human
 # Orchestrator
 caracal principal register --name demo-orchestrator --kind orchestrator
 
-# Service account
+# Service principal
 caracal principal register --name demo-service --kind service
 
-# Activate all three
+# Runtime workers (at least 2 required; additional workers are also spawned per run)
+caracal principal register --name demo-worker-1 --kind worker
+caracal principal register --name demo-worker-2 --kind worker
+
+# Activate all
 caracal principal activate demo-human
 caracal principal activate demo-orchestrator
 caracal principal activate demo-service
+caracal principal activate demo-worker-1
+caracal principal activate demo-worker-2
 ```
 
 ### 3. Register the provider

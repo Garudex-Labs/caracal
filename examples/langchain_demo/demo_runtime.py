@@ -70,7 +70,7 @@ _ORCH_ACTION_SCOPES = [
     "action:ops-api:recommendation:write",
 ]
 _WORKER_VALIDITY_SECONDS = 900
-_RUN_TENANT = "demo"
+_SESSION_NS = "demo"
 
 
 @dataclass
@@ -148,7 +148,7 @@ def _issue_token(session_manager, *, subject_id: str, workspace_id: str) -> str:
     issued = session_manager.issue_session(
         subject_id=subject_id,
         workspace_id=workspace_id,
-        tenant_id=_RUN_TENANT,
+        tenant_id=_SESSION_NS,
         session_kind=SessionKind.TASK,
         include_refresh=False,
     )
@@ -238,6 +238,16 @@ class DemoRuntime:
                 principal_kind=PrincipalKind.ORCHESTRATOR.value,
                 lifecycle_status=PrincipalLifecycleStatus.ACTIVE.value,
             )
+            .first()
+        )
+
+    def _lookup_any_orchestrator(self) -> Optional[Any]:
+        """Return any registered orchestrator principal regardless of lifecycle status."""
+        from caracal.db.models import Principal, PrincipalKind
+
+        return (
+            self._db.query(Principal)
+            .filter_by(principal_kind=PrincipalKind.ORCHESTRATOR.value)
             .first()
         )
 
@@ -401,6 +411,22 @@ class DemoRuntime:
 
         orch_row = self._lookup_orchestrator()
         if orch_row is None:
+            any_orch = self._lookup_any_orchestrator()
+            if any_orch is not None:
+                return RunResult(
+                    run_id=run_id,
+                    workspace_id=workspace_id,
+                    mode=mode,
+                    orchestrator_principal_id="",
+                    workers=[],
+                    recommendation={},
+                    trace_events=trace_events,
+                    error=(
+                        f"Orchestrator '{any_orch.name}' is registered but not active "
+                        f"(lifecycle_status={any_orch.lifecycle_status}). "
+                        f"Activate it: caracal principal activate {any_orch.name}"
+                    ),
+                )
             return RunResult(
                 run_id=run_id,
                 workspace_id=workspace_id,
@@ -466,6 +492,17 @@ class DemoRuntime:
                 self._db.commit()
                 self._activate_principal(spawn_result.principal_id, orchestrator_id)
                 self._spawned.append(spawn_result.principal_id)
+                self._record(
+                    run_id=run_id,
+                    principal_id=spawn_result.principal_id,
+                    principal_kind="worker",
+                    tool_id="",
+                    result_type="allowed",
+                    mode=mode,
+                    group_id=group_id,
+                    parent_principal_id=orchestrator_id,
+                    lifecycle_event="activated",
+                )
                 worker_token = _issue_token(
                     self._session_manager,
                     subject_id=spawn_result.principal_id,

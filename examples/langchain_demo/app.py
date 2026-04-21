@@ -182,11 +182,22 @@ def build_app() -> FastAPI:
             rows = session.query(Principal).order_by(Principal.principal_kind).all()
             out = []
             for r in rows:
-                active_policies = (
+                policy_rows = (
                     session.query(AuthorityPolicy)
                     .filter_by(principal_id=r.principal_id, active=True)
-                    .count()
+                    .all()
                 )
+                resource_patterns: list[str] = []
+                allowed_actions: list[str] = []
+                for p in policy_rows:
+                    rp = p.allowed_resource_patterns or []
+                    if isinstance(rp, list):
+                        resource_patterns.extend(rp)
+                    aa = p.allowed_actions or []
+                    if isinstance(aa, list):
+                        allowed_actions.extend(aa)
+                resource_patterns = list(dict.fromkeys(resource_patterns))
+                allowed_actions = list(dict.fromkeys(allowed_actions))
                 active_mandates = (
                     session.query(ExecutionMandate)
                     .filter(
@@ -197,11 +208,15 @@ def build_app() -> FastAPI:
                 )
                 out.append({
                     "principal_id": str(r.principal_id),
-                    "name": str(r.principal_name),
+                    "name": str(r.name),
                     "kind": str(r.principal_kind),
                     "lifecycle_status": str(r.lifecycle_status),
-                    "active_policies": active_policies,
+                    "active_policies": len(policy_rows),
                     "active_mandates": active_mandates,
+                    "authority_scope": {
+                        "allowed_resource_patterns": resource_patterns,
+                        "allowed_actions": allowed_actions,
+                    },
                 })
         return JSONResponse(out)
 
@@ -285,7 +300,7 @@ def build_app() -> FastAPI:
                 out.append({
                     "mandate_id": str(r.mandate_id),
                     "subject_id": str(r.subject_id),
-                    "subject_name": str(principal.principal_name) if principal else "",
+                    "subject_name": str(principal.name) if principal else "",
                     "subject_kind": str(principal.principal_kind) if principal else "",
                     "resource_scope": (
                         r.resource_scope
@@ -520,8 +535,14 @@ async function loadPreflight(){
 async function loadPrincipals(){
   const r=await fetch('/api/principals');const items=await r.json();
   if(!items.length){document.getElementById('principals-content').innerHTML='<p class="empty">No principals found.</p>';return;}
-  const rows=items.map(function(p){var ls=p.lifecycle_status;return '<tr><td>'+p.name+'</td><td>'+badge('badge-ok',p.kind)+'</td><td>'+badge(ls==='active'?'badge-ok':ls==='provisioned'?'badge-warn':'badge-err',ls)+'</td><td>'+p.active_policies+'</td><td>'+p.active_mandates+'</td><td style="font-size:11px;color:#999">'+p.principal_id.slice(0,12)+'&hellip;</td></tr>';}).join('');
-  document.getElementById('principals-content').innerHTML='<table><thead><tr><th>Name</th><th>Kind</th><th>Lifecycle</th><th>Policies</th><th>Mandates</th><th>ID</th></tr></thead><tbody>'+rows+'</tbody></table>';
+  const rows=items.map(function(p){
+    var ls=p.lifecycle_status;
+    var scope=p.authority_scope||{};
+    var rp=(scope.allowed_resource_patterns||[]).join(', ')||'\u2014';
+    var aa=(scope.allowed_actions||[]).join(', ')||'\u2014';
+    return '<tr><td>'+p.name+'</td><td>'+badge('badge-ok',p.kind)+'</td><td>'+badge(ls==='active'?'badge-ok':ls==='provisioned'?'badge-warn':'badge-err',ls)+'</td><td>'+p.active_policies+'</td><td>'+p.active_mandates+'</td><td style="font-size:11px;color:#555">'+rp+'</td><td style="font-size:11px;color:#555">'+aa+'</td><td style="font-size:11px;color:#999">'+p.principal_id.slice(0,12)+'&hellip;</td></tr>';
+  }).join('');
+  document.getElementById('principals-content').innerHTML='<table><thead><tr><th>Name</th><th>Kind</th><th>Lifecycle</th><th>Policies</th><th>Mandates</th><th>Resource Scope</th><th>Actions</th><th>ID</th></tr></thead><tbody>'+rows+'</tbody></table>';
 }
 async function loadTools(){
   const r=await fetch('/api/tools');const items=await r.json();
