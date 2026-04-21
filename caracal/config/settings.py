@@ -1023,7 +1023,7 @@ def _validate_config(config: CaracalConfig) -> None:
     if config.merkle.signing_backend != "vault":
         raise InvalidConfigurationError(
             "merkle signing_backend must be 'vault'. "
-            "Local file-backed Merkle signing is not supported."
+            "Local file-backed Merkle signing is forbidden."
         )
     if config.merkle.signing_backend == "vault":
         if not config.merkle.vault_key_ref:

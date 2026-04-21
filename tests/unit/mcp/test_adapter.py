@@ -1726,3 +1726,209 @@ class TestMCPAdapter:
         """Test resource type extraction for unknown URI."""
         resource_type = self.adapter._get_resource_type("unknown://resource")
         assert resource_type == "unknown"
+
+
+@pytest.mark.unit
+class TestCaveatChainEdgeCases:
+    """Tests for caveat chain extraction edge cases."""
+
+    def setup_method(self):
+        self.mock_authority_evaluator = Mock(spec=AuthorityEvaluator)
+        self.mock_metering_collector = Mock(spec=MeteringCollector)
+        self.adapter = MCPAdapter(
+            authority_evaluator=self.mock_authority_evaluator,
+            metering_collector=self.mock_metering_collector,
+            caveat_mode="caveat_chain",
+            caveat_hmac_key="global-hmac",
+        )
+
+    def test_empty_list_caveat_chain_is_treated_as_no_chain(self):
+        """An empty list [] for task_caveat_chain must be treated the same as None."""
+        context = MCPContext(
+            principal_id="agent-123",
+            metadata={"task_caveat_chain": []},
+        )
+        result = self.adapter._extract_caveat_authority_kwargs(context)
+        assert result == {}
+
+    def test_empty_list_caveat_chain_from_task_claims_is_treated_as_no_chain(self):
+        """An empty list in task_token_claims.task_caveat_chain must also be treated as no chain."""
+        context = MCPContext(
+            principal_id="agent-123",
+            metadata={
+                "task_token_claims": {
+                    "sub": "agent-123",
+                    "task_caveat_chain": [],
+                    "task_caveat_hmac_key": "trusted-hmac",
+                }
+            },
+        )
+        result = self.adapter._extract_caveat_authority_kwargs(context)
+        assert result == {}
+
+    def test_non_empty_chain_still_requires_hmac_key(self):
+        """A non-empty caveat chain must still require an HMAC key."""
+        adapter = MCPAdapter(
+            authority_evaluator=self.mock_authority_evaluator,
+            metering_collector=self.mock_metering_collector,
+            caveat_mode="caveat_chain",
+            caveat_hmac_key=None,
+        )
+        context = MCPContext(
+            principal_id="agent-123",
+            metadata={
+                "task_caveat_chain": [{"index": 0, "type": "action", "value": "execute"}],
+            },
+        )
+        with pytest.raises(CaracalError, match="caveat HMAC key"):
+            adapter._extract_caveat_authority_kwargs(context)
+
+    def test_non_list_caveat_chain_raises(self):
+        """A non-list value for task_caveat_chain must raise."""
+        context = MCPContext(
+            principal_id="agent-123",
+            metadata={"task_caveat_chain": "not-a-list"},
+        )
+        with pytest.raises(CaracalError, match="must be a list"):
+            self.adapter._extract_caveat_authority_kwargs(context)
+
+    def test_none_caveat_chain_returns_empty_kwargs(self):
+        """Absent task_caveat_chain must return empty dict (no chain mode activation)."""
+        context = MCPContext(
+            principal_id="agent-123",
+            metadata={},
+        )
+        result = self.adapter._extract_caveat_authority_kwargs(context)
+        assert result == {}
+
+
+@pytest.mark.unit
+class TestDecoratorKwargsIsolation:
+    """Tests that the as_decorator wrapper does not leak MCP-internal kwargs to wrapped functions."""
+
+    def setup_method(self):
+        self.mock_authority_evaluator = Mock(spec=AuthorityEvaluator)
+        self.mock_metering_collector = Mock(spec=MeteringCollector)
+        self.adapter = MCPAdapter(
+            authority_evaluator=self.mock_authority_evaluator,
+            metering_collector=self.mock_metering_collector,
+            mcp_server_url="http://localhost:3001",
+        )
+        self.adapter.get_registered_tool = Mock(
+            return_value=SimpleNamespace(
+                tool_id=_TOOL_ID,
+                active=True,
+                provider_name=_MAPPED_PROVIDER_NAME,
+                resource_scope=_MAPPED_RESOURCE_SCOPE,
+                action_scope=_MAPPED_ACTION_SCOPE,
+                provider_definition_id=_MAPPED_PROVIDER_NAME,
+            )
+        )
+        self.adapter._resolve_active_tool_mapping = Mock(
+            return_value={
+                "tool_id": _TOOL_ID,
+                "provider_name": _MAPPED_PROVIDER_NAME,
+                "resource_scope": _MAPPED_RESOURCE_SCOPE,
+                "action_scope": _MAPPED_ACTION_SCOPE,
+                "provider_definition_id": _MAPPED_PROVIDER_NAME,
+                "execution_mode": "mcp_forward",
+                "mcp_server_name": None,
+            }
+        )
+        mandate_id = uuid4()
+        mock_mandate = Mock(spec=ExecutionMandate)
+        mock_mandate.subject_id = "agent-123"
+        self.mock_authority_evaluator.resolve_applicable_mandates_for_principal.return_value = [mock_mandate]
+        self.mock_authority_evaluator.validate_mandate.return_value = AuthorityDecision(
+            allowed=True,
+            reason="Authority granted",
+            mandate_id=mandate_id,
+            requested_action=_MAPPED_ACTION_SCOPE,
+            requested_resource=_MAPPED_RESOURCE_SCOPE,
+        )
+
+    @pytest.mark.asyncio
+    async def test_decorator_strips_caveat_chain_fields_from_function_kwargs(self):
+        """Decorated function must not receive task_caveat_chain or related fields."""
+        received_kwargs: dict = {}
+
+        @self.adapter.as_decorator(tool_id=_TOOL_ID)
+        async def my_tool(principal_id: str, payload: str, **extra):
+            received_kwargs.update(extra)
+            return {"payload": payload}
+
+        result = await my_tool(
+            principal_id="agent-123",
+            payload="test",
+            task_caveat_chain=[{"index": 0, "type": "action"}],
+            task_caveat_hmac_key="secret",
+            task_id="task-xyz",
+            task_token_claims={"sub": "agent-123"},
+        )
+
+        assert result == {"payload": "test"}
+        assert "task_caveat_chain" not in received_kwargs
+        assert "caveat_chain" not in received_kwargs
+        assert "task_caveat_hmac_key" not in received_kwargs
+        assert "caveat_hmac_key" not in received_kwargs
+        assert "task_id" not in received_kwargs
+        assert "caveat_task_id" not in received_kwargs
+        assert "task_token_claims" not in received_kwargs
+
+    @pytest.mark.asyncio
+    async def test_decorator_preserves_non_mcp_kwargs_for_function(self):
+        """Non-MCP kwargs must still be passed through to the wrapped function."""
+        received_kwargs: dict = {}
+
+        @self.adapter.as_decorator(tool_id=_TOOL_ID)
+        async def my_tool(principal_id: str, payload: str, extra_field: str):
+            received_kwargs["extra_field"] = extra_field
+            return {"payload": payload}
+
+        result = await my_tool(
+            principal_id="agent-123",
+            payload="test",
+            extra_field="preserved",
+            task_caveat_chain=[{"index": 0}],
+        )
+
+        assert result == {"payload": "test"}
+        assert received_kwargs["extra_field"] == "preserved"
+
+    @pytest.mark.asyncio
+    async def test_decorator_authority_denied_does_not_call_wrapped_function(self):
+        """When authority is denied, the wrapped function must not be called."""
+        self.mock_authority_evaluator.validate_mandate.return_value = AuthorityDecision(
+            allowed=False,
+            reason="No access",
+            mandate_id=uuid4(),
+            requested_action=_MAPPED_ACTION_SCOPE,
+            requested_resource=_MAPPED_RESOURCE_SCOPE,
+        )
+
+        called = []
+
+        @self.adapter.as_decorator(tool_id=_TOOL_ID)
+        async def my_tool(principal_id: str):
+            called.append(True)
+            return "should not run"
+
+        with pytest.raises(CaracalError, match="Authority denied"):
+            await my_tool(principal_id="agent-123")
+
+        assert not called
+
+    @pytest.mark.asyncio
+    async def test_decorator_principal_id_still_forwarded_when_caveat_fields_stripped(self):
+        """principal_id must still reach the wrapped function after MCP-internal stripping."""
+
+        @self.adapter.as_decorator(tool_id=_TOOL_ID)
+        async def my_tool(principal_id: str):
+            return {"who": principal_id}
+
+        result = await my_tool(
+            principal_id="agent-123",
+            task_token_claims={"sub": "agent-123"},
+        )
+
+        assert result == {"who": "agent-123"}
