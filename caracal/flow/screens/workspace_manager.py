@@ -232,7 +232,7 @@ def _switch_workspace(console: Console, state: FlowState) -> None:
     console.clear()
     console.print(Panel(
         f"[{Colors.PRIMARY}]Switch Workspace[/]",
-        subtitle=f"[{Colors.HINT}]CLI: caracal workspace switch <name>[/]",
+        subtitle=f"[{Colors.HINT}]CLI: caracal workspace use <name>[/]",
         border_style=Colors.INFO,
     ))
     console.print()

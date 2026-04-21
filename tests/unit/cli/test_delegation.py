@@ -181,7 +181,8 @@ class TestDelegationListCommand:
         mock_query = Mock()
         mock_query.filter.return_value.all.return_value = []
         mock_session.query.return_value = mock_query
-        mock_db_manager.get_session.return_value = mock_session
+        mock_db_manager.session_scope.return_value.__enter__ = Mock(return_value=mock_session)
+        mock_db_manager.session_scope.return_value.__exit__ = Mock(return_value=False)
         mock_get_db_manager.return_value = mock_db_manager
         
         # Act
@@ -211,7 +212,8 @@ class TestDelegationListCommand:
         mock_query = Mock()
         mock_query.filter.return_value.all.return_value = [mock_edge]
         mock_session.query.return_value = mock_query
-        mock_db_manager.get_session.return_value = mock_session
+        mock_db_manager.session_scope.return_value.__enter__ = Mock(return_value=mock_session)
+        mock_db_manager.session_scope.return_value.__exit__ = Mock(return_value=False)
         mock_get_db_manager.return_value = mock_db_manager
         
         # Act
@@ -241,7 +243,8 @@ class TestDelegationListCommand:
         mock_query = Mock()
         mock_query.filter.return_value.all.return_value = [mock_edge]
         mock_session.query.return_value = mock_query
-        mock_db_manager.get_session.return_value = mock_session
+        mock_db_manager.session_scope.return_value.__enter__ = Mock(return_value=mock_session)
+        mock_db_manager.session_scope.return_value.__exit__ = Mock(return_value=False)
         mock_get_db_manager.return_value = mock_db_manager
         
         # Act

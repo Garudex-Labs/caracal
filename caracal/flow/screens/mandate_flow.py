@@ -120,6 +120,10 @@ class MandateFlow:
                 if principal_id:
                     query = query.filter(ExecutionMandate.subject_id == principal_id)
                 
+                show_active_only = self.prompt.confirm("Show active mandates only?", default=False)
+                if show_active_only:
+                    query = query.filter(ExecutionMandate.revoked == False)
+                
                 mandates = query.order_by(ExecutionMandate.created_at.desc()).all()
                 
                 if not mandates:
@@ -367,7 +371,6 @@ class MandateFlow:
         try:
             from caracal.db.connection import get_db_manager
             from caracal.db.models import ExecutionMandate
-            from caracal.core.crypto import verify_mandate_signature
             
             db_manager = get_db_manager()
             
@@ -472,17 +475,15 @@ class MandateFlow:
                 
                 # Get action and resource to validate
                 self.console.print()
-                self.console.print(f"  [{Colors.INFO}]Validation Request (from mandate scope):[/]")
-                requested_action = self.prompt.select(
-                    "Requested action",
-                    choices=sorted(mandate.action_scope),
-                    default=sorted(mandate.action_scope)[0],
-                )
-                requested_resource = self.prompt.select(
-                    "Requested resource",
-                    choices=sorted(mandate.resource_scope),
-                    default=sorted(mandate.resource_scope)[0],
-                )
+                self.console.print(f"  [{Colors.INFO}]Mandate scope (for reference):[/]")
+                for a in mandate.action_scope:
+                    self.console.print(f"    Action: {a}")
+                for r in mandate.resource_scope:
+                    self.console.print(f"    Resource: {r}")
+                self.console.print()
+                self.console.print(f"  [{Colors.INFO}]Enter the action and resource to test (may be outside mandate scope to test denials):[/]")
+                requested_action = self.prompt.text("Requested action")
+                requested_resource = self.prompt.text("Requested resource")
                 
                 # Validate
                 self.console.print()
@@ -601,9 +602,16 @@ class MandateFlow:
                 mandate_manager = MandateManager(db_session)
                 
                 # Use subject as revoker (in real system, would use authenticated user)
+                # Prompt for the revoking principal
+                from caracal.db.models import Principal
+                principals = db_session.query(Principal).all()
+                revoker_items = [(str(p.principal_id), p.name) for p in principals]
+                revoker_id_str = self.prompt.uuid("Revoking Principal ID (Tab for suggestions)", revoker_items)
+                revoker_id = UUID(revoker_id_str)
+                
                 mandate_manager.revoke_mandate(
                     mandate_id=mandate_id,
-                    revoker_id=mandate.subject_id,
+                    revoker_id=revoker_id,
                     reason=reason,
                     cascade=cascade,
                 )

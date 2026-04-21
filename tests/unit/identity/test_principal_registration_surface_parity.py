@@ -61,6 +61,10 @@ class _FlowIdentityServiceSpy:
         type(self).captured_kwargs = dict(kwargs)
         return SimpleNamespace(
             principal_id="principal-flow",
+            name=kwargs["name"],
+            principal_kind=kwargs["principal_kind"],
+            owner=kwargs["owner"],
+            created_at="2026-01-01T00:00:00Z",
             metadata={"vault_key_ref": "vault://caracal/runtime/principal-flow"},
         )
 

@@ -61,10 +61,6 @@ class SecretsFlow:
                 self._show_secret_list()
             elif action == "rotate":
                 self._rotate_key()
-            elif action == "migrate":
-                self._run_migration_wizard()
-            elif action == "cost":
-                self._show_aws_cost_estimate()
             elif action == "back":
                 break
 

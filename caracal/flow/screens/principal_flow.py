@@ -102,7 +102,7 @@ class PrincipalFlow:
                 table = Table(show_header=True, header_style=f"bold {Colors.INFO}")
                 table.add_column("ID", style=Colors.DIM)
                 table.add_column("Name", style=Colors.NEUTRAL)
-                table.add_column("Type", style=Colors.NEUTRAL)
+                table.add_column("Kind", style=Colors.NEUTRAL)
                 table.add_column("Policies", style=Colors.NEUTRAL)
                 table.add_column("Mandates", style=Colors.NEUTRAL)
                 
@@ -200,8 +200,12 @@ class PrincipalFlow:
                 
                 self.console.print(f"  [{Colors.SUCCESS}]{Icons.SUCCESS} Principal registered![/]")
                 self.console.print(f"  [{Colors.NEUTRAL}]Principal ID : [{Colors.PRIMARY}]{identity.principal_id}[/]")
+                self.console.print(f"  [{Colors.NEUTRAL}]Name         : [{Colors.NEUTRAL}]{identity.name}[/]")
+                self.console.print(f"  [{Colors.NEUTRAL}]Kind         : [{Colors.NEUTRAL}]{identity.principal_kind}[/]")
+                self.console.print(f"  [{Colors.NEUTRAL}]Owner        : [{Colors.NEUTRAL}]{identity.owner}[/]")
+                self.console.print(f"  [{Colors.NEUTRAL}]Created      : [{Colors.DIM}]{identity.created_at}[/]")
                 self.console.print(
-                    f"  [{Colors.NEUTRAL}]Vault key reference : [{Colors.DIM}]{key_ref}[/]"
+                    f"  [{Colors.NEUTRAL}]Vault key ref: [{Colors.DIM}]{key_ref}[/]"
                 )
                 self.console.print()
                 
