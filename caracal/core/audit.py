@@ -152,7 +152,7 @@ class AuditLogManager:
     Manager for audit log queries and exports.
     
     Provides:
-    - Query audit logs by agent, time range, event type, correlation ID
+    - Query audit logs by principal, time range, event type, correlation ID
     - Export audit logs in JSON, CSV, and SYSLOG formats
     
     """
@@ -180,7 +180,7 @@ class AuditLogManager:
         Query audit logs with filters.
         
         Args:
-            principal_id: Filter by agent ID
+            principal_id: Filter by principal ID
             start_time: Filter by start time (inclusive)
             end_time: Filter by end time (inclusive)
             event_type: Filter by event type
@@ -247,7 +247,7 @@ class AuditLogManager:
         Export audit logs as JSON.
         
         Args:
-            principal_id: Filter by agent ID
+            principal_id: Filter by principal ID
             start_time: Filter by start time (inclusive)
             end_time: Filter by end time (inclusive)
             event_type: Filter by event type
@@ -302,7 +302,7 @@ class AuditLogManager:
         Export audit logs as CSV.
         
         Args:
-            principal_id: Filter by agent ID
+            principal_id: Filter by principal ID
             start_time: Filter by start time (inclusive)
             end_time: Filter by end time (inclusive)
             event_type: Filter by event type
@@ -379,7 +379,7 @@ class AuditLogManager:
         Export audit logs in SYSLOG format (RFC 5424).
         
         Args:
-            principal_id: Filter by agent ID
+            principal_id: Filter by principal ID
             start_time: Filter by start time (inclusive)
             end_time: Filter by end time (inclusive)
             event_type: Filter by event type

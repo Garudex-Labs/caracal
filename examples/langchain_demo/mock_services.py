@@ -14,6 +14,7 @@ from .scenario_analysis import (
     business_outcomes,
     finance_risk_flags,
     finance_snapshot,
+    format_mock_summary,
     ops_service_summary,
     pending_invoices,
     recent_incidents,
@@ -363,6 +364,17 @@ async def upstream_tool_call(request: Request) -> dict[str, Any]:
             path="/v1/tickets",
             json_body=tool_args,
         )
+    elif provider_name == PROVIDERS["mock"]["control"] or provider_name == PROVIDERS["real"]["control"]:
+        scenario = tool_args.get("scenario") or _scenario()
+        outcomes = business_outcomes(scenario)
+        summary = format_mock_summary(outcomes, governed=True)
+        content = {
+            "summary": summary,
+            "business_outcomes": outcomes,
+            "finance_brief": tool_args.get("finance_brief"),
+            "ops_brief": tool_args.get("ops_brief"),
+            "mode_label": tool_args.get("mode_label", "unknown"),
+        }
     else:
         raise HTTPException(
             status_code=400,

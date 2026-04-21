@@ -159,7 +159,7 @@ class MandateDelegationFlow:
                 target_id = edge.get("target_mandate_id")
                 target_node = next((n for n in path_nodes if n.get("mandate_id") == target_id), None)
                 target_name = target_node.get("subject_name", target_id[:8]) if target_node else target_id[:8]
-                target_type = target_node.get("principal_kind", edge.get("target_principal_type", "unknown")) if target_node else edge.get("target_principal_type", "unknown")
+                target_type = target_node.get("principal_kind", edge.get("target_principal_kind", "unknown")) if target_node else edge.get("target_principal_kind", "unknown")
                 network_distance = target_node.get("network_distance", "?") if target_node else "?"
                 tags = edge.get("context_tags") or []
                 tag_text = f" [{Colors.DIM}]tags={','.join(tags)}[/]" if tags else ""
@@ -489,8 +489,8 @@ class MandateDelegationFlow:
                     table.add_row(
                         str(edge.edge_id)[:8] + "...",
                         direction,
-                        edge.source_principal_type,
-                        edge.target_principal_type,
+                        edge.source_principal_kind,
+                        edge.target_principal_kind,
                         edge.delegation_type,
                         tags,
                         f"[{status_style}]{status_text}[/]",
@@ -533,7 +533,7 @@ class MandateDelegationFlow:
                     return
                 
                 items = [
-                    (str(e.edge_id), f"{e.source_principal_type}→{e.target_principal_type} ({e.delegation_type})")
+                    (str(e.edge_id), f"{e.source_principal_kind}→{e.target_principal_kind} ({e.delegation_type})")
                     for e in edges
                 ]
                 edge_id_str = self.prompt.uuid("Edge ID (Tab for suggestions)", items)

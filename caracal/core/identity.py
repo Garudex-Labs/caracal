@@ -53,8 +53,7 @@ class PrincipalIdentity:
     metadata: Dict[str, Any]
     principal_kind: str = PrincipalKind.WORKER.value
     public_key: Optional[str] = None
-    org_id: Optional[str] = None
-    role: Optional[str] = None
+    workspace_id: Optional[str] = None
     source_principal_id: Optional[str] = None
     lifecycle_status: str = PrincipalLifecycleStatus.ACTIVE.value
     attestation_status: str = PrincipalAttestationStatus.UNATTESTED.value
@@ -72,8 +71,7 @@ class PrincipalIdentity:
             "created_at": self.created_at,
             "metadata": self.metadata,
             "public_key": self.public_key,
-            "org_id": self.org_id,
-            "role": self.role,
+            "workspace_id": self.workspace_id,
             "source_principal_id": self.source_principal_id,
             "lifecycle_status": self.lifecycle_status,
             "attestation_status": self.attestation_status,
@@ -96,8 +94,7 @@ class PrincipalIdentity:
             created_at=str(data["created_at"]),
             metadata=data.get("metadata", {}) or {},
             public_key=data.get("public_key"),
-            org_id=data.get("org_id"),
-            role=data.get("role"),
+            workspace_id=data.get("workspace_id"),
             source_principal_id=data.get("source_principal_id"),
             lifecycle_status=data.get("lifecycle_status", PrincipalLifecycleStatus.ACTIVE.value),
             attestation_status=data.get("attestation_status", PrincipalAttestationStatus.UNATTESTED.value),
@@ -193,7 +190,7 @@ class PrincipalRegistry:
     def create_principal(self, *args, **kwargs) -> PrincipalIdentity:
         return self.register_principal(*args, **kwargs)
 
-    def update_agent(self, principal_id: str, metadata: Optional[Dict[str, Any]] = None) -> PrincipalIdentity:
+    def update_principal(self, principal_id: str, metadata: Optional[Dict[str, Any]] = None) -> PrincipalIdentity:
         principal = self._get_row(principal_id)
         principal_metadata = dict(principal.principal_metadata or {})
         principal_metadata.update(metadata or {})
@@ -201,10 +198,6 @@ class PrincipalRegistry:
         self.session.flush()
         self.session.commit()
         return self._to_identity(principal)
-
-    def update_principal(self, principal_id: str, metadata: Optional[Dict[str, Any]] = None) -> PrincipalIdentity:
-        """Canonical alias for principal metadata updates across control surfaces."""
-        return self.update_agent(principal_id=principal_id, metadata=metadata)
 
     def transition_lifecycle_status(
         self,
@@ -351,8 +344,8 @@ class PrincipalRegistry:
         expiration_seconds: int = 86400,
         allowed_operations: Optional[List[str]] = None,
         delegation_type: str = "directed",
-        source_principal_type: str = "agent",
-        target_principal_type: str = "agent",
+        source_principal_kind: str = "worker",
+        target_principal_kind: str = "worker",
         context_tags: Optional[List[str]] = None,
     ) -> Optional[str]:
         if self.delegation_token_manager is None:
@@ -379,8 +372,8 @@ class PrincipalRegistry:
             expiration_seconds=expiration_seconds,
             allowed_operations=allowed_operations,
             delegation_type=delegation_type,
-            source_principal_type=source_principal_type,
-            target_principal_type=target_principal_type,
+            source_principal_kind=source_principal_kind,
+            target_principal_kind=target_principal_kind,
             context_tags=context_tags,
         )
 

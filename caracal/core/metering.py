@@ -30,7 +30,7 @@ class MeteringEvent:
     Enhanced metering event for tracking resource usage.
     
     Attributes:
-        principal_id: Unique identifier for the agent consuming resources
+        principal_id: Unique identifier for the principal consuming resources
         resource_type: Type of resource (supports directed patterns like "mcp.tool.search")
         quantity: Amount of resource consumed (non-negative)
         timestamp: When the event occurred (auto-generated if not provided)
@@ -202,11 +202,11 @@ class MeteringCollector:
             raise
         except Exception as e:
             logger.error(
-                f"Failed to collect event for agent {event.principal_id}: {e}",
+                f"Failed to collect event for principal {event.principal_id}: {e}",
                 exc_info=True
             )
             raise MeteringCollectionError(
-                f"Failed to collect event for agent {event.principal_id}: {e}"
+                f"Failed to collect event for principal {event.principal_id}: {e}"
             ) from e
 
     def _validate_event(self, event: MeteringEvent) -> None:

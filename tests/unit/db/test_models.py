@@ -189,8 +189,8 @@ class TestDelegationEdgeModel:
             edge_id=uuid4(),
             source_mandate_id=source_mandate_id,
             target_mandate_id=target_mandate_id,
-            source_principal_type="user",
-            target_principal_type="agent",
+            source_principal_kind="human",
+            target_principal_kind="worker",
             delegation_type="directed",
             context_tags=["production"],
             revoked=False
@@ -199,8 +199,8 @@ class TestDelegationEdgeModel:
         # Assert
         assert edge.source_mandate_id == source_mandate_id
         assert edge.target_mandate_id == target_mandate_id
-        assert edge.source_principal_type == "user"
-        assert edge.target_principal_type == "agent"
+        assert edge.source_principal_kind == "human"
+        assert edge.target_principal_kind == "worker"
         assert edge.delegation_type == "directed"
         assert edge.context_tags == ["production"]
     
@@ -212,8 +212,8 @@ class TestDelegationEdgeModel:
             edge_id=edge_id,
             source_mandate_id=uuid4(),
             target_mandate_id=uuid4(),
-            source_principal_type="user",
-            target_principal_type="agent",
+            source_principal_kind="human",
+            target_principal_kind="worker",
             delegation_type="directed",
             revoked=False
         )
@@ -224,8 +224,8 @@ class TestDelegationEdgeModel:
         # Assert
         assert "DelegationEdge" in repr_str
         assert str(edge_id) in repr_str
-        assert "user" in repr_str
-        assert "agent" in repr_str
+        assert "human" in repr_str
+        assert "worker" in repr_str
 
 
 @pytest.mark.unit

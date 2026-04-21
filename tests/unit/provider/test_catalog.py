@@ -79,10 +79,10 @@ def test_workspace_to_gateway_sync_record_strips_workspace_runtime_state() -> No
             "managed_by": "workspace-template",
             "metadata": {"owner": "workspace"},
         },
-        organization_id="org-123",
+        workspace_id="org-123",
     )
 
-    assert record["organization_id"] == "org-123"
+    assert record["workspace_id"] == "org-123"
     assert record["credential_ref"] is None
     assert record["credential_storage"] == "gateway_vault"
     assert record["template_id"] is None
@@ -114,7 +114,7 @@ def test_workspace_to_gateway_sync_record_keeps_shared_definition_metadata_only(
                 }
             },
         },
-        organization_id="org-456",
+        workspace_id="org-456",
     )
 
     assert record["provider_definition"] == "github.rest"

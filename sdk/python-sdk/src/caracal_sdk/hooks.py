@@ -37,10 +37,8 @@ logger = get_logger(__name__)
 @dataclass
 class StateSnapshot:
     """Immutable snapshot of SDK state at a point in time."""
-    organization_id: Optional[str] = None
-    workspace_id: Optional[str] = None
-    project_id: Optional[str] = None
-    metadata: JsonObject = field(default_factory=dict)
+    workspace_id: Optional[str] = Non
+    metadata: Dict[str, Any] = field(default_factory=dict)
 
 
 # ---------------------------------------------------------------------------
@@ -50,9 +48,7 @@ class StateSnapshot:
 @dataclass
 class ScopeRef:
     """Lightweight scope reference for hook callbacks."""
-    organization_id: Optional[str] = None
     workspace_id: Optional[str] = None
-    project_id: Optional[str] = None
 
 
 # ---------------------------------------------------------------------------

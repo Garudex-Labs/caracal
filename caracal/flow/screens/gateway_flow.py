@@ -556,7 +556,7 @@ class GatewayFlow:
                 )
                 table.add_column("Timestamp", max_width=22)
                 table.add_column("Type", max_width=20)
-                table.add_column("Agent", max_width=16)
+                table.add_column("Principal", max_width=16)
                 table.add_column("Resource", max_width=24)
                 table.add_column("Status", max_width=10)
                 table.add_column("Latency", justify="right")

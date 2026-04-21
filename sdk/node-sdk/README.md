@@ -29,7 +29,6 @@ import { CaracalClient } from "@caracal/core";
 
 const client = new CaracalClient({ apiKey: "sk_test_123" });
 const ctx = client.context.checkout({
-  organizationId: "org_abc123",
   workspaceId: "ws_xyz789",
 });
 

@@ -260,7 +260,7 @@ class TestMerkleProofVerification:
                 root_hash=proof.root_hash
             )
             
-            assert MerkleTree.verify_proof(b"data1", tampered_proof, root) is False
+            assert MerkleTree.verify_proof(b"data1", tampered_proof, root, use_cache=False) is False
     
     def test_verify_proof_caching(self):
         """Test that verification results are cached."""

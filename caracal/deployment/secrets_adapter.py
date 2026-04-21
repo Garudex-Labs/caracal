@@ -21,9 +21,9 @@ class SecretsAdapterError(Exception):
 class SecretsAdapter:
     """Resolve/store/delete/list secrets using the tier-selected backend."""
 
-    def __init__(self, tier: str, org_id: str, env_id: str = "default") -> None:
+    def __init__(self, tier: str, workspace_id: str, env_id: str = "default") -> None:
         self._tier = tier.lower()
-        self._org_id = org_id
+        self._workspace_id = workspace_id
         self._env_id = env_id
         self._backend = self._create_backend()
         logger.info(
@@ -36,14 +36,14 @@ class SecretsAdapter:
         try:
             from caracalEnterprise.services.gateway.secret_manager import backend_for_tier
 
-            return backend_for_tier(self._tier, self._org_id)
+            return backend_for_tier(self._tier, self._workspace_id)
         except ModuleNotFoundError as exc:
             if exc.name != "caracalEnterprise":
                 raise
             logger.warning(
                 "caracalEnterprise package not available; using local CaracalVault backend"
             )
-            return _local_backend_for_tier(self._tier, self._org_id)
+            return _local_backend_for_tier(self._tier, self._workspace_id)
 
     def resolve(self, ref: str) -> str:
         if not ref:
@@ -75,7 +75,7 @@ class SecretsAdapter:
 
     def list_refs(self) -> list[str]:
         try:
-            return self._backend.list_refs(self._org_id, self._env_id)
+            return self._backend.list_refs(self._workspace_id, self._env_id)
         except Exception as exc:
             raise SecretsAdapterError(f"Failed to list secrets: {exc}") from exc
 
@@ -92,8 +92,8 @@ class SecretsAdapter:
 
 
 class _LocalCaracalVaultBackend:
-    def __init__(self, org_id: str) -> None:
-        self._org_id = org_id
+    def __init__(self, workspace_id: str) -> None:
+        self._workspace_id = workspace_id
 
     @property
     def name(self) -> str:
@@ -112,31 +112,31 @@ class _LocalCaracalVaultBackend:
         from caracal.core.vault import get_vault, vault_access_context
 
         with vault_access_context():
-            return get_vault().get(self._org_id, env_id, name)
+            return get_vault().get(self._workspace_id, env_id, name)
 
     def put(self, ref: str, value: str) -> None:
         env_id, name = self._parse_ref(ref)
         from caracal.core.vault import get_vault, vault_access_context
 
         with vault_access_context():
-            get_vault().put(self._org_id, env_id, name, value)
+            get_vault().put(self._workspace_id, env_id, name, value)
 
     def delete(self, ref: str) -> None:
         env_id, name = self._parse_ref(ref)
         from caracal.core.vault import get_vault, vault_access_context
 
         with vault_access_context():
-            get_vault().delete(self._org_id, env_id, name)
+            get_vault().delete(self._workspace_id, env_id, name)
 
-    def list_refs(self, org_id: str, env_id: str) -> list[str]:
+    def list_refs(self, workspace_id: str, env_id: str) -> list[str]:
         from caracal.core.vault import get_vault, vault_access_context
 
         with vault_access_context():
-            names = get_vault().list_secrets(org_id, env_id)
+            names = get_vault().list_secrets(workspace_id, env_id)
         return [f"caracal:{env_id}/{name}" for name in names]
 
 
-def _local_backend_for_tier(tier: str, org_id: str):
+def _local_backend_for_tier(tier: str, workspace_id: str):
     if not tier.strip():
         raise SecretsAdapterError("Tier must not be empty for secret management.")
-    return _LocalCaracalVaultBackend(org_id=org_id)
+    return _LocalCaracalVaultBackend(workspace_id=workspace_id)

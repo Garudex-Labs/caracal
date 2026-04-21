@@ -765,7 +765,6 @@ async def test_execute_local_tool_rejects_handler_ref_mismatch() -> None:
         await adapter._execute_local_tool(
             tool_id="tool.handler-mismatch",
             principal_id="agent-123",
-            mandate_id=uuid4(),
             tool_args={"payload": "ok"},
             handler_ref="custom.logic:execute",
         )

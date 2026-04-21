@@ -28,13 +28,13 @@ logger = get_logger(__name__)
 
 _VAULT_BACKEND = PrincipalKeyBackend.VAULT.value
 _VAULT_BACKEND_ENV = "CARACAL_PRINCIPAL_KEY_BACKEND"
-_VAULT_ORG_ENV = "CARACAL_VAULT_ORG_ID"
+_VAULT_WORKSPACE_ENV = "CARACAL_VAULT_WORKSPACE_ID"
 _VAULT_ENV_ENV = "CARACAL_VAULT_ENV_ID"
-_VAULT_PROJECT_ENV = "CARACAL_VAULT_PROJECT_ID"
+
 _VAULT_ENVIRONMENT_ENV = "CARACAL_VAULT_ENVIRONMENT"
 _VAULT_KEY_PREFIX_ENV = "CARACAL_VAULT_PRINCIPAL_KEY_PREFIX"
 
-_DEFAULT_VAULT_ORG = "caracal"
+_DEFAULT_VAULT_WORKSPACE = "caracal"
 _DEFAULT_VAULT_ENV = "runtime"
 _DEFAULT_VAULT_KEY_PREFIX = "principal-keys"
 
@@ -71,10 +71,10 @@ def _resolve_backend() -> str:
 
 
 def _resolve_vault_context() -> tuple[str, str]:
-    org_id = (
-        os.getenv(_VAULT_ORG_ENV)
-        or os.getenv(_VAULT_PROJECT_ENV)
-        or _DEFAULT_VAULT_ORG
+    workspace_id = (
+        os.getenv(_VAULT_WORKSPACE_ENV)
+        or os.getenv(_VAULT_WORKSPACE_ENV)
+        or _DEFAULT_VAULT_WORKSPACE
     ).strip()
     env_id = (
         os.getenv(_VAULT_ENV_ENV)
@@ -82,15 +82,15 @@ def _resolve_vault_context() -> tuple[str, str]:
         or _DEFAULT_VAULT_ENV
     ).strip()
 
-    if org_id:
+    if workspace_id:
         try:
-            UUID(org_id)
+            UUID(workspace_id)
         except Exception:
             try:
                 resolved_project = str(getattr(get_vault()._config, "default_project", "") or "").strip()
                 if resolved_project:
                     UUID(resolved_project)
-                    org_id = resolved_project
+                    workspace_id = resolved_project
             except Exception:
                 pass
 
@@ -102,12 +102,12 @@ def _resolve_vault_context() -> tuple[str, str]:
         except Exception:
             pass
 
-    if not org_id or not env_id:
+    if not workspace_id or not env_id:
         raise PrincipalKeyStorageError(
             "Vault context is incomplete. "
-            f"Set {_VAULT_ORG_ENV} and {_VAULT_ENV_ENV}."
+            f"Set {_VAULT_WORKSPACE_ENV} and {_VAULT_ENV_ENV}."
         )
-    return org_id, env_id
+    return workspace_id, env_id
 
 
 def _resolve_secret_name(principal_id: UUID) -> str:
@@ -121,21 +121,21 @@ def _resolve_public_secret_name(principal_id: UUID) -> str:
     return f"{_resolve_secret_name(principal_id)}.public"
 
 
-def _build_vault_reference(org_id: str, env_id: str, secret_name: str) -> str:
-    return f"vault://{org_id}/{env_id}/{secret_name}"
+def _build_vault_reference(workspace_id: str, env_id: str, secret_name: str) -> str:
+    return f"vault://{workspace_id}/{env_id}/{secret_name}"
 
 
 def _parse_vault_reference(reference: str) -> tuple[str, str, str]:
     normalized = (reference or "").strip()
     if not normalized.startswith("vault://"):
         raise PrincipalKeyStorageError(
-            "Invalid vault key reference format. Expected 'vault://<org>/<env>/<secret>'."
+            "Invalid vault key reference format. Expected 'vault://<workspace>/<env>/<secret>'."
         )
     payload = normalized[len("vault://") :]
     parts = payload.split("/", 2)
     if len(parts) != 3 or not all(parts):
         raise PrincipalKeyStorageError(
-            "Invalid vault key reference format. Expected 'vault://<org>/<env>/<secret>'."
+            "Invalid vault key reference format. Expected 'vault://<workspace>/<env>/<secret>'."
         )
     return parts[0], parts[1], parts[2]
 
@@ -145,13 +145,13 @@ def parse_vault_key_reference(reference: str) -> tuple[str, str, str]:
     return _parse_vault_reference(reference)
 
 
-def _vault_get_secret(org_id: str, env_id: str, secret_name: str) -> str:
+def _vault_get_secret(workspace_id: str, env_id: str, secret_name: str) -> str:
     try:
         with vault_access_context():
-            return get_vault().get(org_id=org_id, env_id=env_id, name=secret_name)
+            return get_vault().get(workspace_id=workspace_id, env_id=env_id, name=secret_name)
     except VaultError as exc:
         raise PrincipalKeyStorageError(
-            f"Failed to read principal key material from vault ({org_id}/{env_id}/{secret_name})."
+            f"Failed to read principal key material from vault ({workspace_id}/{env_id}/{secret_name})."
         ) from exc
 
 
@@ -161,17 +161,17 @@ def generate_and_store_principal_keypair(
 ) -> PrincipalKeypairResult:
     """Provision a custody-backed ES256 keypair without exposing private key material."""
     backend = _resolve_backend()
-    org_id, env_id = _resolve_vault_context()
+    workspace_id, env_id = _resolve_vault_context()
     private_secret_name = _resolve_secret_name(principal_id)
     public_secret_name = _resolve_public_secret_name(principal_id)
-    key_reference = _build_vault_reference(org_id, env_id, private_secret_name)
-    public_key_reference = _build_vault_reference(org_id, env_id, public_secret_name)
+    key_reference = _build_vault_reference(workspace_id, env_id, private_secret_name)
+    public_key_reference = _build_vault_reference(workspace_id, env_id, public_secret_name)
 
     try:
         with vault_access_context():
             vault = get_vault()
             vault.ensure_asymmetric_keypair(
-                org_id=org_id,
+                workspace_id=workspace_id,
                 env_id=env_id,
                 private_key_name=private_secret_name,
                 public_key_name=public_secret_name,
@@ -181,11 +181,11 @@ def generate_and_store_principal_keypair(
     except VaultError as exc:
         raise PrincipalKeyStorageError(
             "Failed to provision principal signing keypair in vault "
-            f"({org_id}/{env_id}/{private_secret_name}): {exc}"
+            f"({workspace_id}/{env_id}/{private_secret_name}): {exc}"
         ) from exc
 
     public_pem = _vault_get_secret(
-        org_id=org_id,
+        workspace_id=workspace_id,
         env_id=env_id,
         secret_name=public_secret_name,
     )
@@ -287,8 +287,8 @@ def _upsert_custody_record(
         )
 
     try:
-        org_id, env_id, _ = _parse_vault_reference(storage.reference)
-        vault_namespace = f"{org_id}/{env_id}"
+        workspace_id, env_id, _ = _parse_vault_reference(storage.reference)
+        vault_namespace = f"{workspace_id}/{env_id}"
     except PrincipalKeyStorageError:
         vault_namespace = None
 

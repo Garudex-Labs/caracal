@@ -9,7 +9,7 @@ vault backend.
 
 Menu actions:
   - Vault status: current backend, key version, secret count
-  - List secrets: enumerate refs for (org, env)
+  - List secrets: enumerate refs for (workspace, env)
   - Rotate master key: request CaracalVault key rotation
 """
 
@@ -33,19 +33,19 @@ class SecretsFlow:
     """
     TUI secrets management screen.
 
-    Instantiate with (tier, org_id, env_id) from the enterprise license
+    Instantiate with (tier, workspace_id, env_id) from the enterprise license
     context.
     """
 
     def __init__(
         self,
         tier: str = "starter",
-        org_id: str = "",
+        workspace_id: str = "",
         env_id: str = "default",
         console: Optional[Console] = None,
     ) -> None:
         self._tier = tier.lower()
-        self._org_id = org_id
+        self._workspace_id = workspace_id
         self._env_id = env_id
         self.console = console or Console()
 
@@ -75,7 +75,7 @@ class SecretsFlow:
             Text.assemble(
                 ("  Secrets Vault\n", "bold cyan"),
                 ("  Backend : CaracalVault\n", "dim"),
-                (f"  Org     : {self._org_id or 'not configured'}\n", "dim"),
+                (f"  Workspace: {self._workspace_id or 'not configured'}\n", "dim"),
                 (f"  Env     : {self._env_id}\n", "dim"),
             ),
             border_style="cyan",
@@ -84,7 +84,7 @@ class SecretsFlow:
 
         items = [
             MenuItem("status", "Vault Status", "Backend, key version, secret count", ""),
-            MenuItem("list", "List Secrets", "Enumerate secret refs for this org/env", ""),
+            MenuItem("list", "List Secrets", "Enumerate secret refs for this workspace/env", ""),
             MenuItem("rotate", "Rotate Master Key", "Request a new vault key version", ""),
         ]
 
@@ -110,7 +110,7 @@ class SecretsFlow:
 
             vault = get_vault()
             with vault_access_context():
-                names = vault.list_secrets(self._org_id, self._env_id)
+                names = vault.list_secrets(self._workspace_id, self._env_id)
             table.add_row("Backend", "CaracalVault")
             table.add_row("Storage", "Vault-managed secret refs")
             table.add_row("Secret Count", str(len(names)))
@@ -128,8 +128,8 @@ class SecretsFlow:
             from caracal.core.vault import get_vault, vault_access_context
 
             with vault_access_context():
-                names = get_vault().list_secrets(self._org_id, self._env_id)
-            refs = [f"vault://{self._org_id or 'default'}/{self._env_id}/{name}" for name in names]
+                names = get_vault().list_secrets(self._workspace_id, self._env_id)
+            refs = [f"vault://{self._workspace_id or 'default'}/{self._env_id}/{name}" for name in names]
             backend_name = "caracal_vault"
         except Exception as exc:
             self.console.print(f"[red]Failed to list secrets: {exc}[/red]")
@@ -137,7 +137,7 @@ class SecretsFlow:
             return
 
         if not refs:
-            self.console.print("[dim]No secrets found for this org/env.[/dim]")
+            self.console.print("[dim]No secrets found for this workspace/env.[/dim]")
         else:
             table = Table("Ref", "Backend", show_header=True, header_style="bold cyan")
             for ref in refs:
@@ -152,7 +152,7 @@ class SecretsFlow:
     def _rotate_key(self) -> None:
         self.console.print(
             "\n[bold yellow]Master Key Rotation[/bold yellow]\n"
-            "[dim]Request a new vault-managed key version for this org/env.\n"
+            "[dim]Request a new vault-managed key version for this workspace/env.\n"
             "No secret values are exposed during rotation.[/dim]\n"
         )
         if Prompt.ask("Confirm rotation?", choices=["y", "n"], default="n") != "y":
@@ -163,7 +163,7 @@ class SecretsFlow:
             from caracal.core.vault import get_vault, vault_access_context
             vault = get_vault()
             with vault_access_context():
-                result = vault.rotate_master_key(self._org_id, self._env_id, actor="tui")
+                result = vault.rotate_master_key(self._workspace_id, self._env_id, actor="tui")
             self.console.print(
                 f"\n[green]Rotation complete.[/green]\n"
                 f"  Secrets rotated : {result.secrets_rotated}\n"

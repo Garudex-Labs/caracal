@@ -227,24 +227,18 @@ class TestRetryDatabaseOperation:
         assert result == "result"
         assert call_count == 1
     
-    @patch('caracal.core.retry.OperationalError', create=True)
-    def test_database_error_retries(self, mock_op_error):
+    def test_database_error_retries(self):
         """Test database operational error triggers retry."""
-        # Arrange
+        from sqlalchemy.exc import OperationalError as RealOperationalError
+
         call_count = 0
-        
-        # Create a mock exception class
-        class MockOperationalError(Exception):
-            pass
-        
-        mock_op_error.side_effect = lambda msg: MockOperationalError(msg)
-        
+
         @retry_database_operation(max_retries=2, base_delay=0.01)
         def db_query():
             nonlocal call_count
             call_count += 1
             if call_count < 2:
-                raise MockOperationalError("Connection lost")
+                raise RealOperationalError("Connection lost", {}, Exception())
             return "result"
         
         # Act

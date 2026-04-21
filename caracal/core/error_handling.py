@@ -58,7 +58,7 @@ class ErrorContext:
         category: Error category for classification
         severity: Error severity level
         operation: Name of the operation that failed
-        principal_id: Optional agent ID involved in the error
+        principal_id: Optional principal ID involved in the error
         request_id: Optional request/correlation ID
         metadata: Additional context-specific metadata
         timestamp: When the error occurred
@@ -186,7 +186,7 @@ class FailClosedErrorHandler:
             error: The exception that occurred
             category: Error category for classification
             operation: Name of the operation that failed
-            principal_id: Optional agent ID involved in the error
+            principal_id: Optional principal ID involved in the error
             request_id: Optional request/correlation ID
             metadata: Optional additional context
             severity: Optional severity override (auto-determined if not provided)
@@ -442,7 +442,7 @@ def handle_error_with_denial(
         error: The exception that occurred
         category: Error category for classification
         operation: Name of the operation that failed
-        principal_id: Optional agent ID involved in the error
+        principal_id: Optional principal ID involved in the error
         request_id: Optional request/correlation ID
         metadata: Optional additional context
     

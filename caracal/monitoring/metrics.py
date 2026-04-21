@@ -323,7 +323,7 @@ class MetricsRegistry:
         
         self.allowlist_patterns_active = Gauge(
             'caracal_allowlist_patterns_active',
-            'Number of active allowlist patterns per agent',
+            'Number of active allowlist patterns per principal',
             ['principal_id'],
             registry=self.registry
         )
@@ -798,7 +798,7 @@ class MetricsRegistry:
         Record an allowlist check.
         
         Args:
-            principal_id: Agent ID
+            principal_id: Principal ID
             result: Check result (allowed, denied, no_allowlist)
             pattern_type: Pattern type if matched (regex, glob)
             duration_seconds: Check duration in seconds
@@ -827,7 +827,7 @@ class MetricsRegistry:
         Context manager to time allowlist checks.
         
         Args:
-            principal_id: Agent ID
+            principal_id: Principal ID
             pattern_type: Pattern type (regex, glob)
         """
         start_time = time.time()
@@ -849,10 +849,10 @@ class MetricsRegistry:
     
     def set_allowlist_patterns_active(self, principal_id: str, count: int):
         """
-        Set the number of active allowlist patterns for an agent.
+        Set the number of active allowlist patterns for a principal.
         
         Args:
-            principal_id: Agent ID
+            principal_id: Principal ID
             count: Number of active patterns
         """
         self.allowlist_patterns_active.labels(principal_id=principal_id).set(count)

@@ -392,7 +392,7 @@ class TestLedgerQuery:
         start_time = datetime(2024, 1, 15, 9, 0, 0)
         end_time = datetime(2024, 1, 15, 13, 0, 0)
         
-        totals = query_obj.aggregate_by_agent(start_time, end_time)
+        totals = query_obj.aggregate_by_principal(start_time, end_time)
         
         assert totals[principal_id1] == Decimal("125.50")
         assert totals[principal_id2] == Decimal("50.25")

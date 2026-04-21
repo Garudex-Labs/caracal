@@ -61,10 +61,9 @@ class TokenIssueRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     principal_id: str = Field(..., min_length=1)
-    organization_id: str = Field(..., min_length=1)
+    workspace_id: str = Field(..., min_length=1)
     tenant_id: str = Field(..., min_length=1)
     session_kind: str = Field(default="automation")
-    workspace_id: Optional[str] = None
     directory_scope: Optional[str] = None
     include_refresh: bool = True
     attestation_nonce: Optional[str] = None

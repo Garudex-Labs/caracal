@@ -33,7 +33,7 @@ class _FakeGatewayHttpClient:
 
 @pytest.mark.unit
 @pytest.mark.asyncio
-async def test_authenticate_rejects_non_human_when_ais_not_configured(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_authenticate_rejects_automation_when_ais_not_configured(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("CARACAL_SESSION_KIND", "automation")
     monkeypatch.delenv("CARACAL_AIS_BASE_URL", raising=False)
     monkeypatch.delenv("CARACAL_AIS_UNIX_SOCKET_PATH", raising=False)
@@ -53,8 +53,8 @@ async def test_authenticate_rejects_non_human_when_ais_not_configured(monkeypatc
 
 @pytest.mark.unit
 @pytest.mark.asyncio
-async def test_authenticate_rejects_human_when_ais_not_configured(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("CARACAL_SESSION_KIND", "human")
+async def test_authenticate_rejects_interactive_when_ais_not_configured(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("CARACAL_SESSION_KIND", "interactive")
     monkeypatch.delenv("CARACAL_AIS_BASE_URL", raising=False)
     monkeypatch.delenv("CARACAL_AIS_UNIX_SOCKET_PATH", raising=False)
 
@@ -76,7 +76,7 @@ def test_build_ais_token_payload_requires_identity_triplet(monkeypatch: pytest.M
     monkeypatch.setenv("CARACAL_SESSION_KIND", "automation")
     monkeypatch.setenv("CARACAL_AIS_BASE_URL", "http://ais.local")
     monkeypatch.delenv("CARACAL_AIS_PRINCIPAL_ID", raising=False)
-    monkeypatch.delenv("CARACAL_AIS_ORGANIZATION_ID", raising=False)
+    monkeypatch.delenv("CARACAL_WORKSPACE_ID", raising=False)
     monkeypatch.delenv("CARACAL_AIS_TENANT_ID", raising=False)
 
     client = GatewayClient(gateway_url="https://gateway.example", config_manager=Mock(), workspace="test")
@@ -94,12 +94,12 @@ def test_parse_ais_expiration_falls_back_to_short_ttl() -> None:
 
 @pytest.mark.unit
 @pytest.mark.asyncio
-async def test_authenticate_via_ais_uses_http_endpoint_for_non_human(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_authenticate_via_ais_uses_http_endpoint_for_automation(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("CARACAL_SESSION_KIND", "automation")
     monkeypatch.setenv("CARACAL_AIS_BASE_URL", "http://ais.local")
     monkeypatch.delenv("CARACAL_AIS_UNIX_SOCKET_PATH", raising=False)
     monkeypatch.setenv("CARACAL_AIS_PRINCIPAL_ID", "principal-1")
-    monkeypatch.setenv("CARACAL_AIS_ORGANIZATION_ID", "org-1")
+    monkeypatch.setenv("CARACAL_WORKSPACE_ID", "org-1")
     monkeypatch.setenv("CARACAL_AIS_TENANT_ID", "tenant-1")
 
     captured: dict[str, object] = {}
@@ -136,7 +136,7 @@ async def test_authenticate_via_ais_uses_http_endpoint_for_non_human(monkeypatch
     assert captured["url"] == "http://ais.local/v1/ais/token"
     assert captured["payload"] == {
         "principal_id": "principal-1",
-        "organization_id": "org-1",
+        "workspace_id": "org-1",
         "tenant_id": "tenant-1",
         "session_kind": "automation",
         "include_refresh": True,
@@ -152,7 +152,7 @@ async def test_authenticate_via_ais_sends_caller_token_header(monkeypatch: pytes
     monkeypatch.setenv("CARACAL_SESSION_KIND", "automation")
     monkeypatch.setenv("CARACAL_AIS_BASE_URL", "http://ais.local")
     monkeypatch.setenv("CARACAL_AIS_PRINCIPAL_ID", "principal-1")
-    monkeypatch.setenv("CARACAL_AIS_ORGANIZATION_ID", "org-1")
+    monkeypatch.setenv("CARACAL_WORKSPACE_ID", "org-1")
     monkeypatch.setenv("CARACAL_AIS_TENANT_ID", "tenant-1")
     monkeypatch.setenv("CARACAL_AIS_CALLER_TOKEN", "caller-access-token")
 
@@ -192,7 +192,7 @@ def test_build_ais_token_payload_includes_attestation_nonce(monkeypatch: pytest.
     monkeypatch.setenv("CARACAL_SESSION_KIND", "automation")
     monkeypatch.setenv("CARACAL_AIS_BASE_URL", "http://ais.local")
     monkeypatch.setenv("CARACAL_AIS_PRINCIPAL_ID", "principal-1")
-    monkeypatch.setenv("CARACAL_AIS_ORGANIZATION_ID", "org-1")
+    monkeypatch.setenv("CARACAL_WORKSPACE_ID", "org-1")
     monkeypatch.setenv("CARACAL_AIS_TENANT_ID", "tenant-1")
     monkeypatch.setenv("CARACAL_AIS_ATTESTATION_NONCE", "nonce-123")
 

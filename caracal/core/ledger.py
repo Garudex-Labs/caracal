@@ -148,7 +148,7 @@ class LedgerQuery:
             total += Decimal(event.quantity)
         return total
 
-    def aggregate_by_agent(self, start_time: datetime, end_time: datetime) -> Dict[str, Decimal]:
+    def aggregate_by_principal(self, start_time: datetime, end_time: datetime) -> Dict[str, Decimal]:
         events = self.get_events(start_time=start_time, end_time=end_time)
         totals: Dict[str, Decimal] = {}
         for event in events:

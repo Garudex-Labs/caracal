@@ -1,15 +1,21 @@
-import { BaseAdapter } from './adapters/base';
-import { HookRegistry, ScopeRef } from './hooks';
-import { ToolOperations, ToolScope } from './tools';
+/**
+ * Copyright (C) 2026 Garudex Labs. All Rights Reserved.
+ * Caracal, a product of Garudex Labs
+ *
+ * SDK Context & Scope Management.
+ * Implements workspace scope hierarchy.
+ */
+
+import { BaseAdapter, SDKRequest } from './adapters/base';
+import { HookRegistry, ScopeRef, StateSnapshot } from './hooks';
+import { ToolOperations } from './tools';
 
 // ---------------------------------------------------------------------------
 // ScopeContext
 // ---------------------------------------------------------------------------
 
-export class ScopeContext implements ToolScope {
-  readonly organizationId?: string;
+export class ScopeContext {
   readonly workspaceId?: string;
-  readonly projectId?: string;
 
   /** @internal */
   readonly _adapter: BaseAdapter;
@@ -21,32 +27,24 @@ export class ScopeContext implements ToolScope {
   constructor(options: {
     adapter: BaseAdapter;
     hooks: HookRegistry;
-    organizationId?: string;
     workspaceId?: string;
-    projectId?: string;
   }) {
     this._adapter = options.adapter;
     this._hooks = options.hooks;
-    this.organizationId = options.organizationId;
     this.workspaceId = options.workspaceId;
-    this.projectId = options.projectId;
   }
 
   /** HTTP headers encoding the current scope. */
   scopeHeaders(): Record<string, string> {
     const h: Record<string, string> = {};
-    if (this.organizationId) h['X-Caracal-Org-ID'] = this.organizationId;
     if (this.workspaceId) h['X-Caracal-Workspace-ID'] = this.workspaceId;
-    if (this.projectId) h['X-Caracal-Project-ID'] = this.projectId;
     return h;
   }
 
   /** Lightweight ref for hook callbacks. */
   toScopeRef(): ScopeRef {
     return {
-      organizationId: this.organizationId,
       workspaceId: this.workspaceId,
-      projectId: this.projectId,
     };
   }
 
@@ -76,26 +74,20 @@ export class ContextManager {
 
   /** Activate a new scope. Fires `onContextSwitch`. */
   checkout(options?: {
-    organizationId?: string;
     workspaceId?: string;
-    projectId?: string;
   }): ScopeContext {
     const oldRef = this._current?.toScopeRef() ?? null;
 
     const ctx = new ScopeContext({
       adapter: this.adapter,
       hooks: this.hooks,
-      organizationId: options?.organizationId,
       workspaceId: options?.workspaceId,
-      projectId: options?.projectId,
     });
 
     this._current = ctx;
     this.hooks.fireContextSwitch(oldRef, ctx.toScopeRef());
     this.hooks.fireStateChange({
-      organizationId: options?.organizationId,
       workspaceId: options?.workspaceId,
-      projectId: options?.projectId,
     });
 
     return ctx;

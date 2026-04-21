@@ -6,16 +6,12 @@ import { JsonObject } from './json';
 // ---------------------------------------------------------------------------
 
 export interface ScopeRef {
-  organizationId?: string;
   workspaceId?: string;
-  projectId?: string;
 }
 
 export interface StateSnapshot {
-  organizationId?: string;
   workspaceId?: string;
-  projectId?: string;
-  metadata?: JsonObject;
+  metadata?: Record<string, unknown>;
 }
 
 // ---------------------------------------------------------------------------

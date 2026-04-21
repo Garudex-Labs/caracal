@@ -15,7 +15,7 @@ from caracal.db.models import Principal, AuthorityPolicy, DelegationEdgeModel
 def _make_principal(
     principal_id,
     name,
-    principal_type,
+    principal_kind,
     *,
     owner="integration-test",
     with_keys=False,
@@ -30,7 +30,7 @@ def _make_principal(
     return Principal(
         principal_id=principal_id,
         name=name,
-        principal_type=principal_type,
+        principal_kind=principal_kind,
         owner=owner,
         public_key_pem=public_key_pem,
         principal_metadata=metadata,
@@ -70,14 +70,14 @@ class TestMandateDelegationIntegration:
         
         # Create principals
         issuer_id = uuid4()
-        issuer = _make_principal(issuer_id, "test-issuer", "user", with_keys=True)
+        issuer = _make_principal(issuer_id, "test-issuer", "human", with_keys=True)
         db_session.add(issuer)
 
         policy = _make_policy(issuer_id, allow_delegation=True, max_network_distance=2)
         db_session.add(policy)
 
         subject_id = uuid4()
-        subject = _make_principal(subject_id, "test-subject", "agent", with_keys=True)
+        subject = _make_principal(subject_id, "test-subject", "worker", with_keys=True)
         db_session.add(subject)
 
         target_id = uuid4()
@@ -122,14 +122,14 @@ class TestMandateDelegationIntegration:
         
         # Create principals: user -> agent -> service
         user_id = uuid4()
-        user = _make_principal(user_id, "test-user", "user", with_keys=True)
+        user = _make_principal(user_id, "test-user", "human", with_keys=True)
         db_session.add(user)
 
         policy = _make_policy(user_id, allow_delegation=True, max_network_distance=3)
         db_session.add(policy)
 
-        agent_id = uuid4()
-        agent = _make_principal(agent_id, "test-agent", "agent", with_keys=True)
+        worker_id = uuid4()
+        agent = _make_principal(worker_id, "test-worker", "worker", with_keys=True)
         db_session.add(agent)
 
         service_id = uuid4()
@@ -141,7 +141,7 @@ class TestMandateDelegationIntegration:
         # user -> agent
         mandate1 = mandate_manager.issue_mandate(
             issuer_id=user_id,
-            subject_id=agent_id,
+            subject_id=worker_id,
             resource_scope=["test:resource"],
             action_scope=["read"],
             validity_seconds=3600,
@@ -177,14 +177,14 @@ class TestMandateDelegationIntegration:
         
         # Create principals
         issuer_id = uuid4()
-        issuer = _make_principal(issuer_id, "test-issuer", "user", with_keys=True)
+        issuer = _make_principal(issuer_id, "test-issuer", "human", with_keys=True)
         db_session.add(issuer)
 
         policy = _make_policy(issuer_id, allow_delegation=True, max_network_distance=2)
         db_session.add(policy)
 
         subject_id = uuid4()
-        subject = _make_principal(subject_id, "test-subject", "agent", with_keys=True)
+        subject = _make_principal(subject_id, "test-subject", "worker", with_keys=True)
         db_session.add(subject)
 
         target_id = uuid4()

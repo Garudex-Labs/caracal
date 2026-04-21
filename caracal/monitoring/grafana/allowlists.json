@@ -122,13 +122,13 @@
       },
       {
         "id": 6,
-        "title": "Denied Requests by Agent",
+        "title": "Denied Requests by Principal",
         "type": "graph",
         "gridPos": {"h": 8, "w": 12, "x": 12, "y": 16},
         "targets": [
           {
             "expr": "topk(10, rate(caracal_allowlist_misses_total[5m]))",
-            "legendFormat": "{{agent_id}}",
+            "legendFormat": "{{principal_id}}",
             "refId": "A"
           }
         ],
@@ -139,7 +139,7 @@
       },
       {
         "id": 7,
-        "title": "Active Patterns per Agent",
+        "title": "Active Patterns per Principal",
         "type": "stat",
         "gridPos": {"h": 8, "w": 12, "x": 0, "y": 24},
         "targets": [

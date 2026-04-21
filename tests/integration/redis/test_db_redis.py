@@ -71,7 +71,7 @@ class TestDatabaseRedisIntegration:
         issuer = Principal(
             principal_id=issuer_id,
             principal_name="test-issuer",
-            principal_type="user",
+            principal_kind="human",
             private_key_pem="-----BEGIN PRIVATE KEY-----\nMIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgTest1234567890Test1234567890Test1234567890hRACBggg==\n-----END PRIVATE KEY-----",
             public_key_pem="-----BEGIN PUBLIC KEY-----\nMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAETest1234567890Test1234567890Test1234567890Test1234567890==\n-----END PUBLIC KEY-----"
         )
@@ -92,7 +92,7 @@ class TestDatabaseRedisIntegration:
         subject = Principal(
             principal_id=subject_id,
             principal_name="test-subject",
-            principal_type="agent"
+            principal_kind="worker"
         )
         db_session.add(subject)
         db_session.commit()
@@ -140,7 +140,7 @@ class TestDatabaseRedisIntegration:
         issuer = Principal(
             principal_id=issuer_id,
             principal_name="test-issuer",
-            principal_type="user",
+            principal_kind="human",
             private_key_pem="-----BEGIN PRIVATE KEY-----\nMIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgTest1234567890Test1234567890Test1234567890hRACBggg==\n-----END PRIVATE KEY-----",
             public_key_pem="-----BEGIN PUBLIC KEY-----\nMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAETest1234567890Test1234567890Test1234567890Test1234567890==\n-----END PUBLIC KEY-----"
         )
@@ -161,7 +161,7 @@ class TestDatabaseRedisIntegration:
         subject = Principal(
             principal_id=subject_id,
             principal_name="test-subject",
-            principal_type="agent"
+            principal_kind="worker"
         )
         db_session.add(subject)
         db_session.commit()
@@ -199,7 +199,7 @@ class TestDatabaseRedisIntegration:
         issuer = Principal(
             principal_id=issuer_id,
             principal_name="test-issuer",
-            principal_type="user",
+            principal_kind="human",
             private_key_pem="-----BEGIN PRIVATE KEY-----\nMIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgTest1234567890Test1234567890Test1234567890hRACBggg==\n-----END PRIVATE KEY-----",
             public_key_pem="-----BEGIN PUBLIC KEY-----\nMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAETest1234567890Test1234567890Test1234567890Test1234567890==\n-----END PUBLIC KEY-----"
         )
@@ -220,7 +220,7 @@ class TestDatabaseRedisIntegration:
         subject = Principal(
             principal_id=subject_id,
             principal_name="test-subject",
-            principal_type="agent"
+            principal_kind="worker"
         )
         db_session.add(subject)
         db_session.commit()

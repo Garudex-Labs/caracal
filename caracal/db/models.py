@@ -5,7 +5,7 @@ Caracal, a product of Garudex Labs
 SQLAlchemy models for Caracal Core PostgreSQL backend.
 
 This module defines the database schema for:
-- Principal identities (user, agent, service)
+- Principal identities (human, orchestrator, worker, service)
 - Graph-based authority delegation (DelegationEdgeModel)
 - Authority policies with delegation constraints
 - Ledger events for immutable resource usage records
@@ -230,7 +230,7 @@ class LedgerSnapshot(Base):
     Ledger snapshots for fast recovery.
     
     Stores point-in-time snapshots of ledger state including aggregated usage
-    per agent and current Merkle root. Enables fast recovery without replaying
+    per principal and current Merkle root. Enables fast recovery without replaying
     all events from the beginning.
     
     """
@@ -245,7 +245,7 @@ class LedgerSnapshot(Base):
     total_events = Column(BigInteger, nullable=False)
     merkle_root = Column(String(64), nullable=False)  # Hex-encoded SHA-256 hash
     
-    # Snapshot data (aggregated usage per agent)
+    # Snapshot data (aggregated usage per principal)
     snapshot_data = Column(JSON, nullable=False)
     
     # Creation timestamp
@@ -614,7 +614,7 @@ class DelegationEdgeModel(Base):
     
     Represents a delegation relationship between two mandates,
     tracking the principal types involved and delegation direction.
-    Authority flows downward: user → agent → service.
+    Authority flows downward: human → orchestrator → worker → service.
     
     """
     
@@ -637,9 +637,9 @@ class DelegationEdgeModel(Base):
         index=True,
     )
     
-    # Principal type tracking
-    source_principal_type = Column(String(50), nullable=False, index=True)  # user, agent, service
-    target_principal_type = Column(String(50), nullable=False, index=True)  # user, agent, service
+    # Principal kind tracking
+    source_principal_kind = Column(String(50), nullable=False, index=True)  # human, orchestrator, worker, service
+    target_principal_kind = Column(String(50), nullable=False, index=True)  # human, orchestrator, worker, service
     
     # Delegation metadata
     delegation_type = Column(
@@ -689,13 +689,13 @@ class DelegationEdgeModel(Base):
     # Composite indexes
     __table_args__ = (
         Index("ix_delegation_edges_source_target", "source_mandate_id", "target_mandate_id"),
-        Index("ix_delegation_edges_types", "source_principal_type", "target_principal_type"),
+        Index("ix_delegation_edges_types", "source_principal_kind", "target_principal_kind"),
     )
     
     def __repr__(self):
         return (
             f"<DelegationEdge(edge_id={self.edge_id}, "
-            f"{self.source_principal_type}→{self.target_principal_type}, "
+            f"{self.source_principal_kind}→{self.target_principal_kind}, "
             f"type={self.delegation_type}, revoked={self.revoked})>"
         )
 
@@ -728,7 +728,7 @@ class SessionHandoffTransfer(Base):
     source_token_jti = Column(String(255), nullable=False, index=True)
     source_subject_id = Column(String(255), nullable=False, index=True)
     target_subject_id = Column(String(255), nullable=False, index=True)
-    organization_id = Column(String(255), nullable=False, index=True)
+    workspace_id = Column(String(255), nullable=False, index=True)
     tenant_id = Column(String(255), nullable=False, index=True)
     transferred_caveats = Column(JSON, nullable=False, default=list)
     source_remaining_caveats = Column(JSON, nullable=False, default=list)
@@ -957,7 +957,7 @@ class GatewayProvider(Base):
     __tablename__ = "gateway_providers"
 
     provider_id = Column(String(255), primary_key=True)
-    organization_id = Column(PG_UUID(as_uuid=True), nullable=True, index=True)
+    workspace_id = Column(PG_UUID(as_uuid=True), nullable=True, index=True)
     name = Column(String(255), nullable=False)
     base_url = Column(String(2048), nullable=False)
     service_type = Column(String(100), nullable=False, default="application", server_default="application")
@@ -1051,6 +1051,42 @@ class RegisteredTool(Base):
 # ============================================================================
 # Enterprise Runtime State Management Models
 # ============================================================================
+
+
+class ResourceAllowlist(Base):
+    """
+    Fine-grained resource allowlist entries for principal access control.
+
+    Each entry defines a regex or glob pattern that restricts which resources
+    a principal may access.  When at least one allowlist row exists for
+    a principal, only resources matching an active pattern are permitted.
+    """
+
+    __tablename__ = "resource_allowlists"
+
+    allowlist_id = Column(
+        PG_UUID(as_uuid=True), primary_key=True, default=uuid4, server_default=text("gen_random_uuid()")
+    )
+    principal_id = Column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("principals.principal_id"),
+        nullable=False,
+        index=True,
+    )
+    resource_pattern = Column(String(2048), nullable=False)
+    pattern_type = Column(String(16), nullable=False)  # "regex" or "glob"
+    active = Column(Boolean, nullable=False, default=True, server_default=text("true"))
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+    __table_args__ = (
+        Index("ix_resource_allowlists_principal_active", "principal_id", "active"),
+    )
+
+    def __repr__(self):
+        return (
+            f"<ResourceAllowlist(allowlist_id={self.allowlist_id}, "
+            f"principal_id={self.principal_id}, pattern_type={self.pattern_type})>"
+        )
 
 
 class EnterpriseRuntimeConfig(Base):

@@ -1,12 +1,14 @@
-"""Shared runtime for the Caracal-backed LangChain demo application.
+"""Shared runtime for the Caracal-backed LangChain demo.
 
-This runtime intentionally uses the same governed Caracal flow in both modes:
-- SDK tool calls through the current thin SDK
-- provider/tool mapping in the Caracal registry
-- token-scoped execution with runtime-owned authority enforcement
+This runtime uses the same governed Caracal flow in both mock and real modes:
+- SDK tool calls with Bearer token authentication
+- Authority validated internally by Caracal (principal → mandate → policy)
+- Provider routing handled by Caracal tool registry
+- Mock vs real determined by which tools/providers are registered
 
-Mock mode differs only in which providers/tools are selected. The configured
-mock providers return deterministic payloads and do not require real API keys.
+The ONLY difference between modes is which tool IDs are used. Mock tools
+route to mock providers (deterministic responses). Real tools route to
+real providers (actual API calls). Caracal itself is always real.
 """
 
 from __future__ import annotations
@@ -30,7 +32,6 @@ ROLE_ORDER = ("finance", "ops", "orchestrator")
 class DemoRunConfig:
     mode: str = "mock"
     provider_strategy: str = "mixed"
-    include_revocation_check: bool = True
 
 
 def _iso_now() -> str:
@@ -73,53 +74,25 @@ def _response_error_text(response: dict[str, Any]) -> str:
     return str(error or "unknown error")
 
 
-def _authority_validation_record(
-    *,
-    role: str,
-    tool_id: str,
-    mandate_id: str,
-    principal_id: str | None,
-    resource_scope: str,
-    action_scope: str,
-    response: dict[str, Any],
-) -> dict[str, Any]:
-    metadata = dict(response.get("metadata") or {})
-    success = _response_success(response)
-    reason = (
-        "Tool execution accepted by the Caracal runtime."
-        if success
-        else _response_error_text(response)
-    )
-    return {
-        "timestamp": _iso_now(),
-        "role": role,
-        "tool_id": tool_id,
-        "configured_mandate_id": mandate_id,
-        "caller_principal_id": principal_id,
-        "requested_resource": resource_scope,
-        "requested_action": action_scope,
-        "allowed": success,
-        "reason": reason,
-        "validation_source": "mcp.tool.call",
-        "provider_name": metadata.get("provider_name"),
-        "execution_mode": metadata.get("execution_mode"),
-    }
-
-
 async def _call_governed_tool(
     client: GovernedToolClient,
     *,
     mode: str,
     role: str,
     tool_key: str,
-    mandate_id: str,
     tool_args: dict[str, Any],
     step: int,
     trace_id: str,
     timeline: list[dict[str, Any]],
-    authority_validations: list[dict[str, Any]],
+    authority_decisions: list[dict[str, Any]],
     provider_counts: dict[str, int],
 ) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Call a tool through Caracal and record the result.
+
+    Authority validation happens inside Caracal. We observe the outcome:
+    - success=True means authority was granted and the tool executed
+    - success=False means authority was denied or tool execution failed
+    """
     tool_id = TOOL_IDS[mode][tool_key]
     resource_scope, action_scope = _scope_pair(tool_id)
 
@@ -128,39 +101,45 @@ async def _call_governed_tool(
         tool_args=tool_args,
         correlation_id=trace_id,
     )
-    authority_validations.append(
-        _authority_validation_record(
-            role=role,
-            tool_id=tool_id,
-            mandate_id=mandate_id,
-            principal_id=None,
-            resource_scope=resource_scope,
-            action_scope=action_scope,
-            response=response,
-        )
-    )
-    if not _response_success(response):
-        raise RuntimeError(
-            f"Tool call failed for {tool_id}: {_response_error_text(response)}"
-        )
 
     metadata = dict(response.get("metadata") or {})
-    provider_name = str(metadata.get("provider_name") or _provider_from_resource_scope(resource_scope))
+    success = _response_success(response)
+    provider_name = str(
+        metadata.get("provider_name") or _provider_from_resource_scope(resource_scope)
+    )
+
+    authority_decisions.append({
+        "timestamp": _iso_now(),
+        "role": role,
+        "tool_id": tool_id,
+        "resource_scope": resource_scope,
+        "action_scope": action_scope,
+        "allowed": success,
+        "reason": (
+            "Authority granted by Caracal"
+            if success
+            else _response_error_text(response)
+        ),
+        "provider_name": provider_name,
+    })
+
+    if not success:
+        raise RuntimeError(
+            f"Tool call denied or failed for {tool_id}: {_response_error_text(response)}"
+        )
+
     provider_counts[provider_name] = provider_counts.get(provider_name, 0) + 1
 
     content = _normalize_tool_result(response)
-    timeline.append(
-        {
-            "step": step,
-            "role": role,
-            "tool_id": tool_id,
-            "tool_key": tool_key,
-            "mandate_id": mandate_id,
-            "execution_mode": metadata.get("execution_mode"),
-            "provider_name": provider_name,
-            "output": content,
-        }
-    )
+    timeline.append({
+        "step": step,
+        "role": role,
+        "tool_id": tool_id,
+        "tool_key": tool_key,
+        "execution_mode": metadata.get("execution_mode"),
+        "provider_name": provider_name,
+        "output": content,
+    })
     return content, response
 
 
@@ -168,6 +147,18 @@ async def run_demo_workflow_async(
     scenario: dict[str, Any],
     config: DemoRunConfig,
 ) -> dict[str, Any]:
+    """Execute the full governed workflow through Caracal.
+
+    Steps:
+    1. Finance data retrieval (via Caracal → mock/real finance API)
+    2. Finance LLM brief (via Caracal → mock/real OpenAI/Gemini)
+    3. Ops data retrieval (via Caracal → mock/real ops API)
+    4. Ops LLM brief (via Caracal → mock/real OpenAI/Gemini)
+    5. Orchestrator assembly (via Caracal → control-plane handler)
+    6. Ticket creation (via Caracal → mock/real ticketing API)
+
+    All calls go through Caracal's authority enforcement pipeline.
+    """
     runtime_config = load_demo_runtime_config(require_api_key=True)
     mode_config = runtime_config.modes[config.mode]
     mode_tools = TOOL_IDS[config.mode]
@@ -186,13 +177,8 @@ async def run_demo_workflow_async(
     )
 
     timeline: list[dict[str, Any]] = []
-    authority_validations: list[dict[str, Any]] = []
+    authority_decisions: list[dict[str, Any]] = []
     provider_counts: dict[str, int] = {}
-
-    finance_mandate = mode_config.mandates["finance"]
-    ops_mandate = mode_config.mandates["ops"]
-    orchestrator_mandate = mode_config.mandates["orchestrator"]
-    principal_ids = mode_config.principal_ids or {}
 
     try:
         finance_data, finance_data_response = await _call_governed_tool(
@@ -200,22 +186,19 @@ async def run_demo_workflow_async(
             mode=config.mode,
             role="finance",
             tool_key="finance_data",
-            mandate_id=finance_mandate,
             tool_args={"scenario": scenario},
             step=1,
             trace_id="finance-data",
             timeline=timeline,
-            authority_validations=authority_validations,
+            authority_decisions=authority_decisions,
             provider_counts=provider_counts,
         )
-        authority_validations[-1]["caller_principal_id"] = principal_ids.get("finance")
 
         finance_brief, finance_brief_response = await _call_governed_tool(
             client,
             mode=config.mode,
             role="finance",
             tool_key=finance_llm_key,
-            mandate_id=finance_mandate,
             tool_args={
                 "analysis_kind": "finance",
                 "prompt": (
@@ -226,32 +209,28 @@ async def run_demo_workflow_async(
             step=2,
             trace_id="finance-brief",
             timeline=timeline,
-            authority_validations=authority_validations,
+            authority_decisions=authority_decisions,
             provider_counts=provider_counts,
         )
-        authority_validations[-1]["caller_principal_id"] = principal_ids.get("finance")
 
         ops_data, ops_data_response = await _call_governed_tool(
             client,
             mode=config.mode,
             role="ops",
             tool_key="ops_data",
-            mandate_id=ops_mandate,
             tool_args={"scenario": scenario},
             step=3,
             trace_id="ops-data",
             timeline=timeline,
-            authority_validations=authority_validations,
+            authority_decisions=authority_decisions,
             provider_counts=provider_counts,
         )
-        authority_validations[-1]["caller_principal_id"] = principal_ids.get("ops")
 
         ops_brief, ops_brief_response = await _call_governed_tool(
             client,
             mode=config.mode,
             role="ops",
             tool_key=ops_llm_key,
-            mandate_id=ops_mandate,
             tool_args={
                 "analysis_kind": "ops",
                 "prompt": (
@@ -262,17 +241,15 @@ async def run_demo_workflow_async(
             step=4,
             trace_id="ops-brief",
             timeline=timeline,
-            authority_validations=authority_validations,
+            authority_decisions=authority_decisions,
             provider_counts=provider_counts,
         )
-        authority_validations[-1]["caller_principal_id"] = principal_ids.get("ops")
 
         assembled, assemble_response = await _call_governed_tool(
             client,
             mode=config.mode,
             role="orchestrator",
             tool_key="orchestrator_assemble",
-            mandate_id=orchestrator_mandate,
             tool_args={
                 "scenario": scenario,
                 "finance_data": finance_data,
@@ -284,10 +261,9 @@ async def run_demo_workflow_async(
             step=5,
             trace_id="orchestrator-assemble",
             timeline=timeline,
-            authority_validations=authority_validations,
+            authority_decisions=authority_decisions,
             provider_counts=provider_counts,
         )
-        authority_validations[-1]["caller_principal_id"] = principal_ids.get("orchestrator")
 
         ticket_payload = {
             "title": f"{scenario.get('company', 'company')}: governed action plan",
@@ -299,45 +275,13 @@ async def run_demo_workflow_async(
             mode=config.mode,
             role="orchestrator",
             tool_key="ticket_create",
-            mandate_id=orchestrator_mandate,
             tool_args=ticket_payload,
             step=6,
             trace_id="orchestrator-ticket",
             timeline=timeline,
-            authority_validations=authority_validations,
+            authority_decisions=authority_decisions,
             provider_counts=provider_counts,
         )
-        authority_validations[-1]["caller_principal_id"] = principal_ids.get("orchestrator")
-
-        revocation: dict[str, Any] = {
-            "executed": False,
-            "revoked_mandate_id": None,
-            "denial_captured": False,
-            "denial_evidence": None,
-            "revoke_response": None,
-            "skipped_reason": None,
-        }
-        if config.include_revocation_check:
-            revocation["skipped_reason"] = (
-                "The current SDK is execution-only. Revoke mandates via Caracal CLI/Flow "
-                "and rerun the demo to observe denial through the runtime."
-            )
-
-        authority_ledger_events = [
-            {
-                "event_type": "tool_call",
-                "role": validation["role"],
-                "tool_id": validation["tool_id"],
-                "mandate_id": validation["configured_mandate_id"],
-                "principal_id": validation["caller_principal_id"],
-                "provider_name": validation.get("provider_name"),
-                "execution_mode": validation.get("execution_mode"),
-                "allowed": validation["allowed"],
-                "reason": validation["reason"],
-                "timestamp": validation["timestamp"],
-            }
-            for validation in authority_validations
-        ]
 
         outcomes = assembled.get("business_outcomes") if isinstance(assembled, dict) else None
         if not isinstance(outcomes, dict):
@@ -347,22 +291,17 @@ async def run_demo_workflow_async(
             (assembled.get("summary") if isinstance(assembled, dict) else "")
             or format_mock_summary(outcomes, governed=True)
         ).strip()
-        if revocation.get("denial_captured"):
-            summary += " Revocation check: subsequent finance call denied as expected."
 
-        delegation_edges: list[dict[str, Any]] = []
-        if mode_config.source_mandate_id:
-            for role in ROLE_ORDER:
-                delegation_edges.append(
-                    {
-                        "source_mandate_id": mode_config.source_mandate_id,
-                        "target_role": role,
-                        "target_mandate_id": mode_config.mandates[role],
-                    }
-                )
+        identities = []
+        principal_ids = mode_config.principal_ids or {}
+        for role in ROLE_ORDER:
+            identities.append({
+                "role": role,
+                "principal_id": principal_ids.get(role, "(from Bearer token)"),
+            })
 
         result = {
-            "mode": "caracal-demo-mock" if config.mode == "mock" else "caracal-demo-real",
+            "mode": f"caracal-demo-{config.mode}",
             "provider_strategy": config.provider_strategy,
             "timestamp": _iso_now(),
             "input_prompt": scenario.get("user_prompt", ""),
@@ -370,36 +309,14 @@ async def run_demo_workflow_async(
             "timeline": timeline,
             "business_outcomes": outcomes,
             "ticket": ticket_result,
-            "delegation": {
-                "source_mandate_id": mode_config.source_mandate_id,
-                "edges": delegation_edges,
-                "verified": bool(mode_config.source_mandate_id),
-            },
-            "revocation": revocation,
-            "identities": [
-                {
-                    "role": role,
-                    "principal_id": principal_ids.get(role),
-                    "mandate_id": mode_config.mandates[role],
-                    "access_token": "managed-by-CARACAL_API_KEY",
-                }
-                for role in ROLE_ORDER
-            ],
-            "authority_validations": authority_validations,
-            "authority_ledger_events": authority_ledger_events,
-            "authority_evidence": authority_ledger_events,
-            "metering_events": [],
-            "upstream_requests": [],
+            "identities": identities,
+            "authority_decisions": authority_decisions,
             "provider_usage": [
-                {
-                    "provider_name": provider_name,
-                    "call_count": call_count,
-                }
-                for provider_name, call_count in sorted(provider_counts.items())
+                {"provider_name": name, "call_count": count}
+                for name, count in sorted(provider_counts.items())
             ],
             "execution_contract": {
                 "mode": config.mode,
-                "mandates": dict(mode_config.mandates),
                 "tools": {
                     "finance_data": mode_tools["finance_data"],
                     "finance_brief": mode_tools[finance_llm_key],
@@ -415,14 +332,6 @@ async def run_demo_workflow_async(
                 "organization_id": runtime_config.caracal.organization_id,
                 "project_id": runtime_config.caracal.project_id,
                 "config_path": str(runtime_config.path),
-            },
-            "raw_tool_responses": {
-                "finance_data": finance_data_response,
-                "finance_brief": finance_brief_response,
-                "ops_data": ops_data_response,
-                "ops_brief": ops_brief_response,
-                "orchestrator_assemble": assemble_response,
-                "ticket_create": ticket_response,
             },
         }
         return attach_acceptance(result, scenario)
