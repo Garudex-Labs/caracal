@@ -22,7 +22,7 @@ def secrets_group():
 
 
 @secrets_group.command(name="list")
-@click.option("--org-id", required=True, help="Organisation ID.")
+@click.option("--workspace-id", required=True, help="Workspace ID.")
 @click.option("--env-id", default="default", show_default=True, help="Environment ID.")
 @click.option("--tier", required=True,
               type=click.Choice(["starter", "growth", "scale", "enterprise"], case_sensitive=False),
@@ -46,7 +46,7 @@ def list_secrets(workspace_id: str, env_id: str, tier: str) -> None:
 
 
 @secrets_group.command(name="rotate")
-@click.option("--org-id", required=True, help="Organisation ID.")
+@click.option("--workspace-id", required=True, help="Workspace ID.")
 @click.option("--env-id", default="default", show_default=True, help="Environment ID.")
 @click.option("--confirm", is_flag=True, help="Confirm the rotation without prompting.")
 def rotate_key(workspace_id: str, env_id: str, confirm: bool) -> None:

@@ -160,39 +160,36 @@ def create(
         db_manager = get_db_manager(cli_ctx.config)
         
         try:
-            session = db_manager.get_session()
-            
-            # Check if principal exists
-            principal = session.query(Principal).filter(
-                Principal.principal_id == principal_uuid
-            ).first()
-            if not principal:
-                click.echo(
-                    f"Error: Principal not found: {principal_uuid}. "
-                    "Register the principal before creating a policy.",
-                    err=True,
+            with db_manager.session_scope() as session:
+                # Check if principal exists
+                principal = session.query(Principal).filter(
+                    Principal.principal_id == principal_uuid
+                ).first()
+                if not principal:
+                    click.echo(
+                        f"Error: Principal not found: {principal_uuid}. "
+                        "Register the principal before creating a policy.",
+                        err=True,
+                    )
+                    sys.exit(1)
+                
+                # Create policy
+                policy = AuthorityPolicy(
+                    policy_id=uuid4(),
+                    principal_id=principal_uuid,
+                    max_validity_seconds=max_validity_seconds,
+                    allowed_resource_patterns=resource_patterns,
+                    allowed_actions=actions,
+                    allow_delegation=allow_delegation,
+                    max_network_distance=max_network_distance,
+                    created_by="cli",
+                    active=True
                 )
-                sys.exit(1)
-            
-            # Create policy
-            policy = AuthorityPolicy(
-                policy_id=uuid4(),
-                principal_id=principal_uuid,
-                max_validity_seconds=max_validity_seconds,
-                allowed_resource_patterns=resource_patterns,
-                allowed_actions=actions,
-                allow_delegation=allow_delegation,
-                max_network_distance=max_network_distance,
-                created_by="cli",
-                active=True
-            )
-            
-            session.add(policy)
-            session.commit()
-            
-            if format.lower() == 'json':
-                # JSON output
-                output = {
+                
+                session.add(policy)
+                session.flush()
+                
+                policy_data = {
                     'policy_id': str(policy.policy_id),
                     'principal_id': str(policy.principal_id),
                     'max_validity_seconds': policy.max_validity_seconds,
@@ -201,26 +198,26 @@ def create(
                     'allow_delegation': policy.allow_delegation,
                     'max_network_distance': policy.max_network_distance,
                     'active': policy.active,
-                    'created_at': policy.created_at.isoformat()
+                    'created_at': policy.created_at.isoformat() if policy.created_at else None,
                 }
-                click.echo(json.dumps(output, indent=2))
-            else:
-                # Table output
-                click.echo("✓ Authority policy created successfully!")
-                click.echo()
-                click.echo(f"Policy ID:              {policy.policy_id}")
-                click.echo(f"Principal ID:           {policy.principal_id}")
-                click.echo(f"Max Mandate Validity:   {policy.max_validity_seconds} seconds")
-                click.echo(f"Resource Scopes:        {', '.join(policy.allowed_resource_patterns)}")
-                click.echo(f"Allowed Actions:        {', '.join(policy.allowed_actions)}")
-                click.echo(f"Allow Delegation:       {'Yes' if policy.allow_delegation else 'No'}")
-                click.echo(f"Max Delegation Network Distance:   {policy.max_network_distance}")
-                click.echo(f"Active:                 {'Yes' if policy.active else 'No'}")
-                click.echo(f"Created:                {policy.created_at}")
         
         finally:
-            # Close database connection
             db_manager.close()
+        
+        if format.lower() == 'json':
+            click.echo(json.dumps(policy_data, indent=2))
+        else:
+            click.echo("✓ Authority policy created successfully!")
+            click.echo()
+            click.echo(f"Policy ID:              {policy_data['policy_id']}")
+            click.echo(f"Principal ID:           {policy_data['principal_id']}")
+            click.echo(f"Max Mandate Validity:   {policy_data['max_validity_seconds']}s")
+            click.echo(f"Resource Scopes:        {', '.join(policy_data['allowed_resource_patterns'])}")
+            click.echo(f"Allowed Actions:        {', '.join(policy_data['allowed_actions'])}")
+            click.echo(f"Allow Delegation:       {'Yes' if policy_data['allow_delegation'] else 'No'}")
+            click.echo(f"Max Network Distance:   {policy_data['max_network_distance']}")
+            click.echo(f"Active:                 {'Yes' if policy_data['active'] else 'No'}")
+            click.echo(f"Created:                {policy_data['created_at']}")
     
     except CaracalError as e:
         click.echo(f"Error: {e}", err=True)
@@ -297,74 +294,66 @@ def list_policies(
         db_manager = get_db_manager(cli_ctx.config)
         
         try:
-            # Query policies
-            query = db_manager.get_session().query(AuthorityPolicy)
-            
-            if principal_uuid:
-                query = query.filter(AuthorityPolicy.principal_id == principal_uuid)
-            
-            if active_only:
-                query = query.filter(AuthorityPolicy.active == True)
-            
-            policies = query.all()
-            
-            if not policies:
+            with db_manager.session_scope() as session:
+                query = session.query(AuthorityPolicy)
+                
                 if principal_uuid:
-                    click.echo(f"No policies found for principal: {principal_id}")
-                else:
-                    click.echo("No policies found.")
-                return
-            
-            if format.lower() == 'json':
-                # JSON output
-                output = [
-                    {
-                        'policy_id': str(p.policy_id),
-                        'principal_id': str(p.principal_id),
-                        'max_validity_seconds': p.max_validity_seconds,
-                        'allowed_resource_patterns': p.allowed_resource_patterns,
-                        'allowed_actions': p.allowed_actions,
-                        'allow_delegation': p.allow_delegation,
-                        'max_network_distance': p.max_network_distance,
-                        'active': p.active,
-                        'created_at': p.created_at.isoformat()
-                    }
-                    for p in policies
-                ]
-                click.echo(json.dumps(output, indent=2))
-            else:
-                # Table output
-                click.echo(f"Total policies: {len(policies)}")
-                click.echo()
+                    query = query.filter(AuthorityPolicy.principal_id == principal_uuid)
                 
-                # Print header
-                click.echo(f"{ 'Policy ID':<38}  {'Principal ID':<38}  {'Max Mandate Validity':<20}  {'Active':<8}  Delegation")
-                click.echo("-" * 130)
+                if active_only:
+                    query = query.filter(AuthorityPolicy.active == True)
                 
-                # Print policies
-                for p in policies:
-                    # Format max mandate validity
-                    max_validity_str = f"{p.max_validity_seconds}s"
-                    
-                    # Format delegation
-                    if p.allow_delegation:
-                        delegation_str = f"Yes (network_distance: {p.max_network_distance})"
+                policies = query.all()
+                
+                if not policies:
+                    if principal_uuid:
+                        click.echo(f"No policies found for principal: {principal_id}")
                     else:
-                        delegation_str = "No"
+                        click.echo("No policies found.")
+                    return
+                
+                if format.lower() == 'json':
+                    output = [
+                        {
+                            'policy_id': str(p.policy_id),
+                            'principal_id': str(p.principal_id),
+                            'max_validity_seconds': p.max_validity_seconds,
+                            'allowed_resource_patterns': p.allowed_resource_patterns,
+                            'allowed_actions': p.allowed_actions,
+                            'allow_delegation': p.allow_delegation,
+                            'max_network_distance': p.max_network_distance,
+                            'active': p.active,
+                            'created_at': p.created_at.isoformat()
+                        }
+                        for p in policies
+                    ]
+                    click.echo(json.dumps(output, indent=2))
+                else:
+                    click.echo(f"Total policies: {len(policies)}")
+                    click.echo()
                     
-                    # Format active status
-                    active_str = "Yes" if p.active else "No"
+                    click.echo(f"{ 'Policy ID':<38}  {'Principal ID':<38}  {'Max Mandate Validity':<20}  {'Active':<8}  Delegation")
+                    click.echo("-" * 130)
                     
-                    click.echo(
-                        f"{str(p.policy_id):<38}  "
-                        f"{str(p.principal_id):<38}  "
-                        f"{max_validity_str:<15}  "
-                        f"{active_str:<8}  "
-                        f"{delegation_str}"
-                    )
+                    for p in policies:
+                        max_validity_str = f"{p.max_validity_seconds}s"
+                        
+                        if p.allow_delegation:
+                            delegation_str = f"Yes (max network distance: {p.max_network_distance})"
+                        else:
+                            delegation_str = "No"
+                        
+                        active_str = "Yes" if p.active else "No"
+                        
+                        click.echo(
+                            f"{str(p.policy_id):<38}  "
+                            f"{str(p.principal_id):<38}  "
+                            f"{max_validity_str:<15}  "
+                            f"{active_str:<8}  "
+                            f"{delegation_str}"
+                        )
         
         finally:
-            # Close database connection
             db_manager.close()
     
     except CaracalError as e:

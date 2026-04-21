@@ -86,11 +86,18 @@ class AuthorityPolicyFlow:
         try:
             from caracal.db.connection import get_db_manager
             from caracal.db.models import AuthorityPolicy
+            from uuid import uuid4
             
             db_manager = get_db_manager()
             
             with db_manager.session_scope() as db_session:
-                policies = db_session.query(AuthorityPolicy).all()
+                policies = db_session.query(AuthorityPolicy)
+                
+                show_active_only = self.prompt.confirm("Show active policies only?", default=False)
+                if show_active_only:
+                    policies = policies.filter(AuthorityPolicy.active == True)
+                
+                policies = policies.all()
                 
                 if not policies:
                     self.console.print(f"  [{Colors.DIM}]No authority policies created yet.[/]")
@@ -99,7 +106,7 @@ class AuthorityPolicyFlow:
                 table = Table(show_header=True, header_style=f"bold {Colors.INFO}")
                 table.add_column("ID", style=Colors.DIM)
                 table.add_column("Principal", style=Colors.DIM)
-                table.add_column("Max Mandate Validity (s)", style=Colors.NEUTRAL)
+                table.add_column("Max Mandate Validity", style=Colors.NEUTRAL)
                 table.add_column("Actions", style=Colors.NEUTRAL)
                 table.add_column("Delegation", style=Colors.NEUTRAL)
                 table.add_column("Status", style=Colors.NEUTRAL)
@@ -141,7 +148,7 @@ class AuthorityPolicyFlow:
         try:
             from caracal.db.connection import get_db_manager
             from caracal.db.models import Principal, AuthorityPolicy
-            from datetime import datetime
+            from uuid import uuid4
             
             # Create database connection
             db_manager = get_db_manager()
@@ -254,7 +261,7 @@ class AuthorityPolicyFlow:
                 self.console.print()
                 self.console.print(f"  [{Colors.INFO}]Policy Details:[/]")
                 self.console.print(f"    Principal: [{Colors.DIM}]{principal_id_str[:8]}...[/]")
-                self.console.print(f"    Max mandate validity (seconds): [{Colors.NEUTRAL}]{int(max_validity)}s[/]")
+                self.console.print(f"    Max Mandate Validity: [{Colors.NEUTRAL}]{int(max_validity)}s[/]")
                 self.console.print(f"    Resource Patterns: [{Colors.NEUTRAL}]{len(resource_patterns)} patterns[/]")
                 self.console.print(f"    Actions: [{Colors.NEUTRAL}]{len(actions)} actions[/]")
                 self.console.print(f"    Delegation: [{Colors.NEUTRAL}]{'Yes' if allow_delegation else 'No'}[/]")
@@ -271,14 +278,14 @@ class AuthorityPolicyFlow:
                 self.console.print(f"  [{Colors.INFO}]Creating authority policy...[/]")
                 
                 policy = AuthorityPolicy(
+                    policy_id=uuid4(),
                     principal_id=principal_id,
                     max_validity_seconds=int(max_validity),
                     allowed_resource_patterns=resource_patterns,
                     allowed_actions=actions,
                     allow_delegation=allow_delegation,
                     max_network_distance=int(max_network_distance),
-                    created_at=datetime.utcnow(),
-                    created_by="flow_user",
+                    created_by="flow",
                     active=True,
                 )
                 
@@ -338,7 +345,7 @@ class AuthorityPolicyFlow:
                 self.console.print(f"  [{Colors.INFO}]Policy Information:[/]")
                 self.console.print(f"    Policy ID: [{Colors.PRIMARY}]{policy.policy_id}[/]")
                 self.console.print(f"    Principal ID: [{Colors.DIM}]{policy.principal_id}[/]")
-                self.console.print(f"    Max mandate validity (seconds): [{Colors.NEUTRAL}]{policy.max_validity_seconds}s[/]")
+                self.console.print(f"    Max Mandate Validity: [{Colors.NEUTRAL}]{policy.max_validity_seconds}s[/]")
                 self.console.print(f"    Created: [{Colors.DIM}]{policy.created_at}[/]")
                 self.console.print(f"    Created By: [{Colors.DIM}]{policy.created_by}[/]")
                 self.console.print(f"    Status: [{Colors.SUCCESS if policy.active else Colors.DIM}]{'Active' if policy.active else 'Inactive'}[/]")
@@ -357,7 +364,7 @@ class AuthorityPolicyFlow:
                 self.console.print(f"  [{Colors.INFO}]Delegation:[/]")
                 self.console.print(f"    Allowed: [{Colors.NEUTRAL}]{'Yes' if policy.allow_delegation else 'No'}[/]")
                 if policy.allow_delegation:
-                    self.console.print(f"    Max Depth: [{Colors.NEUTRAL}]{policy.max_network_distance}[/]")
+                    self.console.print(f"    Max Network Distance: [{Colors.NEUTRAL}]{policy.max_network_distance}[/]")
             
             db_manager.close()
             

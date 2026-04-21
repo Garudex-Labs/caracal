@@ -293,91 +293,84 @@ def list_delegations(ctx, principal_id: str, format: str):
         db_manager = get_db_manager(config)
         
         try:
-            session = db_manager.get_session()
-            
-            # Query delegation edges
-            query = session.query(DelegationEdgeModel).filter(
-                DelegationEdgeModel.revoked == False
-            )
-            
-            if principal_id:
-                # Filter edges involving this principal (as source or target principal)
-                from caracal.db.models import ExecutionMandate
-                # Get mandates for this principal
-                mandates = session.query(ExecutionMandate.mandate_id).filter(
-                    ExecutionMandate.subject_id == principal_id
-                ).all()
-                mandate_ids = [m.mandate_id for m in mandates]
-                
-                if mandate_ids:
-                    query = query.filter(
-                        (DelegationEdgeModel.source_mandate_id.in_(mandate_ids)) |
-                        (DelegationEdgeModel.target_mandate_id.in_(mandate_ids))
-                    )
-                else:
-                    click.echo(f"No mandates found for principal: {principal_id}")
-                    return
-            
-            edges = query.all()
-            
-            if not edges:
-                click.echo("No delegation edges found.")
-                return
-            
-            delegations = []
-            for edge in edges:
-                delegations.append({
-                    'edge_id': str(edge.edge_id),
-                    'source_mandate_id': str(edge.source_mandate_id),
-                    'target_mandate_id': str(edge.target_mandate_id),
-                    'source_principal_kind': edge.source_principal_kind,
-                    'target_principal_kind': edge.target_principal_kind,
-                    'delegation_type': edge.delegation_type,
-                    'context_tags': edge.context_tags,
-                    'granted_at': edge.granted_at.isoformat() if edge.granted_at else None,
-                    'expires_at': edge.expires_at.isoformat() if edge.expires_at else None,
-                })
-        
-            if not delegations:
-                click.echo("No delegation edges found.")
-                return
-            
-            if format.lower() == 'json':
-                # JSON output
-                click.echo(json.dumps(delegations, indent=2))
-            else:
-                # Table output
-                click.echo(f"Total delegation edges: {len(delegations)}")
-                click.echo()
-                
-                # Print header
-                type_icons = {
-                    'human': '👤',
-                    'orchestrator': '🎛️',
-                    'worker': '🤖',
-                    'service': '⚙️',
-                }
-                click.echo(
-                    f"{'Edge ID':<38}  {'Source Type':<12}  {'Target Type':<12}  {'Deleg. Type':<14}  Tags"
+            with db_manager.session_scope() as session:
+                # Query delegation edges
+                query = session.query(DelegationEdgeModel).filter(
+                    DelegationEdgeModel.revoked == False
                 )
-                click.echo("-" * 110)
                 
-                # Print delegations
-                for d in delegations:
-                    src_icon = type_icons.get(d['source_principal_kind'], '?')
-                    tgt_icon = type_icons.get(d['target_principal_kind'], '?')
-                    tags = ', '.join(d['context_tags']) if d.get('context_tags') else ''
+                if principal_id:
+                    from caracal.db.models import ExecutionMandate
+                    mandates = session.query(ExecutionMandate.mandate_id).filter(
+                        ExecutionMandate.subject_id == principal_id
+                    ).all()
+                    mandate_ids = [m.mandate_id for m in mandates]
                     
-                    click.echo(
-                        f"{d['edge_id']:<38}  "
-                        f"{src_icon} {d['source_principal_kind']:<9}  "
-                        f"{tgt_icon} {d['target_principal_kind']:<9}  "
-                        f"{d['delegation_type']:<14}  "
-                        f"{tags}"
-                    )
+                    if mandate_ids:
+                        query = query.filter(
+                            (DelegationEdgeModel.source_mandate_id.in_(mandate_ids)) |
+                            (DelegationEdgeModel.target_mandate_id.in_(mandate_ids))
+                        )
+                    else:
+                        click.echo(f"No mandates found for principal: {principal_id}")
+                        return
+                
+                edges = query.all()
+                
+                if not edges:
+                    click.echo("No delegation edges found.")
+                    return
+                
+                delegations = []
+                for edge in edges:
+                    delegations.append({
+                        'edge_id': str(edge.edge_id),
+                        'source_mandate_id': str(edge.source_mandate_id),
+                        'target_mandate_id': str(edge.target_mandate_id),
+                        'source_principal_kind': edge.source_principal_kind,
+                        'target_principal_kind': edge.target_principal_kind,
+                        'delegation_type': edge.delegation_type,
+                        'context_tags': edge.context_tags,
+                        'granted_at': edge.granted_at.isoformat() if edge.granted_at else None,
+                        'expires_at': edge.expires_at.isoformat() if edge.expires_at else None,
+                    })
         
         finally:
             db_manager.close()
+
+        if not delegations:
+            click.echo("No delegation edges found.")
+            return
+        
+        if format.lower() == 'json':
+            click.echo(json.dumps(delegations, indent=2))
+        else:
+            click.echo(f"Total delegation edges: {len(delegations)}")
+            click.echo()
+            
+            type_icons = {
+                'human': '👤',
+                'orchestrator': '🎛️',
+                'worker': '🤖',
+                'service': '⚙️',
+            }
+            click.echo(
+                f"{'Edge ID':<38}  {'Source Type':<12}  {'Target Type':<12}  {'Deleg. Type':<14}  Tags"
+            )
+            click.echo("-" * 110)
+            
+            for d in delegations:
+                src_icon = type_icons.get(d['source_principal_kind'], '?')
+                tgt_icon = type_icons.get(d['target_principal_kind'], '?')
+                tags = ', '.join(d['context_tags']) if d.get('context_tags') else ''
+                
+                click.echo(
+                    f"{d['edge_id']:<38}  "
+                    f"{src_icon} {d['source_principal_kind']:<9}  "
+                    f"{tgt_icon} {d['target_principal_kind']:<9}  "
+                    f"{d['delegation_type']:<14}  "
+                    f"{tags}"
+                )
     
     except CaracalError as e:
         click.echo(f"Error: {e}", err=True)

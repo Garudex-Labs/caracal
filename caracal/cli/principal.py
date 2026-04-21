@@ -173,7 +173,7 @@ def register(ctx, name: str, principal_kind: str, email: str, metadata: tuple):
         click.echo(f"Name:        {principal['name']}")
         click.echo(f"Kind:        {principal.get('principal_kind', 'worker')}")
 
-        click.echo(f"Email:       {principal['owner']}")
+        click.echo(f"Owner:       {principal['owner']}")
         click.echo(f"Created:     {_format_created(principal.get('created_at'))}")
         click.echo(f"Vault key reference: {principal.get('vault_key_ref', '')}")
 
@@ -263,11 +263,11 @@ def list_principals(ctx, principal_kind: str, format: str):
             # Ensure minimum widths for headers
             id_width = max(max_id_len, len("Principal ID"))
             name_width = max(max_name_len, len("Name"))
-            email_width = max(max_email_len, len("Email"))
+            email_width = max(max_email_len, len("Owner"))
             type_width = max(max_type_len, len("Type"))
             
             # Print header
-            header = f"{'Principal ID':<{id_width}}  {'Kind':<{type_width}}  {'Name':<{name_width}}  {'Email':<{email_width}}  Created"
+            header = f"{'Principal ID':<{id_width}}  {'Kind':<{type_width}}  {'Name':<{name_width}}  {'Owner':<{email_width}}  Created"
             click.echo(header)
             click.echo("-" * len(header))
             
@@ -347,8 +347,8 @@ def get(ctx, principal_id: str, principal_kind: str, format: str):
             click.echo(f"Name:        {principal['name']}")
             click.echo(f"Kind:        {principal.get('principal_kind', 'worker')}")
 
-            click.echo(f"Email:       {principal['owner']}")
-            click.echo(f"Created:     {_format_created(principal.get('created_at'))}")
+            click.echo(f"Owner:       {principal['owner']}")
+            click.echo(f"Created:     {_format_created(principal.get('created_at'))}")  
 
             if principal.get('metadata'):
                 click.echo()

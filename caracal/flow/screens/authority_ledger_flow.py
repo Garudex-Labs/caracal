@@ -102,9 +102,9 @@ class AuthorityLedgerFlow:
                 table = Table(show_header=True, header_style=f"bold {Colors.INFO}")
                 table.add_column("Event ID", style=Colors.DIM)
                 table.add_column("Type", style=Colors.NEUTRAL)
+                table.add_column("Timestamp", style=Colors.DIM)
                 table.add_column("Principal", style=Colors.DIM)
                 table.add_column("Decision", style=Colors.NEUTRAL)
-                table.add_column("Timestamp", style=Colors.DIM)
                 
                 for event in events:
                     decision_style = Colors.SUCCESS if event.decision == "allowed" else Colors.ERROR
@@ -113,9 +113,9 @@ class AuthorityLedgerFlow:
                     table.add_row(
                         str(event.event_id),
                         event.event_type,
+                        str(event.timestamp)[:19],
                         str(event.principal_id)[:8] + "...",
                         f"[{decision_style}]{decision_text}[/]",
-                        str(event.timestamp)[:19],
                     )
                 
                 self.console.print(table)
@@ -212,10 +212,10 @@ class AuthorityLedgerFlow:
                 table = Table(show_header=True, header_style=f"bold {Colors.INFO}")
                 table.add_column("Event ID", style=Colors.DIM)
                 table.add_column("Type", style=Colors.NEUTRAL)
+                table.add_column("Timestamp", style=Colors.DIM)
                 table.add_column("Principal", style=Colors.DIM)
                 table.add_column("Decision", style=Colors.NEUTRAL)
                 table.add_column("Action", style=Colors.NEUTRAL)
-                table.add_column("Timestamp", style=Colors.DIM)
                 
                 for event in events:
                     decision_style = Colors.SUCCESS if event.decision == "allowed" else Colors.ERROR
@@ -225,10 +225,10 @@ class AuthorityLedgerFlow:
                     table.add_row(
                         str(event.event_id),
                         event.event_type,
+                        str(event.timestamp)[:19],
                         str(event.principal_id)[:8] + "...",
                         f"[{decision_style}]{decision_text}[/]",
                         action_text[:20],
-                        str(event.timestamp)[:19],
                     )
                 
                 self.console.print(table)
