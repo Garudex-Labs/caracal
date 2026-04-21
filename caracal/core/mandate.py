@@ -15,11 +15,14 @@ from uuid import UUID, uuid4
 
 from sqlalchemy.orm import Session
 
+from fnmatch import fnmatchcase
+
 from caracal.core.identity import PrincipalRegistry
 from caracal.core.intent import Intent
 from caracal.core.signing_service import SigningService, SigningServiceError, SigningServiceKeyError
 from caracal.db.models import ExecutionMandate, AuthorityPolicy, Principal
 from caracal.logging_config import get_logger
+from caracal.provider.definitions import parse_provider_scope
 
 logger = get_logger(__name__)
 
@@ -161,6 +164,14 @@ class MandateManager:
         
         return True
     
+    @staticmethod
+    def _is_canonical_provider_scope(scope: str) -> bool:
+        try:
+            parse_provider_scope(str(scope))
+            return True
+        except ValueError:
+            return False
+
     def _match_pattern(self, value: str, pattern: str) -> bool:
         """
         Check if value matches pattern (supports wildcards).
@@ -172,7 +183,10 @@ class MandateManager:
         Returns:
             True if value matches pattern, False otherwise
         """
-        from fnmatch import fnmatchcase
+        if self._is_canonical_provider_scope(value) or self._is_canonical_provider_scope(pattern):
+            return value == pattern
+        if value == pattern:
+            return True
         return fnmatchcase(value, pattern)
     
     def _record_ledger_event(

@@ -13,6 +13,7 @@ from datetime import datetime
 from typing import Dict, List, Optional
 from uuid import UUID
 
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from caracal.db.models import AuthorityLedgerEvent
@@ -74,8 +75,9 @@ class AuthorityLedgerWriter:
             timestamp = datetime.utcnow()
         
         logger.info(
-            f"Recording mandate issuance: mandate_id={mandate_id}, "
-            f"principal_id={principal_id}"
+            "Recording mandate issuance",
+            mandate_id=str(mandate_id),
+            principal_id=str(principal_id),
         )
         
         # Create ledger event
@@ -97,7 +99,9 @@ class AuthorityLedgerWriter:
             self.db_session.add(event)
             self.db_session.flush()  # Flush to get the event_id assigned
             logger.info(
-                f"Recorded issuance event {event.event_id} for mandate {mandate_id}"
+                "Recorded issuance event",
+                event_id=event.event_id,
+                mandate_id=str(mandate_id),
             )
         except Exception as e:
             error_msg = f"Failed to record issuance event to database: {e}"
@@ -158,9 +162,12 @@ class AuthorityLedgerWriter:
         event_type = "validated" if decision == "allowed" else "denied"
         
         logger.info(
-            f"Recording validation event: mandate_id={mandate_id}, "
-            f"principal_id={principal_id}, decision={decision}, "
-            f"action={requested_action}, resource={requested_resource}"
+            "Recording validation event",
+            mandate_id=str(mandate_id) if mandate_id else None,
+            principal_id=str(principal_id),
+            decision=decision,
+            action=requested_action,
+            resource=requested_resource,
         )
         
         # Create ledger event
@@ -182,8 +189,10 @@ class AuthorityLedgerWriter:
             self.db_session.add(event)
             self.db_session.flush()  # Flush to get the event_id assigned
             logger.info(
-                f"Recorded validation event {event.event_id} for mandate {mandate_id} "
-                f"(decision={decision})"
+                "Recorded validation event",
+                event_id=event.event_id,
+                mandate_id=str(mandate_id) if mandate_id else None,
+                decision=decision,
             )
         except Exception as e:
             error_msg = f"Failed to record validation event to database: {e}"
@@ -226,8 +235,9 @@ class AuthorityLedgerWriter:
             timestamp = datetime.utcnow()
         
         logger.info(
-            f"Recording mandate revocation: mandate_id={mandate_id}, "
-            f"principal_id={principal_id}, reason={reason}"
+            "Recording mandate revocation",
+            mandate_id=str(mandate_id),
+            principal_id=str(principal_id),
         )
         
         # Create ledger event
@@ -249,7 +259,9 @@ class AuthorityLedgerWriter:
             self.db_session.add(event)
             self.db_session.flush()  # Flush to get the event_id assigned
             logger.info(
-                f"Recorded revocation event {event.event_id} for mandate {mandate_id}"
+                "Recorded revocation event",
+                event_id=event.event_id,
+                mandate_id=str(mandate_id),
             )
         except Exception as e:
             error_msg = f"Failed to record revocation event to database: {e}"
@@ -389,51 +401,31 @@ class AuthorityLedgerQuery:
         )
         
         try:
-            # Build query with filters
-            query = self.db_session.query(
-                AuthorityLedgerEvent.principal_id,
-                self.db_session.query(AuthorityLedgerEvent).filter(
-                    AuthorityLedgerEvent.principal_id == AuthorityLedgerEvent.principal_id
-                ).count().label('event_count')
+            results = (
+                self.db_session.query(
+                    AuthorityLedgerEvent.principal_id,
+                    func.count().label("event_count"),
+                )
+                .filter(
+                    AuthorityLedgerEvent.timestamp >= start_time,
+                    AuthorityLedgerEvent.timestamp <= end_time,
+                )
             )
-            
-            # Apply time range filter
-            query = query.filter(
-                AuthorityLedgerEvent.timestamp >= start_time,
-                AuthorityLedgerEvent.timestamp <= end_time
-            )
-            
-            # Apply event type filter if specified
+
             if event_type is not None:
-                query = query.filter(AuthorityLedgerEvent.event_type == event_type)
-            
-            # Group by principal_id
-            query = query.group_by(AuthorityLedgerEvent.principal_id)
-            
-            # Execute query and build result dictionary
-            # Use a simpler approach: get all events and count in Python
-            events_query = self.db_session.query(AuthorityLedgerEvent).filter(
-                AuthorityLedgerEvent.timestamp >= start_time,
-                AuthorityLedgerEvent.timestamp <= end_time
-            )
-            
-            if event_type is not None:
-                events_query = events_query.filter(AuthorityLedgerEvent.event_type == event_type)
-            
-            events = events_query.all()
-            
-            # Count events by principal
-            aggregation: Dict[UUID, int] = {}
-            for event in events:
-                if event.principal_id in aggregation:
-                    aggregation[event.principal_id] += 1
-                else:
-                    aggregation[event.principal_id] = 1
-            
+                results = results.filter(AuthorityLedgerEvent.event_type == event_type)
+
+            rows = results.group_by(AuthorityLedgerEvent.principal_id).all()
+
+            aggregation: Dict[UUID, int] = {
+                row.principal_id: row.event_count for row in rows
+            }
+
             logger.debug(
-                f"Aggregated {len(events)} events for {len(aggregation)} principals"
+                "Aggregated events by principal",
+                principal_count=len(aggregation),
             )
-            
+
             return aggregation
             
         except Exception as e:

@@ -225,10 +225,13 @@ class AuditLogManager:
             results = query.all()
             
             logger.info(
-                f"Audit log query executed: principal_id={principal_id}, "
-                f"start_time={start_time}, end_time={end_time}, "
-                f"event_type={event_type}, correlation_id={correlation_id}, "
-                f"results={len(results)}"
+                "Audit log query executed",
+                principal_id=str(principal_id) if principal_id else None,
+                start_time=start_time.isoformat() if start_time else None,
+                end_time=end_time.isoformat() if end_time else None,
+                event_type=event_type,
+                correlation_id=correlation_id,
+                result_count=len(results),
             )
             
             return results
@@ -284,7 +287,7 @@ class AuditLogManager:
             }
             export_data.append(entry)
         
-        logger.info(f"Exported {len(export_data)} audit logs as JSON")
+        logger.info("Exported audit logs as JSON", log_count=len(export_data))
         
         return json.dumps(export_data, indent=2)
     
@@ -444,7 +447,7 @@ class AuditLogManager:
         
         syslog_content = "\n".join(syslog_lines)
         
-        logger.info(f"Exported {len(logs)} audit logs as SYSLOG")
+        logger.info("Exported audit logs as SYSLOG", log_count=len(logs))
         
         return syslog_content
     
@@ -484,7 +487,9 @@ class AuditLogManager:
             
             if old_logs_count == 0:
                 logger.info(
-                    f"No audit logs older than {retention_days} days found for archival"
+                    "No audit logs found for archival",
+                    retention_days=retention_days,
+                    cutoff_date=cutoff_date.isoformat(),
                 )
                 return {
                     "status": "no_logs_to_archive",
@@ -503,10 +508,11 @@ class AuditLogManager:
             ).order_by(AuditLog.event_timestamp.desc()).first()
             
             logger.info(
-                f"Found {old_logs_count} audit logs for archival: "
-                f"cutoff_date={cutoff_date.isoformat()}, "
-                f"oldest={oldest_log.event_timestamp.isoformat() if oldest_log else 'N/A'}, "
-                f"newest={newest_log.event_timestamp.isoformat() if newest_log else 'N/A'}"
+                "Audit logs identified for archival",
+                log_count=old_logs_count,
+                cutoff_date=cutoff_date.isoformat(),
+                oldest=oldest_log.event_timestamp.isoformat() if oldest_log else None,
+                newest=newest_log.event_timestamp.isoformat() if newest_log else None,
             )
             
             return {
