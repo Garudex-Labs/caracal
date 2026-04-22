@@ -12,6 +12,7 @@ from caracal.logging_config import get_logger
 logger = get_logger(__name__)
 
 _CARACAL_HOME_ENV = "CARACAL_HOME"
+_CARACAL_CONFIG_DIR_ENV = "CARACAL_CONFIG_DIR"
 
 
 class StorageLayoutError(RuntimeError):
@@ -61,9 +62,14 @@ def resolve_caracal_home(require_explicit: bool = False) -> Path:
     """Resolve CARACAL_HOME root.
 
     Resolution order is deterministic:
-    1. CARACAL_HOME
-    2. ~/.caracal (only when require_explicit=False)
+    1. CARACAL_CONFIG_DIR (demo/override alias)
+    2. CARACAL_HOME
+    3. ~/.caracal (only when require_explicit=False)
     """
+    config_dir_value = os.getenv(_CARACAL_CONFIG_DIR_ENV)
+    if config_dir_value:
+        return Path(config_dir_value).expanduser().resolve(strict=False)
+
     home_value = os.getenv(_CARACAL_HOME_ENV)
     if home_value:
         return Path(home_value).expanduser().resolve(strict=False)
