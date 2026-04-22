@@ -127,6 +127,25 @@ def _run_host_orchestrator(args: Sequence[str]) -> int:
     flow_parser = subparsers.add_parser("flow", help="Launch Flow (TUI) inside runtime container")
     flow_parser.set_defaults(handler=_host_flow)
 
+    migrate_parser = subparsers.add_parser(
+        "migrate",
+        help="Run database migrations inside the runtime container",
+    )
+    migrate_parser.add_argument(
+        "direction",
+        nargs="?",
+        default="up",
+        choices=["up", "down"],
+        help="Migration direction (default: up)",
+    )
+    migrate_parser.add_argument(
+        "--revision",
+        "-r",
+        default=None,
+        help="Target revision (default: head for up, -1 for down)",
+    )
+    migrate_parser.set_defaults(handler=_host_migrate)
+
     if not args:
         parser.print_help()
         return 0
@@ -170,7 +189,7 @@ def _ensure_dotenv_loaded() -> None:
 
 
 def _host_up(namespace: argparse.Namespace) -> int:
-    compose_file = _resolve_compose_file(namespace.compose_file)
+    compose_file = _resolve_compose_file()
     assert_runtime_hardcut(
         compose_file=compose_file,
         database_urls=_runtime_database_url_candidates(),
@@ -202,7 +221,7 @@ def _host_up(namespace: argparse.Namespace) -> int:
 
 
 def _host_down(namespace: argparse.Namespace) -> int:
-    compose_file = _resolve_compose_file(namespace.compose_file)
+    compose_file = _resolve_compose_file()
     compose_cmd = _compose_cmd(compose_file)
     result = subprocess.run(
         compose_cmd + ["down", "--remove-orphans"],
@@ -215,7 +234,7 @@ def _host_down(namespace: argparse.Namespace) -> int:
 
 
 def _host_reset(namespace: argparse.Namespace) -> int:
-    compose_file = _resolve_compose_file(namespace.compose_file)
+    compose_file = _resolve_compose_file()
     compose_cmd = _compose_cmd(compose_file)
     result = subprocess.run(
         compose_cmd + ["down", "-v", "--remove-orphans"],
@@ -840,7 +859,7 @@ def _parse_string_dict(raw_payload: str | None) -> dict[str, str]:
 
 
 def _host_logs(namespace: argparse.Namespace) -> int:
-    compose_file = _resolve_compose_file(namespace.compose_file)
+    compose_file = _resolve_compose_file()
     compose_cmd = _compose_cmd(compose_file)
     cmd = compose_cmd + ["logs"]
     if namespace.follow:
@@ -870,7 +889,7 @@ def _host_logs(namespace: argparse.Namespace) -> int:
 
 
 def _host_cli(namespace: argparse.Namespace) -> int:
-    compose_file = _resolve_compose_file(namespace.compose_file)
+    compose_file = _resolve_compose_file()
     assert_runtime_hardcut(
         compose_file=compose_file,
         database_urls=_runtime_database_url_candidates(),
@@ -901,7 +920,7 @@ def _host_cli(namespace: argparse.Namespace) -> int:
 
 
 def _host_flow(namespace: argparse.Namespace) -> int:
-    compose_file = _resolve_compose_file(namespace.compose_file)
+    compose_file = _resolve_compose_file()
     assert_runtime_hardcut(
         compose_file=compose_file,
         database_urls=_runtime_database_url_candidates(),
@@ -937,6 +956,17 @@ def _host_flow(namespace: argparse.Namespace) -> int:
         "flow",
     ]
     result = subprocess.run(cmd, check=False)
+    return result.returncode
+
+
+def _host_migrate(namespace: argparse.Namespace) -> int:
+    compose_file = _resolve_compose_file()
+    compose_cmd = _compose_cmd(compose_file)
+    direction = namespace.direction or "up"
+    exec_cmd = compose_cmd + ["exec", "mcp", "caracal", "db", "migrate", direction]
+    if namespace.revision:
+        exec_cmd += ["--revision", namespace.revision]
+    result = subprocess.run(exec_cmd, check=False)
     return result.returncode
 
 

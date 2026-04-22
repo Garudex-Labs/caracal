@@ -48,3 +48,6 @@ dependencies = [
 where = ["."]
 include = ["caracal*"]
 namespaces = true
+
+[tool.setuptools.package-data]
+"caracal.db" = ["*.ini"]

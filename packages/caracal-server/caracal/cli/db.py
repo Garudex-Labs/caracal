@@ -10,7 +10,6 @@ Provides CLI commands for database initialization, migrations, and status checks
 
 import sys
 from pathlib import Path
-from typing import Optional
 
 import click
 from alembic import command
@@ -42,12 +41,9 @@ def _resolve_migrations_path() -> Path:
     return migrations_path
 
 
-def _resolve_alembic_ini_path() -> Optional[Path]:
-    """Return alembic.ini when available in a source checkout."""
-    alembic_ini_path = Path(__file__).resolve().parents[2] / "alembic.ini"
-    if alembic_ini_path.exists():
-        return alembic_ini_path
-    return None
+def _resolve_alembic_ini_path() -> Path:
+    """Return the packaged alembic.ini co-located with the migrations directory."""
+    return Path(__file__).resolve().parents[1] / "db" / "alembic.ini"
 
 
 def get_database_config_from_context(ctx) -> DatabaseConfig:
@@ -97,12 +93,7 @@ def get_alembic_config() -> Config:
     """
     migrations_path = _resolve_migrations_path()
     alembic_ini_path = _resolve_alembic_ini_path()
-
-    if alembic_ini_path is not None:
-        config = Config(str(alembic_ini_path))
-    else:
-        config = Config()
-
+    config = Config(str(alembic_ini_path))
     config.set_main_option("script_location", str(migrations_path))
     return config
 
