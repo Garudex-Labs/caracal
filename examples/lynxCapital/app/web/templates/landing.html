@@ -1,0 +1,76 @@
+{% extends "layout.html" %}
+{% block title %}{{ company }} - Overview{% endblock %}
+{% block content %}
+<style>
+  .landing { max-width: 680px; margin: 0 auto; padding: 56px 24px 40px; }
+  .landing h1 { font-size: 22px; font-weight: 600; color: var(--primary); margin-bottom: 6px; }
+  .landing .tagline { color: var(--text); opacity: 0.65; margin-bottom: 32px; font-size: 13px; }
+  .scenario-card { background: #fff; border: 1px solid var(--border); border-radius: 4px; padding: 20px 24px; margin-bottom: 24px; }
+  .scenario-card h2 { font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: var(--primary); margin-bottom: 14px; }
+  .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 16px; }
+  .stat { text-align: center; }
+  .stat .val { font-size: 22px; font-weight: 700; color: var(--accent); line-height: 1; }
+  .stat .lbl { font-size: 11px; color: var(--text); opacity: 0.6; margin-top: 4px; }
+  .description { font-size: 12px; color: var(--text); opacity: 0.7; line-height: 1.5; border-top: 1px solid var(--border); padding-top: 12px; margin-top: 4px; }
+  .layers { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 6px; }
+  .layer-badge { background: var(--surface); border: 1px solid var(--border); border-radius: 3px; padding: 3px 8px; font-size: 11px; color: var(--text); }
+  .layer-badge.ephemeral { border-color: var(--accent); color: var(--accent); }
+  .disclaimer-block { background: #fff; border: 1px solid var(--border); border-left: 3px solid var(--warning); border-radius: 4px; padding: 14px 16px; margin-bottom: 24px; }
+  .disclaimer-block p { font-size: 12px; color: var(--text); opacity: 0.75; line-height: 1.5; margin-bottom: 10px; }
+  .disclaimer-block label { display: flex; align-items: center; gap: 8px; font-size: 12px; cursor: pointer; }
+  .disclaimer-block input[type=checkbox] { width: 14px; height: 14px; cursor: pointer; }
+  .continue-btn { display: inline-block; background: var(--accent); color: #fff; border: none; border-radius: 4px; padding: 10px 28px; font-size: 13px; font-weight: 600; cursor: pointer; text-decoration: none; transition: opacity 0.15s; }
+  .continue-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+</style>
+
+<div class="landing">
+  <h1>{{ company }}</h1>
+  <p class="tagline">{{ content.tagline }}</p>
+
+  <div class="scenario-card">
+    <h2>{{ content.scenarioTitle }}</h2>
+    <div class="stats">
+      <div class="stat">
+        <div class="val">{{ "{:,}".format(scenario.invoices) }}</div>
+        <div class="lbl">Invoices</div>
+      </div>
+      <div class="stat">
+        <div class="val">${{ "%.1fM" | format(scenario.totalUsd / 1000000) }}</div>
+        <div class="lbl">Total value</div>
+      </div>
+      <div class="stat">
+        <div class="val">{{ scenario.regions }}</div>
+        <div class="lbl">Regions</div>
+      </div>
+      <div class="stat">
+        <div class="val">~{{ "{:,}".format(scenario.peakAgents) }}</div>
+        <div class="lbl">Peak agents</div>
+      </div>
+    </div>
+    <div class="layers">
+      {% for l in agentLayers %}
+      <span class="layer-badge {% if l.ephemeral %}ephemeral{% endif %}">{{ l.label }}</span>
+      {% endfor %}
+    </div>
+    <div class="description">{{ scenario.description }}</div>
+  </div>
+
+  <div class="disclaimer-block">
+    <p>{{ content.disclaimer }}</p>
+    <label>
+      <input type="checkbox" id="ack">
+      I understand this is a simulation environment.
+    </label>
+  </div>
+
+  <button class="continue-btn" id="continue-btn" disabled onclick="window.location='/demo'">
+    Continue to demo
+  </button>
+</div>
+
+<script>
+  document.getElementById('ack').addEventListener('change', function() {
+    document.getElementById('continue-btn').disabled = !this.checked;
+  });
+</script>
+{% endblock %}

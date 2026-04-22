@@ -1,0 +1,59 @@
+{% extends "layout.html" %}
+{% block title %}{{ company }} - Logs{% endblock %}
+{% block content %}
+<style>
+  .logs-shell { display: flex; flex-direction: column; height: calc(100vh - 44px); }
+  .logs-toolbar { background: #fff; border-bottom: 1px solid var(--border); padding: 8px 14px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .logs-toolbar .label { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: var(--primary); margin-right: 4px; }
+  .chip { border: 1px solid var(--border); border-radius: 3px; padding: 3px 10px; font-size: 11px; cursor: pointer; background: var(--surface); color: var(--text); user-select: none; transition: background 0.1s; }
+  .chip.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .chip[data-cat=system].active   { background: var(--text); border-color: var(--text); }
+  .chip[data-cat=agent].active    { background: var(--accent); border-color: var(--accent); }
+  .chip[data-cat=tool].active     { background: var(--teal); border-color: var(--teal); }
+  .chip[data-cat=service].active  { background: var(--teal); border-color: var(--teal); }
+  .chip[data-cat=audit].active    { background: var(--amber); border-color: var(--amber); }
+  .chip[data-cat=caracal].active  { background: var(--primary); border-color: var(--primary); }
+  .toolbar-sep { width: 1px; height: 18px; background: var(--border); margin: 0 4px; }
+  .logs-controls { display: flex; gap: 6px; margin-left: auto; align-items: center; }
+  .logs-body { flex: 1; overflow-y: auto; font-family: ui-monospace, 'Cascadia Code', monospace; font-size: 11.5px; background: #fff; }
+  .log-line { display: flex; align-items: baseline; gap: 8px; padding: 3px 14px; border-bottom: 1px solid #f0f2f6; cursor: pointer; }
+  .log-line:hover { background: #f8f9fc; }
+  .log-line .ts    { color: var(--text); opacity: 0.38; white-space: nowrap; flex-shrink: 0; font-size: 10px; }
+  .log-line .cat   { flex-shrink: 0; width: 60px; font-size: 10px; font-weight: 700; text-transform: uppercase; }
+  .log-line .kind  { flex-shrink: 0; width: 120px; opacity: 0.65; }
+  .log-line .body  { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .log-line .expand { display: none; padding: 6px 14px 6px 202px; font-size: 11px; background: #f8f9fc; white-space: pre-wrap; word-break: break-all; }
+  .log-line.open .expand { display: block; }
+  .cat-system  { color: var(--text); }
+  .cat-agent   { color: var(--accent); }
+  .cat-tool    { color: var(--teal); }
+  .cat-service { color: var(--teal); }
+  .cat-audit   { color: var(--amber); }
+  .cat-caracal { color: var(--primary); }
+  .btn { border: none; border-radius: 3px; padding: 4px 10px; font-size: 11px; font-weight: 600; cursor: pointer; }
+  .btn-ghost { background: var(--surface); border: 1px solid var(--border); color: var(--text); }
+  .count-badge { font-size: 10px; color: var(--text); opacity: 0.45; }
+</style>
+
+<div class="logs-shell">
+  <div class="logs-toolbar">
+    <span class="label">Filter</span>
+    <span class="chip active" data-cat="system">System</span>
+    <span class="chip active" data-cat="agent">Agent</span>
+    <span class="chip active" data-cat="tool">Tool</span>
+    <span class="chip active" data-cat="service">Service</span>
+    <span class="chip active" data-cat="audit">Audit</span>
+    <span class="chip active" data-cat="caracal">Caracal</span>
+    <span class="chip active" data-cat="delegation">Delegation</span>
+    <div class="toolbar-sep"></div>
+    <div class="logs-controls">
+      <span class="count-badge" id="log-count">0 events</span>
+      <button class="btn btn-ghost" id="pause-btn">Pause</button>
+      <button class="btn btn-ghost" id="clear-btn">Clear</button>
+    </div>
+  </div>
+  <div class="logs-body" id="logs-body"></div>
+</div>
+
+<script src="/static/logs.js" type="module"></script>
+{% endblock %}

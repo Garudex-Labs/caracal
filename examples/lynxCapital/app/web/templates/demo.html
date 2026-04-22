@@ -1,0 +1,83 @@
+{% extends "layout.html" %}
+{% block title %}{{ company }} - Demo{% endblock %}
+{% block content %}
+<style>
+  .demo-shell { display: flex; flex-direction: column; height: calc(100vh - 44px); }
+  .demo-body { display: flex; flex: 1; min-height: 0; gap: 0; }
+
+  /* Chat panel */
+  .chat-panel { width: 360px; flex-shrink: 0; display: flex; flex-direction: column; border-right: 1px solid var(--border); background: #fff; }
+  .panel-header { padding: 10px 14px; border-bottom: 1px solid var(--border); font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: var(--primary); display: flex; align-items: center; justify-content: space-between; }
+  .chat-stream { flex: 1; overflow-y: auto; padding: 12px; display: flex; flex-direction: column; gap: 6px; }
+  .chat-empty { margin: auto; color: var(--text); opacity: 0.35; font-size: 12px; text-align: center; }
+  .chat-entry { border-radius: 3px; padding: 7px 10px; font-size: 12px; line-height: 1.45; border-left: 3px solid transparent; }
+  .chat-entry.system  { border-color: var(--border); background: var(--surface); color: var(--text); }
+  .chat-entry.agent   { border-color: var(--accent); background: #f0f5ff; }
+  .chat-entry.tool    { border-color: var(--teal); background: #f0fafa; }
+  .chat-entry.service { border-color: var(--teal); background: #e8f7f7; opacity: 0.85; }
+  .chat-entry.audit   { border-color: var(--amber); background: #fdf8ee; }
+  .chat-entry .ts     { font-size: 10px; opacity: 0.5; margin-bottom: 2px; }
+  .chat-entry .badge  { display: inline-block; font-size: 10px; font-weight: 600; padding: 1px 5px; border-radius: 2px; margin-right: 4px; background: var(--accent); color: #fff; vertical-align: middle; }
+  .chat-entry .badge.tool { background: var(--teal); }
+  .chat-entry .badge.audit { background: var(--amber); }
+  .status-pill { display: inline-block; font-size: 10px; padding: 1px 6px; border-radius: 2px; font-weight: 600; }
+  .status-pill.spawned   { background: #e8eef8; color: var(--accent); }
+  .status-pill.running   { background: #dceeff; color: var(--accent); }
+  .status-pill.completed { background: #d4f0e2; color: var(--success); }
+  .status-pill.denied    { background: #fde8e6; color: var(--danger); }
+  .status-pill.failed    { background: #fde8e6; color: var(--danger); }
+  .status-pill.cancelled { background: var(--surface); color: var(--text); opacity: 0.6; }
+
+  /* Graph panel */
+  .graph-panel { flex: 1; display: flex; flex-direction: column; background: var(--surface); min-width: 0; }
+  .graph-canvas { flex: 1; overflow: auto; padding: 12px; }
+  #graph-svg { width: 100%; min-height: 400px; }
+
+  /* Run controls footer */
+  .run-footer { border-top: 1px solid var(--border); background: #fff; padding: 8px 14px; display: flex; align-items: center; gap: 10px; }
+  .run-footer input { flex: 1; border: 1px solid var(--border); border-radius: 3px; padding: 6px 10px; font-size: 12px; outline: none; }
+  .run-footer input:focus { border-color: var(--accent); }
+  .btn { border: none; border-radius: 3px; padding: 6px 14px; font-size: 12px; font-weight: 600; cursor: pointer; transition: opacity 0.15s; }
+  .btn:disabled { opacity: 0.35; cursor: not-allowed; }
+  .btn-primary { background: var(--accent); color: #fff; }
+  .btn-danger  { background: var(--danger); color: #fff; }
+  .btn-ghost   { background: var(--surface); border: 1px solid var(--border); color: var(--text); }
+  .run-status { font-size: 11px; color: var(--text); opacity: 0.55; margin-left: 4px; }
+</style>
+
+<div class="demo-shell">
+  <div class="demo-body">
+
+    <div class="chat-panel">
+      <div class="panel-header">
+        <span>Activity stream</span>
+        <span id="agent-count" style="font-weight:400;opacity:0.6">--</span>
+      </div>
+      <div class="chat-stream" id="chat-stream">
+        <div class="chat-empty" id="chat-empty">Start a run to see activity.</div>
+      </div>
+    </div>
+
+    <div class="graph-panel">
+      <div class="panel-header">
+        <span>Orchestration graph</span>
+        <span id="graph-status" style="font-weight:400;opacity:0.6">idle</span>
+      </div>
+      <div class="graph-canvas">
+        <svg id="graph-svg"></svg>
+      </div>
+    </div>
+
+  </div>
+
+  <div class="run-footer">
+    <input type="text" id="prompt-input" placeholder="Describe the payout run..." value="{{ content.scenarioTitle }}: {{ scenario.invoices }} invoices across {{ scenario.regions }} regions, total ~${{ (scenario.totalUsd / 1000000) | round(1) }}M USD.">
+    <button class="btn btn-primary" id="start-btn">Start</button>
+    <button class="btn btn-danger" id="cancel-btn" disabled>Cancel</button>
+    <span class="run-status" id="run-status"></span>
+  </div>
+</div>
+
+<script src="/static/chat.js" type="module"></script>
+<script src="/static/graph.js" type="module"></script>
+{% endblock %}
