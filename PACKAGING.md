@@ -28,10 +28,10 @@ run from outside the Caracal monorepo to use Caracal in production:
 | Redis service                         | Caches, revocation channel, AIS coordination.                  | `redis:7-alpine` from compose only.                            |
 | Docker Compose bundle                 | Brings the four services up coherently.                        | `deploy/docker-compose.yml`, `deploy/docker-compose.image.yml`. |
 | Alembic migrations                    | Schema bootstrap and upgrades.                                 | `caracal/db/migrations/` + `alembic.ini` at repo root.         |
-| Backup / restore tooling              | Operational recovery.                                          | `scripts/backup-postgresql.sh`, `scripts/restore-postgresql.sh`.|
-| Cert generation                       | TLS bootstrap for stack.                                       | `scripts/generate-certs.sh`.                                   |
-| Redis security bootstrap              | Password / TLS configuration.                                  | `scripts/setup-redis-security.sh`.                             |
-| Event-replay recovery                 | Ledger reconciliation.                                         | `scripts/event-replay-recovery.sh`.                            |
+| Backup / restore tooling              | Operational recovery.                                          | `caracal backup`, `caracal restore` subcommands.               |
+| Cert generation                       | TLS bootstrap for stack.                                       | `caracal certs` subcommand.                                    |
+| Redis security bootstrap              | Password / TLS configuration.                                  | `caracal redis init` subcommand.                               |
+| Event-replay recovery                 | Ledger reconciliation.                                         | `caracal events replay` subcommand.                            |
 | Vault first-run bootstrap             | Auth secret, encryption key, root token.                       | **Missing.** Documented only via env vars, not a command.      |
 
 ## 2. Monorepo-only paths the user surface secretly depends on
@@ -74,15 +74,9 @@ must be removed from the user contract.
 These are documented in `scripts/README.md` and referenced by
 operators directly:
 
-- `backup-postgresql.sh`
-- `restore-postgresql.sh`
-- `generate-certs.sh`
-- `setup-redis-security.sh`
-- `event-replay-recovery.sh`
-
-They are not packaged into either the Python wheel or the runtime
-image's user-facing entry. A user installing only `caracal-core` from
-PyPI cannot run any of them.
+These scripts have been replaced by first-class host subcommands in `packages/caracal`:
+`caracal backup`, `caracal restore`, `caracal certs`, `caracal redis init`,
+`caracal events replay`. Gap closed.
 
 The remaining scripts (`build-images.sh`, `release.sh`,
 `update-version.sh`, `hardcut_*.py`, `partition_authority_ledger.py`,
@@ -193,9 +187,19 @@ The work below is what the rest of Phase 0 must deliver. Items map
    `caracal-core` as a published name. Internal server modules stop
    being PyPI-installable.
 2. **Restructure repo into `packages/caracal/` and
-   `packages/caracal-server/`.** Keep `sdk/python-sdk/` as the
-   `caracal-sdk` source. Drive builds from a uv workspace. Drop the
-   `tool.uv.sources` repo-path pin from any user-facing
+   `packages/caracal-server/`.** The host wheel ships only the
+   minimal orchestrator (`runtime/entrypoints.py`,
+   `runtime/host_io.py`, `runtime/hardcut_preflight.py`,
+   `runtime/environment.py`, `_version.py`, `pathing.py`) with
+   `python-dotenv` as its sole runtime dep. Everything else —
+   including `cli/` and `flow/`, whose imports reach deeply into
+   server-internal modules — ships in the server wheel. The
+   user-facing experience is the published `caracal` console
+   script, which execs subcommands into the runtime container.
+   Both wheels register the `caracal` namespace via PEP 420
+   implicit namespace packages. Keep `sdk/python-sdk/` as the
+   `caracal-sdk` source. Drive builds from a uv workspace. Drop
+   the `tool.uv.sources` repo-path pin from any user-facing
    `pyproject.toml`.
 3. **Strip the SDK→server imports.** `caracal_sdk._compat` must
    inline its own version helper, define its own exception classes

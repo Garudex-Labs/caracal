@@ -67,20 +67,18 @@ More coming soon
 ### Quickstart
 
 ```bash
-caracal up # Setup
-
-caracal cli # Containerized CLI
-# OR
-caracal flow # Terminal UI
+caracal      # Open the TUI (same as: caracal flow)
+caracal up   # Setup
 ```
 
 ### Command Reference
 
 ```bash
+caracal            # Open the TUI
 caracal up         # Pull images, create network/volumes, start postgres+redis+mcp
 caracal down       # Stop stack and remove services
+caracal flow       # Launch Flow (TUI) inside runtime container
 caracal cli        # Run full Caracal CLI inside container
-caracal flow       # Run TUI inside container
 caracal logs -f    # Tail runtime logs
 caracal reset      # Down + remove volumes (full local reset)
 caracal purge      # Completely remove Caracal containers, data, networks, images, and local state
