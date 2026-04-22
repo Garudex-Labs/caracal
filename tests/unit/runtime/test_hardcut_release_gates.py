@@ -251,7 +251,7 @@ def test_oss_env_example_uses_vault_only_hardcut_defaults() -> None:
     payload = env_example.read_text(encoding="utf-8")
 
     assert "CARACAL_PRINCIPAL_KEY_BACKEND=vault" in payload
-    assert "CARACAL_VAULT_SIDECAR_IMAGE=infisical/infisical:latest" in payload
+    assert "CARACAL_VAULT_SIDECAR_IMAGE=infisical/infisical:v0.93.1" in payload
     assert "CARACAL_SECRET_BACKEND" not in payload
     assert "AWS_" not in payload
     assert "aws_kms" not in payload.lower()

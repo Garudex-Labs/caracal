@@ -11,6 +11,8 @@ import json
 import logging
 import os
 import platform
+import re
+import secrets
 import shutil
 import signal
 import socket
@@ -214,6 +216,15 @@ def _run_host_orchestrator(args: Sequence[str]) -> int:
     )
     events_replay_parser.set_defaults(handler=_host_events_replay)
     events_parser.set_defaults(handler=lambda ns: (events_parser.print_help(), 2)[1])
+
+    vault_parser = subparsers.add_parser("vault", help="Vault sidecar management subcommands")
+    vault_sub = vault_parser.add_subparsers(dest="vault_command")
+    vault_init_parser = vault_sub.add_parser(
+        "init",
+        help="Generate secure vault credentials and write them to .env",
+    )
+    vault_init_parser.set_defaults(handler=_host_vault_init)
+    vault_parser.set_defaults(handler=lambda ns: (vault_parser.print_help(), 2)[1])
 
     if not args:
         parser.print_help()
@@ -1122,6 +1133,40 @@ def _host_events_replay(namespace: argparse.Namespace) -> int:
         exec_cmd += ["--from-timestamp", namespace.from_timestamp]
     result = subprocess.run(exec_cmd, check=False)
     return result.returncode
+
+
+def _host_vault_init(_namespace: argparse.Namespace) -> int:
+    auth_secret = secrets.token_hex(32)
+    encryption_key = secrets.token_hex(16)
+
+    env_path = Path.cwd() / ".env"
+    lines: list[str] = []
+    if env_path.exists():
+        lines = env_path.read_text(encoding="utf-8").splitlines()
+
+    updated = {"CARACAL_VAULT_SIDECAR_AUTH_SECRET": False, "CARACAL_VAULT_SIDECAR_ENCRYPTION_KEY": False}
+    for i, line in enumerate(lines):
+        for key in updated:
+            if re.match(rf"^{key}\s*=", line):
+                lines[i] = f"{key}={auth_secret if key.endswith('AUTH_SECRET') else encryption_key}"
+                updated[key] = True
+
+    if not updated["CARACAL_VAULT_SIDECAR_AUTH_SECRET"]:
+        lines.append(f"CARACAL_VAULT_SIDECAR_AUTH_SECRET={auth_secret}")
+    if not updated["CARACAL_VAULT_SIDECAR_ENCRYPTION_KEY"]:
+        lines.append(f"CARACAL_VAULT_SIDECAR_ENCRYPTION_KEY={encryption_key}")
+
+    env_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+    print(f"Vault credentials written to {env_path}")
+    print()
+    print(f"  CARACAL_VAULT_SIDECAR_AUTH_SECRET={auth_secret}")
+    print(f"  CARACAL_VAULT_SIDECAR_ENCRYPTION_KEY={encryption_key}")
+    print()
+    print("Back these values up securely — they cannot be recovered if lost.")
+    print()
+    print("Next step:  caracal up")
+    return 0
 
 
 def _resolve_compose_file() -> Path:

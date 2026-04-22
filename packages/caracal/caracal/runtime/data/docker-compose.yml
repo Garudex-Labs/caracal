@@ -22,8 +22,38 @@ services:
         networks:
             - caracal-runtime
 
+    # ---------------------------------------------------------------------------
+    # Vault sidecar (Infisical)
+    #
+    # Production configuration knobs — set in your .env file:
+    #
+    #   CARACAL_VAULT_SIDECAR_IMAGE      Override the pinned sidecar image.
+    #   CARACAL_VAULT_SIDECAR_AUTH_SECRET  JWT secret for Infisical (≥32 chars).
+    #                                      Generate with: caracal vault init
+    #   CARACAL_VAULT_SIDECAR_ENCRYPTION_KEY  AES-256 key (32 hex chars).
+    #                                          Generate with: caracal vault init
+    #   CARACAL_VAULT_SIDECAR_REDIS_URL        Redis URL for sidecar sessions.
+    #   CARACAL_VAULT_SIDECAR_DB_CONNECTION_URI  PostgreSQL DSN for sidecar.
+    #   CARACAL_VAULT_SIDECAR_SITE_URL         Public base URL of the sidecar.
+    #   CARACAL_VAULT_SIDECAR_PORT             Host port to bind (default 8080).
+    #
+    # MCP service vault connection knobs:
+    #
+    #   CARACAL_VAULT_URL                URL of the vault sidecar from MCP.
+    #   CARACAL_VAULT_TOKEN              Infisical service-token for MCP access.
+    #   CARACAL_VAULT_WORKSPACE_ID       Infisical project/workspace UUID.
+    #   CARACAL_VAULT_ENVIRONMENT        Infisical environment slug (e.g. prod).
+    #   CARACAL_VAULT_SECRET_PATH        Secret path prefix inside the project.
+    #   CARACAL_VAULT_SIGNING_KEY_REF    Path to the mandate signing key.
+    #   CARACAL_VAULT_SESSION_PUBLIC_KEY_REF  Path to the session verify key.
+    #   CARACAL_VAULT_MERKLE_SIGNING_KEY_REF  Path to the Merkle signing key.
+    #   CARACAL_VAULT_MERKLE_PUBLIC_KEY_REF   Path to the Merkle public key.
+    #   CARACAL_VAULT_MODE               Vault operation mode (default: strict).
+    #   CARACAL_VAULT_RETRY_MAX_ATTEMPTS Max retry attempts on vault calls.
+    #   CARACAL_VAULT_RETRY_BACKOFF_SECONDS  Backoff between retries.
+    # ---------------------------------------------------------------------------
     vault:
-        image: ${CARACAL_VAULT_SIDECAR_IMAGE:-infisical/infisical:latest}
+        image: ${CARACAL_VAULT_SIDECAR_IMAGE:-infisical/infisical:v0.93.1}
         environment:
             NODE_ENV: production
             AUTH_SECRET: ${CARACAL_VAULT_SIDECAR_AUTH_SECRET:-caracal-dev-auth-secret}
