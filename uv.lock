@@ -2,6 +2,29 @@ version = 1
 revision = 3
 requires-python = ">=3.10"
 
+[manifest]
+members = [
+    "caracal",
+    "caracal-sdk",
+    "caracal-server",
+]
+
+[manifest.dependency-groups]
+dev = [
+    { name = "black", specifier = ">=23.0.0" },
+    { name = "caracal", editable = "packages/caracal" },
+    { name = "caracal-sdk", editable = "sdk/python-sdk" },
+    { name = "caracal-server", editable = "packages/caracal-server" },
+    { name = "hypothesis", specifier = ">=6.0.0" },
+    { name = "mypy", specifier = ">=1.0.0" },
+    { name = "pytest", specifier = ">=9.0.3" },
+    { name = "pytest-asyncio", specifier = ">=0.23.0" },
+    { name = "pytest-cov", specifier = ">=4.0.0" },
+    { name = "pytest-timeout", specifier = ">=2.0.0" },
+    { name = "pytest-xdist", specifier = ">=3.0.0" },
+    { name = "ruff", specifier = ">=0.1.0" },
+]
+
 [[package]]
 name = "age"
 version = "0.5.1"
@@ -208,19 +231,41 @@ wheels = [
 ]
 
 [[package]]
-name = "caracal-core"
-source = { editable = "." }
+name = "caracal"
+version = "0.7.0"
+source = { editable = "packages/caracal" }
+dependencies = [
+    { name = "python-dotenv" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "python-dotenv", specifier = ">=1.0.0" }]
+
+[[package]]
+name = "caracal-sdk"
+source = { editable = "sdk/python-sdk" }
+dependencies = [
+    { name = "httpx" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "httpx", specifier = ">=0.25.0" }]
+
+[[package]]
+name = "caracal-server"
+version = "0.7.0"
+source = { editable = "packages/caracal-server" }
 dependencies = [
     { name = "age" },
     { name = "alembic" },
     { name = "bcrypt" },
     { name = "cachetools" },
+    { name = "caracal" },
     { name = "caracal-sdk" },
     { name = "click" },
     { name = "cryptography" },
     { name = "fastapi" },
     { name = "httpx" },
-    { name = "hypothesis" },
     { name = "prometheus-client" },
     { name = "prompt-toolkit" },
     { name = "psycopg2-binary" },
@@ -236,69 +281,32 @@ dependencies = [
     { name = "uvicorn", extra = ["standard"] },
 ]
 
-[package.optional-dependencies]
-dev = [
-    { name = "black" },
-    { name = "hypothesis" },
-    { name = "mypy" },
-    { name = "pytest" },
-    { name = "pytest-asyncio" },
-    { name = "pytest-cov" },
-    { name = "pytest-timeout" },
-    { name = "pytest-xdist" },
-    { name = "ruff" },
-]
-
 [package.metadata]
 requires-dist = [
     { name = "age", specifier = ">=0.5.1" },
     { name = "alembic", specifier = ">=1.12.0" },
     { name = "bcrypt", specifier = ">=4.1.0" },
-    { name = "black", marker = "extra == 'dev'", specifier = ">=23.0.0" },
     { name = "cachetools", specifier = ">=5.3.0" },
+    { name = "caracal", editable = "packages/caracal" },
     { name = "caracal-sdk", editable = "sdk/python-sdk" },
     { name = "click", specifier = ">=8.1.0" },
     { name = "cryptography", specifier = ">=46.0.7" },
     { name = "fastapi", specifier = ">=0.104.0" },
     { name = "httpx", specifier = ">=0.25.0" },
-    { name = "hypothesis", specifier = ">=6.0.0" },
-    { name = "hypothesis", marker = "extra == 'dev'", specifier = ">=6.0.0" },
-    { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.0.0" },
     { name = "prometheus-client", specifier = ">=0.19.0" },
     { name = "prompt-toolkit", specifier = ">=3.0.0" },
     { name = "psycopg2-binary", specifier = ">=2.9.0" },
     { name = "pyjwt", specifier = ">=2.8.0" },
     { name = "pyperclip", specifier = ">=1.11.0" },
-    { name = "pytest", marker = "extra == 'dev'", specifier = ">=9.0.3" },
-    { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=0.23.0" },
-    { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=4.0.0" },
-    { name = "pytest-timeout", marker = "extra == 'dev'", specifier = ">=2.0.0" },
-    { name = "pytest-xdist", marker = "extra == 'dev'", specifier = ">=3.0.0" },
     { name = "pyyaml", specifier = ">=6.0" },
     { name = "redis", specifier = ">=5.0.0" },
     { name = "rich", specifier = ">=13.0.0" },
-    { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.1.0" },
     { name = "sqlalchemy", specifier = ">=2.0.0" },
     { name = "structlog", specifier = ">=24.1.0" },
     { name = "textual", specifier = ">=0.47.0" },
     { name = "toml", specifier = ">=0.10.2" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.24.0" },
 ]
-provides-extras = ["dev"]
-
-[[package]]
-name = "caracal-sdk"
-source = { editable = "sdk/python-sdk" }
-dependencies = [
-    { name = "httpx" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "caracal-core", marker = "extra == 'core'", specifier = ">=0.1.0" },
-    { name = "httpx", specifier = ">=0.25.0" },
-]
-provides-extras = ["core"]
 
 [[package]]
 name = "certifi"
