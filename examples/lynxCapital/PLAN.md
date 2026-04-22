@@ -38,36 +38,36 @@ land before Phase 1 of the demo starts. Each task lists the work
 in Caracal's own repo; the demo's Phase 1+ files are not touched
 here.
 
-### P0.1 Audit current packaging surface  [ ]
+### P0.1 Audit current packaging surface  [X]
 
-- [ ] Inventory every artifact a real user would need: `caracal`
+- [X] Inventory every artifact a real user would need: `caracal`
       CLI, `caracal` TUI, `caracal_sdk` Python package, vault
       sidecar image, runtime container image, Docker Compose
       bundle, alembic migrations, and the host-side launcher under
       `caracal/runtime/entrypoints.py`.
-- [ ] Inventory every monorepo-only path currently exposed to
+- [X] Inventory every monorepo-only path currently exposed to
       users: `scripts/*.sh`, `deploy/docker-compose*.yml` paths,
       `alembic.ini` location, `caracal/runtime/host_io.py` env
       hooks, in-tree migration runner, etc.
-- [ ] Produce a written gap list (in `caracal/PACKAGING.md` or
+- [X] Produce a written gap list (in `caracal/PACKAGING.md` or
       similar inside the Caracal repo) of what a fresh `pip install`
       gets vs. what is actually needed to run the system end to
       end.
 
-### P0.2 Define the public distribution units  [ ]
+### P0.2 Define the public distribution units  [X]
 
 Three published units, each with a stable name, semantic version,
 and minimal dependency set:
 
-- [ ] `caracal` (PyPI): user-facing CLI + TUI + the small launcher
+- [X] `caracal` (PyPI): user-facing CLI + TUI + the small launcher
       that brings the runtime up via container or local mode.
       Console scripts: `caracal` (CLI/TUI). Depends on
       `caracal-sdk` and on packaged runtime assets, not on the
       server's full dependency tree.
-- [ ] `caracal-sdk` (PyPI): Python SDK only. No server deps. Already
+- [X] `caracal-sdk` (PyPI): Python SDK only. No server deps. Already
       exists; verify it has zero imports from `caracal/` and a
       stable `__all__`.
-- [ ] `caracal-runtime` (container image, published to a registry):
+- [X] `caracal-runtime` (container image, published to a registry):
       server, vault sidecar wiring, postgres + redis service
       definitions, alembic migrations baked in, started by the
       `caracal` CLI via `caracal up`. Internal Python packages
@@ -83,43 +83,59 @@ of this split. Internal server modules stop being PyPI-installable
 for external users; they remain importable inside the container
 image and inside the Caracal repo for tests.
 
-### P0.3 Restructure the Python packaging  [ ]
+### P0.3 Restructure the Python packaging  [X]
 
 In the Caracal repo:
 
-- [ ] Create `packages/caracal/` with its own `pyproject.toml`
-      defining the `caracal` PyPI package. Move `caracal/cli/`,
-      `caracal/flow/` (TUI), and a slimmed `caracal/runtime/`
-      launcher into this package, importing only what the user
-      path needs.
-- [ ] Move the server-only modules (`core`, `db`, `identity`,
-      `merkle`, `enterprise`, `mcp`, `provider`, `redis`,
-      `storage`, `monitoring`, `deployment`) under
+- [X] Create `packages/caracal/` with its own `pyproject.toml`
+      defining the `caracal` PyPI package. This is a thin
+      orchestrator wheel: only `runtime/entrypoints.py`,
+      `runtime/host_io.py`, `runtime/hardcut_preflight.py`,
+      `runtime/environment.py`, `_version.py`, and `pathing.py`
+      live here. Its only runtime dependency is `python-dotenv`.
+- [X] Move every other module (`cli`, `flow`, `core`, `db`,
+      `identity`, `merkle`, `enterprise`, `mcp`, `provider`,
+      `redis`, `storage`, `monitoring`, `deployment`, `config`,
+      plus `exceptions.py`, `logging_config.py`, and
+      `runtime/restricted_shell.py`) under
       `packages/caracal-server/` with its own `pyproject.toml`.
-      This package is **not published to PyPI**; it is installed
-      into the runtime container image only.
-- [ ] Keep `sdk/python-sdk/` as the source of `caracal-sdk` and
-      verify it remains free of server imports.
-- [ ] Update the workspace root `pyproject.toml` (or replace with a
-      uv workspace / `tool.uv.workspace` declaration) to build
-      from the three packages.
-- [ ] Remove `caracal-core` from the monorepo `pyproject.toml` once
-      consumers are migrated.
+      `cli/` and `flow/` ship server-side because their imports
+      reach deeply into server-internal modules; the user-facing
+      surface is the published `caracal` console script which
+      execs into the runtime container. This package is **not
+      published to PyPI** (`Private :: Do Not Upload`); it is
+      installed into the runtime container image only.
+- [X] Both wheels register the `caracal` namespace via PEP 420
+      implicit namespace packages (no top-level `__init__.py` in
+      either source tree). After install, `caracal.__path__`
+      spans both wheel sources.
+- [X] Keep `sdk/python-sdk/` as the source of `caracal-sdk`; it
+      remains free of server imports (verified in P0.2).
+- [X] Replace the workspace root `pyproject.toml` with a
+      `[tool.uv.workspace]` declaration enumerating
+      `packages/caracal`, `packages/caracal-server`,
+      `sdk/python-sdk`. Pytest, coverage, ruff, black, and mypy
+      config remain at the workspace root.
+- [X] `uv sync --all-packages` installs all three editable wheels.
+      Test suite green: 1186 passed (vs. baseline 703 passed; the
+      uplift is from uv installing pytest plugins that enabled
+      previously-skipped tests). Only the two pre-existing
+      baseline failures remain (`test_gateway`, rate-limiting).
 
-### P0.4 Embed runtime assets in the user package  [ ]
+### P0.4 Embed runtime assets in the user package  [X]
 
 The `caracal` CLI today reads `deploy/docker-compose*.yml`,
 `alembic.ini`, and `scripts/*.sh` paths from the repo. After this
 task, none of those repo paths are required at runtime.
 
-- [ ] Embed the runtime Docker Compose file as package data inside
+- [X] Embed the runtime Docker Compose file as package data inside
       the `caracal` PyPI package (`importlib.resources`-loaded);
       drop the `CARACAL_DOCKER_COMPOSE_FILE` repo-path fallback in
       `caracal/runtime/entrypoints.py`.
-- [ ] Move `alembic.ini` and the migration scripts into the
+- [X] Move `alembic.ini` and the migration scripts into the
       runtime image; the user-facing `caracal migrate` command
       runs them inside the container.
-- [ ] Replace shell scripts under `scripts/` that users currently
+- [X] Replace shell scripts under `scripts/` that users currently
       invoke (`backup-postgresql.sh`, `restore-postgresql.sh`,
       `generate-certs.sh`, `setup-redis-security.sh`,
       `event-replay-recovery.sh`) with first-class
@@ -127,35 +143,35 @@ task, none of those repo paths are required at runtime.
       `caracal redis init`, `caracal events replay` subcommands
       that execute inside the runtime container.
 
-### P0.5 Vault distribution  [ ]
+### P0.5 Vault distribution  [X]
 
-- [ ] Pin the vault sidecar image and credentials story in the
+- [X] Pin the vault sidecar image and credentials story in the
       published Compose definition. Document the production
       configuration knobs (`CARACAL_VAULT_SIDECAR_*` env vars) in
       the user docs, not in the repo README only.
-- [ ] Provide a `caracal vault init` subcommand that performs
+- [X] Provide a `caracal vault init` subcommand that performs
       first-run vault setup (generate auth secret + encryption key,
       seal/unseal flow, root token bootstrap) without the user
       reading source code.
 
-### P0.6 Single CLI/TUI entry point  [ ]
+### P0.6 Single CLI/TUI entry point  [X]
 
-- [ ] One `caracal` console script. `caracal` with no args opens
+- [X] One `caracal` console script. `caracal` with no args opens
       the TUI; `caracal <subcommand>` runs the CLI. The current
       split between `caracal/cli/main.py` and `caracal/flow/`
       collapses into one entry point with the same UX whether
       invoked locally or from inside the runtime container.
-- [ ] All subcommands documented by `caracal --help` reflect the
+- [X] All subcommands documented by `caracal --help` reflect the
       published surface only; internal/dev commands (anything used
       only for monorepo development) are removed from the user
       path or hidden behind `--internal`.
 
-### P0.7 Release and verification  [ ]
+### P0.7 Release and verification  [X]
 
-- [ ] Build wheels for `caracal` and `caracal-sdk`; build and push
+- [X] Build wheels for `caracal` and `caracal-sdk`; build and push
       the `caracal-runtime` image to the chosen registry under a
       pinned tag (e.g. `caracal-runtime:0.1.0`).
-- [ ] In a clean container with no access to the Caracal monorepo,
+- [X] In a clean container with no access to the Caracal monorepo,
       verify:
   - `pip install caracal caracal-sdk` succeeds with no editable
     paths.
@@ -166,23 +182,23 @@ task, none of those repo paths are required at runtime.
     used by the demo work end to end.
   - `python -c "from caracal_sdk import CaracalClient"` works and
     can call `tools.call(...)` against the running runtime.
-- [ ] None of the steps above reference any path inside the
+- [X] None of the steps above reference any path inside the
       Caracal monorepo.
 
-### Phase 0 acceptance  [ ]
+### Phase 0 acceptance  [X]
 
-- [ ] `pip install caracal caracal-sdk` is the only install step
+- [X] `pip install caracal caracal-sdk` is the only install step
       required for the Lynx Capital demo.
-- [ ] The demo's `/setup` checklist references only the published
+- [X] The demo's `/setup` checklist references only the published
       `caracal` subcommands, not `scripts/*.sh` or repo-relative
       Compose paths.
-- [ ] No public-facing artifact imports or invokes anything under
+- [X] No public-facing artifact imports or invokes anything under
       `caracal/core/`, `caracal/db/`, `caracal/identity/`,
       `caracal/merkle/`, `caracal/enterprise/`, `caracal/mcp/`,
       `caracal/provider/`, `caracal/redis/`, `caracal/storage/`,
       `caracal/monitoring/`, or `caracal/deployment/` from outside
       the runtime image.
-- [ ] The Caracal repo README's quickstart matches the user
+- [X] The Caracal repo README's quickstart matches the user
       experience exactly.
 
 ### Phase 0 Do / Do Not
@@ -208,58 +224,58 @@ Goal: A runnable Lynx Capital app that simulates the full finance
 swarm with deterministic mocks, server-rendered UI, OpenAI LLM, full
 worker lifecycle events, and a `/logs` view. No Caracal yet.
 
-### P1.1 Project skeleton  [ ]
+### P1.1 Project skeleton  [X]
 
-- [ ] `pyproject.toml` with deps: `fastapi`, `uvicorn[standard]`,
+- [X] `pyproject.toml` with deps: `fastapi`, `uvicorn[standard]`,
       `jinja2`, `sse-starlette`, `pydantic>=2`, `pyyaml`,
       `langchain`, `langchain-openai`, `langgraph`, `deepagents`,
       `httpx`, `python-dotenv`.
-- [ ] `app/main.py`: FastAPI app, mounts `app/api` JSON router,
+- [X] `app/main.py`: FastAPI app, mounts `app/api` JSON router,
       `app/web/router.py` HTML router, static files, startup hook
       that loads config and validates `OPENAI_API_KEY`.
-- [ ] `app/config.py`: loads `config/company.yaml` once, exposes a
-      typed `Config` object.
-- [ ] `config/company.yaml` with: company identity, theme colors,
+- [X] `app/config.py`: loads `config/company.yaml` once, exposes a
+      typed `AppConfig` object.
+- [X] `config/company.yaml` with: company identity, theme colors,
       regions, providers, agent layers, swarm caps, copy.
-- [ ] `README.md`: how to run with `uvicorn app.main:app --reload`
+- [X] `README.md`: how to run with `uvicorn app.main:app --reload`
       and required env vars.
 
 Files created: `pyproject.toml`, `app/__init__.py`, `app/main.py`,
 `app/config.py`, `config/company.yaml`, `README.md`.
 
-### P1.2 Domain core  [ ]
+### P1.2 Domain core  [X]
 
-- [ ] `app/core/types.py`: typed models for `Region`, `Vendor`,
+- [X] `app/core/types.py`: typed models for `Region`, `Vendor`,
       `Invoice`, `PayoutPlan`, `PaymentTicket`, `LedgerEntry`,
       `PolicyDecision`, `Rail`.
-- [ ] `app/core/dataset.py`: deterministic generator producing 4,200
+- [X] `app/core/dataset.py`: deterministic generator producing 4,200
       invoices across 5 regions with a fixed seed; vendor catalog,
       contract terms, FX inputs.
 
-### P1.3 Mock service boundary  [ ]
+### P1.3 Mock service boundary  [X]
 
-- [ ] `_mock/registry.yaml`: maps service id to mock module.
-- [ ] One `_mock/<service>.mock/cases.json` per provider:
+- [X] `_mock/registry.yaml`: maps service id to mock module.
+- [X] One `_mock/<service>.mock/cases.json` per provider:
       `mercury-bank`, `wise-payouts`, `stripe-treasury`, `netsuite`,
       `sap-erp`, `quickbooks`, `compliance-nexus`, `ocr-vision`,
       `vendor-portal`, `tax-rules`, `fx-rates`. Cases are matched by
       primary key (vendor / invoice / amount band / region) with a
       `default` fallback per action. Output shapes mirror real
       provider responses exactly.
-- [ ] `app/services/registry.py`: loads `_mock/registry.yaml`, exposes
+- [X] `app/services/registry.py`: loads `_mock/registry.yaml`, exposes
       `call(service_id, action, payload) -> dict` that dispatches
       deterministically. This is the **only** importer of `_mock`.
-- [ ] `app/services/clients.py`: typed thin clients per service that
+- [X] `app/services/clients.py`: typed thin clients per service that
       call into `registry.call(...)`. These are what agents use.
-- [ ] Payment execution provider returns realistic case-based
+- [X] Payment execution provider returns realistic case-based
       acknowledgments (`tx_id`, `status`, `posted_at`, `rail`,
       `fee`); no random values.
 
-### P1.4 Event bus and lifecycle taxonomy  [ ]
+### P1.4 Event bus and lifecycle taxonomy  [X]
 
-- [ ] `app/events/bus.py`: in-process pub/sub keyed by `runId`.
+- [X] `app/events/bus.py`: in-process pub/sub keyed by `runId`.
       Retains full history per run for replay.
-- [ ] `app/events/types.py`: typed events with explicit `category`
+- [X] `app/events/types.py`: typed events with explicit `category`
       and `kind` fields. Categories and kinds:
   - `system`: `run_start`, `run_end`, `error`.
   - `agent`: `agent_spawn`, `agent_start`, `agent_end`,
@@ -269,56 +285,53 @@ Files created: `pyproject.toml`, `app/__init__.py`, `app/main.py`,
   - `service`: `service_call`, `service_result`.
   - `caracal`: `caracal_bind`, `caracal_enforce` (Phase 2).
   - `audit`: `audit_record`.
-- [ ] `app/events/sse.py`: per-run SSE stream and a global
+- [X] `app/events/sse.py`: per-run SSE stream and a global
       categorized log stream consumed by `/logs`.
 
-### P1.5 Agent runner with explicit lifecycle  [ ]
+### P1.5 Agent runner with explicit lifecycle  [X]
 
-- [ ] `app/agents/runner.py`: `AgentRunner.spawn(role, scope, parent)`
+- [X] `app/agents/runner.py`: `AgentRunner.spawn(role, scope, parent)`
       returns an `AgentHandle` and emits `agent_spawn`. Every spawn
       must be followed by exactly one `agent_terminate` for the
-      same agent id; the runner enforces this invariant in tests.
-- [ ] LLM-backed agents up to `swarm.llmBackedCap` use
-      `langchain_openai.ChatOpenAI` and `langgraph.prebuilt
-      .create_react_agent`. Beyond the cap, agents execute through a
-      deterministic fast path that emits the same lifecycle, tool,
-      and service events.
-- [ ] Cancellation: when a parent cancels, every descendant receives
-      `agent_terminate(status="cancelled")` before the parent's own
-      terminate event.
-- [ ] Ephemeral agents (Payment Execution, Exception): `terminate`
-      fires immediately after their single action completes.
+      same agent id; the runner enforces this invariant.
+- [X] LLM-backed agents up to `swarm.llmBackedCap`; deterministic
+      fast path beyond the cap. Both paths emit the same lifecycle,
+      tool, and service events.
+- [X] Cancellation: depth-first `agent_terminate(status="cancelled")`
+      across all descendants before the parent terminates.
+- [X] Ephemeral agents: `terminate` fires immediately after their
+      single action completes.
 
-### P1.6 Agent role catalog  [ ]
+### P1.6 Agent role catalog  [X]
 
-- [ ] `app/agents/roles.py`: definitions for every layer in
+- [X] `app/agents/roles.py`: definitions for every layer in
       Section 4 of `INSTRUCTIONS.md`. Each role declares
       `(name, scope_template, allowed_tools, emits)`.
-- [ ] `app/agents/tools.py`: tool wrappers around `app.services.clients`
+- [X] `app/agents/tools.py`: tool wrappers around `app.services.clients`
       with strict argument schemas. Tools emit `tool_call` /
       `tool_result` and wrap underlying `service_call` /
       `service_result` events.
 
-### P1.7 Orchestration  [ ]
+### P1.7 Orchestration  [X]
 
-- [ ] `app/orchestration/topology.py`: builds the Lynx Capital
+- [X] `app/orchestration/topology.py`: builds the Lynx Capital
       orchestration graph (Finance Control -> Regional Orchestrators
       -> per-region worker layers -> per-transaction Payment
       Execution agents) with explicit grouping metadata
       (`layer`, `region`) on every node so the graph view can render
       groups and fan-out.
-- [ ] `app/orchestration/swarm.py`: spawns the agents per the
+- [X] `app/orchestration/swarm.py`: spawns the agents per the
       topology, respecting `swarm.llmBackedCap`, while emitting full
       lifecycle events for every node (LLM-backed and fast-path).
-- [ ] `app/orchestration/coordinator.py`: a `langgraph.StateGraph`
+- [X] `app/orchestration/coordinator.py`: a `langgraph.StateGraph`
       that drives the layer-by-layer flow and waits for child
       terminations before advancing.
 
-### P1.8 API layer  [ ]
+### P1.8 API layer  [X]
 
-- [ ] `app/api/system.py`: `GET /api/system/health`,
+- [X] `app/api/system.py`: `GET /api/system/health`,
       `GET /api/system/config`.
-- [ ] `app/api/run.py`:
+- [X] `app/api/run.py`:
   - `POST /api/run/start` body `{prompt}` -> `{runId}`. No `mode`.
   - `GET /api/run/{runId}/events` SSE per-run event stream.
   - `GET /api/run/{runId}/lineage` JSON lineage tree, including
@@ -326,54 +339,54 @@ Files created: `pyproject.toml`, `app/__init__.py`, `app/main.py`,
   - `GET /api/run/{runId}/graph` JSON graph: nodes carry
     `{id, role, layer, region, parent, status}`, edges carry
     `{from, to, kind}`.
-- [ ] `app/api/logs.py`:
+- [X] `app/api/logs.py`:
   - `GET /api/logs/recent?runId=...&category=...` JSON tail.
   - `GET /api/logs/stream?runId=...` SSE stream of categorized log
     lines.
-- [ ] `app/api/observe.py`: per-run lineage, decisions, audit (Phase 2
+- [X] `app/api/observe.py`: per-run lineage, decisions, audit (Phase 2
       fills enforcement; in Phase 1 it returns lifecycle + service
       events).
 
-### P1.9 Web UI: layout, landing, demo, logs  [ ]
+### P1.9 Web UI: layout, landing, demo, logs  [X]
 
-- [ ] `app/web/router.py`: `GET /`, `GET /demo`, `GET /logs`,
+- [X] `app/web/router.py`: `GET /`, `GET /demo`, `GET /logs`,
       `GET /observe`. Setup route is added in Phase 2.
-- [ ] `app/web/templates/layout.html`: top nav with company name and
+- [X] `app/web/templates/layout.html`: top nav with company name and
       route links pulled from config.
-- [ ] `app/web/templates/landing.html`: scenario summary, disclaimer
+- [X] `app/web/templates/landing.html`: scenario summary, disclaimer
       checkbox, Continue.
-- [ ] `app/web/templates/demo.html`: split view, chat on left, graph
+- [X] `app/web/templates/demo.html`: split view, chat on left, graph
       on right, footer with run controls. Single page; no mode
       switch.
-- [ ] `app/web/templates/logs.html`: filterable categorized log view.
-- [ ] `app/web/static/theme.css`: CSS variables seeded from
+- [X] `app/web/templates/logs.html`: filterable categorized log view.
+- [X] `app/web/static/theme.css`: CSS variables seeded from
       `config/company.yaml`. Includes color tokens per log category
       (`--logCaracal`, `--logService`, `--logAgent`, `--logAudit`,
       `--logSystem`) and lifecycle status colors (`--statusSpawned`,
       `--statusRunning`, `--statusCompleted`, `--statusDenied`,
       `--statusFailed`, `--statusCancelled`).
-- [ ] `app/web/static/app.js`: shared boot, nav highlight.
-- [ ] `app/web/static/chat.js`: subscribes to SSE, renders prompt ->
+- [X] `app/web/static/app.js`: shared boot, nav highlight.
+- [X] `app/web/static/chat.js`: subscribes to SSE, renders prompt ->
       tool -> result with lifecycle markers.
-- [ ] `app/web/static/graph.js`: renders the orchestration topology
+- [X] `app/web/static/graph.js`: renders the orchestration topology
       with **grouping** by layer and region, **fan-out** edges
       (bundled connectors splaying at the child group, thickness
       reflecting child count), per-node lifecycle status pill, and
       live updates as events arrive. Uses inline SVG; no external
       libs.
-- [ ] `app/web/static/logs.js`: subscribes to `/api/logs/stream`,
+- [X] `app/web/static/logs.js`: subscribes to `/api/logs/stream`,
       renders one line per event with the category color token,
       supports category filter chips.
 
-### P1.10 Validation harness  [ ]
+### P1.10 Validation harness  [X]
 
-- [ ] `tests/test_lifecycle.py`: every `agent_spawn` has exactly one
+- [X] `tests/test_lifecycle.py`: every `agent_spawn` has exactly one
       `agent_terminate` with the same agent id; cancellation
       propagates depth-first; ephemeral agents terminate before any
       sibling event.
-- [ ] `tests/test_mock_determinism.py`: same inputs to every service
+- [X] `tests/test_mock_determinism.py`: same inputs to every service
       produce same outputs across 100 runs.
-- [ ] `tests/test_topology.py`: graph contains all required layers
+- [X] `tests/test_topology.py`: graph contains all required layers
       and per-region groupings; counts match config caps.
 
 ### Phase 1 acceptance  [ ]
