@@ -8,14 +8,10 @@ import importlib.util
 import pytest
 
 
-_MIGRATION_PATH = (
-    Path(__file__).resolve().parents[3]
-    / "caracal"
-    / "db"
-    / "migrations"
-    / "versions"
-    / "r7s8t9u0v1w2_enterprise_runtime_persistence_hardcut.py"
-)
+import sys as _sys
+_sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from tests._caracal_source import caracal_path as _caracal_path
+_MIGRATION_PATH = _caracal_path("db", "migrations", "versions", "r7s8t9u0v1w2_enterprise_runtime_persistence_hardcut.py")
 
 
 @pytest.fixture

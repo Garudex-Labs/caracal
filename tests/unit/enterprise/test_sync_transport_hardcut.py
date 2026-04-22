@@ -2,10 +2,36 @@
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from tests._caracal_source import caracal_path
 
-_CARACAL_ROOT = Path(__file__).resolve().parents[3]
+
+class _CaracalView:
+    def __init__(self, parts: tuple[str, ...] = ()) -> None:
+        self._parts = parts
+
+    def __truediv__(self, child) -> "_CaracalView":
+        return _CaracalView(self._parts + (str(child),))
+
+    def read_text(self, *args, **kwargs):
+        return caracal_path(*self._parts).read_text(*args, **kwargs)
+
+    def exists(self) -> bool:
+        from tests._caracal_source import caracal_source_roots
+        return any(root.joinpath(*self._parts).exists() for root in caracal_source_roots())
+
+
+class _CaracalRoot:
+    def __truediv__(self, child):
+        if str(child) == "caracal":
+            return _CaracalView()
+        raise TypeError(f"unexpected path child: {child!r}")
+
+
+_CARACAL_ROOT = _CaracalRoot()
 
 
 def test_enterprise_sync_modules_have_no_candidate_url_fallbacks() -> None:

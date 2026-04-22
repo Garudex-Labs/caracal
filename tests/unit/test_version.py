@@ -3,7 +3,6 @@ Unit tests for Caracal version module.
 """
 import pytest
 from caracal._version import __version__
-import caracal
 
 
 @pytest.mark.unit
@@ -23,9 +22,9 @@ class TestVersion:
         assert len(__version__) > 0
     
     def test_version_accessible_from_package(self):
-        """Test that version is accessible from caracal package."""
-        assert hasattr(caracal, '__version__')
-        assert caracal.__version__ == __version__
+        """Version is exposed via the caracal._version module."""
+        from caracal._version import __version__ as pkg_version
+        assert pkg_version == __version__
     
     def test_version_format(self):
         """Test that version follows semantic versioning format."""

@@ -16,10 +16,11 @@ def test_simple_math():
 
 @pytest.mark.unit
 def test_import_caracal():
-    """Test that caracal package can be imported."""
+    """Test that caracal namespace package can be imported and exposes a version."""
     import caracal
+    from caracal._version import __version__
     assert caracal is not None
-    assert hasattr(caracal, '__version__')
+    assert isinstance(__version__, str) and __version__
 
 
 @pytest.mark.unit
