@@ -120,7 +120,7 @@ scenario:
     USD-equivalent. Constraints include per-region fee caps, local tax
     compliance, vendor contract terms, and threshold-based validation.
 
-copy:
+content:
   tagline: "Autonomous financial execution for global companies."
   scenarioTitle: "Weekly payout cycle"
   disclaimer: >

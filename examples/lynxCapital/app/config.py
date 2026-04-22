@@ -63,13 +63,13 @@ class ScenarioConfig(BaseModel):
     description: str
 
 
-class CopyConfig(BaseModel):
+class ContentConfig(BaseModel):
     tagline: str
     scenarioTitle: str
     disclaimer: str
 
 
-class Config(BaseModel):
+class AppConfig(BaseModel):
     company: str
     shortName: str
     theme: ThemeConfig
@@ -79,23 +79,23 @@ class Config(BaseModel):
     providers: list[ProviderEntry]
     agentLayers: list[AgentLayerEntry]
     scenario: ScenarioConfig
-    copy: CopyConfig
+    content: ContentConfig
 
 
-_config: Config | None = None
+_config: AppConfig | None = None
 
 
-def load_config() -> Config:
+def load_config() -> AppConfig:
     global _config
     if _config is not None:
         return _config
     path = Path(os.environ.get("LYNX_CONFIG", "config/company.yaml"))
     data: dict[str, Any] = yaml.safe_load(path.read_text(encoding="utf-8"))
-    _config = Config.model_validate(data)
+    _config = AppConfig.model_validate(data)
     return _config
 
 
-def get_config() -> Config:
+def get_config() -> AppConfig:
     if _config is None:
         raise RuntimeError("Config not loaded. Call load_config() at startup.")
     return _config
