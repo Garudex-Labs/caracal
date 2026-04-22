@@ -30,8 +30,8 @@ _static = Path(__file__).parent / "web" / "static"
 if _static.exists():
     app.mount("/static", StaticFiles(directory=str(_static)), name="static")
 
-# Routers registered once sub-packages exist (P1.8 and P1.9).
-# from app.api import router as api_router
-# from app.web.router import router as web_router
-# app.include_router(api_router, prefix="/api")
-# app.include_router(web_router)
+from app.api import router as api_router
+app.include_router(api_router, prefix="/api")
+
+from app.web.router import router as web_router
+app.include_router(web_router)

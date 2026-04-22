@@ -1,0 +1,11 @@
+mercury-bank: mercury-bank.mock/cases.json
+wise-payouts: wise-payouts.mock/cases.json
+stripe-treasury: stripe-treasury.mock/cases.json
+netsuite: netsuite.mock/cases.json
+sap-erp: sap-erp.mock/cases.json
+quickbooks: quickbooks.mock/cases.json
+compliance-nexus: compliance-nexus.mock/cases.json
+ocr-vision: ocr-vision.mock/cases.json
+vendor-portal: vendor-portal.mock/cases.json
+tax-rules: tax-rules.mock/cases.json
+fx-rates: fx-rates.mock/cases.json

@@ -1,0 +1,44 @@
+/*
+ * Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+ * Caracal, a product of Garudex Labs
+ *
+ * CSS design tokens and base styles seeded from config/company.yaml.
+ */
+
+:root {
+  /* Brand colors from company.yaml */
+  --primary:  #0B3D91;
+  --accent:   #1E5BD8;
+  --surface:  #F5F7FA;
+  --border:   #D0D7E3;
+  --text:     #1A1F2E;
+  --danger:   #C0392B;
+  --success:  #1A7F4B;
+  --warning:  #B85C00;
+  --amber:    #8A5800;
+  --teal:     #0D6E72;
+
+  /* Log category color tokens */
+  --logSystem:   var(--text);
+  --logAgent:    var(--accent);
+  --logTool:     var(--teal);
+  --logService:  var(--teal);
+  --logAudit:    var(--amber);
+  --logCaracal:  var(--primary);
+  --logDelegation: #6B47A8;
+
+  /* Lifecycle status color tokens */
+  --statusSpawned:   #4A6FA5;
+  --statusRunning:   var(--accent);
+  --statusCompleted: var(--success);
+  --statusDenied:    var(--danger);
+  --statusFailed:    var(--danger);
+  --statusCancelled: #8A9BAE;
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: #b0bbd0; }
