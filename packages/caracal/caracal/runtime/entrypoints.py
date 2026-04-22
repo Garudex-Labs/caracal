@@ -24,8 +24,7 @@ from pathlib import Path
 from typing import Any, Callable, Sequence
 
 from caracal.runtime.hardcut_preflight import assert_runtime_hardcut
-from caracal.runtime.host_io import in_container_runtime
-from caracal.storage.layout import resolve_caracal_home
+from caracal.runtime.host_io import in_container_runtime, resolve_caracal_home
 
 COMPOSE_FILE_ENV = "CARACAL_DOCKER_COMPOSE_FILE"
 IN_CONTAINER_ENV = "CARACAL_RUNTIME_IN_CONTAINER"

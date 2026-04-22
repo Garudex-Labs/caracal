@@ -8,15 +8,9 @@ from pathlib import Path
 from typing import Optional
 
 from caracal.logging_config import get_logger
+from caracal.runtime.host_io import StorageLayoutError, resolve_caracal_home
 
 logger = get_logger(__name__)
-
-_CARACAL_HOME_ENV = "CARACAL_HOME"
-_CARACAL_CONFIG_DIR_ENV = "CARACAL_CONFIG_DIR"
-
-
-class StorageLayoutError(RuntimeError):
-    """Raised when storage layout is invalid or cannot be created safely."""
 
 
 @dataclass(frozen=True)
@@ -56,30 +50,6 @@ class CaracalLayout:
     @property
     def history_dir(self) -> Path:
         return self.system_dir / "history"
-
-
-def resolve_caracal_home(require_explicit: bool = False) -> Path:
-    """Resolve CARACAL_HOME root.
-
-    Resolution order is deterministic:
-    1. CARACAL_CONFIG_DIR (demo/override alias)
-    2. CARACAL_HOME
-    3. ~/.caracal (only when require_explicit=False)
-    """
-    config_dir_value = os.getenv(_CARACAL_CONFIG_DIR_ENV)
-    if config_dir_value:
-        return Path(config_dir_value).expanduser().resolve(strict=False)
-
-    home_value = os.getenv(_CARACAL_HOME_ENV)
-    if home_value:
-        return Path(home_value).expanduser().resolve(strict=False)
-
-    if require_explicit:
-        raise StorageLayoutError(
-            "CARACAL_HOME is required but not set. Set CARACAL_HOME to an explicit runtime path."
-        )
-
-    return (Path.home() / ".caracal").resolve(strict=False)
 
 
 def get_caracal_layout(home: Optional[Path | str] = None, require_explicit: bool = False) -> CaracalLayout:

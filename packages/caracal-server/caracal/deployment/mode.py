@@ -299,9 +299,8 @@ class ModeManager:
             return code_path
         else:
             # In user mode, use the installed package location
-            # Get the caracal package location from sys.modules
             import caracal
-            code_path = Path(caracal.__file__).parent
+            code_path = next(Path(p) for p in caracal.__path__ if Path(p).exists())
             logger.debug(
                 "code_path_resolved",
                 mode=mode.value,
