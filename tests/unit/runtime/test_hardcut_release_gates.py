@@ -10,7 +10,7 @@ import re
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-from tests._caracal_source import caracal_source_roots  # noqa: E402
+from tests._caracal_source import caracal_source_roots, caracal_path  # noqa: E402
 
 
 class _CaracalView:
@@ -174,8 +174,8 @@ def test_runtime_compose_persists_caracal_home_state_volume() -> None:
 
 @pytest.mark.unit
 def test_embedded_compose_persists_caracal_home_state_volume() -> None:
-    entrypoints_file = _REPO_ROOT / "caracal" / "runtime" / "entrypoints.py"
-    payload = entrypoints_file.read_text(encoding="utf-8")
+    compose_file = caracal_path("runtime", "data", "docker-compose.yml")
+    payload = compose_file.read_text(encoding="utf-8")
 
     assert "runtime_data:/home/caracal/runtime" in payload
     assert "    runtime_data:" in payload
@@ -703,8 +703,8 @@ def test_signing_service_uses_vault_reference_not_raw_private_key_resolution() -
 
 @pytest.mark.unit
 def test_embedded_runtime_compose_includes_vault_sidecar() -> None:
-    runtime_entrypoints = _REPO_ROOT / "caracal" / "runtime" / "entrypoints.py"
-    payload = runtime_entrypoints.read_text(encoding="utf-8")
+    compose_file = caracal_path("runtime", "data", "docker-compose.yml")
+    payload = compose_file.read_text(encoding="utf-8")
 
     assert "CARACAL_VAULT_SIDECAR_IMAGE" in payload
     assert "CARACAL_VAULT_URL" in payload
