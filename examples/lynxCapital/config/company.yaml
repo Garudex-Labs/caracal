@@ -1,0 +1,128 @@
+company: "Lynx Capital"
+shortName: "Lynx"
+
+theme:
+  primary: "#0B3D91"
+  accent: "#1E5BD8"
+  surface: "#F5F7FA"
+  border: "#D0D7E3"
+  text: "#1A1F2E"
+  danger: "#C0392B"
+  success: "#1A7F4B"
+  warning: "#B85C00"
+  amber: "#8A5800"
+  teal: "#0D6E72"
+
+llm:
+  model: "gpt-4o"
+  temperature: 0.1
+
+swarm:
+  llmBackedCap: 8
+
+regions:
+  - id: "US"
+    name: "North America"
+    currency: "USD"
+  - id: "IN"
+    name: "India"
+    currency: "INR"
+  - id: "DE"
+    name: "Europe"
+    currency: "EUR"
+  - id: "SG"
+    name: "Southeast Asia"
+    currency: "SGD"
+  - id: "BR"
+    name: "Latin America"
+    currency: "BRL"
+
+providers:
+  - id: "mercury-bank"
+    name: "Mercury Bank"
+    category: "banking"
+  - id: "wise-payouts"
+    name: "Wise Payouts"
+    category: "payouts"
+  - id: "stripe-treasury"
+    name: "Stripe Treasury"
+    category: "banking"
+  - id: "netsuite"
+    name: "NetSuite"
+    category: "erp"
+  - id: "sap-erp"
+    name: "SAP ERP"
+    category: "erp"
+  - id: "quickbooks"
+    name: "QuickBooks"
+    category: "erp"
+  - id: "compliance-nexus"
+    name: "Compliance Nexus"
+    category: "compliance"
+  - id: "ocr-vision"
+    name: "OCR Vision"
+    category: "document"
+  - id: "vendor-portal"
+    name: "Vendor Portal"
+    category: "vendor"
+  - id: "tax-rules"
+    name: "Tax Rules Engine"
+    category: "tax"
+  - id: "fx-rates"
+    name: "FX Rates"
+    category: "fx"
+
+agentLayers:
+  - id: "finance-control"
+    label: "Finance Control"
+    perRegion: 0
+    ephemeral: false
+  - id: "regional-orchestrator"
+    label: "Regional Orchestrators"
+    perRegion: 1
+    ephemeral: false
+  - id: "invoice-intake"
+    label: "Invoice Intake"
+    perRegion: 6
+    ephemeral: false
+  - id: "ledger-match"
+    label: "Ledger Match"
+    perRegion: 4
+    ephemeral: false
+  - id: "policy-check"
+    label: "Policy Check"
+    perRegion: 5
+    ephemeral: false
+  - id: "route-optimization"
+    label: "Route Optimization"
+    perRegion: 3
+    ephemeral: false
+  - id: "payment-execution"
+    label: "Payment Execution"
+    perRegion: 720
+    ephemeral: true
+  - id: "audit"
+    label: "Audit"
+    perRegion: 2
+    ephemeral: false
+  - id: "exception"
+    label: "Exception"
+    perRegion: 80
+    ephemeral: true
+
+scenario:
+  invoices: 4200
+  totalUsd: 8500000.0
+  regions: 5
+  peakAgents: 4000
+  description: >
+    Process 4,200 invoices across 5 regions totaling approximately $8.5M
+    USD-equivalent. Constraints include per-region fee caps, local tax
+    compliance, vendor contract terms, and threshold-based validation.
+
+copy:
+  tagline: "Autonomous financial execution for global companies."
+  scenarioTitle: "Weekly payout cycle"
+  disclaimer: >
+    This is a simulation environment. No real payments are processed.
+    All provider responses are deterministic mocks.

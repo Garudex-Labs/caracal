@@ -79,7 +79,7 @@ def _run_host_orchestrator(args: Sequence[str]) -> int:
     parser = argparse.ArgumentParser(
         prog="caracal",
         description=(
-            "Caracal Help\n"
+            "Caracal runtime manager. Run without arguments to open the TUI.\n"
         ),
         formatter_class=argparse.RawTextHelpFormatter,
         epilog=(
@@ -227,8 +227,7 @@ def _run_host_orchestrator(args: Sequence[str]) -> int:
     vault_parser.set_defaults(handler=lambda ns: (vault_parser.print_help(), 2)[1])
 
     if not args:
-        parser.print_help()
-        return 0
+        return _host_flow(argparse.Namespace())
 
     try:
         namespace = parser.parse_args(list(args))
