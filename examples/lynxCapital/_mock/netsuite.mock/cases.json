@@ -1,0 +1,32 @@
+{
+  "service": "netsuite",
+  "actions": {
+    "get_vendor_record": {
+      "match_key": "vendor_id",
+      "cases": {
+        "us-axiom-cloud":   {"vendor_number": "VND-4521", "name": "Axiom Cloud Solutions", "payment_terms": "Net30", "currency": "USD", "credit_limit": 500000.00, "status": "active"},
+        "us-vector-an":     {"vendor_number": "VND-7832", "name": "Vector Analytics Inc",  "payment_terms": "Net45", "currency": "USD", "credit_limit": 350000.00, "status": "active"},
+        "us-meridian-data": {"vendor_number": "VND-2234", "name": "Meridian Data Corp",    "payment_terms": "Net30", "currency": "USD", "credit_limit": 275000.00, "status": "active"},
+        "us-crestview-sw":  {"vendor_number": "VND-9901", "name": "Crestview Software",    "payment_terms": "Net60", "currency": "USD", "credit_limit": 400000.00, "status": "active"},
+        "default":          {"vendor_number": "VND-0001", "name": "Vendor",                 "payment_terms": "Net30", "currency": "USD", "credit_limit": 100000.00, "status": "active"}
+      }
+    },
+    "match_invoice": {
+      "match_key": "vendor_id",
+      "cases": {
+        "us-axiom-cloud":   {"erp_ref": "NS-INV-4521-001", "erp_amount": null, "currency": "USD", "matched": true,  "variance": 0.0, "status": "open"},
+        "us-vector-an":     {"erp_ref": "NS-INV-7832-001", "erp_amount": null, "currency": "USD", "matched": true,  "variance": 0.0, "status": "open"},
+        "us-northgate-sys": {"erp_ref": "NS-INV-1193-001", "erp_amount": null, "currency": "USD", "matched": false, "variance": 12.50, "status": "discrepancy"},
+        "default":          {"erp_ref": "NS-INV-DFLT-001", "erp_amount": null, "currency": "USD", "matched": true,  "variance": 0.0, "status": "open"}
+      }
+    },
+    "get_payment_status": {
+      "match_key": "vendor_id",
+      "cases": {
+        "us-axiom-cloud":   {"outstanding_balance": 487500.00, "last_payment_date": "2026-03-31", "currency": "USD", "payment_count_ytd": 12},
+        "us-vector-an":     {"outstanding_balance": 312000.00, "last_payment_date": "2026-03-28", "currency": "USD", "payment_count_ytd": 8},
+        "default":          {"outstanding_balance": 0.0,       "last_payment_date": "2026-03-15", "currency": "USD", "payment_count_ytd": 4}
+      }
+    }
+  }
+}

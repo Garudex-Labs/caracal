@@ -1,0 +1,28 @@
+{
+  "service": "wise-payouts",
+  "actions": {
+    "get_quote": {
+      "match_key": ["from_currency", "to_currency"],
+      "cases": {
+        "USD|INR":  {"quote_id": "qt_usd_inr_01", "from_currency": "USD", "to_currency": "INR",  "rate": 83.47,  "fee_pct": 0.45, "expires_at": "2026-04-22T10:00:00Z"},
+        "USD|EUR":  {"quote_id": "qt_usd_eur_01", "from_currency": "USD", "to_currency": "EUR",  "rate": 0.926,  "fee_pct": 0.35, "expires_at": "2026-04-22T10:00:00Z"},
+        "USD|SGD":  {"quote_id": "qt_usd_sgd_01", "from_currency": "USD", "to_currency": "SGD",  "rate": 1.348,  "fee_pct": 0.40, "expires_at": "2026-04-22T10:00:00Z"},
+        "USD|BRL":  {"quote_id": "qt_usd_brl_01", "from_currency": "USD", "to_currency": "BRL",  "rate": 5.05,   "fee_pct": 0.55, "expires_at": "2026-04-22T10:00:00Z"},
+        "USD|USD":  {"quote_id": "qt_usd_usd_01", "from_currency": "USD", "to_currency": "USD",  "rate": 1.0,    "fee_pct": 0.20, "expires_at": "2026-04-22T10:00:00Z"},
+        "default":  {"quote_id": "qt_dflt_01",    "from_currency": "USD", "to_currency": "USD",  "rate": 1.0,    "fee_pct": 0.45, "expires_at": "2026-04-22T10:00:00Z"}
+      }
+    },
+    "submit_payout": {
+      "match_key": "vendor_id",
+      "cases": {
+        "in-zylotech":    {"transfer_id": "TRF-WS-ZYL-001", "status": "submitted", "posted_at": null, "rail": "NEFT",   "fee_usd": 0.03, "estimated_delivery": "2026-04-22"},
+        "in-kiran-an":    {"transfer_id": "TRF-WS-KIR-001", "status": "submitted", "posted_at": null, "rail": "RTGS",   "fee_usd": 0.36, "estimated_delivery": "2026-04-22"},
+        "de-nordlicht":   {"transfer_id": "TRF-WS-NRL-001", "status": "submitted", "posted_at": null, "rail": "SWIFT",  "fee_usd": 25.00, "estimated_delivery": "2026-04-25"},
+        "sg-singatech":   {"transfer_id": "TRF-WS-SGT-001", "status": "submitted", "posted_at": null, "rail": "PAYNOW", "fee_usd": 0.07, "estimated_delivery": "2026-04-22"},
+        "br-saopaulo":    {"transfer_id": "TRF-WS-SAO-001", "status": "submitted", "posted_at": null, "rail": "PIX",    "fee_usd": 0.002, "estimated_delivery": "2026-04-22"},
+        "br-rio-dig":     {"transfer_id": "TRF-WS-RIO-001", "status": "submitted", "posted_at": null, "rail": "SWIFT",  "fee_usd": 35.00, "estimated_delivery": "2026-04-25"},
+        "default":        {"transfer_id": "TRF-WS-DFLT-001","status": "submitted", "posted_at": null, "rail": "SWIFT",  "fee_usd": 25.00, "estimated_delivery": "2026-04-25"}
+      }
+    }
+  }
+}

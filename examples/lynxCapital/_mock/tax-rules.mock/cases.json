@@ -1,0 +1,27 @@
+{
+  "service": "tax-rules",
+  "actions": {
+    "get_withholding_rate": {
+      "match_key": ["region", "currency"],
+      "cases": {
+        "US|USD": {"region": "US", "currency": "USD", "withholding_pct": 0.0,  "treaty_eligible": true,  "effective_date": "2026-01-01", "authority": "IRS"},
+        "IN|INR": {"region": "IN", "currency": "INR", "withholding_pct": 2.0,  "treaty_eligible": false, "effective_date": "2026-04-01", "authority": "CBDT"},
+        "DE|EUR": {"region": "DE", "currency": "EUR", "withholding_pct": 0.0,  "treaty_eligible": true,  "effective_date": "2026-01-01", "authority": "BZSt"},
+        "SG|SGD": {"region": "SG", "currency": "SGD", "withholding_pct": 0.0,  "treaty_eligible": true,  "effective_date": "2026-01-01", "authority": "IRAS"},
+        "BR|BRL": {"region": "BR", "currency": "BRL", "withholding_pct": 1.5,  "treaty_eligible": false, "effective_date": "2026-04-01", "authority": "RFB"},
+        "default": {"region": null, "currency": null, "withholding_pct": 0.0,  "treaty_eligible": false, "effective_date": "2026-01-01", "authority": "unknown"}
+      }
+    },
+    "validate_tax_id": {
+      "match_key": "vendor_id",
+      "cases": {
+        "us-axiom-cloud":   {"vendor_id": "us-axiom-cloud",   "tax_id": "47-1234567", "valid": true,  "jurisdiction": "US", "type": "EIN"},
+        "de-nordlicht":     {"vendor_id": "de-nordlicht",     "tax_id": "DE278591004","valid": true,  "jurisdiction": "DE", "type": "VAT"},
+        "in-zylotech":      {"vendor_id": "in-zylotech",      "tax_id": "29AABCZ1234F1Z5", "valid": true, "jurisdiction": "IN", "type": "GSTIN"},
+        "sg-singatech":     {"vendor_id": "sg-singatech",     "tax_id": "202112345A", "valid": true,  "jurisdiction": "SG", "type": "UEN"},
+        "br-saopaulo":      {"vendor_id": "br-saopaulo",      "tax_id": "12.345.678/0001-90", "valid": true, "jurisdiction": "BR", "type": "CNPJ"},
+        "default":          {"vendor_id": null,                "tax_id": null,          "valid": true,  "jurisdiction": "unknown", "type": "unknown"}
+      }
+    }
+  }
+}

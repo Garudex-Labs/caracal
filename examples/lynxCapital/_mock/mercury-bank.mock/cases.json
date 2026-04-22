@@ -1,0 +1,26 @@
+{
+  "service": "mercury-bank",
+  "actions": {
+    "get_account_balance": {
+      "match_key": "vendor_id",
+      "cases": {
+        "us-axiom-cloud":   {"account_id": "acct_axm_4521", "balance": 487500.00, "available": 487500.00, "currency": "USD", "status": "active"},
+        "us-vector-an":     {"account_id": "acct_vec_7832", "balance": 312000.00, "available": 312000.00, "currency": "USD", "status": "active"},
+        "us-northgate-sys": {"account_id": "acct_ngt_1193", "balance": 728400.00, "available": 728400.00, "currency": "USD", "status": "active"},
+        "us-apex-infra":    {"account_id": "acct_apx_6614", "balance": 195000.00, "available": 195000.00, "currency": "USD", "status": "active"},
+        "us-vertex-tech":   {"account_id": "acct_vtx_3380", "balance": 541200.00, "available": 541200.00, "currency": "USD", "status": "active"},
+        "default":          {"account_id": "acct_dflt_0001", "balance": 125000.00, "available": 125000.00, "currency": "USD", "status": "active"}
+      }
+    },
+    "submit_payment": {
+      "match_key": "vendor_id",
+      "cases": {
+        "us-axiom-cloud":   {"tx_id": "TX-MCY-AXM-001", "status": "submitted", "posted_at": null, "rail": "ACH", "fee_usd": 0.25, "estimated_settlement": "2026-04-23"},
+        "us-vector-an":     {"tx_id": "TX-MCY-VEC-001", "status": "submitted", "posted_at": null, "rail": "ACH", "fee_usd": 0.25, "estimated_settlement": "2026-04-23"},
+        "us-northgate-sys": {"tx_id": "TX-MCY-NGT-001", "status": "submitted", "posted_at": null, "rail": "WIRE", "fee_usd": 25.00, "estimated_settlement": "2026-04-22"},
+        "us-apex-infra":    {"tx_id": "TX-MCY-APX-001", "status": "submitted", "posted_at": null, "rail": "WIRE", "fee_usd": 25.00, "estimated_settlement": "2026-04-22"},
+        "default":          {"tx_id": "TX-MCY-DFLT-001", "status": "submitted", "posted_at": null, "rail": "ACH", "fee_usd": 0.25, "estimated_settlement": "2026-04-23"}
+      }
+    }
+  }
+}

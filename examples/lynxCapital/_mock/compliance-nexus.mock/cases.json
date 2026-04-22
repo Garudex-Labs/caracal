@@ -1,0 +1,26 @@
+{
+  "service": "compliance-nexus",
+  "actions": {
+    "check_vendor": {
+      "match_key": "vendor_id",
+      "cases": {
+        "us-axiom-cloud":   {"vendor_id": "us-axiom-cloud",   "status": "cleared", "risk_level": "low",    "last_checked": "2026-04-01", "checks_passed": ["AML", "KYC", "OFAC", "PEP"], "alerts": []},
+        "us-vector-an":     {"vendor_id": "us-vector-an",     "status": "cleared", "risk_level": "low",    "last_checked": "2026-04-01", "checks_passed": ["AML", "KYC", "OFAC", "PEP"], "alerts": []},
+        "de-nordlicht":     {"vendor_id": "de-nordlicht",     "status": "cleared", "risk_level": "low",    "last_checked": "2026-04-05", "checks_passed": ["AML", "KYC", "EU-AML"], "alerts": []},
+        "in-zylotech":      {"vendor_id": "in-zylotech",      "status": "cleared", "risk_level": "low",    "last_checked": "2026-04-03", "checks_passed": ["AML", "KYC", "FEMA"], "alerts": []},
+        "sg-singatech":     {"vendor_id": "sg-singatech",     "status": "cleared", "risk_level": "low",    "last_checked": "2026-04-04", "checks_passed": ["AML", "KYC", "MAS"], "alerts": []},
+        "br-saopaulo":      {"vendor_id": "br-saopaulo",      "status": "cleared", "risk_level": "medium", "last_checked": "2026-04-02", "checks_passed": ["AML", "KYC"], "alerts": ["BACEN_REPORTING_REQUIRED"]},
+        "us-summit-fin":    {"vendor_id": "us-summit-fin",    "status": "flagged", "risk_level": "medium", "last_checked": "2026-04-10", "checks_passed": ["KYC"], "alerts": ["ENHANCED_DUE_DILIGENCE"]},
+        "default":          {"vendor_id": null,                "status": "cleared", "risk_level": "low",    "last_checked": "2026-04-01", "checks_passed": ["AML", "KYC"], "alerts": []}
+      }
+    },
+    "check_transaction": {
+      "match_key": "vendor_id",
+      "cases": {
+        "br-saopaulo":   {"status": "cleared", "risk_score": 38, "flags": ["BACEN_REPORTING_REQUIRED"], "cleared_at": "2026-04-22T09:01:00Z", "reference": "CTX-SAO-001"},
+        "us-summit-fin": {"status": "cleared", "risk_score": 52, "flags": ["LARGE_TRANSACTION"], "cleared_at": "2026-04-22T09:02:00Z", "reference": "CTX-SUM-001"},
+        "default":       {"status": "cleared", "risk_score": 12, "flags": [], "cleared_at": "2026-04-22T09:00:00Z", "reference": "CTX-DFLT-001"}
+      }
+    }
+  }
+}

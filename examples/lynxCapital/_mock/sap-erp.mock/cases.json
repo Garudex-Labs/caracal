@@ -1,0 +1,32 @@
+{
+  "service": "sap-erp",
+  "actions": {
+    "get_vendor_record": {
+      "match_key": "vendor_id",
+      "cases": {
+        "de-berliner":    {"vendor_account": "K100421", "company_code": "DE01", "payment_terms": "ZB30", "currency": "EUR", "iban": "DE89370400440532013000", "swift_code": "COBADEFFXXX"},
+        "de-nordlicht":   {"vendor_account": "K100438", "company_code": "DE01", "payment_terms": "ZB30", "currency": "EUR", "iban": "DE91100000000123456789", "swift_code": "DEUTDEDBBER"},
+        "de-munich":      {"vendor_account": "K100512", "company_code": "DE01", "payment_terms": "ZB30", "currency": "EUR", "iban": "DE27200400300014567800", "swift_code": "COBADEFFHAM"},
+        "de-dusseldorf":  {"vendor_account": "K100578", "company_code": "DE01", "payment_terms": "ZA45", "currency": "EUR", "iban": "DE89200400300014567801", "swift_code": "DEUTDEDDXXX"},
+        "default":        {"vendor_account": "K100001", "company_code": "DE01", "payment_terms": "ZB30", "currency": "EUR", "iban": "DE89370400440532013001", "swift_code": "COBADEFFXXX"}
+      }
+    },
+    "match_invoice": {
+      "match_key": "vendor_id",
+      "cases": {
+        "de-berliner":    {"document_number": "5100042100", "amount": null, "currency": "EUR", "matched": true,  "posting_date": "2026-04-15", "fiscal_year": "2026"},
+        "de-nordlicht":   {"document_number": "5100042138", "amount": null, "currency": "EUR", "matched": true,  "posting_date": "2026-04-10", "fiscal_year": "2026"},
+        "de-cologne":     {"document_number": "5100042271", "amount": null, "currency": "EUR", "matched": false, "posting_date": null,        "fiscal_year": "2026"},
+        "default":        {"document_number": "5100041001", "amount": null, "currency": "EUR", "matched": true,  "posting_date": "2026-04-01", "fiscal_year": "2026"}
+      }
+    },
+    "post_payment_confirmation": {
+      "match_key": "vendor_id",
+      "cases": {
+        "de-berliner":    {"document_number": "1500018001", "posting_date": "2026-04-22", "amount": null, "currency": "EUR", "bank_account": "DE01"},
+        "de-nordlicht":   {"document_number": "1500018038", "posting_date": "2026-04-22", "amount": null, "currency": "EUR", "bank_account": "DE01"},
+        "default":        {"document_number": "1500017001", "posting_date": "2026-04-22", "amount": null, "currency": "EUR", "bank_account": "DE01"}
+      }
+    }
+  }
+}

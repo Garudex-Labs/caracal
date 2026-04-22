@@ -1,0 +1,26 @@
+{
+  "service": "stripe-treasury",
+  "actions": {
+    "get_financial_account": {
+      "match_key": "vendor_id",
+      "cases": {
+        "us-crestview-sw":  {"financial_account_id": "fa_cre_8821", "balance": 210000.00, "currency": "USD", "status": "open", "features": ["card_issuing", "financial_addresses"]},
+        "us-horizon-plat":  {"financial_account_id": "fa_hor_3341", "balance": 98500.00,  "currency": "USD", "status": "open", "features": ["card_issuing"]},
+        "us-sterling-dig":  {"financial_account_id": "fa_str_7712", "balance": 445000.00, "currency": "USD", "status": "open", "features": ["financial_addresses"]},
+        "de-elbtal":        {"financial_account_id": "fa_elb_5590", "balance": 67200.00,  "currency": "EUR", "status": "open", "features": ["financial_addresses"]},
+        "de-dresden":       {"financial_account_id": "fa_dre_2230", "balance": 142000.00, "currency": "EUR", "status": "open", "features": ["financial_addresses"]},
+        "default":          {"financial_account_id": "fa_dflt_0001","balance": 85000.00,  "currency": "USD", "status": "open", "features": ["financial_addresses"]}
+      }
+    },
+    "create_outbound_payment": {
+      "match_key": "vendor_id",
+      "cases": {
+        "us-crestview-sw":  {"payment_id": "obp_cre_001", "status": "submitted", "posted_at": null, "rail": "ACH",  "fee_usd": 0.25, "statement_descriptor": "LYNX PAYOUT"},
+        "us-horizon-plat":  {"payment_id": "obp_hor_001", "status": "submitted", "posted_at": null, "rail": "ACH",  "fee_usd": 0.25, "statement_descriptor": "LYNX PAYOUT"},
+        "de-elbtal":        {"payment_id": "obp_elb_001", "status": "submitted", "posted_at": null, "rail": "SEPA", "fee_usd": 0.54, "statement_descriptor": "LYNX PAYOUT"},
+        "de-dresden":       {"payment_id": "obp_dre_001", "status": "submitted", "posted_at": null, "rail": "SEPA", "fee_usd": 0.54, "statement_descriptor": "LYNX PAYOUT"},
+        "default":          {"payment_id": "obp_dflt_001","status": "submitted", "posted_at": null, "rail": "ACH",  "fee_usd": 0.25, "statement_descriptor": "LYNX PAYOUT"}
+      }
+    }
+  }
+}

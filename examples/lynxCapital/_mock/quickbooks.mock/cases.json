@@ -1,0 +1,36 @@
+{
+  "service": "quickbooks",
+  "actions": {
+    "get_vendor": {
+      "match_key": "vendor_id",
+      "cases": {
+        "in-zylotech":   {"id": "QB-VND-101", "display_name": "Zylotech Solutions",    "balance": 142500.00, "currency_ref": "INR", "primary_phone": "+91-80-4567-8901", "payment_type": "EFT"},
+        "in-veda-sys":   {"id": "QB-VND-104", "display_name": "Veda Systems",          "balance": 87000.00,  "currency_ref": "INR", "primary_phone": "+91-22-4567-8902", "payment_type": "EFT"},
+        "sg-singatech":  {"id": "QB-VND-201", "display_name": "SingaTech Solutions",   "balance": 96000.00,  "currency_ref": "SGD", "primary_phone": "+65-6801-2345",    "payment_type": "EFT"},
+        "sg-orchard":    {"id": "QB-VND-203", "display_name": "Orchard Systems Pte",   "balance": 54000.00,  "currency_ref": "SGD", "primary_phone": "+65-6802-3456",    "payment_type": "EFT"},
+        "br-saopaulo":   {"id": "QB-VND-301", "display_name": "Sao Paulo Tech Ltda",   "balance": 215000.00, "currency_ref": "BRL", "primary_phone": "+55-11-4000-5001", "payment_type": "PIX"},
+        "br-curitiba":   {"id": "QB-VND-305", "display_name": "Curitiba Tech Ltda",    "balance": 88000.00,  "currency_ref": "BRL", "primary_phone": "+55-41-4000-5002", "payment_type": "PIX"},
+        "default":       {"id": "QB-VND-001", "display_name": "Vendor",                "balance": 50000.00,  "currency_ref": "USD", "primary_phone": "+1-555-000-0001",  "payment_type": "EFT"}
+      }
+    },
+    "match_bill": {
+      "match_key": "vendor_id",
+      "cases": {
+        "in-zylotech":   {"bill_id": "QB-BILL-101-001", "doc_number": "INV-ZYL-001", "amount": null, "currency": "INR", "matched": true,  "due_date": "2026-05-10", "vendor_ref": "QB-VND-101"},
+        "sg-singatech":  {"bill_id": "QB-BILL-201-001", "doc_number": "INV-SGT-001", "amount": null, "currency": "SGD", "matched": true,  "due_date": "2026-05-12", "vendor_ref": "QB-VND-201"},
+        "br-saopaulo":   {"bill_id": "QB-BILL-301-001", "doc_number": "INV-SAO-001", "amount": null, "currency": "BRL", "matched": true,  "due_date": "2026-05-08", "vendor_ref": "QB-VND-301"},
+        "in-brahma-dig": {"bill_id": "QB-BILL-105-001", "doc_number": "INV-BRA-001", "amount": null, "currency": "INR", "matched": false, "due_date": null,          "vendor_ref": "QB-VND-105"},
+        "default":       {"bill_id": "QB-BILL-DFLT-001","doc_number": "INV-DFLT-001","amount": null, "currency": "USD", "matched": true,  "due_date": "2026-05-15",  "vendor_ref": "QB-VND-001"}
+      }
+    },
+    "create_vendor_payment": {
+      "match_key": "vendor_id",
+      "cases": {
+        "in-zylotech":   {"payment_id": "QB-PMT-ZYL-001", "total_amount": null, "currency": "INR", "tx_date": "2026-04-22", "payment_method": "NEFT",   "vendor_ref": "QB-VND-101"},
+        "sg-singatech":  {"payment_id": "QB-PMT-SGT-001", "total_amount": null, "currency": "SGD", "tx_date": "2026-04-22", "payment_method": "PAYNOW", "vendor_ref": "QB-VND-201"},
+        "br-saopaulo":   {"payment_id": "QB-PMT-SAO-001", "total_amount": null, "currency": "BRL", "tx_date": "2026-04-22", "payment_method": "PIX",    "vendor_ref": "QB-VND-301"},
+        "default":       {"payment_id": "QB-PMT-DFLT-001","total_amount": null, "currency": "USD", "tx_date": "2026-04-22", "payment_method": "EFT",    "vendor_ref": "QB-VND-001"}
+      }
+    }
+  }
+}

@@ -1,0 +1,27 @@
+{
+  "service": "vendor-portal",
+  "actions": {
+    "get_vendor_profile": {
+      "match_key": "vendor_id",
+      "cases": {
+        "us-axiom-cloud":   {"vendor_id": "us-axiom-cloud",   "name": "Axiom Cloud Solutions",       "preferred_payment_method": "ACH",    "banking_details": {"bank": "Silicon Valley Bank", "account": "****4521", "routing": "121140399"}, "contact": "ap@axiomcloud.example"},
+        "de-nordlicht":     {"vendor_id": "de-nordlicht",     "name": "Nordlicht Systems AG",         "preferred_payment_method": "SEPA",   "banking_details": {"iban": "DE91100000000123456789", "bic": "DEUTDEDBBER"}, "contact": "accounts@nordlicht.example"},
+        "in-zylotech":      {"vendor_id": "in-zylotech",      "name": "Zylotech Solutions",           "preferred_payment_method": "NEFT",   "banking_details": {"bank": "HDFC Bank", "account": "****7821", "ifsc": "HDFC0001234"}, "contact": "finance@zylotech.example"},
+        "sg-singatech":     {"vendor_id": "sg-singatech",     "name": "SingaTech Solutions",          "preferred_payment_method": "PAYNOW", "banking_details": {"uen": "202112345A", "bank": "DBS Bank"}, "contact": "ar@singatech.example"},
+        "br-saopaulo":      {"vendor_id": "br-saopaulo",      "name": "Sao Paulo Tech Ltda",          "preferred_payment_method": "PIX",    "banking_details": {"pix_key": "financeiro@sptech.example.br", "bank": "Itau Unibanco"}, "contact": "financeiro@sptech.example.br"},
+        "default":          {"vendor_id": null,                "name": "Vendor",                       "preferred_payment_method": "WIRE",   "banking_details": {"bank": "Default Bank", "account": "****0001"}, "contact": "ap@vendor.example"}
+      }
+    },
+    "get_contract_terms": {
+      "match_key": "vendor_id",
+      "cases": {
+        "us-axiom-cloud":   {"vendor_id": "us-axiom-cloud",   "payment_terms_days": 30, "max_fee_pct": 0.8,  "approved_rails": ["ACH", "WIRE"],          "contract_ref": "CTR-AXM-2025-001", "auto_renew": true},
+        "us-summit-fin":    {"vendor_id": "us-summit-fin",    "payment_terms_days": 15, "max_fee_pct": 1.2,  "approved_rails": ["WIRE"],                 "contract_ref": "CTR-SUM-2025-001", "auto_renew": false},
+        "de-nordlicht":     {"vendor_id": "de-nordlicht",     "payment_terms_days": 30, "max_fee_pct": 0.7,  "approved_rails": ["SEPA", "SWIFT"],        "contract_ref": "CTR-NRL-2025-001", "auto_renew": true},
+        "in-lakshmi":       {"vendor_id": "in-lakshmi",       "payment_terms_days": 45, "max_fee_pct": 1.5,  "approved_rails": ["RTGS"],                 "contract_ref": "CTR-LAK-2025-001", "auto_renew": true},
+        "br-saopaulo":      {"vendor_id": "br-saopaulo",      "payment_terms_days": 30, "max_fee_pct": 1.0,  "approved_rails": ["PIX", "SWIFT"],         "contract_ref": "CTR-SAO-2025-001", "auto_renew": true},
+        "default":          {"vendor_id": null,                "payment_terms_days": 30, "max_fee_pct": 1.0,  "approved_rails": ["ACH", "WIRE", "SWIFT"], "contract_ref": "CTR-DFLT-2025-001","auto_renew": true}
+      }
+    }
+  }
+}
