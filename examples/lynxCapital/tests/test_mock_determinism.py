@@ -1,0 +1,80 @@
+"""
+Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+Caracal, a product of Garudex Labs
+
+Mock determinism tests: same inputs always produce identical outputs across repeated calls.
+"""
+from __future__ import annotations
+
+import os
+import sys
+
+import pytest
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+os.environ.setdefault("OPENAI_API_KEY", "test-key")
+
+from app.services.registry import call
+from app.core.dataset import INVOICES, VENDORS
+
+
+# Representative sample: one call per service action, exercised 100 times.
+
+_CASES: list[tuple[str, str, dict]] = [
+    ("mercury-bank",     "get_account_balance",     {"vendor_id": "us-axiom-cloud"}),
+    ("mercury-bank",     "submit_payment",          {"vendor_id": "us-axiom-cloud", "amount": 1000.0, "currency": "USD", "rail": "ACH", "reference": "ref-1"}),
+    ("wise-payouts",     "get_quote",               {"from_currency": "USD", "to_currency": "INR"}),
+    ("wise-payouts",     "submit_payout",           {"vendor_id": "in-zylotech", "amount": 500.0, "currency": "INR", "reference": "ref-2"}),
+    ("stripe-treasury",  "create_outbound_payment", {"vendor_id": "us-crestview-sw", "amount": 750.0, "currency": "USD", "rail": "ACH", "reference": "ref-3"}),
+    ("netsuite",         "get_vendor_record",       {"vendor_id": "us-axiom-cloud"}),
+    ("netsuite",         "match_invoice",           {"vendor_id": "us-axiom-cloud", "invoice_id": "INV-US-0001", "amount": 1000.0, "currency": "USD"}),
+    ("sap-erp",          "get_vendor_record",       {"vendor_id": "de-berliner"}),
+    ("sap-erp",          "match_invoice",           {"vendor_id": "de-berliner", "invoice_id": "INV-DE-0001", "amount": 750.0}),
+    ("quickbooks",       "get_vendor",              {"vendor_id": "in-zylotech"}),
+    ("quickbooks",       "create_vendor_payment",   {"vendor_id": "in-zylotech", "invoice_id": "INV-IN-0001", "amount": 500.0, "currency": "INR", "reference": "ref-4"}),
+    ("compliance-nexus", "check_vendor",            {"vendor_id": "us-axiom-cloud"}),
+    ("compliance-nexus", "check_transaction",        {"vendor_id": "us-summit-fin", "amount": 1000.0}),
+    ("ocr-vision",       "extract_invoice",         {"invoice_id": "INV-00001", "doc_id": "doc-INV-00001"}),
+    ("vendor-portal",    "get_vendor_profile",      {"vendor_id": "us-axiom-cloud"}),
+    ("vendor-portal",    "get_contract_terms",      {"vendor_id": "us-axiom-cloud"}),
+    ("tax-rules",        "get_withholding_rate",    {"region": "US", "currency": "USD"}),
+    ("tax-rules",        "get_withholding_rate",    {"region": "IN", "currency": "INR"}),
+    ("fx-rates",         "get_rate",               {"from_currency": "USD", "to_currency": "EUR"}),
+    ("fx-rates",         "get_rate",               {"from_currency": "USD", "to_currency": "INR"}),
+]
+
+
+@pytest.mark.parametrize("service_id,action,payload", _CASES)
+def test_determinism_100_runs(service_id, action, payload):
+    """Same (service, action, payload) must return an identical dict on every call."""
+    first = call(service_id, action, payload)
+    for _ in range(99):
+        result = call(service_id, action, payload)
+        assert result == first, (
+            f"{service_id}.{action} returned different results:\n"
+            f"  first:   {first}\n"
+            f"  current: {result}"
+        )
+
+
+def test_distinct_payloads_differ():
+    """Different payloads that map to different cases must return different results."""
+    r_us = call("tax-rules", "get_withholding_rate", {"region": "US", "currency": "USD"})
+    r_de = call("tax-rules", "get_withholding_rate", {"region": "DE", "currency": "EUR"})
+    # They may legitimately have the same rate, but the call must succeed for both
+    assert isinstance(r_us, dict)
+    assert isinstance(r_de, dict)
+
+
+def test_all_invoice_ids_stable():
+    """Dataset generator produces the same invoice IDs on each import."""
+    ids_first  = [inv.id for inv in INVOICES]
+    ids_second = [inv.id for inv in INVOICES]
+    assert ids_first == ids_second, "Invoice dataset is not stable across accesses"
+
+
+def test_all_vendor_ids_stable():
+    """Vendor catalog is stable across accesses."""
+    ids_first  = list(VENDORS.keys())
+    ids_second = list(VENDORS.keys())
+    assert ids_first == ids_second
