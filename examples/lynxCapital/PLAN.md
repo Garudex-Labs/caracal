@@ -418,6 +418,20 @@ enforcement layer. Every spawned agent is bound; every external tool
 call is enforced. The base app's call sites are wrapped, not
 restructured.
 
+Prerequisite: Phase 0 must be `[X]`. Phase 2 installs and consumes
+only the published artifacts: `pip install caracal-sdk` for the
+SDK and `pip install caracal` for the CLI/TUI used by `/setup`. No
+path inside the Caracal monorepo is referenced.
+
+### P2.0 Add published Caracal artifacts to the demo  [ ]
+
+- [ ] Add `caracal-sdk` and `caracal` to the demo's
+      `pyproject.toml` dependencies, pinned to the versions
+      published in Phase 0. No `tool.uv.sources` overrides, no
+      editable installs, no path references.
+- [ ] Document in `README.md` that `caracal --help` must work after
+      `pip install -e .` of the demo.
+
 ### P2.1 Caracal client and binding  [ ]
 
 All SDK usage in this phase must follow the public `caracal_sdk`

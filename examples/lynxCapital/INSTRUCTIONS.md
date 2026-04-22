@@ -27,9 +27,9 @@ defines the rules; `PLAN.md` defines the steps.
   This is the Lynx Capital codebase, not Caracal. Words like
   `principal`, `mandate`, `authority`, `delegation`, `caveat`,
   `ledger` (in the Caracal sense), and `workspace` (in the Caracal
-  sense) only appear inside the Caracal integration layer
-  (Section 5). Outside that layer, prefer `agent`, `role`, `task`,
-  `scope`, `policy`.
+  sense) only appear at the Caracal integration touch points
+  defined in Section 7 and inside `/setup` content. Outside those
+  places, prefer `agent`, `role`, `task`, `scope`, `policy`.
 - Naming: short, clear, CamelCase by default. Snake_case only where
   the language requires it (Python module files, Python identifiers).
 - No `new_`, `old_`, `fixed_`, `updated_`, `final_` prefixes anywhere.
@@ -38,7 +38,9 @@ defines the rules; `PLAN.md` defines the steps.
   feature-flagged duplicate flows. Single execution path per feature.
 - Use the LangChain ecosystem only: LangChain, LangGraph, DeepAgents.
   No custom orchestration frameworks, no Temporal, no Celery, no
-  Docker, no Kubernetes, no message brokers.
+  message brokers. The demo's own code does not introduce Docker or
+  Kubernetes; the Caracal runtime is consumed as a published
+  distribution per Section 7 and Phase 0 of `PLAN.md`.
 - No emojis. No em dashes. No marketing copy. No filler comments.
 
 ## 2. Single Execution Mode
@@ -77,9 +79,10 @@ layer.
 ## 3. Architecture Rules
 
 - The entire base system is built first as if Caracal does not exist
-  (Phase 1). Phase 2 then layers Caracal in as enforcement and
-  identity. After Phase 2, Caracal is always on; there is no Caracal-
-  off path remaining.
+  (Phase 1 of `PLAN.md`). Phase 2 then layers Caracal in as
+  enforcement and identity, consuming the published distribution
+  delivered by Phase 0. After Phase 2, Caracal is always on; there
+  is no Caracal-off path remaining.
 - **Single runtime.** The UI is served by the same uvicorn process
   that serves the JSON API. There is no separate frontend
   application, no second build system, no second language. Pages are
@@ -153,8 +156,8 @@ and the logs route.
    is acquired in this phase; if binding is denied, spawn fails
    visibly and the parent records the rejection.
 2. **Execute** - the agent runs, calls tools, may spawn its own
-   children. Emits `agent_start`, `tool_call`, `enforcement`, and
-   `agent_end` events.
+   children. Emits `agent_start`, `tool_call`, `caracal_enforce`,
+   `service_call`, and `agent_end` events.
 3. **Delegate** (optional) - if the agent fans out work to children,
    each child goes through its own full lifecycle and the parent
    waits for them.
