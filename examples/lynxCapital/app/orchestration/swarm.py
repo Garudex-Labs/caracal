@@ -147,7 +147,7 @@ async def run_swarm(run_id: str, prompt: str) -> None:
             continue
 
         handle.start()
-        result = await asyncio.get_event_loop().run_in_executor(
+        result = await asyncio.get_running_loop().run_in_executor(
             None, _execute_node, run_id, handle, node
         )
         handle.end(result)

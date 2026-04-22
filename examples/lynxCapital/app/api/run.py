@@ -13,8 +13,7 @@ from fastapi import APIRouter, BackgroundTasks, HTTPException
 from pydantic import BaseModel
 from sse_starlette.sse import EventSourceResponse
 
-from app.agents.runner import create_runner
-from app.config import get_config
+from app.agents.runner import get_runner
 from app.events.bus import bus
 from app.events.sse import run_stream
 from app.orchestration.swarm import run_swarm
@@ -32,9 +31,7 @@ class StartResponse(BaseModel):
 
 @router.post("/start")
 async def start(body: StartRequest, background: BackgroundTasks) -> StartResponse:
-    cfg = get_config()
     run_id = str(uuid4())
-    create_runner(run_id, cfg.swarm.llmBackedCap)
     background.add_task(run_swarm, run_id, body.prompt)
     return StartResponse(runId=run_id)
 

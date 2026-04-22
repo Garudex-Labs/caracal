@@ -95,14 +95,17 @@ function startRun() {
 
     es = new EventSource(`/api/run/${currentRunId}/events`);
     es.onmessage = e => {
-      try { handleEvent(JSON.parse(e.data)); } catch {}
+      try {
+        const ev = JSON.parse(e.data);
+        handleEvent(ev);
+        if (ev.kind === 'run_end') {
+          runStatus.textContent = 'Completed';
+          startBtn.disabled = false;
+          cancelBtn.disabled = true;
+          es.close(); es = null;
+        }
+      } catch {}
     };
-    es.addEventListener('run_end', () => {
-      runStatus.textContent = 'Completed';
-      startBtn.disabled = false;
-      cancelBtn.disabled = true;
-      es.close(); es = null;
-    });
     es.onerror = () => {
       startBtn.disabled = false;
       cancelBtn.disabled = true;
