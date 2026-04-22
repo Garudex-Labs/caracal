@@ -146,6 +146,75 @@ def _run_host_orchestrator(args: Sequence[str]) -> int:
     )
     migrate_parser.set_defaults(handler=_host_migrate)
 
+    backup_parser = subparsers.add_parser("backup", help="Backup the Caracal PostgreSQL database")
+    backup_parser.add_argument(
+        "--output",
+        "-o",
+        default="/backups/postgresql",
+        help="Directory inside the container to write the backup file (default: /backups/postgresql)",
+    )
+    backup_parser.add_argument(
+        "--compress",
+        action="store_true",
+        default=True,
+        help="Compress backup with gzip (default: true)",
+    )
+    backup_parser.add_argument(
+        "--no-compress",
+        dest="compress",
+        action="store_false",
+    )
+    backup_parser.set_defaults(handler=_host_backup)
+
+    restore_parser = subparsers.add_parser("restore", help="Restore the Caracal PostgreSQL database from a backup")
+    restore_parser.add_argument(
+        "backup_file",
+        help="Path to the backup file inside the postgres container",
+    )
+    restore_parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Skip confirmation prompt",
+    )
+    restore_parser.set_defaults(handler=_host_restore)
+
+    certs_parser = subparsers.add_parser("certs", help="Generate TLS certificates for the runtime stack")
+    certs_parser.add_argument(
+        "--output",
+        "-o",
+        default="/home/caracal/runtime/certs",
+        help="Directory inside the container to write certificates (default: /home/caracal/runtime/certs)",
+    )
+    certs_parser.add_argument(
+        "--days",
+        type=int,
+        default=365,
+        help="Certificate validity in days (default: 365)",
+    )
+    certs_parser.set_defaults(handler=_host_certs)
+
+    redis_parser = subparsers.add_parser("redis", help="Redis management subcommands")
+    redis_sub = redis_parser.add_subparsers(dest="redis_command")
+    redis_init_parser = redis_sub.add_parser("init", help="Initialize Redis security (password + TLS)")
+    redis_init_parser.set_defaults(handler=_host_redis_init)
+    redis_parser.set_defaults(handler=lambda ns: (redis_parser.print_help(), 2)[1])
+
+    events_parser = subparsers.add_parser("events", help="Event management subcommands")
+    events_sub = events_parser.add_subparsers(dest="events_command")
+    events_replay_parser = events_sub.add_parser("replay", help="Replay events to recover system state")
+    events_replay_parser.add_argument(
+        "--from-timestamp",
+        default=None,
+        help="Start replay from this ISO timestamp (default: beginning of log)",
+    )
+    events_replay_parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Skip confirmation prompt",
+    )
+    events_replay_parser.set_defaults(handler=_host_events_replay)
+    events_parser.set_defaults(handler=lambda ns: (events_parser.print_help(), 2)[1])
+
     if not args:
         parser.print_help()
         return 0
@@ -966,6 +1035,91 @@ def _host_migrate(namespace: argparse.Namespace) -> int:
     exec_cmd = compose_cmd + ["exec", "mcp", "caracal", "db", "migrate", direction]
     if namespace.revision:
         exec_cmd += ["--revision", namespace.revision]
+    result = subprocess.run(exec_cmd, check=False)
+    return result.returncode
+
+
+def _host_backup(namespace: argparse.Namespace) -> int:
+    compose_file = _resolve_compose_file()
+    compose_cmd = _compose_cmd(compose_file)
+    output_dir = namespace.output
+    exec_cmd = compose_cmd + [
+        "exec",
+        "postgres",
+        "sh",
+        "-c",
+        f"mkdir -p {output_dir} && pg_dump -U $POSTGRES_USER -d $POSTGRES_DB"
+        + (f" | gzip > {output_dir}/backup-$(date +%Y%m%d-%H%M%S).sql.gz" if namespace.compress else f" > {output_dir}/backup-$(date +%Y%m%d-%H%M%S).sql"),
+    ]
+    result = subprocess.run(exec_cmd, check=False)
+    return result.returncode
+
+
+def _host_restore(namespace: argparse.Namespace) -> int:
+    if not namespace.force:
+        confirm = input("Restore will overwrite the current database. Continue? [y/N] ").strip().lower()
+        if confirm != "y":
+            print("Restore cancelled.", file=sys.stderr)
+            return 1
+    compose_file = _resolve_compose_file()
+    compose_cmd = _compose_cmd(compose_file)
+    backup_file = namespace.backup_file
+    if backup_file.endswith(".gz"):
+        restore_sh = f"gunzip -c {backup_file} | psql -U $POSTGRES_USER -d $POSTGRES_DB"
+    else:
+        restore_sh = f"psql -U $POSTGRES_USER -d $POSTGRES_DB < {backup_file}"
+    exec_cmd = compose_cmd + ["exec", "postgres", "sh", "-c", restore_sh]
+    result = subprocess.run(exec_cmd, check=False)
+    return result.returncode
+
+
+def _host_certs(namespace: argparse.Namespace) -> int:
+    compose_file = _resolve_compose_file()
+    compose_cmd = _compose_cmd(compose_file)
+    output_dir = namespace.output
+    days = namespace.days
+    gen_sh = (
+        f"mkdir -p {output_dir} && "
+        f"openssl genrsa -out {output_dir}/ca.key 4096 && "
+        f"openssl req -new -x509 -days {days} -key {output_dir}/ca.key -out {output_dir}/ca.crt "
+        f"-subj '/C=US/ST=State/L=City/O=Caracal/OU=IT/CN=Caracal CA' && "
+        f"openssl genrsa -out {output_dir}/server.key 4096 && "
+        f"openssl req -new -key {output_dir}/server.key -out {output_dir}/server.csr "
+        f"-subj '/C=US/ST=State/L=City/O=Caracal/OU=IT/CN=localhost' && "
+        f"openssl x509 -req -days {days} -in {output_dir}/server.csr "
+        f"-CA {output_dir}/ca.crt -CAkey {output_dir}/ca.key -CAcreateserial "
+        f"-out {output_dir}/server.crt "
+        f"-extfile <(printf 'subjectAltName=DNS:localhost,IP:127.0.0.1') && "
+        f"openssl genrsa -out {output_dir}/jwt_private.pem 4096 && "
+        f"openssl rsa -pubout -in {output_dir}/jwt_private.pem -out {output_dir}/jwt_public.pem && "
+        f"chmod 600 {output_dir}/*.key {output_dir}/*.pem && "
+        f"chmod 644 {output_dir}/*.crt && "
+        f"rm -f {output_dir}/server.csr {output_dir}/ca.srl"
+    )
+    exec_cmd = compose_cmd + ["exec", "mcp", "bash", "-c", gen_sh]
+    result = subprocess.run(exec_cmd, check=False)
+    return result.returncode
+
+
+def _host_redis_init(namespace: argparse.Namespace) -> int:
+    compose_file = _resolve_compose_file()
+    compose_cmd = _compose_cmd(compose_file)
+    exec_cmd = compose_cmd + ["exec", "mcp", "caracal", "redis", "init"]
+    result = subprocess.run(exec_cmd, check=False)
+    return result.returncode
+
+
+def _host_events_replay(namespace: argparse.Namespace) -> int:
+    if not namespace.force:
+        confirm = input("Event replay will modify the database. Continue? [y/N] ").strip().lower()
+        if confirm != "y":
+            print("Replay cancelled.", file=sys.stderr)
+            return 1
+    compose_file = _resolve_compose_file()
+    compose_cmd = _compose_cmd(compose_file)
+    exec_cmd = compose_cmd + ["exec", "mcp", "caracal", "events", "replay"]
+    if namespace.from_timestamp:
+        exec_cmd += ["--from-timestamp", namespace.from_timestamp]
     result = subprocess.run(exec_cmd, check=False)
     return result.returncode
 

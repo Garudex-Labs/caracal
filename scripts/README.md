@@ -64,51 +64,19 @@ Comprehensive release script that automates the entire release process.
 
 The script is interactive and prompts for confirmation at each step.
 
-## Backup & Recovery
+## Backup, Recovery, and Security
 
-### backup-postgresql.sh
+These operations are now first-class `caracal` subcommands shipped in the host wheel:
 
-Creates a backup of the PostgreSQL database.
+| Command | Replaces |
+|---|---|
+| `caracal backup` | `backup-postgresql.sh` |
+| `caracal restore <file>` | `restore-postgresql.sh` |
+| `caracal certs` | `generate-certs.sh` |
+| `caracal redis init` | `setup-redis-security.sh` |
+| `caracal events replay` | `event-replay-recovery.sh` |
 
-**Usage:**
-
-```bash
-./scripts/backup-postgresql.sh
-```
-
-### restore-postgresql.sh
-
-Restores a PostgreSQL database from backup.
-
-**Usage:**
-
-```bash
-./scripts/restore-postgresql.sh <backup-file>
-```
-
-## Security Setup
-
-### setup-redis-security.sh
-
-Configures Redis security (password, TLS).
-
-**Usage:**
-
-```bash
-./scripts/setup-redis-security.sh
-```
-
-## Recovery
-
-### snapshot-recovery.sh
-
-Recovers system state from a ledger snapshot.
-
-**Usage:**
-
-```bash
-./scripts/snapshot-recovery.sh <snapshot-id>
-```
+Run `caracal --help` for full usage.
 
 ## Python Version Management
 

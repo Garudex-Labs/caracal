@@ -151,8 +151,8 @@ def _fetch_table_baseline(engine: Engine, table_names: list[str]) -> list[dict[s
 def _rollback_assets() -> list[RollbackAsset]:
     root = _repo_root()
     return [
-        RollbackAsset("backup_script", root / "scripts" / "backup-postgresql.sh"),
-        RollbackAsset("restore_script", root / "scripts" / "restore-postgresql.sh"),
+        RollbackAsset("backup_subcommand", root / "packages" / "caracal" / "caracal" / "runtime" / "entrypoints.py"),
+        RollbackAsset("restore_subcommand", root / "packages" / "caracal" / "caracal" / "runtime" / "entrypoints.py"),
     ]
 
 
