@@ -10,10 +10,13 @@ import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 
+from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
 from app.config import load_config
+
+load_dotenv(Path(__file__).parent.parent / ".env")
 
 
 @asynccontextmanager

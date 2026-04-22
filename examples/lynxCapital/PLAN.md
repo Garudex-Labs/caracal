@@ -389,22 +389,22 @@ Files created: `pyproject.toml`, `app/__init__.py`, `app/main.py`,
 - [X] `tests/test_topology.py`: graph contains all required layers
       and per-region groupings; counts match config caps.
 
-### Phase 1 acceptance  [ ]
+### Phase 1 acceptance  [X]
 
-- [ ] `uvicorn app.main:app` starts cleanly.
-- [ ] `GET /` renders. `GET /demo` renders chat + graph. `GET /logs`
+- [X] `uvicorn app.main:app` starts cleanly.
+- [X] `GET /` renders. `GET /demo` renders chat + graph. `GET /logs`
       renders categorized live log. `GET /observe` renders lineage.
-- [ ] Submitting the scenario prompt drives a full simulated run end
+- [X] Submitting the scenario prompt drives a full simulated run end
       to end with deterministic mock output.
-- [ ] The lineage tree shows full layer and per-transaction
+- [X] The lineage tree shows full layer and per-transaction
       decomposition with **complete lifecycle**: every agent has
       `spawn`, `start`, `end`, `terminate` events.
-- [ ] The graph view renders layer + region groups and fan-out
+- [X] The graph view renders layer + region groups and fan-out
       bundles; node status pills update live.
-- [ ] The `/logs` view shows color-coded entries across all
+- [X] The `/logs` view shows color-coded entries across all
       categories (`agent`, `service`, `tool`, `audit`, `system`)
       with working filters.
-- [ ] Phase 1 lifecycle and determinism tests pass.
+- [X] Phase 1 lifecycle and determinism tests pass.
 
 ### Phase 1 Do / Do Not
 
@@ -436,13 +436,13 @@ only the published artifacts: `pip install caracal-sdk` for the
 SDK and `pip install caracal` for the CLI/TUI used by `/setup`. No
 path inside the Caracal monorepo is referenced.
 
-### P2.0 Add published Caracal artifacts to the demo  [ ]
+### P2.0 Add published Caracal artifacts to the demo  [X]
 
-- [ ] Add `caracal-sdk` and `caracal` to the demo's
+- [X] Add `caracal-sdk` and `caracal` to the demo's
       `pyproject.toml` dependencies, pinned to the versions
       published in Phase 0. No `tool.uv.sources` overrides, no
       editable installs, no path references.
-- [ ] Document in `README.md` that `caracal --help` must work after
+- [X] Document in `README.md` that `caracal --help` must work after
       `pip install -e .` of the demo.
 
 ### P2.1 Caracal client and binding  [ ]

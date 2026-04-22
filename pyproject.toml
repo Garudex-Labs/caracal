@@ -3,6 +3,7 @@ members = [
     "packages/caracal",
     "packages/caracal-server",
     "sdk/python-sdk",
+    "examples/lynxCapital",
 ]
 
 [tool.uv.sources]

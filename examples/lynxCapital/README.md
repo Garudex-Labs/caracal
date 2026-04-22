@@ -27,6 +27,14 @@ Copy `.env.example` to `.env` and fill in the values.
 
 ## Run
 
+After `pip install -e .`, verify Caracal is available:
+
+```
+caracal --help
+```
+
+Then start the server:
+
 ```
 uvicorn app.main:app --reload
 ```
