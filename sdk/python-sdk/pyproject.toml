@@ -27,11 +27,6 @@ dependencies = [
   "httpx>=0.25.0",
 ]
 
-[project.optional-dependencies]
-core = [
-  "caracal-core>=0.1.0",
-]
-
 [project.urls]
 Homepage = "https://github.com/Garudex-Labs/caracal"
 Documentation = "https://github.com/Garudex-Labs/caracal/tree/main/sdk/python-sdk"
