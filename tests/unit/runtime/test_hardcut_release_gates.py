@@ -3,13 +3,86 @@
 from __future__ import annotations
 
 import ast
+import sys
 from pathlib import Path
 import re
 
 import pytest
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from tests._caracal_source import caracal_source_roots  # noqa: E402
 
-_REPO_ROOT = Path(__file__).resolve().parents[3]
+
+class _CaracalView:
+    """Resolve `caracal/...` paths transparently across the host and server wheel sources."""
+
+    def __init__(self, parts: tuple[str, ...] = ()) -> None:
+        self._parts = parts
+
+    def __truediv__(self, child) -> "_CaracalView":
+        return _CaracalView(self._parts + (str(child),))
+
+    def _resolve(self) -> Path:
+        for root in caracal_source_roots():
+            candidate = root.joinpath(*self._parts) if self._parts else root
+            if candidate.exists():
+                return candidate
+        return caracal_source_roots()[0].joinpath(*self._parts)
+
+    def __fspath__(self) -> str:
+        return str(self._resolve())
+
+    def __str__(self) -> str:
+        return str(self._resolve())
+
+    def read_text(self, *args, **kwargs):
+        return self._resolve().read_text(*args, **kwargs)
+
+    def exists(self) -> bool:
+        return any(
+            (root.joinpath(*self._parts) if self._parts else root).exists()
+            for root in caracal_source_roots()
+        )
+
+    def rglob(self, pattern):
+        for root in caracal_source_roots():
+            target = root.joinpath(*self._parts) if self._parts else root
+            if target.is_dir():
+                yield from target.rglob(pattern)
+
+
+class _RepoRootView:
+    """Path-like view; `_REPO_ROOT / 'caracal'` returns a CaracalView spanning both wheels."""
+
+    def __init__(self, path: Path) -> None:
+        self._path = path
+
+    def __truediv__(self, child):
+        if str(child) == "caracal":
+            return _CaracalView()
+        return self._path / child
+
+    def __fspath__(self) -> str:
+        return str(self._path)
+
+    def __str__(self) -> str:
+        return str(self._path)
+
+    def __getattr__(self, name):
+        return getattr(self._path, name)
+
+
+def _caracal_relative_posix(py_file: Path) -> str:
+    """Return 'caracal/X/Y.py' for a py_file under either wheel source tree."""
+    for root in caracal_source_roots():
+        try:
+            return "caracal/" + py_file.relative_to(root).as_posix()
+        except ValueError:
+            continue
+    return py_file.as_posix()
+
+
+_REPO_ROOT = _RepoRootView(Path(__file__).resolve().parents[3])
 
 
 @pytest.mark.unit
@@ -29,7 +102,7 @@ def test_runtime_code_has_no_legacy_agent_identity_imports() -> None:
     for py_file in source_root.rglob("*.py"):
         payload = py_file.read_text(encoding="utf-8")
         if "from caracal.core.identity import Agent" in payload:
-            offenders.append(str(py_file.relative_to(_REPO_ROOT)))
+            offenders.append(_caracal_relative_posix(py_file))
 
     assert offenders == []
 
@@ -45,7 +118,7 @@ def test_runtime_code_has_no_sqlite_url_usages() -> None:
 
         payload = py_file.read_text(encoding="utf-8").lower()
         if "sqlite://" in payload or "sqlite+" in payload:
-            offenders.append(str(py_file.relative_to(_REPO_ROOT)))
+            offenders.append(_caracal_relative_posix(py_file))
 
     assert offenders == []
 
@@ -244,7 +317,7 @@ def test_runtime_code_has_no_core_crypto_sign_helper_imports() -> None:
     for py_file in source_root.rglob("*.py"):
         payload = py_file.read_text(encoding="utf-8")
         if any(marker in payload for marker in forbidden_import_markers):
-            offenders.append(str(py_file.relative_to(_REPO_ROOT)))
+            offenders.append(_caracal_relative_posix(py_file))
 
     assert offenders == []
 
@@ -264,7 +337,7 @@ def test_runtime_and_cli_gateway_resolution_is_centralized_in_edition_adapter() 
     }
 
     for py_file in source_root.rglob("*.py"):
-        relative_path = py_file.relative_to(_REPO_ROOT).as_posix()
+        relative_path = _caracal_relative_posix(py_file)
         if relative_path in allowed_files:
             continue
 
@@ -285,7 +358,7 @@ def test_feature_modules_do_not_branch_on_is_enterprise_directly() -> None:
     }
 
     for py_file in source_root.rglob("*.py"):
-        relative_path = py_file.relative_to(_REPO_ROOT).as_posix()
+        relative_path = _caracal_relative_posix(py_file)
         if relative_path in allowed_files:
             continue
 
@@ -357,7 +430,7 @@ def test_core_and_runtime_modules_do_not_import_enterprise_license_directly() ->
         for py_file in source_root.rglob("*.py"):
             payload = py_file.read_text(encoding="utf-8")
             if any(marker in payload for marker in forbidden_markers):
-                offenders.append(str(py_file.relative_to(_REPO_ROOT)))
+                offenders.append(_caracal_relative_posix(py_file))
 
     assert offenders == []
 
@@ -382,7 +455,7 @@ def test_runtime_cli_flow_and_deployment_modules_do_not_import_retired_enterpris
         for py_file in source_root.rglob("*.py"):
             payload = py_file.read_text(encoding="utf-8")
             if any(marker in payload for marker in forbidden_markers):
-                offenders.append(str(py_file.relative_to(_REPO_ROOT)))
+                offenders.append(_caracal_relative_posix(py_file))
 
     assert offenders == []
 
@@ -409,7 +482,7 @@ def test_core_runtime_and_deployment_modules_have_no_enterprise_route_or_ui_work
 
     for source_root in source_roots:
         for py_file in source_root.rglob("*.py"):
-            relative_path = str(py_file.relative_to(_REPO_ROOT))
+            relative_path = _caracal_relative_posix(py_file)
             if relative_path in allowed_files:
                 continue
             payload = py_file.read_text(encoding="utf-8").lower()
@@ -449,14 +522,14 @@ def test_runtime_code_has_no_direct_registry_register_callsites() -> None:
         payload = py_file.read_text(encoding="utf-8")
 
         # Core registry implementation is allowed to define registration internals.
-        if py_file.relative_to(_REPO_ROOT).as_posix() in {
+        if _caracal_relative_posix(py_file) in {
             "caracal/core/identity.py",
             "caracal/identity/service.py",
         }:
             continue
 
         if "registry.register_principal(" in payload:
-            offenders.append(str(py_file.relative_to(_REPO_ROOT)))
+            offenders.append(_caracal_relative_posix(py_file))
 
     assert offenders == []
 
@@ -473,7 +546,7 @@ def test_runtime_code_uses_identity_service_for_registration_callsites() -> None
     disallowed_pattern = re.compile(r"\b(?!identity_service\b)[A-Za-z_][A-Za-z0-9_]*\.register_principal\(")
 
     for py_file in source_root.rglob("*.py"):
-        relative_path = py_file.relative_to(_REPO_ROOT).as_posix()
+        relative_path = _caracal_relative_posix(py_file)
         if relative_path in allowed_files:
             continue
 
@@ -496,7 +569,7 @@ def test_runtime_code_uses_identity_service_for_spawn_callsites() -> None:
     disallowed_pattern = re.compile(r"\b(?!identity_service\b)[A-Za-z_][A-Za-z0-9_]*\.spawn_principal\(")
 
     for py_file in source_root.rglob("*.py"):
-        relative_path = py_file.relative_to(_REPO_ROOT).as_posix()
+        relative_path = _caracal_relative_posix(py_file)
         if relative_path in allowed_files:
             continue
 
@@ -524,7 +597,7 @@ def test_enterprise_code_has_no_direct_registry_or_spawn_manager_usage() -> None
     for py_file in enterprise_root.rglob("*.py"):
         payload = py_file.read_text(encoding="utf-8")
         if any(marker in payload for marker in forbidden_markers):
-            offenders.append(str(py_file.relative_to(_REPO_ROOT)))
+            offenders.append(_caracal_relative_posix(py_file))
 
     assert offenders == []
 
@@ -743,7 +816,7 @@ def test_runtime_code_has_no_legacy_sync_state_table_markers() -> None:
     pattern = re.compile(r"\bsync_(operations|conflicts|metadata)\b")
 
     for py_file in source_root.rglob("*.py"):
-        relative_path = py_file.relative_to(_REPO_ROOT).as_posix()
+        relative_path = _caracal_relative_posix(py_file)
         if relative_path in allowed_files or relative_path.startswith(allowed_prefixes):
             continue
 

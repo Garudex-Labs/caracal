@@ -12,6 +12,37 @@ DEFAULT_HOST_IO_ROOT = Path("/caracal-host-io")
 TRUTHY_ENV_VALUES = frozenset({"1", "true", "yes", "on"})
 FALSY_ENV_VALUES = frozenset({"0", "false", "no", "off"})
 
+CARACAL_HOME_ENV = "CARACAL_HOME"
+CARACAL_CONFIG_DIR_ENV = "CARACAL_CONFIG_DIR"
+
+
+class StorageLayoutError(RuntimeError):
+    """Raised when storage layout is invalid or cannot be created safely."""
+
+
+def resolve_caracal_home(require_explicit: bool = False) -> Path:
+    """Resolve CARACAL_HOME root.
+
+    Resolution order is deterministic:
+    1. CARACAL_CONFIG_DIR (demo/override alias)
+    2. CARACAL_HOME
+    3. ~/.caracal (only when require_explicit=False)
+    """
+    config_dir_value = os.getenv(CARACAL_CONFIG_DIR_ENV)
+    if config_dir_value:
+        return Path(config_dir_value).expanduser().resolve(strict=False)
+
+    home_value = os.getenv(CARACAL_HOME_ENV)
+    if home_value:
+        return Path(home_value).expanduser().resolve(strict=False)
+
+    if require_explicit:
+        raise StorageLayoutError(
+            "CARACAL_HOME is required but not set. Set CARACAL_HOME to an explicit runtime path."
+        )
+
+    return (Path.home() / ".caracal").resolve(strict=False)
+
 
 def is_truthy_env(value: str | None, *, default: bool = False) -> bool:
     """Interpret common environment-style truthy and falsy values."""

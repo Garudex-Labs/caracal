@@ -48,45 +48,41 @@ from caracal_sdk._compat import get_logger
 from caracal_sdk.adapters.base import BaseAdapter, SDKRequest, SDKResponse
 from caracal_sdk.json_types import JsonValue
 
-try:
-    from caracal.core.gateway_features import GatewayFeatureFlags, get_gateway_features
-except ImportError:
-    @dataclass
-    class GatewayFeatureFlags:
-        gateway_enabled: bool = False
-        gateway_endpoint: Optional[str] = None
-        gateway_api_key: Optional[str] = None
-        deployment_type: str = "oss"
-        fail_closed: bool = False
 
-        @property
-        def is_enterprise(self) -> bool:
-            return self.deployment_type == "enterprise"
+DEPLOYMENT_OSS = "oss"
+DEPLOYMENT_MANAGED = "managed"
+DEPLOYMENT_ON_PREM = "on_prem"
 
-    def get_gateway_features() -> GatewayFeatureFlags:
-        deployment = os.getenv("CARACAL_DEPLOYMENT_TYPE", "oss").strip().lower()
-        endpoint = os.getenv("CARACAL_ENTERPRISE_URL", "").strip() or None
-        api_key = os.getenv("CARACAL_GATEWAY_API_KEY", "").strip() or None
-        enabled = os.getenv("CARACAL_GATEWAY_ENABLED", "").strip().lower() in {
-            "1",
-            "true",
-            "yes",
-            "on",
-        }
-        fail_closed = os.getenv("CARACAL_GATEWAY_FAIL_CLOSED", "").strip().lower() in {
-            "1",
-            "true",
-            "yes",
-            "on",
-        }
 
-        return GatewayFeatureFlags(
-            gateway_enabled=enabled,
-            gateway_endpoint=endpoint,
-            gateway_api_key=api_key,
-            deployment_type=deployment,
-            fail_closed=fail_closed,
-        )
+def _bool_env(name: str) -> bool:
+    return os.getenv(name, "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+@dataclass
+class GatewayFeatureFlags:
+    """Runtime flags governing whether SDK requests use the gateway path."""
+
+    gateway_enabled: bool = False
+    gateway_endpoint: Optional[str] = None
+    gateway_api_key: Optional[str] = None
+    deployment_type: str = DEPLOYMENT_OSS
+    fail_closed: bool = False
+
+    @property
+    def is_enterprise(self) -> bool:
+        return self.deployment_type in (DEPLOYMENT_MANAGED, DEPLOYMENT_ON_PREM)
+
+
+def get_gateway_features() -> GatewayFeatureFlags:
+    return GatewayFeatureFlags(
+        gateway_enabled=_bool_env("CARACAL_GATEWAY_ENABLED"),
+        gateway_endpoint=os.getenv("CARACAL_ENTERPRISE_URL", "").strip() or None,
+        gateway_api_key=os.getenv("CARACAL_GATEWAY_API_KEY", "").strip() or None,
+        deployment_type=os.getenv(
+            "CARACAL_GATEWAY_DEPLOYMENT_TYPE", DEPLOYMENT_OSS
+        ).strip().lower(),
+        fail_closed=_bool_env("CARACAL_GATEWAY_FAIL_CLOSED"),
+    )
 
 logger = get_logger(__name__)
 
