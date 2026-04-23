@@ -98,8 +98,8 @@ def audit_record(run_id: str, agent_id: str, record: dict) -> Event:
     return _mk(run_id, "audit", "audit_record", agent_id=agent_id, record=record)
 
 
-def caracal_bind(run_id: str, agent_id: str, decision: str, reason: str = "") -> Event:
-    return _mk(run_id, "caracal", "caracal_bind", agent_id=agent_id, decision=decision, reason=reason)
+def caracal_bind(run_id: str, agent_id: str, decision: str, reason: str = "", mandate_id: str | None = None) -> Event:
+    return _mk(run_id, "caracal", "caracal_bind", agent_id=agent_id, decision=decision, reason=reason, mandate_id=mandate_id)
 
 
 def caracal_enforce(run_id: str, agent_id: str, tool_id: str, decision: str, reason: str = "") -> Event:

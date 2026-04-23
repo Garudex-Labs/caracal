@@ -99,7 +99,7 @@ class AgentRunner:
         bus.publish(ev.agent_spawn(self.run_id, agent_id, role, scope, parent_id, layer, region))
         if parent_id:
             bus.publish(ev.delegation(self.run_id, parent_id, agent_id, scope))
-        bus.publish(ev.caracal_bind(self.run_id, agent_id, "allow", f"bound to {principal_id}"))
+        bus.publish(ev.caracal_bind(self.run_id, agent_id, "allow", f"bound to {principal_id}", mandate_id=f"mandate:{principal_id}"))
 
         return handle
 

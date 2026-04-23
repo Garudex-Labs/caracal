@@ -118,6 +118,7 @@ def observe(run_id: str) -> dict:
             "parent": spawn_ev.payload.get("parent_id"),
             "status": status,
             "principal": bind_ev.payload.get("reason", "").replace("bound to ", "") if bind_ev else None,
+            "mandate_id": bind_ev.payload.get("mandate_id") if bind_ev else None,
             "bind_decision": bind_ev.payload.get("decision") if bind_ev else None,
             "ts_spawn": spawn_ev.ts,
             "ts_start": start_ev.ts if start_ev else None,

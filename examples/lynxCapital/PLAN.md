@@ -580,74 +580,74 @@ The `/demo`, `/logs`, and `/observe` views are tight, fit-width,
 and visually communicate parallel execution and fan-out. The setup
 flow is bulletproof.
 
-### P3.1 Theme and layout  [ ]
+### P3.1 Theme and layout  [X]
 
-- [ ] Final theme tokens in `theme.css` driven entirely by
+- [X] Final theme tokens in `theme.css` driven entirely by
       `config/company.yaml`.
-- [ ] Persistent top nav, fit-width pages, no overlong scroll on
+- [X] Persistent top nav, fit-width pages, no overlong scroll on
       primary routes.
 
-### P3.2 Landing and setup  [ ]
+### P3.2 Landing and setup  [X]
 
-- [ ] Landing renders scenario summary, key numbers (4,200 invoices,
+- [X] Landing renders scenario summary, key numbers (4,200 invoices,
       ~$8.5M, 5 regions, ~4,000 agents at peak), disclaimer
       checkbox, Continue button enabled only when checked.
-- [ ] Setup checklist with copy-to-clipboard for each command,
+- [X] Setup checklist with copy-to-clipboard for each command,
       collapsible per-phase, persistent pass/fail state.
 
-### P3.3 Demo view  [ ]
+### P3.3 Demo view  [X]
 
-- [ ] Single `/demo` page (no mode switch).
-- [ ] Chat panel: streamed events grouped per agent with lifecycle
+- [X] Single `/demo` page (no mode switch).
+- [X] Chat panel: streamed events grouped per agent with lifecycle
       markers (`spawn`, `running`, `done`, `terminated`,
       `denied`).
-- [ ] Graph panel: layer bands top to bottom (Finance Control ->
+- [X] Graph panel: layer bands top to bottom (Finance Control ->
       Regional Orchestrators -> Intake/Ledger/Policy/Route ->
       Payment Execution -> Audit/Exception). Within each band,
       region columns. Fan-out edges drawn as bundled splaying
       connectors with thickness keyed to child count. Each node
       shows a status pill that updates live.
-- [ ] Run controls: Start, Pause, Cancel. Cancel propagates and is
+- [X] Run controls: Start, Pause, Cancel. Cancel propagates and is
       reflected in lifecycle events and node colors.
 
-### P3.4 Logs view  [ ]
+### P3.4 Logs view  [X]
 
-- [ ] Single `/logs` page with category filter chips
+- [X] Single `/logs` page with category filter chips
       (`caracal`, `service`, `tool`, `agent`, `audit`, `system`).
-- [ ] Each line: timestamp, category badge (color-coded), short
+- [X] Each line: timestamp, category badge (color-coded), short
       summary, expandable JSON detail.
-- [ ] Live tail via SSE; pause/resume; clear filters control.
-- [ ] Color tokens come from `theme.css`; no inline colors.
+- [X] Live tail via SSE; pause/resume; clear filters control.
+- [X] Color tokens come from `theme.css`; no inline colors.
 
-### P3.5 Observe view  [ ]
+### P3.5 Observe view  [X]
 
-- [ ] Lineage tree per run with bound principal, mandate id,
+- [X] Lineage tree per run with bound principal, mandate id,
       enforcement decision per call, and final lifecycle status per
       agent.
 
-### P3.6 End-to-end validation  [ ]
+### P3.6 End-to-end validation  [X]
 
-- [ ] Manual run-through script in `README.md` covering: install,
+- [X] Manual run-through script in `README.md` covering: install,
       env, `caracal` setup commands, `/setup` validation, `/demo`
       run, `/logs` and `/observe` review.
-- [ ] All Phase 1 and Phase 2 tests still pass.
-- [ ] `grep` for `caracal-integration` lists every and only the
+- [X] All Phase 1 and Phase 2 tests still pass.
+- [X] `grep` for `caracal-integration` lists every and only the
       integration touch points.
-- [ ] `grep` for `mode=` and `mock_mode` returns nothing in app
+- [X] `grep` for `mode=` and `mock_mode` returns nothing in app
       code.
-- [ ] `grep` for `principal|mandate|authority|delegation|workspace`
+- [X] `grep` for `principal|mandate|authority|delegation|workspace`
       in `app/` returns matches only at the documented
       `caracal-integration:` blocks and inside
       `app/web/templates/setup.html`.
 
-### Phase 3 acceptance  [ ]
+### Phase 3 acceptance  [X]
 
-- [ ] Visual review: pages fit a 1440x900 viewport without primary
+- [X] Visual review: pages fit a 1440x900 viewport without primary
       scroll.
-- [ ] Demo run produces a coherent end-to-end story across chat,
+- [X] Demo run produces a coherent end-to-end story across chat,
       graph, logs, and observe views.
-- [ ] Cancellation mid-run is clean and visible everywhere.
-- [ ] No emojis, no marketing copy, no stray TODOs.
+- [X] Cancellation mid-run is clean and visible everywhere.
+- [X] No emojis, no marketing copy, no stray TODOs.
 
 ### Phase 3 Do / Do Not
 

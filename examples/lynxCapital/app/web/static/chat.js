@@ -14,6 +14,7 @@ const emptyEl      = $("chat-empty");
 const agentCount   = $("agent-count");
 const startBtn     = $("start-btn");
 const stopBtn      = $("stop-btn");
+const pauseBtn     = $("pause-btn");
 const promptInput  = $("prompt-input");
 const modelSelect  = $("model-select");
 const memFill      = $("mem-fill");
@@ -39,6 +40,8 @@ const state = {
   files: new Set(),
   plans: {},
   planOwner: null,
+  paused: false,
+  queue: [],
 };
 
 const PLAN_TOOLS = new Set(["write_todos", "write_file", "read_file", "ls_files"]);
@@ -299,6 +302,29 @@ function handleEvent(ev) {
     case "agent_terminate": {
       state.terminated++;
       updateHeaderCount();
+      const status = p.status;
+      if (status === "denied" || status === "failed" || status === "cancelled") {
+        const a = state.agents[p.agent_id];
+        if (a && (a.layer === "finance-control" || a.layer === "regional-orchestrator")) {
+          const kind = status === "cancelled" ? "system" : "error";
+          addInline(kind, `${agentLabel(a)} <span class="status-pill ${status}">${status}</span>`);
+        }
+      }
+      break;
+    }
+    case "caracal_bind": {
+      const a = state.agents[p.agent_id];
+      if (a && (a.layer === "finance-control" || a.layer === "regional-orchestrator")) {
+        addInline("caracal", `Caracal bind \u00b7 ${agentLabel(a)} \u00b7 <code>${p.reason || p.decision}</code>`);
+      }
+      break;
+    }
+    case "caracal_enforce": {
+      if (p.decision === "deny") {
+        const a = state.agents[p.agent_id];
+        const who = a ? agentLabel(a) : (p.agent_id || "").slice(0, 8);
+        addInline("error", `Caracal denied \u00b7 ${who} \u00b7 <code>${p.tool_id || ""}</code>`);
+      }
       break;
     }
     case "chat_user":
@@ -410,9 +436,12 @@ function resetState() {
   state.files = new Set();
   state.plans = {};
   state.planOwner = null;
+  state.paused = false;
+  state.queue = [];
   stream.innerHTML = "";
   planPanel.hidden = true;
   planList.innerHTML = "";
+  if (pauseBtn) { pauseBtn.hidden = true; pauseBtn.textContent = "Pause"; }
   refreshMemoryBar();
   refreshMemDetail();
 }
@@ -422,13 +451,15 @@ function finishRun() {
   startBtn.disabled = false;
   startBtn.textContent = "Send";
   stopBtn.hidden = true;
+  if (pauseBtn) { pauseBtn.hidden = true; pauseBtn.textContent = "Pause"; }
+  state.paused = false;
   if (state.es) { state.es.close(); state.es = null; }
 }
 
 async function stopRun() {
   if (!state.runId) return;
   stopBtn.disabled = true;
-  stopBtn.textContent = "Stopping...";
+  stopBtn.textContent = "Cancelling...";
   try {
     await fetch(`/api/run/${state.runId}/cancel`, { method: "POST" });
   } catch (err) {
@@ -446,7 +477,8 @@ function startRun() {
   startBtn.hidden = true;
   stopBtn.hidden = false;
   stopBtn.disabled = false;
-  stopBtn.textContent = "Stop";
+  stopBtn.textContent = "Cancel";
+  if (pauseBtn) pauseBtn.hidden = false;
   if (agentCount) agentCount.textContent = "starting";
 
   fetch("/api/run/start", {
@@ -470,7 +502,11 @@ function startRun() {
 function attachStream(runId, active) {
   state.es = new EventSource(`/api/run/${runId}/events`);
   state.es.onmessage = e => {
-    try { handleEvent(JSON.parse(e.data)); }
+    try {
+      const ev = JSON.parse(e.data);
+      if (state.paused) { state.queue.push(ev); }
+      else { handleEvent(ev); }
+    }
     catch (err) { /* keepalive */ }
   };
   state.es.onerror = () => { /* server closes on completion */ };
@@ -496,7 +532,8 @@ async function tryResume() {
       startBtn.hidden = true;
       stopBtn.hidden = false;
       stopBtn.disabled = false;
-      stopBtn.textContent = "Stop";
+      stopBtn.textContent = "Cancel";
+      if (pauseBtn) pauseBtn.hidden = false;
       if (agentCount) agentCount.textContent = "resuming";
     }
     window.dispatchEvent(new CustomEvent("run-started", { detail: { runId: saved } }));
@@ -509,6 +546,14 @@ async function tryResume() {
 
 startBtn.addEventListener("click", startRun);
 stopBtn.addEventListener("click", stopRun);
+pauseBtn?.addEventListener("click", () => {
+  state.paused = !state.paused;
+  pauseBtn.textContent = state.paused ? "Resume" : "Pause";
+  if (!state.paused) {
+    const queued = state.queue.splice(0);
+    for (const ev of queued) handleEvent(ev);
+  }
+});
 promptInput.addEventListener("keydown", e => {
   if (e.key === "Enter" && !e.shiftKey) {
     e.preventDefault();
