@@ -173,9 +173,10 @@ class DatabaseConnectionManager:
             with self._engine.connect() as conn:
                 conn.execute(text("SELECT 1"))
             logger.info(
-                "Connected to PostgreSQL: %s@%s:%s/%s",
-                self.config.user, self.config.host,
-                self.config.port, self.config.database,
+                "Connected to PostgreSQL at %s:%s/%s",
+                self.config.host,
+                self.config.port,
+                self.config.database,
             )
         except OperationalError as e:
             logger.error("PostgreSQL connection failed: %s", e)
