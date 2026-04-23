@@ -220,16 +220,22 @@ class TestRateLimitingSecurity:
         """Test that concurrent requests are properly rate limited."""
         mock_redis = Mock()
         mock_redis._client = Mock()
-        
-        # Simulate concurrent requests hitting the limit
-        request_count = [0]
-        
+        stores: dict[str, list] = {"hour": [], "minute": []}
+
+        def _window(key):
+            key_s = key.decode() if isinstance(key, bytes) else str(key)
+            return "minute" if key_s.endswith(":minute") else "hour"
+
         def zcard_side_effect(key):
-            request_count[0] += 1
-            return min(request_count[0], 10)
-        
+            return len(stores[_window(key)])
+
+        def zadd_side_effect(key, mapping):
+            stores[_window(key)].extend(mapping.keys())
+
         mock_redis._client.zcard = Mock(side_effect=zcard_side_effect)
         mock_redis.zremrangebyscore = Mock()
+        mock_redis.zadd = Mock(side_effect=zadd_side_effect)
+        mock_redis.expire = Mock()
         
         rate_limiter = MandateIssuanceRateLimiter(
             redis_client=mock_redis,
@@ -239,16 +245,15 @@ class TestRateLimitingSecurity:
         
         principal_id = uuid4()
         
-        # First 10 requests should succeed
+        # Ten check+record cycles fill the per-minute window to 10 entries.
         for i in range(10):
             try:
                 rate_limiter.check_rate_limit(principal_id)
             except RateLimitExceededError:
-                # Should not fail before limit
-                if i < 10:
-                    pytest.fail(f"Rate limit exceeded too early at request {i}")
+                pytest.fail(f"Rate limit exceeded too early at request {i}")
+            rate_limiter.record_request(principal_id)
         
-        # 11th request should fail
+        # Next check should see a full minute window
         with pytest.raises(RateLimitExceededError):
             rate_limiter.check_rate_limit(principal_id)
     

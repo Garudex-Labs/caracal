@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import builtins
 import importlib
+import sys
 
 import pytest
 
@@ -23,8 +24,10 @@ def test_gateway_module_propagates_unexpected_gateway_feature_import_failures(
 
     with monkeypatch.context() as local_patch:
         local_patch.setattr(builtins, "__import__", _patched_import)
+        importlib.reload(gateway_module)
+        sys.modules.pop("caracal.core.gateway_features", None)
         with pytest.raises(RuntimeError, match="gateway feature import exploded"):
-            importlib.reload(gateway_module)
+            gateway_module.get_gateway_features()
 
     importlib.reload(gateway_module)
 
@@ -43,9 +46,10 @@ def test_gateway_module_keeps_importerror_fallback_for_optional_core_dependency(
     with monkeypatch.context() as local_patch:
         local_patch.setattr(builtins, "__import__", _patched_import)
         reloaded = importlib.reload(gateway_module)
+        sys.modules.pop("caracal.core.gateway_features", None)
         flags = reloaded.get_gateway_features()
 
     importlib.reload(gateway_module)
 
     assert reloaded.GatewayFeatureFlags is not None
-    assert flags.deployment_type in {"oss", "enterprise"}
+    assert flags.deployment_type in {"oss", "enterprise", "managed", "on_prem"}

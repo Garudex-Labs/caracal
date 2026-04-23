@@ -436,7 +436,7 @@ def test_get_registered_tool_falls_back_to_default_registration_for_scoped_looku
         provider_definition_id=_PROVIDER_NAME,
         action_method=_ACTION_METHOD,
         action_path_prefix=_ACTION_PATH_PREFIX,
-        workspace_name=None,
+        workspace_name="default",
     )
 
     row = adapter.get_registered_tool(

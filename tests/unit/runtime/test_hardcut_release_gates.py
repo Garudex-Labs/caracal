@@ -83,6 +83,15 @@ def _caracal_relative_posix(py_file: Path) -> str:
 
 
 _REPO_ROOT = _RepoRootView(Path(__file__).resolve().parents[3])
+_OSS_ROOT = Path(__file__).resolve().parents[3]
+
+
+def _skip_without_enterprise_repo() -> None:
+    marker = _OSS_ROOT.parent / "caracalEnterprise" / "docker-compose.enterprise.yml"
+    if not marker.is_file():
+        pytest.skip(
+            "caracalEnterprise sibling checkout not present (optional for OSS-only clones)"
+        )
 
 
 @pytest.mark.unit
@@ -195,6 +204,7 @@ def test_runtime_image_compose_has_vault_sidecar_and_hardcut_env_markers() -> No
 
 @pytest.mark.unit
 def test_enterprise_compose_has_vault_sidecar_and_no_aws_or_null_backend_defaults() -> None:
+    _skip_without_enterprise_repo()
     compose_file = _REPO_ROOT / ".." / "caracalEnterprise" / "docker-compose.enterprise.yml"
     payload = compose_file.read_text(encoding="utf-8")
 
@@ -214,6 +224,7 @@ def test_enterprise_compose_has_vault_sidecar_and_no_aws_or_null_backend_default
 
 @pytest.mark.unit
 def test_enterprise_compose_uses_separate_vault_topology_defaults_from_oss_runtime() -> None:
+    _skip_without_enterprise_repo()
     compose_file = _REPO_ROOT / ".." / "caracalEnterprise" / "docker-compose.enterprise.yml"
     payload = compose_file.read_text(encoding="utf-8")
 
@@ -226,6 +237,7 @@ def test_enterprise_compose_uses_separate_vault_topology_defaults_from_oss_runti
 
 @pytest.mark.unit
 def test_enterprise_startup_local_infra_boots_vault_sidecar() -> None:
+    _skip_without_enterprise_repo()
     main_file = _REPO_ROOT / ".." / "caracalEnterprise" / "services" / "enterprise-api" / "src" / "caracal_enterprise" / "main.py"
     payload = main_file.read_text(encoding="utf-8")
 
@@ -235,6 +247,7 @@ def test_enterprise_startup_local_infra_boots_vault_sidecar() -> None:
 
 @pytest.mark.unit
 def test_enterprise_startup_has_no_best_effort_infra_fallbacks() -> None:
+    _skip_without_enterprise_repo()
     main_file = _REPO_ROOT / ".." / "caracalEnterprise" / "services" / "enterprise-api" / "src" / "caracal_enterprise" / "main.py"
     payload = main_file.read_text(encoding="utf-8")
 
@@ -259,6 +272,7 @@ def test_oss_env_example_uses_vault_only_hardcut_defaults() -> None:
 
 @pytest.mark.unit
 def test_enterprise_schema_hardcut_removes_bootstrap_sql_and_license_password_hash_artifact() -> None:
+    _skip_without_enterprise_repo()
     bootstrap_sql = _REPO_ROOT / ".." / "caracalEnterprise" / "services" / "enterprise-api" / "create_caracal_tables.sql"
     migration_file = _REPO_ROOT / ".." / "caracalEnterprise" / "services" / "enterprise-api" / "alembic" / "versions" / "029_drop_license_password_hash_hardcut.py"
     metadata_cleanup_file = _REPO_ROOT / ".." / "caracalEnterprise" / "services" / "enterprise-api" / "alembic" / "versions" / "030_cleanup_registration_metadata_hardcut.py"
@@ -630,7 +644,7 @@ def test_forbidden_marker_scanner_covers_phase_13_hardcut_expansion() -> None:
 @pytest.mark.unit
 def test_active_provider_code_paths_have_no_legacy_provider_markers() -> None:
     workspace_root = _REPO_ROOT.parent
-    checked_files = (
+    oss_paths = (
         _REPO_ROOT / "caracal" / "provider" / "catalog.py",
         _REPO_ROOT / "caracal" / "provider" / "workspace.py",
         _REPO_ROOT / "caracal" / "provider" / "credential_store.py",
@@ -638,6 +652,8 @@ def test_active_provider_code_paths_have_no_legacy_provider_markers() -> None:
         _REPO_ROOT / "caracal" / "flow" / "screens" / "provider_manager.py",
         _REPO_ROOT / "caracal" / "deployment" / "broker.py",
         _REPO_ROOT / "caracal" / "deployment" / "gateway_client.py",
+    )
+    enterprise_paths = (
         _REPO_ROOT / ".." / "caracalEnterprise" / "services" / "enterprise-api" / "src" / "caracal_enterprise" / "routes" / "gateway.py",
         _REPO_ROOT / ".." / "caracalEnterprise" / "services" / "enterprise-api" / "src" / "caracal_enterprise" / "routes" / "sync.py",
         _REPO_ROOT / ".." / "caracalEnterprise" / "services" / "gateway" / "provider_registry.py",
@@ -645,6 +661,9 @@ def test_active_provider_code_paths_have_no_legacy_provider_markers() -> None:
         _REPO_ROOT / ".." / "caracalEnterprise" / "src" / "app" / "dashboard" / "gateway" / "page.tsx",
         _REPO_ROOT / ".." / "caracalEnterprise" / "src" / "lib" / "api.ts",
     )
+    checked_files = list(oss_paths)
+    if (_OSS_ROOT.parent / "caracalEnterprise" / "docker-compose.enterprise.yml").is_file():
+        checked_files.extend(enterprise_paths)
     forbidden_markers = (
         "provider_definition_data",
         "api_key_ref",
@@ -1029,6 +1048,7 @@ def test_sdk_sources_have_no_legacy_security_or_sync_markers() -> None:
 
 @pytest.mark.unit
 def test_enterprise_frontend_secrets_surface_has_no_removed_migration_or_aws_backend_copy() -> None:
+    _skip_without_enterprise_repo()
     secrets_route = _REPO_ROOT / ".." / "caracalEnterprise" / "services" / "enterprise-api" / "src" / "caracal_enterprise" / "routes" / "secrets.py"
     secrets_page = _REPO_ROOT / ".." / "caracalEnterprise" / "src" / "app" / "dashboard" / "secrets" / "page.tsx"
     frontend_api = _REPO_ROOT / ".." / "caracalEnterprise" / "src" / "lib" / "api.ts"
@@ -1053,6 +1073,7 @@ def test_enterprise_frontend_secrets_surface_has_no_removed_migration_or_aws_bac
 
 @pytest.mark.unit
 def test_enterprise_frontend_settings_copy_uses_hardcut_enterprise_commands_only() -> None:
+    _skip_without_enterprise_repo()
     settings_page = _REPO_ROOT / ".." / "caracalEnterprise" / "src" / "app" / "dashboard" / "settings" / "page.tsx"
     payload = settings_page.read_text(encoding="utf-8")
 
@@ -1065,6 +1086,7 @@ def test_enterprise_frontend_settings_copy_uses_hardcut_enterprise_commands_only
 
 @pytest.mark.unit
 def test_enterprise_frontend_principal_taxonomy_uses_final_role_terms_only() -> None:
+    _skip_without_enterprise_repo()
     dashboard_page = _REPO_ROOT / ".." / "caracalEnterprise" / "src" / "app" / "dashboard" / "page.tsx"
     principals_page = _REPO_ROOT / ".." / "caracalEnterprise" / "src" / "app" / "dashboard" / "principals" / "page.tsx"
     setup_page = _REPO_ROOT / ".." / "caracalEnterprise" / "src" / "app" / "dashboard" / "setup" / "page.tsx"
@@ -1095,6 +1117,7 @@ def test_enterprise_frontend_principal_taxonomy_uses_final_role_terms_only() -> 
 
 @pytest.mark.unit
 def test_enterprise_registration_rebind_surface_uses_final_route_names_only() -> None:
+    _skip_without_enterprise_repo()
     license_route = _REPO_ROOT / ".." / "caracalEnterprise" / "services" / "enterprise-api" / "src" / "caracal_enterprise" / "routes" / "license.py"
     frontend_api = _REPO_ROOT / ".." / "caracalEnterprise" / "src" / "lib" / "api.ts"
 
@@ -1115,6 +1138,7 @@ def test_enterprise_registration_rebind_surface_uses_final_route_names_only() ->
 
 @pytest.mark.unit
 def test_enterprise_gateway_surface_has_no_connection_instruction_or_auto_start_helpers() -> None:
+    _skip_without_enterprise_repo()
     gateway_route = _REPO_ROOT / ".." / "caracalEnterprise" / "services" / "enterprise-api" / "src" / "caracal_enterprise" / "routes" / "gateway.py"
     gateway_page = _REPO_ROOT / ".." / "caracalEnterprise" / "src" / "app" / "dashboard" / "gateway" / "page.tsx"
     frontend_api = _REPO_ROOT / ".." / "caracalEnterprise" / "src" / "lib" / "api.ts"
@@ -1242,6 +1266,7 @@ def test_node_sdk_generated_output_matches_surviving_source_modules() -> None:
 
 @pytest.mark.unit
 def test_broker_and_gateway_migration_surfaces_remain_explicit_with_no_live_sync_dependency() -> None:
+    _skip_without_enterprise_repo()
     migration_cli_file = _REPO_ROOT / "caracal" / "cli" / "migration.py"
     migration_manager_file = _REPO_ROOT / "caracal" / "deployment" / "migration.py"
     onboarding_file = _REPO_ROOT / ".." / "caracalEnterprise" / "src" / "components" / "onboarding" / "LicenseSetupStep.tsx"

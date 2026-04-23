@@ -902,6 +902,11 @@ class MCPAdapterService:
                 workspace_name = self._normalize_selector_value(
                     request_metadata.get("workspace_name")
                 )
+                # Reject spoofed tool args before tool resolution so unknown tools still
+                # fail closed with 400 (not 404) when callers inject identity fields.
+                request_tool_args = self._reject_spoofed_tool_args(
+                    request.tool_args or {}
+                )
                 try:
                     tool_row = self._require_active_tool(
                         request.tool_id,
@@ -922,7 +927,6 @@ class MCPAdapterService:
                     token_claims=token_claims,
                     principal_id=principal_id,
                 )
-                request_tool_args = self._reject_spoofed_tool_args(request.tool_args or {})
                 
                 # Create MCP context
                 mcp_context = MCPContext(
