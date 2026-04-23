@@ -12,7 +12,7 @@ from uuid import uuid4
 
 from pydantic import BaseModel, Field
 
-Category = Literal["system", "agent", "delegation", "tool", "service", "caracal", "audit"]
+Category = Literal["system", "agent", "delegation", "tool", "service", "caracal", "audit", "chat"]
 
 
 class Event(BaseModel):
@@ -107,3 +107,15 @@ def caracal_enforce(run_id: str, agent_id: str, tool_id: str, decision: str, rea
         run_id, "caracal", "caracal_enforce",
         agent_id=agent_id, tool_id=tool_id, decision=decision, reason=reason,
     )
+
+
+def chat_user(run_id: str, text: str) -> Event:
+    return _mk(run_id, "chat", "chat_user", text=text)
+
+
+def chat_token(run_id: str, agent_id: str, message_id: str, token: str) -> Event:
+    return _mk(run_id, "chat", "chat_token", agent_id=agent_id, message_id=message_id, token=token)
+
+
+def chat_message(run_id: str, agent_id: str, message_id: str, text: str) -> Event:
+    return _mk(run_id, "chat", "chat_message", agent_id=agent_id, message_id=message_id, text=text)

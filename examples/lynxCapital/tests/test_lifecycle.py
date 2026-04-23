@@ -9,8 +9,10 @@ from __future__ import annotations
 import asyncio
 import os
 import sys
+from uuid import uuid4
 
 import pytest
+from langchain_core.messages import AIMessage, AIMessageChunk
 
 # Make the demo package importable when running from the repo root.
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -22,9 +24,33 @@ from app.events import types as ev
 from app.orchestration.swarm import run_swarm
 
 
+class _FakeLLM:
+    """Stand-in for ChatOpenAI in tests: first call dispatches all five
+    regions via tool calls, second call emits a final summary."""
+
+    def __init__(self):
+        self._tools = []
+        self._turn = 0
+
+    def bind_tools(self, tools):
+        self._tools = tools
+        return self
+
+    async def astream(self, messages):
+        self._turn += 1
+        if self._turn == 1:
+            tool_calls = [
+                {"name": "dispatch_region", "args": {"region": r}, "id": f"call-{r}", "type": "tool_call"}
+                for r in ("US", "IN", "DE", "SG", "BR")
+            ]
+            yield AIMessageChunk(content="Dispatching regions.", tool_calls=tool_calls)
+        else:
+            yield AIMessageChunk(content="All regions completed.")
+
+
 @pytest.fixture(autouse=True)
 def fresh_bus(monkeypatch):
-    """Replace the global bus with a fresh instance for each test."""
+    """Replace the global bus with a fresh instance and swap in a fake LLM."""
     new_bus = EventBus()
     import app.events.bus as bus_mod
     import app.orchestration.swarm as swarm_mod
@@ -34,6 +60,7 @@ def fresh_bus(monkeypatch):
     monkeypatch.setattr(swarm_mod, "bus", new_bus)
     monkeypatch.setattr(runner_mod, "bus", new_bus)
     monkeypatch.setattr(tools_mod, "bus", new_bus)
+    monkeypatch.setattr(swarm_mod, "_make_llm", lambda cfg: _FakeLLM())
     load_config()
     return new_bus
 
