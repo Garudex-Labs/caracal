@@ -13,6 +13,13 @@ import functools
 import time
 from typing import Callable, Type, Tuple, TypeVar, Any
 
+from sqlalchemy.exc import (
+    DatabaseError,
+    InternalError,
+    InterfaceError,
+    OperationalError,
+)
+
 from caracal.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -174,27 +181,13 @@ def retry_database_operation(
             return session.query(Principal).filter_by(id=principal_id).first()
             
     """
-    # Import SQLAlchemy exceptions here to avoid circular imports
-    try:
-        from sqlalchemy.exc import (
-            OperationalError,
-            DatabaseError,
-            InterfaceError,
-            InternalError,
-        )
-        transient_exceptions = (
-            OperationalError,
-            DatabaseError,
-            InterfaceError,
-            InternalError,
-        )
-    except ImportError:
-        # Fallback if SQLAlchemy not available
-        logger.warning(
-            "SQLAlchemy not available, retry_database_operation will not catch database exceptions"
-        )
-        transient_exceptions = ()
-    
+    transient_exceptions = (
+        OperationalError,
+        DatabaseError,
+        InterfaceError,
+        InternalError,
+    )
+
     def decorator(func: Callable[..., T]) -> Callable[..., T]:
         @functools.wraps(func)
         def wrapper(*args: Any, **kwargs: Any) -> T:
@@ -280,27 +273,13 @@ def retry_database_query(
         )
         
     """
-    # Import SQLAlchemy exceptions here to avoid circular imports
-    try:
-        from sqlalchemy.exc import (
-            OperationalError,
-            DatabaseError,
-            InterfaceError,
-            InternalError,
-        )
-        transient_exceptions = (
-            OperationalError,
-            DatabaseError,
-            InterfaceError,
-            InternalError,
-        )
-    except ImportError:
-        # Fallback if SQLAlchemy not available
-        logger.warning(
-            "SQLAlchemy not available, retry_database_query will not catch database exceptions"
-        )
-        transient_exceptions = ()
-    
+    transient_exceptions = (
+        OperationalError,
+        DatabaseError,
+        InterfaceError,
+        InternalError,
+    )
+
     last_exception = None
     
     for attempt in range(max_retries + 1):  # +1 for initial attempt

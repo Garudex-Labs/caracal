@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Iterable
+from typing import Any, Iterable, Protocol
 
 import jwt
 from cryptography.hazmat.backends import default_backend
@@ -10,6 +10,15 @@ from cryptography.hazmat.primitives import serialization
 
 from caracal.core.principal_keys import parse_vault_key_reference
 from caracal.core.vault import get_vault, vault_access_context
+
+
+class PrincipalSigningRegistry(Protocol):
+    """Minimal registry surface used for principal-scoped signing and JWT verification."""
+
+    def get_signing_key_reference(self, principal_id: str) -> str: ...
+
+    # Implementations may return PrincipalIdentity, CLI adapter views, or ORM rows.
+    def get_principal(self, principal_id: str) -> object | None: ...
 
 
 class SigningServiceError(RuntimeError):
@@ -31,7 +40,7 @@ class SigningServiceInvalidToken(SigningServiceError):
 class SigningService:
     """Centralized signer/verifier for principal-scoped JWT operations."""
 
-    def __init__(self, principal_registry: Any) -> None:
+    def __init__(self, principal_registry: PrincipalSigningRegistry) -> None:
         self._principal_registry = principal_registry
 
     def _resolve_signing_key_reference(self, principal_id: str) -> tuple[str, str, str]:

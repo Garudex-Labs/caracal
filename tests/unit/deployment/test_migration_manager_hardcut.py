@@ -16,8 +16,6 @@ def _configure_paths(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setattr(ConfigManager, "CONFIG_DIR", tmp_path)
     monkeypatch.setattr(ConfigManager, "CONFIG_FILE", tmp_path / "config.toml")
     monkeypatch.setattr(ConfigManager, "WORKSPACES_DIR", tmp_path / "workspaces")
-    monkeypatch.setattr(ConfigManager, "CACHE_DIR", tmp_path / "cache")
-    monkeypatch.setattr(ConfigManager, "LOGS_DIR", tmp_path / "logs")
     monkeypatch.setattr(MigrationManager, "BACKUP_DIR", tmp_path / "backups")
 
 

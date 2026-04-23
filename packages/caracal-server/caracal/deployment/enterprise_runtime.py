@@ -55,8 +55,9 @@ def _load_workspace_dotenv() -> Dict[str, str]:
 
         ws = get_workspace()
         candidates.append(ws.root / ".env")
-    except Exception:
-        pass
+    except Exception as exc:
+        # Best-effort: flow workspace may be unset when this runs (e.g. early CLI).
+        logger.debug("Could not add workspace .env candidate: %s", exc, exc_info=True)
 
     candidates.append(Path.cwd() / ".env")
 

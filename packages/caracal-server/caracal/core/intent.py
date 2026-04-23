@@ -8,11 +8,16 @@ This module provides the Intent data class and IntentHandler for parsing,
 validating, and managing intents in the authority enforcement system.
 """
 
+from __future__ import annotations
+
 import hashlib
 import json
 from dataclasses import dataclass, field
-from typing import Any, Dict, List
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Protocol
 from uuid import UUID, uuid4
+
+if TYPE_CHECKING:
+    from caracal.db.models import ExecutionMandate
 
 
 @dataclass
@@ -104,6 +109,26 @@ class Intent:
         }
 
 
+class _IssuingMandateManager(Protocol):
+    """Protocol for ``MandateManager.issue_mandate`` so this module need not import ``mandate``."""
+
+    def issue_mandate(
+        self,
+        issuer_id: UUID,
+        subject_id: UUID,
+        resource_scope: List[str],
+        action_scope: List[str],
+        validity_seconds: int,
+        intent: Optional[Intent] = None,
+        delegation_type: str = "directed",
+        source_mandate_id: Optional[UUID] = None,
+        network_distance: Optional[int] = None,
+        enforce_issuer_policy: bool = True,
+        context_tags: Optional[List[str]] = None,
+    ) -> "ExecutionMandate":
+        ...
+
+
 class IntentHandler:
     """
     Handles intent parsing and validation.
@@ -172,7 +197,7 @@ class IntentHandler:
     def validate_intent_against_mandate(
         self,
         intent: Intent,
-        mandate: Any  # ExecutionMandate from caracal.db.models
+        mandate: ExecutionMandate,
     ) -> bool:
         """
         Validate that intent is within mandate scope.
@@ -252,8 +277,8 @@ class IntentHandler:
         intent: Intent,
         subject_id: UUID,
         issuer_id: UUID,
-        mandate_manager: Any = None  # MandateManager from caracal.core.mandate
-    ) -> Any:  # Returns ExecutionMandate
+        mandate_manager: _IssuingMandateManager | None = None,
+    ) -> ExecutionMandate:
         """
         Request a mandate constrained by an intent.
         

@@ -9,14 +9,13 @@ import socket
 from typing import Callable, Optional
 
 from fastapi import APIRouter, FastAPI, Header, HTTPException
-from pydantic import BaseModel, ConfigDict, Field, JsonValue
+from pydantic import Field
+
+from caracal.types import JsonObject, StrictAPIModel
 
 
 class AISBindTargetError(RuntimeError):
     """Raised when AIS is configured to listen on a non-local bind target."""
-
-
-JsonObject = dict[str, JsonValue]
 
 
 @dataclass(frozen=True)
@@ -57,9 +56,7 @@ class AISHandlers:
     refresh_session: Callable[["RefreshRequest"], JsonObject]
 
 
-class TokenIssueRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
+class TokenIssueRequest(StrictAPIModel):
     principal_id: str = Field(..., min_length=1)
     workspace_id: str = Field(..., min_length=1)
     tenant_id: str = Field(..., min_length=1)
@@ -70,16 +67,12 @@ class TokenIssueRequest(BaseModel):
     extra_claims: JsonObject | None = None
 
 
-class SignRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
+class SignRequest(StrictAPIModel):
     principal_id: str = Field(..., min_length=1)
     payload: JsonObject
 
 
-class SpawnRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
+class SpawnRequest(StrictAPIModel):
     issuer_principal_id: str = Field(..., min_length=1)
     principal_name: str = Field(..., min_length=1)
     principal_kind: str = Field(..., min_length=1)
@@ -92,27 +85,21 @@ class SpawnRequest(BaseModel):
     network_distance: Optional[int] = None
 
 
-class TaskTokenDeriveRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
+class TaskTokenDeriveRequest(StrictAPIModel):
     parent_access_token: str = Field(..., min_length=1)
     task_id: str = Field(..., min_length=1)
     caveats: list[str] = Field(default_factory=list)
     ttl_seconds: int = Field(default=300, ge=1)
 
 
-class HandoffRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
+class HandoffRequest(StrictAPIModel):
     source_access_token: str = Field(..., min_length=1)
     target_subject_id: str = Field(..., min_length=1)
     caveats: Optional[list[str]] = None
     ttl_seconds: int = Field(default=120, ge=1)
 
 
-class RefreshRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
+class RefreshRequest(StrictAPIModel):
     refresh_token: str = Field(..., min_length=1)
 
 
