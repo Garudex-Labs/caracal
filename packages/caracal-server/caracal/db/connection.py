@@ -172,12 +172,7 @@ class DatabaseConnectionManager:
         try:
             with self._engine.connect() as conn:
                 conn.execute(text("SELECT 1"))
-            logger.info(
-                "Connected to PostgreSQL at %s:%s/%s",
-                self.config.host,
-                self.config.port,
-                self.config.database,
-            )
+            logger.info("Connected to PostgreSQL backend")
         except OperationalError as e:
             logger.error("PostgreSQL connection failed: %s", e)
             from caracal.exceptions import CaracalError
