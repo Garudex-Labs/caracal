@@ -31,12 +31,15 @@
   .status-pill.denied    { background: #fde8e6; color: var(--danger); }
   .status-pill.failed    { background: #fde8e6; color: var(--danger); }
   .status-pill.cancelled { background: var(--surface); color: var(--text); opacity: 0.6; }
+  .principal-chip { font-size: 10px; font-family: ui-monospace, monospace; background: rgba(11,61,145,0.08); color: var(--primary); border-radius: 2px; padding: 1px 5px; margin-left: 4px; }
   .tool-detail { padding: 6px 8px 8px 40px; font-size: 11px; border-left: 2px solid #d7dbe0; margin-left: 14px; background: #fafbfc; }
   .tool-row { display: flex; gap: 8px; align-items: flex-start; padding: 3px 0; }
   .tool-row .tool-name { font-family: ui-monospace, monospace; color: var(--teal); font-weight: 600; min-width: 180px; }
   .tool-row .tool-args { font-family: ui-monospace, monospace; color: var(--text); opacity: 0.7; flex: 1; word-break: break-all; }
   .tool-row .tool-dur { font-size: 10px; opacity: 0.5; min-width: 60px; text-align: right; font-family: ui-monospace, monospace; }
   .svc-chip { display: inline-block; font-size: 10px; padding: 1px 5px; border-radius: 2px; background: #eef4fa; color: var(--accent); margin-left: 6px; font-family: ui-monospace, monospace; }
+  .enf-allow { display: inline-block; font-size: 9px; padding: 1px 5px; border-radius: 2px; background: #d4f0e2; color: var(--success); margin-left: 4px; font-weight: 600; }
+  .enf-deny  { display: inline-block; font-size: 9px; padding: 1px 5px; border-radius: 2px; background: #fde8e6; color: var(--danger);  margin-left: 4px; font-weight: 600; }
   .svc-row { margin: 3px 0 3px 20px; font-size: 10.5px; font-family: ui-monospace, monospace; color: var(--text); opacity: 0.72; }
   .svc-row .svc-id { color: var(--accent); }
 </style>
@@ -89,18 +92,22 @@ function renderSpan(span, depth) {
   const indent = '&nbsp;'.repeat(depth * 4);
   const toolCount = span.tool_calls ? span.tool_calls.length : 0;
   const dur = fmtDur(span.ts_start, span.ts_end);
+  const principalHtml = span.principal ? `<span class="principal-chip">${escapeHtml(span.principal)}</span>` : '';
 
   let toolsHtml = '';
   if (toolCount > 0) {
     const rows = span.tool_calls.map(tc => {
       const d = fmtDur(tc.ts_call, tc.ts_result);
       const svcChip = (tc.services && tc.services.length) ? `<span class="svc-chip">\u2192 ${tc.services.length} svc</span>` : '';
+      const enfHtml = tc.enforce
+        ? `<span class="${tc.enforce.decision === 'allow' ? 'enf-allow' : 'enf-deny'}">${tc.enforce.decision}</span>`
+        : '';
       const svcRows = (tc.services || []).map(s => {
         const sd = fmtDur(s.ts_call, s.ts_result);
         return `<div class="svc-row"><span class="svc-id">${escapeHtml(s.id || '')}</span> \u00b7 ${escapeHtml(s.action || '')} \u00b7 ${sd}</div>`;
       }).join('');
       return `<div class="tool-row">
-        <span class="tool-name">${escapeHtml(tc.tool || '')}${svcChip}</span>
+        <span class="tool-name">${escapeHtml(tc.tool || '')}${svcChip}${enfHtml}</span>
         <span class="tool-args">${escapeHtml(fmtArgs(tc.args))}</span>
         <span class="tool-dur">${d}</span>
       </div>${svcRows}`;
@@ -111,7 +118,7 @@ function renderSpan(span, depth) {
   return `<div class="span-row" data-id="${span.id}">
     <span class="indent">${indent}</span>
     ${pill(span.status)}
-    <span class="role">${escapeHtml(span.role || '')}</span>
+    <span class="role">${escapeHtml(span.role || '')}${principalHtml}</span>
     <span class="region">${escapeHtml(span.region || '')}</span>
     <span class="layer">${escapeHtml(span.layer || '')}</span>
     <span class="dur">${dur}</span>

@@ -445,7 +445,7 @@ path inside the Caracal monorepo is referenced.
 - [X] Document in `README.md` that `caracal --help` must work after
       `pip install -e .` of the demo.
 
-### P2.1 Caracal client and binding  [ ]
+### P2.1 Caracal client and binding  [X]
 
 All SDK usage in this phase must follow the public `caracal_sdk`
 patterns precisely: construct `CaracalClient` via its documented
@@ -463,14 +463,14 @@ folder. The integration lives where it naturally belongs in the
 existing codebase, marked with a single `caracal-integration:`
 comment per touch point.
 
-- [ ] **Startup wiring** in `app/main.py` (or a small
+- [X] **Startup wiring** in `app/main.py` (or a small
       `app/runtime.py` if the wiring grows past a few lines):
       construct `CaracalClient` from `CARACAL_API_KEY`,
       `CARACAL_API_URL`, and `CARACAL_WORKSPACE_ID` at app startup
       and store the workspace-checked-out `ScopeContext` on
       `app.state`. Failure to construct the client or check out the
       workspace is a fatal startup error.
-- [ ] **Binding helper** added to `app/agents/runner.py` (or a
+- [X] **Binding helper** added to `app/agents/runner.py` (or a
       sibling `app/agents/identity.py` if it would otherwise dwarf
       the runner): a single function `bind_principal(role, scope,
       parent)` that maps a base-app `(role, scope, parent)` to a
@@ -479,7 +479,7 @@ comment per touch point.
       binding is cached per run. Result objects emit a
       `caracal_bind` event (allowed) or `caracal_bind` with
       `decision="denied"`.
-- [ ] **Enforcement helper** added to `app/agents/tools.py`: a
+- [X] **Enforcement helper** added to `app/agents/tools.py`: a
       single function `enforce_call(binding, service_id, action,
       payload)` that computes the canonical tool id
       `provider:<service_id>:resource:<r>:action:<a>` and calls
@@ -488,69 +488,69 @@ comment per touch point.
       event with the decision and reason. Returns the SDK response
       body unchanged on allow; surfaces the SDK's deny reason
       verbatim on deny.
-- [ ] **Setup-state inspection** in `app/api/setup.py` (with a
+- [X] **Setup-state inspection** in `app/api/setup.py` (with a
       sibling `app/api/setup_check.py` only if the helper logic is
       non-trivial): shells out to the public `caracal` CLI -
       `caracal workspace`, `caracal principal`, `caracal provider`,
       `caracal policy`, `caracal authority`, `caracal delegation` -
       with `--format json` and reports per-step pass/fail.
 
-### P2.2 Wire enforcement into existing call sites  [ ]
+### P2.2 Wire enforcement into existing call sites  [X]
 
-- [ ] In `app/agents/runner.py`, the spawn lifecycle phase calls
+- [X] In `app/agents/runner.py`, the spawn lifecycle phase calls
       `bind_principal(role, scope, parent)` before the agent can
       execute. Add the single `# caracal-integration:` marker
       comment at the top of that block.
-- [ ] In `app/agents/tools.py`, every tool wrapper routes its
+- [X] In `app/agents/tools.py`, every tool wrapper routes its
       external call through `enforce_call(...)` instead of calling
       `app.services.clients` directly. Add the single
       `# caracal-integration:` marker comment at the top of the
       tool-execution block. A denial produces a `tool_result` of
       kind `denied`, the agent terminates with `status="denied"`,
       and the deny reason is preserved.
-- [ ] Payment Execution agents additionally validate, before
+- [X] Payment Execution agents additionally validate, before
       `enforce_call`, that the held mandate matches the exact
       `(vendor, amount, rail, window)` tuple. Mismatch causes an
       immediate denial event and the agent terminates with
       `status="denied"`.
 
-### P2.3 Setup route  [ ]
+### P2.3 Setup route  [X]
 
-- [ ] `GET /setup` template + JSON endpoint that renders the ordered
+- [X] `GET /setup` template + JSON endpoint that renders the ordered
       checklist with exact `caracal` commands grouped into:
       workspace, principals, providers, policies, mandates &
       delegation.
-- [ ] Validate button calls the setup-state inspection in
+- [X] Validate button calls the setup-state inspection in
       `app/api/setup.py` and renders pass/fail with a clear reason
       per step. Failed steps block `/demo` until they pass on a
       re-check.
 
-### P2.4 Observability and logs surface enforcement  [ ]
+### P2.4 Observability and logs surface enforcement  [X]
 
-- [ ] `/observe` shows per-run lineage with the bound principal,
+- [X] `/observe` shows per-run lineage with the bound principal,
       mandate id, and every enforcement decision per tool call.
-- [ ] `/logs` includes `caracal` category lines for every bind and
+- [X] `/logs` includes `caracal` category lines for every bind and
       enforce event with their own color token (`--logCaracal`).
-- [ ] `tests/test_enforcement.py`: a deliberate over-scope payment
+- [X] `tests/test_enforcement.py`: a deliberate over-scope payment
       attempt is denied; the run still completes with the affected
       ephemeral agent terminating cleanly with `status="denied"`.
 
-### Phase 2 acceptance  [ ]
+### Phase 2 acceptance  [X]
 
-- [ ] App fails to start if `CARACAL_API_KEY`, `CARACAL_API_URL`, or
+- [X] App fails to start if `CARACAL_API_KEY`, `CARACAL_API_URL`, or
       `CARACAL_WORKSPACE_ID` are missing or invalid.
-- [ ] Every spawned agent has a `caracal_bind` event in its
+- [X] Every spawned agent has a `caracal_bind` event in its
       lifecycle.
-- [ ] Every tool call has a corresponding `caracal_enforce` event
+- [X] Every tool call has a corresponding `caracal_enforce` event
       preceding the underlying `service_call`.
-- [ ] `/setup` correctly validates a working configuration and
+- [X] `/setup` correctly validates a working configuration and
       correctly fails on a deliberately broken one.
-- [ ] `tests/test_enforcement.py` passes.
-- [ ] `caracal_sdk` is imported and the `caracal` CLI is invoked
+- [X] `tests/test_enforcement.py` passes.
+- [X] `caracal_sdk` is imported and the `caracal` CLI is invoked
       only at the documented integration touch points
       (startup wiring, agent runner, tool layer, setup endpoint),
       each carrying a single `caracal-integration:` marker.
-- [ ] No code path bypasses enforcement; no `mode` parameter exists.
+- [X] No code path bypasses enforcement; no `mode` parameter exists.
 
 ### Phase 2 Do / Do Not
 

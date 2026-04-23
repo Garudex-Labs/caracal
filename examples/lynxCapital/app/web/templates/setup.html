@@ -1,0 +1,270 @@
+{# Copyright (C) 2026 Garudex Labs.  All Rights Reserved. #}
+{# Caracal setup checklist: workspace, principals, providers, policies, mandates. #}
+{% extends "layout.html" %}
+{% block title %}Setup — {{ company }}{% endblock %}
+
+{% block content %}
+<style>
+  .setup-wrap  { max-width: 760px; margin: 0 auto; padding: 24px 20px 40px; }
+  h1           { font-size: 17px; font-weight: 600; margin-bottom: 4px; }
+  .sub         { color: #5a6478; font-size: 12px; margin-bottom: 24px; }
+  .phase       { margin-bottom: 28px; border: 1px solid var(--border); border-radius: 4px; overflow: hidden; }
+  .phase-hd    { background: var(--primary); color: #fff; padding: 8px 14px; font-size: 12px; font-weight: 600; display: flex; justify-content: space-between; align-items: center; }
+  .phase-body  { padding: 0; }
+  .step        { display: flex; align-items: flex-start; gap: 10px; padding: 10px 14px; border-bottom: 1px solid var(--border); }
+  .step:last-child { border-bottom: none; }
+  .step-num    { flex-shrink: 0; width: 20px; height: 20px; border-radius: 50%; background: var(--primary); color: #fff; font-size: 10px; font-weight: 700; display: flex; align-items: center; justify-content: center; margin-top: 1px; }
+  .step-body   { flex: 1; min-width: 0; }
+  .step-label  { font-weight: 500; font-size: 12px; margin-bottom: 4px; }
+  .cmd-block   { background: #1a1f2e; color: #c9d1e0; font-family: ui-monospace, monospace; font-size: 11px; padding: 7px 10px; border-radius: 3px; white-space: pre-wrap; word-break: break-all; position: relative; margin-bottom: 4px; }
+  .copy-btn    { position: absolute; top: 5px; right: 6px; background: rgba(255,255,255,0.1); border: none; color: #c9d1e0; font-size: 10px; padding: 2px 6px; border-radius: 2px; cursor: pointer; }
+  .copy-btn:hover { background: rgba(255,255,255,0.2); }
+  .step-note   { font-size: 11px; color: #5a6478; }
+  .validate-bar { display: flex; align-items: center; gap: 12px; margin-top: 20px; }
+  #validate-btn { background: var(--primary); color: #fff; border: none; padding: 8px 18px; font-size: 12px; font-weight: 600; border-radius: 3px; cursor: pointer; }
+  #validate-btn:hover { background: var(--accent); }
+  #validate-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+  #validate-out { flex: 1; }
+  .result-step { display: flex; align-items: center; gap: 7px; font-size: 12px; padding: 4px 0; }
+  .result-step .badge { width: 14px; height: 14px; border-radius: 50%; flex-shrink: 0; display: flex; align-items: center; justify-content: center; font-size: 8px; font-weight: 800; }
+  .badge-ok    { background: var(--success); color: #fff; }
+  .badge-fail  { background: var(--danger);  color: #fff; }
+  .result-detail { font-size: 10px; color: #5a6478; margin-left: 21px; }
+  .env-table   { width: 100%; border-collapse: collapse; font-size: 11px; margin-top: 8px; }
+  .env-table th, .env-table td { text-align: left; padding: 4px 8px; border-bottom: 1px solid var(--border); }
+  .env-table th { color: #5a6478; font-weight: 500; }
+  .env-val-set  { color: var(--success); }
+  .env-val-miss { color: var(--danger); }
+</style>
+
+<div class="setup-wrap">
+  <h1>Caracal setup</h1>
+  <p class="sub">Run these commands once before starting the demo. Each block is a single terminal command.</p>
+
+  <!-- Phase 1: Stack -->
+  <div class="phase">
+    <div class="phase-hd"><span>1. Start the Caracal runtime</span></div>
+    <div class="phase-body">
+      <div class="step">
+        <div class="step-num">1</div>
+        <div class="step-body">
+          <div class="step-label">Bring up the full stack</div>
+          <div class="cmd-block">caracal up<button class="copy-btn" data-cmd="caracal up">copy</button></div>
+          <div class="step-note">Starts postgres, redis, vault, and the Caracal API on the default port (8080).</div>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num">2</div>
+        <div class="step-body">
+          <div class="step-label">Run migrations</div>
+          <div class="cmd-block">caracal migrate<button class="copy-btn" data-cmd="caracal migrate">copy</button></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Phase 2: Workspace -->
+  <div class="phase">
+    <div class="phase-hd"><span>2. Workspace</span></div>
+    <div class="phase-body">
+      <div class="step">
+        <div class="step-num">3</div>
+        <div class="step-body">
+          <div class="step-label">Create workspace</div>
+          <div class="cmd-block">caracal cli
+workspace create --name lynx-capital --display "Lynx Capital"<button class="copy-btn" data-cmd="caracal cli&#10;workspace create --name lynx-capital --display &quot;Lynx Capital&quot;">copy</button></div>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num">4</div>
+        <div class="step-body">
+          <div class="step-label">Issue an API key for the demo app</div>
+          <div class="cmd-block">caracal cli
+workspace key create --workspace lynx-capital --name demo-app<button class="copy-btn" data-cmd="caracal cli&#10;workspace key create --workspace lynx-capital --name demo-app">copy</button></div>
+          <div class="step-note">Copy the output key into CARACAL_API_KEY in your .env file.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Phase 3: Principals -->
+  <div class="phase">
+    <div class="phase-hd"><span>3. Register principals</span></div>
+    <div class="phase-body">
+      {% set principals = [
+        ("finance-control",       "Finance Control orchestrator"),
+        ("regional-orchestrator", "Regional Orchestrators (one per region)"),
+        ("invoice-intake",        "Invoice Intake agents"),
+        ("ledger-match",          "Ledger Match agents"),
+        ("policy-check",          "Policy Check agents (read-only scope)"),
+        ("route-optimization",    "Route Optimization agents (advisory)"),
+        ("payment-execution",     "Payment Execution agents (narrow per-transaction mandate)"),
+        ("audit",                 "Audit agents"),
+        ("exception",             "Exception Investigation agents"),
+      ] %}
+      {% for pid, desc in principals %}
+      <div class="step">
+        <div class="step-num">{{ loop.index + 4 }}</div>
+        <div class="step-body">
+          <div class="step-label">{{ desc }}</div>
+          <div class="cmd-block">caracal cli
+principal create --workspace lynx-capital --id {{ pid }} --display "{{ desc }}"<button class="copy-btn" data-cmd="caracal cli&#10;principal create --workspace lynx-capital --id {{ pid }} --display &quot;{{ desc }}&quot;">copy</button></div>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+
+  <!-- Phase 4: Providers -->
+  <div class="phase">
+    <div class="phase-hd"><span>4. Register providers</span></div>
+    <div class="phase-body">
+      {% for p in providers %}
+      <div class="step">
+        <div class="step-num">{{ loop.index + 13 }}</div>
+        <div class="step-body">
+          <div class="step-label">{{ p.name }} ({{ p.category }})</div>
+          <div class="cmd-block">caracal cli
+provider register --workspace lynx-capital --id {{ p.id }} --category {{ p.category }}<button class="copy-btn" data-cmd="caracal cli&#10;provider register --workspace lynx-capital --id {{ p.id }} --category {{ p.category }}">copy</button></div>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+
+  <!-- Phase 5: Policies -->
+  <div class="phase">
+    <div class="phase-hd"><span>5. Create policies</span></div>
+    <div class="phase-body">
+      <div class="step">
+        <div class="step-num">25</div>
+        <div class="step-body">
+          <div class="step-label">Finance Control — full provider access</div>
+          <div class="cmd-block">caracal cli
+policy create --workspace lynx-capital \
+  --principal finance-control \
+  --effect allow --resource "provider:*:resource:*:action:*"<button class="copy-btn" data-cmd="caracal cli&#10;policy create --workspace lynx-capital --principal finance-control --effect allow --resource &quot;provider:*:resource:*:action:*&quot;">copy</button></div>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num">26</div>
+        <div class="step-body">
+          <div class="step-label">Policy Check agents — read-only (no payment actions)</div>
+          <div class="cmd-block">caracal cli
+policy create --workspace lynx-capital \
+  --principal policy-check \
+  --effect allow --resource "provider:compliance-nexus:resource:*:action:*"
+policy create --workspace lynx-capital \
+  --principal policy-check \
+  --effect deny --resource "provider:mercury-bank:resource:payment:action:submit_payment"<button class="copy-btn" data-cmd="caracal cli&#10;policy create --workspace lynx-capital --principal policy-check --effect allow --resource &quot;provider:compliance-nexus:resource:*:action:*&quot;">copy</button></div>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num">27</div>
+        <div class="step-body">
+          <div class="step-label">Payment Execution — narrow payment scope only</div>
+          <div class="cmd-block">caracal cli
+policy create --workspace lynx-capital \
+  --principal payment-execution \
+  --effect allow --resource "provider:mercury-bank:resource:payment:action:submit_payment"
+policy create --workspace lynx-capital \
+  --principal payment-execution \
+  --effect allow --resource "provider:wise-payouts:resource:payout:action:submit_payout"<button class="copy-btn" data-cmd="caracal cli&#10;policy create --workspace lynx-capital --principal payment-execution --effect allow --resource &quot;provider:mercury-bank:resource:payment:action:submit_payment&quot;">copy</button></div>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num">28</div>
+        <div class="step-body">
+          <div class="step-label">All other layers — read/lookup access, no payment write</div>
+          <div class="cmd-block">caracal cli
+policy create --workspace lynx-capital \
+  --principal regional-orchestrator \
+  --effect allow --resource "provider:*:resource:*:action:*"<button class="copy-btn" data-cmd="caracal cli&#10;policy create --workspace lynx-capital --principal regional-orchestrator --effect allow --resource &quot;provider:*:resource:*:action:*&quot;">copy</button></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Phase 6: Mandates -->
+  <div class="phase">
+    <div class="phase-hd"><span>6. Issue mandates and delegate authority</span></div>
+    <div class="phase-body">
+      <div class="step">
+        <div class="step-num">29</div>
+        <div class="step-body">
+          <div class="step-label">Issue Finance Control mandate</div>
+          <div class="cmd-block">caracal cli
+mandate issue --workspace lynx-capital \
+  --principal finance-control --scope global \
+  --ttl 8h<button class="copy-btn" data-cmd="caracal cli&#10;mandate issue --workspace lynx-capital --principal finance-control --scope global --ttl 8h">copy</button></div>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num">30</div>
+        <div class="step-body">
+          <div class="step-label">Delegate to Regional Orchestrators (one per region)</div>
+          <div class="cmd-block">{% for r in regions %}caracal cli
+mandate delegate --workspace lynx-capital \
+  --from finance-control --to regional-orchestrator \
+  --scope region:{{ r.id }} --ttl 6h
+{% endfor %}</div>
+          <div class="step-note">Run once per region: US, IN, DE, SG, BR.</div>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num">31</div>
+        <div class="step-body">
+          <div class="step-label">Delegate Payment Execution mandate template</div>
+          <div class="cmd-block">caracal cli
+mandate template create --workspace lynx-capital \
+  --principal payment-execution \
+  --scope "payment:{vendor}:{amount}:{rail}:{window}" \
+  --ttl 30m --max-uses 1<button class="copy-btn" data-cmd="caracal cli&#10;mandate template create --workspace lynx-capital --principal payment-execution --scope &quot;payment:{vendor}:{amount}:{rail}:{window}&quot; --ttl 30m --max-uses 1">copy</button></div>
+          <div class="step-note">Each ephemeral payment agent receives a one-use mandate scoped to its exact transaction tuple.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="validate-bar">
+    <button id="validate-btn">Validate configuration</button>
+    <div id="validate-out"></div>
+  </div>
+</div>
+
+<script type="module">
+  // Copy buttons
+  document.querySelectorAll('.copy-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      navigator.clipboard.writeText(btn.dataset.cmd || btn.closest('.cmd-block').textContent.trim())
+        .then(() => { btn.textContent = 'copied'; setTimeout(() => btn.textContent = 'copy', 1500); });
+    });
+  });
+
+  // Validate
+  const validateBtn = document.getElementById('validate-btn');
+  const validateOut = document.getElementById('validate-out');
+  validateBtn.addEventListener('click', async () => {
+    validateBtn.disabled = true;
+    validateBtn.textContent = 'Checking...';
+    validateOut.innerHTML = '';
+    try {
+      const r = await fetch('/api/setup/validate');
+      const data = await r.json();
+      const html = data.steps.map(s => `
+        <div class="result-step">
+          <div class="badge ${s.ok ? 'badge-ok' : 'badge-fail'}">${s.ok ? '✓' : '✗'}</div>
+          <span>${s.label}</span>
+        </div>
+        ${s.detail ? `<div class="result-detail">${s.detail}</div>` : ''}
+      `).join('');
+      validateOut.innerHTML = html;
+    } catch (e) {
+      validateOut.textContent = 'Validation request failed: ' + e.message;
+    } finally {
+      validateBtn.disabled = false;
+      validateBtn.textContent = 'Validate configuration';
+    }
+  });
+</script>
+{% endblock %}
