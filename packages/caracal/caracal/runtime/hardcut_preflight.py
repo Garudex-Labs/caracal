@@ -40,7 +40,7 @@ _FORBIDDEN_RUNTIME_COMPOSE_MARKERS = (
 )
 _REQUIRED_RUNTIME_COMPOSE_MARKERS = (
     "  vault:",
-    "image: ${caracal_vault_sidecar_image:-infisical/infisical:latest}",
+    "image: ${caracal_vault_sidecar_image:-infisical/infisical:v0.93.1}",
     "caracal_principal_key_backend: ${caracal_principal_key_backend:-vault}",
     "caracal_vault_url: ${caracal_vault_url:-http://vault:8080}",
     "caracal_vault_token:",
@@ -391,6 +391,8 @@ def _jsonb_violations(models_file: Path | None, check_jsonb: bool) -> list[str]:
     target = models_file or _default_models_file()
     try:
         payload = target.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return []
     except OSError as exc:
         return [f"Could not read model definitions at {target}: {exc}"]
 

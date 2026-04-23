@@ -2389,6 +2389,7 @@ def _runtime_hardcut_env() -> dict[str, str]:
     normalized = dict(os.environ)
     normalized.setdefault("CARACAL_PRINCIPAL_KEY_BACKEND", "vault")
     normalized.setdefault("CARACAL_VAULT_URL", "http://127.0.0.1:8080")
+    normalized.setdefault("CARACAL_VAULT_TOKEN", "dev-local-token")
     normalized.setdefault("CARACAL_VAULT_SIGNING_KEY_REF", "keys/mandate-signing")
     normalized.setdefault("CARACAL_VAULT_SESSION_PUBLIC_KEY_REF", "keys/session-public")
     normalized.setdefault("CARACAL_SESSION_SIGNING_ALGORITHM", "RS256")
