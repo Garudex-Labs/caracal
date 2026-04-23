@@ -30,7 +30,7 @@
   "overrides": {
     "is-yarn-global": "0.4.1",
     "lodash": ">=4.18.0",
-    "undici": ">=7.24.0",
+    "undici": "^7.25.0",
     "picomatch": ">=2.3.2",
     "path-to-regexp": ">=0.1.13"
   },
@@ -54,6 +54,6 @@
     ]
   },
   "engines": {
-    "node": ">=20.0"
+    "node": ">=22.0"
   }
 }
