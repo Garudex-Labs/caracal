@@ -2,8 +2,9 @@
  * Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
  * Caracal, a product of Garudex Labs
  *
- * Chat panel driver: grouped per-agent turn cards, streaming prose, collapsed
- * tool call rows, model switcher, context meter, memory compaction surfacing.
+ * Chat panel driver: per-agent turn cards, streaming prose, collapsed tool
+ * rows, DeepAgents-style plan panel, file memory events, stop button, model
+ * switcher, context meter, compaction summaries.
  */
 
 const $ = (id) => document.getElementById(id);
@@ -12,27 +13,35 @@ const stream       = $("chat-stream");
 const emptyEl      = $("chat-empty");
 const agentCount   = $("agent-count");
 const startBtn     = $("start-btn");
+const stopBtn      = $("stop-btn");
 const promptInput  = $("prompt-input");
 const modelSelect  = $("model-select");
 const memFill      = $("mem-fill");
 const memTokens    = $("mem-tokens");
 const memAgents    = $("mem-agents");
 const memCompactions = $("mem-compactions");
+const memFiles     = $("mem-files");
 const memToggle    = $("mem-toggle");
 const memDetail    = $("mem-detail");
+const planPanel    = $("plan-panel");
+const planList     = $("plan-list");
+const planMeta     = $("plan-meta");
 
 const state = {
   runId: null,
   es: null,
   spawned: 0,
   terminated: 0,
-  agents: {},       // agent_id -> { label, role: 'fc'|'ro'|'worker', region }
-  turns: {},        // `${agent_id}:${message_id}` -> { root, think, tools, meta, groups: {name->row} }
-  agentMem: {},     // agent_id -> { tokens_used, tokens_limit, messages, compactions }
-  compactions: [],  // [{ agent_id, summary, tokens_before, tokens_after, ts }]
+  agents: {},
+  turns: {},
+  agentMem: {},
+  compactions: [],
+  files: new Set(),
+  plans: {},
+  planOwner: null,
 };
 
-/* ---------------- helpers ---------------- */
+const PLAN_TOOLS = new Set(["write_todos", "write_file", "read_file", "ls_files"]);
 
 function clearEmpty() { if (emptyEl && emptyEl.parentNode) emptyEl.remove(); }
 function scrollDown() { stream.scrollTop = stream.scrollHeight; }
@@ -57,17 +66,12 @@ function updateHeaderCount() {
     : "idle";
 }
 
-/* ---------------- memory bar ---------------- */
-
 function refreshMemoryBar() {
-  // Use the largest single agent memory for the main bar (most pressured).
   let maxUsed = 0, maxLimit = 128_000;
-  let totalMessages = 0;
   const ids = Object.keys(state.agentMem);
   for (const id of ids) {
     const m = state.agentMem[id];
     if (!m) continue;
-    totalMessages += m.message_count || 0;
     if (m.tokens_used > maxUsed) { maxUsed = m.tokens_used; maxLimit = m.tokens_limit; }
   }
   const pct = maxLimit ? Math.min(100, (maxUsed / maxLimit) * 100) : 0;
@@ -75,12 +79,13 @@ function refreshMemoryBar() {
   if (memTokens) memTokens.textContent = `${fmtTok(maxUsed)} / ${fmtTok(maxLimit)}`;
   if (memAgents) memAgents.textContent = `${ids.length} agent${ids.length === 1 ? "" : "s"}`;
   if (memCompactions) memCompactions.textContent = `${state.compactions.length} compaction${state.compactions.length === 1 ? "" : "s"}`;
+  if (memFiles) memFiles.textContent = `${state.files.size} file${state.files.size === 1 ? "" : "s"}`;
 }
 
 function refreshMemDetail() {
   if (!memDetail) return;
   if (state.compactions.length === 0) {
-    memDetail.innerHTML = '<div class="mem-detail-empty">No compactions yet. Memory summaries will appear here when context pressure triggers summarization.</div>';
+    memDetail.innerHTML = '<div class="mem-detail-empty">No compactions yet.</div>';
     return;
   }
   memDetail.innerHTML = "";
@@ -106,7 +111,37 @@ memToggle?.addEventListener("click", () => {
   if (!open) refreshMemDetail();
 });
 
-/* ---------------- model picker ---------------- */
+function fcAgentId() {
+  for (const [id, a] of Object.entries(state.agents)) {
+    if (a.role === "fc") return id;
+  }
+  return null;
+}
+
+function renderPlan() {
+  const ownerId = state.planOwner || fcAgentId();
+  if (!ownerId || !state.plans[ownerId]) {
+    if (planPanel) planPanel.hidden = true;
+    return;
+  }
+  const plan = state.plans[ownerId];
+  const agent = state.agents[ownerId];
+  planPanel.hidden = false;
+  const done = plan.items.filter(i => i.status === "completed").length;
+  planMeta.textContent = `${agentLabel(agent)} \u00b7 rev ${plan.revision} \u00b7 ${done}/${plan.items.length}`;
+  planList.innerHTML = "";
+  for (const it of plan.items) {
+    const li = document.createElement("li");
+    li.className = `plan-item status-${it.status}`;
+    const box = document.createElement("span");
+    box.className = "box";
+    const text = document.createElement("span");
+    text.className = "text";
+    text.textContent = it.content;
+    li.append(box, text);
+    planList.append(li);
+  }
+}
 
 async function loadModelList() {
   if (!modelSelect) return;
@@ -136,11 +171,9 @@ modelSelect?.addEventListener("change", async () => {
     if (!r.ok) throw new Error("bad");
     addInline("system", `Model switched to <code>${model}</code> for the next run.`);
   } catch (err) {
-    addInline("error", `Model switch failed`);
+    addInline("error", "Model switch failed");
   }
 });
-
-/* ---------------- rendering primitives ---------------- */
 
 function addUser(text) {
   clearEmpty();
@@ -196,7 +229,8 @@ function ensureTurn(agentId, messageId) {
 }
 
 function appendToolRow(turn, name, args) {
-  // Group identical-name repeated calls within the same turn.
+  if (PLAN_TOOLS.has(name)) return;
+
   let group = turn.groups[name];
   if (group) {
     group.count += 1;
@@ -218,7 +252,7 @@ function appendToolRow(turn, name, args) {
   const body = document.createElement("span");
   const argSummary = args
     ? Object.entries(args)
-        .filter(([k]) => k !== "focus")
+        .filter(([k]) => k !== "focus" && k !== "content")
         .map(([k, v]) => `${k}=${String(v).slice(0, 28)}`)
         .join(" ")
     : "";
@@ -228,8 +262,6 @@ function appendToolRow(turn, name, args) {
   turn.groups[name] = { row, count: 1, countPill: null };
   scrollDown();
 }
-
-/* ---------------- event handler ---------------- */
 
 function registerAgent(p) {
   let role = "worker";
@@ -244,7 +276,6 @@ function registerAgent(p) {
 }
 
 function findActiveTurn(agentId) {
-  // Return the most recently created turn for this agent (for token/meta updates).
   const keys = Object.keys(state.turns).filter(k => k.startsWith(agentId + ":"));
   if (!keys.length) return null;
   return state.turns[keys[keys.length - 1]];
@@ -270,10 +301,8 @@ function handleEvent(ev) {
       updateHeaderCount();
       break;
     }
-
     case "chat_user":
       break;
-
     case "chat_token": {
       const t = ensureTurn(p.agent_id, p.message_id);
       t.think.classList.remove("empty");
@@ -282,7 +311,6 @@ function handleEvent(ev) {
       scrollDown();
       break;
     }
-
     case "chat_message": {
       const t = ensureTurn(p.agent_id, p.message_id);
       t.think.classList.remove("streaming");
@@ -290,34 +318,47 @@ function handleEvent(ev) {
       if (!t.think.textContent) t.think.classList.add("empty");
       break;
     }
-
     case "llm_call": {
-      // Attach telemetry pill to the most recent turn for this agent.
       const t = findActiveTurn(p.agent_id);
       const label = `<code>${p.model}</code> \u00b7 ${p.latency_ms}ms \u00b7 ${p.input_tokens}\u2192${p.output_tokens} tok${p.tool_calls ? ` \u00b7 ${p.tool_calls} tools` : ""}`;
-      if (t) {
-        t.meta.innerHTML = label;
-      } else {
-        addInline("system", `LLM \u00b7 ${label}`);
-      }
+      if (t) t.meta.innerHTML = label;
+      else addInline("system", `LLM \u00b7 ${label}`);
       break;
     }
-
     case "tool_call": {
-      // Tool call originates from an agent turn. Attach to that agent's most recent turn.
       const t = findActiveTurn(p.agent_id);
-      if (p.tool_name === "dispatch_region" && t) {
-        appendToolRow(t, "dispatch_region", p.args);
-      } else if (t) {
-        appendToolRow(t, p.tool_name, p.args);
-      }
+      if (t) appendToolRow(t, p.tool_name, p.args);
       break;
     }
-
+    case "tool_result":
+      break;
+    case "plan_update": {
+      state.plans[p.agent_id] = { revision: p.revision, items: p.todos };
+      const fc = fcAgentId();
+      if (p.agent_id === fc) state.planOwner = p.agent_id;
+      else if (!state.planOwner) state.planOwner = p.agent_id;
+      renderPlan();
+      const agent = state.agents[p.agent_id];
+      const who = agent ? agentLabel(agent) : "agent";
+      const done = p.todos.filter(t => t.status === "completed").length;
+      addInline("plan", `Plan \u00b7 ${who} \u00b7 ${done}/${p.todos.length} done \u00b7 rev ${p.revision}`);
+      break;
+    }
+    case "file_write": {
+      state.files.add(p.path);
+      refreshMemoryBar();
+      const agent = state.agents[p.agent_id];
+      addInline("file", `File write \u00b7 <code>${p.path}</code> \u00b7 ${p.size}B \u00b7 ${agent ? agentLabel(agent) : ""}`);
+      break;
+    }
+    case "file_read": {
+      const agent = state.agents[p.agent_id];
+      addInline("file", `File read \u00b7 <code>${p.path}</code> \u00b7 ${p.size}B \u00b7 ${agent ? agentLabel(agent) : ""}`);
+      break;
+    }
     case "audit_record":
       addInline("audit", `Audit recorded \u00b7 <code>${(p.record && p.record.region) || ""}</code>`);
       break;
-
     case "memory_update": {
       state.agentMem[p.agent_id] = {
         tokens_used: p.tokens_used,
@@ -328,7 +369,6 @@ function handleEvent(ev) {
       refreshMemoryBar();
       break;
     }
-
     case "memory_compaction": {
       state.compactions.push({
         agent_id: p.agent_id,
@@ -344,25 +384,21 @@ function handleEvent(ev) {
       if (memToggle?.getAttribute("aria-expanded") === "true") refreshMemDetail();
       break;
     }
-
     case "model_change":
       addInline("system", `Model changed: <code>${p.prior}</code> \u2192 <code>${p.model}</code>`);
       break;
-
-    case "run_end":
-      addInline("system", `Run ${p.status || "completed"} <span class="status-pill ${p.status || "completed"}">${p.status || "completed"}</span>`);
-      startBtn.disabled = false;
-      startBtn.textContent = "Send";
-      if (state.es) { state.es.close(); state.es = null; }
+    case "run_cancelled":
+      addInline("system", `Run cancelled by user.`);
       break;
-
+    case "run_end":
+      addInline("system", `Run <span class="status-pill ${p.status || "completed"}">${p.status || "completed"}</span>`);
+      finishRun();
+      break;
     case "error":
       addInline("error", `Error \u00b7 ${p.message || "unknown"}`);
       break;
   }
 }
-
-/* ---------------- run lifecycle ---------------- */
 
 function resetState() {
   state.spawned = 0;
@@ -371,21 +407,46 @@ function resetState() {
   state.turns = {};
   state.agentMem = {};
   state.compactions = [];
+  state.files = new Set();
+  state.plans = {};
+  state.planOwner = null;
   stream.innerHTML = "";
+  planPanel.hidden = true;
+  planList.innerHTML = "";
   refreshMemoryBar();
   refreshMemDetail();
+}
+
+function finishRun() {
+  startBtn.hidden = false;
+  startBtn.disabled = false;
+  startBtn.textContent = "Send";
+  stopBtn.hidden = true;
+  if (state.es) { state.es.close(); state.es = null; }
+}
+
+async function stopRun() {
+  if (!state.runId) return;
+  stopBtn.disabled = true;
+  stopBtn.textContent = "Stopping...";
+  try {
+    await fetch(`/api/run/${state.runId}/cancel`, { method: "POST" });
+  } catch (err) {
+    addInline("error", "Cancel request failed.");
+  }
 }
 
 function startRun() {
   const prompt = promptInput.value.trim();
   if (!prompt) return;
-
   if (state.es) { state.es.close(); state.es = null; }
   resetState();
   addUser(prompt);
   promptInput.value = "";
-  startBtn.disabled = true;
-  startBtn.textContent = "Working...";
+  startBtn.hidden = true;
+  stopBtn.hidden = false;
+  stopBtn.disabled = false;
+  stopBtn.textContent = "Stop";
   if (agentCount) agentCount.textContent = "starting";
 
   fetch("/api/run/start", {
@@ -397,29 +458,21 @@ function startRun() {
     .then(data => {
       state.runId = data.runId;
       window.dispatchEvent(new CustomEvent("run-started", { detail: { runId: state.runId } }));
-
       state.es = new EventSource(`/api/run/${state.runId}/events`);
       state.es.onmessage = e => {
-        try {
-          const ev = JSON.parse(e.data);
-          handleEvent(ev);
-        } catch (err) {
-          /* keepalive */
-        }
+        try { handleEvent(JSON.parse(e.data)); }
+        catch (err) { /* keepalive */ }
       };
-      state.es.onerror = () => {
-        startBtn.disabled = false;
-        startBtn.textContent = "Send";
-      };
+      state.es.onerror = () => { /* server closes on completion */ };
     })
     .catch(() => {
-      startBtn.disabled = false;
-      startBtn.textContent = "Send";
+      finishRun();
       addInline("error", "Failed to start run.");
     });
 }
 
 startBtn.addEventListener("click", startRun);
+stopBtn.addEventListener("click", stopRun);
 promptInput.addEventListener("keydown", e => {
   if (e.key === "Enter" && !e.shiftKey) {
     e.preventDefault();

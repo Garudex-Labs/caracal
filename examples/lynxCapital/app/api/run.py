@@ -14,6 +14,7 @@ from pydantic import BaseModel
 from sse_starlette.sse import EventSourceResponse
 
 from app.agents.runner import get_runner
+from app.core.cancellation import cancellation
 from app.events.bus import bus
 from app.events.sse import run_stream
 from app.orchestration.swarm import run_swarm
@@ -39,6 +40,15 @@ async def start(body: StartRequest, background: BackgroundTasks) -> StartRespons
 @router.get("/{run_id}/events")
 async def events(run_id: str):
     return EventSourceResponse(run_stream(run_id))
+
+
+@router.post("/{run_id}/cancel")
+def cancel(run_id: str) -> dict:
+    """Cooperatively cancel an in-flight run. The swarm checks the cancellation
+    token between turns and stops gracefully; in-flight LLM and tool calls
+    complete first so chat history stays consistent."""
+    ok = cancellation.cancel(run_id)
+    return {"runId": run_id, "cancelled": ok}
 
 
 @router.get("/{run_id}/lineage")

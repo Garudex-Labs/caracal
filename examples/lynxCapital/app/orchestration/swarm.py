@@ -2,8 +2,9 @@
 Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 Caracal, a product of Garudex Labs
 
-LLM-driven orchestration with per-agent memory, streaming prose reasoning,
-token-aware compaction, and runtime-configurable model selection.
+LLM-driven orchestration: DeepAgents-style planning (write_todos), file-backed
+externalized memory, streaming prose reasoning, token-aware compaction,
+cooperative cancellation, and runtime model selection.
 """
 from __future__ import annotations
 
@@ -20,8 +21,11 @@ from langchain_openai import ChatOpenAI
 from app.agents import tools as tool_fns
 from app.agents.runner import AgentHandle, AgentRunner, create_runner
 from app.config import get_config
+from app.core.cancellation import cancellation
 from app.core.dataset import INVOICES, REGIONS, VENDORS
+from app.core.files import RunFileStore
 from app.core.memory import AgentMemory, RunMemoryStore, context_limit
+from app.core.plans import RunPlanStore
 from app.core.settings import settings
 from app.events import types as ev
 from app.events.bus import bus
@@ -37,41 +41,54 @@ if not log.handlers:
 REGION_IDS = ("US", "IN", "DE", "SG", "BR")
 
 
+class RunCancelled(Exception):
+    """Raised when a run is cancelled cooperatively."""
+
+
 FC_SYSTEM_PROMPT = """You are the Finance Control agent for Lynx Capital, an autonomous financial execution platform.
 
 You coordinate weekly payout cycles across five regions: US, IN, DE, SG, BR.
 
-BEHAVIOR
-- Before you call any tool, write ONE short sentence explaining what you are about to do and why. Then call the tool.
-- After tool results come back, write ONE short sentence interpreting the result before deciding what to do next.
-- Think out loud in plain prose. Do not output JSON, headers, or bullet lists for this reasoning.
+HOW YOU WORK
+You follow the plan-then-act loop. No action happens without a plan.
 
-DECISIONS
-1. Read the user's request and decide which regions are relevant.
-   - "run the weekly cycle" / "all regions" -> dispatch all five
-   - a specific region mentioned -> dispatch only that one
-   - multiple specific regions -> dispatch each one
-2. For each selected region, call dispatch_region with the region code and a short focus sentence.
-3. When every region you chose is done, give a one-paragraph final summary of what was processed.
+1. FIRST TURN: call write_todos with a concrete list of steps you will take to serve this request. Each step must be specific (e.g. "Dispatch US region", not "Handle regions"). Mark the first item in_progress and the rest pending. Do not call any other tool on the first turn.
 
-Be concise. Write like an operator. No emojis. No marketing language."""
+2. EACH FOLLOWING TURN: write ONE short sentence of plain prose stating what you are about to do, then call the next tool. When a tool result comes back, write ONE short sentence interpreting it, then update the plan via write_todos (marking completed items completed, next item in_progress) OR call the next domain tool.
+
+3. DOMAIN TOOLS:
+   - dispatch_region(region, focus): hand off one region to a Regional Orchestrator. Use exactly the region codes US, IN, DE, SG, BR.
+   - write_file(path, content), read_file(path), ls_files(): use these to offload large results or pass context forward. Prefer write_file for anything longer than a paragraph.
+
+4. FINAL TURN: mark all todos completed via write_todos, then output ONE short paragraph summarizing what was processed. Do not call any tool on the final turn.
+
+Think like a human operator: concise, specific, no emojis, no marketing language."""
 
 
 REGIONAL_SYSTEM_TEMPLATE = """You are the Regional Orchestrator agent for the {region} region ({region_name}, currency {currency}) at Lynx Capital.
 
-Your current job: process a small batch of pending invoices end-to-end. Focus: {focus}
+Your job: process pending invoices for this region end-to-end. Focus: {focus}
 
-BEHAVIOR
-- Before each tool call, write ONE short sentence in plain prose saying what you are about to do and why.
-- After a tool returns, write ONE short sentence interpreting the result.
-- Every tool call executes a real operation against a downstream service and spawns a dedicated worker agent. Use tools; do not simulate.
+HOW YOU WORK
+You decide your own approach. No procedure is given.
 
-RECOMMENDED PROCEDURE
-1. Call list_pending_invoices (batch of 2-3).
-2. For each invoice, in order: extract_invoice_data -> match_invoice_in_ledger -> check_vendor_compliance -> submit_payment.
-3. Once per region: lookup_withholding_rate(currency). If currency != USD, also lookup_fx_rate("USD", currency).
-4. Finally call record_audit(summary) with a one-line summary.
-5. Return a short natural-language status. Do NOT call more tools after record_audit."""
+1. FIRST TURN: call write_todos with the specific steps YOU decide are needed to complete this focus. Do not copy a template - think about what this specific focus actually requires. Mark the first step in_progress. Do not call any other tool on the first turn.
+
+2. EACH FOLLOWING TURN: write ONE short prose sentence about what you are about to do and why, then call the next tool. After a tool returns, write ONE short sentence interpreting the result, then either update write_todos or call the next tool.
+
+3. DOMAIN TOOLS available to you (pick what you need, in the order YOU decide):
+   - list_pending_invoices(limit): inspect pending invoices
+   - extract_invoice_data(invoice_id): OCR extract invoice data
+   - match_invoice_in_ledger(invoice_id, vendor_id, amount, currency): reconcile against ERP
+   - check_vendor_compliance(vendor_id): run compliance screening
+   - lookup_fx_rate(from_currency, to_currency), lookup_withholding_rate(currency): tax/fx lookups
+   - submit_payment(vendor_id, amount, currency, rail, reference): execute payment
+   - record_audit(summary): seal an audit entry (call this at most once, at the end)
+   - write_file, read_file, ls_files: offload large intermediate results
+
+4. FINAL TURN: mark all todos completed via write_todos, then output ONE short status sentence. Do not call more tools.
+
+Real services are executed; you are not simulating. Be concise, plain prose, no emojis."""
 
 
 def _make_llm(model: str, temperature: float = 0.1) -> ChatOpenAI:
@@ -82,6 +99,11 @@ def _make_llm(model: str, temperature: float = 0.1) -> ChatOpenAI:
         streaming=True,
         stream_usage=True,
     )
+
+
+def _check_cancel(run_id: str) -> None:
+    if cancellation.is_cancelled(run_id):
+        raise RunCancelled()
 
 
 def _emit_memory_snapshot(run_id: str, mem: AgentMemory) -> None:
@@ -116,13 +138,7 @@ async def _maybe_compact(run_id: str, mem: AgentMemory, summarizer: ChatOpenAI) 
     )
 
 
-async def _stream_assistant(
-    run_id: str,
-    agent_id: str,
-    model_name: str,
-    llm,
-    messages: list,
-) -> AIMessage:
+async def _stream_assistant(run_id, agent_id, model_name, llm, messages) -> AIMessage:
     """Invoke the LLM, stream tokens, emit llm_call telemetry, return the
     accumulated AIMessage."""
     message_id = str(uuid4())
@@ -146,31 +162,68 @@ async def _stream_assistant(
 
     bus.publish(ev.chat_message(run_id, agent_id, message_id, text))
     bus.publish(ev.llm_call(
-        run_id=run_id,
-        agent_id=agent_id,
-        model=model_name,
-        latency_ms=latency_ms,
-        input_tokens=input_tokens,
-        output_tokens=output_tokens,
-        tool_calls=len(tool_calls),
-        streamed_chars=streamed_chars,
+        run_id=run_id, agent_id=agent_id, model=model_name,
+        latency_ms=latency_ms, input_tokens=input_tokens, output_tokens=output_tokens,
+        tool_calls=len(tool_calls), streamed_chars=streamed_chars,
     ))
     log.info(
         "llm_call agent=%s model=%s latency_ms=%d in_tok=%d out_tok=%d tool_calls=%d chars=%d",
         agent_id[:8], model_name, latency_ms, input_tokens, output_tokens,
         len(tool_calls), streamed_chars,
     )
-
     return AIMessage(content=text, tool_calls=tool_calls)
 
 
-def _build_regional_tools(
-    run_id: str,
-    runner: AgentRunner,
-    parent: AgentHandle,
-    region: str,
-):
-    """Each tool dynamically spawns a worker, runs the real tool_fn, terminates."""
+# ---------- DeepAgents built-ins: planning + files ----------
+
+
+def _build_agent_builtins(run_id: str, agent_id: str, plans: RunPlanStore, files: RunFileStore):
+    """Planning + file tools scoped to one agent_id so events carry correct attribution."""
+
+    @tool
+    def write_todos(todos: list[dict]) -> str:
+        """Create or replace your task plan. Pass a list of items like
+        [{"content": "Dispatch US region", "status": "in_progress"},
+         {"content": "Dispatch DE region", "status": "pending"}].
+        Valid statuses: pending, in_progress, completed. Call at the start
+        to lay out your plan, then call again as you progress."""
+        plan = plans.write(agent_id, todos)
+        bus.publish(ev.plan_update(
+            run_id=run_id, agent_id=agent_id,
+            todos=plan.as_list(), revision=plan.revision,
+        ))
+        return json.dumps({"ok": True, "revision": plan.revision, "items": plan.as_list()})
+
+    @tool
+    def write_file(path: str, content: str) -> str:
+        """Save content to a named file in this run's memory store. Use this to
+        offload large intermediate results so they don't bloat your prompt."""
+        f = files.write(agent_id, path, content)
+        bus.publish(ev.file_write(run_id=run_id, agent_id=agent_id, path=f.path, size=f.size))
+        return json.dumps({"path": f.path, "size": f.size})
+
+    @tool
+    def read_file(path: str) -> str:
+        """Read a file previously saved with write_file. Returns the file's content."""
+        f = files.read(path)
+        if f is None:
+            return json.dumps({"error": f"no file at {path!r}"})
+        bus.publish(ev.file_read(run_id=run_id, agent_id=agent_id, path=f.path, size=f.size))
+        return f.content
+
+    @tool
+    def ls_files() -> str:
+        """List all files in this run's memory store."""
+        return json.dumps(files.ls())
+
+    return [write_todos, write_file, read_file, ls_files]
+
+
+# ---------- Regional domain tools ----------
+
+
+def _build_regional_domain_tools(run_id, runner, parent, region):
+    """Dynamically-spawned worker tools for a region."""
     region_invoices = [inv for inv in INVOICES if inv.region == region]
     region_vendors = {v.id: v for v in VENDORS.values() if v.region == region}
 
@@ -179,33 +232,30 @@ def _build_regional_tools(
         w.start()
         return w
 
-    def _finish(w: AgentHandle, result: dict) -> None:
+    def _finish(w, result):
         w.end(result)
         w.terminate("completed")
 
     @tool
     def list_pending_invoices(limit: int = 3) -> str:
-        """Return up to `limit` pending invoices in this region as JSON: invoice_id, vendor_id, amount, currency, preferred_rail."""
+        """Return up to `limit` pending invoices in this region as JSON."""
         out = []
         for inv in region_invoices[:max(1, min(limit, 5))]:
             v = region_vendors.get(inv.vendor_id)
             rail = v.preferred_rails[0].value if v and v.preferred_rails else "WIRE"
             out.append({
-                "invoice_id": inv.id,
-                "vendor_id": inv.vendor_id,
-                "amount": float(inv.amount_local),
-                "currency": inv.currency,
+                "invoice_id": inv.id, "vendor_id": inv.vendor_id,
+                "amount": float(inv.amount_local), "currency": inv.currency,
                 "preferred_rail": rail,
             })
         return json.dumps(out)
 
     @tool
     def extract_invoice_data(invoice_id: str) -> str:
-        """OCR-extract invoice data from a document. Spawns an invoice-intake worker."""
+        """OCR-extract invoice data. Spawns an invoice-intake worker."""
         w = _worker("invoice-intake", f"extract:{invoice_id}")
         try:
-            result = tool_fns.extract_invoice(run_id, w.id, invoice_id, f"doc-{invoice_id}")
-            return json.dumps(result)
+            return json.dumps(tool_fns.extract_invoice(run_id, w.id, invoice_id, f"doc-{invoice_id}"))
         finally:
             _finish(w, {"invoice_id": invoice_id})
 
@@ -214,8 +264,7 @@ def _build_regional_tools(
         """Match an invoice against the ledger. Spawns a ledger-match worker."""
         w = _worker("ledger-match", f"match:{invoice_id}")
         try:
-            result = tool_fns.netsuite_match_invoice(run_id, w.id, vendor_id, invoice_id, float(amount), currency)
-            return json.dumps(result)
+            return json.dumps(tool_fns.netsuite_match_invoice(run_id, w.id, vendor_id, invoice_id, float(amount), currency))
         finally:
             _finish(w, {"invoice_id": invoice_id})
 
@@ -224,8 +273,7 @@ def _build_regional_tools(
         """Run compliance screening on a vendor. Spawns a policy-check worker."""
         w = _worker("policy-check", f"compliance:{vendor_id}")
         try:
-            result = tool_fns.check_vendor(run_id, w.id, vendor_id)
-            return json.dumps(result)
+            return json.dumps(tool_fns.check_vendor(run_id, w.id, vendor_id))
         finally:
             _finish(w, {"vendor_id": vendor_id})
 
@@ -234,8 +282,7 @@ def _build_regional_tools(
         """Look up an FX rate. Spawns a route-optimization worker."""
         w = _worker("route-optimization", f"fx:{from_currency}->{to_currency}")
         try:
-            result = tool_fns.get_fx_rate(run_id, w.id, from_currency, to_currency)
-            return json.dumps(result)
+            return json.dumps(tool_fns.get_fx_rate(run_id, w.id, from_currency, to_currency))
         finally:
             _finish(w, {"from": from_currency, "to": to_currency})
 
@@ -244,8 +291,7 @@ def _build_regional_tools(
         """Look up the withholding tax rate for this region + currency. Spawns a route-optimization worker."""
         w = _worker("route-optimization", f"withholding:{region}:{currency}")
         try:
-            result = tool_fns.get_withholding_rate(run_id, w.id, region, currency)
-            return json.dumps(result)
+            return json.dumps(tool_fns.get_withholding_rate(run_id, w.id, region, currency))
         finally:
             _finish(w, {"currency": currency})
 
@@ -254,8 +300,7 @@ def _build_regional_tools(
         """Submit a payment to the banking provider. Spawns a payment-execution worker."""
         w = _worker("payment-execution", f"payment:{reference}")
         try:
-            result = tool_fns.submit_payment(run_id, w.id, vendor_id, float(amount), currency, rail, reference)
-            return json.dumps(result)
+            return json.dumps(tool_fns.submit_payment(run_id, w.id, vendor_id, float(amount), currency, rail, reference))
         finally:
             _finish(w, {"reference": reference})
 
@@ -271,42 +316,68 @@ def _build_regional_tools(
             _finish(w, record)
 
     return [
-        list_pending_invoices,
-        extract_invoice_data,
-        match_invoice_in_ledger,
-        check_vendor_compliance,
-        lookup_fx_rate,
-        lookup_withholding_rate,
-        submit_payment,
-        record_audit,
+        list_pending_invoices, extract_invoice_data, match_invoice_in_ledger,
+        check_vendor_compliance, lookup_fx_rate, lookup_withholding_rate,
+        submit_payment, record_audit,
     ]
 
 
-async def _run_regional_orchestrator(
-    run_id: str,
-    runner: AgentRunner,
-    parent: AgentHandle,
-    memory_store: RunMemoryStore,
-    parent_summary: str,
-    region: str,
-    focus: str,
-    model_name: str,
-) -> dict:
+# ---------- Turn loop ----------
+
+
+async def _turn_loop(run_id, agent, model_name, llm_with_tools, summarizer, mem, tool_map, max_turns):
+    """Run the assistant turn loop for one agent. Publishes tool_call / tool_result
+    for every invocation. Returns number of tool calls executed."""
+    tool_calls_total = 0
+    for _turn in range(max_turns):
+        _check_cancel(run_id)
+        await _maybe_compact(run_id, mem, summarizer)
+        ai_msg = await _stream_assistant(run_id, agent.id, model_name, llm_with_tools, mem.as_prompt())
+        mem.append(ai_msg)
+        _emit_memory_snapshot(run_id, mem)
+        if not ai_msg.tool_calls:
+            break
+        for tc in ai_msg.tool_calls:
+            _check_cancel(run_id)
+            name = tc["name"]
+            args = tc["args"]
+            fn = tool_map.get(name)
+            if fn is None:
+                mem.append(ToolMessage(content=f"Unknown tool: {name}", tool_call_id=tc["id"]))
+                continue
+            bus.publish(ev.tool_call(run_id, agent.id, name, args))
+            result = await asyncio.to_thread(fn.invoke, args)
+            result_str = str(result)
+            bus.publish(ev.tool_result(
+                run_id, agent.id, name,
+                {"result": result_str[:400], "truncated": len(result_str) > 400},
+            ))
+            tool_calls_total += 1
+            mem.append(ToolMessage(content=result_str, tool_call_id=tc["id"]))
+        _emit_memory_snapshot(run_id, mem)
+    return tool_calls_total
+
+
+# ---------- Regional orchestrator ----------
+
+
+async def _run_regional_orchestrator(run_id, runner, parent, memory_store, plans, files,
+                                     parent_summary, region, focus, model_name):
     cfg = get_config()
     region_meta = REGIONS.get(region)
     if region_meta is None:
         raise ValueError(f"Unknown region {region!r}")
 
     ro = runner.spawn(
-        role="regional-orchestrator",
-        scope=f"region:{region}",
-        parent=parent,
-        layer="regional-orchestrator",
-        region=region,
+        role="regional-orchestrator", scope=f"region:{region}",
+        parent=parent, layer="regional-orchestrator", region=region,
     )
     ro.start()
 
-    tools = _build_regional_tools(run_id, runner, ro, region)
+    tools = [
+        *_build_agent_builtins(run_id, ro.id, plans, files),
+        *_build_regional_domain_tools(run_id, runner, ro, region),
+    ]
     tool_map = {t.name: t for t in tools}
 
     llm = _make_llm(model_name, cfg.llm.temperature)
@@ -314,8 +385,7 @@ async def _run_regional_orchestrator(
     summarizer = _make_llm(model_name, 0.0)
 
     system_prompt = REGIONAL_SYSTEM_TEMPLATE.format(
-        region=region,
-        region_name=region_meta.name,
+        region=region, region_name=region_meta.name,
         currency=region_meta.currency,
         focus=focus or "process the pending batch end-to-end",
     )
@@ -324,48 +394,33 @@ async def _run_regional_orchestrator(
         system=SystemMessage(content=system_prompt),
         seed_summary=parent_summary,
     )
-    mem.append(HumanMessage(content=f"Begin processing the {region} batch now."))
+    mem.append(HumanMessage(content=(
+        f"Begin now. Your first turn MUST be a write_todos call "
+        f"listing your specific planned steps for focus={focus!r}."
+    )))
     _emit_memory_snapshot(run_id, mem)
 
-    tool_call_count = 0
-    turns = 0
-    for _turn in range(12):
-        turns += 1
-        await _maybe_compact(run_id, mem, summarizer)
-        ai_msg = await _stream_assistant(run_id, ro.id, model_name, llm_with_tools, mem.as_prompt())
-        mem.append(ai_msg)
-        _emit_memory_snapshot(run_id, mem)
-        if not ai_msg.tool_calls:
-            break
-        for tc in ai_msg.tool_calls:
-            name = tc["name"]
-            args = tc["args"]
-            fn = tool_map.get(name)
-            if fn is None:
-                mem.append(ToolMessage(content=f"Unknown tool: {name}", tool_call_id=tc["id"]))
-                continue
-            result = await asyncio.to_thread(fn.invoke, args)
-            tool_call_count += 1
-            mem.append(ToolMessage(content=str(result), tool_call_id=tc["id"]))
-        _emit_memory_snapshot(run_id, mem)
+    tool_calls = await _turn_loop(
+        run_id=run_id, agent=ro, model_name=model_name,
+        llm_with_tools=llm_with_tools, summarizer=summarizer,
+        mem=mem, tool_map=tool_map, max_turns=16,
+    )
 
-    result = {"region": region, "toolCalls": tool_call_count, "turns": turns}
+    result = {"region": region, "toolCalls": tool_calls}
     ro.end(result)
     ro.terminate("completed")
     return result
 
 
-def _build_top_tools(
-    run_id: str,
-    runner: AgentRunner,
-    fc: AgentHandle,
-    memory_store: RunMemoryStore,
-    loop: asyncio.AbstractEventLoop,
-    model_name: str,
-):
+# ---------- Finance Control tools ----------
+
+
+def _build_fc_domain_tools(run_id, runner, fc, memory_store, plans, files, loop, model_name):
     @tool
     def dispatch_region(region: str, focus: str = "") -> str:
-        """Dispatch a regional orchestrator to process one region. region must be one of: US, IN, DE, SG, BR. `focus` is a short sentence describing the intent for this dispatch."""
+        """Dispatch a Regional Orchestrator sub-agent to process one region.
+        region must be one of: US, IN, DE, SG, BR. `focus` is a short sentence
+        describing the intent for this dispatch."""
         r = region.upper().strip()
         if r not in REGION_IDS:
             return json.dumps({"error": f"unknown region {region!r}"})
@@ -375,7 +430,8 @@ def _build_top_tools(
         )
         future = asyncio.run_coroutine_threadsafe(
             _run_regional_orchestrator(
-                run_id, runner, fc, memory_store, parent_summary, r, focus or "", model_name,
+                run_id, runner, fc, memory_store, plans, files,
+                parent_summary, r, focus or "", model_name,
             ),
             loop,
         )
@@ -384,15 +440,21 @@ def _build_top_tools(
     return [dispatch_region]
 
 
+# ---------- Top-level entry ----------
+
+
 async def run_swarm(run_id: str, prompt: str) -> None:
     cfg = get_config()
     model_name = settings.model
+    cancellation.register(run_id)
     bus.publish(ev.run_start(run_id, prompt))
     bus.publish(ev.chat_user(run_id, prompt))
     log.info("run_swarm start run_id=%s model=%s prompt=%r", run_id, model_name, prompt[:120])
 
     runner = create_runner(run_id, cfg.swarm.llmBackedCap)
     memory_store = RunMemoryStore(run_id, model_name)
+    plans = RunPlanStore(run_id)
+    files = RunFileStore(run_id=run_id)
 
     fc = runner.spawn(
         role="finance-control", scope="global", parent=None,
@@ -401,44 +463,43 @@ async def run_swarm(run_id: str, prompt: str) -> None:
     fc.start()
 
     loop = asyncio.get_running_loop()
-    tools = _build_top_tools(run_id, runner, fc, memory_store, loop, model_name)
+    tools = [
+        *_build_agent_builtins(run_id, fc.id, plans, files),
+        *_build_fc_domain_tools(run_id, runner, fc, memory_store, plans, files, loop, model_name),
+    ]
     tool_map = {t.name: t for t in tools}
     llm = _make_llm(model_name, cfg.llm.temperature)
     llm_with_tools = llm.bind_tools(tools)
     summarizer = _make_llm(model_name, 0.0)
 
     mem = memory_store.open(fc.id, SystemMessage(content=FC_SYSTEM_PROMPT))
-    mem.append(HumanMessage(content=prompt))
+    mem.append(HumanMessage(content=(
+        f"User request: {prompt}\n\n"
+        f"First turn: call write_todos with a concrete plan."
+    )))
     _emit_memory_snapshot(run_id, mem)
 
     try:
-        for _turn in range(10):
-            await _maybe_compact(run_id, mem, summarizer)
-            ai_msg = await _stream_assistant(run_id, fc.id, model_name, llm_with_tools, mem.as_prompt())
-            mem.append(ai_msg)
-            _emit_memory_snapshot(run_id, mem)
-            if not ai_msg.tool_calls:
-                break
-            for tc in ai_msg.tool_calls:
-                name = tc["name"]
-                args = tc["args"]
-                fn = tool_map.get(name)
-                if fn is None:
-                    mem.append(ToolMessage(content=f"Unknown tool: {name}", tool_call_id=tc["id"]))
-                    continue
-                bus.publish(ev.tool_call(run_id, fc.id, name, args))
-                result = await asyncio.to_thread(fn.invoke, args)
-                bus.publish(ev.tool_result(run_id, fc.id, name, {"result": result}))
-                mem.append(ToolMessage(content=str(result), tool_call_id=tc["id"]))
-            _emit_memory_snapshot(run_id, mem)
-
+        await _turn_loop(
+            run_id=run_id, agent=fc, model_name=model_name,
+            llm_with_tools=llm_with_tools, summarizer=summarizer,
+            mem=mem, tool_map=tool_map, max_turns=14,
+        )
         fc.end({"status": "completed"})
         fc.terminate("completed")
         bus.publish(ev.run_end(run_id, "completed"))
         log.info("run_swarm end run_id=%s status=completed", run_id)
+    except RunCancelled:
+        log.info("run_swarm cancelled run_id=%s", run_id)
+        bus.publish(ev.run_cancelled(run_id))
+        if not fc._terminated:
+            fc.terminate("cancelled")
+        bus.publish(ev.run_end(run_id, "cancelled"))
     except Exception as exc:
         log.exception("run_swarm failed run_id=%s", run_id)
         bus.publish(ev.error(run_id, str(exc), fc.id))
         if not fc._terminated:
             fc.terminate("failed")
         bus.publish(ev.run_end(run_id, "failed"))
+    finally:
+        cancellation.clear(run_id)

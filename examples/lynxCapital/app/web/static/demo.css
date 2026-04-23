@@ -218,3 +218,47 @@
 .graph-canvas { flex: 1; overflow: auto; padding: 12px; }
 #graph-svg { width: 100%; min-height: 300px; }
 .graph-empty { color: var(--text); opacity: 0.4; font-size: 12px; text-align: center; padding: 60px 20px; }
+
+/* ---------------- Plan panel (write_todos) ---------------- */
+.plan-panel {
+  border-bottom: 1px solid var(--border);
+  padding: 8px 14px 10px;
+  background: #F7F4FC;
+}
+.plan-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.plan-title {
+  font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em;
+  color: var(--ev-memory-fg);
+}
+.plan-meta { font-size: 10.5px; color: var(--text); opacity: 0.6; margin-left: auto; font-family: ui-monospace, monospace; }
+.plan-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 3px; }
+.plan-item {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 12px; line-height: 1.35;
+  padding: 3px 8px; border-radius: 3px;
+  background: #fff; border: 1px solid var(--border);
+}
+.plan-item .box {
+  flex-shrink: 0; width: 14px; height: 14px;
+  border: 1.5px solid var(--border); border-radius: 3px;
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: 10px; line-height: 1; font-weight: 700;
+}
+.plan-item.status-pending .box       { background: #fff; color: transparent; }
+.plan-item.status-in_progress .box   { background: var(--ev-tool-bg); border-color: var(--ev-tool-fg); color: var(--ev-tool-fg); }
+.plan-item.status-in_progress .box::after { content: "\u25B8"; }
+.plan-item.status-completed .box     { background: var(--ev-result-fg); border-color: var(--ev-result-fg); color: #fff; }
+.plan-item.status-completed .box::after { content: "\u2713"; }
+.plan-item.status-completed .text    { text-decoration: line-through; opacity: 0.55; }
+.plan-item.status-in_progress        { border-color: var(--ev-tool-fg); background: var(--ev-tool-bg); }
+.plan-item .text { flex: 1; color: var(--text); }
+
+/* ---------------- Stop button ---------------- */
+.btn-stop { background: var(--ev-error-fg); color: #fff; }
+.btn-stop:hover { opacity: 0.9; }
+
+/* Extra inline-event kind for plan changes + files */
+.inline-event.kind-plan    { background: #EEE5F8; color: var(--ev-memory-fg); border-color: rgba(107,71,168,0.3); }
+.inline-event.kind-plan .dot { background: var(--ev-memory-fg); }
+.inline-event.kind-file    { background: #E6F0EC; color: var(--ev-result-fg); border-color: rgba(26,127,75,0.25); }
+.inline-event.kind-file .dot { background: var(--ev-result-fg); }

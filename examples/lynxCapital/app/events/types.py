@@ -175,3 +175,19 @@ def memory_compaction(
 
 def model_change(run_id: str, model: str, prior: str) -> Event:
     return _mk(run_id, "system", "model_change", model=model, prior=prior)
+
+
+def plan_update(run_id: str, agent_id: str, todos: list[dict], revision: int) -> Event:
+    return _mk(run_id, "system", "plan_update", agent_id=agent_id, todos=todos, revision=revision)
+
+
+def file_write(run_id: str, agent_id: str, path: str, size: int) -> Event:
+    return _mk(run_id, "system", "file_write", agent_id=agent_id, path=path, size=size)
+
+
+def file_read(run_id: str, agent_id: str, path: str, size: int) -> Event:
+    return _mk(run_id, "system", "file_read", agent_id=agent_id, path=path, size=size)
+
+
+def run_cancelled(run_id: str) -> Event:
+    return _mk(run_id, "system", "run_cancelled")

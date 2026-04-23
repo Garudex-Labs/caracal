@@ -65,6 +65,19 @@ class _FakeLLM:
 
         if self._role == "fc":
             if self._turn == 1:
+                yield AIMessageChunk(
+                    content="Planning the run.",
+                    tool_calls=[{
+                        "name": "write_todos",
+                        "args": {"todos": [
+                            {"content": f"Dispatch {r} region", "status": "pending"}
+                            for r in ("US", "IN", "DE", "SG", "BR")
+                        ]},
+                        "id": "fc-plan",
+                        "type": "tool_call",
+                    }],
+                )
+            elif self._turn == 2:
                 tool_calls = [
                     {"name": "dispatch_region", "args": {"region": r, "focus": "batch"}, "id": f"fc-{r}", "type": "tool_call"}
                     for r in ("US", "IN", "DE", "SG", "BR")
@@ -74,14 +87,28 @@ class _FakeLLM:
                 yield AIMessageChunk(content="All regions completed.")
             return
 
-        # Regional orchestrator: multi-turn tool sequence.
+        # Regional orchestrator: plan first, then execute.
         region = self._region or "US"
         if self._turn == 1:
             yield AIMessageChunk(
                 content="",
-                tool_calls=[{"name": "list_pending_invoices", "args": {"limit": 2}, "id": f"r-{region}-list", "type": "tool_call"}],
+                tool_calls=[{
+                    "name": "write_todos",
+                    "args": {"todos": [
+                        {"content": "List pending invoices", "status": "in_progress"},
+                        {"content": "Process invoices", "status": "pending"},
+                        {"content": "Finalize audit", "status": "pending"},
+                    ]},
+                    "id": f"r-{region}-plan",
+                    "type": "tool_call",
+                }],
             )
         elif self._turn == 2:
+            yield AIMessageChunk(
+                content="",
+                tool_calls=[{"name": "list_pending_invoices", "args": {"limit": 2}, "id": f"r-{region}-list", "type": "tool_call"}],
+            )
+        elif self._turn == 3:
             # Use the last ToolMessage to pick a real invoice id from region data.
             from app.core.dataset import INVOICES, VENDORS
             invs = [i for i in INVOICES if i.region == region][:1]
@@ -97,7 +124,7 @@ class _FakeLLM:
                 {"name": "check_vendor_compliance", "args": {"vendor_id": inv.vendor_id}, "id": f"r-{region}-c1", "type": "tool_call"},
                 {"name": "submit_payment", "args": {"vendor_id": inv.vendor_id, "amount": float(inv.amount_local), "currency": inv.currency, "rail": rail, "reference": f"ref-{inv.id}"}, "id": f"r-{region}-p1", "type": "tool_call"},
             ])
-        elif self._turn == 3:
+        elif self._turn == 4:
             from app.core.dataset import REGIONS
             currency = REGIONS[region].currency
             yield AIMessageChunk(content="", tool_calls=[

@@ -70,6 +70,10 @@ function summarize(ev) {
     case 'memory_update':   return `Memory  agent=${agent}  tokens=${p.tokens_used}/${p.tokens_limit}  msgs=${p.message_count}  compactions=${p.compactions}`;
     case 'memory_compaction': return `Memory compaction  agent=${agent}  ${p.tokens_before}->${p.tokens_after} tokens`;
     case 'model_change':    return `Model change  ${p.prior} -> ${p.model}`;
+    case 'plan_update':     return `Plan  agent=${agent}  rev=${p.revision}  items=${(p.todos || []).length}`;
+    case 'file_write':      return `file_write  ${p.path}  ${p.size}B  agent=${agent}`;
+    case 'file_read':       return `file_read   ${p.path}  agent=${agent}`;
+    case 'run_cancelled':   return `Run cancelled`;
     default:                return ev.kind;
   }
 }
