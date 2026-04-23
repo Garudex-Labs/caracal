@@ -8,6 +8,12 @@
 
 const svg       = document.getElementById('graph-svg');
 const statusEl  = document.getElementById('graph-status');
+const emptyEl   = document.getElementById('graph-empty');
+
+function revealSvg() {
+  if (emptyEl && emptyEl.parentNode) emptyEl.style.display = 'none';
+  if (svg) svg.style.display = '';
+}
 
 const NS = 'http://www.w3.org/2000/svg';
 
@@ -248,6 +254,7 @@ function handleEvent(ev) {
       id: p.agent_id, role: p.role, layer: p.layer,
       region: p.region, parent: p.parent_id, status: 'spawned',
     };
+    revealSvg();
     buildLayout();
   } else if (ev.kind === 'agent_start') {
     updateNode(p.agent_id, 'running');
@@ -262,6 +269,8 @@ function attachStream(rid) {
   runId = rid;
   nodes = {};
   svg.innerHTML = '';
+  if (emptyEl) emptyEl.style.display = '';
+  if (svg) svg.style.display = 'none';
   statusEl.textContent = 'running...';
 
   const es = new EventSource(`/api/run/${rid}/events`);

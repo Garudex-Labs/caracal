@@ -34,6 +34,7 @@ const CAT_CSS = {
   audit:      'cat-audit',
   caracal:    'cat-caracal',
   delegation: 'cat-delegation',
+  chat:       'cat-chat',
 };
 
 function ts(isoStr) {
@@ -62,6 +63,9 @@ function summarize(ev) {
     case 'audit_record':    return `Audit record  agent=${agent}`;
     case 'caracal_bind':    return `Caracal bind  decision=${p.decision}  agent=${agent}`;
     case 'caracal_enforce': return `Caracal enforce  ${p.tool_id}  decision=${p.decision}`;
+    case 'chat_user':       return `User  ${(p.text || '').slice(0, 80)}`;
+    case 'chat_token':      return `Token  ${JSON.stringify(p.token || '')}`;
+    case 'chat_message':    return `Message  ${(p.text || '').slice(0, 80)}`;
     default:                return ev.kind;
   }
 }
