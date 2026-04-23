@@ -78,6 +78,12 @@
             <p><strong>Option B</strong> — reclaim ownership (requires sudo):</p>
             <div class="cmd-block">sudo chown -R $USER:$USER ~/.caracal<button class="copy-btn" data-cmd="sudo chown -R $USER:$USER ~/.caracal">copy</button></div>
           </details>
+          <details class="step-troubleshoot">
+            <summary>GHCR image pull denied?</summary>
+            <p>If you see <em>denied — ghcr.io/garudex-labs/caracal-runtime</em>, authenticate with GHCR using a <a href="https://github.com/settings/tokens" target="_blank" rel="noopener">GitHub PAT</a> with <code>read:packages</code> scope:</p>
+            <div class="cmd-block">docker login ghcr.io -u YOUR_GITHUB_USERNAME<button class="copy-btn" data-cmd="docker login ghcr.io -u YOUR_GITHUB_USERNAME">copy</button></div>
+            <p>Then run <code>caracal up</code> again.</p>
+          </details>
         </div>
       </div>
       <div class="step">

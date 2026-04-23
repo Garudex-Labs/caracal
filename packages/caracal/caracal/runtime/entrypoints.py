@@ -285,6 +285,13 @@ def _host_up(namespace: argparse.Namespace) -> int:
 
         pull_result = subprocess.run(compose_cmd + ["pull", *pull_services], check=False)
         if pull_result.returncode != 0:
+            if not uses_local_build:
+                print(
+                    "\nHint: if the runtime image pull was denied, authenticate with GHCR first:\n"
+                    "    docker login ghcr.io -u YOUR_GITHUB_USERNAME\n"
+                    "Then re-run: caracal up\n",
+                    file=sys.stderr,
+                )
             return pull_result.returncode
 
     up_cmd = [*compose_cmd, "up", "-d"]
@@ -1163,6 +1170,9 @@ def _host_vault_init(_namespace: argparse.Namespace) -> int:
     return 0
 
 
+CARACAL_COMPOSE_FILE_ENV = "CARACAL_COMPOSE_FILE"
+
+
 def _resolve_compose_file() -> Path:
     """Materialize the wheel-embedded compose file into the Caracal home cache.
 
@@ -1170,7 +1180,21 @@ def _resolve_compose_file() -> Path:
     ``caracal.runtime.data/docker-compose.yml`` and is the single source of
     truth for the runtime stack. It is copied into ``$CARACAL_HOME/runtime/``
     so docker can read it from a stable on-disk path across invocations.
+
+    Set CARACAL_COMPOSE_FILE to use a custom compose file instead (e.g. for
+    local source builds that avoid pulling the private runtime image).
     """
+    override = os.environ.get(CARACAL_COMPOSE_FILE_ENV, "").strip()
+    if override:
+        candidate = Path(override).expanduser().resolve(strict=False)
+        if candidate.exists():
+            return candidate
+        print(
+            f"Error: CARACAL_COMPOSE_FILE={override!r} does not exist.",
+            file=sys.stderr,
+        )
+        raise SystemExit(1)
+
     target = resolve_caracal_home(require_explicit=False) / "runtime" / "docker-compose.yml"
     try:
         target.parent.mkdir(parents=True, exist_ok=True)

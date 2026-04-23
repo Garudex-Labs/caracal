@@ -13,8 +13,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libpq-dev \
     && rm -rf /var/lib/apt/lists/*
 
-COPY pyproject.toml setup.py MANIFEST.in README.md LICENSE VERSION ./
-COPY caracal ./caracal
+COPY packages/caracal/pyproject.toml ./pyproject.toml
+COPY README.md LICENSE VERSION ./
+COPY packages/caracal/caracal ./caracal
 COPY sdk ./sdk
 COPY deploy/config/config.example.yaml ./deploy/config/config.example.yaml
 
