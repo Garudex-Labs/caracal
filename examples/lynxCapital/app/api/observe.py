@@ -33,31 +33,53 @@ def observe(run_id: str) -> dict:
 
     tool_calls_by_agent: dict[str, list] = {}
     for agent_id, agent_events in events_by_agent.items():
-        tc_list = [e for e in agent_events if e.kind == "tool_call"]
-        tr_list = [e for e in agent_events if e.kind == "tool_result"]
-        sc_list = [e for e in agent_events if e.kind == "service_call"]
-        sr_list = [e for e in agent_events if e.kind == "service_result"]
+        # Walk in temporal order. Every tool_call is bracketed by its tool_result;
+        # any service_call/service_result that lands between those two markers
+        # belongs to that tool. This is robust to built-in tools (write_todos,
+        # write_file, read_file, ls_files, dispatch_region) that never talk to
+        # an external service.
+        i = 0
+        n = len(agent_events)
+        while i < n:
+            e = agent_events[i]
+            if e.kind != "tool_call":
+                i += 1
+                continue
+            j = i + 1
+            tr_ev = None
+            services: list[dict] = []
+            pending_sc: dict | None = None
+            while j < n and agent_events[j].kind != "tool_call":
+                ej = agent_events[j]
+                if ej.kind == "tool_result":
+                    tr_ev = ej
+                    j += 1
+                    break
+                if ej.kind == "service_call":
+                    pending_sc = {
+                        "id": ej.payload.get("service_id"),
+                        "action": ej.payload.get("action"),
+                        "payload": ej.payload.get("payload"),
+                        "ts_call": ej.ts,
+                        "ts_result": None,
+                        "result": None,
+                    }
+                    services.append(pending_sc)
+                elif ej.kind == "service_result" and pending_sc is not None:
+                    pending_sc["ts_result"] = ej.ts
+                    pending_sc["result"] = ej.payload.get("result")
+                    pending_sc = None
+                j += 1
 
-        for i, tc_ev in enumerate(tc_list):
-            tr_ev = tr_list[i] if i < len(tr_list) else None
-            sc_ev = sc_list[i] if i < len(sc_list) else None
-            sr_ev = sr_list[i] if i < len(sr_list) else None
-
-            entry = {
-                "tool": tc_ev.payload.get("tool_name"),
-                "args": tc_ev.payload.get("args"),
-                "ts_call": tc_ev.ts,
+            tool_calls_by_agent.setdefault(agent_id, []).append({
+                "tool": e.payload.get("tool_name"),
+                "args": e.payload.get("args"),
+                "ts_call": e.ts,
                 "ts_result": tr_ev.ts if tr_ev else None,
                 "result": tr_ev.payload.get("result") if tr_ev else None,
-                "service": {
-                    "id": sc_ev.payload.get("service_id"),
-                    "action": sc_ev.payload.get("action"),
-                    "ts_call": sc_ev.ts,
-                    "ts_result": sr_ev.ts if sr_ev else None,
-                    "result": sr_ev.payload.get("result") if sr_ev else None,
-                } if sc_ev else None,
-            }
-            tool_calls_by_agent.setdefault(agent_id, []).append(entry)
+                "services": services,
+            })
+            i = j
 
     spans = []
     for agent_id, spawn_ev in spawns.items():

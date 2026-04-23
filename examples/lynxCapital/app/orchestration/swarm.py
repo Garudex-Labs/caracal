@@ -451,7 +451,7 @@ async def run_swarm(run_id: str, prompt: str) -> None:
     bus.publish(ev.chat_user(run_id, prompt))
     log.info("run_swarm start run_id=%s model=%s prompt=%r", run_id, model_name, prompt[:120])
 
-    runner = create_runner(run_id, cfg.swarm.llmBackedCap)
+    runner = create_runner(run_id)
     memory_store = RunMemoryStore(run_id, model_name)
     plans = RunPlanStore(run_id)
     files = RunFileStore(run_id=run_id)

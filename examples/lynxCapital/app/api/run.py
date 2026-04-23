@@ -42,6 +42,25 @@ async def events(run_id: str):
     return EventSourceResponse(run_stream(run_id))
 
 
+@router.get("/{run_id}/status")
+def status(run_id: str) -> dict:
+    """Lightweight run status for UI reattachment on page refresh."""
+    history = bus.history(run_id)
+    if not history:
+        raise HTTPException(status_code=404, detail="Run not found")
+    ended = next((e for e in history if e.kind == "run_end"), None)
+    started = next((e for e in history if e.kind == "run_start"), None)
+    return {
+        "runId": run_id,
+        "exists": True,
+        "active": ended is None,
+        "status": (ended.payload.get("status") if ended else "running"),
+        "events": len(history),
+        "started_at": started.ts if started else None,
+        "ended_at": ended.ts if ended else None,
+    }
+
+
 @router.post("/{run_id}/cancel")
 def cancel(run_id: str) -> dict:
     """Cooperatively cancel an in-flight run. The swarm checks the cancellation

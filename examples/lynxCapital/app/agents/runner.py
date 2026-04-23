@@ -22,7 +22,6 @@ class AgentHandle:
         layer: str,
         region: str | None,
         run_id: str,
-        use_llm: bool,
     ) -> None:
         self.id = id
         self.role = role
@@ -31,7 +30,6 @@ class AgentHandle:
         self.layer = layer
         self.region = region
         self.run_id = run_id
-        self.use_llm = use_llm
         self.status = "spawned"
         self._terminated = False
 
@@ -51,10 +49,8 @@ class AgentHandle:
 
 
 class AgentRunner:
-    def __init__(self, run_id: str, llm_cap: int) -> None:
+    def __init__(self, run_id: str) -> None:
         self.run_id = run_id
-        self._cap = llm_cap
-        self._llm_count = 0
         self._handles: dict[str, AgentHandle] = {}
         self._children: dict[str, list[str]] = {}
 
@@ -69,10 +65,6 @@ class AgentRunner:
         agent_id = str(uuid4())
         parent_id = parent.id if parent else None
 
-        use_llm = self._llm_count < self._cap
-        if use_llm:
-            self._llm_count += 1
-
         handle = AgentHandle(
             id=agent_id,
             role=role,
@@ -81,7 +73,6 @@ class AgentRunner:
             layer=layer,
             region=region,
             run_id=self.run_id,
-            use_llm=use_llm,
         )
         self._handles[agent_id] = handle
         if parent_id:
@@ -110,8 +101,8 @@ class AgentRunner:
 _runners: dict[str, AgentRunner] = {}
 
 
-def create_runner(run_id: str, llm_cap: int) -> AgentRunner:
-    runner = AgentRunner(run_id, llm_cap)
+def create_runner(run_id: str) -> AgentRunner:
+    runner = AgentRunner(run_id)
     _runners[run_id] = runner
     return runner
 

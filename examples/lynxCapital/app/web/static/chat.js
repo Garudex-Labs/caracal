@@ -457,18 +457,54 @@ function startRun() {
     .then(r => r.json())
     .then(data => {
       state.runId = data.runId;
+      try { localStorage.setItem("lynx.runId", data.runId); } catch (_) {}
       window.dispatchEvent(new CustomEvent("run-started", { detail: { runId: state.runId } }));
-      state.es = new EventSource(`/api/run/${state.runId}/events`);
-      state.es.onmessage = e => {
-        try { handleEvent(JSON.parse(e.data)); }
-        catch (err) { /* keepalive */ }
-      };
-      state.es.onerror = () => { /* server closes on completion */ };
+      attachStream(state.runId, /*active=*/true);
     })
     .catch(() => {
       finishRun();
       addInline("error", "Failed to start run.");
     });
+}
+
+function attachStream(runId, active) {
+  state.es = new EventSource(`/api/run/${runId}/events`);
+  state.es.onmessage = e => {
+    try { handleEvent(JSON.parse(e.data)); }
+    catch (err) { /* keepalive */ }
+  };
+  state.es.onerror = () => { /* server closes on completion */ };
+  if (!active) {
+    // The run already ended server-side; replay will arrive, then stream closes.
+    stopBtn.hidden = true;
+    startBtn.hidden = false;
+  }
+}
+
+async function tryResume() {
+  let saved = null;
+  try { saved = localStorage.getItem("lynx.runId"); } catch (_) { return; }
+  if (!saved) return;
+  try {
+    const r = await fetch(`/api/run/${saved}/status`);
+    if (!r.ok) { localStorage.removeItem("lynx.runId"); return; }
+    const data = await r.json();
+    state.runId = saved;
+    clearEmpty();
+    addInline("system", `Reattached to run <code>${saved.slice(0, 8)}</code> \u00b7 ${data.active ? "still running" : data.status} \u00b7 replaying ${data.events} events`);
+    if (data.active) {
+      startBtn.hidden = true;
+      stopBtn.hidden = false;
+      stopBtn.disabled = false;
+      stopBtn.textContent = "Stop";
+      if (agentCount) agentCount.textContent = "resuming";
+    }
+    window.dispatchEvent(new CustomEvent("run-started", { detail: { runId: saved } }));
+    attachStream(saved, data.active);
+  } catch (err) {
+    /* run expired or server restarted */
+    try { localStorage.removeItem("lynx.runId"); } catch (_) {}
+  }
 }
 
 startBtn.addEventListener("click", startRun);
@@ -482,3 +518,4 @@ promptInput.addEventListener("keydown", e => {
 
 loadModelList();
 refreshMemoryBar();
+tryResume();

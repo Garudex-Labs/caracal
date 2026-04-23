@@ -32,10 +32,6 @@ class LlmConfig(BaseModel):
     temperature: float
 
 
-class SwarmConfig(BaseModel):
-    llmBackedCap: int
-
-
 class RegionEntry(BaseModel):
     id: str
     name: str
@@ -74,7 +70,6 @@ class AppConfig(BaseModel):
     shortName: str
     theme: ThemeConfig
     llm: LlmConfig
-    swarm: SwarmConfig
     regions: list[RegionEntry]
     providers: list[ProviderEntry]
     agentLayers: list[AgentLayerEntry]

@@ -39,7 +39,6 @@ def config() -> dict:
             {"id": l.id, "label": l.label, "perRegion": l.perRegion, "ephemeral": l.ephemeral}
             for l in cfg.agentLayers
         ],
-        "swarm": {"llmBackedCap": cfg.swarm.llmBackedCap},
         "scenario": cfg.scenario.model_dump(),
         "theme": cfg.theme.model_dump(),
     }

@@ -17,9 +17,6 @@ llm:
   model: "gpt-4o"
   temperature: 0.1
 
-swarm:
-  llmBackedCap: 8
-
 regions:
   - id: "US"
     name: "North America"
