@@ -40,7 +40,7 @@ _FORBIDDEN_RUNTIME_COMPOSE_MARKERS = (
 )
 _REQUIRED_RUNTIME_COMPOSE_MARKERS = (
     "  vault:",
-    "image: ${caracal_vault_sidecar_image:-infisical/infisical:v0.93.1}",
+    "image: ${caracal_vault_sidecar_image:-infisical/infisical:latest}",
     "caracal_principal_key_backend: ${caracal_principal_key_backend:-vault}",
     "caracal_vault_url: ${caracal_vault_url:-http://vault:8080}",
     "caracal_vault_token:",

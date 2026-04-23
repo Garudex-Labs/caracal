@@ -53,7 +53,7 @@ services:
     #   CARACAL_VAULT_RETRY_BACKOFF_SECONDS  Backoff between retries.
     # ---------------------------------------------------------------------------
     vault:
-        image: ${CARACAL_VAULT_SIDECAR_IMAGE:-infisical/infisical:v0.93.1}
+        image: ${CARACAL_VAULT_SIDECAR_IMAGE:-infisical/infisical:latest}
         environment:
             NODE_ENV: production
             AUTH_SECRET: ${CARACAL_VAULT_SIDECAR_AUTH_SECRET:-caracal-dev-auth-secret}

@@ -1273,8 +1273,10 @@ def _compose_cmd(compose_file: Path) -> list[str]:
     os.environ.setdefault(HOST_IO_ROOT_ENV, HOST_IO_ROOT_IN_CONTAINER)
 
     compose_cmd = _resolve_compose_command()
-    env_file = Path.cwd().resolve() / ".env"
-    if env_file.exists():
+    runtime_env_file = compose_file.parent / ".env"
+    cwd_env_file = Path.cwd().resolve() / ".env"
+    env_file = runtime_env_file if runtime_env_file.exists() else cwd_env_file if cwd_env_file.exists() else None
+    if env_file is not None:
         compose_cmd.extend(["--env-file", str(env_file)])
 
     compose_cmd.extend(["-f", str(compose_file)])
