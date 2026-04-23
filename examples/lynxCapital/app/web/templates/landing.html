@@ -64,7 +64,7 @@
   </div>
 
   <button class="continue-btn" id="continue-btn" disabled>
-    Continue to demo
+    Continue to setup
   </button>
 </div>
 
@@ -75,7 +75,7 @@
   btn.addEventListener('click', async () => {
     btn.disabled = true;
     await fetch('/api/session/accept', {method: 'POST'});
-    window.location = '/demo';
+    window.location = '/setup';
   });
 </script>
 {% endblock %}

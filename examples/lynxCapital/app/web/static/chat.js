@@ -564,3 +564,5 @@ promptInput.addEventListener("keydown", e => {
 loadModelList();
 refreshMemoryBar();
 tryResume();
+
+window.runActive = () => stopBtn && !stopBtn.hidden;

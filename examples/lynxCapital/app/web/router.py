@@ -11,7 +11,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from pathlib import Path
 
-from app.api.session import COOKIE
+from app.api.session import COOKIE, SETUP_COOKIE
 from app.config import get_config
 
 router = APIRouter()
@@ -20,6 +20,10 @@ templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
 
 def _accepted(request: Request) -> bool:
     return request.cookies.get(COOKIE) == "1"
+
+
+def _setup_validated(request: Request) -> bool:
+    return request.cookies.get(SETUP_COOKIE) == "1"
 
 
 def _ctx(request: Request) -> dict:
@@ -35,6 +39,7 @@ def _ctx(request: Request) -> dict:
         "agentLayers": [l.model_dump() for l in cfg.agentLayers],
         "providers": [p.model_dump() for p in cfg.providers],
         "accepted": _accepted(request),
+        "setup_validated": _setup_validated(request),
     }
 
 
@@ -45,25 +50,27 @@ def landing(request: Request):
 
 @router.get("/setup", response_class=HTMLResponse)
 def setup(request: Request):
+    if not _accepted(request):
+        return RedirectResponse(url="/", status_code=303)
     return templates.TemplateResponse("setup.html", _ctx(request))
 
 
 @router.get("/demo", response_class=HTMLResponse)
 def demo(request: Request):
-    if not _accepted(request):
-        return RedirectResponse(url="/", status_code=303)
+    if not _setup_validated(request):
+        return RedirectResponse(url="/setup" if _accepted(request) else "/", status_code=303)
     return templates.TemplateResponse("demo.html", _ctx(request))
 
 
 @router.get("/logs", response_class=HTMLResponse)
 def logs(request: Request):
-    if not _accepted(request):
-        return RedirectResponse(url="/", status_code=303)
+    if not _setup_validated(request):
+        return RedirectResponse(url="/setup" if _accepted(request) else "/", status_code=303)
     return templates.TemplateResponse("logs.html", _ctx(request))
 
 
 @router.get("/observe", response_class=HTMLResponse)
 def observe(request: Request):
-    if not _accepted(request):
-        return RedirectResponse(url="/", status_code=303)
+    if not _setup_validated(request):
+        return RedirectResponse(url="/setup" if _accepted(request) else "/", status_code=303)
     return templates.TemplateResponse("observe.html", _ctx(request))

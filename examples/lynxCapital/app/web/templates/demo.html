@@ -69,4 +69,22 @@
 
 <script src="/static/chat.js?v=6" type="module"></script>
 <script src="/static/graph.js?v=6" type="module"></script>
+<script>
+  // Warn before leaving while a run is active
+  window.addEventListener('beforeunload', e => {
+    if (typeof window.runActive === 'function' && window.runActive()) {
+      e.preventDefault();
+    }
+  });
+  // Intercept nav link clicks while a run is active
+  document.addEventListener('click', e => {
+    const a = e.target.closest('a[href]');
+    if (!a) return;
+    if (typeof window.runActive !== 'function' || !window.runActive()) return;
+    const href = a.getAttribute('href');
+    if (href && !href.startsWith('#') && href !== '/demo') {
+      if (!confirm('A run is active. Leave anyway?')) e.preventDefault();
+    }
+  });
+</script>
 {% endblock %}

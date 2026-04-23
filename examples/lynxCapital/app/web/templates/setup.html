@@ -44,6 +44,21 @@
   <h1>Caracal setup</h1>
   <p class="sub">Run these commands once before starting the demo. Each block is a single terminal command.</p>
 
+  <!-- Phase 0: Install -->
+  <div class="phase">
+    <div class="phase-hd"><span>0. Install Caracal</span><span class="toggle-icon">▼</span></div>
+    <div class="phase-body">
+      <div class="step">
+        <div class="step-num">0</div>
+        <div class="step-body">
+          <div class="step-label">Install the Caracal CLI and SDK</div>
+          <div class="cmd-block">pip install caracal caracal-sdk<button class="copy-btn" data-cmd="pip install caracal caracal-sdk">copy</button></div>
+          <div class="step-note">This installs the <code>caracal</code> CLI and the Python SDK used by this demo app. Requires Python 3.10+ and Docker.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- Phase 1: Stack -->
   <div class="phase">
     <div class="phase-hd"><span>1. Start the Caracal runtime</span><span class="toggle-icon">▼</span></div>
@@ -231,6 +246,7 @@ mandate template create --workspace lynx-capital \
 
   <div class="validate-bar">
     <button id="validate-btn">Validate configuration</button>
+    <button id="start-demo-btn" style="display:none; background:var(--accent); color:#fff; border:none; padding:8px 18px; font-size:12px; font-weight:600; border-radius:3px; cursor:pointer;">Start Demo →</button>
     <div id="validate-out"></div>
   </div>
 </div>
@@ -249,13 +265,16 @@ mandate template create --workspace lynx-capital \
     });
   });
 
-  // Validate
   const validateBtn = document.getElementById('validate-btn');
+  const startDemoBtn = document.getElementById('start-demo-btn');
   const validateOut = document.getElementById('validate-out');
+
+  // Validate
   validateBtn.addEventListener('click', async () => {
     validateBtn.disabled = true;
     validateBtn.textContent = 'Checking...';
     validateOut.innerHTML = '';
+    startDemoBtn.style.display = 'none';
     try {
       const r = await fetch('/api/setup/validate');
       const data = await r.json();
@@ -267,12 +286,22 @@ mandate template create --workspace lynx-capital \
         ${s.detail ? `<div class="result-detail">${s.detail}</div>` : ''}
       `).join('');
       validateOut.innerHTML = html;
+      if (data.ok) {
+        startDemoBtn.style.display = 'inline-block';
+      }
     } catch (e) {
       validateOut.textContent = 'Validation request failed: ' + e.message;
     } finally {
       validateBtn.disabled = false;
       validateBtn.textContent = 'Validate configuration';
     }
+  });
+
+  // Start Demo — persists setup state then navigates
+  startDemoBtn.addEventListener('click', async () => {
+    startDemoBtn.disabled = true;
+    await fetch('/api/session/setup-complete', {method: 'POST'});
+    window.location = '/demo';
   });
 </script>
 {% endblock %}
