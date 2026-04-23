@@ -2,7 +2,9 @@
  * Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
  * Caracal, a product of Garudex Labs
  *
- * Chat panel: user bubbles, streaming assistant bubbles, inline lifecycle notes.
+ * Chat panel: user bubbles, streaming assistant bubbles from any LLM-backed
+ * agent (Finance Control, Regional Orchestrators), inline lifecycle notes,
+ * and per-turn LLM telemetry.
  */
 
 const stream      = document.getElementById('chat-stream');
@@ -15,7 +17,8 @@ let currentRunId = null;
 let es = null;
 let spawned = 0;
 let terminated = 0;
-let assistantBubbles = {};
+let assistantBubbles = {};  // key: `${agent_id}:${message_id}` -> bubble node
+const agentLabels = {};     // agent_id -> human label
 
 function clearEmpty() {
   if (emptyEl && emptyEl.parentNode) emptyEl.remove();
@@ -23,6 +26,10 @@ function clearEmpty() {
 
 function scrollDown() {
   stream.scrollTop = stream.scrollHeight;
+}
+
+function labelFor(agentId) {
+  return agentLabels[agentId] || 'Agent';
 }
 
 function addUser(text) {
@@ -35,16 +42,19 @@ function addUser(text) {
   scrollDown();
 }
 
-function ensureAssistant(messageId) {
-  if (assistantBubbles[messageId]) return assistantBubbles[messageId];
+function ensureAssistant(agentId, messageId) {
+  const key = `${agentId}:${messageId}`;
+  if (assistantBubbles[key]) return assistantBubbles[key];
   clearEmpty();
   const wrap = document.createElement('div');
   wrap.className = 'msg assistant';
-  wrap.innerHTML = `<div class="author">Finance Control</div><div class="bubble empty"></div>`;
+  const author = labelFor(agentId);
+  wrap.innerHTML = `<div class="author"></div><div class="bubble empty"></div>`;
+  wrap.querySelector('.author').textContent = author;
   stream.appendChild(wrap);
   scrollDown();
   const bubble = wrap.querySelector('.bubble');
-  assistantBubbles[messageId] = bubble;
+  assistantBubbles[key] = bubble;
   return bubble;
 }
 
@@ -60,7 +70,15 @@ function addInline(cls, html) {
 function handleEvent(ev) {
   const p = ev.payload || {};
 
-  if (ev.kind === 'agent_spawn') spawned++;
+  // Track agent labels from spawn events so we can label chat bubbles later.
+  if (ev.kind === 'agent_spawn') {
+    spawned++;
+    let label;
+    if (p.layer === 'finance-control') label = 'Finance Control';
+    else if (p.layer === 'regional-orchestrator') label = `Regional Orchestrator \u00b7 ${p.region}`;
+    else label = p.role;
+    agentLabels[p.agent_id] = label;
+  }
   if (ev.kind === 'agent_terminate') terminated++;
   if (agentCount) agentCount.textContent = spawned ? `${terminated}/${spawned} agents` : 'running';
 
@@ -68,20 +86,28 @@ function handleEvent(ev) {
     case 'chat_user':
       break;
     case 'chat_token': {
-      const bubble = ensureAssistant(p.message_id);
+      const bubble = ensureAssistant(p.agent_id, p.message_id);
       bubble.classList.remove('empty');
       bubble.textContent = (bubble.textContent || '') + p.token;
       scrollDown();
       break;
     }
     case 'chat_message': {
-      const bubble = ensureAssistant(p.message_id);
+      const bubble = ensureAssistant(p.agent_id, p.message_id);
       bubble.classList.remove('empty');
       if (p.text && !bubble.textContent) bubble.textContent = p.text;
       break;
     }
+    case 'llm_call':
+      addInline('system', `LLM \u00b7 <code>${p.model}</code> \u00b7 ${p.latency_ms}ms \u00b7 in ${p.input_tokens}tok / out ${p.output_tokens}tok${p.tool_calls ? ` \u00b7 ${p.tool_calls} tool call${p.tool_calls > 1 ? 's' : ''}` : ''}`);
+      break;
     case 'tool_call':
-      addInline('tool', `Calling <code>${p.tool_name}</code>${p.args && p.args.region ? ` \u00b7 region <code>${p.args.region}</code>` : ''}`);
+      if (p.tool_name === 'dispatch_region') {
+        addInline('tool', `Dispatching region <code>${(p.args && p.args.region) || '?'}</code>${p.args && p.args.focus ? ` \u00b7 ${p.args.focus}` : ''}`);
+      } else {
+        const argSummary = p.args ? Object.entries(p.args).filter(([k]) => k !== 'focus').map(([k, v]) => `${k}=${String(v).slice(0, 24)}`).join(' ') : '';
+        addInline('tool', `Calling <code>${p.tool_name}</code>${argSummary ? ` \u00b7 ${argSummary}` : ''}`);
+      }
       break;
     case 'agent_spawn':
       if (p.layer === 'regional-orchestrator') {
@@ -113,6 +139,7 @@ function startRun() {
   spawned = 0;
   terminated = 0;
   assistantBubbles = {};
+  Object.keys(agentLabels).forEach(k => delete agentLabels[k]);
   stream.innerHTML = '';
   addUser(prompt);
   promptInput.value = '';

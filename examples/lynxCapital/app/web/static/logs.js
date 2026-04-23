@@ -66,6 +66,7 @@ function summarize(ev) {
     case 'chat_user':       return `User  ${(p.text || '').slice(0, 80)}`;
     case 'chat_token':      return `Token  ${JSON.stringify(p.token || '')}`;
     case 'chat_message':    return `Message  ${(p.text || '').slice(0, 80)}`;
+    case 'llm_call':        return `LLM call  ${p.model}  ${p.latency_ms}ms  in=${p.input_tokens}tok out=${p.output_tokens}tok  tools=${p.tool_calls}  agent=${agent}`;
     default:                return ev.kind;
   }
 }

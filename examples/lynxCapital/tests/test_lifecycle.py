@@ -25,27 +25,87 @@ from app.orchestration.swarm import run_swarm
 
 
 class _FakeLLM:
-    """Stand-in for ChatOpenAI in tests: first call dispatches all five
-    regions via tool calls, second call emits a final summary."""
+    """Stand-in for ChatOpenAI in tests.
+
+    Branches on the first SystemMessage: Finance Control dispatches all five
+    regions via tool calls; Regional Orchestrators drive a realistic multi-turn
+    tool-call sequence (list -> extract -> match -> compliance -> submit ->
+    withholding -> audit -> summary)."""
 
     def __init__(self):
         self._tools = []
         self._turn = 0
+        self._role = None
+        self._region = None
 
     def bind_tools(self, tools):
         self._tools = tools
         return self
 
+    def _classify(self, messages):
+        for m in messages:
+            if getattr(m, "type", None) == "system" or m.__class__.__name__ == "SystemMessage":
+                txt = str(m.content)
+                if "Finance Control" in txt:
+                    self._role = "fc"
+                elif "Regional Orchestrator" in txt:
+                    self._role = "regional"
+                    # pull the region token: "for the XX region"
+                    import re
+                    m2 = re.search(r"for the (\w+) region", txt)
+                    if m2:
+                        self._region = m2.group(1)
+                break
+
     async def astream(self, messages):
+        from langchain_core.messages import AIMessageChunk
+        if self._role is None:
+            self._classify(messages)
         self._turn += 1
+
+        if self._role == "fc":
+            if self._turn == 1:
+                tool_calls = [
+                    {"name": "dispatch_region", "args": {"region": r, "focus": "batch"}, "id": f"fc-{r}", "type": "tool_call"}
+                    for r in ("US", "IN", "DE", "SG", "BR")
+                ]
+                yield AIMessageChunk(content="Dispatching regions.", tool_calls=tool_calls)
+            else:
+                yield AIMessageChunk(content="All regions completed.")
+            return
+
+        # Regional orchestrator: multi-turn tool sequence.
+        region = self._region or "US"
         if self._turn == 1:
-            tool_calls = [
-                {"name": "dispatch_region", "args": {"region": r}, "id": f"call-{r}", "type": "tool_call"}
-                for r in ("US", "IN", "DE", "SG", "BR")
-            ]
-            yield AIMessageChunk(content="Dispatching regions.", tool_calls=tool_calls)
+            yield AIMessageChunk(
+                content="",
+                tool_calls=[{"name": "list_pending_invoices", "args": {"limit": 2}, "id": f"r-{region}-list", "type": "tool_call"}],
+            )
+        elif self._turn == 2:
+            # Use the last ToolMessage to pick a real invoice id from region data.
+            from app.core.dataset import INVOICES, VENDORS
+            invs = [i for i in INVOICES if i.region == region][:1]
+            if not invs:
+                yield AIMessageChunk(content="no invoices")
+                return
+            inv = invs[0]
+            vendor = VENDORS.get(inv.vendor_id)
+            rail = vendor.preferred_rails[0].value if vendor and vendor.preferred_rails else "WIRE"
+            yield AIMessageChunk(content="", tool_calls=[
+                {"name": "extract_invoice_data", "args": {"invoice_id": inv.id}, "id": f"r-{region}-e1", "type": "tool_call"},
+                {"name": "match_invoice_in_ledger", "args": {"invoice_id": inv.id, "vendor_id": inv.vendor_id, "amount": float(inv.amount_local), "currency": inv.currency}, "id": f"r-{region}-m1", "type": "tool_call"},
+                {"name": "check_vendor_compliance", "args": {"vendor_id": inv.vendor_id}, "id": f"r-{region}-c1", "type": "tool_call"},
+                {"name": "submit_payment", "args": {"vendor_id": inv.vendor_id, "amount": float(inv.amount_local), "currency": inv.currency, "rail": rail, "reference": f"ref-{inv.id}"}, "id": f"r-{region}-p1", "type": "tool_call"},
+            ])
+        elif self._turn == 3:
+            from app.core.dataset import REGIONS
+            currency = REGIONS[region].currency
+            yield AIMessageChunk(content="", tool_calls=[
+                {"name": "lookup_withholding_rate", "args": {"currency": currency}, "id": f"r-{region}-w", "type": "tool_call"},
+                {"name": "record_audit", "args": {"summary": f"{region} batch complete"}, "id": f"r-{region}-a", "type": "tool_call"},
+            ])
         else:
-            yield AIMessageChunk(content="All regions completed.")
+            yield AIMessageChunk(content=f"{region} batch complete.")
 
 
 @pytest.fixture(autouse=True)

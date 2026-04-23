@@ -119,3 +119,21 @@ def chat_token(run_id: str, agent_id: str, message_id: str, token: str) -> Event
 
 def chat_message(run_id: str, agent_id: str, message_id: str, text: str) -> Event:
     return _mk(run_id, "chat", "chat_message", agent_id=agent_id, message_id=message_id, text=text)
+
+
+def llm_call(
+    run_id: str,
+    agent_id: str,
+    model: str,
+    latency_ms: int,
+    input_tokens: int,
+    output_tokens: int,
+    tool_calls: int,
+    streamed_chars: int,
+) -> Event:
+    return _mk(
+        run_id, "system", "llm_call",
+        agent_id=agent_id, model=model, latency_ms=latency_ms,
+        input_tokens=input_tokens, output_tokens=output_tokens,
+        tool_calls=tool_calls, streamed_chars=streamed_chars,
+    )
