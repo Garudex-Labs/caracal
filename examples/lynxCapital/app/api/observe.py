@@ -34,10 +34,10 @@ def observe(run_id: str) -> dict:
     tool_calls_by_agent: dict[str, list] = {}
     for agent_id, agent_events in events_by_agent.items():
         # Walk in temporal order. Every tool_call is bracketed by its tool_result;
-        # any service_call/service_result that lands between those two markers
-        # belongs to that tool. This is robust to built-in tools (write_todos,
-        # write_file, read_file, ls_files, dispatch_region) that never talk to
-        # an external service.
+        # any service_call/service_result/caracal_enforce that lands between those
+        # two markers belongs to that tool. This is robust to built-in tools
+        # (write_todos, write_file, read_file, ls_files, dispatch_region) that
+        # never talk to an external service.
         i = 0
         n = len(agent_events)
         while i < n:
@@ -48,6 +48,7 @@ def observe(run_id: str) -> dict:
             j = i + 1
             tr_ev = None
             services: list[dict] = []
+            enforce: dict | None = None
             pending_sc: dict | None = None
             while j < n and agent_events[j].kind != "tool_call":
                 ej = agent_events[j]
@@ -55,7 +56,14 @@ def observe(run_id: str) -> dict:
                     tr_ev = ej
                     j += 1
                     break
-                if ej.kind == "service_call":
+                if ej.kind == "caracal_enforce" and enforce is None:
+                    enforce = {
+                        "tool_id":  ej.payload.get("tool_id"),
+                        "decision": ej.payload.get("decision"),
+                        "reason":   ej.payload.get("reason", ""),
+                        "ts":       ej.ts,
+                    }
+                elif ej.kind == "service_call":
                     pending_sc = {
                         "id": ej.payload.get("service_id"),
                         "action": ej.payload.get("action"),
@@ -77,15 +85,23 @@ def observe(run_id: str) -> dict:
                 "ts_call": e.ts,
                 "ts_result": tr_ev.ts if tr_ev else None,
                 "result": tr_ev.payload.get("result") if tr_ev else None,
+                "enforce": enforce,
                 "services": services,
             })
             i = j
+
+    # Index caracal_bind events by agent_id
+    binds = {
+        e.payload["agent_id"]: e
+        for e in history if e.kind == "caracal_bind"
+    }
 
     spans = []
     for agent_id, spawn_ev in spawns.items():
         term_ev = terminates.get(agent_id)
         start_ev = starts.get(agent_id)
         end_ev = ends.get(agent_id)
+        bind_ev = binds.get(agent_id)
 
         status = "spawned"
         if start_ev and not term_ev:
@@ -101,6 +117,8 @@ def observe(run_id: str) -> dict:
             "scope": spawn_ev.payload.get("scope"),
             "parent": spawn_ev.payload.get("parent_id"),
             "status": status,
+            "principal": bind_ev.payload.get("reason", "").replace("bound to ", "") if bind_ev else None,
+            "bind_decision": bind_ev.payload.get("decision") if bind_ev else None,
             "ts_spawn": spawn_ev.ts,
             "ts_start": start_ev.ts if start_ev else None,
             "ts_end": end_ev.ts if end_ev else None,

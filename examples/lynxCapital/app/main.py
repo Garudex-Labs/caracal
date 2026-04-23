@@ -6,6 +6,7 @@ FastAPI application entry point with router mounts and startup validation.
 """
 from __future__ import annotations
 
+import asyncio
 import os
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -24,6 +25,22 @@ async def lifespan(app: FastAPI):
     load_config()
     if not os.environ.get("OPENAI_API_KEY"):
         raise RuntimeError("OPENAI_API_KEY is required but not set.")
+
+    # caracal-integration: construct Caracal client and check out workspace scope at startup
+    api_key = os.environ.get("CARACAL_API_KEY", "")
+    api_url = os.environ.get("CARACAL_API_URL", "")
+    workspace_id = os.environ.get("CARACAL_WORKSPACE_ID", "")
+    if not api_key or not api_url or not workspace_id:
+        raise RuntimeError(
+            "CARACAL_API_KEY, CARACAL_API_URL, and CARACAL_WORKSPACE_ID are required."
+        )
+    from caracal_sdk import CaracalClient
+    from app.agents.tools import init_enforcement
+    client = CaracalClient(api_key=api_key, base_url=api_url)
+    scope = client.context.checkout(workspace_id=workspace_id)
+    app.state.caracal = scope
+    init_enforcement(scope=scope, loop=asyncio.get_event_loop())
+
     yield
 
 

@@ -11,6 +11,19 @@ from uuid import uuid4
 from app.events import types as ev
 from app.events.bus import bus
 
+# caracal-integration: role → Caracal principal id lookup table
+_ROLE_PRINCIPAL = {
+    "finance-control":       "principal:finance-control",
+    "regional-orchestrator": "principal:regional-orchestrator",
+    "invoice-intake":        "principal:invoice-intake",
+    "ledger-match":          "principal:ledger-match",
+    "policy-check":          "principal:policy-check",
+    "route-optimization":    "principal:route-optimization",
+    "payment-execution":     "principal:payment-execution",
+    "audit":                 "principal:audit",
+    "exception":             "principal:exception",
+}
+
 
 class AgentHandle:
     def __init__(
@@ -22,6 +35,7 @@ class AgentHandle:
         layer: str,
         region: str | None,
         run_id: str,
+        principal_id: str,
     ) -> None:
         self.id = id
         self.role = role
@@ -30,6 +44,7 @@ class AgentHandle:
         self.layer = layer
         self.region = region
         self.run_id = run_id
+        self.principal_id = principal_id
         self.status = "spawned"
         self._terminated = False
 
@@ -64,6 +79,8 @@ class AgentRunner:
     ) -> AgentHandle:
         agent_id = str(uuid4())
         parent_id = parent.id if parent else None
+        # caracal-integration: bind agent role to Caracal principal at spawn
+        principal_id = _ROLE_PRINCIPAL.get(role, f"principal:{role}")
 
         handle = AgentHandle(
             id=agent_id,
@@ -73,6 +90,7 @@ class AgentRunner:
             layer=layer,
             region=region,
             run_id=self.run_id,
+            principal_id=principal_id,
         )
         self._handles[agent_id] = handle
         if parent_id:
@@ -81,6 +99,7 @@ class AgentRunner:
         bus.publish(ev.agent_spawn(self.run_id, agent_id, role, scope, parent_id, layer, region))
         if parent_id:
             bus.publish(ev.delegation(self.run_id, parent_id, agent_id, scope))
+        bus.publish(ev.caracal_bind(self.run_id, agent_id, "allow", f"bound to {principal_id}"))
 
         return handle
 

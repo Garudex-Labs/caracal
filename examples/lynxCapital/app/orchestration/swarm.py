@@ -495,6 +495,12 @@ async def run_swarm(run_id: str, prompt: str) -> None:
         if not fc._terminated:
             fc.terminate("cancelled")
         bus.publish(ev.run_end(run_id, "cancelled"))
+    except PermissionError as exc:
+        log.warning("run_swarm denied run_id=%s reason=%s", run_id, exc)
+        bus.publish(ev.error(run_id, str(exc), fc.id))
+        if not fc._terminated:
+            fc.terminate("denied")
+        bus.publish(ev.run_end(run_id, "denied"))
     except Exception as exc:
         log.exception("run_swarm failed run_id=%s", run_id)
         bus.publish(ev.error(run_id, str(exc), fc.id))

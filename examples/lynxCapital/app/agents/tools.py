@@ -6,11 +6,77 @@ Tool wrappers for every agent-callable service action; each emits full event pai
 """
 from __future__ import annotations
 
-from typing import Any, Callable
+import asyncio
+from typing import TYPE_CHECKING, Any
 
 from app.events import types as ev
 from app.events.bus import bus
 from app.services.registry import call as _svc
+
+if TYPE_CHECKING:
+    from caracal_sdk.context import ScopeContext
+
+# caracal-integration: module-level enforcement scope; set at app startup
+_enforcement_scope: "ScopeContext | None" = None
+_event_loop: asyncio.AbstractEventLoop | None = None
+
+
+def init_enforcement(scope: "ScopeContext", loop: asyncio.AbstractEventLoop) -> None:
+    global _enforcement_scope, _event_loop
+    _enforcement_scope = scope
+    _event_loop = loop
+
+
+# Maps (service_id, action) → MCP resource label for tool_id construction.
+_RESOURCE: dict[tuple[str, str], str] = {
+    ("mercury-bank",     "get_account_balance"): "account",
+    ("mercury-bank",     "submit_payment"):       "payment",
+    ("wise-payouts",     "get_quote"):            "quote",
+    ("wise-payouts",     "submit_payout"):        "payout",
+    ("stripe-treasury",  "get_financial_account"):"account",
+    ("stripe-treasury",  "create_outbound_payment"):"payment",
+    ("netsuite",         "get_vendor_record"):    "vendor",
+    ("netsuite",         "match_invoice"):        "invoice",
+    ("netsuite",         "get_payment_status"):   "payment",
+    ("sap-erp",          "get_vendor_record"):    "vendor",
+    ("sap-erp",          "match_invoice"):        "invoice",
+    ("quickbooks",       "get_vendor"):           "vendor",
+    ("quickbooks",       "match_bill"):           "bill",
+    ("compliance-nexus", "check_vendor"):         "vendor",
+    ("compliance-nexus", "check_transaction"):    "transaction",
+    ("ocr-vision",       "extract_invoice"):      "document",
+    ("vendor-portal",    "get_vendor_profile"):   "profile",
+    ("tax-rules",        "get_withholding_rate"): "rate",
+    ("tax-rules",        "validate_tax_id"):      "taxid",
+    ("fx-rates",         "get_rate"):             "rate",
+}
+
+
+def _tool_id(service_id: str, action: str) -> str:
+    resource = _RESOURCE.get((service_id, action), action.split("_")[0])
+    return f"provider:{service_id}:resource:{resource}:action:{action}"
+
+
+def _enforce(run_id: str, agent_id: str, service_id: str, action: str, args: dict) -> None:
+    # caracal-integration: route every external tool call through Caracal policy enforcement
+    if _enforcement_scope is None or _event_loop is None:
+        return
+    tid = _tool_id(service_id, action)
+    try:
+        future = asyncio.run_coroutine_threadsafe(
+            _enforcement_scope.tools.call(
+                tool_id=tid,
+                tool_args=args,
+                metadata={"correlation_id": run_id},
+            ),
+            _event_loop,
+        )
+        future.result(timeout=8)
+        bus.publish(ev.caracal_enforce(run_id, agent_id, tid, "allow"))
+    except Exception as exc:
+        reason = str(exc)
+        bus.publish(ev.caracal_enforce(run_id, agent_id, tid, "deny", reason))
+        raise PermissionError(f"Caracal denied {tid}: {reason}") from exc
 
 
 def _invoke(
@@ -22,6 +88,7 @@ def _invoke(
     args: dict[str, Any],
 ) -> dict[str, Any]:
     bus.publish(ev.tool_call(run_id, agent_id, tool_name, args))
+    _enforce(run_id, agent_id, service_id, action, args)
     bus.publish(ev.service_call(run_id, agent_id, service_id, action, args))
     result = _svc(service_id, action, args)
     bus.publish(ev.service_result(run_id, agent_id, service_id, action, result))

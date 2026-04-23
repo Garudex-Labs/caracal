@@ -2,7 +2,7 @@
 Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 Caracal, a product of Garudex Labs
 
-Web HTML routes: landing, demo, logs, and observe pages.
+Web HTML routes: landing, setup, demo, logs, and observe pages.
 """
 from __future__ import annotations
 
@@ -33,6 +33,7 @@ def _ctx(request: Request) -> dict:
         "scenario": cfg.scenario.model_dump(),
         "regions": [r.model_dump() for r in cfg.regions],
         "agentLayers": [l.model_dump() for l in cfg.agentLayers],
+        "providers": [p.model_dump() for p in cfg.providers],
         "accepted": _accepted(request),
     }
 
@@ -40,6 +41,11 @@ def _ctx(request: Request) -> dict:
 @router.get("/", response_class=HTMLResponse)
 def landing(request: Request):
     return templates.TemplateResponse("landing.html", _ctx(request))
+
+
+@router.get("/setup", response_class=HTMLResponse)
+def setup(request: Request):
+    return templates.TemplateResponse("setup.html", _ctx(request))
 
 
 @router.get("/demo", response_class=HTMLResponse)
