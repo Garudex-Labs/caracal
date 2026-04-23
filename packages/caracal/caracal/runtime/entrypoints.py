@@ -1159,10 +1159,11 @@ def _host_vault_init(_namespace: argparse.Namespace) -> int:
 
     print(f"Vault credentials written to {env_path}")
     print()
-    print(f"  CARACAL_VAULT_SIDECAR_AUTH_SECRET={auth_secret}")
-    print(f"  CARACAL_VAULT_SIDECAR_ENCRYPTION_KEY={encryption_key}")
+    print("  CARACAL_VAULT_SIDECAR_AUTH_SECRET=<redacted>")
+    print("  CARACAL_VAULT_SIDECAR_ENCRYPTION_KEY=<redacted>")
     print()
     print("Back these values up securely — they cannot be recovered if lost.")
+    print("Retrieve them from the .env file in a secure manner; they are not printed to the console.")
     print()
     print("Next step:  caracal up")
     return 0
