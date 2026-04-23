@@ -8,13 +8,13 @@ members = [
 
 [tool.uv.sources]
 caracal-sdk = { workspace = true }
-caracal = { workspace = true }
+caracal-core = { workspace = true }
 caracal-server = { workspace = true }
 
 # Root-level dev dependencies needed to drive the test suite across the workspace.
 [dependency-groups]
 dev = [
-    "caracal",
+    "caracal-core",
     "caracal-server",
     "caracal-sdk",
     "pytest>=9.0.3",

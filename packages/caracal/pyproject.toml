@@ -3,7 +3,7 @@ requires = ["setuptools>=68.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "caracal"
+name = "caracal-core"
 version = "0.7.0"
 description = "Host orchestrator for the Caracal pre-execution authority enforcement runtime"
 requires-python = ">=3.10"
