@@ -56,13 +56,13 @@ class RuntimeLoggingPolicy:
     redact_sensitive: bool
 
 
-def add_correlation_id(logger: Any, method_name: str, event_dict: EventDict) -> EventDict:
+def add_correlation_id(logger: Any, _method_name: str, event_dict: EventDict) -> EventDict:
     """
     Add correlation ID to log events if present in context.
     
     Args:
         logger: Logger instance
-        method_name: Name of the logging method
+        _method_name: Name of the logging method (structlog hook signature)
         event_dict: Event dictionary to modify
         
     Returns:
@@ -91,7 +91,7 @@ def _redact_sensitive_values(value: Any) -> Any:
     return value
 
 
-def redact_sensitive_fields(logger: Any, method_name: str, event_dict: EventDict) -> EventDict:
+def redact_sensitive_fields(logger: Any, _method_name: str, event_dict: EventDict) -> EventDict:
     """Redact sensitive log fields before rendering structured output."""
     return _redact_sensitive_values(event_dict)
 

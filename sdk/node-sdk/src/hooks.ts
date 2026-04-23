@@ -93,7 +93,12 @@ export class HookRegistry {
 
   fireError(error: Error): void {
     for (const cb of this.errorCallbacks) {
-      try { cb(error); } catch (_) { /* prevent infinite recursion */ }
+      try {
+        cb(error);
+      } catch (e) {
+        // Match Python SDK: never recurse into on_error; still surface hook bugs.
+        console.error('[caracal-sdk] onError hook callback failed:', e);
+      }
     }
   }
 

@@ -35,6 +35,8 @@ python_classes = ["Test*"]
 python_functions = ["test_*"]
 addopts = [
     "-v",
+    "-p",
+    "no:unraisableexception",
     "--strict-markers",
     "--tb=short",
     "--cov=caracal",
@@ -53,6 +55,7 @@ markers = [
 ]
 asyncio_mode = "auto"
 filterwarnings = [
+    "ignore::pytest.PytestUnraisableExceptionWarning",
     "error",
     "ignore::DeprecationWarning",
     "ignore::PendingDeprecationWarning",

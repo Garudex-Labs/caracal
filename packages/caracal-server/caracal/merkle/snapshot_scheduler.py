@@ -247,7 +247,7 @@ def run_snapshot_scheduler(
     )
     
     # Setup signal handlers for graceful shutdown
-    def signal_handler(signum, frame):
+    def signal_handler(signum, _frame):
         logger.info(f"Received signal {signum}, shutting down...")
         scheduler.stop()
         sys.exit(0)

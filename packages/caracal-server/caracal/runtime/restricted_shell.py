@@ -215,7 +215,7 @@ class CaracalCompleter(Completer):
     def __init__(self, root_command: click.Command):
         self.root_command = root_command
 
-    def get_completions(self, document, complete_event):
+    def get_completions(self, document, _complete_event):
         text = document.text_before_cursor
         trailing_space = text.endswith(" ")
         try:

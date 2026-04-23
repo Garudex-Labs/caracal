@@ -22,6 +22,7 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
+from caracal.datetime_parsing import parse_datetime
 from caracal.flow.components.menu import show_menu
 from caracal.flow.components.prompt import FlowPrompt
 from caracal.flow.theme import Colors, Icons
@@ -178,13 +179,19 @@ class AuthorityLedgerFlow:
                 start_time = None
                 end_time = None
                 if self.prompt.confirm("Filter by time range?", default=False):
-                    start_str = self.prompt.text("Start time (YYYY-MM-DD HH:MM:SS)", required=False)
+                    start_str = self.prompt.text(
+                        "Start time (ISO or YYYY-MM-DD [HH:MM:SS])",
+                        required=False,
+                    )
                     if start_str:
-                        start_time = datetime.strptime(start_str, "%Y-%m-%d %H:%M:%S")
-                    
-                    end_str = self.prompt.text("End time (YYYY-MM-DD HH:MM:SS)", required=False)
+                        start_time = parse_datetime(start_str)
+
+                    end_str = self.prompt.text(
+                        "End time (ISO or YYYY-MM-DD [HH:MM:SS])",
+                        required=False,
+                    )
                     if end_str:
-                        end_time = datetime.strptime(end_str, "%Y-%m-%d %H:%M:%S")
+                        end_time = parse_datetime(end_str)
                 
                 # Build query
                 query = db_session.query(AuthorityLedgerEvent)

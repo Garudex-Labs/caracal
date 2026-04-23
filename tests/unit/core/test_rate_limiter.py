@@ -129,9 +129,6 @@ class TestMandateIssuanceRateLimiter:
         
         # Act - Should not raise
         self.limiter.record_request(principal_id)
-        
-        # Assert - Error logged but not raised
-        assert True  # If we get here, error was handled
     
     def test_get_current_usage(self):
         """Test getting current rate limit usage."""
@@ -186,9 +183,6 @@ class TestMandateIssuanceRateLimiter:
         
         # Act - Should not raise
         self.limiter.reset_principal_limits(principal_id)
-        
-        # Assert - Error logged but not raised
-        assert True  # If we get here, error was handled
 
 
 @pytest.mark.unit

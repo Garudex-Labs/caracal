@@ -74,6 +74,32 @@ class GatewayFeatureFlags:
 
 
 def get_gateway_features() -> GatewayFeatureFlags:
+    """
+    Resolve gateway flags from the Caracal runtime when installed; otherwise
+    fall back to lightweight environment parsing (standalone SDK installs).
+    """
+    try:
+        # Use __import__ (not importlib.import_module) so callers can rely on
+        # builtins.__import__ hooks; fromlist forces loading the leaf module.
+        core_gw = __import__(
+            "caracal.core.gateway_features",
+            globals(),
+            locals(),
+            ("GatewayFeatureFlags",),
+            0,
+        )
+    except ImportError:
+        pass
+    else:
+        core_flags = core_gw.get_gateway_features()
+        return GatewayFeatureFlags(
+            gateway_enabled=bool(core_flags.gateway_enabled),
+            gateway_endpoint=core_flags.gateway_endpoint,
+            gateway_api_key=core_flags.gateway_api_key,
+            deployment_type=str(core_flags.deployment_type).strip().lower(),
+            fail_closed=bool(core_flags.fail_closed),
+        )
+
     return GatewayFeatureFlags(
         gateway_enabled=_bool_env("CARACAL_GATEWAY_ENABLED"),
         gateway_endpoint=os.getenv("CARACAL_ENTERPRISE_URL", "").strip() or None,

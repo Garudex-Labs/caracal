@@ -99,8 +99,6 @@ class ConfigManager:
     CONFIG_DIR = resolve_caracal_home()
     CONFIG_FILE = CONFIG_DIR / "config.toml"
     WORKSPACES_DIR = CONFIG_DIR / "workspaces"
-    CACHE_DIR = CONFIG_DIR / "cache"  # Legacy root cache (deprecated)
-    LOGS_DIR = CONFIG_DIR / "logs"  # Legacy root logs (deprecated)
     
     # Workspace name validation pattern
     WORKSPACE_NAME_PATTERN = re.compile(r'^[a-zA-Z0-9_-]{1,64}$')
@@ -135,9 +133,8 @@ class ConfigManager:
             self.CONFIG_DIR.chmod(0o700)
             
             self.WORKSPACES_DIR.mkdir(exist_ok=True)
-            # Root-level cache/log directories are deprecated.
-            # Runtime artifacts are stored under each workspace directory.
-            
+            # Runtime artifacts (cache, logs) live under each workspace directory.
+
             if debug_logs_enabled():
                 logger.debug(
                     "config_dir_ensured",

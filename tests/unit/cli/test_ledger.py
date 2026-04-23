@@ -10,7 +10,8 @@ from datetime import datetime
 from decimal import Decimal
 from uuid import uuid4
 
-from caracal.cli.ledger import query, summary, parse_datetime
+from caracal.cli.ledger import query, summary
+from caracal.datetime_parsing import parse_datetime
 
 
 @pytest.mark.unit

@@ -658,13 +658,11 @@ def _step_config(wizard: Wizard) -> Any:
         wizard.context["config_path"] = str(config_path)
         return str(config_path)
     
-    # ── Existing workspace: preserve existing configuration silently ──
     if wizard.context.get("workspace_existing") and config_path.exists() and (config_path / "config.yaml").exists():
         console.print(f"  [{Colors.SUCCESS}]{Icons.SUCCESS} Using existing configuration at {config_path}[/]")
         wizard.context["config_path"] = str(config_path)
         return str(config_path)
     
-    # ── No config found for existing workspace — initialize ──
     console.print(f"  [{Colors.NEUTRAL}]Caracal stores its configuration and data files in a directory.")
     console.print(f"  [{Colors.DIM}]Location: {config_path}[/]")
     console.print()
@@ -1019,7 +1017,6 @@ def _step_database(wizard: Wizard) -> Any:
     console = wizard.console
     prompt = FlowPrompt(console)
     
-    # ── Existing workspace: preserve existing database silently ──
     if wizard.context.get("workspace_existing"):
         db_result = _load_existing_db_config(wizard, console)
         if db_result is not None:
@@ -1031,8 +1028,6 @@ def _step_database(wizard: Wizard) -> Any:
     console.print(f"  [{Colors.NEUTRAL}]Caracal uses PostgreSQL as its database backend.[/]")
     console.print(f"  [{Colors.DIM}]Each workspace gets its own isolated PostgreSQL schema.[/]")
     console.print()
-    
-    # ── PostgreSQL path — must succeed, no fallback ──
     
     while True:
         # 1. Load and validate env config
@@ -1271,41 +1266,6 @@ def _try_runtime_password_fallback(
             return True, candidate
 
     return False, None
-    
-    if "password" in error_lower or "authentication" in error_lower:
-        console.print(f"  [{Colors.ERROR}]DIAGNOSIS: Authentication failed[/]")
-        console.print(f"  [{Colors.DIM}]  → The password for user '{config.get('username')}' is incorrect[/]")
-        console.print(f"  [{Colors.DIM}]  → Fix: Update CARACAL_DB_PASSWORD in your .env file[/]")
-        console.print(f"  [{Colors.DIM}]  → Or reset: sudo -u postgres psql -c \"ALTER USER {config.get('username')} PASSWORD 'newpass';\"[/]")
-    elif "connection refused" in error_lower or "could not connect" in error_lower:
-        console.print(f"  [{Colors.ERROR}]DIAGNOSIS: PostgreSQL server is not running or not accepting connections[/]")
-        console.print(f"  [{Colors.DIM}]  → Check: sudo systemctl status postgresql[/]")
-        console.print(f"  [{Colors.DIM}]  → Start: docker compose -f deploy/docker-compose.yml up -d postgres[/]")
-        console.print(f"  [{Colors.DIM}]  → Verify port {config.get('port')} is not blocked by firewall[/]")
-    elif "does not exist" in error_lower and "database" in error_lower:
-        console.print(f"  [{Colors.ERROR}]DIAGNOSIS: Database '{config.get('database')}' does not exist[/]")
-        console.print(f"  [{Colors.DIM}]  → Create it: sudo -u postgres createdb {config.get('database')}[/]")
-        console.print(f"  [{Colors.DIM}]  → Or via psql: CREATE DATABASE {config.get('database')};[/]")
-    elif "role" in error_lower and "does not exist" in error_lower:
-        console.print(f"  [{Colors.ERROR}]DIAGNOSIS: PostgreSQL user '{config.get('username')}' does not exist[/]")
-        console.print(f"  [{Colors.DIM}]  → Create: sudo -u postgres createuser {config.get('username')}[/]")
-        console.print(f"  [{Colors.DIM}]  → With password: sudo -u postgres psql -c \"CREATE USER {config.get('username')} WITH PASSWORD 'pass';\"[/]")
-    elif "timeout" in error_lower:
-        console.print(f"  [{Colors.ERROR}]DIAGNOSIS: Connection timed out[/]")
-        console.print(f"  [{Colors.DIM}]  → Host '{config.get('host')}' may be unreachable[/]")
-        console.print(f"  [{Colors.DIM}]  → Check network / firewall / VPN settings[/]")
-    elif "no such file" in error_lower or "unix" in error_lower:
-        console.print(f"  [{Colors.ERROR}]DIAGNOSIS: PostgreSQL socket file not found[/]")
-        console.print(f"  [{Colors.DIM}]  → PostgreSQL is likely not installed or not running[/]")
-        console.print(f"  [{Colors.DIM}]  → Install: sudo apt install postgresql  (Debian/Ubuntu)[/]")
-        console.print(f"  [{Colors.DIM}]  → Or use Docker: docker compose -f deploy/docker-compose.yml up -d postgres[/]")
-    else:
-        console.print(f"  [{Colors.ERROR}]DIAGNOSIS: Unexpected error[/]")
-        console.print(f"  [{Colors.DIM}]  → Verify PostgreSQL is running and credentials are correct[/]")
-        console.print(f"  [{Colors.DIM}]  → Check the full error message above for details[/]")
-    
-    console.print()
-
 
 
 def _step_principal(wizard: Wizard) -> Any:
@@ -1322,10 +1282,9 @@ def _step_principal(wizard: Wizard) -> Any:
         )
         return None
     
-    # ── Existing workspace that was previously onboarded: skip ──
     if wizard.context.get("previously_onboarded") and "principal" in wizard.context.get("completed_steps", []):
         console.print(f"  [{Colors.SUCCESS}]{Icons.SUCCESS} Principal already registered in this workspace.[/]")
-        # Set a placeholder so downstream steps know principal exists
+        # Marker object so later steps treat principal registration as satisfied.
         wizard.context["first_principal"] = {"_existing": True}
         return wizard.context["first_principal"]
     
@@ -1374,7 +1333,6 @@ def _step_policy(wizard: Wizard) -> Any:
     console = wizard.console
     prompt = FlowPrompt(console)
     
-    # ── Existing workspace that was previously onboarded: skip ──
     if wizard.context.get("previously_onboarded") and "policy" in wizard.context.get("completed_steps", []):
         console.print(f"  [{Colors.SUCCESS}]{Icons.SUCCESS} Authority policy already configured in this workspace.[/]")
         wizard.context["first_policy"] = {"_existing": True}
@@ -1497,7 +1455,6 @@ def _step_mandate(wizard: Wizard) -> Any:
     console = wizard.console
     prompt = FlowPrompt(console)
     
-    # ── Existing workspace that was previously onboarded: skip ──
     if wizard.context.get("previously_onboarded") and "mandate" in wizard.context.get("completed_steps", []):
         console.print(f"  [{Colors.SUCCESS}]{Icons.SUCCESS} Mandate already issued in this workspace.[/]")
         wizard.context["first_mandate"] = {"_existing": True}
@@ -1597,7 +1554,6 @@ def _step_validate(wizard: Wizard) -> Any:
     console = wizard.console
     prompt = FlowPrompt(console)
     
-    # ── Existing workspace that was previously onboarded: skip ──
     if wizard.context.get("previously_onboarded") and "validate" in wizard.context.get("completed_steps", []):
         console.print(f"  [{Colors.SUCCESS}]{Icons.SUCCESS} Validation already completed in this workspace.[/]")
         wizard.context["validate_demo"] = False

@@ -58,21 +58,15 @@ class FlowApp:
         self._running = True
         
         try:
-            # Show welcome screen
             show_welcome(self.console, compact=self.state.preferences.compact_mode)
-            
-            # Wait for user action
             action = wait_for_action(self.console)
             
             if action == "quit":
                 self._goodbye()
                 return
             
-            # Always run onboarding (starts with workspace selection)
             onboarding_result = run_onboarding(self.console, self.state)
             
-            # CRITICAL: Ensure workspace was properly configured before proceeding
-            # Without a workspace, there's nowhere to store configuration and data
             if not onboarding_result.get("workspace_configured", False):
                 self.console.print()
                 self.console.print(f"  [{Colors.ERROR}]{Icons.ERROR} Setup incomplete. Workspace configuration is required.[/]")
@@ -81,7 +75,6 @@ class FlowApp:
                 self._goodbye()
                 return
             
-            # Verify workspace is accessible
             from caracal.flow.workspace import get_workspace
             try:
                 workspace = get_workspace()
@@ -102,7 +95,6 @@ class FlowApp:
             self._configure_workspace_logging()
             self.state = self.persistence.load()
             
-            # Main loop
             self._run_main_loop()
             
         except KeyboardInterrupt:
@@ -118,18 +110,14 @@ class FlowApp:
         """Run the main application loop."""
         while self._running:
             self.console.clear()
-            
-            # Show main menu
             selection = show_main_menu(self.console)
             
             if selection is None:
-                # User quit
                 if self._confirm_exit():
                     self._goodbye()
                     break
                 continue
             
-            # Handle selection
             self._handle_selection(selection)
     
     def _handle_selection(self, selection: str) -> None:

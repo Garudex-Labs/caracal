@@ -162,7 +162,7 @@ class DatabaseConnectionManager:
         # If workspace schema is set, transsourcely route all queries there
         if pg_schema:
             @sa_event.listens_for(self._engine, "connect")
-            def _set_search_path(dbapi_conn, connection_record):
+            def _set_search_path(dbapi_conn, _connection_record):
                 cursor = dbapi_conn.cursor()
                 cursor.execute(f"SET search_path TO {pg_schema}, public")
                 cursor.close()
@@ -265,6 +265,14 @@ class DatabaseConnectionManager:
         except Exception as e:
             logger.error("Database health check failed: %s", e)
             return False
+
+    def get_engine(self) -> Engine:
+        """Return the SQLAlchemy engine (must be initialized)."""
+        if not self._initialized or self._engine is None:
+            raise RuntimeError(
+                "Database connection manager not initialized. Call initialize() first."
+            )
+        return self._engine
 
     def get_pool_status(self) -> dict:
         """Return connection pool statistics."""

@@ -6,7 +6,7 @@ import os
 from typing import Any, Dict, Tuple
 
 from caracal.config.encryption import decrypt_value
-from caracal.core.vault import SecretNotFound, get_vault, vault_access_context
+from caracal.core.vault import CaracalVault, SecretNotFound, get_vault, vault_access_context
 from caracal.deployment.exceptions import SecretNotFoundError
 from caracal.provider.catalog import ensure_identifier
 
@@ -15,7 +15,7 @@ DEFAULT_PROVIDER_ENV_ID = "default"
 _PROVIDER_SECRET_SUFFIX = "credential"
 
 
-def _resolve_vault_environment(env_id: str, vault_client: Any) -> str:
+def _resolve_vault_environment(env_id: str, vault_client: CaracalVault) -> str:
     normalized_env_id = ensure_identifier("Environment ID", env_id)
     if normalized_env_id != DEFAULT_PROVIDER_ENV_ID:
         return normalized_env_id

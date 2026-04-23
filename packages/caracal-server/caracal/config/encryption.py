@@ -153,15 +153,16 @@ def rotate_master_key(actor: str = "cli") -> RotationSummary:
     rewrapped = 0
 
     try:
-        from caracal.core.vault import get_vault, vault_access_context
+        from caracal.core.vault import VaultError, get_vault, vault_access_context
 
         workspace_id = os.getenv("CARACAL_VAULT_WORKSPACE_ID") or os.getenv("CARACAL_WORKSPACE_ID") or "default"
         env_id = os.getenv("CARACAL_VAULT_ENVIRONMENT") or os.getenv("CARACAL_ENV_ID") or "dev"
         with vault_access_context():
             result = get_vault().rotate_master_key(workspace_id=workspace_id, env_id=env_id, actor=actor)
             rewrapped = result.secrets_rotated
-    except Exception:
+    except (ImportError, MasterKeyError, VaultError) as exc:
         # Rotation endpoint can be unavailable in some environments; audit event is still recorded.
+        logger.warning("Master key rotation request did not complete: %s", exc)
         rewrapped = 0
 
     append_key_audit_event(

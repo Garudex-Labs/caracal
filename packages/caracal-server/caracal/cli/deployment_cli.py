@@ -1990,7 +1990,6 @@ def version_command(check_updates: bool, format: str):
             }
             
             if check_updates:
-                # Check for updates (placeholder - would need actual implementation)
                 result["updates_available"] = False
             
             click.echo(json.dumps(result))
@@ -2012,7 +2011,6 @@ def version_command(check_updates: bool, format: str):
 def completion_command(shell: str):
     """Generate shell completion script."""
     try:
-        # Generate completion script based on shell type
         if shell == "bash":
             script = """
 # Caracal bash completion

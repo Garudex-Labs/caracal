@@ -21,9 +21,10 @@ from uuid import UUID
 import httpx
 from fastapi import FastAPI, Request, HTTPException, status
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, Field
 
 from caracal._version import __version__
+from caracal.types import JsonObject, StrictAPIModel
 from caracal.mcp.adapter import MCPAdapter, MCPContext, MCPResult
 from caracal.core.authority import AuthorityEvaluator
 from caracal.core.metering import MeteringCollector
@@ -86,22 +87,18 @@ class MCPServiceConfig:
 
 
 # Pydantic models for API requests/responses
-class _StrictRequestModel(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-
-class ToolCallRequest(_StrictRequestModel):
+class ToolCallRequest(StrictAPIModel):
     """Request model for MCP tool call."""
     tool_id: str = Field(..., description="Explicit registered tool identifier")
-    tool_args: Dict[str, Any] = Field(default_factory=dict, description="Arguments for the tool")
-    metadata: Dict[str, Any] = Field(default_factory=dict, description="Additional metadata")
+    tool_args: JsonObject = Field(default_factory=dict, description="Arguments for the tool")
+    metadata: JsonObject = Field(default_factory=dict, description="Additional metadata")
 
-class ResourceReadRequest(_StrictRequestModel):
+class ResourceReadRequest(StrictAPIModel):
     """Request model for MCP resource read."""
     resource_uri: str = Field(..., description="URI of the resource to read")
-    metadata: Dict[str, Any] = Field(default_factory=dict, description="Additional metadata")
+    metadata: JsonObject = Field(default_factory=dict, description="Additional metadata")
 
-class ToolRegistryRequest(_StrictRequestModel):
+class ToolRegistryRequest(StrictAPIModel):
     """Request model for tool registry write operations."""
 
     tool_id: str = Field(..., description="Explicit tool identifier")
@@ -164,7 +161,7 @@ class MCPServiceResponse(BaseModel):
     success: bool = Field(..., description="Whether the operation succeeded")
     result: Any = Field(None, description="Operation result")
     error: Optional[str] = Field(None, description="Error message if operation failed")
-    metadata: Optional[Dict[str, Any]] = Field(None, description="Additional metadata")
+    metadata: Optional[JsonObject] = Field(None, description="Additional metadata")
 
 
 class HealthCheckResponse(BaseModel):
@@ -905,6 +902,11 @@ class MCPAdapterService:
                 workspace_name = self._normalize_selector_value(
                     request_metadata.get("workspace_name")
                 )
+                # Reject spoofed tool args before tool resolution so unknown tools still
+                # fail closed with 400 (not 404) when callers inject identity fields.
+                request_tool_args = self._reject_spoofed_tool_args(
+                    request.tool_args or {}
+                )
                 try:
                     tool_row = self._require_active_tool(
                         request.tool_id,
@@ -925,7 +927,6 @@ class MCPAdapterService:
                     token_claims=token_claims,
                     principal_id=principal_id,
                 )
-                request_tool_args = self._reject_spoofed_tool_args(request.tool_args or {})
                 
                 # Create MCP context
                 mcp_context = MCPContext(

@@ -25,9 +25,13 @@ from caracal.deployment.enterprise_runtime import (
     _resolve_api_url,
     load_enterprise_config,
 )
+from caracal.deployment.exceptions import MigrationError
+from caracal.logging_config import get_logger
 from caracal.core.gateway_features import get_gateway_features
 from caracal.flow.components.menu import Menu, MenuItem
 from caracal.flow.theme import Colors, Icons
+
+logger = get_logger(__name__)
 
 
 class EnterpriseFlow:
@@ -499,7 +503,8 @@ class EnterpriseFlow:
                 self.console.print(f"[{Colors.SUCCESS}]✓ Enterprise API reachable[/]")
             else:
                 self.console.print(f"[{Colors.WARNING}]⚠ Enterprise API not reachable[/]")
-        except Exception:
+        except Exception as exc:
+            logger.debug("Could not check Enterprise API connectivity", exc_info=True)
             self.console.print(f"[{Colors.DIM}]Could not check API connectivity[/]")
         
         self.console.print()
@@ -618,9 +623,10 @@ class EnterpriseFlow:
                         Edition.OPENSOURCE,
                         migrate_api_keys=False,
                     )
-                except Exception:
-                    # Migration can already be in open-source mode; proceed with license clear.
-                    pass
+                except MigrationError as exc:
+                    # Already on target edition: safe to proceed with license clear.
+                    if "Already running" not in str(exc):
+                        raise
 
                 self.validator.disconnect()
                 self.console.print(f"\n[{Colors.SUCCESS}]Enterprise license disconnected.[/]")
@@ -674,13 +680,10 @@ class EnterpriseFlow:
                 show_gateway_flow(self.console)
             elif action == "secrets":
                 from caracal.flow.screens.secrets_flow import SecretsFlow
-                # Derive tier/org from enterprise config if available
-                try:
-                    cfg = load_enterprise_config()
-                    tier = str(cfg.get("tier") or "starter")
-                    workspace_id = str(cfg.get("workspace_id") or "")
-                except Exception:
-                    tier, workspace_id = "starter", ""
+                # Derive tier/org from enterprise config if available (never raises; returns {} on failure).
+                cfg = load_enterprise_config()
+                tier = str(cfg.get("tier") or "starter")
+                workspace_id = str(cfg.get("workspace_id") or "")
                 SecretsFlow(tier=tier, workspace_id=workspace_id, console=self.console).show()
             elif action == "connect":
                 self.connect_enterprise()

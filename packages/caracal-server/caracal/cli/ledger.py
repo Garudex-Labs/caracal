@@ -19,6 +19,7 @@ import click
 
 from caracal.db.connection import get_db_manager
 from caracal.db.models import LedgerEvent
+from caracal.datetime_parsing import parse_datetime
 from caracal.exceptions import CaracalError
 
 
@@ -137,51 +138,15 @@ def get_ledger_query(config) -> _PostgresLedgerQuery:
 
 def get_principal_registry(config):
     """
-    Backward-compatibility placeholder. directed queries are PostgreSQL-backed.
+    No-op for aggregate/breakdown call sites. PostgreSQL ledger paths do not use a registry.
     
     Args:
-        config: Configuration object
+        config: Configuration object (unused; retained for a stable signature).
         
     Returns:
-        Principal registry instance
+        None
     """
     return None
-
-
-def parse_datetime(date_str: str) -> datetime:
-    """
-    Parse datetime string in various formats.
-    
-    Supports:
-    - ISO 8601: 2024-01-15T10:30:00Z
-    - Date only: 2024-01-15 (assumes 00:00:00)
-    - Date and time: 2024-01-15 10:30:00
-    
-    Args:
-        date_str: Date/time string to parse
-        
-    Returns:
-        datetime object
-        
-    Raises:
-        ValueError: If date string cannot be parsed
-    """
-    # Try ISO 8601 format first
-    for fmt in [
-        "%Y-%m-%dT%H:%M:%SZ",
-        "%Y-%m-%dT%H:%M:%S",
-        "%Y-%m-%d %H:%M:%S",
-        "%Y-%m-%d",
-    ]:
-        try:
-            return datetime.strptime(date_str, fmt)
-        except ValueError:
-            continue
-    
-    raise ValueError(
-        f"Invalid date format: {date_str}. "
-        f"Expected formats: YYYY-MM-DD, YYYY-MM-DD HH:MM:SS, or ISO 8601"
-    )
 
 
 @click.command('query')

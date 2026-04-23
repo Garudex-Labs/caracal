@@ -495,6 +495,7 @@ class AuditLogManager:
                     "status": "no_logs_to_archive",
                     "cutoff_date": cutoff_date.isoformat(),
                     "retention_days": retention_days,
+                    "archive_batch_size": archive_batch_size,
                     "logs_to_archive": 0,
                 }
             
@@ -519,6 +520,7 @@ class AuditLogManager:
                 "status": "logs_identified_for_archival",
                 "cutoff_date": cutoff_date.isoformat(),
                 "retention_days": retention_days,
+                "archive_batch_size": archive_batch_size,
                 "logs_to_archive": old_logs_count,
                 "oldest_log_timestamp": oldest_log.event_timestamp.isoformat() if oldest_log else None,
                 "newest_log_timestamp": newest_log.event_timestamp.isoformat() if newest_log else None,

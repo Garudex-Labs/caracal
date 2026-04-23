@@ -1,0 +1,17 @@
+{
+  "$schema": "https://unpkg.com/knip@5/schema.json",
+  "docusaurus": {
+    "entry": [
+      "content/**/*.mdx",
+      "src/**/*.{ts,tsx}",
+      "sidebars.ts"
+    ],
+    "config": ["docusaurus.config.ts"]
+  },
+  "ignore": ["src/components/Search/searchData.ts"],
+  "ignoreDependencies": [
+    "@docusaurus/plugin-content-docs",
+    "@easyops-cn/docusaurus-search-local",
+    "@easyops-cn/docusaurus-theme-docusaurus-search-local"
+  ]
+}

@@ -1,9 +1,12 @@
 """Database test fixtures."""
-import pytest
 import os
 from typing import Generator
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker, Session
+
+import pytest
+from sqlalchemy import create_engine, text
+from sqlalchemy.exc import OperationalError
+from sqlalchemy.orm import Session, sessionmaker
+
 from caracal.db.models import Base
 
 
@@ -15,7 +18,16 @@ def in_memory_db_engine():
         "postgresql://caracal:caracal@localhost:5432/caracal_test",
     )
     engine = create_engine(test_db_url)
-    
+    try:
+        with engine.connect() as conn:
+            conn.execute(text("SELECT 1"))
+    except OperationalError as exc:
+        engine.dispose()
+        pytest.skip(
+            "PostgreSQL test database unavailable (start `caracal up` or set "
+            f"CARACAL_TEST_DB_URL): {exc}"
+        )
+
     # Create all tables
     Base.metadata.create_all(engine)
     

@@ -1,5 +1,6 @@
 import { SDKRequest, SDKResponse } from './adapters/base';
 import { SDKConfigurationError } from './errors';
+import { ScopeRef } from './hooks';
 import { JsonObject, JsonValue } from './json';
 
 // Canonical SDK->MCP tool-call contract version.
@@ -29,20 +30,15 @@ function isObjectRecord(value: JsonValue | null | undefined): value is JsonObjec
   return !!value && typeof value === 'object' && !Array.isArray(value);
 }
 
-export interface ToolScope {
+interface ToolScope {
   scopeHeaders(): Record<string, string>;
-  toScopeRef(): {
-    workspaceId?: string;
-  };
+  toScopeRef(): ScopeRef;
   readonly _adapter: {
     send(request: SDKRequest): Promise<SDKResponse>;
   };
   readonly _hooks: {
-    fireBeforeRequest(
-      request: SDKRequest,
-      scope: ReturnType<ToolScope['toScopeRef']>,
-    ): Promise<SDKRequest>;
-    fireAfterResponse(response: SDKResponse, scope: ReturnType<ToolScope['toScopeRef']>): void;
+    fireBeforeRequest(request: SDKRequest, scope: ScopeRef): Promise<SDKRequest>;
+    fireAfterResponse(response: SDKResponse, scope: ScopeRef): void;
     fireError(error: Error): void;
   };
 }

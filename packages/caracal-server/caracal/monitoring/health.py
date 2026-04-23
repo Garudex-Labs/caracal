@@ -17,7 +17,10 @@ from datetime import datetime
 from enum import Enum
 from typing import Dict, Any, Optional, List
 
+from sqlalchemy.pool import QueuePool
+
 from caracal._version import __version__
+from caracal.db.connection import DatabaseConnectionManager
 from caracal.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -52,7 +55,7 @@ class HealthCheckResult:
     
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for JSON serialization."""
-        result = {
+        result: Dict[str, Any] = {
             "name": self.name,
             "status": self.status.value,
         }
@@ -115,9 +118,9 @@ class HealthChecker:
     def __init__(
         self,
         service_name: str,
-        service_version: str = None,
-        db_connection_manager: Optional[Any] = None,
-        redis_client: Optional[Any] = None
+        service_version: Optional[str] = None,
+        db_connection_manager: Optional[DatabaseConnectionManager] = None,
+        redis_client: Optional[Any] = None,
     ):
         """
         Initialize health checker.
@@ -174,22 +177,27 @@ class HealthChecker:
         start_time = time.time()
         checked_at = datetime.utcnow()
         
+        db = self.db_connection_manager
+        if db is None:
+            raise RuntimeError("_check_database requires db_connection_manager")
+
         try:
             # Try to execute a simple query
-            is_healthy = self.db_connection_manager.health_check()
+            is_healthy = db.health_check()
             
             duration_ms = (time.time() - start_time) * 1000
             
             if is_healthy:
                 # Get connection pool stats if available
-                details = {}
+                details: Dict[str, Any] = {}
                 try:
-                    pool = self.db_connection_manager.get_engine().pool
-                    details = {
-                        "pool_size": pool.size(),
-                        "checked_out": pool.checkedout(),
-                        "overflow": pool.overflow(),
-                    }
+                    pool = db.get_engine().pool
+                    if isinstance(pool, QueuePool):
+                        details = {
+                            "pool_size": pool.size(),
+                            "checked_out": pool.checkedout(),
+                            "overflow": pool.overflow(),
+                        }
                 except Exception:
                     pass
                 
@@ -233,12 +241,16 @@ class HealthChecker:
         start_time = time.time()
         checked_at = datetime.utcnow()
         
+        redis = self.redis_client
+        if redis is None:
+            raise RuntimeError("_check_redis requires redis_client")
+
         try:
             # Try to ping Redis
-            if hasattr(self.redis_client, 'ping'):
-                await self.redis_client.ping()
-            elif hasattr(self.redis_client, 'client') and hasattr(self.redis_client.client, 'ping'):
-                await self.redis_client.client.ping()
+            if hasattr(redis, 'ping'):
+                await redis.ping()
+            elif hasattr(redis, 'client') and hasattr(redis.client, 'ping'):
+                await redis.client.ping()
             else:
                 # Assume healthy if we can't ping
                 logger.warning("Redis client doesn't have ping method, assuming healthy")
@@ -248,15 +260,15 @@ class HealthChecker:
             # Get Redis info if available
             details = {}
             try:
-                if hasattr(self.redis_client, 'info'):
-                    info = await self.redis_client.info()
+                if hasattr(redis, 'info'):
+                    info = await redis.info()
                     details = {
                         "version": info.get("redis_version"),
                         "connected_clients": info.get("connected_clients"),
                         "used_memory_human": info.get("used_memory_human"),
                     }
-                elif hasattr(self.redis_client, 'client') and hasattr(self.redis_client.client, 'info'):
-                    info = await self.redis_client.client.info()
+                elif hasattr(redis, 'client') and hasattr(redis.client, 'info'):
+                    info = await redis.client.info()
                     details = {
                         "version": info.get("redis_version"),
                         "connected_clients": info.get("connected_clients"),
@@ -316,7 +328,9 @@ class HealthChecker:
         return HealthStatus.HEALTHY
 
 
-async def check_database_health(db_connection_manager: Any) -> HealthCheckResult:
+async def check_database_health(
+    db_connection_manager: DatabaseConnectionManager,
+) -> HealthCheckResult:
     """
     Standalone function to check database health.
     
