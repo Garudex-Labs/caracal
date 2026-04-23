@@ -19,6 +19,9 @@
         "us-vector-an":     {"tx_id": "TX-MCY-VEC-001", "status": "submitted", "posted_at": null, "rail": "ACH", "fee_usd": 0.25, "estimated_settlement": "2026-04-23"},
         "us-northgate-sys": {"tx_id": "TX-MCY-NGT-001", "status": "submitted", "posted_at": null, "rail": "WIRE", "fee_usd": 25.00, "estimated_settlement": "2026-04-22"},
         "us-apex-infra":    {"tx_id": "TX-MCY-APX-001", "status": "submitted", "posted_at": null, "rail": "WIRE", "fee_usd": 25.00, "estimated_settlement": "2026-04-22"},
+        "us-declined-ll":   {"tx_id": "TX-MCY-DCL-001", "status": "declined",  "posted_at": null, "rail": "ACH",  "fee_usd": 0.00,  "estimated_settlement": null, "error": "INSUFFICIENT_FUNDS", "error_detail": "Balance below payment amount"},
+        "us-blocked-co":    {"tx_id": null,              "status": "failed",    "posted_at": null, "rail": "WIRE", "fee_usd": 0.00,  "estimated_settlement": null, "error": "ACCOUNT_FROZEN",    "error_detail": "Recipient account frozen by compliance"},
+        "us-limit-exc":     {"tx_id": null,              "status": "rejected",  "posted_at": null, "rail": "WIRE", "fee_usd": 0.00,  "estimated_settlement": null, "error": "DAILY_LIMIT_EXCEEDED", "error_detail": "Payment exceeds $500k daily wire limit"},
         "default":          {"tx_id": "TX-MCY-DFLT-001", "status": "submitted", "posted_at": null, "rail": "ACH", "fee_usd": 0.25, "estimated_settlement": "2026-04-23"}
       }
     }

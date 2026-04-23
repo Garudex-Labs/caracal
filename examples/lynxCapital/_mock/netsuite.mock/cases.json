@@ -17,6 +17,9 @@
         "us-axiom-cloud":   {"erp_ref": "NS-INV-4521-001", "erp_amount": null, "currency": "USD", "matched": true,  "variance": 0.0, "status": "open"},
         "us-vector-an":     {"erp_ref": "NS-INV-7832-001", "erp_amount": null, "currency": "USD", "matched": true,  "variance": 0.0, "status": "open"},
         "us-northgate-sys": {"erp_ref": "NS-INV-1193-001", "erp_amount": null, "currency": "USD", "matched": false, "variance": 12.50, "status": "discrepancy"},
+        "us-stale-inv":     {"erp_ref": "NS-INV-STALE-001", "erp_amount": null, "currency": "USD", "matched": false, "variance": 0.00, "status": "not_found",       "error": "INVOICE_NOT_IN_LEDGER"},
+        "us-po-mismatch":   {"erp_ref": "NS-INV-POM-001",   "erp_amount": null, "currency": "USD", "matched": false, "variance": 4500.00, "status": "po_mismatch",    "error": "PO_NUMBER_MISMATCH"},
+        "us-duplicate":     {"erp_ref": "NS-INV-DUP-001",   "erp_amount": null, "currency": "USD", "matched": false, "variance": 0.00, "status": "duplicate",       "error": "DUPLICATE_INVOICE_DETECTED", "original_ref": "NS-INV-4521-001"},
         "default":          {"erp_ref": "NS-INV-DFLT-001", "erp_amount": null, "currency": "USD", "matched": true,  "variance": 0.0, "status": "open"}
       }
     },

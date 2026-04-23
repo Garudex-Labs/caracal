@@ -21,6 +21,9 @@
         "sg-singatech":   {"transfer_id": "TRF-WS-SGT-001", "status": "submitted", "posted_at": null, "rail": "PAYNOW", "fee_usd": 0.07, "estimated_delivery": "2026-04-22"},
         "br-saopaulo":    {"transfer_id": "TRF-WS-SAO-001", "status": "submitted", "posted_at": null, "rail": "PIX",    "fee_usd": 0.002, "estimated_delivery": "2026-04-22"},
         "br-rio-dig":     {"transfer_id": "TRF-WS-RIO-001", "status": "submitted", "posted_at": null, "rail": "SWIFT",  "fee_usd": 35.00, "estimated_delivery": "2026-04-25"},
+        "in-limit-exc":   {"transfer_id": null,             "status": "rejected",  "posted_at": null, "rail": "NEFT",   "fee_usd": 0.00,  "estimated_delivery": null, "error": "PAYOUT_LIMIT_EXCEEDED", "error_detail": "Monthly INR payout limit reached"},
+        "de-kyc-missing": {"transfer_id": null,             "status": "declined",  "posted_at": null, "rail": "SEPA",   "fee_usd": 0.00,  "estimated_delivery": null, "error": "RECIPIENT_KYC_INCOMPLETE", "error_detail": "Beneficiary bank requires updated KYC"},
+        "sg-swift-fail":  {"transfer_id": "TRF-WS-SWF-001", "status": "failed",    "posted_at": null, "rail": "SWIFT",  "fee_usd": 25.00, "estimated_delivery": null, "error": "INTERMEDIARY_BANK_UNAVAILABLE", "error_detail": "Correspondent bank rejected message"},
         "default":        {"transfer_id": "TRF-WS-DFLT-001","status": "submitted", "posted_at": null, "rail": "SWIFT",  "fee_usd": 25.00, "estimated_delivery": "2026-04-25"}
       }
     }

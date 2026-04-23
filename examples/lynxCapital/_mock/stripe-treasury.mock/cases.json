@@ -19,6 +19,8 @@
         "us-horizon-plat":  {"payment_id": "obp_hor_001", "status": "submitted", "posted_at": null, "rail": "ACH",  "fee_usd": 0.25, "statement_descriptor": "LYNX PAYOUT"},
         "de-elbtal":        {"payment_id": "obp_elb_001", "status": "submitted", "posted_at": null, "rail": "SEPA", "fee_usd": 0.54, "statement_descriptor": "LYNX PAYOUT"},
         "de-dresden":       {"payment_id": "obp_dre_001", "status": "submitted", "posted_at": null, "rail": "SEPA", "fee_usd": 0.54, "statement_descriptor": "LYNX PAYOUT"},
+        "us-insufficient": {"payment_id": null,          "status": "failed",    "posted_at": null, "rail": "ACH",  "fee_usd": 0.00, "statement_descriptor": null, "error": "insufficient_funds",      "error_detail": "Available balance below payment amount"},
+        "us-card-declined":{"payment_id": "obp_dec_001","status": "returned",  "posted_at": null, "rail": "ACH",  "fee_usd": 0.00, "statement_descriptor": "LYNX PAYOUT", "error": "r01_insufficient_funds","error_detail": "ACH return R01"},
         "default":          {"payment_id": "obp_dflt_001","status": "submitted", "posted_at": null, "rail": "ACH",  "fee_usd": 0.25, "statement_descriptor": "LYNX PAYOUT"}
       }
     }
