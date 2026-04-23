@@ -2,9 +2,8 @@
 Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 Caracal, a product of Garudex Labs
 
-LLM-driven orchestration: Finance Control and regional orchestrators each run
-their own ChatOpenAI loop. All agent spawns and tool calls are downstream of
-real LLM decisions. No scripted flows, no precomputed graphs.
+LLM-driven orchestration with per-agent memory, streaming prose reasoning,
+token-aware compaction, and runtime-configurable model selection.
 """
 from __future__ import annotations
 
@@ -22,6 +21,8 @@ from app.agents import tools as tool_fns
 from app.agents.runner import AgentHandle, AgentRunner, create_runner
 from app.config import get_config
 from app.core.dataset import INVOICES, REGIONS, VENDORS
+from app.core.memory import AgentMemory, RunMemoryStore, context_limit
+from app.core.settings import settings
 from app.events import types as ev
 from app.events.bus import bus
 
@@ -40,44 +41,78 @@ FC_SYSTEM_PROMPT = """You are the Finance Control agent for Lynx Capital, an aut
 
 You coordinate weekly payout cycles across five regions: US, IN, DE, SG, BR.
 
-When the user gives you a task:
-1. Decide which regions are relevant based on what they asked.
+BEHAVIOR
+- Before you call any tool, write ONE short sentence explaining what you are about to do and why. Then call the tool.
+- After tool results come back, write ONE short sentence interpreting the result before deciding what to do next.
+- Think out loud in plain prose. Do not output JSON, headers, or bullet lists for this reasoning.
+
+DECISIONS
+1. Read the user's request and decide which regions are relevant.
    - "run the weekly cycle" / "all regions" -> dispatch all five
    - a specific region mentioned -> dispatch only that one
    - multiple specific regions -> dispatch each one
-2. For each selected region, call the dispatch_region tool with the region code and a short focus sentence.
-3. When every region you chose is done, give a final one-paragraph summary of what was processed.
+2. For each selected region, call dispatch_region with the region code and a short focus sentence.
+3. When every region you chose is done, give a one-paragraph final summary of what was processed.
 
 Be concise. Write like an operator. No emojis. No marketing language."""
 
 
 REGIONAL_SYSTEM_TEMPLATE = """You are the Regional Orchestrator agent for the {region} region ({region_name}, currency {currency}) at Lynx Capital.
 
-Your job right now: process a small batch of pending invoices end-to-end. Focus: {focus}
+Your current job: process a small batch of pending invoices end-to-end. Focus: {focus}
 
-You have concrete tools. Every tool call you make executes a real operation against a downstream service and spawns a dedicated worker agent to handle it. Use the tools; do not simulate work in text.
+BEHAVIOR
+- Before each tool call, write ONE short sentence in plain prose saying what you are about to do and why.
+- After a tool returns, write ONE short sentence interpreting the result.
+- Every tool call executes a real operation against a downstream service and spawns a dedicated worker agent. Use tools; do not simulate.
 
-Recommended procedure (you may adapt if something looks wrong):
-1. Call list_pending_invoices to see what needs processing (keep the batch small: 2-3 invoices).
-2. For each invoice:
-   a. extract_invoice_data(invoice_id)
-   b. match_invoice_in_ledger(invoice_id, vendor_id, amount, currency)
-   c. check_vendor_compliance(vendor_id)
-   d. submit_payment(vendor_id, amount, currency, rail, reference)
-3. Once per region: lookup_withholding_rate(currency); and if the currency is not USD also lookup_fx_rate("USD", currency).
-4. Finally: record_audit(summary) with a one-line summary string.
-5. Return a short natural-language status when you are done. Do NOT call any more tools after the audit.
-
-Be concise in any commentary. No emojis."""
+RECOMMENDED PROCEDURE
+1. Call list_pending_invoices (batch of 2-3).
+2. For each invoice, in order: extract_invoice_data -> match_invoice_in_ledger -> check_vendor_compliance -> submit_payment.
+3. Once per region: lookup_withholding_rate(currency). If currency != USD, also lookup_fx_rate("USD", currency).
+4. Finally call record_audit(summary) with a one-line summary.
+5. Return a short natural-language status. Do NOT call more tools after record_audit."""
 
 
-def _make_llm(cfg):
+def _make_llm(model: str, temperature: float = 0.1) -> ChatOpenAI:
     """Factory for a streaming ChatOpenAI. Swapped out by tests via monkeypatch."""
     return ChatOpenAI(
-        model=cfg.llm.model,
-        temperature=cfg.llm.temperature,
+        model=model,
+        temperature=temperature,
         streaming=True,
         stream_usage=True,
+    )
+
+
+def _emit_memory_snapshot(run_id: str, mem: AgentMemory) -> None:
+    bus.publish(ev.memory_update(
+        run_id=run_id,
+        agent_id=mem.agent_id,
+        tokens_used=mem.total_tokens(),
+        tokens_limit=context_limit(mem.model),
+        message_count=len(mem.messages),
+        compactions=mem.compactions,
+    ))
+
+
+async def _maybe_compact(run_id: str, mem: AgentMemory, summarizer: ChatOpenAI) -> None:
+    if not mem.should_compact():
+        return
+    before = mem.total_tokens()
+    summary = await mem.compact(summarizer)
+    if summary is None:
+        return
+    after = mem.total_tokens()
+    bus.publish(ev.memory_compaction(
+        run_id=run_id,
+        agent_id=mem.agent_id,
+        summary=summary,
+        tokens_before=before,
+        tokens_after=after,
+    ))
+    log.info(
+        "memory_compaction agent=%s tokens=%d->%d chars=%d",
+        mem.agent_id[:8], before, after, len(summary),
     )
 
 
@@ -88,8 +123,8 @@ async def _stream_assistant(
     llm,
     messages: list,
 ) -> AIMessage:
-    """Invoke the LLM, stream tokens into the chat event stream, emit an
-    llm_call telemetry event, and return the accumulated AIMessage."""
+    """Invoke the LLM, stream tokens, emit llm_call telemetry, return the
+    accumulated AIMessage."""
     message_id = str(uuid4())
     t0 = time.time()
     full: AIMessage | None = None
@@ -135,13 +170,7 @@ def _build_regional_tools(
     parent: AgentHandle,
     region: str,
 ):
-    """Build the LangChain tool set available to a regional orchestrator.
-
-    Each action tool dynamically spawns a worker agent, runs the real
-    downstream tool_fn (which emits tool_call + service_call + service_result +
-    tool_result events), and terminates the worker. The number and kind of
-    workers spawned depends entirely on what the LLM decides to call.
-    """
+    """Each tool dynamically spawns a worker, runs the real tool_fn, terminates."""
     region_invoices = [inv for inv in INVOICES if inv.region == region]
     region_vendors = {v.id: v for v in VENDORS.values() if v.region == region}
 
@@ -257,8 +286,11 @@ async def _run_regional_orchestrator(
     run_id: str,
     runner: AgentRunner,
     parent: AgentHandle,
+    memory_store: RunMemoryStore,
+    parent_summary: str,
     region: str,
     focus: str,
+    model_name: str,
 ) -> dict:
     cfg = get_config()
     region_meta = REGIONS.get(region)
@@ -277,8 +309,9 @@ async def _run_regional_orchestrator(
     tools = _build_regional_tools(run_id, runner, ro, region)
     tool_map = {t.name: t for t in tools}
 
-    llm = _make_llm(cfg)
+    llm = _make_llm(model_name, cfg.llm.temperature)
     llm_with_tools = llm.bind_tools(tools)
+    summarizer = _make_llm(model_name, 0.0)
 
     system_prompt = REGIONAL_SYSTEM_TEMPLATE.format(
         region=region,
@@ -286,17 +319,22 @@ async def _run_regional_orchestrator(
         currency=region_meta.currency,
         focus=focus or "process the pending batch end-to-end",
     )
-    messages = [
-        SystemMessage(content=system_prompt),
-        HumanMessage(content=f"Begin processing the {region} batch now."),
-    ]
+    mem = memory_store.open(
+        agent_id=ro.id,
+        system=SystemMessage(content=system_prompt),
+        seed_summary=parent_summary,
+    )
+    mem.append(HumanMessage(content=f"Begin processing the {region} batch now."))
+    _emit_memory_snapshot(run_id, mem)
 
     tool_call_count = 0
     turns = 0
     for _turn in range(12):
         turns += 1
-        ai_msg = await _stream_assistant(run_id, ro.id, cfg.llm.model, llm_with_tools, messages)
-        messages.append(ai_msg)
+        await _maybe_compact(run_id, mem, summarizer)
+        ai_msg = await _stream_assistant(run_id, ro.id, model_name, llm_with_tools, mem.as_prompt())
+        mem.append(ai_msg)
+        _emit_memory_snapshot(run_id, mem)
         if not ai_msg.tool_calls:
             break
         for tc in ai_msg.tool_calls:
@@ -304,11 +342,12 @@ async def _run_regional_orchestrator(
             args = tc["args"]
             fn = tool_map.get(name)
             if fn is None:
-                messages.append(ToolMessage(content=f"Unknown tool: {name}", tool_call_id=tc["id"]))
+                mem.append(ToolMessage(content=f"Unknown tool: {name}", tool_call_id=tc["id"]))
                 continue
             result = await asyncio.to_thread(fn.invoke, args)
             tool_call_count += 1
-            messages.append(ToolMessage(content=str(result), tool_call_id=tc["id"]))
+            mem.append(ToolMessage(content=str(result), tool_call_id=tc["id"]))
+        _emit_memory_snapshot(run_id, mem)
 
     result = {"region": region, "toolCalls": tool_call_count, "turns": turns}
     ro.end(result)
@@ -320,7 +359,9 @@ def _build_top_tools(
     run_id: str,
     runner: AgentRunner,
     fc: AgentHandle,
+    memory_store: RunMemoryStore,
     loop: asyncio.AbstractEventLoop,
+    model_name: str,
 ):
     @tool
     def dispatch_region(region: str, focus: str = "") -> str:
@@ -328,8 +369,14 @@ def _build_top_tools(
         r = region.upper().strip()
         if r not in REGION_IDS:
             return json.dumps({"error": f"unknown region {region!r}"})
+        fc_mem = memory_store.get(fc.id)
+        parent_summary = (fc_mem.seed_summary if fc_mem else "") or (
+            f"Finance Control dispatched region {r} with focus: {focus or '(none)'}."
+        )
         future = asyncio.run_coroutine_threadsafe(
-            _run_regional_orchestrator(run_id, runner, fc, r, focus or ""),
+            _run_regional_orchestrator(
+                run_id, runner, fc, memory_store, parent_summary, r, focus or "", model_name,
+            ),
             loop,
         )
         return json.dumps(future.result())
@@ -339,11 +386,14 @@ def _build_top_tools(
 
 async def run_swarm(run_id: str, prompt: str) -> None:
     cfg = get_config()
+    model_name = settings.model
     bus.publish(ev.run_start(run_id, prompt))
     bus.publish(ev.chat_user(run_id, prompt))
-    log.info("run_swarm start run_id=%s prompt=%r", run_id, prompt[:120])
+    log.info("run_swarm start run_id=%s model=%s prompt=%r", run_id, model_name, prompt[:120])
 
     runner = create_runner(run_id, cfg.swarm.llmBackedCap)
+    memory_store = RunMemoryStore(run_id, model_name)
+
     fc = runner.spawn(
         role="finance-control", scope="global", parent=None,
         layer="finance-control", region=None,
@@ -351,20 +401,22 @@ async def run_swarm(run_id: str, prompt: str) -> None:
     fc.start()
 
     loop = asyncio.get_running_loop()
-    tools = _build_top_tools(run_id, runner, fc, loop)
+    tools = _build_top_tools(run_id, runner, fc, memory_store, loop, model_name)
     tool_map = {t.name: t for t in tools}
-    llm = _make_llm(cfg)
+    llm = _make_llm(model_name, cfg.llm.temperature)
     llm_with_tools = llm.bind_tools(tools)
+    summarizer = _make_llm(model_name, 0.0)
 
-    messages = [
-        SystemMessage(content=FC_SYSTEM_PROMPT),
-        HumanMessage(content=prompt),
-    ]
+    mem = memory_store.open(fc.id, SystemMessage(content=FC_SYSTEM_PROMPT))
+    mem.append(HumanMessage(content=prompt))
+    _emit_memory_snapshot(run_id, mem)
 
     try:
         for _turn in range(10):
-            ai_msg = await _stream_assistant(run_id, fc.id, cfg.llm.model, llm_with_tools, messages)
-            messages.append(ai_msg)
+            await _maybe_compact(run_id, mem, summarizer)
+            ai_msg = await _stream_assistant(run_id, fc.id, model_name, llm_with_tools, mem.as_prompt())
+            mem.append(ai_msg)
+            _emit_memory_snapshot(run_id, mem)
             if not ai_msg.tool_calls:
                 break
             for tc in ai_msg.tool_calls:
@@ -372,12 +424,13 @@ async def run_swarm(run_id: str, prompt: str) -> None:
                 args = tc["args"]
                 fn = tool_map.get(name)
                 if fn is None:
-                    messages.append(ToolMessage(content=f"Unknown tool: {name}", tool_call_id=tc["id"]))
+                    mem.append(ToolMessage(content=f"Unknown tool: {name}", tool_call_id=tc["id"]))
                     continue
                 bus.publish(ev.tool_call(run_id, fc.id, name, args))
                 result = await asyncio.to_thread(fn.invoke, args)
                 bus.publish(ev.tool_result(run_id, fc.id, name, {"result": result}))
-                messages.append(ToolMessage(content=str(result), tool_call_id=tc["id"]))
+                mem.append(ToolMessage(content=str(result), tool_call_id=tc["id"]))
+            _emit_memory_snapshot(run_id, mem)
 
         fc.end({"status": "completed"})
         fc.terminate("completed")

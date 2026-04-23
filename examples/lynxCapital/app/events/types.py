@@ -137,3 +137,41 @@ def llm_call(
         input_tokens=input_tokens, output_tokens=output_tokens,
         tool_calls=tool_calls, streamed_chars=streamed_chars,
     )
+
+
+def memory_update(
+    run_id: str,
+    agent_id: str,
+    tokens_used: int,
+    tokens_limit: int,
+    message_count: int,
+    compactions: int,
+) -> Event:
+    return _mk(
+        run_id, "system", "memory_update",
+        agent_id=agent_id,
+        tokens_used=tokens_used,
+        tokens_limit=tokens_limit,
+        message_count=message_count,
+        compactions=compactions,
+    )
+
+
+def memory_compaction(
+    run_id: str,
+    agent_id: str,
+    summary: str,
+    tokens_before: int,
+    tokens_after: int,
+) -> Event:
+    return _mk(
+        run_id, "system", "memory_compaction",
+        agent_id=agent_id,
+        summary=summary,
+        tokens_before=tokens_before,
+        tokens_after=tokens_after,
+    )
+
+
+def model_change(run_id: str, model: str, prior: str) -> Event:
+    return _mk(run_id, "system", "model_change", model=model, prior=prior)

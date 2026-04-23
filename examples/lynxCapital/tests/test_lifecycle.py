@@ -120,7 +120,7 @@ def fresh_bus(monkeypatch):
     monkeypatch.setattr(swarm_mod, "bus", new_bus)
     monkeypatch.setattr(runner_mod, "bus", new_bus)
     monkeypatch.setattr(tools_mod, "bus", new_bus)
-    monkeypatch.setattr(swarm_mod, "_make_llm", lambda cfg: _FakeLLM())
+    monkeypatch.setattr(swarm_mod, "_make_llm", lambda model, temperature=0.1: _FakeLLM())
     load_config()
     return new_bus
 

@@ -1,87 +1,61 @@
 {% extends "layout.html" %}
 {% block title %}{{ company }} - Demo{% endblock %}
 {% block content %}
-<style>
-  .demo-shell { display: flex; flex-direction: column; height: calc(100vh - 44px); }
-  .demo-body { display: flex; flex: 1; min-height: 0; gap: 0; }
-
-  /* Chat panel */
-  .chat-panel { width: 460px; flex-shrink: 0; display: flex; flex-direction: column; border-right: 1px solid var(--border); background: #fff; }
-  .panel-header { padding: 10px 14px; border-bottom: 1px solid var(--border); font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: var(--primary); display: flex; align-items: center; justify-content: space-between; }
-  .chat-stream { flex: 1; overflow-y: auto; padding: 14px; display: flex; flex-direction: column; gap: 10px; }
-  .chat-empty { margin: auto; color: var(--text); opacity: 0.35; font-size: 12px; text-align: center; padding: 20px; }
-
-  .msg { display: flex; flex-direction: column; max-width: 92%; }
-  .msg.user { align-self: flex-end; align-items: flex-end; }
-  .msg.assistant { align-self: flex-start; align-items: flex-start; }
-  .msg .bubble { border-radius: 4px; padding: 8px 12px; font-size: 12.5px; line-height: 1.5; white-space: pre-wrap; word-wrap: break-word; }
-  .msg.user .bubble { background: var(--accent); color: #fff; }
-  .msg.assistant .bubble { background: var(--surface); border: 1px solid var(--border); color: var(--text); }
-  .msg .author { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: var(--primary); opacity: 0.6; margin-bottom: 3px; }
-  .msg.user .author { color: var(--accent); }
-  .msg .bubble.empty::after { content: '·'; animation: pulse 1s infinite; opacity: 0.5; }
-  @keyframes pulse { 0%,100% {opacity:0.2} 50% {opacity:0.8} }
-
-  .inline-event { align-self: flex-start; font-size: 11px; padding: 3px 8px; border-radius: 3px; background: #fff; border: 1px solid var(--border); color: var(--text); opacity: 0.8; display: flex; align-items: center; gap: 6px; max-width: 92%; }
-  .inline-event .dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
-  .inline-event.agent .dot { background: var(--accent); }
-  .inline-event.tool  .dot { background: var(--teal); }
-  .inline-event.audit .dot { background: var(--amber); }
-  .inline-event.system .dot { background: var(--success); }
-  .inline-event code { font-family: ui-monospace, monospace; font-size: 11px; opacity: 0.85; }
-
-  .status-pill { display: inline-block; font-size: 10px; padding: 1px 6px; border-radius: 2px; font-weight: 600; }
-  .status-pill.running   { background: #dceeff; color: var(--accent); }
-  .status-pill.completed { background: #d4f0e2; color: var(--success); }
-  .status-pill.failed    { background: #fde8e6; color: var(--danger); }
-
-  /* Chat input at bottom of chat panel */
-  .chat-input-row { border-top: 1px solid var(--border); padding: 10px 12px; display: flex; gap: 8px; background: #fff; }
-  .chat-input-row textarea { flex: 1; border: 1px solid var(--border); border-radius: 3px; padding: 7px 10px; font-size: 12px; outline: none; resize: none; font-family: inherit; line-height: 1.4; max-height: 90px; }
-  .chat-input-row textarea:focus { border-color: var(--accent); }
-  .btn { border: none; border-radius: 3px; padding: 6px 14px; font-size: 12px; font-weight: 600; cursor: pointer; transition: opacity 0.15s; }
-  .btn:disabled { opacity: 0.35; cursor: not-allowed; }
-  .btn-primary { background: var(--accent); color: #fff; }
-  .btn-ghost   { background: var(--surface); border: 1px solid var(--border); color: var(--text); }
-
-  /* Graph panel */
-  .graph-panel { flex: 1; display: flex; flex-direction: column; background: var(--surface); min-width: 0; }
-  .graph-canvas { flex: 1; overflow: auto; padding: 12px; }
-  #graph-svg { width: 100%; min-height: 300px; }
-  .graph-empty { color: var(--text); opacity: 0.4; font-size: 12px; text-align: center; padding: 60px 20px; }
-</style>
+<link rel="stylesheet" href="/static/demo.css?v=4">
 
 <div class="demo-shell">
   <div class="demo-body">
 
-    <div class="chat-panel">
-      <div class="panel-header">
-        <span>Chat</span>
-        <span id="agent-count" style="font-weight:400;opacity:0.6">idle</span>
+    <aside class="chat-panel">
+      <header class="panel-header">
+        <span class="panel-title">Chat</span>
+        <span class="panel-meta">
+          <label class="model-picker">
+            <span class="model-picker-label">Model</span>
+            <select id="model-select" class="model-picker-select"></select>
+          </label>
+          <span id="agent-count" class="agent-count">idle</span>
+        </span>
+      </header>
+
+      <div id="memory-bar" class="memory-bar">
+        <div class="mem-row">
+          <span class="mem-label">Context</span>
+          <div class="mem-track"><div id="mem-fill" class="mem-fill"></div></div>
+          <span id="mem-tokens" class="mem-tokens">0 / 128k</span>
+        </div>
+        <div class="mem-row mem-row-compact">
+          <span id="mem-agents" class="mem-chip">0 agents</span>
+          <span id="mem-compactions" class="mem-chip">0 compactions</span>
+          <button type="button" id="mem-toggle" class="mem-toggle" aria-expanded="false">Summaries</button>
+        </div>
+        <div id="mem-detail" class="mem-detail" hidden></div>
       </div>
+
       <div class="chat-stream" id="chat-stream">
         <div class="chat-empty" id="chat-empty">Send a prompt to begin.</div>
       </div>
+
       <div class="chat-input-row">
         <textarea id="prompt-input" rows="2" placeholder="Describe the payout run...">Run the weekly payout cycle across all five regions.</textarea>
         <button class="btn btn-primary" id="start-btn">Send</button>
       </div>
-    </div>
+    </aside>
 
-    <div class="graph-panel">
-      <div class="panel-header">
-        <span>Orchestration graph</span>
-        <span id="graph-status" style="font-weight:400;opacity:0.6">idle</span>
-      </div>
+    <section class="graph-panel">
+      <header class="panel-header">
+        <span class="panel-title">Orchestration graph</span>
+        <span id="graph-status" class="panel-meta">idle</span>
+      </header>
       <div class="graph-canvas">
         <div class="graph-empty" id="graph-empty">The graph will build as the Finance Control agent dispatches work.</div>
         <svg id="graph-svg" style="display:none"></svg>
       </div>
-    </div>
+    </section>
 
   </div>
 </div>
 
-<script src="/static/chat.js?v=3" type="module"></script>
-<script src="/static/graph.js?v=3" type="module"></script>
+<script src="/static/chat.js?v=4" type="module"></script>
+<script src="/static/graph.js?v=4" type="module"></script>
 {% endblock %}

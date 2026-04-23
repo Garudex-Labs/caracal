@@ -67,6 +67,9 @@ function summarize(ev) {
     case 'chat_token':      return `Token  ${JSON.stringify(p.token || '')}`;
     case 'chat_message':    return `Message  ${(p.text || '').slice(0, 80)}`;
     case 'llm_call':        return `LLM call  ${p.model}  ${p.latency_ms}ms  in=${p.input_tokens}tok out=${p.output_tokens}tok  tools=${p.tool_calls}  agent=${agent}`;
+    case 'memory_update':   return `Memory  agent=${agent}  tokens=${p.tokens_used}/${p.tokens_limit}  msgs=${p.message_count}  compactions=${p.compactions}`;
+    case 'memory_compaction': return `Memory compaction  agent=${agent}  ${p.tokens_before}->${p.tokens_after} tokens`;
+    case 'model_change':    return `Model change  ${p.prior} -> ${p.model}`;
     default:                return ev.kind;
   }
 }

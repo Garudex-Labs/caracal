@@ -2,14 +2,16 @@
 Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 Caracal, a product of Garudex Labs
 
-System health and config endpoints.
+System health, config, and runtime model switcher endpoints.
 """
 from __future__ import annotations
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from app.config import get_config
+from app.core.memory import MODEL_CONTEXT_LIMITS
+from app.core.settings import ALLOWED_MODELS, settings
 
 router = APIRouter()
 
@@ -41,3 +43,36 @@ def config() -> dict:
         "scenario": cfg.scenario.model_dump(),
         "theme": cfg.theme.model_dump(),
     }
+
+
+class ModelResponse(BaseModel):
+    model: str
+    allowed: list[str]
+    contextLimit: int
+
+
+class ModelChangeRequest(BaseModel):
+    model: str
+
+
+@router.get("/model")
+def get_model() -> ModelResponse:
+    return ModelResponse(
+        model=settings.model,
+        allowed=list(ALLOWED_MODELS),
+        contextLimit=MODEL_CONTEXT_LIMITS.get(settings.model, 128_000),
+    )
+
+
+@router.post("/model")
+def set_model(body: ModelChangeRequest) -> ModelResponse:
+    try:
+        settings.set_model(body.model)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return ModelResponse(
+        model=settings.model,
+        allowed=list(ALLOWED_MODELS),
+        contextLimit=MODEL_CONTEXT_LIMITS.get(settings.model, 128_000),
+    )
+
