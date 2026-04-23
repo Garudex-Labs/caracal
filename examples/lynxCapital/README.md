@@ -6,7 +6,8 @@ Autonomous financial execution demo built on FastAPI, LangGraph, and Caracal.
 
 - Python 3.11+
 - An OpenAI API key
-- Caracal runtime (see `/setup` for CLI commands)
+- Docker (for the Caracal runtime)
+- `caracal-core` and `caracal-sdk` installed (`pip install caracal-core caracal-sdk`)
 
 ## Install
 
@@ -42,9 +43,10 @@ cp .env.example .env
 # edit .env: fill in OPENAI_API_KEY, CARACAL_API_KEY, CARACAL_API_URL, CARACAL_WORKSPACE_ID
 ```
 
-### 3. Start the Caracal runtime
+### 3. Install Caracal CLI and start the runtime
 
 ```
+pip install caracal-core caracal-sdk
 caracal up
 caracal migrate
 ```
