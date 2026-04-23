@@ -1172,7 +1172,23 @@ def _resolve_compose_file() -> Path:
     so docker can read it from a stable on-disk path across invocations.
     """
     target = resolve_caracal_home(require_explicit=False) / "runtime" / "docker-compose.yml"
-    target.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        target.parent.mkdir(parents=True, exist_ok=True)
+    except PermissionError:
+        caracal_home = resolve_caracal_home(require_explicit=False)
+        print(
+            f"Error: cannot write to Caracal home directory: {caracal_home}\n"
+            "This directory is not writable by the current user (it may be owned by root).\n"
+            "\n"
+            "Fix option 1 — set a writable override path:\n"
+            "    export CARACAL_HOME=~/.config/caracal\n"
+            "    caracal up\n"
+            "\n"
+            "Fix option 2 — reclaim ownership (requires sudo):\n"
+            f"    sudo chown -R $USER:$USER {caracal_home}\n",
+            file=sys.stderr,
+        )
+        raise SystemExit(1)
     resource = files("caracal.runtime.data").joinpath("docker-compose.yml")
     with as_file(resource) as resource_path:
         payload = Path(resource_path).read_text(encoding="utf-8")

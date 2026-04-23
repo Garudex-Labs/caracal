@@ -69,6 +69,15 @@
           <div class="step-label">Bring up the full stack</div>
           <div class="cmd-block">caracal up<button class="copy-btn" data-cmd="caracal up">copy</button></div>
           <div class="step-note">Starts postgres, redis, vault, and the Caracal API on the default port (8080).</div>
+          <details class="step-troubleshoot">
+            <summary>Permission denied on <code>~/.caracal</code>?</summary>
+            <p>If you see <em>PermissionError: [Errno 13] Permission denied: '/home/…/.caracal/runtime'</em>, the directory was created by root (e.g. a prior <code>docker run</code> as root). Fix it with either option:</p>
+            <p><strong>Option A</strong> — use a writable override (no sudo needed):</p>
+            <div class="cmd-block">export CARACAL_HOME=~/.config/caracal<button class="copy-btn" data-cmd="export CARACAL_HOME=~/.config/caracal">copy</button></div>
+            <p>Then run <code>caracal up</code> again. Add the export to your shell profile to make it permanent.</p>
+            <p><strong>Option B</strong> — reclaim ownership (requires sudo):</p>
+            <div class="cmd-block">sudo chown -R $USER:$USER ~/.caracal<button class="copy-btn" data-cmd="sudo chown -R $USER:$USER ~/.caracal">copy</button></div>
+          </details>
         </div>
       </div>
       <div class="step">
