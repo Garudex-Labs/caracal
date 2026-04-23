@@ -9,7 +9,10 @@
   h1           { font-size: 17px; font-weight: 600; margin-bottom: 4px; }
   .sub         { color: #5a6478; font-size: 12px; margin-bottom: 24px; }
   .phase       { margin-bottom: 28px; border: 1px solid var(--border); border-radius: 4px; overflow: hidden; }
-  .phase-hd    { background: var(--primary); color: #fff; padding: 8px 14px; font-size: 12px; font-weight: 600; display: flex; justify-content: space-between; align-items: center; }
+  .phase-hd    { background: var(--primary); color: #fff; padding: 8px 14px; font-size: 12px; font-weight: 600; display: flex; justify-content: space-between; align-items: center; cursor: pointer; user-select: none; }
+  .phase-hd .toggle-icon { font-size: 10px; opacity: 0.7; transition: transform 0.2s; }
+  .phase.collapsed .toggle-icon { transform: rotate(-90deg); }
+  .phase.collapsed .phase-body { display: none; }
   .phase-body  { padding: 0; }
   .step        { display: flex; align-items: flex-start; gap: 10px; padding: 10px 14px; border-bottom: 1px solid var(--border); }
   .step:last-child { border-bottom: none; }
@@ -43,7 +46,7 @@
 
   <!-- Phase 1: Stack -->
   <div class="phase">
-    <div class="phase-hd"><span>1. Start the Caracal runtime</span></div>
+    <div class="phase-hd"><span>1. Start the Caracal runtime</span><span class="toggle-icon">▼</span></div>
     <div class="phase-body">
       <div class="step">
         <div class="step-num">1</div>
@@ -65,7 +68,7 @@
 
   <!-- Phase 2: Workspace -->
   <div class="phase">
-    <div class="phase-hd"><span>2. Workspace</span></div>
+    <div class="phase-hd"><span>2. Workspace</span><span class="toggle-icon">▼</span></div>
     <div class="phase-body">
       <div class="step">
         <div class="step-num">3</div>
@@ -89,7 +92,7 @@ workspace key create --workspace lynx-capital --name demo-app<button class="copy
 
   <!-- Phase 3: Principals -->
   <div class="phase">
-    <div class="phase-hd"><span>3. Register principals</span></div>
+    <div class="phase-hd"><span>3. Register principals</span><span class="toggle-icon">▼</span></div>
     <div class="phase-body">
       {% set principals = [
         ("finance-control",       "Finance Control orchestrator"),
@@ -117,7 +120,7 @@ principal create --workspace lynx-capital --id {{ pid }} --display "{{ desc }}"<
 
   <!-- Phase 4: Providers -->
   <div class="phase">
-    <div class="phase-hd"><span>4. Register providers</span></div>
+    <div class="phase-hd"><span>4. Register providers</span><span class="toggle-icon">▼</span></div>
     <div class="phase-body">
       {% for p in providers %}
       <div class="step">
@@ -134,7 +137,7 @@ provider register --workspace lynx-capital --id {{ p.id }} --category {{ p.categ
 
   <!-- Phase 5: Policies -->
   <div class="phase">
-    <div class="phase-hd"><span>5. Create policies</span></div>
+    <div class="phase-hd"><span>5. Create policies</span><span class="toggle-icon">▼</span></div>
     <div class="phase-body">
       <div class="step">
         <div class="step-num">25</div>
@@ -187,7 +190,7 @@ policy create --workspace lynx-capital \
 
   <!-- Phase 6: Mandates -->
   <div class="phase">
-    <div class="phase-hd"><span>6. Issue mandates and delegate authority</span></div>
+    <div class="phase-hd"><span>6. Issue mandates and delegate authority</span><span class="toggle-icon">▼</span></div>
     <div class="phase-body">
       <div class="step">
         <div class="step-num">29</div>
@@ -233,6 +236,11 @@ mandate template create --workspace lynx-capital \
 </div>
 
 <script type="module">
+  // Collapsible phases
+  document.querySelectorAll('.phase-hd').forEach(hd => {
+    hd.addEventListener('click', () => hd.closest('.phase').classList.toggle('collapsed'));
+  });
+
   // Copy buttons
   document.querySelectorAll('.copy-btn').forEach(btn => {
     btn.addEventListener('click', () => {

@@ -17,14 +17,14 @@
   .toolbar-sep { width: 1px; height: 18px; background: var(--border); margin: 0 4px; }
   .logs-controls { display: flex; gap: 6px; margin-left: auto; align-items: center; }
   .logs-body { flex: 1; overflow-y: auto; font-family: ui-monospace, 'Cascadia Code', monospace; font-size: 11.5px; background: #fff; }
-  .log-line { display: flex; align-items: baseline; gap: 8px; padding: 3px 14px; border-bottom: 1px solid #f0f2f6; cursor: pointer; }
-  .log-line:hover { background: #f8f9fc; }
+  .log-line { display: flex; align-items: baseline; gap: 8px; padding: 3px 14px; border-bottom: 1px solid var(--border); cursor: pointer; }
+  .log-line:hover { background: var(--surface); }
   .log-line .ts    { color: var(--text); opacity: 0.38; white-space: nowrap; flex-shrink: 0; font-size: 10px; }
   .log-line .cat   { flex-shrink: 0; width: 60px; font-size: 10px; font-weight: 700; text-transform: uppercase; }
   .log-line .kind  { flex-shrink: 0; width: 120px; opacity: 0.65; }
   .log-line .body  { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .log-line .expand { display: none; padding: 6px 14px 6px 202px; font-size: 11px; background: #f8f9fc; white-space: pre-wrap; word-break: break-all; }
-  .log-line.open .expand { display: block; }
+  .expand       { display: none; padding: 6px 14px 6px 202px; font-size: 11px; background: var(--surface); white-space: pre-wrap; word-break: break-all; }
+  .open .expand { display: block; }
   .cat-system  { color: var(--text); }
   .cat-agent   { color: var(--accent); }
   .cat-tool    { color: var(--teal); }

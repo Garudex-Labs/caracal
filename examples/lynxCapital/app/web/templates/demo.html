@@ -1,7 +1,7 @@
 {% extends "layout.html" %}
 {% block title %}{{ company }} - Demo{% endblock %}
 {% block content %}
-<link rel="stylesheet" href="/static/demo.css?v=5">
+<link rel="stylesheet" href="/static/demo.css?v=6">
 
 <div class="demo-shell">
   <div class="demo-body">
@@ -48,7 +48,8 @@
       <div class="chat-input-row">
         <textarea id="prompt-input" rows="2" placeholder="Describe the payout run...">Run the weekly payout cycle across all five regions.</textarea>
         <button class="btn btn-primary" id="start-btn">Send</button>
-        <button class="btn btn-stop" id="stop-btn" hidden title="Stop the current run cooperatively">Stop</button>
+        <button class="btn btn-ghost"   id="pause-btn" hidden title="Pause / resume event display">Pause</button>
+        <button class="btn btn-stop"    id="stop-btn"  hidden title="Cancel the current run">Cancel</button>
       </div>
     </aside>
 
@@ -66,6 +67,6 @@
   </div>
 </div>
 
-<script src="/static/chat.js?v=5" type="module"></script>
-<script src="/static/graph.js?v=5" type="module"></script>
+<script src="/static/chat.js?v=6" type="module"></script>
+<script src="/static/graph.js?v=6" type="module"></script>
 {% endblock %}

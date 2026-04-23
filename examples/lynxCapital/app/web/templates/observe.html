@@ -32,6 +32,7 @@
   .status-pill.failed    { background: #fde8e6; color: var(--danger); }
   .status-pill.cancelled { background: var(--surface); color: var(--text); opacity: 0.6; }
   .principal-chip { font-size: 10px; font-family: ui-monospace, monospace; background: rgba(11,61,145,0.08); color: var(--primary); border-radius: 2px; padding: 1px 5px; margin-left: 4px; }
+  .mandate-chip   { font-size: 10px; font-family: ui-monospace, monospace; background: rgba(13,110,114,0.08); color: var(--teal);    border-radius: 2px; padding: 1px 5px; margin-left: 4px; }
   .tool-detail { padding: 6px 8px 8px 40px; font-size: 11px; border-left: 2px solid #d7dbe0; margin-left: 14px; background: #fafbfc; }
   .tool-row { display: flex; gap: 8px; align-items: flex-start; padding: 3px 0; }
   .tool-row .tool-name { font-family: ui-monospace, monospace; color: var(--teal); font-weight: 600; min-width: 180px; }
@@ -93,6 +94,7 @@ function renderSpan(span, depth) {
   const toolCount = span.tool_calls ? span.tool_calls.length : 0;
   const dur = fmtDur(span.ts_start, span.ts_end);
   const principalHtml = span.principal ? `<span class="principal-chip">${escapeHtml(span.principal)}</span>` : '';
+  const mandateHtml   = span.mandate_id ? `<span class="mandate-chip">${escapeHtml(span.mandate_id)}</span>` : '';
 
   let toolsHtml = '';
   if (toolCount > 0) {
@@ -118,7 +120,7 @@ function renderSpan(span, depth) {
   return `<div class="span-row" data-id="${span.id}">
     <span class="indent">${indent}</span>
     ${pill(span.status)}
-    <span class="role">${escapeHtml(span.role || '')}${principalHtml}</span>
+    <span class="role">${escapeHtml(span.role || '')}${principalHtml}${mandateHtml}</span>
     <span class="region">${escapeHtml(span.region || '')}</span>
     <span class="layer">${escapeHtml(span.layer || '')}</span>
     <span class="dur">${dur}</span>

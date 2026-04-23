@@ -36,7 +36,15 @@
   --statusCancelled: #8A9BAE;
 }
 
-*, *::before, *::after { box-sizing: border-box; }
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+body  { font-family: system-ui, -apple-system, sans-serif; font-size: 13px; background: var(--surface); color: var(--text); min-height: 100vh; display: flex; flex-direction: column; }
+nav   { background: var(--primary); color: #fff; display: flex; align-items: center; justify-content: space-between; padding: 0 24px; height: 44px; flex-shrink: 0; }
+nav .brand  { font-weight: 600; font-size: 14px; letter-spacing: 0.02em; color: #fff; text-decoration: none; }
+nav .links  { display: flex; gap: 4px; }
+nav .links a { color: rgba(255,255,255,0.75); text-decoration: none; padding: 6px 10px; border-radius: 3px; font-size: 12px; transition: background 0.15s; }
+nav .links a:hover, nav .links a.active { background: rgba(255,255,255,0.15); color: #fff; }
+main  { flex: 1; display: flex; flex-direction: column; min-height: 0; }
 
 ::-webkit-scrollbar { width: 6px; height: 6px; }
 ::-webkit-scrollbar-track { background: transparent; }
