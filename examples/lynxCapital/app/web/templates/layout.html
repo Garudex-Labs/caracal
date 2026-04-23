@@ -21,9 +21,11 @@
     <a class="brand" href="/">{{ company }}</a>
     <div class="links">
       <a href="/" id="nav-landing">Overview</a>
+      {% if accepted %}
       <a href="/demo" id="nav-demo">Demo</a>
       <a href="/logs" id="nav-logs">Logs</a>
       <a href="/observe" id="nav-observe">Observe</a>
+      {% endif %}
     </div>
   </nav>
   <main>

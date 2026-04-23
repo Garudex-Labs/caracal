@@ -63,10 +63,21 @@
     </label>
   </div>
 
-  <button class="continue-btn" id="continue-btn" disabled onclick="window.location='/demo'">
+  <button class="continue-btn" id="continue-btn" disabled>
     Continue to demo
   </button>
 </div>
+
+<script>
+  const ack = document.getElementById('ack');
+  const btn = document.getElementById('continue-btn');
+  ack.addEventListener('change', () => { btn.disabled = !ack.checked; });
+  btn.addEventListener('click', async () => {
+    btn.disabled = true;
+    await fetch('/api/session/accept', {method: 'POST'});
+    window.location = '/demo';
+  });
+</script>
 
 <script>
   document.getElementById('ack').addEventListener('change', function() {
