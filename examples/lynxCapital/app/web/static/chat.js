@@ -438,7 +438,13 @@ function resetState() {
   state.planOwner = null;
   state.paused = false;
   state.queue = [];
-  stream.innerHTML = "";
+  // Preserve history — insert a visual divider between runs instead of wiping.
+  if (stream.children.length > 0) {
+    const sep = document.createElement("div");
+    sep.className = "run-separator";
+    sep.innerHTML = `<span>new run</span>`;
+    stream.append(sep);
+  }
   planPanel.hidden = true;
   planList.innerHTML = "";
   if (pauseBtn) { pauseBtn.hidden = true; pauseBtn.textContent = "Pause"; }

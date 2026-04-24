@@ -46,7 +46,7 @@
       </div>
 
       <div class="chat-input-row">
-        <textarea id="prompt-input" rows="2" placeholder="Describe the payout run...">Run the weekly payout cycle across all five regions.</textarea>
+        <textarea id="prompt-input" rows="2" placeholder="Ask a question or describe a task..."></textarea>
         <button class="btn btn-primary" id="start-btn">Send</button>
         <button class="btn btn-ghost"   id="pause-btn" hidden title="Pause / resume event display">Pause</button>
         <button class="btn btn-stop"    id="stop-btn"  hidden title="Cancel the current run">Cancel</button>
@@ -70,21 +70,22 @@
 <script src="/static/chat.js?v=6" type="module"></script>
 <script src="/static/graph.js?v=6" type="module"></script>
 <script>
-  // Warn before leaving while a run is active
+  // Warn before leaving the page entirely while a run is active
   window.addEventListener('beforeunload', e => {
     if (typeof window.runActive === 'function' && window.runActive()) {
       e.preventDefault();
     }
   });
-  // Intercept nav link clicks while a run is active
+  // Allow navigation to logs/observe without blocking; only confirm full page departure.
   document.addEventListener('click', e => {
     const a = e.target.closest('a[href]');
     if (!a) return;
     if (typeof window.runActive !== 'function' || !window.runActive()) return;
     const href = a.getAttribute('href');
-    if (href && !href.startsWith('#') && href !== '/demo') {
-      if (!confirm('A run is active. Leave anyway?')) e.preventDefault();
-    }
+    if (!href || href.startsWith('#')) return;
+    const safe = ['/demo', '/logs', '/observe'];
+    if (safe.some(p => href === p || href.startsWith(p + '?'))) return;
+    if (!confirm('A run is active. Leave anyway?')) e.preventDefault();
   });
 </script>
 {% endblock %}

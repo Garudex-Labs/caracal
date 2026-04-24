@@ -45,24 +45,28 @@ class RunCancelled(Exception):
     """Raised when a run is cancelled cooperatively."""
 
 
-FC_SYSTEM_PROMPT = """You are the Finance Control agent for Lynx Capital, an autonomous financial execution platform.
+FC_SYSTEM_PROMPT = """You are Finance Control, the orchestration assistant for Lynx Capital.
 
-You coordinate weekly payout cycles across five regions: US, IN, DE, SG, BR.
+Lynx Capital runs a multi-region payment and payout platform. You have access to regional data and can dispatch Regional Orchestrator agents to process payouts across five regions: US, IN, DE, SG, BR.
 
-HOW YOU WORK
-You follow the plan-then-act loop. No action happens without a plan.
+HOW YOU DECIDE WHAT TO DO
+Read the user's message carefully and respond to what was actually asked.
 
-1. FIRST TURN: call write_todos with a concrete list of steps you will take to serve this request. Each step must be specific (e.g. "Dispatch US region", not "Handle regions"). Mark the first item in_progress and the rest pending. Do not call any other tool on the first turn.
+- If the message is a general question (about the platform, about a concept, asking for information), answer it directly in plain prose. Do not call any tools unless the question requires data you must look up.
+- If the message requests a payout run, invoice processing, or regional dispatch, follow the plan-then-act loop below.
+- If the message is ambiguous, answer conversationally and ask a clarifying question rather than launching a payout run.
 
-2. EACH FOLLOWING TURN: write ONE short sentence of plain prose stating what you are about to do, then call the next tool. When a tool result comes back, write ONE short sentence interpreting it, then update the plan via write_todos (marking completed items completed, next item in_progress) OR call the next domain tool.
-
+PAYOUT CYCLE WORKFLOW (only when the user actually asks for it)
+1. FIRST TURN: call write_todos with a concrete list of steps specific to what was requested. Mark the first step in_progress. Do not call domain tools on the first turn.
+2. EACH FOLLOWING TURN: write one short prose sentence stating what you are about to do, then call the next tool. After a result comes back, write one sentence interpreting it, then update write_todos or call the next domain tool.
 3. DOMAIN TOOLS:
-   - dispatch_region(region, focus): hand off one region to a Regional Orchestrator. Use exactly the region codes US, IN, DE, SG, BR.
-   - write_file(path, content), read_file(path), ls_files(): use these to offload large results or pass context forward. Prefer write_file for anything longer than a paragraph.
+   - dispatch_region(region, focus): hand off to a Regional Orchestrator. Use exactly: US, IN, DE, SG, BR.
+   - write_file(path, content), read_file(path), ls_files(): offload large results or pass context forward.
+4. FINAL TURN: mark all todos completed via write_todos, then output one short paragraph summarizing what was processed. Do not call tools on the final turn.
 
-4. FINAL TURN: mark all todos completed via write_todos, then output ONE short paragraph summarizing what was processed. Do not call any tool on the final turn.
+Only dispatch the regions the user asked about. If the user says "US only", dispatch only US. If no specific regions are mentioned in a payout request, dispatch all five.
 
-Think like a human operator: concise, specific, no emojis, no marketing language."""
+Be concise, plain prose, no emojis, no marketing language."""
 
 
 REGIONAL_SYSTEM_TEMPLATE = """You are the Regional Orchestrator agent for the {region} region ({region_name}, currency {currency}) at Lynx Capital.
@@ -473,10 +477,7 @@ async def run_swarm(run_id: str, prompt: str) -> None:
     summarizer = _make_llm(model_name, 0.0)
 
     mem = memory_store.open(fc.id, SystemMessage(content=FC_SYSTEM_PROMPT))
-    mem.append(HumanMessage(content=(
-        f"User request: {prompt}\n\n"
-        f"First turn: call write_todos with a concrete plan."
-    )))
+    mem.append(HumanMessage(content=prompt))
     _emit_memory_snapshot(run_id, mem)
 
     try:

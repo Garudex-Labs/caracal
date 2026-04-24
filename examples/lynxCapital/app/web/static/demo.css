@@ -198,6 +198,25 @@
 .status-pill.completed { background: rgba(26,127,75,0.2);  color: var(--ev-result-fg); }
 .status-pill.failed    { background: rgba(155,28,15,0.18); color: var(--ev-error-fg); }
 .status-pill.denied    { background: rgba(155,28,15,0.18); color: var(--ev-error-fg); }
+
+/* Run separator between conversation turns */
+.run-separator {
+  display: flex; align-items: center; gap: 8px;
+  color: var(--text); opacity: 0.3; font-size: 10px; font-weight: 600;
+  text-transform: uppercase; letter-spacing: 0.08em;
+  margin: 6px 0;
+}
+.run-separator::before, .run-separator::after {
+  content: ''; flex: 1; height: 1px; background: var(--border);
+}
+
+/* Plan and file inline events */
+.inline-event.kind-plan    { background: var(--ev-llm-bg);    color: var(--ev-llm-fg);    border-color: rgba(13,110,114,0.2); }
+.inline-event.kind-plan .dot  { background: var(--ev-llm-fg); }
+.inline-event.kind-file    { background: var(--ev-tool-bg);   color: var(--ev-tool-fg);   border-color: rgba(125,74,30,0.2); }
+.inline-event.kind-file .dot  { background: var(--ev-tool-fg); }
+.inline-event.kind-caracal { background: var(--ev-reason-bg); color: var(--ev-reason-fg); border-color: rgba(42,61,102,0.2); }
+.inline-event.kind-caracal .dot { background: var(--ev-reason-fg); }
 .status-pill.cancelled { background: rgba(138,155,174,0.25); color: #5a6d82; }
 
 /* ---------------- Chat input ---------------- */
