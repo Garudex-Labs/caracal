@@ -7,18 +7,27 @@ Lightweight mock HTTP server that serves provider API responses for the demo.
 from __future__ import annotations
 
 import json
+import re
+from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
 _DATA_DIR = Path(__file__).parent
+_SERVICE_ID_RE = re.compile(r"^[A-Za-z0-9_-]+$")
 _cases: dict[str, dict] = {}
 
 
 def _load(service_id: str) -> dict:
+    if not _SERVICE_ID_RE.fullmatch(service_id):
+        raise ValueError("invalid service id")
     if service_id not in _cases:
-        path = _DATA_DIR / f"{service_id}.mock" / "cases.json"
+        path = (_DATA_DIR / f"{service_id}.mock" / "cases.json").resolve()
+        try:
+            path.relative_to(_DATA_DIR.resolve())
+        except ValueError as exc:
+            raise ValueError("invalid service id path") from exc
         if not path.exists():
             raise KeyError(service_id)
         _cases[service_id] = json.loads(path.read_text(encoding="utf-8"))
@@ -57,7 +66,10 @@ class Handler(BaseHTTPRequestHandler):
         action = urlparse(self.path).path.strip("/")
         length = int(self.headers.get("Content-Length", 0))
         payload: dict = json.loads(self.rfile.read(length)) if length else {}
-        status, data = _dispatch(service_id, action, payload)
+        try:
+            status, data = _dispatch(service_id, action, payload)
+        except ValueError:
+            status, data = HTTPStatus.BAD_REQUEST, {"error": "invalid service id"}
         self._reply(status, data)
 
     def _reply(self, status: int, data: dict) -> None:
