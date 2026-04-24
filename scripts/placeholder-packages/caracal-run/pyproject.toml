@@ -1,0 +1,41 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "caracal-run"
+version = "0.1.0"
+description = "Caracal Run — task execution engine with authority-scoped job scheduling"
+readme = "README.md"
+requires-python = ">=3.10"
+license = "Apache-2.0"
+authors = [{ name = "Caracal Contributors" }]
+keywords = ["caracal", "run", "tasks", "jobs", "scheduling", "authority", "enforcement"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Security",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+dependencies = [
+    "caracal-sdk>=0.1.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/Garudex-Labs/caracal"
+Repository = "https://github.com/Garudex-Labs/caracal"
+Issues = "https://github.com/Garudex-Labs/caracal/issues"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["caracal_run*"]
+
+[tool.setuptools.package-data]
+caracal_run = ["py.typed"]

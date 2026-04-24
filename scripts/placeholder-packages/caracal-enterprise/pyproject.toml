@@ -1,0 +1,41 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "caracal-enterprise"
+version = "0.1.0"
+description = "Caracal Enterprise edition — centralized management, SSO, and compliance features"
+readme = "README.md"
+requires-python = ">=3.10"
+license = "LicenseRef-Caracal-Enterprise"
+authors = [{ name = "Caracal Contributors" }]
+keywords = ["caracal", "enterprise", "sso", "compliance", "authority", "enforcement"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Security",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+dependencies = [
+    "caracal-sdk>=0.1.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/Garudex-Labs/caracal"
+Repository = "https://github.com/Garudex-Labs/caracal"
+Issues = "https://github.com/Garudex-Labs/caracal/issues"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["caracal_enterprise*"]
+
+[tool.setuptools.package-data]
+caracal_enterprise = ["py.typed"]
