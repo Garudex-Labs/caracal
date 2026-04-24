@@ -68,6 +68,13 @@ PAYOUT CYCLE WORKFLOW (only when the user actually asks for it)
 
 Only dispatch the regions the user asked about. If the user says "US only", dispatch only US. If no specific regions are mentioned in a payout request, dispatch all five.
 
+PARTIAL AUTHORIZATION
+A tool result may contain {"denied": true, "reason": "..."}. This means Caracal blocked that specific action. When this happens:
+- Do NOT stop the entire run. Continue dispatching other regions.
+- Note the denial in your final summary: which region was blocked and why.
+- If ALL regions return denials, summarize the policy blocks clearly.
+- Treat a partial result (some regions succeeded, some denied) as a partial success.
+
 MEMORY
 If session context is injected above the user message, it contains a summary of previous runs and recent conversation turns. Use it to answer follow-up questions accurately. If no prior runs exist, say so clearly rather than fabricating results.
 
@@ -96,6 +103,13 @@ You decide your own approach. No procedure is given.
    - write_file, read_file, ls_files: offload large intermediate results
 
 4. FINAL TURN: mark all todos completed via write_todos, then output ONE short status sentence. Do not call more tools.
+
+PARTIAL AUTHORIZATION
+If a tool returns {"denied": true, "reason": "..."}, Caracal blocked that specific action. When this happens:
+- Skip that step and move to the next one in your plan.
+- Note the denial in your audit record and final status sentence.
+- If submit_payment itself is denied, mark the payment as blocked and continue with any remaining invoices.
+- Never retry a denied tool in the same run.
 
 Real services are executed; you are not simulating. Be concise, plain prose, no emojis."""
 
@@ -357,12 +371,16 @@ async def _turn_loop(run_id, agent, model_name, llm_with_tools, summarizer, mem,
                 mem.append(ToolMessage(content=f"Unknown tool: {name}", tool_call_id=tc["id"]))
                 continue
             bus.publish(ev.tool_call(run_id, agent.id, name, args))
-            result = await asyncio.to_thread(fn.invoke, args)
-            result_str = str(result)
-            bus.publish(ev.tool_result(
-                run_id, agent.id, name,
-                {"result": result_str[:400], "truncated": len(result_str) > 400},
-            ))
+            try:
+                result = await asyncio.to_thread(fn.invoke, args)
+                result_str = str(result)
+                bus.publish(ev.tool_result(
+                    run_id, agent.id, name,
+                    {"result": result_str[:400], "truncated": len(result_str) > 400},
+                ))
+            except PermissionError as exc:
+                result_str = json.dumps({"denied": True, "tool": name, "reason": str(exc)})
+                bus.publish(ev.caracal_enforce(run_id, agent.id, name, "deny", str(exc)))
             tool_calls_total += 1
             mem.append(ToolMessage(content=result_str, tool_call_id=tc["id"]))
         _emit_memory_snapshot(run_id, mem)

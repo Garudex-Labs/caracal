@@ -1,0 +1,266 @@
+{% extends "layout.html" %}
+{% block title %}{{ company }} - Caracal{% endblock %}
+{% block content %}
+<style>
+.caracal-page { max-width: 960px; margin: 0 auto; padding: 28px 24px; }
+.caracal-page h1 { font-size: 20px; font-weight: 600; color: var(--text); margin-bottom: 4px; }
+.caracal-page .page-sub { font-size: 12px; color: #5a6478; margin-bottom: 24px; }
+
+.status-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+  margin-bottom: 28px;
+}
+.stat-card {
+  background: #fff; border: 1px solid var(--border); border-radius: 6px;
+  padding: 14px 16px;
+}
+.stat-card .stat-label { font-size: 11px; color: #5a6478; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 6px; }
+.stat-card .stat-value { font-size: 28px; font-weight: 700; color: var(--text); }
+
+.section { margin-bottom: 28px; }
+.section-header {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 10px;
+}
+.section-title { font-size: 14px; font-weight: 600; color: var(--text); }
+.section-refresh { font-size: 11px; color: var(--accent); cursor: pointer; background: none; border: none; padding: 0; }
+.section-refresh:hover { text-decoration: underline; }
+
+table { width: 100%; border-collapse: collapse; font-size: 12px; }
+thead th {
+  text-align: left; padding: 7px 10px;
+  background: var(--surface); border-bottom: 1px solid var(--border);
+  font-weight: 600; color: #5a6478; font-size: 10px; text-transform: uppercase; letter-spacing: 0.04em;
+}
+tbody td {
+  padding: 7px 10px; border-bottom: 1px solid #f0f2f5; color: var(--text);
+  vertical-align: top;
+}
+tbody tr:last-child td { border-bottom: none; }
+tbody tr:hover td { background: #f8faff; }
+
+.mono { font-family: monospace; font-size: 11px; word-break: break-all; }
+.badge-kind {
+  display: inline-block; padding: 1px 6px; border-radius: 3px;
+  font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em;
+}
+.kind-service  { background: #e8f0fe; color: var(--accent); }
+.kind-user     { background: #e6f5ec; color: var(--success); }
+.kind-mandate  { background: #fff0e6; color: var(--warning); }
+
+.decision-allow { color: var(--success); font-weight: 600; }
+.decision-deny  { color: var(--danger);  font-weight: 600; }
+
+.empty-row td { color: #aab0bc; font-style: italic; text-align: center; padding: 16px; }
+
+.loading-msg { color: #aab0bc; font-size: 12px; font-style: italic; padding: 10px 0; }
+
+.ts-cell { color: #8a93a8; font-size: 11px; white-space: nowrap; }
+
+/* enforce table tool_id truncation */
+.tool-id-cell { max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+</style>
+
+<div class="caracal-page">
+  <h1>Caracal</h1>
+  <p class="page-sub">Live policy state for workspace <strong id="ws-id">{{ scenario.description | default('lynx-capital') }}</strong>. Refreshes on load.</p>
+
+  <div class="status-grid">
+    <div class="stat-card">
+      <div class="stat-label">Principals</div>
+      <div class="stat-value" id="count-principals">—</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Registered Tools</div>
+      <div class="stat-value" id="count-tools">—</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Active Mandates</div>
+      <div class="stat-value" id="count-mandates">—</div>
+    </div>
+  </div>
+
+  <!-- Principals -->
+  <div class="section">
+    <div class="section-header">
+      <span class="section-title">Principals</span>
+      <button class="section-refresh" onclick="loadCaracal()">Refresh</button>
+    </div>
+    <table id="principals-table">
+      <thead>
+        <tr>
+          <th>ID</th>
+          <th>Name</th>
+          <th>Kind</th>
+          <th>Owner</th>
+        </tr>
+      </thead>
+      <tbody id="principals-body">
+        <tr><td colspan="4" class="loading-msg">Loading…</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Registered Tools -->
+  <div class="section">
+    <div class="section-header">
+      <span class="section-title">Registered Tools</span>
+    </div>
+    <table id="tools-table">
+      <thead>
+        <tr>
+          <th>Tool ID</th>
+          <th>Provider</th>
+          <th>Resource</th>
+          <th>Action</th>
+        </tr>
+      </thead>
+      <tbody id="tools-body">
+        <tr><td colspan="4" class="loading-msg">Loading…</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Active Mandates -->
+  <div class="section">
+    <div class="section-header">
+      <span class="section-title">Active Mandates</span>
+    </div>
+    <table id="mandates-table">
+      <thead>
+        <tr>
+          <th>Mandate ID</th>
+          <th>Issuer</th>
+          <th>Subject</th>
+          <th>Source Mandate</th>
+        </tr>
+      </thead>
+      <tbody id="mandates-body">
+        <tr><td colspan="4" class="loading-msg">Loading…</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Recent Enforcement Decisions -->
+  <div class="section">
+    <div class="section-header">
+      <span class="section-title">Recent Enforcement Decisions</span>
+      <button class="section-refresh" onclick="loadEnforcement()">Refresh</button>
+    </div>
+    <table id="enforce-table">
+      <thead>
+        <tr>
+          <th>Time</th>
+          <th>Decision</th>
+          <th>Tool ID</th>
+          <th>Run</th>
+          <th>Reason</th>
+        </tr>
+      </thead>
+      <tbody id="enforce-body">
+        <tr><td colspan="5" class="loading-msg">Loading…</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+function _short(id) {
+  return id ? id.slice(0, 8) + '…' : '—';
+}
+
+function _tsStr(ts) {
+  if (!ts) return '—';
+  const d = new Date(ts * 1000);
+  return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+}
+
+function _empty(cols, msg) {
+  return `<tr class="empty-row"><td colspan="${cols}">${msg}</td></tr>`;
+}
+
+async function loadCaracal() {
+  const r = await fetch('/api/caracal');
+  const d = await r.json();
+
+  document.getElementById('count-principals').textContent = d.counts.principals;
+  document.getElementById('count-tools').textContent      = d.counts.tools;
+  document.getElementById('count-mandates').textContent   = d.counts.mandates;
+
+  // Principals
+  const pb = document.getElementById('principals-body');
+  if (!d.principals || d.principals.length === 0) {
+    pb.innerHTML = _empty(4, 'No principals registered.');
+  } else {
+    pb.innerHTML = d.principals.map(p => `
+      <tr>
+        <td class="mono">${_short(p.principal_id)}</td>
+        <td>${p.name || '—'}</td>
+        <td><span class="badge-kind kind-${(p.principal_kind || '').toLowerCase()}">${p.principal_kind || '—'}</span></td>
+        <td class="mono">${_short(p.owner)}</td>
+      </tr>`).join('');
+  }
+
+  // Tools
+  const tb = document.getElementById('tools-body');
+  if (!d.tools || d.tools.length === 0) {
+    tb.innerHTML = _empty(4, 'No tools registered.');
+  } else {
+    tb.innerHTML = d.tools.map(t => `
+      <tr>
+        <td class="mono">${t.tool_id || '—'}</td>
+        <td>${t.provider_name || '—'}</td>
+        <td>${t.resource_scope || '—'}</td>
+        <td>${t.action_scope || '—'}</td>
+      </tr>`).join('');
+  }
+
+  // Mandates
+  const mb = document.getElementById('mandates-body');
+  if (!d.mandates || d.mandates.length === 0) {
+    mb.innerHTML = _empty(4, 'No active mandates.');
+  } else {
+    mb.innerHTML = d.mandates.map(m => `
+      <tr>
+        <td class="mono">${_short(m.mandate_id)}</td>
+        <td class="mono">${_short(m.issuer_id)}</td>
+        <td class="mono">${_short(m.subject_id)}</td>
+        <td class="mono">${m.source_mandate_id ? _short(m.source_mandate_id) : '—'}</td>
+      </tr>`).join('');
+  }
+
+  // Enforcement
+  renderEnforcement(d.enforcement);
+}
+
+async function loadEnforcement() {
+  const r = await fetch('/api/caracal/enforcement');
+  const d = await r.json();
+  renderEnforcement(d.events);
+}
+
+function renderEnforcement(events) {
+  const eb = document.getElementById('enforce-body');
+  if (!events || events.length === 0) {
+    eb.innerHTML = _empty(5, 'No enforcement events recorded this session.');
+    return;
+  }
+  eb.innerHTML = events.map(e => `
+    <tr>
+      <td class="ts-cell">${_tsStr(e.ts)}</td>
+      <td class="${e.decision === 'allow' ? 'decision-allow' : 'decision-deny'}">${e.decision}</td>
+      <td class="mono tool-id-cell" title="${e.tool_id}">${e.tool_id}</td>
+      <td class="mono">${_short(e.run_id)}</td>
+      <td style="font-size:11px;color:#5a6478">${e.reason || '—'}</td>
+    </tr>`).join('');
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  const a = document.getElementById('nav-caracal');
+  if (a) a.classList.add('active');
+  loadCaracal();
+});
+</script>
+{% endblock %}

@@ -6,7 +6,7 @@
  */
 
 const path = location.pathname;
-const map = {'/': 'nav-landing', '/demo': 'nav-demo', '/logs': 'nav-logs', '/observe': 'nav-observe'};
+const map = {'/': 'nav-landing', '/demo': 'nav-demo', '/logs': 'nav-logs'};
 const id = map[path];
 if (id) {
   const el = document.getElementById(id);

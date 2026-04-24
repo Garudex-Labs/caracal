@@ -199,7 +199,6 @@ Lifecycle invariants the implementation must guarantee:
   - `GET /setup`    Caracal CLI/TUI guided setup with live validation.
   - `GET /demo`     The single demo run page (chat + graph).
   - `GET /logs`     Color-coded runtime activity log.
-  - `GET /observe`  Per-run lineage, enforcement decisions, audit.
 - Short, direct copy. No long paragraphs. Headings use sentence case.
 - No emojis, no decorative icons unless functional. One icon set only
   (inline SVG sprites under `app/web/static/icons.svg`).
@@ -315,7 +314,7 @@ Lifecycle invariants the implementation must guarantee:
      the exact `(vendor, amount, rail, window)` tuple before
      execution proceeds; block if not.
   4. Record every binding and enforcement decision so the
-     observability and logs views can render the full lineage.
+      logs view can render the runtime activity stream.
 - The integration must not duplicate logic that already exists in
   the base app. It enforces; it does not reinvent.
 
@@ -406,7 +405,7 @@ examples/lynxCapital/
     main.py                FastAPI entry, mounts API and web routers
     config.py              loads config/company.yaml
     api/                   JSON endpoints (system, run, setup,
-                           observe, logs)
+                           logs)
     core/                  domain types and synthetic dataset
     agents/                role definitions, tools, runner, lifecycle
     orchestration/         LangGraph wiring + swarm spawner + topology
@@ -417,9 +416,9 @@ examples/lynxCapital/
     web/                   server-rendered UI
       router.py            HTML routes
       templates/           Jinja2 templates: layout, landing, setup,
-                           demo, logs, observe, partials/*
+                           demo, logs, partials/*
       static/              theme.css, app.js, chat.js, graph.js,
-                           logs.js, observe.js, icons.svg
+                           logs.js, icons.svg
   _mock/
     registry.yaml          maps service id -> mock module
     <service>.mock/        per-service folder: cases.json, fixtures/,

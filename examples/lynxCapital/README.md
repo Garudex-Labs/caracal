@@ -104,14 +104,6 @@ Open `http://localhost:8000`.
 Go to `/logs`. Use category chips to filter by `caracal`, `agent`, `tool`, `service`, `audit`.
 Click any line to expand the raw JSON payload. Pause/Resume and Clear work live.
 
-### 8. Review lineage
-
-Go to `/observe`. Paste the run ID from the demo (visible in the chat panel on completion).
-Click **Load** to render the full agent lineage tree with:
-- Bound principal and mandate per agent
-- Enforcement decision (allow / deny) per tool call
-- Final lifecycle status per agent
-
 ## Routes
 
 | Route | Description |
@@ -119,7 +111,6 @@ Click **Load** to render the full agent lineage tree with:
 | `GET /` | Landing — scenario summary, disclaimer, Continue |
 | `GET /demo` | Demo run — chat panel + live graph |
 | `GET /logs` | Categorized runtime activity log |
-| `GET /observe` | Per-run lineage and audit records |
 | `GET /setup` | Caracal CLI guided setup |
 
 ## Configuration

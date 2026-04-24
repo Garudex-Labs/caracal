@@ -2,7 +2,7 @@
 Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 Caracal, a product of Garudex Labs
 
-Web HTML routes: landing, setup, demo, logs, and observe pages.
+Web HTML routes: landing, setup, demo, and logs pages.
 """
 from __future__ import annotations
 
@@ -69,8 +69,15 @@ def logs(request: Request):
     return templates.TemplateResponse("logs.html", _ctx(request))
 
 
-@router.get("/observe", response_class=HTMLResponse)
-def observe(request: Request):
+@router.get("/prompts", response_class=HTMLResponse)
+def prompts(request: Request):
     if not _setup_validated(request):
         return RedirectResponse(url="/setup" if _accepted(request) else "/", status_code=303)
-    return templates.TemplateResponse("observe.html", _ctx(request))
+    return templates.TemplateResponse("prompts.html", _ctx(request))
+
+
+@router.get("/caracal", response_class=HTMLResponse)
+def caracal(request: Request):
+    if not _setup_validated(request):
+        return RedirectResponse(url="/setup" if _accepted(request) else "/", status_code=303)
+    return templates.TemplateResponse("caracal.html", _ctx(request))
