@@ -7,16 +7,20 @@ Lightweight mock HTTP server that serves provider API responses for the demo.
 from __future__ import annotations
 
 import json
+import re
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
 _DATA_DIR = Path(__file__).parent
+_SERVICE_ID_RE = re.compile(r"^[A-Za-z0-9_-]+$")
 _cases: dict[str, dict] = {}
 
 
 def _load(service_id: str) -> dict:
+    if not _SERVICE_ID_RE.fullmatch(service_id):
+        raise KeyError(service_id)
     if service_id not in _cases:
         path = _DATA_DIR / f"{service_id}.mock" / "cases.json"
         if not path.exists():
