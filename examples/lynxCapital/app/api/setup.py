@@ -106,7 +106,7 @@ _MANDATES_SQL = (
     "(SELECT mandate_id::text, issuer_id::text, subject_id::text, "
     "COALESCE(source_mandate_id::text, '') AS source_mandate_id "
     "FROM execution_mandates WHERE revoked = false AND valid_until > now() "
-    "ORDER BY created_at) t;"
+    "ORDER BY created_at DESC) t;"
 )
 
 

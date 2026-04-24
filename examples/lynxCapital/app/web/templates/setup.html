@@ -156,10 +156,10 @@ tool register --tool-id "provider:wise-payouts:resource:payout:action:submit_pay
       <div class="note">Inside <code>caracal cli</code>. Run <code>principal list</code> first to get each UUID, then substitute below.</div>
       <div class="cmd-block"><span class="cc"># Run this to get principal UUIDs for the commands below</span>
 principal list<div class="copy-row"><button class="cb">copy</button></div></div>
-      <div class="cmd-block"><span class="cc"># Finance Control — full provider access, delegation allowed (8-hour window)</span>
-policy create --principal-id <span class="ph">&lt;finance-control-uuid&gt;</span> --max-validity-seconds 28800 --resource-pattern "provider:*:resource:*" --action "provider:*:action:*" --allow-delegation<div class="copy-row"><button class="cb">copy</button></div></div>
-      <div class="cmd-block"><span class="cc"># Regional Orchestrator — full provider access, delegation allowed (6-hour window)</span>
-policy create --principal-id <span class="ph">&lt;regional-orchestrator-uuid&gt;</span> --max-validity-seconds 21600 --resource-pattern "provider:*:resource:*" --action "provider:*:action:*" --allow-delegation<div class="copy-row"><button class="cb">copy</button></div></div>
+      <div class="cmd-block"><span class="cc"># Finance Control — scoped to both payment providers, delegation allowed (8-hour window)</span>
+policy create --principal-id <span class="ph">&lt;finance-control-uuid&gt;</span> --max-validity-seconds 28800 --resource-pattern "provider:mercury-bank:resource:payment" --resource-pattern "provider:wise-payouts:resource:payout" --action "provider:mercury-bank:action:submit_payment" --action "provider:wise-payouts:action:submit_payout" --allow-delegation --max-delegation-network-distance 3<div class="copy-row"><button class="cb">copy</button></div></div>
+      <div class="cmd-block"><span class="cc"># Regional Orchestrator — scoped to wise-payouts, delegation allowed (6-hour window)</span>
+policy create --principal-id <span class="ph">&lt;regional-orchestrator-uuid&gt;</span> --max-validity-seconds 21600 --resource-pattern "provider:wise-payouts:resource:payout" --action "provider:wise-payouts:action:submit_payout" --allow-delegation --max-delegation-network-distance 2<div class="copy-row"><button class="cb">copy</button></div></div>
       <div class="cmd-block"><span class="cc"># Policy Check — read-only access to compliance-nexus (1-hour window)</span>
 policy create --principal-id <span class="ph">&lt;policy-check-uuid&gt;</span> --max-validity-seconds 3600 --provider compliance-nexus --resource-pattern "provider:compliance-nexus:resource:*" --action "provider:compliance-nexus:action:*"<div class="copy-row"><button class="cb">copy</button></div></div>
       <div class="cmd-block"><span class="cc"># Payment Execution — Mercury Bank payment submission (30-minute window)</span>
