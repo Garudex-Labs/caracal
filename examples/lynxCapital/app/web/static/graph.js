@@ -12,30 +12,30 @@ const emptyEl = document.getElementById("graph-empty");
 
 const NS = "http://www.w3.org/2000/svg";
 
-const VIEW_W = 1180;
+const VIEW_W = 1440;
 const TOP_PAD = 56;
-const BOTTOM_PAD = 22;
+const BOTTOM_PAD = 30;
 const SECTION_TOP = 30;
 
-const LYNX_LEFT = 112;
-const LYNX_RIGHT = 666;
-const CARACAL_LEFT = 714;
-const CARACAL_RIGHT = 746;
-const SERVICE_LEFT = 792;
-const SERVICE_RIGHT = 1128;
+const LYNX_LEFT = 124;
+const LYNX_RIGHT = 812;
+const CARACAL_LEFT = 860;
+const CARACAL_RIGHT = 920;
+const SERVICE_LEFT = 970;
+const SERVICE_RIGHT = 1380;
 const CARACAL_X = Math.round((CARACAL_LEFT + CARACAL_RIGHT) / 2);
 
-const LAYER_BAND_H = 62;
-const LAYER_GAP = 12;
-const NODE_W = 126;
-const NODE_H = 40;
-const NODE_GAP = 10;
-const REGION_GAP = 12;
+const LAYER_BAND_H = 96;
+const LAYER_GAP = 28;
+const NODE_W = 172;
+const NODE_H = 54;
+const NODE_GAP = 18;
+const REGION_GAP = 18;
 
-const SERVICE_W = 168;
-const SERVICE_H = 40;
-const SERVICE_GAP = 10;
-const FLOW_OFFSET_STEP = 8;
+const SERVICE_W = 236;
+const SERVICE_H = 64;
+const SERVICE_GAP = 18;
+const FLOW_OFFSET_STEP = 16;
 
 const TOOL_TO_SERVICE = {
   extract_invoice: { serviceId: "ocr-vision", action: "extract_invoice" },
@@ -157,7 +157,7 @@ function flowState(flow) {
 }
 
 function shortAction(action) {
-  return truncate(action.replace(/_/g, " "), 16);
+  return truncate(titleCase(String(action || "").replace(/_/g, " ")), 26);
 }
 
 function parseToolId(toolId) {
@@ -257,6 +257,10 @@ function serviceMetrics(serviceId) {
 }
 
 function drawText(x, y, text, attrs = {}) {
+  return appendText(svg, x, y, text, attrs);
+}
+
+function appendText(parent, x, y, text, attrs = {}) {
   const node = svgEl("text", {
     x,
     y,
@@ -266,7 +270,62 @@ function drawText(x, y, text, attrs = {}) {
     ...attrs,
   });
   node.textContent = text;
-  svg.appendChild(node);
+  parent.appendChild(node);
+  return node;
+}
+
+function wrapLabel(value, limit, maxLines = 2) {
+  const words = String(value || "").split(/\s+/).filter(Boolean);
+  if (!words.length) return [""];
+
+  const lines = [];
+  let current = "";
+  for (const word of words) {
+    const candidate = current ? `${current} ${word}` : word;
+    if (candidate.length <= limit) {
+      current = candidate;
+      continue;
+    }
+    if (current) lines.push(current);
+    current = word;
+  }
+  if (current) lines.push(current);
+
+  if (lines.length <= maxLines) return lines;
+
+  const trimmed = lines.slice(0, maxLines);
+  trimmed[maxLines - 1] = truncate(trimmed[maxLines - 1], limit);
+  return trimmed;
+}
+
+function appendWrappedText(parent, x, y, text, options = {}) {
+  const {
+    lineLength = 18,
+    maxLines = 2,
+    lineHeight = 12,
+    attrs = {},
+  } = options;
+
+  const node = svgEl("text", {
+    x,
+    y,
+    fill: "var(--text)",
+    "font-family": "system-ui, sans-serif",
+    "font-size": 11,
+    ...attrs,
+  });
+
+  const lines = wrapLabel(text, lineLength, maxLines);
+  lines.forEach((line, index) => {
+    const span = svgEl("tspan", {
+      x,
+      dy: index === 0 ? 0 : lineHeight,
+    });
+    span.textContent = line;
+    node.appendChild(span);
+  });
+
+  parent.appendChild(node);
   return node;
 }
 
@@ -368,7 +427,7 @@ function drawSectionFrame(viewH) {
     "text-anchor": "middle",
   });
 
-  const legendX = SERVICE_RIGHT - 176;
+  const legendX = SERVICE_RIGHT - 182;
   const legendItems = [
     { label: "Allowed", color: FLOW_STYLE.allowed.color },
     { label: "Denied", color: FLOW_STYLE.denied.color },
@@ -440,9 +499,9 @@ function placeInternalNodes(layers) {
       const hiddenCount = nodeList.length - visibleNodes.length;
 
       if (region !== "_") {
-        drawText(slotCenter, bandY + 16, region, {
+        drawText(slotCenter, bandY + 34, region, {
           fill: "rgba(11, 61, 145, 0.62)",
-          "font-size": 9.5,
+          "font-size": 10.5,
           "font-weight": 700,
           "text-anchor": "middle",
         });
@@ -450,7 +509,7 @@ function placeInternalNodes(layers) {
 
       const totalW = visibleNodes.length * NODE_W + Math.max(0, visibleNodes.length - 1) * NODE_GAP;
       const startX = slotX + Math.max(0, (slotW - totalW) / 2);
-      const nodeY = bandY + (region === "_" ? 12 : 20);
+      const nodeY = bandY + (region === "_" ? 26 : 36);
 
       visibleNodes.forEach((node, nodeIndex) => {
         node._x = startX + nodeIndex * (NODE_W + NODE_GAP);
@@ -484,7 +543,7 @@ function placeInternalNodes(layers) {
 
 function placeServices(viewH) {
   const serviceList = Object.values(services);
-  const minY = TOP_PAD + 6;
+  const minY = TOP_PAD + 10;
   const maxY = viewH - BOTTOM_PAD - SERVICE_H;
 
   serviceList.forEach((service) => {
@@ -574,16 +633,18 @@ function drawInternalEdges() {
   });
 }
 
-function drawFlowPath(points, attrs, title) {
+function drawFlowPath(attrs, title) {
   const path = svgEl("path", attrs);
   addTitle(path, title);
   svg.appendChild(path);
 }
 
-function drawFlowBadge(x, y, text, color) {
+function drawFlowBadge(x, y, text, color, options = {}) {
+  const { align = "start" } = options;
   const width = Math.max(40, text.length * 6.2 + 14);
+  const rectX = align === "end" ? x - width : x;
   svg.appendChild(svgEl("rect", {
-    x,
+    x: rectX,
     y: y - 9,
     width,
     height: 18,
@@ -592,12 +653,13 @@ function drawFlowBadge(x, y, text, color) {
     stroke: color,
     "stroke-width": 1,
   }));
-  drawText(x + width / 2, y + 4, text, {
+  drawText(rectX + width / 2, y + 4, text, {
     fill: color,
     "font-size": 9.5,
     "font-weight": 700,
     "text-anchor": "middle",
   });
+  return width;
 }
 
 function drawPolicyBadge(flow, x, y, color) {
@@ -648,12 +710,12 @@ function drawFlows() {
       const agent = nodes[flow.agentId];
       if (!agent || service._cy == null) return;
 
-      const state = flowState(flow);
-      const style = FLOW_STYLE[state];
-      const gateY = service._gateCy + offsets[index];
-      const serviceY = service._cy + offsets[index] * 0.35;
       const startX = agent._right;
       const startY = agent._cy;
+      const state = flowState(flow);
+      const style = FLOW_STYLE[state];
+      const gateY = Math.round(startY + (service._cy - startY) * 0.48 + offsets[index]);
+      const serviceY = Math.round(service._cy + offsets[index] * 0.55);
       const gateX = service._gateX;
       const serviceX = service._x;
       const endX = serviceX;
@@ -712,13 +774,8 @@ function drawFlows() {
         }
       }
 
-      drawPolicyBadge(flow, gateX, gateY - 14, style.color);
-
-      if (flow.count > 1 || state !== "allowed") {
-        const badgeX = gateX + 48;
-        const badgeText = shortAction(flow.action);
-        drawFlowBadge(badgeX, gateY + 14, badgeText, style.color);
-      }
+      drawPolicyBadge(flow, gateX - 42, gateY, style.color);
+      drawFlowBadge(serviceX - 12, serviceY, shortAction(flow.action), style.color, { align: "end" });
     });
   });
 }
@@ -740,21 +797,26 @@ function drawAgentNodes() {
       "stroke-width": 1.6,
     }));
 
-    drawText(node._x + 10, node._y + 14, truncate(titleCase(node.role || node.layer), 18), {
-      fill: "var(--text)",
-      "font-size": 9.8,
-      "font-weight": 700,
+    appendWrappedText(group, node._x + 12, node._y + 17, titleCase(node.role || node.layer), {
+      lineLength: 18,
+      maxLines: 2,
+      lineHeight: 12,
+      attrs: {
+        fill: "var(--text)",
+        "font-size": 10.6,
+        "font-weight": 700,
+      },
     });
 
     const meta = node.region || shortScope(node.scope) || "internal";
-    drawText(node._x + 10, node._y + 26, truncate(meta, 22), {
-      fill: "rgba(26, 31, 46, 0.54)",
-      "font-size": 8.9,
+    appendText(group, node._x + 12, node._y + 40, truncate(meta, 24), {
+      fill: "rgba(26, 31, 46, 0.56)",
+      "font-size": 9.4,
     });
 
-    drawText(node._x + 10, node._y + 37, titleCase(node.status || "spawned"), {
+    appendText(group, node._x + 12, node._y + 51, titleCase(node.status || "spawned"), {
       fill: stroke,
-      "font-size": 8.8,
+      "font-size": 9,
       "font-weight": 700,
     });
 
@@ -810,27 +872,35 @@ function drawCaracalAndServices() {
       stroke: color,
       "stroke-width": 1.6,
     }));
-    drawText(service._x + 10, service._y + 14, truncate(service.id, 22), {
-      fill: "var(--text)",
-      "font-size": 9.8,
-      "font-weight": 700,
+    appendWrappedText(box, service._x + 12, service._y + 18, titleCase(service.id), {
+      lineLength: 22,
+      maxLines: 2,
+      lineHeight: 12,
+      attrs: {
+        fill: "var(--text)",
+        "font-size": 10.4,
+        "font-weight": 700,
+      },
     });
-    drawText(
-      service._x + 10,
-      service._y + 26,
+
+    appendText(
+      box,
+      service._x + 12,
+      service._y + 48,
       `${metrics.total} call${metrics.total === 1 ? "" : "s"}${metrics.active ? ` - ${metrics.active} active` : ""}`,
       {
         fill: "rgba(26, 31, 46, 0.56)",
-        "font-size": 8.9,
+        "font-size": 9.2,
       },
     );
-    drawText(
-      service._x + 10,
-      service._y + 37,
+    appendText(
+      box,
+      service._x + 12,
+      service._y + 60,
       state === "denied" ? "Denied" : state === "allowed" ? "Returning" : "Outbound dependency",
       {
         fill: color,
-        "font-size": 8.8,
+        "font-size": 9.1,
         "font-weight": 700,
       },
     );

@@ -727,52 +727,56 @@
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 2px;
 }
 
 .event-topline {
   display: flex;
-  align-items: center;
-  gap: 8px;
+  align-items: baseline;
+  gap: 6px;
   flex-wrap: wrap;
 }
 
 .event-kicker {
   font-size: 10px;
   font-weight: 700;
-  letter-spacing: 0.12em;
+  letter-spacing: 0.1em;
   text-transform: uppercase;
-  opacity: 0.8;
+  color: var(--primary);
+  opacity: 0.6;
 }
 
 .event-title {
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 500;
-  line-height: 1.4;
+  color: var(--primary);
 }
 
 .event-pill {
   display: inline-flex;
   align-items: center;
-  min-height: 22px;
-  padding: 0 8px;
-  border-radius: 999px;
+  padding: 0 6px;
+  border-radius: 4px;
   font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.08em;
+  font-weight: 600;
+  letter-spacing: 0.05em;
   text-transform: uppercase;
-  background: rgba(255, 255, 255, 0.62);
+  background: rgba(11, 61, 145, 0.05);
+  color: rgba(11, 61, 145, 0.7);
 }
 
 .event-meta {
-  margin-left: auto;
+  margin-left: 6px;
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 10.5px;
-  color: rgba(26, 31, 46, 0.54);
+  font-size: 10px;
+  color: rgba(26, 31, 46, 0.4);
 }
 
 .event-body {
   font-size: 12px;
+  color: rgba(26, 31, 46, 0.6);
+  padding-left: 12px;
+  border-left: 2px solid rgba(11, 61, 145, 0.1);
   line-height: 1.55;
   white-space: pre-wrap;
   word-break: break-word;
@@ -780,60 +784,15 @@
   opacity: 0.9;
 }
 
-.kind-spawn {
-  background: var(--ev-spawn-bg);
-  color: var(--ev-spawn-fg);
-  border-color: rgba(30, 91, 216, 0.14);
-}
-
-.kind-tool {
-  background: var(--ev-tool-bg);
-  color: var(--ev-tool-fg);
-  border-color: rgba(138, 88, 0, 0.14);
-}
-
-.kind-result {
-  background: var(--ev-result-bg);
-  color: var(--ev-result-fg);
-  border-color: rgba(26, 127, 75, 0.14);
-}
-
-.kind-system {
-  background: var(--ev-system-bg);
-  color: var(--ev-system-fg);
-  border-color: rgba(84, 98, 115, 0.14);
-}
-
-.kind-memory,
-.kind-plan {
-  background: var(--ev-memory-bg);
-  color: var(--ev-memory-fg);
-  border-color: rgba(93, 70, 163, 0.14);
-}
-
-.kind-file {
-  background: var(--ev-file-bg);
-  color: var(--ev-file-fg);
-  border-color: rgba(13, 110, 114, 0.14);
-}
-
-.kind-audit {
-  background: var(--ev-audit-bg);
-  color: var(--ev-audit-fg);
-  border-color: rgba(125, 74, 30, 0.14);
-}
-
-.kind-caracal {
-  background: var(--ev-thinking-bg);
-  color: var(--ev-thinking-fg);
-  border-color: rgba(41, 69, 108, 0.14);
-}
-
-.kind-error {
-  background: var(--ev-error-bg);
-  color: var(--ev-error-fg);
-  border-color: rgba(155, 28, 15, 0.16);
-}
+.kind-spawn { color: rgba(30, 91, 216, 0.9); }
+.kind-tool { color: rgba(138, 88, 0, 0.9); }
+.kind-result { color: rgba(26, 127, 75, 0.9); }
+.kind-system { color: rgba(84, 98, 115, 0.9); }
+.kind-memory, .kind-plan { color: rgba(93, 70, 163, 0.9); }
+.kind-file { color: rgba(13, 110, 114, 0.9); }
+.kind-audit { color: rgba(125, 74, 30, 0.9); }
+.kind-caracal { color: rgba(41, 69, 108, 0.9); }
+.kind-error { color: rgba(155, 28, 15, 0.9); }
 
 .chat-composer {
   margin: 0 16px 16px;
@@ -970,13 +929,17 @@
 .graph-canvas {
   flex: 1;
   min-height: 0;
-  padding: 18px;
+  padding: 20px 24px 28px;
   overflow: auto;
+  background:
+    linear-gradient(180deg, rgba(248, 251, 255, 0.78) 0%, rgba(243, 247, 253, 0.92) 100%);
 }
 
 #graph-svg {
-  width: 100%;
-  min-height: 360px;
+  width: max(100%, 1380px);
+  min-height: 560px;
+  height: auto;
+  display: block;
 }
 
 .graph-empty {
