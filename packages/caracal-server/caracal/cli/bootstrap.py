@@ -2,7 +2,7 @@
 Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 Caracal, a product of Garudex Labs
 
-Bootstrap command: provisions the system root principal and issues the first-boot AIS nonce.
+Bootstrap command: provisions the system root principal, issues the first-boot AIS nonce, and mints the local SDK API key.
 """
 
 from __future__ import annotations
@@ -17,15 +17,22 @@ import click
 from caracal.db import DatabaseConfig, DatabaseConnectionManager
 from caracal.db.models import Principal, PrincipalAttestationStatus, PrincipalKind, PrincipalLifecycleStatus
 
+API_KEY_PREFIX = "cark_"
+
 
 def _runtime_env_path() -> Path:
-    """Resolve the runtime .env file that holds AIS bootstrap vars."""
-    caracal_home = os.environ.get("CARACAL_HOME", "").strip()
-    if caracal_home:
-        candidate = Path(caracal_home) / ".env"
-        if candidate.parent.exists():
-            return candidate
-    return Path.home() / ".config" / "caracal" / "runtime" / ".env"
+    """Resolve the runtime .env file that compose loads via --env-file.
+
+    Mirrors caracal.runtime.host_io.resolve_caracal_home() so bootstrap and
+    `caracal up` agree on the same path.
+    """
+    config_dir = os.environ.get("CARACAL_CONFIG_DIR", "").strip()
+    if config_dir:
+        home = Path(config_dir).expanduser()
+    else:
+        caracal_home = os.environ.get("CARACAL_HOME", "").strip()
+        home = Path(caracal_home).expanduser() if caracal_home else Path.home() / ".caracal"
+    return home / "runtime" / ".env"
 
 
 def _write_env_vars(env_path: Path, updates: dict[str, str]) -> None:
@@ -47,6 +54,25 @@ def _write_env_vars(env_path: Path, updates: dict[str, str]) -> None:
             lines.append(f"{key}={val}")
 
     env_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    try:
+        env_path.chmod(0o600)
+    except OSError:
+        pass
+
+
+def _read_env_var(env_path: Path, key: str) -> str | None:
+    if not env_path.exists():
+        return None
+    pattern = re.compile(rf"^{re.escape(key)}\s*=(.*)$")
+    for line in env_path.read_text(encoding="utf-8").splitlines():
+        match = pattern.match(line)
+        if match:
+            return match.group(1).strip()
+    return None
+
+
+def _mint_api_key() -> str:
+    return f"{API_KEY_PREFIX}{secrets.token_urlsafe(32)}"
 
 
 @click.command(name="bootstrap")
@@ -56,13 +82,20 @@ def _write_env_vars(env_path: Path, updates: dict[str, str]) -> None:
     default=False,
     help="Re-issue nonce even if principals already exist.",
 )
+@click.option(
+    "--rotate-api-key",
+    is_flag=True,
+    default=False,
+    help="Generate a fresh CARACAL_API_KEY even if one already exists.",
+)
 @click.pass_context
-def bootstrap(ctx, force: bool) -> None:
-    """Provision the system root principal and issue the first-boot AIS nonce.
+def bootstrap(ctx, force: bool, rotate_api_key: bool) -> None:
+    """Provision the system principal, issue the first-boot AIS nonce, and mint the local SDK API key.
 
-    Idempotent: skips principal creation if one already exists, unless --force.
-    Writes CARACAL_AIS_ATTESTATION_NONCE and CARACAL_AIS_ATTESTATION_PRINCIPAL_ID
-    to the runtime .env so that `caracal up` picks them up automatically.
+    Idempotent: skips principal creation and reuses the existing API key on
+    subsequent runs unless --force or --rotate-api-key is passed. All
+    generated values are written to the internal runtime .env that
+    `caracal up` reads automatically; users do not need to touch it.
     """
     from caracal.identity import AttestationNonceManager
     from caracal.redis.client import RedisClient
@@ -121,9 +154,6 @@ def bootstrap(ctx, force: bool) -> None:
     nonce_manager = AttestationNonceManager(redis_client)
     issued = nonce_manager.issue_nonce(principal_id)
 
-    # Register the TTL lease for the system principal so that MCP's
-    # activate_principal() call succeeds at startup.
-    # pending_ttl matches the nonce lifetime; active_ttl is 1 year (system process).
     from caracal.identity.principal_ttl import PrincipalTTLManager
     ttl_manager = PrincipalTTLManager(redis_client)
     ttl_manager.register_pending_principal(
@@ -132,22 +162,32 @@ def bootstrap(ctx, force: bool) -> None:
         active_ttl_seconds=86400 * 365,
     )
 
-    # Generate a stable session caveat HMAC key for MCP.  This is a
-    # one-time secret; subsequent restarts re-read it from the volume .env.
-    caveat_hmac_key = secrets.token_hex(32)
-
     env_path = _runtime_env_path()
+
+    existing_caveat_key = _read_env_var(env_path, "CARACAL_SESSION_CAVEAT_HMAC_KEY")
+    caveat_hmac_key = existing_caveat_key or secrets.token_hex(32)
+
+    existing_api_key = _read_env_var(env_path, "CARACAL_API_KEY")
+    if rotate_api_key or not existing_api_key:
+        api_key = _mint_api_key()
+        api_key_action = "rotated" if existing_api_key else "issued"
+    else:
+        api_key = existing_api_key
+        api_key_action = "reused"
+
     _write_env_vars(env_path, {
         "CARACAL_AIS_ATTESTATION_NONCE": issued.nonce,
         "CARACAL_AIS_ATTESTATION_PRINCIPAL_ID": principal_id,
         "CARACAL_SESSION_CAVEAT_HMAC_KEY": caveat_hmac_key,
+        "CARACAL_API_KEY": api_key,
     })
 
-    click.echo(f"AIS nonce issued and written to {env_path}")
-    click.echo(f"  CARACAL_AIS_ATTESTATION_PRINCIPAL_ID={principal_id}")
-    click.echo(f"  CARACAL_AIS_ATTESTATION_NONCE=<written>")
-    click.echo(f"  CARACAL_SESSION_CAVEAT_HMAC_KEY=<written>")
     click.echo()
-    click.echo("Run 'caracal up' to start MCP with full enforcement.")
+    click.echo(f"Bootstrap complete. Internal state written to {env_path}")
+    click.echo(f"  CARACAL_API_KEY ({api_key_action}): {api_key}")
+    click.echo()
+    click.echo("Next steps:")
+    click.echo("  caracal up            # start the runtime stack")
+    click.echo("  caracal auth token    # reprint the API key at any time")
 
     db_manager.close()

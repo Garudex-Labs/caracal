@@ -49,7 +49,10 @@ cp .env.example .env
 pip install caracal-core caracal-sdk
 caracal up
 caracal migrate
+caracal bootstrap
 ```
+
+`caracal bootstrap` provisions the system principal, issues the AIS attestation nonce, and mints a local `CARACAL_API_KEY`. All values are stored internally in `$CARACAL_HOME/runtime/.env`; you only need the API key.
 
 ### 4. Configure Caracal workspace
 
@@ -61,9 +64,13 @@ Open `http://localhost:8000/setup` and run the commands listed there in order:
 4. Create policies (finance-control full access, policy-check read-only, payment-execution narrow scope)
 5. Issue the top-level mandate and delegate to regional orchestrators
 
-Set `CARACAL_WORKSPACE_ID=lynx-capital` in `examples/lynxCapital/.env`.
-Provide `CARACAL_API_KEY` separately as a valid Caracal bearer/access token for the SDK client.
-`caracal bootstrap` writes runtime bootstrap state to `~/.config/caracal/runtime/.env`, but it does not populate `CARACAL_API_KEY` there.
+Then paste the SDK API key into `examples/lynxCapital/.env`:
+
+```
+caracal auth token --quiet
+```
+
+Copy the printed value into `CARACAL_API_KEY=` in `.env`. `CARACAL_WORKSPACE_ID=lynx-capital` is preset.
 
 Click **Validate configuration** to confirm all steps pass before continuing.
 

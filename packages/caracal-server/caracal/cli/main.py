@@ -828,7 +828,9 @@ db.add_command(migrate, name='migrate')
 # =============================================================================
 
 from caracal.cli.bootstrap import bootstrap
+from caracal.cli.auth import auth
 cli.add_command(bootstrap, name='bootstrap')
+cli.add_command(auth, name='auth')
 
 
 # =============================================================================

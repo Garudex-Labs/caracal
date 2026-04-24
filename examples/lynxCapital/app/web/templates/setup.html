@@ -93,6 +93,14 @@
           <div class="cmd-block">caracal migrate<button class="copy-btn" data-cmd="caracal migrate">copy</button></div>
         </div>
       </div>
+      <div class="step">
+        <div class="step-num">3</div>
+        <div class="step-body">
+          <div class="step-label">Bootstrap the system principal and mint the SDK API key</div>
+          <div class="cmd-block">caracal bootstrap<button class="copy-btn" data-cmd="caracal bootstrap">copy</button></div>
+          <div class="step-note">Generates the system principal, AIS attestation nonce, and a local <code>CARACAL_API_KEY</code>. All values are stored internally; you only need the API key.</div>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -101,7 +109,7 @@
     <div class="phase-hd"><span>2. Workspace</span><span class="toggle-icon">▼</span></div>
     <div class="phase-body">
       <div class="step">
-        <div class="step-num">3</div>
+        <div class="step-num">4</div>
         <div class="step-body">
           <div class="step-label">Create and activate workspace</div>
           <div class="cmd-block">caracal cli
@@ -111,12 +119,11 @@ workspace use lynx-capital<button class="copy-btn" data-cmd="caracal cli&#10;wor
         </div>
       </div>
       <div class="step">
-        <div class="step-num">4</div>
+        <div class="step-num">5</div>
         <div class="step-body">
-          <div class="step-label">Set workspace and SDK auth in .env</div>
-          <div class="step-note">Open <code>examples/lynxCapital/.env</code> and set:<br>
-            <code>CARACAL_WORKSPACE_ID=lynx-capital</code><br>
-            <code>CARACAL_API_KEY=</code> — provide a valid Caracal bearer/access token for the SDK client.<br>
+          <div class="step-label">Paste the API key into the demo .env</div>
+          <div class="cmd-block">caracal auth token --quiet<button class="copy-btn" data-cmd="caracal auth token --quiet">copy</button></div>
+          <div class="step-note">Copy the printed value into <code>examples/lynxCapital/.env</code> as <code>CARACAL_API_KEY</code>. <code>CARACAL_WORKSPACE_ID=lynx-capital</code> is preset.</div>
         </div>
       </div>
     </div>
@@ -139,7 +146,7 @@ workspace use lynx-capital<button class="copy-btn" data-cmd="caracal cli&#10;wor
       ] %}
       {% for pid, display, kind in principals %}
       <div class="step">
-        <div class="step-num">{{ loop.index + 4 }}</div>
+        <div class="step-num">{{ loop.index + 5 }}</div>
         <div class="step-body">
           <div class="step-label">{{ display }} ({{ kind }})</div>
           <div class="cmd-block">caracal cli
@@ -156,7 +163,7 @@ principal register --type {{ kind }} --name "{{ display }}" --email {{ pid }}@ly
     <div class="phase-hd"><span>4. Register providers</span><span class="toggle-icon">▼</span></div>
     <div class="phase-body">
       <div class="step">
-        <div class="step-num">14</div>
+        <div class="step-num">15</div>
         <div class="step-body">
           <div class="step-label">Add provider configuration</div>
           <div class="step-note">Run one <code>provider add</code> command per provider. Replace <code>&lt;base-url&gt;</code>, <code>&lt;auth-scheme&gt;</code>, and <code>&lt;credential&gt;</code> with values from your provider's config.</div>
@@ -164,7 +171,7 @@ principal register --type {{ kind }} --name "{{ display }}" --email {{ pid }}@ly
       </div>
       {% for p in providers %}
       <div class="step">
-        <div class="step-num">{{ loop.index + 14 }}</div>
+        <div class="step-num">{{ loop.index + 15 }}</div>
         <div class="step-body">
           <div class="step-label">{{ p.name }} ({{ p.category }})</div>
           <div class="cmd-block">caracal cli
@@ -180,7 +187,7 @@ provider add {{ p.id }} --service-type {{ p.category }} --base-url &lt;base-url&
     <div class="phase-hd"><span>5. Create policies</span><span class="toggle-icon">▼</span></div>
     <div class="phase-body">
       <div class="step">
-        <div class="step-num">25</div>
+        <div class="step-num">26</div>
         <div class="step-body">
           <div class="step-label">Finance Control — full provider access, delegation allowed</div>
           <div class="cmd-block">caracal cli
@@ -194,7 +201,7 @@ policy create \
         </div>
       </div>
       <div class="step">
-        <div class="step-num">26</div>
+        <div class="step-num">27</div>
         <div class="step-body">
           <div class="step-label">Policy Check agents — read-only compliance scope</div>
           <div class="cmd-block">caracal cli
@@ -207,7 +214,7 @@ policy create \
         </div>
       </div>
       <div class="step">
-        <div class="step-num">27</div>
+        <div class="step-num">28</div>
         <div class="step-body">
           <div class="step-label">Payment Execution — narrow payment scope only</div>
           <div class="cmd-block">caracal cli
@@ -226,7 +233,7 @@ policy create \
         </div>
       </div>
       <div class="step">
-        <div class="step-num">28</div>
+        <div class="step-num">29</div>
         <div class="step-body">
           <div class="step-label">Regional Orchestrator — full provider access, delegation allowed</div>
           <div class="cmd-block">caracal cli
@@ -246,7 +253,7 @@ policy create \
     <div class="phase-hd"><span>6. Issue mandates and delegate authority</span><span class="toggle-icon">▼</span></div>
     <div class="phase-body">
       <div class="step">
-        <div class="step-num">29</div>
+        <div class="step-num">30</div>
         <div class="step-body">
           <div class="step-label">Issue Finance Control root mandate</div>
           <div class="cmd-block">caracal cli
@@ -259,7 +266,7 @@ authority mandate \
         </div>
       </div>
       <div class="step">
-        <div class="step-num">30</div>
+        <div class="step-num">31</div>
         <div class="step-body">
           <div class="step-label">Delegate to Regional Orchestrators (one per region)</div>
           <div class="cmd-block">{% for r in regions %}caracal cli
@@ -275,7 +282,7 @@ authority delegate \
         </div>
       </div>
       <div class="step">
-        <div class="step-num">31</div>
+        <div class="step-num">32</div>
         <div class="step-body">
           <div class="step-label">Issue per-transaction mandate for Payment Execution agents</div>
           <div class="cmd-block">caracal cli
