@@ -1,0 +1,39 @@
+<template id="tpl-user-message">
+  <article class="message-row message-row-user">
+    <div class="message-meta message-meta-user">
+      <span class="message-author">You</span>
+      <span class="message-time"></span>
+    </div>
+    <div class="message-bubble"></div>
+  </article>
+</template>
+
+<template id="tpl-agent-turn">
+  <article class="message-row message-row-agent tone-worker">
+    <div class="message-card">
+      <header class="message-head">
+        <div class="message-ident">
+          <span class="message-avatar" aria-hidden="true"></span>
+          <div class="message-heading">
+            <span class="message-author"></span>
+            <span class="message-subtitle">Live reasoning</span>
+          </div>
+        </div>
+        <div class="message-head-meta">
+          <span class="message-status-pill state-thinking">Thinking</span>
+          <span class="message-telemetry"></span>
+        </div>
+      </header>
+
+      <section class="message-section message-section-reasoning" hidden>
+        <div class="section-label">Reasoning</div>
+        <div class="reasoning-body"></div>
+      </section>
+
+      <section class="message-section message-section-execution" hidden>
+        <div class="section-label">Execution</div>
+        <div class="execution-list"></div>
+      </section>
+    </div>
+  </article>
+</template>

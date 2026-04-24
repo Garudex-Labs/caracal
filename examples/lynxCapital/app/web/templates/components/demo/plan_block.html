@@ -1,0 +1,22 @@
+<section id="plan-panel" class="plan-panel" hidden>
+  <div class="plan-head">
+    <div class="plan-head-copy">
+      <span class="plan-eyebrow">Task plan</span>
+      <h2 class="plan-title">Execution checklist</h2>
+    </div>
+    <div class="plan-head-meta">
+      <span id="plan-status" class="plan-status status-pending">Pending</span>
+      <span id="plan-meta" class="plan-meta"></span>
+    </div>
+  </div>
+  <ol id="plan-list" class="plan-list"></ol>
+</section>
+
+<template id="tpl-plan-item">
+  <li class="plan-item status-pending">
+    <span class="plan-step-index"></span>
+    <span class="plan-step-state" aria-hidden="true"></span>
+    <span class="plan-step-text"></span>
+    <span class="plan-step-status">Pending</span>
+  </li>
+</template>

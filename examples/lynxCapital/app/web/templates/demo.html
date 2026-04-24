@@ -1,74 +1,76 @@
 {% extends "layout.html" %}
 {% block title %}{{ company }} - Demo{% endblock %}
 {% block content %}
-<link rel="stylesheet" href="/static/demo.css?v=6">
+<link rel="stylesheet" href="/static/demo.css?v=7">
 
 <div class="demo-shell">
   <div class="demo-body">
-
     <aside class="chat-panel">
-      <header class="panel-header">
-        <span class="panel-title">Chat</span>
-        <span class="panel-meta">
-          <label class="model-picker">
-            <span class="model-picker-label">Model</span>
-            <select id="model-select" class="model-picker-select"></select>
-          </label>
-          <span id="agent-count" class="agent-count">idle</span>
-        </span>
+      <header class="panel-header chat-header">
+        <div class="panel-header-copy">
+          <span class="panel-eyebrow">Live Workspace</span>
+          <h1 class="panel-title">Chat</h1>
+          <p class="panel-copy">Follow real reasoning, execution, and system activity as it streams in.</p>
+        </div>
+        <div class="panel-meta-block">
+          <span class="panel-meta-label">Run status</span>
+          <span id="agent-count" class="agent-count">Idle</span>
+        </div>
       </header>
 
-      <div id="memory-bar" class="memory-bar">
+      <section id="memory-bar" class="memory-bar" aria-label="Context usage">
         <div class="mem-row">
           <span class="mem-label">Context</span>
-          <div class="mem-track"><div id="mem-fill" class="mem-fill"></div></div>
+          <div class="mem-track" aria-hidden="true">
+            <div id="mem-fill" class="mem-fill"></div>
+          </div>
           <span id="mem-tokens" class="mem-tokens">0 / 128k</span>
         </div>
         <div class="mem-row mem-row-compact">
           <span id="mem-agents" class="mem-chip">0 agents</span>
           <span id="mem-compactions" class="mem-chip">0 compactions</span>
           <span id="mem-files" class="mem-chip">0 files</span>
-          <button type="button" id="mem-toggle" class="mem-toggle" aria-expanded="false">Summaries</button>
+          <button type="button" id="mem-toggle" class="mem-toggle" aria-expanded="false">View summaries</button>
         </div>
         <div id="mem-detail" class="mem-detail" hidden></div>
-      </div>
+      </section>
 
-      <div id="plan-panel" class="plan-panel" hidden>
-        <div class="plan-head">
-          <span class="plan-title">Plan</span>
-          <span id="plan-meta" class="plan-meta"></span>
+      {% include "components/demo/plan_block.html" %}
+
+      <div class="chat-stream-shell">
+        <div class="chat-stream" id="chat-stream">
+          <div class="chat-empty" id="chat-empty">
+            <span class="chat-empty-title">No activity yet</span>
+            <span class="chat-empty-copy">Start a run to see the live conversation, execution trail, and system events.</span>
+          </div>
         </div>
-        <ol id="plan-list" class="plan-list"></ol>
       </div>
 
-      <div class="chat-stream" id="chat-stream">
-        <div class="chat-empty" id="chat-empty">Send a prompt to begin.</div>
-      </div>
-
-      <div class="chat-input-row">
-        <textarea id="prompt-input" rows="2" placeholder="Ask a question or describe a task..."></textarea>
-        <button class="btn btn-primary" id="start-btn">Send</button>
-        <button class="btn btn-ghost"   id="pause-btn" hidden title="Pause / resume event display">Pause</button>
-        <button class="btn btn-stop"    id="stop-btn"  hidden title="Cancel the current run">Cancel</button>
-      </div>
+      {% include "components/demo/input_component.html" %}
     </aside>
 
     <section class="graph-panel">
       <header class="panel-header">
-        <span class="panel-title">Orchestration graph</span>
-        <span id="graph-status" class="panel-meta">idle</span>
+        <div class="panel-header-copy">
+          <span class="panel-eyebrow">Topology</span>
+          <h2 class="panel-title">Orchestration graph</h2>
+          <p class="panel-copy">The graph updates only from real runtime events, without any prebuilt flow.</p>
+        </div>
+        <span id="graph-status" class="graph-status">idle</span>
       </header>
       <div class="graph-canvas">
-        <div class="graph-empty" id="graph-empty">The graph will build as the Finance Control agent plans and dispatches work.</div>
+        <div class="graph-empty" id="graph-empty">Live topology appears as agents reason, delegate, and complete work.</div>
         <svg id="graph-svg" style="display:none"></svg>
       </div>
     </section>
-
   </div>
+
+  {% include "components/demo/message_component.html" %}
+  {% include "components/demo/event_block.html" %}
 </div>
 
-<script src="/static/chat.js?v=6" type="module"></script>
-<script src="/static/graph.js?v=6" type="module"></script>
+<script src="/static/chat.js?v=7" type="module"></script>
+<script src="/static/graph.js?v=7" type="module"></script>
 <script>
   // Warn before leaving the page entirely while a run is active
   window.addEventListener('beforeunload', e => {

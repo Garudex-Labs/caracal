@@ -14,7 +14,7 @@ theme:
   teal: "#0D6E72"
 
 llm:
-  model: "gpt-4o"
+  model: "gpt-5.4-nano"
   temperature: 0.1
 
 regions:

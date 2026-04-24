@@ -16,12 +16,9 @@ if TYPE_CHECKING:
 
 
 MODEL_CONTEXT_LIMITS: dict[str, int] = {
-    "gpt-4o": 128_000,
-    "gpt-4o-mini": 128_000,
-    "gpt-4.1": 1_047_576,
-    "gpt-4.1-mini": 1_047_576,
-    "gpt-4-turbo": 128_000,
-    "gpt-3.5-turbo": 16_385,
+    "gpt-5.4-nano": 128_000,
+    "gpt-5.4-mini": 128_000,
+    "gpt-5-mini":   128_000,
 }
 
 DEFAULT_LIMIT = 128_000

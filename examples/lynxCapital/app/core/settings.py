@@ -13,11 +13,9 @@ from app.core.memory import MODEL_CONTEXT_LIMITS
 
 
 ALLOWED_MODELS: tuple[str, ...] = (
-    "gpt-4o",
-    "gpt-4o-mini",
-    "gpt-4.1",
-    "gpt-4.1-mini",
-    "gpt-4-turbo",
+    "gpt-5.4-nano",
+    "gpt-5.4-mini",
+    "gpt-5-mini",
 )
 
 

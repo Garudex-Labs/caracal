@@ -1,0 +1,21 @@
+<div class="chat-composer">
+  <div class="composer-input-shell">
+    <textarea id="prompt-input" rows="1" placeholder="Ask a question or describe a task..."></textarea>
+  </div>
+
+  <div class="composer-footer">
+    <div class="composer-controls">
+      <label class="model-picker">
+        <span class="model-picker-label">Model</span>
+        <select id="model-select" class="model-picker-select"></select>
+      </label>
+      <button class="btn btn-ghost" id="pause-btn" hidden title="Pause or resume stream rendering">Pause</button>
+      <span class="composer-hint">Enter to send, Shift+Enter for newline</span>
+    </div>
+
+    <div class="composer-actions">
+      <button class="btn btn-stop" id="stop-btn" hidden title="Cancel the current run">Cancel</button>
+      <button class="btn btn-primary" id="start-btn">Send</button>
+    </div>
+  </div>
+</div>

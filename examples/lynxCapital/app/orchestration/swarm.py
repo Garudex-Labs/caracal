@@ -185,12 +185,14 @@ def _build_agent_builtins(run_id: str, agent_id: str, plans: RunPlanStore, files
     """Planning + file tools scoped to one agent_id so events carry correct attribution."""
 
     @tool
-    def write_todos(todos: list[dict]) -> str:
-        """Create or replace your task plan. Pass a list of items like
-        [{"content": "Dispatch US region", "status": "in_progress"},
-         {"content": "Dispatch DE region", "status": "pending"}].
-        Valid statuses: pending, in_progress, completed. Call at the start
-        to lay out your plan, then call again as you progress."""
+    def write_todos(todos: list) -> str:
+        """Create or replace your task plan. Each element is an object with
+        'content' (string) and 'status' (one of: pending, in_progress, completed).
+        Example: [{"content": "Dispatch US region", "status": "in_progress"},
+                  {"content": "Dispatch DE region", "status": "pending"}]
+        Call at the start to lay out your plan, then call again as you progress."""
+        if isinstance(todos, dict):
+            todos = todos.get("items", todos.get("todos", []))
         plan = plans.write(agent_id, todos)
         bus.publish(ev.plan_update(
             run_id=run_id, agent_id=agent_id,
