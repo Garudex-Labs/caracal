@@ -71,6 +71,9 @@ def run_restricted_repl() -> int:
         parsed = parse_restricted_input(raw_line)
         if parsed.action == "exit":
             return 0
+        if parsed.action == "help":
+            _render_help()
+            continue
         if parsed.action == "clear":
             click.clear()
             _render_banner()
@@ -89,6 +92,9 @@ def run_restricted_command(args: list[str]) -> int:
 
     parsed = parse_restricted_tokens(args)
     if parsed.action == "exit":
+        return 0
+    if parsed.action == "help":
+        _render_help()
         return 0
     if parsed.action == "clear":
         click.clear()
@@ -133,20 +139,35 @@ def parse_restricted_tokens(tokens: list[str]) -> ParsedRestrictedInput:
         return ParsedRestrictedInput()
 
     if tokens[0] == ROOT_COMMAND:
-        tokens = tokens[1:]
-        if not tokens:
-            return ParsedRestrictedInput(args=["--help"])
+        if len(tokens) == 1:
+            return ParsedRestrictedInput(
+                message="You are already inside Caracal CLI. Use commands without the 'caracal' prefix.",
+                is_error=True,
+            )
+
+        if len(tokens) == 2 and tokens[1] in ("--help", "-h"):
+            return ParsedRestrictedInput(action="help")
+
+        return ParsedRestrictedInput(
+            message=(
+                "You are already inside Caracal CLI. "
+                f"Use '{' '.join(tokens[1:])}' instead."
+            ),
+            is_error=True,
+        )
 
     if not tokens:
-        return ParsedRestrictedInput(args=["--help"])
+        return ParsedRestrictedInput(action="help")
 
     first = tokens[0]
+    if first in ("--help", "-h"):
+        return ParsedRestrictedInput(action="help")
     if first in EXIT_COMMANDS:
         return ParsedRestrictedInput(action="exit")
     if first in CLEAR_COMMANDS:
         return ParsedRestrictedInput(action="clear")
     if first in HELP_COMMANDS:
-        return ParsedRestrictedInput(args=_help_args(tokens[1:]))
+        return ParsedRestrictedInput(action="help")
 
     if len(tokens) > 1 and tokens[-1] in HELP_COMMANDS:
         return ParsedRestrictedInput(args=[*tokens[:-1], "--help"])
@@ -191,14 +212,46 @@ def _help_args(tokens: list[str]) -> list[str]:
 
 def _render_banner() -> None:
     click.secho("Caracal CLI", fg="cyan", bold=True)
-    click.secho("Command Line Interface Caracal", fg="bright_black")
+    click.secho("Interactive shell — type commands without the 'caracal' prefix", fg="bright_black")
+    click.echo()
+    click.secho("  workspace create <name>", fg="cyan", bold=True, nl=False)
+    click.secho("  create and switch workspaces", fg="bright_black")
+    click.secho("  principal register", fg="cyan", bold=True, nl=False)
+    click.secho("   register principal identities", fg="bright_black")
+    click.secho("  policy create", fg="cyan", bold=True, nl=False)
+    click.secho("           define authority policies", fg="bright_black")
+    click.secho("  authority mandate", fg="cyan", bold=True, nl=False)
+    click.secho("         issue execution mandates", fg="bright_black")
     click.echo()
     click.secho("  help", fg="green", bold=True, nl=False)
-    click.secho("  show available Caracal commands", fg="bright_black")
+    click.secho("  show all available commands", fg="bright_black")
     click.secho("  clear", fg="blue", bold=True, nl=False)
     click.secho("  refresh the screen", fg="bright_black")
     click.secho("  exit", fg="yellow", bold=True, nl=False)
     click.secho("  leave this session", fg="bright_black")
+    click.echo()
+
+
+def _render_help() -> None:
+    click.secho("Caracal CLI help", fg="cyan", bold=True)
+    click.echo()
+    click.secho("Run commands directly inside the shell without the 'caracal' prefix.", fg="bright_black")
+    click.echo()
+    click.secho("Available commands:", fg="cyan", bold=True)
+    click.secho("  workspace    manage workspaces", fg="bright_black")
+    click.secho("  principal    manage principals", fg="bright_black")
+    click.secho("  policy       manage policies", fg="bright_black")
+    click.secho("  authority    manage authority, mandates, and scopes", fg="bright_black")
+    click.secho("  help         show this help", fg="green")
+    click.secho("  clear        refresh the screen", fg="blue")
+    click.secho("  exit         leave this session", fg="yellow")
+    click.echo()
+    click.secho("Example:", fg="cyan", bold=True)
+    click.secho("  workspace list", fg="bright_black")
+    click.secho("  policy create my-policy", fg="bright_black")
+    click.secho("  principal register alice", fg="bright_black")
+    click.echo()
+    click.secho("Tip: You are already inside Caracal CLI. Use commands without the 'caracal' prefix.", fg="bright_black")
     click.echo()
 
 
@@ -254,9 +307,6 @@ class CaracalCompleter(Completer):
             command_depth=command_depth,
             current_prefix=current_prefix,
         )
-
-        if not explicit_root and not tokens and current_prefix and ROOT_COMMAND.startswith(current_prefix):
-            candidates = [ROOT_COMMAND, *candidates]
 
         yield from self._yield_matches(current_prefix, candidates)
 

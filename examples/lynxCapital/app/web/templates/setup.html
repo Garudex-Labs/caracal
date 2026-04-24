@@ -103,18 +103,20 @@
       <div class="step">
         <div class="step-num">3</div>
         <div class="step-body">
-          <div class="step-label">Create workspace</div>
+          <div class="step-label">Create and activate workspace</div>
           <div class="cmd-block">caracal cli
-workspace create --name lynx-capital --display "Lynx Capital"<button class="copy-btn" data-cmd="caracal cli&#10;workspace create --name lynx-capital --display &quot;Lynx Capital&quot;">copy</button></div>
+workspace create lynx-capital
+workspace use lynx-capital<button class="copy-btn" data-cmd="caracal cli&#10;workspace create lynx-capital&#10;workspace use lynx-capital">copy</button></div>
+          <div class="step-note">Creates the <code>lynx-capital</code> workspace and sets it as the active context for all subsequent commands.</div>
         </div>
       </div>
       <div class="step">
         <div class="step-num">4</div>
         <div class="step-body">
-          <div class="step-label">Issue an API key for the demo app</div>
-          <div class="cmd-block">caracal cli
-workspace key create --workspace lynx-capital --name demo-app<button class="copy-btn" data-cmd="caracal cli&#10;workspace key create --workspace lynx-capital --name demo-app">copy</button></div>
-          <div class="step-note">Copy the output key into CARACAL_API_KEY in your .env file.</div>
+          <div class="step-label">Set workspace and SDK auth in .env</div>
+          <div class="step-note">Open <code>examples/lynxCapital/.env</code> and set:<br>
+            <code>CARACAL_WORKSPACE_ID=lynx-capital</code><br>
+            <code>CARACAL_API_KEY=</code> — provide a valid Caracal bearer/access token for the SDK client.<br>
         </div>
       </div>
     </div>
@@ -125,23 +127,24 @@ workspace key create --workspace lynx-capital --name demo-app<button class="copy
     <div class="phase-hd"><span>3. Register principals</span><span class="toggle-icon">▼</span></div>
     <div class="phase-body">
       {% set principals = [
-        ("finance-control",       "Finance Control orchestrator"),
-        ("regional-orchestrator", "Regional Orchestrators (one per region)"),
-        ("invoice-intake",        "Invoice Intake agents"),
-        ("ledger-match",          "Ledger Match agents"),
-        ("policy-check",          "Policy Check agents (read-only scope)"),
-        ("route-optimization",    "Route Optimization agents (advisory)"),
-        ("payment-execution",     "Payment Execution agents (narrow per-transaction mandate)"),
-        ("audit",                 "Audit agents"),
-        ("exception",             "Exception Investigation agents"),
+        ("finance-control",       "Finance Control",          "orchestrator"),
+        ("regional-orchestrator", "Regional Orchestrator",    "orchestrator"),
+        ("invoice-intake",        "Invoice Intake",           "worker"),
+        ("ledger-match",          "Ledger Match",             "worker"),
+        ("policy-check",          "Policy Check",             "worker"),
+        ("route-optimization",    "Route Optimization",       "worker"),
+        ("payment-execution",     "Payment Execution",        "worker"),
+        ("audit",                 "Audit",                    "worker"),
+        ("exception",             "Exception Investigation",  "worker"),
       ] %}
-      {% for pid, desc in principals %}
+      {% for pid, display, kind in principals %}
       <div class="step">
         <div class="step-num">{{ loop.index + 4 }}</div>
         <div class="step-body">
-          <div class="step-label">{{ desc }}</div>
+          <div class="step-label">{{ display }} ({{ kind }})</div>
           <div class="cmd-block">caracal cli
-principal create --workspace lynx-capital --id {{ pid }} --display "{{ desc }}"<button class="copy-btn" data-cmd="caracal cli&#10;principal create --workspace lynx-capital --id {{ pid }} --display &quot;{{ desc }}&quot;">copy</button></div>
+principal register --type {{ kind }} --name "{{ display }}" --email {{ pid }}@lynxcapital.local<button class="copy-btn" data-cmd="caracal cli&#10;principal register --type {{ kind }} --name &quot;{{ display }}&quot; --email {{ pid }}@lynxcapital.local">copy</button></div>
+          <div class="step-note">Note the UUID printed in the output — you'll need it for policies and mandates below.</div>
         </div>
       </div>
       {% endfor %}
@@ -152,13 +155,20 @@ principal create --workspace lynx-capital --id {{ pid }} --display "{{ desc }}"<
   <div class="phase">
     <div class="phase-hd"><span>4. Register providers</span><span class="toggle-icon">▼</span></div>
     <div class="phase-body">
+      <div class="step">
+        <div class="step-num">14</div>
+        <div class="step-body">
+          <div class="step-label">Add provider configuration</div>
+          <div class="step-note">Run one <code>provider add</code> command per provider. Replace <code>&lt;base-url&gt;</code>, <code>&lt;auth-scheme&gt;</code>, and <code>&lt;credential&gt;</code> with values from your provider's config.</div>
+        </div>
+      </div>
       {% for p in providers %}
       <div class="step">
-        <div class="step-num">{{ loop.index + 13 }}</div>
+        <div class="step-num">{{ loop.index + 14 }}</div>
         <div class="step-body">
           <div class="step-label">{{ p.name }} ({{ p.category }})</div>
           <div class="cmd-block">caracal cli
-provider register --workspace lynx-capital --id {{ p.id }} --category {{ p.category }}<button class="copy-btn" data-cmd="caracal cli&#10;provider register --workspace lynx-capital --id {{ p.id }} --category {{ p.category }}">copy</button></div>
+provider add {{ p.id }} --service-type {{ p.category }} --base-url &lt;base-url&gt; --auth-scheme api-key --credential &lt;api-key&gt;<button class="copy-btn" data-cmd="caracal cli&#10;provider add {{ p.id }} --service-type {{ p.category }} --base-url &lt;base-url&gt; --auth-scheme api-key --credential &lt;api-key&gt;">copy</button></div>
         </div>
       </div>
       {% endfor %}
@@ -172,24 +182,28 @@ provider register --workspace lynx-capital --id {{ p.id }} --category {{ p.categ
       <div class="step">
         <div class="step-num">25</div>
         <div class="step-body">
-          <div class="step-label">Finance Control — full provider access</div>
+          <div class="step-label">Finance Control — full provider access, delegation allowed</div>
           <div class="cmd-block">caracal cli
-policy create --workspace lynx-capital \
-  --principal finance-control \
-  --effect allow --resource "provider:*:resource:*:action:*"<button class="copy-btn" data-cmd="caracal cli&#10;policy create --workspace lynx-capital --principal finance-control --effect allow --resource &quot;provider:*:resource:*:action:*&quot;">copy</button></div>
+policy create \
+  --principal-id &lt;finance-control-uuid&gt; \
+  --max-validity-seconds 28800 \
+  --resource-pattern "provider:*:resource:*" \
+  --action "provider:*:action:*" \
+  --allow-delegation<button class="copy-btn" data-cmd="caracal cli&#10;policy create --principal-id &lt;finance-control-uuid&gt; --max-validity-seconds 28800 --resource-pattern &quot;provider:*:resource:*&quot; --action &quot;provider:*:action:*&quot; --allow-delegation">copy</button></div>
+          <div class="step-note">Replace <code>&lt;finance-control-uuid&gt;</code> with the UUID from <code>principal list</code>.</div>
         </div>
       </div>
       <div class="step">
         <div class="step-num">26</div>
         <div class="step-body">
-          <div class="step-label">Policy Check agents — read-only (no payment actions)</div>
+          <div class="step-label">Policy Check agents — read-only compliance scope</div>
           <div class="cmd-block">caracal cli
-policy create --workspace lynx-capital \
-  --principal policy-check \
-  --effect allow --resource "provider:compliance-nexus:resource:*:action:*"
-policy create --workspace lynx-capital \
-  --principal policy-check \
-  --effect deny --resource "provider:mercury-bank:resource:payment:action:submit_payment"<button class="copy-btn" data-cmd="caracal cli&#10;policy create --workspace lynx-capital --principal policy-check --effect allow --resource &quot;provider:compliance-nexus:resource:*:action:*&quot;">copy</button></div>
+policy create \
+  --principal-id &lt;policy-check-uuid&gt; \
+  --max-validity-seconds 3600 \
+  --provider compliance-nexus \
+  --resource-pattern "provider:compliance-nexus:resource:*" \
+  --action "provider:compliance-nexus:action:*"<button class="copy-btn" data-cmd="caracal cli&#10;policy create --principal-id &lt;policy-check-uuid&gt; --max-validity-seconds 3600 --provider compliance-nexus --resource-pattern &quot;provider:compliance-nexus:resource:*&quot; --action &quot;provider:compliance-nexus:action:*&quot;">copy</button></div>
         </div>
       </div>
       <div class="step">
@@ -197,22 +211,31 @@ policy create --workspace lynx-capital \
         <div class="step-body">
           <div class="step-label">Payment Execution — narrow payment scope only</div>
           <div class="cmd-block">caracal cli
-policy create --workspace lynx-capital \
-  --principal payment-execution \
-  --effect allow --resource "provider:mercury-bank:resource:payment:action:submit_payment"
-policy create --workspace lynx-capital \
-  --principal payment-execution \
-  --effect allow --resource "provider:wise-payouts:resource:payout:action:submit_payout"<button class="copy-btn" data-cmd="caracal cli&#10;policy create --workspace lynx-capital --principal payment-execution --effect allow --resource &quot;provider:mercury-bank:resource:payment:action:submit_payment&quot;">copy</button></div>
+policy create \
+  --principal-id &lt;payment-execution-uuid&gt; \
+  --max-validity-seconds 1800 \
+  --provider mercury-bank \
+  --resource-pattern "provider:mercury-bank:resource:payment" \
+  --action "provider:mercury-bank:action:submit_payment"
+policy create \
+  --principal-id &lt;payment-execution-uuid&gt; \
+  --max-validity-seconds 1800 \
+  --provider wise-payouts \
+  --resource-pattern "provider:wise-payouts:resource:payout" \
+  --action "provider:wise-payouts:action:submit_payout"<button class="copy-btn" data-cmd="caracal cli&#10;policy create --principal-id &lt;payment-execution-uuid&gt; --max-validity-seconds 1800 --provider mercury-bank --resource-pattern &quot;provider:mercury-bank:resource:payment&quot; --action &quot;provider:mercury-bank:action:submit_payment&quot;">copy</button></div>
         </div>
       </div>
       <div class="step">
         <div class="step-num">28</div>
         <div class="step-body">
-          <div class="step-label">All other layers — read/lookup access, no payment write</div>
+          <div class="step-label">Regional Orchestrator — full provider access, delegation allowed</div>
           <div class="cmd-block">caracal cli
-policy create --workspace lynx-capital \
-  --principal regional-orchestrator \
-  --effect allow --resource "provider:*:resource:*:action:*"<button class="copy-btn" data-cmd="caracal cli&#10;policy create --workspace lynx-capital --principal regional-orchestrator --effect allow --resource &quot;provider:*:resource:*:action:*&quot;">copy</button></div>
+policy create \
+  --principal-id &lt;regional-orchestrator-uuid&gt; \
+  --max-validity-seconds 21600 \
+  --resource-pattern "provider:*:resource:*" \
+  --action "provider:*:action:*" \
+  --allow-delegation<button class="copy-btn" data-cmd="caracal cli&#10;policy create --principal-id &lt;regional-orchestrator-uuid&gt; --max-validity-seconds 21600 --resource-pattern &quot;provider:*:resource:*&quot; --action &quot;provider:*:action:*&quot; --allow-delegation">copy</button></div>
         </div>
       </div>
     </div>
@@ -225,11 +248,14 @@ policy create --workspace lynx-capital \
       <div class="step">
         <div class="step-num">29</div>
         <div class="step-body">
-          <div class="step-label">Issue Finance Control mandate</div>
+          <div class="step-label">Issue Finance Control root mandate</div>
           <div class="cmd-block">caracal cli
-mandate issue --workspace lynx-capital \
-  --principal finance-control --scope global \
-  --ttl 8h<button class="copy-btn" data-cmd="caracal cli&#10;mandate issue --workspace lynx-capital --principal finance-control --scope global --ttl 8h">copy</button></div>
+authority mandate \
+  --issuer-id &lt;finance-control-uuid&gt; \
+  --subject-id &lt;finance-control-uuid&gt; \
+  --tool-id &lt;tool-id&gt; \
+  --validity-seconds 28800<button class="copy-btn" data-cmd="caracal cli&#10;authority mandate --issuer-id &lt;finance-control-uuid&gt; --subject-id &lt;finance-control-uuid&gt; --tool-id &lt;tool-id&gt; --validity-seconds 28800">copy</button></div>
+          <div class="step-note">Use <code>tool list</code> to find registered tool IDs. Note the mandate UUID from the output for the delegate step below.</div>
         </div>
       </div>
       <div class="step">
@@ -237,9 +263,13 @@ mandate issue --workspace lynx-capital \
         <div class="step-body">
           <div class="step-label">Delegate to Regional Orchestrators (one per region)</div>
           <div class="cmd-block">{% for r in regions %}caracal cli
-mandate delegate --workspace lynx-capital \
-  --from finance-control --to regional-orchestrator \
-  --scope region:{{ r.id }} --ttl 6h
+authority delegate \
+  --source-mandate-id &lt;finance-control-mandate-uuid&gt; \
+  --target-subject-id &lt;regional-orchestrator-uuid&gt; \
+  --resource-scope "provider:*:resource:*" \
+  --action-scope "provider:*:action:*" \
+  --validity-seconds 21600 \
+  --context-tags "region:{{ r.id }}"
 {% endfor %}</div>
           <div class="step-note">Run once per region: US, IN, DE, SG, BR.</div>
         </div>
@@ -247,13 +277,14 @@ mandate delegate --workspace lynx-capital \
       <div class="step">
         <div class="step-num">31</div>
         <div class="step-body">
-          <div class="step-label">Delegate Payment Execution mandate template</div>
+          <div class="step-label">Issue per-transaction mandate for Payment Execution agents</div>
           <div class="cmd-block">caracal cli
-mandate template create --workspace lynx-capital \
-  --principal payment-execution \
-  --scope "payment:{vendor}:{amount}:{rail}:{window}" \
-  --ttl 30m --max-uses 1<button class="copy-btn" data-cmd="caracal cli&#10;mandate template create --workspace lynx-capital --principal payment-execution --scope &quot;payment:{vendor}:{amount}:{rail}:{window}&quot; --ttl 30m --max-uses 1">copy</button></div>
-          <div class="step-note">Each ephemeral payment agent receives a one-use mandate scoped to its exact transaction tuple.</div>
+authority mandate \
+  --issuer-id &lt;regional-orchestrator-uuid&gt; \
+  --subject-id &lt;payment-execution-uuid&gt; \
+  --tool-id &lt;payment-tool-id&gt; \
+  --validity-seconds 1800<button class="copy-btn" data-cmd="caracal cli&#10;authority mandate --issuer-id &lt;regional-orchestrator-uuid&gt; --subject-id &lt;payment-execution-uuid&gt; --tool-id &lt;payment-tool-id&gt; --validity-seconds 1800">copy</button></div>
+          <div class="step-note">Issue one mandate per payment agent at dispatch time. Validity of 30 minutes matches the transaction window.</div>
         </div>
       </div>
     </div>

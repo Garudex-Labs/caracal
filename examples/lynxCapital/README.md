@@ -55,11 +55,15 @@ caracal migrate
 
 Open `http://localhost:8000/setup` and run the commands listed there in order:
 
-1. Create the workspace and issue an API key
+1. Create the workspace
 2. Register all 9 principals (one per agent layer)
 3. Register all 11 providers
 4. Create policies (finance-control full access, policy-check read-only, payment-execution narrow scope)
 5. Issue the top-level mandate and delegate to regional orchestrators
+
+Set `CARACAL_WORKSPACE_ID=lynx-capital` in `examples/lynxCapital/.env`.
+Provide `CARACAL_API_KEY` separately as a valid Caracal bearer/access token for the SDK client.
+`caracal bootstrap` writes runtime bootstrap state to `~/.config/caracal/runtime/.env`, but it does not populate `CARACAL_API_KEY` there.
 
 Click **Validate configuration** to confirm all steps pass before continuing.
 
