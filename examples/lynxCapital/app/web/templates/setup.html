@@ -136,6 +136,16 @@ provider add vendor-portal --service-type vendor --base-url http://vendor-portal
 provider add tax-rules --service-type tax --base-url http://tax-rules.mock --auth-scheme api-key --credential demo-tax-key<div class="copy-row"><button class="cb">copy</button></div></div>
       <div class="cmd-block"><span class="cc"># FX Rates — fx</span>
 provider add fx-rates --service-type fx --base-url http://fx-rates.mock --auth-scheme api-key --credential demo-fx-key<div class="copy-row"><button class="cb">copy</button></div></div>
+      <div class="note" style="margin-top:1.2rem;">Upgrade payment providers to scoped mode so tools can be registered against them.</div>
+      <div class="cmd-block"><span class="cc"># Mercury Bank — add scoped catalog (payment resource + actions)</span>
+provider update mercury-bank --mode scoped --resource "payment=Payment account management" --action "payment:get_account_balance:GET:/v1/balance" --action "payment:submit_payment:POST:/v1/payments"<div class="copy-row"><button class="cb">copy</button></div></div>
+      <div class="cmd-block"><span class="cc"># Wise Payouts — add scoped catalog (payout resource + actions)</span>
+provider update wise-payouts --mode scoped --resource "payout=Cross-border payout transfers" --action "payout:get_quote:GET:/v1/quotes" --action "payout:submit_payout:POST:/v1/payouts"<div class="copy-row"><button class="cb">copy</button></div></div>
+      <div class="note" style="margin-top:1.2rem;">Register tools so mandates in Phase 6 can reference them. Click <strong>Fill UUIDs</strong> after Phase 3 first so <code>&lt;finance-control-uuid&gt;</code> is substituted.</div>
+      <div class="cmd-block"><span class="cc"># Mercury Bank payment tool — used as the root mandate tool</span>
+tool register --tool-id "provider:mercury-bank:resource:payment:action:submit_payment" --provider-name mercury-bank --resource-id payment --action-id submit_payment --actor-principal-id <span class="ph">&lt;finance-control-uuid&gt;</span><div class="copy-row"><button class="cb">copy</button></div></div>
+      <div class="cmd-block"><span class="cc"># Wise Payouts payout tool — used as the payment mandate tool</span>
+tool register --tool-id "provider:wise-payouts:resource:payout:action:submit_payout" --provider-name wise-payouts --resource-id payout --action-id submit_payout --actor-principal-id <span class="ph">&lt;finance-control-uuid&gt;</span><div class="copy-row"><button class="cb">copy</button></div></div>
     </div>
   </div>
 
@@ -168,11 +178,12 @@ policy create --principal-id <span class="ph">&lt;payment-execution-uuid&gt;</sp
 principal list<div class="copy-row"><button class="cb">copy</button></div></div>
       <div class="cmd-block"><span class="cc"># Run this to get tool IDs</span>
 tool list<div class="copy-row"><button class="cb">copy</button></div></div>
-      <div class="cmd-block"><span class="cc"># Finance Control — self-issued root mandate covering all providers (8-hour window)</span>
-authority mandate --issuer-id <span class="ph">&lt;finance-control-uuid&gt;</span> --subject-id <span class="ph">&lt;finance-control-uuid&gt;</span> --tool-id <span class="ph">&lt;tool-id&gt;</span> --validity-seconds 28800<div class="copy-row"><button class="cb">copy</button></div></div>
+      <div class="cmd-block"><span class="cc"># Finance Control — self-issued root mandate covering both payment tools (8-hour window)</span>
+authority mandate --issuer-id <span class="ph">&lt;finance-control-uuid&gt;</span> --subject-id <span class="ph">&lt;finance-control-uuid&gt;</span> --tool-id <span class="ph">&lt;tool-id&gt;</span> --tool-id <span class="ph">&lt;payment-tool-id&gt;</span> --validity-seconds 28800<div class="copy-row"><button class="cb">copy</button></div></div>
+      <div class="note">Click <strong>Fill UUIDs</strong> to get the mandate ID from the previous step, then run the delegate commands.</div>
 {% for r in regions %}
       <div class="cmd-block"><span class="cc"># Delegate to Regional Orchestrator — {{ r.name }} ({{ r.id }})</span>
-authority delegate --source-mandate-id <span class="ph">&lt;finance-control-mandate-uuid&gt;</span> --target-subject-id <span class="ph">&lt;regional-orchestrator-uuid&gt;</span> --resource-scope "provider:*:resource:*" --action-scope "provider:*:action:*" --validity-seconds 21600 --context-tags "region:{{ r.id }}"<div class="copy-row"><button class="cb">copy</button></div></div>
+authority delegate --source-mandate-id <span class="ph">&lt;finance-control-mandate-uuid&gt;</span> --target-subject-id <span class="ph">&lt;regional-orchestrator-uuid&gt;</span> --resource-scope "provider:wise-payouts:resource:payout" --action-scope "provider:wise-payouts:action:submit_payout" --validity-seconds 21600 --context-tags "region:{{ r.id }}"<div class="copy-row"><button class="cb">copy</button></div></div>
 {% endfor %}
       <div class="cmd-block"><span class="cc"># Payment Execution — per-transaction mandate; issue at dispatch time (30-minute window)</span>
 authority mandate --issuer-id <span class="ph">&lt;regional-orchestrator-uuid&gt;</span> --subject-id <span class="ph">&lt;payment-execution-uuid&gt;</span> --tool-id <span class="ph">&lt;payment-tool-id&gt;</span> --validity-seconds 1800<div class="copy-row"><button class="cb">copy</button></div></div>
@@ -240,38 +251,79 @@ authority mandate --issuer-id <span class="ph">&lt;regional-orchestrator-uuid&gt
   const startDemoBtn = document.getElementById('start-demo-btn');
   const validateOut = document.getElementById('validate-out');
 
-  // Maps the placeholder text inside .ph spans to principal name substrings
-  const SLUG_MAP = [
-    ['finance-control-uuid',        'Finance Control'],
-    ['regional-orchestrator-uuid',  'Regional Orchestrator'],
-    ['policy-check-uuid',           'Policy Check'],
-    ['payment-execution-uuid',      'Payment Execution'],
-  ];
-
   fillBtn.addEventListener('click', async () => {
     fillBtn.disabled = true;
     fillBtn.textContent = 'Fetching...';
     try {
-      const r = await fetch('/api/setup/principals');
-      const data = await r.json();
-      if (!data.ok) throw new Error(data.error || 'Unknown error');
+      const [pRes, tRes, mRes] = await Promise.all([
+        fetch('/api/setup/principals').then(r => r.json()),
+        fetch('/api/setup/tools').then(r => r.json()),
+        fetch('/api/setup/mandates').then(r => r.json()),
+      ]);
+      if (!pRes.ok) throw new Error(pRes.error || 'principals fetch failed');
 
+      // Build lookup maps
       const byName = {};
-      for (const p of data.principals) byName[p.name] = p.principal_id;
+      for (const p of pRes.principals) byName[p.name] = p.principal_id;
 
-      document.querySelectorAll('span.ph').forEach(span => {
-        const slug = span.textContent.replace(/[<>]/g, '').trim();
-        const match = SLUG_MAP.find(([s]) => slug === s);
-        if (!match) return;
-        const uuid = byName[match[1]];
-        if (!uuid) return;
-        span.textContent = uuid;
+      const tools = tRes.ok ? (tRes.tools || []) : [];
+      const mandates = mRes.ok ? (mRes.mandates || []) : [];
+
+      // principal slug → principal name
+      const SLUG_MAP = [
+        ['finance-control-uuid',        'Finance Control'],
+        ['regional-orchestrator-uuid',  'Regional Orchestrator'],
+        ['policy-check-uuid',           'Policy Check'],
+        ['payment-execution-uuid',      'Payment Execution'],
+      ];
+
+      // payment providers for payment-tool-id lookup
+      const PAYMENT_PROVIDERS = new Set(['mercury-bank', 'wise-payouts']);
+
+      const firstTool = tools[0];
+      const paymentTool = tools.find(t => t.provider_name === 'wise-payouts')
+                       || tools.find(t => PAYMENT_PROVIDERS.has(t.provider_name));
+
+      // Finance Control root mandate: source_mandate_id is empty string (NULL)
+      const fcMandateId = byName['Finance Control'];
+      const rootMandate = mandates.find(m => m.source_mandate_id === '' && m.issuer_id === fcMandateId);
+
+      function applyFill(span, value) {
+        span.textContent = value;
         span.style.fontStyle = 'normal';
         span.style.color = '#7fd47f';
         span.style.background = 'transparent';
+      }
+
+      document.querySelectorAll('span.ph').forEach(span => {
+        const slug = span.textContent.replace(/[<>]/g, '').trim();
+
+        // Principal UUIDs
+        const pm = SLUG_MAP.find(([s]) => slug === s);
+        if (pm) {
+          const uuid = byName[pm[1]];
+          if (uuid) applyFill(span, uuid);
+          return;
+        }
+
+        // Tool IDs
+        if (slug === 'tool-id' && firstTool) {
+          applyFill(span, firstTool.tool_id);
+          return;
+        }
+        if (slug === 'payment-tool-id' && paymentTool) {
+          applyFill(span, paymentTool.tool_id);
+          return;
+        }
+
+        // Mandate UUID (filled after root mandate is issued)
+        if (slug === 'finance-control-mandate-uuid' && rootMandate) {
+          applyFill(span, rootMandate.mandate_id);
+          return;
+        }
       });
 
-      fillBtn.textContent = 'UUIDs filled';
+      fillBtn.textContent = 'Filled';
       setTimeout(() => { fillBtn.textContent = 'Fill UUIDs'; fillBtn.disabled = false; }, 2000);
     } catch (e) {
       fillBtn.textContent = 'Failed: ' + e.message;

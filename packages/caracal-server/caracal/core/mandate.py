@@ -109,7 +109,7 @@ class MandateManager:
             policy = self.db_session.query(AuthorityPolicy).filter(
                 AuthorityPolicy.principal_id == principal_id,
                 AuthorityPolicy.active == True
-            ).first()
+            ).order_by(AuthorityPolicy.created_at.desc()).first()
             
             return policy
         except Exception as e:
@@ -183,10 +183,11 @@ class MandateManager:
         Returns:
             True if value matches pattern, False otherwise
         """
-        if self._is_canonical_provider_scope(value) or self._is_canonical_provider_scope(pattern):
-            return value == pattern
         if value == pattern:
             return True
+        if self._is_canonical_provider_scope(pattern):
+            # Pattern has no wildcards; only exact equality applies
+            return False
         return fnmatchcase(value, pattern)
     
     def _record_ledger_event(
@@ -353,32 +354,18 @@ class MandateManager:
                 )
                 raise ValueError(error_msg)
 
-        # Resolve delegation depth for this mandate.
-        # If not explicitly provided, inherit issuer policy maximum when delegation is allowed.
-        if network_distance is None:
-            if enforce_issuer_policy and issuer_policy and issuer_policy.allow_delegation:
-                resolved_network_distance = int(issuer_policy.max_network_distance)
-            else:
-                resolved_network_distance = 0
+        # network_distance represents the depth in the delegation chain:
+        #   0 = root mandate (DB constraint requires this when source_mandate_id IS NULL)
+        #   N = N-th level delegate (set by delegate_mandate, not by this method)
+        if source_mandate_id is None:
+            # Root mandates must always be at depth 0 (DB constraint).
+            resolved_network_distance = 0
         else:
-            resolved_network_distance = int(network_distance)
+            # Delegated mandates: caller (delegate_mandate) provides the correct depth.
+            resolved_network_distance = int(network_distance) if network_distance is not None else 1
 
         if resolved_network_distance < 0:
             raise ValueError("Delegation depth cannot be negative")
-
-        if enforce_issuer_policy and issuer_policy:
-            policy_max_distance = int(issuer_policy.max_network_distance)
-            if resolved_network_distance > policy_max_distance:
-                raise ValueError(
-                    f"Requested delegation depth {resolved_network_distance} exceeds policy maximum "
-                    f"{policy_max_distance}"
-                )
-
-            if not issuer_policy.allow_delegation and resolved_network_distance > 0:
-                raise ValueError(
-                    f"Issuer {issuer_id} is not allowed to issue delegable mandates "
-                    f"according to their authority policy"
-                )
         
         # Generate unique mandate ID
         mandate_id = uuid4()
@@ -706,13 +693,26 @@ class MandateManager:
             target_principal.principal_kind
         )
 
+        # Check delegation depth against the issuer's policy.
+        # network_distance is depth-from-root (0=root, 1=first delegate, ...).
+        # The issuer is source_mandate.subject_id.
+        issuer_policy = self._get_active_policy(source_mandate.subject_id)
+        if issuer_policy is None:
+            raise ValueError(
+                f"Source mandate issuer {source_mandate.subject_id} has no active authority policy"
+            )
+        if not issuer_policy.allow_delegation:
+            raise ValueError(
+                f"Source mandate {source_mandate_id} has no remaining delegation depth"
+            )
+        max_depth = int(issuer_policy.max_network_distance)
         source_depth = int(source_mandate.network_distance or 0)
-        if source_depth <= 0:
+        if source_depth >= max_depth:
             raise ValueError(
                 f"Source mandate {source_mandate_id} has no remaining delegation depth"
             )
 
-        delegated_depth = source_depth - 1
+        delegated_depth = source_depth + 1
         
         # Determine delegation type
         delegation_type = DelegationGraph.get_delegation_type(

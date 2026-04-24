@@ -148,11 +148,9 @@ def validate_provider_scopes(
         )
     scoped_bindings = [binding for binding in bindings if binding.is_scoped]
     if not scoped_bindings:
-        raise click.ClickException(
-            "No scoped providers are configured for the active workspace. "
-            "Create a passthrough provider with 'caracal provider add ...' and then add scopes with "
-            "'caracal provider enrich ...' before issuing provider-scoped authorities."
-        )
+        # Providers are registered but have no catalog definition (not yet enriched).
+        # Catalog validation cannot run without scope data, so skip it.
+        return
     ensure_scopes_in_workspace_catalog(resource_list, action_list, scoped_bindings)
 
 

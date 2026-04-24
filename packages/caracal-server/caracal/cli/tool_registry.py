@@ -184,10 +184,12 @@ def register(
                 mapping_version=mapping_version,
                 allowed_downstream_scopes=list(allowed_downstream_scopes),
             )
+            saved_tool_id = str(row.tool_id)
+            saved_active = bool(row.active)
 
         click.echo("Tool registration saved")
-        click.echo(f"Tool ID:  {row.tool_id}")
-        click.echo(f"Active:   {'yes' if row.active else 'no'}")
+        click.echo(f"Tool ID:  {saved_tool_id}")
+        click.echo(f"Active:   {'yes' if saved_active else 'no'}")
     except CaracalError as exc:
         raise click.ClickException(str(exc)) from exc
 
@@ -205,17 +207,18 @@ def list_tools(ctx, include_inactive: bool, workspace: str | None) -> None:
                 include_inactive=include_inactive,
                 workspace_name=resolved_workspace,
             )
+            tool_rows = [(str(r.tool_id), bool(r.active)) for r in rows]
 
-        if not rows:
+        if not tool_rows:
             click.echo("No registered tools found.")
             return
 
-        click.echo(f"Total tools: {len(rows)}")
+        click.echo(f"Total tools: {len(tool_rows)}")
         click.echo("")
         click.echo(f"{'Tool ID':<64}  {'Status':<8}")
         click.echo("-" * 74)
-        for row in rows:
-            click.echo(f"{row.tool_id:<64}  {('active' if row.active else 'inactive'):<8}")
+        for tid, active in tool_rows:
+            click.echo(f"{tid:<64}  {('active' if active else 'inactive'):<8}")
     except CaracalError as exc:
         raise click.ClickException(str(exc)) from exc
 

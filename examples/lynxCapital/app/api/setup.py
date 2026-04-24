@@ -95,29 +95,67 @@ _PRINCIPALS_SQL = (
     "FROM public.principals ORDER BY created_at) t;"
 )
 
+_TOOLS_SQL = (
+    "SELECT json_agg(row_to_json(t)) FROM "
+    "(SELECT tool_id, provider_name, resource_scope, action_scope "
+    "FROM registered_tools WHERE active = true ORDER BY provider_name, tool_id) t;"
+)
+
+_MANDATES_SQL = (
+    "SELECT json_agg(row_to_json(t)) FROM "
+    "(SELECT mandate_id::text, issuer_id::text, subject_id::text, "
+    "COALESCE(source_mandate_id::text, '') AS source_mandate_id "
+    "FROM execution_mandates WHERE revoked = false AND valid_until > now() "
+    "ORDER BY created_at) t;"
+)
+
+
+def _query_db(sql: str) -> list:
+    db_name = os.environ.get("CARACAL_DB_NAME", "caracal_db")
+    db_user = os.environ.get("CARACAL_DB_USER", "caracal")
+    db_pass = os.environ.get("CARACAL_DB_PASSWORD", "caracal")
+    result = subprocess.run(
+        [
+            "docker", "exec",
+            "-e", f"PGPASSWORD={db_pass}",
+            "caracal-postgres-1",
+            "psql", "-h", "localhost", "-U", db_user, "-d", db_name,
+            "-At", "-c", sql,
+        ],
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+    raw = result.stdout.strip()
+    if not raw or raw == "null":
+        return []
+    return json.loads(raw)
+
 
 @router.get("/principals")
 def get_principals():
     try:
-        db_name = os.environ.get("CARACAL_DB_NAME", "caracal_db")
-        db_user = os.environ.get("CARACAL_DB_USER", "caracal")
-        db_pass = os.environ.get("CARACAL_DB_PASSWORD", "caracal")
-        result = subprocess.run(
-            [
-                "docker", "exec",
-                "-e", f"PGPASSWORD={db_pass}",
-                "caracal-postgres-1",
-                "psql", "-h", "localhost", "-U", db_user, "-d", db_name,
-                "-At", "-c", _PRINCIPALS_SQL,
-            ],
-            capture_output=True,
-            text=True,
-            timeout=10,
-        )
-        raw = result.stdout.strip()
-        if not raw or raw == "null":
-            raise ValueError(result.stderr.strip() or "Empty result from database")
-        principals = json.loads(raw)
+        principals = _query_db(_PRINCIPALS_SQL)
+        if not principals:
+            raise ValueError("No principals found in database")
         return JSONResponse({"ok": True, "principals": principals})
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+
+
+@router.get("/tools")
+def get_tools():
+    try:
+        tools = _query_db(_TOOLS_SQL)
+        return JSONResponse({"ok": True, "tools": tools})
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+
+
+@router.get("/mandates")
+def get_mandates():
+    try:
+        mandates = _query_db(_MANDATES_SQL)
+        return JSONResponse({"ok": True, "mandates": mandates})
     except Exception as exc:
         return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)

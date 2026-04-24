@@ -9,6 +9,8 @@ Hard-cut requirements:
 
 from __future__ import annotations
 
+import hashlib
+import json
 import os
 import threading
 import time
@@ -224,73 +226,85 @@ def _resolve_local_sidecar_token_and_project(
         # Resolve organisation ID.  When the bootstrap response already carried
         # the org (fresh-install case) skip the extra API round-trip.
         organization_id: str = bootstrap_org_id or ""
+        skip_org_select = False
 
         if not organization_id:
             org_response = bootstrap_client.get(
                 "/api/v1/organization",
                 headers={"Authorization": f"Bearer {base_token}"},
             )
-            if org_response.status_code != 200:
+            if org_response.status_code == 403:
+                # Machine identity tokens are org-scoped and cannot call the org
+                # endpoint. Skip org resolution and select-organization entirely.
+                logger.debug(
+                    "Vault org endpoint returned 403 — assuming machine identity token, "
+                    "skipping org resolution."
+                )
+                skip_org_select = True
+            elif org_response.status_code != 200:
                 raise VaultConfigurationError(
                     "Failed to resolve local vault organization context: "
                     f"{org_response.status_code} {_truncate_detail(org_response.text)}"
                 )
+            else:
+                org_payload = _json_object(org_response)
+                organizations = org_payload.get("organizations")
+                if not isinstance(organizations, list) or not organizations:
+                    raise VaultConfigurationError(
+                        "Local vault organization lookup did not return any organizations."
+                    )
 
-            org_payload = _json_object(org_response)
-            organizations = org_payload.get("organizations")
-            if not isinstance(organizations, list) or not organizations:
-                raise VaultConfigurationError(
-                    "Local vault organization lookup did not return any organizations."
-                )
+                selected_org: Optional[dict[str, Any]] = None
+                desired_org_lower = desired_org.lower()
+                for organization in organizations:
+                    if not isinstance(organization, dict):
+                        continue
+                    candidates = {
+                        str(organization.get("id") or "").strip().lower(),
+                        str(organization.get("slug") or "").strip().lower(),
+                        str(organization.get("name") or "").strip().lower(),
+                    }
+                    if desired_org_lower in candidates:
+                        selected_org = organization
+                        break
+                if selected_org is None:
+                    selected_org = organizations[0] if isinstance(organizations[0], dict) else None
+                if selected_org is None:
+                    raise VaultConfigurationError("Unable to resolve a valid local vault organization.")
 
-            selected_org: Optional[dict[str, Any]] = None
-            desired_org_lower = desired_org.lower()
-            for organization in organizations:
-                if not isinstance(organization, dict):
-                    continue
-                candidates = {
-                    str(organization.get("id") or "").strip().lower(),
-                    str(organization.get("slug") or "").strip().lower(),
-                    str(organization.get("name") or "").strip().lower(),
-                }
-                if desired_org_lower in candidates:
-                    selected_org = organization
-                    break
-            if selected_org is None:
-                selected_org = organizations[0] if isinstance(organizations[0], dict) else None
-            if selected_org is None:
-                raise VaultConfigurationError("Unable to resolve a valid local vault organization.")
+                organization_id = str(selected_org.get("id") or "").strip()
+                if not organization_id:
+                    raise VaultConfigurationError("Local vault organization is missing an id.")
 
-            organization_id = str(selected_org.get("id") or "").strip()
-            if not organization_id:
-                raise VaultConfigurationError("Local vault organization is missing an id.")
-
-        select_response = bootstrap_client.post(
-            "/api/v3/auth/select-organization",
-            json={"organizationId": organization_id},
-            headers={
-                "Authorization": f"Bearer {base_token}",
-                "Content-Type": "application/json",
-            },
-        )
-        # Machine identity tokens are already org-scoped; select-organization is
-        # a user-session concept and may return non-200 for identity tokens.
-        # In that case fall back to using base_token directly.
         scoped_token: Optional[str] = None
-        if select_response.status_code == 200:
-            scoped_payload = _json_object(select_response)
-            scoped_token = _extract_string(
-                scoped_payload,
-                ("token",),
-                ("accessToken",),
-                ("access_token",),
-            )
-        if scoped_token is None:
-            logger.debug(
-                "select-organization returned %d — using base token directly.",
-                select_response.status_code,
-            )
+        if skip_org_select:
             scoped_token = base_token
+        else:
+            select_response = bootstrap_client.post(
+                "/api/v3/auth/select-organization",
+                json={"organizationId": organization_id},
+                headers={
+                    "Authorization": f"Bearer {base_token}",
+                    "Content-Type": "application/json",
+                },
+            )
+            # Machine identity tokens are already org-scoped; select-organization is
+            # a user-session concept and may return non-200 for identity tokens.
+            # In that case fall back to using base_token directly.
+            if select_response.status_code == 200:
+                scoped_payload = _json_object(select_response)
+                scoped_token = _extract_string(
+                    scoped_payload,
+                    ("token",),
+                    ("accessToken",),
+                    ("access_token",),
+                )
+            if scoped_token is None:
+                logger.debug(
+                    "select-organization returned %d — using base token directly.",
+                    select_response.status_code,
+                )
+                scoped_token = base_token
 
         auth_headers = {"Authorization": f"Bearer {scoped_token}", "Content-Type": "application/json"}
 
@@ -961,6 +975,20 @@ class CaracalVault:
             and "-> 404" in payload
         )
 
+    @staticmethod
+    def _is_missing_sign_endpoint(error: VaultError) -> bool:
+        payload = str(error)
+        return "POST /api/caracal/sign/" in payload and "-> 404" in payload
+
+    @staticmethod
+    def _sign_canonical_payload_locally(private_key_pem: str, payload: dict[str, Any]) -> str:
+        from cryptography.hazmat.primitives import hashes, serialization
+        from cryptography.hazmat.primitives.asymmetric import ec
+        canonical = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        private_key = serialization.load_pem_private_key(private_key_pem.encode(), password=None)
+        signature_bytes = private_key.sign(canonical, ec.ECDSA(hashes.SHA256()))
+        return signature_bytes.hex()
+
     def _bootstrap_asymmetric_keypair_via_secret_upsert(
         self,
         *,
@@ -1304,13 +1332,26 @@ class CaracalVault:
         project_id, environment, secret_path = self._resolve_context(workspace_id, env_id)
         secret_path, name = self._resolve_secret_locator(secret_path, name)
         try:
-            signature = self._sign_canonical_payload_via_vault_api(
-                project_id=project_id,
-                environment=environment,
-                secret_path=secret_path,
-                key_name=name,
-                payload=payload,
-            )
+            try:
+                signature = self._sign_canonical_payload_via_vault_api(
+                    project_id=project_id,
+                    environment=environment,
+                    secret_path=secret_path,
+                    key_name=name,
+                    payload=payload,
+                )
+            except VaultError as exc:
+                if not self._is_missing_sign_endpoint(exc):
+                    raise
+                # Custom sign endpoint absent (vanilla Infisical) — fetch the
+                # private key from vault secrets and sign locally.
+                logger.debug(
+                    "Vault sign endpoint absent — falling back to local ECDSA signing."
+                )
+                private_key_pem = self._get_secret_value(
+                    project_id, environment, secret_path, name
+                )
+                signature = self._sign_canonical_payload_locally(private_key_pem, payload)
             self._audit_event(workspace_id, env_id, name, "sign_canonical_payload", 1, actor, True)
             return signature
         except Exception as exc:
