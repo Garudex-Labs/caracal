@@ -5,7 +5,14 @@
 
 {% block content %}
 <style>
-  .setup-wrap { max-width: 740px; margin: 0 auto; padding: 24px 20px 48px; }
+  .setup-wrap { max-width: 1100px; margin: 0 auto; padding: 24px 20px 48px; display: grid; grid-template-columns: 1fr 280px; gap: 28px; align-items: start; }
+  .setup-main  { min-width: 0; }
+  .setup-title { grid-column: 1 / -1; }
+  .demo-panel  { border: 1px dashed #c8b84a; border-radius: 4px; padding: 14px; background: #fdfbef; }
+  .demo-tag    { font-size: 10px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: #8a6e00; background: #fdf3c0; border: 1px solid #e0c84a; border-radius: 2px; padding: 1px 5px; display: inline-block; margin-bottom: 8px; }
+  .demo-title  { font-size: 12px; font-weight: 600; color: #1a1f2e; margin-bottom: 4px; }
+  .demo-note   { font-size: 11px; color: #5a6478; margin-bottom: 10px; }
+  .demo-note code { font-family: ui-monospace, monospace; font-size: 10px; background: #1a1f2e; color: #c9d1e0; padding: 1px 5px; border-radius: 2px; }
   h1          { font-size: 17px; font-weight: 600; margin-bottom: 4px; }
   .sub        { color: #5a6478; font-size: 12px; margin-bottom: 24px; }
   .phase      { margin-bottom: 10px; border: 1px solid var(--border); border-radius: 4px; overflow: hidden; }
@@ -34,8 +41,12 @@
 </style>
 
 <div class="setup-wrap">
-  <h1>Caracal setup</h1>
-  <p class="sub">Complete each phase in order. Sections 2–6 run inside <code style="font-family:ui-monospace,monospace;font-size:11px;background:#f0f2f7;padding:1px 5px;border-radius:2px">caracal cli</code>.</p>
+  <div class="setup-title">
+    <h1>Caracal setup</h1>
+    <p class="sub">Complete each phase in order. Sections 2–6 run inside <code style="font-family:ui-monospace,monospace;font-size:11px;background:#f0f2f7;padding:1px 5px;border-radius:2px">caracal cli</code>.</p>
+  </div>
+
+  <div class="setup-main">
 
   <!-- 0: Install -->
   <div class="phase">
@@ -106,12 +117,39 @@ principal register --type worker --name "Exception Investigation" --email except
   <div class="phase">
     <div class="phase-hd"><span>4 · Providers</span><span class="ti">▶</span></div>
     <div class="phase-body">
-      <div class="note">Inside <code>caracal cli</code>. Replace <code>&lt;base-url&gt;</code> and <code>&lt;api-key&gt;</code> with real values.</div>
-      <div class="cmd-block">
-{% for p in providers %}
-<span class="cc"># {{ p.name }} — {{ p.category }}</span>
-provider add {{ p.id }} --service-type {{ p.category }} --base-url &lt;base-url&gt; --auth-scheme api-key --credential &lt;api-key&gt;
-{% endfor %}<div class="copy-row"><button class="cb">copy</button><button class="cba">copy w/ notes</button></div></div>
+      <div class="note">Inside <code>caracal cli</code>.</div>
+      <div class="cmd-block"><span class="cc"># Mercury Bank — banking</span>
+provider add mercury-bank --service-type banking --base-url http://mercury-bank.mock --auth-scheme api-key --credential demo-mercury-key
+
+<span class="cc"># Wise Payouts — payouts</span>
+provider add wise-payouts --service-type payouts --base-url http://wise-payouts.mock --auth-scheme api-key --credential demo-wise-key
+
+<span class="cc"># Stripe Treasury — banking</span>
+provider add stripe-treasury --service-type banking --base-url http://stripe-treasury.mock --auth-scheme api-key --credential demo-stripe-key
+
+<span class="cc"># NetSuite — erp</span>
+provider add netsuite --service-type erp --base-url http://netsuite.mock --auth-scheme api-key --credential demo-netsuite-key
+
+<span class="cc"># SAP ERP — erp</span>
+provider add sap-erp --service-type erp --base-url http://sap-erp.mock --auth-scheme api-key --credential demo-sap-key
+
+<span class="cc"># QuickBooks — erp</span>
+provider add quickbooks --service-type erp --base-url http://quickbooks.mock --auth-scheme api-key --credential demo-quickbooks-key
+
+<span class="cc"># Compliance Nexus — compliance</span>
+provider add compliance-nexus --service-type compliance --base-url http://compliance-nexus.mock --auth-scheme api-key --credential demo-compliance-key
+
+<span class="cc"># OCR Vision — document</span>
+provider add ocr-vision --service-type document --base-url http://ocr-vision.mock --auth-scheme api-key --credential demo-ocr-key
+
+<span class="cc"># Vendor Portal — vendor</span>
+provider add vendor-portal --service-type vendor --base-url http://vendor-portal.mock --auth-scheme api-key --credential demo-vendor-key
+
+<span class="cc"># Tax Rules Engine — tax</span>
+provider add tax-rules --service-type tax --base-url http://tax-rules.mock --auth-scheme api-key --credential demo-tax-key
+
+<span class="cc"># FX Rates — fx</span>
+provider add fx-rates --service-type fx --base-url http://fx-rates.mock --auth-scheme api-key --credential demo-fx-key<div class="copy-row"><button class="cb">copy</button><button class="cba">copy w/ notes</button></div></div>
     </div>
   </div>
 
@@ -193,7 +231,17 @@ authority mandate \
     </div>
   </div>
 
-  <div class="validate-bar">
+  </div>
+
+  <!-- Demo-only side panel -->
+  <div class="demo-panel">
+    <span class="demo-tag">Demo only</span>
+    <div class="demo-title">Mock provider network</div>
+    <div class="demo-note">Not part of the core setup. Starts a single container that acts as all 11 external providers on the <code>caracal-runtime</code> Docker network. Run this once after <code>caracal up</code>.</div>
+    <div class="cmd-block" style="margin-bottom:0">docker compose -f _mock/docker-compose.yml up -d --build<div class="copy-row"><button class="cb">copy</button></div></div>
+  </div>
+
+  <div class="validate-bar" style="grid-column:1">
     <button id="validate-btn">Validate configuration</button>
     <button id="start-demo-btn" style="display:none; background:var(--accent); color:#fff; border:none; padding:8px 18px; font-size:12px; font-weight:600; border-radius:3px; cursor:pointer;">Start Demo →</button>
     <div id="validate-out"></div>

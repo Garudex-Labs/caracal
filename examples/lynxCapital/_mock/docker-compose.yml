@@ -1,0 +1,32 @@
+name: caracal-mock
+
+services:
+  providers:
+    build: .
+    image: caracal-mock-providers:latest
+    networks:
+      caracal-runtime:
+        aliases:
+          - mercury-bank.mock
+          - wise-payouts.mock
+          - stripe-treasury.mock
+          - netsuite.mock
+          - sap-erp.mock
+          - quickbooks.mock
+          - compliance-nexus.mock
+          - ocr-vision.mock
+          - vendor-portal.mock
+          - tax-rules.mock
+          - fx-rates.mock
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost/health').read()"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+
+networks:
+  caracal-runtime:
+    external: true
+    name: ${CARACAL_RUNTIME_NETWORK:-caracal-runtime}
