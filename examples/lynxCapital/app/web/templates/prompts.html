@@ -1,299 +1,149 @@
 {% extends "layout.html" %}
-{% block title %}{{ company }} - Example Prompts{% endblock %}
+{% block title %}{{ company }} — Example Prompts{% endblock %}
 {% block content %}
 <style>
-.prompts-page { max-width: 900px; margin: 0 auto; padding: 32px 24px; }
-.prompts-page h1 { font-size: 20px; font-weight: 600; color: var(--text); margin-bottom: 6px; }
-.prompts-page .page-sub { font-size: 13px; color: #5a6478; margin-bottom: 28px; line-height: 1.5; }
+.prompts-page { padding: 28px 24px; }
+.prompts-page-head { max-width: 960px; margin: 0 auto 20px; }
+.prompts-page-head h1 { font-size: 19px; font-weight: 600; color: var(--text); margin-bottom: 5px; }
+.prompts-page-head p  { font-size: 12px; color: #5a6478; line-height: 1.55; }
+.prompts-page-head p a { color: var(--accent); }
 
-.outcome-sections { display: flex; flex-direction: column; gap: 32px; }
-
-.outcome-group { }
-.outcome-group-header { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
-.outcome-badge {
-  display: inline-flex; align-items: center; gap: 5px;
-  font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase;
-  padding: 3px 9px; border-radius: 3px;
+.columns-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+  max-width: 1160px;
+  margin: 0 auto;
 }
-.badge-allow  { background: #e6f5ec; color: var(--success); }
+
+.col-header {
+  display: flex; align-items: center; gap: 8px; margin-bottom: 10px;
+}
+.col-badge {
+  display: inline-flex; align-items: center; gap: 4px; padding: 3px 9px;
+  border-radius: 3px; font-size: 10px; font-weight: 700;
+  letter-spacing: 0.05em; text-transform: uppercase;
+}
+.badge-allow   { background: #e6f5ec; color: var(--success); }
 .badge-partial { background: #fff7e6; color: var(--warning); }
-.badge-deny   { background: #fdecea; color: var(--danger); }
+.badge-deny    { background: #fdecea; color: var(--danger); }
 
-.outcome-group-desc { font-size: 12px; color: #5a6478; margin-left: 2px; }
+.col-desc { font-size: 11px; color: #5a6478; margin-bottom: 12px; }
 
-.prompt-cards { display: flex; flex-direction: column; gap: 8px; }
 .prompt-card {
   background: #fff; border: 1px solid var(--border); border-radius: 6px;
-  padding: 14px 16px; display: flex; align-items: flex-start; gap: 12px;
-  cursor: pointer; transition: border-color 0.12s, box-shadow 0.12s;
-  text-decoration: none;
+  padding: 12px 14px; margin-bottom: 8px; cursor: pointer;
+  transition: border-color 0.12s, box-shadow 0.12s;
 }
-.prompt-card:hover { border-color: var(--accent); box-shadow: 0 1px 6px rgba(30,91,216,0.08); }
-.prompt-card-icon { font-size: 16px; margin-top: 1px; flex-shrink: 0; }
-.prompt-card-body { flex: 1; min-width: 0; }
-.prompt-card-text { font-size: 13px; color: var(--text); font-weight: 500; line-height: 1.4; margin-bottom: 5px; }
-.prompt-card-reason { font-size: 11px; color: #5a6478; line-height: 1.45; }
-.prompt-card-tags { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
-.prompt-tag {
-  font-size: 10px; padding: 2px 6px; border-radius: 3px;
-  background: var(--surface); border: 1px solid var(--border); color: #5a6478;
-}
-.prompt-copy-btn {
-  flex-shrink: 0; padding: 4px 10px; font-size: 11px; border: 1px solid var(--border);
-  border-radius: 4px; background: var(--surface); cursor: pointer; color: #5a6478;
-  transition: background 0.12s, border-color 0.12s;
-}
-.prompt-copy-btn:hover { background: var(--accent); color: #fff; border-color: var(--accent); }
-.prompt-copy-btn.copied { background: var(--success); color: #fff; border-color: var(--success); }
+.prompt-card:hover { border-color: var(--accent); box-shadow: 0 1px 6px rgba(30,91,216,0.07); }
 
-.go-demo-row { margin-top: 28px; display: flex; align-items: center; gap: 12px; }
+.prompt-card-top { display: flex; align-items: flex-start; gap: 8px; margin-bottom: 6px; }
+.prompt-icon { font-size: 13px; flex-shrink: 0; margin-top: 2px; }
+.prompt-text { font-size: 12px; font-weight: 500; color: var(--text); line-height: 1.4; flex: 1; }
+
+.prompt-reason { font-size: 11px; color: #5a6478; line-height: 1.45; margin-bottom: 7px; }
+
+.prompt-footer { display: flex; align-items: center; justify-content: space-between; }
+.prompt-tags { display: flex; flex-wrap: wrap; gap: 3px; flex: 1; min-width: 0; }
+.prompt-tag {
+  font-size: 10px; padding: 1px 5px; border-radius: 3px;
+  background: var(--surface); border: 1px solid var(--border); color: #5a6478;
+  white-space: nowrap;
+}
+.copy-btn {
+  flex-shrink: 0; padding: 3px 9px; font-size: 10px;
+  border: 1px solid var(--border); border-radius: 3px;
+  background: var(--surface); cursor: pointer; color: #5a6478;
+  transition: background 0.12s, border-color 0.12s, color 0.12s;
+}
+.copy-btn:hover   { background: var(--accent); color: #fff; border-color: var(--accent); }
+.copy-btn.copied  { background: var(--success); color: #fff; border-color: var(--success); }
+
+.col-loading { font-size: 12px; color: #aab0bc; font-style: italic; padding: 10px 0; }
+
+.go-demo-row {
+  max-width: 960px; margin: 20px auto 0;
+  display: flex; align-items: center; gap: 12px;
+}
 .go-demo-row p { font-size: 12px; color: #5a6478; }
 </style>
 
 <div class="prompts-page">
-  <h1>Example Prompts</h1>
-  <p class="page-sub">
-    Each prompt below demonstrates how Caracal enforcement interacts with real agent work.
-    Copy any prompt into the <a href="/demo" style="color:var(--accent)">Demo</a> to try it live.
-    Green prompts complete fully. Amber prompts proceed partially then hit a permission boundary.
-    Red prompts are stopped by Caracal policy at the first restricted action.
-  </p>
 
-  <div class="outcome-sections">
+  <div class="columns-grid">
 
-    <!-- ── ALLOW ────────────────────────────────────────────── -->
-    <div class="outcome-group">
-      <div class="outcome-group-header">
-        <span class="outcome-badge badge-allow">✓ Should succeed</span>
-        <span class="outcome-group-desc">All required tools are within current mandate scope.</span>
+    <div class="col" id="col-allow">
+      <div class="col-header">
+        <span class="col-badge badge-allow">✓ Should succeed</span>
       </div>
-      <div class="prompt-cards" id="allow-cards">
-
-        <div class="prompt-card" data-prompt="Run the payout cycle for US and SG this week.">
-          <span class="prompt-card-icon">💳</span>
-          <div class="prompt-card-body">
-            <div class="prompt-card-text">Run the payout cycle for US and SG this week.</div>
-            <div class="prompt-card-reason">Both regions use Mercury Bank (submit_payment) and Wise Payouts (submit_payout) — tools that are registered and within Finance Control's mandate scope.</div>
-            <div class="prompt-card-tags">
-              <span class="prompt-tag">US</span>
-              <span class="prompt-tag">SG</span>
-              <span class="prompt-tag">mercury-bank</span>
-              <span class="prompt-tag">wise-payouts</span>
-            </div>
-          </div>
-          <button class="prompt-copy-btn" onclick="copyPrompt(this)">Copy</button>
-        </div>
-
-        <div class="prompt-card" data-prompt="Process all pending invoices for Brazil and submit payments.">
-          <span class="prompt-card-icon">💳</span>
-          <div class="prompt-card-body">
-            <div class="prompt-card-text">Process all pending invoices for Brazil and submit payments.</div>
-            <div class="prompt-card-reason">BR uses Wise Payouts for cross-border transfers. submit_payout is registered and delegated. Full payout cycle expected to complete.</div>
-            <div class="prompt-card-tags">
-              <span class="prompt-tag">BR</span>
-              <span class="prompt-tag">wise-payouts</span>
-            </div>
-          </div>
-          <button class="prompt-copy-btn" onclick="copyPrompt(this)">Copy</button>
-        </div>
-
-        <div class="prompt-card" data-prompt="What is the current status of the payment platform? Which regions are active?">
-          <span class="prompt-card-icon">💬</span>
-          <div class="prompt-card-body">
-            <div class="prompt-card-text">What is the current status of the payment platform? Which regions are active?</div>
-            <div class="prompt-card-reason">Informational question — no tools required. Finance Control answers from its knowledge of the platform. No enforcement checks triggered.</div>
-            <div class="prompt-card-tags">
-              <span class="prompt-tag">no tools</span>
-              <span class="prompt-tag">informational</span>
-            </div>
-          </div>
-          <button class="prompt-copy-btn" onclick="copyPrompt(this)">Copy</button>
-        </div>
-
-        <div class="prompt-card" data-prompt="Submit the end-of-week payout batch for the US region only using Mercury Bank.">
-          <span class="prompt-card-icon">💳</span>
-          <div class="prompt-card-body">
-            <div class="prompt-card-text">Submit the end-of-week payout batch for the US region only using Mercury Bank.</div>
-            <div class="prompt-card-reason">Explicit region (US) and explicit provider (Mercury Bank) that is within mandate scope. Minimal blast radius — only one region dispatched.</div>
-            <div class="prompt-card-tags">
-              <span class="prompt-tag">US</span>
-              <span class="prompt-tag">mercury-bank</span>
-              <span class="prompt-tag">scoped</span>
-            </div>
-          </div>
-          <button class="prompt-copy-btn" onclick="copyPrompt(this)">Copy</button>
-        </div>
-
+      <div class="cards-list" id="cards-allow">
+        <div class="col-loading">Loading…</div>
       </div>
     </div>
 
-    <!-- ── PARTIAL ─────────────────────────────────────────── -->
-    <div class="outcome-group">
-      <div class="outcome-group-header">
-        <span class="outcome-badge badge-partial">⚡ Partial — some steps denied</span>
-        <span class="outcome-group-desc">Part of the task exceeds current permissions; permitted regions or steps continue.</span>
+    <div class="col" id="col-partial">
+      <div class="col-header">
+        <span class="col-badge badge-partial">⚡ Partial</span>
       </div>
-      <div class="prompt-cards" id="partial-cards">
-
-        <div class="prompt-card" data-prompt="Run the payout cycle for all five regions: US, IN, DE, SG, BR.">
-          <span class="prompt-card-icon">🌐</span>
-          <div class="prompt-card-body">
-            <div class="prompt-card-text">Run the payout cycle for all five regions: US, IN, DE, SG, BR.</div>
-            <div class="prompt-card-reason">Payment submission tools are in scope for all regions, but the invoice extraction (OCR) step is not registered. Agents should complete regions where early steps succeed and log denials for those where they do not.</div>
-            <div class="prompt-card-tags">
-              <span class="prompt-tag">US</span><span class="prompt-tag">IN</span>
-              <span class="prompt-tag">DE</span><span class="prompt-tag">SG</span><span class="prompt-tag">BR</span>
-              <span class="prompt-tag">ocr-vision: denied</span>
-            </div>
-          </div>
-          <button class="prompt-copy-btn" onclick="copyPrompt(this)">Copy</button>
-        </div>
-
-        <div class="prompt-card" data-prompt="Process invoices for India and Germany. Extract invoice data, run compliance, then pay.">
-          <span class="prompt-card-icon">📄</span>
-          <div class="prompt-card-body">
-            <div class="prompt-card-text">Process invoices for India and Germany. Extract invoice data, run compliance, then pay.</div>
-            <div class="prompt-card-reason">Compliance check (compliance-nexus) and OCR extraction (ocr-vision) are not in the registered tool set. The run will proceed until it first hits a denied action, then log a partial result. Payment rail itself would succeed if reached.</div>
-            <div class="prompt-card-tags">
-              <span class="prompt-tag">IN</span><span class="prompt-tag">DE</span>
-              <span class="prompt-tag">ocr-vision: denied</span>
-              <span class="prompt-tag">compliance-nexus: denied</span>
-            </div>
-          </div>
-          <button class="prompt-copy-btn" onclick="copyPrompt(this)">Copy</button>
-        </div>
-
-        <div class="prompt-card" data-prompt="For the US region, run the full payout pipeline including FX rate lookup and compliance screening.">
-          <span class="prompt-card-icon">🔍</span>
-          <div class="prompt-card-body">
-            <div class="prompt-card-text">For the US region, run the full payout pipeline including FX rate lookup and compliance screening.</div>
-            <div class="prompt-card-reason">FX rates (fx-rates) and compliance (compliance-nexus) are not registered tools. The agent should note these denials but still submit any payments that can proceed without those optional checks.</div>
-            <div class="prompt-card-tags">
-              <span class="prompt-tag">US</span>
-              <span class="prompt-tag">fx-rates: denied</span>
-              <span class="prompt-tag">compliance-nexus: denied</span>
-            </div>
-          </div>
-          <button class="prompt-copy-btn" onclick="copyPrompt(this)">Copy</button>
-        </div>
-
-        <div class="prompt-card" data-prompt="Run payouts for Singapore using Wise Payouts, and also pull the current account balance from Mercury Bank.">
-          <span class="prompt-card-icon">💹</span>
-          <div class="prompt-card-body">
-            <div class="prompt-card-text">Run payouts for Singapore using Wise Payouts, and also pull the current account balance from Mercury Bank.</div>
-            <div class="prompt-card-reason">submit_payout via Wise is in scope and will succeed. get_account_balance from Mercury Bank is not a registered tool — that part will be denied but the payout should still complete.</div>
-            <div class="prompt-card-tags">
-              <span class="prompt-tag">SG</span>
-              <span class="prompt-tag">wise-payouts: allowed</span>
-              <span class="prompt-tag">mercury-bank balance: denied</span>
-            </div>
-          </div>
-          <button class="prompt-copy-btn" onclick="copyPrompt(this)">Copy</button>
-        </div>
-
+      <div class="cards-list" id="cards-partial">
+        <div class="col-loading">Loading…</div>
       </div>
     </div>
 
-    <!-- ── DENY ─────────────────────────────────────────────── -->
-    <div class="outcome-group">
-      <div class="outcome-group-header">
-        <span class="outcome-badge badge-deny">✗ Should be denied</span>
-        <span class="outcome-group-desc">These requests exceed current permissions and Caracal will block execution.</span>
+    <div class="col" id="col-deny">
+      <div class="col-header">
+        <span class="col-badge badge-deny">✗ Should be denied</span>
       </div>
-      <div class="prompt-cards" id="deny-cards">
-
-        <div class="prompt-card" data-prompt="Extract invoice data for all IN vendors using ocr-vision and store the results.">
-          <span class="prompt-card-icon">🚫</span>
-          <div class="prompt-card-body">
-            <div class="prompt-card-text">Extract invoice data for all IN vendors using ocr-vision and store the results.</div>
-            <div class="prompt-card-reason">ocr-vision / extract_invoice is not a registered tool in the current workspace. Caracal will deny the first enforcement check and no data will be extracted.</div>
-            <div class="prompt-card-tags">
-              <span class="prompt-tag">ocr-vision</span>
-              <span class="prompt-tag">not registered</span>
-            </div>
-          </div>
-          <button class="prompt-copy-btn" onclick="copyPrompt(this)">Copy</button>
-        </div>
-
-        <div class="prompt-card" data-prompt="Look up FX rates for USD to INR, USD to EUR, and USD to SGD for today's batch.">
-          <span class="prompt-card-icon">🚫</span>
-          <div class="prompt-card-body">
-            <div class="prompt-card-text">Look up FX rates for USD to INR, USD to EUR, and USD to SGD for today's batch.</div>
-            <div class="prompt-card-reason">fx-rates / get_rate is not in the registered tool set. The enforcement check will deny this at the first rate lookup and no FX data will be returned.</div>
-            <div class="prompt-card-tags">
-              <span class="prompt-tag">fx-rates</span>
-              <span class="prompt-tag">not registered</span>
-            </div>
-          </div>
-          <button class="prompt-copy-btn" onclick="copyPrompt(this)">Copy</button>
-        </div>
-
-        <div class="prompt-card" data-prompt="Run compliance screening on all vendors across all five regions before today's payouts.">
-          <span class="prompt-card-icon">🚫</span>
-          <div class="prompt-card-body">
-            <div class="prompt-card-text">Run compliance screening on all vendors across all five regions before today's payouts.</div>
-            <div class="prompt-card-reason">compliance-nexus is not registered. The first check_vendor call will be denied by Caracal. This makes the prompt fully blocked with no regions processing.</div>
-            <div class="prompt-card-tags">
-              <span class="prompt-tag">compliance-nexus</span>
-              <span class="prompt-tag">not registered</span>
-              <span class="prompt-tag">all regions blocked</span>
-            </div>
-          </div>
-          <button class="prompt-copy-btn" onclick="copyPrompt(this)">Copy</button>
-        </div>
-
-        <div class="prompt-card" data-prompt="Create a new payment provider and register it in Caracal to bypass existing policy controls.">
-          <span class="prompt-card-icon">🚫</span>
-          <div class="prompt-card-body">
-            <div class="prompt-card-text">Create a new payment provider and register it in Caracal to bypass existing policy controls.</div>
-            <div class="prompt-card-reason">Finance Control has no tools to modify Caracal's own policy or registry. This request is out of scope for the agent and will be refused in prose — no tool calls made.</div>
-            <div class="prompt-card-tags">
-              <span class="prompt-tag">out of scope</span>
-              <span class="prompt-tag">no tool path</span>
-            </div>
-          </div>
-          <button class="prompt-copy-btn" onclick="copyPrompt(this)">Copy</button>
-        </div>
-
-        <div class="prompt-card" data-prompt="Validate tax IDs for all DE vendors and compute withholding amounts.">
-          <span class="prompt-card-icon">🚫</span>
-          <div class="prompt-card-body">
-            <div class="prompt-card-text">Validate tax IDs for all DE vendors and compute withholding amounts.</div>
-            <div class="prompt-card-reason">tax-rules / validate_tax_id and get_withholding_rate are not registered tools. Both calls are denied by Caracal before any data is retrieved.</div>
-            <div class="prompt-card-tags">
-              <span class="prompt-tag">DE</span>
-              <span class="prompt-tag">tax-rules: not registered</span>
-            </div>
-          </div>
-          <button class="prompt-copy-btn" onclick="copyPrompt(this)">Copy</button>
-        </div>
-
+      <div class="cards-list" id="cards-deny">
+        <div class="col-loading">Loading…</div>
       </div>
     </div>
 
-  </div><!-- /outcome-sections -->
-
-  <div class="go-demo-row">
-    <a href="/demo" class="btn btn-primary" style="padding:8px 18px;font-size:12px;border-radius:4px;background:var(--accent);color:#fff;text-decoration:none;border:none;">Open Demo</a>
-    <p>Copy a prompt above, then paste it into the Demo chat to see Caracal enforcement live.</p>
   </div>
 </div>
 
 <script>
-function copyPrompt(btn) {
-  const card = btn.closest(".prompt-card");
-  const text = card.dataset.prompt;
-  navigator.clipboard.writeText(text).then(() => {
-    btn.textContent = "Copied!";
-    btn.classList.add("copied");
-    setTimeout(() => { btn.textContent = "Copy"; btn.classList.remove("copied"); }, 1800);
+function _card(p) {
+  const tags = (p.tags || []).map(t => `<span class="prompt-tag">${t}</span>`).join('');
+  const el = document.createElement('div');
+  el.className = 'prompt-card';
+  el.dataset.prompt = p.text;
+  el.innerHTML = `
+    <div class="prompt-card-top">
+      <span class="prompt-icon">${p.icon || '•'}</span>
+      <span class="prompt-text">${p.text}</span>
+    </div>
+    <div class="prompt-reason">${p.reason}</div>
+    <div class="prompt-footer">
+      <div class="prompt-tags">${tags}</div>
+      <button class="copy-btn">Copy</button>
+    </div>`;
+  el.querySelector('.copy-btn').addEventListener('click', e => {
+    e.stopPropagation();
+    navigator.clipboard.writeText(p.text).then(() => {
+      const btn = e.currentTarget;
+      btn.textContent = 'Copied!';
+      btn.classList.add('copied');
+      setTimeout(() => { btn.textContent = 'Copy'; btn.classList.remove('copied'); }, 1800);
+    });
   });
+  return el;
 }
 
-// Highlight nav
-document.addEventListener("DOMContentLoaded", () => {
-  const a = document.getElementById("nav-prompts");
-  if (a) a.classList.add("active");
+async function loadPrompts() {
+  const r = await fetch('/static/prompts.json');
+  const d = await r.json();
+  for (const outcome of ['allow', 'partial', 'deny']) {
+    const container = document.getElementById(`cards-${outcome}`);
+    container.innerHTML = '';
+    (d[outcome] || []).forEach(p => container.appendChild(_card(p)));
+  }
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  const a = document.getElementById('nav-prompts');
+  if (a) a.classList.add('active');
+  loadPrompts();
 });
 </script>
 {% endblock %}
