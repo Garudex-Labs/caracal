@@ -808,6 +808,30 @@ audit.add_command(audit_workflow, name='workflow')
 
 
 # =============================================================================
+# DATABASE MANAGEMENT (top-level)
+# =============================================================================
+
+@cli.group(name='db')
+def db():
+    """Database schema and migration management."""
+    pass
+
+
+from caracal.cli.db import init_db, db_status, migrate
+db.add_command(init_db, name='init')
+db.add_command(db_status, name='status')
+db.add_command(migrate, name='migrate')
+
+
+# =============================================================================
+# BOOTSTRAP
+# =============================================================================
+
+from caracal.cli.bootstrap import bootstrap
+cli.add_command(bootstrap, name='bootstrap')
+
+
+# =============================================================================
 # ADVANCED/SYSTEM COMMANDS
 # =============================================================================
 
@@ -818,16 +842,16 @@ def system(ctx):
     pass
 
 
-# Database management
+# Database management (system alias for backward compat)
 @system.group(name='db')
 def system_db():
     """Database operations."""
     pass
 
 
-from caracal.cli.db import init_db, db_status
 system_db.add_command(init_db, name='init')
 system_db.add_command(db_status, name='status')
+system_db.add_command(migrate, name='migrate')
 
 
 # Backup/restore

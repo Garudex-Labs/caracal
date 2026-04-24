@@ -59,23 +59,19 @@ def get_database_config_from_context(ctx) -> DatabaseConfig:
     Raises:
         click.ClickException: If database configuration is missing or invalid
     """
-    if not hasattr(ctx.config, 'database'):
-        raise click.ClickException(
-            "Database configuration not found in config file. "
-            "Please add a 'database' section with connection details."
-        )
+    if not hasattr(ctx.config, 'database') or ctx.config.database is None:
+        # No config file — fall back to CARACAL_DB_* environment variables
+        return DatabaseConfig()
     
     db_config = ctx.config.database
     
     # Extract configuration with defaults
     return DatabaseConfig(
-        type=getattr(db_config, 'type', 'postgres'),
         host=getattr(db_config, 'host', 'localhost'),
         port=getattr(db_config, 'port', 5432),
         database=getattr(db_config, 'database', 'caracal'),
         user=getattr(db_config, 'user', 'caracal'),
         password=getattr(db_config, 'password', ''),
-        file_path=getattr(db_config, 'file_path', ''),
         pool_size=getattr(db_config, 'pool_size', 10),
         max_overflow=getattr(db_config, 'max_overflow', 5),
         pool_timeout=getattr(db_config, 'pool_timeout', 30),
@@ -153,7 +149,7 @@ def init_db(ctx):
     except click.ClickException:
         raise
     except Exception as e:
-        logger.error(f"Failed to initialize database: {e}", exc_info=True)
+        click.echo(f"Error: Database initialization failed: {e}", err=True)
         raise click.ClickException(f"Database initialization failed: {e}")
 
 
@@ -213,7 +209,7 @@ def migrate(ctx, direction: str, revision: str, sql: bool):
             click.echo(f"{action} migrations to {target}...")
             
             db_manager = DatabaseConnectionManager(db_config)
-            db_manager.initialize()
+            db_manager.initialize(create_tables=False)
             
             if not db_manager.health_check():
                 raise click.ClickException(
@@ -247,7 +243,7 @@ def migrate(ctx, direction: str, revision: str, sql: bool):
     except click.ClickException:
         raise
     except Exception as e:
-        logger.error(f"Migration failed: {e}", exc_info=True)
+        click.echo(f"Error: Migration failed: {e}", err=True)
         raise click.ClickException(f"Migration failed: {e}")
 
 
@@ -279,7 +275,7 @@ def db_status(ctx, verbose: bool):
         click.echo(f"  User: {db_config.user}")
         
         db_manager = DatabaseConnectionManager(db_config)
-        db_manager.initialize()
+        db_manager.initialize(create_tables=False)
         
         # Check connectivity
         is_healthy = db_manager.health_check()
@@ -371,5 +367,5 @@ def db_status(ctx, verbose: bool):
     except click.ClickException:
         raise
     except Exception as e:
-        logger.error(f"Failed to get database status: {e}", exc_info=True)
+        click.echo(f"Error: Failed to get database status: {e}", err=True)
         raise click.ClickException(f"Failed to get database status: {e}")

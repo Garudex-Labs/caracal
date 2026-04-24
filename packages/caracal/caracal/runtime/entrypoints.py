@@ -226,6 +226,17 @@ def _run_host_orchestrator(args: Sequence[str]) -> int:
     vault_init_parser.set_defaults(handler=_host_vault_init)
     vault_parser.set_defaults(handler=lambda ns: (vault_parser.print_help(), 2)[1])
 
+    bootstrap_parser = subparsers.add_parser(
+        "bootstrap",
+        help="Create system principal and issue first-boot AIS nonce (idempotent)",
+    )
+    bootstrap_parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Re-bootstrap even if principals already exist",
+    )
+    bootstrap_parser.set_defaults(handler=_host_bootstrap)
+
     if not args:
         return _host_flow(argparse.Namespace())
 
@@ -1049,10 +1060,27 @@ def _host_migrate(namespace: argparse.Namespace) -> int:
     compose_file = _resolve_compose_file()
     compose_cmd = _compose_cmd(compose_file)
     direction = namespace.direction or "up"
-    exec_cmd = compose_cmd + ["exec", "mcp", "caracal", "db", "migrate", direction]
+    # Ensure infra (postgres) is up before migrating — vault/redis not required.
+    infra_up = subprocess.run(
+        compose_cmd + ["up", "-d", "postgres"],
+        check=False,
+    )
+    if infra_up.returncode != 0:
+        print("Error: failed to start postgres before running migrations", file=sys.stderr)
+        return infra_up.returncode
+    env = dict(os.environ)
+    env["CARACAL_MIGRATE_DIRECTION"] = direction
+    run_cmd = compose_cmd + [
+        "--profile", "migrate",
+        "run",
+        "--rm",
+        "--no-deps",
+        "-e", f"CARACAL_MIGRATE_DIRECTION={direction}",
+        "migrator",
+    ]
     if namespace.revision:
-        exec_cmd += ["--revision", namespace.revision]
-    result = subprocess.run(exec_cmd, check=False)
+        run_cmd += ["--", "caracal", "db", "migrate", direction, "--revision", namespace.revision]
+    result = subprocess.run(run_cmd, check=False, env=env)
     return result.returncode
 
 
@@ -1170,7 +1198,69 @@ def _host_vault_init(_namespace: argparse.Namespace) -> int:
     return 0
 
 
+def _host_bootstrap(namespace: argparse.Namespace) -> int:
+    """Start the bootstrap container to create the system principal and AIS nonce.
+
+    Uses `docker compose run --rm --profile bootstrap bootstrap` so it runs
+    against live infra (postgres + redis + vault) without requiring MCP to be
+    healthy. Idempotent by default — skips creation if a principal already
+    exists unless --force is passed.
+    """
+    compose_file = _resolve_compose_file()
+    compose_cmd = _compose_cmd(compose_file)
+
+    # Ensure infra is up.
+    infra_up = subprocess.run(
+        compose_cmd + ["up", "-d", "postgres", "redis", "vault"],
+        check=False,
+    )
+    if infra_up.returncode != 0:
+        print("Error: failed to start infra before bootstrap", file=sys.stderr)
+        return infra_up.returncode
+
+    env = dict(os.environ)
+    run_cmd = compose_cmd + [
+        "--profile", "bootstrap",
+        "run",
+        "--rm",
+        "--no-deps",
+        "bootstrap",
+    ]
+    if getattr(namespace, "force", False):
+        run_cmd += ["--", "caracal", "bootstrap", "--force"]
+
+    result = subprocess.run(run_cmd, check=False, env=env)
+
+    if result.returncode == 0:
+        print()
+        print("Bootstrap complete. Run 'caracal up' to start MCP with enforcement.")
+    return result.returncode
+
+
 CARACAL_COMPOSE_FILE_ENV = "CARACAL_COMPOSE_FILE"
+
+
+def _materialize_postgres_init(runtime_dir: Path) -> None:
+    """Copy the wheel-embedded postgres-init scripts to the runtime directory.
+
+    The compose file mounts ``./postgres-init`` from the runtime dir into
+    the postgres container as ``/docker-entrypoint-initdb.d``. This function
+    ensures those scripts are present on disk alongside the compose file.
+    """
+    dest = runtime_dir / "postgres-init"
+    dest.mkdir(parents=True, exist_ok=True)
+    try:
+        init_pkg = files("caracal.runtime.data").joinpath("postgres-init")
+        with as_file(init_pkg) as init_dir:
+            for script in Path(init_dir).iterdir():
+                if script.is_file():
+                    target_script = dest / script.name
+                    payload = script.read_bytes()
+                    if not target_script.exists() or target_script.read_bytes() != payload:
+                        target_script.write_bytes(payload)
+                        target_script.chmod(0o755)
+    except (FileNotFoundError, TypeError):
+        pass
 
 
 def _resolve_compose_file() -> Path:
@@ -1218,6 +1308,9 @@ def _resolve_compose_file() -> Path:
         payload = Path(resource_path).read_text(encoding="utf-8")
     if not target.exists() or target.read_text(encoding="utf-8") != payload:
         target.write_text(payload, encoding="utf-8")
+
+    _materialize_postgres_init(target.parent)
+
     return target
 
 
@@ -1272,6 +1365,13 @@ def _compose_cmd(compose_file: Path) -> list[str]:
 
     os.environ.setdefault(HOST_IO_ROOT_ENV, HOST_IO_ROOT_IN_CONTAINER)
 
+    # Ensure the postgres init scripts are resolvable via an absolute path so
+    # docker compose can mount them regardless of the working directory.
+    if not os.environ.get("CARACAL_POSTGRES_INIT_DIR"):
+        pg_init_dir = compose_file.parent / "postgres-init"
+        if pg_init_dir.exists():
+            os.environ["CARACAL_POSTGRES_INIT_DIR"] = str(pg_init_dir)
+
     compose_cmd = _resolve_compose_command()
     runtime_env_file = compose_file.parent / ".env"
     cwd_env_file = Path.cwd().resolve() / ".env"
@@ -1308,14 +1408,20 @@ def _run_local_caracal(args: Sequence[str]) -> None:
     if args and args[0] == "ais-serve":
         raise SystemExit(_run_ais_server())
 
+    # bootstrap and db migrate run before MCP is healthy and do not require
+    # vault env vars — skip assert_runtime_hardcut for these subcommands.
+    _HARDCUT_EXEMPT = {"bootstrap", "db"}
+    skip_hardcut = bool(args) and args[0] in _HARDCUT_EXEMPT
+
     from caracal.runtime.restricted_shell import run_restricted_command
 
-    assert_runtime_hardcut(
-        compose_file=None,
-        database_urls=_runtime_database_url_candidates(),
-        state_roots=[_caracal_home_dir()],
-        env_vars=_runtime_hardcut_env(),
-    )
+    if not skip_hardcut:
+        assert_runtime_hardcut(
+            compose_file=None,
+            database_urls=_runtime_database_url_candidates(),
+            state_roots=[_caracal_home_dir()],
+            env_vars=_runtime_hardcut_env(),
+        )
 
     raise SystemExit(run_restricted_command(list(args)))
 
@@ -1355,11 +1461,48 @@ def _consume_ais_startup_attestation(
 
     startup_nonce = (os.environ.get(AIS_STARTUP_NONCE_ENV) or "").strip()
     if not startup_nonce:
+        # Bootstrap writes the nonce to CARACAL_HOME/.env inside the named
+        # volume — it is not passed as a docker-compose env-var substitution.
+        # Read it directly from the file before raising.
+        caracal_home = os.environ.get("CARACAL_HOME", "").strip()
+        if caracal_home:
+            env_file = Path(caracal_home) / ".env"
+            try:
+                if env_file.exists():
+                    for line in env_file.read_text(encoding="utf-8").splitlines():
+                        stripped = line.strip()
+                        prefix = AIS_STARTUP_NONCE_ENV + "="
+                        if stripped.startswith(prefix):
+                            val = stripped[len(prefix):].strip()
+                            if val:
+                                startup_nonce = val
+                                os.environ[AIS_STARTUP_NONCE_ENV] = val
+                                break
+            except Exception:
+                pass
+    if not startup_nonce:
         raise RuntimeError(
             f"{AIS_STARTUP_NONCE_ENV} is required for AIS startup attestation"
         )
 
     expected_principal = (os.environ.get(AIS_STARTUP_PRINCIPAL_ENV) or "").strip() or None
+    if not expected_principal:
+        caracal_home = os.environ.get("CARACAL_HOME", "").strip()
+        if caracal_home:
+            env_file = Path(caracal_home) / ".env"
+            try:
+                if env_file.exists():
+                    for line in env_file.read_text(encoding="utf-8").splitlines():
+                        stripped = line.strip()
+                        prefix = AIS_STARTUP_PRINCIPAL_ENV + "="
+                        if stripped.startswith(prefix):
+                            val = stripped[len(prefix):].strip()
+                            if val:
+                                expected_principal = val
+                                os.environ[AIS_STARTUP_PRINCIPAL_ENV] = val
+                                break
+            except Exception:
+                pass
 
     if nonce_manager_factory is None:
         redis_host = (os.environ.get("REDIS_HOST") or "localhost").strip() or "localhost"
@@ -1584,6 +1727,25 @@ def _create_ais_session_manager():
 
     caveat_mode = (os.environ.get(AIS_SESSION_CAVEAT_MODE_ENV) or "caveat_chain").strip().lower()
     caveat_hmac_key = (os.environ.get(AIS_SESSION_CAVEAT_HMAC_KEY_ENV) or "").strip()
+    if not caveat_hmac_key:
+        # Bootstrap writes this key to CARACAL_HOME/.env inside the named
+        # volume — it is not propagated via docker-compose env-var substitution.
+        _caracal_home = os.environ.get("CARACAL_HOME", "").strip()
+        if _caracal_home:
+            _env_file = Path(_caracal_home) / ".env"
+            try:
+                if _env_file.exists():
+                    for _line in _env_file.read_text(encoding="utf-8").splitlines():
+                        _stripped = _line.strip()
+                        _prefix = AIS_SESSION_CAVEAT_HMAC_KEY_ENV + "="
+                        if _stripped.startswith(_prefix):
+                            _val = _stripped[len(_prefix):].strip()
+                            if _val:
+                                caveat_hmac_key = _val
+                                os.environ[AIS_SESSION_CAVEAT_HMAC_KEY_ENV] = _val
+                                break
+            except Exception:
+                pass
     if caveat_mode == "caveat_chain" and not caveat_hmac_key:
         raise RuntimeError(
             f"{AIS_SESSION_CAVEAT_HMAC_KEY_ENV} is required when {AIS_SESSION_CAVEAT_MODE_ENV}=caveat_chain"

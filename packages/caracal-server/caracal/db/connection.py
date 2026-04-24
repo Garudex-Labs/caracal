@@ -127,9 +127,15 @@ class DatabaseConnectionManager:
     # Lifecycle
     # ------------------------------------------------------------------
 
-    def initialize(self) -> None:
+    def initialize(self, create_tables: bool = True) -> None:
         """Create the SQLAlchemy engine, verify connectivity, and ensure
         the workspace schema + tables exist.
+
+        Args:
+            create_tables: If ``True`` (default), call ``Base.metadata.create_all``
+                after connecting.  Pass ``False`` when Alembic owns the schema
+                (e.g. the ``migrate`` and ``status`` CLI commands) to prevent
+                pre-creating tables before migrations run.
 
         Raises ``RuntimeError`` if PostgreSQL is unreachable.
         """
@@ -204,18 +210,19 @@ class DatabaseConnectionManager:
         # Create tables inside the workspace schema using schema_translate_map
         # This tells SQLAlchemy to map None (default/public) -> workspace schema
         # for all DDL operations, ensuring tables live in ws_<name> not public.
-        try:
-            from caracal.db.models import Base
-            if pg_schema:
-                schema_engine = self._engine.execution_options(
-                    schema_translate_map={None: pg_schema}
-                )
-                Base.metadata.create_all(schema_engine)
-            else:
-                Base.metadata.create_all(self._engine)
-            logger.info("Database tables verified/created")
-        except Exception as e:
-            logger.warning("Could not create tables automatically: %s", e)
+        if create_tables:
+            try:
+                from caracal.db.models import Base
+                if pg_schema:
+                    schema_engine = self._engine.execution_options(
+                        schema_translate_map={None: pg_schema}
+                    )
+                    Base.metadata.create_all(schema_engine)
+                else:
+                    Base.metadata.create_all(self._engine)
+                logger.info("Database tables verified/created")
+            except Exception as e:
+                logger.warning("Could not create tables automatically: %s", e)
 
         self._initialized = True
         logger.info("Database connection manager initialized successfully")

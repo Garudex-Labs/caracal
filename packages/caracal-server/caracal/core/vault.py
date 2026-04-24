@@ -86,6 +86,35 @@ def _is_local_bootstrap_vault_url(base_url: str) -> bool:
     return host in _LOCAL_BOOTSTRAP_VAULT_HOSTS
 
 
+def _save_recovered_vault_token(token: str) -> None:
+    """Persist a machine identity token to CARACAL_HOME/.env for future sidecar restarts."""
+    caracal_home = os.environ.get("CARACAL_HOME", "").strip()
+    if not caracal_home:
+        return
+    env_path = Path(caracal_home) / ".env"
+    key = "CARACAL_VAULT_RECOVERED_IDENTITY_TOKEN"
+    try:
+        existing = env_path.read_text(encoding="utf-8") if env_path.exists() else ""
+        lines = existing.splitlines(keepends=True)
+        replaced = False
+        new_lines: list[str] = []
+        for line in lines:
+            stripped = line.strip()
+            if "=" in stripped and stripped.split("=", 1)[0].strip() == key:
+                new_lines.append(f"{key}={token}\n")
+                replaced = True
+            else:
+                new_lines.append(line)
+        if not replaced:
+            if new_lines and not new_lines[-1].endswith("\n"):
+                new_lines.append("\n")
+            new_lines.append(f"{key}={token}\n")
+        env_path.write_text("".join(new_lines), encoding="utf-8")
+        logger.debug("Saved recovered vault identity token to %s", env_path)
+    except Exception as exc:
+        logger.debug("Could not persist recovered vault token to %s: %s", env_path, exc)
+
+
 def _resolve_local_sidecar_token_and_project(
     *,
     base_url: str,
@@ -135,67 +164,106 @@ def _resolve_local_sidecar_token_and_project(
                 f"{bootstrap_response.status_code} {_truncate_detail(bootstrap_response.text)}"
             )
 
-        login_response = bootstrap_client.post(
-            "/api/v3/auth/login",
-            json={"email": email, "password": password},
-            headers=headers,
-        )
-        if login_response.status_code != 200:
-            raise VaultConfigurationError(
-                "Local vault login failed during token recovery: "
-                f"{login_response.status_code} {_truncate_detail(login_response.text)}"
-            )
+        # ── MACHINE IDENTITY TOKEN ────────────────────────────────────────────
+        # Infisical v0.159+ returns a machine identity token in the bootstrap
+        # response (identity.credentials.token) on 200/201.  Use it directly
+        # and skip email/password login, which always fails on fresh volumes
+        # because Infisical bootstrap populates user_encryption_keys.hashedPassword
+        # (SRP) but not users.hashedPassword (bcrypt) that /api/v3/auth/login
+        # requires.
+        base_token: Optional[str] = None
+        bootstrap_org_id: Optional[str] = None
 
-        login_payload = _json_object(login_response)
-        base_token = _extract_string(
-            login_payload,
-            ("accessToken",),
-            ("access_token",),
-            ("token",),
-        )
+        if bootstrap_response.status_code in {200, 201}:
+            bp = _json_object(bootstrap_response)
+            identity_obj = bp.get("identity") or {}
+            if isinstance(identity_obj, dict):
+                creds_obj = identity_obj.get("credentials") or {}
+                if isinstance(creds_obj, dict):
+                    candidate = (creds_obj.get("token") or "").strip()
+                    if candidate:
+                        base_token = candidate
+                        _save_recovered_vault_token(candidate)
+                        logger.info("Vault bootstrap succeeded — using machine identity token.")
+            org_obj = bp.get("organization") or {}
+            if isinstance(org_obj, dict):
+                bootstrap_org_id = (org_obj.get("id") or "").strip() or None
+
         if base_token is None:
-            raise VaultConfigurationError(
-                "Local vault login succeeded but did not return an access token."
+            # Vault already initialised — try a token saved by a previous bootstrap.
+            saved = (_read_env_or_dotenv("CARACAL_VAULT_RECOVERED_IDENTITY_TOKEN") or "").strip()
+            if saved:
+                base_token = saved
+                logger.debug("Using saved vault identity token from runtime env.")
+
+        if base_token is None:
+            # Final fallback: email/password login (requires users.hashedPassword
+            # to be set in the vault DB — may fail on fresh Infisical installs).
+            login_response = bootstrap_client.post(
+                "/api/v3/auth/login",
+                json={"email": email, "password": password},
+                headers=headers,
             )
-
-        org_response = bootstrap_client.get(
-            "/api/v1/organization",
-            headers={"Authorization": f"Bearer {base_token}"},
-        )
-        if org_response.status_code != 200:
-            raise VaultConfigurationError(
-                "Failed to resolve local vault organization context: "
-                f"{org_response.status_code} {_truncate_detail(org_response.text)}"
+            if login_response.status_code != 200:
+                raise VaultConfigurationError(
+                    "Local vault login failed during token recovery: "
+                    f"{login_response.status_code} {_truncate_detail(login_response.text)}"
+                )
+            login_payload = _json_object(login_response)
+            base_token = _extract_string(
+                login_payload,
+                ("accessToken",),
+                ("access_token",),
+                ("token",),
             )
+            if base_token is None:
+                raise VaultConfigurationError(
+                    "Local vault login succeeded but did not return an access token."
+                )
 
-        org_payload = _json_object(org_response)
-        organizations = org_payload.get("organizations")
-        if not isinstance(organizations, list) or not organizations:
-            raise VaultConfigurationError(
-                "Local vault organization lookup did not return any organizations."
-            )
+        # Resolve organisation ID.  When the bootstrap response already carried
+        # the org (fresh-install case) skip the extra API round-trip.
+        organization_id: str = bootstrap_org_id or ""
 
-        selected_org: Optional[dict[str, Any]] = None
-        desired_org_lower = desired_org.lower()
-        for organization in organizations:
-            if not isinstance(organization, dict):
-                continue
-            candidates = {
-                str(organization.get("id") or "").strip().lower(),
-                str(organization.get("slug") or "").strip().lower(),
-                str(organization.get("name") or "").strip().lower(),
-            }
-            if desired_org_lower in candidates:
-                selected_org = organization
-                break
-        if selected_org is None:
-            selected_org = organizations[0] if isinstance(organizations[0], dict) else None
-        if selected_org is None:
-            raise VaultConfigurationError("Unable to resolve a valid local vault organization.")
-
-        organization_id = str(selected_org.get("id") or "").strip()
         if not organization_id:
-            raise VaultConfigurationError("Local vault organization is missing an id.")
+            org_response = bootstrap_client.get(
+                "/api/v1/organization",
+                headers={"Authorization": f"Bearer {base_token}"},
+            )
+            if org_response.status_code != 200:
+                raise VaultConfigurationError(
+                    "Failed to resolve local vault organization context: "
+                    f"{org_response.status_code} {_truncate_detail(org_response.text)}"
+                )
+
+            org_payload = _json_object(org_response)
+            organizations = org_payload.get("organizations")
+            if not isinstance(organizations, list) or not organizations:
+                raise VaultConfigurationError(
+                    "Local vault organization lookup did not return any organizations."
+                )
+
+            selected_org: Optional[dict[str, Any]] = None
+            desired_org_lower = desired_org.lower()
+            for organization in organizations:
+                if not isinstance(organization, dict):
+                    continue
+                candidates = {
+                    str(organization.get("id") or "").strip().lower(),
+                    str(organization.get("slug") or "").strip().lower(),
+                    str(organization.get("name") or "").strip().lower(),
+                }
+                if desired_org_lower in candidates:
+                    selected_org = organization
+                    break
+            if selected_org is None:
+                selected_org = organizations[0] if isinstance(organizations[0], dict) else None
+            if selected_org is None:
+                raise VaultConfigurationError("Unable to resolve a valid local vault organization.")
+
+            organization_id = str(selected_org.get("id") or "").strip()
+            if not organization_id:
+                raise VaultConfigurationError("Local vault organization is missing an id.")
 
         select_response = bootstrap_client.post(
             "/api/v3/auth/select-organization",
@@ -205,23 +273,24 @@ def _resolve_local_sidecar_token_and_project(
                 "Content-Type": "application/json",
             },
         )
-        if select_response.status_code != 200:
-            raise VaultConfigurationError(
-                "Failed to scope local vault session to organization: "
-                f"{select_response.status_code} {_truncate_detail(select_response.text)}"
+        # Machine identity tokens are already org-scoped; select-organization is
+        # a user-session concept and may return non-200 for identity tokens.
+        # In that case fall back to using base_token directly.
+        scoped_token: Optional[str] = None
+        if select_response.status_code == 200:
+            scoped_payload = _json_object(select_response)
+            scoped_token = _extract_string(
+                scoped_payload,
+                ("token",),
+                ("accessToken",),
+                ("access_token",),
             )
-
-        scoped_payload = _json_object(select_response)
-        scoped_token = _extract_string(
-            scoped_payload,
-            ("token",),
-            ("accessToken",),
-            ("access_token",),
-        )
         if scoped_token is None:
-            raise VaultConfigurationError(
-                "Local vault organization selection did not return a scoped token."
+            logger.debug(
+                "select-organization returned %d — using base token directly.",
+                select_response.status_code,
             )
+            scoped_token = base_token
 
         auth_headers = {"Authorization": f"Bearer {scoped_token}", "Content-Type": "application/json"}
 
@@ -300,6 +369,12 @@ def _read_env_or_dotenv(name: str) -> Optional[str]:
         return value
 
     candidates: list[Path] = [Path.cwd() / ".env"]
+
+    # CARACAL_HOME/.env is written by bootstrap and vault.py itself at runtime.
+    # Must be searched before generic cwd/repo-root paths.
+    caracal_home = os.environ.get("CARACAL_HOME", "").strip()
+    if caracal_home:
+        candidates.insert(0, Path(caracal_home) / ".env")
 
     try:
         from caracal.flow.workspace import get_workspace
