@@ -1,12 +1,13 @@
-<section id="plan-panel" class="plan-panel" hidden>
-  <div class="plan-head">
+<section id="plan-panel" class="plan-panel plan-collapsed" hidden>
+  <div class="plan-head" id="plan-toggle" style="cursor: pointer; align-items: center;" title="Click to expand/collapse">
     <div class="plan-head-copy">
       <span class="plan-eyebrow">Task plan</span>
-      <h2 class="plan-title">Execution checklist</h2>
+      <h2 class="plan-title" style="font-size:13px; margin:0;">Execution checklist</h2>
     </div>
-    <div class="plan-head-meta">
-      <span id="plan-status" class="plan-status status-pending">Pending</span>
-      <span id="plan-meta" class="plan-meta"></span>
+    <div class="plan-head-meta" style="display:flex; align-items: center; gap: 8px;">
+      <span id="plan-active-preview" class="plan-active-preview" style="font-size:11px; color:var(--text-muted);"></span>
+      <span id="plan-status" class="plan-status status-pending"></span>
+      <span id="plan-chevron" class="plan-chevron" style="font-size:10px;">▼</span>
     </div>
   </div>
   <ol id="plan-list" class="plan-list"></ol>
@@ -14,9 +15,8 @@
 
 <template id="tpl-plan-item">
   <li class="plan-item status-pending">
+    <div class="plan-step-state" aria-hidden="true" style="width:8px;height:8px;border-radius:50%;background:#ccc;"></div>
     <span class="plan-step-index"></span>
-    <span class="plan-step-state" aria-hidden="true"></span>
     <span class="plan-step-text"></span>
-    <span class="plan-step-status">Pending</span>
   </li>
 </template>

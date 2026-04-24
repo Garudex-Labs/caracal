@@ -1,8 +1,8 @@
 <template id="tpl-user-message">
   <article class="message-row message-row-user">
     <div class="message-meta message-meta-user">
-      <span class="message-author">You</span>
       <span class="message-time"></span>
+      <span class="message-author">You</span>
     </div>
     <div class="message-bubble"></div>
   </article>
@@ -12,12 +12,10 @@
   <article class="message-row message-row-agent tone-worker">
     <div class="message-card">
       <header class="message-head">
-        <div class="message-ident">
-          <span class="message-avatar" aria-hidden="true"></span>
-          <div class="message-heading">
-            <span class="message-author"></span>
-            <span class="message-subtitle">Live reasoning</span>
-          </div>
+        <div class="message-heading">
+          <span class="message-time"></span>
+          <span class="message-author"></span>
+          <span class="message-subtitle"></span>
         </div>
         <div class="message-head-meta">
           <span class="message-status-pill state-thinking">Thinking</span>
@@ -25,15 +23,15 @@
         </div>
       </header>
 
-      <section class="message-section message-section-reasoning" hidden>
-        <div class="section-label">Reasoning</div>
+      <details class="message-section message-section-reasoning" hidden>
+        <summary class="section-label">Reasoning</summary>
         <div class="reasoning-body"></div>
-      </section>
+      </details>
 
-      <section class="message-section message-section-execution" hidden>
-        <div class="section-label">Execution</div>
+      <details class="message-section message-section-execution" hidden>
+        <summary class="section-label">Execution</summary>
         <div class="execution-list"></div>
-      </section>
+      </details>
     </div>
   </article>
 </template>
