@@ -7,6 +7,7 @@ Setup state inspection endpoint for Caracal workspace validation.
 from __future__ import annotations
 
 import json
+import logging
 import os
 import subprocess
 
@@ -14,6 +15,7 @@ from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 def _env() -> dict[str, str]:
@@ -140,7 +142,8 @@ def get_principals():
             raise ValueError("No principals found in database")
         return JSONResponse({"ok": True, "principals": principals})
     except Exception as exc:
-        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+        logger.exception("Failed to fetch principals")
+        return JSONResponse({"ok": False, "error": "Internal server error"}, status_code=500)
 
 
 @router.get("/tools")
@@ -149,7 +152,8 @@ def get_tools():
         tools = _query_db(_TOOLS_SQL)
         return JSONResponse({"ok": True, "tools": tools})
     except Exception as exc:
-        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+        logger.exception("Failed to fetch tools")
+        return JSONResponse({"ok": False, "error": "Internal server error"}, status_code=500)
 
 
 @router.get("/mandates")
@@ -158,4 +162,5 @@ def get_mandates():
         mandates = _query_db(_MANDATES_SQL)
         return JSONResponse({"ok": True, "mandates": mandates})
     except Exception as exc:
-        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+        logger.exception("Failed to fetch mandates")
+        return JSONResponse({"ok": False, "error": "Internal server error"}, status_code=500)
