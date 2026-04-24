@@ -128,6 +128,14 @@ def validate_provider_scopes(
     providers: Optional[Iterable[str]] = None,
 ) -> None:
     """Validate scopes against the provider catalog in a workspace."""
+    resource_list = list(resource_scopes)
+    action_list = list(action_scopes)
+
+    # Wildcard patterns (containing *) cover all providers/resources/actions —
+    # no catalog enumeration is meaningful or required for them.
+    if all("*" in s for s in resource_list) and all("*" in s for s in action_list):
+        return
+
     config_manager = ConfigManager()
     bindings = list_workspace_provider_bindings(config_manager, workspace)
     if providers:
@@ -145,7 +153,7 @@ def validate_provider_scopes(
             "Create a passthrough provider with 'caracal provider add ...' and then add scopes with "
             "'caracal provider enrich ...' before issuing provider-scoped authorities."
         )
-    ensure_scopes_in_workspace_catalog(resource_scopes, action_scopes, scoped_bindings)
+    ensure_scopes_in_workspace_catalog(resource_list, action_list, scoped_bindings)
 
 
 def _selected_provider_filter(ctx: click.Context) -> List[str]:

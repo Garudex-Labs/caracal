@@ -6,7 +6,9 @@ Setup state inspection endpoint for Caracal workspace validation.
 """
 from __future__ import annotations
 
+import json
 import os
+import subprocess
 
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
@@ -85,3 +87,37 @@ async def validate_setup(request: Request):
 
     overall = all(s["ok"] for s in steps)
     return JSONResponse({"ok": overall, "steps": steps})
+
+
+_PRINCIPALS_SQL = (
+    "SELECT json_agg(row_to_json(t)) FROM "
+    "(SELECT principal_id::text, name, principal_kind, owner "
+    "FROM public.principals ORDER BY created_at) t;"
+)
+
+
+@router.get("/principals")
+def get_principals():
+    try:
+        db_name = os.environ.get("CARACAL_DB_NAME", "caracal_db")
+        db_user = os.environ.get("CARACAL_DB_USER", "caracal")
+        db_pass = os.environ.get("CARACAL_DB_PASSWORD", "caracal")
+        result = subprocess.run(
+            [
+                "docker", "exec",
+                "-e", f"PGPASSWORD={db_pass}",
+                "caracal-postgres-1",
+                "psql", "-h", "localhost", "-U", db_user, "-d", db_name,
+                "-At", "-c", _PRINCIPALS_SQL,
+            ],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        raw = result.stdout.strip()
+        if not raw or raw == "null":
+            raise ValueError(result.stderr.strip() or "Empty result from database")
+        principals = json.loads(raw)
+        return JSONResponse({"ok": True, "principals": principals})
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
