@@ -1114,9 +1114,9 @@ class SessionManager:
             "sid": session_id,
             "jti": token_jti,
             "typ": token_type,
-            "iat": issued_at,
-            "nbf": issued_at,
-            "exp": expires_at,
+            "iat": int(issued_at.timestamp()),
+            "nbf": int(issued_at.timestamp()),
+            "exp": int(expires_at.timestamp()),
         }
 
         if workspace_id:

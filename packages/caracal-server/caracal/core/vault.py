@@ -989,6 +989,11 @@ class CaracalVault:
         signature_bytes = private_key.sign(canonical, ec.ECDSA(hashes.SHA256()))
         return signature_bytes.hex()
 
+    @staticmethod
+    def _sign_jwt_locally(private_key_pem: str, payload: dict[str, Any], algorithm: str) -> str:
+        import jwt as pyjwt
+        return pyjwt.encode(payload, private_key_pem, algorithm=algorithm)
+
     def _bootstrap_asymmetric_keypair_via_secret_upsert(
         self,
         *,
@@ -1299,15 +1304,26 @@ class CaracalVault:
         self._rl.check(project_id)
         secret_path, name = self._resolve_secret_locator(secret_path, name)
         try:
-            token = self._sign_jwt_via_vault_api(
-                project_id=project_id,
-                environment=environment,
-                secret_path=secret_path,
-                key_name=name,
-                payload=payload,
-                headers=headers,
-                algorithm=algorithm,
-            )
+            try:
+                token = self._sign_jwt_via_vault_api(
+                    project_id=project_id,
+                    environment=environment,
+                    secret_path=secret_path,
+                    key_name=name,
+                    payload=payload,
+                    headers=headers,
+                    algorithm=algorithm,
+                )
+            except VaultError as exc:
+                if not self._is_missing_sign_endpoint(exc):
+                    raise
+                logger.debug(
+                    "Vault sign endpoint absent — falling back to local JWT signing."
+                )
+                private_key_pem = self._get_secret_value(
+                    project_id, environment, secret_path, name
+                )
+                token = self._sign_jwt_locally(private_key_pem, payload, algorithm)
             self._audit_event(workspace_id, env_id, name, "sign_jwt", 1, actor, True)
             return token
         except Exception as exc:

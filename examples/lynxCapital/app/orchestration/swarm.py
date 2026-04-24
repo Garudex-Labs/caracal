@@ -105,7 +105,7 @@ You decide your own approach. No procedure is given.
 4. FINAL TURN: mark all todos completed via write_todos, then output ONE short status sentence. Do not call more tools.
 
 PARTIAL AUTHORIZATION
-If a tool returns {"denied": true, "reason": "..."}, Caracal blocked that specific action. When this happens:
+If a tool returns {{"denied": true, "reason": "..."}}, Caracal blocked that specific action. When this happens:
 - Skip that step and move to the next one in your plan.
 - Note the denial in your audit record and final status sentence.
 - If submit_payment itself is denied, mark the payment as blocked and continue with any remaining invoices.
