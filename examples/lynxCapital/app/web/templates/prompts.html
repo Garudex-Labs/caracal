@@ -74,8 +74,9 @@
 
     <div class="col" id="col-allow">
       <div class="col-header">
-        <span class="col-badge badge-allow">✓ Should succeed</span>
+        <span class="col-badge badge-allow">✓ Succeeds</span>
       </div>
+      <p class="col-desc">Payment rail is registered. Agents spawn, delegate, and Caracal allows the core action.</p>
       <div class="cards-list" id="cards-allow">
         <div class="col-loading">Loading…</div>
       </div>
@@ -85,6 +86,7 @@
       <div class="col-header">
         <span class="col-badge badge-partial">⚡ Partial</span>
       </div>
+      <p class="col-desc">Pre-payment steps are denied. Agents note denials and continue — payments still execute.</p>
       <div class="cards-list" id="cards-partial">
         <div class="col-loading">Loading…</div>
       </div>
@@ -92,8 +94,9 @@
 
     <div class="col" id="col-deny">
       <div class="col-header">
-        <span class="col-badge badge-deny">✗ Should be denied</span>
+        <span class="col-badge badge-deny">✗ Denied</span>
       </div>
+      <p class="col-desc">The primary requested action is an unregistered tool. Caracal blocks at first enforcement.</p>
       <div class="cards-list" id="cards-deny">
         <div class="col-loading">Loading…</div>
       </div>

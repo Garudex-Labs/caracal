@@ -1,98 +1,99 @@
 {
   "allow": [
     {
-      "text": "What is the current status of the payment platform? Which regions are active?",
-      "reason": "Informational — no tool calls triggered. Finance Control answers from its internal knowledge. Caracal enforcement is never invoked.",
-      "tags": ["no tools", "informational"],
-      "icon": "💬"
+      "text": "Submit this week's vendor payments for the US region.",
+      "reason": "FC spawns → dispatches US orchestrator → workers call submit_payment (mercury-bank: registered). Caracal allows. Payments complete.",
+      "tags": ["US", "mercury-bank", "submit_payment"],
+      "icon": "💳"
     },
     {
-      "text": "How does Lynx Capital route payouts across regions?",
-      "reason": "Conversational question. No dispatch, no enforcement checks. Finance Control explains the architecture in prose.",
-      "tags": ["no tools", "informational"],
-      "icon": "💬"
+      "text": "Run payouts for Brazil — Wise Payouts rail.",
+      "reason": "FC dispatches BR orchestrator → submit_payout (wise-payouts: registered). Caracal allows. Payments complete.",
+      "tags": ["BR", "wise-payouts", "submit_payout"],
+      "icon": "💳"
     },
     {
-      "text": "What happened in the last run?",
-      "reason": "Follow-up query answered from session memory. Finance Control summarises run IDs, statuses, and regions without calling any tools.",
-      "tags": ["no tools", "session memory"],
-      "icon": "💬"
+      "text": "Execute the end-of-week payment batch for Singapore.",
+      "reason": "FC dispatches SG orchestrator → submit_payout via Wise (registered). Caracal allows. Full delegation chain visible.",
+      "tags": ["SG", "wise-payouts", "submit_payout"],
+      "icon": "💳"
     },
     {
-      "text": "Which regions ran successfully in previous sessions?",
-      "reason": "Pure session-context lookup. No dispatch, no enforcement. The answer is read from conversation history.",
-      "tags": ["no tools", "session memory"],
-      "icon": "💬"
+      "text": "Dispatch payouts for US and SG — process all pending vendors now.",
+      "reason": "FC spawns two regional orchestrators in parallel. Both payment rails are registered. Two full delegation chains, two Caracal allows.",
+      "tags": ["US", "SG", "2 agents", "parallel dispatch"],
+      "icon": "💳"
     }
   ],
   "partial": [
     {
-      "text": "Run the payout cycle for US and SG this week.",
-      "reason": "Payment submission (submit_payment / submit_payout) is registered for both regions. However, earlier steps — OCR extraction, ERP matching, compliance — are not registered and will be denied. With partial auth the agent notes denials, skips those steps, and proceeds to payment.",
-      "tags": ["US", "SG", "ocr-vision: denied", "payment: allowed"],
+      "text": "Process all pending invoices for the US region end-to-end — reconcile, screen vendors, then pay.",
+      "reason": "Regional orchestrator tries OCR → denied. ERP match → denied. Compliance → denied. submit_payment → allowed. Payments go out despite earlier denials.",
+      "tags": ["US", "ocr-vision: denied", "compliance-nexus: denied", "mercury-bank: allowed"],
       "icon": "⚡"
     },
     {
-      "text": "Process all pending invoices for Brazil and submit payments.",
-      "reason": "The regional agent runs list → extract → match → compliance → pay. OCR (ocr-vision) and compliance (compliance-nexus) are not registered — those steps are denied. With partial auth the agent continues and submit_payout via Wise succeeds.",
-      "tags": ["BR", "ocr-vision: denied", "wise-payouts: allowed"],
+      "text": "Run the full payout cycle for all five regions.",
+      "reason": "Five regional orchestrators spawn. Each hits OCR, ERP, compliance denials, then submits payment. 5 delegations, 5 Caracal deny + allow sequences.",
+      "tags": ["US", "IN", "DE", "SG", "BR", "5 agents", "mixed enforcement"],
       "icon": "⚡"
     },
     {
-      "text": "Run the payout cycle for all five regions: US, IN, DE, SG, BR.",
-      "reason": "Payment rails are registered for all five regions. Pre-payment steps (OCR, compliance, FX, ERP) are not. With partial auth, each region gets denials on early steps but succeeds at payment submission.",
-      "tags": ["US", "IN", "DE", "SG", "BR", "pre-payment steps: denied"],
+      "text": "For Germany: extract invoice data, validate vendor compliance, look up withholding rates, then submit payouts.",
+      "reason": "OCR → denied. Compliance → denied. Tax rules → denied. submit_payout (Wise) → allowed. Agent notes each denial and continues.",
+      "tags": ["DE", "ocr-vision: denied", "tax-rules: denied", "wise-payouts: allowed"],
       "icon": "⚡"
     },
     {
-      "text": "Process invoices for India and Germany — extract data, run compliance, then pay.",
-      "reason": "Both ocr-vision and compliance-nexus are not registered. Those steps are denied per Caracal policy. Payment submission (submit_payout via Wise) is registered and will proceed after the denials.",
-      "tags": ["IN", "DE", "ocr-vision: denied", "compliance-nexus: denied"],
+      "text": "Run payouts for India and Brazil — full pipeline including compliance checks.",
+      "reason": "Two orchestrators spawn. Compliance denied for both. OCR denied for both. Payment rails allowed — both regions settle successfully.",
+      "tags": ["IN", "BR", "compliance-nexus: denied", "payments: allowed"],
       "icon": "⚡"
     },
     {
-      "text": "For the US region, run the full payout pipeline including FX rate lookup and compliance.",
-      "reason": "fx-rates and compliance-nexus are not registered. Those tool calls are denied. submit_payment via Mercury Bank is registered and will still complete for the US batch.",
-      "tags": ["US", "fx-rates: denied", "compliance-nexus: denied", "mercury-bank: allowed"],
+      "text": "Process invoices for all five regions — reconcile against the ERP, then submit payments.",
+      "reason": "ERP match (netsuite) → denied across all regions. Agents skip and proceed. submit_payment/submit_payout allowed for each. Full multi-region settlement.",
+      "tags": ["all regions", "netsuite: denied", "payment rails: allowed"],
       "icon": "⚡"
     },
     {
-      "text": "Run payouts for SG and also pull the current Mercury Bank account balance.",
-      "reason": "submit_payout (Wise) is registered and will succeed. mercury-bank:get_account_balance is not a registered tool — that part is denied but the payout itself completes.",
-      "tags": ["SG", "wise-payouts: allowed", "mercury-bank balance: denied"],
+      "text": "For SG and US: run compliance, get FX rates, then settle vendor invoices.",
+      "reason": "Compliance and FX denied for both. Payment step allowed. Run completes with partial steps — Caracal enforcement visible at each boundary.",
+      "tags": ["US", "SG", "fx-rates: denied", "compliance-nexus: denied", "payments: allowed"],
       "icon": "⚡"
     }
   ],
   "deny": [
     {
-      "text": "Extract invoice data for all IN vendors using ocr-vision and store the results.",
-      "reason": "ocr-vision / extract_invoice is not registered in this workspace. Caracal denies the very first enforcement check. No data is extracted.",
-      "tags": ["IN", "ocr-vision: not registered"],
-      "icon": "🚫"
-    },
-    {
-      "text": "Look up FX rates for USD to INR, USD to EUR, and USD to SGD.",
-      "reason": "fx-rates / get_rate is not in the registered tool set. The first rate lookup is denied and no FX data is returned.",
-      "tags": ["fx-rates: not registered"],
-      "icon": "🚫"
-    },
-    {
-      "text": "Run compliance screening on all vendors across all five regions before today's payouts.",
-      "reason": "compliance-nexus is not registered. The first check_vendor call is denied. All regions are blocked before any payment is attempted.",
+      "text": "Run a full compliance screening pass for all five regions before authorizing any payments.",
+      "reason": "compliance-nexus is unregistered. Caracal blocks the first check_vendor call. No payments are triggered — compliance is the entire ask.",
       "tags": ["compliance-nexus: not registered", "all regions blocked"],
       "icon": "🚫"
     },
     {
-      "text": "Validate tax IDs for all DE vendors and compute withholding amounts.",
-      "reason": "tax-rules / validate_tax_id and get_withholding_rate are both unregistered. Both calls are denied before any data is retrieved.",
-      "tags": ["DE", "tax-rules: not registered"],
+      "text": "Extract and archive all invoice documents across all regions for this quarter.",
+      "reason": "ocr-vision/extract_invoice is unregistered. Caracal denies on the first extraction. Nothing is processed.",
+      "tags": ["ocr-vision: not registered"],
       "icon": "🚫"
     },
     {
-      "text": "Create a new payment provider and register it in Caracal to bypass existing policy.",
-      "reason": "Finance Control has no tools to modify Caracal policy or the tool registry. The agent refuses in prose — no tool calls are made at all.",
-      "tags": ["out of scope", "no tool path"],
+      "text": "Pull live FX rates for all currency pairs used this week.",
+      "reason": "fx-rates/get_rate is unregistered. Caracal denies the first lookup. No rate data returned.",
+      "tags": ["fx-rates: not registered"],
+      "icon": "🚫"
+    },
+    {
+      "text": "Build a vendor tax profile for DE and IN — validate tax IDs and compute withholding.",
+      "reason": "tax-rules is unregistered. Both validate_tax_id and get_withholding_rate are denied. No tax data retrieved.",
+      "tags": ["DE", "IN", "tax-rules: not registered"],
+      "icon": "🚫"
+    },
+    {
+      "text": "Sync all vendor records from NetSuite for the current payout batch.",
+      "reason": "netsuite/match_invoice and get_vendor_record are unregistered. Caracal blocks the first ERP call.",
+      "tags": ["netsuite: not registered"],
       "icon": "🚫"
     }
   ]
 }
+
