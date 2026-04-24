@@ -4,16 +4,18 @@ services:
     postgres:
         image: postgres:16-alpine
         environment:
-            POSTGRES_DB: ${CARACAL_DB_NAME:-caracal}
+            POSTGRES_DB: ${CARACAL_DB_NAME:-caracal_db}
             POSTGRES_USER: ${CARACAL_DB_USER:-caracal}
             POSTGRES_PASSWORD: ${CARACAL_DB_PASSWORD:-caracal}
             POSTGRES_INITDB_ARGS: --encoding=UTF8
+            CARACAL_VAULT_DB_NAME: ${CARACAL_VAULT_DB_NAME:-caracal_vault}
         volumes:
             - postgres_data:/var/lib/postgresql/data
+            - ${CARACAL_POSTGRES_INIT_DIR:-./postgres-init}:/docker-entrypoint-initdb.d:ro
         healthcheck:
             test:
                 - CMD-SHELL
-                - pg_isready -U ${CARACAL_DB_USER:-caracal} -d ${CARACAL_DB_NAME:-caracal}
+                - pg_isready -U ${CARACAL_DB_USER:-caracal} -d ${CARACAL_DB_NAME:-caracal_db}
             interval: 10s
             timeout: 5s
             retries: 10
@@ -59,7 +61,7 @@ services:
             AUTH_SECRET: ${CARACAL_VAULT_SIDECAR_AUTH_SECRET:-caracal-dev-auth-secret}
             ENCRYPTION_KEY: ${CARACAL_VAULT_SIDECAR_ENCRYPTION_KEY:-f13dbc92aaaf86fa7cb0ed8ac3265f47}
             REDIS_URL: ${CARACAL_VAULT_SIDECAR_REDIS_URL:-redis://redis:6379}
-            DB_CONNECTION_URI: ${CARACAL_VAULT_SIDECAR_DB_CONNECTION_URI:-postgresql://${CARACAL_DB_USER:-caracal}:${CARACAL_DB_PASSWORD:-caracal}@postgres:5432/${CARACAL_DB_NAME:-caracal}}
+            DB_CONNECTION_URI: ${CARACAL_VAULT_SIDECAR_DB_CONNECTION_URI:-postgresql://${CARACAL_DB_USER:-caracal}:${CARACAL_DB_PASSWORD:-caracal}@postgres:5432/${CARACAL_VAULT_DB_NAME:-caracal_vault}}
             SITE_URL: ${CARACAL_VAULT_SIDECAR_SITE_URL:-http://localhost:8080}
         ports:
             - "${CARACAL_VAULT_SIDECAR_PORT:-8080}:8080"
@@ -107,6 +109,87 @@ services:
         networks:
             - caracal-runtime
 
+    # One-shot Alembic migration runner. Runs against the Caracal app DB only.
+    # Invoked via `caracal db migrate up|down`. Does not depend on MCP.
+    migrator:
+        profiles:
+            - migrate
+        image: ${CARACAL_RUNTIME_IMAGE:-ghcr.io/garudex-labs/caracal-runtime:latest}
+        depends_on:
+            postgres:
+                condition: service_healthy
+        environment:
+            HOME: /home/caracal
+            CARACAL_RUNTIME_IN_CONTAINER: "1"
+            CARACAL_HOME: /home/caracal/runtime
+            CARACAL_DB_HOST: postgres
+            CARACAL_DB_PORT: 5432
+            CARACAL_DB_NAME: ${CARACAL_DB_NAME:-caracal_db}
+            CARACAL_DB_USER: ${CARACAL_DB_USER:-caracal}
+            CARACAL_DB_PASSWORD: ${CARACAL_DB_PASSWORD:-caracal}
+            CARACAL_DATABASE_URL: postgresql://${CARACAL_DB_USER:-caracal}:${CARACAL_DB_PASSWORD:-caracal}@postgres:5432/${CARACAL_DB_NAME:-caracal_db}
+            CARACAL_PRINCIPAL_KEY_BACKEND: ${CARACAL_PRINCIPAL_KEY_BACKEND:-vault}
+            CARACAL_VAULT_URL: ${CARACAL_VAULT_URL:-http://vault:8080}
+            CARACAL_VAULT_TOKEN: ${CARACAL_VAULT_TOKEN:-dev-local-token}
+            CARACAL_VAULT_SIGNING_KEY_REF: ${CARACAL_VAULT_SIGNING_KEY_REF:-keys/mandate-signing}
+            CARACAL_VAULT_SESSION_PUBLIC_KEY_REF: ${CARACAL_VAULT_SESSION_PUBLIC_KEY_REF:-keys/session-public}
+            CARACAL_SESSION_SIGNING_ALGORITHM: ${CARACAL_SESSION_SIGNING_ALGORITHM:-RS256}
+            CARACAL_VAULT_MODE: ${CARACAL_VAULT_MODE:-managed}
+            CARACAL_ENV_MODE: ${CARACAL_ENV_MODE:-dev}
+            LOG_LEVEL: ${LOG_LEVEL:-INFO}
+        command:
+            - caracal
+            - db
+            - migrate
+            - ${CARACAL_MIGRATE_DIRECTION:-up}
+        volumes:
+            - runtime_data:/home/caracal/runtime
+        networks:
+            - caracal-runtime
+
+    # One-shot bootstrap runner. Creates the system root principal and issues
+    # an AIS startup nonce on first boot. Idempotent — safe to re-run.
+    bootstrap:
+        profiles:
+            - bootstrap
+        image: ${CARACAL_RUNTIME_IMAGE:-ghcr.io/garudex-labs/caracal-runtime:latest}
+        depends_on:
+            postgres:
+                condition: service_healthy
+            redis:
+                condition: service_healthy
+            vault:
+                condition: service_healthy
+        environment:
+            HOME: /home/caracal
+            CARACAL_RUNTIME_IN_CONTAINER: "1"
+            CARACAL_HOME: /home/caracal/runtime
+            CARACAL_DB_HOST: postgres
+            CARACAL_DB_PORT: 5432
+            CARACAL_DB_NAME: ${CARACAL_DB_NAME:-caracal_db}
+            CARACAL_DB_USER: ${CARACAL_DB_USER:-caracal}
+            CARACAL_DB_PASSWORD: ${CARACAL_DB_PASSWORD:-caracal}
+            CARACAL_DATABASE_URL: postgresql://${CARACAL_DB_USER:-caracal}:${CARACAL_DB_PASSWORD:-caracal}@postgres:5432/${CARACAL_DB_NAME:-caracal_db}
+            REDIS_HOST: redis
+            REDIS_PORT: 6379
+            REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+            CARACAL_PRINCIPAL_KEY_BACKEND: ${CARACAL_PRINCIPAL_KEY_BACKEND:-vault}
+            CARACAL_VAULT_URL: ${CARACAL_VAULT_URL:-http://vault:8080}
+            CARACAL_VAULT_TOKEN: ${CARACAL_VAULT_TOKEN:-dev-local-token}
+            CARACAL_VAULT_SIGNING_KEY_REF: ${CARACAL_VAULT_SIGNING_KEY_REF:-keys/mandate-signing}
+            CARACAL_VAULT_SESSION_PUBLIC_KEY_REF: ${CARACAL_VAULT_SESSION_PUBLIC_KEY_REF:-keys/session-public}
+            CARACAL_SESSION_SIGNING_ALGORITHM: ${CARACAL_SESSION_SIGNING_ALGORITHM:-RS256}
+            CARACAL_VAULT_MODE: ${CARACAL_VAULT_MODE:-managed}
+            CARACAL_ENV_MODE: ${CARACAL_ENV_MODE:-dev}
+            LOG_LEVEL: ${LOG_LEVEL:-INFO}
+        command:
+            - caracal
+            - bootstrap
+        volumes:
+            - runtime_data:/home/caracal/runtime
+        networks:
+            - caracal-runtime
+
     mcp:
         image: ${CARACAL_RUNTIME_IMAGE:-ghcr.io/garudex-labs/caracal-runtime:latest}
         depends_on:
@@ -143,7 +226,7 @@ services:
             CARACAL_JSON_LOGS: ${CARACAL_JSON_LOGS:-false}
             CARACAL_DB_HOST: postgres
             CARACAL_DB_PORT: 5432
-            CARACAL_DB_NAME: ${CARACAL_DB_NAME:-caracal}
+            CARACAL_DB_NAME: ${CARACAL_DB_NAME:-caracal_db}
             CARACAL_DB_USER: ${CARACAL_DB_USER:-caracal}
             CARACAL_DB_PASSWORD: ${CARACAL_DB_PASSWORD:-caracal}
             REDIS_HOST: redis
@@ -151,6 +234,7 @@ services:
             REDIS_PASSWORD: ${REDIS_PASSWORD:-}
             CARACAL_AIS_ATTESTATION_NONCE: ${CARACAL_AIS_ATTESTATION_NONCE:-}
             CARACAL_AIS_ATTESTATION_PRINCIPAL_ID: ${CARACAL_AIS_ATTESTATION_PRINCIPAL_ID:-}
+            CARACAL_SESSION_CAVEAT_HMAC_KEY: ${CARACAL_SESSION_CAVEAT_HMAC_KEY:-}
             CARACAL_AIS_API_PREFIX: ${CARACAL_AIS_API_PREFIX:-/v1/ais}
             CARACAL_AIS_UNIX_SOCKET_PATH: ${CARACAL_AIS_UNIX_SOCKET_PATH:-/tmp/caracal-ais.sock}
             CARACAL_AIS_LISTEN_HOST: ${CARACAL_AIS_LISTEN_HOST:-127.0.0.1}
@@ -219,7 +303,7 @@ services:
             CARACAL_JSON_LOGS: ${CARACAL_JSON_LOGS:-false}
             CARACAL_DB_HOST: postgres
             CARACAL_DB_PORT: 5432
-            CARACAL_DB_NAME: ${CARACAL_DB_NAME:-caracal}
+            CARACAL_DB_NAME: ${CARACAL_DB_NAME:-caracal_db}
             CARACAL_DB_USER: ${CARACAL_DB_USER:-caracal}
             CARACAL_DB_PASSWORD: ${CARACAL_DB_PASSWORD:-caracal}
             REDIS_HOST: redis
@@ -275,7 +359,7 @@ services:
             COLORTERM: truecolor
             CARACAL_DB_HOST: postgres
             CARACAL_DB_PORT: 5432
-            CARACAL_DB_NAME: ${CARACAL_DB_NAME:-caracal}
+            CARACAL_DB_NAME: ${CARACAL_DB_NAME:-caracal_db}
             CARACAL_DB_USER: ${CARACAL_DB_USER:-caracal}
             CARACAL_DB_PASSWORD: ${CARACAL_DB_PASSWORD:-caracal}
             REDIS_HOST: redis
