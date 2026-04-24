@@ -1297,6 +1297,14 @@ class ConfigManager:
                     db_dump_path,
                 )
 
+                manifest_includes = {
+                    "workspace_files": True,
+                    "database_dump": db_dump_included,
+                }
+                # Only persist secret-related metadata when the archive is locked.
+                if normalized_lock_key:
+                    manifest_includes["secrets"] = include_secrets and bool(self._load_vault(name))
+
                 manifest = {
                     "format_version": 2,
                     "workspace": name,
@@ -1305,15 +1313,9 @@ class ConfigManager:
                         "locked": bool(normalized_lock_key),
                         "lock_format": "caracal-workspace-lock-v1" if normalized_lock_key else None,
                     },
-                    "includes": {
-                        "workspace_files": True,
-                        "secrets": include_secrets and bool(self._load_vault(name)),
-                        "database_dump": db_dump_included,
-                    },
+                    "includes": manifest_includes,
                 }
-                # Manifest contains only boolean flags and metadata — no secret values.
-                # The "secrets" key is a boolean indicating presence, not the secret itself.
-                (staged_workspace_dir / "export_manifest.json").write_text(  # lgtm[py/clear-text-storage-of-sensitive-data]
+                (staged_workspace_dir / "export_manifest.json").write_text(
                     json.dumps(manifest, indent=2)
                 )
 
