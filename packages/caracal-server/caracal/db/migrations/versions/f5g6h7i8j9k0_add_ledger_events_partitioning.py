@@ -44,6 +44,15 @@ def upgrade() -> None:
     # Step 1: Rename existing table to temporary name
     op.execute("ALTER TABLE ledger_events RENAME TO ledger_events_old;")
     
+    # Drop all indexes on the renamed table so they can be recreated on the
+    # new partitioned table without name conflicts.
+    op.execute("DROP INDEX IF EXISTS ix_ledger_events_principal_id;")
+    op.execute("DROP INDEX IF EXISTS ix_ledger_events_timestamp;")
+    op.execute("DROP INDEX IF EXISTS ix_ledger_events_agent_timestamp;")
+    op.execute("DROP INDEX IF EXISTS ix_ledger_events_resource_type;")
+    op.execute("DROP INDEX IF EXISTS ix_ledger_events_provisional_charge_id;")
+    op.execute("DROP INDEX IF EXISTS ix_ledger_events_agent_resource_timestamp;")
+    
     # Step 2: Create new partitioned table with same structure
     op.execute("""
         CREATE TABLE ledger_events (
@@ -131,8 +140,70 @@ def upgrade() -> None:
         unique=False
     )
     
-    # Step 6: Drop old table
+    # Step 6: Drop dependent objects then the old table, then recreate them
+    # against the new partitioned table.
+    
+    # Drop materialized views (created in e4f5g6h7i8j9) that reference ledger_events_old
+    op.execute("DROP MATERIALIZED VIEW IF EXISTS spending_by_agent_mv;")
+    op.execute("DROP MATERIALIZED VIEW IF EXISTS spending_by_time_window_mv;")
+    
+    # Drop FK from provisional_charges → ledger_events_old
+    op.execute("""
+        ALTER TABLE provisional_charges
+        DROP CONSTRAINT IF EXISTS provisional_charges_final_charge_event_id_fkey;
+    """)
+    
+    # Now safe to drop the old table
     op.execute("DROP TABLE ledger_events_old;")
+    
+    # Note: The FK is NOT recreated against the partitioned table.
+    # PostgreSQL requires a FK's referenced column to be a unique key or primary key.
+    # The new partitioned table's PK is (event_id, timestamp) — referencing event_id
+    # alone would require a separate unique constraint, which itself must include the
+    # partition key on partitioned tables.  The referential integrity is enforced by
+    # application logic (ORM) instead.
+    
+    # Recreate materialized views referencing new partitioned table
+    op.execute("""
+        CREATE MATERIALIZED VIEW spending_by_agent_mv AS
+        SELECT
+            principal_id,
+            currency,
+            SUM(cost) as total_spending,
+            COUNT(*) as event_count,
+            MIN(timestamp) as first_event_at,
+            MAX(timestamp) as last_event_at,
+            NOW() as refreshed_at
+        FROM ledger_events
+        GROUP BY principal_id, currency
+        WITH DATA;
+    """)
+    op.execute("""
+        CREATE UNIQUE INDEX ix_spending_by_agent_mv_agent_currency
+        ON spending_by_agent_mv (principal_id, currency);
+    """)
+    op.execute("""
+        CREATE MATERIALIZED VIEW spending_by_time_window_mv AS
+        SELECT
+            principal_id,
+            currency,
+            SUM(CASE WHEN timestamp >= NOW() - INTERVAL '1 hour'  THEN cost ELSE 0 END) as spending_last_hour,
+            SUM(CASE WHEN timestamp >= NOW() - INTERVAL '1 day'   THEN cost ELSE 0 END) as spending_last_day,
+            SUM(CASE WHEN timestamp >= NOW() - INTERVAL '7 days'  THEN cost ELSE 0 END) as spending_last_week,
+            SUM(CASE WHEN timestamp >= NOW() - INTERVAL '30 days' THEN cost ELSE 0 END) as spending_last_month,
+            SUM(CASE WHEN DATE(timestamp) = CURRENT_DATE             THEN cost ELSE 0 END) as spending_current_day,
+            SUM(CASE WHEN timestamp >= DATE_TRUNC('week',  NOW())    THEN cost ELSE 0 END) as spending_current_week,
+            SUM(CASE WHEN timestamp >= DATE_TRUNC('month', NOW())    THEN cost ELSE 0 END) as spending_current_month,
+            COUNT(*) as total_events,
+            NOW() as refreshed_at
+        FROM ledger_events
+        GROUP BY principal_id, currency
+        WITH DATA;
+    """)
+    op.execute("""
+        CREATE UNIQUE INDEX ix_spending_by_time_window_mv_agent_currency
+        ON spending_by_time_window_mv (principal_id, currency);
+    """)
     
     print("Successfully converted ledger_events to partitioned table")
 
