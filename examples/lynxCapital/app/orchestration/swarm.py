@@ -26,6 +26,7 @@ from app.core.dataset import INVOICES, REGIONS, VENDORS
 from app.core.files import RunFileStore
 from app.core.memory import AgentMemory, RunMemoryStore, context_limit
 from app.core.plans import RunPlanStore
+from app.core.session_memory import RunRecord, session_memory
 from app.core.settings import settings
 from app.events import types as ev
 from app.events.bus import bus
@@ -55,6 +56,7 @@ Read the user's message carefully and respond to what was actually asked.
 - If the message is a general question (about the platform, about a concept, asking for information), answer it directly in plain prose. Do not call any tools unless the question requires data you must look up.
 - If the message requests a payout run, invoice processing, or regional dispatch, follow the plan-then-act loop below.
 - If the message is ambiguous, answer conversationally and ask a clarifying question rather than launching a payout run.
+- If the message is a follow-up like "what happened", "why did it fail", "show last run", or similar, answer from the session context provided below your system prompt. Reference the actual run IDs, statuses, regions, and errors from that context. Do not invent information.
 
 PAYOUT CYCLE WORKFLOW (only when the user actually asks for it)
 1. FIRST TURN: call write_todos with a concrete list of steps specific to what was requested. Mark the first step in_progress. Do not call domain tools on the first turn.
@@ -65,6 +67,9 @@ PAYOUT CYCLE WORKFLOW (only when the user actually asks for it)
 4. FINAL TURN: mark all todos completed via write_todos, then output one short paragraph summarizing what was processed. Do not call tools on the final turn.
 
 Only dispatch the regions the user asked about. If the user says "US only", dispatch only US. If no specific regions are mentioned in a payout request, dispatch all five.
+
+MEMORY
+If session context is injected above the user message, it contains a summary of previous runs and recent conversation turns. Use it to answer follow-up questions accurately. If no prior runs exist, say so clearly rather than fabricating results.
 
 Be concise, plain prose, no emojis, no marketing language."""
 
@@ -421,7 +426,8 @@ async def _run_regional_orchestrator(run_id, runner, parent, memory_store, plans
 # ---------- Finance Control tools ----------
 
 
-def _build_fc_domain_tools(run_id, runner, fc, memory_store, plans, files, loop, model_name):
+def _build_fc_domain_tools(run_id, runner, fc, memory_store, plans, files, loop, model_name,
+                            dispatched_regions: list[str]):
     @tool
     def dispatch_region(region: str, focus: str = "") -> str:
         """Dispatch a Regional Orchestrator sub-agent to process one region.
@@ -430,6 +436,7 @@ def _build_fc_domain_tools(run_id, runner, fc, memory_store, plans, files, loop,
         r = region.upper().strip()
         if r not in REGION_IDS:
             return json.dumps({"error": f"unknown region {region!r}"})
+        dispatched_regions.append(r)
         fc_mem = memory_store.get(fc.id)
         parent_summary = (fc_mem.seed_summary if fc_mem else "") or (
             f"Finance Control dispatched region {r} with focus: {focus or '(none)'}."
@@ -469,19 +476,28 @@ async def run_swarm(run_id: str, prompt: str) -> None:
     fc.start()
 
     loop = asyncio.get_running_loop()
+    dispatched_regions: list[str] = []
     tools = [
         *_build_agent_builtins(run_id, fc.id, plans, files),
-        *_build_fc_domain_tools(run_id, runner, fc, memory_store, plans, files, loop, model_name),
+        *_build_fc_domain_tools(run_id, runner, fc, memory_store, plans, files, loop, model_name,
+                                 dispatched_regions),
     ]
     tool_map = {t.name: t for t in tools}
     llm = _make_llm(model_name, cfg.llm.temperature)
     llm_with_tools = llm.bind_tools(tools)
     summarizer = _make_llm(model_name, 0.0)
 
+    session_memory.add_user(prompt, run_id)
+    ctx = session_memory.context_block()
+
     mem = memory_store.open(fc.id, SystemMessage(content=FC_SYSTEM_PROMPT))
+    if ctx:
+        mem.append(SystemMessage(content=f"[Session context — prior runs and conversation]\n{ctx}"))
     mem.append(HumanMessage(content=prompt))
     _emit_memory_snapshot(run_id, mem)
 
+    run_errors: list[str] = []
+    run_status = "completed"
     try:
         await _turn_loop(
             run_id=run_id, agent=fc, model_name=model_name,
@@ -493,18 +509,23 @@ async def run_swarm(run_id: str, prompt: str) -> None:
         bus.publish(ev.run_end(run_id, "completed"))
         log.info("run_swarm end run_id=%s status=completed", run_id)
     except RunCancelled:
+        run_status = "cancelled"
         log.info("run_swarm cancelled run_id=%s", run_id)
         bus.publish(ev.run_cancelled(run_id))
         if not fc._terminated:
             fc.terminate("cancelled")
         bus.publish(ev.run_end(run_id, "cancelled"))
     except PermissionError as exc:
+        run_status = "denied"
+        run_errors.append(str(exc))
         log.warning("run_swarm denied run_id=%s reason=%s", run_id, exc)
         bus.publish(ev.error(run_id, str(exc), fc.id))
         if not fc._terminated:
             fc.terminate("denied")
         bus.publish(ev.run_end(run_id, "denied"))
     except Exception as exc:
+        run_status = "failed"
+        run_errors.append(str(exc))
         log.exception("run_swarm failed run_id=%s", run_id)
         bus.publish(ev.error(run_id, str(exc), fc.id))
         if not fc._terminated:
@@ -512,3 +533,16 @@ async def run_swarm(run_id: str, prompt: str) -> None:
         bus.publish(ev.run_end(run_id, "failed"))
     finally:
         cancellation.clear(run_id)
+        last_ai = next(
+            (m for m in reversed(mem.messages) if isinstance(m, AIMessage) and m.content),
+            None,
+        )
+        if last_ai:
+            session_memory.add_assistant(str(last_ai.content), run_id)
+        session_memory.record_run(RunRecord(
+            run_id=run_id,
+            prompt=prompt,
+            status=run_status,
+            regions=list(dispatched_regions),
+            errors=run_errors,
+        ))
