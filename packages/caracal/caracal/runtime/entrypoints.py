@@ -808,6 +808,8 @@ def _compose_runtime_image_refs(compose_file: Path) -> set[str]:
     except OSError:
         return set()
 
+    caracal_var_pattern = re.compile(r"^\$\{(CARACAL_[A-Z0-9_]+):-([^}]*)\}$", re.IGNORECASE)
+
     image_refs: set[str] = set()
     for line in data.splitlines():
         stripped = line.strip()
@@ -817,13 +819,14 @@ def _compose_runtime_image_refs(compose_file: Path) -> set[str]:
         image_value = image_value.strip()
         if not image_value:
             continue
-        if "${CARACAL_RUNTIME_IMAGE:-" in image_value and image_value.endswith("}"):
-            default_ref = image_value.split("${CARACAL_RUNTIME_IMAGE:-", 1)[1][:-1]
-            if default_ref:
-                image_refs.add(default_ref)
-            env_ref = os.environ.get("CARACAL_RUNTIME_IMAGE")
+        match = caracal_var_pattern.match(image_value)
+        if match:
+            var_name, default_ref = match.group(1), match.group(2)
+            env_ref = os.environ.get(var_name)
             if env_ref:
                 image_refs.add(env_ref)
+            if default_ref:
+                image_refs.add(default_ref)
             continue
         if "caracal" in image_value.lower():
             image_refs.add(image_value)
@@ -1071,9 +1074,9 @@ def _host_migrate(namespace: argparse.Namespace) -> int:
     compose_file = _resolve_compose_file()
     compose_cmd = _compose_cmd(compose_file)
     direction = namespace.direction or "up"
-    # Ensure infra (postgres) is up before migrating — vault/redis not required.
+    # Ensure infra (postgres) is up and healthy before migrating.
     infra_up = subprocess.run(
-        compose_cmd + ["up", "-d", "postgres"],
+        compose_cmd + ["up", "-d", "--wait", "postgres"],
         check=False,
     )
     if infra_up.returncode != 0:
