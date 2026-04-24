@@ -7,6 +7,7 @@ Container command (``caracal``): restricted interactive Caracal CLI.
 from __future__ import annotations
 
 import argparse
+import importlib
 import json
 import logging
 import os
@@ -290,20 +291,30 @@ def _host_up(namespace: argparse.Namespace) -> int:
     uses_local_build = _service_uses_local_build(compose_file, "mcp")
 
     if not namespace.no_pull:
-        pull_services = ["postgres", "redis", "vault"]
-        if not uses_local_build:
-            pull_services.insert(0, "mcp")
-
-        pull_result = subprocess.run(compose_cmd + ["pull", *pull_services], check=False)
+        pull_result = subprocess.run(compose_cmd + ["pull", "postgres", "redis", "vault"], check=False)
         if pull_result.returncode != 0:
-            if not uses_local_build:
-                print(
-                    "\nHint: if the runtime image pull was denied, authenticate with GHCR first:\n"
-                    "    docker login ghcr.io -u YOUR_GITHUB_USERNAME\n"
-                    "Then re-run: caracal up\n",
-                    file=sys.stderr,
-                )
             return pull_result.returncode
+
+        if not uses_local_build:
+            mcp_pull = subprocess.run(
+                compose_cmd + ["pull", "mcp"], capture_output=True, text=True, check=False
+            )
+            if mcp_pull.returncode != 0:
+                runtime_image = os.environ.get(
+                    "CARACAL_RUNTIME_IMAGE", "ghcr.io/garudex-labs/caracal-runtime:latest"
+                )
+                has_local = subprocess.run(
+                    ["docker", "images", "-q", runtime_image], capture_output=True, text=True
+                ).stdout.strip()
+                if not has_local:
+                    print(
+                        "\nHint: if the runtime image pull was denied, authenticate with GHCR first:\n"
+                        "    docker login ghcr.io -u YOUR_GITHUB_USERNAME\n"
+                        "Then re-run: caracal up\n",
+                        file=sys.stderr,
+                    )
+                    return mcp_pull.returncode
+                # Local image present — continue without pulling from registry.
 
     up_cmd = [*compose_cmd, "up", "-d"]
     if uses_local_build:
@@ -1413,8 +1424,6 @@ def _run_local_caracal(args: Sequence[str]) -> None:
     _HARDCUT_EXEMPT = {"bootstrap", "db"}
     skip_hardcut = bool(args) and args[0] in _HARDCUT_EXEMPT
 
-    from caracal.runtime.restricted_shell import run_restricted_command
-
     if not skip_hardcut:
         assert_runtime_hardcut(
             compose_file=None,
@@ -1423,7 +1432,36 @@ def _run_local_caracal(args: Sequence[str]) -> None:
             env_vars=_runtime_hardcut_env(),
         )
 
-    raise SystemExit(run_restricted_command(list(args)))
+    if args:
+        raise SystemExit(_run_local_click_command(args))
+
+    from caracal.runtime.restricted_shell import run_restricted_command
+
+    raise SystemExit(run_restricted_command([]))
+
+
+def _run_local_click_command(args: Sequence[str]) -> int:
+    try:
+        import click
+
+        cli = importlib.import_module("caracal.cli.main").cli
+    except ModuleNotFoundError as exc:
+        if str(exc.name or "").startswith("caracal.cli"):
+            raise RuntimeError(
+                "Caracal server CLI is unavailable in this runtime image. "
+                "Install the runtime image with caracal-server included."
+            ) from exc
+        raise
+
+    try:
+        cli.main(args=list(args), prog_name="caracal", standalone_mode=False)
+        return 0
+    except SystemExit as exc:
+        code = exc.code if isinstance(exc.code, int) else 1
+        return int(code)
+    except click.ClickException as exc:
+        exc.show()
+        return exc.exit_code
 
 
 def _parse_int_env(env_key: str, default: int) -> int:

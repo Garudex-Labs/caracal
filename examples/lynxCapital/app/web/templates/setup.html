@@ -5,271 +5,177 @@
 
 {% block content %}
 <style>
-  .setup-wrap  { max-width: 760px; margin: 0 auto; padding: 24px 20px 40px; }
-  h1           { font-size: 17px; font-weight: 600; margin-bottom: 4px; }
-  .sub         { color: #5a6478; font-size: 12px; margin-bottom: 24px; }
-  .phase       { margin-bottom: 28px; border: 1px solid var(--border); border-radius: 4px; overflow: hidden; }
-  .phase-hd    { background: var(--primary); color: #fff; padding: 8px 14px; font-size: 12px; font-weight: 600; display: flex; justify-content: space-between; align-items: center; cursor: pointer; user-select: none; }
-  .phase-hd .toggle-icon { font-size: 10px; opacity: 0.7; transition: transform 0.2s; }
-  .phase.collapsed .toggle-icon { transform: rotate(-90deg); }
-  .phase.collapsed .phase-body { display: none; }
-  .phase-body  { padding: 0; }
-  .step        { display: flex; align-items: flex-start; gap: 10px; padding: 10px 14px; border-bottom: 1px solid var(--border); }
-  .step:last-child { border-bottom: none; }
-  .step-num    { flex-shrink: 0; width: 20px; height: 20px; border-radius: 50%; background: var(--primary); color: #fff; font-size: 10px; font-weight: 700; display: flex; align-items: center; justify-content: center; margin-top: 1px; }
-  .step-body   { flex: 1; min-width: 0; }
-  .step-label  { font-weight: 500; font-size: 12px; margin-bottom: 4px; }
-  .cmd-block   { background: #1a1f2e; color: #c9d1e0; font-family: ui-monospace, monospace; font-size: 11px; padding: 7px 10px; border-radius: 3px; white-space: pre-wrap; word-break: break-all; position: relative; margin-bottom: 4px; }
-  .copy-btn    { position: absolute; top: 5px; right: 6px; background: rgba(255,255,255,0.1); border: none; color: #c9d1e0; font-size: 10px; padding: 2px 6px; border-radius: 2px; cursor: pointer; }
-  .copy-btn:hover { background: rgba(255,255,255,0.2); }
-  .step-note   { font-size: 11px; color: #5a6478; }
+  .setup-wrap { max-width: 740px; margin: 0 auto; padding: 24px 20px 48px; }
+  h1          { font-size: 17px; font-weight: 600; margin-bottom: 4px; }
+  .sub        { color: #5a6478; font-size: 12px; margin-bottom: 24px; }
+  .phase      { margin-bottom: 10px; border: 1px solid var(--border); border-radius: 4px; overflow: hidden; }
+  .phase-hd   { background: var(--primary); color: #fff; padding: 8px 14px; font-size: 12px; font-weight: 600; display: flex; justify-content: space-between; align-items: center; cursor: pointer; user-select: none; }
+  .ti         { font-size: 11px; opacity: 0.7; transition: transform 0.2s; display: inline-block; }
+  .phase.open .ti { transform: rotate(90deg); }
+  .phase:not(.open) .phase-body { display: none; }
+  .phase-body { padding: 14px; display: flex; flex-direction: column; gap: 10px; }
+  .cmd-block  { background: #1a1f2e; color: #c9d1e0; font-family: ui-monospace, monospace; font-size: 11px; line-height: 1.7; padding: 10px 10px 32px; border-radius: 3px; white-space: pre-wrap; word-break: break-all; position: relative; }
+  .cc         { color: #5a9e5a; }
+  .copy-row   { position: absolute; bottom: 6px; right: 6px; display: flex; gap: 4px; }
+  .cb, .cba   { background: rgba(255,255,255,0.1); border: none; color: #c9d1e0; font-size: 10px; padding: 2px 7px; border-radius: 2px; cursor: pointer; font-family: inherit; }
+  .cb:hover, .cba:hover { background: rgba(255,255,255,0.2); }
+  .note       { font-size: 11px; color: #5a6478; }
+  .note code  { font-family: ui-monospace, monospace; font-size: 10px; background: #1a1f2e; color: #c9d1e0; padding: 1px 5px; border-radius: 2px; }
   .validate-bar { display: flex; align-items: center; gap: 12px; margin-top: 20px; }
   #validate-btn { background: var(--primary); color: #fff; border: none; padding: 8px 18px; font-size: 12px; font-weight: 600; border-radius: 3px; cursor: pointer; }
-  #validate-btn:hover { background: var(--accent); }
+  #validate-btn:hover { opacity: 0.85; }
   #validate-btn:disabled { opacity: 0.5; cursor: not-allowed; }
   #validate-out { flex: 1; }
-  .result-step { display: flex; align-items: center; gap: 7px; font-size: 12px; padding: 4px 0; }
-  .result-step .badge { width: 14px; height: 14px; border-radius: 50%; flex-shrink: 0; display: flex; align-items: center; justify-content: center; font-size: 8px; font-weight: 800; }
-  .badge-ok    { background: var(--success); color: #fff; }
-  .badge-fail  { background: var(--danger);  color: #fff; }
-  .result-detail { font-size: 10px; color: #5a6478; margin-left: 21px; }
-  .env-table   { width: 100%; border-collapse: collapse; font-size: 11px; margin-top: 8px; }
-  .env-table th, .env-table td { text-align: left; padding: 4px 8px; border-bottom: 1px solid var(--border); }
-  .env-table th { color: #5a6478; font-weight: 500; }
-  .env-val-set  { color: var(--success); }
-  .env-val-miss { color: var(--danger); }
+  .rs         { display: flex; align-items: center; gap: 7px; font-size: 12px; padding: 4px 0; }
+  .rs .badge  { width: 14px; height: 14px; border-radius: 50%; flex-shrink: 0; display: flex; align-items: center; justify-content: center; font-size: 8px; font-weight: 800; }
+  .badge-ok   { background: var(--success); color: #fff; }
+  .badge-fail { background: var(--danger);  color: #fff; }
+  .rd         { font-size: 10px; color: #5a6478; margin-left: 21px; }
 </style>
 
 <div class="setup-wrap">
   <h1>Caracal setup</h1>
-  <p class="sub">Run these commands once before starting the demo. Each block is a single terminal command.</p>
+  <p class="sub">Complete each phase in order. Sections 2–6 run inside <code style="font-family:ui-monospace,monospace;font-size:11px;background:#f0f2f7;padding:1px 5px;border-radius:2px">caracal cli</code>.</p>
 
-  <!-- Phase 0: Install -->
+  <!-- 0: Install -->
   <div class="phase">
-    <div class="phase-hd"><span>0. Install Caracal</span><span class="toggle-icon">▼</span></div>
+    <div class="phase-hd"><span>0 · Install</span><span class="ti">▶</span></div>
     <div class="phase-body">
-      <div class="step">
-        <div class="step-num">0</div>
-        <div class="step-body">
-          <div class="step-label">Install the Caracal CLI and SDK</div>
-          <div class="cmd-block">pip install caracal-core caracal-sdk<button class="copy-btn" data-cmd="pip install caracal-core caracal-sdk">copy</button></div>
-          <div class="step-note">This installs the <code>caracal</code> CLI and the Python SDK used by this demo app. Requires Python 3.10+ and Docker.</div>
-        </div>
-      </div>
+      <div class="cmd-block">pip install caracal-core caracal-sdk<div class="copy-row"><button class="cb">copy</button></div></div>
+      <div class="note">Requires Python 3.10+ and Docker.</div>
     </div>
   </div>
 
-  <!-- Phase 1: Stack -->
+  <!-- 1: Runtime -->
   <div class="phase">
-    <div class="phase-hd"><span>1. Start the Caracal runtime</span><span class="toggle-icon">▼</span></div>
+    <div class="phase-hd"><span>1 · Start runtime</span><span class="ti">▶</span></div>
     <div class="phase-body">
-      <div class="step">
-        <div class="step-num">1</div>
-        <div class="step-body">
-          <div class="step-label">Bring up the full stack</div>
-          <div class="cmd-block">caracal up<button class="copy-btn" data-cmd="caracal up">copy</button></div>
-          <div class="step-note">Starts postgres, redis, vault, and the Caracal API on the default port (8080).</div>
-          <details class="step-troubleshoot">
-            <summary>Permission denied on <code>~/.caracal</code>?</summary>
-            <p>If you see <em>PermissionError: [Errno 13] Permission denied: '/home/…/.caracal/runtime'</em>, the directory was created by root (e.g. a prior <code>docker run</code> as root). Fix it with either option:</p>
-            <p><strong>Option A</strong> — use a writable override (no sudo needed):</p>
-            <div class="cmd-block">export CARACAL_HOME=~/.config/caracal<button class="copy-btn" data-cmd="export CARACAL_HOME=~/.config/caracal">copy</button></div>
-            <p>Then run <code>caracal up</code> again. Add the export to your shell profile to make it permanent.</p>
-            <p><strong>Option B</strong> — reclaim ownership (requires sudo):</p>
-            <div class="cmd-block">sudo chown -R $USER:$USER ~/.caracal<button class="copy-btn" data-cmd="sudo chown -R $USER:$USER ~/.caracal">copy</button></div>
-          </details>
-          <details class="step-troubleshoot">
-            <summary>GHCR image pull denied?</summary>
-            <p>If you see <em>denied — ghcr.io/garudex-labs/caracal-runtime</em>, authenticate with GHCR using a <a href="https://github.com/settings/tokens" target="_blank" rel="noopener">GitHub PAT</a> with <code>read:packages</code> scope:</p>
-            <div class="cmd-block">docker login ghcr.io -u YOUR_GITHUB_USERNAME<button class="copy-btn" data-cmd="docker login ghcr.io -u YOUR_GITHUB_USERNAME">copy</button></div>
-            <p>Then run <code>caracal up</code> again.</p>
-          </details>
-        </div>
-      </div>
-      <div class="step">
-        <div class="step-num">2</div>
-        <div class="step-body">
-          <div class="step-label">Run migrations</div>
-          <div class="cmd-block">caracal migrate<button class="copy-btn" data-cmd="caracal migrate">copy</button></div>
-        </div>
-      </div>
-      <div class="step">
-        <div class="step-num">3</div>
-        <div class="step-body">
-          <div class="step-label">Bootstrap the system principal and mint the SDK API key</div>
-          <div class="cmd-block">caracal bootstrap<button class="copy-btn" data-cmd="caracal bootstrap">copy</button></div>
-          <div class="step-note">Generates the system principal, AIS attestation nonce, and a local <code>CARACAL_API_KEY</code>. All values are stored internally; you only need the API key.</div>
-        </div>
-      </div>
+      <div class="note">Host terminal — run in order, wait for each to succeed.</div>
+      <div class="cmd-block">caracal up<div class="copy-row"><button class="cb">copy</button></div></div>
+      <div class="cmd-block">caracal migrate<div class="copy-row"><button class="cb">copy</button></div></div>
+      <div class="cmd-block">caracal bootstrap<div class="copy-row"><button class="cb">copy</button></div></div>
+      <div class="note">Copy the printed <code>CARACAL_API_KEY</code> into <code>.env</code>.</div>
     </div>
   </div>
 
-  <!-- Phase 2: Workspace -->
+  <!-- 2: Workspace -->
   <div class="phase">
-    <div class="phase-hd"><span>2. Workspace</span><span class="toggle-icon">▼</span></div>
+    <div class="phase-hd"><span>2 · Workspace</span><span class="ti">▶</span></div>
     <div class="phase-body">
-      <div class="step">
-        <div class="step-num">4</div>
-        <div class="step-body">
-          <div class="step-label">Create and activate workspace</div>
-          <div class="cmd-block">caracal cli
-workspace create lynx-capital
-workspace use lynx-capital<button class="copy-btn" data-cmd="caracal cli&#10;workspace create lynx-capital&#10;workspace use lynx-capital">copy</button></div>
-          <div class="step-note">Creates the <code>lynx-capital</code> workspace and sets it as the active context for all subsequent commands.</div>
-        </div>
-      </div>
-      <div class="step">
-        <div class="step-num">5</div>
-        <div class="step-body">
-          <div class="step-label">Paste the API key into the demo .env</div>
-          <div class="cmd-block">caracal auth token --quiet<button class="copy-btn" data-cmd="caracal auth token --quiet">copy</button></div>
-          <div class="step-note">Copy the printed value into <code>examples/lynxCapital/.env</code> as <code>CARACAL_API_KEY</code>. <code>CARACAL_WORKSPACE_ID=lynx-capital</code> is preset.</div>
-        </div>
-      </div>
+      <div class="note">Enter <code>caracal cli</code> then paste.</div>
+      <div class="cmd-block">workspace create lynx-capital
+workspace use lynx-capital<div class="copy-row"><button class="cb">copy</button></div></div>
     </div>
   </div>
 
-  <!-- Phase 3: Principals -->
+  <!-- 3: Principals -->
   <div class="phase">
-    <div class="phase-hd"><span>3. Register principals</span><span class="toggle-icon">▼</span></div>
+    <div class="phase-hd"><span>3 · Principals</span><span class="ti">▶</span></div>
     <div class="phase-body">
-      {% set principals = [
-        ("finance-control",       "Finance Control",          "orchestrator"),
-        ("regional-orchestrator", "Regional Orchestrator",    "orchestrator"),
-        ("invoice-intake",        "Invoice Intake",           "worker"),
-        ("ledger-match",          "Ledger Match",             "worker"),
-        ("policy-check",          "Policy Check",             "worker"),
-        ("route-optimization",    "Route Optimization",       "worker"),
-        ("payment-execution",     "Payment Execution",        "worker"),
-        ("audit",                 "Audit",                    "worker"),
-        ("exception",             "Exception Investigation",  "worker"),
-      ] %}
-      {% for pid, display, kind in principals %}
-      <div class="step">
-        <div class="step-num">{{ loop.index + 5 }}</div>
-        <div class="step-body">
-          <div class="step-label">{{ display }} ({{ kind }})</div>
-          <div class="cmd-block">caracal cli
-principal register --type {{ kind }} --name "{{ display }}" --email {{ pid }}@lynxcapital.local<button class="copy-btn" data-cmd="caracal cli&#10;principal register --type {{ kind }} --name &quot;{{ display }}&quot; --email {{ pid }}@lynxcapital.local">copy</button></div>
-          <div class="step-note">Note the UUID printed in the output — you'll need it for policies and mandates below.</div>
-        </div>
-      </div>
-      {% endfor %}
+      <div class="note">Inside <code>caracal cli</code>. Note the UUID each line prints — needed in phases 5 and 6.</div>
+      <div class="cmd-block"><span class="cc"># Finance Control — root orchestrator; holds master authority and delegates to regions</span>
+principal register --type orchestrator --name "Finance Control" --email finance-control@lynxcapital.local
+
+<span class="cc"># Regional Orchestrator — per-region dispatch layer; receives delegated mandates</span>
+principal register --type orchestrator --name "Regional Orchestrator" --email regional-orchestrator@lynxcapital.local
+
+<span class="cc"># Invoice Intake — ingests and parses incoming invoice documents</span>
+principal register --type worker --name "Invoice Intake" --email invoice-intake@lynxcapital.local
+
+<span class="cc"># Ledger Match — reconciles parsed invoices against internal ledger entries</span>
+principal register --type worker --name "Ledger Match" --email ledger-match@lynxcapital.local
+
+<span class="cc"># Policy Check — validates each transaction against compliance and limit rules</span>
+principal register --type worker --name "Policy Check" --email policy-check@lynxcapital.local
+
+<span class="cc"># Route Optimization — selects the optimal payment rail and external provider</span>
+principal register --type worker --name "Route Optimization" --email route-optimization@lynxcapital.local
+
+<span class="cc"># Payment Execution — submits approved payments to external banking providers</span>
+principal register --type worker --name "Payment Execution" --email payment-execution@lynxcapital.local
+
+<span class="cc"># Audit — records the full immutable audit trail for every transaction</span>
+principal register --type worker --name "Audit" --email audit@lynxcapital.local
+
+<span class="cc"># Exception Investigation — investigates and resolves failed or flagged transactions</span>
+principal register --type worker --name "Exception Investigation" --email exception@lynxcapital.local<div class="copy-row"><button class="cb">copy</button><button class="cba">copy w/ notes</button></div></div>
     </div>
   </div>
 
-  <!-- Phase 4: Providers -->
+  <!-- 4: Providers -->
   <div class="phase">
-    <div class="phase-hd"><span>4. Register providers</span><span class="toggle-icon">▼</span></div>
+    <div class="phase-hd"><span>4 · Providers</span><span class="ti">▶</span></div>
     <div class="phase-body">
-      <div class="step">
-        <div class="step-num">15</div>
-        <div class="step-body">
-          <div class="step-label">Add provider configuration</div>
-          <div class="step-note">Run one <code>provider add</code> command per provider. Replace <code>&lt;base-url&gt;</code>, <code>&lt;auth-scheme&gt;</code>, and <code>&lt;credential&gt;</code> with values from your provider's config.</div>
-        </div>
-      </div>
-      {% for p in providers %}
-      <div class="step">
-        <div class="step-num">{{ loop.index + 15 }}</div>
-        <div class="step-body">
-          <div class="step-label">{{ p.name }} ({{ p.category }})</div>
-          <div class="cmd-block">caracal cli
-provider add {{ p.id }} --service-type {{ p.category }} --base-url &lt;base-url&gt; --auth-scheme api-key --credential &lt;api-key&gt;<button class="copy-btn" data-cmd="caracal cli&#10;provider add {{ p.id }} --service-type {{ p.category }} --base-url &lt;base-url&gt; --auth-scheme api-key --credential &lt;api-key&gt;">copy</button></div>
-        </div>
-      </div>
-      {% endfor %}
+      <div class="note">Inside <code>caracal cli</code>. Replace <code>&lt;base-url&gt;</code> and <code>&lt;api-key&gt;</code> with real values.</div>
+      <div class="cmd-block">
+{% for p in providers %}
+<span class="cc"># {{ p.name }} — {{ p.category }}</span>
+provider add {{ p.id }} --service-type {{ p.category }} --base-url &lt;base-url&gt; --auth-scheme api-key --credential &lt;api-key&gt;
+{% endfor %}<div class="copy-row"><button class="cb">copy</button><button class="cba">copy w/ notes</button></div></div>
     </div>
   </div>
 
-  <!-- Phase 5: Policies -->
+  <!-- 5: Policies -->
   <div class="phase">
-    <div class="phase-hd"><span>5. Create policies</span><span class="toggle-icon">▼</span></div>
+    <div class="phase-hd"><span>5 · Policies</span><span class="ti">▶</span></div>
     <div class="phase-body">
-      <div class="step">
-        <div class="step-num">26</div>
-        <div class="step-body">
-          <div class="step-label">Finance Control — full provider access, delegation allowed</div>
-          <div class="cmd-block">caracal cli
+      <div class="note">Inside <code>caracal cli</code>. Replace <code>&lt;…-uuid&gt;</code> with UUIDs from <code>principal list</code>.</div>
+      <div class="cmd-block"><span class="cc"># Finance Control — full provider access, delegation allowed (8-hour window)</span>
 policy create \
   --principal-id &lt;finance-control-uuid&gt; \
   --max-validity-seconds 28800 \
   --resource-pattern "provider:*:resource:*" \
   --action "provider:*:action:*" \
-  --allow-delegation<button class="copy-btn" data-cmd="caracal cli&#10;policy create --principal-id &lt;finance-control-uuid&gt; --max-validity-seconds 28800 --resource-pattern &quot;provider:*:resource:*&quot; --action &quot;provider:*:action:*&quot; --allow-delegation">copy</button></div>
-          <div class="step-note">Replace <code>&lt;finance-control-uuid&gt;</code> with the UUID from <code>principal list</code>.</div>
-        </div>
-      </div>
-      <div class="step">
-        <div class="step-num">27</div>
-        <div class="step-body">
-          <div class="step-label">Policy Check agents — read-only compliance scope</div>
-          <div class="cmd-block">caracal cli
+  --allow-delegation
+
+<span class="cc"># Regional Orchestrator — full provider access, delegation allowed (6-hour window)</span>
+policy create \
+  --principal-id &lt;regional-orchestrator-uuid&gt; \
+  --max-validity-seconds 21600 \
+  --resource-pattern "provider:*:resource:*" \
+  --action "provider:*:action:*" \
+  --allow-delegation
+
+<span class="cc"># Policy Check — read-only access to compliance-nexus (1-hour window)</span>
 policy create \
   --principal-id &lt;policy-check-uuid&gt; \
   --max-validity-seconds 3600 \
   --provider compliance-nexus \
   --resource-pattern "provider:compliance-nexus:resource:*" \
-  --action "provider:compliance-nexus:action:*"<button class="copy-btn" data-cmd="caracal cli&#10;policy create --principal-id &lt;policy-check-uuid&gt; --max-validity-seconds 3600 --provider compliance-nexus --resource-pattern &quot;provider:compliance-nexus:resource:*&quot; --action &quot;provider:compliance-nexus:action:*&quot;">copy</button></div>
-        </div>
-      </div>
-      <div class="step">
-        <div class="step-num">28</div>
-        <div class="step-body">
-          <div class="step-label">Payment Execution — narrow payment scope only</div>
-          <div class="cmd-block">caracal cli
+  --action "provider:compliance-nexus:action:*"
+
+<span class="cc"># Payment Execution — Mercury Bank payment submission (30-minute window)</span>
 policy create \
   --principal-id &lt;payment-execution-uuid&gt; \
   --max-validity-seconds 1800 \
   --provider mercury-bank \
   --resource-pattern "provider:mercury-bank:resource:payment" \
   --action "provider:mercury-bank:action:submit_payment"
+
+<span class="cc"># Payment Execution — Wise payouts submission (30-minute window)</span>
 policy create \
   --principal-id &lt;payment-execution-uuid&gt; \
   --max-validity-seconds 1800 \
   --provider wise-payouts \
   --resource-pattern "provider:wise-payouts:resource:payout" \
-  --action "provider:wise-payouts:action:submit_payout"<button class="copy-btn" data-cmd="caracal cli&#10;policy create --principal-id &lt;payment-execution-uuid&gt; --max-validity-seconds 1800 --provider mercury-bank --resource-pattern &quot;provider:mercury-bank:resource:payment&quot; --action &quot;provider:mercury-bank:action:submit_payment&quot;">copy</button></div>
-        </div>
-      </div>
-      <div class="step">
-        <div class="step-num">29</div>
-        <div class="step-body">
-          <div class="step-label">Regional Orchestrator — full provider access, delegation allowed</div>
-          <div class="cmd-block">caracal cli
-policy create \
-  --principal-id &lt;regional-orchestrator-uuid&gt; \
-  --max-validity-seconds 21600 \
-  --resource-pattern "provider:*:resource:*" \
-  --action "provider:*:action:*" \
-  --allow-delegation<button class="copy-btn" data-cmd="caracal cli&#10;policy create --principal-id &lt;regional-orchestrator-uuid&gt; --max-validity-seconds 21600 --resource-pattern &quot;provider:*:resource:*&quot; --action &quot;provider:*:action:*&quot; --allow-delegation">copy</button></div>
-        </div>
-      </div>
+  --action "provider:wise-payouts:action:submit_payout"<div class="copy-row"><button class="cb">copy</button><button class="cba">copy w/ notes</button></div></div>
     </div>
   </div>
 
-  <!-- Phase 6: Mandates -->
+  <!-- 6: Mandates -->
   <div class="phase">
-    <div class="phase-hd"><span>6. Issue mandates and delegate authority</span><span class="toggle-icon">▼</span></div>
+    <div class="phase-hd"><span>6 · Mandates</span><span class="ti">▶</span></div>
     <div class="phase-body">
-      <div class="step">
-        <div class="step-num">30</div>
-        <div class="step-body">
-          <div class="step-label">Issue Finance Control root mandate</div>
-          <div class="cmd-block">caracal cli
+      <div class="note">Inside <code>caracal cli</code>. Run <code>tool list</code> for tool IDs. Replace all <code>&lt;…&gt;</code> placeholders.</div>
+      <div class="cmd-block"><span class="cc"># Finance Control — self-issued root mandate covering all providers (8-hour window)</span>
 authority mandate \
   --issuer-id &lt;finance-control-uuid&gt; \
   --subject-id &lt;finance-control-uuid&gt; \
   --tool-id &lt;tool-id&gt; \
-  --validity-seconds 28800<button class="copy-btn" data-cmd="caracal cli&#10;authority mandate --issuer-id &lt;finance-control-uuid&gt; --subject-id &lt;finance-control-uuid&gt; --tool-id &lt;tool-id&gt; --validity-seconds 28800">copy</button></div>
-          <div class="step-note">Use <code>tool list</code> to find registered tool IDs. Note the mandate UUID from the output for the delegate step below.</div>
-        </div>
-      </div>
-      <div class="step">
-        <div class="step-num">31</div>
-        <div class="step-body">
-          <div class="step-label">Delegate to Regional Orchestrators (one per region)</div>
-          <div class="cmd-block">{% for r in regions %}caracal cli
+  --validity-seconds 28800
+
+<span class="cc"># Delegate from Finance Control to Regional Orchestrator — one per region (6-hour window)</span>
+{% for r in regions %}
 authority delegate \
   --source-mandate-id &lt;finance-control-mandate-uuid&gt; \
   --target-subject-id &lt;regional-orchestrator-uuid&gt; \
@@ -277,23 +183,13 @@ authority delegate \
   --action-scope "provider:*:action:*" \
   --validity-seconds 21600 \
   --context-tags "region:{{ r.id }}"
-{% endfor %}</div>
-          <div class="step-note">Run once per region: US, IN, DE, SG, BR.</div>
-        </div>
-      </div>
-      <div class="step">
-        <div class="step-num">32</div>
-        <div class="step-body">
-          <div class="step-label">Issue per-transaction mandate for Payment Execution agents</div>
-          <div class="cmd-block">caracal cli
+{% endfor %}
+<span class="cc"># Payment Execution — per-transaction mandate; issue at dispatch time (30-minute window)</span>
 authority mandate \
   --issuer-id &lt;regional-orchestrator-uuid&gt; \
   --subject-id &lt;payment-execution-uuid&gt; \
   --tool-id &lt;payment-tool-id&gt; \
-  --validity-seconds 1800<button class="copy-btn" data-cmd="caracal cli&#10;authority mandate --issuer-id &lt;regional-orchestrator-uuid&gt; --subject-id &lt;payment-execution-uuid&gt; --tool-id &lt;payment-tool-id&gt; --validity-seconds 1800">copy</button></div>
-          <div class="step-note">Issue one mandate per payment agent at dispatch time. Validity of 30 minutes matches the transaction window.</div>
-        </div>
-      </div>
+  --validity-seconds 1800<div class="copy-row"><button class="cb">copy</button><button class="cba">copy w/ notes</button></div></div>
     </div>
   </div>
 
@@ -305,16 +201,40 @@ authority mandate \
 </div>
 
 <script type="module">
-  // Collapsible phases
   document.querySelectorAll('.phase-hd').forEach(hd => {
-    hd.addEventListener('click', () => hd.closest('.phase').classList.toggle('collapsed'));
+    hd.addEventListener('click', () => hd.closest('.phase').classList.toggle('open'));
   });
 
-  // Copy buttons
-  document.querySelectorAll('.copy-btn').forEach(btn => {
+  function extractText(block, includeComments) {
+    let out = '';
+    block.childNodes.forEach(node => {
+      if (node.nodeType === Node.TEXT_NODE) {
+        out += node.textContent;
+      } else if (node.nodeType === Node.ELEMENT_NODE) {
+        if (node.classList.contains('copy-row')) return;
+        if (node.classList.contains('cc')) {
+          if (includeComments) out += node.textContent;
+        } else {
+          out += node.textContent;
+        }
+      }
+    });
+    return out.trim().replace(/\n{3,}/g, '\n\n');
+  }
+
+  document.querySelectorAll('.cb').forEach(btn => {
     btn.addEventListener('click', () => {
-      navigator.clipboard.writeText(btn.dataset.cmd || btn.closest('.cmd-block').textContent.trim())
+      const block = btn.closest('.cmd-block');
+      navigator.clipboard.writeText(extractText(block, false))
         .then(() => { btn.textContent = 'copied'; setTimeout(() => btn.textContent = 'copy', 1500); });
+    });
+  });
+
+  document.querySelectorAll('.cba').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const block = btn.closest('.cmd-block');
+      navigator.clipboard.writeText(extractText(block, true))
+        .then(() => { btn.textContent = 'copied'; setTimeout(() => btn.textContent = 'copy w/ notes', 1500); });
     });
   });
 
@@ -322,7 +242,6 @@ authority mandate \
   const startDemoBtn = document.getElementById('start-demo-btn');
   const validateOut = document.getElementById('validate-out');
 
-  // Validate
   validateBtn.addEventListener('click', async () => {
     validateBtn.disabled = true;
     validateBtn.textContent = 'Checking...';
@@ -331,26 +250,22 @@ authority mandate \
     try {
       const r = await fetch('/api/setup/validate');
       const data = await r.json();
-      const html = data.steps.map(s => `
-        <div class="result-step">
+      validateOut.innerHTML = data.steps.map(s => `
+        <div class="rs">
           <div class="badge ${s.ok ? 'badge-ok' : 'badge-fail'}">${s.ok ? '✓' : '✗'}</div>
           <span>${s.label}</span>
         </div>
-        ${s.detail ? `<div class="result-detail">${s.detail}</div>` : ''}
+        ${s.detail ? `<div class="rd">${s.detail}</div>` : ''}
       `).join('');
-      validateOut.innerHTML = html;
-      if (data.ok) {
-        startDemoBtn.style.display = 'inline-block';
-      }
+      if (data.ok) startDemoBtn.style.display = 'inline-block';
     } catch (e) {
-      validateOut.textContent = 'Validation request failed: ' + e.message;
+      validateOut.textContent = 'Validation failed: ' + e.message;
     } finally {
       validateBtn.disabled = false;
       validateBtn.textContent = 'Validate configuration';
     }
   });
 
-  // Start Demo — persists setup state then navigates
   startDemoBtn.addEventListener('click', async () => {
     startDemoBtn.disabled = true;
     await fetch('/api/session/setup-complete', {method: 'POST'});

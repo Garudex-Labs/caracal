@@ -5,6 +5,7 @@ from __future__ import annotations
 from contextlib import contextmanager, nullcontext
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
+import sys
 import json
 from pathlib import Path
 from types import SimpleNamespace
@@ -288,6 +289,43 @@ def test_run_local_caracal_routes_ais_serve(monkeypatch: pytest.MonkeyPatch) -> 
         entrypoints._run_local_caracal(("ais-serve",))
 
     assert int(exc_info.value.code) == 9
+
+
+@pytest.mark.unit
+def test_run_local_caracal_routes_direct_commands_without_restricted_shell(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[tuple[str, ...]] = []
+
+    monkeypatch.setattr(entrypoints, "assert_runtime_hardcut", lambda **_kwargs: None)
+    monkeypatch.setattr(
+        entrypoints,
+        "_run_local_click_command",
+        lambda args: calls.append(tuple(args)) or 23,
+    )
+
+    with pytest.raises(SystemExit) as exc_info:
+        entrypoints._run_local_caracal(("db", "migrate", "up"))
+
+    assert int(exc_info.value.code) == 23
+    assert calls == [("db", "migrate", "up")]
+
+
+@pytest.mark.unit
+def test_run_local_caracal_uses_restricted_shell_for_interactive_session(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(entrypoints, "assert_runtime_hardcut", lambda **_kwargs: None)
+    monkeypatch.setitem(
+        sys.modules,
+        "caracal.runtime.restricted_shell",
+        SimpleNamespace(run_restricted_command=lambda args: 11 if args == [] else 1),
+    )
+
+    with pytest.raises(SystemExit) as exc_info:
+        entrypoints._run_local_caracal(())
+
+    assert int(exc_info.value.code) == 11
 
 
 @pytest.mark.unit
