@@ -27,6 +27,10 @@ const planPanel = $("plan-panel");
 const planList = $("plan-list");
 const planMeta = $("plan-meta");
 const planStatus = $("plan-status");
+const planToggle = $("plan-toggle");
+const planActivePreview = $("plan-active-preview");
+const clearChatBtn = $("clear-chat-btn");
+const newChatBtn = $("new-chat-btn");
 
 const tplUserMessage = $("tpl-user-message");
 const tplAgentTurn = $("tpl-agent-turn");
@@ -258,7 +262,7 @@ function refreshMemDetail() {
 function renderPlan() {
   const ownerId = state.planOwner || findFinanceControlId();
   const plan = ownerId ? state.plans[ownerId] : null;
-  if (!ownerId || !plan) {
+  if (!ownerId || !plan || plan.items.length === 0) {
     planPanel.hidden = true;
     return;
   }
@@ -268,20 +272,25 @@ function renderPlan() {
   const overall = computeOverallPlanStatus(plan.items);
 
   planPanel.hidden = false;
-  planMeta.textContent = `${agentLabel(owner)} - rev ${plan.revision} - ${done}/${plan.items.length} complete`;
+  planMeta.textContent = `${done}/${plan.items.length}`;
   planStatus.className = `plan-status status-${overall}`;
   planStatus.textContent = titleCase(overall);
 
+  let activeText = "";
   const frag = document.createDocumentFragment();
   plan.items.forEach((item, index) => {
+    if (item.status === "in_progress" || (item.status === "pending" && !activeText)) {
+      activeText = item.content;
+    }
     const row = cloneTemplate(tplPlanItem);
     const statusClass = planStatusClass(item.status);
     row.className = `plan-item status-${statusClass}`;
-    row.querySelector(".plan-step-index").textContent = String(index + 1).padStart(2, "0");
+    row.querySelector(".plan-step-index").textContent = String(index + 1) + ".";
     row.querySelector(".plan-step-text").textContent = item.content;
-    row.querySelector(".plan-step-status").textContent = planStatusLabel(item.status);
     frag.append(row);
   });
+  
+  planActivePreview.textContent = activeText ? `Next up: ${activeText.substring(0, 35)}...` : "";
   planList.replaceChildren(frag);
 }
 
@@ -362,6 +371,8 @@ function ensureTurn(agentId, messageId) {
   node.classList.add(toneClass(agent));
 
   node.querySelector(".message-author").textContent = agentLabel(agent);
+  const timeNode = node.querySelector(".message-time");
+  if (timeNode) timeNode.textContent = formatTime();
   node.querySelector(".message-subtitle").textContent = agent.region
     ? `${layerLabel(agent)} - ${agent.region}`
     : layerLabel(agent);
@@ -526,10 +537,10 @@ function handleEvent(event) {
 
     case "llm_call": {
       const turn = findActiveTurn(payload.agent_id);
-      const summary = `${payload.model} - ${payload.latency_ms}ms - ${payload.input_tokens}->${payload.output_tokens} tok`;
+      const summary = `${payload.model} | ${payload.latency_ms}ms | ${payload.input_tokens}\u2192${payload.output_tokens} tok`;
       if (turn) {
         turn.telemetry.textContent = payload.tool_calls
-          ? `${summary} - ${payload.tool_calls} tools`
+          ? `${summary} | ${payload.tool_calls} tools`
           : summary;
         if (payload.tool_calls) {
           setTurnStatus(turn, `Prepared ${payload.tool_calls} action${payload.tool_calls === 1 ? "" : "s"}`, "ready");
@@ -959,6 +970,31 @@ modelSelect?.addEventListener("change", async () => {
       kicker: "Model",
       title: "Model switch failed",
     });
+  }
+});
+
+planToggle.addEventListener("click", () => {
+  planPanel.classList.toggle("plan-collapsed");
+  planActivePreview.style.display = planPanel.classList.contains("plan-collapsed") ? "" : "none";
+});
+
+clearChatBtn.addEventListener("click", () => {
+  if (confirm("Clear current chat history view?")) {
+    stream.replaceChildren();
+    emptyEl.style.display = "flex";
+    stream.appendChild(emptyEl);
+  }
+});
+
+newChatBtn.addEventListener("click", async () => {
+  if (confirm("Start a completely new session?")) {
+    try {
+      await fetch("/api/memories", { method: "DELETE" });
+      location.reload();
+    } catch(e) {
+      console.error(e);
+      location.reload();
+    }
   }
 });
 
