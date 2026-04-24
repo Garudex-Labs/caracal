@@ -24,22 +24,15 @@ def _env() -> dict[str, str]:
     }
 
 
-async def _check_workspace(scope) -> dict:
-    """Try a lightweight workspace probe via the SDK scope."""
+def _check_workspace() -> dict:
+    """Verify the workspace is configured by querying the principals table."""
     try:
-        # caracal-integration: probe workspace health by calling a no-op tool
-        await scope.tools.call(
-            tool_id="provider:__probe__:resource:health:action:ping",
-            tool_args={},
-            metadata={"correlation_id": "setup-probe"},
-        )
-        return {"ok": True, "error": None}
-    except Exception as exc:
-        msg = str(exc)
-        # 404 = workspace reached but tool not registered → workspace valid
-        if "404" in msg or "not found" in msg.lower() or "not mocked" in msg.lower():
+        principals = _query_db(_PRINCIPALS_SQL)
+        if principals:
             return {"ok": True, "error": None}
-        return {"ok": False, "error": msg}
+        return {"ok": False, "error": "No principals found — workspace not yet configured."}
+    except Exception as exc:
+        return {"ok": False, "error": str(exc)}
 
 
 @router.get("/validate")
@@ -70,7 +63,7 @@ async def validate_setup(request: Request):
 
     # Step 3: workspace reachable
     if client_ok:
-        probe = await _check_workspace(scope)
+        probe = _check_workspace()
         steps.append({
             "id":     "workspace",
             "label":  "Workspace reachable",

@@ -284,9 +284,11 @@ authority mandate --issuer-id <span class="ph">&lt;regional-orchestrator-uuid&gt
       const paymentTool = tools.find(t => t.provider_name === 'wise-payouts')
                        || tools.find(t => PAYMENT_PROVIDERS.has(t.provider_name));
 
-      // Finance Control root mandate: source_mandate_id is empty string (NULL)
-      const fcMandateId = byName['Finance Control'];
-      const rootMandate = mandates.find(m => m.source_mandate_id === '' && m.issuer_id === fcMandateId);
+      // Finance Control root mandate: self-issued (issuer === subject), no source mandate
+      const fcPrincipalId = byName['Finance Control'];
+      const rootMandate = fcPrincipalId
+        ? mandates.find(m => !m.source_mandate_id && m.issuer_id === fcPrincipalId)
+        : undefined;
 
       function applyFill(span, value) {
         span.textContent = value;

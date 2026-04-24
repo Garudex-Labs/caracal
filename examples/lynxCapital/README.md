@@ -78,8 +78,16 @@ Click **Validate configuration** to confirm all steps pass before continuing.
 
 ```
 cd examples/lynxCapital
-uvicorn app.main:app --reload
-```
+Upgrade payment providers to scoped mode so tools can be registered against them.
+# Mercury Bank — add scoped catalog (payment resource + actions)
+provider update mercury-bank --mode scoped --resource "payment=Payment account management" --action "payment:get_account_balance:GET:/v1/balance" --action "payment:submit_payment:POST:/v1/payments"copy
+# Wise Payouts — add scoped catalog (payout resource + actions)
+provider update wise-payouts --mode scoped --resource "payout=Cross-border payout transfers" --action "payout:get_quote:GET:/v1/quotes" --action "payout:submit_payout:POST:/v1/payouts"copy
+Register tools so mandates in Phase 6 can reference them. Click Fill UUIDs after Phase 3 first so <finance-control-uuid> is substituted.
+# Mercury Bank payment tool — used as the root mandate tool
+tool register --tool-id "provider:mercury-bank:resource:payment:action:submit_payment" --provider-name mercury-bank --resource-id payment --action-id submit_payment --actor-principal-id <finance-control-uuid>copy
+# Wise Payouts payout tool — used as the payment mandate tool
+tool register --tool-id "provider:wise-payouts:resource:payout:action:submit_payout" --provider-name wise-payouts --resource-id payout --action-id submit_payout --actor-principal-id <finance-control-uuid>```
 
 Open `http://localhost:8000`.
 
