@@ -1,11 +1,8 @@
 name: "CodeQL Analysis"
 
 on:
-  push:
-    branches: ["main"]
-  pull_request: {}
   schedule:
-    - cron: '0 4 * * 0' # weekly
+    - cron: '0 4 * * 1,3,5'
 
 permissions:
   contents: read
