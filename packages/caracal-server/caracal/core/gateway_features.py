@@ -53,9 +53,8 @@ def _int_env(name: str, default: int) -> int:
 
 
 # ── Deployment types ────────────────────────────────────────────────────────
-DEPLOYMENT_OSS = "oss"            # Pure broker — OSS default
-DEPLOYMENT_MANAGED = "managed"   # Caracal-hosted gateway (Enterprise SaaS)
-DEPLOYMENT_ON_PREM = "on_prem"   # Customer self-hosted gateway (Enterprise On-Prem)
+DEPLOYMENT_MANAGED = "managed"        # Caracal-hosted gateway and vault (default)
+DEPLOYMENT_SELF_HOSTED = "self_hosted"  # User-operated gateway and vault (on-premises)
 
 
 @dataclass
@@ -87,8 +86,8 @@ class GatewayFeatureFlags:
     gateway_api_key: Optional[str] = None
     """API key used to authenticate SDK/CLI calls to the gateway."""
 
-    deployment_type: str = DEPLOYMENT_OSS
-    """One of: 'oss', 'managed', 'on_prem'."""
+    deployment_type: str = DEPLOYMENT_MANAGED
+    """One of: 'managed', 'self_hosted'."""
 
     # ── Mandate cache ───────────────────────────────────────────────────────
     mandate_cache_ttl_seconds: int = 300
@@ -108,21 +107,17 @@ class GatewayFeatureFlags:
     _source: str = field(default="defaults", repr=False, compare=False)
 
     @property
-    def is_enterprise(self) -> bool:
-        return self.deployment_type in (DEPLOYMENT_MANAGED, DEPLOYMENT_ON_PREM)
-
-    @property
     def is_managed(self) -> bool:
         return self.deployment_type == DEPLOYMENT_MANAGED
 
     @property
-    def is_on_prem(self) -> bool:
-        return self.deployment_type == DEPLOYMENT_ON_PREM
+    def is_self_hosted(self) -> bool:
+        return self.deployment_type == DEPLOYMENT_SELF_HOSTED
 
     @property
     def broker_fallback_allowed(self) -> bool:
-        """OSS broker path is permissible when gateway is disabled or not enterprise."""
-        return not self.gateway_enabled or not self.is_enterprise
+        """Broker path is permissible when the gateway is disabled."""
+        return not self.gateway_enabled
 
 
 def load_gateway_features() -> GatewayFeatureFlags:
@@ -177,7 +172,7 @@ def load_gateway_features() -> GatewayFeatureFlags:
         flags.use_provider_registry = _bool_env(_ENV_GATEWAY_USE_PROVIDER_REGISTRY)
 
     deploy_type = os.getenv(_ENV_GATEWAY_DEPLOYMENT_TYPE, "").lower()
-    if deploy_type in (DEPLOYMENT_MANAGED, DEPLOYMENT_ON_PREM, DEPLOYMENT_OSS):
+    if deploy_type in (DEPLOYMENT_MANAGED, DEPLOYMENT_SELF_HOSTED):
         flags.deployment_type = deploy_type
 
     # --- Workspace config layer (only if not already set from env) ---
@@ -220,7 +215,7 @@ def _merge_workspace_config(flags: GatewayFeatureFlags) -> None:
             if "revocation_sync_interval_seconds" in gw:
                 flags.revocation_sync_interval_seconds = int(gw["revocation_sync_interval_seconds"])
             if dt := gw.get("deployment_type"):
-                if dt in (DEPLOYMENT_MANAGED, DEPLOYMENT_ON_PREM, DEPLOYMENT_OSS):
+                if dt in (DEPLOYMENT_MANAGED, DEPLOYMENT_SELF_HOSTED):
                     flags.deployment_type = dt
     except Exception as exc:
         logger.debug("Could not read gateway section from enterprise runtime metadata: %s", exc)
@@ -263,7 +258,7 @@ def _merge_workspace_config(flags: GatewayFeatureFlags) -> None:
             flags.use_provider_registry = bool(gw.use_provider_registry)
 
         if dt := getattr(gw, "deployment_type", None):
-            if dt in (DEPLOYMENT_MANAGED, DEPLOYMENT_ON_PREM, DEPLOYMENT_OSS):
+            if dt in (DEPLOYMENT_MANAGED, DEPLOYMENT_SELF_HOSTED):
                 flags.deployment_type = dt
 
     except Exception as exc:
