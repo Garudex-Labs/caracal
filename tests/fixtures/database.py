@@ -1,4 +1,9 @@
-"""Database test fixtures."""
+"""
+Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+Caracal, a product of Garudex Labs
+
+Database fixtures for integration and unit tests.
+"""
 import os
 from typing import Generator
 
@@ -7,12 +12,26 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session, sessionmaker
 
-from caracal.db.models import Base
+
+def _load_base_model():
+    """Load SQLAlchemy base model for fixture-driven table setup."""
+    try:
+        from caracal.db.models import Base
+    except ModuleNotFoundError as exc:
+        if exc.name != "caracal.db.models":
+            raise
+        pytest.skip(
+            "Database fixtures require caracal-server imports. "
+            "Run `uv sync --group dev` and use `uv run pytest`: "
+            f"{exc}"
+        )
+    return Base
 
 
 @pytest.fixture
 def in_memory_db_engine():
     """Provide a PostgreSQL database engine for testing."""
+    base_model = _load_base_model()
     test_db_url = os.environ.get(
         "CARACAL_TEST_DB_URL",
         "postgresql://caracal:caracal@localhost:5432/caracal_test",
@@ -29,12 +48,12 @@ def in_memory_db_engine():
         )
 
     # Create all tables
-    Base.metadata.create_all(engine)
+    base_model.metadata.create_all(engine)
     
     yield engine
     
     # Cleanup: drop all tables
-    Base.metadata.drop_all(engine)
+    base_model.metadata.drop_all(engine)
     engine.dispose()
 
 
