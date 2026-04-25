@@ -1247,8 +1247,19 @@ def test_python_sdk_public_surface_remains_minimal_and_explicit() -> None:
 
 @pytest.mark.unit
 def test_node_sdk_generated_output_matches_surviving_source_modules() -> None:
-    src_root = _REPO_ROOT / "sdk" / "node-sdk" / "src"
-    dist_root = _REPO_ROOT / "sdk" / "node-sdk" / "dist"
+    import subprocess
+
+    sdk_root = _REPO_ROOT / "sdk" / "node-sdk"
+    src_root = sdk_root / "src"
+    dist_root = sdk_root / "dist"
+
+    if not any(dist_root.rglob("*.js")):
+        subprocess.run(
+            ["npx", "tsc", "--project", str(sdk_root / "tsconfig.json")],
+            cwd=str(sdk_root),
+            check=True,
+            capture_output=True,
+        )
 
     src_modules = {
         path.relative_to(src_root).with_suffix("").as_posix()
