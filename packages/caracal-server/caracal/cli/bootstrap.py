@@ -133,8 +133,8 @@ def bootstrap(ctx, force: bool, rotate_api_key: bool) -> None:
         else:
             from caracal.core.identity import PrincipalRegistry
 
-            registry = PrincipalRegistry(session)
-            identity = registry.register_principal(
+            identity_service = PrincipalRegistry(session)
+            identity = identity_service.register_principal(
                 name="system",
                 owner="caracal",
                 principal_kind=PrincipalKind.SERVICE.value,

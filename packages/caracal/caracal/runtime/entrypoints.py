@@ -291,7 +291,8 @@ def _host_up(namespace: argparse.Namespace) -> int:
     uses_local_build = _service_uses_local_build(compose_file, "mcp")
 
     if not namespace.no_pull:
-        pull_result = subprocess.run(compose_cmd + ["pull", "postgres", "redis", "vault"], check=False)
+        pull_services = ["postgres", "redis", "vault"]
+        pull_result = subprocess.run(compose_cmd + ["pull"] + pull_services, check=False)
         if pull_result.returncode != 0:
             return pull_result.returncode
 

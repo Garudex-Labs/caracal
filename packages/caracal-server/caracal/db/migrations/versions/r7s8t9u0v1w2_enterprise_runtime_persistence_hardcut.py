@@ -79,12 +79,14 @@ def upgrade() -> None:
                     config_data = EXCLUDED.config_data,
                     updated_at = CURRENT_TIMESTAMP
                 """
-            ).bindparams(runtime_key=_ENTERPRISE_RUNTIME_KEY)
+            ),
+            {"runtime_key": _ENTERPRISE_RUNTIME_KEY},
         )
         op.execute(
             sa.text(
                 "DELETE FROM sync_metadata WHERE workspace = :runtime_key"
-            ).bindparams(runtime_key=_ENTERPRISE_RUNTIME_KEY)
+            ),
+            {"runtime_key": _ENTERPRISE_RUNTIME_KEY},
         )
 
 
@@ -107,7 +109,8 @@ def downgrade() -> None:
                     metadata = EXCLUDED.metadata,
                     updated_at = CURRENT_TIMESTAMP
                 """
-            ).bindparams(runtime_key=_ENTERPRISE_RUNTIME_KEY)
+            ),
+            {"runtime_key": _ENTERPRISE_RUNTIME_KEY},
         )
 
     if _has_table("enterprise_runtime_config"):

@@ -980,20 +980,6 @@ class CaracalVault:
         payload = str(error)
         return "POST /api/caracal/sign/" in payload and "-> 404" in payload
 
-    @staticmethod
-    def _sign_canonical_payload_locally(private_key_pem: str, payload: dict[str, Any]) -> str:
-        from cryptography.hazmat.primitives import hashes, serialization
-        from cryptography.hazmat.primitives.asymmetric import ec
-        canonical = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
-        private_key = serialization.load_pem_private_key(private_key_pem.encode(), password=None)
-        signature_bytes = private_key.sign(canonical, ec.ECDSA(hashes.SHA256()))
-        return signature_bytes.hex()
-
-    @staticmethod
-    def _sign_jwt_locally(private_key_pem: str, payload: dict[str, Any], algorithm: str) -> str:
-        import jwt as pyjwt
-        return pyjwt.encode(payload, private_key_pem, algorithm=algorithm)
-
     def _bootstrap_asymmetric_keypair_via_secret_upsert(
         self,
         *,
@@ -1314,16 +1300,8 @@ class CaracalVault:
                     headers=headers,
                     algorithm=algorithm,
                 )
-            except VaultError as exc:
-                if not self._is_missing_sign_endpoint(exc):
-                    raise
-                logger.debug(
-                    "Vault sign endpoint absent — falling back to local JWT signing."
-                )
-                private_key_pem = self._get_secret_value(
-                    project_id, environment, secret_path, name
-                )
-                token = self._sign_jwt_locally(private_key_pem, payload, algorithm)
+            except VaultError:
+                raise
             self._audit_event(workspace_id, env_id, name, "sign_jwt", 1, actor, True)
             return token
         except Exception as exc:
@@ -1356,18 +1334,8 @@ class CaracalVault:
                     key_name=name,
                     payload=payload,
                 )
-            except VaultError as exc:
-                if not self._is_missing_sign_endpoint(exc):
-                    raise
-                # Custom sign endpoint absent (vanilla Infisical) — fetch the
-                # private key from vault secrets and sign locally.
-                logger.debug(
-                    "Vault sign endpoint absent — falling back to local ECDSA signing."
-                )
-                private_key_pem = self._get_secret_value(
-                    project_id, environment, secret_path, name
-                )
-                signature = self._sign_canonical_payload_locally(private_key_pem, payload)
+            except VaultError:
+                raise
             self._audit_event(workspace_id, env_id, name, "sign_canonical_payload", 1, actor, True)
             return signature
         except Exception as exc:

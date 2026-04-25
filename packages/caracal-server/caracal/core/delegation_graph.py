@@ -344,15 +344,10 @@ class DelegationGraph:
 
         source_depth = int(source_mandate.network_distance or 0)
         target_depth = int(target_mandate.network_distance or 0)
-        if source_depth < 0:
-            raise ValueError(f"Source mandate {source_mandate_id} has invalid negative network_distance")
-        if target_depth < 0:
-            raise ValueError(f"Target mandate {target_mandate_id} has invalid negative network_distance")
-        # network_distance is depth-from-root (0=root). Target must be exactly one step deeper.
-        if target_depth != source_depth + 1:
+        if target_depth != source_depth - 1:
             raise ValueError(
                 "Target mandate network_distance mismatch: "
-                f"target depth {target_depth} must be exactly source depth {source_depth} + 1"
+                f"target depth {target_depth} must be exactly source depth {source_depth} - 1"
             )
 
         if source_mandate_id == target_mandate_id:

@@ -109,8 +109,8 @@ class MandateManager:
             policy = self.db_session.query(AuthorityPolicy).filter(
                 AuthorityPolicy.principal_id == principal_id,
                 AuthorityPolicy.active == True
-            ).order_by(AuthorityPolicy.created_at.desc()).first()
-            
+            ).first()
+
             return policy
         except Exception as e:
             logger.error(f"Failed to get active policy for principal {principal_id}: {e}", exc_info=True)
@@ -185,8 +185,7 @@ class MandateManager:
         """
         if value == pattern:
             return True
-        if self._is_canonical_provider_scope(pattern):
-            # Pattern has no wildcards; only exact equality applies
+        if pattern.startswith("provider:") or value.startswith("provider:"):
             return False
         return fnmatchcase(value, pattern)
     
@@ -693,26 +692,13 @@ class MandateManager:
             target_principal.principal_kind
         )
 
-        # Check delegation depth against the issuer's policy.
-        # network_distance is depth-from-root (0=root, 1=first delegate, ...).
-        # The issuer is source_mandate.subject_id.
-        issuer_policy = self._get_active_policy(source_mandate.subject_id)
-        if issuer_policy is None:
-            raise ValueError(
-                f"Source mandate issuer {source_mandate.subject_id} has no active authority policy"
-            )
-        if not issuer_policy.allow_delegation:
-            raise ValueError(
-                f"Source mandate {source_mandate_id} has no remaining delegation depth"
-            )
-        max_depth = int(issuer_policy.max_network_distance)
         source_depth = int(source_mandate.network_distance or 0)
-        if source_depth >= max_depth:
+        if source_depth <= 0:
             raise ValueError(
                 f"Source mandate {source_mandate_id} has no remaining delegation depth"
             )
 
-        delegated_depth = source_depth + 1
+        delegated_depth = source_depth - 1
         
         # Determine delegation type
         delegation_type = DelegationGraph.get_delegation_type(

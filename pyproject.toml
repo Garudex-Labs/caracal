@@ -39,10 +39,6 @@ addopts = [
     "no:unraisableexception",
     "--strict-markers",
     "--tb=short",
-    "--cov=caracal",
-    "--cov-report=term-missing",
-    "--cov-report=html",
-    "--cov-report=xml",
 ]
 markers = [
     "unit: Unit tests (isolated component testing)",
