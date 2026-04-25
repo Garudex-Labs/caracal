@@ -99,6 +99,9 @@ Open `http://localhost:8000`.
 4. Use **Pause** to freeze the display; use **Cancel** to terminate the run mid-execution.
 5. After the run completes, the run ID is stored in `localStorage`.
 
+All company-specific values live in `config/company.yaml`. Edit that
+file to adjust regions, providers, agent layer counts, theme colors,
+and scenario copy without 
 ### 7. Review logs
 
 Go to `/logs`. Use category chips to filter by `caracal`, `agent`, `tool`, `service`, `audit`.

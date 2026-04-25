@@ -83,7 +83,7 @@ Be concise, plain prose, no emojis, no marketing language."""
 
 REGIONAL_SYSTEM_TEMPLATE = """You are the Regional Orchestrator agent for the {region} region ({region_name}, currency {currency}) at Lynx Capital.
 
-Your job: process pending invoices for this region end-to-end. Focus: {focus}
+Your ONLY job is to complete exactly what is described in this focus — nothing more: {focus}
 
 HOW YOU WORK
 You decide your own approach. No procedure is given.
@@ -104,12 +104,19 @@ You decide your own approach. No procedure is given.
 
 4. FINAL TURN: mark all todos completed via write_todos, then output ONE short status sentence. Do not call more tools.
 
+PAYMENT EXECUTION RULES (only when your focus explicitly involves payment, settlement, or disbursement)
+- If your focus includes payment: list_pending_invoices returns all fields you need: vendor_id, amount, currency, preferred_rail. You can call submit_payment directly — no OCR, ERP, or compliance required.
+- If your focus is extraction, archiving, compliance screening, FX lookup, or other non-payment tasks: do NOT call submit_payment. Record what was attempted, what was denied, and stop.
+- Use invoice_id as the reference value when submitting payment.
+
 PARTIAL AUTHORIZATION
 If a tool returns {{"denied": true, "reason": "..."}}, Caracal blocked that specific action. When this happens:
-- Skip that step and move to the next one in your plan.
-- Note the denial in your audit record and final status sentence.
-- If submit_payment itself is denied, mark the payment as blocked and continue with any remaining invoices.
+- Immediately skip that step and call the NEXT tool in your plan. Do not pause or summarize.
+- A denial on extract_invoice_data, match_invoice_in_ledger, check_vendor_compliance, lookup_fx_rate, or lookup_withholding_rate NEVER blocks submit_payment — but only if payment is part of your focus.
+- After all pre-payment steps (whether they succeeded or were denied), attempt submit_payment for each vendor if payment was requested in your focus.
+- Only mark a payment as blocked if submit_payment itself returns {{"denied": true}}.
 - Never retry a denied tool in the same run.
+- Record all denials and outcomes in record_audit at the end.
 
 Real services are executed; you are not simulating. Be concise, plain prose, no emojis."""
 
@@ -466,7 +473,12 @@ def _build_fc_domain_tools(run_id, runner, fc, memory_store, plans, files, loop,
             ),
             loop,
         )
-        return json.dumps(future.result())
+        try:
+            return json.dumps(future.result())
+        except PermissionError:
+            raise
+        except Exception as exc:
+            return json.dumps({"error": str(exc), "region": r, "toolCalls": 0})
 
     return [dispatch_region]
 

@@ -29,12 +29,25 @@ async def lifespan(app: FastAPI):
     api_url = os.environ.get("CARACAL_API_URL", "")
     workspace_id = os.environ.get("CARACAL_WORKSPACE_ID", "")
     if api_key and api_url and workspace_id:
+        import httpx
         from caracal_sdk import CaracalClient
         from app.agents.tools import init_enforcement
-        client = CaracalClient(api_key=api_key, base_url=api_url)
+        jwt_token = api_key
+        try:
+            async with httpx.AsyncClient() as http:
+                resp = await http.post(
+                    f"{api_url.rstrip('/')}/mcp/token",
+                    headers={"Authorization": f"Bearer {api_key}"},
+                    timeout=10,
+                )
+                if resp.status_code == 200:
+                    jwt_token = resp.json().get("access_token", api_key)
+        except Exception:
+            pass
+        client = CaracalClient(api_key=jwt_token, base_url=api_url)
         scope = client.context.checkout(workspace_id=workspace_id)
         app.state.caracal = scope
-        init_enforcement(scope=scope, loop=asyncio.get_event_loop())
+        init_enforcement(scope=scope, loop=asyncio.get_running_loop())
 
     yield
 

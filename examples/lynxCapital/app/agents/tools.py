@@ -71,8 +71,19 @@ def _enforce(run_id: str, agent_id: str, service_id: str, action: str, args: dic
             ),
             _event_loop,
         )
-        future.result(timeout=8)
+        result = future.result(timeout=8)
+        if isinstance(result, dict):
+            if result.get("success") is False:
+                reason = result.get("error") or "Caracal denied"
+                bus.publish(ev.caracal_enforce(run_id, agent_id, tid, "deny", reason))
+                raise PermissionError(f"Caracal denied {tid}: {reason}")
+            if "detail" in result and "success" not in result:
+                reason = result.get("detail") or "Caracal denied"
+                bus.publish(ev.caracal_enforce(run_id, agent_id, tid, "deny", reason))
+                raise PermissionError(f"Caracal denied {tid}: {reason}")
         bus.publish(ev.caracal_enforce(run_id, agent_id, tid, "allow"))
+    except PermissionError:
+        raise
     except Exception as exc:
         reason = str(exc)
         bus.publish(ev.caracal_enforce(run_id, agent_id, tid, "deny", reason))

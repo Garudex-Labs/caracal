@@ -738,6 +738,66 @@ class MCPAdapterService:
                 ]
             }
 
+        @self.app.post("/mcp/token")
+        async def issue_token(raw_request: Request):
+            """Exchange a Caracal API key for a short-lived JWT session token."""
+            import os
+            from pathlib import Path
+            token = self._extract_bearer_token(raw_request.headers.get("Authorization"))
+            stored = os.environ.get("CARACAL_API_KEY", "").strip()
+            if not stored:
+                caracal_home = os.environ.get("CARACAL_HOME", "").strip()
+                if caracal_home:
+                    env_path = Path(caracal_home) / ".env"
+                    try:
+                        for line in env_path.read_text(encoding="utf-8").splitlines():
+                            if line.startswith("CARACAL_API_KEY="):
+                                stored = line.split("=", 1)[1].strip()
+                                break
+                    except Exception:
+                        pass
+            if not stored or not token or token != stored:
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Invalid API key",
+                )
+            if self.session_manager is None:
+                raise HTTPException(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    detail="Session manager not configured",
+                )
+            subject_id = (
+                os.environ.get("CARACAL_ENFORCEMENT_PRINCIPAL_ID", "").strip()
+                or os.environ.get("CARACAL_AIS_ATTESTATION_PRINCIPAL_ID", "").strip()
+                or "e394e710-4290-4531-bec2-751ecc431352"
+            )
+            if not subject_id or subject_id == "e394e710-4290-4531-bec2-751ecc431352":
+                caracal_home = os.environ.get("CARACAL_HOME", "").strip()
+                if caracal_home:
+                    env_path = Path(caracal_home) / ".env"
+                    try:
+                        file_vals: dict[str, str] = {}
+                        for line in env_path.read_text(encoding="utf-8").splitlines():
+                            for key in ("CARACAL_ENFORCEMENT_PRINCIPAL_ID", "CARACAL_AIS_ATTESTATION_PRINCIPAL_ID"):
+                                if line.strip().startswith(key + "="):
+                                    val = line.strip().split("=", 1)[1].strip()
+                                    if val:
+                                        file_vals[key] = val
+                        subject_id = (
+                            file_vals.get("CARACAL_ENFORCEMENT_PRINCIPAL_ID")
+                            or file_vals.get("CARACAL_AIS_ATTESTATION_PRINCIPAL_ID")
+                            or subject_id
+                        )
+                    except Exception:
+                        pass
+            issued = self.session_manager.issue_session(
+                subject_id=subject_id,
+                workspace_id="lynx-capital",
+                tenant_id="lynx-capital",
+                session_kind="automation",
+            )
+            return {"access_token": issued.access_token, "token_type": "bearer"}
+
         @self.app.post("/mcp/tools/register", response_model=MCPServiceResponse)
         async def register_tool(request: ToolRegistryRegisterRequest, raw_request: Request):
             """Register or update persisted tool lifecycle state."""
