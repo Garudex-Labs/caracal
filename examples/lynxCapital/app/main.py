@@ -7,6 +7,7 @@ FastAPI application entry point with Caracal client initialization.
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -40,10 +41,17 @@ async def lifespan(app: FastAPI):
                     headers={"Authorization": f"Bearer {api_key}"},
                     timeout=10,
                 )
-                if resp.status_code == 200:
-                    jwt_token = resp.json().get("access_token", api_key)
-        except Exception:
+        except httpx.RequestError:
             pass
+        else:
+            if resp.status_code == 200:
+                try:
+                    data = resp.json()
+                except json.JSONDecodeError:
+                    pass
+                else:
+                    if isinstance(data, dict):
+                        jwt_token = data.get("access_token", api_key)
         client = CaracalClient(api_key=jwt_token, base_url=api_url)
         scope = client.context.checkout(workspace_id=workspace_id)
         app.state.caracal = scope

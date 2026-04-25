@@ -37,6 +37,7 @@ Manual override:
 
 from __future__ import annotations
 
+import json
 import os
 import time
 from dataclasses import dataclass
@@ -328,7 +329,7 @@ class GatewayAdapter(BaseAdapter):
         if "application/json" in ct:
             try:
                 return resp.json()
-            except Exception:
+            except json.JSONDecodeError:
                 return resp.text
         return resp.text or None
 

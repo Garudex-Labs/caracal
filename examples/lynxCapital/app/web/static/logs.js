@@ -133,7 +133,12 @@ function connect() {
   if (es) es.close();
   es = new EventSource('/api/logs/stream');
   es.onmessage = e => {
-    try { appendLine(JSON.parse(e.data)); } catch {}
+    try {
+      appendLine(JSON.parse(e.data));
+    } catch (err) {
+      if (err instanceof SyntaxError) return; // non-JSON or malformed line from stream
+      throw err;
+    }
   };
   es.onerror = () => {
     setTimeout(connect, 3000);

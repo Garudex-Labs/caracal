@@ -1,5 +1,5 @@
 import { SDKRequest, SDKResponse } from './adapters/base';
-import { JsonObject } from './json';
+import type { JsonObject } from './json';
 
 // ---------------------------------------------------------------------------
 // Data structures
@@ -11,7 +11,7 @@ export interface ScopeRef {
 
 export interface StateSnapshot {
   workspaceId?: string;
-  metadata?: Record<string, unknown>;
+  metadata?: JsonObject;
 }
 
 // ---------------------------------------------------------------------------

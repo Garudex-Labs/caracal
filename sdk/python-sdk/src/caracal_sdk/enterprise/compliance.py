@@ -53,13 +53,19 @@ class ComplianceExtension(CaracalExtension):
     def _on_state_change(self, state: StateSnapshot) -> None:
         raise EnterpriseFeatureRequired(
             feature="Compliance Auto-Report",
-            message="Automatic compliance reporting requires Caracal Enterprise.",
+            message=(
+                "Automatic compliance reporting requires Caracal Enterprise. "
+                f"(state snapshot: {type(state).__name__})"
+            ),
         )
 
     def _audit_response(self, response: SDKResponse, scope: ScopeRef) -> None:
         raise EnterpriseFeatureRequired(
             feature="Compliance Audit",
-            message="Response auditing requires Caracal Enterprise.",
+            message=(
+                "Response auditing requires Caracal Enterprise. "
+                f"(response: {type(response).__name__}, scope={scope!r})"
+            ),
         )
 
     def generate_report(
@@ -70,12 +76,18 @@ class ComplianceExtension(CaracalExtension):
         """Generate compliance report for the configured standard."""
         raise EnterpriseFeatureRequired(
             feature=f"Compliance Report ({self._standard})",
-            message=f"{self._standard.upper()} compliance reports require Caracal Enterprise.",
+            message=(
+                f"{self._standard.upper()} compliance reports require Caracal Enterprise. "
+                f"(range={time_range!r}, report_type={report_type!r})"
+            ),
         )
 
     def run_compliance_check(self, framework: Optional[str] = None) -> NoReturn:
         """Run automated compliance check."""
         raise EnterpriseFeatureRequired(
             feature="Compliance Check",
-            message="Automated compliance checks require Caracal Enterprise.",
+            message=(
+                "Automated compliance checks require Caracal Enterprise. "
+                f"(framework={framework!r})"
+            ),
         )

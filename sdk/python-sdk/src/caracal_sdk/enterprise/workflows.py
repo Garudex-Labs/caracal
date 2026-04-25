@@ -36,12 +36,18 @@ class WorkflowsExtension(CaracalExtension):
     def _trigger_workflows(self, state: StateSnapshot) -> None:
         raise EnterpriseFeatureRequired(
             feature="Workflow Automation",
-            message="Event-driven workflows require Caracal Enterprise.",
+            message=(
+                "Event-driven workflows require Caracal Enterprise. "
+                f"(state snapshot: {type(state).__name__})"
+            ),
         )
 
     def register_workflow(self, name: str, trigger: str, action: JsonObject) -> NoReturn:
         """Register a workflow trigger → action pair."""
         raise EnterpriseFeatureRequired(
             feature="Workflow Registration",
-            message="Workflow registration requires Caracal Enterprise.",
+            message=(
+                "Workflow registration requires Caracal Enterprise. "
+                f"(name={name!r}, trigger={trigger!r}, action keys: {', '.join(sorted(action)) if action else '—'})"
+            ),
         )

@@ -151,6 +151,34 @@ class JWTToken:
         return datetime.now() >= (self.expires_at - timedelta(seconds=buffer_seconds))
 
 
+def _gateway_provider_request_headers(
+    token: str,
+    provider: str,
+    request: ProviderRequest,
+    *,
+    accept_event_stream: bool = False,
+) -> Dict[str, str]:
+    """Authorization, optional SSE Accept, and X-Caracal-Provider-* context headers."""
+    if accept_event_stream:
+        headers: Dict[str, str] = {
+            "Authorization": f"Bearer {token}",
+            "Accept": "text/event-stream",
+            "X-Caracal-Provider-ID": provider,
+            **request.headers,
+        }
+    else:
+        headers = {
+            "Authorization": f"Bearer {token}",
+            "X-Caracal-Provider-ID": provider,
+            **request.headers,
+        }
+    if request.resource:
+        headers["X-Caracal-Provider-Resource"] = request.resource
+    if request.action:
+        headers["X-Caracal-Provider-Action"] = request.action
+    return headers
+
+
 class GatewayClient:
     """
     Gateway Client for Enterprise Edition.
@@ -496,16 +524,8 @@ class GatewayClient:
             client = await self._get_client()
             url = self._gateway_request_url(request.endpoint)
             
-            headers = {
-                "Authorization": f"Bearer {token}",
-                "X-Caracal-Provider-ID": provider,
-                **request.headers
-            }
-            if request.resource:
-                headers["X-Caracal-Provider-Resource"] = request.resource
-            if request.action:
-                headers["X-Caracal-Provider-Action"] = request.action
-            
+            headers = _gateway_provider_request_headers(token, provider, request)
+
             # Make request based on method
             try:
                 if request.method.upper() == "GET":
@@ -673,17 +693,10 @@ class GatewayClient:
             client = await self._get_client()
             url = self._gateway_request_url(request.endpoint)
             
-            headers = {
-                "Authorization": f"Bearer {token}",
-                "Accept": "text/event-stream",
-                "X-Caracal-Provider-ID": provider,
-                **request.headers
-            }
-            if request.resource:
-                headers["X-Caracal-Provider-Resource"] = request.resource
-            if request.action:
-                headers["X-Caracal-Provider-Action"] = request.action
-            
+            headers = _gateway_provider_request_headers(
+                token, provider, request, accept_event_stream=True
+            )
+
             stream_context = client.stream(
                 request.method.upper(),
                 url,

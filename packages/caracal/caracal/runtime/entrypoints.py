@@ -200,7 +200,7 @@ def _run_host_orchestrator(args: Sequence[str]) -> int:
     redis_sub = redis_parser.add_subparsers(dest="redis_command")
     redis_init_parser = redis_sub.add_parser("init", help="Initialize Redis security (password + TLS)")
     redis_init_parser.set_defaults(handler=_host_redis_init)
-    redis_parser.set_defaults(handler=lambda ns: (redis_parser.print_help(), 2)[1])
+    redis_parser.set_defaults(handler=lambda _: (redis_parser.print_help(), 2)[1])
 
     events_parser = subparsers.add_parser("events", help="Event management subcommands")
     events_sub = events_parser.add_subparsers(dest="events_command")
@@ -216,7 +216,7 @@ def _run_host_orchestrator(args: Sequence[str]) -> int:
         help="Skip confirmation prompt",
     )
     events_replay_parser.set_defaults(handler=_host_events_replay)
-    events_parser.set_defaults(handler=lambda ns: (events_parser.print_help(), 2)[1])
+    events_parser.set_defaults(handler=lambda _: (events_parser.print_help(), 2)[1])
 
     vault_parser = subparsers.add_parser("vault", help="Vault sidecar management subcommands")
     vault_sub = vault_parser.add_subparsers(dest="vault_command")
@@ -225,7 +225,7 @@ def _run_host_orchestrator(args: Sequence[str]) -> int:
         help="Generate secure vault credentials and write them to .env",
     )
     vault_init_parser.set_defaults(handler=_host_vault_init)
-    vault_parser.set_defaults(handler=lambda ns: (vault_parser.print_help(), 2)[1])
+    vault_parser.set_defaults(handler=lambda _: (vault_parser.print_help(), 2)[1])
 
     bootstrap_parser = subparsers.add_parser(
         "bootstrap",

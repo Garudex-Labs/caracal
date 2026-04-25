@@ -299,25 +299,14 @@ class IntentHandler:
             ValueError: If intent is invalid or mandate_manager is not provided
             RuntimeError: If mandate issuance fails
         """
-        # Validate intent structure
         intent.validate()
-        
-        # Check that mandate_manager is provided
+
         if mandate_manager is None:
-            raise ValueError(
-                "mandate_manager must be provided. "
-                "This will be implemented when MandateManager is available."
-            )
-        
-        # Create mandate with scope limited to intent
-        # The resource scope contains only the specific resource from the intent
-        # The action scope contains only the specific action from the intent
+            raise ValueError("mandate_manager is required to issue a mandate for an intent.")
+
         resource_scope = [intent.resource]
         action_scope = [intent.action]
-        
-        # Request mandate from MandateManager
-        # Note: This will call MandateManager.issue_mandate() which will be
-        # implemented in task 4.2
+
         try:
             mandate = mandate_manager.issue_mandate(
                 issuer_id=issuer_id,

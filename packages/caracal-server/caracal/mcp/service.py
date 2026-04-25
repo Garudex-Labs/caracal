@@ -995,7 +995,6 @@ class MCPAdapterService:
                 )
                 
                 # Intercept tool call through MCPAdapter
-                # This handles authority check, forwarding, and metering
                 result = await self.mcp_adapter.intercept_tool_call(
                     tool_name=request.tool_id,
                     tool_args=request_tool_args,
@@ -1112,7 +1111,6 @@ class MCPAdapterService:
                 )
                 
                 # Intercept resource read through MCPAdapter
-                # This handles authority check, forwarding, and metering
                 result = await self.mcp_adapter.intercept_resource_read(
                     resource_uri=request.resource_uri,
                     mcp_context=mcp_context

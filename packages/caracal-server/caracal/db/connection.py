@@ -207,9 +207,7 @@ class DatabaseConnectionManager:
         # Store schema for later use (drop_schema, clear_database)
         self._pg_schema = pg_schema
 
-        # Create tables inside the workspace schema using schema_translate_map
-        # This tells SQLAlchemy to map None (default/public) -> workspace schema
-        # for all DDL operations, ensuring tables live in ws_<name> not public.
+        # DDL: map unqualified model metadata to ws_<name> via schema_translate_map
         if create_tables:
             try:
                 from caracal.db.models import Base

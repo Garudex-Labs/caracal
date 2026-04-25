@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING
 from caracal.mcp.adapter import MCPAdapter, MCPContext, MCPResult
 
 if TYPE_CHECKING:
-    from caracal.mcp.service import MCPAdapterService, MCPServiceConfig, MCPServerConfig
+    from caracal.mcp.service import MCPAdapterService, MCPServerConfig, MCPServiceConfig
 
 __all__ = [
     "MCPAdapter",
@@ -27,7 +27,7 @@ __all__ = [
 
 def __getattr__(name: str):
     if name in {"MCPAdapterService", "MCPServiceConfig", "MCPServerConfig"}:
-        from caracal.mcp import service as _service
+        from . import service as _service
 
         return getattr(_service, name)
     raise AttributeError(f"module 'caracal.mcp' has no attribute '{name}'")

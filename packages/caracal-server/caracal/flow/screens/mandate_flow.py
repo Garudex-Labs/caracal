@@ -412,8 +412,6 @@ class MandateFlow:
                 
                 # Signature verification
                 try:
-                    # This would require the issuer's public key
-                    # For now, just show signature presence
                     sig_status = "Present" if mandate.signature else "Missing"
                     sig_style = Colors.SUCCESS if mandate.signature else Colors.ERROR
                     self.console.print(f"    Signature: [{sig_style}]{sig_status}[/]")

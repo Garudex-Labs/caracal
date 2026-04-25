@@ -173,8 +173,7 @@ class PartitionManager:
                 # Parse partition bounds (format: "FOR VALUES FROM ('...') TO ('...')")
                 bounds = row[1]
                 
-                # Extract dates from bounds string
-                # This is a simplified parser - production code should be more robust
+                # Bounds from pg_get_expr: FOR VALUES FROM ('..') TO ('..')
                 try:
                     import re
                     dates = re.findall(r"'([^']+)'", bounds)

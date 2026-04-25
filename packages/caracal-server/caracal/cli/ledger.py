@@ -108,8 +108,7 @@ class _PostgresLedgerQuery:
         return totals
 
     def sum_usage_with_children(self, principal_id: str, start_time: datetime, end_time: datetime, principal_registry=None) -> dict[str, Decimal]:
-        # Delegation-aware recursive rollup has moved to PostgreSQL graph queries.
-        # This compatibility method currently returns direct usage for the requested principal.
+        # Child/delegation rollup is handled in SQL graph queries, not here.
         return {principal_id: self.sum_usage(principal_id, start_time, end_time)}
 
     def get_usage_breakdown(self, principal_id: str, start_time: datetime, end_time: datetime, principal_registry=None) -> dict:

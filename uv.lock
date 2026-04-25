@@ -4,7 +4,7 @@ requires-python = ">=3.11"
 
 [manifest]
 members = [
-    "caracal",
+    "caracal-core",
     "caracal-sdk",
     "caracal-server",
     "lynx-capital",
@@ -13,7 +13,7 @@ members = [
 [manifest.dependency-groups]
 dev = [
     { name = "black", specifier = ">=23.0.0" },
-    { name = "caracal", editable = "packages/caracal" },
+    { name = "caracal-core", editable = "packages/caracal" },
     { name = "caracal-sdk", editable = "sdk/python-sdk" },
     { name = "caracal-server", editable = "packages/caracal-server" },
     { name = "hypothesis", specifier = ">=6.0.0" },
@@ -242,8 +242,8 @@ wheels = [
 ]
 
 [[package]]
-name = "caracal"
-version = "0.7.0"
+name = "caracal-core"
+version = "0.8.0"
 source = { editable = "packages/caracal" }
 dependencies = [
     { name = "python-dotenv" },
@@ -264,14 +264,14 @@ requires-dist = [{ name = "httpx", specifier = ">=0.25.0" }]
 
 [[package]]
 name = "caracal-server"
-version = "0.7.0"
+version = "0.1.0"
 source = { editable = "packages/caracal-server" }
 dependencies = [
     { name = "age" },
     { name = "alembic" },
     { name = "bcrypt" },
     { name = "cachetools" },
-    { name = "caracal" },
+    { name = "caracal-core" },
     { name = "caracal-sdk" },
     { name = "click" },
     { name = "cryptography" },
@@ -298,7 +298,7 @@ requires-dist = [
     { name = "alembic", specifier = ">=1.12.0" },
     { name = "bcrypt", specifier = ">=4.1.0" },
     { name = "cachetools", specifier = ">=5.3.0" },
-    { name = "caracal", editable = "packages/caracal" },
+    { name = "caracal-core", editable = "packages/caracal" },
     { name = "caracal-sdk", editable = "sdk/python-sdk" },
     { name = "click", specifier = ">=8.1.0" },
     { name = "cryptography", specifier = ">=46.0.7" },
@@ -1294,7 +1294,7 @@ name = "lynx-capital"
 version = "0.1.0"
 source = { editable = "examples/lynxCapital" }
 dependencies = [
-    { name = "caracal" },
+    { name = "caracal-core" },
     { name = "caracal-sdk" },
     { name = "deepagents" },
     { name = "fastapi" },
@@ -1312,7 +1312,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
-    { name = "caracal", editable = "packages/caracal" },
+    { name = "caracal-core", editable = "packages/caracal" },
     { name = "caracal-sdk", editable = "sdk/python-sdk" },
     { name = "deepagents", specifier = ">=0.5" },
     { name = "fastapi", specifier = ">=0.111" },

@@ -21,12 +21,6 @@ __version__ = get_version()
 
 # -- Core API (primary) -------------------------------------------------
 
-from caracal_sdk.client import CaracalClient, CaracalBuilder, SDKConfigurationError
-from caracal_sdk.context import ContextManager, ScopeContext
-from caracal_sdk.hooks import HookRegistry, SDKRequest as _SDKRequest, SDKResponse as _SDKResponse
-from caracal_sdk.extensions import CaracalExtension
-from caracal_sdk.tools import ToolOperations
-from caracal_sdk.gateway import GatewayAdapter, GatewayAdapterError, build_gateway_adapter
 import caracal_sdk.ais as ais
 from caracal_sdk.adapters import (
     BaseAdapter,
@@ -34,8 +28,12 @@ from caracal_sdk.adapters import (
     MockAdapter,
     WebSocketAdapter,
 )
-
-
+from caracal_sdk.client import CaracalBuilder, CaracalClient, SDKConfigurationError
+from caracal_sdk.context import ContextManager, ScopeContext
+from caracal_sdk.extensions import CaracalExtension
+from caracal_sdk.gateway import GatewayAdapter, GatewayAdapterError, build_gateway_adapter
+from caracal_sdk.hooks import HookRegistry
+from caracal_sdk.tools import ToolOperations
 
 __all__ = [
     "__version__",

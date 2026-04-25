@@ -403,8 +403,7 @@ class MerkleTree:
         if current_hash != proof.leaf_hash:
             return False
         
-        # Check cache first (v0.3 optimization)
-        # Note: This is a class-level cache, so we use a global dict
+        # v0.3: class-attached process-wide cache
         if use_cache:
             cache_key = (current_hash, expected_root)
             if hasattr(MerkleTree, '_global_verification_cache'):

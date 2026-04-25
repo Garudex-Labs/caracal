@@ -11,7 +11,7 @@ Interactive menu with arrow-key navigation:
 """
 
 from dataclasses import dataclass
-from typing import Any, Callable, Optional
+from typing import Callable, Optional
 
 from prompt_toolkit import Application
 from prompt_toolkit.key_binding import KeyBindings
@@ -32,7 +32,7 @@ class MenuItem:
     icon: str = ""                        # Optional icon
     action: Optional[Callable] = None     # Callback when selected
     disabled: bool = False                # Whether item is selectable
-    data: Any = None                      # Optional associated data
+    data: object | None = None            # Optional associated data
     
     def display_text(self, selected: bool = False) -> str:
         """Get formatted display text."""

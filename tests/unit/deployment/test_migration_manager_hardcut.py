@@ -52,7 +52,7 @@ def test_oss_to_enterprise_migration_updates_custody_metadata_additively(
 
     assert custody["location"] == "enterprise"
     assert custody["additive"] is True
-    assert "provider_api_key" in cfg._load_vault("alpha")
+    assert "provider_api_key" in cfg._load_secret_refs_or_empty("alpha")
     assert result["credentials_selected"] == 1
     assert result["migration_contracts"]["alpha"]["registration_state"]["migration_mode"] == "explicit_only"
     assert result["migration_contracts"]["alpha"]["authority_graph_state"]["graph_model"] == "delegation_edges"

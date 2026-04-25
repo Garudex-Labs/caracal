@@ -185,7 +185,6 @@ class SnapshotManager:
             
         """
         try:
-            # Query snapshot
             result = self.db_session.execute(
                 select(LedgerSnapshot).where(LedgerSnapshot.snapshot_id == snapshot_id)
             )
@@ -214,40 +213,12 @@ class SnapshotManager:
             raise
 
     def recover_from_snapshot(self, snapshot_id: UUID) -> RecoveryResult:
-        """
-        Recover from snapshot.
-        
-        Steps:
-        1. Load snapshot data
-        2. Get snapshot timestamp
-        3. Return timestamp for event replay
-        
-        Args:
-            snapshot_id: UUID of snapshot to recover from
-            
-        Returns:
-            RecoveryResult: Recovery metadata including replay timestamp
-            
-        Raises:
-            ValueError: If snapshot not found
-            
-        """
+        """Load snapshot metadata for replay (events after snapshot timestamp)."""
         try:
             logger.info(f"Starting recovery from snapshot {snapshot_id}")
             
-            # Load snapshot data
             snapshot_data = self.load_snapshot(snapshot_id)
-            
-            # Validate integrity with Merkle root if verifier available
-            if self.merkle_verifier and snapshot_data.merkle_root:
-                try:
-                    logger.info("Validating snapshot integrity with Merkle root")
-                    # This would verify that the Merkle root matches the ledger state
-                    # Implementation depends on MerkleVerifier interface
-                except Exception as e:
-                    logger.warning(f"Failed to validate snapshot integrity: {e}")
-            
-            # Create recovery result
+
             result = RecoveryResult(
                 snapshot_id=snapshot_id,
                 snapshot_timestamp=snapshot_data.snapshot_timestamp,

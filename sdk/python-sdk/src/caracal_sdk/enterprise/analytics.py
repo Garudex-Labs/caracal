@@ -43,14 +43,20 @@ class AnalyticsExtension(CaracalExtension):
     def _collect_metrics(self, response: SDKResponse, scope: ScopeRef) -> None:
         raise EnterpriseFeatureRequired(
             feature="Analytics Metrics Collection",
-            message="Advanced analytics requires Caracal Enterprise.",
+            message=(
+                "Advanced analytics requires Caracal Enterprise. "
+                f"(response: {type(response).__name__}, scope={scope!r})"
+            ),
         )
 
     def export(self, format: str = "json") -> NoReturn:
         """Export analytics data."""
         raise EnterpriseFeatureRequired(
             feature="Analytics Export",
-            message="Analytics data export requires Caracal Enterprise.",
+            message=(
+                "Analytics data export requires Caracal Enterprise. "
+                f"(format={format!r})"
+            ),
         )
 
     def get_dashboard_url(self) -> str:

@@ -562,7 +562,7 @@ ledger capabilities.[/]
         try:
             self.persistence.save(self.state)
         except Exception:
-            pass  # Silently fail on state save
+            pass
 
     def _run_backup_flow(self) -> None:
         """Run data backup flow using pg_dump."""

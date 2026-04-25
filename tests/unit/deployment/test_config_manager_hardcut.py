@@ -57,7 +57,7 @@ def test_get_secret_resolves_vault_reference_from_workspace_metadata(
 
 
 @pytest.mark.unit
-def test_save_vault_compatibility_shim_updates_secret_refs_without_local_secret_file(
+def test_save_secret_refs_updates_metadata_without_local_secret_file(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -65,7 +65,7 @@ def test_save_vault_compatibility_shim_updates_secret_refs_without_local_secret_
 
     manager = ConfigManager()
     manager.create_workspace("alpha")
-    manager._save_vault("alpha", {"provider_api_key": "ENC[v4:vault://default/dev/provider]"})
+    manager._save_secret_refs("alpha", {"provider_api_key": "ENC[v4:vault://default/dev/provider]"})
 
     config = manager._load_workspace_toml("alpha")
     metadata = config.get("metadata", {})

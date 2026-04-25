@@ -937,7 +937,7 @@ class MigrationManager:
         selected_total = 0
 
         for ws in workspaces:
-            vault_map = self.config_manager._load_vault(ws)
+            vault_map = self.config_manager._load_secret_refs_or_empty(ws)
             available = sorted(vault_map.keys())
             selected, missing = self._resolve_credential_selection(available, include_credentials)
 
@@ -1061,7 +1061,7 @@ class MigrationManager:
             available = sorted(set(enterprise_marked) | set(normalized_exports.keys()))
             selected, missing = self._resolve_credential_selection(available, include_credentials)
 
-            vault_map = self.config_manager._load_vault(ws)
+            vault_map = self.config_manager._load_secret_refs_or_empty(ws)
 
             if migration_contract is not None and not dry_run:
                 self._apply_imported_migration_contract(

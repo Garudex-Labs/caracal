@@ -300,9 +300,9 @@ def _step_workspace(wizard: Wizard) -> Any:
     
     Returns:
         str: Path to the selected/created workspace
-        
+
     Raises:
-        RuntimeError: If no workspace is selected (should never happen)
+        RuntimeError: If the workspace action is not handled (menu out of sync)
         KeyboardInterrupt: If user cancels (propagates to caller)
     """
     console = wizard.console
@@ -372,9 +372,7 @@ def _step_workspace(wizard: Wizard) -> Any:
         wizard.context["workspace_name"] = selected_name
         wizard.context["workspace_existing"] = True
         
-        # Check if this workspace was already fully onboarded
-        # by reading its flow_state.json — if so, mark it so
-        # subsequent steps auto-skip instead of re-prompting.
+        # flow_state.json: if onboarding completed, later steps can auto-skip
         state_file = workspace_path / "flow_state.json"
         if state_file.exists():
             try:
@@ -617,8 +615,8 @@ def _step_workspace(wizard: Wizard) -> Any:
         console.print(f"  [{Colors.INFO}]{Icons.INFO} Bulk deletion cancelled[/]")
         console.print()
         return _step_workspace(wizard)
-    
-    # This should never be reached, but handle it gracefully
+
+    # Unhandled action — keep in sync with workspace menu choices
     console.print()
     console.print(f"  [{Colors.ERROR}]{Icons.ERROR} No workspace action selected[/]")
     raise RuntimeError("Workspace selection is required to continue")
@@ -629,8 +627,7 @@ def _step_config(wizard: Wizard) -> Any:
     console = wizard.console
 
     from caracal.flow.workspace import get_workspace
-    
-    # If workspace was selected/created in previous step, use that
+
     workspace_path = wizard.context.get("workspace_path")
     if workspace_path:
         config_path = Path(workspace_path)

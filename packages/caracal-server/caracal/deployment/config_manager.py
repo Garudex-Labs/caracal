@@ -189,7 +189,7 @@ class ConfigManager:
         return self._get_workspace_dir(workspace) / ("secrets" + ".vault")
 
     def _load_secret_refs(self, workspace: str) -> Dict[str, str]:
-        """Load opaque vault references stored in workspace metadata."""
+        """Load opaque secret references stored in workspace metadata."""
         config = self._load_workspace_toml(workspace)
         metadata = config.get("metadata", {})
         if not isinstance(metadata, dict):
@@ -203,26 +203,51 @@ class ConfigManager:
             if isinstance(key, str) and isinstance(value, str) and value
         }
 
-    def _save_secret_refs(self, workspace: str, secret_refs: Dict[str, str]) -> None:
-        """Persist opaque vault references in workspace metadata."""
-        config = self._load_workspace_toml(workspace)
-        metadata = config.get("metadata", {})
-        if not isinstance(metadata, dict):
-            metadata = {}
-        metadata["secret_refs"] = dict(sorted(secret_refs.items()))
-        config["metadata"] = metadata
-        self._save_workspace_toml(workspace, config)
+    def _load_secret_refs_or_empty(self, workspace: str) -> Dict[str, str]:
+        """Load secret refs, or return {} when the workspace is missing (best-effort)."""
+        try:
+            return self._load_secret_refs(workspace)
+        except WorkspaceNotFoundError:
+            return {}
 
-        legacy_secret_store = self._legacy_secret_store_path(workspace)
-        if legacy_secret_store.exists():
-            try:
-                legacy_secret_store.unlink()
-            except OSError:
-                logger.debug(
-                    "legacy_secret_store_cleanup_skipped",
-                    workspace=workspace,
-                    path=str(legacy_secret_store),
-                )
+    def _save_secret_refs(self, workspace: str, secret_refs: Dict[str, str]) -> None:
+        """Persist opaque secret references in workspace metadata."""
+        try:
+            config = self._load_workspace_toml(workspace)
+            metadata = config.get("metadata", {})
+            if not isinstance(metadata, dict):
+                metadata = {}
+            metadata["secret_refs"] = dict(sorted(secret_refs.items()))
+            config["metadata"] = metadata
+            self._save_workspace_toml(workspace, config)
+
+            legacy_secret_store = self._legacy_secret_store_path(workspace)
+            if legacy_secret_store.exists():
+                try:
+                    legacy_secret_store.unlink()
+                except OSError:
+                    logger.debug(
+                        "legacy_secret_store_cleanup_skipped",
+                        workspace=workspace,
+                        path=str(legacy_secret_store),
+                    )
+
+            logger.debug(
+                "secret_refs_saved",
+                workspace=workspace,
+                secret_count=len(secret_refs),
+            )
+        except WorkspaceOperationError:
+            raise
+        except Exception as e:
+            logger.error(
+                "secret_refs_save_failed",
+                workspace=workspace,
+                error=str(e),
+            )
+            raise WorkspaceOperationError(
+                f"Failed to save secret refs: {e}"
+            ) from e
 
     def _load_workspace_runtime_config(self, workspace_dir: Path) -> Dict[str, Any]:
         """Load workspace runtime config.yaml when available."""
@@ -713,32 +738,6 @@ class ConfigManager:
                 f"Failed to save workspace configuration: {e}"
             ) from e
     
-    def _load_vault(self, workspace: str) -> Dict[str, str]:
-        """Compatibility shim: load workspace secret refs from metadata."""
-        try:
-            return self._load_secret_refs(workspace)
-        except WorkspaceNotFoundError:
-            return {}
-    
-    def _save_vault(self, workspace: str, vault: Dict[str, str]) -> None:
-        """Compatibility shim: persist workspace secret refs in metadata."""
-        try:
-            self._save_secret_refs(workspace, vault)
-            logger.debug(
-                "secret_refs_saved",
-                workspace=workspace,
-                secret_count=len(vault),
-            )
-        except Exception as e:
-            logger.error(
-                "secret_refs_save_failed",
-                workspace=workspace,
-                error=str(e),
-            )
-            raise WorkspaceOperationError(
-                f"Failed to save secret refs: {e}"
-            ) from e
-
     def _normalize_workspace_ownership(self, workspace_dir: Path) -> None:
         """Best-effort ownership normalization for container runtime.
 
@@ -853,7 +852,7 @@ class ConfigManager:
         if not self._get_workspace_dir(workspace).exists():
             raise WorkspaceNotFoundError(f"Workspace not found: {workspace}")
         
-        secret_refs = self._load_vault(workspace)
+        secret_refs = self._load_secret_refs_or_empty(workspace)
 
         try:
             encrypted_value = encrypt_value(value)
@@ -862,7 +861,7 @@ class ConfigManager:
             raise EncryptionError(f"Failed to store secret in vault: {e}") from e
 
         secret_refs[key] = encrypted_value
-        self._save_vault(workspace, secret_refs)
+        self._save_secret_refs(workspace, secret_refs)
         
         logger.info(
             "secret_stored",
@@ -888,7 +887,7 @@ class ConfigManager:
         """
         self._validate_workspace_name(workspace)
         
-        secret_refs = self._load_vault(workspace)
+        secret_refs = self._load_secret_refs_or_empty(workspace)
         
         if key not in secret_refs:
             raise SecretNotFoundError(f"Secret not found: {key} in workspace {workspace}")
@@ -1105,7 +1104,7 @@ class ConfigManager:
                 except Exception:
                     pass
             
-            self._save_vault(name, {})
+            self._save_secret_refs(name, {})
 
             # Ensure root-created workspaces in container runtime remain accessible
             # when commands later run as the unprivileged runtime user.
@@ -1307,7 +1306,7 @@ class ConfigManager:
                     },
                     "includes": {
                         "workspace_files": True,
-                        "secrets": include_secrets and bool(self._load_vault(name)),
+                        "secrets": include_secrets and bool(self._load_secret_refs_or_empty(name)),
                         "database_dump": db_dump_included,
                     },
                 }

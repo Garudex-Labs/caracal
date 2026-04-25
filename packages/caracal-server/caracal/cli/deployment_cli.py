@@ -329,7 +329,7 @@ def config_list(workspace: Optional[str], format: str):
             sys.exit(1)
         
         # Load vault to get keys
-        vault = config_manager._load_vault(workspace)
+        vault = config_manager._load_secret_refs_or_empty(workspace)
         keys = list(vault.keys())
         
         if format == "json":

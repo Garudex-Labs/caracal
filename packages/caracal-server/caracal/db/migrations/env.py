@@ -14,26 +14,19 @@ from sqlalchemy import pool
 
 from alembic import context
 
-# Import our models for autogenerate support
 from caracal.db.models import Base
 from caracal.runtime.hardcut_preflight import assert_migration_hardcut
 from caracal.storage.layout import resolve_caracal_home
 
-# this is the Alembic Config object, which provides
-# access to the values within the .ini file in use.
 config = context.config
 
-# Interpret the config file for Python logging.
-# This line sets up loggers basically.
+# Logging from alembic.ini
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-# add your model's MetaData object here
-# for 'autogenerate' support
 target_metadata = Base.metadata
 
-# Support environment variable for database URL
-# This allows overriding the alembic.ini setting
+# CARACAL_DATABASE_URL wins over alembic.ini sqlalchemy.url
 database_url = os.environ.get("CARACAL_DATABASE_URL")
 if database_url:
     # Alembic's underlying ConfigParser treats '%' as interpolation markers.
@@ -50,12 +43,6 @@ assert_migration_hardcut(
     env_vars=os.environ,
     state_roots=[resolve_caracal_home(require_explicit=False)],
 )
-
-# other values from the config, defined by the needs of env.py,
-# can be acquired:
-# my_important_option = config.get_main_option("my_important_option")
-# ... etc.
-
 
 def run_migrations_offline() -> None:
     """Run migrations in 'offline' mode.

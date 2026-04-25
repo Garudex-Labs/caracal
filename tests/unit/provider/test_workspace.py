@@ -3,7 +3,6 @@ from __future__ import annotations
 from contextlib import contextmanager
 from types import SimpleNamespace
 
-import click
 import pytest
 
 from caracal.cli.provider_scopes import validate_provider_scopes
@@ -23,10 +22,10 @@ class _FakeConfigManager:
     def get_workspace_config(self, _workspace: str):
         return SimpleNamespace(metadata={"providers": self._providers})
 
-    def _load_vault(self, _workspace: str):
+    def _load_secret_refs_or_empty(self, _workspace: str):
         return {}
 
-    def _save_vault(self, _workspace: str, _secret_refs):
+    def _save_secret_refs(self, _workspace: str, _secret_refs):
         return None
 
 
@@ -88,9 +87,10 @@ def test_workspace_scope_helpers_ignore_passthrough_providers(monkeypatch: pytes
 
 
 @pytest.mark.unit
-def test_validate_provider_scopes_requires_at_least_one_scoped_provider(
+def test_validate_provider_scopes_noop_when_only_unscoped_pass_through_providers(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """Passthrough-only registries have no catalog; scope validation is skipped without error."""
     passthrough = build_provider_record(
         name="plain-api",
         service_type="application",
@@ -121,12 +121,11 @@ def test_validate_provider_scopes_requires_at_least_one_scoped_provider(
         ],
     )
 
-    with pytest.raises(click.ClickException, match="No scoped providers"):
-        validate_provider_scopes(
-            workspace="alpha",
-            resource_scopes=["provider:plain-api:resource:models"],
-            action_scopes=[],
-        )
+    validate_provider_scopes(
+        workspace="alpha",
+        resource_scopes=["provider:plain-api:resource:models"],
+        action_scopes=[],
+    )
 
 
 class _FakeQuery:
