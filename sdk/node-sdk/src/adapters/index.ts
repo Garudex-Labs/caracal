@@ -1,5 +1,5 @@
 /**
- * Copyright (C) 2026 Garudex Labs. All Rights Reserved.
+ * SPDX-License-Identifier: Apache-2.0
  * Caracal, a product of Garudex Labs
  *
  * Barrel re-export for adapter imports.
