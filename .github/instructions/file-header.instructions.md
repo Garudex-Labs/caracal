@@ -4,23 +4,26 @@ applyTo: "**"
 ---
 # File Header
 
-Every source file must begin with this exact header:
+- Applies to every source file in the codebase.
 
-```python
-"""
-Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
-Caracal, a product of Garudex Labs
+## Required
 
-{One short, clear one-line description of the file}
-"""
-```
+- Every source file must begin with this exact header (adapted to the file's comment syntax):
+  ```
+  Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+  Caracal, a product of Garudex Labs
 
-## Rules
+  {One short, clear one-line description of the file}
+  ```
+- The description must be a single sentence — concise and direct.
+- Describe what the file *is*.
+- Preserve exact spacing: two spaces after `All Rights Reserved.`
+- Include the blank line between the copyright block and the description.
+- Adapt the comment syntax to match the file's language (e.g., `"""` for Python, `//` for JS/TS).
 
-- The header is mandatory. Never omit it.
-- The description line must be a single sentence — concise and direct.
-- Describe what the file *is*, not what was changed or why it exists.
-- No extra metadata, version notes, author lines, or blank lines inside the block.
-- Preserve the exact spacing: two spaces after "All Rights Reserved." before closing the sentence.
-- The blank line between the copyright block and the description is required.
-- The format should match the language the file is written in.
+## Forbidden
+
+- Must not omit the header from any source file.
+- Must not add metadata, version notes, or author lines inside the header block.
+- Must not add blank lines inside the copyright block itself.
+- Must not describe what was changed or why the file exists.

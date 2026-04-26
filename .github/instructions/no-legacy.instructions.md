@@ -4,28 +4,23 @@ applyTo: "**"
 ---
 # Legacy Code Elimination
 
-## Core Rule
+- Applies to all source files. There is one current implementation; remove everything else.
 
-There is one current implementation. Remove everything else.
+## Required
 
-## What to Remove
+- Remove fallback paths and compatibility shims for older behavior.
+- Remove deprecated functions, classes, or modules kept for safety.
+- Remove duplicate logic serving the same purpose through alternate flows.
+- Remove feature flags or branches gating old vs. new behavior.
+- Remove dead code, commented-out blocks, and unused abstractions.
+- Remove version-conditional branches that no longer apply.
+- Rewrite affected areas cleanly around the current design.
+- Each feature must have exactly one clear execution path.
 
-- Fallback paths and compatibility shims for older behavior
-- Deprecated functions, classes, or modules kept "for safety"
-- Duplicate logic serving the same purpose through alternate flows
-- Feature flags or branches gating old vs. new behavior
-- Dead code, commented-out blocks, and unused abstractions
-- Version-conditional branches (`if version < X`) that no longer apply
+## Forbidden
 
-## How to Handle Affected Areas
-
-- Rewrite the area cleanly around the current design — not as a patch on top of old code.
-- When legacy interference makes a section messy, rewrite it fully rather than incrementally fixing it.
-- Each feature must have a single, clear execution path.
-
-## What Not to Do
-
-- Do not preserve old logic "just in case."
-- Do not layer new implementations on top of existing ones.
-- Do not leave stubs, wrappers, or adapters whose only purpose is bridging old and new.
-- Do not add migration helpers unless a migration is explicitly required now.
+- Must not preserve old logic "just in case".
+- Must not layer new implementations on top of existing ones.
+- Must not leave stubs, wrappers, or adapters whose only purpose is bridging old and new.
+- Must not add migration helpers unless a migration is explicitly required now.
+- Must not patch on top of legacy code — rewrite it fully.

@@ -36,12 +36,12 @@ class FakeResponse:
 @pytest.fixture
 def vault_env():
     return {
-        "CARACAL_VAULT_URL": "http://vault.test",
-        "CARACAL_VAULT_TOKEN": "token-123",
-        "CARACAL_VAULT_WORKSPACE_ID": "proj-default",
-        "CARACAL_VAULT_ENVIRONMENT": "dev",
-        "CARACAL_VAULT_SECRET_PATH": "/",
-        "CARACAL_VAULT_MODE": "managed",
+        "CCL_VAULT_URL": "http://vault.test",
+        "CCL_VAULT_TOKEN": "token-123",
+        "CCL_VAULT_WS_ID": "proj-default",
+        "CCL_VAULT_ENV": "dev",
+        "CCL_VAULT_PATH": "/",
+        "CCL_VAULT_MODE": "managed",
     }
 
 
@@ -108,22 +108,22 @@ def test_vault_access_context_enforced():
 @pytest.mark.unit
 def test_load_vault_config_requires_url_and_token(vault_env):
     env = dict(vault_env)
-    del env["CARACAL_VAULT_URL"]
+    del env["CCL_VAULT_URL"]
     with patch("caracal.core.vault._read_env_or_dotenv", side_effect=lambda name: env.get(name)):
-        with pytest.raises(VaultConfigurationError, match="CARACAL_VAULT_URL"):
+        with pytest.raises(VaultConfigurationError, match="CCL_VAULT_URL"):
             _load_vault_config()
 
     env = dict(vault_env)
-    del env["CARACAL_VAULT_TOKEN"]
+    del env["CCL_VAULT_TOKEN"]
     with patch("caracal.core.vault._read_env_or_dotenv", side_effect=lambda name: env.get(name)):
-        with pytest.raises(VaultConfigurationError, match="CARACAL_VAULT_TOKEN"):
+        with pytest.raises(VaultConfigurationError, match="CCL_VAULT_TOKEN"):
             _load_vault_config()
 
 
 @pytest.mark.unit
 def test_load_vault_config_forbids_local_mode_in_hardcut(vault_env):
     env = dict(vault_env)
-    env["CARACAL_VAULT_MODE"] = "local"
+    env["CCL_VAULT_MODE"] = "local"
     with patch.dict(os.environ, env, clear=True):
         with pytest.raises(VaultConfigurationError, match="forbidden"):
             _load_vault_config()
@@ -132,9 +132,9 @@ def test_load_vault_config_forbids_local_mode_in_hardcut(vault_env):
 @pytest.mark.unit
 def test_load_vault_config_rejects_local_mode_without_fallback_defaults(vault_env):
     env = dict(vault_env)
-    env["CARACAL_VAULT_MODE"] = "local"
-    env.pop("CARACAL_VAULT_URL", None)
-    env.pop("CARACAL_VAULT_TOKEN", None)
+    env["CCL_VAULT_MODE"] = "local"
+    env.pop("CCL_VAULT_URL", None)
+    env.pop("CCL_VAULT_TOKEN", None)
 
     with patch("caracal.core.vault._read_env_or_dotenv", side_effect=lambda name: env.get(name)):
         with pytest.raises(VaultConfigurationError, match="forbidden"):
@@ -144,19 +144,19 @@ def test_load_vault_config_rejects_local_mode_without_fallback_defaults(vault_en
 @pytest.mark.unit
 def test_load_vault_config_rejects_invalid_mode(vault_env):
     env = dict(vault_env)
-    env["CARACAL_VAULT_MODE"] = "invalid-mode"
+    env["CCL_VAULT_MODE"] = "invalid-mode"
 
     with patch("caracal.core.vault._read_env_or_dotenv", side_effect=lambda name: env.get(name)):
-        with pytest.raises(VaultConfigurationError, match="CARACAL_VAULT_MODE"):
+        with pytest.raises(VaultConfigurationError, match="CCL_VAULT_MODE"):
             _load_vault_config()
 
 
 @pytest.mark.unit
 def test_load_vault_config_recovers_placeholder_local_token(vault_env):
     env = dict(vault_env)
-    env["CARACAL_VAULT_URL"] = "http://vault:8080"
-    env["CARACAL_VAULT_TOKEN"] = "dev-local-token"
-    env["CARACAL_VAULT_WORKSPACE_ID"] = ""
+    env["CCL_VAULT_URL"] = "http://vault:8080"
+    env["CCL_VAULT_TOKEN"] = "dev-local-token"
+    env["CCL_VAULT_WS_ID"] = ""
 
     with patch("caracal.core.vault._read_env_or_dotenv", side_effect=lambda name: env.get(name)):
         with patch(
@@ -172,8 +172,8 @@ def test_load_vault_config_recovers_placeholder_local_token(vault_env):
 @pytest.mark.unit
 def test_load_vault_config_keeps_non_local_placeholder_token_unchanged(vault_env):
     env = dict(vault_env)
-    env["CARACAL_VAULT_URL"] = "https://vault.example.com"
-    env["CARACAL_VAULT_TOKEN"] = "dev-local-token"
+    env["CCL_VAULT_URL"] = "https://vault.example.com"
+    env["CCL_VAULT_TOKEN"] = "dev-local-token"
 
     with patch("caracal.core.vault._read_env_or_dotenv", side_effect=lambda name: env.get(name)):
         cfg = _load_vault_config()
@@ -184,7 +184,7 @@ def test_load_vault_config_keeps_non_local_placeholder_token_unchanged(vault_env
 @pytest.mark.unit
 def test_read_env_or_dotenv_reads_environment_first(vault_env):
     with patch.dict(os.environ, vault_env, clear=True):
-        assert _read_env_or_dotenv("CARACAL_VAULT_URL") == "http://vault.test"
+        assert _read_env_or_dotenv("CCL_VAULT_URL") == "http://vault.test"
 
 
 @pytest.mark.unit

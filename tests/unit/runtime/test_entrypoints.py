@@ -451,12 +451,10 @@ def test_resolve_ais_vault_secret_uses_resolved_vault_context(
 def test_resolve_ais_vault_context_falls_back_when_vault_unavailable(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.delenv("CARACAL_VAULT_WORKSPACE_ID", raising=False)
-    monkeypatch.delenv("CARACAL_VAULT_PROJECT_SLUG", raising=False)
-    monkeypatch.delenv("CARACAL_VAULT_WORKSPACE_ID", raising=False)
-    monkeypatch.delenv("CARACAL_VAULT_ENVIRONMENT", raising=False)
-    monkeypatch.delenv("CARACAL_VAULT_ENV", raising=False)
-    monkeypatch.delenv("CARACAL_VAULT_ENV_ID", raising=False)
+    monkeypatch.delenv("CCL_VAULT_WS_ID", raising=False)
+    monkeypatch.delenv("CCL_VAULT_PROJ", raising=False)
+    monkeypatch.delenv("CCL_VAULT_ENV", raising=False)
+    monkeypatch.delenv("CCL_VAULT_ENV_ID", raising=False)
     monkeypatch.setattr("caracal.core.vault.get_vault", lambda: (_ for _ in ()).throw(RuntimeError("offline")))
 
     workspace_id, env_id = entrypoints._resolve_ais_vault_context()
@@ -871,7 +869,7 @@ def test_build_ais_handlers_allows_local_bootstrap_principal_without_auth(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _patch_principal_registry_for_issue_token(monkeypatch)
-    monkeypatch.setenv("CARACAL_AIS_PRINCIPAL_ID", "principal-1")
+    monkeypatch.setenv("CCL_AIS_PID", "principal-1")
 
     handlers = entrypoints._build_ais_handlers(
         db_manager=_FakeDbManager(),

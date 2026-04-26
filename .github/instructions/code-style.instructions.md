@@ -4,28 +4,26 @@ applyTo: "**"
 ---
 # Code Style and Naming
 
-## Naming
+- Applies to all source files across the entire codebase.
 
-- Prefer short, clear names for variables, functions, files, and folders.
-- Use CamelCase as the default. Avoid `-`. Use `_` only when necessary (e.g., Python module files, test fixtures).
-- Never use prefixes like `new_`, `fixed_`, `updated_`, `old_`, or similar when editing code.
-- Keep names consistent with the surrounding codebase style—match the pattern already in use.
+## Required
 
-## Comments
-
-- Write comments as if the code is being read for the first time—no references to edits, history, or comparisons.
-- Never write: "changed from", "updated to", "fixed", "previously", "now", "added", "removed".
-- Never reference prompt text, task descriptions, or requirements in comments.
-- Omit comments that restate what the code already expresses clearly.
-
-## Variable Discipline
-
-- Reuse and correct existing variables rather than introducing new ones.
-- Do not duplicate values into new names when the original can be updated in place.
+- Use short, clear names for variables, functions, files, and folders.
+- Use CamelCase as the default naming style.
+- Use `_` only when necessary (e.g., Python module files, test fixtures).
+- Match the naming pattern already in use in the surrounding code.
+- Write comments as if the code is being read for the first time.
+- Reuse and correct existing variables; update in place when possible.
 - Keep the number of variables minimal and purposeful.
-
-## Implementation
-
-- Do not add abstractions, wrappers, or helpers for single-use operations.
-- Do not add features, error handling, or logic beyond what was requested.
 - Match the existing code's level of abstraction and style exactly.
+
+## Forbidden
+
+- Must not use prefixes: `new_`, `fixed_`, `updated_`, `old_`, or similar.
+- Must not use `-` in names.
+- Must not write comments referencing edits, history, or comparisons (e.g., "changed from", "updated to", "fixed", "previously", "now", "added", "removed").
+- Must not reference prompt text, task descriptions, or requirements in comments.
+- Must not write comments that restate what the code already expresses.
+- Must not duplicate values into new variable names.
+- Must not add abstractions, wrappers, or helpers for single-use operations.
+- Must not add features, error handling, or logic beyond what was requested.

@@ -83,9 +83,9 @@ def test_load_config_normalizes_legacy_merkle_backend_for_hardcut(tmp_path: Path
     with patch.dict(
         os.environ,
         {
-            "CARACAL_HARDCUT_MODE": "1",
-            "CARACAL_VAULT_MERKLE_SIGNING_KEY_REF": "vault://caracal/runtime/merkle-signing",
-            "CARACAL_VAULT_MERKLE_PUBLIC_KEY_REF": "vault://caracal/runtime/merkle-signing.public",
+            "CCL_MODE": "1",
+            "CCL_VAULT_MERKLE_KEY": "vault://caracal/runtime/merkle-signing",
+            "CCL_VAULT_MERKLE_PUB": "vault://caracal/runtime/merkle-signing.public",
         },
         clear=False,
     ):

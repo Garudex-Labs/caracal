@@ -152,7 +152,7 @@ def test_runtime_session_signing_has_no_legacy_env_alias_fallback() -> None:
 
     assert "AIS_SESSION_ALGORITHM_FALLBACK_ENV" not in entrypoints_payload
     assert "CARACAL_SESSION_JWT_ALGORITHM" not in entrypoints_payload
-    assert "CARACAL_SESSION_JWT_ALGORITHM" in preflight_payload
+    assert "CCL_SESSION_JWT_ALG" in preflight_payload
 
 
 @pytest.mark.unit
@@ -263,8 +263,8 @@ def test_oss_env_example_uses_vault_only_hardcut_defaults() -> None:
     env_example = _REPO_ROOT / ".env.example"
     payload = env_example.read_text(encoding="utf-8")
 
-    assert "CARACAL_PRINCIPAL_KEY_BACKEND=vault" in payload
-    assert "CARACAL_VAULT_SIDECAR_IMAGE=infisical/infisical:v0.93.1" in payload
+    assert "CCL_KEY_BACKEND=vault" in payload
+    assert "VAULT_IMAGE=infisical/infisical:v0.93.1" in payload
     assert "CARACAL_SECRET_BACKEND" not in payload
     assert "AWS_" not in payload
     assert "aws_kms" not in payload.lower()
@@ -804,8 +804,8 @@ def test_merkle_config_and_cli_enforce_hardcut_vault_guard() -> None:
     settings_payload = settings_file.read_text(encoding="utf-8")
     cli_payload = merkle_cli_file.read_text(encoding="utf-8")
 
-    assert "CARACAL_VAULT_MERKLE_SIGNING_KEY_REF" in settings_payload
-    assert "CARACAL_VAULT_MERKLE_PUBLIC_KEY_REF" in settings_payload
+    assert "CCL_VAULT_MERKLE_KEY" in settings_payload
+    assert "CCL_VAULT_MERKLE_PUB" in settings_payload
     assert "Local file-backed Merkle signing is forbidden." in settings_payload
     assert "Local Merkle key-file commands are disabled in runtime paths." in cli_payload
 

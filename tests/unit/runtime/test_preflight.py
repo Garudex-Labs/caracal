@@ -15,11 +15,11 @@ from caracal.runtime.hardcut_preflight import (
 
 def _valid_vault_env() -> dict[str, str]:
     return {
-        "CARACAL_PRINCIPAL_KEY_BACKEND": "vault",
-        "CARACAL_VAULT_URL": "http://vault.example",
-        "CARACAL_VAULT_TOKEN": "test-token",
-        "CARACAL_VAULT_SIGNING_KEY_REF": "keys/mandate-signing",
-        "CARACAL_VAULT_SESSION_PUBLIC_KEY_REF": "keys/session-public",
+        "CCL_KEY_BACKEND": "vault",
+        "CCL_VAULT_URL": "http://vault.example",
+        "CCL_VAULT_TOKEN": "test-token",
+        "CCL_VAULT_SIGN_KEY": "keys/mandate-signing",
+        "CCL_VAULT_SESS_KEY": "keys/session-public",
     }
 
 
@@ -133,7 +133,7 @@ def test_runtime_preflight_blocks_jsonb_models(tmp_path: Path) -> None:
 def test_runtime_preflight_blocks_compatibility_alias_flags() -> None:
     with pytest.raises(HardCutPreflightError, match="Compatibility aliases"):
         env_vars = _valid_vault_env()
-        env_vars["CARACAL_ENABLE_COMPAT_ALIASES"] = "true"
+        env_vars["CCL_COMPAT_ALIASES"] = "true"
         assert_runtime_hardcut(
             compose_file=None,
             database_urls={"DATABASE_URL": "postgresql://ok"},
@@ -158,18 +158,18 @@ def test_runtime_preflight_blocks_legacy_state_artifacts(tmp_path: Path) -> None
 
 @pytest.mark.unit
 def test_runtime_preflight_blocks_local_secret_backend() -> None:
-    with pytest.raises(HardCutPreflightError, match="CARACAL_PRINCIPAL_KEY_BACKEND"):
+    with pytest.raises(HardCutPreflightError, match="CCL_KEY_BACKEND"):
         assert_runtime_hardcut(
             compose_file=None,
             database_urls={"DATABASE_URL": "postgresql://ok"},
             check_jsonb=False,
-            env_vars={"CARACAL_PRINCIPAL_KEY_BACKEND": "local"},
+            env_vars={"CCL_KEY_BACKEND": "local"},
         )
 
 
 @pytest.mark.unit
 def test_runtime_preflight_requires_explicit_secret_backend() -> None:
-    with pytest.raises(HardCutPreflightError, match="CARACAL_PRINCIPAL_KEY_BACKEND"):
+    with pytest.raises(HardCutPreflightError, match="CCL_KEY_BACKEND"):
         assert_runtime_hardcut(
             compose_file=None,
             database_urls={"DATABASE_URL": "postgresql://ok"},
@@ -194,7 +194,7 @@ def test_migration_preflight_blocks_sqlite_and_compat_markers_in_config(tmp_path
 @pytest.mark.unit
 def test_runtime_preflight_blocks_gateway_enabled_without_endpoint() -> None:
     env_vars = _valid_vault_env()
-    env_vars["CARACAL_GATEWAY_ENABLED"] = "true"
+    env_vars["CCL_GW_ENABLED"] = "true"
 
     # OSS runtime preflight is decoupled from enterprise gateway flags.
     assert_runtime_hardcut(
@@ -208,8 +208,8 @@ def test_runtime_preflight_blocks_gateway_enabled_without_endpoint() -> None:
 @pytest.mark.unit
 def test_runtime_preflight_blocks_conflicting_gateway_enabled_and_endpoint() -> None:
     env_vars = _valid_vault_env()
-    env_vars["CARACAL_GATEWAY_ENABLED"] = "false"
-    env_vars["CARACAL_ENTERPRISE_URL"] = "https://gateway.example"
+    env_vars["CCL_GW_ENABLED"] = "false"
+    env_vars["CCLE_URL"] = "https://gateway.example"
 
     # OSS runtime preflight is decoupled from enterprise gateway flags.
     assert_runtime_hardcut(
@@ -224,8 +224,8 @@ def test_runtime_preflight_blocks_conflicting_gateway_enabled_and_endpoint() -> 
 def test_enterprise_preflight_blocks_conflicting_gateway_enabled_and_endpoint() -> None:
     with pytest.raises(HardCutPreflightError, match="Execution exclusivity violation"):
         env_vars = _valid_vault_env()
-        env_vars["CARACAL_GATEWAY_ENABLED"] = "false"
-        env_vars["CARACAL_ENTERPRISE_URL"] = "https://gateway.example"
+        env_vars["CCL_GW_ENABLED"] = "false"
+        env_vars["CCLE_URL"] = "https://gateway.example"
         assert_enterprise_hardcut(
             database_urls={"DATABASE_URL": "postgresql://ok"},
             check_jsonb=False,
@@ -235,12 +235,12 @@ def test_enterprise_preflight_blocks_conflicting_gateway_enabled_and_endpoint() 
 
 @pytest.mark.unit
 def test_runtime_preflight_requires_vault_readiness_env() -> None:
-    with pytest.raises(HardCutPreflightError, match="CARACAL_VAULT_URL"):
+    with pytest.raises(HardCutPreflightError, match="CCL_VAULT_URL"):
         assert_runtime_hardcut(
             compose_file=None,
             database_urls={"DATABASE_URL": "postgresql://ok"},
             check_jsonb=False,
-            env_vars={"CARACAL_PRINCIPAL_KEY_BACKEND": "vault"},
+            env_vars={"CCL_KEY_BACKEND": "vault"},
         )
 
 
@@ -248,7 +248,7 @@ def test_runtime_preflight_requires_vault_readiness_env() -> None:
 def test_runtime_preflight_blocks_local_vault_mode_in_hardcut() -> None:
     with pytest.raises(HardCutPreflightError, match="Local vault mode"):
         env_vars = _valid_vault_env()
-        env_vars["CARACAL_VAULT_MODE"] = "local"
+        env_vars["CCL_VAULT_MODE"] = "local"
         assert_runtime_hardcut(
             compose_file=None,
             database_urls={"DATABASE_URL": "postgresql://ok"},
@@ -261,7 +261,7 @@ def test_runtime_preflight_blocks_local_vault_mode_in_hardcut() -> None:
 def test_runtime_preflight_blocks_legacy_hardcut_mode_variable() -> None:
     with pytest.raises(HardCutPreflightError, match="Compatibility aliases"):
         env_vars = _valid_vault_env()
-        env_vars["CARACAL_HARDCUT_MODE"] = "true"
+        env_vars["CCL_HARDCUT_MODE"] = "true"
         assert_runtime_hardcut(
             compose_file=None,
             database_urls={"DATABASE_URL": "postgresql://ok"},
@@ -274,7 +274,7 @@ def test_runtime_preflight_blocks_legacy_hardcut_mode_variable() -> None:
 def test_runtime_preflight_blocks_symmetric_session_signing_algorithm() -> None:
     with pytest.raises(HardCutPreflightError, match="asymmetric signing algorithms"):
         env_vars = _valid_vault_env()
-        env_vars["CARACAL_SESSION_SIGNING_ALGORITHM"] = "HS256"
+        env_vars["CCL_SESSION_ALG"] = "HS256"
         assert_runtime_hardcut(
             compose_file=None,
             database_urls={"DATABASE_URL": "postgresql://ok"},
@@ -287,7 +287,7 @@ def test_runtime_preflight_blocks_symmetric_session_signing_algorithm() -> None:
 def test_migration_preflight_blocks_symmetric_session_signing_algorithm() -> None:
     with pytest.raises(HardCutPreflightError, match="asymmetric signing algorithms"):
         env_vars = _valid_vault_env()
-        env_vars["CARACAL_SESSION_SIGNING_ALGORITHM"] = "HS256"
+        env_vars["CCL_SESSION_ALG"] = "HS256"
         assert_migration_hardcut(
             database_urls={"DATABASE_URL": "postgresql://ok"},
             check_jsonb=False,
@@ -298,7 +298,7 @@ def test_migration_preflight_blocks_symmetric_session_signing_algorithm() -> Non
 @pytest.mark.unit
 def test_runtime_preflight_allows_asymmetric_session_signing_algorithm() -> None:
     env_vars = _valid_vault_env()
-    env_vars["CARACAL_SESSION_SIGNING_ALGORITHM"] = "RS256"
+    env_vars["CCL_SESSION_ALG"] = "RS256"
     assert_runtime_hardcut(
         compose_file=None,
         database_urls={"DATABASE_URL": "postgresql://ok"},
@@ -311,7 +311,7 @@ def test_runtime_preflight_allows_asymmetric_session_signing_algorithm() -> None
 def test_runtime_preflight_blocks_legacy_session_signing_alias_env() -> None:
     with pytest.raises(HardCutPreflightError, match="Compatibility aliases"):
         env_vars = _valid_vault_env()
-        env_vars["CARACAL_SESSION_JWT_ALGORITHM"] = "RS256"
+        env_vars["CCL_SESSION_JWT_ALG"] = "RS256"
         assert_runtime_hardcut(
             compose_file=None,
             database_urls={"DATABASE_URL": "postgresql://ok"},

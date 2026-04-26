@@ -34,7 +34,14 @@ jobs:
       - name: Run tests
         run: >-
           uv run pytest
+          tests/unit/
+          tests/edge/
+          tests/regression/
+          tests/coverage/
+          tests/security/
+          -m "not integration"
           -n auto
+          --timeout=30
           --cov=caracal
           --cov-report=term-missing
           --cov-report=xml
