@@ -194,6 +194,7 @@ class MCPAdapterService:
         "caveat_chain",
         "caveat_hmac_key",
         "caveat_task_id",
+        "mcp_server_name",
     )
     _SERVER_CONTROLLED_TOOL_ARGUMENT_FIELDS = (
         "principal_id",
