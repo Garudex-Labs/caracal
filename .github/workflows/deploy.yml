@@ -20,8 +20,9 @@ jobs:
         with:
           fetch-depth: 0
 
+      # pnpm/action-setup v5 — pinned 2026-04-26
       - name: Setup pnpm
-        uses: pnpm/action-setup@6f8c9b7c3a5c0f9e9b7d1e6a4c2f8d5b1a3e7c9d
+        uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320
         with:
           version: 10
 
