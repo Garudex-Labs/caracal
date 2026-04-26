@@ -3,15 +3,62 @@ Unit tests for database migrations.
 
 This module tests migration execution, rollback, and schema version tracking.
 """
+import ast
+from collections import Counter
+from pathlib import Path
+from unittest.mock import MagicMock, Mock, patch
+
 import pytest
-from unittest.mock import Mock, patch, MagicMock
 from alembic.config import Config
 from alembic.script import ScriptDirectory
-
 from caracal.db.schema_version import (
     SchemaVersionManager,
     check_schema_version_on_startup,
 )
+
+REPO_ROOT = Path(__file__).resolve().parents[3]
+ALEMBIC_INI = REPO_ROOT / "packages/caracal-server/caracal/db/alembic.ini"
+MIGRATION_VERSIONS = REPO_ROOT / "packages/caracal-server/caracal/db/migrations/versions"
+
+
+def _revision_id(path: Path) -> str:
+    tree = ast.parse(path.read_text())
+    for node in tree.body:
+        if isinstance(node, ast.AnnAssign) and getattr(node.target, "id", None) == "revision":
+            if isinstance(node.value, ast.Constant) and isinstance(node.value.value, str):
+                return node.value.value
+        if isinstance(node, ast.Assign):
+            targets = [getattr(target, "id", None) for target in node.targets]
+            if "revision" in targets and isinstance(node.value, ast.Constant):
+                if isinstance(node.value.value, str):
+                    return node.value.value
+    raise AssertionError(f"Migration file has no literal revision id: {path}")
+
+
+@pytest.mark.unit
+def test_alembic_revision_graph_has_single_head_and_unique_revisions():
+    """Guard against duplicate revision IDs and unresolved branch heads."""
+    revision_by_file = {path: _revision_id(path) for path in MIGRATION_VERSIONS.glob("*.py")}
+    revision_counts = Counter(revision_by_file.values())
+    duplicate_revisions = {
+        revision: [path.name for path, value in revision_by_file.items() if value == revision]
+        for revision, count in revision_counts.items()
+        if count > 1
+    }
+
+    assert duplicate_revisions == {}
+
+    script = ScriptDirectory.from_config(Config(str(ALEMBIC_INI)))
+    heads = script.get_heads()
+
+    assert heads == [script.get_current_head()]
+
+    sync_state_add_revisions = {
+        revision for path, revision in revision_by_file.items() if path.name.endswith("_add_sync_state_tables.py")
+    }
+    active_sync_state_heads = sorted(sync_state_add_revisions.intersection(heads))
+
+    assert active_sync_state_heads == []
 
 
 @pytest.mark.unit
