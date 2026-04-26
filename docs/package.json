@@ -33,7 +33,10 @@
     "undici": "^7.25.0",
     "picomatch": ">=2.3.2",
     "path-to-regexp": ">=0.1.13",
-    "webpack": "5.102.1"
+    "postcss": "8.5.10",
+    "serialize-javascript": "7.0.5",
+    "uuid": "14.0.0",
+    "webpack": "5.104.1"
   },
   "pnpm": {
     "overrides": {
@@ -42,7 +45,10 @@
       "undici": "^7.25.0",
       "picomatch": ">=2.3.2",
       "path-to-regexp": ">=0.1.13",
-      "webpack": "5.102.1"
+      "postcss": "8.5.10",
+      "serialize-javascript": "7.0.5",
+      "uuid": "14.0.0",
+      "webpack": "5.104.1"
     }
   },
   "devDependencies": {
