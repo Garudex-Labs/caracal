@@ -154,8 +154,6 @@ class TestLoadLocalMandates:
 
 class TestLoadLocalLedger:
     def test_returns_empty_on_exception(self):
-        with patch("caracal.deployment.enterprise_sync_payload._load_local_ledger.__code__", None, create=True):
-            pass
         with patch("caracal.config.load_config", side_effect=Exception("no config")):
             result = _load_local_ledger()
         assert result == []

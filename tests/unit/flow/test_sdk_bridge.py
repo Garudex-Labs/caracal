@@ -1,8 +1,6 @@
 import pytest
 from unittest.mock import AsyncMock
 
-pytest.importorskip("aiohttp")
-
 from caracal.flow import sdk_bridge
 
 

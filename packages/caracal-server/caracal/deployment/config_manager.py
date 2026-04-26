@@ -7,6 +7,7 @@ Configuration management for Caracal deployment architecture.
 Handles system-level configuration with encryption and workspace management.
 """
 
+import base64
 import json
 import os
 import re

@@ -13,6 +13,11 @@ class CaracalError(Exception):
     pass
 
 
+class ValidationError(CaracalError):
+    """Raised when input validation fails."""
+    pass
+
+
 # Identity and Registry Errors
 class IdentityError(CaracalError):
     """Base exception for identity-related errors."""

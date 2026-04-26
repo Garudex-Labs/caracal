@@ -85,60 +85,57 @@ class TestEditionManagerGetEditionFromEnv:
         mgr.CONFIG_FILE = tmp_path / "config.toml"
         return mgr
 
-    def test_env_gateway_enabled_1(self, tmp_path):
+    def test_env_gateway_enabled_1(self, tmp_path, monkeypatch):
         mgr = self._manager_with_config(tmp_path)
-        with patch.dict(os.environ, {"CCL_GW_ENABLED": "1"}, clear=False):
-            with patch.object(mgr, "_assert_execution_exclusivity"):
-                edition = mgr.get_edition()
+        monkeypatch.setenv("CCLE_GATEWAY_ENABLED", "1")
+        with patch.object(mgr, "_assert_execution_exclusivity"):
+            edition = mgr.get_edition()
         assert edition == Edition.ENTERPRISE
 
-    def test_env_gateway_enabled_true(self, tmp_path):
+    def test_env_gateway_enabled_true(self, tmp_path, monkeypatch):
         mgr = self._manager_with_config(tmp_path)
-        with patch.dict(os.environ, {"CCL_GW_ENABLED": "true"}, clear=False):
-            with patch.object(mgr, "_assert_execution_exclusivity"):
-                edition = mgr.get_edition()
+        monkeypatch.setenv("CCLE_GATEWAY_ENABLED", "true")
+        with patch.object(mgr, "_assert_execution_exclusivity"):
+            edition = mgr.get_edition()
         assert edition == Edition.ENTERPRISE
 
-    def test_env_gateway_disabled_0(self, tmp_path):
+    def test_env_gateway_disabled_0(self, tmp_path, monkeypatch):
         mgr = self._manager_with_config(tmp_path)
-        with patch.dict(os.environ, {"CCL_GW_ENABLED": "0"}, clear=False):
-            with patch.object(mgr, "_assert_execution_exclusivity"):
-                edition = mgr.get_edition()
+        monkeypatch.setenv("CCLE_GATEWAY_ENABLED", "0")
+        with patch.object(mgr, "_assert_execution_exclusivity"):
+            edition = mgr.get_edition()
         assert edition == Edition.OPENSOURCE
 
-    def test_env_gateway_disabled_false(self, tmp_path):
+    def test_env_gateway_disabled_false(self, tmp_path, monkeypatch):
         mgr = self._manager_with_config(tmp_path)
-        with patch.dict(os.environ, {"CCL_GW_ENABLED": "false"}, clear=False):
-            with patch.object(mgr, "_assert_execution_exclusivity"):
-                edition = mgr.get_edition()
+        monkeypatch.setenv("CCLE_GATEWAY_ENABLED", "false")
+        with patch.object(mgr, "_assert_execution_exclusivity"):
+            edition = mgr.get_edition()
         assert edition == Edition.OPENSOURCE
 
-    def test_no_env_no_config_defaults_opensource(self, tmp_path):
+    def test_no_env_no_config_defaults_opensource(self, tmp_path, monkeypatch):
         mgr = self._manager_with_config(tmp_path)
-        env = {k: v for k, v in os.environ.items() if k != "CCL_GW_ENABLED"}
-        with patch.dict(os.environ, env, clear=True):
-            with patch.object(mgr, "_assert_execution_exclusivity"):
-                edition = mgr.get_edition()
+        monkeypatch.delenv("CCLE_GATEWAY_ENABLED", raising=False)
+        with patch.object(mgr, "_assert_execution_exclusivity"):
+            edition = mgr.get_edition()
         assert edition == Edition.OPENSOURCE
 
-    def test_config_file_enterprise(self, tmp_path):
+    def test_config_file_enterprise(self, tmp_path, monkeypatch):
         mgr = self._manager_with_config(tmp_path)
         config = {"edition": {"current": "enterprise"}}
         (tmp_path / "config.toml").write_text(toml.dumps(config))
-        env = {k: v for k, v in os.environ.items() if k != "CCL_GW_ENABLED"}
-        with patch.dict(os.environ, env, clear=True):
-            with patch.object(mgr, "_assert_execution_exclusivity"):
-                edition = mgr.get_edition()
+        monkeypatch.delenv("CCLE_GATEWAY_ENABLED", raising=False)
+        with patch.object(mgr, "_assert_execution_exclusivity"):
+            edition = mgr.get_edition()
         assert edition == Edition.ENTERPRISE
 
-    def test_config_file_opensource(self, tmp_path):
+    def test_config_file_opensource(self, tmp_path, monkeypatch):
         mgr = self._manager_with_config(tmp_path)
         config = {"edition": {"current": "opensource"}}
         (tmp_path / "config.toml").write_text(toml.dumps(config))
-        env = {k: v for k, v in os.environ.items() if k != "CCL_GW_ENABLED"}
-        with patch.dict(os.environ, env, clear=True):
-            with patch.object(mgr, "_assert_execution_exclusivity"):
-                edition = mgr.get_edition()
+        monkeypatch.delenv("CCLE_GATEWAY_ENABLED", raising=False)
+        with patch.object(mgr, "_assert_execution_exclusivity"):
+            edition = mgr.get_edition()
         assert edition == Edition.OPENSOURCE
 
     def test_cached_edition_returned(self, tmp_path):
@@ -147,13 +144,12 @@ class TestEditionManagerGetEditionFromEnv:
         edition = mgr.get_edition()
         assert edition == Edition.ENTERPRISE
 
-    def test_invalid_config_falls_back_to_default(self, tmp_path):
+    def test_invalid_config_falls_back_to_default(self, tmp_path, monkeypatch):
         mgr = self._manager_with_config(tmp_path)
         (tmp_path / "config.toml").write_text("this is not toml [[[")
-        env = {k: v for k, v in os.environ.items() if k != "CCL_GW_ENABLED"}
-        with patch.dict(os.environ, env, clear=True):
-            with patch.object(mgr, "_assert_execution_exclusivity"):
-                edition = mgr.get_edition()
+        monkeypatch.delenv("CCLE_GATEWAY_ENABLED", raising=False)
+        with patch.object(mgr, "_assert_execution_exclusivity"):
+            edition = mgr.get_edition()
         assert edition == Edition.OPENSOURCE
 
 
@@ -190,11 +186,11 @@ class TestEditionManagerGetGatewayUrl:
         mgr.CONFIG_FILE = tmp_path / "config.toml"
         return mgr
 
-    def test_from_env_ccle_url(self, tmp_path):
+    def test_from_env_ccle_url(self, tmp_path, monkeypatch):
         mgr = self._manager(tmp_path)
-        with patch.dict(os.environ, {"CCLE_URL": "https://gw.example.com"}, clear=False):
-            with patch("caracal.deployment.edition.EditionManager._gateway_url_from_config", return_value=None):
-                url = mgr.get_gateway_url()
+        monkeypatch.setenv("CCLE_API_URL", "https://gw.example.com")
+        with patch("caracal.deployment.edition.EditionManager._gateway_url_from_config", return_value=None):
+            url = mgr.get_gateway_url()
         assert url == "https://gw.example.com"
 
     def test_from_config_file(self, tmp_path):
@@ -205,12 +201,11 @@ class TestEditionManagerGetGatewayUrl:
             url = mgr.get_gateway_url()
         assert url == "https://config.example.com"
 
-    def test_no_config_no_env_returns_none(self, tmp_path):
+    def test_no_config_no_env_returns_none(self, tmp_path, monkeypatch):
         mgr = self._manager(tmp_path)
-        env = {k: v for k, v in os.environ.items() if k != "CCLE_URL"}
-        with patch.dict(os.environ, env, clear=True):
-            with patch("caracal.deployment.edition.EditionManager._gateway_url_from_config", return_value=None):
-                url = mgr.get_gateway_url()
+        monkeypatch.delenv("CCLE_API_URL", raising=False)
+        with patch("caracal.deployment.edition.EditionManager._gateway_url_from_config", return_value=None):
+            url = mgr.get_gateway_url()
         assert url is None
 
     def test_config_takes_priority_over_env(self, tmp_path):
@@ -314,35 +309,34 @@ class TestEditionManagerAutoDetect:
         mgr.CONFIG_FILE = tmp_path / "config.toml"
         return mgr
 
-    def test_env_yes_signals_enterprise(self, tmp_path):
+    def test_env_yes_signals_enterprise(self, tmp_path, monkeypatch):
         mgr = self._manager(tmp_path)
-        with patch.dict(os.environ, {"CCL_GW_ENABLED": "yes"}, clear=False):
-            edition = mgr._auto_detect_edition()
+        monkeypatch.setenv("CCLE_GATEWAY_ENABLED", "yes")
+        edition = mgr._auto_detect_edition()
         assert edition == Edition.ENTERPRISE
 
-    def test_env_on_signals_enterprise(self, tmp_path):
+    def test_env_on_signals_enterprise(self, tmp_path, monkeypatch):
         mgr = self._manager(tmp_path)
-        with patch.dict(os.environ, {"CCL_GW_ENABLED": "on"}, clear=False):
-            edition = mgr._auto_detect_edition()
+        monkeypatch.setenv("CCLE_GATEWAY_ENABLED", "on")
+        edition = mgr._auto_detect_edition()
         assert edition == Edition.ENTERPRISE
 
-    def test_env_no_signals_opensource(self, tmp_path):
+    def test_env_no_signals_opensource(self, tmp_path, monkeypatch):
         mgr = self._manager(tmp_path)
-        with patch.dict(os.environ, {"CCL_GW_ENABLED": "no"}, clear=False):
-            edition = mgr._auto_detect_edition()
+        monkeypatch.setenv("CCLE_GATEWAY_ENABLED", "no")
+        edition = mgr._auto_detect_edition()
         assert edition == Edition.OPENSOURCE
 
-    def test_env_off_signals_opensource(self, tmp_path):
+    def test_env_off_signals_opensource(self, tmp_path, monkeypatch):
         mgr = self._manager(tmp_path)
-        with patch.dict(os.environ, {"CCL_GW_ENABLED": "off"}, clear=False):
-            edition = mgr._auto_detect_edition()
+        monkeypatch.setenv("CCLE_GATEWAY_ENABLED", "off")
+        edition = mgr._auto_detect_edition()
         assert edition == Edition.OPENSOURCE
 
-    def test_garbage_config_value_defaults_opensource(self, tmp_path):
+    def test_garbage_config_value_defaults_opensource(self, tmp_path, monkeypatch):
         mgr = self._manager(tmp_path)
         config = {"edition": {"current": "invalid_value"}}
         (tmp_path / "config.toml").write_text(toml.dumps(config))
-        env = {k: v for k, v in os.environ.items() if k != "CCL_GW_ENABLED"}
-        with patch.dict(os.environ, env, clear=True):
-            edition = mgr._auto_detect_edition()
+        monkeypatch.delenv("CCLE_GATEWAY_ENABLED", raising=False)
+        edition = mgr._auto_detect_edition()
         assert edition == Edition.OPENSOURCE
