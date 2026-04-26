@@ -21,7 +21,7 @@ jobs:
           fetch-depth: 0
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@6f8c9b7c3a5c0f9e9b7d1e6a4c2f8d5b1a3e7c9d
         with:
           version: 10
 
