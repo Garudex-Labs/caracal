@@ -3,14 +3,12 @@
 from __future__ import annotations
 
 import ast
-import sys
 from pathlib import Path
 import re
 
 import pytest
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-from tests._caracal_source import caracal_source_roots, caracal_path  # noqa: E402
+from tests.mock.source import caracal_source_roots, caracal_path
 
 
 class _CaracalView:
