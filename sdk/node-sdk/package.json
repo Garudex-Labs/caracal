@@ -22,7 +22,7 @@
     "lint": "tsc --noEmit",
     "knip": "knip",
     "clean": "rm -rf dist",
-    "prepublish": "pnpm run build"
+    "prepack": "pnpm run clean && pnpm run build"
   },
   "keywords": [
     "caracal",
