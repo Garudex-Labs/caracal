@@ -91,13 +91,7 @@ class EnterpriseFlow:
                 MenuItem(
                     key="status",
                     label="Connection Status",
-                    description="View license details, sync API key, and sync status",
-                    icon="",
-                ),
-                MenuItem(
-                    key="sync",
-                    label="Sync to Enterprise",
-                    description="Push local data (principals, policies, mandates) to Enterprise dashboard",
+                    description="View license details and sync API key",
                     icon="",
                 ),
                 MenuItem(
@@ -391,17 +385,6 @@ class EnterpriseFlow:
             self.console.print(
                 f"[{Colors.DIM}]Use Enterprise → API Gateway when you want to sync gateway settings explicitly.[/]"
             )
-
-            # Offer to sync data now
-            self.console.print()
-            do_sync = Prompt.ask(
-                f"[{Colors.PRIMARY}]Sync local data to Enterprise now?[/]",
-                choices=["y", "n"],
-                default="y",
-            )
-            
-            if do_sync == "y":
-                self._do_sync()
         else:
             # Show detailed error with troubleshooting
             error_lines = [
@@ -473,117 +456,26 @@ class EnterpriseFlow:
         table.add_row("Features", ", ".join(info.get("features_available", [])) or "None")
         table.add_row("Expires", info.get("expires_at", "Never"))
         table.add_row("API URL", info.get("enterprise_api_url", "N/A"))
-        
-        # Sync API key
-        api_key = info.get("sync_api_key")
-        if api_key:
-            masked = api_key[:8] + "..." + api_key[-4:] if len(api_key) > 12 else api_key
-            table.add_row("Sync API Key", masked)
-        else:
-            table.add_row("Sync API Key", f"[{Colors.WARNING}]Not generated[/]")
-        
-        # Last sync info
-        last_sync = cfg.get("last_sync")
-        if last_sync:
-            table.add_row("Last Sync", last_sync.get("timestamp", "Unknown"))
-            counts = last_sync.get("counts", {})
-            counts_str = ", ".join(f"{k}: {v}" for k, v in counts.items() if v)
-            table.add_row("Last Sync Counts", counts_str or "No data synced")
-        else:
-            table.add_row("Last Sync", f"[{Colors.DIM}]Never[/]")
-        
+
         self.console.print(table)
         self.console.print()
-        
-        # Try to get remote sync status
-        try:
-            from caracal.deployment.enterprise_sync import EnterpriseSyncClient
-            client = EnterpriseSyncClient()
-            if client.test_connection():
-                self.console.print(f"[{Colors.SUCCESS}]✓ Enterprise API reachable[/]")
-            else:
-                self.console.print(f"[{Colors.WARNING}]⚠ Enterprise API not reachable[/]")
-        except Exception as exc:
-            logger.debug("Could not check Enterprise API connectivity", exc_info=True)
-            self.console.print(f"[{Colors.DIM}]Could not check API connectivity[/]")
-        
-        self.console.print()
-        Prompt.ask("Press Enter to continue", default="")
-    
-    def sync_to_enterprise(self) -> None:
-        """Push local data to Enterprise dashboard."""
-        self.console.clear()
-        
-        sync_panel = Panel(
-            f"[bold]Sync to Enterprise[/bold]\n\n"
-            f"This will push your local principals, policies, mandates, and ledger\n"
-            f"entries to the Enterprise dashboard for visualization and management.\n\n"
-            f"[{Colors.DIM}]Existing data on the Enterprise side will not be overwritten.[/]",
-            border_style=Colors.PRIMARY,
-            padding=(1, 2),
-        )
-        self.console.print(sync_panel)
-        self.console.print()
-        
-        confirm = Prompt.ask(
-            f"[{Colors.PRIMARY}]Proceed with sync?[/]",
-            choices=["y", "n"],
-            default="y",
-        )
-        
-        if confirm == "y":
-            self._do_sync()
+
+        # Check Enterprise API reachability
+        api_url = info.get("enterprise_api_url")
+        if api_url:
+            try:
+                import requests as _req
+                resp = _req.get(f"{api_url.rstrip('/')}/health", timeout=5)
+                if resp.ok:
+                    self.console.print(f"[{Colors.SUCCESS}]✓ Enterprise API reachable[/]")
+                else:
+                    self.console.print(f"[{Colors.WARNING}]⚠ Enterprise API not reachable[/]")
+            except Exception as exc:
+                logger.debug("Could not check Enterprise API connectivity", exc_info=True)
+                self.console.print(f"[{Colors.DIM}]Could not check API connectivity[/]")
         
         self.console.print()
         Prompt.ask("Press Enter to continue", default="")
-    
-    def _do_sync(self) -> None:
-        """Internal: run the actual sync and display results."""
-        self.console.print(f"\n[{Colors.DIM}]Syncing local data to Enterprise...[/]")
-        
-        try:
-            from caracal.deployment.enterprise_sync_payload import build_enterprise_sync_payload
-            from caracal.deployment.enterprise_sync import EnterpriseSyncClient
-            client = EnterpriseSyncClient()
-            payload = build_enterprise_sync_payload(
-                client_instance_id=client._client_instance_id,
-            )
-            result = client.upload_payload(payload)
-            
-            self.console.print()
-            
-            if result.success:
-                counts = result.synced_counts
-                counts_lines = []
-                for entity, count in counts.items():
-                    label = entity.replace("_", " ").title()
-                    counts_lines.append(f"  {label}: {count}")
-                
-                success_panel = Panel(
-                    f"[bold {Colors.SUCCESS}]✓ Sync completed successfully![/]\n\n"
-                    + "\n".join(counts_lines) + "\n\n"
-                    + f"[{Colors.DIM}]{result.message}[/]",
-                    border_style=Colors.SUCCESS,
-                    padding=(1, 2),
-                )
-                self.console.print(success_panel)
-                
-                if result.errors:
-                    self.console.print(f"\n[{Colors.WARNING}]Warnings ({len(result.errors)}):[/]")
-                    for err in result.errors[:5]:
-                        self.console.print(f"  [{Colors.WARNING}]• {err}[/]")
-                    if len(result.errors) > 5:
-                        self.console.print(f"  [{Colors.DIM}]... and {len(result.errors) - 5} more[/]")
-            else:
-                error_panel = Panel(
-                    f"[bold {Colors.ERROR}]Sync Failed[/]\n\n{result.message}",
-                    border_style=Colors.ERROR,
-                    padding=(1, 2),
-                )
-                self.console.print(error_panel)
-                
-        except Exception as exc:
-            self.console.print(f"\n[{Colors.ERROR}]Sync error: {exc}[/]")
     
     def disconnect_license(self) -> None:
         """Disconnect enterprise license from this workspace."""
@@ -689,8 +581,6 @@ class EnterpriseFlow:
                 self.connect_enterprise()
             elif action == "status":
                 self.show_connection_status()
-            elif action == "sync":
-                self.sync_to_enterprise()
             elif action == "disconnect":
                 self.disconnect_license()
             elif action == "contact":

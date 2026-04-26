@@ -614,7 +614,6 @@ def enterprise(ctx):
     Examples:
             caracal enterprise login https://enterprise.hooli.com <token>
             caracal enterprise status
-            caracal enterprise sync
             caracal enterprise disconnect
     """
     pass
@@ -624,13 +623,11 @@ try:
     from caracal.cli.deployment_cli import (
         enterprise_login,
         enterprise_disconnect,
-        enterprise_sync,
         enterprise_status,
     )
 
     enterprise.add_command(enterprise_login, name='login')
     enterprise.add_command(enterprise_disconnect, name='disconnect')
-    enterprise.add_command(enterprise_sync, name='sync')
     enterprise.add_command(enterprise_status, name='status')
 except ImportError:
     pass
