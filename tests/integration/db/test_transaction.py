@@ -10,13 +10,7 @@ import pytest
 class TestDatabaseTransactions:
     """Test database transaction handling."""
     
-    @pytest.fixture(autouse=True)
-    def setup(self, db_session):
-        """Set up test database."""
-        # self.db = db_session
-        pass
-    
-    async def test_transaction_commit(self):
+    def test_transaction_commit(self):
         """Test successful transaction commit."""
         # from caracal.db.connection import get_db_session
         # from caracal.db.models import Authority
@@ -36,7 +30,7 @@ class TestDatabaseTransactions:
         #     assert result.name == "test-authority"
         pass
     
-    async def test_transaction_rollback(self):
+    def test_transaction_rollback(self):
         """Test transaction rollback on error."""
         # from caracal.db.connection import get_db_session
         # from caracal.db.models import Authority
@@ -59,7 +53,7 @@ class TestDatabaseTransactions:
         #     assert result.scalar_one_or_none() is None
         pass
     
-    async def test_nested_transactions(self):
+    def test_nested_transactions(self):
         """Test nested transaction handling."""
         # from caracal.db.connection import get_db_session
         # from caracal.db.models import Authority, Mandate

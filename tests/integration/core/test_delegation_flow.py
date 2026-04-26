@@ -10,13 +10,7 @@ import pytest
 class TestDelegationFlow:
     """Test delegation workflows."""
     
-    @pytest.fixture(autouse=True)
-    def setup(self, db_session):
-        """Set up test database and dependencies."""
-        # self.db = db_session
-        pass
-    
-    async def test_create_delegation_chain(self):
+    def test_create_delegation_chain(self):
         """Test creating a delegation chain."""
         # from caracal.core.authority import Authority
         # from caracal.core.delegation import Delegation
@@ -40,7 +34,7 @@ class TestDelegationFlow:
         # assert delegation is not None
         pass
     
-    async def test_delegation_scope_restriction(self):
+    def test_delegation_scope_restriction(self):
         """Test that delegated authority cannot exceed parent scope."""
         # from caracal.core.authority import Authority
         
@@ -59,7 +53,7 @@ class TestDelegationFlow:
         #     )
         pass
     
-    async def test_revoke_delegation_chain(self):
+    def test_revoke_delegation_chain(self):
         """Test revoking a delegation chain."""
         # from caracal.core.authority import Authority
         # from caracal.core.delegation import Delegation

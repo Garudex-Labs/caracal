@@ -33,6 +33,7 @@ testpaths = ["tests"]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
+pythonpath = ["packages/caracal", "packages/caracal-server"]
 addopts = [
     "-v",
     "-p",

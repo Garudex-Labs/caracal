@@ -36,7 +36,10 @@ def in_memory_db_engine():
         "CARACAL_TEST_DB_URL",
         "postgresql://caracal:caracal@localhost:5432/caracal_test",
     )
-    engine = create_engine(test_db_url)
+    engine = create_engine(
+        test_db_url,
+        connect_args={"connect_timeout": 3},
+    )
     try:
         with engine.connect() as conn:
             conn.execute(text("SELECT 1"))
