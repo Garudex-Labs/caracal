@@ -1248,7 +1248,6 @@ def test_python_sdk_public_surface_remains_minimal_and_explicit() -> None:
         "BaseAdapter",
         "HttpAdapter",
         "MockAdapter",
-        "WebSocketAdapter",
         "GatewayAdapter",
         "GatewayAdapterError",
         "build_gateway_adapter",

@@ -148,7 +148,7 @@ class CaracalBuilder:
             CaracalBuilder()
             .set_api_key("sk_prod_123")
             .set_base_url("https://api.caracal.io")
-            .set_transport(WebSocketAdapter(url="wss://..."))
+            .set_transport(CustomAdapter(...))
             .use(ComplianceExtension(standard="soc2"))
             .build()
         )

@@ -7,5 +7,4 @@
 
 export { BaseAdapter, SDKRequest, SDKResponse } from './base';
 export { HttpAdapter } from './http';
-export { WebSocketAdapter } from './websocket';
 export { MockAdapter } from './mock';
