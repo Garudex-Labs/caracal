@@ -7,6 +7,7 @@ ensuring that delegation operations work correctly with mandate lifecycle.
 import pytest
 from uuid import uuid4
 
+from tests.mock.database import db_session, in_memory_db_engine  # noqa: F401
 from caracal.core.mandate import MandateManager
 from caracal.core.delegation_graph import DelegationGraph
 from caracal.core.principal_keys import generate_and_store_principal_keypair

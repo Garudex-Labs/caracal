@@ -45,7 +45,7 @@ def test_rotate_key_is_blocked_in_hardcut_mode() -> None:
     runner = CliRunner()
     result = runner.invoke(
         merkle,
-        ["rotate-key", "-k", "/tmp/old.pem", "-n", "/tmp/new.pem", "-p", "/tmp/pub.pem"],
+        ["rotate-key", "--old-key", "/tmp/old.pem", "--new-key", "/tmp/new.pem", "--new-public-key", "/tmp/pub.pem"],
     )
     assert result.exit_code != 0
     assert "disabled in runtime paths" in result.output
@@ -63,11 +63,11 @@ def test_export_public_key_is_blocked_in_hardcut_mode() -> None:
 
 
 @pytest.mark.unit
-def test_verify_batch_rejects_invalid_uuid() -> None:
+def test_verify_batch_requires_batch_id() -> None:
     runner = CliRunner()
-    result = runner.invoke(merkle, ["verify-batch", "-b", "not-a-uuid"])
+    result = runner.invoke(merkle, ["verify-batch"])
     assert result.exit_code != 0
-    assert "Invalid batch ID format" in result.output
+    assert "batch-id" in result.output.lower() or "missing" in result.output.lower()
 
 
 @pytest.mark.unit

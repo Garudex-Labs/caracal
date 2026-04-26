@@ -225,9 +225,9 @@ class TestComposeRuntimeImageRefs:
     ) -> None:
         compose = tmp_path / "compose.yml"
         compose.write_text(
-            "services:\n  runtime:\n    image: ${CARACAL_RUNTIME_IMAGE:-ghcr.io/caracal/runtime:latest}\n"
+            "services:\n  runtime:\n    image: ${CCL_RUNTIME_IMAGE:-ghcr.io/caracal/runtime:latest}\n"
         )
-        monkeypatch.delenv("CARACAL_RUNTIME_IMAGE", raising=False)
+        monkeypatch.delenv("CCL_RUNTIME_IMAGE", raising=False)
         refs = _compose_runtime_image_refs(compose)
         assert "ghcr.io/caracal/runtime:latest" in refs
 
@@ -236,9 +236,9 @@ class TestComposeRuntimeImageRefs:
     ) -> None:
         compose = tmp_path / "compose.yml"
         compose.write_text(
-            "services:\n  runtime:\n    image: ${CARACAL_RUNTIME_IMAGE:-ghcr.io/caracal/runtime:latest}\n"
+            "services:\n  runtime:\n    image: ${CCL_RUNTIME_IMAGE:-ghcr.io/caracal/runtime:latest}\n"
         )
-        monkeypatch.setenv("CARACAL_RUNTIME_IMAGE", "myregistry/caracal:custom")
+        monkeypatch.setenv("CCL_RUNTIME_IMAGE", "myregistry/caracal:custom")
         refs = _compose_runtime_image_refs(compose)
         assert "myregistry/caracal:custom" in refs
 
