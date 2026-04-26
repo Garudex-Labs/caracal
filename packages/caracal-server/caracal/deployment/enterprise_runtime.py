@@ -267,15 +267,9 @@ def _resolve_api_url(override: Optional[str] = None) -> str:
     if persisted_url:
         return persisted_url
 
-    enterprise_url = _normalize_enterprise_url(_read_env("CCLE_URL"))
+    enterprise_url = _normalize_enterprise_url(_read_env("CCLE_API_URL"))
     if enterprise_url:
         return enterprise_url
-
-    env_mode = (_read_env("CCL_ENV_MODE") or "dev").strip().lower()
-    if env_mode == "dev":
-        dev_url = _normalize_enterprise_url(_read_env("CCLE_DEV_URL"))
-        if dev_url:
-            return dev_url
 
     return _normalize_enterprise_url(_DEFAULT_ENTERPRISE_URL) or _DEFAULT_ENTERPRISE_URL
 

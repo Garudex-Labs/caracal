@@ -33,7 +33,7 @@ def in_memory_db_engine():
     """Provide a PostgreSQL database engine for testing."""
     base_model = _load_base_model()
     test_db_url = os.environ.get(
-        "CARACAL_TEST_DB_URL",
+        "CCL_TEST_DB_URL",
         "postgresql://caracal:caracal@localhost:5432/caracal_test",
     )
     engine = create_engine(
@@ -47,7 +47,7 @@ def in_memory_db_engine():
         engine.dispose()
         pytest.skip(
             "PostgreSQL test database unavailable (start `caracal up` or set "
-            f"CARACAL_TEST_DB_URL): {exc}"
+            f"CCL_TEST_DB_URL): {exc}"
         )
 
     # Create all tables

@@ -48,8 +48,8 @@ def test_workspace_provider_credential_round_trip(monkeypatch: pytest.MonkeyPatc
     fake_vault = _FakeVault()
     monkeypatch.setattr(credential_store, "get_vault", lambda: fake_vault)
     monkeypatch.setattr(credential_store, "vault_access_context", nullcontext)
-    monkeypatch.delenv("CARACAL_VAULT_ENVIRONMENT", raising=False)
-    monkeypatch.delenv("CARACAL_VAULT_ENV", raising=False)
+    monkeypatch.delenv("CCL_VAULT_ENVIRONMENT", raising=False)
+    monkeypatch.delenv("CCL_VAULT_ENVIRONMENT", raising=False)
 
     ref = credential_store.store_workspace_provider_credential("alpha", "openai-main", "sk-test")
 
@@ -84,8 +84,8 @@ def test_migrate_workspace_provider_credentials_rewrites_legacy_metadata_refs(
     monkeypatch.setattr(credential_store, "get_vault", lambda: fake_vault)
     monkeypatch.setattr(credential_store, "vault_access_context", nullcontext)
     monkeypatch.setattr(credential_store, "decrypt_value", lambda encrypted: f"plain::{encrypted}")
-    monkeypatch.delenv("CARACAL_VAULT_ENVIRONMENT", raising=False)
-    monkeypatch.delenv("CARACAL_VAULT_ENV", raising=False)
+    monkeypatch.delenv("CCL_VAULT_ENVIRONMENT", raising=False)
+    monkeypatch.delenv("CCL_VAULT_ENVIRONMENT", raising=False)
 
     providers = {
         "openai-main": {

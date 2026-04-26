@@ -263,7 +263,7 @@ def _run_workflow_execution_probe(root_command: click.Group) -> Dict[str, object
 
         if step_name == "db-init":
             insights.append(
-                "Database initialization failed. Ensure PostgreSQL is running and CARACAL_DB_* settings are configured before authority workflows."
+                "Database initialization failed. Ensure PostgreSQL is running and CCL_DB_* settings are configured before authority workflows."
             )
 
         if step_name == "policy-create" and "Principal not found" in output:

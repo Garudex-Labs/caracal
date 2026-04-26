@@ -31,9 +31,8 @@ def test_validate_config_rejects_software_merkle_backend_in_hardcut() -> None:
         private_key_path="/tmp/merkle_signing_key.pem",
     )
 
-    with patch.dict(os.environ, {"CARACAL_HARDCUT_MODE": "1"}, clear=False):
-        with pytest.raises(InvalidConfigurationError, match="must be 'vault'"):
-            _validate_config(config)
+    with pytest.raises(InvalidConfigurationError, match="must be 'vault'"):
+        _validate_config(config)
 
 
 @pytest.mark.unit
@@ -41,9 +40,8 @@ def test_validate_config_requires_vault_merkle_refs_in_hardcut() -> None:
     config = _base_config()
     config.merkle = MerkleConfig(signing_backend="vault")
 
-    with patch.dict(os.environ, {"CARACAL_HARDCUT_MODE": "1"}, clear=False):
-        with pytest.raises(InvalidConfigurationError, match="vault_key_ref"):
-            _validate_config(config)
+    with pytest.raises(InvalidConfigurationError, match="vault_key_ref"):
+        _validate_config(config)
 
 
 @pytest.mark.unit
@@ -55,8 +53,7 @@ def test_validate_config_accepts_vault_merkle_refs_in_hardcut() -> None:
         vault_public_key_ref="vault://caracal/runtime/merkle-signing.public",
     )
 
-    with patch.dict(os.environ, {"CARACAL_HARDCUT_MODE": "1"}, clear=False):
-        _validate_config(config)
+    _validate_config(config)
 
 
 @pytest.mark.unit
@@ -83,9 +80,8 @@ def test_load_config_normalizes_legacy_merkle_backend_for_hardcut(tmp_path: Path
     with patch.dict(
         os.environ,
         {
-            "CCL_MODE": "1",
-            "CCL_VAULT_MERKLE_KEY": "vault://caracal/runtime/merkle-signing",
-            "CCL_VAULT_MERKLE_PUB": "vault://caracal/runtime/merkle-signing.public",
+            "CCL_VAULT_MERKLE_SIGNING_KEY_REF": "vault://caracal/runtime/merkle-signing",
+            "CCL_VAULT_MERKLE_PUBLIC_KEY_REF": "vault://caracal/runtime/merkle-signing.public",
         },
         clear=False,
     ):

@@ -4,18 +4,18 @@ services:
     postgres:
         image: postgres:16-alpine
         environment:
-            POSTGRES_DB: ${CARACAL_DB_NAME:-caracal_db}
-            POSTGRES_USER: ${CARACAL_DB_USER:-caracal}
-            POSTGRES_PASSWORD: ${CARACAL_DB_PASSWORD:-caracal}
+            POSTGRES_DB: ${CCL_DB_NAME:-caracal_db}
+            POSTGRES_USER: ${CCL_DB_USER:-caracal}
+            POSTGRES_PASSWORD: ${CCL_DB_PASSWORD:?Set CCL_DB_PASSWORD to a strong database password}
             POSTGRES_INITDB_ARGS: --encoding=UTF8
-            CARACAL_VAULT_DB_NAME: ${CARACAL_VAULT_DB_NAME:-caracal_vault}
+            CCL_VAULT_DB_NAME: ${CCL_VAULT_DB_NAME:-caracal_vault}
         volumes:
             - postgres_data:/var/lib/postgresql/data
-            - ${CARACAL_POSTGRES_INIT_DIR:-./postgres-init}:/docker-entrypoint-initdb.d:ro
+            - ${CCL_POSTGRES_INIT_DIR:-./postgres-init}:/docker-entrypoint-initdb.d:ro
         healthcheck:
             test:
                 - CMD-SHELL
-                - pg_isready -U ${CARACAL_DB_USER:-caracal} -d ${CARACAL_DB_NAME:-caracal_db}
+                - pg_isready -U ${CCL_DB_USER:-caracal} -d ${CCL_DB_NAME:-caracal_db}
             interval: 10s
             timeout: 5s
             retries: 10
@@ -29,42 +29,42 @@ services:
     #
     # Production configuration knobs — set in your .env file:
     #
-    #   CARACAL_VAULT_SIDECAR_IMAGE      Override the pinned sidecar image.
-    #   CARACAL_VAULT_SIDECAR_AUTH_SECRET  JWT secret for Infisical (≥32 chars).
+    #   CCL_VAULT_SIDECAR_IMAGE      Override the pinned sidecar image.
+    #   CCL_VAULT_SIDECAR_AUTH_SECRET  JWT secret for Infisical (≥32 chars).
     #                                      Generate with: caracal vault init
-    #   CARACAL_VAULT_SIDECAR_ENCRYPTION_KEY  AES-256 key (32 hex chars).
+    #   CCL_VAULT_SIDECAR_ENCRYPTION_KEY  AES-256 key (32 hex chars).
     #                                          Generate with: caracal vault init
-    #   CARACAL_VAULT_SIDECAR_REDIS_URL        Redis URL for sidecar sessions.
-    #   CARACAL_VAULT_SIDECAR_DB_CONNECTION_URI  PostgreSQL DSN for sidecar.
-    #   CARACAL_VAULT_SIDECAR_SITE_URL         Public base URL of the sidecar.
-    #   CARACAL_VAULT_SIDECAR_PORT             Host port to bind (default 8080).
+    #   CCL_VAULT_SIDECAR_REDIS_URL        Redis URL for sidecar sessions.
+    #   CCL_VAULT_SIDECAR_DB_CONNECTION_URI  PostgreSQL DSN for sidecar.
+    #   CCL_VAULT_SIDECAR_SITE_URL         Public base URL of the sidecar.
+    #   CCL_VAULT_SIDECAR_PORT             Host port to bind (default 8080).
     #
     # MCP service vault connection knobs:
     #
-    #   CARACAL_VAULT_URL                URL of the vault sidecar from MCP.
-    #   CARACAL_VAULT_TOKEN              Infisical service-token for MCP access.
-    #   CARACAL_VAULT_WORKSPACE_ID       Infisical project/workspace UUID.
-    #   CARACAL_VAULT_ENVIRONMENT        Infisical environment slug (e.g. prod).
-    #   CARACAL_VAULT_SECRET_PATH        Secret path prefix inside the project.
-    #   CARACAL_VAULT_SIGNING_KEY_REF    Path to the mandate signing key.
-    #   CARACAL_VAULT_SESSION_PUBLIC_KEY_REF  Path to the session verify key.
-    #   CARACAL_VAULT_MERKLE_SIGNING_KEY_REF  Path to the Merkle signing key.
-    #   CARACAL_VAULT_MERKLE_PUBLIC_KEY_REF   Path to the Merkle public key.
-    #   CARACAL_VAULT_MODE               Vault operation mode (default: strict).
-    #   CARACAL_VAULT_RETRY_MAX_ATTEMPTS Max retry attempts on vault calls.
-    #   CARACAL_VAULT_RETRY_BACKOFF_SECONDS  Backoff between retries.
+    #   CCL_VAULT_URL                URL of the vault sidecar from MCP.
+    #   CCL_VAULT_TOKEN              Infisical service-token for MCP access.
+    #   CCL_VAULT_WORKSPACE_ID       Infisical project/workspace UUID.
+    #   CCL_VAULT_ENVIRONMENT        Infisical environment slug (e.g. prod).
+    #   CCL_VAULT_SECRET_PATH        Secret path prefix inside the project.
+    #   CCL_VAULT_SIGNING_KEY_REF    Path to the mandate signing key.
+    #   CCL_VAULT_SESSION_PUBLIC_KEY_REF  Path to the session verify key.
+    #   CCL_VAULT_MERKLE_SIGNING_KEY_REF  Path to the Merkle signing key.
+    #   CCL_VAULT_MERKLE_PUBLIC_KEY_REF   Path to the Merkle public key.
+    #   CCL_VAULT_MODE               Vault operation mode (default: strict).
+    #   CCL_VAULT_RETRY_MAX_ATTEMPTS Max retry attempts on vault calls.
+    #   CCL_VAULT_RETRY_BACKOFF_SECONDS  Backoff between retries.
     # ---------------------------------------------------------------------------
     vault:
-        image: ${CARACAL_VAULT_SIDECAR_IMAGE:-infisical/infisical:latest}
+        image: ${CCL_VAULT_SIDECAR_IMAGE:-${VAULT_IMAGE:-infisical/infisical:v0.93.1}}
         environment:
             NODE_ENV: production
-            AUTH_SECRET: ${CARACAL_VAULT_SIDECAR_AUTH_SECRET:-caracal-dev-auth-secret}
-            ENCRYPTION_KEY: ${CARACAL_VAULT_SIDECAR_ENCRYPTION_KEY:-f13dbc92aaaf86fa7cb0ed8ac3265f47}
-            REDIS_URL: ${CARACAL_VAULT_SIDECAR_REDIS_URL:-redis://redis:6379}
-            DB_CONNECTION_URI: ${CARACAL_VAULT_SIDECAR_DB_CONNECTION_URI:-postgresql://${CARACAL_DB_USER:-caracal}:${CARACAL_DB_PASSWORD:-caracal}@postgres:5432/${CARACAL_VAULT_DB_NAME:-caracal_vault}}
-            SITE_URL: ${CARACAL_VAULT_SIDECAR_SITE_URL:-http://localhost:8080}
+            AUTH_SECRET: ${CCL_VAULT_SIDECAR_AUTH_SECRET:-${VAULT_AUTH_SECRET:?Set CCL_VAULT_SIDECAR_AUTH_SECRET or run `caracal vault init` for local development}}
+            ENCRYPTION_KEY: ${CCL_VAULT_SIDECAR_ENCRYPTION_KEY:-${VAULT_ENC_KEY:?Set CCL_VAULT_SIDECAR_ENCRYPTION_KEY or run `caracal vault init` for local development}}
+            REDIS_URL: ${CCL_VAULT_SIDECAR_REDIS_URL:-redis://redis:6379}
+            DB_CONNECTION_URI: ${CCL_VAULT_SIDECAR_DB_CONNECTION_URI:-postgresql://${CCL_DB_USER:-caracal}:${CCL_DB_PASSWORD:?Set CCL_DB_PASSWORD to a strong database password}@postgres:5432/${CCL_VAULT_DB_NAME:-caracal_vault}}
+            SITE_URL: ${CCL_VAULT_SIDECAR_SITE_URL:-http://localhost:8080}
         ports:
-            - "${CARACAL_VAULT_SIDECAR_PORT:-8080}:8080"
+            - "${CCL_VAULT_SIDECAR_PORT:-8080}:8080"
         healthcheck:
             test:
                 - CMD-SHELL
@@ -114,34 +114,34 @@ services:
     migrator:
         profiles:
             - migrate
-        image: ${CARACAL_RUNTIME_IMAGE:-ghcr.io/garudex-labs/caracal-runtime:latest}
+        image: ${CCL_RUNTIME_IMAGE:-ghcr.io/garudex-labs/caracal-runtime:0.8.0}
         depends_on:
             postgres:
                 condition: service_healthy
         environment:
             HOME: /home/caracal
-            CARACAL_RUNTIME_IN_CONTAINER: "1"
-            CARACAL_HOME: /home/caracal/runtime
-            CARACAL_DB_HOST: postgres
-            CARACAL_DB_PORT: 5432
-            CARACAL_DB_NAME: ${CARACAL_DB_NAME:-caracal_db}
-            CARACAL_DB_USER: ${CARACAL_DB_USER:-caracal}
-            CARACAL_DB_PASSWORD: ${CARACAL_DB_PASSWORD:-caracal}
-            CARACAL_DATABASE_URL: postgresql://${CARACAL_DB_USER:-caracal}:${CARACAL_DB_PASSWORD:-caracal}@postgres:5432/${CARACAL_DB_NAME:-caracal_db}
-            CARACAL_PRINCIPAL_KEY_BACKEND: ${CARACAL_PRINCIPAL_KEY_BACKEND:-vault}
-            CARACAL_VAULT_URL: ${CARACAL_VAULT_URL:-http://vault:8080}
-            CARACAL_VAULT_TOKEN: ${CARACAL_VAULT_TOKEN:-dev-local-token}
-            CARACAL_VAULT_SIGNING_KEY_REF: ${CARACAL_VAULT_SIGNING_KEY_REF:-keys/mandate-signing}
-            CARACAL_VAULT_SESSION_PUBLIC_KEY_REF: ${CARACAL_VAULT_SESSION_PUBLIC_KEY_REF:-keys/session-public}
-            CARACAL_SESSION_SIGNING_ALGORITHM: ${CARACAL_SESSION_SIGNING_ALGORITHM:-RS256}
-            CARACAL_VAULT_MODE: ${CARACAL_VAULT_MODE:-managed}
-            CARACAL_ENV_MODE: ${CARACAL_ENV_MODE:-dev}
+            CCL_RUNTIME_IN_CONTAINER: "1"
+            CCL_HOME: /home/caracal/runtime
+            CCL_DB_HOST: postgres
+            CCL_DB_PORT: 5432
+            CCL_DB_NAME: ${CCL_DB_NAME:-caracal_db}
+            CCL_DB_USER: ${CCL_DB_USER:-caracal}
+            CCL_DB_PASSWORD: ${CCL_DB_PASSWORD:?Set CCL_DB_PASSWORD to a strong database password}
+            CCL_DB_URL: postgresql://${CCL_DB_USER:-caracal}:${CCL_DB_PASSWORD:?Set CCL_DB_PASSWORD to a strong database password}@postgres:5432/${CCL_DB_NAME:-caracal_db}
+            CCL_PRINCIPAL_KEY_BACKEND: ${CCL_PRINCIPAL_KEY_BACKEND:-vault}
+            CCL_VAULT_URL: ${CCL_VAULT_URL:-http://vault:8080}
+            CCL_VAULT_TOKEN: ${CCL_VAULT_TOKEN:-${CCL_VAULT_TOKEN:?Set CCL_VAULT_TOKEN or CCL_VAULT_TOKEN to an Infisical service token}}
+            CCL_VAULT_SIGNING_KEY_REF: ${CCL_VAULT_SIGNING_KEY_REF:-keys/mandate-signing}
+            CCL_VAULT_SESSION_PUBLIC_KEY_REF: ${CCL_VAULT_SESSION_PUBLIC_KEY_REF:-keys/session-public}
+            CCL_SESSION_SIGNING_ALGORITHM: ${CCL_SESSION_SIGNING_ALGORITHM:-RS256}
+            CCL_VAULT_MODE: ${CCL_VAULT_MODE:-managed}
+            CCL_ENV_MODE: ${CCL_ENV_MODE:-prod}
             LOG_LEVEL: ${LOG_LEVEL:-INFO}
         command:
             - caracal
             - db
             - migrate
-            - ${CARACAL_MIGRATE_DIRECTION:-up}
+            - ${CCL_MIGRATE_DIRECTION:-up}
         volumes:
             - runtime_data:/home/caracal/runtime
         networks:
@@ -152,7 +152,7 @@ services:
     bootstrap:
         profiles:
             - bootstrap
-        image: ${CARACAL_RUNTIME_IMAGE:-ghcr.io/garudex-labs/caracal-runtime:latest}
+        image: ${CCL_RUNTIME_IMAGE:-ghcr.io/garudex-labs/caracal-runtime:0.8.0}
         depends_on:
             postgres:
                 condition: service_healthy
@@ -162,25 +162,25 @@ services:
                 condition: service_healthy
         environment:
             HOME: /home/caracal
-            CARACAL_RUNTIME_IN_CONTAINER: "1"
-            CARACAL_HOME: /home/caracal/runtime
-            CARACAL_DB_HOST: postgres
-            CARACAL_DB_PORT: 5432
-            CARACAL_DB_NAME: ${CARACAL_DB_NAME:-caracal_db}
-            CARACAL_DB_USER: ${CARACAL_DB_USER:-caracal}
-            CARACAL_DB_PASSWORD: ${CARACAL_DB_PASSWORD:-caracal}
-            CARACAL_DATABASE_URL: postgresql://${CARACAL_DB_USER:-caracal}:${CARACAL_DB_PASSWORD:-caracal}@postgres:5432/${CARACAL_DB_NAME:-caracal_db}
+            CCL_RUNTIME_IN_CONTAINER: "1"
+            CCL_HOME: /home/caracal/runtime
+            CCL_DB_HOST: postgres
+            CCL_DB_PORT: 5432
+            CCL_DB_NAME: ${CCL_DB_NAME:-caracal_db}
+            CCL_DB_USER: ${CCL_DB_USER:-caracal}
+            CCL_DB_PASSWORD: ${CCL_DB_PASSWORD:?Set CCL_DB_PASSWORD to a strong database password}
+            CCL_DB_URL: postgresql://${CCL_DB_USER:-caracal}:${CCL_DB_PASSWORD:?Set CCL_DB_PASSWORD to a strong database password}@postgres:5432/${CCL_DB_NAME:-caracal_db}
             REDIS_HOST: redis
             REDIS_PORT: 6379
             REDIS_PASSWORD: ${REDIS_PASSWORD:-}
-            CARACAL_PRINCIPAL_KEY_BACKEND: ${CARACAL_PRINCIPAL_KEY_BACKEND:-vault}
-            CARACAL_VAULT_URL: ${CARACAL_VAULT_URL:-http://vault:8080}
-            CARACAL_VAULT_TOKEN: ${CARACAL_VAULT_TOKEN:-dev-local-token}
-            CARACAL_VAULT_SIGNING_KEY_REF: ${CARACAL_VAULT_SIGNING_KEY_REF:-keys/mandate-signing}
-            CARACAL_VAULT_SESSION_PUBLIC_KEY_REF: ${CARACAL_VAULT_SESSION_PUBLIC_KEY_REF:-keys/session-public}
-            CARACAL_SESSION_SIGNING_ALGORITHM: ${CARACAL_SESSION_SIGNING_ALGORITHM:-RS256}
-            CARACAL_VAULT_MODE: ${CARACAL_VAULT_MODE:-managed}
-            CARACAL_ENV_MODE: ${CARACAL_ENV_MODE:-dev}
+            CCL_PRINCIPAL_KEY_BACKEND: ${CCL_PRINCIPAL_KEY_BACKEND:-vault}
+            CCL_VAULT_URL: ${CCL_VAULT_URL:-http://vault:8080}
+            CCL_VAULT_TOKEN: ${CCL_VAULT_TOKEN:-${CCL_VAULT_TOKEN:?Set CCL_VAULT_TOKEN or CCL_VAULT_TOKEN to an Infisical service token}}
+            CCL_VAULT_SIGNING_KEY_REF: ${CCL_VAULT_SIGNING_KEY_REF:-keys/mandate-signing}
+            CCL_VAULT_SESSION_PUBLIC_KEY_REF: ${CCL_VAULT_SESSION_PUBLIC_KEY_REF:-keys/session-public}
+            CCL_SESSION_SIGNING_ALGORITHM: ${CCL_SESSION_SIGNING_ALGORITHM:-RS256}
+            CCL_VAULT_MODE: ${CCL_VAULT_MODE:-managed}
+            CCL_ENV_MODE: ${CCL_ENV_MODE:-prod}
             LOG_LEVEL: ${LOG_LEVEL:-INFO}
         command:
             - caracal
@@ -191,7 +191,7 @@ services:
             - caracal-runtime
 
     mcp:
-        image: ${CARACAL_RUNTIME_IMAGE:-ghcr.io/garudex-labs/caracal-runtime:latest}
+        image: ${CCL_RUNTIME_IMAGE:-ghcr.io/garudex-labs/caracal-runtime:0.8.0}
         depends_on:
             postgres:
                 condition: service_healthy
@@ -201,57 +201,57 @@ services:
                 condition: service_healthy
         environment:
             HOME: /home/caracal
-            CARACAL_RUNTIME_IN_CONTAINER: "1"
-            CARACAL_HOME: /home/caracal/runtime
-            CARACAL_HOST_IO_ROOT: /caracal-host-io
-            CARACAL_API_URL: http://mcp:8080
-            CARACAL_CONFIG_PATH: /home/caracal/runtime/config.yaml
-            CARACAL_MCP_LISTEN_ADDRESS: 0.0.0.0:8080
-            CARACAL_PRINCIPAL_KEY_BACKEND: ${CARACAL_PRINCIPAL_KEY_BACKEND:-vault}
-            CARACAL_VAULT_URL: ${CARACAL_VAULT_URL:-http://vault:8080}
-            CARACAL_VAULT_TOKEN: ${CARACAL_VAULT_TOKEN:-dev-local-token}
-            CARACAL_VAULT_WORKSPACE_ID: ${CARACAL_VAULT_WORKSPACE_ID:-}
-            CARACAL_VAULT_ENVIRONMENT: ${CARACAL_VAULT_ENVIRONMENT:-dev}
-            CARACAL_VAULT_SECRET_PATH: ${CARACAL_VAULT_SECRET_PATH:-/}
-            CARACAL_VAULT_SIGNING_KEY_REF: ${CARACAL_VAULT_SIGNING_KEY_REF:-keys/mandate-signing}
-            CARACAL_VAULT_SESSION_PUBLIC_KEY_REF: ${CARACAL_VAULT_SESSION_PUBLIC_KEY_REF:-keys/session-public}
-            CARACAL_VAULT_MERKLE_SIGNING_KEY_REF: ${CARACAL_VAULT_MERKLE_SIGNING_KEY_REF:-keys/merkle-signing}
-            CARACAL_VAULT_MERKLE_PUBLIC_KEY_REF: ${CARACAL_VAULT_MERKLE_PUBLIC_KEY_REF:-keys/merkle-signing-public}
-            CARACAL_SESSION_SIGNING_ALGORITHM: ${CARACAL_SESSION_SIGNING_ALGORITHM:-RS256}
-            CARACAL_VAULT_MODE: ${CARACAL_VAULT_MODE:-managed}
-            CARACAL_VAULT_RETRY_MAX_ATTEMPTS: ${CARACAL_VAULT_RETRY_MAX_ATTEMPTS:-3}
-            CARACAL_VAULT_RETRY_BACKOFF_SECONDS: ${CARACAL_VAULT_RETRY_BACKOFF_SECONDS:-0.2}
-            CARACAL_ENV_MODE: ${CARACAL_ENV_MODE:-dev}
-            CARACAL_DEBUG_LOGS: ${CARACAL_DEBUG_LOGS:-false}
-            CARACAL_JSON_LOGS: ${CARACAL_JSON_LOGS:-false}
-            CARACAL_DB_HOST: postgres
-            CARACAL_DB_PORT: 5432
-            CARACAL_DB_NAME: ${CARACAL_DB_NAME:-caracal_db}
-            CARACAL_DB_USER: ${CARACAL_DB_USER:-caracal}
-            CARACAL_DB_PASSWORD: ${CARACAL_DB_PASSWORD:-caracal}
+            CCL_RUNTIME_IN_CONTAINER: "1"
+            CCL_HOME: /home/caracal/runtime
+            CCL_HOST_IO_ROOT: /caracal-host-io
+            CCL_API_URL: http://mcp:8080
+            CCL_CONFIG_PATH: /home/caracal/runtime/config.yaml
+            CCL_MCP_LISTEN_ADDRESS: 0.0.0.0:8080
+            CCL_PRINCIPAL_KEY_BACKEND: ${CCL_PRINCIPAL_KEY_BACKEND:-vault}
+            CCL_VAULT_URL: ${CCL_VAULT_URL:-http://vault:8080}
+            CCL_VAULT_TOKEN: ${CCL_VAULT_TOKEN:-${CCL_VAULT_TOKEN:?Set CCL_VAULT_TOKEN or CCL_VAULT_TOKEN to an Infisical service token}}
+            CCL_VAULT_WORKSPACE_ID: ${CCL_VAULT_WORKSPACE_ID:-}
+            CCL_VAULT_ENVIRONMENT: ${CCL_VAULT_ENVIRONMENT:-dev}
+            CCL_VAULT_SECRET_PATH: ${CCL_VAULT_SECRET_PATH:-/}
+            CCL_VAULT_SIGNING_KEY_REF: ${CCL_VAULT_SIGNING_KEY_REF:-keys/mandate-signing}
+            CCL_VAULT_SESSION_PUBLIC_KEY_REF: ${CCL_VAULT_SESSION_PUBLIC_KEY_REF:-keys/session-public}
+            CCL_VAULT_MERKLE_SIGNING_KEY_REF: ${CCL_VAULT_MERKLE_SIGNING_KEY_REF:-keys/merkle-signing}
+            CCL_VAULT_MERKLE_PUBLIC_KEY_REF: ${CCL_VAULT_MERKLE_PUBLIC_KEY_REF:-keys/merkle-signing-public}
+            CCL_SESSION_SIGNING_ALGORITHM: ${CCL_SESSION_SIGNING_ALGORITHM:-RS256}
+            CCL_VAULT_MODE: ${CCL_VAULT_MODE:-managed}
+            CCL_VAULT_RETRY_MAX_ATTEMPTS: ${CCL_VAULT_RETRY_MAX_ATTEMPTS:-3}
+            CCL_VAULT_RETRY_BACKOFF_SECONDS: ${CCL_VAULT_RETRY_BACKOFF_SECONDS:-0.2}
+            CCL_ENV_MODE: ${CCL_ENV_MODE:-prod}
+            CCL_DEBUG_LOGS: ${CCL_DEBUG_LOGS:-false}
+            CCL_JSON_LOGS: ${CCL_JSON_LOGS:-false}
+            CCL_DB_HOST: postgres
+            CCL_DB_PORT: 5432
+            CCL_DB_NAME: ${CCL_DB_NAME:-caracal_db}
+            CCL_DB_USER: ${CCL_DB_USER:-caracal}
+            CCL_DB_PASSWORD: ${CCL_DB_PASSWORD:?Set CCL_DB_PASSWORD to a strong database password}
             REDIS_HOST: redis
             REDIS_PORT: 6379
             REDIS_PASSWORD: ${REDIS_PASSWORD:-}
-            CARACAL_AIS_ATTESTATION_NONCE: ${CARACAL_AIS_ATTESTATION_NONCE:-}
-            CARACAL_AIS_ATTESTATION_PRINCIPAL_ID: ${CARACAL_AIS_ATTESTATION_PRINCIPAL_ID:-}
-            CARACAL_SESSION_CAVEAT_HMAC_KEY: ${CARACAL_SESSION_CAVEAT_HMAC_KEY:-}
-            CARACAL_AIS_API_PREFIX: ${CARACAL_AIS_API_PREFIX:-/v1/ais}
-            CARACAL_AIS_UNIX_SOCKET_PATH: ${CARACAL_AIS_UNIX_SOCKET_PATH:-/tmp/caracal-ais.sock}
-            CARACAL_AIS_LISTEN_HOST: ${CARACAL_AIS_LISTEN_HOST:-127.0.0.1}
-            CARACAL_AIS_LISTEN_PORT: ${CARACAL_AIS_LISTEN_PORT:-7079}
-            CARACAL_AIS_HEALTHCHECK_TIMEOUT_SECONDS: ${CARACAL_AIS_HEALTHCHECK_TIMEOUT_SECONDS:-3}
-            CARACAL_AIS_HEALTHCHECK_INTERVAL_SECONDS: ${CARACAL_AIS_HEALTHCHECK_INTERVAL_SECONDS:-10}
-            CARACAL_AIS_STARTUP_TIMEOUT_SECONDS: ${CARACAL_AIS_STARTUP_TIMEOUT_SECONDS:-30}
-            CARACAL_AIS_MAX_RESTARTS: ${CARACAL_AIS_MAX_RESTARTS:-3}
+            CCL_AIS_ATTESTATION_NONCE: ${CCL_AIS_ATTESTATION_NONCE:-}
+            CCL_AIS_ATTESTATION_PRINCIPAL_ID: ${CCL_AIS_ATTESTATION_PRINCIPAL_ID:-}
+            CCL_SESSION_CAVEAT_HMAC_KEY: ${CCL_SESSION_CAVEAT_HMAC_KEY:-}
+            CCL_AIS_API_PREFIX: ${CCL_AIS_API_PREFIX:-/v1/ais}
+            CCL_AIS_UNIX_SOCKET_PATH: ${CCL_AIS_UNIX_SOCKET_PATH:-/tmp/caracal-ais.sock}
+            CCL_AIS_LISTEN_HOST: ${CCL_AIS_LISTEN_HOST:-127.0.0.1}
+            CCL_AIS_LISTEN_PORT: ${CCL_AIS_LISTEN_PORT:-7079}
+            CCL_AIS_HEALTHCHECK_TIMEOUT_SECONDS: ${CCL_AIS_HEALTHCHECK_TIMEOUT_SECONDS:-3}
+            CCL_AIS_HEALTHCHECK_INTERVAL_SECONDS: ${CCL_AIS_HEALTHCHECK_INTERVAL_SECONDS:-10}
+            CCL_AIS_STARTUP_TIMEOUT_SECONDS: ${CCL_AIS_STARTUP_TIMEOUT_SECONDS:-30}
+            CCL_AIS_MAX_RESTARTS: ${CCL_AIS_MAX_RESTARTS:-3}
             LOG_LEVEL: ${LOG_LEVEL:-INFO}
         command:
             - caracal
             - runtime-mcp
         volumes:
             - runtime_data:/home/caracal/runtime
-            - ${CARACAL_HOST_IO_DIR:-./caracal-host-io}:/caracal-host-io:z
+            - ${CCL_HOST_IO_DIR:-./caracal-host-io}:/caracal-host-io:z
         ports:
-            - ${CARACAL_API_PORT:-8000}:8080
+            - ${CCL_API_PORT:-8000}:8080
         healthcheck:
             test:
                 - CMD
@@ -269,7 +269,7 @@ services:
     cli:
         profiles:
             - tools
-        image: ${CARACAL_RUNTIME_IMAGE:-ghcr.io/garudex-labs/caracal-runtime:latest}
+        image: ${CCL_RUNTIME_IMAGE:-ghcr.io/garudex-labs/caracal-runtime:0.8.0}
         depends_on:
             postgres:
                 condition: service_healthy
@@ -279,33 +279,33 @@ services:
                 condition: service_healthy
         environment:
             HOME: /home/caracal
-            CARACAL_RUNTIME_IN_CONTAINER: "1"
-            CARACAL_HOME: /home/caracal/runtime
-            CARACAL_HOST_IO_ROOT: /caracal-host-io
-            CARACAL_API_URL: http://mcp:8080
-            CARACAL_CONFIG_PATH: /home/caracal/runtime/config.yaml
-            CARACAL_PRINCIPAL_KEY_BACKEND: ${CARACAL_PRINCIPAL_KEY_BACKEND:-vault}
-            CARACAL_VAULT_URL: ${CARACAL_VAULT_URL:-http://vault:8080}
-            CARACAL_VAULT_TOKEN: ${CARACAL_VAULT_TOKEN:-dev-local-token}
-            CARACAL_VAULT_WORKSPACE_ID: ${CARACAL_VAULT_WORKSPACE_ID:-}
-            CARACAL_VAULT_ENVIRONMENT: ${CARACAL_VAULT_ENVIRONMENT:-dev}
-            CARACAL_VAULT_SECRET_PATH: ${CARACAL_VAULT_SECRET_PATH:-/}
-            CARACAL_VAULT_SIGNING_KEY_REF: ${CARACAL_VAULT_SIGNING_KEY_REF:-keys/mandate-signing}
-            CARACAL_VAULT_SESSION_PUBLIC_KEY_REF: ${CARACAL_VAULT_SESSION_PUBLIC_KEY_REF:-keys/session-public}
-            CARACAL_VAULT_MERKLE_SIGNING_KEY_REF: ${CARACAL_VAULT_MERKLE_SIGNING_KEY_REF:-keys/merkle-signing}
-            CARACAL_VAULT_MERKLE_PUBLIC_KEY_REF: ${CARACAL_VAULT_MERKLE_PUBLIC_KEY_REF:-keys/merkle-signing-public}
-            CARACAL_SESSION_SIGNING_ALGORITHM: ${CARACAL_SESSION_SIGNING_ALGORITHM:-RS256}
-            CARACAL_VAULT_MODE: ${CARACAL_VAULT_MODE:-managed}
-            CARACAL_VAULT_RETRY_MAX_ATTEMPTS: ${CARACAL_VAULT_RETRY_MAX_ATTEMPTS:-3}
-            CARACAL_VAULT_RETRY_BACKOFF_SECONDS: ${CARACAL_VAULT_RETRY_BACKOFF_SECONDS:-0.2}
-            CARACAL_ENV_MODE: ${CARACAL_ENV_MODE:-dev}
-            CARACAL_DEBUG_LOGS: ${CARACAL_DEBUG_LOGS:-false}
-            CARACAL_JSON_LOGS: ${CARACAL_JSON_LOGS:-false}
-            CARACAL_DB_HOST: postgres
-            CARACAL_DB_PORT: 5432
-            CARACAL_DB_NAME: ${CARACAL_DB_NAME:-caracal_db}
-            CARACAL_DB_USER: ${CARACAL_DB_USER:-caracal}
-            CARACAL_DB_PASSWORD: ${CARACAL_DB_PASSWORD:-caracal}
+            CCL_RUNTIME_IN_CONTAINER: "1"
+            CCL_HOME: /home/caracal/runtime
+            CCL_HOST_IO_ROOT: /caracal-host-io
+            CCL_API_URL: http://mcp:8080
+            CCL_CONFIG_PATH: /home/caracal/runtime/config.yaml
+            CCL_PRINCIPAL_KEY_BACKEND: ${CCL_PRINCIPAL_KEY_BACKEND:-vault}
+            CCL_VAULT_URL: ${CCL_VAULT_URL:-http://vault:8080}
+            CCL_VAULT_TOKEN: ${CCL_VAULT_TOKEN:-${CCL_VAULT_TOKEN:?Set CCL_VAULT_TOKEN or CCL_VAULT_TOKEN to an Infisical service token}}
+            CCL_VAULT_WORKSPACE_ID: ${CCL_VAULT_WORKSPACE_ID:-}
+            CCL_VAULT_ENVIRONMENT: ${CCL_VAULT_ENVIRONMENT:-dev}
+            CCL_VAULT_SECRET_PATH: ${CCL_VAULT_SECRET_PATH:-/}
+            CCL_VAULT_SIGNING_KEY_REF: ${CCL_VAULT_SIGNING_KEY_REF:-keys/mandate-signing}
+            CCL_VAULT_SESSION_PUBLIC_KEY_REF: ${CCL_VAULT_SESSION_PUBLIC_KEY_REF:-keys/session-public}
+            CCL_VAULT_MERKLE_SIGNING_KEY_REF: ${CCL_VAULT_MERKLE_SIGNING_KEY_REF:-keys/merkle-signing}
+            CCL_VAULT_MERKLE_PUBLIC_KEY_REF: ${CCL_VAULT_MERKLE_PUBLIC_KEY_REF:-keys/merkle-signing-public}
+            CCL_SESSION_SIGNING_ALGORITHM: ${CCL_SESSION_SIGNING_ALGORITHM:-RS256}
+            CCL_VAULT_MODE: ${CCL_VAULT_MODE:-managed}
+            CCL_VAULT_RETRY_MAX_ATTEMPTS: ${CCL_VAULT_RETRY_MAX_ATTEMPTS:-3}
+            CCL_VAULT_RETRY_BACKOFF_SECONDS: ${CCL_VAULT_RETRY_BACKOFF_SECONDS:-0.2}
+            CCL_ENV_MODE: ${CCL_ENV_MODE:-prod}
+            CCL_DEBUG_LOGS: ${CCL_DEBUG_LOGS:-false}
+            CCL_JSON_LOGS: ${CCL_JSON_LOGS:-false}
+            CCL_DB_HOST: postgres
+            CCL_DB_PORT: 5432
+            CCL_DB_NAME: ${CCL_DB_NAME:-caracal_db}
+            CCL_DB_USER: ${CCL_DB_USER:-caracal}
+            CCL_DB_PASSWORD: ${CCL_DB_PASSWORD:?Set CCL_DB_PASSWORD to a strong database password}
             REDIS_HOST: redis
             REDIS_PORT: 6379
             REDIS_PASSWORD: ${REDIS_PASSWORD:-}
@@ -314,7 +314,7 @@ services:
             - caracal
         volumes:
             - runtime_data:/home/caracal/runtime
-            - ${CARACAL_HOST_IO_DIR:-./caracal-host-io}:/caracal-host-io:z
+            - ${CCL_HOST_IO_DIR:-./caracal-host-io}:/caracal-host-io:z
         stdin_open: true
         tty: true
         networks:
@@ -323,7 +323,7 @@ services:
     flow:
         profiles:
             - tui
-        image: ${CARACAL_RUNTIME_IMAGE:-ghcr.io/garudex-labs/caracal-runtime:latest}
+        image: ${CCL_RUNTIME_IMAGE:-ghcr.io/garudex-labs/caracal-runtime:0.8.0}
         depends_on:
             postgres:
                 condition: service_healthy
@@ -333,35 +333,35 @@ services:
                 condition: service_healthy
         environment:
             HOME: /home/caracal
-            CARACAL_RUNTIME_IN_CONTAINER: "1"
-            CARACAL_HOME: /home/caracal/runtime
-            CARACAL_HOST_IO_ROOT: /caracal-host-io
-            CARACAL_API_URL: http://mcp:8080
-            CARACAL_CONFIG_PATH: /home/caracal/runtime/config.yaml
-            CARACAL_PRINCIPAL_KEY_BACKEND: ${CARACAL_PRINCIPAL_KEY_BACKEND:-vault}
-            CARACAL_VAULT_URL: ${CARACAL_VAULT_URL:-http://vault:8080}
-            CARACAL_VAULT_TOKEN: ${CARACAL_VAULT_TOKEN:-dev-local-token}
-            CARACAL_VAULT_WORKSPACE_ID: ${CARACAL_VAULT_WORKSPACE_ID:-}
-            CARACAL_VAULT_ENVIRONMENT: ${CARACAL_VAULT_ENVIRONMENT:-dev}
-            CARACAL_VAULT_SECRET_PATH: ${CARACAL_VAULT_SECRET_PATH:-/}
-            CARACAL_VAULT_SIGNING_KEY_REF: ${CARACAL_VAULT_SIGNING_KEY_REF:-keys/mandate-signing}
-            CARACAL_VAULT_SESSION_PUBLIC_KEY_REF: ${CARACAL_VAULT_SESSION_PUBLIC_KEY_REF:-keys/session-public}
-            CARACAL_VAULT_MERKLE_SIGNING_KEY_REF: ${CARACAL_VAULT_MERKLE_SIGNING_KEY_REF:-keys/merkle-signing}
-            CARACAL_VAULT_MERKLE_PUBLIC_KEY_REF: ${CARACAL_VAULT_MERKLE_PUBLIC_KEY_REF:-keys/merkle-signing-public}
-            CARACAL_SESSION_SIGNING_ALGORITHM: ${CARACAL_SESSION_SIGNING_ALGORITHM:-RS256}
-            CARACAL_VAULT_MODE: ${CARACAL_VAULT_MODE:-managed}
-            CARACAL_VAULT_RETRY_MAX_ATTEMPTS: ${CARACAL_VAULT_RETRY_MAX_ATTEMPTS:-3}
-            CARACAL_VAULT_RETRY_BACKOFF_SECONDS: ${CARACAL_VAULT_RETRY_BACKOFF_SECONDS:-0.2}
-            CARACAL_ENV_MODE: ${CARACAL_ENV_MODE:-dev}
-            CARACAL_DEBUG_LOGS: ${CARACAL_DEBUG_LOGS:-false}
-            CARACAL_JSON_LOGS: ${CARACAL_JSON_LOGS:-false}
+            CCL_RUNTIME_IN_CONTAINER: "1"
+            CCL_HOME: /home/caracal/runtime
+            CCL_HOST_IO_ROOT: /caracal-host-io
+            CCL_API_URL: http://mcp:8080
+            CCL_CONFIG_PATH: /home/caracal/runtime/config.yaml
+            CCL_PRINCIPAL_KEY_BACKEND: ${CCL_PRINCIPAL_KEY_BACKEND:-vault}
+            CCL_VAULT_URL: ${CCL_VAULT_URL:-http://vault:8080}
+            CCL_VAULT_TOKEN: ${CCL_VAULT_TOKEN:-${CCL_VAULT_TOKEN:?Set CCL_VAULT_TOKEN or CCL_VAULT_TOKEN to an Infisical service token}}
+            CCL_VAULT_WORKSPACE_ID: ${CCL_VAULT_WORKSPACE_ID:-}
+            CCL_VAULT_ENVIRONMENT: ${CCL_VAULT_ENVIRONMENT:-dev}
+            CCL_VAULT_SECRET_PATH: ${CCL_VAULT_SECRET_PATH:-/}
+            CCL_VAULT_SIGNING_KEY_REF: ${CCL_VAULT_SIGNING_KEY_REF:-keys/mandate-signing}
+            CCL_VAULT_SESSION_PUBLIC_KEY_REF: ${CCL_VAULT_SESSION_PUBLIC_KEY_REF:-keys/session-public}
+            CCL_VAULT_MERKLE_SIGNING_KEY_REF: ${CCL_VAULT_MERKLE_SIGNING_KEY_REF:-keys/merkle-signing}
+            CCL_VAULT_MERKLE_PUBLIC_KEY_REF: ${CCL_VAULT_MERKLE_PUBLIC_KEY_REF:-keys/merkle-signing-public}
+            CCL_SESSION_SIGNING_ALGORITHM: ${CCL_SESSION_SIGNING_ALGORITHM:-RS256}
+            CCL_VAULT_MODE: ${CCL_VAULT_MODE:-managed}
+            CCL_VAULT_RETRY_MAX_ATTEMPTS: ${CCL_VAULT_RETRY_MAX_ATTEMPTS:-3}
+            CCL_VAULT_RETRY_BACKOFF_SECONDS: ${CCL_VAULT_RETRY_BACKOFF_SECONDS:-0.2}
+            CCL_ENV_MODE: ${CCL_ENV_MODE:-prod}
+            CCL_DEBUG_LOGS: ${CCL_DEBUG_LOGS:-false}
+            CCL_JSON_LOGS: ${CCL_JSON_LOGS:-false}
             TERM: xterm-256color
             COLORTERM: truecolor
-            CARACAL_DB_HOST: postgres
-            CARACAL_DB_PORT: 5432
-            CARACAL_DB_NAME: ${CARACAL_DB_NAME:-caracal_db}
-            CARACAL_DB_USER: ${CARACAL_DB_USER:-caracal}
-            CARACAL_DB_PASSWORD: ${CARACAL_DB_PASSWORD:-caracal}
+            CCL_DB_HOST: postgres
+            CCL_DB_PORT: 5432
+            CCL_DB_NAME: ${CCL_DB_NAME:-caracal_db}
+            CCL_DB_USER: ${CCL_DB_USER:-caracal}
+            CCL_DB_PASSWORD: ${CCL_DB_PASSWORD:?Set CCL_DB_PASSWORD to a strong database password}
             REDIS_HOST: redis
             REDIS_PORT: 6379
             REDIS_PASSWORD: ${REDIS_PASSWORD:-}
@@ -372,7 +372,7 @@ services:
             - caracal.flow.main
         volumes:
             - runtime_data:/home/caracal/runtime
-            - ${CARACAL_HOST_IO_DIR:-./caracal-host-io}:/caracal-host-io:z
+            - ${CCL_HOST_IO_DIR:-./caracal-host-io}:/caracal-host-io:z
         stdin_open: true
         tty: true
         networks:
@@ -385,4 +385,4 @@ volumes:
 
 networks:
     caracal-runtime:
-        name: ${CARACAL_RUNTIME_NETWORK:-caracal-runtime}
+        name: ${CCL_RUNTIME_NETWORK:-caracal-runtime}

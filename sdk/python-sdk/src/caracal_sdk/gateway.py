@@ -9,7 +9,7 @@ enterprise gateway instead of calling the broker API directly.
 
 OSS: behaves identically to the standard HTTP adapter (broker mode).
 Enterprise: wraps every request with the gateway's auth headers and routes
-            through CARACAL_ENTERPRISE_URL, gaining network-level enforcement.
+            through CCLE_API_URL, gaining network-level enforcement.
 
 Usage (explicit gateway execution signals from environment / config):
 
@@ -102,13 +102,13 @@ def get_gateway_features() -> GatewayFeatureFlags:
         )
 
     return GatewayFeatureFlags(
-        gateway_enabled=_bool_env("CARACAL_GATEWAY_ENABLED"),
-        gateway_endpoint=os.getenv("CARACAL_ENTERPRISE_URL", "").strip() or None,
-        gateway_api_key=os.getenv("CARACAL_GATEWAY_API_KEY", "").strip() or None,
+        gateway_enabled=_bool_env("CCLE_GATEWAY_ENABLED"),
+        gateway_endpoint=os.getenv("CCLE_API_URL", "").strip() or None,
+        gateway_api_key=os.getenv("CCLE_GATEWAY_API_KEY", "").strip() or None,
         deployment_type=os.getenv(
-            "CARACAL_GATEWAY_DEPLOYMENT_TYPE", DEPLOYMENT_OSS
+            "CCLE_GATEWAY_DEPLOYMENT_TYPE", DEPLOYMENT_OSS
         ).strip().lower(),
-        fail_closed=_bool_env("CARACAL_GATEWAY_FAIL_CLOSED"),
+        fail_closed=_bool_env("CCLE_GATEWAY_FAIL_CLOSED"),
     )
 
 logger = get_logger(__name__)
@@ -153,9 +153,9 @@ class GatewayAdapter(BaseAdapter):
         """
         Args:
             gateway_endpoint: Base URL of the enterprise gateway proxy.
-                              Defaults to CARACAL_ENTERPRISE_URL env var.
+                              Defaults to CCLE_API_URL env var.
             gateway_api_key: API key for gateway authentication.
-                             Defaults to CARACAL_GATEWAY_API_KEY env var.
+                             Defaults to CCLE_GATEWAY_API_KEY env var.
             workspace_id: Workspace identifier injected into every request.
             broker_base_url: Caracal API URL used for explicit broker-mode calls.
             timeout_seconds: HTTP request timeout.
@@ -341,7 +341,7 @@ def build_gateway_adapter(
     """
     Convenience factory: build a GatewayAdapter from environment feature flags.
 
-    Returns a GatewayAdapter configured from CARACAL_GATEWAY_* env vars.
+    Returns a GatewayAdapter configured from CCLE_GATEWAY_* env vars.
     OSS users without gateway flags configured must provide an explicit
     broker base URL if they want direct broker transport.
     """

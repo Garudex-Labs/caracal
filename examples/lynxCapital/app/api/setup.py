@@ -20,9 +20,9 @@ logger = logging.getLogger(__name__)
 
 def _env() -> dict[str, str]:
     return {
-        "api_key":      os.environ.get("CARACAL_API_KEY", ""),
-        "api_url":      os.environ.get("CARACAL_API_URL", ""),
-        "workspace_id": os.environ.get("CARACAL_WORKSPACE_ID", ""),
+        "api_key":      os.environ.get("CCL_API_KEY", ""),
+        "api_url":      os.environ.get("CCL_API_URL", ""),
+        "workspace_id": os.environ.get("CCL_WORKSPACE_ID", ""),
     }
 
 
@@ -48,7 +48,7 @@ async def validate_setup(request: Request):
         "id":      "env",
         "label":   "Environment variables set",
         "ok":      env_ok,
-        "detail":  "CARACAL_API_KEY, CARACAL_API_URL, CARACAL_WORKSPACE_ID" if env_ok
+        "detail":  "CCL_API_KEY, CCL_API_URL, CCL_WORKSPACE_ID" if env_ok
                    else "One or more required env vars are missing.",
     })
 
@@ -106,9 +106,9 @@ _MANDATES_SQL = (
 
 
 def _query_db(sql: str) -> list:
-    db_name = os.environ.get("CARACAL_DB_NAME", "caracal_db")
-    db_user = os.environ.get("CARACAL_DB_USER", "caracal")
-    db_pass = os.environ.get("CARACAL_DB_PASSWORD", "caracal")
+    db_name = os.environ.get("CCL_DB_NAME", "caracal_db")
+    db_user = os.environ.get("CCL_DB_USER", "caracal")
+    db_pass = os.environ.get("CCL_DB_PASSWORD", "caracal")
     result = subprocess.run(
         [
             "docker", "exec",

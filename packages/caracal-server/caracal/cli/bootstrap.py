@@ -176,8 +176,8 @@ def bootstrap(ctx, force: bool, rotate_api_key: bool) -> None:
         api_key_action = "reused"
 
     _write_env_vars(env_path, {
-        "CCL_AIS_NONCE": issued.nonce,
-        "CCL_AIS_ATTEST_PID": principal_id,
+        "CCL_AIS_ATTESTATION_NONCE": issued.nonce,
+        "CCL_AIS_ATTESTATION_PRINCIPAL_ID": principal_id,
         "CCL_SESSION_HMAC": caveat_hmac_key,
         "CCL_API_KEY": api_key,
     })

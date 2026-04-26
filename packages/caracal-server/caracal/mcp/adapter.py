@@ -1398,14 +1398,9 @@ class MCPAdapter:
                 if value:
                     return value
 
-        for env_key in (
-            "CCL_WORKSPACE",
-            "CCL_WS_NAME",
-            "CCL_WS_ID",
-        ):
-            env_value = str(os.environ.get(env_key) or "").strip()
-            if env_value:
-                return env_value
+        env_value = str(os.environ.get("CCL_WORKSPACE_ID") or "").strip()
+        if env_value:
+            return env_value
 
         try:
             from caracal.deployment.config_manager import ConfigManager

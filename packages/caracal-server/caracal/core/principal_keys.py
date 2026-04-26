@@ -27,12 +27,10 @@ from caracal.logging_config import get_logger
 logger = get_logger(__name__)
 
 _VAULT_BACKEND = PrincipalKeyBackend.VAULT.value
-_VAULT_BACKEND_ENV = "CCL_KEY_BACKEND"
-_VAULT_WORKSPACE_ENV = "CCL_VAULT_WS_ID"
-_VAULT_ENV_ENV = "CCL_VAULT_ENV_ID"
-
-_VAULT_ENVIRONMENT_ENV = "CCL_VAULT_ENV"
-_VAULT_KEY_PREFIX_ENV = "CCL_VAULT_KEY_PREFIX"
+_VAULT_BACKEND_ENV = "CCL_PRINCIPAL_KEY_BACKEND"
+_VAULT_WORKSPACE_ENV = "CCL_VAULT_WORKSPACE_ID"
+_VAULT_ENV_ENV = "CCL_VAULT_ENVIRONMENT"
+_VAULT_KEY_PREFIX_ENV = "CCL_VAULT_PRINCIPAL_KEY_PREFIX"
 
 _DEFAULT_VAULT_WORKSPACE = "caracal"
 _DEFAULT_VAULT_ENV = "runtime"
@@ -61,7 +59,7 @@ class PrincipalKeyStorageError(RuntimeError):
 
 
 def _resolve_backend() -> str:
-    backend = os.getenv(_VAULT_BACKEND_ENV, _VAULT_BACKEND).strip().lower()
+    backend = (os.getenv(_VAULT_BACKEND_ENV) or _VAULT_BACKEND).strip().lower()
     if backend != _VAULT_BACKEND:
         raise PrincipalKeyStorageError(
             f"{_VAULT_BACKEND_ENV}={backend!r} is unsupported. "
@@ -71,16 +69,8 @@ def _resolve_backend() -> str:
 
 
 def _resolve_vault_context() -> tuple[str, str]:
-    workspace_id = (
-        os.getenv(_VAULT_WORKSPACE_ENV)
-        or os.getenv(_VAULT_WORKSPACE_ENV)
-        or _DEFAULT_VAULT_WORKSPACE
-    ).strip()
-    env_id = (
-        os.getenv(_VAULT_ENV_ENV)
-        or os.getenv(_VAULT_ENVIRONMENT_ENV)
-        or _DEFAULT_VAULT_ENV
-    ).strip()
+    workspace_id = (os.getenv(_VAULT_WORKSPACE_ENV) or _DEFAULT_VAULT_WORKSPACE).strip()
+    env_id = (os.getenv(_VAULT_ENV_ENV) or _DEFAULT_VAULT_ENV).strip()
 
     if workspace_id:
         try:

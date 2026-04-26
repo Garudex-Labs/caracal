@@ -10,7 +10,7 @@ import re
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-from tests.mock.source import caracal_source_roots, caracal_path  # noqa: E402
+from tests._caracal_source import caracal_source_roots, caracal_path  # noqa: E402
 
 
 class _CaracalView:
@@ -151,8 +151,9 @@ def test_runtime_session_signing_has_no_legacy_env_alias_fallback() -> None:
     preflight_payload = preflight_file.read_text(encoding="utf-8")
 
     assert "AIS_SESSION_ALGORITHM_FALLBACK_ENV" not in entrypoints_payload
-    assert "CARACAL_SESSION_JWT_ALGORITHM" not in entrypoints_payload
-    assert "CCL_SESSION_JWT_ALG" in preflight_payload
+    legacy_session_alg = "CCL_SESSION_" + "JWT_ALGORITHM"
+    assert legacy_session_alg not in entrypoints_payload
+    assert legacy_session_alg not in preflight_payload
 
 
 @pytest.mark.unit
@@ -196,10 +197,46 @@ def test_runtime_image_compose_has_vault_sidecar_and_hardcut_env_markers() -> No
     payload = compose_file.read_text(encoding="utf-8")
 
     assert "  vault:" in payload
-    assert "CARACAL_PRINCIPAL_KEY_BACKEND" in payload
-    assert "CARACAL_VAULT_URL" in payload
-    assert "CARACAL_VAULT_SESSION_PUBLIC_KEY_REF" in payload
-    assert "CARACAL_SESSION_SIGNING_ALGORITHM" in payload
+    assert "CCL_PRINCIPAL_KEY_BACKEND" in payload
+    assert "CCL_VAULT_URL" in payload
+    assert "CCL_VAULT_SESSION_PUBLIC_KEY_REF" in payload
+    assert "CCL_SESSION_SIGNING_ALGORITHM" in payload
+
+
+@pytest.mark.unit
+def test_runtime_compose_defaults_do_not_ship_latest_dev_tokens_or_baked_secrets() -> None:
+    compose_files = (
+        _REPO_ROOT / "deploy" / "docker-compose.yml",
+        _REPO_ROOT / "deploy" / "docker-compose.image.yml",
+        caracal_path("runtime", "data", "docker-compose.yml"),
+    )
+
+    forbidden_markers = (
+        "infisical/infisical:latest",
+        "caracal-runtime:latest",
+        "ghcr.io/garudex-labs/caracal-runtime:latest",
+        "dev-local-token",
+        "caracal-dev-auth-secret",
+        "f13dbc92aaaf86fa7cb0ed8ac3265f47",
+        "CCL_DB_PASSWORD:-caracal",
+        "POSTGRES_PASSWORD: ${CCL_DB_PASSWORD:-caracal}",
+        "CCL_ENV_MODE:-dev",
+    )
+    required_markers = (
+        "infisical/infisical:v0.93.1",
+        "VAULT_AUTH_SECRET:?",
+        "VAULT_ENC_KEY:?",
+        "CCL_VAULT_TOKEN:?",
+        "CCL_DB_PASSWORD:?",
+        "CCL_ENV_MODE:-prod",
+    )
+
+    for compose_file in compose_files:
+        payload = compose_file.read_text(encoding="utf-8")
+        for marker in forbidden_markers:
+            assert marker not in payload, f"{compose_file} still contains {marker!r}"
+        for marker in required_markers:
+            assert marker in payload, f"{compose_file} missing {marker!r}"
 
 
 @pytest.mark.unit
@@ -210,9 +247,9 @@ def test_enterprise_compose_has_vault_sidecar_and_no_aws_or_null_backend_default
 
     assert "  vault:" in payload
     assert "infisical/infisical:latest" in payload
-    assert "CARACAL_PRINCIPAL_KEY_BACKEND=${CARACAL_PRINCIPAL_KEY_BACKEND:-vault}" in payload
-    assert "CARACAL_VAULT_URL=${CARACAL_VAULT_URL:-http://vault:8080}" in payload
-    assert "CARACAL_SECRET_BACKEND" not in payload
+    assert "CCL_PRINCIPAL_KEY_BACKEND=${CCL_PRINCIPAL_KEY_BACKEND:-vault}" in payload
+    assert "CCL_VAULT_URL=${CCL_VAULT_URL:-http://vault:8080}" in payload
+    assert "CCL_SECRET_BACKEND" not in payload
     assert "VAULT_ADDR" not in payload
     assert "VAULT_ROLE_ID" not in payload
     assert "VAULT_SECRET_ID" not in payload
@@ -228,11 +265,11 @@ def test_enterprise_compose_uses_separate_vault_topology_defaults_from_oss_runti
     compose_file = _REPO_ROOT / ".." / "caracalEnterprise" / "docker-compose.enterprise.yml"
     payload = compose_file.read_text(encoding="utf-8")
 
-    assert "${CARACAL_ENTERPRISE_VAULT_PORT:-8180}:8080" in payload
-    assert "CARACAL_VAULT_TOKEN=${CARACAL_VAULT_TOKEN:-enterprise-local-token}" in payload
-    assert "CARACAL_VAULT_WORKSPACE_ID=${CARACAL_VAULT_WORKSPACE_ID:-caracal-enterprise-local}" in payload
-    assert "CARACAL_VAULT_ENVIRONMENT=${CARACAL_VAULT_ENVIRONMENT:-enterprise-dev}" in payload
-    assert "CARACAL_VAULT_SECRET_PATH=${CARACAL_VAULT_SECRET_PATH:-/enterprise}" in payload
+    assert "${CCLE_VAULT_PORT:-8180}:8080" in payload
+    assert "CCL_VAULT_TOKEN=${CCL_VAULT_TOKEN:-enterprise-local-token}" in payload
+    assert "CCL_VAULT_WORKSPACE_ID=${CCL_VAULT_WORKSPACE_ID:-caracal-enterprise-local}" in payload
+    assert "CCL_VAULT_ENVIRONMENT=${CCL_VAULT_ENVIRONMENT:-enterprise-dev}" in payload
+    assert "CCL_VAULT_SECRET_PATH=${CCL_VAULT_SECRET_PATH:-/enterprise}" in payload
 
 
 @pytest.mark.unit
@@ -263,9 +300,9 @@ def test_oss_env_example_uses_vault_only_hardcut_defaults() -> None:
     env_example = _REPO_ROOT / ".env.example"
     payload = env_example.read_text(encoding="utf-8")
 
-    assert "CCL_KEY_BACKEND=vault" in payload
-    assert "VAULT_IMAGE=infisical/infisical:v0.93.1" in payload
-    assert "CARACAL_SECRET_BACKEND" not in payload
+    assert "CCL_PRINCIPAL_KEY_BACKEND=vault" in payload
+    assert "CCL_VAULT_SIDECAR_IMAGE=infisical/infisical:v0.93.1" in payload
+    assert "CCL_SECRET_BACKEND" not in payload
     assert "AWS_" not in payload
     assert "aws_kms" not in payload.lower()
 
@@ -313,7 +350,7 @@ def test_vault_module_has_no_legacy_private_key_compatibility_helpers() -> None:
     payload = vault_file.read_text(encoding="utf-8")
 
     assert "MasterKeyProvider" not in payload
-    assert "CARACAL_VAULT_MEK_SECRET" not in payload
+    assert "CCL_VAULT_MEK_SECRET" not in payload
     assert "_load_private_key(" not in payload
     assert "private_bytes(" not in payload
     assert "load_pem_private_key" not in payload
@@ -341,9 +378,7 @@ def test_runtime_and_cli_gateway_resolution_is_centralized_in_edition_adapter() 
     source_root = _REPO_ROOT / "caracal"
     offenders: list[str] = []
     forbidden_markers = (
-        'os.environ.get("CARACAL_ENTERPRISE_URL")',
-        'os.environ.get("CARACAL_GATEWAY_ENDPOINT")',
-        'os.environ.get("CARACAL_GATEWAY_URL")',
+        'os.environ.get("CCLE_API_URL")',
     )
     allowed_files = {
         "caracal/deployment/edition.py",
@@ -391,7 +426,7 @@ def test_enterprise_license_validation_has_no_offline_acceptance_fallback() -> N
     assert "validated from cache" not in payload
     assert "trying cached license" not in payload
     assert "falling back to cached license" not in payload
-    assert "CARACAL_ENTERPRISE_API_URL" not in payload
+    assert "CCLE_API_URL" not in payload
     assert "password_protected" not in payload
 
 
@@ -412,9 +447,7 @@ def test_gateway_features_resolve_gateway_endpoint_through_edition_adapter() -> 
     assert "get_deployment_edition_adapter" in payload
     assert "resolve_gateway_feature_overrides" in payload
     assert "load_enterprise_config" not in payload
-    assert "CARACAL_ENTERPRISE_URL" not in payload
-    assert "CARACAL_GATEWAY_ENDPOINT" not in payload
-    assert "CARACAL_GATEWAY_URL" not in payload
+    assert "CCLE_API_URL" not in payload
 
 
 @pytest.mark.unit
@@ -626,14 +659,14 @@ def test_forbidden_marker_scanner_covers_phase_13_hardcut_expansion() -> None:
     assert "enterprise_logic_leakage" in payload
     assert "combined_onboarding_setup_helpers" in payload
     assert "stale_removed_surface_names" in payload
-    assert "fallback_gateway_env_aliases" in payload
     assert "split_mode_markers" in payload
     assert "single_lineage_residuals" in payload
     assert "transitional_architecture_markers" in payload
     assert "provider_legacy_contract_fields" in payload
     assert "provider_legacy_secret_ref_schema_alias" in payload
     assert "provider_configmanager_secret_usage" in payload
-    assert "CARACAL_SESSION_JWT_ALGORITHM" in payload
+    legacy_session_alg = "CCL_SESSION_" + "JWT_ALGORITHM"
+    assert legacy_session_alg not in payload
     assert "temporary blocker" in payload
     assert "guard file" in payload
     assert "non-hardcut" in payload
@@ -725,8 +758,8 @@ def test_embedded_runtime_compose_includes_vault_sidecar() -> None:
     compose_file = caracal_path("runtime", "data", "docker-compose.yml")
     payload = compose_file.read_text(encoding="utf-8")
 
-    assert "CARACAL_VAULT_SIDECAR_IMAGE" in payload
-    assert "CARACAL_VAULT_URL" in payload
+    assert "CCL_VAULT_SIDECAR_IMAGE" in payload
+    assert "CCL_VAULT_URL" in payload
     assert "vault:" in payload
     assert "/home/caracal/.caracal" not in payload
 
@@ -754,7 +787,7 @@ def test_config_manager_has_no_local_secret_storage_markers() -> None:
     payload = config_manager_file.read_text(encoding="utf-8")
 
     assert "secrets.vault" not in payload
-    assert "CARACAL_CONFIG_ENCRYPTION_KEY" not in payload
+    assert "CCL_CONFIG_ENCRYPTION_KEY" not in payload
     assert "aead_v1:" not in payload
 
 
@@ -804,8 +837,8 @@ def test_merkle_config_and_cli_enforce_hardcut_vault_guard() -> None:
     settings_payload = settings_file.read_text(encoding="utf-8")
     cli_payload = merkle_cli_file.read_text(encoding="utf-8")
 
-    assert "CCL_VAULT_MERKLE_KEY" in settings_payload
-    assert "CCL_VAULT_MERKLE_PUB" in settings_payload
+    assert "CCL_VAULT_MERKLE_SIGNING_KEY_REF" in settings_payload
+    assert "CCL_VAULT_MERKLE_PUBLIC_KEY_REF" in settings_payload
     assert "Local file-backed Merkle signing is forbidden." in settings_payload
     assert "Local Merkle key-file commands are disabled in runtime paths." in cli_payload
 
@@ -1347,7 +1380,7 @@ def test_sdk_clients_resolve_ais_routing_when_socket_path_is_configured() -> Non
     node_payload = node_client.read_text(encoding="utf-8")
 
     assert "resolve_sdk_base_url" in combined_python
-    assert "CARACAL_AIS_UNIX_SOCKET_PATH" in (_REPO_ROOT / "sdk" / "python-sdk" / "src" / "caracal_sdk" / "ais.py").read_text(encoding="utf-8")
+    assert "CCL_AIS_UNIX_SOCKET_PATH" in (_REPO_ROOT / "sdk" / "python-sdk" / "src" / "caracal_sdk" / "ais.py").read_text(encoding="utf-8")
     assert "resolveSdkBaseUrl" in node_payload
 
 

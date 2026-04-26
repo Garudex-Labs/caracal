@@ -522,34 +522,26 @@ def _load_vault_config() -> _VaultConfig:
     base_url = (_read_env_or_dotenv("CCL_VAULT_URL") or "").strip()
     token = (_read_env_or_dotenv("CCL_VAULT_TOKEN") or "").strip()
     mode = (_read_env_or_dotenv("CCL_VAULT_MODE") or "managed").strip().lower()
-    default_project = (
-        _read_env_or_dotenv("CCL_VAULT_WS_ID")
-        or _read_env_or_dotenv("CCL_VAULT_WS_SLUG")
-        or ""
-    ).strip()
-    default_environment = (
-        _read_env_or_dotenv("CCL_VAULT_ENV")
-        or _read_env_or_dotenv("CCL_VAULT_ENV")
-        or "dev"
-    ).strip()
-    default_secret_path = (_read_env_or_dotenv("CCL_VAULT_PATH") or "/").strip() or "/"
+    default_project = (_read_env_or_dotenv("CCL_VAULT_WORKSPACE_ID") or "").strip()
+    default_environment = (_read_env_or_dotenv("CCL_VAULT_ENVIRONMENT") or "dev").strip()
+    default_secret_path = (_read_env_or_dotenv("CCL_VAULT_SECRET_PATH") or "/").strip() or "/"
 
     hardcut_enabled = True
-    retry_attempts_raw = (_read_env_or_dotenv("CCL_VAULT_RETRY_MAX") or "3").strip()
-    retry_backoff_raw = (_read_env_or_dotenv("CCL_VAULT_RETRY_SEC") or "0.2").strip()
+    retry_attempts_raw = (_read_env_or_dotenv("CCL_VAULT_RETRY_MAX_ATTEMPTS") or "3").strip()
+    retry_backoff_raw = (_read_env_or_dotenv("CCL_VAULT_RETRY_BACKOFF_SECONDS") or "0.2").strip()
 
     try:
         retry_max_attempts = max(1, int(retry_attempts_raw))
     except ValueError:
         raise VaultConfigurationError(
-            "CCL_VAULT_RETRY_MAX must be a positive integer."
+            "CCL_VAULT_RETRY_MAX_ATTEMPTS must be a positive integer."
         )
 
     try:
         retry_backoff_seconds = max(0.0, float(retry_backoff_raw))
     except ValueError:
         raise VaultConfigurationError(
-            "CCL_VAULT_RETRY_SEC must be a non-negative number."
+            "CCL_VAULT_RETRY_BACKOFF_SECONDS must be a non-negative number."
         )
 
     is_local_mode = mode in _LOCAL_MODE_VALUES
@@ -572,7 +564,7 @@ def _load_vault_config() -> _VaultConfig:
         token = recovered_token
         if recovered_project:
             default_project = recovered_project
-            os.environ["CCL_VAULT_WS_ID"] = recovered_project
+            os.environ["CCL_VAULT_WORKSPACE_ID"] = recovered_project
         os.environ["CCL_VAULT_TOKEN"] = recovered_token
 
     if not base_url:
@@ -677,7 +669,7 @@ class CaracalVault:
         secret_path = self._config.default_secret_path
         if not project_id:
             raise VaultConfigurationError(
-                "Vault workspace context is missing. Provide workspace_id or set CCL_VAULT_WS_ID."
+                "Vault workspace context is missing. Provide workspace_id or set CCL_VAULT_WORKSPACE_ID."
             )
         if not environment:
             raise VaultConfigurationError("Vault environment context is missing.")

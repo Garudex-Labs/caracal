@@ -351,8 +351,8 @@ Lifecycle invariants the implementation must guarantee:
 - Delegation is non-transitive by default. Children do not inherit a
   parent's full scope; they only receive what is explicitly delegated.
 - Inputs from the UI are validated at the FastAPI boundary.
-- No secrets in source. `OPENAI_API_KEY`, `CARACAL_API_KEY`,
-  `CARACAL_API_URL`, and `CARACAL_WORKSPACE_ID` are read from
+- No secrets in source. `OPENAI_API_KEY`, `CCL_API_KEY`,
+  `CCL_API_URL`, and `CCL_WORKSPACE_ID` are read from
   environment variables only.
 
 ## 10. General Discipline

@@ -44,16 +44,16 @@ a packaging gap that must be closed.
 
 `caracal/runtime/entrypoints.py` defines:
 
-- `COMPOSE_FILE_ENV = "CARACAL_DOCKER_COMPOSE_FILE"`
+- `COMPOSE_FILE_ENV = "CCL_COMPOSE_FILE"`
 - `_EMBEDDED_COMPOSE_FILE = resolve_caracal_home(...) / "runtime" / "docker-compose.image.yml"`
 - An `_EMBEDDED_COMPOSE_CONTENT` string literal duplicating
   `deploy/docker-compose.image.yml`.
 - `--compose-file` CLI flag on every host subcommand.
 
 The compose YAML lives in three places (`deploy/`, the embedded
-literal, the `CARACAL_HOME` materialised copy) and is selected via an
+literal, the `CCL_HOME` materialised copy) and is selected via an
 ad-hoc precedence chain. The repo path under `deploy/` is reachable
-through `CARACAL_DOCKER_COMPOSE_FILE` and `--compose-file`; that path
+through `CCL_COMPOSE_FILE` and `--compose-file`; that path
 must be removed from the user contract.
 
 ### 2.2 Alembic migrations and `alembic.ini`
@@ -85,9 +85,9 @@ stay out of the user path.
 
 ### 2.4 Vault sidecar bootstrap
 
-The compose file references `CARACAL_VAULT_SIDECAR_AUTH_SECRET`,
-`CARACAL_VAULT_SIDECAR_ENCRYPTION_KEY`,
-`CARACAL_VAULT_TOKEN`, and several other knobs with placeholder
+The compose file references `CCL_VAULT_SIDECAR_AUTH_SECRET`,
+`CCL_VAULT_SIDECAR_ENCRYPTION_KEY`,
+`CCL_VAULT_TOKEN`, and several other knobs with placeholder
 defaults (`caracal-dev-auth-secret`, `dev-local-token`, a hard-coded
 hex string). There is no first-run command that generates production
 values, performs the seal/unseal flow, or bootstraps the root token.
@@ -208,7 +208,7 @@ The work below is what the rest of Phase 0 must deliver. Items map
    where `caracal/` is not installed.
 4. **Embed runtime assets in the `caracal` wheel.** Compose YAML and
    `alembic.ini` ship as package data, loaded via
-   `importlib.resources`. `CARACAL_DOCKER_COMPOSE_FILE` and
+   `importlib.resources`. `CCL_COMPOSE_FILE` and
    `--compose-file` repo-path fallbacks are removed.
 5. **Move alembic execution into the runtime image.** `caracal
    migrate` shells into the running runtime container and runs the

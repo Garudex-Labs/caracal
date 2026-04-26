@@ -49,7 +49,7 @@ caracal --help
 
 ## Runtime State Layout
 
-The runtime resolves state under `CARACAL_HOME`. If `CARACAL_HOME` is unset, Caracal falls back to `~/.caracal`.
+The runtime resolves state under `CCL_HOME`. If `CCL_HOME` is unset, Caracal falls back to `~/.caracal`.
 
 Important paths:
 
@@ -74,7 +74,7 @@ This is why a local install does not require you to provision PostgreSQL or Redi
 ## Edge Cases And Constraints
 
 - `caracal` on the host will fail early if `docker compose version` is not available.
-- The host command can use a custom compose file through `--compose-file` or `CARACAL_DOCKER_COMPOSE_FILE`, but it must contain the expected runtime services.
+- The host command can use a custom compose file through `--compose-file` or `CCL_COMPOSE_FILE`, but it must contain the expected runtime services.
 - If you install from source, local development compose files may use local image builds; packaged installs may use image-based compose instead.
 
 ## Related Concepts

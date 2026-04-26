@@ -1560,7 +1560,7 @@ class ConfigManager:
             from caracal.db.connection import DatabaseConfig, DatabaseConnectionManager
 
             # Resolve password from env first (container runtime), then workspace vaults.
-            password = os.getenv("CCL_DB_PASS", "") or ""
+            password = os.getenv("CCL_DB_PASSWORD", "") or ""
             if not password:
                 workspace_candidates: List[str] = []
 

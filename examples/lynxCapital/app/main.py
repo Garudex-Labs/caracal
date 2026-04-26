@@ -26,9 +26,9 @@ async def lifespan(app: FastAPI):
     load_config()
 
     # caracal-integration: construct Caracal client and check out workspace scope at startup
-    api_key = os.environ.get("CARACAL_API_KEY", "")
-    api_url = os.environ.get("CARACAL_API_URL", "")
-    workspace_id = os.environ.get("CARACAL_WORKSPACE_ID", "")
+    api_key = os.environ.get("CCL_API_KEY", "")
+    api_url = os.environ.get("CCL_API_URL", "")
+    workspace_id = os.environ.get("CCL_WORKSPACE_ID", "")
     if api_key and api_url and workspace_id:
         import httpx
         from caracal_sdk import CaracalClient

@@ -6,18 +6,41 @@ import os
 from pathlib import Path
 
 
-IN_CONTAINER_ENV = "CCL_IN_CONTAINER"
+IN_CONTAINER_ENV = "CCL_RUNTIME_IN_CONTAINER"
+IN_CONTAINER_COMPAT_ENVS: tuple[str, ...] = ()
 HOST_IO_ROOT_ENV = "CCL_HOST_IO_ROOT"
+HOST_IO_ROOT_COMPAT_ENVS: tuple[str, ...] = ()
 DEFAULT_HOST_IO_ROOT = Path("/caracal-host-io")
 TRUTHY_ENV_VALUES = frozenset({"1", "true", "yes", "on"})
 FALSY_ENV_VALUES = frozenset({"0", "false", "no", "off"})
 
 CCL_HOME_ENV = "CCL_HOME"
+CCL_HOME_COMPAT_ENVS: tuple[str, ...] = ()
 CCL_CONFIG_DIR_ENV = "CCL_CONFIG_DIR"
+CCL_CONFIG_DIR_COMPAT_ENVS: tuple[str, ...] = ()
 
 
 class StorageLayoutError(RuntimeError):
     """Raised when storage layout is invalid or cannot be created safely."""
+
+
+def _env_value(name: str, *compat_names: str) -> str | None:
+    """Read a canonical env var, falling back to compatibility names when unset."""
+    for env_name in (name, *compat_names):
+        value = os.getenv(env_name)
+        if value:
+            return value
+    return None
+
+
+def _explicit_env_value(name: str, *compat_names: str) -> str | None:
+    """Read env vars while preserving explicit falsy/empty canonical values."""
+    if name in os.environ:
+        return os.environ[name]
+    for env_name in compat_names:
+        if env_name in os.environ:
+            return os.environ[env_name]
+    return None
 
 
 def resolve_caracal_home(require_explicit: bool = False) -> Path:
@@ -28,11 +51,11 @@ def resolve_caracal_home(require_explicit: bool = False) -> Path:
     2. CCL_HOME
     3. ~/.caracal (only when require_explicit=False)
     """
-    config_dir_value = os.getenv(CCL_CONFIG_DIR_ENV)
+    config_dir_value = _env_value(CCL_CONFIG_DIR_ENV, *CCL_CONFIG_DIR_COMPAT_ENVS)
     if config_dir_value:
         return Path(config_dir_value).expanduser().resolve(strict=False)
 
-    home_value = os.getenv(CCL_HOME_ENV)
+    home_value = _env_value(CCL_HOME_ENV, *CCL_HOME_COMPAT_ENVS)
     if home_value:
         return Path(home_value).expanduser().resolve(strict=False)
 
@@ -59,14 +82,15 @@ def is_truthy_env(value: str | None, *, default: bool = False) -> bool:
 
 def in_container_runtime(*, detect_dockerenv: bool = False) -> bool:
     """Return whether the current process is running in the runtime container."""
-    if is_truthy_env(os.environ.get(IN_CONTAINER_ENV)):
+    if is_truthy_env(_explicit_env_value(IN_CONTAINER_ENV, *IN_CONTAINER_COMPAT_ENVS)):
         return True
     return detect_dockerenv and Path("/.dockerenv").exists()
 
 
 def host_io_root() -> Path:
     """Return the shared host I/O mount path used by the runtime container."""
-    return Path(os.environ.get(HOST_IO_ROOT_ENV, str(DEFAULT_HOST_IO_ROOT))).resolve(strict=False)
+    value = _env_value(HOST_IO_ROOT_ENV, *HOST_IO_ROOT_COMPAT_ENVS)
+    return Path(value or str(DEFAULT_HOST_IO_ROOT)).resolve(strict=False)
 
 
 def normalize_optional_text(value: str | None) -> str | None:
