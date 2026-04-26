@@ -9,9 +9,12 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import click
 import pytest
+from prompt_toolkit.document import Document
 
 from caracal.runtime.restricted_shell import (
+    CaracalCompleter,
     ParsedRestrictedInput,
     _ensure_history_parent,
     _help_args,
@@ -210,3 +213,99 @@ class TestEnsureHistoryParent:
         history_file = tmp_path / "history.txt"
         _ensure_history_parent(history_file)
         assert tmp_path.exists()
+
+
+def _make_root() -> click.MultiCommand:
+    @click.group()
+    def root():
+        pass
+
+    @root.group()
+    def workspace():
+        pass
+
+    @workspace.command()
+    @click.argument("name")
+    @click.option("--dry-run", is_flag=True)
+    def create(name: str, dry_run: bool):
+        pass
+
+    @workspace.command(name="list")
+    def list_cmd():
+        pass
+
+    @root.command()
+    def status():
+        pass
+
+    return root
+
+
+def _completions(completer: CaracalCompleter, text: str) -> list[str]:
+    doc = Document(text, cursor_position=len(text))
+    return [c.text for c in completer.get_completions(doc, None)]
+
+
+@pytest.mark.unit
+class TestCaracalCompleter:
+    def setup_method(self) -> None:
+        self.root = _make_root()
+        self.completer = CaracalCompleter(self.root)
+
+    def test_empty_input_yields_top_level(self) -> None:
+        items = _completions(self.completer, "")
+        assert "workspace" in items
+        assert "status" in items
+        assert "help" in items
+        assert "exit" in items
+        assert "clear" in items
+
+    def test_partial_command_matches(self) -> None:
+        items = _completions(self.completer, "work")
+        assert "workspace" in items
+
+    def test_subcommand_completion_after_space(self) -> None:
+        items = _completions(self.completer, "workspace ")
+        assert "create" in items
+        assert "list" in items
+
+    def test_subcommand_partial(self) -> None:
+        items = _completions(self.completer, "workspace cr")
+        assert "create" in items
+
+    def test_option_completion(self) -> None:
+        items = _completions(self.completer, "workspace create name ")
+        assert "--dry-run" in items
+
+    def test_explicit_root_with_subcommand(self) -> None:
+        items = _completions(self.completer, "caracal workspace ")
+        assert "create" in items
+        assert "list" in items
+
+    def test_explicit_root_alone(self) -> None:
+        items = _completions(self.completer, "caracal ")
+        assert "workspace" in items
+
+    def test_unknown_subcommand_returns_nothing(self) -> None:
+        items = _completions(self.completer, "workspace unknowncmd ")
+        assert items == []
+
+    def test_leaf_command_offers_options(self) -> None:
+        items = _completions(self.completer, "status ")
+        assert "--help" in items
+
+    def test_help_prefix_completion(self) -> None:
+        items = _completions(self.completer, "help workspace ")
+        assert "create" in items
+
+    def test_invalid_shlex_returns_nothing(self) -> None:
+        items = _completions(self.completer, "workspace 'unclosed")
+        assert items == []
+
+    def test_children_of_non_multicommand_empty(self) -> None:
+        items = _completions(self.completer, "status sub")
+        assert items == []
+
+    def test_options_deduplication(self) -> None:
+        items = _completions(self.completer, "workspace create name ")
+        assert items.count("--help") == 1

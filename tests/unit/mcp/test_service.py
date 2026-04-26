@@ -1357,3 +1357,197 @@ class TestMCPAdapterService:
 
         assert response.status_code == 400
         assert "inactive" in response.json()["detail"].lower()
+
+
+@pytest.mark.unit
+class TestMCPAdapterServicePureMethods:
+    """Tests for pure static/instance methods on MCPAdapterService."""
+
+    def setup_method(self) -> None:
+        from unittest.mock import Mock, AsyncMock
+        from types import SimpleNamespace
+
+        self.actor_principal_id = "11111111-1111-1111-1111-111111111111"
+        mock_adapter = Mock(spec=MCPAdapterService.__mro__[0])
+
+        mock_mcp_adapter = Mock()
+        mock_authority = Mock()
+        mock_metering = Mock()
+        mock_session = Mock()
+        mock_session.validate_access_token = AsyncMock(
+            return_value={"sub": self.actor_principal_id}
+        )
+        mock_mcp_adapter.get_registered_tool.return_value = SimpleNamespace(
+            tool_id="t", active=True
+        )
+
+        self.service = MCPAdapterService(
+            config=MCPServiceConfig(),
+            mcp_adapter=mock_mcp_adapter,
+            authority_evaluator=mock_authority,
+            metering_collector=mock_metering,
+            session_manager=mock_session,
+        )
+
+    # _extract_bearer_token
+    def test_extract_bearer_token_valid(self) -> None:
+        token = MCPAdapterService._extract_bearer_token("Bearer my-token-123")
+        assert token == "my-token-123"
+
+    def test_extract_bearer_token_missing_header_raises(self) -> None:
+        from fastapi import HTTPException
+        with pytest.raises(HTTPException) as exc:
+            MCPAdapterService._extract_bearer_token(None)
+        assert exc.value.status_code == 401
+
+    def test_extract_bearer_token_empty_string_raises(self) -> None:
+        from fastapi import HTTPException
+        with pytest.raises(HTTPException):
+            MCPAdapterService._extract_bearer_token("")
+
+    def test_extract_bearer_token_wrong_scheme_raises(self) -> None:
+        from fastapi import HTTPException
+        with pytest.raises(HTTPException):
+            MCPAdapterService._extract_bearer_token("Basic dXNlcjpwYXNz")
+
+    def test_extract_bearer_token_no_token_value_raises(self) -> None:
+        from fastapi import HTTPException
+        with pytest.raises(HTTPException):
+            MCPAdapterService._extract_bearer_token("Bearer ")
+
+    # _normalize_selector_value
+    def test_normalize_selector_value_strips_whitespace(self) -> None:
+        assert MCPAdapterService._normalize_selector_value("  ws  ") == "ws"
+
+    def test_normalize_selector_value_none_returns_none(self) -> None:
+        assert MCPAdapterService._normalize_selector_value(None) is None
+
+    def test_normalize_selector_value_empty_string_returns_none(self) -> None:
+        assert MCPAdapterService._normalize_selector_value("") is None
+
+    # _reject_spoofed_security_metadata
+    def test_reject_spoofed_metadata_clean_passthrough(self) -> None:
+        result = self.service._reject_spoofed_security_metadata({"custom_key": "val"})
+        assert result == {"custom_key": "val"}
+
+    def test_reject_spoofed_metadata_blocks_principal_id(self) -> None:
+        from fastapi import HTTPException
+        with pytest.raises(HTTPException) as exc:
+            self.service._reject_spoofed_security_metadata({"principal_id": "evil"})
+        assert exc.value.status_code == 400
+
+    def test_reject_spoofed_metadata_blocks_task_token_claims(self) -> None:
+        from fastapi import HTTPException
+        with pytest.raises(HTTPException):
+            self.service._reject_spoofed_security_metadata({"task_token_claims": {}})
+
+    def test_reject_spoofed_metadata_none_returns_empty(self) -> None:
+        result = self.service._reject_spoofed_security_metadata(None)
+        assert result == {}
+
+    # _reject_spoofed_tool_args
+    def test_reject_spoofed_args_clean_passthrough(self) -> None:
+        result = self.service._reject_spoofed_tool_args({"arg": "value"})
+        assert result == {"arg": "value"}
+
+    def test_reject_spoofed_args_blocks_principal_id(self) -> None:
+        from fastapi import HTTPException
+        with pytest.raises(HTTPException) as exc:
+            self.service._reject_spoofed_tool_args({"principal_id": "evil"})
+        assert exc.value.status_code == 400
+
+    def test_reject_spoofed_args_none_returns_empty(self) -> None:
+        result = self.service._reject_spoofed_tool_args(None)
+        assert result == {}
+
+    # _apply_trusted_security_metadata
+    def test_apply_trusted_metadata_injects_principal(self) -> None:
+        result = self.service._apply_trusted_security_metadata(
+            metadata={},
+            token_claims={"sub": "uid-1"},
+            principal_id="uid-1",
+        )
+        assert result["token_subject"] == "uid-1"
+        assert result["task_token_claims"] == {"sub": "uid-1"}
+
+    def test_apply_trusted_metadata_promotes_task_caveat_chain(self) -> None:
+        result = self.service._apply_trusted_security_metadata(
+            metadata={},
+            token_claims={"sub": "u", "task_caveat_chain": [1, 2]},
+            principal_id="u",
+        )
+        assert result["task_caveat_chain"] == [1, 2]
+
+    def test_apply_trusted_metadata_falls_back_to_caveat_chain(self) -> None:
+        result = self.service._apply_trusted_security_metadata(
+            metadata={},
+            token_claims={"sub": "u", "caveat_chain": ["c"]},
+            principal_id="u",
+        )
+        assert result["task_caveat_chain"] == ["c"]
+
+    def test_apply_trusted_metadata_strips_legacy_caveat_keys(self) -> None:
+        result = self.service._apply_trusted_security_metadata(
+            metadata={"caveat_chain": "x", "caveat_hmac_key": "y", "caveat_task_id": "z"},
+            token_claims={"sub": "u"},
+            principal_id="u",
+        )
+        assert "caveat_chain" not in result
+        assert "caveat_hmac_key" not in result
+        assert "caveat_task_id" not in result
+
+    # _is_denied_error_message
+    def test_is_denied_authority_denied(self) -> None:
+        assert MCPAdapterService._is_denied_error_message("Authority denied") is True
+
+    def test_is_denied_mandate_subject(self) -> None:
+        assert MCPAdapterService._is_denied_error_message("mandate subject mismatch") is True
+
+    def test_is_denied_no_applicable_mandate(self) -> None:
+        assert MCPAdapterService._is_denied_error_message("No applicable mandate found") is True
+
+    def test_is_denied_generic_error(self) -> None:
+        assert MCPAdapterService._is_denied_error_message("timeout") is False
+
+    def test_is_denied_none(self) -> None:
+        assert MCPAdapterService._is_denied_error_message(None) is False
+
+    def test_is_denied_empty(self) -> None:
+        assert MCPAdapterService._is_denied_error_message("") is False
+
+    # _record_result_outcome
+    def test_record_result_outcome_success_increments_allowed(self) -> None:
+        from unittest.mock import MagicMock
+        result = MagicMock()
+        result.success = True
+        self.service._record_result_outcome(result)
+        assert self.service._allowed_count == 1
+
+    def test_record_result_outcome_denied_increments_denied(self) -> None:
+        from unittest.mock import MagicMock
+        result = MagicMock()
+        result.success = False
+        result.error = "Authority denied: policy rejected"
+        self.service._record_result_outcome(result)
+        assert self.service._denied_count == 1
+
+    def test_record_result_outcome_error_increments_error(self) -> None:
+        from unittest.mock import MagicMock
+        result = MagicMock()
+        result.success = False
+        result.error = "connection timeout"
+        self.service._record_result_outcome(result)
+        assert self.service._error_count == 1
+
+    # _record_http_exception_outcome
+    def test_record_http_exception_4xx_increments_denied(self) -> None:
+        from fastapi import HTTPException
+        exc = HTTPException(status_code=403, detail="Forbidden")
+        self.service._record_http_exception_outcome(exc)
+        assert self.service._denied_count == 1
+
+    def test_record_http_exception_5xx_increments_error(self) -> None:
+        from fastapi import HTTPException
+        exc = HTTPException(status_code=500, detail="Internal error")
+        self.service._record_http_exception_outcome(exc)
+        assert self.service._error_count == 1

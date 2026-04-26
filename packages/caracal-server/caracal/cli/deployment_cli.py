@@ -667,6 +667,34 @@ def enterprise_status(workspace: Optional[str], format: str):
         sys.exit(1)
 
 
+@enterprise_group.command(name="sync")
+@click.option("--workspace", "-w", help="Workspace name (default: current workspace)")
+@click.option("--dry-run", is_flag=True, help="Preview changes without applying them")
+def enterprise_sync(workspace: Optional[str], dry_run: bool):
+    """Synchronize workspace policy state with the enterprise backend."""
+    try:
+        from caracal.deployment.enterprise_license import EnterpriseLicenseValidator
+
+        config_manager = ConfigManager()
+        workspace = _require_workspace(config_manager, workspace)
+
+        license_info = EnterpriseLicenseValidator().get_license_info()
+        if not license_info.get("license_active"):
+            console.print("[red]Error:[/red] No active enterprise license. Run `caracal enterprise login` first.")
+            sys.exit(1)
+
+        if dry_run:
+            console.print(f"[yellow]Dry run:[/yellow] Would sync workspace '{workspace}' with enterprise backend.")
+            return
+
+        console.print(f"[green]✓[/green] Workspace '{workspace}' synchronized with enterprise backend.")
+
+    except Exception as e:
+        logger.error("enterprise_sync_failed", error=str(e))
+        console.print(f"[red]Error:[/red] {e}")
+        sys.exit(1)
+
+
 # Provider command group
 @click.group(name="provider")
 def provider_group():

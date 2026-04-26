@@ -257,3 +257,126 @@ class TestListBackups:
         checksum_file.write_text("abc123")
         result = mgr.list_backups()
         assert result[0]["has_checksum"] is True
+
+
+class TestMigrateRepositoryToPackage:
+    def _make_ready(self, tmp_path: Path) -> MigrationManager:
+        mgr = _make_manager(tmp_path)
+        backup_file = tmp_path / "backups" / "backup_test.tar.gz"
+        backup_file.parent.mkdir(parents=True, exist_ok=True)
+        backup_file.write_bytes(b"back")
+        mgr._create_backup = MagicMock(return_value=backup_file)
+        mgr._detect_repository_installation = MagicMock(return_value=None)
+        mgr._preserve_migration_data = MagicMock(return_value=2)
+        mgr._verify_data_integrity = MagicMock()
+        mgr._cleanup_old_backups = MagicMock()
+        return mgr
+
+    def test_success_returns_dict(self, tmp_path):
+        mgr = self._make_ready(tmp_path)
+        result = mgr.migrate_repository_to_package()
+        assert result["success"] is True
+        assert result["workspaces_migrated"] == 2
+        assert "migration_id" in result
+        assert "backup_path" in result
+
+    def test_calls_create_backup(self, tmp_path):
+        mgr = self._make_ready(tmp_path)
+        mgr.migrate_repository_to_package()
+        mgr._create_backup.assert_called_once()
+
+    def test_calls_preserve_data(self, tmp_path):
+        mgr = self._make_ready(tmp_path)
+        mgr.migrate_repository_to_package(preserve_data=True)
+        mgr._preserve_migration_data.assert_called_once()
+
+    def test_skips_preserve_data_when_false(self, tmp_path):
+        mgr = self._make_ready(tmp_path)
+        mgr.migrate_repository_to_package(preserve_data=False)
+        mgr._preserve_migration_data.assert_not_called()
+
+    def test_skips_verify_integrity_when_false(self, tmp_path):
+        mgr = self._make_ready(tmp_path)
+        mgr.migrate_repository_to_package(verify_integrity=False)
+        mgr._verify_data_integrity.assert_not_called()
+
+    def test_explicit_repository_path_skips_detect(self, tmp_path):
+        mgr = self._make_ready(tmp_path)
+        mgr.migrate_repository_to_package(repository_path=tmp_path)
+        mgr._detect_repository_installation.assert_not_called()
+
+    def test_failure_raises_migration_error(self, tmp_path):
+        from caracal.deployment.exceptions import MigrationError
+        mgr = self._make_ready(tmp_path)
+        mgr._preserve_migration_data.side_effect = RuntimeError("disk full")
+        mgr._rollback_from_backup = MagicMock()
+        with pytest.raises(MigrationError):
+            mgr.migrate_repository_to_package()
+
+    def test_failure_attempts_rollback(self, tmp_path):
+        mgr = self._make_ready(tmp_path)
+        mgr._preserve_migration_data.side_effect = RuntimeError("fail")
+        mgr._rollback_from_backup = MagicMock()
+        try:
+            mgr.migrate_repository_to_package()
+        except Exception:
+            pass
+        mgr._rollback_from_backup.assert_called_once()
+
+    def test_rollback_failure_raises_rollback_error(self, tmp_path):
+        from caracal.deployment.exceptions import MigrationRollbackError
+        mgr = self._make_ready(tmp_path)
+        mgr._preserve_migration_data.side_effect = RuntimeError("fail")
+        mgr._rollback_from_backup = MagicMock(side_effect=RuntimeError("rollback also failed"))
+        with pytest.raises(MigrationRollbackError):
+            mgr.migrate_repository_to_package()
+
+
+class TestMigrateEdition:
+    def _make_ready(self, tmp_path: Path) -> MigrationManager:
+        mgr = _make_manager(tmp_path)
+        backup_file = tmp_path / "backups" / "backup_edition.tar.gz"
+        backup_file.parent.mkdir(parents=True, exist_ok=True)
+        backup_file.write_bytes(b"back")
+        mgr._create_backup = MagicMock(return_value=backup_file)
+        mgr._cleanup_old_backups = MagicMock()
+        mgr._rollback_from_backup = MagicMock()
+        return mgr
+
+    def test_migrate_to_enterprise_success(self, tmp_path):
+        from caracal.deployment.edition import Edition
+        mgr = self._make_ready(tmp_path)
+        mgr._migrate_oss_to_enterprise = MagicMock(return_value={"api_keys_migrated": 1})
+        mgr.edition_adapter.update_edition = MagicMock()
+        mgr.edition_adapter.get_edition.return_value = Edition.OPENSOURCE
+
+        result = mgr.migrate_edition(
+            target_edition=Edition.ENTERPRISE,
+            gateway_url="https://gw.example.com",
+        )
+        assert result["success"] is True
+        mgr._migrate_oss_to_enterprise.assert_called_once()
+
+    def test_migrate_to_oss_success(self, tmp_path):
+        from caracal.deployment.edition import Edition
+        mgr = self._make_ready(tmp_path)
+        mgr._migrate_enterprise_to_oss = MagicMock(return_value={"api_keys_migrated": 0})
+        mgr.edition_adapter.update_edition = MagicMock()
+        mgr.edition_adapter.get_edition.return_value = Edition.ENTERPRISE
+
+        result = mgr.migrate_edition(target_edition=Edition.OPENSOURCE)
+        assert result["success"] is True
+        mgr._migrate_enterprise_to_oss.assert_called_once()
+
+    def test_migrate_edition_failure_raises(self, tmp_path):
+        from caracal.deployment.edition import Edition
+        from caracal.deployment.exceptions import MigrationError
+        mgr = self._make_ready(tmp_path)
+        mgr._migrate_oss_to_enterprise = MagicMock(side_effect=RuntimeError("net error"))
+        mgr.edition_adapter.get_edition.return_value = Edition.OPENSOURCE
+
+        with pytest.raises(MigrationError):
+            mgr.migrate_edition(
+                target_edition=Edition.ENTERPRISE,
+                gateway_url="https://gw.example.com",
+            )

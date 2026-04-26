@@ -242,3 +242,127 @@ class TestDelegationEdge:
         m.edge_metadata = None
         edge = DelegationEdge.from_model(m)
         assert edge.context_tags == []
+
+
+def _mock_session_with_edge(edge_model=None):
+    """Create a minimal session mock that returns a single edge or None."""
+    session = MagicMock()
+    query_result = MagicMock()
+    filter_result = MagicMock()
+    filter_result.all.return_value = [edge_model] if edge_model else []
+    filter_result.first.return_value = edge_model
+    query_result.filter.return_value = filter_result
+    filter_result.filter.return_value = filter_result
+    session.query.return_value = query_result
+    return session
+
+
+def _make_edge_model(
+    edge_id=None,
+    source_mandate_id=None,
+    target_mandate_id=None,
+    revoked=False,
+    expires_at=None,
+    source_principal_kind="human",
+    target_principal_kind="worker",
+    delegation_type="directed",
+    context_tags=None,
+    granted_at=None,
+    edge_metadata=None,
+):
+    from datetime import datetime
+    m = MagicMock()
+    m.edge_id = edge_id or uuid4()
+    m.source_mandate_id = source_mandate_id or uuid4()
+    m.target_mandate_id = target_mandate_id or uuid4()
+    m.revoked = revoked
+    m.revoked_at = None
+    m.expires_at = expires_at
+    m.source_principal_kind = source_principal_kind
+    m.target_principal_kind = target_principal_kind
+    m.delegation_type = delegation_type
+    m.context_tags = context_tags or []
+    m.granted_at = granted_at or datetime.utcnow()
+    m.edge_metadata = edge_metadata
+    return m
+
+
+class TestDelegationGraphMocked:
+    def setup_method(self):
+        from caracal.core.delegation_graph import DelegationGraph
+        self.graph_cls = DelegationGraph
+
+    def _make_graph(self, session=None):
+        sess = session or MagicMock()
+        return self.graph_cls(sess)
+
+    def test_revoke_edge_not_found_raises(self):
+        session = _mock_session_with_edge(None)
+        graph = self._make_graph(session)
+        with pytest.raises(ValueError, match="not found"):
+            graph.revoke_edge(uuid4())
+
+    def test_revoke_edge_already_revoked_raises(self):
+        edge = _make_edge_model(revoked=True)
+        session = _mock_session_with_edge(edge)
+        graph = self._make_graph(session)
+        with pytest.raises(ValueError, match="already revoked"):
+            graph.revoke_edge(edge.edge_id)
+
+    def test_revoke_edge_sets_revoked(self):
+        edge = _make_edge_model(revoked=False)
+        session = _mock_session_with_edge(edge)
+        graph = self._make_graph(session)
+        graph.revoke_edge(edge.edge_id, reason="test")
+        assert edge.revoked is True
+
+    def test_get_authority_sources_empty(self):
+        session = _mock_session_with_edge(None)
+        graph = self._make_graph(session)
+        result = graph.get_authority_sources(uuid4())
+        assert result == []
+
+    def test_get_authority_sources_returns_edges(self):
+        edge = _make_edge_model()
+        session = _mock_session_with_edge(edge)
+        graph = self._make_graph(session)
+        result = graph.get_authority_sources(uuid4())
+        assert len(result) == 1
+
+    def test_get_delegated_targets_empty(self):
+        session = _mock_session_with_edge(None)
+        graph = self._make_graph(session)
+        result = graph.get_delegated_targets(uuid4())
+        assert result == []
+
+    def test_validate_authority_path_same_id_active(self):
+        mandate_id = uuid4()
+        session = MagicMock()
+        mandate = _make_mandate()
+        session.query.return_value.filter.return_value.first.return_value = mandate
+        graph = self._make_graph(session)
+        assert graph.validate_authority_path(mandate_id, mandate_id) is True
+
+    def test_validate_authority_path_same_id_inactive(self):
+        mandate_id = uuid4()
+        session = MagicMock()
+        mandate = _make_mandate(revoked=True)
+        session.query.return_value.filter.return_value.first.return_value = mandate
+        graph = self._make_graph(session)
+        assert graph.validate_authority_path(mandate_id, mandate_id) is False
+
+    def test_get_effective_scope_missing_mandate(self):
+        session = MagicMock()
+        session.query.return_value.filter.return_value.first.return_value = None
+        graph = self._make_graph(session)
+        result = graph.get_effective_scope(uuid4())
+        assert result == {"resource_scope": [], "action_scope": []}
+
+    def test_check_delegation_path_returns_bool(self):
+        mandate_id = uuid4()
+        session = MagicMock()
+        mandate = _make_mandate()
+        session.query.return_value.filter.return_value.first.return_value = mandate
+        graph = self._make_graph(session)
+        result = graph.check_delegation_path(mandate_id)
+        assert isinstance(result, bool)
