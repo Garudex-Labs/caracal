@@ -266,54 +266,10 @@ class GatewayFlow:
             Prompt.ask("Press Enter to continue", default="")
             return
 
-        self.console.print(f"[{Colors.DIM}]Syncing gateway configuration from Enterprise...[/]")
-
-        try:
-            from caracal.deployment.enterprise_sync import EnterpriseSyncClient
-            client = EnterpriseSyncClient()
-            result = client.pull_gateway_config()
-
-            self.console.print()
-
-            if result.get("success") and result.get("gateway_configured"):
-                deploy_type = result.get("deployment_type", "managed")
-                endpoint = result.get("gateway_endpoint", "—")
-                mode_label = (
-                    "Managed (Caracal platform)" if deploy_type == "managed"
-                    else "On-Prem (customer)"
-                )
-
-                self.console.print(Panel(
-                    f"[bold {Colors.SUCCESS}]✓ Gateway configuration synced successfully![/]\n\n"
-                    f"[bold]Deployment:[/]  {mode_label}\n"
-                    f"[bold]Endpoint:[/]   {endpoint}\n"
-                    f"[bold]API Key:[/]    ●●●●●●●●\n"
-                    f"[bold]Fail-Closed:[/] Yes\n"
-                    f"[bold]Provider Registry:[/] Enabled\n\n"
-                    f"[{Colors.DIM}]These settings are managed by your Enterprise dashboard.[/]\n"
-                    f"[{Colors.DIM}]Changes made there will be picked up on the next sync.[/]",
-                    border_style=Colors.SUCCESS,
-                    padding=(1, 2),
-                ))
-
-                # Reload flags
-                reset_gateway_features()
-                self._flags = get_gateway_features(reload=True)
-
-                # Verify connectivity
-                if endpoint and endpoint != "—":
-                    self._check_gateway_health(endpoint)
-            elif result.get("success"):
-                self.console.print(
-                    f"[{Colors.WARNING}]Gateway not yet provisioned on your Enterprise workspace.[/]\n"
-                    f"[{Colors.DIM}]{result.get('message', '')}[/]"
-                )
-            else:
-                self.console.print(
-                    f"[{Colors.ERROR}]Failed to sync gateway config: {result.get('message', 'Unknown error')}[/]"
-                )
-        except Exception as exc:
-            self.console.print(f"[{Colors.ERROR}]Error syncing: {exc}[/]")
+        self.console.print(
+            f"[{Colors.WARNING}]Gateway configuration sync via the CLI is no longer supported.[/]\n"
+            f"[{Colors.DIM}]Configure your gateway endpoint manually from the Enterprise dashboard.[/]"
+        )
 
         self.console.print()
         Prompt.ask("Press Enter to continue", default="")

@@ -130,34 +130,18 @@ def _build_system_info() -> Table:
 def _build_activity_info(state: FlowState) -> Table:
     """Build activity information table."""
     from caracal.deployment.enterprise_license import EnterpriseLicenseValidator
-    from caracal.deployment.enterprise_sync import EnterpriseSyncClient
     from caracal.flow.workspace import get_workspace
-    
+
     table = Table(show_header=False, box=None, padding=(0, 1))
     table.add_column("Info", style=Colors.DIM)
-    
+
     try:
         validator = EnterpriseLicenseValidator()
         if validator.is_connected():
-            sync_status = EnterpriseSyncClient().get_sync_status()
-            last_sync = None
-            if isinstance(sync_status, dict):
-                cached = sync_status.get("last_sync")
-                if isinstance(cached, dict):
-                    last_sync = cached.get("timestamp")
-                elif cached:
-                    last_sync = str(cached)
-
-            if last_sync:
-                table.add_row(f"[{Colors.INFO}]Last Sync:[/] {last_sync}")
-                table.add_row(f"[{Colors.SUCCESS}]Enterprise connected[/]")
-            elif isinstance(sync_status, dict) and sync_status.get("error"):
-                table.add_row(f"[{Colors.WARNING}]Sync status unavailable: {sync_status['error']}[/]")
-            else:
-                table.add_row(f"[{Colors.WARNING}]No sync activity yet[/]")
+            table.add_row(f"[{Colors.SUCCESS}]Enterprise connected[/]")
         else:
             table.add_row(f"[{Colors.DIM}]Enterprise not connected[/]")
-        
+
         # Recent actions are workspace-scoped.
         active_workspace = str(get_workspace().root.resolve())
         workspace_actions = [

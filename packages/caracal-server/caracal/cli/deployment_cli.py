@@ -633,114 +633,34 @@ def enterprise_disconnect(
         sys.exit(1)
 
 
-@enterprise_group.command(name="sync")
-@click.option("--workspace", "-w", help="Workspace name (default: current workspace)")
-@click.option("--direction", "-d", type=click.Choice(["push", "pull", "both"]), default="both", help="Sync direction")
-@click.option("--format", "-f", type=click.Choice(["table", "json"]), default="table", help="Output format")
-def enterprise_sync(workspace: Optional[str], direction: str, format: str):
-    """Perform immediate synchronization."""
-    try:
-        from caracal.deployment.enterprise_sync_payload import build_enterprise_sync_payload
-        from caracal.deployment.enterprise_sync import EnterpriseSyncClient
-        
-        config_manager = ConfigManager()
-        
-        workspace = _require_workspace(config_manager, workspace)
-
-        if direction != "both":
-            console.print("[yellow]Warning:[/yellow] Direction filtering is no longer supported; running full enterprise sync.")
-
-        sync_client = EnterpriseSyncClient()
-        
-        with Progress(
-            SpinnerColumn(),
-            TextColumn("[progress.description]{task.description}"),
-            console=console,
-        ) as progress:
-            task = progress.add_task(f"Syncing workspace '{workspace}'...", total=None)
-            payload = build_enterprise_sync_payload(
-                client_instance_id=sync_client._client_instance_id,
-            )
-            result = sync_client.upload_payload(payload)
-            progress.update(task, completed=True)
-        
-        if format == "json":
-            click.echo(json.dumps({
-                "workspace": workspace,
-                "success": result.success,
-                "synced_counts": result.synced_counts,
-                "message": result.message,
-                "errors": result.errors,
-            }))
-        else:
-            if result.success:
-                console.print(f"[green]✓[/green] Sync completed successfully")
-            else:
-                console.print(f"[yellow]⚠[/yellow] Sync completed with errors")
-            
-            for key, value in sorted(result.synced_counts.items()):
-                console.print(f"  {key}: {value}")
-            console.print(f"  Message: {result.message}")
-            
-            if result.errors:
-                console.print("\n[red]Errors:[/red]")
-                for error in result.errors:
-                    console.print(f"  • {error}")
-        
-    except Exception as e:
-        logger.error("enterprise_sync_failed", error=str(e))
-        console.print(f"[red]Error:[/red] {e}")
-        sys.exit(1)
-
-
 @enterprise_group.command(name="status")
 @click.option("--workspace", "-w", help="Workspace name (default: current workspace)")
 @click.option("--format", "-f", type=click.Choice(["table", "json"]), default="table", help="Output format")
 def enterprise_status(workspace: Optional[str], format: str):
-    """Show sync status."""
+    """Show enterprise license status."""
     try:
         from caracal.deployment.enterprise_license import EnterpriseLicenseValidator
-        from caracal.deployment.enterprise_sync import EnterpriseSyncClient
-        
+
         config_manager = ConfigManager()
-        
+
         workspace = _require_workspace(config_manager, workspace)
-        
-        sync_status = EnterpriseSyncClient().get_sync_status()
+
         license_info = EnterpriseLicenseValidator().get_license_info()
-        
+
         if format == "json":
             click.echo(json.dumps(
                 {
                     "workspace": workspace,
                     "license_active": bool(license_info.get("license_active")),
                     "tier": license_info.get("tier"),
-                    "sync_status": sync_status,
                 }
             ))
         else:
-            console.print(f"Sync Status for workspace '{workspace}':")
+            console.print(f"Enterprise Status for workspace '{workspace}':")
             console.print(f"  License active: {'✓' if license_info.get('license_active') else '✗'}")
             if license_info.get("tier"):
                 console.print(f"  Tier: {license_info['tier']}")
 
-            if isinstance(sync_status, dict):
-                if sync_status.get("error"):
-                    console.print(f"  Status: {sync_status.get('error')}")
-                else:
-                    last_sync = sync_status.get("last_sync")
-                    if isinstance(last_sync, dict):
-                        console.print(f"  Last sync: {last_sync.get('timestamp', 'Unknown')}")
-                    elif last_sync:
-                        console.print(f"  Last sync: {last_sync}")
-
-                    if sync_status.get("organization_name"):
-                        console.print(f"  Workspace: {sync_status['organization_name']}")
-                    if sync_status.get("organization_id"):
-                        console.print(f"  Workspace ID: {sync_status['organization_id']}")
-                    if sync_status.get("tier"):
-                        console.print(f"  Server tier: {sync_status['tier']}")
-        
     except Exception as e:
         logger.error("enterprise_status_failed", error=str(e))
         console.print(f"[red]Error:[/red] {e}")

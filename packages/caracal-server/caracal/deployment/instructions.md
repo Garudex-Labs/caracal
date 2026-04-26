@@ -4,13 +4,12 @@ applyTo: packages/caracal-server/caracal/deployment/**
 ---
 
 ## Purpose
-Deployment mode detection, broker lifecycle, enterprise sync, edition gating, and config management.
+Deployment mode detection, broker lifecycle, enterprise license and runtime config, edition gating, and config management.
 
 ## Rules
 - `mode.py` is the single authority for deployment mode resolution; all mode checks import from it.
 - `edition_adapter.py` gates all enterprise-only features; no inline edition checks elsewhere.
 - `broker.py` owns broker process lifecycle; nothing else starts or stops the broker.
-- `enterprise_sync.py` handles enterprise sync payloads; payload schemas live in `enterprise_sync_payload.py` only.
 - `config_manager.py` manages runtime config state; `secrets_adapter.py` handles secret resolution.
 
 ## Constraints

@@ -713,14 +713,7 @@ def test_active_provider_code_paths_have_no_legacy_provider_markers() -> None:
     assert offenders == []
 
 
-@pytest.mark.unit
-def test_enterprise_sync_client_has_no_payload_or_query_auth_fallbacks() -> None:
-    sync_file = _REPO_ROOT / "caracal" / "deployment" / "enterprise_sync.py"
-    payload = sync_file.read_text(encoding="utf-8")
 
-    assert 'payload["sync_api_key"]' not in payload
-    assert 'payload["license_key"]' not in payload
-    assert "?license_key=" not in payload
 
 
 @pytest.mark.unit
@@ -894,7 +887,6 @@ def test_main_cli_uses_enterprise_group_and_has_no_top_level_sync_group() -> Non
     assert "def enterprise(ctx):" in payload
     assert "enterprise.add_command(enterprise_login, name='login')" in payload
     assert "enterprise.add_command(enterprise_disconnect, name='disconnect')" in payload
-    assert "enterprise.add_command(enterprise_sync, name='sync')" in payload
     assert "enterprise.add_command(enterprise_status, name='status')" in payload
     assert "def sync(ctx):" not in payload
     assert "caracal sync " not in payload
