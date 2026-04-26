@@ -1,11 +1,11 @@
 ## Installation
 
 ```bash
-npm run build
+pnpm run build
 ```
 
 ## Local Development
 
 ```bash
-npm run serve
+pnpm run serve
 ```

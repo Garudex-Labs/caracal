@@ -38,7 +38,7 @@ jobs:
 
       - name: Install Node SDK dependencies
         working-directory: sdk/node-sdk
-        run: npm install --package-lock=false --no-audit --no-fund
+        run: npm ci --no-audit --no-fund
 
       - name: Run tests
         run: >-
@@ -116,7 +116,7 @@ jobs:
           node-version: "22"
 
       - name: Install dependencies
-        run: npm install --package-lock=false --no-audit --no-fund
+        run: npm ci --no-audit --no-fund
 
       - name: Typecheck
         run: npm run lint
