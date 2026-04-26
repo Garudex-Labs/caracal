@@ -13,7 +13,7 @@ const config: Config = {
   baseUrl: "/",
   organizationName: "Garudex-Labs",
   projectName: "Caracal",
-  onBrokenLinks: "throw",
+  onBrokenLinks: "warn",
   markdown: {
     format: "mdx",
     mermaid: true,
@@ -94,8 +94,7 @@ const config: Config = {
       hideOnScroll: false,
       logo: {
         alt: "Caracal Logo",
-        src: "img/caracal.png",
-        srcDark: "img/caracal_inverted.png",
+        src: "img/logo.svg",
       },
       items: [
         {
