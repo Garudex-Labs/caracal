@@ -18,11 +18,11 @@
 [![Version](https://img.shields.io/github/v/release/Garudex-Labs/caracal?style=for-the-badge&label=Release&color=orange)](https://github.com/Garudex-Labs/caracal/releases)
 [![Python](https://img.shields.io/badge/Python-3.11%2B-blue?style=for-the-badge&logo=python&logoColor=white)](pyproject.toml)
 [![Repo Size](https://img.shields.io/github/repo-size/Garudex-Labs/caracal?style=for-the-badge&color=green)](https://github.com/Garudex-Labs/caracal)
-[![Activity](https://img.shields.io/github/commit-activity/m/Garudex-Labs/caracal?style=for-the-badge&color=blueviolet)](https://github.com/Garudex-Labs/caracal/graphs/commit-activity)
 [![Website](https://img.shields.io/badge/Website-garudexlabs.com-333333?style=for-the-badge&logo=google-chrome&logoColor=white)](https://garudexlabs.com)
-[![PyPI](https://img.shields.io/pypi/v/caracal-core?style=for-the-badge&logo=pypi&logoColor=white)](https://pypi.org/project/caracal-core/)
 
-[![OpenSSF Best Practices](https://www.bestpractices.dev/projects/12350/badge)](https://www.bestpractices.dev/projects/12350) [![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/Garudex-Labs/caracal/badge)](https://scorecard.dev/viewer/?uri=github.com/Garudex-Labs/caracal)
+[![OpenSSF Best Practices](https://www.bestpractices.dev/projects/12350/badge)](https://www.bestpractices.dev/projects/12350) 
+[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/Garudex-Labs/caracal/badge)](https://scorecard.dev/viewer/?uri=github.com/Garudex-Labs/caracal) 
+[![codecov](https://codecov.io/github/garudex-labs/caracal/graph/badge.svg?token=2Z0FY88RF5)](https://codecov.io/github/garudex-labs/caracal)
 </div>
 
 -----
@@ -63,6 +63,9 @@ More coming soon
 -----
 
 ## Installation & Setup
+
+[![caracal-core](https://img.shields.io/pypi/v/caracal-core?style=for-the-badge&label=caracal-core&logo=pypi&logoColor=white)](https://pypi.org/project/caracal-core)
+[![caracal-sdk](https://img.shields.io/pypi/v/caracal-sdk?style=for-the-badge&label=caracal-sdk&logo=pypi&logoColor=white)](https://pypi.org/project/caracal-sdk)
 
 ### Quickstart
 
@@ -108,8 +111,8 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for setup, workflow, tests, and pull requ
 If this project contributes to your research, product, or derivative systems, please consider citing it to help us advance trustworthy AI security research.
 
 ```bibtex
-@software{madhuwala2026caracal,
-  author    = {Madhuwala, Ryan and Garudex Labs},
+@software{GarudexLabs2026caracal,
+  author    = {Garudex Labs},
   title     = {Caracal: Authority Enforcement Framework for AI Agents},
   year      = {2026},
   publisher = {GitHub},
