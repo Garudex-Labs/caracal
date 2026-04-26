@@ -10,7 +10,7 @@ import pytest
 
 import sys as _sys
 _sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-from tests._caracal_source import caracal_path as _caracal_path
+from tests.mock.source import caracal_path as _caracal_path
 _MIGRATION_PATH = _caracal_path("db", "migrations", "versions", "v1w2x3y4z5a6_add_registered_tools_table.py")
 
 

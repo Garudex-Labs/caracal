@@ -6,7 +6,7 @@ from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.backends import default_backend
 from caracal.core import crypto
-from tests.helpers.crypto_signing import sign_mandate_for_test, sign_merkle_root_for_test
+from tests.mock.signing import sign_mandate_for_test, sign_merkle_root_for_test
 
 
 @pytest.fixture

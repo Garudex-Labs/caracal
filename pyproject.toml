@@ -43,8 +43,10 @@ addopts = [
 markers = [
     "unit: Unit tests (isolated component testing)",
     "integration: Integration tests (multi-component)",
-    "e2e: End-to-end tests (full system)",
     "security: Security-focused tests",
+    "edge: Edge case tests (boundary values and unusual inputs)",
+    "regression: Regression tests (guards against previously fixed bugs)",
+    "coverage: Coverage tests (targets specific uncovered paths)",
     "property: Property-based tests",
     "asyncio: Async tests",
     "slow: Slow-running tests",

@@ -17,7 +17,7 @@ from caracal.core.authority_ledger import AuthorityLedgerWriter
 from caracal.core.mandate import MandateManager
 from caracal.core.principal_keys import generate_and_store_principal_keypair
 from caracal.db.models import AuthorityPolicy, Principal
-from tests.fixtures.database import db_session, in_memory_db_engine
+from tests.mock.database import db_session, in_memory_db_engine
 
 
 def _make_principal(principal_id, name, kind, *, with_keys: bool = False):

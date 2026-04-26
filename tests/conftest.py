@@ -1,64 +1,54 @@
 """
-Global pytest configuration and fixtures.
+Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+Caracal, a product of Garudex Labs
 
-This module provides shared fixtures and configuration for all tests.
+Global pytest configuration and shared fixtures for the Caracal test suite.
 """
 import os
 import pytest
 
-pytest_plugins = ["tests.fixtures"]
+pytest_plugins = ["tests.mock"]
 
-
-# ============================================================================
-# Environment Setup
-# ============================================================================
 
 @pytest.fixture(scope="session", autouse=True)
 def setup_test_environment():
-    """Set up test environment variables."""
+    """Set up test environment variables for the entire session."""
     os.environ["CARACAL_ENV"] = "test"
     os.environ["CARACAL_LOG_LEVEL"] = "ERROR"
     yield
-    # Cleanup after all tests
     os.environ.pop("CARACAL_ENV", None)
     os.environ.pop("CARACAL_LOG_LEVEL", None)
 
 
-# ============================================================================
-# Pytest Hooks
-# ============================================================================
-
 def pytest_configure(config):
-    """Configure pytest with custom markers and settings."""
-    config.addinivalue_line(
-        "markers", "unit: Unit tests (isolated component testing)"
-    )
-    config.addinivalue_line(
-        "markers", "integration: Integration tests (multi-component)"
-    )
-    config.addinivalue_line(
-        "markers", "e2e: End-to-end tests (full system)"
-    )
-    config.addinivalue_line(
-        "markers", "security: Security-focused tests"
-    )
-    config.addinivalue_line(
-        "markers", "property: Property-based tests"
-    )
-    config.addinivalue_line(
-        "markers", "slow: Slow-running tests"
-    )
+    """Register custom markers."""
+    markers = [
+        "unit: Unit tests — isolated component testing",
+        "integration: Integration tests — multi-component interactions",
+        "security: Security tests — abuse, fuzzing, and boundary checks",
+        "edge: Edge case tests — boundary values and unusual inputs",
+        "regression: Regression tests — guards against previously fixed bugs",
+        "coverage: Coverage tests — targets specific uncovered paths",
+        "property: Property-based tests using Hypothesis",
+        "slow: Slow-running tests (marked for optional skipping)",
+    ]
+    for marker in markers:
+        config.addinivalue_line("markers", marker)
 
 
 def pytest_collection_modifyitems(config, items):
-    """Modify test collection to add markers based on test location."""
+    """Auto-assign markers based on test file location."""
+    location_markers = {
+        "/unit/": "unit",
+        "/integration/": "integration",
+        "/security/": "security",
+        "/edge/": "edge",
+        "/regression/": "regression",
+        "/coverage/": "coverage",
+    }
     for item in items:
-        # Add markers based on test file path
-        if "unit" in str(item.fspath):
-            item.add_marker(pytest.mark.unit)
-        elif "integration" in str(item.fspath):
-            item.add_marker(pytest.mark.integration)
-        elif "e2e" in str(item.fspath):
-            item.add_marker(pytest.mark.e2e)
-        elif "security" in str(item.fspath):
-            item.add_marker(pytest.mark.security)
+        path = str(item.fspath)
+        for fragment, marker in location_markers.items():
+            if fragment in path:
+                item.add_marker(getattr(pytest.mark, marker))
+                break

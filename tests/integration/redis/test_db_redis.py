@@ -14,7 +14,7 @@ from caracal.core.authority import AuthorityEvaluator
 from caracal.redis.mandate_cache import RedisMandateCache
 from caracal.redis.client import RedisClient
 from caracal.db.models import Principal, ExecutionMandate, AuthorityPolicy
-from tests.fixtures.database import db_session, in_memory_db_engine
+from tests.mock.database import db_session, in_memory_db_engine
 
 
 @pytest.fixture

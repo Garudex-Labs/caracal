@@ -51,7 +51,7 @@ class TestModeManager:
     
     def test_get_mode_from_environment_variable(self):
         """Test mode detection from environment variable."""
-        with patch.dict(os.environ, {"CARACAL_MODE": "dev"}):
+        with patch.dict(os.environ, {"CCL_MODE": "dev"}):
             # Clear cache to force re-detection
             self.manager.clear_cache()
             mode = self.manager.get_mode()
@@ -59,14 +59,14 @@ class TestModeManager:
     
     def test_get_mode_from_environment_variable_user(self):
         """Test mode detection from environment variable for user mode."""
-        with patch.dict(os.environ, {"CARACAL_MODE": "user"}):
+        with patch.dict(os.environ, {"CCL_MODE": "user"}):
             self.manager.clear_cache()
             mode = self.manager.get_mode()
             assert mode == Mode.USER
     
     def test_get_mode_invalid_environment_variable(self):
         """Test mode detection with invalid environment variable falls back to config."""
-        with patch.dict(os.environ, {"CARACAL_MODE": "invalid"}):
+        with patch.dict(os.environ, {"CCL_MODE": "invalid"}):
             self.manager.clear_cache()
             # Should fall back to default mode
             mode = self.manager.get_mode()
@@ -99,12 +99,12 @@ class TestModeManager:
     
     def test_get_mode_caching(self):
         """Test that mode detection result is cached."""
-        with patch.dict(os.environ, {"CARACAL_MODE": "dev"}):
+        with patch.dict(os.environ, {"CCL_MODE": "dev"}):
             self.manager.clear_cache()
             mode1 = self.manager.get_mode()
             
             # Change environment variable
-            os.environ["CARACAL_MODE"] = "user"
+            os.environ["CCL_MODE"] = "user"
             
             # Should still return cached value
             mode2 = self.manager.get_mode()
@@ -112,13 +112,13 @@ class TestModeManager:
     
     def test_clear_cache(self):
         """Test cache clearing."""
-        with patch.dict(os.environ, {"CARACAL_MODE": "dev"}):
+        with patch.dict(os.environ, {"CCL_MODE": "dev"}):
             self.manager.clear_cache()
             mode1 = self.manager.get_mode()
             assert mode1 == Mode.DEVELOPMENT
             
             # Change environment and clear cache
-            os.environ["CARACAL_MODE"] = "user"
+            os.environ["CCL_MODE"] = "user"
             self.manager.clear_cache()
             
             # Should detect new mode
@@ -179,21 +179,21 @@ class TestModeManager:
     
     def test_is_dev_mode(self):
         """Test is_dev_mode method."""
-        with patch.dict(os.environ, {"CARACAL_MODE": "dev"}):
+        with patch.dict(os.environ, {"CCL_MODE": "dev"}):
             self.manager.clear_cache()
             assert self.manager.is_dev_mode() is True
             assert self.manager.is_user_mode() is False
     
     def test_is_user_mode(self):
         """Test is_user_mode method."""
-        with patch.dict(os.environ, {"CARACAL_MODE": "user"}):
+        with patch.dict(os.environ, {"CCL_MODE": "user"}):
             self.manager.clear_cache()
             assert self.manager.is_user_mode() is True
             assert self.manager.is_dev_mode() is False
     
     def test_get_code_path_development(self):
         """Test get_code_path in development mode."""
-        with patch.dict(os.environ, {"CARACAL_MODE": "dev"}):
+        with patch.dict(os.environ, {"CCL_MODE": "dev"}):
             self.manager.clear_cache()
             code_path = self.manager.get_code_path()
             
@@ -204,7 +204,7 @@ class TestModeManager:
     
     def test_get_code_path_user(self):
         """Test get_code_path in user mode."""
-        with patch.dict(os.environ, {"CARACAL_MODE": "user"}):
+        with patch.dict(os.environ, {"CCL_MODE": "user"}):
             self.manager.clear_cache()
             code_path = self.manager.get_code_path()
             

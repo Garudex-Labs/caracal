@@ -14,7 +14,7 @@ from caracal.core.crypto import (
     verify_mandate_signature,
     verify_merkle_root,
 )
-from tests.helpers.crypto_signing import sign_mandate_for_test, sign_merkle_root_for_test
+from tests.mock.signing import sign_mandate_for_test, sign_merkle_root_for_test
 
 
 @pytest.mark.security
