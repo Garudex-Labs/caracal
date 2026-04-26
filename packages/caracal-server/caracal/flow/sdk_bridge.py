@@ -45,10 +45,10 @@ class SDKBridge:
         base_url: Optional[str] = None,
     ) -> None:
         resolved_base_url = base_url or os.environ.get(
-            "CARACAL_API_URL",
-            f"http://localhost:{os.environ.get('CARACAL_API_PORT', '8080')}",
+            "CCL_API_URL",
+            f"http://localhost:{os.environ.get('CCL_API_PORT', '8080')}",
         )
-        resolved_api_key = api_key or os.environ.get("CARACAL_API_KEY")
+        resolved_api_key = api_key or os.environ.get("CCL_API_KEY")
         self._client = CaracalClient(
             api_key=resolved_api_key,
             base_url=resolved_base_url,

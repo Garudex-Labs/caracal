@@ -48,7 +48,7 @@ class EditionManager:
     Provides methods to detect, set, and query the current edition.
 
     Edition resolution follows a strict explicit chain:
-    1. CARACAL_GATEWAY_ENABLED runtime mode signal (if provided)
+    1. CCL_GW_ENABLED runtime mode signal (if provided)
     2. Persisted config (~/.caracal/config.toml)
     3. Default edition (OPENSOURCE)
     
@@ -73,7 +73,7 @@ class EditionManager:
         Returns current edition (OPENSOURCE or ENTERPRISE).
         
           Edition detection is policy-driven and explicit:
-          1. CARACAL_GATEWAY_ENABLED runtime signal (if provided)
+          1. CCL_GW_ENABLED runtime signal (if provided)
           2. Persisted edition config
           3. Default edition (OPENSOURCE)
         
@@ -139,7 +139,7 @@ class EditionManager:
 
     def _auto_detect_edition(self) -> Edition:
         """Resolve edition from explicit runtime mode signal, then persisted config."""
-        gateway_enabled_raw = (os.environ.get("CARACAL_GATEWAY_ENABLED") or "").strip().lower()
+        gateway_enabled_raw = (os.environ.get("CCL_GW_ENABLED") or "").strip().lower()
         if gateway_enabled_raw in {"1", "true", "yes", "on"}:
             logger.debug("edition_detected_from_runtime_signal", signal="gateway_enabled")
             return Edition.ENTERPRISE
@@ -205,7 +205,7 @@ class EditionManager:
 
         if detected_edition == Edition.ENTERPRISE and not gateway_url:
             raise EditionConfigurationError(
-                "Enterprise execution requires a gateway URL (CARACAL_ENTERPRISE_URL). "
+                "Enterprise execution requires a gateway URL (CCLE_URL). "
                 "Broker fallback is forbidden in hard-cut mode."
             )
     
@@ -387,7 +387,7 @@ class EditionManager:
         if configured_gateway_url:
             return configured_gateway_url
 
-        value = (os.environ.get("CARACAL_ENTERPRISE_URL") or "").strip()
+        value = (os.environ.get("CCLE_URL") or "").strip()
         if value:
             return value
         return None

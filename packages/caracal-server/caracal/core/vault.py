@@ -89,12 +89,12 @@ def _is_local_bootstrap_vault_url(base_url: str) -> bool:
 
 
 def _save_recovered_vault_token(token: str) -> None:
-    """Persist a machine identity token to CARACAL_HOME/.env for future sidecar restarts."""
-    caracal_home = os.environ.get("CARACAL_HOME", "").strip()
+    """Persist a machine identity token to CCL_HOME/.env for future sidecar restarts."""
+    caracal_home = os.environ.get("CCL_HOME", "").strip()
     if not caracal_home:
         return
     env_path = Path(caracal_home) / ".env"
-    key = "CARACAL_VAULT_RECOVERED_IDENTITY_TOKEN"
+    key = "CCL_VAULT_ID_TOKEN"
     try:
         existing = env_path.read_text(encoding="utf-8") if env_path.exists() else ""
         lines = existing.splitlines(keepends=True)
@@ -123,27 +123,27 @@ def _resolve_local_sidecar_token_and_project(
     current_project: str,
 ) -> tuple[str, str]:
     email = (
-        _read_env_or_dotenv("CARACAL_VAULT_BOOTSTRAP_EMAIL")
+        _read_env_or_dotenv("CCL_VAULT_BS_EMAIL")
         or "admin@caracal.local"
     ).strip()
     password = (
-        _read_env_or_dotenv("CARACAL_VAULT_BOOTSTRAP_PASSWORD")
+        _read_env_or_dotenv("CCL_VAULT_BS_PASS")
         or "CaracalVaultDev123!"
     ).strip()
     desired_org = (
-        _read_env_or_dotenv("CARACAL_VAULT_BOOTSTRAP_ORGANIZATION")
+        _read_env_or_dotenv("CCL_VAULT_BS_ORG")
         or "caracal-local"
     ).strip()
     desired_project_slug = (
         current_project
-        or _read_env_or_dotenv("CARACAL_VAULT_BOOTSTRAP_PROJECT_SLUG")
+        or _read_env_or_dotenv("CCL_VAULT_BS_PROJ")
         or "caracal"
     ).strip()
 
     if not email or not password:
         raise VaultConfigurationError(
             "Local vault bootstrap credentials are incomplete. "
-            "Set CARACAL_VAULT_BOOTSTRAP_EMAIL and CARACAL_VAULT_BOOTSTRAP_PASSWORD."
+            "Set CCL_VAULT_BS_EMAIL and CCL_VAULT_BS_PASS."
         )
 
     headers = {"Content-Type": "application/json"}
@@ -193,7 +193,7 @@ def _resolve_local_sidecar_token_and_project(
 
         if base_token is None:
             # Vault already initialised — try a token saved by a previous bootstrap.
-            saved = (_read_env_or_dotenv("CARACAL_VAULT_RECOVERED_IDENTITY_TOKEN") or "").strip()
+            saved = (_read_env_or_dotenv("CCL_VAULT_ID_TOKEN") or "").strip()
             if saved:
                 base_token = saved
                 logger.debug("Using saved vault identity token from runtime env.")
@@ -384,9 +384,9 @@ def _read_env_or_dotenv(name: str) -> Optional[str]:
 
     candidates: list[Path] = [Path.cwd() / ".env"]
 
-    # CARACAL_HOME/.env is written by bootstrap and vault.py itself at runtime.
+    # CCL_HOME/.env is written by bootstrap and vault.py itself at runtime.
     # Must be searched before generic cwd/repo-root paths.
-    caracal_home = os.environ.get("CARACAL_HOME", "").strip()
+    caracal_home = os.environ.get("CCL_HOME", "").strip()
     if caracal_home:
         candidates.insert(0, Path(caracal_home) / ".env")
 
@@ -519,49 +519,49 @@ class _VaultConfig:
 
 
 def _load_vault_config() -> _VaultConfig:
-    base_url = (_read_env_or_dotenv("CARACAL_VAULT_URL") or "").strip()
-    token = (_read_env_or_dotenv("CARACAL_VAULT_TOKEN") or "").strip()
-    mode = (_read_env_or_dotenv("CARACAL_VAULT_MODE") or "managed").strip().lower()
+    base_url = (_read_env_or_dotenv("CCL_VAULT_URL") or "").strip()
+    token = (_read_env_or_dotenv("CCL_VAULT_TOKEN") or "").strip()
+    mode = (_read_env_or_dotenv("CCL_VAULT_MODE") or "managed").strip().lower()
     default_project = (
-        _read_env_or_dotenv("CARACAL_VAULT_WORKSPACE_ID")
-        or _read_env_or_dotenv("CARACAL_VAULT_WORKSPACE_SLUG")
+        _read_env_or_dotenv("CCL_VAULT_WS_ID")
+        or _read_env_or_dotenv("CCL_VAULT_WS_SLUG")
         or ""
     ).strip()
     default_environment = (
-        _read_env_or_dotenv("CARACAL_VAULT_ENVIRONMENT")
-        or _read_env_or_dotenv("CARACAL_VAULT_ENV")
+        _read_env_or_dotenv("CCL_VAULT_ENV")
+        or _read_env_or_dotenv("CCL_VAULT_ENV")
         or "dev"
     ).strip()
-    default_secret_path = (_read_env_or_dotenv("CARACAL_VAULT_SECRET_PATH") or "/").strip() or "/"
+    default_secret_path = (_read_env_or_dotenv("CCL_VAULT_PATH") or "/").strip() or "/"
 
     hardcut_enabled = True
-    retry_attempts_raw = (_read_env_or_dotenv("CARACAL_VAULT_RETRY_MAX_ATTEMPTS") or "3").strip()
-    retry_backoff_raw = (_read_env_or_dotenv("CARACAL_VAULT_RETRY_BACKOFF_SECONDS") or "0.2").strip()
+    retry_attempts_raw = (_read_env_or_dotenv("CCL_VAULT_RETRY_MAX") or "3").strip()
+    retry_backoff_raw = (_read_env_or_dotenv("CCL_VAULT_RETRY_SEC") or "0.2").strip()
 
     try:
         retry_max_attempts = max(1, int(retry_attempts_raw))
     except ValueError:
         raise VaultConfigurationError(
-            "CARACAL_VAULT_RETRY_MAX_ATTEMPTS must be a positive integer."
+            "CCL_VAULT_RETRY_MAX must be a positive integer."
         )
 
     try:
         retry_backoff_seconds = max(0.0, float(retry_backoff_raw))
     except ValueError:
         raise VaultConfigurationError(
-            "CARACAL_VAULT_RETRY_BACKOFF_SECONDS must be a non-negative number."
+            "CCL_VAULT_RETRY_SEC must be a non-negative number."
         )
 
     is_local_mode = mode in _LOCAL_MODE_VALUES
     is_managed_mode = mode in _MANAGED_MODE_VALUES
     if not is_local_mode and not is_managed_mode:
         raise VaultConfigurationError(
-            "CARACAL_VAULT_MODE must be one of: managed, local, dev, development."
+            "CCL_VAULT_MODE must be one of: managed, local, dev, development."
         )
 
     if is_local_mode:
         raise VaultConfigurationError(
-            "CARACAL_VAULT_MODE local/dev is forbidden in runtime paths."
+            "CCL_VAULT_MODE local/dev is forbidden in runtime paths."
         )
 
     if token and _is_local_bootstrap_token(token) and _is_local_bootstrap_vault_url(base_url):
@@ -572,13 +572,13 @@ def _load_vault_config() -> _VaultConfig:
         token = recovered_token
         if recovered_project:
             default_project = recovered_project
-            os.environ["CARACAL_VAULT_WORKSPACE_ID"] = recovered_project
-        os.environ["CARACAL_VAULT_TOKEN"] = recovered_token
+            os.environ["CCL_VAULT_WS_ID"] = recovered_project
+        os.environ["CCL_VAULT_TOKEN"] = recovered_token
 
     if not base_url:
-        raise VaultConfigurationError("CARACAL_VAULT_URL is required for vault operations.")
+        raise VaultConfigurationError("CCL_VAULT_URL is required for vault operations.")
     if not token:
-        raise VaultConfigurationError("CARACAL_VAULT_TOKEN is required for vault operations.")
+        raise VaultConfigurationError("CCL_VAULT_TOKEN is required for vault operations.")
 
     return _VaultConfig(
         base_url=base_url.rstrip("/"),
@@ -677,7 +677,7 @@ class CaracalVault:
         secret_path = self._config.default_secret_path
         if not project_id:
             raise VaultConfigurationError(
-                "Vault workspace context is missing. Provide workspace_id or set CARACAL_VAULT_WORKSPACE_ID."
+                "Vault workspace context is missing. Provide workspace_id or set CCL_VAULT_WS_ID."
             )
         if not environment:
             raise VaultConfigurationError("Vault environment context is missing.")
@@ -873,7 +873,7 @@ class CaracalVault:
         headers: dict[str, Any],
         algorithm: str,
     ) -> str:
-        endpoint = (_read_env_or_dotenv("CARACAL_VAULT_SIGN_JWT_ENDPOINT") or "/api/caracal/sign/jwt").strip()
+        endpoint = (_read_env_or_dotenv("CCL_VAULT_SIGN_JWT") or "/api/caracal/sign/jwt").strip()
         response = self._request(
             "POST",
             endpoint,
@@ -911,7 +911,7 @@ class CaracalVault:
         payload: dict[str, Any],
     ) -> str:
         endpoint = (
-            _read_env_or_dotenv("CARACAL_VAULT_SIGN_CANONICAL_PAYLOAD_ENDPOINT")
+            _read_env_or_dotenv("CCL_VAULT_SIGN_EP")
             or "/api/caracal/sign/canonical-payload"
         ).strip()
         response = self._request(
@@ -950,7 +950,7 @@ class CaracalVault:
         algorithm: str,
     ) -> None:
         endpoint = (
-            _read_env_or_dotenv("CARACAL_VAULT_BOOTSTRAP_KEYPAIR_ENDPOINT")
+            _read_env_or_dotenv("CCL_VAULT_BS_KEY_EP")
             or "/api/caracal/keys/bootstrap"
         ).strip()
         self._request(
@@ -1482,11 +1482,11 @@ class CaracalVault:
         self._rl.check(workspace_id)
         self._ensure_service_health()
 
-        rotate_endpoint = (_read_env_or_dotenv("CARACAL_VAULT_ROTATE_ENDPOINT") or "").strip()
+        rotate_endpoint = (_read_env_or_dotenv("CCL_VAULT_ROTATE_EP") or "").strip()
         if not rotate_endpoint:
             raise VaultError(
                 "Vault key rotation endpoint is not configured. "
-                "Set CARACAL_VAULT_ROTATE_ENDPOINT to enable rotate_master_key."
+                "Set CCL_VAULT_ROTATE_EP to enable rotate_master_key."
             )
 
         project_id, environment, secret_path = self._resolve_context(workspace_id, env_id)

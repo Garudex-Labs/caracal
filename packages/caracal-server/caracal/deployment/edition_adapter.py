@@ -58,7 +58,7 @@ class DeploymentEditionAdapter:
 
         raise EditionConfigurationError(
             "Enterprise execution requires a gateway URL "
-            "(CARACAL_ENTERPRISE_URL)."
+            "(CCLE_URL)."
         )
 
     def resolve_revocation_publisher_mode(self, *, explicit_mode: Optional[str] = None) -> str:
@@ -67,7 +67,7 @@ class DeploymentEditionAdapter:
             if normalized_mode in {"redis", "enterprise_webhook"}:
                 return normalized_mode
             raise EditionConfigurationError(
-                "CARACAL_REVOCATION_PUBLISHER_MODE must be one of: redis, enterprise_webhook"
+                "CCL_REVOKE_PUB_MODE must be one of: redis, enterprise_webhook"
             )
 
         return "enterprise_webhook" if self.is_enterprise() else "redis"

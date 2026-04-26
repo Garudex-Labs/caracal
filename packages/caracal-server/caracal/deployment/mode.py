@@ -53,7 +53,7 @@ class ModeManager:
     """
     
     # Environment variable name for mode override
-    ENV_VAR_NAME = "CARACAL_MODE"
+    ENV_VAR_NAME = "CCL_MODE"
     
     # Configuration directory and file paths
     CONFIG_DIR = resolve_caracal_home()
@@ -72,7 +72,7 @@ class ModeManager:
         Returns current installation mode (DEV or USER).
         
         Mode detection follows a fallback chain:
-        1. Environment variable (CARACAL_MODE)
+        1. Environment variable (CCL_MODE)
         2. Configuration file (~/.caracal/config.toml)
         3. Default mode (USER)
         

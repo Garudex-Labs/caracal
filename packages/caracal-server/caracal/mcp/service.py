@@ -744,14 +744,14 @@ class MCPAdapterService:
             import os
             from pathlib import Path
             token = self._extract_bearer_token(raw_request.headers.get("Authorization"))
-            stored = os.environ.get("CARACAL_API_KEY", "").strip()
+            stored = os.environ.get("CCL_API_KEY", "").strip()
             if not stored:
-                caracal_home = os.environ.get("CARACAL_HOME", "").strip()
+                caracal_home = os.environ.get("CCL_HOME", "").strip()
                 if caracal_home:
                     env_path = Path(caracal_home) / ".env"
                     try:
                         for line in env_path.read_text(encoding="utf-8").splitlines():
-                            if line.startswith("CARACAL_API_KEY="):
+                            if line.startswith("CCL_API_KEY="):
                                 stored = line.split("=", 1)[1].strip()
                                 break
                     except Exception:
@@ -767,25 +767,25 @@ class MCPAdapterService:
                     detail="Session manager not configured",
                 )
             subject_id = (
-                os.environ.get("CARACAL_ENFORCEMENT_PRINCIPAL_ID", "").strip()
-                or os.environ.get("CARACAL_AIS_ATTESTATION_PRINCIPAL_ID", "").strip()
+                os.environ.get("CCL_ENFORCE_PID", "").strip()
+                or os.environ.get("CCL_AIS_ATTEST_PID", "").strip()
                 or "e394e710-4290-4531-bec2-751ecc431352"
             )
             if not subject_id or subject_id == "e394e710-4290-4531-bec2-751ecc431352":
-                caracal_home = os.environ.get("CARACAL_HOME", "").strip()
+                caracal_home = os.environ.get("CCL_HOME", "").strip()
                 if caracal_home:
                     env_path = Path(caracal_home) / ".env"
                     try:
                         file_vals: dict[str, str] = {}
                         for line in env_path.read_text(encoding="utf-8").splitlines():
-                            for key in ("CARACAL_ENFORCEMENT_PRINCIPAL_ID", "CARACAL_AIS_ATTESTATION_PRINCIPAL_ID"):
+                            for key in ("CCL_ENFORCE_PID", "CCL_AIS_ATTEST_PID"):
                                 if line.strip().startswith(key + "="):
                                     val = line.strip().split("=", 1)[1].strip()
                                     if val:
                                         file_vals[key] = val
                         subject_id = (
-                            file_vals.get("CARACAL_ENFORCEMENT_PRINCIPAL_ID")
-                            or file_vals.get("CARACAL_AIS_ATTESTATION_PRINCIPAL_ID")
+                            file_vals.get("CCL_ENFORCE_PID")
+                            or file_vals.get("CCL_AIS_ATTEST_PID")
                             or subject_id
                         )
                     except Exception:
@@ -1287,7 +1287,7 @@ async def main(config_path: Optional[str] = None, listen_address: Optional[str] 
     logger.info("Initializing Caracal Core components...")
     
     try:
-        config_path = config_path or os.environ.get("CARACAL_CONFIG_PATH")
+        config_path = config_path or os.environ.get("CCL_CONFIG_PATH")
         core_config = load_config(config_path)
     except Exception as e:
         logger.error(f"Failed to load core config: {e}")
@@ -1312,7 +1312,7 @@ async def main(config_path: Optional[str] = None, listen_address: Optional[str] 
             
     config = MCPServiceConfig(
         listen_address=listen_address
-        or os.environ.get("CARACAL_MCP_LISTEN_ADDRESS")
+        or os.environ.get("CCL_MCP_ADDR")
         or core_config.mcp_adapter.listen_address,
         mcp_servers=mcp_servers,
         enable_health_check=core_config.mcp_adapter.health_check_enabled,

@@ -81,30 +81,30 @@ _FORBIDDEN_STATE_RELATIVE_PATHS = (
     "keystore/master_key",
 )
 _FORBIDDEN_COMPAT_ENV_VARS = (
-    "CARACAL_ENABLE_COMPAT_ALIASES",
-    "CARACAL_COMPAT_ALIASES",
-    "CARACAL_COMPAT_MODE",
-    "CARACAL_HARDCUT_MODE",
-    "CARACAL_ENABLE_DUAL_WRITE",
-    "CARACAL_DUAL_WRITE_WINDOW",
-    "CARACAL_ENTERPRISE_DEFAULT_URL",
-    "CARACAL_GATEWAY_ENDPOINT",
-    "CARACAL_GATEWAY_URL",
-    "CARACAL_SESSION_JWT_ALGORITHM",
+    "CCL_COMPAT_ON",
+    "CCL_COMPAT_ALIASES",
+    "CCL_COMPAT_MODE",
+    "CCL_HARDCUT_MODE",
+    "CCL_DUAL_WRITE_ON",
+    "CCL_DUAL_WRITE_WIN",
+    "CCLE_DEFAULT_URL",
+    "CCL_GW_ENDPOINT",
+    "CCL_GW_URL",
+    "CCL_SESSION_JWT_ALG",
 )
-_REQUIRED_SECRET_BACKEND_ENV = "CARACAL_PRINCIPAL_KEY_BACKEND"
+_REQUIRED_SECRET_BACKEND_ENV = "CCL_KEY_BACKEND"
 _ALLOWED_SECRET_BACKENDS = ("vault",)
 _REQUIRED_VAULT_ENV_VARS = (
-    "CARACAL_VAULT_URL",
-    "CARACAL_VAULT_TOKEN",
-    "CARACAL_VAULT_SIGNING_KEY_REF",
-    "CARACAL_VAULT_SESSION_PUBLIC_KEY_REF",
+    "CCL_VAULT_URL",
+    "CCL_VAULT_TOKEN",
+    "CCL_VAULT_SIGN_KEY",
+    "CCL_VAULT_SESS_KEY",
 )
 _SESSION_SIGNING_ALGORITHM_ENV_VARS = (
-    "CARACAL_SESSION_SIGNING_ALGORITHM",
+    "CCL_SESSION_ALG",
 )
 _ALLOWED_SESSION_SIGNING_ALGORITHMS = ("RS256", "ES256")
-_VAULT_MODE_ENV = "CARACAL_VAULT_MODE"
+_VAULT_MODE_ENV = "CCL_VAULT_MODE"
 _LOCAL_VAULT_MODE_VALUES = ("local", "dev", "development")
 _FORBIDDEN_CONFIG_MARKERS = (
     "enterprise.json",
@@ -125,10 +125,10 @@ _FORBIDDEN_CONFIG_MARKERS = (
     "compat alias",
     "compatibility alias",
 )
-_GATEWAY_URL_ENV_KEYS = (
-    "CARACAL_ENTERPRISE_URL",
+_GW_URL_ENV_KEYS = (
+    "CCLE_URL",
 )
-_GATEWAY_ENABLED_ENV_KEY = "CARACAL_GATEWAY_ENABLED"
+_GATEWAY_ENABLED_ENV_KEY = "CCL_GW_ENABLED"
 
 
 def _default_models_file() -> Path:
@@ -338,7 +338,7 @@ def _execution_exclusivity_violations(env_vars: Mapping[str, str | None] | None)
     violations: list[str] = []
     gateway_endpoints = {
         key: (env_vars.get(key) or "").strip()
-        for key in _GATEWAY_URL_ENV_KEYS
+        for key in _GW_URL_ENV_KEYS
     }
     has_gateway_endpoint = any(value for value in gateway_endpoints.values())
 
@@ -349,7 +349,7 @@ def _execution_exclusivity_violations(env_vars: Mapping[str, str | None] | None)
     if gateway_enabled_truthy and not has_gateway_endpoint:
         violations.append(
             f"{_GATEWAY_ENABLED_ENV_KEY} enables gateway execution but no gateway endpoint is configured "
-            f"({_GATEWAY_URL_ENV_KEYS[0]})."
+            f"({_GW_URL_ENV_KEYS[0]})."
         )
 
     if has_gateway_endpoint and gateway_enabled_falsy:

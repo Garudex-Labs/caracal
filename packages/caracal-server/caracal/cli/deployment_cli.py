@@ -83,7 +83,7 @@ def format_output(data, format_type: str = "table"):
 
 def _resolve_workspace_lock_key(lock_key: Optional[str]) -> Optional[str]:
     """Resolve workspace archive lock key from option or environment."""
-    candidate = lock_key if lock_key is not None else os.environ.get("CARACAL_WORKSPACE_LOCK_KEY")
+    candidate = lock_key if lock_key is not None else os.environ.get("CCL_WS_LOCK_KEY")
     return normalize_optional_text(candidate)
 
 
@@ -164,12 +164,12 @@ def _get_active_workspace_db_message() -> Optional[str]:
                     logger.debug("doctor_workspace_config_parse_failed", config_path=str(workspace_config_path))
 
         env_keys = (
-            "CARACAL_DATABASE_URL",
-            "CARACAL_DB_HOST",
-            "CARACAL_DB_PORT",
-            "CARACAL_DB_NAME",
-            "CARACAL_DB_USER",
-            "CARACAL_DB_PASSWORD",
+            "CCL_DB_URL",
+            "CCL_DB_HOST",
+            "CCL_DB_PORT",
+            "CCL_DB_NAME",
+            "CCL_DB_USER",
+            "CCL_DB_PASS",
         )
         has_db_env = any(bool(os.getenv(key)) for key in env_keys)
 
@@ -477,7 +477,7 @@ def workspace_delete(name: str, backup: bool, force: bool):
 @click.option("--include-secrets", is_flag=True, help="Include encrypted secrets in export")
 @click.option(
     "--lock-key",
-    help="Archive lock key. If omitted, reads CARACAL_WORKSPACE_LOCK_KEY env var.",
+    help="Archive lock key. If omitted, reads CCL_WS_LOCK_KEY env var.",
 )
 def workspace_export(name: str, path: Path, include_secrets: bool, lock_key: Optional[str]):
     """Export workspace configuration."""
@@ -516,7 +516,7 @@ def workspace_export(name: str, path: Path, include_secrets: bool, lock_key: Opt
 @click.option("--name", help="Workspace name (uses name from export if not provided)")
 @click.option(
     "--lock-key",
-    help="Archive lock key for locked exports. If omitted, reads CARACAL_WORKSPACE_LOCK_KEY env var.",
+    help="Archive lock key for locked exports. If omitted, reads CCL_WS_LOCK_KEY env var.",
 )
 def workspace_import(path: Path, name: Optional[str], lock_key: Optional[str]):
     """Import workspace from backup."""

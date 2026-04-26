@@ -37,8 +37,8 @@ from caracal.pathing import ensure_source_tree
 from caracal.storage.layout import resolve_caracal_home
 
 
-_CARACAL_HOME_ROOT = resolve_caracal_home(require_explicit=False)
-_WORKSPACES_DIR = _CARACAL_HOME_ROOT / "workspaces"
+_CCL_HOME_ROOT = resolve_caracal_home(require_explicit=False)
+_WORKSPACES_DIR = _CCL_HOME_ROOT / "workspaces"
 _RESERVED_WORKSPACE_NAMES = {"_deleted_backups"}
 
 
@@ -281,7 +281,7 @@ def _resolve_initial_workspace_root() -> Path:
         pass
 
     # Last resort for brand-new installs before onboarding creates a workspace.
-    return _CARACAL_HOME_ROOT
+    return _CCL_HOME_ROOT
 
 
 def _workspace_metadata_path(name: str) -> Path:

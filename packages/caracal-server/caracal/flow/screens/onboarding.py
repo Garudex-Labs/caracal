@@ -137,11 +137,11 @@ def _get_db_config_from_env() -> dict:
             import re
             content = env_path.read_text()
             mapping = {
-                "host": r"^CARACAL_DB_HOST=(.*)$",
-                "port": r"^CARACAL_DB_PORT=(.*)$",
-                "database": r"^CARACAL_DB_NAME=(.*)$",
-                "username": r"^CARACAL_DB_USER=(.*)$",
-                "password": r"^CARACAL_DB_PASSWORD=(.*)$",
+                "host": r"^CCL_DB_HOST=(.*)$",
+                "port": r"^CCL_DB_PORT=(.*)$",
+                "database": r"^CCL_DB_NAME=(.*)$",
+                "username": r"^CCL_DB_USER=(.*)$",
+                "password": r"^CCL_DB_PASS=(.*)$",
             }
             for key, pattern in mapping.items():
                 match = re.search(pattern, content, re.MULTILINE)
@@ -151,11 +151,11 @@ def _get_db_config_from_env() -> dict:
             config["_env_path"] = str(env_path)  # Track where we loaded from
 
         runtime_mapping = {
-            "host": "CARACAL_DB_HOST",
-            "port": "CARACAL_DB_PORT",
-            "database": "CARACAL_DB_NAME",
-            "username": "CARACAL_DB_USER",
-            "password": "CARACAL_DB_PASSWORD",
+            "host": "CCL_DB_HOST",
+            "port": "CCL_DB_PORT",
+            "database": "CCL_DB_NAME",
+            "username": "CCL_DB_USER",
+            "password": "CCL_DB_PASS",
         }
         for key, env_var in runtime_mapping.items():
             raw = os.environ.get(env_var)
@@ -186,11 +186,11 @@ def _save_db_config_to_env(config: dict) -> bool:
             import re
             content = env_path.read_text()
             mapping = {
-                "CARACAL_DB_HOST": config.get("host", "localhost"),
-                "CARACAL_DB_PORT": str(config.get("port", 5432)),
-                "CARACAL_DB_NAME": config.get("database", "caracal"),
-                "CARACAL_DB_USER": config.get("username", "caracal"),
-                "CARACAL_DB_PASSWORD": config.get("password", ""),
+                "CCL_DB_HOST": config.get("host", "localhost"),
+                "CCL_DB_PORT": str(config.get("port", 5432)),
+                "CCL_DB_NAME": config.get("database", "caracal"),
+                "CCL_DB_USER": config.get("username", "caracal"),
+                "CCL_DB_PASS": config.get("password", ""),
             }
             for key, val in mapping.items():
                 if re.search(f"^{key}=", content, re.MULTILINE):
@@ -209,11 +209,11 @@ def _save_db_config_to_env(config: dict) -> bool:
             lines = [
                 "# Caracal Core - Environment Variables",
                 "# Database Configuration",
-                f"CARACAL_DB_HOST={config.get('host', 'localhost')}",
-                f"CARACAL_DB_PORT={config.get('port', 5432)}",
-                f"CARACAL_DB_NAME={config.get('database', 'caracal')}",
-                f"CARACAL_DB_USER={config.get('username', 'caracal')}",
-                f"CARACAL_DB_PASSWORD={config.get('password', '')}",
+                f"CCL_DB_HOST={config.get('host', 'localhost')}",
+                f"CCL_DB_PORT={config.get('port', 5432)}",
+                f"CCL_DB_NAME={config.get('database', 'caracal')}",
+                f"CCL_DB_USER={config.get('username', 'caracal')}",
+                f"CCL_DB_PASS={config.get('password', '')}",
                 "",
             ]
             # Credentials stored in .env by design; restrict permissions to owner-only.
@@ -394,7 +394,7 @@ def _step_workspace(wizard: Wizard) -> Any:
             default="my-workspace",
         )
         
-        # Always create new workspaces under canonical CARACAL_HOME/workspaces.
+        # Always create new workspaces under canonical CCL_HOME/workspaces.
         default_base = resolve_caracal_home(require_explicit=False) / "workspaces"
         workspace_path = default_base / workspace_name.lower().replace(" ", "-")
         
@@ -698,8 +698,8 @@ def _initialize_caracal_dir(path: Path, wipe: bool = False) -> None:
     if not config_path.exists():
         import yaml
 
-        vault_key_ref = os.environ.get("CARACAL_VAULT_MERKLE_SIGNING_KEY_REF", "")
-        vault_public_key_ref = os.environ.get("CARACAL_VAULT_MERKLE_PUBLIC_KEY_REF", "")
+        vault_key_ref = os.environ.get("CCL_VAULT_MERKLE_KEY", "")
+        vault_public_key_ref = os.environ.get("CCL_VAULT_MERKLE_PUB", "")
         default_config = {
             "storage": {
                 "backup_dir": str(path / "backups"),
@@ -802,8 +802,8 @@ def _normalize_workspace_merkle_hardcut_config(workspace_path: Path) -> None:
         if not isinstance(merkle, dict):
             merkle = {}
 
-        vault_key_ref = os.environ.get("CARACAL_VAULT_MERKLE_SIGNING_KEY_REF", "")
-        vault_public_key_ref = os.environ.get("CARACAL_VAULT_MERKLE_PUBLIC_KEY_REF", "")
+        vault_key_ref = os.environ.get("CCL_VAULT_MERKLE_KEY", "")
+        vault_public_key_ref = os.environ.get("CCL_VAULT_MERKLE_PUB", "")
 
         updated_merkle = dict(merkle)
         updated_merkle["signing_backend"] = "vault"
@@ -811,12 +811,12 @@ def _normalize_workspace_merkle_hardcut_config(workspace_path: Path) -> None:
         updated_merkle["vault_key_ref"] = (
             updated_merkle.get("vault_key_ref")
             or vault_key_ref
-            or "${CARACAL_VAULT_MERKLE_SIGNING_KEY_REF}"
+            or "${CCL_VAULT_MERKLE_KEY}"
         )
         updated_merkle["vault_public_key_ref"] = (
             updated_merkle.get("vault_public_key_ref")
             or vault_public_key_ref
-            or "${CARACAL_VAULT_MERKLE_PUBLIC_KEY_REF}"
+            or "${CCL_VAULT_MERKLE_PUB}"
         )
         updated_merkle.pop("private_key_path", None)
 
@@ -831,23 +831,23 @@ def _normalize_workspace_merkle_hardcut_config(workspace_path: Path) -> None:
 def _validate_env_config(config: dict) -> list[str]:
     """Validate that all required PostgreSQL env vars are properly set.
     
-    Required: CARACAL_DB_NAME, CARACAL_DB_USER, CARACAL_DB_PASSWORD,
-    CARACAL_DB_PORT (valid range).
-    Optional: CARACAL_DB_HOST (defaults to 'localhost' which is fine).
+    Required: CCL_DB_NAME, CCL_DB_USER, CCL_DB_PASS,
+    CCL_DB_PORT (valid range).
+    Optional: CCL_DB_HOST (defaults to 'localhost' which is fine).
     
     Returns a list of missing/invalid fields. Empty list means all valid.
     """
     issues = []
     # host is optional — defaults to localhost which is valid for local setups
     if not config.get("database"):
-        issues.append("CARACAL_DB_NAME is missing or empty")
+        issues.append("CCL_DB_NAME is missing or empty")
     if not config.get("username"):
-        issues.append("CARACAL_DB_USER is missing or empty")
+        issues.append("CCL_DB_USER is missing or empty")
     if not config.get("password"):
-        issues.append("CARACAL_DB_PASSWORD is missing or empty — required for PostgreSQL")
+        issues.append("CCL_DB_PASS is missing or empty — required for PostgreSQL")
     port = config.get("port")
     if not isinstance(port, int) or port < 1 or port > 65535:
-        issues.append(f"CARACAL_DB_PORT has invalid value: {port}")
+        issues.append(f"CCL_DB_PORT has invalid value: {port}")
     return issues
 
 
@@ -1050,11 +1050,11 @@ def _step_database(wizard: Wizard) -> Any:
             console.print()
             host_hint = "postgres" if in_container_runtime() else "localhost"
             console.print(f"  [{Colors.INFO}]{Icons.INFO} Please set these variables in runtime env or your .env file:[/]")
-            console.print(f"  [{Colors.DIM}]  CARACAL_DB_HOST={host_hint}[/]")
-            console.print(f"  [{Colors.DIM}]  CARACAL_DB_PORT=5432[/]")
-            console.print(f"  [{Colors.DIM}]  CARACAL_DB_NAME=caracal[/]")
-            console.print(f"  [{Colors.DIM}]  CARACAL_DB_USER=caracal[/]")
-            console.print(f"  [{Colors.DIM}]  CARACAL_DB_PASSWORD=<your_password>[/]")
+            console.print(f"  [{Colors.DIM}]  CCL_DB_HOST={host_hint}[/]")
+            console.print(f"  [{Colors.DIM}]  CCL_DB_PORT=5432[/]")
+            console.print(f"  [{Colors.DIM}]  CCL_DB_NAME=caracal[/]")
+            console.print(f"  [{Colors.DIM}]  CCL_DB_USER=caracal[/]")
+            console.print(f"  [{Colors.DIM}]  CCL_DB_PASS=<your_password>[/]")
             console.print()
             
             fix_choice = prompt.select(
@@ -1819,7 +1819,7 @@ def run_onboarding(
                     console.print(f"    [{Colors.DIM}]sudo systemctl start postgresql[/]")
                 elif "password" in err_str or "authentication" in err_str:
                     console.print(f"  [{Colors.INFO}]Authentication failed. Check your .env credentials:[/]")
-                    console.print(f"    [{Colors.DIM}]CARACAL_DB_USER, CARACAL_DB_PASSWORD in .env[/]")
+                    console.print(f"    [{Colors.DIM}]CCL_DB_USER, CCL_DB_PASS in .env[/]")
                 elif "does not exist" in err_str:
                     console.print(f"  [{Colors.INFO}]Database or role missing. Create them with:[/]")
                     console.print(f"    [{Colors.DIM}]createdb caracal && createuser caracal[/]")

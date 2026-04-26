@@ -137,11 +137,11 @@ class MCPAdapter:
         }
         self.request_timeout_seconds = request_timeout_seconds
         self._caveat_mode = self._resolve_caveat_mode(
-            caveat_mode or os.environ.get("CARACAL_SESSION_CAVEAT_MODE") or "jwt"
+            caveat_mode or os.environ.get("CCL_SESSION_CAVEAT") or "jwt"
         )
         self._caveat_hmac_key = str(
             caveat_hmac_key
-            or os.environ.get("CARACAL_SESSION_CAVEAT_HMAC_KEY")
+            or os.environ.get("CCL_SESSION_HMAC")
             or ""
         ).strip()
         self._decorator_bindings: dict[str, Any] = {}
@@ -1399,9 +1399,9 @@ class MCPAdapter:
                     return value
 
         for env_key in (
-            "CARACAL_WORKSPACE",
-            "CARACAL_WORKSPACE_NAME",
-            "CARACAL_WORKSPACE_ID",
+            "CCL_WORKSPACE",
+            "CCL_WS_NAME",
+            "CCL_WS_ID",
         ):
             env_value = str(os.environ.get(env_key) or "").strip()
             if env_value:

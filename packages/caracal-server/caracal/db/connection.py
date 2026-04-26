@@ -10,7 +10,7 @@ so the operator can fix the infrastructure.
 
 Configuration is resolved in this priority order:
   1. Explicit ``DatabaseConfig`` values passed at construction time.
-  2. Environment variables (``CARACAL_DB_HOST``, ``CARACAL_DB_PORT``, etc.).
+  2. Environment variables (``CCL_DB_HOST``, ``CCL_DB_PORT``, etc.).
   3. Workspace ``config.yaml`` (via ``get_db_manager()``).
 
 """

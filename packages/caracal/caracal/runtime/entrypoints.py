@@ -30,37 +30,37 @@ from typing import Any, Callable, Sequence
 from caracal.runtime.hardcut_preflight import assert_runtime_hardcut
 from caracal.runtime.host_io import in_container_runtime, resolve_caracal_home
 
-IN_CONTAINER_ENV = "CARACAL_RUNTIME_IN_CONTAINER"
-HOST_IO_DIR_ENV = "CARACAL_HOST_IO_DIR"
-HOST_IO_ROOT_ENV = "CARACAL_HOST_IO_ROOT"
+IN_CONTAINER_ENV = "CCL_IN_CONTAINER"
+HOST_IO_DIR_ENV = "CCL_HOST_IO_DIR"
+HOST_IO_ROOT_ENV = "CCL_HOST_IO_ROOT"
 HOST_IO_ROOT_IN_CONTAINER = "/caracal-host-io"
 NETWORK_IN_USE_MARKER = "Resource is still in use"
 PURGE_CONFIRMATION_TEXT = "purge"
 
-AIS_STARTUP_NONCE_ENV = "CARACAL_AIS_ATTESTATION_NONCE"
-AIS_STARTUP_PRINCIPAL_ENV = "CARACAL_AIS_ATTESTATION_PRINCIPAL_ID"
-AIS_API_PREFIX_ENV = "CARACAL_AIS_API_PREFIX"
-AIS_UNIX_SOCKET_PATH_ENV = "CARACAL_AIS_UNIX_SOCKET_PATH"
-AIS_LISTEN_HOST_ENV = "CARACAL_AIS_LISTEN_HOST"
-AIS_LISTEN_PORT_ENV = "CARACAL_AIS_LISTEN_PORT"
-AIS_HEALTHCHECK_TIMEOUT_ENV = "CARACAL_AIS_HEALTHCHECK_TIMEOUT_SECONDS"
-AIS_HEALTHCHECK_INTERVAL_ENV = "CARACAL_AIS_HEALTHCHECK_INTERVAL_SECONDS"
-AIS_STARTUP_TIMEOUT_ENV = "CARACAL_AIS_STARTUP_TIMEOUT_SECONDS"
-AIS_MAX_RESTARTS_ENV = "CARACAL_AIS_MAX_RESTARTS"
+AIS_STARTUP_NONCE_ENV = "CCL_AIS_NONCE"
+AIS_STARTUP_PRINCIPAL_ENV = "CCL_AIS_ATTEST_PID"
+AIS_API_PREFIX_ENV = "CCL_AIS_PREFIX"
+AIS_UNIX_SOCKET_PATH_ENV = "CCL_AIS_SOCKET"
+AIS_LISTEN_HOST_ENV = "CCL_AIS_HOST"
+AIS_LISTEN_PORT_ENV = "CCL_AIS_PORT"
+AIS_HEALTHCHECK_TIMEOUT_ENV = "CCL_AIS_HC_TIMEOUT"
+AIS_HEALTHCHECK_INTERVAL_ENV = "CCL_AIS_HC_INTERVAL"
+AIS_STARTUP_TIMEOUT_ENV = "CCL_AIS_START_TTL"
+AIS_MAX_RESTARTS_ENV = "CCL_AIS_MAX_RESTARTS"
 AIS_DEFAULT_API_PREFIX = "/v1/ais"
 AIS_DEFAULT_UNIX_SOCKET_PATH = "/tmp/caracal-ais.sock"
 AIS_DEFAULT_LISTEN_HOST = "127.0.0.1"
 AIS_DEFAULT_LISTEN_PORT = 7079
-AIS_SESSION_SIGNING_KEY_REF_ENV = "CARACAL_VAULT_SIGNING_KEY_REF"
-AIS_SESSION_VERIFY_KEY_REF_ENV = "CARACAL_VAULT_SESSION_PUBLIC_KEY_REF"
-AIS_SESSION_ALGORITHM_ENV = "CARACAL_SESSION_SIGNING_ALGORITHM"
-AIS_SESSION_CAVEAT_MODE_ENV = "CARACAL_SESSION_CAVEAT_MODE"
-AIS_SESSION_CAVEAT_HMAC_KEY_ENV = "CARACAL_SESSION_CAVEAT_HMAC_KEY"
-AIS_REVOCATION_EVENTS_CHANNEL_ENV = "CARACAL_REVOCATION_EVENTS_CHANNEL"
+AIS_SESSION_SIGNING_KEY_REF_ENV = "CCL_VAULT_SIGN_KEY"
+AIS_SESSION_VERIFY_KEY_REF_ENV = "CCL_VAULT_SESS_KEY"
+AIS_SESSION_ALGORITHM_ENV = "CCL_SESSION_ALG"
+AIS_SESSION_CAVEAT_MODE_ENV = "CCL_SESSION_CAVEAT"
+AIS_SESSION_CAVEAT_HMAC_KEY_ENV = "CCL_SESSION_HMAC"
+AIS_REVOCATION_EVENTS_CHANNEL_ENV = "CCL_REVOKE_CHANNEL"
 AIS_DEFAULT_REVOCATION_EVENTS_CHANNEL = "caracal:identity:revocation_events"
-AIS_REVOCATION_PUBLISHER_MODE_ENV = "CARACAL_REVOCATION_PUBLISHER_MODE"
-AIS_ENTERPRISE_REVOCATION_WEBHOOK_URL_ENV = "CARACAL_ENTERPRISE_REVOCATION_WEBHOOK_URL"
-AIS_ENTERPRISE_REVOCATION_SYNC_API_KEY_ENV = "CARACAL_ENTERPRISE_SYNC_API_KEY"
+AIS_REVOCATION_PUBLISHER_MODE_ENV = "CCL_REVOKE_PUB_MODE"
+AIS_ENTERPRISE_REVOCATION_WEBHOOK_URL_ENV = "CCLE_REVOKE_WH_URL"
+AIS_ENTERPRISE_REVOCATION_SYNC_API_KEY_ENV = "CCLE_SYNC_KEY"
 AIS_DEFAULT_ENTERPRISE_REVOCATION_WEBHOOK_PATH = "/api/sync/revocation-events"
 
 def caracal_entrypoint() -> None:
@@ -302,7 +302,7 @@ def _host_up(namespace: argparse.Namespace) -> int:
             )
             if mcp_pull.returncode != 0:
                 runtime_image = os.environ.get(
-                    "CARACAL_RUNTIME_IMAGE", "ghcr.io/garudex-labs/caracal-runtime:latest"
+                    "CCL_RUNTIME_IMG", "ghcr.io/garudex-labs/caracal-runtime:latest"
                 )
                 has_local = subprocess.run(
                     ["docker", "images", "-q", runtime_image], capture_output=True, text=True
@@ -432,7 +432,7 @@ def _confirm_purge(*, force: bool) -> bool:
         return False
 
     print("This will permanently remove all Caracal Docker resources and local data.")
-    print("It deletes Caracal containers, volumes, networks, images, workspaces, and CARACAL_HOME state.")
+    print("It deletes Caracal containers, volumes, networks, images, workspaces, and CCL_HOME state.")
     response = input(f"Type '{PURGE_CONFIRMATION_TEXT}' to continue: ").strip().lower()
     if response != PURGE_CONFIRMATION_TEXT:
         print("Purge cancelled.")
@@ -445,7 +445,7 @@ def _finalize_teardown_result(returncode: int, network_in_use: bool) -> int:
     if not network_in_use:
         return returncode
 
-    network_name = os.environ.get("CARACAL_RUNTIME_NETWORK", "caracal-runtime")
+    network_name = os.environ.get("CCL_RUNTIME_NET", "caracal-runtime")
     removed_blockers, remaining_blockers, network_removed = _reconcile_shared_runtime_network(network_name)
 
     if removed_blockers:
@@ -1084,13 +1084,13 @@ def _host_migrate(namespace: argparse.Namespace) -> int:
         print("Error: failed to start postgres before running migrations", file=sys.stderr)
         return infra_up.returncode
     env = dict(os.environ)
-    env["CARACAL_MIGRATE_DIRECTION"] = direction
+    env["CCL_MIGRATE_DIR"] = direction
     run_cmd = compose_cmd + [
         "--profile", "migrate",
         "run",
         "--rm",
         "--no-deps",
-        "-e", f"CARACAL_MIGRATE_DIRECTION={direction}",
+        "-e", f"CCL_MIGRATE_DIR={direction}",
         "migrator",
     ]
     if namespace.revision:
@@ -1193,17 +1193,17 @@ def _host_vault_init(_namespace: argparse.Namespace) -> int:
     if env_path.exists():
         lines = env_path.read_text(encoding="utf-8").splitlines()
 
-    updated = {"CARACAL_VAULT_SIDECAR_AUTH_SECRET": False, "CARACAL_VAULT_SIDECAR_ENCRYPTION_KEY": False}
+    updated = {"VAULT_AUTH_SECRET": False, "VAULT_ENC_KEY": False}
     for i, line in enumerate(lines):
         for key in updated:
             if re.match(rf"^{key}\s*=", line):
                 lines[i] = f"{key}={auth_secret if key.endswith('AUTH_SECRET') else encryption_key}"
                 updated[key] = True
 
-    if not updated["CARACAL_VAULT_SIDECAR_AUTH_SECRET"]:
-        lines.append(f"CARACAL_VAULT_SIDECAR_AUTH_SECRET={auth_secret}")
-    if not updated["CARACAL_VAULT_SIDECAR_ENCRYPTION_KEY"]:
-        lines.append(f"CARACAL_VAULT_SIDECAR_ENCRYPTION_KEY={encryption_key}")
+    if not updated["VAULT_AUTH_SECRET"]:
+        lines.append(f"VAULT_AUTH_SECRET={auth_secret}")
+    if not updated["VAULT_ENC_KEY"]:
+        lines.append(f"VAULT_ENC_KEY={encryption_key}")
 
     env_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
@@ -1252,7 +1252,7 @@ def _host_bootstrap(namespace: argparse.Namespace) -> int:
     return result.returncode
 
 
-CARACAL_COMPOSE_FILE_ENV = "CARACAL_COMPOSE_FILE"
+CCL_COMPOSE_FILE_ENV = "CCL_COMPOSE_FILE"
 
 
 def _materialize_postgres_init(runtime_dir: Path) -> None:
@@ -1283,19 +1283,19 @@ def _resolve_compose_file() -> Path:
 
     The compose YAML ships as package data under
     ``caracal.runtime.data/docker-compose.yml`` and is the single source of
-    truth for the runtime stack. It is copied into ``$CARACAL_HOME/runtime/``
+    truth for the runtime stack. It is copied into ``$CCL_HOME/runtime/``
     so docker can read it from a stable on-disk path across invocations.
 
-    Set CARACAL_COMPOSE_FILE to use a custom compose file instead (e.g. for
+    Set CCL_COMPOSE_FILE to use a custom compose file instead (e.g. for
     local source builds that avoid pulling the private runtime image).
     """
-    override = os.environ.get(CARACAL_COMPOSE_FILE_ENV, "").strip()
+    override = os.environ.get(CCL_COMPOSE_FILE_ENV, "").strip()
     if override:
         candidate = Path(override).expanduser().resolve(strict=False)
         if candidate.exists():
             return candidate
         print(
-            f"Error: CARACAL_COMPOSE_FILE={override!r} does not exist.",
+            f"Error: CCL_COMPOSE_FILE={override!r} does not exist.",
             file=sys.stderr,
         )
         raise SystemExit(1)
@@ -1310,7 +1310,7 @@ def _resolve_compose_file() -> Path:
             "This directory is not writable by the current user (it may be owned by root).\n"
             "\n"
             "Fix option 1 — set a writable override path:\n"
-            "    export CARACAL_HOME=~/.config/caracal\n"
+            "    export CCL_HOME=~/.config/caracal\n"
             "    caracal up\n"
             "\n"
             "Fix option 2 — reclaim ownership (requires sudo):\n"
@@ -1382,10 +1382,10 @@ def _compose_cmd(compose_file: Path) -> list[str]:
 
     # Ensure the postgres init scripts are resolvable via an absolute path so
     # docker compose can mount them regardless of the working directory.
-    if not os.environ.get("CARACAL_POSTGRES_INIT_DIR"):
+    if not os.environ.get("CCL_PG_INIT_DIR"):
         pg_init_dir = compose_file.parent / "postgres-init"
         if pg_init_dir.exists():
-            os.environ["CARACAL_POSTGRES_INIT_DIR"] = str(pg_init_dir)
+            os.environ["CCL_PG_INIT_DIR"] = str(pg_init_dir)
 
     compose_cmd = _resolve_compose_command()
     runtime_env_file = compose_file.parent / ".env"
@@ -1503,10 +1503,10 @@ def _consume_ais_startup_attestation(
 
     startup_nonce = (os.environ.get(AIS_STARTUP_NONCE_ENV) or "").strip()
     if not startup_nonce:
-        # Bootstrap writes the nonce to CARACAL_HOME/.env inside the named
+        # Bootstrap writes the nonce to CCL_HOME/.env inside the named
         # volume — it is not passed as a docker-compose env-var substitution.
         # Read it directly from the file before raising.
-        caracal_home = os.environ.get("CARACAL_HOME", "").strip()
+        caracal_home = os.environ.get("CCL_HOME", "").strip()
         if caracal_home:
             env_file = Path(caracal_home) / ".env"
             try:
@@ -1529,7 +1529,7 @@ def _consume_ais_startup_attestation(
 
     expected_principal = (os.environ.get(AIS_STARTUP_PRINCIPAL_ENV) or "").strip() or None
     if not expected_principal:
-        caracal_home = os.environ.get("CARACAL_HOME", "").strip()
+        caracal_home = os.environ.get("CCL_HOME", "").strip()
         if caracal_home:
             env_file = Path(caracal_home) / ".env"
             try:
@@ -1658,14 +1658,14 @@ def _resolve_ais_vault_context() -> tuple[str, str]:
     from caracal.core.vault import get_vault
 
     configured_workspace = (
-        os.environ.get("CARACAL_VAULT_WORKSPACE_ID")
-        or os.environ.get("CARACAL_VAULT_PROJECT_SLUG")
+        os.environ.get("CCL_VAULT_WS_ID")
+        or os.environ.get("CCL_VAULT_PROJ")
         or ""
     ).strip()
     configured_env = (
-        os.environ.get("CARACAL_VAULT_ENVIRONMENT")
-        or os.environ.get("CARACAL_VAULT_ENV")
-        or os.environ.get("CARACAL_VAULT_ENV_ID")
+        os.environ.get("CCL_VAULT_ENV")
+        or os.environ.get("CCL_VAULT_ENV")
+        or os.environ.get("CCL_VAULT_ENV_ID")
         or ""
     ).strip()
 
@@ -1770,9 +1770,9 @@ def _create_ais_session_manager():
     caveat_mode = (os.environ.get(AIS_SESSION_CAVEAT_MODE_ENV) or "caveat_chain").strip().lower()
     caveat_hmac_key = (os.environ.get(AIS_SESSION_CAVEAT_HMAC_KEY_ENV) or "").strip()
     if not caveat_hmac_key:
-        # Bootstrap writes this key to CARACAL_HOME/.env inside the named
+        # Bootstrap writes this key to CCL_HOME/.env inside the named
         # volume — it is not propagated via docker-compose env-var substitution.
-        _caracal_home = os.environ.get("CARACAL_HOME", "").strip()
+        _caracal_home = os.environ.get("CCL_HOME", "").strip()
         if _caracal_home:
             _env_file = Path(_caracal_home) / ".env"
             try:
@@ -1816,7 +1816,7 @@ def _create_ais_db_manager():
     from caracal.config import load_config
     from caracal.db.connection import get_db_manager
 
-    resolved_config_path = os.environ.get("CARACAL_CONFIG_PATH")
+    resolved_config_path = os.environ.get("CCL_CONFIG_PATH")
     core_config = load_config(resolved_config_path, suppress_missing_file_log=True, emit_logs=False)
     return get_db_manager(core_config)
 
@@ -2104,8 +2104,8 @@ def _build_ais_handlers(
 
     def _resolve_local_bootstrap_principal_id() -> str:
         for env_key in (
-            "CARACAL_AIS_PRINCIPAL_ID",
-            "CARACAL_PRINCIPAL_ID",
+            "CCL_AIS_PID",
+            "CCL_PRINCIPAL_ID",
             AIS_STARTUP_PRINCIPAL_ENV,
         ):
             candidate = _normalize_principal_id(os.environ.get(env_key))
@@ -2609,20 +2609,20 @@ def _run_runtime_mcp() -> int:
 
 def _runtime_database_url_candidates() -> dict[str, str | None]:
     return {
-        "DATABASE_URL": os.getenv("DATABASE_URL"),
-        "CARACAL_DATABASE_URL": os.getenv("CARACAL_DATABASE_URL"),
-        "CARACAL_DB_URL": os.getenv("CARACAL_DB_URL"),
+        "DB_URL": os.getenv("DB_URL"),
+        "CCL_DB_URL": os.getenv("CCL_DB_URL"),
+        "CCL_DB_URL": os.getenv("CCL_DB_URL"),
     }
 
 
 def _runtime_hardcut_env() -> dict[str, str]:
     normalized = dict(os.environ)
-    normalized.setdefault("CARACAL_PRINCIPAL_KEY_BACKEND", "vault")
-    normalized.setdefault("CARACAL_VAULT_URL", "http://127.0.0.1:8080")
-    normalized.setdefault("CARACAL_VAULT_TOKEN", "dev-local-token")
-    normalized.setdefault("CARACAL_VAULT_SIGNING_KEY_REF", "keys/mandate-signing")
-    normalized.setdefault("CARACAL_VAULT_SESSION_PUBLIC_KEY_REF", "keys/session-public")
-    normalized.setdefault("CARACAL_SESSION_SIGNING_ALGORITHM", "RS256")
+    normalized.setdefault("CCL_KEY_BACKEND", "vault")
+    normalized.setdefault("CCL_VAULT_URL", "http://127.0.0.1:8080")
+    normalized.setdefault("CCL_VAULT_TOKEN", "dev-local-token")
+    normalized.setdefault("CCL_VAULT_SIGN_KEY", "keys/mandate-signing")
+    normalized.setdefault("CCL_VAULT_SESS_KEY", "keys/session-public")
+    normalized.setdefault("CCL_SESSION_ALG", "RS256")
     return normalized
 
 

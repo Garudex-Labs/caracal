@@ -31,7 +31,7 @@ def mcp_service_group():
     "-c",
     type=click.Path(exists=True),
     help="Path to configuration file (YAML)",
-    envvar="CARACAL_CONFIG_PATH"
+    envvar="CCL_CONFIG_PATH"
 )
 @click.option(
     "--listen-address",
@@ -39,14 +39,14 @@ def mcp_service_group():
     type=str,
     default="0.0.0.0:8080",
     help="Listen address (default: 0.0.0.0:8080)",
-    envvar="CARACAL_MCP_LISTEN_ADDRESS"
+    envvar="CCL_MCP_ADDR"
 )
 def start_service(config, listen_address):
     """
     Start the MCP Adapter Service.
     
     The service can be configured via:
-    1. Configuration file (--config or CARACAL_CONFIG_PATH env var)
+    1. Configuration file (--config or CCL_CONFIG_PATH env var)
     2. Environment variables (CARACAL_MCP_*)
     
     Examples:
@@ -54,7 +54,7 @@ def start_service(config, listen_address):
         caracal system integration mcp start --config /etc/caracal/config.yaml
         
         # Start with environment variables
-        export CARACAL_MCP_LISTEN_ADDRESS="0.0.0.0:8080"
+        export CCL_MCP_ADDR="0.0.0.0:8080"
         export CARACAL_MCP_SERVERS='[{"name":"filesystem","url":"http://localhost:8100"}]'
         caracal system integration mcp start
     """
@@ -63,9 +63,9 @@ def start_service(config, listen_address):
     try:
         logger.info("Starting MCP Adapter Service...")
         if config:
-            os.environ["CARACAL_CONFIG_PATH"] = str(Path(config).expanduser())
+            os.environ["CCL_CONFIG_PATH"] = str(Path(config).expanduser())
         if listen_address:
-            os.environ["CARACAL_MCP_LISTEN_ADDRESS"] = listen_address
+            os.environ["CCL_MCP_ADDR"] = listen_address
         
         # Run the service
         asyncio.run(service_main(config_path=config, listen_address=listen_address))

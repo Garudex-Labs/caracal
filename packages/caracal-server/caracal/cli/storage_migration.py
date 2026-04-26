@@ -21,7 +21,7 @@ from caracal.storage.migration import migrate_storage
 @click.option(
     "--target",
     type=click.Path(path_type=Path),
-    help="Target canonical CARACAL_HOME root.",
+    help="Target canonical CCL_HOME root.",
 )
 @click.option("--dry-run", is_flag=True, help="Plan migration without copying or moving files.")
 @click.option(
@@ -37,7 +37,7 @@ def migrate_storage_command(
     purge_source: bool,
     confirm: bool,
 ) -> None:
-    """Migrate canonical storage domains into a different CARACAL_HOME root."""
+    """Migrate canonical storage domains into a different CCL_HOME root."""
     source_root = source
     target_root = target or get_caracal_layout().root
 

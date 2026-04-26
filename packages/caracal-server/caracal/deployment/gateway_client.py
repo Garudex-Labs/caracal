@@ -33,10 +33,10 @@ from caracal.deployment.exceptions import (
 logger = structlog.get_logger(__name__)
 
 _AIS_TOKEN_PATH_DEFAULT = "/v1/ais/token"
-_AIS_BASE_URL_ENV = "CARACAL_AIS_BASE_URL"
-_AIS_UNIX_SOCKET_ENV = "CARACAL_AIS_UNIX_SOCKET_PATH"
-_AIS_API_PREFIX_ENV = "CARACAL_AIS_API_PREFIX"
-_SESSION_KIND_ENV = "CARACAL_SESSION_KIND"
+_AIS_BASE_URL_ENV = "CCL_AIS_URL"
+_AIS_UNIX_SOCKET_ENV = "CCL_AIS_SOCKET"
+_AIS_API_PREFIX_ENV = "CCL_AIS_PREFIX"
+_SESSION_KIND_ENV = "CCL_SESSION_KIND"
 
 
 class RequestPriority(str, Enum):
@@ -322,8 +322,8 @@ class GatewayClient:
         response_data: dict[str, Any]
         try:
             caller_token = (
-                os.environ.get("CARACAL_AIS_CALLER_TOKEN")
-                or os.environ.get("CARACAL_AIS_SOURCE_TOKEN")
+                os.environ.get("CCL_AIS_CALLER_TKN")
+                or os.environ.get("CCL_AIS_SRC_TKN")
                 or ""
             ).strip()
             headers: dict[str, str] | None = None
@@ -377,17 +377,17 @@ class GatewayClient:
 
     def _build_ais_token_payload(self) -> Optional[dict[str, Any]]:
         principal_id = (
-            os.environ.get("CARACAL_AIS_PRINCIPAL_ID")
-            or os.environ.get("CARACAL_PRINCIPAL_ID")
+            os.environ.get("CCL_AIS_PID")
+            or os.environ.get("CCL_PRINCIPAL_ID")
             or ""
         ).strip()
         workspace_id = (
-            os.environ.get("CARACAL_WORKSPACE_ID")
+            os.environ.get("CCL_WS_ID")
             or ""
         ).strip()
         tenant_id = (
-            os.environ.get("CARACAL_AIS_TENANT_ID")
-            or os.environ.get("CARACAL_TENANT_ID")
+            os.environ.get("CCL_AIS_TENANT")
+            or os.environ.get("CCL_TENANT_ID")
             or ""
         ).strip()
 
@@ -402,17 +402,17 @@ class GatewayClient:
             "include_refresh": True,
         }
 
-        workspace_id = (os.environ.get("CARACAL_WORKSPACE_ID") or "").strip()
+        workspace_id = (os.environ.get("CCL_WS_ID") or "").strip()
         if workspace_id:
             payload["workspace_id"] = workspace_id
 
-        directory_scope = (os.environ.get("CARACAL_DIRECTORY_SCOPE") or "").strip()
+        directory_scope = (os.environ.get("CCL_DIR_SCOPE") or "").strip()
         if directory_scope:
             payload["directory_scope"] = directory_scope
 
         attestation_nonce = (
-            os.environ.get("CARACAL_AIS_ATTESTATION_NONCE")
-            or os.environ.get("CARACAL_AIS_BOOTSTRAP_NONCE")
+            os.environ.get("CCL_AIS_NONCE")
+            or os.environ.get("CCL_AIS_BS_NONCE")
             or ""
         ).strip()
         if attestation_nonce:

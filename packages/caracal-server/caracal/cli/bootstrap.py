@@ -26,11 +26,11 @@ def _runtime_env_path() -> Path:
     Mirrors caracal.runtime.host_io.resolve_caracal_home() so bootstrap and
     `caracal up` agree on the same path.
     """
-    config_dir = os.environ.get("CARACAL_CONFIG_DIR", "").strip()
+    config_dir = os.environ.get("CCL_CONFIG_DIR", "").strip()
     if config_dir:
         home = Path(config_dir).expanduser()
     else:
-        caracal_home = os.environ.get("CARACAL_HOME", "").strip()
+        caracal_home = os.environ.get("CCL_HOME", "").strip()
         home = Path(caracal_home).expanduser() if caracal_home else Path.home() / ".caracal"
     return home / "runtime" / ".env"
 
@@ -86,7 +86,7 @@ def _mint_api_key() -> str:
     "--rotate-api-key",
     is_flag=True,
     default=False,
-    help="Generate a fresh CARACAL_API_KEY even if one already exists.",
+    help="Generate a fresh CCL_API_KEY even if one already exists.",
 )
 @click.pass_context
 def bootstrap(ctx, force: bool, rotate_api_key: bool) -> None:
@@ -164,10 +164,10 @@ def bootstrap(ctx, force: bool, rotate_api_key: bool) -> None:
 
     env_path = _runtime_env_path()
 
-    existing_caveat_key = _read_env_var(env_path, "CARACAL_SESSION_CAVEAT_HMAC_KEY")
+    existing_caveat_key = _read_env_var(env_path, "CCL_SESSION_HMAC")
     caveat_hmac_key = existing_caveat_key or secrets.token_hex(32)
 
-    existing_api_key = _read_env_var(env_path, "CARACAL_API_KEY")
+    existing_api_key = _read_env_var(env_path, "CCL_API_KEY")
     if rotate_api_key or not existing_api_key:
         api_key = _mint_api_key()
         api_key_action = "rotated" if existing_api_key else "issued"
@@ -176,15 +176,15 @@ def bootstrap(ctx, force: bool, rotate_api_key: bool) -> None:
         api_key_action = "reused"
 
     _write_env_vars(env_path, {
-        "CARACAL_AIS_ATTESTATION_NONCE": issued.nonce,
-        "CARACAL_AIS_ATTESTATION_PRINCIPAL_ID": principal_id,
-        "CARACAL_SESSION_CAVEAT_HMAC_KEY": caveat_hmac_key,
-        "CARACAL_API_KEY": api_key,
+        "CCL_AIS_NONCE": issued.nonce,
+        "CCL_AIS_ATTEST_PID": principal_id,
+        "CCL_SESSION_HMAC": caveat_hmac_key,
+        "CCL_API_KEY": api_key,
     })
 
     click.echo()
     click.echo(f"Bootstrap complete. Internal state written to {env_path}")
-    click.echo(f"  CARACAL_API_KEY ({api_key_action}): {api_key}")
+    click.echo(f"  CCL_API_KEY ({api_key_action}): {api_key}")
     click.echo()
     click.echo("Next steps:")
     click.echo("  caracal up            # start the runtime stack")

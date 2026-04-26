@@ -15,7 +15,7 @@ logger = get_logger(__name__)
 
 @dataclass(frozen=True)
 class CaracalLayout:
-    """Resolved storage layout rooted under CARACAL_HOME."""
+    """Resolved storage layout rooted under CCL_HOME."""
 
     root: Path
 

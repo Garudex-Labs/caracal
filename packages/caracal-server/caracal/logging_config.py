@@ -105,7 +105,7 @@ def resolve_runtime_logging_policy(
     """Resolve environment-aware logging behavior.
 
     Rules:
-    - ``dev``: debug logs allowed only when ``CARACAL_DEBUG_LOGS=true``.
+    - ``dev``: debug logs allowed only when ``CCL_DEBUG_LOGS=true``.
     - ``staging``/``prod``: structured JSON, redacted fields, and no DEBUG.
     """
     summary = get_runtime_mode_summary(mode)

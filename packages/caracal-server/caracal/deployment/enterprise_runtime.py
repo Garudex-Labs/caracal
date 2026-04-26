@@ -202,7 +202,7 @@ def _build_client_metadata() -> Dict[str, str]:
         "platform": platform.system().lower(),
         "platform_release": platform.release(),
         "python_version": platform.python_version(),
-        "env_mode": (os.environ.get("CARACAL_ENV_MODE") or "dev").strip().lower(),
+        "env_mode": (os.environ.get("CCL_ENV_MODE") or "dev").strip().lower(),
     }
 
 
@@ -267,13 +267,13 @@ def _resolve_api_url(override: Optional[str] = None) -> str:
     if persisted_url:
         return persisted_url
 
-    enterprise_url = _normalize_enterprise_url(_read_env("CARACAL_ENTERPRISE_URL"))
+    enterprise_url = _normalize_enterprise_url(_read_env("CCLE_URL"))
     if enterprise_url:
         return enterprise_url
 
-    env_mode = (_read_env("CARACAL_ENV_MODE") or "dev").strip().lower()
+    env_mode = (_read_env("CCL_ENV_MODE") or "dev").strip().lower()
     if env_mode == "dev":
-        dev_url = _normalize_enterprise_url(_read_env("CARACAL_ENTERPRISE_DEV_URL"))
+        dev_url = _normalize_enterprise_url(_read_env("CCLE_DEV_URL"))
         if dev_url:
             return dev_url
 

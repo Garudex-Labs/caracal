@@ -1164,11 +1164,11 @@ def _tool_registry_invoke(console: Console, state: FlowState) -> None:
     correlation_id = prompt.text("Correlation ID (optional)", default="").strip() or None
 
     default_base_url = os.environ.get(
-        "CARACAL_API_URL",
-        f"http://localhost:{os.environ.get('CARACAL_API_PORT', '8080')}",
+        "CCL_API_URL",
+        f"http://localhost:{os.environ.get('CCL_API_PORT', '8080')}",
     )
     base_url = prompt.text("API base URL", default=default_base_url).strip() or default_base_url
-    default_api_key = os.environ.get("CARACAL_API_KEY", "")
+    default_api_key = os.environ.get("CCL_API_KEY", "")
     api_key = prompt.text("API token (Bearer)", default=default_api_key).strip() or None
 
     from caracal.flow.sdk_bridge import SDKBridge

@@ -198,12 +198,12 @@ def _resolve_database_status(config_mgr) -> Optional[str]:
             has_database_section = bool(re.search(r"(?m)^\s*database\s*:", config_text))
 
         env_keys = (
-            "CARACAL_DATABASE_URL",
-            "CARACAL_DB_HOST",
-            "CARACAL_DB_PORT",
-            "CARACAL_DB_NAME",
-            "CARACAL_DB_USER",
-            "CARACAL_DB_PASSWORD",
+            "CCL_DB_URL",
+            "CCL_DB_HOST",
+            "CCL_DB_PORT",
+            "CCL_DB_NAME",
+            "CCL_DB_USER",
+            "CCL_DB_PASS",
         )
         has_db_env = any(bool(os.getenv(key)) for key in env_keys)
 

@@ -11,9 +11,9 @@ from dataclasses import dataclass
 from caracal.runtime.host_io import is_truthy_env
 
 
-ENV_MODE_VAR = "CARACAL_ENV_MODE"
-DEBUG_LOGS_VAR = "CARACAL_DEBUG_LOGS"
-JSON_LOGS_VAR = "CARACAL_JSON_LOGS"
+ENV_MODE_VAR = "CCL_ENV_MODE"
+DEBUG_LOGS_VAR = "CCL_DEBUG_LOGS"
+JSON_LOGS_VAR = "CCL_JSON_LOGS"
 
 
 MODE_DEV = "dev"

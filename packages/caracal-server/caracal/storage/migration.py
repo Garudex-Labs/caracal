@@ -1,4 +1,4 @@
-"""Storage migration helpers for canonical CARACAL_HOME layout."""
+"""Storage migration helpers for canonical CCL_HOME layout."""
 
 from __future__ import annotations
 
@@ -32,7 +32,7 @@ def migrate_storage(
     dry_run: bool = False,
     purge_source: bool = False,
 ) -> StorageMigrationSummary:
-    """Migrate canonical storage domains into a new CARACAL_HOME root."""
+    """Migrate canonical storage domains into a new CCL_HOME root."""
     source = Path(source_root).expanduser().resolve(strict=False)
     if target_root is None:
         target_layout = get_caracal_layout()

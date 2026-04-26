@@ -26,8 +26,8 @@ if config.config_file_name is not None:
 
 target_metadata = Base.metadata
 
-# CARACAL_DATABASE_URL wins over alembic.ini sqlalchemy.url
-database_url = os.environ.get("CARACAL_DATABASE_URL")
+# CCL_DB_URL wins over alembic.ini sqlalchemy.url
+database_url = os.environ.get("CCL_DB_URL")
 if database_url:
     # Alembic's underlying ConfigParser treats '%' as interpolation markers.
     config.set_main_option("sqlalchemy.url", database_url.replace("%", "%%"))
@@ -35,8 +35,8 @@ if database_url:
 _config_file_path = Path(config.config_file_name) if config.config_file_name else None
 assert_migration_hardcut(
     database_urls={
-        "CARACAL_DATABASE_URL": os.environ.get("CARACAL_DATABASE_URL"),
-        "DATABASE_URL": os.environ.get("DATABASE_URL"),
+        "CCL_DB_URL": os.environ.get("CCL_DB_URL"),
+        "DB_URL": os.environ.get("DB_URL"),
         "sqlalchemy.url": config.get_main_option("sqlalchemy.url"),
     },
     config_paths=[_config_file_path] if _config_file_path is not None else None,

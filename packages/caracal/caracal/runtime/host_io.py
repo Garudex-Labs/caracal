@@ -6,14 +6,14 @@ import os
 from pathlib import Path
 
 
-IN_CONTAINER_ENV = "CARACAL_RUNTIME_IN_CONTAINER"
-HOST_IO_ROOT_ENV = "CARACAL_HOST_IO_ROOT"
+IN_CONTAINER_ENV = "CCL_IN_CONTAINER"
+HOST_IO_ROOT_ENV = "CCL_HOST_IO_ROOT"
 DEFAULT_HOST_IO_ROOT = Path("/caracal-host-io")
 TRUTHY_ENV_VALUES = frozenset({"1", "true", "yes", "on"})
 FALSY_ENV_VALUES = frozenset({"0", "false", "no", "off"})
 
-CARACAL_HOME_ENV = "CARACAL_HOME"
-CARACAL_CONFIG_DIR_ENV = "CARACAL_CONFIG_DIR"
+CCL_HOME_ENV = "CCL_HOME"
+CCL_CONFIG_DIR_ENV = "CCL_CONFIG_DIR"
 
 
 class StorageLayoutError(RuntimeError):
@@ -21,24 +21,24 @@ class StorageLayoutError(RuntimeError):
 
 
 def resolve_caracal_home(require_explicit: bool = False) -> Path:
-    """Resolve CARACAL_HOME root.
+    """Resolve CCL_HOME root.
 
     Resolution order is deterministic:
-    1. CARACAL_CONFIG_DIR (demo/override alias)
-    2. CARACAL_HOME
+    1. CCL_CONFIG_DIR (demo/override alias)
+    2. CCL_HOME
     3. ~/.caracal (only when require_explicit=False)
     """
-    config_dir_value = os.getenv(CARACAL_CONFIG_DIR_ENV)
+    config_dir_value = os.getenv(CCL_CONFIG_DIR_ENV)
     if config_dir_value:
         return Path(config_dir_value).expanduser().resolve(strict=False)
 
-    home_value = os.getenv(CARACAL_HOME_ENV)
+    home_value = os.getenv(CCL_HOME_ENV)
     if home_value:
         return Path(home_value).expanduser().resolve(strict=False)
 
     if require_explicit:
         raise StorageLayoutError(
-            "CARACAL_HOME is required but not set. Set CARACAL_HOME to an explicit runtime path."
+            "CCL_HOME is required but not set. Set CCL_HOME to an explicit runtime path."
         )
 
     return (Path.home() / ".caracal").resolve(strict=False)
