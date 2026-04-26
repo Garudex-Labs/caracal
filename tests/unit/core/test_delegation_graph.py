@@ -651,3 +651,218 @@ class TestDelegationGraphLineageParity:
 
         assert self.graph.validate_authority_path(source_a_id, target_b_id) is True
         assert self.graph.validate_authority_path(source_b_id, target_a_id) is True
+
+
+@pytest.mark.unit
+class TestDelegationGraphStaticMethods:
+    """Tests for static/pure methods that require no DB."""
+
+    # ------------------------------------------------------------------ #
+    # _is_mandate_active
+    # ------------------------------------------------------------------ #
+
+    def test_active_mandate_returns_true(self):
+        m = Mock(
+            revoked=False,
+            valid_from=datetime.utcnow() - timedelta(minutes=5),
+            valid_until=datetime.utcnow() + timedelta(minutes=30),
+        )
+        assert DelegationGraph._is_mandate_active(m) is True
+
+    def test_none_mandate_returns_false(self):
+        assert DelegationGraph._is_mandate_active(None) is False
+
+    def test_revoked_mandate_returns_false(self):
+        m = Mock(
+            revoked=True,
+            valid_from=datetime.utcnow() - timedelta(minutes=5),
+            valid_until=datetime.utcnow() + timedelta(minutes=30),
+        )
+        assert DelegationGraph._is_mandate_active(m) is False
+
+    def test_not_yet_valid_returns_false(self):
+        m = Mock(
+            revoked=False,
+            valid_from=datetime.utcnow() + timedelta(minutes=5),
+            valid_until=datetime.utcnow() + timedelta(minutes=30),
+        )
+        assert DelegationGraph._is_mandate_active(m) is False
+
+    def test_expired_mandate_returns_false(self):
+        m = Mock(
+            revoked=False,
+            valid_from=datetime.utcnow() - timedelta(hours=2),
+            valid_until=datetime.utcnow() - timedelta(minutes=1),
+        )
+        assert DelegationGraph._is_mandate_active(m) is False
+
+    def test_no_time_bounds_active(self):
+        m = Mock(revoked=False, valid_from=None, valid_until=None)
+        assert DelegationGraph._is_mandate_active(m) is True
+
+    def test_custom_now_parameter(self):
+        now = datetime(2025, 1, 1, 12, 0, 0)
+        m = Mock(
+            revoked=False,
+            valid_from=datetime(2024, 1, 1),
+            valid_until=datetime(2026, 1, 1),
+        )
+        assert DelegationGraph._is_mandate_active(m, now=now) is True
+
+    # ------------------------------------------------------------------ #
+    # _scope_is_covered_by_union
+    # ------------------------------------------------------------------ #
+
+    def test_empty_requested_scope_always_covered(self):
+        assert DelegationGraph._scope_is_covered_by_union([], [["*"]]) is True
+
+    def test_none_requested_scope_always_covered(self):
+        assert DelegationGraph._scope_is_covered_by_union(None, [["*"]]) is True
+
+    def test_exact_match_covered(self):
+        assert DelegationGraph._scope_is_covered_by_union(
+            ["infer"], [["infer"]]
+        ) is True
+
+    def test_wildcard_covers_entry(self):
+        assert DelegationGraph._scope_is_covered_by_union(
+            ["infer"], [["*"]]
+        ) is True
+
+    def test_partial_coverage_fails(self):
+        assert DelegationGraph._scope_is_covered_by_union(
+            ["infer", "embed"], [["infer"]]
+        ) is False
+
+    def test_union_of_two_scopes_covers_both(self):
+        assert DelegationGraph._scope_is_covered_by_union(
+            ["infer", "embed"],
+            [["infer"], ["embed"]],
+        ) is True
+
+    def test_empty_source_scopes_fails_for_non_empty_request(self):
+        assert DelegationGraph._scope_is_covered_by_union(
+            ["infer"], []
+        ) is False
+
+    def test_prefix_wildcard_covers(self):
+        assert DelegationGraph._scope_is_covered_by_union(
+            ["read:docs"], [["read:*"]]
+        ) is True
+
+    # ------------------------------------------------------------------ #
+    # _resolve_edge_expiration
+    # ------------------------------------------------------------------ #
+
+    def test_all_none_returns_none(self):
+        src = Mock(valid_until=None)
+        tgt = Mock(valid_until=None)
+        result = DelegationGraph._resolve_edge_expiration(
+            source_mandate=src,
+            target_mandate=tgt,
+            requested_expires_at=None,
+        )
+        assert result is None
+
+    def test_picks_min_of_all_three(self):
+        soon = datetime.utcnow() + timedelta(minutes=10)
+        later = datetime.utcnow() + timedelta(hours=1)
+        latest = datetime.utcnow() + timedelta(hours=2)
+        src = Mock(valid_until=later)
+        tgt = Mock(valid_until=latest)
+        result = DelegationGraph._resolve_edge_expiration(
+            source_mandate=src,
+            target_mandate=tgt,
+            requested_expires_at=soon,
+        )
+        assert result == soon
+
+    def test_source_mandate_limits_edge(self):
+        early = datetime.utcnow() + timedelta(hours=1)
+        src = Mock(valid_until=early)
+        tgt = Mock(valid_until=None)
+        result = DelegationGraph._resolve_edge_expiration(
+            source_mandate=src,
+            target_mandate=tgt,
+            requested_expires_at=None,
+        )
+        assert result == early
+
+    def test_requested_beyond_mandate_capped(self):
+        mandate_end = datetime.utcnow() + timedelta(hours=1)
+        far_future = datetime.utcnow() + timedelta(days=365)
+        src = Mock(valid_until=mandate_end)
+        tgt = Mock(valid_until=None)
+        result = DelegationGraph._resolve_edge_expiration(
+            source_mandate=src,
+            target_mandate=tgt,
+            requested_expires_at=far_future,
+        )
+        assert result == mandate_end
+
+    # ------------------------------------------------------------------ #
+    # validate_delegation_direction
+    # ------------------------------------------------------------------ #
+
+    def test_human_to_orchestrator_allowed(self):
+        assert DelegationGraph.validate_delegation_direction("human", "orchestrator") is True
+
+    def test_human_to_worker_allowed(self):
+        assert DelegationGraph.validate_delegation_direction("human", "worker") is True
+
+    def test_human_to_service_allowed(self):
+        assert DelegationGraph.validate_delegation_direction("human", "service") is True
+
+    def test_orchestrator_to_worker_allowed(self):
+        assert DelegationGraph.validate_delegation_direction("orchestrator", "worker") is True
+
+    def test_orchestrator_to_service_allowed(self):
+        assert DelegationGraph.validate_delegation_direction("orchestrator", "service") is True
+
+    def test_worker_to_service_allowed(self):
+        assert DelegationGraph.validate_delegation_direction("worker", "service") is True
+
+    def test_peer_human_allowed(self):
+        assert DelegationGraph.validate_delegation_direction("human", "human") is True
+
+    def test_peer_orchestrator_allowed(self):
+        assert DelegationGraph.validate_delegation_direction("orchestrator", "orchestrator") is True
+
+    def test_peer_worker_allowed(self):
+        assert DelegationGraph.validate_delegation_direction("worker", "worker") is True
+
+    def test_service_to_service_blocked(self):
+        with pytest.raises(ValueError, match="terminal"):
+            DelegationGraph.validate_delegation_direction("service", "service")
+
+    def test_service_to_human_blocked(self):
+        with pytest.raises(ValueError):
+            DelegationGraph.validate_delegation_direction("service", "human")
+
+    def test_worker_to_human_blocked(self):
+        with pytest.raises(ValueError):
+            DelegationGraph.validate_delegation_direction("worker", "human")
+
+    def test_orchestrator_to_human_blocked(self):
+        with pytest.raises(ValueError):
+            DelegationGraph.validate_delegation_direction("orchestrator", "human")
+
+    def test_invalid_source_raises(self):
+        with pytest.raises(ValueError, match="Invalid source"):
+            DelegationGraph.validate_delegation_direction("alien", "human")
+
+    def test_invalid_target_raises(self):
+        with pytest.raises(ValueError, match="Invalid target"):
+            DelegationGraph.validate_delegation_direction("human", "alien")
+
+    # ------------------------------------------------------------------ #
+    # get_delegation_type
+    # ------------------------------------------------------------------ #
+
+    def test_same_kind_returns_peer(self):
+        assert DelegationGraph.get_delegation_type("human", "human") == "peer"
+        assert DelegationGraph.get_delegation_type("worker", "worker") == "peer"
+
+    def test_different_kind_returns_directed(self):
+        assert DelegationGraph.get_delegation_type("human", "worker") == "directed"
+        assert DelegationGraph.get_delegation_type("orchestrator", "service") == "directed"

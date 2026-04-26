@@ -6,12 +6,50 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from caracal.deployment.edition import Edition
+from caracal.deployment.edition import Edition, EditionManager
 from caracal.deployment.edition_adapter import (
     DeploymentEditionAdapter,
     get_deployment_edition_adapter,
 )
 from caracal.deployment.exceptions import EditionConfigurationError
+
+
+@pytest.mark.unit
+class TestEditionEnum:
+    def test_opensource_value(self) -> None:
+        assert Edition.OPENSOURCE == "opensource"
+
+    def test_enterprise_value(self) -> None:
+        assert Edition.ENTERPRISE == "enterprise"
+
+    def test_is_enterprise_true(self) -> None:
+        assert Edition.ENTERPRISE.is_enterprise is True
+
+    def test_is_enterprise_false_for_opensource(self) -> None:
+        assert Edition.OPENSOURCE.is_enterprise is False
+
+    def test_is_opensource_true(self) -> None:
+        assert Edition.OPENSOURCE.is_opensource is True
+
+    def test_is_opensource_false_for_enterprise(self) -> None:
+        assert Edition.ENTERPRISE.is_opensource is False
+
+
+@pytest.mark.unit
+class TestEditionManagerInit:
+    def test_no_cached_edition_initially(self, tmp_path, monkeypatch) -> None:
+        monkeypatch.setattr(EditionManager, "CONFIG_FILE", tmp_path / "config.toml")
+        monkeypatch.setattr(EditionManager, "CONFIG_DIR", tmp_path)
+        em = EditionManager()
+        assert em._cached_edition is None
+        assert em._cache_timestamp is None
+
+    def test_get_url_returns_none_initially(self, tmp_path, monkeypatch) -> None:
+        monkeypatch.setattr(EditionManager, "CONFIG_FILE", tmp_path / "config.toml")
+        monkeypatch.setattr(EditionManager, "CONFIG_DIR", tmp_path)
+        em = EditionManager()
+        assert em.get_gateway_url() is None
+
 
 
 class _FakeEditionManager:
