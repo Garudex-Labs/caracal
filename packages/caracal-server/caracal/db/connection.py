@@ -33,7 +33,7 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # Environment variable names (all optional — override config.yaml values)
 # ---------------------------------------------------------------------------
-_ENV_PREFIX = "CARACAL_DB_"
+_ENV_PREFIX = "CCL_DB_"
 _ENV_HOST = f"{_ENV_PREFIX}HOST"          # default: localhost
 _ENV_PORT = f"{_ENV_PREFIX}PORT"          # default: 5432
 _ENV_NAME = f"{_ENV_PREFIX}NAME"          # default: caracal
@@ -45,7 +45,7 @@ _ENV_SCHEMA = f"{_ENV_PREFIX}SCHEMA"      # default: "" (public)
 def _env(name: str, fallback: str = "") -> str:
     """Read an environment variable, returning *fallback* when unset/empty.
 
-    Uses canonical ``CARACAL_DB_*`` variables only.
+    Uses canonical ``CCL_DB_*`` variables only.
     """
     return os.environ.get(name, "") or fallback
 
@@ -69,7 +69,7 @@ def _ensure_dotenv_loaded() -> None:
 class DatabaseConfig:
     """PostgreSQL-only database configuration.
 
-    Values can be overridden individually via ``CARACAL_DB_*`` environment
+    Values can be overridden individually via ``CCL_DB_*`` environment
     variables.  Environment variables take precedence over constructor
     arguments when set.
     """
@@ -398,7 +398,7 @@ def get_db_manager(config: Optional["CaracalConfig"] = None) -> DatabaseConnecti
     CLI commands should use instead of manually constructing a
     ``DatabaseConfig``.
 
-    Environment variables (``CARACAL_DB_*``) take highest precedence,
+    Environment variables (``CCL_DB_*``) take highest precedence,
     followed by the YAML config values.
     """
     if config is None:

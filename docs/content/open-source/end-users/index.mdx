@@ -54,7 +54,7 @@ That distinction explains why some commands work before the stack is running and
 
 ## Edge Cases And Constraints
 
-- A workspace is not just a label. It is a real directory under `CARACAL_HOME/workspaces/<name>` that owns its own `config.yaml`, logs, backups, cache, keys, and Flow state.
+- A workspace is not just a label. It is a real directory under `CCL_HOME/workspaces/<name>` that owns its own `config.yaml`, logs, backups, cache, keys, and Flow state.
 - Policy and mandate scopes are validated against provider definitions stored in the current workspace. In practice, provider setup usually comes before policy and mandate issuance.
 - Some commands surface enterprise-related options or sync behavior. Those are public connector surfaces, not enterprise implementation details.
 

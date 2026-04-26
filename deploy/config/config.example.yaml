@@ -2,18 +2,18 @@
 # This example matches the current broker-only open-source architecture.
 
 storage:
-  backup_dir: ${CARACAL_HOME:~/.caracal}/backups
+  backup_dir: ${CCL_HOME:~/.caracal}/backups
   backup_count: 3
 
 database:
-  host: ${CARACAL_DB_HOST:localhost}
-  port: ${CARACAL_DB_PORT:5432}
-  database: ${CARACAL_DB_NAME:caracal}
-  user: ${CARACAL_DB_USER:caracal}
-  password: ${CARACAL_DB_PASSWORD:caracal}
-  pool_size: ${CARACAL_DB_POOL_SIZE:10}
-  max_overflow: ${CARACAL_DB_MAX_OVERFLOW:5}
-  pool_timeout: ${CARACAL_DB_POOL_TIMEOUT:30}
+  host: ${CCL_DB_HOST:localhost}
+  port: ${CCL_DB_PORT:5432}
+  database: ${CCL_DB_NAME:caracal}
+  user: ${CCL_DB_USER:caracal}
+  password: ${CCL_DB_PASSWORD:caracal}
+  pool_size: ${CCL_DB_POOL_SIZE:10}
+  max_overflow: ${CCL_DB_MAX_OVERFLOW:5}
+  pool_timeout: ${CCL_DB_POOL_TIMEOUT:30}
 
 redis:
   host: ${REDIS_HOST:localhost}
@@ -26,7 +26,7 @@ redis:
 
 mcp_adapter:
   enabled: true
-  listen_address: ${CARACAL_MCP_LISTEN_ADDRESS:0.0.0.0:8080}
+  listen_address: ${CCL_MCP_LISTEN_ADDRESS:0.0.0.0:8080}
   mcp_server_urls: []
   health_check_enabled: true
 
@@ -35,15 +35,15 @@ merkle:
   batch_timeout_seconds: 300
   signing_algorithm: ES256
   signing_backend: vault
-  vault_key_ref: ${CARACAL_VAULT_MERKLE_SIGNING_KEY_REF:keys/merkle-signing}
-  vault_public_key_ref: ${CARACAL_VAULT_MERKLE_PUBLIC_KEY_REF:keys/merkle-signing-public}
+  vault_key_ref: ${CCL_VAULT_MERKLE_SIGNING_KEY_REF:keys/merkle-signing}
+  vault_public_key_ref: ${CCL_VAULT_MERKLE_PUBLIC_KEY_REF:keys/merkle-signing-public}
   key_rotation_enabled: false
 
 snapshot:
   enabled: true
   schedule_cron: "0 0 * * *"
   retention_days: 90
-  storage_path: ${CARACAL_HOME:~/.caracal}/snapshots
+  storage_path: ${CCL_HOME:~/.caracal}/snapshots
   compression_enabled: true
   auto_cleanup_enabled: true
 
@@ -58,7 +58,7 @@ defaults:
 
 logging:
   level: ${LOG_LEVEL:INFO}
-  file: ${CARACAL_HOME:~/.caracal}/logs/caracal.log
+  file: ${CCL_HOME:~/.caracal}/logs/caracal.log
   format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 
 performance:

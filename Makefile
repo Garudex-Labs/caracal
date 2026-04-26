@@ -30,10 +30,10 @@ help:
 	@echo "  make runtime-flow Wrapper for 'caracal flow'"
 
 ensure-uv:
-	@if ! command -v uv >/dev/null 2>&1; then \
+	@export PATH="$$HOME/.local/bin:$$HOME/.cargo/bin:$$PATH"; \
+	if ! command -v uv >/dev/null 2>&1; then \
 		echo "uv not found. Installing uv..."; \
 		curl -LsSf https://astral.sh/uv/install.sh | sh; \
-		export PATH="$$HOME/.local/bin:$$HOME/.cargo/bin:$$PATH"; \
 	fi; \
 	if ! command -v uv >/dev/null 2>&1; then \
 		echo "uv installation succeeded but uv is not on PATH."; \
@@ -58,7 +58,7 @@ deps: check-tools
 	uv sync --locked
 
 deps-dev: check-tools
-	uv sync --locked --extra dev
+	uv sync --locked --group dev
 
 infra-up: check-tools
 	$(DEPLOY_COMPOSE) up -d postgres redis
@@ -86,11 +86,11 @@ infra-status: check-tools
 	$(DEPLOY_COMPOSE) ps postgres redis
 
 setup-user: deps infra-up
-	uv tool install --force --from . caracal-core
+	uv tool install --force --from packages/caracal caracal-core
 	@echo "Setup complete. Run: caracal up"
 
 setup-dev: deps-dev infra-up
-	uv tool install --force --from . caracal-core
+	uv tool install --force --from packages/caracal caracal-core
 	@echo "Developer setup complete. Run: caracal up"
 
 runtime-up:

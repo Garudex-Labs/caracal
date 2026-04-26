@@ -60,7 +60,7 @@ def get_database_config_from_context(ctx) -> DatabaseConfig:
         click.ClickException: If database configuration is missing or invalid
     """
     if not hasattr(ctx.config, 'database') or ctx.config.database is None:
-        # No config file — fall back to CARACAL_DB_* environment variables
+        # No config file — fall back to CCL_DB_* environment variables
         return DatabaseConfig()
     
     db_config = ctx.config.database

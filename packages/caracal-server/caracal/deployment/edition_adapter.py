@@ -58,7 +58,7 @@ class DeploymentEditionAdapter:
 
         raise EditionConfigurationError(
             "Enterprise execution requires a gateway URL "
-            "(CCLE_URL)."
+            "(CCLE_API_URL)."
         )
 
     def resolve_revocation_publisher_mode(self, *, explicit_mode: Optional[str] = None) -> str:

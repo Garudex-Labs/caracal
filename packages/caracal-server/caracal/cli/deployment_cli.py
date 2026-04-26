@@ -169,7 +169,7 @@ def _get_active_workspace_db_message() -> Optional[str]:
             "CCL_DB_PORT",
             "CCL_DB_NAME",
             "CCL_DB_USER",
-            "CCL_DB_PASS",
+            "CCL_DB_PASSWORD",
         )
         has_db_env = any(bool(os.getenv(key)) for key in env_keys)
 

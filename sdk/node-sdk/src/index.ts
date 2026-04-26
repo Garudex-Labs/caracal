@@ -30,5 +30,4 @@ export { CaracalExtension } from './extensions';
 // Adapters
 export { BaseAdapter, SDKRequest, SDKResponse } from './adapters/base';
 export { HttpAdapter } from './adapters/http';
-export { WebSocketAdapter } from './adapters/websocket';
 export { MockAdapter } from './adapters/mock';

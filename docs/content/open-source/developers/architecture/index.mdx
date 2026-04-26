@@ -45,6 +45,19 @@ flowchart TD
 | `tests/` | Unit, integration, e2e, security, and validation scripts |
 | `sdk/` | SDK source trees, intentionally documented later |
 
+### Package boundaries
+
+The repository publishes or builds several similarly named packages. The names are not interchangeable:
+
+| Package | Source | Boundary |
+| --- | --- | --- |
+| `caracal-core` | `packages/caracal` | Python host orchestrator and `caracal` entrypoint. It starts and enters the containerized runtime. |
+| `caracal-server` | `packages/caracal-server` | Python server, CLI, Flow, database, provider, and enforcement modules for the runtime container image. It is not the normal host install target. |
+| `caracal-sdk` | `sdk/python-sdk` | Standalone Python client SDK for applications integrating with a running runtime endpoint. |
+| `@caracal/core` | `sdk/node-sdk` | Standalone Node.js / TypeScript client SDK for applications integrating with a running runtime endpoint. |
+
+The most common naming trap is `caracal-core` versus `@caracal/core`: the former is the Python host runtime package, while the latter is the Node.js SDK package.
+
 ## Boundary Map
 
 ### Host versus runtime

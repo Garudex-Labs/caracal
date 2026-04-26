@@ -26,7 +26,6 @@ from caracal_sdk.adapters import (
     BaseAdapter,
     HttpAdapter,
     MockAdapter,
-    WebSocketAdapter,
 )
 from caracal_sdk.client import CaracalBuilder, CaracalClient, SDKConfigurationError
 from caracal_sdk.context import ContextManager, ScopeContext
@@ -52,7 +51,6 @@ __all__ = [
     "BaseAdapter",
     "HttpAdapter",
     "MockAdapter",
-    "WebSocketAdapter",
     # gateway
     "GatewayAdapter",
     "GatewayAdapterError",

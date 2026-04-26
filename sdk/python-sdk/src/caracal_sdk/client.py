@@ -56,8 +56,8 @@ class CaracalClient:
     Args:
         api_key: API key for authentication.
         base_url: Root URL of the Caracal API.
-            Defaults to ``CARACAL_API_URL`` when set, else
-            ``http://localhost:${CARACAL_API_PORT:-8080}``.
+            Defaults to ``CCL_API_URL`` when set, else
+            ``http://localhost:${CCL_API_PORT:-8080}``.
         adapter: Optional custom transport adapter (overrides base_url/api_key based default).
 
     """
@@ -76,7 +76,7 @@ class CaracalClient:
             )
 
         resolved_base_url = base_url or resolve_sdk_base_url(
-            default_port=os.environ.get("CARACAL_API_PORT", "8080")
+            default_port=os.environ.get("CCL_API_PORT", "8080")
         )
 
         self._hooks = HookRegistry()
@@ -148,7 +148,7 @@ class CaracalBuilder:
             CaracalBuilder()
             .set_api_key("sk_prod_123")
             .set_base_url("https://api.caracal.io")
-            .set_transport(WebSocketAdapter(url="wss://..."))
+            .set_transport(CustomAdapter(...))
             .use(ComplianceExtension(standard="soc2"))
             .build()
         )
@@ -157,7 +157,7 @@ class CaracalBuilder:
     def __init__(self) -> None:
         self._api_key: Optional[str] = None
         self._base_url: str = resolve_sdk_base_url(
-            default_port=os.environ.get("CARACAL_API_PORT", "8080")
+            default_port=os.environ.get("CCL_API_PORT", "8080")
         )
         self._adapter: Optional[BaseAdapter] = None
         self._extensions: List[CaracalExtension] = []

@@ -292,6 +292,79 @@ def test_run_local_caracal_routes_ais_serve(monkeypatch: pytest.MonkeyPatch) -> 
 
 
 @pytest.mark.unit
+def test_runtime_hardcut_env_does_not_default_required_vault_config(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    for env_key in (
+        "CCL_PRINCIPAL_KEY_BACKEND",
+        "CCL_VAULT_URL",
+        "CCL_VAULT_TOKEN",
+        "CCL_VAULT_SIGNING_KEY_REF",
+        "CCL_VAULT_SESSION_PUBLIC_KEY_REF",
+        "CCL_SESSION_SIGNING_ALGORITHM",
+    ):
+        monkeypatch.delenv(env_key, raising=False)
+
+    env_vars = entrypoints._runtime_hardcut_env()
+
+    assert "CCL_PRINCIPAL_KEY_BACKEND" not in env_vars
+    assert "CCL_VAULT_URL" not in env_vars
+    assert "CCL_VAULT_TOKEN" not in env_vars
+    assert "CCL_VAULT_SIGNING_KEY_REF" not in env_vars
+    assert "CCL_VAULT_SESSION_PUBLIC_KEY_REF" not in env_vars
+    assert "CCL_SESSION_SIGNING_ALGORITHM" not in env_vars
+
+
+@pytest.mark.unit
+def test_runtime_hardcut_env_maps_existing_compose_vault_aliases(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("CCL_PRINCIPAL_KEY_BACKEND", raising=False)
+    monkeypatch.delenv("CCL_VAULT_URL", raising=False)
+    monkeypatch.delenv("CCL_VAULT_TOKEN", raising=False)
+    monkeypatch.delenv("CCL_VAULT_SIGNING_KEY_REF", raising=False)
+    monkeypatch.delenv("CCL_VAULT_SESSION_PUBLIC_KEY_REF", raising=False)
+    monkeypatch.delenv("CCL_SESSION_SIGNING_ALGORITHM", raising=False)
+    monkeypatch.setenv("CCL_PRINCIPAL_KEY_BACKEND", "vault")
+    monkeypatch.setenv("CCL_VAULT_URL", "http://vault:8080")
+    monkeypatch.setenv("CCL_VAULT_TOKEN", "configured-token")
+    monkeypatch.setenv("CCL_VAULT_SIGNING_KEY_REF", "keys/signing")
+    monkeypatch.setenv("CCL_VAULT_SESSION_PUBLIC_KEY_REF", "keys/session-public")
+    monkeypatch.setenv("CCL_SESSION_SIGNING_ALGORITHM", "ES256")
+
+    env_vars = entrypoints._runtime_hardcut_env()
+
+    assert env_vars["CCL_PRINCIPAL_KEY_BACKEND"] == "vault"
+    assert env_vars["CCL_VAULT_URL"] == "http://vault:8080"
+    assert env_vars["CCL_VAULT_TOKEN"] == "configured-token"
+    assert env_vars["CCL_VAULT_SIGNING_KEY_REF"] == "keys/signing"
+    assert env_vars["CCL_VAULT_SESSION_PUBLIC_KEY_REF"] == "keys/session-public"
+    assert env_vars["CCL_SESSION_SIGNING_ALGORITHM"] == "ES256"
+
+
+@pytest.mark.unit
+def test_run_local_caracal_bootstrap_skips_hardcut_preflight(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def _raise_if_called(**_kwargs) -> None:
+        raise AssertionError("bootstrap should be exempt from runtime hard-cut preflight")
+
+    calls: list[tuple[str, ...]] = []
+    monkeypatch.setattr(entrypoints, "assert_runtime_hardcut", _raise_if_called)
+    monkeypatch.setattr(
+        entrypoints,
+        "_run_local_click_command",
+        lambda args: calls.append(tuple(args)) or 0,
+    )
+
+    with pytest.raises(SystemExit) as exc_info:
+        entrypoints._run_local_caracal(("bootstrap",))
+
+    assert int(exc_info.value.code) == 0
+    assert calls == [("bootstrap",)]
+
+
+@pytest.mark.unit
 def test_run_local_caracal_routes_direct_commands_without_restricted_shell(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -403,8 +476,8 @@ def test_run_runtime_mcp_bootstraps_vault_refs_before_starting_ais(
 def test_resolve_ais_vault_context_prefers_recovered_project_uuid_over_slug(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv("CARACAL_VAULT_WORKSPACE_ID", "caracal")
-    monkeypatch.setenv("CARACAL_VAULT_ENVIRONMENT", "dev")
+    monkeypatch.setenv("CCL_VAULT_WORKSPACE_ID", "caracal")
+    monkeypatch.setenv("CCL_VAULT_ENVIRONMENT", "dev")
 
     fake_vault = SimpleNamespace(
         _config=SimpleNamespace(
@@ -451,10 +524,8 @@ def test_resolve_ais_vault_secret_uses_resolved_vault_context(
 def test_resolve_ais_vault_context_falls_back_when_vault_unavailable(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.delenv("CCL_VAULT_WS_ID", raising=False)
-    monkeypatch.delenv("CCL_VAULT_PROJ", raising=False)
-    monkeypatch.delenv("CCL_VAULT_ENV", raising=False)
-    monkeypatch.delenv("CCL_VAULT_ENV_ID", raising=False)
+    monkeypatch.delenv("CCL_VAULT_WORKSPACE_ID", raising=False)
+    monkeypatch.delenv("CCL_VAULT_ENVIRONMENT", raising=False)
     monkeypatch.setattr("caracal.core.vault.get_vault", lambda: (_ for _ in ()).throw(RuntimeError("offline")))
 
     workspace_id, env_id = entrypoints._resolve_ais_vault_context()
@@ -504,21 +575,10 @@ def test_create_ais_session_manager_requires_explicit_caveat_hmac_key(
 
 
 @pytest.mark.unit
-def test_resolve_session_signing_algorithm_ignores_legacy_alias_env(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.delenv(entrypoints.AIS_SESSION_ALGORITHM_ENV, raising=False)
-    monkeypatch.setenv("CARACAL_SESSION_JWT_ALGORITHM", "ES256")
-
-    assert entrypoints._resolve_session_signing_algorithm() == "RS256"
-
-
-@pytest.mark.unit
 def test_resolve_session_signing_algorithm_uses_canonical_env(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv(entrypoints.AIS_SESSION_ALGORITHM_ENV, "es256")
-    monkeypatch.setenv("CARACAL_SESSION_JWT_ALGORITHM", "RS256")
 
     assert entrypoints._resolve_session_signing_algorithm() == "ES256"
 
@@ -536,7 +596,7 @@ def test_host_up_runs_preflight_with_resolved_compose(monkeypatch: pytest.Monkey
     )
     monkeypatch.setattr(entrypoints, "_runtime_database_url_candidates", lambda: ["postgresql://runtime-db"])
     monkeypatch.setattr(entrypoints, "_caracal_home_dir", lambda: Path("/tmp/caracal-runtime"))
-    monkeypatch.setattr(entrypoints, "_runtime_hardcut_env", lambda: {"CARACAL_HARDCUT_MODE": "1"})
+    monkeypatch.setattr(entrypoints, "_runtime_hardcut_env", lambda: {"CCL_RUNTIME_PRECHECK": "1"})
     monkeypatch.setattr(entrypoints, "_compose_cmd", lambda _compose: ["docker", "compose"])
     monkeypatch.setattr(entrypoints, "_service_uses_local_build", lambda *_args, **_kwargs: False)
     monkeypatch.setattr(entrypoints.subprocess, "run", lambda *_args, **_kwargs: SimpleNamespace(returncode=0))
@@ -547,7 +607,7 @@ def test_host_up_runs_preflight_with_resolved_compose(monkeypatch: pytest.Monkey
     assert captured["compose_file"] == compose_file
     assert captured["database_urls"] == ["postgresql://runtime-db"]
     assert captured["state_roots"] == [Path("/tmp/caracal-runtime")]
-    assert captured["env_vars"] == {"CARACAL_HARDCUT_MODE": "1"}
+    assert captured["env_vars"] == {"CCL_RUNTIME_PRECHECK": "1"}
 
 
 @pytest.mark.unit
@@ -564,7 +624,7 @@ def test_host_flow_runs_preflight_with_resolved_compose(monkeypatch: pytest.Monk
     )
     monkeypatch.setattr(entrypoints, "_runtime_database_url_candidates", lambda: ["postgresql://runtime-db"])
     monkeypatch.setattr(entrypoints, "_caracal_home_dir", lambda: Path("/tmp/caracal-runtime"))
-    monkeypatch.setattr(entrypoints, "_runtime_hardcut_env", lambda: {"CARACAL_HARDCUT_MODE": "1"})
+    monkeypatch.setattr(entrypoints, "_runtime_hardcut_env", lambda: {"CCL_RUNTIME_PRECHECK": "1"})
     monkeypatch.setattr(entrypoints, "_compose_cmd", lambda _compose: ["docker", "compose"])
     monkeypatch.setattr(entrypoints, "_service_uses_local_build", lambda *_args, **_kwargs: False)
 
@@ -580,7 +640,7 @@ def test_host_flow_runs_preflight_with_resolved_compose(monkeypatch: pytest.Monk
     assert captured["compose_file"] == compose_file
     assert captured["database_urls"] == ["postgresql://runtime-db"]
     assert captured["state_roots"] == [Path("/tmp/caracal-runtime")]
-    assert captured["env_vars"] == {"CARACAL_HARDCUT_MODE": "1"}
+    assert captured["env_vars"] == {"CCL_RUNTIME_PRECHECK": "1"}
     assert ["docker", "compose", "up", "-d", "postgres", "redis", "vault"] in commands
 
 
@@ -593,7 +653,7 @@ def test_host_cli_run_command_does_not_force_user_override(monkeypatch: pytest.M
     monkeypatch.setattr(entrypoints, "assert_runtime_hardcut", lambda **_kwargs: None)
     monkeypatch.setattr(entrypoints, "_runtime_database_url_candidates", lambda: ["postgresql://runtime-db"])
     monkeypatch.setattr(entrypoints, "_caracal_home_dir", lambda: Path("/tmp/caracal-runtime"))
-    monkeypatch.setattr(entrypoints, "_runtime_hardcut_env", lambda: {"CARACAL_HARDCUT_MODE": "1"})
+    monkeypatch.setattr(entrypoints, "_runtime_hardcut_env", lambda: {"CCL_RUNTIME_PRECHECK": "1"})
     monkeypatch.setattr(entrypoints, "_compose_cmd", lambda _compose: ["docker", "compose"])
     monkeypatch.setattr(entrypoints, "_service_uses_local_build", lambda *_args, **_kwargs: False)
 
@@ -627,7 +687,7 @@ def test_host_flow_run_command_does_not_force_user_override(monkeypatch: pytest.
     monkeypatch.setattr(entrypoints, "assert_runtime_hardcut", lambda **_kwargs: None)
     monkeypatch.setattr(entrypoints, "_runtime_database_url_candidates", lambda: ["postgresql://runtime-db"])
     monkeypatch.setattr(entrypoints, "_caracal_home_dir", lambda: Path("/tmp/caracal-runtime"))
-    monkeypatch.setattr(entrypoints, "_runtime_hardcut_env", lambda: {"CARACAL_HARDCUT_MODE": "1"})
+    monkeypatch.setattr(entrypoints, "_runtime_hardcut_env", lambda: {"CCL_RUNTIME_PRECHECK": "1"})
     monkeypatch.setattr(entrypoints, "_compose_cmd", lambda _compose: ["docker", "compose"])
     monkeypatch.setattr(entrypoints, "_service_uses_local_build", lambda *_args, **_kwargs: False)
 
@@ -869,7 +929,7 @@ def test_build_ais_handlers_allows_local_bootstrap_principal_without_auth(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _patch_principal_registry_for_issue_token(monkeypatch)
-    monkeypatch.setenv("CCL_AIS_PID", "principal-1")
+    monkeypatch.setenv("CCL_AIS_PRINCIPAL_ID", "principal-1")
 
     handlers = entrypoints._build_ais_handlers(
         db_manager=_FakeDbManager(),

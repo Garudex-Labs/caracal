@@ -24,10 +24,10 @@ def test_generate_and_store_principal_keypair_bootstraps_only_via_vault() -> Non
     with patch.dict(
         os.environ,
         {
-            "CCL_KEY_BACKEND": "vault",
-            "CCL_VAULT_WS_ID": "caracal",
-            "CARACAL_VAULT_ENV_ID": "runtime",
-            "CCL_VAULT_KEY_PREFIX": "principal-keys",
+            "CCL_PRINCIPAL_KEY_BACKEND": "vault",
+            "CCL_VAULT_WORKSPACE_ID": "caracal",
+            "CCL_VAULT_ENVIRONMENT": "runtime",
+            "CCL_VAULT_PRINCIPAL_KEY_PREFIX": "principal-keys",
         },
         clear=False,
     ):
@@ -76,10 +76,10 @@ def test_generate_and_store_principal_keypair_updates_custody_record() -> None:
     with patch.dict(
         os.environ,
         {
-            "CCL_KEY_BACKEND": "vault",
-            "CCL_VAULT_WS_ID": "caracal",
-            "CARACAL_VAULT_ENV_ID": "runtime",
-            "CCL_VAULT_KEY_PREFIX": "principal-keys",
+            "CCL_PRINCIPAL_KEY_BACKEND": "vault",
+            "CCL_VAULT_WORKSPACE_ID": "caracal",
+            "CCL_VAULT_ENVIRONMENT": "runtime",
+            "CCL_VAULT_PRINCIPAL_KEY_PREFIX": "principal-keys",
         },
         clear=False,
     ):
@@ -105,10 +105,10 @@ def test_generate_and_store_principal_keypair_uses_project_environment_context_w
     with patch.dict(
         os.environ,
         {
-            "CCL_KEY_BACKEND": "vault",
-            "CCL_VAULT_WS_ID": "project-123",
-            "CCL_VAULT_ENV": "dev",
-            "CCL_VAULT_KEY_PREFIX": "principal-keys",
+            "CCL_PRINCIPAL_KEY_BACKEND": "vault",
+            "CCL_VAULT_WORKSPACE_ID": "project-123",
+            "CCL_VAULT_ENVIRONMENT": "dev",
+            "CCL_VAULT_PRINCIPAL_KEY_PREFIX": "principal-keys",
         },
         clear=False,
     ):
@@ -138,10 +138,10 @@ def test_generate_and_store_principal_keypair_resolves_project_uuid_from_vault_c
     with patch.dict(
         os.environ,
         {
-            "CCL_KEY_BACKEND": "vault",
-            "CCL_VAULT_WS_ID": "caracal",
-            "CCL_VAULT_ENV": "dev",
-            "CCL_VAULT_KEY_PREFIX": "principal-keys",
+            "CCL_PRINCIPAL_KEY_BACKEND": "vault",
+            "CCL_VAULT_WORKSPACE_ID": "caracal",
+            "CCL_VAULT_ENVIRONMENT": "dev",
+            "CCL_VAULT_PRINCIPAL_KEY_PREFIX": "principal-keys",
         },
         clear=False,
     ):

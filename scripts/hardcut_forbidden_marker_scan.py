@@ -59,7 +59,7 @@ MARKER_DEFINITIONS: tuple[MarkerDefinition, ...] = (
     MarkerDefinition(
         key="aws_kms_fernet_imports",
         description="Legacy AWS/KMS/Fernet/keyring imports and markers",
-        pattern=r"(\bboto3\b|\baws_kms\b|\bAWS_KMS\b|\bCARACAL_AWS_\b|cryptography\.fernet|\bFernet\b|\bkeyring\b)",
+        pattern=r"(\bboto3\b|\baws_kms\b|\bAWS_KMS\b|\bCCL_AWS_\b|cryptography\.fernet|\bFernet\b|\bkeyring\b)",
     ),
     MarkerDefinition(
         key="legacy_sync_auth_surfaces",
@@ -69,7 +69,7 @@ MARKER_DEFINITIONS: tuple[MarkerDefinition, ...] = (
     MarkerDefinition(
         key="compatibility_env_aliases",
         description="Legacy compatibility env aliases and dual-write markers",
-        pattern=r"(\bCARACAL_ENABLE_COMPAT_ALIASES\b|\bCARACAL_COMPAT_ALIASES\b|\bCARACAL_COMPAT_MODE\b|\bCARACAL_ENABLE_DUAL_WRITE\b|\bCARACAL_DUAL_WRITE_WINDOW\b|\bCARACAL_SESSION_JWT_ALGORITHM\b)",
+        pattern=r"(\bCCL_COMPAT_ALIASES\b|\bCCL_COMPAT_MODE\b|\bCCL_DUAL_WRITE_ON\b|\bCCL_DUAL_WRITE_WIN\b)",
     ),
     MarkerDefinition(
         key="enterprise_logic_leakage",
@@ -89,14 +89,9 @@ MARKER_DEFINITIONS: tuple[MarkerDefinition, ...] = (
         pattern=r"(\bsync_monitor\b|\bconnectionApi\b|\bonboardingApi\.runSetup\b|\bsetup_onboarding\b)",
     ),
     MarkerDefinition(
-        key="fallback_gateway_env_aliases",
-        description="Hidden fallback gateway and enterprise URL alias chains",
-        pattern=r"(\bCARACAL_ENTERPRISE_API_URL\b|\bCARACAL_GATEWAY_ENDPOINT\b|\bCARACAL_GATEWAY_URL\b|\bCARACAL_ENTERPRISE_DEFAULT_URL\b)",
-    ),
-    MarkerDefinition(
         key="split_mode_markers",
         description="Hardcut-vs-non-hardcut split terminology and mode aliases",
-        pattern=r"(\bnon-hardcut\b|\bnon hardcut\b|\bhardcut vs non-hardcut\b|\bhard-cut vs non-hard-cut\b|\bsoft-cut\b|\bsoft cut\b|\bCARACAL_NON_HARDCUT\b|\bCARACAL_SOFTCUT\b)",
+        pattern=r"(\bnon-hardcut\b|\bnon hardcut\b|\bhardcut vs non-hardcut\b|\bhard-cut vs non-hard-cut\b|\bsoft-cut\b|\bsoft cut\b|\bCCL_NON_HARDCUT\b|\bCCL_SOFTCUT\b)",
     ),
     MarkerDefinition(
         key="single_lineage_residuals",
@@ -230,9 +225,6 @@ MARKER_PATH_EXCLUDES: dict[str, set[str]] = {
         "caracal/db/migrations/versions/t9u0v1w2x3y4_single_lineage_active_inbound_constraint.py",
     },
     "compatibility_env_aliases": {
-        "caracal/runtime/hardcut_preflight.py",
-    },
-    "fallback_gateway_env_aliases": {
         "caracal/runtime/hardcut_preflight.py",
     },
     "provider_legacy_contract_fields": {

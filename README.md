@@ -70,30 +70,42 @@ More coming soon
 ### Quickstart
 
 ```bash
-caracal      # Open the TUI (same as: caracal flow)
-caracal up   # Setup
+caracal      # Launch Flow (TUI) inside the runtime container
+caracal up   # Start the full local runtime stack
 ```
 
 ### Command Reference
 
 ```bash
-caracal            # Open the TUI
-caracal up         # Pull images, create network/volumes, start postgres+redis+mcp
+caracal            # Launch Flow (TUI) inside the runtime container
+caracal flow       # Same as the default command
+caracal up         # Pull images and start postgres+redis+vault+mcp
+caracal up --no-pull
 caracal down       # Stop stack and remove services
-caracal flow       # Launch Flow (TUI) inside runtime container
-caracal cli        # Run full Caracal CLI inside container
+caracal cli        # Open a restricted interactive Caracal CLI session in the container
 caracal logs -f    # Tail runtime logs
 caracal reset      # Down + remove volumes (full local reset)
 caracal purge      # Completely remove Caracal containers, data, networks, images, and local state
+caracal purge --force
 ```
 
-### Migration and Cleanup
+### Database Migration and Cleanup
 
 ```bash
-caracal migrate repo-to-package
-caracal workspace delete <workspace-name> --force
+caracal migrate        # Run database migrations up inside the runtime container
+caracal migrate down
+caracal migrate up --revision <revision>
 caracal reset
 caracal purge --force
+```
+
+`caracal migrate` is a host database-migration wrapper and accepts only `up` or `down`.
+Do not run `caracal migrate repo-to-package` as a host command.
+
+To remove a workspace, open `caracal cli` and run:
+
+```bash
+workspace delete <workspace-name> --force
 ```
 
 -----
@@ -124,6 +136,6 @@ If this project contributes to your research, product, or derivative systems, pl
 
 ## License
 
-Caracal is open-source software licensed under the **Apache-2.0** License. See the [LICENSE](https://www.google.com/search?q=LICENSE) file for details.
+Caracal is open-source software licensed under the **Apache-2.0** License. See the [LICENSE](LICENSE) file for details.
 
 **Developed by Garudex Labs.**

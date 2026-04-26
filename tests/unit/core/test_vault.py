@@ -38,9 +38,9 @@ def vault_env():
     return {
         "CCL_VAULT_URL": "http://vault.test",
         "CCL_VAULT_TOKEN": "token-123",
-        "CCL_VAULT_WS_ID": "proj-default",
-        "CCL_VAULT_ENV": "dev",
-        "CCL_VAULT_PATH": "/",
+        "CCL_VAULT_WORKSPACE_ID": "proj-default",
+        "CCL_VAULT_ENVIRONMENT": "dev",
+        "CCL_VAULT_SECRET_PATH": "/",
         "CCL_VAULT_MODE": "managed",
     }
 
@@ -156,7 +156,7 @@ def test_load_vault_config_recovers_placeholder_local_token(vault_env):
     env = dict(vault_env)
     env["CCL_VAULT_URL"] = "http://vault:8080"
     env["CCL_VAULT_TOKEN"] = "dev-local-token"
-    env["CCL_VAULT_WS_ID"] = ""
+    env["CCL_VAULT_WORKSPACE_ID"] = ""
 
     with patch("caracal.core.vault._read_env_or_dotenv", side_effect=lambda name: env.get(name)):
         with patch(

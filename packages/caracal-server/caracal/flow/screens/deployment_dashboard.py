@@ -203,7 +203,7 @@ def _resolve_database_status(config_mgr) -> Optional[str]:
             "CCL_DB_PORT",
             "CCL_DB_NAME",
             "CCL_DB_USER",
-            "CCL_DB_PASS",
+            "CCL_DB_PASSWORD",
         )
         has_db_env = any(bool(os.getenv(key)) for key in env_keys)
 

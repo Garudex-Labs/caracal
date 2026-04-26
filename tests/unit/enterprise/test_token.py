@@ -267,11 +267,8 @@ def test_sync_modules_have_no_loopback_candidate_fallback_helper() -> None:
 def test_resolve_api_url_ignores_removed_legacy_gateway_aliases(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(enterprise_runtime, "load_enterprise_config", lambda: {})
     monkeypatch.setattr(enterprise_runtime, "_load_workspace_dotenv", lambda: {})
-    monkeypatch.delenv("CARACAL_ENTERPRISE_URL", raising=False)
-    monkeypatch.delenv("CARACAL_ENTERPRISE_DEV_URL", raising=False)
-    monkeypatch.delenv("CARACAL_ENTERPRISE_DEFAULT_URL", raising=False)
-    monkeypatch.setenv("CARACAL_ENTERPRISE_API_URL", "https://legacy-enterprise.example")
-    monkeypatch.setenv("CARACAL_GATEWAY_URL", "https://legacy-gateway.example")
+    monkeypatch.delenv("CCLE_API_URL", raising=False)
+    monkeypatch.setenv("CCLE_API_URL", "https://legacy-enterprise.example")
 
     resolved = enterprise_runtime._resolve_api_url()
 

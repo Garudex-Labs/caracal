@@ -103,7 +103,7 @@ def _get_db_config_from_env() -> dict:
     """Load database configuration from runtime env and .env.
 
     Precedence:
-    1. Runtime environment variables (CARACAL_DB_*)
+    1. Runtime environment variables (CCL_DB_*)
     2. .env file values
     3. Sensible defaults
 
@@ -141,7 +141,7 @@ def _get_db_config_from_env() -> dict:
                 "port": r"^CCL_DB_PORT=(.*)$",
                 "database": r"^CCL_DB_NAME=(.*)$",
                 "username": r"^CCL_DB_USER=(.*)$",
-                "password": r"^CCL_DB_PASS=(.*)$",
+                "password": r"^CCL_DB_PASSWORD=(.*)$",
             }
             for key, pattern in mapping.items():
                 match = re.search(pattern, content, re.MULTILINE)
@@ -155,7 +155,7 @@ def _get_db_config_from_env() -> dict:
             "port": "CCL_DB_PORT",
             "database": "CCL_DB_NAME",
             "username": "CCL_DB_USER",
-            "password": "CCL_DB_PASS",
+            "password": "CCL_DB_PASSWORD",
         }
         for key, env_var in runtime_mapping.items():
             raw = os.environ.get(env_var)
@@ -190,7 +190,7 @@ def _save_db_config_to_env(config: dict) -> bool:
                 "CCL_DB_PORT": str(config.get("port", 5432)),
                 "CCL_DB_NAME": config.get("database", "caracal"),
                 "CCL_DB_USER": config.get("username", "caracal"),
-                "CCL_DB_PASS": config.get("password", ""),
+                "CCL_DB_PASSWORD": config.get("password", ""),
             }
             for key, val in mapping.items():
                 if re.search(f"^{key}=", content, re.MULTILINE):
@@ -213,7 +213,7 @@ def _save_db_config_to_env(config: dict) -> bool:
                 f"CCL_DB_PORT={config.get('port', 5432)}",
                 f"CCL_DB_NAME={config.get('database', 'caracal')}",
                 f"CCL_DB_USER={config.get('username', 'caracal')}",
-                f"CCL_DB_PASS={config.get('password', '')}",
+                f"CCL_DB_PASSWORD={config.get('password', '')}",
                 "",
             ]
             # Credentials stored in .env by design; restrict permissions to owner-only.
@@ -698,8 +698,8 @@ def _initialize_caracal_dir(path: Path, wipe: bool = False) -> None:
     if not config_path.exists():
         import yaml
 
-        vault_key_ref = os.environ.get("CCL_VAULT_MERKLE_KEY", "")
-        vault_public_key_ref = os.environ.get("CCL_VAULT_MERKLE_PUB", "")
+        vault_key_ref = os.environ.get("CCL_VAULT_MERKLE_SIGNING_KEY_REF", "")
+        vault_public_key_ref = os.environ.get("CCL_VAULT_MERKLE_PUBLIC_KEY_REF", "")
         default_config = {
             "storage": {
                 "backup_dir": str(path / "backups"),
@@ -802,8 +802,8 @@ def _normalize_workspace_merkle_hardcut_config(workspace_path: Path) -> None:
         if not isinstance(merkle, dict):
             merkle = {}
 
-        vault_key_ref = os.environ.get("CCL_VAULT_MERKLE_KEY", "")
-        vault_public_key_ref = os.environ.get("CCL_VAULT_MERKLE_PUB", "")
+        vault_key_ref = os.environ.get("CCL_VAULT_MERKLE_SIGNING_KEY_REF", "")
+        vault_public_key_ref = os.environ.get("CCL_VAULT_MERKLE_PUBLIC_KEY_REF", "")
 
         updated_merkle = dict(merkle)
         updated_merkle["signing_backend"] = "vault"
@@ -811,12 +811,12 @@ def _normalize_workspace_merkle_hardcut_config(workspace_path: Path) -> None:
         updated_merkle["vault_key_ref"] = (
             updated_merkle.get("vault_key_ref")
             or vault_key_ref
-            or "${CCL_VAULT_MERKLE_KEY}"
+            or "${CCL_VAULT_MERKLE_SIGNING_KEY_REF}"
         )
         updated_merkle["vault_public_key_ref"] = (
             updated_merkle.get("vault_public_key_ref")
             or vault_public_key_ref
-            or "${CCL_VAULT_MERKLE_PUB}"
+            or "${CCL_VAULT_MERKLE_PUBLIC_KEY_REF}"
         )
         updated_merkle.pop("private_key_path", None)
 
@@ -831,7 +831,7 @@ def _normalize_workspace_merkle_hardcut_config(workspace_path: Path) -> None:
 def _validate_env_config(config: dict) -> list[str]:
     """Validate that all required PostgreSQL env vars are properly set.
     
-    Required: CCL_DB_NAME, CCL_DB_USER, CCL_DB_PASS,
+    Required: CCL_DB_NAME, CCL_DB_USER, CCL_DB_PASSWORD,
     CCL_DB_PORT (valid range).
     Optional: CCL_DB_HOST (defaults to 'localhost' which is fine).
     
@@ -844,7 +844,7 @@ def _validate_env_config(config: dict) -> list[str]:
     if not config.get("username"):
         issues.append("CCL_DB_USER is missing or empty")
     if not config.get("password"):
-        issues.append("CCL_DB_PASS is missing or empty — required for PostgreSQL")
+        issues.append("CCL_DB_PASSWORD is missing or empty — required for PostgreSQL")
     port = config.get("port")
     if not isinstance(port, int) or port < 1 or port > 65535:
         issues.append(f"CCL_DB_PORT has invalid value: {port}")
@@ -1054,7 +1054,7 @@ def _step_database(wizard: Wizard) -> Any:
             console.print(f"  [{Colors.DIM}]  CCL_DB_PORT=5432[/]")
             console.print(f"  [{Colors.DIM}]  CCL_DB_NAME=caracal[/]")
             console.print(f"  [{Colors.DIM}]  CCL_DB_USER=caracal[/]")
-            console.print(f"  [{Colors.DIM}]  CCL_DB_PASS=<your_password>[/]")
+            console.print(f"  [{Colors.DIM}]  CCL_DB_PASSWORD=<your_password>[/]")
             console.print()
             
             fix_choice = prompt.select(
@@ -1819,7 +1819,7 @@ def run_onboarding(
                     console.print(f"    [{Colors.DIM}]sudo systemctl start postgresql[/]")
                 elif "password" in err_str or "authentication" in err_str:
                     console.print(f"  [{Colors.INFO}]Authentication failed. Check your .env credentials:[/]")
-                    console.print(f"    [{Colors.DIM}]CCL_DB_USER, CCL_DB_PASS in .env[/]")
+                    console.print(f"    [{Colors.DIM}]CCL_DB_USER, CCL_DB_PASSWORD in .env[/]")
                 elif "does not exist" in err_str:
                     console.print(f"  [{Colors.INFO}]Database or role missing. Create them with:[/]")
                     console.print(f"    [{Colors.DIM}]createdb caracal && createuser caracal[/]")

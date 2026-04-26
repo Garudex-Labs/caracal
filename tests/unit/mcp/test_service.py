@@ -756,6 +756,45 @@ class TestMCPAdapterService:
         assert "server-controlled security fields" in response.json()["detail"].lower()
         self.mock_mcp_adapter.intercept_resource_read.assert_not_called()
 
+    def test_resource_read_endpoint_rejects_spoofed_mcp_server_selector_metadata(self):
+        from fastapi.testclient import TestClient
+
+        client = TestClient(self.service.app)
+
+        response = client.post(
+            "/mcp/resource/read",
+            json={
+                "resource_uri": "file://test.txt",
+                "metadata": {
+                    "mcp_server_name": "other-server",
+                },
+            },
+            headers={"Authorization": "Bearer test-token"},
+        )
+
+        assert response.status_code == 400
+        detail = response.json()["detail"].lower()
+        assert "server-controlled security fields" in detail
+        assert "mcp_server_name" in detail
+        self.mock_mcp_adapter.intercept_resource_read.assert_not_called()
+
+    def test_resource_read_endpoint_missing_authorization_header(self):
+        from fastapi.testclient import TestClient
+
+        client = TestClient(self.service.app)
+
+        response = client.post(
+            "/mcp/resource/read",
+            json={
+                "resource_uri": "file://test.txt",
+                "metadata": {},
+            },
+        )
+
+        assert response.status_code == 401
+        assert "authorization" in response.json()["detail"].lower()
+        self.mock_mcp_adapter.intercept_resource_read.assert_not_called()
+
     @pytest.mark.asyncio
     async def test_resource_read_endpoint_overwrites_trusted_security_metadata_from_claims(self):
         from fastapi.testclient import TestClient
@@ -1048,6 +1087,51 @@ class TestMCPAdapterService:
         assert "workspace selector mismatch" in response.json()["detail"].lower()
         self.mock_mcp_adapter.intercept_tool_call.assert_not_called()
 
+    def test_tool_call_endpoint_rejects_conflicting_workspace_metadata_aliases(self):
+        from fastapi.testclient import TestClient
+
+        client = TestClient(self.service.app)
+
+        response = client.post(
+            "/mcp/tool/call",
+            json={
+                "tool_id": "test_tool",
+                "tool_args": {},
+                "metadata": {
+                    "workspace": "workspace-a",
+                    "workspace_name": "workspace-b",
+                },
+            },
+            headers={"Authorization": "Bearer test-token"},
+        )
+
+        assert response.status_code == 400
+        assert "workspace selector mismatch" in response.json()["detail"].lower()
+        self.mock_mcp_adapter.intercept_tool_call.assert_not_called()
+
+    def test_tool_call_endpoint_rejects_conflicting_workspace_headers(self):
+        from fastapi.testclient import TestClient
+
+        client = TestClient(self.service.app)
+
+        response = client.post(
+            "/mcp/tool/call",
+            json={
+                "tool_id": "test_tool",
+                "tool_args": {},
+                "metadata": {},
+            },
+            headers={
+                "Authorization": "Bearer test-token",
+                "X-Caracal-Workspace-ID": "workspace-a",
+                "X-Caracal-Workspace-Name": "workspace-b",
+            },
+        )
+
+        assert response.status_code == 400
+        assert "workspace selector mismatch" in response.json()["detail"].lower()
+        self.mock_mcp_adapter.intercept_tool_call.assert_not_called()
+
     def test_tool_call_endpoint_rejects_spoofed_security_metadata(self):
         from fastapi.testclient import TestClient
 
@@ -1273,4 +1357,3 @@ class TestMCPAdapterService:
 
         assert response.status_code == 400
         assert "inactive" in response.json()["detail"].lower()
-

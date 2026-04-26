@@ -137,7 +137,7 @@ class DatabaseConfig:
     """PostgreSQL database configuration.
 
     PostgreSQL is the only supported backend.  Values may be overridden
-    via ``CARACAL_DB_*`` environment variables (handled in
+    via ``CCL_DB_*`` environment variables (handled in
     ``caracal.db.connection``).
     """
 
@@ -387,8 +387,8 @@ def get_default_config() -> CaracalConfig:
     cfg.compatibility.enable_redis = True
     cfg.compatibility.enable_merkle = True
     cfg.merkle.signing_backend = "vault"
-    cfg.merkle.vault_key_ref = os.environ.get("CCL_VAULT_MERKLE_KEY", "")
-    cfg.merkle.vault_public_key_ref = os.environ.get("CCL_VAULT_MERKLE_PUB", "")
+    cfg.merkle.vault_key_ref = os.environ.get("CCL_VAULT_MERKLE_SIGNING_KEY_REF", "")
+    cfg.merkle.vault_public_key_ref = os.environ.get("CCL_VAULT_MERKLE_PUBLIC_KEY_REF", "")
     return cfg
 
 
@@ -808,8 +808,8 @@ def _attempt_legacy_workspace_config_repair(config_path: str) -> bool:
             "merkle": {
                 "signing_backend": "vault",
                 "signing_algorithm": "ES256",
-                "vault_key_ref": os.environ.get("CCL_VAULT_MERKLE_KEY", ""),
-                "vault_public_key_ref": os.environ.get("CCL_VAULT_MERKLE_PUB", ""),
+                "vault_key_ref": os.environ.get("CCL_VAULT_MERKLE_SIGNING_KEY_REF", ""),
+                "vault_public_key_ref": os.environ.get("CCL_VAULT_MERKLE_PUBLIC_KEY_REF", ""),
             },
         }
 
@@ -845,15 +845,11 @@ def _normalize_hardcut_merkle_config_data(
         changed = True
 
     if not normalized_merkle.get("vault_key_ref"):
-        normalized_merkle["vault_key_ref"] = os.environ.get(
-            "CCL_VAULT_MERKLE_KEY", ""
-        )
+        normalized_merkle["vault_key_ref"] = os.environ.get("CCL_VAULT_MERKLE_SIGNING_KEY_REF", "")
         changed = True
 
     if not normalized_merkle.get("vault_public_key_ref"):
-        normalized_merkle["vault_public_key_ref"] = os.environ.get(
-            "CCL_VAULT_MERKLE_PUB", ""
-        )
+        normalized_merkle["vault_public_key_ref"] = os.environ.get("CCL_VAULT_MERKLE_PUBLIC_KEY_REF", "")
         changed = True
 
     if "private_key_path" in normalized_merkle:

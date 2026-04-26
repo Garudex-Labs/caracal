@@ -56,7 +56,7 @@ def _resolve_database_url(explicit_url: str | None) -> tuple[str | None, str]:
 
     env_order = (
         "DATABASE_URL",
-        "CARACAL_DATABASE_URL",
+        "CCL_DB_URL",
     )
     for key in env_order:
         value = (os.getenv(key) or "").strip()
@@ -173,7 +173,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument(
         "--database-url",
         default=None,
-        help="PostgreSQL URL. Defaults to DATABASE_URL or CARACAL_DATABASE_URL.",
+        help="PostgreSQL URL. Defaults to DATABASE_URL or CCL_DB_URL.",
     )
     parser.add_argument(
         "--table",
@@ -228,7 +228,7 @@ def main(argv: list[str]) -> int:
     if not db_url:
         report["database"]["error"] = "No PostgreSQL URL provided."
         if not args.allow_missing_db:
-            print("No PostgreSQL URL found. Set DATABASE_URL/CARACAL_DATABASE_URL or pass --database-url.", file=sys.stderr)
+            print("No PostgreSQL URL found. Set DATABASE_URL/CCL_DB_URL or pass --database-url.", file=sys.stderr)
             return 2
     else:
         try:

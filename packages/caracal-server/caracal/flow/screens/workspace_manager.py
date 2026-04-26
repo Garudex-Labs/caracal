@@ -160,7 +160,7 @@ def _create_workspace(console: Console, state: FlowState) -> None:
         port_raw = os.getenv("CCL_DB_PORT") or "5432"
         database = os.getenv("CCL_DB_NAME") or "caracal"
         user = os.getenv("CCL_DB_USER") or "caracal"
-        password = os.getenv("CCL_DB_PASS") or ("caracal" if running_in_container else "")
+        password = os.getenv("CCL_DB_PASSWORD") or ("caracal" if running_in_container else "")
 
         try:
             port = int(port_raw)

@@ -13,7 +13,7 @@ from caracal.cli.main import cli, get_active_workspace, format_workspace_status
 @pytest.fixture(autouse=True)
 def _writable_caracal_home(tmp_path, monkeypatch):
     """Ensure CLI tests run with writable runtime state roots."""
-    monkeypatch.setenv("CARACAL_HOME", str(tmp_path / ".caracal"))
+    monkeypatch.setenv("CCL_HOME", str(tmp_path / ".caracal"))
 
 
 def _invoke_cli(runner: CliRunner, args: list[str]):

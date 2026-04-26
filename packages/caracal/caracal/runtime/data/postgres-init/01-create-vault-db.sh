@@ -7,7 +7,7 @@
 
 set -e
 
-VAULT_DB="${CARACAL_VAULT_DB_NAME:-caracal_vault}"
+VAULT_DB="${CCL_VAULT_DB_NAME:-caracal_vault}"
 
 psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<-EOSQL
     CREATE DATABASE "${VAULT_DB}";

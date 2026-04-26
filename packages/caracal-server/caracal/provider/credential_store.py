@@ -26,11 +26,7 @@ def _resolve_vault_environment(env_id: str, vault_client: CaracalVault) -> str:
         configured_env = str(getattr(config, "default_environment", "") or "").strip()
 
     if not configured_env:
-        configured_env = str(
-            os.environ.get("CCL_VAULT_ENV")
-            or os.environ.get("CCL_VAULT_ENV")
-            or ""
-        ).strip()
+        configured_env = str(os.environ.get("CCL_VAULT_ENVIRONMENT") or "").strip()
 
     if not configured_env:
         return normalized_env_id

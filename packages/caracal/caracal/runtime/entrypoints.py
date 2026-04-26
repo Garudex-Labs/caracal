@@ -30,37 +30,37 @@ from typing import Any, Callable, Sequence
 from caracal.runtime.hardcut_preflight import assert_runtime_hardcut
 from caracal.runtime.host_io import in_container_runtime, resolve_caracal_home
 
-IN_CONTAINER_ENV = "CCL_IN_CONTAINER"
+IN_CONTAINER_ENV = "CCL_RUNTIME_IN_CONTAINER"
 HOST_IO_DIR_ENV = "CCL_HOST_IO_DIR"
 HOST_IO_ROOT_ENV = "CCL_HOST_IO_ROOT"
 HOST_IO_ROOT_IN_CONTAINER = "/caracal-host-io"
 NETWORK_IN_USE_MARKER = "Resource is still in use"
 PURGE_CONFIRMATION_TEXT = "purge"
 
-AIS_STARTUP_NONCE_ENV = "CCL_AIS_NONCE"
-AIS_STARTUP_PRINCIPAL_ENV = "CCL_AIS_ATTEST_PID"
-AIS_API_PREFIX_ENV = "CCL_AIS_PREFIX"
-AIS_UNIX_SOCKET_PATH_ENV = "CCL_AIS_SOCKET"
-AIS_LISTEN_HOST_ENV = "CCL_AIS_HOST"
-AIS_LISTEN_PORT_ENV = "CCL_AIS_PORT"
-AIS_HEALTHCHECK_TIMEOUT_ENV = "CCL_AIS_HC_TIMEOUT"
-AIS_HEALTHCHECK_INTERVAL_ENV = "CCL_AIS_HC_INTERVAL"
-AIS_STARTUP_TIMEOUT_ENV = "CCL_AIS_START_TTL"
+AIS_STARTUP_NONCE_ENV = "CCL_AIS_ATTESTATION_NONCE"
+AIS_STARTUP_PRINCIPAL_ENV = "CCL_AIS_ATTESTATION_PRINCIPAL_ID"
+AIS_API_PREFIX_ENV = "CCL_AIS_API_PREFIX"
+AIS_UNIX_SOCKET_PATH_ENV = "CCL_AIS_UNIX_SOCKET_PATH"
+AIS_LISTEN_HOST_ENV = "CCL_AIS_LISTEN_HOST"
+AIS_LISTEN_PORT_ENV = "CCL_AIS_LISTEN_PORT"
+AIS_HEALTHCHECK_TIMEOUT_ENV = "CCL_AIS_HEALTHCHECK_TIMEOUT_SECONDS"
+AIS_HEALTHCHECK_INTERVAL_ENV = "CCL_AIS_HEALTHCHECK_INTERVAL_SECONDS"
+AIS_STARTUP_TIMEOUT_ENV = "CCL_AIS_STARTUP_TIMEOUT_SECONDS"
 AIS_MAX_RESTARTS_ENV = "CCL_AIS_MAX_RESTARTS"
 AIS_DEFAULT_API_PREFIX = "/v1/ais"
 AIS_DEFAULT_UNIX_SOCKET_PATH = "/tmp/caracal-ais.sock"
 AIS_DEFAULT_LISTEN_HOST = "127.0.0.1"
 AIS_DEFAULT_LISTEN_PORT = 7079
-AIS_SESSION_SIGNING_KEY_REF_ENV = "CCL_VAULT_SIGN_KEY"
-AIS_SESSION_VERIFY_KEY_REF_ENV = "CCL_VAULT_SESS_KEY"
-AIS_SESSION_ALGORITHM_ENV = "CCL_SESSION_ALG"
+AIS_SESSION_SIGNING_KEY_REF_ENV = "CCL_VAULT_SIGNING_KEY_REF"
+AIS_SESSION_VERIFY_KEY_REF_ENV = "CCL_VAULT_SESSION_PUBLIC_KEY_REF"
+AIS_SESSION_ALGORITHM_ENV = "CCL_SESSION_SIGNING_ALGORITHM"
 AIS_SESSION_CAVEAT_MODE_ENV = "CCL_SESSION_CAVEAT"
 AIS_SESSION_CAVEAT_HMAC_KEY_ENV = "CCL_SESSION_HMAC"
 AIS_REVOCATION_EVENTS_CHANNEL_ENV = "CCL_REVOKE_CHANNEL"
 AIS_DEFAULT_REVOCATION_EVENTS_CHANNEL = "caracal:identity:revocation_events"
 AIS_REVOCATION_PUBLISHER_MODE_ENV = "CCL_REVOKE_PUB_MODE"
-AIS_ENTERPRISE_REVOCATION_WEBHOOK_URL_ENV = "CCLE_REVOKE_WH_URL"
-AIS_ENTERPRISE_REVOCATION_SYNC_API_KEY_ENV = "CCLE_SYNC_KEY"
+AIS_ENTERPRISE_REVOCATION_WEBHOOK_URL_ENV = "CCLE_REVOCATION_WEBHOOK_URL"
+AIS_ENTERPRISE_REVOCATION_SYNC_API_KEY_ENV = "CCLE_REVOCATION_SYNC_API_KEY"
 AIS_DEFAULT_ENTERPRISE_REVOCATION_WEBHOOK_PATH = "/api/sync/revocation-events"
 
 def caracal_entrypoint() -> None:
@@ -302,7 +302,7 @@ def _host_up(namespace: argparse.Namespace) -> int:
             )
             if mcp_pull.returncode != 0:
                 runtime_image = os.environ.get(
-                    "CCL_RUNTIME_IMG", "ghcr.io/garudex-labs/caracal-runtime:latest"
+                    "CCL_RUNTIME_IMAGE", "ghcr.io/garudex-labs/caracal-runtime:latest"
                 )
                 has_local = subprocess.run(
                     ["docker", "images", "-q", runtime_image], capture_output=True, text=True
@@ -445,7 +445,7 @@ def _finalize_teardown_result(returncode: int, network_in_use: bool) -> int:
     if not network_in_use:
         return returncode
 
-    network_name = os.environ.get("CCL_RUNTIME_NET", "caracal-runtime")
+    network_name = os.environ.get("CCL_RUNTIME_NETWORK", "caracal-runtime")
     removed_blockers, remaining_blockers, network_removed = _reconcile_shared_runtime_network(network_name)
 
     if removed_blockers:
@@ -809,7 +809,7 @@ def _compose_runtime_image_refs(compose_file: Path) -> set[str]:
     except OSError:
         return set()
 
-    caracal_var_pattern = re.compile(r"^\$\{(CARACAL_[A-Z0-9_]+):-([^}]*)\}$", re.IGNORECASE)
+    caracal_var_pattern = re.compile(r"^\$\{(CCL_[A-Z0-9_]+):-([^}]*)\}$", re.IGNORECASE)
 
     image_refs: set[str] = set()
     for line in data.splitlines():
@@ -1084,13 +1084,13 @@ def _host_migrate(namespace: argparse.Namespace) -> int:
         print("Error: failed to start postgres before running migrations", file=sys.stderr)
         return infra_up.returncode
     env = dict(os.environ)
-    env["CCL_MIGRATE_DIR"] = direction
+    env["CCL_MIGRATE_DIRECTION"] = direction
     run_cmd = compose_cmd + [
         "--profile", "migrate",
         "run",
         "--rm",
         "--no-deps",
-        "-e", f"CCL_MIGRATE_DIR={direction}",
+        "-e", f"CCL_MIGRATE_DIRECTION={direction}",
         "migrator",
     ]
     if namespace.revision:
@@ -1382,10 +1382,10 @@ def _compose_cmd(compose_file: Path) -> list[str]:
 
     # Ensure the postgres init scripts are resolvable via an absolute path so
     # docker compose can mount them regardless of the working directory.
-    if not os.environ.get("CCL_PG_INIT_DIR"):
+    if not os.environ.get("CCL_POSTGRES_INIT_DIR"):
         pg_init_dir = compose_file.parent / "postgres-init"
         if pg_init_dir.exists():
-            os.environ["CCL_PG_INIT_DIR"] = str(pg_init_dir)
+            os.environ["CCL_POSTGRES_INIT_DIR"] = str(pg_init_dir)
 
     compose_cmd = _resolve_compose_command()
     runtime_env_file = compose_file.parent / ".env"
@@ -1657,17 +1657,8 @@ def _resolve_ais_vault_secret(secret_ref: str) -> str:
 def _resolve_ais_vault_context() -> tuple[str, str]:
     from caracal.core.vault import get_vault
 
-    configured_workspace = (
-        os.environ.get("CCL_VAULT_WS_ID")
-        or os.environ.get("CCL_VAULT_PROJ")
-        or ""
-    ).strip()
-    configured_env = (
-        os.environ.get("CCL_VAULT_ENV")
-        or os.environ.get("CCL_VAULT_ENV")
-        or os.environ.get("CCL_VAULT_ENV_ID")
-        or ""
-    ).strip()
+    configured_workspace = (os.environ.get("CCL_VAULT_WORKSPACE_ID") or "").strip()
+    configured_env = (os.environ.get("CCL_VAULT_ENVIRONMENT") or "").strip()
 
     default_workspace = ""
     default_env = ""
@@ -2104,8 +2095,7 @@ def _build_ais_handlers(
 
     def _resolve_local_bootstrap_principal_id() -> str:
         for env_key in (
-            "CCL_AIS_PID",
-            "CCL_PRINCIPAL_ID",
+            "CCL_AIS_PRINCIPAL_ID",
             AIS_STARTUP_PRINCIPAL_ENV,
         ):
             candidate = _normalize_principal_id(os.environ.get(env_key))
@@ -2611,19 +2601,11 @@ def _runtime_database_url_candidates() -> dict[str, str | None]:
     return {
         "DB_URL": os.getenv("DB_URL"),
         "CCL_DB_URL": os.getenv("CCL_DB_URL"),
-        "CCL_DB_URL": os.getenv("CCL_DB_URL"),
     }
 
 
 def _runtime_hardcut_env() -> dict[str, str]:
-    normalized = dict(os.environ)
-    normalized.setdefault("CCL_KEY_BACKEND", "vault")
-    normalized.setdefault("CCL_VAULT_URL", "http://127.0.0.1:8080")
-    normalized.setdefault("CCL_VAULT_TOKEN", "dev-local-token")
-    normalized.setdefault("CCL_VAULT_SIGN_KEY", "keys/mandate-signing")
-    normalized.setdefault("CCL_VAULT_SESS_KEY", "keys/session-public")
-    normalized.setdefault("CCL_SESSION_ALG", "RS256")
-    return normalized
+    return dict(os.environ)
 
 
 def _in_container_runtime() -> bool:

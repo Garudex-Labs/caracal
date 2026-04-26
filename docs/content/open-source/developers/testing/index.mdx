@@ -4,7 +4,9 @@ description: Test-suite structure, markers, and practical testing strategy for C
 sidebar_label: Testing
 ---
 
-The test suite is broad in directory coverage even where some implementations remain thin.
+The test suite is broad in directory coverage, but implementation depth is
+uneven. Treat the tree as the current testing map, not proof that every
+subsystem has complete behavioral coverage.
 
 **Audience:** Developer
 
@@ -44,6 +46,17 @@ pytest -m security
 pytest --cov=caracal --cov-report=term-missing
 ```
 
+The GitHub Actions test workflow currently runs one Python 3.12 pytest job:
+
+```bash
+uv run pytest -n auto --cov=caracal --cov-report=term-missing --cov-report=xml --cov-report=html --junitxml=junit.xml
+```
+
+CI collects the whole pytest suite under `tests/` and publishes terminal, XML,
+HTML, Codecov, and JUnit outputs. It does not currently split unit,
+integration, security, and e2e tests into separate CI jobs, and it does not
+enforce a coverage percentage threshold.
+
 Infrastructure validation:
 
 ```bash
@@ -66,6 +79,10 @@ The suite is organized around repository subsystems, not just test types. There 
 - provider and Redis behavior
 
 This structure reflects the repository layout and should remain aligned with it.
+Coverage is strongest where concrete test files exist under unit/core,
+unit/cli, unit/db, unit/deployment, unit/runtime, unit/mcp, integration/core,
+integration/mcp, and a small set of e2e workflow tests. Some directories exist
+mainly to reserve the intended shape of the suite.
 
 ## Writing Strategy
 
@@ -84,7 +101,10 @@ Examples:
 ## Edge Cases And Constraints
 
 - Some e2e and broader coverage areas are still placeholders. Do not assume a directory implies complete behavioral coverage.
-- Coverage reporting in the repo is currently configured broadly, but coverage thresholds and actual implemented tests may not yet reflect the long-term target.
+- Some security fuzzing, abuse, and integration files still contain placeholder `pass` tests or smoke-level assertions.
+- SDK coverage is currently Python-focused; TypeScript SDK space exists as a placeholder.
+- Monitoring, storage, and several UI-oriented directories are structurally present but thin or empty.
+- Coverage reporting in the repo is configured broadly, but CI does not currently enforce the long-term 90% target.
 
 ## Related Concepts
 

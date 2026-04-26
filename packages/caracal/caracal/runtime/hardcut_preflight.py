@@ -40,18 +40,18 @@ _FORBIDDEN_RUNTIME_COMPOSE_MARKERS = (
 )
 _REQUIRED_RUNTIME_COMPOSE_MARKERS = (
     "  vault:",
-    "image: ${CCLE_VAULT_IMAGE:-infisical/infisical:latest}",
-    "CCL_KEY_BACKEND: ${CCL_KEY_BACKEND:-vault}",
-    "CCL_VAULT_URL: ${CCL_VAULT_URL:-http://vault:8080}",
-    "CCL_VAULT_TOKEN:",
-    "CCL_VAULT_ENV: ${CCL_VAULT_ENV:-dev}",
-    "CCL_VAULT_PATH: ${CCL_VAULT_PATH:-/}",
-    "CCL_VAULT_SIGN_KEY:",
-    "CCL_VAULT_SESS_KEY:",
-    "CCL_SESSION_ALG: ${CCL_SESSION_ALG:-rs256}",
+    "image: ${ccl_vault_sidecar_image",
+    "ccl_principal_key_backend: ${ccl_principal_key_backend:-vault}",
+    "ccl_vault_url: ${ccl_vault_url:-http://vault:8080}",
+    "ccl_vault_token:",
+    "ccl_vault_environment: ${ccl_vault_environment:-dev}",
+    "ccl_vault_secret_path: ${ccl_vault_secret_path:-/}",
+    "ccl_vault_signing_key_ref:",
+    "ccl_vault_session_public_key_ref:",
+    "ccl_session_signing_algorithm: ${ccl_session_signing_algorithm:-rs256}",
 )
 _FORBIDDEN_ENTERPRISE_COMPOSE_MARKERS = (
-    "CCL_SECRET_BACKEND",
+    "caracal_secret_backend",
     ":-null",
     "vault_addr",
     "vault_role_id",
@@ -62,17 +62,17 @@ _FORBIDDEN_ENTERPRISE_COMPOSE_MARKERS = (
 )
 _REQUIRED_ENTERPRISE_COMPOSE_MARKERS = (
     "  vault:",
-    "image: ${CCLE_VAULT_IMAGE:-infisical/infisical:latest}",
-    "${CCLE_VAULT_PORT:-8180}:8080",
-    "CCL_KEY_BACKEND=${CCL_KEY_BACKEND:-vault}",
-    "CCL_VAULT_URL=${CCL_VAULT_URL:-http://vault:8080}",
-    "CCL_VAULT_TOKEN=${CCL_VAULT_TOKEN:-enterprise-local-token}",
-    "CCL_VAULT_WS_ID=${CCL_VAULT_WS_ID:-caracal-enterprise-local}",
-    "CCL_VAULT_ENV=${CCL_VAULT_ENV:-enterprise-dev}",
-    "CCL_VAULT_PATH=${CCL_VAULT_PATH:-/enterprise}",
-    "CCL_VAULT_SIGN_KEY=${CCL_VAULT_SIGN_KEY:-keys/mandate-signing}",
-    "CCL_VAULT_SESS_KEY=${CCL_VAULT_SESS_KEY:-keys/session-public}",
-    "CCL_SESSION_ALG=${CCL_SESSION_ALG:-rs256}",
+    "image: ${ccl_vault_sidecar_image",
+    "${ccle_vault_port:-8180}:8080",
+    "ccl_principal_key_backend=${ccl_principal_key_backend:-vault}",
+    "ccl_vault_url=${ccl_vault_url:-http://vault:8080}",
+    "ccl_vault_token=${ccl_vault_token:-enterprise-local-token}",
+    "ccl_vault_workspace_id=${ccl_vault_workspace_id:-caracal-enterprise-local}",
+    "ccl_vault_environment=${ccl_vault_environment:-enterprise-dev}",
+    "ccl_vault_secret_path=${ccl_vault_secret_path:-/enterprise}",
+    "ccl_vault_signing_key_ref=${ccl_vault_signing_key_ref:-keys/mandate-signing}",
+    "ccl_vault_session_public_key_ref=${ccl_vault_session_public_key_ref:-keys/session-public}",
+    "ccl_session_signing_algorithm=${ccl_session_signing_algorithm:-rs256}",
     "vault:\n        condition: service_healthy",
 )
 _FORBIDDEN_STATE_RELATIVE_PATHS = (
@@ -87,21 +87,17 @@ _FORBIDDEN_COMPAT_ENV_VARS = (
     "CCL_HARDCUT_MODE",
     "CCL_DUAL_WRITE_ON",
     "CCL_DUAL_WRITE_WIN",
-    "CCLE_DEFAULT_URL",
-    "CCL_GW_ENDPOINT",
-    "CCL_GW_URL",
-    "CCL_SESSION_JWT_ALG",
 )
-_REQUIRED_SECRET_BACKEND_ENV = "CCL_KEY_BACKEND"
+_REQUIRED_SECRET_BACKEND_ENV = "CCL_PRINCIPAL_KEY_BACKEND"
 _ALLOWED_SECRET_BACKENDS = ("vault",)
 _REQUIRED_VAULT_ENV_VARS = (
     "CCL_VAULT_URL",
     "CCL_VAULT_TOKEN",
-    "CCL_VAULT_SIGN_KEY",
-    "CCL_VAULT_SESS_KEY",
+    "CCL_VAULT_SIGNING_KEY_REF",
+    "CCL_VAULT_SESSION_PUBLIC_KEY_REF",
 )
 _SESSION_SIGNING_ALGORITHM_ENV_VARS = (
-    "CCL_SESSION_ALG",
+    "CCL_SESSION_SIGNING_ALGORITHM",
 )
 _ALLOWED_SESSION_SIGNING_ALGORITHMS = ("RS256", "ES256")
 _VAULT_MODE_ENV = "CCL_VAULT_MODE"
@@ -111,13 +107,13 @@ _FORBIDDEN_CONFIG_MARKERS = (
     "workspaces.json",
     "sqlite://",
     "sqlite+",
-    "CCL_KEY_BACKEND=local",
-    "CCL_KEY_BACKEND=aws_kms",
-    "CCL_KEY_BACKEND = local",
-    "CCL_KEY_BACKEND = aws_kms",
-    "CCL_KEY_BACKEND: local",
-    "CCL_KEY_BACKEND: aws_kms",
-    "CCL_AWS_KMS_",
+    "caracal_principal_key_backend=local",
+    "caracal_principal_key_backend=aws_kms",
+    "principal_key_backend = local",
+    "principal_key_backend = aws_kms",
+    "principal_key_backend: local",
+    "principal_key_backend: aws_kms",
+    "caracal_aws_kms_",
     "aws_kms_key_id",
     "aws_region",
     "dual-write",
@@ -126,9 +122,9 @@ _FORBIDDEN_CONFIG_MARKERS = (
     "compatibility alias",
 )
 _GW_URL_ENV_KEYS = (
-    "CCLE_URL",
+    "CCLE_API_URL",
 )
-_GATEWAY_ENABLED_ENV_KEY = "CCL_GW_ENABLED"
+_GATEWAY_ENABLED_ENV_KEY = "CCLE_GATEWAY_ENABLED"
 
 
 def _default_models_file() -> Path:

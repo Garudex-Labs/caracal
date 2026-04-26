@@ -42,8 +42,8 @@ class ConfigEncryption:
         self.layout = layout or get_caracal_layout()
         self.actor = actor
         self.dek_name = dek_name
-        self.workspace_id = os.getenv("CCL_VAULT_WS_ID") or os.getenv("CCL_WS_ID") or "default"
-        self.env_id = os.getenv("CCL_VAULT_ENV") or os.getenv("CCL_ENV_ID") or "dev"
+        self.workspace_id = os.getenv("CCL_VAULT_WORKSPACE_ID") or "default"
+        self.env_id = os.getenv("CCL_VAULT_ENVIRONMENT") or "dev"
 
     def _get_vault(self):
         try:
@@ -155,8 +155,8 @@ def rotate_master_key(actor: str = "cli") -> RotationSummary:
     try:
         from caracal.core.vault import VaultError, get_vault, vault_access_context
 
-        workspace_id = os.getenv("CCL_VAULT_WS_ID") or os.getenv("CCL_WS_ID") or "default"
-        env_id = os.getenv("CCL_VAULT_ENV") or os.getenv("CCL_ENV_ID") or "dev"
+        workspace_id = os.getenv("CCL_VAULT_WORKSPACE_ID") or "default"
+        env_id = os.getenv("CCL_VAULT_ENVIRONMENT") or "dev"
         with vault_access_context():
             result = get_vault().rotate_master_key(workspace_id=workspace_id, env_id=env_id, actor=actor)
             rewrapped = result.secrets_rotated
@@ -178,8 +178,8 @@ def rotate_master_key(actor: str = "cli") -> RotationSummary:
 def get_key_status() -> dict[str, Any]:
     """Return current key status for CLI diagnostics."""
     vault_url = os.getenv("CCL_VAULT_URL")
-    workspace = os.getenv("CCL_VAULT_WS_ID") or os.getenv("CCL_WS_ID")
-    environment = os.getenv("CCL_VAULT_ENV") or os.getenv("CCL_ENV_ID")
+    workspace = os.getenv("CCL_VAULT_WORKSPACE_ID")
+    environment = os.getenv("CCL_VAULT_ENVIRONMENT")
     return {
         "backend": "vault",
         "vault_url": vault_url,

@@ -23,12 +23,12 @@ class TestDatabaseConfig:
     @pytest.fixture(autouse=True)
     def _isolate_db_env(self, monkeypatch):
         for env_name in (
-            "CARACAL_DB_HOST",
-            "CARACAL_DB_PORT",
-            "CARACAL_DB_NAME",
-            "CARACAL_DB_USER",
-            "CARACAL_DB_PASSWORD",
-            "CARACAL_DB_SCHEMA",
+            "CCL_DB_HOST",
+            "CCL_DB_PORT",
+            "CCL_DB_NAME",
+            "CCL_DB_USER",
+            "CCL_DB_PASSWORD",
+            "CCL_DB_SCHEMA",
         ):
             monkeypatch.delenv(env_name, raising=False)
 

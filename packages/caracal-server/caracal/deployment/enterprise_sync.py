@@ -119,7 +119,7 @@ class EnterpriseSyncClient:
                 success=False,
                 message=(
                     "Enterprise sync URL is not configured. "
-                    "Set CCLE_URL (or CCLE_DEV_URL in dev mode)."
+                    "Set CCLE_API_URL."
                 ),
             )
 
