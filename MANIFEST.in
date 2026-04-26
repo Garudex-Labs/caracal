@@ -3,6 +3,6 @@ include LICENSE
 include VERSION
 include pyproject.toml
 include setup.py
-recursive-include caracal *.py
+recursive-include packages *
 recursive-exclude * __pycache__
 recursive-exclude * *.py[co]
