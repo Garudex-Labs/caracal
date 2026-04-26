@@ -1,22 +1,63 @@
 ---
 title: SDK API Surface
-description: API surface map for the open-source SDKs.
+description: API surface for the open-source SDKs.
 sidebar_label: API Surface
 ---
 
-import DocPlaceholder from "@site/src/components/DocPlaceholder";
+This page summarizes the public SDK exports that are present in the checked-in Python and Node.js SDKs.
 
-<DocPlaceholder
-  summary="Use this page for the primary client APIs, shared models, transport surfaces, and compatibility notes across the open-source SDKs."
-  audience="Open-source SDK users and integrators."
-  plannedSections={[
-    "Primary client classes and methods",
-    "Shared models and response types",
-    "Transport and adapter surfaces",
-    "Compatibility notes",
-  ]}
-  related={[
-    { label: "Usage", to: "/open-source/sdk/usage" },
-    { label: "Advanced", to: "/open-source/sdk/advanced" },
-  ]}
-/>
+**Audience:** Open-source SDK users and integrators
+
+## Primary Exports
+
+| Concept | Python export | Node.js / TypeScript export |
+| --- | --- | --- |
+| Client | `CaracalClient` | `CaracalClient` |
+| Builder | `CaracalBuilder` | `CaracalBuilder` |
+| Configuration error | `SDKConfigurationError` | `SDKConfigurationError` |
+| Context manager | `ContextManager` | `ContextManager` |
+| Scoped context | `ScopeContext` | `ScopeContext` |
+| Tool operations | `ToolOperations` | `ToolOperations` |
+| Hooks | `HookRegistry` | `HookRegistry` |
+| Extensions | `CaracalExtension` | `CaracalExtension` |
+| Base adapter | `BaseAdapter` | `BaseAdapter` |
+| HTTP adapter | `HttpAdapter` | `HttpAdapter` |
+| WebSocket adapter | `WebSocketAdapter` | `WebSocketAdapter` |
+| Mock adapter | `MockAdapter` | `MockAdapter` |
+| AIS helpers | `ais` | `ais` |
+
+The Python SDK also exports gateway adapter helpers: `GatewayAdapter`, `GatewayAdapterError`, and `build_gateway_adapter`.
+
+## Client Surface
+
+`CaracalClient` accepts:
+
+- `api_key` / `apiKey`
+- `base_url` / `baseUrl`
+- `adapter`
+
+The client exposes:
+
+- `context` for checking out scoped contexts
+- `tools` for default-scope tool operations
+- `use(...)` for extension registration
+- `close()` for adapter cleanup
+
+## Tool Call Contract
+
+The canonical SDK-to-MCP tool-call contract version is `v1`.
+
+Tool calls send:
+
+- `tool_id`
+- `tool_args`
+- `metadata`
+
+The SDK maps that payload to `POST /mcp/tool/call`.
+
+Metadata is restricted to correlation keys. The SDK rejects caller-provided identity, mandate, policy, task token, and caveat fields.
+
+## Related Pages
+
+- [Usage](/open-source/sdk/usage)
+- [Advanced](/open-source/sdk/advanced)

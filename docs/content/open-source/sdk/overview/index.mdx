@@ -4,19 +4,49 @@ description: Overview of the open-source SDK documentation lane.
 sidebar_label: Overview
 ---
 
-import DocPlaceholder from "@site/src/components/DocPlaceholder";
+Caracal provides open-source SDKs for applications that need to call the runtime MCP tool endpoint without shelling out to the CLI or driving the Flow TUI.
 
-<DocPlaceholder
-  summary="Use this page to orient to the open-source SDK surface, supported client libraries, and the main topics covered in this section."
-  audience="Open-source SDK users and integrators."
-  plannedSections={[
-    "SDK scope and supported client libraries",
-    "How the SDK relates to the runtime and public APIs",
-    "When to use SDKs instead of the CLI or TUI",
-    "Versioning and compatibility expectations",
-  ]}
-  related={[
-    { label: "Installation", to: "/open-source/sdk/installation" },
-    { label: "Open Source Overview", to: "/open-source/overview" },
-  ]}
-/>
+**Audience:** Open-source SDK users and integrators
+
+**Context:** Use this section when an application or integration needs a stable client surface for runtime tool calls.
+
+## Supported SDKs
+
+The repository contains two canonical SDK implementations under `sdk/`:
+
+| Language | Package | Source |
+| --- | --- | --- |
+| Python | `caracal-sdk` | `sdk/python-sdk` |
+| Node.js / TypeScript | `@caracal/core` | `sdk/node-sdk` |
+
+Both SDKs expose the same primary concepts:
+
+- `CaracalClient` for normal client initialization
+- `CaracalBuilder` for advanced initialization
+- scoped contexts through `client.context.checkout(...)`
+- tool calls through `client.tools.call(...)` or `ctx.tools.call(...)`
+- HTTP, WebSocket, mock, and base adapter surfaces
+- hooks and extension registration
+
+## Runtime Endpoint Selection
+
+For predictable behavior, set the runtime endpoint explicitly:
+
+```bash
+export CCL_API_URL=http://localhost:8000
+```
+
+The default runtime compose configuration publishes the MCP service on host port `${CCL_API_PORT:-8000}` and service port `8080`. You can also pass an explicit base URL when constructing a client.
+
+## What The SDK Owns
+
+The open-source SDK surface is intentionally narrow. It owns client setup, transport adapters, scope headers, hooks, extension plumbing, and runtime tool-call requests.
+
+The SDK does not own control-plane administration APIs for principals, mandates, delegation, policies, or ledger CRUD. Those operations remain runtime and CLI responsibilities.
+
+## Related Pages
+
+- [Installation](/open-source/sdk/installation)
+- [Usage](/open-source/sdk/usage)
+- [API Surface](/open-source/sdk/api-surface)
+- [Examples](/open-source/sdk/examples)

@@ -16,8 +16,17 @@ Caracal is container-first. The local installation gives you a host command that
 
 That means installation has two parts:
 
-- install the Python package or source checkout that provides the host `caracal` command
+- install `caracal-core`, or use a source checkout, to get the host `caracal` command
 - make sure Docker with Compose support is available on the host
+
+Package names are intentionally split by role:
+
+| Package | Use it for |
+| --- | --- |
+| `caracal-core` | Host-side Python runtime orchestrator. This is the package that provides the `caracal` command. |
+| `caracal-server` | Python runtime server modules installed inside the runtime container image. End users normally do not install this directly on the host. |
+| `caracal-sdk` | Standalone Python SDK for applications that call a running Caracal runtime. It does not provide the host `caracal` command. |
+| `@caracal/core` | Node.js / TypeScript SDK for applications that call a running Caracal runtime. It is unrelated to the Python `caracal-core` package despite the similar name. |
 
 ## Prerequisites
 
