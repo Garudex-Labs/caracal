@@ -31,6 +31,15 @@ jobs:
       - name: Install dependencies
         run: uv sync --group dev
 
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install Node SDK dependencies
+        working-directory: sdk/node-sdk
+        run: npm install --package-lock=false --no-audit --no-fund
+
       - name: Run tests
         run: >-
           uv run pytest
@@ -67,3 +76,95 @@ jobs:
         with:
           name: junit-results
           path: junit.xml
+
+  package-build:
+    name: Package builds
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Setup Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Build Python packages
+        run: uv build --all-packages
+
+  node-sdk:
+    name: Node SDK
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: sdk/node-sdk
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install dependencies
+        run: npm install --package-lock=false --no-audit --no-fund
+
+      - name: Typecheck
+        run: npm run lint
+
+      - name: Run tests
+        run: npm test
+
+      - name: Build package
+        run: npm run build
+
+      - name: Validate package contents
+        run: npm pack --dry-run
+
+  docs:
+    name: Docs
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: docs
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: pnpm
+          cache-dependency-path: docs/pnpm-lock.yaml
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Test announcement banner
+        run: pnpm run test:announcement
+
+      - name: Typecheck docs
+        run: pnpm run typecheck
+
+      - name: Check docs dependency graph
+        run: pnpm run knip
+
+      - name: Build docs
+        run: pnpm run build
