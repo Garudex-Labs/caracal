@@ -67,22 +67,22 @@ class TestLogEditionChange:
 class TestLogWorkspaceOperation:
     def test_success_calls_info(self):
         lg = _logger()
-        log_workspace_operation(lg, "create", "my_ws", success=True, duration_ms=50.0)
+        log_workspace_operation(lg, "create", "my_workspace", success=True, duration_ms=50.0)
         lg.info.assert_called_once()
         call_kwargs = lg.info.call_args[1]
-        assert call_kwargs["workspace"] == "my_ws"
+        assert call_kwargs["workspace"] == "my_workspace"
         assert call_kwargs["duration_ms"] == 50.0
 
     def test_failure_calls_error(self):
         lg = _logger()
-        log_workspace_operation(lg, "delete", "my_ws", success=False, error="permission denied")
+        log_workspace_operation(lg, "delete", "my_workspace", success=False, error="permission denied")
         lg.error.assert_called_once()
         call_kwargs = lg.error.call_args[1]
         assert call_kwargs["error"] == "permission denied"
 
     def test_no_duration_excluded(self):
         lg = _logger()
-        log_workspace_operation(lg, "create", "ws", success=True)
+        log_workspace_operation(lg, "create", "workspace", success=True)
         call_kwargs = lg.info.call_args[1]
         assert "duration_ms" not in call_kwargs
 
@@ -91,7 +91,7 @@ class TestLogWorkspaceOperation:
 class TestLogSyncOperation:
     def test_success_calls_info(self):
         lg = _logger()
-        log_sync_operation(lg, "ws1", "push", success=True, uploaded=5)
+        log_sync_operation(lg, "workspace1", "push", success=True, uploaded=5)
         lg.info.assert_called_once()
         call_kwargs = lg.info.call_args[1]
         assert call_kwargs["uploaded"] == 5
@@ -99,7 +99,7 @@ class TestLogSyncOperation:
 
     def test_failure_calls_error(self):
         lg = _logger()
-        log_sync_operation(lg, "ws1", "pull", success=False, error="timeout")
+        log_sync_operation(lg, "workspace1", "pull", success=False, error="timeout")
         lg.error.assert_called_once()
         call_kwargs = lg.error.call_args[1]
         assert call_kwargs["error"] == "timeout"

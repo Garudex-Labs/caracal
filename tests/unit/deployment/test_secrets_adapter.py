@@ -27,7 +27,7 @@ class TestSecretsAdapterError:
 
 class TestLocalCaracalVaultBackendParseRef:
     def _backend(self):
-        return _LocalCaracalVaultBackend(workspace_id="ws-1")
+        return _LocalCaracalVaultBackend(workspace_id="workspace-1")
 
     def test_parse_valid_ref(self):
         b = self._backend()
@@ -53,17 +53,17 @@ class TestLocalCaracalVaultBackendParseRef:
 
 class TestLocalBackendForTier:
     def test_returns_vault_backend(self):
-        b = _local_backend_for_tier("enterprise", "ws-1")
+        b = _local_backend_for_tier("enterprise", "workspace-1")
         assert isinstance(b, _LocalCaracalVaultBackend)
         assert b.name == "caracal_vault"
 
     def test_empty_tier_raises(self):
         with pytest.raises(SecretsAdapterError, match="Tier must not be empty"):
-            _local_backend_for_tier("", "ws-1")
+            _local_backend_for_tier("", "workspace-1")
 
     def test_whitespace_tier_raises(self):
         with pytest.raises(SecretsAdapterError):
-            _local_backend_for_tier("   ", "ws-1")
+            _local_backend_for_tier("   ", "workspace-1")
 
 
 class TestSecretsAdapterPure:
@@ -79,7 +79,7 @@ class TestSecretsAdapterPure:
         ):
             adapter = SecretsAdapter.__new__(SecretsAdapter)
             adapter._tier = "oss"
-            adapter._workspace_id = "ws-1"
+            adapter._workspace_id = "workspace-1"
             adapter._env_id = "default"
             adapter._backend = mock_backend
         return adapter, mock_backend
@@ -168,7 +168,7 @@ class TestSecretsAdapterCreatesVaultBackend:
         ) as mock_local:
             adapter = SecretsAdapter.__new__(SecretsAdapter)
             adapter._tier = "oss"
-            adapter._workspace_id = "ws-1"
+            adapter._workspace_id = "workspace-1"
             adapter._env_id = "default"
             adapter._backend = adapter._create_backend()
-        mock_local.assert_called_once_with("oss", "ws-1")
+        mock_local.assert_called_once_with("oss", "workspace-1")

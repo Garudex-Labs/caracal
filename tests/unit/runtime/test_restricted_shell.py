@@ -151,8 +151,8 @@ class TestParseRestrictedTokens:
         assert result.action == "clear"
 
     def test_normal_command_returned_as_args(self) -> None:
-        result = parse_restricted_tokens(["workspace", "create", "myws"])
-        assert result.args == ["workspace", "create", "myws"]
+        result = parse_restricted_tokens(["workspace", "create", "myworkspace"])
+        assert result.args == ["workspace", "create", "myworkspace"]
         assert not result.is_error
 
     def test_trailing_help_keyword_converted(self) -> None:

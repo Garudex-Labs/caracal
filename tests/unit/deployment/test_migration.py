@@ -70,11 +70,11 @@ def test_enterprise_to_oss_import_stores_local_secret_and_updates_custody(
     cfg = ConfigManager()
     cfg.create_workspace("alpha")
 
-    ws_cfg = cfg.get_workspace_config("alpha")
-    ws_cfg.metadata[MigrationManager.CREDENTIAL_CUSTODY_METADATA_KEY] = {
+    workspace_cfg = cfg.get_workspace_config("alpha")
+    workspace_cfg.metadata[MigrationManager.CREDENTIAL_CUSTODY_METADATA_KEY] = {
         "provider_api_key": {"location": "enterprise"}
     }
-    cfg.set_workspace_config("alpha", ws_cfg)
+    cfg.set_workspace_config("alpha", workspace_cfg)
 
     manager = MigrationManager()
     result = manager.migrate_credentials_enterprise_to_oss(
@@ -102,11 +102,11 @@ def test_enterprise_to_oss_import_can_apply_explicit_migration_contract(
     cfg = ConfigManager()
     cfg.create_workspace("alpha")
 
-    ws_cfg = cfg.get_workspace_config("alpha")
-    ws_cfg.metadata[MigrationManager.CREDENTIAL_CUSTODY_METADATA_KEY] = {
+    workspace_cfg = cfg.get_workspace_config("alpha")
+    workspace_cfg.metadata[MigrationManager.CREDENTIAL_CUSTODY_METADATA_KEY] = {
         "provider_api_key": {"location": "enterprise"}
     }
-    cfg.set_workspace_config("alpha", ws_cfg)
+    cfg.set_workspace_config("alpha", workspace_cfg)
 
     contract = {
         "version": MigrationManager.MIGRATION_CONTRACT_VERSION,
@@ -144,11 +144,11 @@ def test_enterprise_to_oss_can_deactivate_license(
     cfg = ConfigManager()
     cfg.create_workspace("alpha")
 
-    ws_cfg = cfg.get_workspace_config("alpha")
-    ws_cfg.metadata[MigrationManager.CREDENTIAL_CUSTODY_METADATA_KEY] = {
+    workspace_cfg = cfg.get_workspace_config("alpha")
+    workspace_cfg.metadata[MigrationManager.CREDENTIAL_CUSTODY_METADATA_KEY] = {
         "provider_api_key": {"location": "enterprise"}
     }
-    cfg.set_workspace_config("alpha", ws_cfg)
+    cfg.set_workspace_config("alpha", workspace_cfg)
 
     calls: list[str] = []
 

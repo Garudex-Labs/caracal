@@ -33,7 +33,7 @@ class SDKBridge:
         from caracal.flow.sdk_bridge import SDKBridge
 
         bridge = SDKBridge(api_key="sk_test_123")
-        ctx = bridge.checkout(workspace_id="ws_default")
+        ctx = bridge.checkout(workspace_id="workspace_default")
         result = await bridge.call_tool(
             tool_id="provider:demo:resource:jobs:action:run",
         )
@@ -70,7 +70,7 @@ class SDKBridge:
         self._scope = self._client.context.checkout(
             workspace_id=workspace_id,
         )
-        logger.info(f"TUI scope changed: ws={workspace_id}")
+        logger.info(f"TUI scope changed: workspace={workspace_id}")
         return self._scope
 
     @property

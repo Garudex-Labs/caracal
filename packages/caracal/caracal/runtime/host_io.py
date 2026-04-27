@@ -16,8 +16,8 @@ FALSY_ENV_VALUES = frozenset({"0", "false", "no", "off"})
 
 CCL_HOME_ENV = "CCL_HOME"
 CCL_HOME_COMPAT_ENVS: tuple[str, ...] = ()
-CCL_CONFIG_DIR_ENV = "CCL_CONFIG_DIR"
-CCL_CONFIG_DIR_COMPAT_ENVS: tuple[str, ...] = ()
+CCL_CFG_DIR_ENV = "CCL_CFG_DIR"
+CCL_CFG_DIR_COMPAT_ENVS: tuple[str, ...] = ()
 
 
 class StorageLayoutError(RuntimeError):
@@ -47,11 +47,11 @@ def resolve_caracal_home(require_explicit: bool = False) -> Path:
     """Resolve CCL_HOME root.
 
     Resolution order is deterministic:
-    1. CCL_CONFIG_DIR (demo/override alias)
+    1. CCL_CFG_DIR (demo/override alias)
     2. CCL_HOME
     3. ~/.caracal (only when require_explicit=False)
     """
-    config_dir_value = _env_value(CCL_CONFIG_DIR_ENV, *CCL_CONFIG_DIR_COMPAT_ENVS)
+    config_dir_value = _env_value(CCL_CFG_DIR_ENV, *CCL_CFG_DIR_COMPAT_ENVS)
     if config_dir_value:
         return Path(config_dir_value).expanduser().resolve(strict=False)
 

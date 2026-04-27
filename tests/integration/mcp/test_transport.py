@@ -63,7 +63,7 @@ async def test_sdk_tool_call_http_and_gateway_adapters_return_identical_shape(
     direct_scope = ScopeContext(
         adapter=HttpAdapter(base_url="http://direct.local"),
         hooks=HookRegistry(),
-        workspace_id="ws-123",
+        workspace_id="workspace-123",
     )
 
     gateway_scope = ScopeContext(
@@ -71,15 +71,15 @@ async def test_sdk_tool_call_http_and_gateway_adapters_return_identical_shape(
             feature_flags=GatewayFeatureFlags(
                 gateway_enabled=True,
                 gateway_endpoint="http://gateway.local",
-                gateway_api_key="gw-test-key",
+                gateway_api_key="gateway-test-key",
                 deployment_type="managed",
                 fail_closed=True,
             ),
             gateway_endpoint="http://gateway.local",
-            gateway_api_key="gw-test-key",
+            gateway_api_key="gateway-test-key",
         ),
         hooks=HookRegistry(),
-        workspace_id="ws-123",
+        workspace_id="workspace-123",
     )
 
     payload_kwargs = {

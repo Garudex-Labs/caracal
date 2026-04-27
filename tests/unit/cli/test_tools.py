@@ -93,7 +93,7 @@ def test_register_command_calls_adapter(monkeypatch: pytest.MonkeyPatch) -> None
     monkeypatch.setattr(
         tool_registry_cli,
         "load_workspace_provider_registry",
-        lambda _cm, _ws: {
+        lambda _cm, _workspace: {
             "endframe": {
                 "provider_definition": "endframe",
                 "definition": {

@@ -166,27 +166,27 @@ class TestCallableHandlerRef:
 class TestBindingContractKey:
     def test_full_key_returned(self):
         result = MCPAdapter._binding_contract_key(
-            workspace_name="ws",
+            workspace_name="workspace",
             provider_name="prov",
             resource_scope="r:scope",
             action_scope="a:scope",
             tool_type="direct_api",
         )
-        assert result == ("ws", "prov", "r:scope", "a:scope", "direct_api")
+        assert result == ("workspace", "prov", "r:scope", "a:scope", "direct_api")
 
     def test_missing_provider_returns_none(self):
         assert MCPAdapter._binding_contract_key(
-            workspace_name="ws", provider_name="", resource_scope="r", action_scope="a", tool_type="direct_api"
+            workspace_name="workspace", provider_name="", resource_scope="r", action_scope="a", tool_type="direct_api"
         ) is None
 
     def test_missing_resource_scope_returns_none(self):
         assert MCPAdapter._binding_contract_key(
-            workspace_name="ws", provider_name="p", resource_scope="", action_scope="a", tool_type="direct_api"
+            workspace_name="workspace", provider_name="p", resource_scope="", action_scope="a", tool_type="direct_api"
         ) is None
 
     def test_missing_action_scope_returns_none(self):
         assert MCPAdapter._binding_contract_key(
-            workspace_name="ws", provider_name="p", resource_scope="r", action_scope="", tool_type="direct_api"
+            workspace_name="workspace", provider_name="p", resource_scope="r", action_scope="", tool_type="direct_api"
         ) is None
 
     def test_none_workspace_defaults_to_default(self):

@@ -34,7 +34,7 @@ class _FakeGatewayHttpClient:
 @pytest.mark.unit
 @pytest.mark.asyncio
 async def test_authenticate_rejects_automation_when_ais_not_configured(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("CCL_SESSION_KIND", "automation")
+    monkeypatch.setenv("CCL_SESS_KIND", "automation")
     monkeypatch.delenv("CCL_AIS_BASE_URL", raising=False)
     monkeypatch.delenv("CCL_AIS_UNIX_SOCKET_PATH", raising=False)
 
@@ -54,7 +54,7 @@ async def test_authenticate_rejects_automation_when_ais_not_configured(monkeypat
 @pytest.mark.unit
 @pytest.mark.asyncio
 async def test_authenticate_rejects_interactive_when_ais_not_configured(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("CCL_SESSION_KIND", "interactive")
+    monkeypatch.setenv("CCL_SESS_KIND", "interactive")
     monkeypatch.delenv("CCL_AIS_BASE_URL", raising=False)
     monkeypatch.delenv("CCL_AIS_UNIX_SOCKET_PATH", raising=False)
 
@@ -73,9 +73,9 @@ async def test_authenticate_rejects_interactive_when_ais_not_configured(monkeypa
 
 @pytest.mark.unit
 def test_build_ais_token_payload_requires_identity_triplet(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("CCL_SESSION_KIND", "automation")
+    monkeypatch.setenv("CCL_SESS_KIND", "automation")
     monkeypatch.setenv("CCL_AIS_BASE_URL", "http://ais.local")
-    monkeypatch.delenv("CCL_AIS_PRINCIPAL_ID", raising=False)
+    monkeypatch.delenv("CCL_AIS_PID", raising=False)
     monkeypatch.delenv("CCL_WORKSPACE_ID", raising=False)
     monkeypatch.delenv("CCL_AIS_TENANT_ID", raising=False)
 
@@ -95,10 +95,10 @@ def test_parse_ais_expiration_falls_back_to_short_ttl() -> None:
 @pytest.mark.unit
 @pytest.mark.asyncio
 async def test_authenticate_via_ais_uses_http_endpoint_for_automation(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("CCL_SESSION_KIND", "automation")
+    monkeypatch.setenv("CCL_SESS_KIND", "automation")
     monkeypatch.setenv("CCL_AIS_BASE_URL", "http://ais.local")
     monkeypatch.delenv("CCL_AIS_UNIX_SOCKET_PATH", raising=False)
-    monkeypatch.setenv("CCL_AIS_PRINCIPAL_ID", "principal-1")
+    monkeypatch.setenv("CCL_AIS_PID", "principal-1")
     monkeypatch.setenv("CCL_WORKSPACE_ID", "org-1")
     monkeypatch.setenv("CCL_AIS_TENANT_ID", "tenant-1")
 
@@ -149,9 +149,9 @@ async def test_authenticate_via_ais_uses_http_endpoint_for_automation(monkeypatc
 @pytest.mark.unit
 @pytest.mark.asyncio
 async def test_authenticate_via_ais_sends_caller_token_header(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("CCL_SESSION_KIND", "automation")
+    monkeypatch.setenv("CCL_SESS_KIND", "automation")
     monkeypatch.setenv("CCL_AIS_BASE_URL", "http://ais.local")
-    monkeypatch.setenv("CCL_AIS_PRINCIPAL_ID", "principal-1")
+    monkeypatch.setenv("CCL_AIS_PID", "principal-1")
     monkeypatch.setenv("CCL_WORKSPACE_ID", "org-1")
     monkeypatch.setenv("CCL_AIS_TENANT_ID", "tenant-1")
     monkeypatch.setenv("CCL_AIS_CALLER_TOKEN", "caller-access-token")
@@ -189,9 +189,9 @@ async def test_authenticate_via_ais_sends_caller_token_header(monkeypatch: pytes
 
 @pytest.mark.unit
 def test_build_ais_token_payload_includes_attestation_nonce(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("CCL_SESSION_KIND", "automation")
+    monkeypatch.setenv("CCL_SESS_KIND", "automation")
     monkeypatch.setenv("CCL_AIS_BASE_URL", "http://ais.local")
-    monkeypatch.setenv("CCL_AIS_PRINCIPAL_ID", "principal-1")
+    monkeypatch.setenv("CCL_AIS_PID", "principal-1")
     monkeypatch.setenv("CCL_WORKSPACE_ID", "org-1")
     monkeypatch.setenv("CCL_AIS_TENANT_ID", "tenant-1")
     monkeypatch.setenv("CCL_AIS_ATTESTATION_NONCE", "nonce-123")

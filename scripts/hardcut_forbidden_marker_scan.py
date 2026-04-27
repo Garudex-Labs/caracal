@@ -69,7 +69,7 @@ MARKER_DEFINITIONS: tuple[MarkerDefinition, ...] = (
     MarkerDefinition(
         key="compatibility_env_aliases",
         description="Legacy compatibility env aliases and dual-write markers",
-        pattern=r"(\bCCL_COMPAT_ALIASES\b|\bCCL_COMPAT_MODE\b|\bCCL_DUAL_WRITE_ON\b|\bCCL_DUAL_WRITE_WIN\b)",
+        pattern=r"(\bCCL_COMPAT_ALIASES\b|\bCCL_COMPAT_MODE\b|\bCCL_DUAL_WRITE_ON\b|\bCCL_DUAL_WRITE_WINDOW\b)",
     ),
     MarkerDefinition(
         key="enterprise_logic_leakage",

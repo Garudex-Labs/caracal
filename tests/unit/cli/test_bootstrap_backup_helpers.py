@@ -16,21 +16,21 @@ pytestmark = pytest.mark.unit
 class TestBootstrapHelpers:
     def test_runtime_env_path_uses_config_dir(self, monkeypatch, tmp_path):
         from caracal.cli.bootstrap import _runtime_env_path
-        monkeypatch.setenv("CCL_CONFIG_DIR", str(tmp_path))
+        monkeypatch.setenv("CCL_CFG_DIR", str(tmp_path))
         monkeypatch.delenv("CCL_HOME", raising=False)
         result = _runtime_env_path()
         assert result == tmp_path / "runtime" / ".env"
 
     def test_runtime_env_path_uses_home(self, monkeypatch, tmp_path):
         from caracal.cli.bootstrap import _runtime_env_path
-        monkeypatch.delenv("CCL_CONFIG_DIR", raising=False)
+        monkeypatch.delenv("CCL_CFG_DIR", raising=False)
         monkeypatch.setenv("CCL_HOME", str(tmp_path))
         result = _runtime_env_path()
         assert result == tmp_path / "runtime" / ".env"
 
     def test_runtime_env_path_defaults_to_home_dot_caracal(self, monkeypatch):
         from caracal.cli.bootstrap import _runtime_env_path
-        monkeypatch.delenv("CCL_CONFIG_DIR", raising=False)
+        monkeypatch.delenv("CCL_CFG_DIR", raising=False)
         monkeypatch.delenv("CCL_HOME", raising=False)
         result = _runtime_env_path()
         assert ".caracal" in str(result)

@@ -188,10 +188,10 @@ class TestEditionManagerGetGatewayUrl:
 
     def test_from_env_ccle_url(self, tmp_path, monkeypatch):
         mgr = self._manager(tmp_path)
-        monkeypatch.setenv("CCLE_API_URL", "https://gw.example.com")
+        monkeypatch.setenv("CCLE_API_URL", "https://gateway.example.com")
         with patch("caracal.deployment.edition.EditionManager._gateway_url_from_config", return_value=None):
             url = mgr.get_gateway_url()
-        assert url == "https://gw.example.com"
+        assert url == "https://gateway.example.com"
 
     def test_from_config_file(self, tmp_path):
         mgr = self._manager(tmp_path)
@@ -264,10 +264,10 @@ class TestEditionManagerSetEdition:
 
     def test_set_enterprise_writes_gateway_url(self, tmp_path):
         mgr = self._manager(tmp_path)
-        mgr.set_edition(Edition.ENTERPRISE, gateway_url="https://gw.example.com")
+        mgr.set_edition(Edition.ENTERPRISE, gateway_url="https://gateway.example.com")
         config = toml.load(tmp_path / "config.toml")
         assert config["edition"]["current"] == "enterprise"
-        assert config["edition"]["gateway_url"] == "https://gw.example.com"
+        assert config["edition"]["gateway_url"] == "https://gateway.example.com"
 
     def test_set_enterprise_without_gateway_raises(self, tmp_path):
         mgr = self._manager(tmp_path)
@@ -286,7 +286,7 @@ class TestEditionManagerSetEdition:
 
     def test_set_enterprise_with_token(self, tmp_path):
         mgr = self._manager(tmp_path)
-        mgr.set_edition(Edition.ENTERPRISE, gateway_url="https://gw.example.com", gateway_token="tok123")
+        mgr.set_edition(Edition.ENTERPRISE, gateway_url="https://gateway.example.com", gateway_token="tok123")
         config = toml.load(tmp_path / "config.toml")
         assert config["edition"]["gateway_token"] == "tok123"
 

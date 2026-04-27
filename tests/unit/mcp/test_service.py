@@ -1054,14 +1054,14 @@ class TestMCPAdapterService:
             },
             headers={
                 "Authorization": "Bearer test-token",
-                "X-Caracal-Workspace-ID": "ws-sdk",
+                "X-Caracal-Workspace-ID": "workspace-sdk",
             },
         )
 
         assert response.status_code == 200
         mcp_context = self.mock_mcp_adapter.intercept_tool_call.call_args.kwargs["mcp_context"]
-        assert mcp_context.get("workspace") == "ws-sdk"
-        assert mcp_context.get("workspace_name") == "ws-sdk"
+        assert mcp_context.get("workspace") == "workspace-sdk"
+        assert mcp_context.get("workspace_name") == "workspace-sdk"
 
     def test_tool_call_endpoint_rejects_workspace_scope_body_header_mismatch(self):
         from fastapi.testclient import TestClient
@@ -1417,7 +1417,7 @@ class TestMCPAdapterServicePureMethods:
 
     # _normalize_selector_value
     def test_normalize_selector_value_strips_whitespace(self) -> None:
-        assert MCPAdapterService._normalize_selector_value("  ws  ") == "ws"
+        assert MCPAdapterService._normalize_selector_value("  workspace  ") == "workspace"
 
     def test_normalize_selector_value_none_returns_none(self) -> None:
         assert MCPAdapterService._normalize_selector_value(None) is None

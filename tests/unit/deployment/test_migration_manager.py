@@ -88,9 +88,9 @@ class TestTargetWorkspaces:
 
     def test_calls_list_workspaces_when_none(self, tmp_path):
         mgr = _make_manager(tmp_path)
-        mgr.config_manager.list_workspaces.return_value = ["ws1", "ws2"]
+        mgr.config_manager.list_workspaces.return_value = ["workspace1", "ws2"]
         result = mgr._target_workspaces(None)
-        assert result == ["ws1", "ws2"]
+        assert result == ["workspace1", "ws2"]
 
 
 class TestResolveCredentialSelection:
@@ -128,7 +128,7 @@ class TestAppendMigrationAudit:
     def test_appends_event(self, tmp_path):
         mgr = _make_manager(tmp_path)
         metadata = {}
-        mgr._append_migration_audit(metadata, "oss_to_enterprise", "ws1", {"k": "v"})
+        mgr._append_migration_audit(metadata, "oss_to_enterprise", "workspace1", {"k": "v"})
         audit = metadata["migration_audit"]
         assert len(audit) == 1
         assert audit[0]["event"] == "oss_to_enterprise"
@@ -136,22 +136,22 @@ class TestAppendMigrationAudit:
     def test_appends_multiple_events(self, tmp_path):
         mgr = _make_manager(tmp_path)
         metadata = {}
-        mgr._append_migration_audit(metadata, "event1", "ws1", {})
-        mgr._append_migration_audit(metadata, "event2", "ws1", {})
+        mgr._append_migration_audit(metadata, "event1", "workspace1", {})
+        mgr._append_migration_audit(metadata, "event2", "workspace1", {})
         assert len(metadata["migration_audit"]) == 2
 
     def test_preserves_existing_audit(self, tmp_path):
         mgr = _make_manager(tmp_path)
-        existing = [{"event": "old_event", "workspace": "ws1", "timestamp": "t", "payload": {}}]
+        existing = [{"event": "old_event", "workspace": "workspace1", "timestamp": "t", "payload": {}}]
         metadata = {"migration_audit": existing}
-        mgr._append_migration_audit(metadata, "new_event", "ws1", {})
+        mgr._append_migration_audit(metadata, "new_event", "workspace1", {})
         assert metadata["migration_audit"][0]["event"] == "old_event"
         assert metadata["migration_audit"][1]["event"] == "new_event"
 
     def test_resets_corrupt_audit(self, tmp_path):
         mgr = _make_manager(tmp_path)
         metadata = {"migration_audit": "corrupted_not_list"}
-        mgr._append_migration_audit(metadata, "event", "ws1", {})
+        mgr._append_migration_audit(metadata, "event", "workspace1", {})
         assert isinstance(metadata["migration_audit"], list)
 
 
@@ -160,23 +160,23 @@ class TestExplicitMigrationContract:
         mgr = _make_manager(tmp_path)
         mgr._load_workspace_metadata = MagicMock(return_value={})
         contract = mgr._explicit_migration_contract(
-            workspace="ws1",
+            workspace="workspace1",
             direction="oss_to_enterprise",
-            gateway_url="https://gw.example.com",
+            gateway_url="https://gateway.example.com",
             selected_credentials=["key1"],
         )
         assert contract["version"] == "v1"
         assert contract["direction"] == "oss_to_enterprise"
-        assert contract["workspace"] == "ws1"
+        assert contract["workspace"] == "workspace1"
         assert "key1" in contract["credentials_selected"]
 
     def test_enterprise_direction_sets_source_target(self, tmp_path):
         mgr = _make_manager(tmp_path)
         mgr._load_workspace_metadata = MagicMock(return_value={})
         contract = mgr._explicit_migration_contract(
-            workspace="ws1",
+            workspace="workspace1",
             direction="oss_to_enterprise",
-            gateway_url="https://gw.example.com",
+            gateway_url="https://gateway.example.com",
             selected_credentials=[],
         )
         assert contract["source_model"] == "broker"
@@ -186,7 +186,7 @@ class TestExplicitMigrationContract:
         mgr = _make_manager(tmp_path)
         mgr._load_workspace_metadata = MagicMock(return_value={})
         contract = mgr._explicit_migration_contract(
-            workspace="ws1",
+            workspace="workspace1",
             direction="enterprise_to_oss",
             gateway_url=None,
             selected_credentials=[],
@@ -198,12 +198,12 @@ class TestExplicitMigrationContract:
         mgr = _make_manager(tmp_path)
         mgr._load_workspace_metadata = MagicMock(return_value={})
         contract = mgr._explicit_migration_contract(
-            workspace="ws1",
+            workspace="workspace1",
             direction="oss_to_enterprise",
-            gateway_url="https://gw.example.com",
+            gateway_url="https://gateway.example.com",
             selected_credentials=[],
         )
-        assert contract["gateway_url"] == "https://gw.example.com"
+        assert contract["gateway_url"] == "https://gateway.example.com"
 
 
 class TestApplyImportedMigrationContract:
@@ -211,12 +211,12 @@ class TestApplyImportedMigrationContract:
         mgr = _make_manager(tmp_path)
         contract = {"version": "v99", "registration_state": {}}
         with pytest.raises(MigrationValidationError, match="version"):
-            mgr._apply_imported_migration_contract(workspace="ws1", contract=contract, audit_event="test")
+            mgr._apply_imported_migration_contract(workspace="workspace1", contract=contract, audit_event="test")
 
     def test_rejects_non_dict_contract(self, tmp_path):
         mgr = _make_manager(tmp_path)
         with pytest.raises(MigrationValidationError):
-            mgr._apply_imported_migration_contract(workspace="ws1", contract="not a dict", audit_event="test")
+            mgr._apply_imported_migration_contract(workspace="workspace1", contract="not a dict", audit_event="test")
 
     def test_applies_registration_state(self, tmp_path):
         mgr = _make_manager(tmp_path)
@@ -229,7 +229,7 @@ class TestApplyImportedMigrationContract:
             "authority_graph_state": {},
             "runtime_session_state": {},
         }
-        mgr._apply_imported_migration_contract(workspace="ws1", contract=contract, audit_event="imported")
+        mgr._apply_imported_migration_contract(workspace="workspace1", contract=contract, audit_event="imported")
         assert metadata.get("registration_state") == {"key": "val"}
 
 
@@ -354,7 +354,7 @@ class TestMigrateEdition:
 
         result = mgr.migrate_edition(
             target_edition=Edition.ENTERPRISE,
-            gateway_url="https://gw.example.com",
+            gateway_url="https://gateway.example.com",
         )
         assert result["success"] is True
         mgr._migrate_api_keys.assert_called_once()
@@ -380,7 +380,7 @@ class TestMigrateEdition:
         with pytest.raises(MigrationError):
             mgr.migrate_edition(
                 target_edition=Edition.ENTERPRISE,
-                gateway_url="https://gw.example.com",
+                gateway_url="https://gateway.example.com",
             )
 
     def test_migrate_same_edition_raises(self, tmp_path):

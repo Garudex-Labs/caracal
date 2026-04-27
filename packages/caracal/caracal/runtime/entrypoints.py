@@ -38,27 +38,27 @@ NETWORK_IN_USE_MARKER = "Resource is still in use"
 PURGE_CONFIRMATION_TEXT = "purge"
 
 AIS_STARTUP_NONCE_ENV = "CCL_AIS_ATTESTATION_NONCE"
-AIS_STARTUP_PRINCIPAL_ENV = "CCL_AIS_ATTESTATION_PRINCIPAL_ID"
+AIS_STARTUP_PRINCIPAL_ENV = "CCL_AIS_ATTESTATION_PID"
 AIS_API_PREFIX_ENV = "CCL_AIS_API_PREFIX"
 AIS_UNIX_SOCKET_PATH_ENV = "CCL_AIS_UNIX_SOCKET_PATH"
 AIS_LISTEN_HOST_ENV = "CCL_AIS_LISTEN_HOST"
 AIS_LISTEN_PORT_ENV = "CCL_AIS_LISTEN_PORT"
-AIS_HEALTHCHECK_TIMEOUT_ENV = "CCL_AIS_HEALTHCHECK_TIMEOUT_SECONDS"
+AIS_HEALTHCHECK_TIMEOUT_ENV = "CCL_AIS_HEALTHCHECK_TTL_SECONDS"
 AIS_HEALTHCHECK_INTERVAL_ENV = "CCL_AIS_HEALTHCHECK_INTERVAL_SECONDS"
-AIS_STARTUP_TIMEOUT_ENV = "CCL_AIS_STARTUP_TIMEOUT_SECONDS"
+AIS_STARTUP_TIMEOUT_ENV = "CCL_AIS_STARTUP_TTL_SECONDS"
 AIS_MAX_RESTARTS_ENV = "CCL_AIS_MAX_RESTARTS"
 AIS_DEFAULT_API_PREFIX = "/v1/ais"
 AIS_DEFAULT_UNIX_SOCKET_PATH = "/tmp/caracal-ais.sock"
 AIS_DEFAULT_LISTEN_HOST = "127.0.0.1"
 AIS_DEFAULT_LISTEN_PORT = 7079
 AIS_SESSION_SIGNING_KEY_REF_ENV = "CCL_VAULT_SIGNING_KEY_REF"
-AIS_SESSION_VERIFY_KEY_REF_ENV = "CCL_VAULT_SESSION_PUBLIC_KEY_REF"
-AIS_SESSION_ALGORITHM_ENV = "CCL_SESSION_SIGNING_ALGORITHM"
-AIS_SESSION_CAVEAT_MODE_ENV = "CCL_SESSION_CAVEAT"
-AIS_SESSION_CAVEAT_HMAC_KEY_ENV = "CCL_SESSION_HMAC"
+AIS_SESSION_VERIFY_KEY_REF_ENV = "CCL_VAULT_SESS_PUB_KEY_REF"
+AIS_SESSION_ALGORITHM_ENV = "CCL_SESS_SIGNING_ALG"
+AIS_SESSION_CAVEAT_MODE_ENV = "CCL_SESS_CAVEAT"
+AIS_SESSION_CAVEAT_HMAC_KEY_ENV = "CCL_SESS_HMAC"
 AIS_REVOCATION_EVENTS_CHANNEL_ENV = "CCL_REVOKE_CHANNEL"
 AIS_DEFAULT_REVOCATION_EVENTS_CHANNEL = "caracal:identity:revocation_events"
-AIS_REVOCATION_PUBLISHER_MODE_ENV = "CCL_REVOKE_PUB_MODE"
+AIS_REVOCATION_PUBLISHER_MODE_ENV = "CCL_REVOKE_PUBLISHER_MODE"
 AIS_ENTERPRISE_REVOCATION_WEBHOOK_URL_ENV = "CCLE_REVOCATION_WEBHOOK_URL"
 AIS_ENTERPRISE_REVOCATION_SYNC_API_KEY_ENV = "CCLE_REVOCATION_SYNC_API_KEY"
 AIS_DEFAULT_ENTERPRISE_REVOCATION_WEBHOOK_PATH = "/api/sync/revocation-events"
@@ -1382,10 +1382,10 @@ def _compose_cmd(compose_file: Path) -> list[str]:
 
     # Ensure the postgres init scripts are resolvable via an absolute path so
     # docker compose can mount them regardless of the working directory.
-    if not os.environ.get("CCL_POSTGRES_INIT_DIR"):
+    if not os.environ.get("CCL_PG_INIT_DIR"):
         pg_init_dir = compose_file.parent / "postgres-init"
         if pg_init_dir.exists():
-            os.environ["CCL_POSTGRES_INIT_DIR"] = str(pg_init_dir)
+            os.environ["CCL_PG_INIT_DIR"] = str(pg_init_dir)
 
     compose_cmd = _resolve_compose_command()
     runtime_env_file = compose_file.parent / ".env"
@@ -1807,7 +1807,7 @@ def _create_ais_db_manager():
     from caracal.config import load_config
     from caracal.db.connection import get_db_manager
 
-    resolved_config_path = os.environ.get("CCL_CONFIG_PATH")
+    resolved_config_path = os.environ.get("CCL_CFG_PATH")
     core_config = load_config(resolved_config_path, suppress_missing_file_log=True, emit_logs=False)
     return get_db_manager(core_config)
 
@@ -1956,7 +1956,7 @@ def _build_ais_handlers(
     session_manager: object | None = None,
     redis_client: object | None = None,
 ):
-    from datetime import timedelta
+    from datetime import datetime, timedelta
     from uuid import UUID
 
     from fastapi import HTTPException
@@ -2095,7 +2095,7 @@ def _build_ais_handlers(
 
     def _resolve_local_bootstrap_principal_id() -> str:
         for env_key in (
-            "CCL_AIS_PRINCIPAL_ID",
+            "CCL_AIS_PID",
             AIS_STARTUP_PRINCIPAL_ENV,
         ):
             candidate = _normalize_principal_id(os.environ.get(env_key))

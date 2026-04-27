@@ -119,7 +119,7 @@ class ContextManager:
         )
         self._hooks.fire_state_change(state)
 
-        logger.info(f"Scope checked out: ws={workspace_id}")
+        logger.info(f"Scope checked out: workspace={workspace_id}")
         return new_ctx
 
 

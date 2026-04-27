@@ -14,15 +14,15 @@ Usage::
 
     from caracal.flow.workspace import get_workspace
 
-    ws = get_workspace()                    # active default workspace
-    ws = get_workspace("/opt/myproject")    # custom path
+    workspace = get_workspace()                    # active default workspace
+    workspace = get_workspace("/opt/myproject")    # custom path
 
-    ws.config_path   # -> /opt/myproject/config.yaml
-    ws.state_path    # -> /opt/myproject/flow_state.json
-    ws.backups_dir   # -> /opt/myproject/backups
-    ws.logs_dir      # -> /opt/myproject/logs
-    ws.cache_dir     # -> /opt/myproject/cache
-    ws.log_path      # -> /opt/myproject/logs/caracal.log
+    workspace.config_path   # -> /opt/myproject/config.yaml
+    workspace.state_path    # -> /opt/myproject/flow_state.json
+    workspace.backups_dir   # -> /opt/myproject/backups
+    workspace.logs_dir      # -> /opt/myproject/logs
+    workspace.cache_dir     # -> /opt/myproject/cache
+    workspace.log_path      # -> /opt/myproject/logs/caracal.log
 """
 
 from __future__ import annotations
@@ -122,8 +122,8 @@ class WorkspaceManager:
             return []
 
         default_name = _resolve_default_workspace_name(workspaces)
-        for ws in workspaces:
-            ws["default"] = ws.get("name") == default_name
+        for workspace in workspaces:
+            workspace["default"] = workspace.get("name") == default_name
 
         _ensure_single_default(workspaces)
         return workspaces
@@ -145,7 +145,7 @@ class WorkspaceManager:
     def set_default_workspace(name: str) -> bool:
         """Mark one workspace as default using config manager state."""
         workspaces = WorkspaceManager.list_workspaces()
-        if not any(ws.get("name") == name for ws in workspaces):
+        if not any(workspace.get("name") == name for workspace in workspaces):
             return False
 
         _set_default_workspace_name(name)
@@ -171,7 +171,7 @@ class WorkspaceManager:
             shutil.rmtree(workspace_path)
 
         if was_default:
-            remaining = [ws["name"] for ws in _discover_workspace_directories() if ws["name"] != workspace_name]
+            remaining = [workspace["name"] for workspace in _discover_workspace_directories() if workspace["name"] != workspace_name]
             _set_default_workspace_name(remaining[0] if remaining else None)
 
         return workspace_exists or was_default
@@ -193,15 +193,15 @@ class WorkspaceManager:
         # Remove all registry entries first so deleting a workspace directory that
         # contains the registry file (e.g. ~/.caracal) does not interrupt the loop.
         deleted_count = 0
-        for ws in workspaces:
-            if WorkspaceManager.delete_workspace(ws["path"], delete_directory=False):
+        for workspace in workspaces:
+            if WorkspaceManager.delete_workspace(workspace["path"], delete_directory=False):
                 deleted_count += 1
 
         if delete_directories:
             import shutil
 
-            for ws in workspaces:
-                workspace_path = Path(ws["path"]).resolve()
+            for workspace in workspaces:
+                workspace_path = Path(workspace["path"]).resolve()
                 if workspace_path.exists():
                     shutil.rmtree(workspace_path)
 
@@ -336,7 +336,7 @@ def _resolve_default_workspace_name(workspaces: list[dict[str, Any]]) -> Optiona
     if not workspaces:
         return None
 
-    names = [str(ws.get("name")) for ws in workspaces if ws.get("name")]
+    names = [str(workspace.get("name")) for workspace in workspaces if workspace.get("name")]
     for name in names:
         if _load_workspace_metadata(name).get("is_default"):
             return name
@@ -345,7 +345,7 @@ def _resolve_default_workspace_name(workspaces: list[dict[str, Any]]) -> Optiona
 
 def _set_default_workspace_name(name: Optional[str]) -> None:
     discovered = _discover_workspace_directories()
-    discovered_names = [str(ws["name"]) for ws in discovered]
+    discovered_names = [str(workspace["name"]) for workspace in discovered]
     for workspace_name in discovered_names:
         workspace_path = _WORKSPACES_DIR / workspace_name
         _ensure_workspace_metadata_file(workspace_name, workspace_path)
@@ -362,14 +362,14 @@ def _ensure_single_default(workspaces: list[dict[str, Any]]) -> None:
     if not workspaces:
         return
 
-    default_indices = [idx for idx, ws in enumerate(workspaces) if bool(ws.get("default"))]
+    default_indices = [idx for idx, workspace in enumerate(workspaces) if bool(workspace.get("default"))]
     if not default_indices:
         workspaces[0]["default"] = True
         return
 
     keep = default_indices[0]
-    for idx, ws in enumerate(workspaces):
-        ws["default"] = idx == keep
+    for idx, workspace in enumerate(workspaces):
+        workspace["default"] = idx == keep
 
 
 def _discover_workspace_directories() -> list[dict[str, Any]]:

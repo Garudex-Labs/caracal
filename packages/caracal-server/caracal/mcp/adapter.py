@@ -137,11 +137,11 @@ class MCPAdapter:
         }
         self.request_timeout_seconds = request_timeout_seconds
         self._caveat_mode = self._resolve_caveat_mode(
-            caveat_mode or os.environ.get("CCL_SESSION_CAVEAT") or "jwt"
+            caveat_mode or os.environ.get("CCL_SESS_CAVEAT") or "jwt"
         )
         self._caveat_hmac_key = str(
             caveat_hmac_key
-            or os.environ.get("CCL_SESSION_HMAC")
+            or os.environ.get("CCL_SESS_HMAC")
             or ""
         ).strip()
         self._decorator_bindings: dict[str, Any] = {}

@@ -15,9 +15,12 @@ import json
 from dataclasses import dataclass, field, asdict
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 from caracal.pathing import ensure_source_tree, source_of
+
+if TYPE_CHECKING:
+    from caracal.flow.workspace import WorkspaceManager
 
 
 @dataclass
@@ -194,8 +197,8 @@ class StatePersistence:
 
         from caracal.flow.workspace import get_workspace
 
-        ws = self._workspace or get_workspace()
-        return ws.state_path
+        workspace = self._workspace or get_workspace()
+        return workspace.state_path
     
     def load(self) -> FlowState:
         """Load state from disk, or return defaults."""

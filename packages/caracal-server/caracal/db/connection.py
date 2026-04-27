@@ -207,7 +207,7 @@ class DatabaseConnectionManager:
         # Store schema for later use (drop_schema, clear_database)
         self._pg_schema = pg_schema
 
-        # DDL: map unqualified model metadata to ws_<name> via schema_translate_map
+        # DDL: map unqualified model metadata to workspace_<name> via schema_translate_map
         if create_tables:
             try:
                 from caracal.db.models import Base

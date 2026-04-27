@@ -935,11 +935,11 @@ class ConfigManager:
         try:
             from caracal.flow.workspace import WorkspaceManager
 
-            for ws in WorkspaceManager.list_workspaces():
-                if not isinstance(ws, dict):
+            for workspace in WorkspaceManager.list_workspaces():
+                if not isinstance(workspace, dict):
                     continue
-                name = str(ws.get("name") or "").strip()
-                path = str(ws.get("path") or "").strip()
+                name = str(workspace.get("name") or "").strip()
+                path = str(workspace.get("path") or "").strip()
                 if not name or not path:
                     continue
                 if not self._is_workspace_discoverable(name):

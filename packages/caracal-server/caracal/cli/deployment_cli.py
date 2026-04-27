@@ -83,7 +83,7 @@ def format_output(data, format_type: str = "table"):
 
 def _resolve_workspace_lock_key(lock_key: Optional[str]) -> Optional[str]:
     """Resolve workspace archive lock key from option or environment."""
-    candidate = lock_key if lock_key is not None else os.environ.get("CCL_WS_LOCK_KEY")
+    candidate = lock_key if lock_key is not None else os.environ.get("CCL_WORKSPACE_LOCK_KEY")
     return normalize_optional_text(candidate)
 
 
@@ -126,9 +126,9 @@ def _resolve_workspace_name(config_manager: ConfigManager, workspace: Optional[s
 
         flow_workspaces = WorkspaceManager.list_workspaces()
         if flow_workspaces:
-            default_ws = next((ws for ws in flow_workspaces if ws.get("default")), None)
-            if default_ws and default_ws.get("name"):
-                return str(default_ws["name"])
+            default_workspace = next((workspace for workspace in flow_workspaces if workspace.get("default")), None)
+            if default_workspace and default_workspace.get("name"):
+                return str(default_workspace["name"])
             return flow_workspaces[0].get("name")
     except Exception:
         pass
@@ -408,10 +408,10 @@ def workspace_list(format: str):
         
         if format == "json":
             workspace_data = []
-            for ws in workspaces:
-                config = config_manager.get_workspace_config(ws)
+            for workspace in workspaces:
+                config = config_manager.get_workspace_config(workspace)
                 workspace_data.append({
-                    "name": ws,
+                    "name": workspace,
                     "is_default": config.is_default,
                     "created_at": config.created_at.isoformat(),
                 })
@@ -427,10 +427,10 @@ def workspace_list(format: str):
             table.add_column("Default", style="green")
             table.add_column("Created", style="blue")
             
-            for ws in workspaces:
-                config = config_manager.get_workspace_config(ws)
+            for workspace in workspaces:
+                config = config_manager.get_workspace_config(workspace)
                 table.add_row(
-                    ws,
+                    workspace,
                     "✓" if config.is_default else "",
                     config.created_at.strftime("%Y-%m-%d %H:%M"),
                 )
@@ -477,7 +477,7 @@ def workspace_delete(name: str, backup: bool, force: bool):
 @click.option("--include-secrets", is_flag=True, help="Include encrypted secrets in export")
 @click.option(
     "--lock-key",
-    help="Archive lock key. If omitted, reads CCL_WS_LOCK_KEY env var.",
+    help="Archive lock key. If omitted, reads CCL_WORKSPACE_LOCK_KEY env var.",
 )
 def workspace_export(name: str, path: Path, include_secrets: bool, lock_key: Optional[str]):
     """Export workspace configuration."""
@@ -516,7 +516,7 @@ def workspace_export(name: str, path: Path, include_secrets: bool, lock_key: Opt
 @click.option("--name", help="Workspace name (uses name from export if not provided)")
 @click.option(
     "--lock-key",
-    help="Archive lock key for locked exports. If omitted, reads CCL_WS_LOCK_KEY env var.",
+    help="Archive lock key for locked exports. If omitted, reads CCL_WORKSPACE_LOCK_KEY env var.",
 )
 def workspace_import(path: Path, name: Optional[str], lock_key: Optional[str]):
     """Import workspace from backup."""

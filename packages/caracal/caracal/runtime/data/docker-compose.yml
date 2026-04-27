@@ -11,7 +11,7 @@ services:
             CCL_VAULT_DB_NAME: ${CCL_VAULT_DB_NAME:-caracal_vault}
         volumes:
             - postgres_data:/var/lib/postgresql/data
-            - ${CCL_POSTGRES_INIT_DIR:-./postgres-init}:/docker-entrypoint-initdb.d:ro
+            - ${CCL_PG_INIT_DIR:-./postgres-init}:/docker-entrypoint-initdb.d:ro
         healthcheck:
             test:
                 - CMD-SHELL
@@ -32,7 +32,7 @@ services:
     #   CCL_VAULT_SIDECAR_IMAGE      Override the pinned sidecar image.
     #   CCL_VAULT_SIDECAR_AUTH_SECRET  JWT secret for Infisical (≥32 chars).
     #                                      Generate with: caracal vault init
-    #   CCL_VAULT_SIDECAR_ENCRYPTION_KEY  AES-256 key (32 hex chars).
+    #   CCL_VAULT_SIDECAR_ENC_KEY  AES-256 key (32 hex chars).
     #                                          Generate with: caracal vault init
     #   CCL_VAULT_SIDECAR_REDIS_URL        Redis URL for sidecar sessions.
     #   CCL_VAULT_SIDECAR_DB_CONNECTION_URI  PostgreSQL DSN for sidecar.
@@ -47,9 +47,9 @@ services:
     #   CCL_VAULT_ENVIRONMENT        Infisical environment slug (e.g. prod).
     #   CCL_VAULT_SECRET_PATH        Secret path prefix inside the project.
     #   CCL_VAULT_SIGNING_KEY_REF    Path to the mandate signing key.
-    #   CCL_VAULT_SESSION_PUBLIC_KEY_REF  Path to the session verify key.
+    #   CCL_VAULT_SESS_PUB_KEY_REF  Path to the session verify key.
     #   CCL_VAULT_MERKLE_SIGNING_KEY_REF  Path to the Merkle signing key.
-    #   CCL_VAULT_MERKLE_PUBLIC_KEY_REF   Path to the Merkle public key.
+    #   CCL_VAULT_MERKLE_PUB_KEY_REF   Path to the Merkle public key.
     #   CCL_VAULT_MODE               Vault operation mode (default: strict).
     #   CCL_VAULT_RETRY_MAX_ATTEMPTS Max retry attempts on vault calls.
     #   CCL_VAULT_RETRY_BACKOFF_SECONDS  Backoff between retries.
@@ -59,7 +59,7 @@ services:
         environment:
             NODE_ENV: production
             AUTH_SECRET: ${CCL_VAULT_SIDECAR_AUTH_SECRET:-${VAULT_AUTH_SECRET:?Set CCL_VAULT_SIDECAR_AUTH_SECRET or run `caracal vault init` for local development}}
-            ENCRYPTION_KEY: ${CCL_VAULT_SIDECAR_ENCRYPTION_KEY:-${VAULT_ENC_KEY:?Set CCL_VAULT_SIDECAR_ENCRYPTION_KEY or run `caracal vault init` for local development}}
+            ENCRYPTION_KEY: ${CCL_VAULT_SIDECAR_ENC_KEY:-${VAULT_ENC_KEY:?Set CCL_VAULT_SIDECAR_ENC_KEY or run `caracal vault init` for local development}}
             REDIS_URL: ${CCL_VAULT_SIDECAR_REDIS_URL:-redis://redis:6379}
             DB_CONNECTION_URI: ${CCL_VAULT_SIDECAR_DB_CONNECTION_URI:-postgresql://${CCL_DB_USER:-caracal}:${CCL_DB_PASSWORD:?Set CCL_DB_PASSWORD to a strong database password}@postgres:5432/${CCL_VAULT_DB_NAME:-caracal_vault}}
             SITE_URL: ${CCL_VAULT_SIDECAR_SITE_URL:-http://localhost:8080}
@@ -132,8 +132,8 @@ services:
             CCL_VAULT_URL: ${CCL_VAULT_URL:-http://vault:8080}
             CCL_VAULT_TOKEN: ${CCL_VAULT_TOKEN:?Set CCL_VAULT_TOKEN to an Infisical service token}
             CCL_VAULT_SIGNING_KEY_REF: ${CCL_VAULT_SIGNING_KEY_REF:-keys/mandate-signing}
-            CCL_VAULT_SESSION_PUBLIC_KEY_REF: ${CCL_VAULT_SESSION_PUBLIC_KEY_REF:-keys/session-public}
-            CCL_SESSION_SIGNING_ALGORITHM: ${CCL_SESSION_SIGNING_ALGORITHM:-RS256}
+            CCL_VAULT_SESS_PUB_KEY_REF: ${CCL_VAULT_SESS_PUB_KEY_REF:-keys/session-public}
+            CCL_SESS_SIGNING_ALG: ${CCL_SESS_SIGNING_ALG:-RS256}
             CCL_VAULT_MODE: ${CCL_VAULT_MODE:-managed}
             CCL_ENV_MODE: ${CCL_ENV_MODE:-prod}
             LOG_LEVEL: ${LOG_LEVEL:-INFO}
@@ -177,8 +177,8 @@ services:
             CCL_VAULT_URL: ${CCL_VAULT_URL:-http://vault:8080}
             CCL_VAULT_TOKEN: ${CCL_VAULT_TOKEN:?Set CCL_VAULT_TOKEN to an Infisical service token}
             CCL_VAULT_SIGNING_KEY_REF: ${CCL_VAULT_SIGNING_KEY_REF:-keys/mandate-signing}
-            CCL_VAULT_SESSION_PUBLIC_KEY_REF: ${CCL_VAULT_SESSION_PUBLIC_KEY_REF:-keys/session-public}
-            CCL_SESSION_SIGNING_ALGORITHM: ${CCL_SESSION_SIGNING_ALGORITHM:-RS256}
+            CCL_VAULT_SESS_PUB_KEY_REF: ${CCL_VAULT_SESS_PUB_KEY_REF:-keys/session-public}
+            CCL_SESS_SIGNING_ALG: ${CCL_SESS_SIGNING_ALG:-RS256}
             CCL_VAULT_MODE: ${CCL_VAULT_MODE:-managed}
             CCL_ENV_MODE: ${CCL_ENV_MODE:-prod}
             LOG_LEVEL: ${LOG_LEVEL:-INFO}
@@ -205,8 +205,8 @@ services:
             CCL_HOME: /home/caracal/runtime
             CCL_HOST_IO_ROOT: /caracal-host-io
             CCL_API_URL: http://mcp:8080
-            CCL_CONFIG_PATH: /home/caracal/runtime/config.yaml
-            CCL_MCP_LISTEN_ADDRESS: 0.0.0.0:8080
+            CCL_CFG_PATH: /home/caracal/runtime/config.yaml
+            CCL_MCP_LISTEN_ADDR: 0.0.0.0:8080
             CCL_PRINCIPAL_KEY_BACKEND: ${CCL_PRINCIPAL_KEY_BACKEND:-vault}
             CCL_VAULT_URL: ${CCL_VAULT_URL:-http://vault:8080}
             CCL_VAULT_TOKEN: ${CCL_VAULT_TOKEN:?Set CCL_VAULT_TOKEN to an Infisical service token}
@@ -214,10 +214,10 @@ services:
             CCL_VAULT_ENVIRONMENT: ${CCL_VAULT_ENVIRONMENT:-dev}
             CCL_VAULT_SECRET_PATH: ${CCL_VAULT_SECRET_PATH:-/}
             CCL_VAULT_SIGNING_KEY_REF: ${CCL_VAULT_SIGNING_KEY_REF:-keys/mandate-signing}
-            CCL_VAULT_SESSION_PUBLIC_KEY_REF: ${CCL_VAULT_SESSION_PUBLIC_KEY_REF:-keys/session-public}
+            CCL_VAULT_SESS_PUB_KEY_REF: ${CCL_VAULT_SESS_PUB_KEY_REF:-keys/session-public}
             CCL_VAULT_MERKLE_SIGNING_KEY_REF: ${CCL_VAULT_MERKLE_SIGNING_KEY_REF:-keys/merkle-signing}
-            CCL_VAULT_MERKLE_PUBLIC_KEY_REF: ${CCL_VAULT_MERKLE_PUBLIC_KEY_REF:-keys/merkle-signing-public}
-            CCL_SESSION_SIGNING_ALGORITHM: ${CCL_SESSION_SIGNING_ALGORITHM:-RS256}
+            CCL_VAULT_MERKLE_PUB_KEY_REF: ${CCL_VAULT_MERKLE_PUB_KEY_REF:-keys/merkle-signing-public}
+            CCL_SESS_SIGNING_ALG: ${CCL_SESS_SIGNING_ALG:-RS256}
             CCL_VAULT_MODE: ${CCL_VAULT_MODE:-managed}
             CCL_VAULT_RETRY_MAX_ATTEMPTS: ${CCL_VAULT_RETRY_MAX_ATTEMPTS:-3}
             CCL_VAULT_RETRY_BACKOFF_SECONDS: ${CCL_VAULT_RETRY_BACKOFF_SECONDS:-0.2}
@@ -233,15 +233,15 @@ services:
             REDIS_PORT: 6379
             REDIS_PASSWORD: ${REDIS_PASSWORD:-}
             CCL_AIS_ATTESTATION_NONCE: ${CCL_AIS_ATTESTATION_NONCE:-}
-            CCL_AIS_ATTESTATION_PRINCIPAL_ID: ${CCL_AIS_ATTESTATION_PRINCIPAL_ID:-}
-            CCL_SESSION_CAVEAT_HMAC_KEY: ${CCL_SESSION_CAVEAT_HMAC_KEY:-}
+            CCL_AIS_ATTESTATION_PID: ${CCL_AIS_ATTESTATION_PID:-}
+            CCL_SESS_CAVEAT_HMAC_KEY: ${CCL_SESS_CAVEAT_HMAC_KEY:-}
             CCL_AIS_API_PREFIX: ${CCL_AIS_API_PREFIX:-/v1/ais}
             CCL_AIS_UNIX_SOCKET_PATH: ${CCL_AIS_UNIX_SOCKET_PATH:-/tmp/caracal-ais.sock}
             CCL_AIS_LISTEN_HOST: ${CCL_AIS_LISTEN_HOST:-127.0.0.1}
             CCL_AIS_LISTEN_PORT: ${CCL_AIS_LISTEN_PORT:-7079}
-            CCL_AIS_HEALTHCHECK_TIMEOUT_SECONDS: ${CCL_AIS_HEALTHCHECK_TIMEOUT_SECONDS:-3}
+            CCL_AIS_HEALTHCHECK_TTL_SECONDS: ${CCL_AIS_HEALTHCHECK_TTL_SECONDS:-3}
             CCL_AIS_HEALTHCHECK_INTERVAL_SECONDS: ${CCL_AIS_HEALTHCHECK_INTERVAL_SECONDS:-10}
-            CCL_AIS_STARTUP_TIMEOUT_SECONDS: ${CCL_AIS_STARTUP_TIMEOUT_SECONDS:-30}
+            CCL_AIS_STARTUP_TTL_SECONDS: ${CCL_AIS_STARTUP_TTL_SECONDS:-30}
             CCL_AIS_MAX_RESTARTS: ${CCL_AIS_MAX_RESTARTS:-3}
             LOG_LEVEL: ${LOG_LEVEL:-INFO}
         command:
@@ -283,7 +283,7 @@ services:
             CCL_HOME: /home/caracal/runtime
             CCL_HOST_IO_ROOT: /caracal-host-io
             CCL_API_URL: http://mcp:8080
-            CCL_CONFIG_PATH: /home/caracal/runtime/config.yaml
+            CCL_CFG_PATH: /home/caracal/runtime/config.yaml
             CCL_PRINCIPAL_KEY_BACKEND: ${CCL_PRINCIPAL_KEY_BACKEND:-vault}
             CCL_VAULT_URL: ${CCL_VAULT_URL:-http://vault:8080}
             CCL_VAULT_TOKEN: ${CCL_VAULT_TOKEN:?Set CCL_VAULT_TOKEN to an Infisical service token}
@@ -291,10 +291,10 @@ services:
             CCL_VAULT_ENVIRONMENT: ${CCL_VAULT_ENVIRONMENT:-dev}
             CCL_VAULT_SECRET_PATH: ${CCL_VAULT_SECRET_PATH:-/}
             CCL_VAULT_SIGNING_KEY_REF: ${CCL_VAULT_SIGNING_KEY_REF:-keys/mandate-signing}
-            CCL_VAULT_SESSION_PUBLIC_KEY_REF: ${CCL_VAULT_SESSION_PUBLIC_KEY_REF:-keys/session-public}
+            CCL_VAULT_SESS_PUB_KEY_REF: ${CCL_VAULT_SESS_PUB_KEY_REF:-keys/session-public}
             CCL_VAULT_MERKLE_SIGNING_KEY_REF: ${CCL_VAULT_MERKLE_SIGNING_KEY_REF:-keys/merkle-signing}
-            CCL_VAULT_MERKLE_PUBLIC_KEY_REF: ${CCL_VAULT_MERKLE_PUBLIC_KEY_REF:-keys/merkle-signing-public}
-            CCL_SESSION_SIGNING_ALGORITHM: ${CCL_SESSION_SIGNING_ALGORITHM:-RS256}
+            CCL_VAULT_MERKLE_PUB_KEY_REF: ${CCL_VAULT_MERKLE_PUB_KEY_REF:-keys/merkle-signing-public}
+            CCL_SESS_SIGNING_ALG: ${CCL_SESS_SIGNING_ALG:-RS256}
             CCL_VAULT_MODE: ${CCL_VAULT_MODE:-managed}
             CCL_VAULT_RETRY_MAX_ATTEMPTS: ${CCL_VAULT_RETRY_MAX_ATTEMPTS:-3}
             CCL_VAULT_RETRY_BACKOFF_SECONDS: ${CCL_VAULT_RETRY_BACKOFF_SECONDS:-0.2}
@@ -337,7 +337,7 @@ services:
             CCL_HOME: /home/caracal/runtime
             CCL_HOST_IO_ROOT: /caracal-host-io
             CCL_API_URL: http://mcp:8080
-            CCL_CONFIG_PATH: /home/caracal/runtime/config.yaml
+            CCL_CFG_PATH: /home/caracal/runtime/config.yaml
             CCL_PRINCIPAL_KEY_BACKEND: ${CCL_PRINCIPAL_KEY_BACKEND:-vault}
             CCL_VAULT_URL: ${CCL_VAULT_URL:-http://vault:8080}
             CCL_VAULT_TOKEN: ${CCL_VAULT_TOKEN:?Set CCL_VAULT_TOKEN to an Infisical service token}
@@ -345,10 +345,10 @@ services:
             CCL_VAULT_ENVIRONMENT: ${CCL_VAULT_ENVIRONMENT:-dev}
             CCL_VAULT_SECRET_PATH: ${CCL_VAULT_SECRET_PATH:-/}
             CCL_VAULT_SIGNING_KEY_REF: ${CCL_VAULT_SIGNING_KEY_REF:-keys/mandate-signing}
-            CCL_VAULT_SESSION_PUBLIC_KEY_REF: ${CCL_VAULT_SESSION_PUBLIC_KEY_REF:-keys/session-public}
+            CCL_VAULT_SESS_PUB_KEY_REF: ${CCL_VAULT_SESS_PUB_KEY_REF:-keys/session-public}
             CCL_VAULT_MERKLE_SIGNING_KEY_REF: ${CCL_VAULT_MERKLE_SIGNING_KEY_REF:-keys/merkle-signing}
-            CCL_VAULT_MERKLE_PUBLIC_KEY_REF: ${CCL_VAULT_MERKLE_PUBLIC_KEY_REF:-keys/merkle-signing-public}
-            CCL_SESSION_SIGNING_ALGORITHM: ${CCL_SESSION_SIGNING_ALGORITHM:-RS256}
+            CCL_VAULT_MERKLE_PUB_KEY_REF: ${CCL_VAULT_MERKLE_PUB_KEY_REF:-keys/merkle-signing-public}
+            CCL_SESS_SIGNING_ALG: ${CCL_SESS_SIGNING_ALG:-RS256}
             CCL_VAULT_MODE: ${CCL_VAULT_MODE:-managed}
             CCL_VAULT_RETRY_MAX_ATTEMPTS: ${CCL_VAULT_RETRY_MAX_ATTEMPTS:-3}
             CCL_VAULT_RETRY_BACKOFF_SECONDS: ${CCL_VAULT_RETRY_BACKOFF_SECONDS:-0.2}

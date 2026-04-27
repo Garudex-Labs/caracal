@@ -327,8 +327,8 @@ def _step_workspace(wizard: Wizard) -> Any:
         table.add_column("Name", style=Colors.INFO)
         table.add_column("Path", style=Colors.DIM)
         
-        for idx, ws in enumerate(workspaces, 1):
-            table.add_row(str(idx), ws["name"], ws["path"])
+        for idx, workspace in enumerate(workspaces, 1):
+            table.add_row(str(idx), workspace["name"], workspace["path"])
         
         console.print(table)
         console.print()
@@ -352,14 +352,14 @@ def _step_workspace(wizard: Wizard) -> Any:
     
     # Handle workspace selection
     if action == "Select existing workspace":
-        workspace_names = [ws["name"] for ws in workspaces]
+        workspace_names = [workspace["name"] for workspace in workspaces]
         selected_name = prompt.select(
             "Select workspace",
             choices=workspace_names,
         )
         
-        selected_ws = next(ws for ws in workspaces if ws["name"] == selected_name)
-        workspace_path = Path(selected_ws["path"])
+        selected_workspace = next(workspace for workspace in workspaces if workspace["name"] == selected_name)
+        workspace_path = Path(selected_workspace["path"])
         
         console.print()
         console.print(f"  [{Colors.SUCCESS}]{Icons.SUCCESS} Selected workspace: {selected_name}[/]")
@@ -542,14 +542,14 @@ def _step_workspace(wizard: Wizard) -> Any:
         return _step_workspace(wizard)
     
     elif action == "Delete workspace":
-        workspace_names = [ws["name"] for ws in workspaces]
+        workspace_names = [workspace["name"] for workspace in workspaces]
         selected_name = prompt.select(
             "Select workspace to delete",
             choices=workspace_names,
         )
         
-        selected_ws = next(ws for ws in workspaces if ws["name"] == selected_name)
-        workspace_path = Path(selected_ws["path"])
+        selected_workspace = next(workspace for workspace in workspaces if workspace["name"] == selected_name)
+        workspace_path = Path(selected_workspace["path"])
         
         console.print()
         console.print(f"  [{Colors.WARNING}]⚠️  WARNING: This will delete workspace '{selected_name}'[/]")
@@ -699,7 +699,7 @@ def _initialize_caracal_dir(path: Path, wipe: bool = False) -> None:
         import yaml
 
         vault_key_ref = os.environ.get("CCL_VAULT_MERKLE_SIGNING_KEY_REF", "")
-        vault_public_key_ref = os.environ.get("CCL_VAULT_MERKLE_PUBLIC_KEY_REF", "")
+        vault_public_key_ref = os.environ.get("CCL_VAULT_MERKLE_PUB_KEY_REF", "")
         default_config = {
             "storage": {
                 "backup_dir": str(path / "backups"),
@@ -739,7 +739,7 @@ def _initialize_caracal_dir(path: Path, wipe: bool = False) -> None:
 def _resolve_workspace_schema(workspace_name: str, context: dict) -> str:
     """Return a stable, strongly-isolated schema for the workspace.
 
-    Schema format: ``ws_<slug>_<created_ts>_<hash>``.
+    Schema format: ``workspace_<slug>_<created_ts>_<hash>``.
     This prevents schema collisions when users delete and recreate a workspace
     with the same name.
     """
@@ -759,8 +759,8 @@ def _resolve_workspace_schema(workspace_name: str, context: dict) -> str:
     try:
         from caracal.deployment.config_manager import ConfigManager
         cfg_mgr = ConfigManager()
-        ws_cfg = cfg_mgr.get_workspace_config(workspace_name)
-        created_tag = ws_cfg.created_at.strftime("%Y%m%d%H%M%S")
+        workspace_cfg = cfg_mgr.get_workspace_config(workspace_name)
+        created_tag = workspace_cfg.created_at.strftime("%Y%m%d%H%M%S")
         if not workspace_path:
             workspace_path = str(cfg_mgr.get_workspace_path(workspace_name))
     except Exception:
@@ -769,9 +769,9 @@ def _resolve_workspace_schema(workspace_name: str, context: dict) -> str:
     entropy_src = f"{workspace_name}|{workspace_path}|{created_tag}|{entropy_nonce}"
     suffix = hashlib.sha1(entropy_src.encode("utf-8")).hexdigest()[:8]
 
-    max_slug_len = 63 - len("ws__") - len(created_tag) - len(suffix)
+    max_slug_len = 63 - len("workspace__") - len(created_tag) - len(suffix)
     safe_slug = slug[:max(8, max_slug_len)]
-    return f"ws_{safe_slug}_{created_tag}_{suffix}"
+    return f"workspace_{safe_slug}_{created_tag}_{suffix}"
 
 
 def _select_persisted_workspace_schema(
@@ -803,7 +803,7 @@ def _normalize_workspace_merkle_hardcut_config(workspace_path: Path) -> None:
             merkle = {}
 
         vault_key_ref = os.environ.get("CCL_VAULT_MERKLE_SIGNING_KEY_REF", "")
-        vault_public_key_ref = os.environ.get("CCL_VAULT_MERKLE_PUBLIC_KEY_REF", "")
+        vault_public_key_ref = os.environ.get("CCL_VAULT_MERKLE_PUB_KEY_REF", "")
 
         updated_merkle = dict(merkle)
         updated_merkle["signing_backend"] = "vault"
@@ -816,7 +816,7 @@ def _normalize_workspace_merkle_hardcut_config(workspace_path: Path) -> None:
         updated_merkle["vault_public_key_ref"] = (
             updated_merkle.get("vault_public_key_ref")
             or vault_public_key_ref
-            or "${CCL_VAULT_MERKLE_PUBLIC_KEY_REF}"
+            or "${CCL_VAULT_MERKLE_PUB_KEY_REF}"
         )
         updated_merkle.pop("private_key_path", None)
 
@@ -1666,7 +1666,7 @@ def run_onboarding(
         from caracal.db.models import Principal, AuthorityPolicy
         from caracal.core.identity import PrincipalRegistry
         from datetime import datetime
-        from uuid import uuid4
+        from uuid import UUID, uuid4
         from caracal.flow.workspace import get_workspace
         
         # Load fresh config (in case it was just initialized)

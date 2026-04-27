@@ -95,22 +95,22 @@ class TestAppendMigrationAudit:
 
     def test_appends_event_to_empty_metadata(self):
         meta: dict = {}
-        self.mgr._append_migration_audit(meta, "oss_to_enterprise", "ws1", {"k": "v"})
+        self.mgr._append_migration_audit(meta, "oss_to_enterprise", "workspace1", {"k": "v"})
         audit = meta["migration_audit"]
         assert len(audit) == 1
         assert audit[0]["event"] == "oss_to_enterprise"
-        assert audit[0]["workspace"] == "ws1"
+        assert audit[0]["workspace"] == "workspace1"
         assert audit[0]["payload"] == {"k": "v"}
         assert "timestamp" in audit[0]
 
     def test_appends_to_existing_list(self):
         meta = {"migration_audit": [{"event": "first", "workspace": "w", "timestamp": "t", "payload": {}}]}
-        self.mgr._append_migration_audit(meta, "second", "ws1", {})
+        self.mgr._append_migration_audit(meta, "second", "workspace1", {})
         assert len(meta["migration_audit"]) == 2
 
     def test_non_list_audit_value_reset(self):
         meta = {"migration_audit": "bad_value"}
-        self.mgr._append_migration_audit(meta, "reset", "ws1", {})
+        self.mgr._append_migration_audit(meta, "reset", "workspace1", {})
         assert isinstance(meta["migration_audit"], list)
         assert len(meta["migration_audit"]) == 1
 

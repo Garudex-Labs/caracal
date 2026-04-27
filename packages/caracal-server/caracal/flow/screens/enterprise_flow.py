@@ -146,15 +146,15 @@ class EnterpriseFlow:
                     else "On-Prem" if flags.deployment_type == "on_prem"
                     else flags.deployment_type
                 )
-                gw_status = f"[bold {Colors.SUCCESS}]● Gateway: {mode_label}[/]"
+                gateway_status = f"[bold {Colors.SUCCESS}]● Gateway: {mode_label}[/]"
             else:
-                gw_status = f"[{Colors.DIM}]○ Gateway: not synced[/]"
+                gateway_status = f"[{Colors.DIM}]○ Gateway: not synced[/]"
             tier = (info.get("tier") or "unknown").upper()
             self.console.print(
                 f"[bold {Colors.SUCCESS}]● Connected[/] — "
                 f"[{Colors.PRIMARY}]{tier}[/] tier  |  "
                 f"Features: [{Colors.PRIMARY}]{', '.join(info.get('features_available', [])) or 'none'}[/]  |  "
-                f"{gw_status}"
+                f"{gateway_status}"
             )
             self.console.print()
         

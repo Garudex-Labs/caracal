@@ -934,12 +934,12 @@ class MigrationManager:
         migration_contracts: Dict[str, Dict[str, Any]] = {}
         selected_total = 0
 
-        for ws in workspaces:
-            vault_map = self.config_manager._load_secret_refs_or_empty(ws)
+        for workspace in workspaces:
+            vault_map = self.config_manager._load_secret_refs_or_empty(workspace)
             available = sorted(vault_map.keys())
             selected, missing = self._resolve_credential_selection(available, include_credentials)
 
-            metadata = self._load_workspace_metadata(ws)
+            metadata = self._load_workspace_metadata(workspace)
             custody_map = metadata.get(self.CREDENTIAL_CUSTODY_METADATA_KEY, {})
             if not isinstance(custody_map, dict):
                 custody_map = {}
@@ -947,7 +947,7 @@ class MigrationManager:
             for missing_key in missing:
                 decisions.append(
                     {
-                        "workspace": ws,
+                        "workspace": workspace,
                         "credential": missing_key,
                         "action": "skip",
                         "reason": "missing_local_secret",
@@ -956,10 +956,10 @@ class MigrationManager:
 
             for key in selected:
                 selected_total += 1
-                pointer = f"enterprise://{gateway_url.rstrip('/')}/{ws}/{key}"
+                pointer = f"enterprise://{gateway_url.rstrip('/')}/{workspace}/{key}"
                 decisions.append(
                     {
-                        "workspace": ws,
+                        "workspace": workspace,
                         "credential": key,
                         "action": "migrate",
                         "mode": "additive",
@@ -979,15 +979,15 @@ class MigrationManager:
                 }
 
             migration_contract = self._explicit_migration_contract(
-                workspace=ws,
+                workspace=workspace,
                 direction="oss_to_enterprise",
                 gateway_url=gateway_url,
                 selected_credentials=selected,
             )
-            migration_contracts[ws] = migration_contract
+            migration_contracts[workspace] = migration_contract
 
             if not dry_run:
-                latest_metadata = self._load_workspace_metadata(ws)
+                latest_metadata = self._load_workspace_metadata(workspace)
                 latest_custody_map = latest_metadata.get(self.CREDENTIAL_CUSTODY_METADATA_KEY, {})
                 if not isinstance(latest_custody_map, dict):
                     latest_custody_map = {}
@@ -996,7 +996,7 @@ class MigrationManager:
                 self._append_migration_audit(
                     latest_metadata,
                     event_type="oss_to_enterprise",
-                    workspace=ws,
+                    workspace=workspace,
                     payload={
                         "selected": selected,
                         "missing": missing,
@@ -1004,7 +1004,7 @@ class MigrationManager:
                         "migration_contract": migration_contract,
                     },
                 )
-                self._save_workspace_metadata(ws, latest_metadata)
+                self._save_workspace_metadata(workspace, latest_metadata)
 
         return {
             "direction": "oss_to_enterprise",
@@ -1045,8 +1045,8 @@ class MigrationManager:
                 if str(key).strip()
             }
 
-        for ws in workspaces:
-            metadata = self._load_workspace_metadata(ws)
+        for workspace in workspaces:
+            metadata = self._load_workspace_metadata(workspace)
             custody_map = metadata.get(self.CREDENTIAL_CUSTODY_METADATA_KEY, {})
             if not isinstance(custody_map, dict):
                 custody_map = {}
@@ -1059,11 +1059,11 @@ class MigrationManager:
             available = sorted(set(enterprise_marked) | set(normalized_exports.keys()))
             selected, missing = self._resolve_credential_selection(available, include_credentials)
 
-            vault_map = self.config_manager._load_secret_refs_or_empty(ws)
+            vault_map = self.config_manager._load_secret_refs_or_empty(workspace)
 
             if migration_contract is not None and not dry_run:
                 self._apply_imported_migration_contract(
-                    workspace=ws,
+                    workspace=workspace,
                     contract=migration_contract,
                     audit_event="enterprise_contract_import",
                 )
@@ -1071,7 +1071,7 @@ class MigrationManager:
             for missing_key in missing:
                 decisions.append(
                     {
-                        "workspace": ws,
+                        "workspace": workspace,
                         "credential": missing_key,
                         "action": "skip",
                         "reason": "missing_enterprise_pointer",
@@ -1086,7 +1086,7 @@ class MigrationManager:
                 if export_value is None and not has_local_copy:
                     decisions.append(
                         {
-                            "workspace": ws,
+                            "workspace": workspace,
                             "credential": key,
                             "action": "skip",
                             "reason": "export_value_required",
@@ -1095,7 +1095,7 @@ class MigrationManager:
                     continue
 
                 decision = {
-                    "workspace": ws,
+                    "workspace": workspace,
                     "credential": key,
                     "action": "migrate",
                     "mode": "additive",
@@ -1107,7 +1107,7 @@ class MigrationManager:
                     continue
 
                 if export_value is not None:
-                    self.config_manager.store_secret(key, export_value, ws)
+                    self.config_manager.store_secret(key, export_value, workspace)
                     imported_total += 1
 
                 custody_map[key] = {
@@ -1117,15 +1117,15 @@ class MigrationManager:
                     "source": decision["source"],
                 }
 
-            migration_contracts[ws] = self._explicit_migration_contract(
-                workspace=ws,
+            migration_contracts[workspace] = self._explicit_migration_contract(
+                workspace=workspace,
                 direction="enterprise_to_oss",
                 gateway_url=None,
                 selected_credentials=selected,
             )
 
             if not dry_run:
-                latest_metadata = self._load_workspace_metadata(ws)
+                latest_metadata = self._load_workspace_metadata(workspace)
                 latest_custody_map = latest_metadata.get(self.CREDENTIAL_CUSTODY_METADATA_KEY, {})
                 if not isinstance(latest_custody_map, dict):
                     latest_custody_map = {}
@@ -1134,15 +1134,15 @@ class MigrationManager:
                 self._append_migration_audit(
                     latest_metadata,
                     event_type="enterprise_to_oss",
-                    workspace=ws,
+                    workspace=workspace,
                     payload={
                         "selected": selected,
                         "missing": missing,
                         "imported_from_export": [k for k in selected if k in normalized_exports],
-                        "migration_contract": migration_contracts[ws],
+                        "migration_contract": migration_contracts[workspace],
                     },
                 )
-                self._save_workspace_metadata(ws, latest_metadata)
+                self._save_workspace_metadata(workspace, latest_metadata)
 
         if deactivate_license and not dry_run:
             try:

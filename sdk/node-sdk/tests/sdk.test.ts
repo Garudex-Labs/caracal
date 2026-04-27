@@ -58,8 +58,8 @@ describe('HookRegistry', () => {
   test('context switch fires with from/to', () => {
     const switches: [ScopeRef | null, ScopeRef][] = [];
     registry.onContextSwitch((from, to) => switches.push([from, to]));
-    registry.fireContextSwitch(null, { workspaceId: 'ws_1' });
-    expect(switches).toEqual([[null, { workspaceId: 'ws_1' }]]);
+    registry.fireContextSwitch(null, { workspaceId: 'workspace_1' });
+    expect(switches).toEqual([[null, { workspaceId: 'workspace_1' }]]);
   });
 });
 
@@ -122,10 +122,10 @@ describe('CaracalClient', () => {
     const client = new CaracalClient({ adapter });
 
     const ctx = client.context.checkout({
-      workspaceId: 'ws_1',
+      workspaceId: 'workspace_1',
     });
 
-    expect(ctx.workspaceId).toBe('ws_1');
+    expect(ctx.workspaceId).toBe('workspace_1');
     expect(ctx.tools).toBeDefined();
   });
 });
@@ -214,11 +214,11 @@ describe('ScopeContext', () => {
     const ctx = new ScopeContext({
       adapter,
       hooks,
-      workspaceId: 'ws_1',
+      workspaceId: 'workspace_1',
     });
 
     expect(ctx.scopeHeaders()).toEqual({
-      'X-Caracal-Workspace-ID': 'ws_1',
+      'X-Caracal-Workspace-ID': 'workspace_1',
     });
   });
 
@@ -237,7 +237,7 @@ describe('ScopeContext', () => {
     const ctx = new ScopeContext({
       adapter,
       hooks,
-      workspaceId: 'ws_1',
+      workspaceId: 'workspace_1',
     });
 
     const result = await ctx.tools.call({
@@ -247,7 +247,7 @@ describe('ScopeContext', () => {
     expect(result).toEqual({ success: true, result: { ok: true } });
 
     const sent = adapter.sentRequests;
-    expect(sent[0].headers['X-Caracal-Workspace-ID']).toBe('ws_1');
+    expect(sent[0].headers['X-Caracal-Workspace-ID']).toBe('workspace_1');
     expect(sent[0].path).toBe('/mcp/tool/call');
   });
 
@@ -259,7 +259,7 @@ describe('ScopeContext', () => {
     const ctx = new ScopeContext({
       adapter,
       hooks,
-      workspaceId: 'ws_1',
+      workspaceId: 'workspace_1',
     });
 
     expect(Object.prototype.hasOwnProperty.call(ctx, 'principals')).toBe(false);
@@ -278,7 +278,7 @@ describe('ScopeContext', () => {
     await expect(
       ctx.tools.call({
         toolId: 'provider:demo:resource:jobs:action:run',
-        metadata: { workspace_name: 'ws-1' },
+        metadata: { workspace_name: 'workspace-1' },
       }),
     ).rejects.toThrow('metadata supports correlation keys only');
   });

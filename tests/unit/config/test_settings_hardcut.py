@@ -81,7 +81,7 @@ def test_load_config_normalizes_legacy_merkle_backend_for_hardcut(tmp_path: Path
         os.environ,
         {
             "CCL_VAULT_MERKLE_SIGNING_KEY_REF": "vault://caracal/runtime/merkle-signing",
-            "CCL_VAULT_MERKLE_PUBLIC_KEY_REF": "vault://caracal/runtime/merkle-signing.public",
+            "CCL_VAULT_MERKLE_PUB_KEY_REF": "vault://caracal/runtime/merkle-signing.public",
         },
         clear=False,
     ):

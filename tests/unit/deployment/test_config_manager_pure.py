@@ -287,29 +287,29 @@ class TestEncryptArchivePayload:
 class TestExtractWorkspaceDbConfig:
     def test_returns_none_when_no_config_yaml(self, tmp_path):
         mgr = _make_manager(tmp_path)
-        ws_dir = tmp_path / "ws1"
-        ws_dir.mkdir()
-        result = mgr._extract_workspace_db_config(ws_dir)
+        workspace_dir = tmp_path / "workspace1"
+        workspace_dir.mkdir()
+        result = mgr._extract_workspace_db_config(workspace_dir)
         assert result is None
 
     def test_returns_none_when_no_schema(self, tmp_path):
         import yaml
         mgr = _make_manager(tmp_path)
-        ws_dir = tmp_path / "ws1"
-        ws_dir.mkdir()
-        (ws_dir / "config.yaml").write_text(yaml.dump({"database": {"host": "localhost"}}))
-        result = mgr._extract_workspace_db_config(ws_dir)
+        workspace_dir = tmp_path / "workspace1"
+        workspace_dir.mkdir()
+        (workspace_dir / "config.yaml").write_text(yaml.dump({"database": {"host": "localhost"}}))
+        result = mgr._extract_workspace_db_config(workspace_dir)
         assert result is None
 
     def test_returns_config_with_schema(self, tmp_path):
         import yaml
         mgr = _make_manager(tmp_path)
-        ws_dir = tmp_path / "ws1"
-        ws_dir.mkdir()
-        (ws_dir / "config.yaml").write_text(yaml.dump({
-            "database": {"host": "dbhost", "port": 5432, "schema": "ws_test", "database": "caracal", "user": "u"}
+        workspace_dir = tmp_path / "workspace1"
+        workspace_dir.mkdir()
+        (workspace_dir / "config.yaml").write_text(yaml.dump({
+            "database": {"host": "dbhost", "port": 5432, "schema": "workspace_test", "database": "caracal", "user": "u"}
         }))
-        result = mgr._extract_workspace_db_config(ws_dir)
+        result = mgr._extract_workspace_db_config(workspace_dir)
         assert result is not None
-        assert result["schema"] == "ws_test"
+        assert result["schema"] == "workspace_test"
         assert result["host"] == "dbhost"

@@ -255,7 +255,7 @@ class TestVaultDataClasses:
     def test_vault_entry_fields(self) -> None:
         entry = VaultEntry(
             entry_id="e1",
-            workspace_id="ws1",
+            workspace_id="workspace1",
             env_id="env1",
             secret_name="my-secret",
             ciphertext_b64="abc",
@@ -272,7 +272,7 @@ class TestVaultDataClasses:
     def test_vault_audit_event_defaults(self) -> None:
         event = VaultAuditEvent(
             event_id="ev1",
-            workspace_id="ws1",
+            workspace_id="workspace1",
             env_id="env1",
             secret_name="s",
             operation="read",
@@ -299,22 +299,22 @@ class TestVaultDataClasses:
 class TestVaultRateLimiter:
     def test_first_request_allowed(self) -> None:
         limiter = _VaultRateLimiter(limit=10, window=60.0)
-        limiter.check("ws1")  # must not raise
+        limiter.check("workspace1")  # must not raise
 
     def test_repeated_requests_within_limit(self) -> None:
         limiter = _VaultRateLimiter(limit=5, window=60.0)
         for _ in range(5):
-            limiter.check("ws1")
+            limiter.check("workspace1")
 
     def test_exceeding_limit_raises(self) -> None:
         limiter = _VaultRateLimiter(limit=1, window=3600.0)
-        limiter.check("ws1")  # first request uses the token
+        limiter.check("workspace1")  # first request uses the token
         with pytest.raises(VaultRateLimitExceeded):
-            limiter.check("ws1")
+            limiter.check("workspace1")
 
     def test_different_workspaces_independent(self) -> None:
         limiter = _VaultRateLimiter(limit=1, window=3600.0)
-        limiter.check("ws1")
+        limiter.check("workspace1")
         limiter.check("ws2")  # independent bucket, must not raise
 
 
