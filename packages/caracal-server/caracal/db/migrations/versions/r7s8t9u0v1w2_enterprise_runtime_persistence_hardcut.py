@@ -37,7 +37,6 @@ def _has_column(table_name: str, column_name: str) -> bool:
 
 
 def upgrade() -> None:
-    bind = op.get_bind()
     if not _has_table("enterprise_runtime_config"):
         op.create_table(
             "enterprise_runtime_config",
@@ -64,7 +63,7 @@ def upgrade() -> None:
         )
 
     if _has_column("sync_metadata", "metadata"):
-        bind.execute(
+        op.execute(
             sa.text(
                 """
                 INSERT INTO enterprise_runtime_config (runtime_key, config_data, created_at, updated_at)
@@ -83,7 +82,7 @@ def upgrade() -> None:
             ),
             {"runtime_key": _ENTERPRISE_RUNTIME_KEY},
         )
-        bind.execute(
+        op.execute(
             sa.text(
                 "DELETE FROM sync_metadata WHERE workspace = :runtime_key"
             ),
@@ -92,9 +91,8 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    bind = op.get_bind()
     if _has_table("enterprise_runtime_config") and _has_column("sync_metadata", "metadata"):
-        bind.execute(
+        op.execute(
             sa.text(
                 """
                 INSERT INTO sync_metadata (workspace, sync_enabled, metadata, created_at, updated_at)
