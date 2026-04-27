@@ -199,6 +199,36 @@ def _resolve_local_sidecar_token_and_project(
                 logger.debug("Using saved vault identity token from runtime env.")
 
         if base_token is None:
+            # Try Machine Identity Universal Auth if credentials are configured.
+            # This is the recommended recovery path when the vault is already
+            # bootstrapped and no identity token was persisted from the first run.
+            mi_client_id = (_read_env_or_dotenv("CCL_VAULT_MI_CLIENT_ID") or "").strip()
+            mi_client_secret = (_read_env_or_dotenv("CCL_VAULT_MI_CLIENT_SECRET") or "").strip()
+            if mi_client_id and mi_client_secret:
+                mi_response = bootstrap_client.post(
+                    "/api/v1/auth/universal-auth/login",
+                    json={"clientId": mi_client_id, "clientSecret": mi_client_secret},
+                    headers=headers,
+                )
+                if mi_response.status_code == 200:
+                    mi_payload = _json_object(mi_response)
+                    candidate = _extract_string(
+                        mi_payload,
+                        ("accessToken",),
+                        ("access_token",),
+                        ("token",),
+                    )
+                    if candidate:
+                        base_token = candidate
+                        _save_recovered_vault_token(candidate)
+                        logger.info("Vault machine identity universal auth succeeded.")
+                else:
+                    logger.debug(
+                        "Machine identity universal auth returned %d — falling back to email/password.",
+                        mi_response.status_code,
+                    )
+
+        if base_token is None:
             # Final fallback: email/password login (requires users.hashedPassword
             # to be set in the vault DB — may fail on fresh Infisical installs).
             login_response = bootstrap_client.post(
