@@ -47,8 +47,8 @@ _REQUIRED_RUNTIME_COMPOSE_MARKERS = (
     "ccl_vault_environment: ${ccl_vault_environment:-dev}",
     "ccl_vault_secret_path: ${ccl_vault_secret_path:-/}",
     "ccl_vault_signing_key_ref:",
-    "ccl_vault_session_public_key_ref:",
-    "ccl_session_signing_algorithm: ${ccl_session_signing_algorithm:-rs256}",
+    "ccl_vault_sess_pub_key_ref:",
+    "ccl_sess_signing_alg: ${ccl_sess_signing_alg:-rs256}",
 )
 _FORBIDDEN_ENTERPRISE_COMPOSE_MARKERS = (
     "caracal_secret_backend",
@@ -71,8 +71,8 @@ _REQUIRED_ENTERPRISE_COMPOSE_MARKERS = (
     "ccl_vault_environment=${ccl_vault_environment:-enterprise-dev}",
     "ccl_vault_secret_path=${ccl_vault_secret_path:-/enterprise}",
     "ccl_vault_signing_key_ref=${ccl_vault_signing_key_ref:-keys/mandate-signing}",
-    "ccl_vault_session_public_key_ref=${ccl_vault_session_public_key_ref:-keys/session-public}",
-    "ccl_session_signing_algorithm=${ccl_session_signing_algorithm:-rs256}",
+    "ccl_vault_sess_pub_key_ref=${ccl_vault_sess_pub_key_ref:-keys/session-public}",
+    "ccl_sess_signing_alg=${ccl_sess_signing_alg:-rs256}",
     "vault:\n        condition: service_healthy",
 )
 _FORBIDDEN_STATE_RELATIVE_PATHS = (
@@ -86,7 +86,7 @@ _FORBIDDEN_COMPAT_ENV_VARS = (
     "CCL_COMPAT_MODE",
     "CCL_HARDCUT_MODE",
     "CCL_DUAL_WRITE_ON",
-    "CCL_DUAL_WRITE_WIN",
+    "CCL_DUAL_WRITE_WINDOW",
 )
 _REQUIRED_SECRET_BACKEND_ENV = "CCL_PRINCIPAL_KEY_BACKEND"
 _ALLOWED_SECRET_BACKENDS = ("vault",)
@@ -94,10 +94,10 @@ _REQUIRED_VAULT_ENV_VARS = (
     "CCL_VAULT_URL",
     "CCL_VAULT_TOKEN",
     "CCL_VAULT_SIGNING_KEY_REF",
-    "CCL_VAULT_SESSION_PUBLIC_KEY_REF",
+    "CCL_VAULT_SESS_PUB_KEY_REF",
 )
 _SESSION_SIGNING_ALGORITHM_ENV_VARS = (
-    "CCL_SESSION_SIGNING_ALGORITHM",
+    "CCL_SESS_SIGNING_ALG",
 )
 _ALLOWED_SESSION_SIGNING_ALGORITHMS = ("RS256", "ES256")
 _VAULT_MODE_ENV = "CCL_VAULT_MODE"
@@ -121,7 +121,7 @@ _FORBIDDEN_CONFIG_MARKERS = (
     "compat alias",
     "compatibility alias",
 )
-_GW_URL_ENV_KEYS = (
+_GATEWAY_URL_ENV_KEYS = (
     "CCLE_API_URL",
 )
 _GATEWAY_ENABLED_ENV_KEY = "CCLE_GATEWAY_ENABLED"
@@ -334,7 +334,7 @@ def _execution_exclusivity_violations(env_vars: Mapping[str, str | None] | None)
     violations: list[str] = []
     gateway_endpoints = {
         key: (env_vars.get(key) or "").strip()
-        for key in _GW_URL_ENV_KEYS
+        for key in _GATEWAY_URL_ENV_KEYS
     }
     has_gateway_endpoint = any(value for value in gateway_endpoints.values())
 
@@ -345,7 +345,7 @@ def _execution_exclusivity_violations(env_vars: Mapping[str, str | None] | None)
     if gateway_enabled_truthy and not has_gateway_endpoint:
         violations.append(
             f"{_GATEWAY_ENABLED_ENV_KEY} enables gateway execution but no gateway endpoint is configured "
-            f"({_GW_URL_ENV_KEYS[0]})."
+            f"({_GATEWAY_URL_ENV_KEYS[0]})."
         )
 
     if has_gateway_endpoint and gateway_enabled_falsy:

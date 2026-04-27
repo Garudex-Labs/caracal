@@ -38,7 +38,7 @@ def vault_env():
     return {
         "CCL_VAULT_URL": "http://vault.test",
         "CCL_VAULT_TOKEN": "token-123",
-        "CCL_VAULT_WORKSPACE_ID": "proj-default",
+        "CCL_VAULT_WORKSPACE_ID": "project-default",
         "CCL_VAULT_ENVIRONMENT": "dev",
         "CCL_VAULT_SECRET_PATH": "/",
         "CCL_VAULT_MODE": "managed",

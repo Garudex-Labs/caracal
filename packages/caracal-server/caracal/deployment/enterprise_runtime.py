@@ -53,8 +53,8 @@ def _load_workspace_dotenv() -> Dict[str, str]:
     try:
         from caracal.flow.workspace import get_workspace
 
-        ws = get_workspace()
-        candidates.append(ws.root / ".env")
+        workspace = get_workspace()
+        candidates.append(workspace.root / ".env")
     except Exception as exc:
         # Best-effort: flow workspace may be unset when this runs (e.g. early CLI).
         logger.debug("Could not add workspace .env candidate: %s", exc, exc_info=True)

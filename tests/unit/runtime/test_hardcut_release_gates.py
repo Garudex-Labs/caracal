@@ -149,7 +149,7 @@ def test_runtime_session_signing_has_no_legacy_env_alias_fallback() -> None:
     preflight_payload = preflight_file.read_text(encoding="utf-8")
 
     assert "AIS_SESSION_ALGORITHM_FALLBACK_ENV" not in entrypoints_payload
-    legacy_session_alg = "CCL_SESSION_" + "JWT_ALGORITHM"
+    legacy_session_alg = "CCL_" + "SESSION_" + "JWT_ALGORITHM"
     assert legacy_session_alg not in entrypoints_payload
     assert legacy_session_alg not in preflight_payload
 
@@ -197,8 +197,8 @@ def test_runtime_image_compose_has_vault_sidecar_and_hardcut_env_markers() -> No
     assert "  vault:" in payload
     assert "CCL_PRINCIPAL_KEY_BACKEND" in payload
     assert "CCL_VAULT_URL" in payload
-    assert "CCL_VAULT_SESSION_PUBLIC_KEY_REF" in payload
-    assert "CCL_SESSION_SIGNING_ALGORITHM" in payload
+    assert "CCL_VAULT_SESS_PUB_KEY_REF" in payload
+    assert "CCL_SESS_SIGNING_ALG" in payload
 
 
 @pytest.mark.unit
@@ -663,7 +663,7 @@ def test_forbidden_marker_scanner_covers_phase_13_hardcut_expansion() -> None:
     assert "provider_legacy_contract_fields" in payload
     assert "provider_legacy_secret_ref_schema_alias" in payload
     assert "provider_configmanager_secret_usage" in payload
-    legacy_session_alg = "CCL_SESSION_" + "JWT_ALGORITHM"
+    legacy_session_alg = "CCL_" + "SESSION_" + "JWT_ALGORITHM"
     assert legacy_session_alg not in payload
     assert "temporary blocker" in payload
     assert "guard file" in payload
@@ -778,7 +778,7 @@ def test_config_manager_has_no_local_secret_storage_markers() -> None:
     payload = config_manager_file.read_text(encoding="utf-8")
 
     assert "secrets.vault" not in payload
-    assert "CCL_CONFIG_ENCRYPTION_KEY" not in payload
+    assert "CCL_CFG_ENC_KEY" not in payload
     assert "aead_v1:" not in payload
 
 
@@ -829,7 +829,7 @@ def test_merkle_config_and_cli_enforce_hardcut_vault_guard() -> None:
     cli_payload = merkle_cli_file.read_text(encoding="utf-8")
 
     assert "CCL_VAULT_MERKLE_SIGNING_KEY_REF" in settings_payload
-    assert "CCL_VAULT_MERKLE_PUBLIC_KEY_REF" in settings_payload
+    assert "CCL_VAULT_MERKLE_PUB_KEY_REF" in settings_payload
     assert "Local file-backed Merkle signing is forbidden." in settings_payload
     assert "Local Merkle key-file commands are disabled in runtime paths." in cli_payload
 

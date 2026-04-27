@@ -19,7 +19,7 @@ def _valid_vault_env() -> dict[str, str]:
         "CCL_VAULT_URL": "http://vault.example",
         "CCL_VAULT_TOKEN": "test-token",
         "CCL_VAULT_SIGNING_KEY_REF": "keys/mandate-signing",
-        "CCL_VAULT_SESSION_PUBLIC_KEY_REF": "keys/session-public",
+        "CCL_VAULT_SESS_PUB_KEY_REF": "keys/session-public",
     }
 
 
@@ -73,8 +73,8 @@ services:
       - CCL_VAULT_ENVIRONMENT=${CCL_VAULT_ENVIRONMENT:-enterprise-dev}
       - CCL_VAULT_SECRET_PATH=${CCL_VAULT_SECRET_PATH:-/enterprise}
       - CCL_VAULT_SIGNING_KEY_REF=${CCL_VAULT_SIGNING_KEY_REF:-keys/mandate-signing}
-      - CCL_VAULT_SESSION_PUBLIC_KEY_REF=${CCL_VAULT_SESSION_PUBLIC_KEY_REF:-keys/session-public}
-      - CCL_SESSION_SIGNING_ALGORITHM=${CCL_SESSION_SIGNING_ALGORITHM:-RS256}
+      - CCL_VAULT_SESS_PUB_KEY_REF=${CCL_VAULT_SESS_PUB_KEY_REF:-keys/session-public}
+      - CCL_SESS_SIGNING_ALG=${CCL_SESS_SIGNING_ALG:-RS256}
   vault:
     image: ${CCL_VAULT_SIDECAR_IMAGE:-infisical/infisical:latest}
     ports:
@@ -274,7 +274,7 @@ def test_runtime_preflight_blocks_legacy_hardcut_mode_variable() -> None:
 def test_runtime_preflight_blocks_symmetric_session_signing_algorithm() -> None:
     with pytest.raises(HardCutPreflightError, match="asymmetric signing algorithms"):
         env_vars = _valid_vault_env()
-        env_vars["CCL_SESSION_SIGNING_ALGORITHM"] = "HS256"
+        env_vars["CCL_SESS_SIGNING_ALG"] = "HS256"
         assert_runtime_hardcut(
             compose_file=None,
             database_urls={"DATABASE_URL": "postgresql://ok"},
@@ -287,7 +287,7 @@ def test_runtime_preflight_blocks_symmetric_session_signing_algorithm() -> None:
 def test_migration_preflight_blocks_symmetric_session_signing_algorithm() -> None:
     with pytest.raises(HardCutPreflightError, match="asymmetric signing algorithms"):
         env_vars = _valid_vault_env()
-        env_vars["CCL_SESSION_SIGNING_ALGORITHM"] = "HS256"
+        env_vars["CCL_SESS_SIGNING_ALG"] = "HS256"
         assert_migration_hardcut(
             database_urls={"DATABASE_URL": "postgresql://ok"},
             check_jsonb=False,
@@ -298,7 +298,7 @@ def test_migration_preflight_blocks_symmetric_session_signing_algorithm() -> Non
 @pytest.mark.unit
 def test_runtime_preflight_allows_asymmetric_session_signing_algorithm() -> None:
     env_vars = _valid_vault_env()
-    env_vars["CCL_SESSION_SIGNING_ALGORITHM"] = "RS256"
+    env_vars["CCL_SESS_SIGNING_ALG"] = "RS256"
     assert_runtime_hardcut(
         compose_file=None,
         database_urls={"DATABASE_URL": "postgresql://ok"},

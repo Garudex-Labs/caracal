@@ -218,9 +218,9 @@ class TestExtractSecretNames:
         assert self.fn({}) == []
 
     def test_secrets_list_with_secretKey(self):
-        payload = {"secrets": [{"secretKey": "db_pass"}, {"secretKey": "api_key"}]}
+        payload = {"secrets": [{"secretKey": "db_password"}, {"secretKey": "api_key"}]}
         result = self.fn(payload)
-        assert "db_pass" in result
+        assert "db_password" in result
         assert "api_key" in result
 
     def test_items_list_with_name(self):

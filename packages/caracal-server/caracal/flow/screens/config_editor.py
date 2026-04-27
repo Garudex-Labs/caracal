@@ -95,10 +95,10 @@ def _view_configuration(console: Console, state: FlowState) -> None:
         
         # Workspace
         config_mgr = ConfigManager()
-        default_ws = get_default_workspace(config_mgr)
+        default_workspace = get_default_workspace(config_mgr)
         
-        if default_ws:
-            console.print(f"  [{Colors.INFO}]Active Workspace:[/] [{Colors.PRIMARY}]{default_ws.name}[/]")
+        if default_workspace:
+            console.print(f"  [{Colors.INFO}]Active Workspace:[/] [{Colors.PRIMARY}]{default_workspace.name}[/]")
         else:
             console.print(f"  [{Colors.WARNING}]No workspace configured[/]")
         
@@ -282,9 +282,9 @@ def _configure_postgres(console: Console, state: FlowState) -> None:
         # Save configuration and persist password in workspace vault when provided.
         config_mgr.set_postgres_config(new_config)
         if password:
-            default_ws = get_default_workspace(config_mgr)
-            if default_ws is not None:
-                config_mgr.store_secret(new_config.password_ref, password, default_ws.name)
+            default_workspace = get_default_workspace(config_mgr)
+            if default_workspace is not None:
+                config_mgr.store_secret(new_config.password_ref, password, default_workspace.name)
             else:
                 console.print(f"  [{Colors.WARNING}]No workspace found; password was not stored[/]")
         

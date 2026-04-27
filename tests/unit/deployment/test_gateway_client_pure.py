@@ -94,11 +94,11 @@ class TestProviderInfo:
 
 class TestGatewayHealthCheck:
     def test_fields(self):
-        hc = GatewayHealthCheck(healthy=True, latency_ms=12.5, authenticated=True)
-        assert hc.healthy is True
-        assert hc.latency_ms == 12.5
-        assert hc.authenticated is True
-        assert hc.error is None
+        health_check = GatewayHealthCheck(healthy=True, latency_ms=12.5, authenticated=True)
+        assert health_check.healthy is True
+        assert health_check.latency_ms == 12.5
+        assert health_check.authenticated is True
+        assert health_check.error is None
 
 
 class TestQuotaStatus:
@@ -222,7 +222,7 @@ class TestGatewayProviderRequestHeaders:
 def _make_client() -> GatewayClient:
     with patch("caracal.deployment.gateway_client.ConfigManager"):
         client = GatewayClient.__new__(GatewayClient)
-        client.gateway_url = "https://gw.example.com"
+        client.gateway_url = "https://gateway.example.com"
         client.workspace = "default"
         client.max_queue_size = 100
         client.default_ttl_seconds = 3600
@@ -238,19 +238,19 @@ class TestGatewayRequestUrl:
     def test_builds_url_with_endpoint(self):
         client = _make_client()
         url = client._gateway_request_url("/v1/providers")
-        assert url == "https://gw.example.com/v1/providers"
+        assert url == "https://gateway.example.com/v1/providers"
 
     def test_strips_leading_slash(self):
         client = _make_client()
         url = client._gateway_request_url("v1/providers")
-        assert url == "https://gw.example.com/v1/providers"
+        assert url == "https://gateway.example.com/v1/providers"
 
     def test_strips_trailing_slash_from_base(self):
         with patch("caracal.deployment.gateway_client.ConfigManager"):
             client = GatewayClient.__new__(GatewayClient)
-            client.gateway_url = "https://gw.example.com/"
+            client.gateway_url = "https://gateway.example.com/"
             url = client._gateway_request_url("/test")
-        assert url == "https://gw.example.com//test"
+        assert url == "https://gateway.example.com//test"
 
 
 class TestExtractGatewayDenial:

@@ -352,11 +352,11 @@ def get_default_config() -> CaracalConfig:
         CaracalConfig: Default configuration object
     """
     from caracal.flow.workspace import get_workspace
-    ws = get_workspace()
-    ws.ensure_dirs()
+    workspace = get_workspace()
+    workspace.ensure_dirs()
 
     storage = StorageConfig(
-        backup_dir=str(ws.backups_dir),
+        backup_dir=str(workspace.backups_dir),
         backup_count=3,
     )
     
@@ -366,7 +366,7 @@ def get_default_config() -> CaracalConfig:
     
     logging = LoggingConfig(
         level="INFO",
-        file=str(ws.log_path),
+        file=str(workspace.log_path),
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     )
     
@@ -388,7 +388,7 @@ def get_default_config() -> CaracalConfig:
     cfg.compatibility.enable_merkle = True
     cfg.merkle.signing_backend = "vault"
     cfg.merkle.vault_key_ref = os.environ.get("CCL_VAULT_MERKLE_SIGNING_KEY_REF", "")
-    cfg.merkle.vault_public_key_ref = os.environ.get("CCL_VAULT_MERKLE_PUBLIC_KEY_REF", "")
+    cfg.merkle.vault_public_key_ref = os.environ.get("CCL_VAULT_MERKLE_PUB_KEY_REF", "")
     return cfg
 
 
@@ -557,20 +557,20 @@ def _build_config_from_dict(config_data: Dict[str, Any]) -> CaracalConfig:
     )
 
     from caracal.flow.workspace import get_workspace
-    ws = get_workspace()
-    ws.ensure_dirs()
+    workspace = get_workspace()
+    workspace.ensure_dirs()
 
     # Enforce workspace-local operational paths.
-    expected_backup_dir = str(ws.backups_dir)
-    expected_log_file = str(ws.log_path)
-    if Path(storage.backup_dir).expanduser() != ws.backups_dir:
+    expected_backup_dir = str(workspace.backups_dir)
+    expected_log_file = str(workspace.log_path)
+    if Path(storage.backup_dir).expanduser() != workspace.backups_dir:
         logger.warning(
             "Overriding storage.backup_dir to workspace path",
             configured=storage.backup_dir,
             enforced=expected_backup_dir,
         )
         storage.backup_dir = expected_backup_dir
-    if Path(logging.file).expanduser() != ws.log_path:
+    if Path(logging.file).expanduser() != workspace.log_path:
         logger.warning(
             "Overriding logging.file to workspace logs directory",
             configured=logging.file,
@@ -730,9 +730,9 @@ def _build_config_from_dict(config_data: Dict[str, Any]) -> CaracalConfig:
         if not merkle.private_key_path:
             from caracal.flow.workspace import get_workspace
 
-            ws = get_workspace()
-            ws.ensure_dirs()
-            merkle.private_key_path = str(ws.keys_dir / "merkle_signing_key.pem")
+            workspace = get_workspace()
+            workspace.ensure_dirs()
+            merkle.private_key_path = str(workspace.keys_dir / "merkle_signing_key.pem")
 
     # Log warnings for authority enforcement configuration
     if authority_enforcement.enabled:
@@ -809,7 +809,7 @@ def _attempt_legacy_workspace_config_repair(config_path: str) -> bool:
                 "signing_backend": "vault",
                 "signing_algorithm": "ES256",
                 "vault_key_ref": os.environ.get("CCL_VAULT_MERKLE_SIGNING_KEY_REF", ""),
-                "vault_public_key_ref": os.environ.get("CCL_VAULT_MERKLE_PUBLIC_KEY_REF", ""),
+                "vault_public_key_ref": os.environ.get("CCL_VAULT_MERKLE_PUB_KEY_REF", ""),
             },
         }
 
@@ -849,7 +849,7 @@ def _normalize_hardcut_merkle_config_data(
         changed = True
 
     if not normalized_merkle.get("vault_public_key_ref"):
-        normalized_merkle["vault_public_key_ref"] = os.environ.get("CCL_VAULT_MERKLE_PUBLIC_KEY_REF", "")
+        normalized_merkle["vault_public_key_ref"] = os.environ.get("CCL_VAULT_MERKLE_PUB_KEY_REF", "")
         changed = True
 
     if "private_key_path" in normalized_merkle:

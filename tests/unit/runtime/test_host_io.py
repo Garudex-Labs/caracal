@@ -13,7 +13,7 @@ from caracal.runtime.host_io import (
 
 
 _RUNTIME_ENV_VARS = (
-    "CCL_CONFIG_DIR",
+    "CCL_CFG_DIR",
     "CCL_HOME",
     "CCL_HOST_IO_ROOT",
     "CCL_RUNTIME_IN_CONTAINER",
@@ -40,7 +40,7 @@ def test_resolve_caracal_home_prefers_canonical_ccl_values(
 ) -> None:
     canonical_config_dir = tmp_path / "canonical-config"
     canonical_home = tmp_path / "canonical-home"
-    monkeypatch.setenv("CCL_CONFIG_DIR", str(canonical_config_dir))
+    monkeypatch.setenv("CCL_CFG_DIR", str(canonical_config_dir))
     monkeypatch.setenv("CCL_HOME", str(canonical_home))
 
     assert resolve_caracal_home() == canonical_config_dir.resolve(strict=False)

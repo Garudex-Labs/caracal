@@ -77,7 +77,7 @@ class TestJWTToken:
 @pytest.mark.unit
 class TestQueuedRequest:
     def _make_request(self) -> ProviderRequest:
-        return ProviderRequest(provider="p", method="GET", endpoint="/ep")
+        return ProviderRequest(provider="p", method="GET", endpoint="/endpoint")
 
     def test_not_expired_when_within_ttl(self) -> None:
         req = QueuedRequest(
@@ -189,11 +189,11 @@ class TestProviderResponse:
 @pytest.mark.unit
 class TestGatewayHealthCheck:
     def test_construction(self) -> None:
-        hc = GatewayHealthCheck(healthy=True, latency_ms=42.5, authenticated=True)
-        assert hc.healthy is True
-        assert hc.latency_ms == 42.5
-        assert hc.authenticated is True
-        assert hc.error is None
+        health_check = GatewayHealthCheck(healthy=True, latency_ms=42.5, authenticated=True)
+        assert health_check.healthy is True
+        assert health_check.latency_ms == 42.5
+        assert health_check.authenticated is True
+        assert health_check.error is None
 
 
 @pytest.mark.unit

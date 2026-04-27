@@ -70,7 +70,7 @@ async def validate_setup(request: Request):
             "id":     "workspace",
             "label":  "Workspace reachable",
             "ok":     probe["ok"],
-            "detail": f"ws={env['workspace_id']}" if probe["ok"] else probe["error"],
+            "detail": f"workspace={env['workspace_id']}" if probe["ok"] else probe["error"],
         })
     else:
         steps.append({
@@ -108,11 +108,11 @@ _MANDATES_SQL = (
 def _query_db(sql: str) -> list:
     db_name = os.environ.get("CCL_DB_NAME", "caracal_db")
     db_user = os.environ.get("CCL_DB_USER", "caracal")
-    db_pass = os.environ.get("CCL_DB_PASSWORD", "caracal")
+    db_password = os.environ.get("CCL_DB_PASSWORD", "caracal")
     result = subprocess.run(
         [
             "docker", "exec",
-            "-e", f"PGPASSWORD={db_pass}",
+            "-e", f"PGPASSWORD={db_password}",
             "caracal-postgres-1",
             "psql", "-h", "localhost", "-U", db_user, "-d", db_name,
             "-At", "-c", sql,

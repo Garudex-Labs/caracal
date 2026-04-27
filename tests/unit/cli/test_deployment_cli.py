@@ -30,7 +30,7 @@ def _setup_config_manager(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> No
     monkeypatch.setattr(ConfigManager, "CONFIG_DIR", tmp_path)
     monkeypatch.setattr(ConfigManager, "CONFIG_FILE", tmp_path / "config.toml")
     monkeypatch.setattr(ConfigManager, "WORKSPACES_DIR", tmp_path / "workspaces")
-    monkeypatch.setenv("CCL_CONFIG_DIR", str(tmp_path))
+    monkeypatch.setenv("CCL_CFG_DIR", str(tmp_path))
 
 
 @pytest.mark.unit
@@ -42,12 +42,12 @@ class TestResolveLockKey:
     def test_env_var_used_when_no_explicit_key(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        monkeypatch.setenv("CCL_WS_LOCK_KEY", "env-lock-key")
+        monkeypatch.setenv("CCL_WORKSPACE_LOCK_KEY", "env-lock-key")
         result = _resolve_workspace_lock_key(None)
         assert result == "env-lock-key"
 
     def test_none_when_no_key_or_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.delenv("CCL_WS_LOCK_KEY", raising=False)
+        monkeypatch.delenv("CCL_WORKSPACE_LOCK_KEY", raising=False)
         result = _resolve_workspace_lock_key(None)
         assert result is None
 
@@ -62,20 +62,20 @@ class TestWorkspaceCommands:
     ) -> None:
         _setup_config_manager(monkeypatch, tmp_path)
         with self.runner.isolated_filesystem():
-            result = self.runner.invoke(workspace_group, ["create", "test-ws"])
+            result = self.runner.invoke(workspace_group, ["create", "test-workspace"])
         assert result.exit_code == 0
-        assert "created" in result.output.lower() or "test-ws" in result.output
+        assert "created" in result.output.lower() or "test-workspace" in result.output
 
     def test_workspace_create_json_output(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
     ) -> None:
         _setup_config_manager(monkeypatch, tmp_path)
         with self.runner.isolated_filesystem():
-            result = self.runner.invoke(workspace_group, ["create", "--format=json", "json-ws"])
+            result = self.runner.invoke(workspace_group, ["create", "--format=json", "json-workspace"])
         assert result.exit_code == 0
         json_line = next(l for l in result.output.splitlines() if l.startswith("{"))
         data = json.loads(json_line)
-        assert data["workspace"] == "json-ws"
+        assert data["workspace"] == "json-workspace"
         assert data["status"] == "created"
 
     def test_workspace_list_empty(
@@ -92,7 +92,7 @@ class TestWorkspaceCommands:
     ) -> None:
         _setup_config_manager(monkeypatch, tmp_path)
         with self.runner.isolated_filesystem():
-            self.runner.invoke(workspace_group, ["create", "ws-one"])
+            self.runner.invoke(workspace_group, ["create", "workspace-one"])
             result = self.runner.invoke(workspace_group, ["list"])
         assert result.exit_code == 0
 
@@ -293,10 +293,10 @@ class TestConfigSetGetList:
     def test_config_set_success(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
         _setup_config_manager(monkeypatch, tmp_path)
         with self.runner.isolated_filesystem():
-            self.runner.invoke(workspace_group, ["create", "myws"])
+            self.runner.invoke(workspace_group, ["create", "myworkspace"])
         mock_cm = MagicMock()
-        mock_cm.get_default_workspace_name.return_value = "myws"
-        mock_cm.list_workspaces.return_value = ["myws"]
+        mock_cm.get_default_workspace_name.return_value = "myworkspace"
+        mock_cm.list_workspaces.return_value = ["myworkspace"]
         with patch("caracal.cli.deployment_cli.ConfigManager", return_value=mock_cm):
             result = self.runner.invoke(config_group, ["set", "MY_KEY", "myvalue"])
         assert result.exit_code == 0
@@ -305,8 +305,8 @@ class TestConfigSetGetList:
     def test_config_get_success(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
         _setup_config_manager(monkeypatch, tmp_path)
         mock_cm = MagicMock()
-        mock_cm.get_default_workspace_name.return_value = "myws"
-        mock_cm.list_workspaces.return_value = ["myws"]
+        mock_cm.get_default_workspace_name.return_value = "myworkspace"
+        mock_cm.list_workspaces.return_value = ["myworkspace"]
         mock_cm.get_secret.return_value = "secretvalue"
         with patch("caracal.cli.deployment_cli.ConfigManager", return_value=mock_cm):
             result = self.runner.invoke(config_group, ["get", "MY_KEY"])
@@ -316,8 +316,8 @@ class TestConfigSetGetList:
     def test_config_get_json(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
         _setup_config_manager(monkeypatch, tmp_path)
         mock_cm = MagicMock()
-        mock_cm.get_default_workspace_name.return_value = "myws"
-        mock_cm.list_workspaces.return_value = ["myws"]
+        mock_cm.get_default_workspace_name.return_value = "myworkspace"
+        mock_cm.list_workspaces.return_value = ["myworkspace"]
         mock_cm.get_secret.return_value = "secretvalue"
         with patch("caracal.cli.deployment_cli.ConfigManager", return_value=mock_cm):
             result = self.runner.invoke(config_group, ["get", "--format=json", "MY_KEY"])
@@ -328,8 +328,8 @@ class TestConfigSetGetList:
     def test_config_list_success(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
         _setup_config_manager(monkeypatch, tmp_path)
         mock_cm = MagicMock()
-        mock_cm.get_default_workspace_name.return_value = "myws"
-        mock_cm.list_workspaces.return_value = ["myws"]
+        mock_cm.get_default_workspace_name.return_value = "myworkspace"
+        mock_cm.list_workspaces.return_value = ["myworkspace"]
         mock_cm._load_secret_refs_or_empty.return_value = {"KEY1": "ref1", "KEY2": "ref2"}
         with patch("caracal.cli.deployment_cli.ConfigManager", return_value=mock_cm):
             result = self.runner.invoke(config_group, ["list"])
@@ -339,8 +339,8 @@ class TestConfigSetGetList:
     def test_config_list_json(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
         _setup_config_manager(monkeypatch, tmp_path)
         mock_cm = MagicMock()
-        mock_cm.get_default_workspace_name.return_value = "myws"
-        mock_cm.list_workspaces.return_value = ["myws"]
+        mock_cm.get_default_workspace_name.return_value = "myworkspace"
+        mock_cm.list_workspaces.return_value = ["myworkspace"]
         mock_cm._load_secret_refs_or_empty.return_value = {"KEY1": "ref1"}
         with patch("caracal.cli.deployment_cli.ConfigManager", return_value=mock_cm):
             result = self.runner.invoke(config_group, ["list", "--format=json"])
@@ -372,16 +372,16 @@ class TestWorkspaceDeleteExportImport:
     def test_workspace_delete_cancel(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
         _setup_config_manager(monkeypatch, tmp_path)
         with self.runner.isolated_filesystem():
-            self.runner.invoke(workspace_group, ["create", "keep-ws"])
-            result = self.runner.invoke(workspace_group, ["delete", "keep-ws"], input="n\n")
+            self.runner.invoke(workspace_group, ["create", "keep-workspace"])
+            result = self.runner.invoke(workspace_group, ["delete", "keep-workspace"], input="n\n")
         assert "Cancelled" in result.output or result.exit_code == 0
 
     def test_workspace_export_success(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
         _setup_config_manager(monkeypatch, tmp_path)
         export_path = tmp_path / "export.tar.gz"
         with self.runner.isolated_filesystem():
-            self.runner.invoke(workspace_group, ["create", "export-ws"])
-            result = self.runner.invoke(workspace_group, ["export", "export-ws", str(export_path)])
+            self.runner.invoke(workspace_group, ["create", "export-workspace"])
+            result = self.runner.invoke(workspace_group, ["export", "export-workspace", str(export_path)])
         assert result.exit_code == 0
         assert "exported" in result.output.lower()
 
@@ -429,9 +429,9 @@ class TestProviderGroupCommands:
 
         monkeypatch.setattr(dcli, "ConfigManager", _FakeCM)
         monkeypatch.setattr(dcli, "get_deployment_edition_adapter", lambda: _FakeAdapter())
-        monkeypatch.setattr(dcli, "load_workspace_provider_registry", lambda _cm, _ws: copy.deepcopy(reg))
+        monkeypatch.setattr(dcli, "load_workspace_provider_registry", lambda _cm, _workspace: copy.deepcopy(reg))
 
-        def _save(cm, ws, providers):
+        def _save(cm, workspace, providers):
             reg.clear()
             reg.update(copy.deepcopy(providers))
 
@@ -444,7 +444,7 @@ class TestProviderGroupCommands:
         monkeypatch.setattr(
             dcli,
             "delete_workspace_provider_credential",
-            lambda ws, ref: None,
+            lambda workspace, ref: None,
         )
         monkeypatch.setattr(
             dcli,

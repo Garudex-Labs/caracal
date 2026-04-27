@@ -86,7 +86,7 @@ stay out of the user path.
 ### 2.4 Vault sidecar bootstrap
 
 The compose file references `CCL_VAULT_SIDECAR_AUTH_SECRET`,
-`CCL_VAULT_SIDECAR_ENCRYPTION_KEY`,
+`CCL_VAULT_SIDECAR_ENC_KEY`,
 `CCL_VAULT_TOKEN`, and several other knobs with placeholder
 defaults (`caracal-dev-auth-secret`, `dev-local-token`, a hard-coded
 hex string). There is no first-run command that generates production

@@ -143,7 +143,7 @@ class TestWorkspaceErrors:
 
     def test_workspace_not_found(self):
         assert issubclass(WorkspaceNotFoundError, WorkspaceError)
-        with pytest.raises(WorkspaceNotFoundError): raise WorkspaceNotFoundError("ws")
+        with pytest.raises(WorkspaceNotFoundError): raise WorkspaceNotFoundError("workspace")
 
     def test_workspace_already_exists(self):
         assert issubclass(WorkspaceAlreadyExistsError, WorkspaceError)

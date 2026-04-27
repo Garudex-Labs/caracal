@@ -26,7 +26,7 @@ def _runtime_env_path() -> Path:
     Mirrors caracal.runtime.host_io.resolve_caracal_home() so bootstrap and
     `caracal up` agree on the same path.
     """
-    config_dir = os.environ.get("CCL_CONFIG_DIR", "").strip()
+    config_dir = os.environ.get("CCL_CFG_DIR", "").strip()
     if config_dir:
         home = Path(config_dir).expanduser()
     else:
@@ -164,7 +164,7 @@ def bootstrap(ctx, force: bool, rotate_api_key: bool) -> None:
 
     env_path = _runtime_env_path()
 
-    existing_caveat_key = _read_env_var(env_path, "CCL_SESSION_HMAC")
+    existing_caveat_key = _read_env_var(env_path, "CCL_SESS_HMAC")
     caveat_hmac_key = existing_caveat_key or secrets.token_hex(32)
 
     existing_api_key = _read_env_var(env_path, "CCL_API_KEY")
@@ -177,8 +177,8 @@ def bootstrap(ctx, force: bool, rotate_api_key: bool) -> None:
 
     _write_env_vars(env_path, {
         "CCL_AIS_ATTESTATION_NONCE": issued.nonce,
-        "CCL_AIS_ATTESTATION_PRINCIPAL_ID": principal_id,
-        "CCL_SESSION_HMAC": caveat_hmac_key,
+        "CCL_AIS_ATTESTATION_PID": principal_id,
+        "CCL_SESS_HMAC": caveat_hmac_key,
         "CCL_API_KEY": api_key,
     })
 

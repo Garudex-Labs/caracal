@@ -28,9 +28,9 @@ Manual override:
     from caracal_sdk.adapters.base import SDKRequest
 
     adapter = GatewayAdapter(
-        gateway_endpoint="https://gw.example.com",
-        gateway_api_key="gw_key",
-        workspace_id="ws_123",
+        gateway_endpoint="https://gateway.example.com",
+        gateway_api_key="gateway_key",
+        workspace_id="workspace_123",
     )
     client = CaracalClient(adapter=adapter)
 """
@@ -82,7 +82,7 @@ def get_gateway_features() -> GatewayFeatureFlags:
     try:
         # Use __import__ (not importlib.import_module) so callers can rely on
         # builtins.__import__ hooks; fromlist forces loading the leaf module.
-        core_gw = __import__(
+        core_gateway = __import__(
             "caracal.core.gateway_features",
             globals(),
             locals(),
@@ -92,7 +92,7 @@ def get_gateway_features() -> GatewayFeatureFlags:
     except ImportError:
         pass
     else:
-        core_flags = core_gw.get_gateway_features()
+        core_flags = core_gateway.get_gateway_features()
         return GatewayFeatureFlags(
             gateway_enabled=bool(core_flags.gateway_enabled),
             gateway_endpoint=core_flags.gateway_endpoint,
@@ -113,7 +113,7 @@ def get_gateway_features() -> GatewayFeatureFlags:
 
 logger = get_logger(__name__)
 
-_GW_REQUEST_TIMEOUT = 30
+_GATEWAY_REQUEST_TTL = 30
 
 
 class GatewayAdapterError(Exception):
@@ -147,7 +147,7 @@ class GatewayAdapter(BaseAdapter):
         gateway_api_key: Optional[str] = None,
         workspace_id: Optional[str] = None,
         broker_base_url: Optional[str] = None,
-        timeout_seconds: int = _GW_REQUEST_TIMEOUT,
+        timeout_seconds: int = _GATEWAY_REQUEST_TTL,
         feature_flags: Optional[GatewayFeatureFlags] = None,
     ) -> None:
         """

@@ -41,7 +41,7 @@ class _DenyAdapter(BaseAdapter):
 
 
 def _make_deny_scope() -> ScopeContext:
-    return ScopeContext(adapter=_DenyAdapter(), hooks=HookRegistry(), workspace_id="test-ws")
+    return ScopeContext(adapter=_DenyAdapter(), hooks=HookRegistry(), workspace_id="test-workspace")
 
 
 @pytest.fixture()

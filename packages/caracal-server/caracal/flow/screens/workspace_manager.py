@@ -112,11 +112,11 @@ def _list_workspaces(console: Console, state: FlowState) -> None:
             table.add_column("Active", style=Colors.SUCCESS)
             table.add_column("Created", style=Colors.DIM)
             
-            for ws in workspaces:
-                default_mark = f"[{Colors.SUCCESS}]{Icons.SUCCESS}[/]" if ws.is_default else ""
-                created = ws.created_at.strftime("%Y-%m-%d") if ws.created_at else "Unknown"
+            for workspace in workspaces:
+                default_mark = f"[{Colors.SUCCESS}]{Icons.SUCCESS}[/]" if workspace.is_default else ""
+                created = workspace.created_at.strftime("%Y-%m-%d") if workspace.created_at else "Unknown"
                 
-                table.add_row(ws.name, default_mark, created)
+                table.add_row(workspace.name, default_mark, created)
             
             console.print(table)
         
@@ -250,12 +250,12 @@ def _switch_workspace(console: Console, state: FlowState) -> None:
         
         # Build menu of workspaces
         items = []
-        for ws in workspaces:
-            default_mark = " (current)" if ws.is_default else ""
+        for workspace in workspaces:
+            default_mark = " (current)" if workspace.is_default else ""
             items.append(MenuItem(
-                ws.name,
-                f"{ws.name}{default_mark}",
-                f"Created: {ws.created_at.strftime('%Y-%m-%d') if ws.created_at else 'Unknown'}",
+                workspace.name,
+                f"{workspace.name}{default_mark}",
+                f"Created: {workspace.created_at.strftime('%Y-%m-%d') if workspace.created_at else 'Unknown'}",
                 Icons.WORKSPACE
             ))
         items.append(MenuItem("back", "Cancel", "", Icons.ARROW_LEFT))
@@ -320,12 +320,12 @@ def _delete_workspace(console: Console, state: FlowState) -> None:
         
         # Build menu of workspaces
         items = []
-        for ws in workspaces:
-            if not ws.is_default:  # Don't allow deleting default workspace
+        for workspace in workspaces:
+            if not workspace.is_default:  # Don't allow deleting default workspace
                 items.append(MenuItem(
-                    ws.name,
-                    ws.name,
-                    f"Created: {ws.created_at.strftime('%Y-%m-%d') if ws.created_at else 'Unknown'}",
+                    workspace.name,
+                    workspace.name,
+                    f"Created: {workspace.created_at.strftime('%Y-%m-%d') if workspace.created_at else 'Unknown'}",
                     Icons.WORKSPACE
                 ))
         
@@ -392,11 +392,11 @@ def _export_workspace(console: Console, state: FlowState) -> None:
         
         # Select workspace
         items = []
-        for ws in workspaces:
+        for workspace in workspaces:
             items.append(MenuItem(
-                ws.name,
-                ws.name,
-                f"Created: {ws.created_at.strftime('%Y-%m-%d') if ws.created_at else 'Unknown'}",
+                workspace.name,
+                workspace.name,
+                f"Created: {workspace.created_at.strftime('%Y-%m-%d') if workspace.created_at else 'Unknown'}",
                 Icons.WORKSPACE
             ))
         items.append(MenuItem("back", "Cancel", "", Icons.ARROW_LEFT))

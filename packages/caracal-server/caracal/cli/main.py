@@ -37,10 +37,10 @@ def get_active_workspace() -> Optional[str]:
         return None
 
 
-def format_workspace_status(active_ws: Optional[str]) -> str:
+def format_workspace_status(active_workspace: Optional[str]) -> str:
     """Render workspace banner text for help and command output."""
-    if active_ws:
-        return f"Active Workspace: {click.style(active_ws, fg='cyan', bold=True)}"
+    if active_workspace:
+        return f"Active Workspace: {click.style(active_workspace, fg='cyan', bold=True)}"
     return click.style("WARNING: No workspace configured", fg='yellow', bold=True)
 
 
@@ -118,11 +118,11 @@ class WorkspaceAwareGroup(SuggestingGroup):
     def format_help(self, ctx: Context, formatter: click.HelpFormatter) -> None:
         """Format help with active workspace displayed at top."""
         # Get active workspace
-        active_ws = get_active_workspace()
+        active_workspace = get_active_workspace()
         
         # Add workspace info at the top
         formatter.write_paragraph()
-        formatter.write_text(format_workspace_status(active_ws))
+        formatter.write_text(format_workspace_status(active_workspace))
         formatter.write_paragraph()
         
         # Format usage
@@ -246,16 +246,16 @@ def cli(ctx, workspace: Optional[str], log_level: str, verbose: bool):
     # to introspect via help output.
     if is_help_or_version:
         if ctx.invoked_subcommand is not None and not is_version:
-            active_ws = ctx.obj['workspace']
-            click.echo(format_workspace_status(active_ws))
+            active_workspace = ctx.obj['workspace']
+            click.echo(format_workspace_status(active_workspace))
         return
 
     # Root invocation without subcommand should be informative and must not
     # fail due to runtime config preflight checks.
     if ctx.invoked_subcommand is None:
-        active_ws = ctx.obj['workspace']
+        active_workspace = ctx.obj['workspace']
         click.echo(f"Caracal v{__version__}")
-        click.echo(format_workspace_status(active_ws))
+        click.echo(format_workspace_status(active_workspace))
         click.echo()
         click.echo("Run 'caracal --help' for available commands")
         click.echo("Run 'caracal workspace list' to see all workspaces")
@@ -281,8 +281,8 @@ def cli(ctx, workspace: Optional[str], log_level: str, verbose: bool):
     # Show active workspace context for any subcommand invocation, including
     # subcommand help. Root help already renders this via WorkspaceAwareGroup.
     if ctx.invoked_subcommand is not None and not is_version:
-        active_ws = ctx.obj['workspace']
-        click.echo(format_workspace_status(active_ws))
+        active_workspace = ctx.obj['workspace']
+        click.echo(format_workspace_status(active_workspace))
     
     # Set up logging
     try:
@@ -351,11 +351,11 @@ def workspace_list(ctx, format):
         if format == 'json':
             data = [
                 {
-                    'name': ws.name,
-                    'active': ws.is_default,
-                    'created': ws.created_at.isoformat() if ws.created_at else None
+                    'name': workspace.name,
+                    'active': workspace.is_default,
+                    'created': workspace.created_at.isoformat() if workspace.created_at else None
                 }
-                for ws in workspace_configs
+                for workspace in workspace_configs
             ]
             click.echo(json_lib.dumps(data, indent=2))
         else:
@@ -366,9 +366,9 @@ def workspace_list(ctx, format):
             click.echo()
             click.echo(click.style("WORKSPACES", bold=True))
             click.echo()
-            for ws in workspace_configs:
-                marker = click.style("●", fg='green') if ws.is_default else " "
-                click.echo(f"  {marker} {click.style(ws.name, bold=True)}")
+            for workspace in workspace_configs:
+                marker = click.style("●", fg='green') if workspace.is_default else " "
+                click.echo(f"  {marker} {click.style(workspace.name, bold=True)}")
             click.echo()
             
     except Exception as e:
@@ -417,8 +417,8 @@ def workspace_use(ctx, name):
 @click.pass_context
 def workspace_current(ctx):
     """Show current workspace."""
-    active_ws = ctx.obj['workspace']
-    click.echo(active_ws)
+    active_workspace = ctx.obj['workspace']
+    click.echo(active_workspace)
 
 
 @workspace.command(name='delete')

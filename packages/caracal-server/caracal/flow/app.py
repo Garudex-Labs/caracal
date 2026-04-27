@@ -40,15 +40,15 @@ class FlowApp:
         try:
             from caracal.flow.workspace import get_workspace
 
-            ws = get_workspace()
-            ws.ensure_dirs()
+            workspace = get_workspace()
+            workspace.ensure_dirs()
             # Ensure log files exist so Logs Viewer always has concrete targets.
-            ws.log_path.touch(exist_ok=True)
-            (ws.logs_dir / "sync.log").touch(exist_ok=True)
+            workspace.log_path.touch(exist_ok=True)
+            (workspace.logs_dir / "sync.log").touch(exist_ok=True)
 
             # File-only logging prevents log output from polluting the TUI.
-            setup_runtime_logging(log_file=ws.log_path)
-            get_logger(__name__).info("flow_logging_configured", workspace=str(ws.root))
+            setup_runtime_logging(log_file=workspace.log_path)
+            get_logger(__name__).info("flow_logging_configured", workspace=str(workspace.root))
         except Exception:
             # Fallback: keep TUI usable even if workspace logging setup fails.
             setup_runtime_logging(requested_level="WARNING", requested_json_format=False)
@@ -400,16 +400,16 @@ class FlowApp:
         # Gateway (deployment artifact — separate network enforcement proxy, can run on different host)
         gateway_on = getattr(config.gateway, 'enabled', False)
         if gateway_on:
-            gw_addr = getattr(config.gateway, 'listen_address', '')
-            if gw_addr and ':' in gw_addr:
-                gw_host, _, gw_port_str = gw_addr.rpartition(':')
-                gw_port = int(gw_port_str) if gw_port_str.isdigit() else None
-                if gw_port is None:
-                    table.add_row("Gateway", "Deploy", _enabled_str(True), f"[{Colors.WARNING}]Address invalid[/]", gw_addr)
+            gateway_addr = getattr(config.gateway, 'listen_address', '')
+            if gateway_addr and ':' in gateway_addr:
+                gateway_host, _, gateway_port_str = gateway_addr.rpartition(':')
+                gateway_port = int(gateway_port_str) if gateway_port_str.isdigit() else None
+                if gateway_port is None:
+                    table.add_row("Gateway", "Deploy", _enabled_str(True), f"[{Colors.WARNING}]Address invalid[/]", gateway_addr)
                 else:
-                    gw_check_host = 'localhost' if gw_host == '0.0.0.0' else gw_host
-                    gw_ok = _check_tcp(gw_check_host, gw_port)
-                    table.add_row("Gateway", "Deploy", _enabled_str(True), _status_str(gw_ok), gw_addr)
+                    gateway_check_host = 'localhost' if gateway_host == '0.0.0.0' else gateway_host
+                    gateway_ok = _check_tcp(gateway_check_host, gateway_port)
+                    table.add_row("Gateway", "Deploy", _enabled_str(True), _status_str(gateway_ok), gateway_addr)
             else:
                 table.add_row("Gateway", "Deploy", _enabled_str(True), f"[{Colors.WARNING}]URL-managed[/]", "Configured remotely")
         else:

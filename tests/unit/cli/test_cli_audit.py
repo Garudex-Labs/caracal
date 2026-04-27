@@ -141,11 +141,11 @@ class TestLintCommandSurface:
             "workspace": {
                 "help": "Manage workspaces.",
                 "is_group": True,
-                "subcommands": ["create_ws"],
+                "subcommands": ["create_workspace"],
             }
         }
         findings = _lint_command_surface(surface)
-        assert any("create_ws" in f for f in findings)
+        assert any("create_workspace" in f for f in findings)
 
 
 @pytest.mark.unit

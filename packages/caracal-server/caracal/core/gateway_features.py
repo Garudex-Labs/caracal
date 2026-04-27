@@ -81,7 +81,7 @@ class GatewayFeatureFlags:
 
     # ── Connectivity ────────────────────────────────────────────────────────
     gateway_endpoint: Optional[str] = None
-    """Base URL of the gateway proxy (e.g. https://gw.example.com)."""
+    """Base URL of the gateway proxy (e.g. https://gateway.example.com)."""
 
     gateway_api_key: Optional[str] = None
     """API key used to authenticate SDK/CLI calls to the gateway."""
@@ -196,25 +196,25 @@ def _merge_workspace_config(flags: GatewayFeatureFlags) -> None:
 
         edition_adapter = get_deployment_edition_adapter()
         resolve_overrides = getattr(edition_adapter, "resolve_gateway_feature_overrides", None)
-        gw = resolve_overrides() if callable(resolve_overrides) else {}
+        gateway = resolve_overrides() if callable(resolve_overrides) else {}
 
-        if isinstance(gw, dict) and gw.get("enabled"):
+        if isinstance(gateway, dict) and gateway.get("enabled"):
             flags.gateway_enabled = True
             flags._source = "enterprise-runtime"
 
-            if ep := gw.get("endpoint"):
-                flags.gateway_endpoint = ep.rstrip("/")
-            if key := gw.get("api_key"):
+            if endpoint := gateway.get("endpoint"):
+                flags.gateway_endpoint = endpoint.rstrip("/")
+            if key := gateway.get("api_key"):
                 flags.gateway_api_key = key
-            if "fail_closed" in gw:
-                flags.fail_closed = bool(gw["fail_closed"])
-            if "use_provider_registry" in gw:
-                flags.use_provider_registry = bool(gw["use_provider_registry"])
-            if "mandate_cache_ttl_seconds" in gw:
-                flags.mandate_cache_ttl_seconds = int(gw["mandate_cache_ttl_seconds"])
-            if "revocation_sync_interval_seconds" in gw:
-                flags.revocation_sync_interval_seconds = int(gw["revocation_sync_interval_seconds"])
-            if dt := gw.get("deployment_type"):
+            if "fail_closed" in gateway:
+                flags.fail_closed = bool(gateway["fail_closed"])
+            if "use_provider_registry" in gateway:
+                flags.use_provider_registry = bool(gateway["use_provider_registry"])
+            if "mandate_cache_ttl_seconds" in gateway:
+                flags.mandate_cache_ttl_seconds = int(gateway["mandate_cache_ttl_seconds"])
+            if "revocation_sync_interval_seconds" in gateway:
+                flags.revocation_sync_interval_seconds = int(gateway["revocation_sync_interval_seconds"])
+            if dt := gateway.get("deployment_type"):
                 if dt in (DEPLOYMENT_MANAGED, DEPLOYMENT_SELF_HOSTED):
                     flags.deployment_type = dt
     except Exception as exc:
@@ -226,38 +226,38 @@ def _merge_workspace_config(flags: GatewayFeatureFlags) -> None:
     try:
         from caracal.config import load_config
         config = load_config()
-        gw = getattr(config, "gateway", None)
-        if gw is None:
+        gateway = getattr(config, "gateway", None)
+        if gateway is None:
             return
 
-        if getattr(gw, "enabled", False):
+        if getattr(gateway, "enabled", False):
             flags.gateway_enabled = True
             flags._source = "config"
 
-        if ep := getattr(gw, "endpoint", None):
-            flags.gateway_endpoint = ep.rstrip("/")
+        if endpoint := getattr(gateway, "endpoint", None):
+            flags.gateway_endpoint = endpoint.rstrip("/")
 
-        if key := getattr(gw, "api_key", None):
+        if key := getattr(gateway, "api_key", None):
             flags.gateway_api_key = key
 
-        if hasattr(gw, "enforce_at_network"):
-            flags.enforce_at_network = bool(gw.enforce_at_network)
+        if hasattr(gateway, "enforce_at_network"):
+            flags.enforce_at_network = bool(gateway.enforce_at_network)
 
-        if hasattr(gw, "fail_closed"):
-            flags.fail_closed = bool(gw.fail_closed)
+        if hasattr(gateway, "fail_closed"):
+            flags.fail_closed = bool(gateway.fail_closed)
 
-        if hasattr(gw, "mandate_cache_ttl_seconds"):
-            flags.mandate_cache_ttl_seconds = int(gw.mandate_cache_ttl_seconds)
+        if hasattr(gateway, "mandate_cache_ttl_seconds"):
+            flags.mandate_cache_ttl_seconds = int(gateway.mandate_cache_ttl_seconds)
 
-        if hasattr(gw, "revocation_sync_interval_seconds"):
+        if hasattr(gateway, "revocation_sync_interval_seconds"):
             flags.revocation_sync_interval_seconds = int(
-                gw.revocation_sync_interval_seconds
+                gateway.revocation_sync_interval_seconds
             )
 
-        if hasattr(gw, "use_provider_registry"):
-            flags.use_provider_registry = bool(gw.use_provider_registry)
+        if hasattr(gateway, "use_provider_registry"):
+            flags.use_provider_registry = bool(gateway.use_provider_registry)
 
-        if dt := getattr(gw, "deployment_type", None):
+        if dt := getattr(gateway, "deployment_type", None):
             if dt in (DEPLOYMENT_MANAGED, DEPLOYMENT_SELF_HOSTED):
                 flags.deployment_type = dt
 

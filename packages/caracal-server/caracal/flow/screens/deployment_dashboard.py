@@ -108,9 +108,9 @@ def _build_system_info() -> Table:
         
         # Workspace
         config_mgr = ConfigManager()
-        default_ws = get_default_workspace(config_mgr)
-        if default_ws:
-            table.add_row("Workspace:", f"[{Colors.PRIMARY}]{default_ws.name}[/]")
+        default_workspace = get_default_workspace(config_mgr)
+        if default_workspace:
+            table.add_row("Workspace:", f"[{Colors.PRIMARY}]{default_workspace.name}[/]")
         else:
             table.add_row("Workspace:", f"[{Colors.WARNING}]None configured[/]")
         

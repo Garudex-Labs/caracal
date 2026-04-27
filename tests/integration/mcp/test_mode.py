@@ -280,12 +280,12 @@ async def test_sdk_tool_call_local_and_forward_modes_preserve_authorization_and_
     local_scope = ScopeContext(
         adapter=HttpAdapter(base_url="http://local.test", api_key="sdk-token"),
         hooks=HookRegistry(),
-        workspace_id="ws-123",
+        workspace_id="workspace-123",
     )
     forward_scope = ScopeContext(
         adapter=HttpAdapter(base_url="http://forward.test", api_key="sdk-token"),
         hooks=HookRegistry(),
-        workspace_id="ws-123",
+        workspace_id="workspace-123",
     )
 
     local_response = await local_scope.tools.call(
@@ -334,7 +334,7 @@ async def test_sdk_tool_call_forward_logic_mode_preserves_authorization_and_ledg
     scope = ScopeContext(
         adapter=HttpAdapter(base_url="http://forward-logic.test", api_key="sdk-token"),
         hooks=HookRegistry(),
-        workspace_id="ws-123",
+        workspace_id="workspace-123",
     )
 
     response = await scope.tools.call(
@@ -367,7 +367,7 @@ async def test_sdk_tool_call_local_direct_api_contract_violation_fails_closed(
     scope = ScopeContext(
         adapter=HttpAdapter(base_url="http://local-direct-api.test", api_key="sdk-token"),
         hooks=HookRegistry(),
-        workspace_id="ws-123",
+        workspace_id="workspace-123",
     )
 
     response = await scope.tools.call(

@@ -27,7 +27,7 @@ def test_restricted_shell_root_help_action() -> None:
     assert parsed.message is None
 
 
-def test_restricted_shell_allows_direct_command() -> None:
+def test_restricted_shell_alloworkspace_direct_command() -> None:
     parsed = parse_restricted_tokens(["workspace", "list"])
 
     assert parsed.args == ["workspace", "list"]

@@ -71,11 +71,11 @@ class TestSigningServiceResolveSigningKeyReference:
             svc._resolve_signing_key_reference("pid")
 
     def test_valid_reference_returns_tuple(self):
-        valid_ref = "vault://ws1/env1/key1"
+        valid_ref = "vault://workspace1/env1/key1"
         reg = self._registry(ref=valid_ref)
         svc = SigningService(reg)
         workspace_id, env_id, secret_name = svc._resolve_signing_key_reference("pid")
-        assert workspace_id == "ws1"
+        assert workspace_id == "workspace1"
         assert env_id == "env1"
         assert secret_name == "key1"
 
@@ -151,12 +151,12 @@ class TestSigningServiceSignCanonicalPayload:
 class TestVaultReferenceJwtSigner:
     def test_valid_init_stores_attrs(self):
         signer = VaultReferenceJwtSigner(
-            workspace_id="ws1",
+            workspace_id="workspace1",
             env_id="env1",
             key_name="mykey",
             actor="test-actor",
         )
-        assert signer._workspace_id == "ws1"
+        assert signer._workspace_id == "workspace1"
         assert signer._env_id == "env1"
         assert signer._key_name == "mykey"
         assert signer._actor == "test-actor"
@@ -167,22 +167,22 @@ class TestVaultReferenceJwtSigner:
 
     def test_missing_env_id_raises(self):
         with pytest.raises(SigningServiceKeyError):
-            VaultReferenceJwtSigner(workspace_id="ws1", env_id="", key_name="k", actor="a")
+            VaultReferenceJwtSigner(workspace_id="workspace1", env_id="", key_name="k", actor="a")
 
     def test_missing_key_name_raises(self):
         with pytest.raises(SigningServiceKeyError):
-            VaultReferenceJwtSigner(workspace_id="ws1", env_id="env1", key_name="", actor="a")
+            VaultReferenceJwtSigner(workspace_id="workspace1", env_id="env1", key_name="", actor="a")
 
     def test_default_actor_fallback(self):
-        signer = VaultReferenceJwtSigner(workspace_id="ws1", env_id="env1", key_name="k", actor="")
+        signer = VaultReferenceJwtSigner(workspace_id="workspace1", env_id="env1", key_name="k", actor="")
         assert signer._actor == "signing-service"
 
     def test_whitespace_actor_uses_default(self):
-        signer = VaultReferenceJwtSigner(workspace_id="ws1", env_id="env1", key_name="k", actor="   ")
+        signer = VaultReferenceJwtSigner(workspace_id="workspace1", env_id="env1", key_name="k", actor="   ")
         assert signer._actor == "signing-service"
 
     def test_sign_token_vault_error_raises(self):
-        signer = VaultReferenceJwtSigner(workspace_id="ws1", env_id="env1", key_name="k", actor="a")
+        signer = VaultReferenceJwtSigner(workspace_id="workspace1", env_id="env1", key_name="k", actor="a")
         with patch("caracal.core.signing_service.get_vault") as mock_vault:
             mock_vault.return_value.sign_jwt.side_effect = RuntimeError("vault down")
             with patch("caracal.core.signing_service.vault_access_context"):

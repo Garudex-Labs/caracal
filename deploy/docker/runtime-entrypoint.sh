@@ -4,7 +4,7 @@ set -eu
 DEFAULT_STATE_DIR="${HOME:-/home/caracal}/.caracal"
 STATE_DIR="${CCL_HOME:-${DEFAULT_STATE_DIR}}"
 CCL_HOME="${STATE_DIR}"
-CONFIG_PATH="${CCL_CONFIG_PATH:-${STATE_DIR}/config.yaml}"
+CONFIG_PATH="${CCL_CFG_PATH:-${STATE_DIR}/config.yaml}"
 HOST_IO_ROOT="${CCL_HOST_IO_ROOT:-/caracal-host-io}"
 CCL_HOST_IO_ROOT="${HOST_IO_ROOT}"
 CCL_RUNTIME_IN_CONTAINER="${CCL_RUNTIME_IN_CONTAINER:-1}"
@@ -17,7 +17,7 @@ if [ ! -f "${CONFIG_PATH}" ] && [ -f /opt/caracal/config/config.example.yaml ]; 
     cp /opt/caracal/config/config.example.yaml "${CONFIG_PATH}"
 fi
 
-export CCL_CONFIG_PATH="${CONFIG_PATH}"
+export CCL_CFG_PATH="${CONFIG_PATH}"
 export CCL_HOME="${STATE_DIR}"
 export CCL_HOST_IO_ROOT="${HOST_IO_ROOT}"
 export CCL_RUNTIME_IN_CONTAINER

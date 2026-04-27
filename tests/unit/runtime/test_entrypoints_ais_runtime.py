@@ -300,8 +300,8 @@ def test_runtime_hardcut_env_does_not_default_required_vault_config(
         "CCL_VAULT_URL",
         "CCL_VAULT_TOKEN",
         "CCL_VAULT_SIGNING_KEY_REF",
-        "CCL_VAULT_SESSION_PUBLIC_KEY_REF",
-        "CCL_SESSION_SIGNING_ALGORITHM",
+        "CCL_VAULT_SESS_PUB_KEY_REF",
+        "CCL_SESS_SIGNING_ALG",
     ):
         monkeypatch.delenv(env_key, raising=False)
 
@@ -311,8 +311,8 @@ def test_runtime_hardcut_env_does_not_default_required_vault_config(
     assert "CCL_VAULT_URL" not in env_vars
     assert "CCL_VAULT_TOKEN" not in env_vars
     assert "CCL_VAULT_SIGNING_KEY_REF" not in env_vars
-    assert "CCL_VAULT_SESSION_PUBLIC_KEY_REF" not in env_vars
-    assert "CCL_SESSION_SIGNING_ALGORITHM" not in env_vars
+    assert "CCL_VAULT_SESS_PUB_KEY_REF" not in env_vars
+    assert "CCL_SESS_SIGNING_ALG" not in env_vars
 
 
 @pytest.mark.unit
@@ -323,14 +323,14 @@ def test_runtime_hardcut_env_maps_existing_compose_vault_aliases(
     monkeypatch.delenv("CCL_VAULT_URL", raising=False)
     monkeypatch.delenv("CCL_VAULT_TOKEN", raising=False)
     monkeypatch.delenv("CCL_VAULT_SIGNING_KEY_REF", raising=False)
-    monkeypatch.delenv("CCL_VAULT_SESSION_PUBLIC_KEY_REF", raising=False)
-    monkeypatch.delenv("CCL_SESSION_SIGNING_ALGORITHM", raising=False)
+    monkeypatch.delenv("CCL_VAULT_SESS_PUB_KEY_REF", raising=False)
+    monkeypatch.delenv("CCL_SESS_SIGNING_ALG", raising=False)
     monkeypatch.setenv("CCL_PRINCIPAL_KEY_BACKEND", "vault")
     monkeypatch.setenv("CCL_VAULT_URL", "http://vault:8080")
     monkeypatch.setenv("CCL_VAULT_TOKEN", "configured-token")
     monkeypatch.setenv("CCL_VAULT_SIGNING_KEY_REF", "keys/signing")
-    monkeypatch.setenv("CCL_VAULT_SESSION_PUBLIC_KEY_REF", "keys/session-public")
-    monkeypatch.setenv("CCL_SESSION_SIGNING_ALGORITHM", "ES256")
+    monkeypatch.setenv("CCL_VAULT_SESS_PUB_KEY_REF", "keys/session-public")
+    monkeypatch.setenv("CCL_SESS_SIGNING_ALG", "ES256")
 
     env_vars = entrypoints._runtime_hardcut_env()
 
@@ -338,8 +338,8 @@ def test_runtime_hardcut_env_maps_existing_compose_vault_aliases(
     assert env_vars["CCL_VAULT_URL"] == "http://vault:8080"
     assert env_vars["CCL_VAULT_TOKEN"] == "configured-token"
     assert env_vars["CCL_VAULT_SIGNING_KEY_REF"] == "keys/signing"
-    assert env_vars["CCL_VAULT_SESSION_PUBLIC_KEY_REF"] == "keys/session-public"
-    assert env_vars["CCL_SESSION_SIGNING_ALGORITHM"] == "ES256"
+    assert env_vars["CCL_VAULT_SESS_PUB_KEY_REF"] == "keys/session-public"
+    assert env_vars["CCL_SESS_SIGNING_ALG"] == "ES256"
 
 
 @pytest.mark.unit
@@ -929,7 +929,7 @@ def test_build_ais_handlers_allows_local_bootstrap_principal_without_auth(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _patch_principal_registry_for_issue_token(monkeypatch)
-    monkeypatch.setenv("CCL_AIS_PRINCIPAL_ID", "principal-1")
+    monkeypatch.setenv("CCL_AIS_PID", "principal-1")
 
     handlers = entrypoints._build_ais_handlers(
         db_manager=_FakeDbManager(),

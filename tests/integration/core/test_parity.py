@@ -241,11 +241,11 @@ def test_cli_and_tui_provider_creation_persist_identical_provider_contract(
         "_require_workspace",
         lambda _config_manager, workspace: workspace or "test-workspace",
     )
-    monkeypatch.setattr(deployment_cli, "_load_workspace_providers", lambda _cm, _ws: {})
+    monkeypatch.setattr(deployment_cli, "_load_workspace_providers", lambda _cm, _workspace: {})
     monkeypatch.setattr(
         deployment_cli,
         "_save_workspace_providers",
-        lambda _cm, _ws, providers: cli_saved.update(providers),
+        lambda _cm, _workspace, providers: cli_saved.update(providers),
     )
 
     cli_result = runner.invoke(
@@ -277,11 +277,11 @@ def test_cli_and_tui_provider_creation_persist_identical_provider_contract(
     )
     monkeypatch.setattr(provider_manager_module, "ConfigManager", lambda: SimpleNamespace())
     monkeypatch.setattr(provider_manager_module, "_active_workspace", lambda _cm: "test-workspace")
-    monkeypatch.setattr(provider_manager_module, "load_workspace_provider_registry", lambda _cm, _ws: {})
+    monkeypatch.setattr(provider_manager_module, "load_workspace_provider_registry", lambda _cm, _workspace: {})
     monkeypatch.setattr(
         provider_manager_module,
         "save_workspace_provider_registry",
-        lambda _cm, _ws, providers: tui_saved.update(providers),
+        lambda _cm, _workspace, providers: tui_saved.update(providers),
     )
     monkeypatch.setattr(
         provider_manager_module,
@@ -367,7 +367,7 @@ def test_cli_and_tui_tool_registration_call_identical_core_contract(
     monkeypatch.setattr(
         tool_registry_cli,
         "load_workspace_provider_registry",
-        lambda _cm, _ws: {
+        lambda _cm, _workspace: {
             "endframe": {
                 "provider_definition": "endframe",
                 "definition": {
@@ -420,7 +420,7 @@ def test_cli_and_tui_tool_registration_call_identical_core_contract(
     monkeypatch.setattr(
         provider_manager_module,
         "load_workspace_provider_registry",
-        lambda _cm, _ws: {
+        lambda _cm, _workspace: {
             "endframe": {
                 "provider_definition": "endframe",
                 "definition": {
@@ -497,7 +497,7 @@ def test_cli_and_tui_tool_registration_local_logic_contract_parity(
     monkeypatch.setattr(
         tool_registry_cli,
         "load_workspace_provider_registry",
-        lambda _cm, _ws: {
+        lambda _cm, _workspace: {
             "endframe": {
                 "provider_definition": "endframe",
                 "definition": {
@@ -552,7 +552,7 @@ def test_cli_and_tui_tool_registration_local_logic_contract_parity(
     monkeypatch.setattr(
         provider_manager_module,
         "load_workspace_provider_registry",
-        lambda _cm, _ws: {
+        lambda _cm, _workspace: {
             "endframe": {
                 "provider_definition": "endframe",
                 "definition": {

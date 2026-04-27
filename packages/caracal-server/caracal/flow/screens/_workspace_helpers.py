@@ -22,9 +22,9 @@ def list_workspace_configs(config_mgr: ConfigManager) -> List[WorkspaceConfig]:
 def get_default_workspace(config_mgr: ConfigManager) -> Optional[WorkspaceConfig]:
     """Return default workspace config, or the first available workspace."""
     workspaces = list_workspace_configs(config_mgr)
-    default_ws = next((ws for ws in workspaces if ws.is_default), None)
-    if default_ws is not None:
-        return default_ws
+    default_workspace = next((workspace for workspace in workspaces if workspace.is_default), None)
+    if default_workspace is not None:
+        return default_workspace
     return workspaces[0] if workspaces else None
 
 
@@ -53,11 +53,11 @@ def set_default_workspace(config_mgr: ConfigManager, workspace_name: str) -> Non
     workspaces = list_workspace_configs(config_mgr)
     found = False
 
-    for ws in workspaces:
-        should_be_default = ws.name == workspace_name
-        if ws.is_default != should_be_default:
-            ws.is_default = should_be_default
-            config_mgr.set_workspace_config(ws.name, ws)
+    for workspace in workspaces:
+        should_be_default = workspace.name == workspace_name
+        if workspace.is_default != should_be_default:
+            workspace.is_default = should_be_default
+            config_mgr.set_workspace_config(workspace.name, workspace)
         if should_be_default:
             found = True
 

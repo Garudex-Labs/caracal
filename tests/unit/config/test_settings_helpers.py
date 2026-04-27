@@ -207,7 +207,7 @@ class TestNormalizeHardcutMerkleConfigData:
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         monkeypatch.delenv("CCL_VAULT_MERKLE_SIGNING_KEY_REF", raising=False)
-        monkeypatch.delenv("CCL_VAULT_MERKLE_PUBLIC_KEY_REF", raising=False)
+        monkeypatch.delenv("CCL_VAULT_MERKLE_PUB_KEY_REF", raising=False)
         config, changed = _normalize_hardcut_merkle_config_data(
             {
                 "merkle": {
@@ -244,7 +244,7 @@ class TestNormalizeHardcutMerkleConfigData:
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         monkeypatch.delenv("CCL_VAULT_MERKLE_SIGNING_KEY_REF", raising=False)
-        monkeypatch.delenv("CCL_VAULT_MERKLE_PUBLIC_KEY_REF", raising=False)
+        monkeypatch.delenv("CCL_VAULT_MERKLE_PUB_KEY_REF", raising=False)
         config, changed = _normalize_hardcut_merkle_config_data({})
         assert config["merkle"]["signing_backend"] == "vault"
         assert changed is True

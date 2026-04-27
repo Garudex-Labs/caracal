@@ -34,7 +34,7 @@ async def test_scope_tools_call_uses_canonical_payload_and_scope_headers() -> No
     scope = ScopeContext(
         adapter=adapter,
         hooks=HookRegistry(),
-        workspace_id="ws-123",
+        workspace_id="workspace-123",
     )
 
     result = await scope.tools.call(
@@ -50,7 +50,7 @@ async def test_scope_tools_call_uses_canonical_payload_and_scope_headers() -> No
     req = adapter.sent_requests[0]
     assert req.method == "POST"
     assert req.path == "/mcp/tool/call"
-    assert req.headers["X-Caracal-Workspace-ID"] == "ws-123"
+    assert req.headers["X-Caracal-Workspace-ID"] == "workspace-123"
     assert req.body == {
         "tool_id": "provider:endframe:resource:deployments",
         "tool_args": {"payload": "ok"},
@@ -123,8 +123,8 @@ async def test_tool_call_transport_parity_across_adapters() -> None:
     direct_adapter = _CaptureAdapter(response_body={"success": True, "mode": "direct"})
     gateway_adapter = _CaptureAdapter(response_body={"success": True, "mode": "gateway"})
 
-    direct_scope = ScopeContext(adapter=direct_adapter, hooks=HookRegistry(), workspace_id="ws-1")
-    gateway_scope = ScopeContext(adapter=gateway_adapter, hooks=HookRegistry(), workspace_id="ws-1")
+    direct_scope = ScopeContext(adapter=direct_adapter, hooks=HookRegistry(), workspace_id="workspace-1")
+    gateway_scope = ScopeContext(adapter=gateway_adapter, hooks=HookRegistry(), workspace_id="workspace-1")
 
     direct_result = await direct_scope.tools.call(
         tool_id="provider:endframe:resource:deployments",

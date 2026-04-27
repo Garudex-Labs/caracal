@@ -36,7 +36,7 @@ _AIS_TOKEN_PATH_DEFAULT = "/v1/ais/token"
 _AIS_BASE_URL_ENV = "CCL_AIS_BASE_URL"
 _AIS_UNIX_SOCKET_ENV = "CCL_AIS_UNIX_SOCKET_PATH"
 _AIS_API_PREFIX_ENV = "CCL_AIS_API_PREFIX"
-_SESSION_KIND_ENV = "CCL_SESSION_KIND"
+_SESSION_KIND_ENV = "CCL_SESS_KIND"
 
 
 class RequestPriority(str, Enum):
@@ -372,7 +372,7 @@ class GatewayClient:
         return True
 
     def _build_ais_token_payload(self) -> Optional[dict[str, Any]]:
-        principal_id = (os.environ.get("CCL_AIS_PRINCIPAL_ID") or "").strip()
+        principal_id = (os.environ.get("CCL_AIS_PID") or "").strip()
         workspace_id = (os.environ.get("CCL_WORKSPACE_ID") or "").strip()
         tenant_id = (os.environ.get("CCL_AIS_TENANT_ID") or "").strip()
 

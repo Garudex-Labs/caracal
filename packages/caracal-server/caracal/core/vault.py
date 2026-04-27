@@ -123,27 +123,27 @@ def _resolve_local_sidecar_token_and_project(
     current_project: str,
 ) -> tuple[str, str]:
     email = (
-        _read_env_or_dotenv("CCL_VAULT_BS_EMAIL")
+        _read_env_or_dotenv("CCL_VAULT_BOOTSTRAP_EMAIL")
         or "admin@caracal.local"
     ).strip()
     password = (
-        _read_env_or_dotenv("CCL_VAULT_BS_PASS")
+        _read_env_or_dotenv("CCL_VAULT_BOOTSTRAP_PASSWORD")
         or "CaracalVaultDev123!"
     ).strip()
     desired_org = (
-        _read_env_or_dotenv("CCL_VAULT_BS_ORG")
+        _read_env_or_dotenv("CCL_VAULT_BOOTSTRAP_ORG")
         or "caracal-local"
     ).strip()
     desired_project_slug = (
         current_project
-        or _read_env_or_dotenv("CCL_VAULT_BS_PROJ")
+        or _read_env_or_dotenv("CCL_VAULT_BOOTSTRAP_PROJECT")
         or "caracal"
     ).strip()
 
     if not email or not password:
         raise VaultConfigurationError(
             "Local vault bootstrap credentials are incomplete. "
-            "Set CCL_VAULT_BS_EMAIL and CCL_VAULT_BS_PASS."
+            "Set CCL_VAULT_BOOTSTRAP_EMAIL and CCL_VAULT_BOOTSTRAP_PASSWORD."
         )
 
     headers = {"Content-Type": "application/json"}
@@ -933,7 +933,7 @@ class CaracalVault:
         payload: dict[str, Any],
     ) -> str:
         endpoint = (
-            _read_env_or_dotenv("CCL_VAULT_SIGN_EP")
+            _read_env_or_dotenv("CCL_VAULT_SIGN_ENDPOINT")
             or "/api/caracal/sign/canonical-payload"
         ).strip()
         response = self._request(
@@ -972,7 +972,7 @@ class CaracalVault:
         algorithm: str,
     ) -> None:
         endpoint = (
-            _read_env_or_dotenv("CCL_VAULT_BS_KEY_EP")
+            _read_env_or_dotenv("CCL_VAULT_BOOTSTRAP_KEY_ENDPOINT")
             or "/api/caracal/keys/bootstrap"
         ).strip()
         self._request(
@@ -1504,11 +1504,11 @@ class CaracalVault:
         self._rl.check(workspace_id)
         self._ensure_service_health()
 
-        rotate_endpoint = (_read_env_or_dotenv("CCL_VAULT_ROTATE_EP") or "").strip()
+        rotate_endpoint = (_read_env_or_dotenv("CCL_VAULT_ROTATE_ENDPOINT") or "").strip()
         if not rotate_endpoint:
             raise VaultError(
                 "Vault key rotation endpoint is not configured. "
-                "Set CCL_VAULT_ROTATE_EP to enable rotate_master_key."
+                "Set CCL_VAULT_ROTATE_ENDPOINT to enable rotate_master_key."
             )
 
         project_id, environment, secret_path = self._resolve_context(workspace_id, env_id)
