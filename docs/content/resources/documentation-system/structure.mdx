@@ -1,0 +1,229 @@
+---
+title: Documentation Structure
+sidebar_label: Structure
+slug: /resources/documentation-system/structure
+page_type: reference
+audience: contributor
+edition: both
+version: 1.0
+status: authored
+---
+
+# Documentation Structure
+
+This page is the contract for the Caracal documentation system. It defines the route layout, page schema, AI route schema, and the writing instructions every page must follow. Anyone authoring or reviewing a page must apply these rules.
+
+## Routes
+
+The site has two parallel routes that share the same source of truth:
+
+- **Human route**: `/<section>/<page>` — readable, learning-oriented.
+- **AI route**: `/ai/<section>/<page>` — instruction-first, retrieval-optimized.
+
+Every human page that has a meaningful machine version declares `ai_counterpart` in its front matter. Every AI page declares `canonical_human` in its front matter. AI pages are not indexed in human search and do not appear in human sidebars.
+
+## Top-level sections
+
+| Path | Audience | Edition |
+| --- | --- | --- |
+| `/` | All readers | Both |
+| `/open-source/` | Integrators, operators, contributors | OSS |
+| `/enterprise/` | Integrators, reviewers | Enterprise |
+| `/resources/` | All readers | Both |
+| `/build`, `/manage`, `/reference`, `/resources` | Hub orientation pages | Both |
+| `/ai/` | Machine readers | Both |
+
+## Page types
+
+Every page is exactly one of:
+
+- **concept** — explains a term or model.
+- **task** — accomplishes a single user goal.
+- **reference** — exhaustive, stable lookup material.
+- **hub** — short orientation page with a child index.
+- **tutorial** — multi-step learning path. Used only for the quickstart.
+
+## Required front matter (human page)
+
+```yaml
+---
+title: <Title>
+sidebar_label: <Short label>
+slug: <stable URL slug>
+page_type: concept | task | reference | hub | tutorial
+audience: integrator | reviewer | contributor | operator | all
+edition: oss | enterprise | both
+version: 1.0
+status: stub | authored
+ai_counterpart: /ai/...   # required when an AI mirror exists
+---
+```
+
+## Required front matter (AI page)
+
+```yaml
+---
+id: ai-<stable-id>
+title: <Title>
+slug: /ai/...
+canonical_human: /...
+applies_to: [oss] | [enterprise] | [oss, enterprise]
+edition: oss | enterprise | both
+audience: ai
+page_type: concept | task | reference
+version: 1.0
+status: stub | authored
+last_verified: YYYY-MM-DD
+source_files:
+  - path/to/file.py
+---
+```
+
+## Required body sections
+
+### Human pages
+
+Pick the block that matches `page_type`. Omit any section that is genuinely empty.
+
+**concept**
+
+1. One-line definition (verbatim glossary entry where applicable).
+2. Plain-language explanation.
+3. Where this concept appears in the system.
+4. Constraints and edge cases.
+5. Related concepts.
+
+**task**
+
+1. Goal.
+2. Prerequisites.
+3. Ordered steps.
+4. Verification.
+5. Related pages.
+
+**reference**
+
+1. Scope.
+2. Reference table or list.
+3. Notes on stability and versioning.
+
+**tutorial**
+
+1. Outcome.
+2. Prerequisites.
+3. Linear walkthrough with verification at each step.
+4. Where to go next.
+
+**hub**
+
+1. One-paragraph orientation.
+2. Bulleted index of child pages with one-line summaries.
+
+### AI pages (fixed schema)
+
+Use these section headers in order. Omit empty ones.
+
+1. `## Definition` — one sentence.
+2. `## Inputs` — table: name, type, required, source, notes.
+3. `## Outputs` — table: name, type, notes.
+4. `## Constraints` — bullet list of invariants and limits.
+5. `## Steps` — numbered, deterministic procedure.
+6. `## Usage rules` — do / do not bullets.
+7. `## Errors` — table: code, meaning, remediation.
+8. `## Examples` — minimal runnable snippets.
+9. `## See also` — related AI pages first, human pages second.
+
+## Quality rules (apply to every page)
+
+- Reflect current product behavior only. No marketing language.
+- No emojis, no em-dashes, no filler.
+- Cite only the files listed in front matter.
+- Keep pages short. Split when content exceeds one screen.
+- One canonical topic per page. Cross-link instead of restating.
+- Hard-cut is the system's operating principle. Do not present it as a configurable mode.
+
+## Vocabulary policy
+
+- Expand internal terms on first use, for example "AI Service runtime isolation (AIS)".
+- The glossary at `/resources/glossary` is the single canonical definition source.
+- Every concept page's first paragraph must equal its glossary entry verbatim.
+
+## Update workflow
+
+1. Edit the human page.
+2. Update the AI counterpart in the same change.
+3. Bump `last_verified` on the AI page.
+4. Update `source_files` if code references changed.
+5. CI fails when a human page commit is newer than its AI counterpart's `last_verified`.
+
+## Adding a new page
+
+1. Choose the canonical path under the correct section.
+2. Create `<path>.mdx` (or `<path>/index.mdx` for hubs).
+3. Decide whether an AI counterpart is needed. Concepts, tasks, and references typically need one. Tutorials and marketing-style overviews do not.
+4. If an AI counterpart is needed, create `/ai/<path>.md` using the AI schema.
+5. Add the page to the relevant sidebar in `src/theme/DocSidebar/shared.ts`.
+
+## Removing or moving a page
+
+- Update every cross-link.
+- Remove the AI counterpart in the same change.
+- Add a redirect when the slug must change.
+
+## Writing order for v1.0
+
+Pages are filled in this order so the most read content is correct first.
+
+1. Landing.
+2. OSS Overview.
+3. Quickstart and Installation.
+4. Concepts hub and the four most-referenced concepts: principal, policy, mandate, workspace.
+5. SDK Overview, Python SDK Usage, Python API Surface, Tool ID Grammar.
+6. CLI hub and Host Commands reference.
+7. Configuration overview and Environment Variables reference.
+8. Security overview and Threat Model digest.
+9. Remaining concepts: delegation, caveat, ledger, intent, AIS, MEK, broker vs gateway, authority enforcement model.
+10. Remaining CLI command pages, configuration block references, workflows.
+11. Node SDK pages (mirror of Python).
+12. Troubleshooting.
+13. Developers track.
+14. Enterprise track.
+15. AI mirrors are filled in lockstep with each human page.
+
+Pages outside this order remain as stubs until their turn. Stubs are valid; empty content is not.
+---
+title: Documentation Structure
+sidebar_label: Structure
+slug: /resources/documentation-system/structure
+page_type: reference
+audience: contributor
+edition: both
+version: 1.0
+status: stub
+---
+
+# Documentation Structure
+
+:::note Page status
+This page is a stub awaiting authored content. The instructions below define what this page must contain when written.
+:::
+
+## Writing instructions
+
+- **Purpose.** Reference for the documentation system: routes, navigation, page schema, AI route schema. This page is the contract.
+- **Audience.** contributor.
+- **Page type.** reference.
+- **Edition.** both.
+
+## Required sections
+
+1. Scope (what this reference covers).
+2. Reference table or list.
+3. Notes on stability and versioning.
+
+## Quality rules
+
+- Reflect current product behavior only.
+- No marketing language, no emoji, no em-dashes.
+- Cite only the source files listed above.
+- Keep the page short. Split if it grows past one screen of content.

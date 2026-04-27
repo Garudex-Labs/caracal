@@ -26,25 +26,39 @@ const openSourceSidebar = [
     "/open-source/overview",
     [
       category("End Users", "/open-source/end-users", [
-        link("Installation", "/open-source/end-users/getting-started/installation"),
-        link("Quickstart", "/open-source/end-users/getting-started/quickstart"),
+        category("Getting Started", "/open-source/end-users/getting-started", [
+          link("Installation", "/open-source/end-users/getting-started/installation"),
+          link("Quickstart", "/open-source/end-users/getting-started/quickstart"),
+        ]),
+        link("Concepts", "/open-source/end-users/concepts"),
         link("CLI", "/open-source/end-users/cli"),
         link("TUI", "/open-source/end-users/tui"),
         link("Configuration", "/open-source/end-users/configuration"),
-        link("Commands", "/open-source/end-users/commands"),
         link("Workflows", "/open-source/end-users/workflows"),
-        link("Troubleshooting", "/open-source/end-users/troubleshooting"),
         link("Security", "/open-source/end-users/security"),
-        link("Concepts", "/open-source/end-users/concepts"),
+        link("Troubleshooting", "/open-source/end-users/troubleshooting"),
+      ]),
+      category("SDK", "/open-source/sdk/overview", [
+        link("Overview", "/open-source/sdk/overview"),
+        link("Installation", "/open-source/sdk/installation"),
+        link("Python SDK", "/open-source/sdk/python/usage"),
+        link("Node SDK", "/open-source/sdk/node/usage"),
+        link("Reference", "/open-source/sdk/reference/tool-id-grammar"),
+        link("Examples", "/open-source/sdk/examples"),
       ]),
       category("Developers", "/open-source/developers", [
         link("Architecture", "/open-source/developers/architecture"),
-        link("Contributing", "/open-source/developers/contributing"),
         link("Development Setup", "/open-source/developers/development-setup"),
+        link("Runtime Model", "/open-source/developers/runtime-model"),
+        link("Services and Integrations", "/open-source/developers/services-and-integrations"),
+        link("Storage and Data", "/open-source/developers/storage-and-data"),
+        link("Core Authority System", "/open-source/developers/core-authority-system"),
+        link("Flow Internals", "/open-source/developers/flow-tui"),
         link("Testing", "/open-source/developers/testing"),
+        link("Enterprise Connector", "/open-source/developers/enterprise-connector"),
+        link("Contributing", "/open-source/developers/contributing"),
         link("Releases", "/open-source/developers/releases"),
         link("Changelog", "/open-source/developers/changelog"),
-        link("Enterprise Connector", "/open-source/developers/enterprise-connector"),
       ]),
     ],
     false,
@@ -56,14 +70,20 @@ const enterpriseSidebar = [
     "Enterprise",
     "/enterprise/overview",
     [
+      link("Overview", "/enterprise/overview"),
       link("Getting Started", "/enterprise/getting-started"),
+      link("Access / Auth", "/enterprise/access-auth"),
       link("Configuration", "/enterprise/configuration"),
       link("Administration", "/enterprise/administration"),
-      link("Access / Auth", "/enterprise/access-auth"),
       link("Deployment", "/enterprise/deployment"),
       link("Monitoring", "/enterprise/monitoring"),
       link("Troubleshooting", "/enterprise/troubleshooting"),
       link("Reference", "/enterprise/reference"),
+      category("SDK", "/enterprise/sdk/overview", [
+        link("Overview", "/enterprise/sdk/overview"),
+        link("Usage", "/enterprise/sdk/usage"),
+        link("Examples", "/enterprise/sdk/examples"),
+      ]),
     ],
     false,
   ),
@@ -75,9 +95,11 @@ const buildSidebar = [
     "/build",
     [
       link("Architecture", "/open-source/developers/architecture"),
-      link("Contributing", "/open-source/developers/contributing"),
       link("Development Setup", "/open-source/developers/development-setup"),
+      link("Runtime Model", "/open-source/developers/runtime-model"),
+      link("Core Authority System", "/open-source/developers/core-authority-system"),
       link("Testing", "/open-source/developers/testing"),
+      link("Contributing", "/open-source/developers/contributing"),
       link("Releases", "/open-source/developers/releases"),
       link("Changelog", "/open-source/developers/changelog"),
     ],
@@ -96,7 +118,7 @@ const manageSidebar = [
       link("TUI", "/open-source/end-users/tui"),
       link("Configuration", "/open-source/end-users/configuration"),
       link("Workflows", "/open-source/end-users/workflows"),
-      link("Administration", "/enterprise/administration"),
+      link("Troubleshooting", "/open-source/end-users/troubleshooting"),
     ],
     false,
   ),
@@ -107,9 +129,10 @@ const referenceSidebar = [
     "Reference",
     "/reference",
     [
-      link("Commands", "/open-source/end-users/commands"),
+      link("CLI", "/open-source/end-users/cli"),
+      link("Configuration", "/open-source/end-users/configuration"),
       link("Concepts", "/open-source/end-users/concepts"),
-      link("Architecture", "/open-source/developers/architecture"),
+      link("SDK Reference", "/open-source/sdk/reference/tool-id-grammar"),
       link("Enterprise Reference", "/enterprise/reference"),
     ],
     false,
@@ -121,10 +144,14 @@ const resourcesSidebar = [
     "Resources",
     "/resources",
     [
-      link("Rulebook", "/resources/documentation-system/rulebook"),
+      link("Glossary", "/resources/glossary"),
+      link("FAQ", "/resources/faq"),
+      link("Support", "/resources/support"),
+      category("Documentation System", "/resources/documentation-system/rulebook", [
+        link("Rulebook", "/resources/documentation-system/rulebook"),
+        link("Structure", "/resources/documentation-system/structure"),
+      ]),
       link("Security", "/open-source/end-users/security"),
-      link("Troubleshooting", "/open-source/end-users/troubleshooting"),
-      link("Contributor Calls", "/open-source/developers/contributing"),
     ],
     false,
   ),
@@ -170,6 +197,10 @@ function expandForActivePath(items: PropSidebar, pathname: string): PropSidebar 
 
 export function getSidebarForPath(pathname: string): PropSidebar {
   if (pathname === "/") {
+    return [];
+  }
+
+  if (pathname.startsWith("/ai")) {
     return [];
   }
 

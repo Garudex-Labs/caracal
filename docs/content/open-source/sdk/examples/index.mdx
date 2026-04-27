@@ -1,99 +1,35 @@
 ---
 title: SDK Examples
-description: Examples for the open-source SDKs.
 sidebar_label: Examples
+slug: /open-source/sdk/examples
+page_type: hub
+audience: integrator
+edition: oss
+version: 1.0
+status: stub
 ---
 
-These examples show the public SDK entry points used by both canonical SDKs.
+# SDK Examples
 
-**Audience:** Open-source SDK users and integrators
+:::note Page status
+This page is a stub awaiting authored content. The instructions below define what this page must contain when written.
+:::
 
-## Python Tool Call
+## Writing instructions
 
-```python
-from caracal_sdk import CaracalClient
+- **Purpose.** Hub for SDK examples. Lists scenarios; the Lynx Capital example is a single sibling page.
+- **Audience.** integrator.
+- **Page type.** hub.
+- **Edition.** oss.
 
-client = CaracalClient(api_key="sk_test_123")
+## Required sections
 
-try:
-    result = await client.tools.call(
-        tool_id="provider:github:resource:issues:action:create",
-        tool_args={"title": "Investigate regression"},
-        metadata={"request_id": "req-123"},
-    )
-finally:
-    client.close()
-```
+1. One-paragraph orientation.
+2. Bulleted index of child pages with one-line summaries.
 
-## TypeScript Tool Call
+## Quality rules
 
-```ts
-import { CaracalClient } from "@caracal/core";
-
-const client = new CaracalClient({ apiKey: "sk_test_123" });
-
-try {
-  const result = await client.tools.call({
-    toolId: "provider:github:resource:issues:action:create",
-    toolArgs: { title: "Investigate regression" },
-    metadata: { request_id: "req-123" },
-  });
-} finally {
-  client.close();
-}
-```
-
-## Workspace-Scoped Call
-
-Python:
-
-```python
-ctx = client.context.checkout(workspace_id="ws_1")
-result = await ctx.tools.call(
-    tool_id="provider:slack:resource:messages:action:post",
-    tool_args={"channel": "alerts", "text": "Runtime check complete"},
-)
-```
-
-TypeScript:
-
-```ts
-const ctx = client.context.checkout({ workspaceId: "ws_1" });
-const result = await ctx.tools.call({
-  toolId: "provider:slack:resource:messages:action:post",
-  toolArgs: { channel: "alerts", text: "Runtime check complete" },
-});
-```
-
-## Builder Initialization
-
-Use the builder when setup needs an explicit base URL, custom transport, or extensions.
-
-Python:
-
-```python
-from caracal_sdk import CaracalBuilder
-
-client = (
-    CaracalBuilder()
-    .set_api_key("sk_test_123")
-    .set_base_url("http://localhost:8000")
-    .build()
-)
-```
-
-TypeScript:
-
-```ts
-import { CaracalBuilder } from "@caracal/core";
-
-const client = new CaracalBuilder()
-  .setApiKey("sk_test_123")
-  .setBaseUrl("http://localhost:8000")
-  .build();
-```
-
-## Related Pages
-
-- [Usage](/open-source/sdk/usage)
-- [API Surface](/open-source/sdk/api-surface)
+- Reflect current product behavior only.
+- No marketing language, no emoji, no em-dashes.
+- Cite only the source files listed above.
+- Keep the page short. Split if it grows past one screen of content.

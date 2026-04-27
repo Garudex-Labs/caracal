@@ -1,119 +1,35 @@
 ---
 title: Troubleshooting
-description: Diagnose common runtime, workspace, configuration, and service failures in Caracal OSS.
 sidebar_label: Troubleshooting
+slug: /open-source/end-users/troubleshooting
+page_type: hub
+audience: operator
+edition: oss
+version: 1.0
+status: stub
 ---
 
-Troubleshooting becomes much easier once you identify which layer is failing.
+# Troubleshooting
 
-**Audience:** User
+:::note Page status
+This page is a stub awaiting authored content. The instructions below define what this page must contain when written.
+:::
 
-**Context:** Use this page when a host command, in-container CLI command, Flow session, workspace operation, or backend service check is not behaving as expected.
+## Writing instructions
 
-## Diagnose By Layer
+- **Purpose.** Hub.
+- **Audience.** operator.
+- **Page type.** hub.
+- **Edition.** oss.
 
-### Host runtime problems
+## Required sections
 
-Symptoms:
+1. One-paragraph orientation.
+2. Bulleted index of child pages with one-line summaries.
 
-- `caracal up` fails immediately
-- `caracal flow` or `caracal cli` never opens
-- teardown commands leave Docker resources behind
+## Quality rules
 
-Checks:
-
-- confirm `docker compose version` works
-- inspect `caracal logs -f`
-- confirm the selected compose file actually contains `mcp`, `cli`, and `flow` services
-
-### In-container CLI problems
-
-Symptoms:
-
-- `caracal cli` opens but product commands fail
-- `caracal --help` output looks wrong for the expected context
-- workspace-sensitive commands point at the wrong config
-
-Checks:
-
-- confirm whether you are on the host or already inside the restricted CLI
-- run `caracal workspace current`
-- inspect the resolved workspace and config path
-
-### Flow problems
-
-Symptoms:
-
-- onboarding never completes
-- Flow exits after setup
-- logs or settings screens appear inconsistent
-
-Checks:
-
-- confirm a workspace exists and is accessible
-- confirm the workspace directory really exists on disk
-- inspect workspace-local log files under `logs/`
-
-### Database and Redis problems
-
-Symptoms:
-
-- command groups that depend on PostgreSQL fail loudly
-- provider, principal, policy, or mandate operations error early
-- cached behavior looks stale or inconsistent
-
-Checks:
-
-- confirm the runtime stack is up
-- confirm PostgreSQL and Redis containers are healthy in runtime logs
-- confirm `CCL_DB_*` overrides are not pointing at the wrong backend
-
-### Workspace import or export problems
-
-Symptoms:
-
-- archive import fails in container mode
-- restore complains about missing PostgreSQL tools
-- export fails because of file ownership or lock-key handling
-
-Checks:
-
-- confirm import and export paths are inside the host-shared mount when running in container mode
-- confirm `pg_dump`, `pg_restore`, and `psql` are available when the workflow needs schema transfer
-- include a lock key when exporting secrets
-
-## Useful Commands
-
-```bash
-caracal logs -f
-caracal workspace list
-caracal doctor
-caracal audit export
-caracal mcp-service health
-```
-
-## Internal Behavior
-
-A few implementation details explain common failure modes:
-
-- `caracal flow` starts only the services it needs and uses a dedicated flow container
-- `caracal cli` routes through the `mcp` container's restricted shell
-- workspace deletion and import/export can interact with PostgreSQL schema management
-- configuration loading may override some file paths back into the active workspace
-
-## Edge Cases And Constraints
-
-- `reset` removes volumes. `down` does not.
-- `purge` removes much more than runtime containers and should not be used as a routine fix.
-- A malformed onboarding-generated `config.yaml` may be auto-repaired in a narrow legacy case, but ordinary invalid config still fails validation.
-- In container runtime mode, absolute host paths often need to map through `/caracal-host-io`.
-
-## Support
-
-For public support or vulnerability triage, contact `support@garudexlabs.com`.
-
-## Related Concepts
-
-- [Commands](/open-source/end-users/commands)
-- [Security](/open-source/end-users/security)
-- [Enterprise Connector](/open-source/developers/enterprise-connector)
+- Reflect current product behavior only.
+- No marketing language, no emoji, no em-dashes.
+- Cite only the source files listed above.
+- Keep the page short. Split if it grows past one screen of content.

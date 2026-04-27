@@ -1,66 +1,35 @@
 ---
-title: Open Source End Users
-description: Operator-facing documentation for the Caracal open-source runtime.
+title: End Users
 sidebar_label: End Users
+slug: /open-source/end-users
+page_type: hub
+audience: operator
+edition: oss
+version: 1.0
+status: stub
 ---
 
-This lane explains how to install, operate, configure, and troubleshoot the open-source runtime.
+# End Users
 
-**Audience:** User
+:::note Page status
+This page is a stub awaiting authored content. The instructions below define what this page must contain when written.
+:::
 
-**Context:** Use this section if you are running Caracal rather than modifying its implementation.
+## Writing instructions
 
-## Core Explanation
+- **Purpose.** Hub for operator and integrator workflows. Link to getting started, concepts, CLI, TUI, configuration, workflows, security, troubleshooting.
+- **Audience.** operator.
+- **Page type.** hub.
+- **Edition.** oss.
 
-End-user documentation is organized around the real runtime lifecycle:
+## Required sections
 
-1. install the command and confirm Docker support
-2. start the runtime stack from the host
-3. enter either the in-container CLI or Flow
-4. create or select a workspace
-5. configure providers, principals, policies, and mandates
-6. monitor, back up, and troubleshoot the system
+1. One-paragraph orientation.
+2. Bulleted index of child pages with one-line summaries.
 
-The user-facing docs are intentionally separate from contributor internals. They explain operational behavior, not repository implementation details.
+## Quality rules
 
-## What This Lane Covers
-
-- runtime installation and prerequisites
-- the host command surface
-- the in-container CLI and Flow
-- workspace configuration and secrets handling
-- provider registration and provider-scoped scopes
-- authority lifecycle workflows
-- backups, restore, and troubleshooting
-- public security behavior and reporting paths
-
-## Suggested Reading Order
-
-- [Installation](/open-source/end-users/getting-started/installation)
-- [Quickstart](/open-source/end-users/getting-started/quickstart)
-- [Concepts](/open-source/end-users/concepts)
-- [CLI](/open-source/end-users/cli) or [TUI](/open-source/end-users/tui)
-- [Configuration](/open-source/end-users/configuration)
-- [Workflows](/open-source/end-users/workflows)
-
-## Internal Behavior
-
-Even as an operator, it helps to understand two boundary rules:
-
-- host `caracal` commands control containers and runtime lifecycle
-- the actual product workflows happen inside the runtime through the in-container CLI, Flow, and the `mcp` service
-
-That distinction explains why some commands work before the stack is running and others do not.
-
-## Edge Cases And Constraints
-
-- A workspace is not just a label. It is a real directory under `CCL_HOME/workspaces/<name>` that owns its own `config.yaml`, logs, backups, cache, keys, and Flow state.
-- Policy and mandate scopes are validated against provider definitions stored in the current workspace. In practice, provider setup usually comes before policy and mandate issuance.
-- Some commands surface enterprise-related options or sync behavior. Those are public connector surfaces, not enterprise implementation details.
-
-## Related Concepts
-
-- [Open Source Overview](/open-source/overview)
-- [Installation](/open-source/end-users/getting-started/installation)
-- [Commands](/open-source/end-users/commands)
-- [Troubleshooting](/open-source/end-users/troubleshooting)
+- Reflect current product behavior only.
+- No marketing language, no emoji, no em-dashes.
+- Cite only the source files listed above.
+- Keep the page short. Split if it grows past one screen of content.
