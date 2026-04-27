@@ -1143,354 +1143,476 @@ button {
 }
 
 /* ============================================================
-   Homepage v2: hero, features, paths, resources
+   Homepage v3: clean docs landing layout
    ============================================================ */
 .caracal-home {
+  --home-surface: #111111;
+  --home-surface-raised: #151515;
+  --home-border: rgba(255, 255, 255, 0.09);
+  --home-border-strong: rgba(255, 255, 255, 0.16);
+  --home-text: #f4f4f4;
+  --home-muted: rgba(244, 244, 244, 0.66);
+  --home-subtle: rgba(244, 244, 244, 0.46);
+  --home-accent: var(--caracal-accent);
   display: grid;
-  gap: 56px;
-  padding: 24px 0 64px;
+  gap: 40px;
+  width: min(1120px, calc(100vw - 48px));
   margin: 0 auto;
-  max-width: 1180px;
+  padding: 42px 0 72px;
 }
 
 .caracal-home__hero {
-  position: relative;
-  padding: 56px 32px 48px;
-  border: 1px solid var(--caracal-border);
-  border-radius: 12px;
-  background:
-    radial-gradient(circle at 12% 10%, rgba(155, 211, 77, 0.16), transparent 55%),
-    radial-gradient(circle at 90% 90%, rgba(120, 180, 60, 0.10), transparent 60%),
-    linear-gradient(180deg, var(--caracal-panel) 0%, var(--caracal-bg-subtle) 100%);
-  overflow: hidden;
-}
-.caracal-home__hero-glow {
-  position: absolute;
-  inset: -40% -20% auto auto;
-  width: 520px;
-  height: 520px;
-  border-radius: 50%;
-  background: radial-gradient(circle, rgba(155, 211, 77, 0.18), transparent 60%);
-  filter: blur(20px);
-  pointer-events: none;
-}
-.caracal-home__hero-inner {
-  position: relative;
   display: grid;
-  gap: 18px;
-  max-width: 720px;
+  grid-template-columns: minmax(0, 1fr) 380px;
+  gap: 32px;
+  align-items: stretch;
+  min-height: 360px;
+  padding-bottom: 40px;
+  border-bottom: 1px solid var(--home-border);
 }
-.caracal-home__eyebrow {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  padding: 4px 10px;
-  width: max-content;
-  border: 1px solid rgba(155, 211, 77, 0.35);
-  border-radius: 999px;
-  background: rgba(155, 211, 77, 0.08);
-  color: var(--caracal-accent);
-  font-size: 0.72rem;
-  font-weight: 700;
-  letter-spacing: 0.08em;
+
+.caracal-home__hero-copy {
+  display: grid;
+  align-content: center;
+  min-height: 360px;
+}
+
+.caracal-home__hero-topline {
+  margin-bottom: 18px;
+  color: var(--home-subtle);
+  font-size: 0.82rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
   text-transform: uppercase;
 }
-.caracal-home__eyebrow-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--caracal-accent);
-  box-shadow: 0 0 0 4px rgba(155, 211, 77, 0.18);
+
+.caracal-home__hero-brand {
+  display: grid;
+  grid-template-columns: 112px minmax(0, 1fr);
+  gap: 28px;
+  align-items: start;
+  max-width: 680px;
 }
-.caracal-home__title {
+
+.caracal-home__hero-mark {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 160px;
+  height: 160px;
+}
+
+.caracal-home__animation {
+  width: 130px;
+  height: 130px;
+  pointer-events: none;
+  user-select: none;
+}
+
+.caracal-home__animation svg {
+  width: 100% !important;
+  height: 100% !important;
+}
+
+.caracal-home__hero-text {
+  display: grid;
+  gap: 14px;
+}
+
+.caracal-home__hero-title {
   margin: 0;
-  font-family: var(--ifm-heading-font-family);
-  font-size: clamp(2.2rem, 4vw, 3.4rem);
-  font-weight: 700;
-  letter-spacing: -0.04em;
-  line-height: 1.05;
-  color: #f7fbff;
+  max-width: 560px;
+  font-size: clamp(2.15rem, 4vw, 3.35rem);
+  font-weight: 680;
+  letter-spacing: -0.03em;
+  line-height: 1.04;
+  color: var(--home-text);
 }
-.caracal-home__title-accent {
-  background: linear-gradient(90deg, #aade61 0%, #67912c 100%);
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
-}
-.caracal-home__lede {
+
+.caracal-home__hero-description {
   margin: 0;
-  max-width: 64ch;
-  font-size: 1.05rem;
-  line-height: 1.6;
-  color: var(--caracal-text-muted);
+  max-width: 520px;
+  font-size: 1rem;
+  line-height: 1.65;
+  color: var(--home-muted);
 }
-.caracal-home__cta-row {
+
+.caracal-home__hero-actions {
   display: flex;
   flex-wrap: wrap;
   gap: 10px;
   margin-top: 6px;
 }
-.caracal-home__cta {
-  display: inline-flex;
-  align-items: center;
-  height: 40px;
-  padding: 0 18px;
-  border-radius: 6px;
-  font-size: 0.92rem;
-  font-weight: 600;
-  text-decoration: none;
-  border: 1px solid transparent;
-}
-.caracal-home__cta--primary {
-  background: var(--caracal-accent);
-  color: #0b0f14;
-  border-color: var(--caracal-accent);
-}
-.caracal-home__cta--primary:hover {
-  background: var(--caracal-accent-deep);
-  color: #0b0f14;
-  text-decoration: none;
-}
-.caracal-home__cta--ghost {
-  background: transparent;
-  color: var(--caracal-text);
-  border-color: var(--caracal-border-strong);
-}
-.caracal-home__cta--ghost:hover {
-  background: var(--caracal-panel-hover);
-  border-color: var(--caracal-accent-deep);
-  color: var(--caracal-text);
-  text-decoration: none;
-}
-.caracal-home__search {
-  display: flex;
-  gap: 8px;
-  max-width: 600px;
-  margin-top: 6px;
-}
-.caracal-home__install {
-  margin-top: 14px;
-  padding: 14px 16px;
-  border: 1px solid var(--caracal-border);
-  border-radius: 8px;
-  background: rgba(11, 15, 20, 0.6);
-  max-width: 600px;
-}
-.caracal-home__install-label {
-  color: var(--caracal-text-subtle);
-  font-size: 0.7rem;
-  font-weight: 700;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  margin-bottom: 6px;
-}
-.caracal-home__install-code {
-  margin: 0;
-  padding: 0;
-  border: 0;
-  background: transparent;
-  font-family: var(--ifm-font-family-monospace, ui-monospace, monospace);
-  font-size: 0.88rem;
-  color: var(--caracal-text);
-  line-height: 1.7;
-  white-space: pre;
-}
-.caracal-home__install-prompt {
-  color: var(--caracal-accent);
-  margin-right: 8px;
-}
 
-.caracal-home__section {
-  display: grid;
-  gap: 20px;
-}
-.caracal-home__section-head {
-  display: grid;
-  gap: 6px;
-  max-width: 720px;
-}
-.caracal-home__kicker {
-  color: var(--caracal-accent);
-  font-size: 0.72rem;
-  font-weight: 700;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-}
-.caracal-home__section-title {
-  margin: 0;
-  font-family: var(--ifm-heading-font-family);
-  font-size: clamp(1.4rem, 2.4vw, 1.9rem);
-  font-weight: 700;
-  letter-spacing: -0.025em;
-  color: var(--caracal-text);
-  text-transform: none;
-}
-
-.caracal-home__features {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 14px;
-}
-.caracal-feature {
-  padding: 18px;
-  border: 1px solid var(--caracal-border);
-  border-radius: 10px;
-  background: var(--caracal-panel);
-  display: grid;
-  gap: 8px;
-  align-content: start;
-}
-.caracal-feature__glyph {
-  width: 36px;
-  height: 36px;
+.caracal-home__hero-action {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  border-radius: 8px;
-  background: rgba(155, 211, 77, 0.10);
-  color: var(--caracal-accent);
-  font-size: 1.1rem;
-  font-weight: 700;
-  border: 1px solid rgba(155, 211, 77, 0.25);
-}
-.caracal-feature__title {
-  margin: 0;
-  font-size: 1rem;
-  font-weight: 600;
-  color: var(--caracal-text);
-}
-.caracal-feature__description {
-  margin: 0;
-  font-size: 0.88rem;
-  line-height: 1.55;
-  color: var(--caracal-text-muted);
+  height: 38px;
+  padding: 0 14px;
+  border: 1px solid var(--home-border);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--home-text);
+  text-decoration: none;
+  font-size: 0.9rem;
+  font-weight: 500;
 }
 
-.caracal-home__paths {
+.caracal-home__hero-action:hover {
+  border-color: var(--home-border-strong);
+  background: var(--home-surface);
+  color: var(--home-text);
+  text-decoration: none;
+}
+
+.caracal-home__hero-action--primary {
+  border-color: var(--home-accent);
+  background: var(--home-accent);
+  color: #071008;
+}
+
+.caracal-home__starter-card {
+  display: grid;
+  grid-template-rows: auto auto 1fr;
+  gap: 18px;
+  min-height: 420px;
+  padding: 28px;
+}
+
+.caracal-home__starter-kicker {
+  color: var(--home-accent);
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.caracal-home__starter-title {
+  margin: 0;
+  font-size: 1.45rem;
+  font-weight: 600;
+  letter-spacing: -0.03em;
+  line-height: 1.18;
+  color: var(--home-text);
+}
+
+.caracal-home__featured-video {
+  position: relative;
+  width: 100%;
+  border: 1px solid var(--home-border);
+  border-radius: 8px;
+  overflow: hidden;
+  background: #0f0f0f;
+  aspect-ratio: 16 / 9;
+}
+
+.caracal-home__featured-video iframe {
+  width: 100%;
+  height: 100%;
+  border: 0;
+  display: block;
+}
+
+.caracal-home__starter-list {
+  display: grid;
+  align-content: start;
+  gap: 0;
+}
+
+.caracal-home__starter-step {
+  display: grid;
+  grid-template-columns: 32px minmax(0, 1fr);
+  gap: 12px;
+  padding: 14px 0;
+  border-top: 1px solid var(--home-border);
+}
+
+.caracal-home__starter-step:first-child {
+  border-top: 0;
+  padding-top: 4px;
+}
+
+.caracal-home__starter-step-index {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 6px;
+  background: var(--home-surface-raised);
+  color: var(--home-accent);
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.caracal-home__starter-step-title {
+  color: var(--home-text);
+  font-size: 0.96rem;
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+.caracal-home__starter-step-text {
+  color: var(--home-muted);
+  font-size: 0.9rem;
+  line-height: 1.55;
+}
+
+.caracal-home__starter-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding-top: 6px;
+}
+
+.caracal-home__starter-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 36px;
+  padding: 0 14px;
+  border: 1px solid var(--home-border);
+  border-radius: 6px;
+  color: var(--home-text);
+  text-decoration: none;
+  font-size: 0.88rem;
+  font-weight: 500;
+}
+
+.caracal-home__starter-action:hover {
+  border-color: var(--home-border-strong);
+  background: var(--home-surface-raised);
+  color: var(--home-text);
+  text-decoration: none;
+}
+
+.caracal-home__starter-action--primary {
+  border-color: var(--home-accent);
+  color: var(--home-accent);
+}
+
+.caracal-home__starter-code {
+  margin: 2px 0 0;
+  padding: 12px 14px;
+  border: 1px solid var(--home-border);
+  border-radius: 8px;
+  background: #0f0f0f;
+  color: var(--home-muted);
+  font-size: 0.88rem;
+  line-height: 1.7;
+}
+
+.caracal-home__starter-code code {
+  background: transparent;
+  border: 0;
+  padding: 0;
+}
+
+.caracal-home__block {
+  display: grid;
+  gap: 18px;
+  padding-top: 2px;
+}
+
+.caracal-home__block--split {
+  grid-template-columns: 220px minmax(0, 1fr);
+  align-items: start;
+  gap: 28px;
+}
+
+.caracal-home__block--bordered {
+  padding-top: 28px;
+  border-top: 1px solid var(--home-border);
+}
+
+.caracal-home__block-head h2 {
+  margin: 0;
+  font-size: 1.55rem;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  color: var(--home-text);
+}
+
+.caracal-home__product-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 16px;
 }
-.caracal-path {
+
+.caracal-home__product-card {
   display: grid;
-  gap: 8px;
-  padding: 22px;
-  border: 1px solid var(--caracal-border);
-  border-radius: 10px;
-  background:
-    linear-gradient(135deg, var(--caracal-panel) 0%, var(--caracal-bg-subtle) 100%);
+  gap: 12px;
+  min-height: 156px;
+  padding: 24px;
+  border: 1px solid var(--home-border);
+  border-radius: 8px;
+  background: var(--home-surface);
   color: inherit;
   text-decoration: none;
-  position: relative;
-  overflow: hidden;
-  transition: border-color 180ms ease, transform 180ms ease, background 180ms ease;
 }
-.caracal-path::after {
-  content: "";
-  position: absolute;
-  inset: auto -40% -40% auto;
-  width: 220px;
-  height: 220px;
-  background: radial-gradient(circle, rgba(155, 211, 77, 0.10), transparent 60%);
-  pointer-events: none;
-  opacity: 0;
-  transition: opacity 180ms ease;
-}
-.caracal-path:hover {
-  border-color: rgba(155, 211, 77, 0.5);
-  transform: translateY(-2px);
-  text-decoration: none;
+
+.caracal-home__product-card:hover {
+  border-color: var(--home-border-strong);
+  background: var(--home-surface-raised);
   color: inherit;
+  text-decoration: none;
 }
-.caracal-path:hover::after {
-  opacity: 1;
+
+.caracal-home__product-title,
+.caracal-home__compact-title,
+.caracal-home__footer-label {
+  color: var(--home-text);
+  font-size: 1.02rem;
+  font-weight: 600;
 }
-.caracal-path__eyebrow {
-  color: var(--caracal-accent);
-  font-size: 0.7rem;
+
+.caracal-home__product-meta,
+.caracal-home__compact-meta {
+  color: var(--home-accent);
+  font-size: 0.76rem;
   font-weight: 700;
-  letter-spacing: 0.12em;
+  letter-spacing: 0.05em;
   text-transform: uppercase;
 }
-.caracal-path__title {
-  margin: 0;
-  font-size: 1.25rem;
-  font-weight: 700;
-  letter-spacing: -0.015em;
-  color: var(--caracal-text);
-}
-.caracal-path__description {
-  margin: 0;
-  font-size: 0.92rem;
-  color: var(--caracal-text-muted);
+
+.caracal-home__product-description,
+.caracal-home__compact-description,
+.caracal-home__footer-text {
+  margin: 10px 0 0;
+  color: var(--home-muted);
+  font-size: 0.95rem;
   line-height: 1.55;
 }
-.caracal-path__cta {
-  margin-top: 6px;
-  color: var(--caracal-accent);
-  font-size: 0.85rem;
-  font-weight: 600;
+
+.caracal-home__compact-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
 }
 
-.caracal-home__resources {
+.caracal-home__compact-link {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0;
+  align-items: start;
+  min-height: 132px;
+  padding: 18px;
+  border: 1px solid var(--home-border);
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  text-decoration: none;
 }
-.caracal-resource {
+
+.caracal-home__compact-link:hover {
+  border-color: var(--home-border-strong);
+  background: var(--home-surface);
+  color: inherit;
+  text-decoration: none;
+}
+
+.caracal-home__compact-copy {
   display: grid;
   gap: 4px;
-  padding: 14px 16px;
-  border: 1px solid var(--caracal-border);
-  border-radius: 8px;
-  background: var(--caracal-panel);
-  color: inherit;
-  text-decoration: none;
-  transition: border-color 180ms ease, background 180ms ease;
-}
-.caracal-resource:hover {
-  border-color: var(--caracal-border-strong);
-  background: var(--caracal-panel-hover);
-  color: inherit;
-  text-decoration: none;
-}
-.caracal-resource__title {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  font-size: 0.96rem;
-  font-weight: 600;
-  color: var(--caracal-text);
-}
-.caracal-resource__arrow {
-  color: var(--caracal-text-subtle);
-  transition: transform 180ms ease, color 180ms ease;
-}
-.caracal-resource:hover .caracal-resource__arrow {
-  color: var(--caracal-accent);
-  transform: translateX(2px);
-}
-.caracal-resource__description {
-  margin: 0;
-  font-size: 0.84rem;
-  color: var(--caracal-text-muted);
-  line-height: 1.5;
 }
 
-@media (max-width: 996px) {
-  .caracal-home__hero {
-    padding: 36px 20px;
+.caracal-home__compact-description {
+  margin: 0;
+  font-size: 0.92rem;
+}
+
+.caracal-home__footer-row {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+  padding-top: 28px;
+  border-top: 1px solid var(--home-border);
+}
+
+.caracal-home__footer-card {
+  display: grid;
+  gap: 6px;
+  min-height: 116px;
+  padding: 18px;
+  border: 1px solid var(--home-border);
+  border-radius: 8px;
+  color: inherit;
+  text-decoration: none;
+}
+
+.caracal-home__footer-card:hover {
+  border-color: var(--home-border-strong);
+  background: var(--home-surface);
+  color: inherit;
+  text-decoration: none;
+}
+
+.caracal-home__footer-text {
+  margin: 0;
+  font-size: 0.9rem;
+}
+
+@media (max-width: 1100px) {
+  .caracal-home {
+    width: min(100%, calc(100vw - 32px));
   }
-  .caracal-home__features {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-  .caracal-home__paths,
-  .caracal-home__resources {
+
+  .caracal-home__hero,
+  .caracal-home__block--split {
     grid-template-columns: 1fr;
   }
+
+  .caracal-home__compact-grid,
+  .caracal-home__footer-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
-@media (max-width: 600px) {
-  .caracal-home__features {
+
+@media (max-width: 760px) {
+  .caracal-home {
+    gap: 30px;
+    width: min(100%, calc(100vw - 24px));
+    padding-top: 18px;
+  }
+
+  .caracal-home__hero {
+    gap: 24px;
+    padding-top: 20px;
+  }
+
+  .caracal-home__hero-brand {
+    grid-template-columns: 96px minmax(0, 1fr);
+    gap: 18px;
+  }
+
+  .caracal-home__hero-mark {
+    width: 96px;
+    height: 96px;
+  }
+
+  .caracal-home__animation {
+    width: 68px;
+    height: 68px;
+  }
+
+  .caracal-home__starter-card {
+    padding: 22px;
+  }
+
+  .caracal-home__product-grid,
+  .caracal-home__compact-grid,
+  .caracal-home__footer-row {
+    grid-template-columns: 1fr;
+  }
+
+  .caracal-home__product-card {
+    padding: 22px;
+    min-height: auto;
+  }
+}
+
+@media (max-width: 560px) {
+  .caracal-home__hero-brand {
     grid-template-columns: 1fr;
   }
 }
@@ -1624,8 +1746,6 @@ button {
   left: 50%;
   transform: translate(-50%, -50%);
   padding: 12px 16px;
-  border: 1px solid rgba(24, 255, 118, 0.42);
-  background: rgba(0, 12, 5, 0.72);
   color: #18ff76;
   font-family: "IBM Plex Mono", ui-monospace, monospace;
   font-size: 0.72rem;
@@ -1633,7 +1753,6 @@ button {
   letter-spacing: 0.16em;
   text-transform: uppercase;
   text-shadow: 0 0 12px rgba(24, 255, 118, 0.8);
-  backdrop-filter: blur(16px);
 }
 
 @keyframes caracal-mode-sweep {

@@ -1,227 +1,216 @@
-import React, { FormEvent, useState, type ReactElement } from "react";
+import React, { type ReactElement } from "react";
 import Link from "@docusaurus/Link";
-import useBaseUrl from "@docusaurus/useBaseUrl";
 
-type Feature = {
+type ProductCard = {
   title: string;
   description: string;
-  glyph: string;
+  meta: string;
+  to: string;
 };
 
-type PathCard = {
-  eyebrow: string;
+type LinkCard = {
   title: string;
   description: string;
   to: string;
-  cta: string;
+  meta: string;
 };
 
-type ResourceLink = {
-  title: string;
-  to: string;
-  description: string;
-};
-
-const features: Feature[] = [
+const products: ProductCard[] = [
   {
-    title: "Pre-execution authority",
-    description: "No action runs without a verified, time-bound mandate issued under a governing policy.",
-    glyph: "→",
+    title: "Authority",
+    description: "Evaluate policy, mandate, delegation, and principal state before any protected action runs.",
+    meta: "Policies, mandates, principals",
+    to: "/open-source/end-users/concepts/authority-enforcement-model",
   },
   {
-    title: "Cryptographic mandates",
-    description: "Asymmetric session signing, deterministic verification, and append-only audit trails.",
-    glyph: "✓",
+    title: "Ledger",
+    description: "Record signed authority decisions and supporting state in an append-only verification trail.",
+    meta: "Audit trail, verification, replay",
+    to: "/open-source/end-users/concepts/ledger",
   },
   {
-    title: "Runtime isolation",
-    description: "Host orchestrator and restricted in-container CLI keep agent context separated by design.",
-    glyph: "□",
+    title: "Flow",
+    description: "Operate the runtime through the constrained terminal interface and inspect authority workflows safely.",
+    meta: "Runtime console, workflows, inspection",
+    to: "/open-source/end-users/tui/common-tasks",
   },
   {
-    title: "Built for agents",
-    description: "First-class Python and Node SDKs, MCP adapter, and a documentation mirror for machines.",
-    glyph: "◇",
+    title: "Hard-cut",
+    description: "Enforce fail-closed runtime preflight checks for storage, signing, secrets, and isolation boundaries.",
+    meta: "Vault, PostgreSQL, fail-closed preflight",
+    to: "/open-source/end-users/security/fail-closed-semantics",
   },
 ];
 
-const paths: PathCard[] = [
+const guides: LinkCard[] = [
   {
-    eyebrow: "Operate",
-    title: "End Users",
-    description: "Install the runtime, register principals, and run workflows on your host.",
-    to: "/open-source/end-users/getting-started/installation",
-    cta: "Start operating",
+    title: "Quickstart",
+    description: "Bring up the runtime, validate services, and confirm the host command surface.",
+    to: "/open-source/end-users/getting-started/quickstart",
+    meta: "Start here",
   },
-  {
-    eyebrow: "Integrate",
-    title: "SDK Developers",
-    description: "Wire Caracal into agents and tools through the Python or Node SDK.",
-    to: "/open-source/sdk/overview",
-    cta: "Open the SDK",
-  },
-  {
-    eyebrow: "Build",
-    title: "Contributors",
-    description: "Read the architecture, set up the repo, and contribute to the core.",
-    to: "/open-source/developers/architecture",
-    cta: "Read the internals",
-  },
-  {
-    eyebrow: "Deploy",
-    title: "Enterprise",
-    description: "Configure access, deploy at scale, and monitor authority across teams.",
-    to: "/enterprise/overview",
-    cta: "View Enterprise",
-  },
-];
-
-const resources: ResourceLink[] = [
   {
     title: "Concepts",
+    description: "Read the core terms that define how authority enforcement works in Caracal.",
     to: "/open-source/end-users/concepts",
-    description: "Principal, policy, mandate, ledger, and the rest of the model.",
+    meta: "Model",
   },
   {
-    title: "CLI Reference",
+    title: "CLI",
+    description: "Inspect host orchestration commands and in-container operational references.",
     to: "/open-source/end-users/cli",
-    description: "Host orchestrator and in-container command groups.",
+    meta: "Operate",
   },
   {
     title: "Security",
-    to: "/open-source/end-users/security",
-    description: "Threat model, fail-closed semantics, and key management.",
+    description: "Review fail-closed behavior, threat assumptions, and key management material.",
+    to: "/open-source/end-users/security/threat-model",
+    meta: "Verify",
+  },
+];
+
+const libraries: LinkCard[] = [
+  {
+    title: "Python SDK",
+    description: "Integrate Caracal into Python agents and services.",
+    to: "/open-source/sdk/python/usage",
+    meta: "Python",
+  },
+  {
+    title: "Node SDK",
+    description: "Use Caracal from TypeScript and Node runtimes.",
+    to: "/open-source/sdk/node/usage",
+    meta: "TypeScript",
+  },
+  {
+    title: "Configuration",
+    description: "Runtime settings for storage, secrets, logging, MCP, and service behavior.",
+    to: "/open-source/end-users/configuration",
+    meta: "Runtime",
+  },
+  {
+    title: "Architecture",
+    description: "Read the runtime model, core authority system, and service boundaries.",
+    to: "/open-source/developers/architecture",
+    meta: "Internals",
+  },
+  {
+    title: "Enterprise",
+    description: "Deployment, access, administration, and monitoring for larger environments.",
+    to: "/enterprise/overview",
+    meta: "Deploy",
   },
   {
     title: "AI Docs",
+    description: "Machine-oriented mirror for retrieval, planning, and tooling.",
     to: "/ai",
-    description: "Machine-readable mirror with a fixed schema for tooling and agents.",
+    meta: "Text mode",
   },
 ];
 
 export default function Homepage(): ReactElement {
-  const [query, setQuery] = useState("");
-  const searchBaseUrl = useBaseUrl("/search");
-  const searchUrl = useBaseUrl(`/search?q=${encodeURIComponent(query.trim())}`);
-
-  const onSubmit = (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    window.location.assign(query.trim() ? searchUrl : searchBaseUrl);
-  };
-
   return (
     <div className="caracal-home">
       <section className="caracal-home__hero">
-        <div className="caracal-home__hero-glow" aria-hidden="true" />
-        <div className="caracal-home__hero-inner">
-          <div className="caracal-home__eyebrow">
-            <span className="caracal-home__eyebrow-dot" aria-hidden="true" />
-            v1.0 documentation
+        <div className="caracal-home__hero-copy">
+          <div className="caracal-home__hero-brand" id="caracal-home-brand">
+            <div className="caracal-home__hero-text">
+              <h1 className="caracal-home__hero-title">Caracal Documentation</h1>
+              <p className="caracal-home__hero-description">
+                Learn how to deploy, operate, integrate, and verify Caracal through runtime guides, SDK references,
+                security material, and machine-readable docs.
+              </p>
+              <div className="caracal-home__hero-actions">
+                <Link className="caracal-home__hero-action" to="/open-source/end-users/getting-started/quickstart">
+                  Open quickstart
+                </Link>
+                <Link className="caracal-home__hero-action" to="/open-source/overview">
+                  Read overview
+                </Link>
+              </div>
+            </div>
           </div>
-          <h1 className="caracal-home__title">
-            Authority enforcement for <span className="caracal-home__title-accent">AI agents</span>.
-          </h1>
-          <p className="caracal-home__lede">
-            Caracal is a pre-execution authority layer. No action runs without a cryptographically verified,
-            time-bound mandate issued under a governing policy.
-          </p>
-          <div className="caracal-home__cta-row">
-            <Link
-              className="caracal-home__cta caracal-home__cta--primary"
-              to="/open-source/end-users/getting-started/quickstart"
-            >
-              Quickstart
-            </Link>
-            <Link className="caracal-home__cta caracal-home__cta--ghost" to="/open-source/overview">
-              What is Caracal
-            </Link>
-            <a
-              className="caracal-home__cta caracal-home__cta--ghost"
-              href="https://github.com/Garudex-Labs/caracal"
-              target="_blank"
-              rel="noreferrer"
-            >
-              GitHub
-            </a>
-          </div>
-          <form className="caracal-home__search" onSubmit={onSubmit}>
-            <input
-              aria-label="Search Caracal documentation"
-              autoComplete="off"
-              name="q"
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder="Search commands, runtime flows, security topics, or contributor guides"
-              type="search"
-              value={query}
+        </div>
+
+        <aside className="caracal-home__starter-card">
+          <h2 className="caracal-home__starter-title">Featured Video</h2>
+          <div className="caracal-home__featured-video">
+            <iframe
+              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+              allowFullScreen
+              loading="lazy"
+              referrerPolicy="strict-origin-when-cross-origin"
+              src="https://www.youtube.com/embed/tZ4FdO-zjeE"
+              title="Caracal featured video"
             />
-            <button type="submit">Search</button>
-          </form>
-          <div className="caracal-home__install">
-            <div className="caracal-home__install-label">Install</div>
-            <pre className="caracal-home__install-code">
-              <code>
-                <span className="caracal-home__install-prompt">$</span> pip install caracal-core
-                {"\n"}
-                <span className="caracal-home__install-prompt">$</span> caracal up
-              </code>
-            </pre>
           </div>
-        </div>
+        </aside>
       </section>
 
-      <section className="caracal-home__section">
-        <div className="caracal-home__section-head">
-          <span className="caracal-home__kicker">Why Caracal</span>
-          <h2 className="caracal-home__section-title">Authority, verifiable before execution.</h2>
+      <section className="caracal-home__block">
+        <div className="caracal-home__block-head">
+          <h2>Products</h2>
         </div>
-        <div className="caracal-home__features">
-          {features.map((feature) => (
-            <article key={feature.title} className="caracal-feature">
-              <div className="caracal-feature__glyph" aria-hidden="true">
-                {feature.glyph}
+        <div className="caracal-home__product-grid">
+          {products.map((product) => (
+            <Link key={product.title} className="caracal-home__product-card" to={product.to}>
+              <div>
+                <div className="caracal-home__product-title">{product.title}</div>
+                <div className="caracal-home__product-meta">{product.meta}</div>
+                <p className="caracal-home__product-description">{product.description}</p>
               </div>
-              <h3 className="caracal-feature__title">{feature.title}</h3>
-              <p className="caracal-feature__description">{feature.description}</p>
-            </article>
-          ))}
-        </div>
-      </section>
-
-      <section className="caracal-home__section">
-        <div className="caracal-home__section-head">
-          <span className="caracal-home__kicker">Pick your path</span>
-          <h2 className="caracal-home__section-title">Documentation, organized by what you do.</h2>
-        </div>
-        <div className="caracal-home__paths">
-          {paths.map((path) => (
-            <Link key={path.title} className="caracal-path" to={path.to}>
-              <div className="caracal-path__eyebrow">{path.eyebrow}</div>
-              <h3 className="caracal-path__title">{path.title}</h3>
-              <p className="caracal-path__description">{path.description}</p>
-              <div className="caracal-path__cta">{path.cta} →</div>
             </Link>
           ))}
         </div>
       </section>
 
-      <section className="caracal-home__section">
-        <div className="caracal-home__section-head">
-          <span className="caracal-home__kicker">Reference</span>
-          <h2 className="caracal-home__section-title">Jump to what you came for.</h2>
+      <section className="caracal-home__block caracal-home__block--split">
+        <div className="caracal-home__block-head">
+          <h2>Core Guides</h2>
         </div>
-        <div className="caracal-home__resources">
-          {resources.map((resource) => (
-            <Link key={resource.title} className="caracal-resource" to={resource.to}>
-              <div className="caracal-resource__title">
-                {resource.title}
-                <span className="caracal-resource__arrow" aria-hidden="true">
-                  →
-                </span>
-              </div>
-              <p className="caracal-resource__description">{resource.description}</p>
+        <div className="caracal-home__compact-grid">
+          {guides.map((guide) => (
+            <Link key={guide.title} className="caracal-home__compact-link" to={guide.to}>
+              <span className="caracal-home__compact-copy">
+                <span className="caracal-home__compact-meta">{guide.meta}</span>
+                <span className="caracal-home__compact-title">{guide.title}</span>
+                <span className="caracal-home__compact-description">{guide.description}</span>
+              </span>
             </Link>
           ))}
         </div>
+      </section>
+
+      <section className="caracal-home__block caracal-home__block--split caracal-home__block--bordered">
+        <div className="caracal-home__block-head">
+          <h2>Client Libraries</h2>
+        </div>
+        <div className="caracal-home__compact-grid">
+          {libraries.map((library) => (
+            <Link key={library.title} className="caracal-home__compact-link" to={library.to}>
+              <span className="caracal-home__compact-copy">
+                <span className="caracal-home__compact-meta">{library.meta}</span>
+                <span className="caracal-home__compact-title">{library.title}</span>
+                <span className="caracal-home__compact-description">{library.description}</span>
+              </span>
+            </Link>
+          ))}
+        </div>
+      </section>
+
+      <section className="caracal-home__footer-row">
+        <Link className="caracal-home__footer-card" to="/open-source/developers/architecture">
+          <span className="caracal-home__footer-label">Architecture</span>
+          <span className="caracal-home__footer-text">Read the runtime, service, and authority system structure.</span>
+        </Link>
+        <Link className="caracal-home__footer-card" to="/open-source/end-users/security">
+          <span className="caracal-home__footer-label">Security</span>
+          <span className="caracal-home__footer-text">Inspect fail-closed behavior, key management, and threat assumptions.</span>
+        </Link>
+        <Link className="caracal-home__footer-card" to="/enterprise/overview">
+          <span className="caracal-home__footer-label">Enterprise</span>
+          <span className="caracal-home__footer-text">Configure access, deployment, and monitoring for larger environments.</span>
+        </Link>
       </section>
     </div>
   );

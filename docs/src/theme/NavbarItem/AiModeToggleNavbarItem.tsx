@@ -48,7 +48,7 @@ export default function AiModeToggleNavbarItem(): ReactNode {
       {isSwitching ? (
         <div className={isAiPath ? "caracal-mode-transition caracal-mode-transition--off" : "caracal-mode-transition caracal-mode-transition--on"}>
           <div className="caracal-mode-transition__panel" />
-          <div className="caracal-mode-transition__label">{isAiPath ? "RESTORING HUMAN DOCS" : "LOADING AI MODE"}</div>
+          <div className="caracal-mode-transition__label">{isAiPath ? "LOADING ..." : "LOADING ..."}</div>
         </div>
       ) : null}
     </>
