@@ -8,14 +8,15 @@ Tests for ConfigManager helper methods and utility functions.
 from __future__ import annotations
 
 import os
+from datetime import datetime
 from pathlib import Path
 from typing import Optional
-from unittest.mock import patch
+from unittest.mock import patch, MagicMock
 
 import pytest
 import yaml
 
-from caracal.deployment.config_manager import ConfigManager
+from caracal.deployment.config_manager import ConfigManager, PostgresConfig, WorkspaceConfig
 from caracal.deployment.exceptions import (
     InvalidWorkspaceNameError,
     WorkspaceNotFoundError,
@@ -316,3 +317,353 @@ class TestLoadSecretRefs:
         m = _setup(monkeypatch, tmp_path)
         result = m._load_secret_refs_or_empty("does-not-exist")
         assert result == {}
+
+
+@pytest.mark.unit
+class TestGetWorkspaceConfig:
+    def test_returns_config_for_existing_workspace(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        m = _setup(monkeypatch, tmp_path)
+        m.create_workspace("myws")
+        cfg = m.get_workspace_config("myws")
+        assert cfg.name == "myws"
+
+    def test_raises_for_missing_workspace(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        m = _setup(monkeypatch, tmp_path)
+        with pytest.raises(WorkspaceNotFoundError):
+            m.get_workspace_config("does-not-exist")
+
+    def test_default_workspace_is_first_created(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        m = _setup(monkeypatch, tmp_path)
+        m.create_workspace("first-ws")
+        cfg = m.get_workspace_config("first-ws")
+        assert cfg.is_default is True
+
+    def test_second_workspace_not_default(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        m = _setup(monkeypatch, tmp_path)
+        m.create_workspace("ws-one")
+        m.create_workspace("ws-two")
+        cfg = m.get_workspace_config("ws-two")
+        assert cfg.is_default is False
+
+
+@pytest.mark.unit
+class TestGetDefaultWorkspaceName:
+    def test_returns_none_when_no_workspaces(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        m = _setup(monkeypatch, tmp_path)
+        assert m.get_default_workspace_name() is None
+
+    def test_returns_first_workspace_as_default(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        m = _setup(monkeypatch, tmp_path)
+        m.create_workspace("alpha")
+        assert m.get_default_workspace_name() == "alpha"
+
+    def test_returns_explicit_default(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        m = _setup(monkeypatch, tmp_path)
+        m.create_workspace("alpha")
+        m.create_workspace("beta")
+        m.set_default_workspace("beta")
+        assert m.get_default_workspace_name() == "beta"
+
+
+@pytest.mark.unit
+class TestSwitchWorkspace:
+    def test_switches_to_existing_workspace(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        m = _setup(monkeypatch, tmp_path)
+        m.create_workspace("ws-alpha")
+        m.create_workspace("ws-beta")
+        m.set_default_workspace("ws-beta")
+        assert m.get_default_workspace_name() == "ws-beta"
+
+    def test_switch_to_nonexistent_raises(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        m = _setup(monkeypatch, tmp_path)
+        with pytest.raises(WorkspaceNotFoundError):
+            m.set_default_workspace("nonexistent")
+
+
+@pytest.mark.unit
+class TestDeleteWorkspace:
+    def test_delete_workspace_removes_directory(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        m = _setup(monkeypatch, tmp_path)
+        m.create_workspace("alpha")
+        m.create_workspace("beta")
+        m.set_default_workspace("beta")
+        m.delete_workspace("alpha", backup=False)
+        assert "alpha" not in m.list_workspaces()
+
+    def test_delete_nonexistent_raises(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        m = _setup(monkeypatch, tmp_path)
+        with pytest.raises(WorkspaceNotFoundError):
+            m.delete_workspace("ghost", backup=False)
+
+
+@pytest.mark.unit
+class TestStoreAndGetSecret:
+    def test_store_and_retrieve_secret(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        m = _setup(monkeypatch, tmp_path)
+        m.create_workspace("sec-ws")
+        with patch("caracal.deployment.config_manager.encrypt_value", return_value="enc:val"), \
+             patch("caracal.deployment.config_manager.decrypt_value", return_value="my-secret-value"):
+            m.store_secret("API_KEY", "my-secret-value", "sec-ws")
+            result = m.get_secret("API_KEY", "sec-ws")
+        assert result == "my-secret-value"
+
+    def test_get_missing_secret_raises(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        from caracal.deployment.exceptions import SecretNotFoundError
+        m = _setup(monkeypatch, tmp_path)
+        m.create_workspace("sec-ws")
+        with pytest.raises(SecretNotFoundError):
+            m.get_secret("MISSING_KEY", "sec-ws")
+
+    def test_store_secret_invalid_workspace_raises(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        m = _setup(monkeypatch, tmp_path)
+        with pytest.raises(WorkspaceNotFoundError):
+            m.store_secret("KEY", "value", "nonexistent-ws")
+
+    def test_multiple_secrets_stored_separately(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        m = _setup(monkeypatch, tmp_path)
+        m.create_workspace("multi-ws")
+        with patch("caracal.deployment.config_manager.encrypt_value", side_effect=lambda v: f"enc:{v}"), \
+             patch("caracal.deployment.config_manager.decrypt_value", side_effect=lambda v: v.replace("enc:", "")):
+            m.store_secret("KEY_A", "value-a", "multi-ws")
+            m.store_secret("KEY_B", "value-b", "multi-ws")
+            assert m.get_secret("KEY_A", "multi-ws") == "value-a"
+            assert m.get_secret("KEY_B", "multi-ws") == "value-b"
+
+    def test_overwrite_secret(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        m = _setup(monkeypatch, tmp_path)
+        m.create_workspace("over-ws")
+        with patch("caracal.deployment.config_manager.encrypt_value", side_effect=lambda v: f"enc:{v}"), \
+             patch("caracal.deployment.config_manager.decrypt_value", side_effect=lambda v: v.replace("enc:", "")):
+            m.store_secret("KEY", "original", "over-ws")
+            m.store_secret("KEY", "updated", "over-ws")
+            assert m.get_secret("KEY", "over-ws") == "updated"
+
+
+@pytest.mark.unit
+class TestSetWorkspaceConfig:
+    def test_set_updates_workspace_config(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        m = _setup(monkeypatch, tmp_path)
+        m.create_workspace("cfg-ws")
+        original = m.get_workspace_config("cfg-ws")
+        updated = WorkspaceConfig(
+            name=original.name,
+            created_at=original.created_at,
+            updated_at=original.updated_at,
+            is_default=original.is_default,
+            metadata={"env": "staging"},
+        )
+        m.set_workspace_config("cfg-ws", updated)
+        reloaded = m.get_workspace_config("cfg-ws")
+        assert reloaded.metadata == {"env": "staging"}
+
+    def test_set_updates_updated_at(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        m = _setup(monkeypatch, tmp_path)
+        m.create_workspace("ts-ws")
+        cfg = m.get_workspace_config("ts-ws")
+        before = cfg.updated_at
+        m.set_workspace_config("ts-ws", cfg)
+        after = m.get_workspace_config("ts-ws").updated_at
+        assert after >= before
+
+
+@pytest.mark.unit
+class TestGetPostgresConfig:
+    def test_returns_none_when_no_config_file(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        m = _setup(monkeypatch, tmp_path)
+        assert m.get_postgres_config() is None
+
+    def test_returns_none_when_no_postgres_section(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        import toml
+        m = _setup(monkeypatch, tmp_path)
+        (tmp_path / "config.toml").write_text(toml.dumps({"other": "data"}))
+        assert m.get_postgres_config() is None
+
+    def test_returns_config_with_defaults(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        import toml
+        m = _setup(monkeypatch, tmp_path)
+        (tmp_path / "config.toml").write_text(toml.dumps({
+            "postgres": {"host": "db.local", "port": 5432}
+        }))
+        cfg = m.get_postgres_config()
+        assert cfg is not None
+        assert cfg.host == "db.local"
+        assert cfg.database == "caracal"
+        assert cfg.ssl_mode == "require"
+
+    def test_returns_none_on_decode_error(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        m = _setup(monkeypatch, tmp_path)
+        (tmp_path / "config.toml").write_text("this is not valid toml ][[[")
+        assert m.get_postgres_config() is None
+
+
+@pytest.mark.unit
+class TestSetPostgresConfig:
+    def _make_pg(self) -> PostgresConfig:
+        return PostgresConfig(
+            host="db.local",
+            port=5432,
+            database="mydb",
+            user="user1",
+            password_ref="ref:secret",
+            ssl_mode="require",
+            pool_size=10,
+            max_overflow=5,
+            pool_timeout=30,
+        )
+
+    def test_saves_and_retrieves_postgres_config(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        m = _setup(monkeypatch, tmp_path)
+        monkeypatch.setattr(m, "_validate_postgres_connectivity", lambda cfg: None)
+        m.set_postgres_config(self._make_pg())
+        result = m.get_postgres_config()
+        assert result is not None
+        assert result.host == "db.local"
+        assert result.database == "mydb"
+
+    def test_merges_with_existing_config(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        import toml
+        m = _setup(monkeypatch, tmp_path)
+        monkeypatch.setattr(m, "_validate_postgres_connectivity", lambda cfg: None)
+        (tmp_path / "config.toml").write_text(toml.dumps({"other": "preserved"}))
+        m.set_postgres_config(self._make_pg())
+        config = toml.load(tmp_path / "config.toml")
+        assert config.get("other") == "preserved"
+        assert "postgres" in config
+
+    def test_raises_on_connectivity_failure(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        from caracal.deployment.exceptions import ConfigurationValidationError
+        m = _setup(monkeypatch, tmp_path)
+
+        def _raise(cfg: PostgresConfig) -> None:
+            raise ConfigurationValidationError("cannot connect")
+
+        monkeypatch.setattr(m, "_validate_postgres_connectivity", _raise)
+        with pytest.raises(ConfigurationValidationError):
+            m.set_postgres_config(self._make_pg())
+
+
+@pytest.mark.unit
+class TestLoadWorkspaceRuntimeConfig:
+    def test_returns_empty_dict_when_no_config_yaml(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        m = _setup(monkeypatch, tmp_path)
+        ws_dir = tmp_path / "workspaces" / "myws"
+        ws_dir.mkdir(parents=True)
+        result = m._load_workspace_runtime_config(ws_dir)
+        assert result == {}
+
+    def test_returns_dict_from_valid_yaml(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        m = _setup(monkeypatch, tmp_path)
+        ws_dir = tmp_path / "workspaces" / "myws"
+        ws_dir.mkdir(parents=True)
+        (ws_dir / "config.yaml").write_text("database:\n  host: pg.local\n  port: 5432\n")
+        result = m._load_workspace_runtime_config(ws_dir)
+        assert result["database"]["host"] == "pg.local"
+
+    def test_returns_empty_on_bad_yaml(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        m = _setup(monkeypatch, tmp_path)
+        ws_dir = tmp_path / "workspaces" / "myws"
+        ws_dir.mkdir(parents=True)
+        (ws_dir / "config.yaml").write_text(": [\ninvalid\n")
+        result = m._load_workspace_runtime_config(ws_dir)
+        assert result == {}
+
+
+@pytest.mark.unit
+class TestLoadSecretRefs:
+    def test_returns_empty_for_workspace_without_refs(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        m = _setup(monkeypatch, tmp_path)
+        m.create_workspace("ref-ws")
+        assert m._load_secret_refs("ref-ws") == {}
+
+    def test_returns_refs_after_storing(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        m = _setup(monkeypatch, tmp_path)
+        m.create_workspace("ref-ws")
+        m._save_secret_refs("ref-ws", {"MY_KEY": "ENC[v4:val]"})
+        result = m._load_secret_refs("ref-ws")
+        assert result == {"MY_KEY": "ENC[v4:val]"}
+
+    def test_load_or_empty_returns_empty_for_missing_workspace(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        m = _setup(monkeypatch, tmp_path)
+        result = m._load_secret_refs_or_empty("no-such-ws")
+        assert result == {}
+
+
+@pytest.mark.unit
+class TestGetWorkspacePath:
+    def test_returns_path_for_existing_workspace(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        m = _setup(monkeypatch, tmp_path)
+        m.create_workspace("path-ws")
+        path = m.get_workspace_path("path-ws")
+        assert path.exists()
+        assert path.name == "path-ws"
+
+    def test_raises_for_missing_workspace(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        m = _setup(monkeypatch, tmp_path)
+        with pytest.raises(WorkspaceNotFoundError):
+            m.get_workspace_path("nonexistent")

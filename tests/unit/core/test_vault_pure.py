@@ -259,3 +259,155 @@ class TestIsMissingEndpoint:
     def test_sign_endpoint_other_error_no_match(self):
         err = self.VaultError("POST /api/caracal/sign/jwt -> 500 error")
         assert self.is_sign(err) is False
+
+
+class TestSaveRecoveredVaultToken:
+    def setup_method(self):
+        from caracal.core.vault import _save_recovered_vault_token
+        self.fn = _save_recovered_vault_token
+
+    def test_no_ccl_home_returns_silently(self, monkeypatch: pytest.MonkeyPatch):
+        monkeypatch.delenv("CCL_HOME", raising=False)
+        self.fn("some-token")  # must not raise
+
+    def test_writes_token_to_dotenv(self, monkeypatch: pytest.MonkeyPatch, tmp_path):
+        monkeypatch.setenv("CCL_HOME", str(tmp_path))
+        self.fn("my-vault-token")
+        env_file = tmp_path / ".env"
+        assert env_file.exists()
+        content = env_file.read_text()
+        assert "CCL_VAULT_ID_TOKEN=my-vault-token" in content
+
+    def test_replaces_existing_token(self, monkeypatch: pytest.MonkeyPatch, tmp_path):
+        monkeypatch.setenv("CCL_HOME", str(tmp_path))
+        env_file = tmp_path / ".env"
+        env_file.write_text("CCL_VAULT_ID_TOKEN=old-token\nOTHER=val\n")
+        self.fn("new-token")
+        content = env_file.read_text()
+        assert "CCL_VAULT_ID_TOKEN=new-token" in content
+        assert "old-token" not in content
+        assert "OTHER=val" in content
+
+    def test_appends_when_key_absent(self, monkeypatch: pytest.MonkeyPatch, tmp_path):
+        monkeypatch.setenv("CCL_HOME", str(tmp_path))
+        env_file = tmp_path / ".env"
+        env_file.write_text("EXISTING=value\n")
+        self.fn("appended-token")
+        content = env_file.read_text()
+        assert "CCL_VAULT_ID_TOKEN=appended-token" in content
+        assert "EXISTING=value" in content
+
+
+class TestReadEnvOrDotenv:
+    def setup_method(self):
+        from caracal.core.vault import _read_env_or_dotenv
+        self.fn = _read_env_or_dotenv
+
+    def test_returns_env_var_when_set(self, monkeypatch: pytest.MonkeyPatch):
+        monkeypatch.setenv("CCL_TEST_KEY", "env-value")
+        assert self.fn("CCL_TEST_KEY") == "env-value"
+
+    def test_returns_none_when_not_found(self, monkeypatch: pytest.MonkeyPatch):
+        monkeypatch.delenv("CCL_TEST_KEY_ABSENT", raising=False)
+        result = self.fn("CCL_TEST_KEY_ABSENT")
+        assert result is None
+
+    def test_reads_from_ccl_home_dotenv(self, monkeypatch: pytest.MonkeyPatch, tmp_path):
+        monkeypatch.delenv("CCL_TEST_DOTENV_KEY", raising=False)
+        monkeypatch.setenv("CCL_HOME", str(tmp_path))
+        env_file = tmp_path / ".env"
+        env_file.write_text("CCL_TEST_DOTENV_KEY=my-value\n")
+        result = self.fn("CCL_TEST_DOTENV_KEY")
+        assert result == "my-value"
+
+    def test_strips_inline_comment(self, monkeypatch: pytest.MonkeyPatch, tmp_path):
+        monkeypatch.delenv("CCL_COMMENT_KEY", raising=False)
+        monkeypatch.setenv("CCL_HOME", str(tmp_path))
+        env_file = tmp_path / ".env"
+        env_file.write_text("CCL_COMMENT_KEY=real-val #comment\n")
+        result = self.fn("CCL_COMMENT_KEY")
+        assert result == "real-val"
+
+    def test_strips_quoted_value(self, monkeypatch: pytest.MonkeyPatch, tmp_path):
+        monkeypatch.delenv("CCL_QUOTED_KEY", raising=False)
+        monkeypatch.setenv("CCL_HOME", str(tmp_path))
+        env_file = tmp_path / ".env"
+        env_file.write_text('CCL_QUOTED_KEY="quoted-value"\n')
+        result = self.fn("CCL_QUOTED_KEY")
+        assert result == "quoted-value"
+
+    def test_skips_comments_in_dotenv(self, monkeypatch: pytest.MonkeyPatch, tmp_path):
+        monkeypatch.delenv("CCL_COMMENT_LINE", raising=False)
+        monkeypatch.setenv("CCL_HOME", str(tmp_path))
+        env_file = tmp_path / ".env"
+        env_file.write_text("# this is a comment\nCCL_COMMENT_LINE=val\n")
+        result = self.fn("CCL_COMMENT_LINE")
+        assert result == "val"
+
+
+class TestLoadVaultConfig:
+    def setup_method(self):
+        from caracal.core.vault import _load_vault_config
+        self.fn = _load_vault_config
+
+    def _set_valid_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("CCL_VAULT_URL", "https://vault.example.com")
+        monkeypatch.setenv("CCL_VAULT_TOKEN", "tok-abc")
+        monkeypatch.setenv("CCL_VAULT_MODE", "managed")
+
+    def test_returns_config_with_valid_env(self, monkeypatch: pytest.MonkeyPatch):
+        self._set_valid_env(monkeypatch)
+        cfg = self.fn()
+        assert cfg.base_url == "https://vault.example.com"
+        assert cfg.token == "tok-abc"
+        assert cfg.mode == "managed"
+
+    def test_default_environment_is_dev(self, monkeypatch: pytest.MonkeyPatch):
+        self._set_valid_env(monkeypatch)
+        monkeypatch.delenv("CCL_VAULT_ENVIRONMENT", raising=False)
+        cfg = self.fn()
+        assert cfg.default_environment == "dev"
+
+    def test_default_secret_path_is_slash(self, monkeypatch: pytest.MonkeyPatch):
+        self._set_valid_env(monkeypatch)
+        monkeypatch.delenv("CCL_VAULT_SECRET_PATH", raising=False)
+        cfg = self.fn()
+        assert cfg.default_secret_path == "/"
+
+    def test_missing_url_raises(self, monkeypatch: pytest.MonkeyPatch):
+        from caracal.core.vault import VaultConfigurationError
+        monkeypatch.delenv("CCL_VAULT_URL", raising=False)
+        monkeypatch.setenv("CCL_VAULT_TOKEN", "tok")
+        monkeypatch.setenv("CCL_VAULT_MODE", "managed")
+        with pytest.raises(VaultConfigurationError, match="CCL_VAULT_URL"):
+            self.fn()
+
+    def test_missing_token_raises(self, monkeypatch: pytest.MonkeyPatch):
+        from caracal.core.vault import VaultConfigurationError
+        monkeypatch.setenv("CCL_VAULT_URL", "https://vault.example.com")
+        monkeypatch.delenv("CCL_VAULT_TOKEN", raising=False)
+        monkeypatch.setenv("CCL_VAULT_MODE", "managed")
+        with pytest.raises(VaultConfigurationError, match="CCL_VAULT_TOKEN"):
+            self.fn()
+
+    def test_invalid_mode_raises(self, monkeypatch: pytest.MonkeyPatch):
+        from caracal.core.vault import VaultConfigurationError
+        monkeypatch.setenv("CCL_VAULT_URL", "https://vault.example.com")
+        monkeypatch.setenv("CCL_VAULT_TOKEN", "tok-abc")
+        monkeypatch.setenv("CCL_VAULT_MODE", "badmode")
+        with pytest.raises(VaultConfigurationError, match="CCL_VAULT_MODE"):
+            self.fn()
+
+    def test_invalid_retry_attempts_raises(self, monkeypatch: pytest.MonkeyPatch):
+        from caracal.core.vault import VaultConfigurationError
+        self._set_valid_env(monkeypatch)
+        monkeypatch.setenv("CCL_VAULT_RETRY_MAX_ATTEMPTS", "not-a-number")
+        with pytest.raises(VaultConfigurationError, match="CCL_VAULT_RETRY_MAX_ATTEMPTS"):
+            self.fn()
+
+    def test_invalid_retry_backoff_raises(self, monkeypatch: pytest.MonkeyPatch):
+        from caracal.core.vault import VaultConfigurationError
+        self._set_valid_env(monkeypatch)
+        monkeypatch.setenv("CCL_VAULT_RETRY_BACKOFF_SECONDS", "not-a-float")
+        with pytest.raises(VaultConfigurationError, match="CCL_VAULT_RETRY_BACKOFF_SECONDS"):
+            self.fn()

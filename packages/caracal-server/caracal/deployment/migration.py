@@ -172,7 +172,6 @@ class MigrationManager:
             
             logger.info(
                 "migration_completed",
-                migration_id=migration_id,
                 **result
             )
             
@@ -345,7 +344,6 @@ class MigrationManager:
             
             logger.info(
                 "edition_migration_completed",
-                migration_id=migration_id,
                 **result
             )
             

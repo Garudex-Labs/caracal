@@ -270,6 +270,7 @@ class TestMigrateRepositoryToPackage:
         mgr._preserve_migration_data = MagicMock(return_value=2)
         mgr._verify_data_integrity = MagicMock()
         mgr._cleanup_old_backups = MagicMock()
+        mgr._rollback_from_backup = MagicMock()
         return mgr
 
     def test_success_returns_dict(self, tmp_path):
@@ -341,13 +342,14 @@ class TestMigrateEdition:
         mgr._create_backup = MagicMock(return_value=backup_file)
         mgr._cleanup_old_backups = MagicMock()
         mgr._rollback_from_backup = MagicMock()
+        mgr._migrate_edition_settings = MagicMock()
         return mgr
 
     def test_migrate_to_enterprise_success(self, tmp_path):
         from caracal.deployment.edition import Edition
         mgr = self._make_ready(tmp_path)
-        mgr._migrate_oss_to_enterprise = MagicMock(return_value={"api_keys_migrated": 1})
-        mgr.edition_adapter.update_edition = MagicMock()
+        mgr._migrate_api_keys = MagicMock(return_value=1)
+        mgr.edition_adapter.set_edition = MagicMock()
         mgr.edition_adapter.get_edition.return_value = Edition.OPENSOURCE
 
         result = mgr.migrate_edition(
@@ -355,24 +357,24 @@ class TestMigrateEdition:
             gateway_url="https://gw.example.com",
         )
         assert result["success"] is True
-        mgr._migrate_oss_to_enterprise.assert_called_once()
+        mgr._migrate_api_keys.assert_called_once()
 
     def test_migrate_to_oss_success(self, tmp_path):
         from caracal.deployment.edition import Edition
         mgr = self._make_ready(tmp_path)
-        mgr._migrate_enterprise_to_oss = MagicMock(return_value={"api_keys_migrated": 0})
-        mgr.edition_adapter.update_edition = MagicMock()
+        mgr._migrate_api_keys = MagicMock(return_value=0)
+        mgr.edition_adapter.set_edition = MagicMock()
         mgr.edition_adapter.get_edition.return_value = Edition.ENTERPRISE
 
         result = mgr.migrate_edition(target_edition=Edition.OPENSOURCE)
         assert result["success"] is True
-        mgr._migrate_enterprise_to_oss.assert_called_once()
+        mgr._migrate_api_keys.assert_called_once()
 
     def test_migrate_edition_failure_raises(self, tmp_path):
         from caracal.deployment.edition import Edition
         from caracal.deployment.exceptions import MigrationError
         mgr = self._make_ready(tmp_path)
-        mgr._migrate_oss_to_enterprise = MagicMock(side_effect=RuntimeError("net error"))
+        mgr._migrate_api_keys = MagicMock(side_effect=RuntimeError("net error"))
         mgr.edition_adapter.get_edition.return_value = Edition.OPENSOURCE
 
         with pytest.raises(MigrationError):
@@ -380,3 +382,21 @@ class TestMigrateEdition:
                 target_edition=Edition.ENTERPRISE,
                 gateway_url="https://gw.example.com",
             )
+
+    def test_migrate_same_edition_raises(self, tmp_path):
+        from caracal.deployment.edition import Edition
+        from caracal.deployment.exceptions import MigrationError
+        mgr = self._make_ready(tmp_path)
+        mgr.edition_adapter.get_edition.return_value = Edition.OPENSOURCE
+
+        with pytest.raises(MigrationError, match="Already running"):
+            mgr.migrate_edition(target_edition=Edition.OPENSOURCE)
+
+    def test_migrate_to_enterprise_without_gateway_url_raises(self, tmp_path):
+        from caracal.deployment.edition import Edition
+        from caracal.deployment.exceptions import MigrationError
+        mgr = self._make_ready(tmp_path)
+        mgr.edition_adapter.get_edition.return_value = Edition.OPENSOURCE
+
+        with pytest.raises(MigrationError, match="Gateway URL"):
+            mgr.migrate_edition(target_edition=Edition.ENTERPRISE)
