@@ -238,6 +238,26 @@ def _run_host_orchestrator(args: Sequence[str]) -> int:
     )
     bootstrap_parser.set_defaults(handler=_host_bootstrap)
 
+    auth_parser = subparsers.add_parser("auth", help="Inspect and rotate local runtime auth")
+    auth_subparsers = auth_parser.add_subparsers(dest="auth_command", required=True)
+    auth_token_parser = auth_subparsers.add_parser(
+        "token",
+        help="Print the local CCL_API_KEY managed by bootstrap",
+    )
+    auth_token_parser.add_argument(
+        "--rotate",
+        action="store_true",
+        default=False,
+        help="Generate a fresh CCL_API_KEY and write it to the runtime .env",
+    )
+    auth_token_parser.add_argument(
+        "--quiet",
+        action="store_true",
+        default=False,
+        help="Print only the bare API key value",
+    )
+    auth_token_parser.set_defaults(handler=_host_auth_token)
+
     if not args:
         return _host_flow(argparse.Namespace())
 
@@ -302,7 +322,7 @@ def _host_up(namespace: argparse.Namespace) -> int:
             )
             if mcp_pull.returncode != 0:
                 runtime_image = os.environ.get(
-                    "CCL_RUNTIME_IMAGE", "ghcr.io/garudex-labs/caracal-runtime:latest"
+                    "CCL_RUNTIME_IMAGE", "ghcr.io/garudex-labs/caracal-runtime:0.8.0"
                 )
                 has_local = subprocess.run(
                     ["docker", "images", "-q", runtime_image], capture_output=True, text=True
@@ -1096,6 +1116,52 @@ def _host_migrate(namespace: argparse.Namespace) -> int:
     if namespace.revision:
         run_cmd += ["--", "caracal", "db", "migrate", direction, "--revision", namespace.revision]
     result = subprocess.run(run_cmd, check=False, env=env)
+    return result.returncode
+
+
+def _host_auth_token(namespace: argparse.Namespace) -> int:
+    compose_file = _resolve_compose_file()
+    compose_cmd = _compose_cmd(compose_file)
+
+    run_cmd = compose_cmd + [
+        "--profile",
+        "bootstrap",
+        "run",
+        "--rm",
+        "--no-deps",
+        "-T",
+        "bootstrap",
+        "caracal",
+        "auth",
+        "token",
+    ]
+    if getattr(namespace, "rotate", False):
+        run_cmd.append("--rotate")
+    if getattr(namespace, "quiet", False):
+        run_cmd.append("--quiet")
+
+    if getattr(namespace, "quiet", False):
+        result = subprocess.run(
+            run_cmd,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        if result.stderr:
+            print(result.stderr, file=sys.stderr, end="" if result.stderr.endswith("\n") else "\n")
+        if result.returncode == 0:
+            for line in reversed((result.stdout or "").splitlines()):
+                if line.startswith("cark_"):
+                    print(line)
+                    break
+            else:
+                if result.stdout:
+                    print(result.stdout, end="" if result.stdout.endswith("\n") else "\n")
+        elif result.stdout:
+            print(result.stdout, end="" if result.stdout.endswith("\n") else "\n")
+        return result.returncode
+
+    result = subprocess.run(run_cmd, check=False)
     return result.returncode
 
 
@@ -2276,6 +2342,7 @@ def _reconcile_principal_ttl_expiries(
     principal_ttl_manager: object | None = None,
     expiry_processor: object | None = None,
 ) -> int:
+    from caracal.exceptions import PrincipalNotFoundError
     from caracal.identity.principal_ttl import PrincipalTTLExpiryProcessor, PrincipalTTLManager
 
     resolved_redis_client = None
@@ -2298,7 +2365,11 @@ def _reconcile_principal_ttl_expiries(
 
     processed = 0
     for work_item in reconcile():
-        process(work_item)
+        try:
+            process(work_item)
+        except PrincipalNotFoundError:
+            acknowledge(work_item)
+            continue
         acknowledge(work_item)
         processed += 1
     return processed
