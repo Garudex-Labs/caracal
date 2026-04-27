@@ -7,7 +7,7 @@ Tool wrappers for every agent-callable service action; each emits full event pai
 from __future__ import annotations
 
 import asyncio
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Callable
 
 from app.events import types as ev
 from app.events.bus import bus
@@ -72,22 +72,21 @@ def _enforce(run_id: str, agent_id: str, service_id: str, action: str, args: dic
             _event_loop,
         )
         result = future.result(timeout=8)
-        if isinstance(result, dict):
-            if result.get("success") is False:
-                reason = result.get("error") or "Caracal denied"
-                bus.publish(ev.caracal_enforce(run_id, agent_id, tid, "deny", reason))
-                raise PermissionError(f"Caracal denied {tid}: {reason}")
-            if "detail" in result and "success" not in result:
-                reason = result.get("detail") or "Caracal denied"
-                bus.publish(ev.caracal_enforce(run_id, agent_id, tid, "deny", reason))
-                raise PermissionError(f"Caracal denied {tid}: {reason}")
-        bus.publish(ev.caracal_enforce(run_id, agent_id, tid, "allow"))
-    except PermissionError:
-        raise
     except Exception as exc:
         reason = str(exc)
         bus.publish(ev.caracal_enforce(run_id, agent_id, tid, "deny", reason))
         raise PermissionError(f"Caracal denied {tid}: {reason}") from exc
+
+    if isinstance(result, dict):
+        if result.get("success") is False:
+            reason = result.get("error") or "Caracal denied"
+            bus.publish(ev.caracal_enforce(run_id, agent_id, tid, "deny", reason))
+            raise PermissionError(f"Caracal denied {tid}: {reason}")
+        if "detail" in result and "success" not in result:
+            reason = result.get("detail") or "Caracal denied"
+            bus.publish(ev.caracal_enforce(run_id, agent_id, tid, "deny", reason))
+            raise PermissionError(f"Caracal denied {tid}: {reason}")
+    bus.publish(ev.caracal_enforce(run_id, agent_id, tid, "allow"))
 
 
 def _invoke(
