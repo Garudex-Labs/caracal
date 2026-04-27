@@ -99,19 +99,39 @@ const config: Config = {
       items: [
         {
           label: "Open Source",
-          activeBaseRegex:
-            "^/(?:open-source/overview(?:/|$)|open-source/end-users(?:/|$)|open-source/developers(?:/|$))",
+          activeBaseRegex: "^/open-source/(?!sdk)",
           items: [
+            {
+              type: "html",
+              value: '<span class="dropdown__category-title">Start</span>',
+            },
             { label: "Overview", to: "/open-source/overview" },
-            { label: "End Users", to: "/open-source/end-users" },
-            { label: "Developers", to: "/open-source/developers" },
+            { label: "Installation", to: "/open-source/end-users/getting-started/installation" },
+            { label: "Quickstart", to: "/open-source/end-users/getting-started/quickstart" },
+            {
+              type: "html",
+              value: '<span class="dropdown__category-title">Operate</span>',
+            },
+            { label: "Concepts", to: "/open-source/end-users/concepts" },
+            { label: "CLI", to: "/open-source/end-users/cli" },
+            { label: "TUI", to: "/open-source/end-users/tui" },
+            { label: "Configuration", to: "/open-source/end-users/configuration" },
+            { label: "Workflows", to: "/open-source/end-users/workflows" },
+            { label: "Security", to: "/open-source/end-users/security" },
+            { label: "Troubleshooting", to: "/open-source/end-users/troubleshooting" },
+            {
+              type: "html",
+              value: '<span class="dropdown__category-title">Build</span>',
+            },
+            { label: "Architecture", to: "/open-source/developers/architecture" },
+            { label: "Development Setup", to: "/open-source/developers/development-setup" },
+            { label: "Contributing", to: "/open-source/developers/contributing" },
           ],
           position: "left",
         },
         {
           label: "Enterprise",
-          activeBaseRegex:
-            "^/enterprise/(?:overview|getting-started|access-auth|configuration|administration|deployment|monitoring|troubleshooting|reference)(?:/|$)",
+          activeBaseRegex: "^/enterprise/(?!sdk)",
           items: [
             { label: "Overview", to: "/enterprise/overview" },
             { label: "Getting Started", to: "/enterprise/getting-started" },
@@ -121,13 +141,13 @@ const config: Config = {
             { label: "Deployment", to: "/enterprise/deployment" },
             { label: "Monitoring", to: "/enterprise/monitoring" },
             { label: "Troubleshooting", to: "/enterprise/troubleshooting" },
+            { label: "Reference", to: "/enterprise/reference" },
           ],
           position: "left",
         },
         {
           label: "SDK",
-          activeBaseRegex:
-            "^/(?:open-source/sdk|enterprise/sdk)(?:/|$)",
+          activeBaseRegex: "^/(?:open-source|enterprise)/sdk(?:/|$)",
           items: [
             {
               type: "html",
@@ -135,9 +155,23 @@ const config: Config = {
             },
             { label: "Overview", to: "/open-source/sdk/overview" },
             { label: "Installation", to: "/open-source/sdk/installation" },
-            { label: "Python SDK", to: "/open-source/sdk/python/usage" },
-            { label: "Node SDK", to: "/open-source/sdk/node/usage" },
-            { label: "Reference", to: "/open-source/sdk/reference/tool-id-grammar" },
+            {
+              type: "html",
+              value: '<span class="dropdown__category-title">Python</span>',
+            },
+            { label: "Usage", to: "/open-source/sdk/python/usage" },
+            { label: "API Surface", to: "/open-source/sdk/python/api-surface" },
+            {
+              type: "html",
+              value: '<span class="dropdown__category-title">Node</span>',
+            },
+            { label: "Usage", to: "/open-source/sdk/node/usage" },
+            { label: "API Surface", to: "/open-source/sdk/node/api-surface" },
+            {
+              type: "html",
+              value: '<span class="dropdown__category-title">Reference</span>',
+            },
+            { label: "Tool ID Grammar", to: "/open-source/sdk/reference/tool-id-grammar" },
             { label: "Examples", to: "/open-source/sdk/examples" },
             {
               type: "html",
@@ -145,72 +179,30 @@ const config: Config = {
             },
             { label: "Overview", to: "/enterprise/sdk/overview" },
             { label: "Usage", to: "/enterprise/sdk/usage" },
-            { label: "Examples", to: "/enterprise/sdk/examples" },
-          ],
-          position: "left",
-        },
-        {
-          label: "Build",
-          activeBaseRegex:
-            "^/(?:build(?:/|$)|open-source/developers/(?:architecture|development-setup|testing|flow-tui|runtime-model|services-and-integrations|storage-and-data|core-authority-system|enterprise-connector|contributing|releases|changelog)(?:/|$))",
-          items: [
-            { label: "Build Hub", to: "/build" },
-            { label: "Architecture", to: "/open-source/developers/architecture" },
-            { label: "Development Setup", to: "/open-source/developers/development-setup" },
-            { label: "Runtime Model", to: "/open-source/developers/runtime-model" },
-            { label: "Services and Integrations", to: "/open-source/developers/services-and-integrations" },
-            { label: "Storage and Data", to: "/open-source/developers/storage-and-data" },
-            { label: "Core Authority System", to: "/open-source/developers/core-authority-system" },
-            { label: "Flow TUI", to: "/open-source/developers/flow-tui" },
-            { label: "Testing", to: "/open-source/developers/testing" },
-            { label: "Enterprise Connector", to: "/open-source/developers/enterprise-connector" },
-            { label: "Contributing", to: "/open-source/developers/contributing" },
-            { label: "Releases", to: "/open-source/developers/releases" },
-            { label: "Changelog", to: "/open-source/developers/changelog" },
-          ],
-          position: "left",
-        },
-        {
-          label: "Manage",
-          activeBaseRegex:
-            "^/(?:manage(?:/|$)|open-source/end-users/getting-started/(?:installation|quickstart)(?:/|$)|open-source/end-users/(?:cli|tui|configuration|workflows)(?:/|$))",
-          items: [
-            { label: "Manage Hub", to: "/manage" },
-            { label: "Installation", to: "/open-source/end-users/getting-started/installation" },
-            { label: "Quickstart", to: "/open-source/end-users/getting-started/quickstart" },
-            { label: "CLI", to: "/open-source/end-users/cli" },
-            { label: "TUI", to: "/open-source/end-users/tui" },
-            { label: "Configuration", to: "/open-source/end-users/configuration" },
-            { label: "Workflows", to: "/open-source/end-users/workflows" },
-          ],
-          position: "left",
-        },
-        {
-          label: "Reference",
-          activeBaseRegex:
-            "^/(?:reference(?:/|$)|open-source/end-users/(?:cli|configuration|concepts)(?:/|$)|open-source/sdk/reference(?:/|$)|enterprise/reference(?:/|$))",
-          items: [
-            { label: "Reference Hub", to: "/reference" },
-            { label: "CLI", to: "/open-source/end-users/cli" },
-            { label: "Configuration", to: "/open-source/end-users/configuration" },
-            { label: "Concepts", to: "/open-source/end-users/concepts" },
-            { label: "SDK Reference", to: "/open-source/sdk/reference/tool-id-grammar" },
-            { label: "Enterprise Reference", to: "/enterprise/reference" },
           ],
           position: "left",
         },
         {
           label: "Resources",
-          activeBaseRegex:
-            "^/(?:resources(?:/|$)|open-source/end-users/(?:security|troubleshooting)(?:/|$))",
+          activeBaseRegex: "^/resources(?:/|$)",
           items: [
-            { label: "Resources Hub", to: "/resources" },
-            { label: "Security", to: "/open-source/end-users/security" },
-            { label: "Troubleshooting", to: "/open-source/end-users/troubleshooting" },
+            { label: "Glossary", to: "/resources/glossary" },
+            { label: "FAQ", to: "/resources/faq" },
+            { label: "Support", to: "/resources/support" },
+            {
+              type: "html",
+              value: '<span class="dropdown__category-title">Documentation System</span>',
+            },
             { label: "Rulebook", to: "/resources/documentation-system/rulebook" },
             { label: "Structure", to: "/resources/documentation-system/structure" },
           ],
           position: "left",
+        },
+        {
+          label: "AI Docs",
+          to: "/ai",
+          activeBaseRegex: "^/ai(?:/|$)",
+          position: "right",
         },
         {
           type: "search",

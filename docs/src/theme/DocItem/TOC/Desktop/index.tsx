@@ -13,7 +13,7 @@ export default function DocItemTOCDesktop(): ReactNode {
   const [items, setItems] = useState<TOCItem[]>([]);
 
   useEffect(() => {
-    if (typeof document === "undefined" || pathname === "/") {
+    if (typeof document === "undefined" || pathname === "/" || pathname.startsWith("/ai")) {
       setItems([]);
       return;
     }
@@ -34,7 +34,7 @@ export default function DocItemTOCDesktop(): ReactNode {
     setItems(nextItems);
   }, [pathname]);
 
-  if (pathname === "/") {
+  if (pathname === "/" || pathname.startsWith("/ai")) {
     return null;
   }
 
