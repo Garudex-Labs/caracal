@@ -32,6 +32,8 @@ def _runtime_env_path() -> Path:
     else:
         caracal_home = os.environ.get("CCL_HOME", "").strip()
         home = Path(caracal_home).expanduser() if caracal_home else Path.home() / ".caracal"
+    if os.environ.get("CCL_RUNTIME_IN_CONTAINER"):
+        return home / ".env"
     return home / "runtime" / ".env"
 
 

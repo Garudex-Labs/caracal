@@ -24,9 +24,18 @@ class TestBootstrapHelpers:
     def test_runtime_env_path_uses_home(self, monkeypatch, tmp_path):
         from caracal.cli.bootstrap import _runtime_env_path
         monkeypatch.delenv("CCL_CFG_DIR", raising=False)
+        monkeypatch.delenv("CCL_RUNTIME_IN_CONTAINER", raising=False)
         monkeypatch.setenv("CCL_HOME", str(tmp_path))
         result = _runtime_env_path()
         assert result == tmp_path / "runtime" / ".env"
+
+    def test_runtime_env_path_uses_home_directly_in_container(self, monkeypatch, tmp_path):
+        from caracal.cli.bootstrap import _runtime_env_path
+        monkeypatch.delenv("CCL_CFG_DIR", raising=False)
+        monkeypatch.setenv("CCL_RUNTIME_IN_CONTAINER", "1")
+        monkeypatch.setenv("CCL_HOME", str(tmp_path))
+        result = _runtime_env_path()
+        assert result == tmp_path / ".env"
 
     def test_runtime_env_path_defaults_to_home_dot_caracal(self, monkeypatch):
         from caracal.cli.bootstrap import _runtime_env_path
