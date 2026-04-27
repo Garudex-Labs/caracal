@@ -1525,3 +1525,380 @@ button {
   border-top: 0;
   margin-top: 0;
 }
+
+/* ============================================================
+   Human / AI mode switch
+   ============================================================ */
+.caracal-mode-toggle {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  min-height: 36px;
+  padding: 5px 10px;
+  border: 0px solid rgba(0, 0, 0, 0);
+  border-radius: 0px;
+  background: rgba(11, 15, 20, 0.82);
+  color: var(--caracal-text-muted);
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  cursor: pointer;
+  box-shadow: none;
+}
+
+.caracal-mode-toggle:hover {
+  border-color: var(--caracal-accent);
+  color: var(--caracal-text);
+}
+
+.caracal-mode-toggle__track {
+  position: relative;
+  width: 42px;
+  height: 20px;
+  border: 1px solid rgba(155, 211, 77, 0.32);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.caracal-mode-toggle__thumb {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--caracal-text-subtle);
+  transition: transform 220ms ease, background 220ms ease, box-shadow 220ms ease;
+}
+
+.caracal-mode-toggle--ai {
+  border-color: rgba(24, 255, 118, 0.42);
+  background: rgba(0, 18, 8, 0.72);
+  color: #18ff76;
+}
+
+.caracal-mode-toggle--ai .caracal-mode-toggle__track {
+  border-color: rgba(24, 255, 118, 0.72);
+  background: rgba(24, 255, 118, 0.10);
+}
+
+.caracal-mode-toggle--ai .caracal-mode-toggle__thumb {
+  transform: translateX(20px);
+  background: #18ff76;
+  box-shadow: none;
+}
+
+.caracal-mode-transition {
+  position: fixed;
+  inset: 0;
+  z-index: 3000;
+  pointer-events: none;
+  overflow: hidden;
+  background: rgba(0, 0, 0, 0.08);
+}
+
+.caracal-mode-transition__panel {
+  position: absolute;
+  top: -10vh;
+  bottom: -10vh;
+  left: -45vw;
+  width: 44vw;
+  background:
+    linear-gradient(90deg, transparent, rgba(24, 255, 118, 0.22), rgba(255, 255, 255, 0.14), rgba(24, 255, 118, 0.18), transparent);
+  filter: blur(22px);
+  transform: skewX(-12deg);
+  animation: caracal-mode-sweep 620ms ease-in-out forwards;
+}
+
+.caracal-mode-transition--off .caracal-mode-transition__panel {
+  background:
+    linear-gradient(90deg, transparent, rgba(155, 211, 77, 0.16), rgba(255, 255, 255, 0.18), rgba(155, 211, 77, 0.12), transparent);
+}
+
+.caracal-mode-transition__label {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  padding: 12px 16px;
+  border: 1px solid rgba(24, 255, 118, 0.42);
+  background: rgba(0, 12, 5, 0.72);
+  color: #18ff76;
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  text-shadow: 0 0 12px rgba(24, 255, 118, 0.8);
+  backdrop-filter: blur(16px);
+}
+
+@keyframes caracal-mode-sweep {
+  from {
+    transform: translateX(0) skewX(-12deg);
+  }
+  to {
+    transform: translateX(160vw) skewX(-12deg);
+  }
+}
+
+/* ============================================================
+   AI docs: machine-mode matrix interface
+   ============================================================ */
+body.caracal-ai-mode {
+  --caracal-ai-bg: #020604;
+  --caracal-ai-panel: rgba(0, 14, 7, 0.84);
+  --caracal-ai-panel-strong: rgba(0, 20, 9, 0.9);
+  --caracal-ai-border: rgba(24, 255, 118, 0.18);
+  --caracal-ai-border-strong: rgba(24, 255, 118, 0.36);
+  --caracal-ai-text: #d8ffe5;
+  --caracal-ai-muted: #82b994;
+  --caracal-ai-dim: #3d6f4d;
+  --caracal-ai-accent: #18ff76;
+  --caracal-ai-accent-soft: rgba(24, 255, 118, 0.07);
+  --ifm-font-family-base: "IBM Plex Mono", "IBM Plex Sans", ui-monospace, monospace;
+  --ifm-heading-font-family: "IBM Plex Mono", "Space Grotesk", ui-monospace, monospace;
+  background: var(--caracal-ai-bg);
+  color: var(--caracal-ai-text);
+}
+
+body.caracal-ai-mode::before {
+  content: none;
+}
+
+body.caracal-ai-mode .navbar,
+body.caracal-ai-mode .theme-doc-sidebar-container,
+body.caracal-ai-mode .footer,
+body.caracal-ai-mode .main-wrapper,
+body.caracal-ai-mode main,
+body.caracal-ai-mode .docs-wrapper,
+body.caracal-ai-mode .theme-doc-page,
+body.caracal-ai-mode .theme-layout-main {
+  background: transparent;
+}
+
+body.caracal-ai-mode .navbar {
+  border-bottom: 1px solid var(--caracal-ai-border);
+  background: #020604;
+}
+
+body.caracal-ai-mode .navbar__items--left .navbar__item.dropdown {
+  display: none;
+}
+
+body.caracal-ai-mode .navbar__title::after {
+  content: " // AI";
+  color: var(--caracal-ai-accent);
+}
+
+body.caracal-ai-mode .navbar__link,
+body.caracal-ai-mode .caracal-github-link,
+body.caracal-ai-mode .caracal-search-trigger {
+  color: var(--caracal-ai-muted);
+  border-color: var(--caracal-ai-border);
+}
+
+body.caracal-ai-mode .navbar__link:hover,
+body.caracal-ai-mode .navbar__link--active,
+body.caracal-ai-mode .caracal-github-link:hover {
+  color: var(--caracal-ai-accent);
+  border-bottom-color: var(--caracal-ai-accent);
+}
+
+body.caracal-ai-mode .dropdown__menu,
+body.caracal-ai-mode .caracal-search-trigger {
+  background: var(--caracal-ai-panel);
+  border-color: var(--caracal-ai-border);
+  box-shadow: none;
+}
+
+body.caracal-ai-mode .dropdown__link:hover,
+body.caracal-ai-mode .dropdown__link--active {
+  background: var(--caracal-ai-accent-soft);
+  color: var(--caracal-ai-accent);
+}
+
+body.caracal-ai-mode .theme-doc-sidebar-container {
+  border-right: 1px solid var(--caracal-ai-border);
+  box-shadow: none;
+}
+
+body.caracal-ai-mode .theme-doc-sidebar-menu::before {
+  content: "AI_INDEX // ROUTES";
+  display: block;
+  margin: 4px 10px 14px;
+  padding: 8px 10px;
+  border: 1px solid var(--caracal-ai-border);
+  background: var(--caracal-ai-accent-soft);
+  color: var(--caracal-ai-accent);
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+body.caracal-ai-mode .menu__link {
+  color: var(--caracal-ai-muted);
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 0.78rem;
+}
+
+body.caracal-ai-mode .menu__link:hover,
+body.caracal-ai-mode .menu__link--active,
+body.caracal-ai-mode .menu__list-item-collapsible--active > .menu__link {
+  color: var(--caracal-ai-accent);
+  background: var(--caracal-ai-accent-soft);
+}
+
+body.caracal-ai-mode .breadcrumbs {
+  display: none;
+}
+
+.caracal-ai-doc-layout {
+  position: relative;
+  z-index: 1;
+  padding-top: 0;
+}
+
+.caracal-ai-doc-layout .container.padding-top--md.padding-bottom--lg {
+  padding-top: 18px !important;
+}
+
+.caracal-ai-doc-layout .theme-doc-markdown {
+  max-width: min(1080px, calc(100vw - 80px));
+  padding: 18px;
+  border: 1px solid var(--caracal-ai-border);
+  background: rgba(0, 10, 5, 0.72);
+  box-shadow: none;
+}
+
+.caracal-ai-doc-layout .theme-doc-markdown::before {
+  content: "MACHINE_READABLE_CONTRACT // PARSE_MODE=STRICT // HUMAN_LAYOUT=OFF";
+  display: block;
+  margin: 0 0 18px;
+  padding: 8px 10px;
+  border: 1px solid var(--caracal-ai-border);
+  background: var(--caracal-ai-accent-soft);
+  color: var(--caracal-ai-accent);
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.caracal-ai-doc-layout .theme-doc-markdown h1,
+.caracal-ai-doc-layout .theme-doc-markdown h2,
+.caracal-ai-doc-layout .theme-doc-markdown h3 {
+  color: var(--caracal-ai-accent);
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  letter-spacing: 0.02em;
+}
+
+.caracal-ai-doc-layout .theme-doc-markdown h1 {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 20px;
+  font-size: clamp(1.5rem, 3vw, 2.2rem);
+  border-bottom-color: var(--caracal-ai-border-strong);
+}
+
+.caracal-ai-doc-layout .theme-doc-markdown h1::before {
+  content: ">";
+  color: var(--caracal-ai-accent);
+}
+
+.caracal-ai-doc-layout .theme-doc-markdown h2 {
+  margin-top: 30px;
+  padding: 8px 10px 8px 34px;
+  border: 1px solid var(--caracal-ai-border);
+  background: rgba(24, 255, 118, 0.055);
+  font-size: 0.92rem;
+  text-transform: uppercase;
+}
+
+.caracal-ai-doc-layout .theme-doc-markdown h2::before {
+  left: 12px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--caracal-ai-accent);
+}
+
+.caracal-ai-doc-layout .theme-doc-markdown p,
+.caracal-ai-doc-layout .theme-doc-markdown li {
+  color: var(--caracal-ai-text);
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 0.84rem;
+  line-height: 1.7;
+}
+
+.caracal-ai-doc-layout .theme-doc-markdown a:not(.card):not(.button) {
+  color: var(--caracal-ai-accent);
+  border-bottom-color: rgba(24, 255, 118, 0.4);
+}
+
+.caracal-ai-doc-layout .theme-doc-markdown code {
+  color: var(--caracal-ai-accent);
+  background: rgba(24, 255, 118, 0.08);
+  border-color: var(--caracal-ai-border);
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+}
+
+.caracal-ai-doc-layout .theme-doc-markdown pre {
+  border-color: var(--caracal-ai-border-strong);
+  background: #010402;
+  box-shadow: none;
+}
+
+.caracal-ai-doc-layout .theme-doc-markdown blockquote {
+  border-color: var(--caracal-ai-border-strong);
+  background: rgba(24, 255, 118, 0.06);
+  color: var(--caracal-ai-accent);
+}
+
+.caracal-ai-doc-layout .theme-doc-markdown table {
+  overflow: hidden;
+  border: 1px solid var(--caracal-ai-border);
+  background: rgba(0, 12, 5, 0.72);
+}
+
+.caracal-ai-doc-layout .theme-doc-markdown th {
+  color: var(--caracal-ai-accent);
+  background: rgba(24, 255, 118, 0.10);
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.caracal-ai-doc-layout .theme-doc-markdown td {
+  color: var(--caracal-ai-text);
+  border-color: rgba(24, 255, 118, 0.14);
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 0.78rem;
+}
+
+.caracal-ai-doc-layout .theme-doc-markdown tr:nth-child(even) td {
+  background: rgba(24, 255, 118, 0.035);
+}
+
+.caracal-ai-doc-layout .pagination-nav,
+.caracal-ai-doc-layout .theme-doc-footer {
+  display: none;
+}
+
+body.caracal-ai-mode .footer {
+  border-top-color: var(--caracal-ai-border);
+}
+
+@media (max-width: 996px) {
+  .caracal-ai-doc-layout .theme-doc-markdown {
+    max-width: 100%;
+    padding: 16px;
+  }
+}

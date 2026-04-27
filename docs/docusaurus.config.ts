@@ -199,9 +199,7 @@ const config: Config = {
           position: "left",
         },
         {
-          label: "AI Docs",
-          to: "/ai",
-          activeBaseRegex: "^/ai(?:/|$)",
+          type: "custom-aiModeToggle",
           position: "right",
         },
         {

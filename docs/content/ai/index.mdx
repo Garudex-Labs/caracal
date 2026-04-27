@@ -12,20 +12,50 @@ last_verified: 2026-04-27
 
 # AI Docs
 
-Machine-readable mirror of the human documentation. Each page follows a fixed schema: Definition, Inputs, Outputs, Constraints, Steps, Usage rules, Errors, Examples, See also.
+AGENT DOCS // MACHINE MODE
+
+This route is optimized for agents, retrieval systems, and tooling. It is not a prose version of the human docs. Pages are structured as deterministic contracts with stable headings and compact operational fields.
+
+## Contract
+
+| Field | Meaning |
+| --- | --- |
+| `canonical_human` | Human source page for this machine-readable page. |
+| `last_verified` | Date the AI contract was checked against the source page. |
+| `source_files` | Repository files used as evidence for the contract. |
+| `Inputs` | Required and conditional values an agent must supply. |
+| `Outputs` | Values the operation or concept returns. |
+| `Constraints` | Non-negotiable invariants and failure conditions. |
+| `Steps` | Deterministic execution or evaluation order. |
+| `Errors` | Machine-usable failure classes and remediation. |
 
 ## Sections
 
-- End Users — `/ai/open-source/end-users/`
-- SDK — `/ai/open-source/sdk/`
-- Developers — `/ai/open-source/developers/`
-- Enterprise — `/ai/enterprise/`
-- Resources — `/ai/resources/`
+- `/ai/open-source/end-users/` — operator contracts.
+- `/ai/open-source/sdk/` — integration contracts.
+- `/ai/open-source/developers/` — implementation contracts.
+- `/ai/enterprise/` — enterprise contracts.
+- `/ai/resources/` — shared vocabulary contracts.
 
-## Counterpart
+## Usage rules
 
-Each AI page has a `human_counterpart` in the front matter pointing at the human page that defines the source of truth.
+- Prefer AI pages for parsing, extraction, indexing, and agent planning.
+- Prefer human pages for narrative explanation and learning flow.
+- Treat `canonical_human` as the source route when a conflict is detected.
+- Treat missing required inputs as a terminal planning error.
 
 ## Schema
 
-See the canonical contract at `/resources/documentation-system/structure`.
+Every AI page should use this ordered section model:
+
+1. Definition
+2. Inputs
+3. Outputs
+4. Constraints
+5. Steps
+6. Usage rules
+7. Errors
+8. Examples
+9. See also
+
+See `/resources/documentation-system/structure` for the documentation system contract.
