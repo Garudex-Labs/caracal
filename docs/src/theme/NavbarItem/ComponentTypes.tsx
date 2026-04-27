@@ -4,7 +4,7 @@
 // This file registers custom documentation navbar item components.
 
 import ComponentTypesOriginal from "@theme-original/NavbarItem/ComponentTypes";
-import AiModeToggleNavbarItem from "@theme/NavbarItem/AiModeToggleNavbarItem";
+import AiModeToggleNavbarItem from "./AiModeToggleNavbarItem";
 
 import type { ComponentTypesObject } from "@theme/NavbarItem/ComponentTypes";
 
