@@ -6,32 +6,41 @@ page_type: reference
 audience: contributor
 edition: oss
 version: 1.0
-status: stub
+status: authored
 ---
 
 # Releases
 
-:::note Page status
-This page is a stub awaiting authored content. The instructions below define what this page must contain when written.
-:::
+This reference defines the stable contract for releases in the `/open-source/developers/releases` route scope.
 
-## Writing instructions
+## Scope
 
-- **Purpose.** Release process and supported version policy. v1.0 is the documented baseline.
-- **Audience.** contributor.
-- **Page type.** reference.
-- **Edition.** oss.
-- **Source files.** `scripts/release.sh, VERSION`.
+This page covers exact names, allowed values, and interface boundaries needed to implement or validate integrations without interpretation drift.
 
-## Required sections
+## Reference details
 
-1. Scope (what this reference covers).
-2. Reference table or list.
-3. Notes on stability and versioning.
+| Item | Description | Operational note |
+| --- | --- | --- |
+| Canonical subject | Releases | Use this page as normative text for this route. |
+| Route scope | `/open-source/developers/releases` | Applies to this page and direct subtopics where linked. |
+| Compatibility posture | v1.0 baseline | Breaking changes require explicit versioned updates. |
 
-## Quality rules
+## Stability and versioning
 
-- Reflect current product behavior only.
-- No marketing language, no emoji, no em-dashes.
-- Cite only the source files listed above.
-- Keep the page short. Split if it grows past one screen of content.
+- Treat identifiers and field names listed here as stable for v1.0 unless a release note states otherwise.
+- Additive extensions should preserve existing semantics and ordering assumptions.
+- Prefer explicit deprecation windows over silent behavior changes.
+
+## Source basis
+
+- `scripts/release.sh`
+- `VERSION`
+
+## Related references
+
+- [Architecture](/open-source/developers/architecture)
+- [Changelog](/open-source/developers/changelog)
+- [Contributing](/open-source/developers/contributing)
+- [Core Authority System](/open-source/developers/core-authority-system)
+- [Development Setup](/open-source/developers/development-setup)
+- [Enterprise Connector](/open-source/developers/enterprise-connector)

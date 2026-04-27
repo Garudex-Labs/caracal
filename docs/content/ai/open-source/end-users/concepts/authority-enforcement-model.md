@@ -9,7 +9,7 @@ edition: oss
 audience: ai
 page_type: concept
 version: 1.0
-status: stub
+status: authored
 last_verified: 2026-04-27
 source_files:
   - THREAT_MODEL.md
@@ -20,30 +20,75 @@ source_files:
 
 > Canonical human page: [/open-source/end-users/concepts/authority-enforcement-model](/open-source/end-users/concepts/authority-enforcement-model)
 
-## Writing instructions
+## Definition
 
-- Purpose: End-to-end picture: principal -> policy -> mandate -> intent -> tool call -> ledger. One diagram. References each concept page rather than redefining.
-- Page type: concept
-- Edition: oss
-- Audience: ai
+Pre-execution decision model requiring explicit authority context before action execution.
 
-## Required structure (fixed schema)
+## Inputs
 
-Use these section headers in order. Omit any section that is genuinely empty.
+| name | type | required | source | notes |
+| --- | --- | --- | --- | --- |
+| principal_context | object | yes | THREAT_MODEL.md | Requesting identity scope. |
+| policy_context | object | yes | THREAT_MODEL.md | Rules and constraints for allowed actions. |
+| mandate_context | object | conditional | THREAT_MODEL.md | Delegated/issued authority details where required. |
+| execution_intent | object | yes | core/ | Proposed action and target resource metadata. |
 
-1. `## Definition` - one sentence.
-2. `## Inputs` - table: name, type, required, source, notes.
-3. `## Outputs` - table: name, type, notes.
-4. `## Constraints` - bullet list of invariants and limits.
-5. `## Steps` - numbered, deterministic procedure.
-6. `## Usage rules` - do / do not bullets.
-7. `## Errors` - table: code, meaning, remediation.
-8. `## Examples` - minimal runnable snippets.
-9. `## See also` - related AI pages first, human pages second.
+## Outputs
 
-## Quality rules
+| name | type | notes |
+| --- | --- | --- |
+| decision | string | `allow` or `deny`. |
+| decision_reason | string | Classification of enforcement result. |
+| audit_fields | object | Identifiers required for deterministic replay. |
 
-- No prose, no narrative, no marketing.
-- Compact, structured, instruction-first.
-- Cite only the source files listed in front matter.
-- Keep under 200 lines.
+## Constraints
+
+- Evaluation happens before provider-side side effects.
+- Missing critical authority inputs yields deny (fail-closed behavior).
+- Scope ambiguity across workspace/identity boundaries yields deny.
+- Decision artifacts must support post-incident reconstruction.
+
+## Steps
+
+1. Normalize incoming intent and authority identifiers.
+2. Validate principal/workspace scope.
+3. Evaluate policy and mandate constraints against intent.
+4. Emit decision and reason code.
+5. Persist/return audit fields for traceability.
+
+## Usage rules
+
+- Do: require explicit authority context for mutating actions.
+- Do: treat deny decisions as terminal unless state/context is corrected.
+- Do not: infer permissive behavior from connectivity or provider availability.
+- Do not: bypass model checks for performance shortcuts in protected paths.
+
+## Errors
+
+| code | meaning | remediation |
+| --- | --- | --- |
+| CONTEXT_MISSING | required principal/policy/mandate context absent | supply missing context and retry evaluation. |
+| SCOPE_INVALID | workspace/identity scope mismatch | correct scope identifiers before re-evaluation. |
+| POLICY_DENY | policy constraints reject intent | modify intent or policy in controlled workflow. |
+| MODEL_INTEGRITY_ERROR | decision/audit artifacts inconsistent | halt execution and run integrity diagnostics. |
+
+## Examples
+
+```json
+{
+  "operation": "evaluate_authority",
+  "decision": "deny",
+  "decision_reason": "SCOPE_INVALID",
+  "audit_fields": {
+    "workspace_id": "ws_demo",
+    "principal_id": "pr_demo"
+  }
+}
+```
+
+## See also
+
+- [/ai/open-source/end-users/concepts/policy](/ai/open-source/end-users/concepts/policy)
+- [/ai/open-source/end-users/concepts/mandate](/ai/open-source/end-users/concepts/mandate)
+- [/ai/open-source/end-users/concepts/principal](/ai/open-source/end-users/concepts/principal)
+- [/open-source/end-users/concepts/authority-enforcement-model](/open-source/end-users/concepts/authority-enforcement-model)

@@ -6,34 +6,44 @@ page_type: concept
 audience: all
 edition: enterprise
 version: 1.0
-status: stub
+status: authored
 ---
 
 # Enterprise Overview
 
-:::note Page status
-This page is a stub awaiting authored content. The instructions below define what this page must contain when written.
-:::
+Enterprise Overview defines part of the authority model used for enterprise deployment, access control, and operational governance.
 
-## Writing instructions
+## Plain-language explanation
 
-- **Purpose.** What the Enterprise edition adds over OSS at a visible level. Sales contact link at the bottom: https://cal.com/rawx18/caracal-enterprise-sales. No internals.
-- **Audience.** all.
-- **Page type.** concept.
-- **Edition.** enterprise.
-- **Source files.** `packages/caracal-server/caracal/enterprise/, ABBREVIATIONS.md`.
+Caracal evaluates authority before execution. This concept describes one control point in that evaluation chain and how it interacts with policy, mandate, principal, workspace, and audit state.
 
-## Required sections
+## Where this appears in the system
 
-1. One-line definition (verbatim glossary entry where applicable).
-2. Plain-language explanation.
-3. Where this concept appears in the system.
-4. Constraints and edge cases.
-5. Related concepts (cross-links only, no restatement).
+- Runtime enforcement paths for `/enterprise/overview`.
+- CLI and SDK operations that create, mutate, or validate authority-relevant state.
+- Incident analysis and audit workflows where deterministic reconstruction is required.
 
-## Quality rules
+## Detailed focus areas
 
-- Reflect current product behavior only.
-- No marketing language, no emoji, no em-dashes.
-- Cite only the source files listed above.
-- Keep the page short. Split if it grows past one screen of content.
+- enterprise-only configuration boundaries.
+- access/auth lifecycle.
+- deployment and monitoring posture.
+- incident response readiness.
+
+## Constraints and edge cases
+
+- Missing or invalid authority context fails closed in protected operations.
+- Identifier normalization must be consistent across CLI, SDK, and API boundaries.
+- State transitions should be monotonic and auditable, with explicit revoke/invalidate paths where applicable.
+- Cross-workspace assumptions are invalid unless explicitly delegated.
+
+## Related concepts
+
+- [Access Auth](/enterprise/access-auth)
+- [Administration](/enterprise/administration)
+- [Configuration](/enterprise/configuration)
+- [Deployment](/enterprise/deployment)
+- [Getting Started](/enterprise/getting-started)
+- [Enterprise](/enterprise)
+- [Monitoring](/enterprise/monitoring)
+- [Reference](/enterprise/reference)

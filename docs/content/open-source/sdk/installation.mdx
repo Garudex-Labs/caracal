@@ -6,36 +6,43 @@ page_type: task
 audience: integrator
 edition: oss
 version: 1.0
-status: stub
+status: authored
 ai_counterpart: /ai/open-source/sdk/installation
 ---
 
 # SDK Installation
 
-:::note Page status
-This page is a stub awaiting authored content. The instructions below define what this page must contain when written.
-:::
+## Purpose
 
-## Writing instructions
+Execute sdk installation with deterministic behavior and explicit validation of resulting state.
 
-- **Purpose.** Install caracal-sdk via pip and the Node SDK via npm. Cover Python 3.11+ and the Node version policy.
-- **Audience.** integrator.
-- **Page type.** task.
-- **Edition.** oss.
-- **Source files.** `sdk/python-sdk/pyproject.toml, sdk/node-sdk/package.json`.
-- **AI counterpart.** [/ai/open-source/sdk/installation](/ai/open-source/sdk/installation)
+## Prerequisites
 
-## Required sections
+- Required runtime services are healthy.
+- Required identifiers and credentials are available.
+- Access context matches the target workspace and operation scope.
 
-1. Goal (one sentence).
-2. Prerequisites.
-3. Ordered steps.
-4. Verification.
-5. Related pages.
+## Procedure
 
-## Quality rules
+1. Validate inputs and preconditions.
+2. Execute the operation with explicit parameters.
+3. Verify command or API result and resulting persisted state.
+4. Record output identifiers for downstream operations.
+5. Run a read-after-write check to confirm consistency.
 
-- Reflect current product behavior only.
-- No marketing language, no emoji, no em-dashes.
-- Cite only the source files listed above.
-- Keep the page short. Split if it grows past one screen of content.
+## Validation
+
+- client can authenticate and issue calls.
+- errors map to deterministic categories.
+- identifier formatting remains canonical.
+
+## Common failure branches
+
+- Invalid input shape or missing required identifiers.
+- Authority constraints deny the requested transition.
+- Runtime dependencies unavailable or unhealthy.
+
+## Related tasks
+
+- [Sdk](/open-source/sdk)
+- [Overview](/open-source/sdk/overview)

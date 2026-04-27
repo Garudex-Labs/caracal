@@ -6,36 +6,56 @@ page_type: concept
 audience: reviewer
 edition: oss
 version: 1.0
-status: stub
+status: authored
 ai_counterpart: /ai/open-source/end-users/concepts/authority-enforcement-model
 ---
 
 # Authority Enforcement Model
 
-:::note Page status
-This page is a stub awaiting authored content. The instructions below define what this page must contain when written.
-:::
+Authority enforcement in Caracal is pre-execution decision gating: actions are evaluated against explicit authority context before side effects run.
 
-## Writing instructions
+## Plain-language explanation
 
-- **Purpose.** End-to-end picture: principal -> policy -> mandate -> intent -> tool call -> ledger. One diagram. References each concept page rather than redefining.
-- **Audience.** reviewer.
-- **Page type.** concept.
-- **Edition.** oss.
-- **Source files.** `THREAT_MODEL.md, core/`.
-- **AI counterpart.** [/ai/open-source/end-users/concepts/authority-enforcement-model](/ai/open-source/end-users/concepts/authority-enforcement-model)
+Caracal treats delegated action execution as a security boundary. The model is built so an operation is not considered valid just because it is syntactically correct or technically reachable. It must also be authorized in the right scope, with the right identity context, and with controls that fail closed when required context is missing.
 
-## Required sections
+In practical terms, the model connects these elements:
 
-1. One-line definition (verbatim glossary entry where applicable).
-2. Plain-language explanation.
-3. Where this concept appears in the system.
-4. Constraints and edge cases.
-5. Related concepts (cross-links only, no restatement).
+- identity and principal context
+- policy constraints
+- mandate/delegation scope
+- runtime verification checks
+- audit reconstruction capability
 
-## Quality rules
+## Where this appears in the system
 
-- Reflect current product behavior only.
-- No marketing language, no emoji, no em-dashes.
-- Cite only the source files listed above.
-- Keep the page short. Split if it grows past one screen of content.
+- Host entrypoint orchestration and runtime command boundaries (`caracal` host mode vs in-container mode).
+- Runtime preflight and hard-cut checks that reject unsafe configuration in protected paths.
+- CLI and SDK operations where authority-relevant identifiers are created, mutated, and validated.
+- Threat analysis and incident triage where decisions must be replayable from logs and state.
+
+## Control properties
+
+1. Pre-execution enforcement
+   A request path should reject invalid authority context before provider-side action execution.
+2. Fail-closed behavior
+   Missing critical security context does not degrade to permissive execution in protected runtime paths.
+3. Canonical scope handling
+   Workspace and identity scope must remain explicit through command/API boundaries.
+4. Auditability
+   Decisions and transitions should be reconstructable for incident review.
+
+## Constraints and edge cases
+
+- Scope confusion is a primary failure mode: if principal/workspace/policy context is ambiguous, deny and require explicit context.
+- Configuration drift can invalidate security posture: runtime checks should reject prohibited modes rather than warn.
+- Cross-workspace assumptions are invalid unless explicitly modeled by authority primitives.
+- Provider availability is not equivalent to authorization success; connectivity checks do not replace policy enforcement.
+
+## Related concepts
+
+- [Policy](/open-source/end-users/concepts/policy)
+- [Mandate](/open-source/end-users/concepts/mandate)
+- [Delegation](/open-source/end-users/concepts/delegation)
+- [Principal](/open-source/end-users/concepts/principal)
+- [Workspace](/open-source/end-users/concepts/workspace)
+- [Ledger](/open-source/end-users/concepts/ledger)

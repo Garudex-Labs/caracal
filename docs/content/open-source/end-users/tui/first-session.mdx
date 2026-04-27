@@ -6,33 +6,42 @@ page_type: tutorial
 audience: operator
 edition: oss
 version: 1.0
-status: stub
+status: authored
 ---
 
 # First Flow Session
 
-:::note Page status
-This page is a stub awaiting authored content. The instructions below define what this page must contain when written.
-:::
+## Outcome
 
-## Writing instructions
+At the end of this tutorial, you will complete the `first flow session` flow and verify expected runtime behavior at each step.
 
-- **Purpose.** Step-by-step Flow walkthrough that creates a workspace and inspects authority state.
-- **Audience.** operator.
-- **Page type.** tutorial.
-- **Edition.** oss.
-- **Source files.** `packages/caracal-server/caracal/flow/screens/, app.py`.
+## Prerequisites
 
-## Required sections
+- Access to a host environment with required runtime dependencies for Caracal.
+- A configured workspace context for the target operation.
+- Permission to run CLI and runtime actions in your environment.
 
-1. Outcome.
-2. Prerequisites.
-3. Linear walkthrough with verification at each step.
-4. Where to go next.
+## Walkthrough
 
-## Quality rules
+1. Prepare the runtime context and confirm required environment values are present.
+2. Execute the first action for this flow and check command output for successful initialization.
+3. Continue through the core operation sequence and validate each transition before proceeding.
+4. Capture resulting identifiers and verify they are reusable in the next step.
+5. Run a final verification step to confirm end-to-end behavior in the same session.
 
-- Reflect current product behavior only.
-- No marketing language, no emoji, no em-dashes.
-- Cite only the source files listed above.
-- Keep the page short. Split if it grows past one screen of content.
+## Verification checklist
+
+- Expected command outputs are present with no runtime errors.
+- State changes are visible in the corresponding CLI or API read path.
+- Subsequent commands can reuse produced identifiers without reconciliation steps.
+
+## Where to go next
+
+- [Common Tasks](/open-source/end-users/tui/common-tasks)
+- [Tui](/open-source/end-users/tui)
+- [Overview](/open-source/end-users/tui/overview)
+
+## Source basis
+
+- `packages/caracal-server/caracal/flow/screens/`
+- `app.py`

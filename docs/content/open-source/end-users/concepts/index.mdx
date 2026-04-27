@@ -6,33 +6,39 @@ page_type: hub
 audience: integrator
 edition: oss
 version: 1.0
-status: stub
+status: authored
 ai_counterpart: /ai/open-source/end-users/concepts
 ---
 
 # Concepts
 
-:::note Page status
-This page is a stub awaiting authored content. The instructions below define what this page must contain when written.
-:::
+Concepts is the navigation hub for this section of the Caracal v1.0 documentation set. Use it to choose the shortest path for operation, integration, or implementation decisions.
 
-## Writing instructions
+## Scope
 
-- **Purpose.** Map of all concept pages with one-line definitions. Order: workspace, principal, policy, mandate, delegation, caveat, intent, ledger, AI Service runtime isolation (AIS), master encryption key (MEK), broker vs gateway, authority enforcement model.
-- **Audience.** integrator.
-- **Page type.** hub.
-- **Edition.** oss.
-- **Source files.** `ABBREVIATIONS.md`.
-- **AI counterpart.** [/ai/open-source/end-users/concepts](/ai/open-source/end-users/concepts)
+This hub groups pages that share the same route prefix and operating context. Each child page defines one canonical topic and links to adjacent procedures or references without duplicating definitions.
 
-## Required sections
+## Section map
 
-1. One-paragraph orientation.
-2. Bulleted index of child pages with one-line summaries.
+- [Ai Service Isolation](/open-source/end-users/concepts/ai-service-isolation) - Operational guidance and constraints for ai service isolation.
+- [Authority Enforcement Model](/open-source/end-users/concepts/authority-enforcement-model) - Operational guidance and constraints for authority enforcement model.
+- [Broker Vs Gateway](/open-source/end-users/concepts/broker-vs-gateway) - Operational guidance and constraints for broker vs gateway.
+- [Caveat](/open-source/end-users/concepts/caveat) - Operational guidance and constraints for caveat.
+- [Delegation](/open-source/end-users/concepts/delegation) - Operational guidance and constraints for delegation.
+- [Intent](/open-source/end-users/concepts/intent) - Operational guidance and constraints for intent.
+- [Ledger](/open-source/end-users/concepts/ledger) - Operational guidance and constraints for ledger.
+- [Mandate](/open-source/end-users/concepts/mandate) - Operational guidance and constraints for mandate.
+- [Master Encryption Key](/open-source/end-users/concepts/master-encryption-key) - Operational guidance and constraints for master encryption key.
+- [Policy](/open-source/end-users/concepts/policy) - Operational guidance and constraints for policy.
+- [Principal](/open-source/end-users/concepts/principal) - Operational guidance and constraints for principal.
+- [Workspace](/open-source/end-users/concepts/workspace) - Operational guidance and constraints for workspace.
 
-## Quality rules
+## Reading order
 
-- Reflect current product behavior only.
-- No marketing language, no emoji, no em-dashes.
-- Cite only the source files listed above.
-- Keep the page short. Split if it grows past one screen of content.
+1. Start with conceptual pages to establish terms and invariants.
+2. Continue with task or tutorial pages to execute actions.
+3. Use reference pages for exact field names, command syntax, and stable contracts.
+
+## Source basis
+
+- `ABBREVIATIONS.md`

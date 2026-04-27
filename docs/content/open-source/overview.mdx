@@ -6,34 +6,50 @@ page_type: concept
 audience: integrator
 edition: oss
 version: 1.0
-status: stub
+status: authored
+ai_counterpart: /ai/open-source/overview
 ---
 
 # What Caracal Open Source includes
 
-:::note Page status
-This page is a stub awaiting authored content. The instructions below define what this page must contain when written.
-:::
+Caracal Open Source is the self-managed Caracal runtime and host orchestrator for pre-execution authority enforcement.
 
-## Writing instructions
+## Plain-language explanation
 
-- **Purpose.** What the OSS edition is, what it includes, and how it differs from Enterprise. No marketing language. No hosted offering. Mention that hard-cut is the operating principle, not a toggle.
-- **Audience.** integrator.
-- **Page type.** concept.
-- **Edition.** oss.
-- **Source files.** `README.md, ABBREVIATIONS.md, packages/caracal-server/caracal/, packages/caracal/caracal/runtime/`.
+The Open Source edition provides the host command entrypoint (`caracal`) and the runtime modules that execute authority checks before actions run.
 
-## Required sections
+In this repository, that split is visible as:
 
-1. One-line definition (verbatim glossary entry where applicable).
-2. Plain-language explanation.
-3. Where this concept appears in the system.
-4. Constraints and edge cases.
-5. Related concepts (cross-links only, no restatement).
+- `caracal-core` (`packages/caracal`) for host orchestration commands.
+- `caracal-server` (`packages/caracal-server`) for runtime server modules installed in the runtime container image.
 
-## Quality rules
+The runtime host command set includes `up`, `down`, `reset`, `purge`, `logs`, `cli`, `flow`, and `migrate`. The `up` path starts the local stack services (`postgres`, `redis`, `mcp`).
 
-- Reflect current product behavior only.
-- No marketing language, no emoji, no em-dashes.
-- Cite only the source files listed above.
-- Keep the page short. Split if it grows past one screen of content.
+Open Source and Enterprise use different environment-variable namespaces:
+
+- `CCL_` for Open Source core configuration.
+- `CCLE_` for Enterprise-specific configuration.
+
+## Where this appears in the system
+
+- Package boundary: `packages/caracal/pyproject.toml` defines `caracal-core` and maps the `caracal` script to `caracal.runtime.entrypoints:caracal_entrypoint`.
+- Runtime boundary: `packages/caracal-server/pyproject.toml` defines `caracal-server` as runtime server modules installed only in the runtime container image.
+- Runtime implementation: `packages/caracal/caracal/runtime/` contains host entrypoints, runtime data, and hard-cut preflight checks.
+- Server implementation: `packages/caracal-server/caracal/` contains CLI, core authority logic, identity, storage, flow, monitoring, provider, and enterprise modules.
+
+## Constraints and edge cases
+
+- Hard-cut is an operating requirement in runtime enforcement paths, not a user-facing mode switch in docs.
+- In hard-cut runtime paths, SQLite is rejected and PostgreSQL is required.
+- In hard-cut runtime paths, the secret backend must be explicitly managed (`vault`) and local/file-backed secret backends are rejected.
+- In hard-cut runtime paths, local vault mode values (`local`, `dev`, `development`) are rejected.
+- This documentation set describes self-managed operation from this repository and runtime stack commands. It does not define a hosted Caracal service.
+
+## Related concepts
+
+- [Authority enforcement model](/open-source/end-users/concepts/authority-enforcement-model)
+- [Policy](/open-source/end-users/concepts/policy)
+- [Mandate](/open-source/end-users/concepts/mandate)
+- [Principal](/open-source/end-users/concepts/principal)
+- [Workspace](/open-source/end-users/concepts/workspace)
+- [Tool ID grammar](/open-source/sdk/reference/tool-id-grammar)

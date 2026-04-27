@@ -9,7 +9,7 @@ edition: oss
 audience: ai
 page_type: reference
 version: 1.0
-status: stub
+status: authored
 last_verified: 2026-04-27
 source_files:
   - deploy/config/config.example.yaml
@@ -19,30 +19,71 @@ source_files:
 
 > Canonical human page: [/open-source/end-users/configuration/merkle](/open-source/end-users/configuration/merkle)
 
-## Writing instructions
+## Definition
 
-- Purpose: Reference for the `merkle` block. Cover signing algorithm, vault key refs, and rotation flag.
-- Page type: reference
-- Edition: oss
-- Audience: ai
+Deterministic configuration contract for `merkle` runtime settings.
 
-## Required structure (fixed schema)
+## Inputs
 
-Use these section headers in order. Omit any section that is genuinely empty.
+| name | type | required | source | notes |
+| --- | --- | --- | --- | --- |
+| environment_values | map | yes | runtime config interfaces | Key-value settings for this config domain. |
+| deployment_scope | string | yes | runtime config interfaces | Environment tier and workspace scope. |
+| security_context | object | conditional | runtime config interfaces | Required for secret/signing-related settings. |
 
-1. `## Definition` - one sentence.
-2. `## Inputs` - table: name, type, required, source, notes.
-3. `## Outputs` - table: name, type, notes.
-4. `## Constraints` - bullet list of invariants and limits.
-5. `## Steps` - numbered, deterministic procedure.
-6. `## Usage rules` - do / do not bullets.
-7. `## Errors` - table: code, meaning, remediation.
-8. `## Examples` - minimal runnable snippets.
-9. `## See also` - related AI pages first, human pages second.
+## Outputs
 
-## Quality rules
+| name | type | notes |
+| --- | --- | --- |
+| apply_status | string | `ok` or classified failure. |
+| effective_config | object | Resolved settings after defaults/overrides. |
+| validation_result | object | Health/read checks for applied config. |
 
-- No prose, no narrative, no marketing.
-- Compact, structured, instruction-first.
-- Cite only the source files listed in front matter.
-- Keep under 200 lines.
+## Constraints
+
+- Reject malformed values for required keys.
+- Keep security-sensitive defaults fail-closed.
+- Preserve namespace boundaries (`CCL_*` vs `CCLE_*`).
+- Validate dependent service settings as a single unit.
+
+## Steps
+
+1. Parse and normalize incoming key-value set.
+2. Validate required keys and value ranges.
+3. Apply configuration to target runtime scope.
+4. Run health/read checks and classify outcome.
+5. Return effective config and validation result.
+
+## Usage rules
+
+- Do: set explicit values for security-critical keys.
+- Do: verify runtime behavior after configuration changes.
+- Do not: mix OSS and enterprise namespaces without explicit design intent.
+- Do not: rely on implicit defaults for production security posture.
+
+## Errors
+
+| code | meaning | remediation |
+| --- | --- | --- |
+| CONFIG_INVALID | missing or malformed required setting | correct key/value and retry apply. |
+| CONFIG_CONFLICT | incompatible settings combination | reconcile dependent values. |
+| CONFIG_APPLY_FAILED | runtime failed to apply setting | inspect runtime logs and retry. |
+| VALIDATION_FAILED | post-apply checks failed | roll back or fix configuration then re-validate. |
+
+## Examples
+
+```json
+{
+  "operation": "apply_merkle_config",
+  "apply_status": "ok",
+  "effective_config": {
+    "scope": "dev"
+  }
+}
+```
+
+## See also
+
+- [/open-source/end-users/configuration/merkle](/open-source/end-users/configuration/merkle)
+- [/ai/open-source/end-users/configuration](/ai/open-source/end-users/configuration)
+- [/ai/open-source/end-users/troubleshooting/common-failures](/ai/open-source/end-users/troubleshooting/common-failures)

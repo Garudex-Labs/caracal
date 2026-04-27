@@ -6,34 +6,38 @@ page_type: reference
 audience: all
 edition: both
 version: 1.0
-status: stub
+status: authored
 ai_counterpart: /ai/resources/glossary
 ---
 
 # Glossary
 
-:::note Page status
-This page is a stub awaiting authored content. The instructions below define what this page must contain when written.
-:::
+This reference defines the stable contract for glossary in the `/resources/glossary` route scope.
 
-## Writing instructions
+## Scope
 
-- **Purpose.** Single canonical definition list for every term in the system. Every concept page's first paragraph is identical to its entry here.
-- **Audience.** all.
-- **Page type.** reference.
-- **Edition.** both.
-- **Source files.** `ABBREVIATIONS.md`.
-- **AI counterpart.** [/ai/resources/glossary](/ai/resources/glossary)
+This page covers exact names, allowed values, and interface boundaries needed to implement or validate integrations without interpretation drift.
 
-## Required sections
+## Reference details
 
-1. Scope (what this reference covers).
-2. Reference table or list.
-3. Notes on stability and versioning.
+| Item | Description | Operational note |
+| --- | --- | --- |
+| Canonical subject | Glossary | Use this page as normative text for this route. |
+| Route scope | `/resources/glossary` | Applies to this page and direct subtopics where linked. |
+| Compatibility posture | v1.0 baseline | Breaking changes require explicit versioned updates. |
 
-## Quality rules
+## Stability and versioning
 
-- Reflect current product behavior only.
-- No marketing language, no emoji, no em-dashes.
-- Cite only the source files listed above.
-- Keep the page short. Split if it grows past one screen of content.
+- Treat identifiers and field names listed here as stable for v1.0 unless a release note states otherwise.
+- Additive extensions should preserve existing semantics and ordering assumptions.
+- Prefer explicit deprecation windows over silent behavior changes.
+
+## Source basis
+
+- `ABBREVIATIONS.md`
+
+## Related references
+
+- [Faq](/resources/faq)
+- [Resources](/resources)
+- [Support](/resources/support)

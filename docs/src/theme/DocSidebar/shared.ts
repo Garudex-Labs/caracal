@@ -176,6 +176,7 @@ const aiSidebar = [
     "AI Docs",
     "/ai",
     [
+      link("Overview", "/ai/open-source/overview"),
       category("End Users", undefined, [
         link("Installation", "/ai/open-source/end-users/getting-started/installation"),
         category("Concepts", "/ai/open-source/end-users/concepts", [

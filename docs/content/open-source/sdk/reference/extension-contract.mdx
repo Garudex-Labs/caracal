@@ -6,34 +6,41 @@ page_type: reference
 audience: integrator
 edition: oss
 version: 1.0
-status: stub
+status: authored
 ai_counterpart: /ai/open-source/sdk/reference/extension-contract
 ---
 
 # Extension Contract
 
-:::note Page status
-This page is a stub awaiting authored content. The instructions below define what this page must contain when written.
-:::
+This reference defines the stable contract for extension contract in the `/open-source/sdk/reference/extension-contract` route scope.
 
-## Writing instructions
+## Scope
 
-- **Purpose.** CaracalExtension contract: install method, lifecycle, name and version conventions.
-- **Audience.** integrator.
-- **Page type.** reference.
-- **Edition.** oss.
-- **Source files.** `sdk/python-sdk/src/caracal_sdk/extensions.py, sdk/node-sdk/src/extensions.ts`.
-- **AI counterpart.** [/ai/open-source/sdk/reference/extension-contract](/ai/open-source/sdk/reference/extension-contract)
+This page covers exact names, allowed values, and interface boundaries needed to implement or validate integrations without interpretation drift.
 
-## Required sections
+## Reference details
 
-1. Scope (what this reference covers).
-2. Reference table or list.
-3. Notes on stability and versioning.
+| Item | Description | Operational note |
+| --- | --- | --- |
+| Canonical subject | Extension Contract | Use this page as normative text for this route. |
+| Route scope | `/open-source/sdk/reference/extension-contract` | Applies to this page and direct subtopics where linked. |
+| Compatibility posture | v1.0 baseline | Breaking changes require explicit versioned updates. |
 
-## Quality rules
+## Stability and versioning
 
-- Reflect current product behavior only.
-- No marketing language, no emoji, no em-dashes.
-- Cite only the source files listed above.
-- Keep the page short. Split if it grows past one screen of content.
+- Treat identifiers and field names listed here as stable for v1.0 unless a release note states otherwise.
+- Additive extensions should preserve existing semantics and ordering assumptions.
+- Prefer explicit deprecation windows over silent behavior changes.
+
+## Source basis
+
+- `sdk/python-sdk/src/caracal_sdk/extensions.py`
+- `sdk/node-sdk/src/extensions.ts`
+
+## Related references
+
+- [Adapter Contract](/open-source/sdk/reference/adapter-contract)
+- [Error Taxonomy](/open-source/sdk/reference/error-taxonomy)
+- [Hook Points](/open-source/sdk/reference/hook-points)
+- [Reference](/open-source/sdk/reference)
+- [Tool Id Grammar](/open-source/sdk/reference/tool-id-grammar)

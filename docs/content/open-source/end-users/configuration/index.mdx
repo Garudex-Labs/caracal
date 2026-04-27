@@ -6,33 +6,29 @@ page_type: hub
 audience: operator
 edition: oss
 version: 1.0
-status: stub
+status: authored
 ai_counterpart: /ai/open-source/end-users/configuration
 ---
 
 # Configuration
 
-:::note Page status
-This page is a stub awaiting authored content. The instructions below define what this page must contain when written.
-:::
+## Scope
 
-## Writing instructions
+Central map for runtime configuration surfaces.
 
-- **Purpose.** Explain config.yaml shape, file location, env var precedence, and link each block reference page.
-- **Audience.** operator.
-- **Page type.** hub.
-- **Edition.** oss.
-- **Source files.** `deploy/config/config.example.yaml, packages/caracal-server/caracal/config/settings.py`.
-- **AI counterpart.** [/ai/open-source/end-users/configuration](/ai/open-source/end-users/configuration)
+## Configuration domains
 
-## Required sections
+- [Environment Variables](/open-source/end-users/configuration/environment-variables)
+- [Database](/open-source/end-users/configuration/database)
+- [Redis](/open-source/end-users/configuration/redis)
+- [MCP Adapter](/open-source/end-users/configuration/mcp-adapter)
+- [Merkle](/open-source/end-users/configuration/merkle)
+- [Snapshot](/open-source/end-users/configuration/snapshot)
+- [Allowlist](/open-source/end-users/configuration/allowlist)
+- [Logging](/open-source/end-users/configuration/logging)
 
-1. One-paragraph orientation.
-2. Bulleted index of child pages with one-line summaries.
+## Governance rules
 
-## Quality rules
-
-- Reflect current product behavior only.
-- No marketing language, no emoji, no em-dashes.
-- Cite only the source files listed above.
-- Keep the page short. Split if it grows past one screen of content.
+1. Keep security-sensitive values explicit and environment-scoped.
+2. Fail fast on invalid configuration that changes security posture.
+3. Validate configuration changes through runtime health checks and read paths.

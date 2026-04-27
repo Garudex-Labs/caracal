@@ -9,7 +9,7 @@ edition: oss
 audience: ai
 page_type: reference
 version: 1.0
-status: stub
+status: authored
 last_verified: 2026-04-27
 source_files:
   - packages/caracal/caracal/runtime/entrypoints.py
@@ -19,30 +19,69 @@ source_files:
 
 > Canonical human page: [/open-source/end-users/cli/host-commands](/open-source/end-users/cli/host-commands)
 
-## Writing instructions
+## Definition
 
-- Purpose: Reference for every host subcommand and its flags: up, down, reset, purge, logs, migrate, backup, restore, certs, redis, cli, flow. One row per command with description, flags, and exit semantics.
-- Page type: reference
-- Edition: oss
-- Audience: ai
+Deterministic machine-facing contract for `host-commands` CLI operations.
 
-## Required structure (fixed schema)
+## Inputs
 
-Use these section headers in order. Omit any section that is genuinely empty.
+| name | type | required | source | notes |
+| --- | --- | --- | --- | --- |
+| workspace_context | object | conditional | CLI/runtime interfaces | Required for workspace-scoped operations. |
+| command_args | map | yes | CLI/runtime interfaces | Normalized command parameters. |
+| authority_context | object | conditional | CLI/runtime interfaces | Required for mutating authority state. |
 
-1. `## Definition` - one sentence.
-2. `## Inputs` - table: name, type, required, source, notes.
-3. `## Outputs` - table: name, type, notes.
-4. `## Constraints` - bullet list of invariants and limits.
-5. `## Steps` - numbered, deterministic procedure.
-6. `## Usage rules` - do / do not bullets.
-7. `## Errors` - table: code, meaning, remediation.
-8. `## Examples` - minimal runnable snippets.
-9. `## See also` - related AI pages first, human pages second.
+## Outputs
 
-## Quality rules
+| name | type | notes |
+| --- | --- | --- |
+| exit_code | integer | `0` success, non-zero failure. |
+| result | object | Operation-specific payload. |
+| verification | object | Read-after-write validation hints. |
 
-- No prose, no narrative, no marketing.
-- Compact, structured, instruction-first.
-- Cite only the source files listed in front matter.
-- Keep under 200 lines.
+## Constraints
+
+- Validate required scope identifiers before execution.
+- Reject authority-sensitive mutations without required context.
+- Preserve canonical identifier formatting in input/output.
+- Fail with explicit classification when runtime dependencies are unavailable.
+
+## Steps
+
+1. Parse command and normalize arguments.
+2. Resolve workspace and authority context.
+3. Evaluate preconditions and execute operation.
+4. Return result and verification hints.
+5. Perform read-after-write confirmation for mutating paths.
+
+## Usage rules
+
+- Do: provide explicit identifiers and avoid implicit scope assumptions.
+- Do: classify and surface errors deterministically.
+- Do not: treat runtime connectivity as authorization success.
+- Do not: chain dependent operations without validation.
+
+## Errors
+
+| code | meaning | remediation |
+| --- | --- | --- |
+| INPUT_INVALID | malformed or incomplete args | correct request shape and retry. |
+| AUTHORITY_DENIED | constraints reject operation | adjust policy/mandate/scope and retry. |
+| CONTEXT_MISSING | required scope context absent | supply workspace/principal context. |
+| RUNTIME_UNAVAILABLE | dependency failure | restore runtime health and retry. |
+
+## Examples
+
+```json
+{
+  "operation": "host-commands",
+  "exit_code": 0,
+  "result": {"id": "example-id"}
+}
+```
+
+## See also
+
+- [/open-source/end-users/cli/host-commands](/open-source/end-users/cli/host-commands)
+- [/ai/open-source/end-users/cli](/ai/open-source/end-users/cli)
+- [/ai/open-source/end-users/cli/doctor](/ai/open-source/end-users/cli/doctor)

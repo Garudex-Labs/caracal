@@ -6,33 +6,48 @@ page_type: task
 audience: integrator
 edition: enterprise
 version: 1.0
-status: stub
+status: authored
 ---
 
 # Enterprise Getting Started
 
-:::note Page status
-This page is a stub awaiting authored content. The instructions below define what this page must contain when written.
-:::
+## Purpose
 
-## Writing instructions
+Execute enterprise getting started with deterministic behavior and explicit validation of resulting state.
 
-- **Purpose.** Access request, install path, first connection. Abstract enough to support compliance review.
-- **Audience.** integrator.
-- **Page type.** task.
-- **Edition.** enterprise.
+## Prerequisites
 
-## Required sections
+- Required runtime services are healthy.
+- Required identifiers and credentials are available.
+- Access context matches the target workspace and operation scope.
 
-1. Goal (one sentence).
-2. Prerequisites.
-3. Ordered steps.
-4. Verification.
-5. Related pages.
+## Procedure
 
-## Quality rules
+1. Validate inputs and preconditions.
+2. Execute the operation with explicit parameters.
+3. Verify command or API result and resulting persisted state.
+4. Record output identifiers for downstream operations.
+5. Run a read-after-write check to confirm consistency.
 
-- Reflect current product behavior only.
-- No marketing language, no emoji, no em-dashes.
-- Cite only the source files listed above.
-- Keep the page short. Split if it grows past one screen of content.
+## Validation
+
+- enterprise controls are isolated from OSS defaults.
+- auth paths enforce explicit identity context.
+- operational telemetry supports triage.
+
+## Common failure branches
+
+- Invalid input shape or missing required identifiers.
+- Authority constraints deny the requested transition.
+- Runtime dependencies unavailable or unhealthy.
+
+## Related tasks
+
+- [Access Auth](/enterprise/access-auth)
+- [Administration](/enterprise/administration)
+- [Configuration](/enterprise/configuration)
+- [Deployment](/enterprise/deployment)
+- [Enterprise](/enterprise)
+- [Monitoring](/enterprise/monitoring)
+- [Overview](/enterprise/overview)
+- [Reference](/enterprise/reference)

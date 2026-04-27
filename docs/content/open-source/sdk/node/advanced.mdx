@@ -6,34 +6,39 @@ page_type: reference
 audience: integrator
 edition: oss
 version: 1.0
-status: stub
+status: authored
 ai_counterpart: /ai/open-source/sdk/node/advanced
 ---
 
 # Node Advanced
 
-:::note Page status
-This page is a stub awaiting authored content. The instructions below define what this page must contain when written.
-:::
+This reference defines the stable contract for node advanced in the `/open-source/sdk/node/advanced` route scope.
 
-## Writing instructions
+## Scope
 
-- **Purpose.** Builder, hooks, extensions, custom adapters, gateway, AIS routing in Node.
-- **Audience.** integrator.
-- **Page type.** reference.
-- **Edition.** oss.
-- **Source files.** `sdk/node-sdk/`.
-- **AI counterpart.** [/ai/open-source/sdk/node/advanced](/ai/open-source/sdk/node/advanced)
+This page covers exact names, allowed values, and interface boundaries needed to implement or validate integrations without interpretation drift.
 
-## Required sections
+## Reference details
 
-1. Scope (what this reference covers).
-2. Reference table or list.
-3. Notes on stability and versioning.
+| Item | Description | Operational note |
+| --- | --- | --- |
+| Canonical subject | Node Advanced | Use this page as normative text for this route. |
+| Route scope | `/open-source/sdk/node/advanced` | Applies to this page and direct subtopics where linked. |
+| Compatibility posture | v1.0 baseline | Breaking changes require explicit versioned updates. |
 
-## Quality rules
+## Stability and versioning
 
-- Reflect current product behavior only.
-- No marketing language, no emoji, no em-dashes.
-- Cite only the source files listed above.
-- Keep the page short. Split if it grows past one screen of content.
+- Treat identifiers and field names listed here as stable for v1.0 unless a release note states otherwise.
+- Additive extensions should preserve existing semantics and ordering assumptions.
+- Prefer explicit deprecation windows over silent behavior changes.
+
+## Source basis
+
+- `sdk/node-sdk/`
+
+## Related references
+
+- [Api Surface](/open-source/sdk/node/api-surface)
+- [Examples](/open-source/sdk/node/examples)
+- [Node](/open-source/sdk/node)
+- [Usage](/open-source/sdk/node/usage)

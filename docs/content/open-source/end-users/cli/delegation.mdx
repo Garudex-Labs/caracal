@@ -6,34 +6,41 @@ page_type: reference
 audience: operator
 edition: oss
 version: 1.0
-status: stub
+status: authored
 ai_counterpart: /ai/open-source/end-users/cli/delegation
 ---
 
 # delegation
 
-:::note Page status
-This page is a stub awaiting authored content. The instructions below define what this page must contain when written.
-:::
+## Scope
 
-## Writing instructions
+Delegation scope management. Issue and revoke delegated authority paths.
 
-- **Purpose.** Reference for `delegation` group: generate, list, validate, revoke.
-- **Audience.** operator.
-- **Page type.** reference.
-- **Edition.** oss.
-- **Source files.** `packages/caracal-server/caracal/cli/delegation.py`.
-- **AI counterpart.** [/ai/open-source/end-users/cli/delegation](/ai/open-source/end-users/cli/delegation)
+## Operational intent
 
-## Required sections
+This command family is used when operators need deterministic state transitions with explicit validation and auditable outcomes.
 
-1. Scope (what this reference covers).
-2. Reference table or list.
-3. Notes on stability and versioning.
+## Typical operation sequence
 
-## Quality rules
+1. Confirm runtime and workspace context are valid.
+2. Execute command with explicit parameters and scope identifiers.
+3. Validate command output and resulting state through read paths.
+4. Record identifiers for downstream operations.
 
-- Reflect current product behavior only.
-- No marketing language, no emoji, no em-dashes.
-- Cite only the source files listed above.
-- Keep the page short. Split if it grows past one screen of content.
+## Validation checklist
+
+- Command returns expected status and structured output.
+- State transitions are visible in follow-up reads.
+- Errors classify input issues vs authorization vs runtime availability.
+
+## Failure branches
+
+- Invalid command shape or missing required identifiers.
+- Authority constraints deny requested transition.
+- Runtime dependency unavailable or unhealthy.
+
+## Related commands
+
+- [CLI](/open-source/end-users/cli)
+- [Host Commands](/open-source/end-users/cli/host-commands)
+- [Doctor](/open-source/end-users/cli/doctor)

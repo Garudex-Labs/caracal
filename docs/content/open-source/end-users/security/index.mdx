@@ -6,31 +6,33 @@ page_type: hub
 audience: reviewer
 edition: oss
 version: 1.0
-status: stub
+status: authored
 ---
 
 # Security
 
-:::note Page status
-This page is a stub awaiting authored content. The instructions below define what this page must contain when written.
-:::
+Security is the navigation hub for this section of the Caracal v1.0 documentation set. Use it to choose the shortest path for operation, integration, or implementation decisions.
 
-## Writing instructions
+## Scope
 
-- **Purpose.** Hub for the reviewer track. Map of every security topic.
-- **Audience.** reviewer.
-- **Page type.** hub.
-- **Edition.** oss.
-- **Source files.** `THREAT_MODEL.md`.
+This hub groups pages that share the same route prefix and operating context. Each child page defines one canonical topic and links to adjacent procedures or references without duplicating definitions.
 
-## Required sections
+## Section map
 
-1. One-paragraph orientation.
-2. Bulleted index of child pages with one-line summaries.
+- [Attestation And Sessions](/open-source/end-users/security/attestation-and-sessions) - Operational guidance and constraints for attestation and sessions.
+- [Fail Closed Semantics](/open-source/end-users/security/fail-closed-semantics) - Operational guidance and constraints for fail closed semantics.
+- [Key Management](/open-source/end-users/security/key-management) - Operational guidance and constraints for key management.
+- [Ledger Integrity](/open-source/end-users/security/ledger-integrity) - Operational guidance and constraints for ledger integrity.
+- [Overview](/open-source/end-users/security/overview) - Operational guidance and constraints for overview.
+- [Revocation Propagation](/open-source/end-users/security/revocation-propagation) - Operational guidance and constraints for revocation propagation.
+- [Threat Model](/open-source/end-users/security/threat-model) - Operational guidance and constraints for threat model.
 
-## Quality rules
+## Reading order
 
-- Reflect current product behavior only.
-- No marketing language, no emoji, no em-dashes.
-- Cite only the source files listed above.
-- Keep the page short. Split if it grows past one screen of content.
+1. Start with conceptual pages to establish terms and invariants.
+2. Continue with task or tutorial pages to execute actions.
+3. Use reference pages for exact field names, command syntax, and stable contracts.
+
+## Source basis
+
+- `THREAT_MODEL.md`

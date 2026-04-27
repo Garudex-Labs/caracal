@@ -6,33 +6,31 @@ page_type: hub
 audience: operator
 edition: oss
 version: 1.0
-status: stub
+status: authored
 ai_counterpart: /ai/open-source/end-users/cli
 ---
 
 # CLI
 
-:::note Page status
-This page is a stub awaiting authored content. The instructions below define what this page must contain when written.
-:::
+## Scope
 
-## Writing instructions
+This page maps the CLI command groups used in the open-source runtime. Use it as the entry point before executing command-specific procedures.
 
-- **Purpose.** Hub. Explain the host vs in-container split and link each command group page.
-- **Audience.** operator.
-- **Page type.** hub.
-- **Edition.** oss.
-- **Source files.** `packages/caracal/caracal/runtime/entrypoints.py, packages/caracal-server/caracal/cli/main.py`.
-- **AI counterpart.** [/ai/open-source/end-users/cli](/ai/open-source/end-users/cli)
+## Command groups
 
-## Required sections
+- [Host Commands](/open-source/end-users/cli/host-commands) - host orchestration and runtime lifecycle commands.
+- [Workspace](/open-source/end-users/cli/workspace) - workspace selection and lifecycle commands.
+- [Principal](/open-source/end-users/cli/principal) - principal identity management commands.
+- [Policy](/open-source/end-users/cli/policy) - policy authoring and validation commands.
+- [Authority](/open-source/end-users/cli/authority) - authority evaluation and status commands.
+- [Delegation](/open-source/end-users/cli/delegation) - delegation creation/revocation commands.
+- [Audit](/open-source/end-users/cli/audit) - audit and trace inspection commands.
+- [Provider](/open-source/end-users/cli/provider) - provider registration/control commands.
+- [Doctor](/open-source/end-users/cli/doctor) - diagnostics and readiness checks.
 
-1. One-paragraph orientation.
-2. Bulleted index of child pages with one-line summaries.
+## Execution order guidance
 
-## Quality rules
-
-- Reflect current product behavior only.
-- No marketing language, no emoji, no em-dashes.
-- Cite only the source files listed above.
-- Keep the page short. Split if it grows past one screen of content.
+1. Prepare runtime with host commands.
+2. Establish workspace/principal/policy state.
+3. Execute authority/delegation operations.
+4. Verify outcomes in audit and doctor paths.

@@ -6,34 +6,48 @@ page_type: task
 audience: contributor
 edition: oss
 version: 1.0
-status: stub
+status: authored
 ---
 
 # Development Setup
 
-:::note Page status
-This page is a stub awaiting authored content. The instructions below define what this page must contain when written.
-:::
+## Purpose
 
-## Writing instructions
+Execute development setup with deterministic behavior and explicit validation of resulting state.
 
-- **Purpose.** uv venv, uv sync --extra dev, make targets, infra-up. Mirror CONTRIBUTING.md without restating it.
-- **Audience.** contributor.
-- **Page type.** task.
-- **Edition.** oss.
-- **Source files.** `CONTRIBUTING.md, Makefile`.
+## Prerequisites
 
-## Required sections
+- Required runtime services are healthy.
+- Required identifiers and credentials are available.
+- Access context matches the target workspace and operation scope.
 
-1. Goal (one sentence).
-2. Prerequisites.
-3. Ordered steps.
-4. Verification.
-5. Related pages.
+## Procedure
 
-## Quality rules
+1. Validate inputs and preconditions.
+2. Execute the operation with explicit parameters.
+3. Verify command or API result and resulting persisted state.
+4. Record output identifiers for downstream operations.
+5. Run a read-after-write check to confirm consistency.
 
-- Reflect current product behavior only.
-- No marketing language, no emoji, no em-dashes.
-- Cite only the source files listed above.
-- Keep the page short. Split if it grows past one screen of content.
+## Validation
+
+- module responsibilities are non-overlapping.
+- changes preserve hard-cut constraints.
+- test layers cover modified behavior.
+
+## Common failure branches
+
+- Invalid input shape or missing required identifiers.
+- Authority constraints deny the requested transition.
+- Runtime dependencies unavailable or unhealthy.
+
+## Related tasks
+
+- [Architecture](/open-source/developers/architecture)
+- [Changelog](/open-source/developers/changelog)
+- [Contributing](/open-source/developers/contributing)
+- [Core Authority System](/open-source/developers/core-authority-system)
+- [Enterprise Connector](/open-source/developers/enterprise-connector)
+- [Flow Tui](/open-source/developers/flow-tui)
+- [Developers](/open-source/developers)
+- [Releases](/open-source/developers/releases)

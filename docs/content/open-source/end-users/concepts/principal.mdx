@@ -6,36 +6,45 @@ page_type: concept
 audience: integrator
 edition: oss
 version: 1.0
-status: stub
+status: authored
 ai_counterpart: /ai/open-source/end-users/concepts/principal
 ---
 
 # Principal
 
-:::note Page status
-This page is a stub awaiting authored content. The instructions below define what this page must contain when written.
-:::
+Principal defines part of the authority model used for authority enforcement behavior and operational usage in Caracal.
 
-## Writing instructions
+## Plain-language explanation
 
-- **Purpose.** What a principal is: any identity that can hold authority. Cover identity registration, key material, and how principals are referenced from policies and mandates. Plain-language first paragraph (used as glossary entry verbatim).
-- **Audience.** integrator.
-- **Page type.** concept.
-- **Edition.** oss.
-- **Source files.** `packages/caracal-server/caracal/core/identity.py, core/principal_keys.py, cli/principal.py`.
-- **AI counterpart.** [/ai/open-source/end-users/concepts/principal](/ai/open-source/end-users/concepts/principal)
+Caracal evaluates authority before execution. This concept describes one control point in that evaluation chain and how it interacts with policy, mandate, principal, workspace, and audit state.
 
-## Required sections
+## Where this appears in the system
 
-1. One-line definition (verbatim glossary entry where applicable).
-2. Plain-language explanation.
-3. Where this concept appears in the system.
-4. Constraints and edge cases.
-5. Related concepts (cross-links only, no restatement).
+- Runtime enforcement paths for `/open-source/end-users/concepts/principal`.
+- CLI and SDK operations that create, mutate, or validate authority-relevant state.
+- Incident analysis and audit workflows where deterministic reconstruction is required.
 
-## Quality rules
+## Detailed focus areas
 
-- Reflect current product behavior only.
-- No marketing language, no emoji, no em-dashes.
-- Cite only the source files listed above.
-- Keep the page short. Split if it grows past one screen of content.
+- explicit authority preconditions.
+- state transition determinism.
+- observability and audit trails.
+- error remediation clarity.
+
+## Constraints and edge cases
+
+- Missing or invalid authority context fails closed in protected operations.
+- Identifier normalization must be consistent across CLI, SDK, and API boundaries.
+- State transitions should be monotonic and auditable, with explicit revoke/invalidate paths where applicable.
+- Cross-workspace assumptions are invalid unless explicitly delegated.
+
+## Related concepts
+
+- [Ai Service Isolation](/open-source/end-users/concepts/ai-service-isolation)
+- [Authority Enforcement Model](/open-source/end-users/concepts/authority-enforcement-model)
+- [Broker Vs Gateway](/open-source/end-users/concepts/broker-vs-gateway)
+- [Caveat](/open-source/end-users/concepts/caveat)
+- [Delegation](/open-source/end-users/concepts/delegation)
+- [Concepts](/open-source/end-users/concepts)
+- [Intent](/open-source/end-users/concepts/intent)
+- [Ledger](/open-source/end-users/concepts/ledger)

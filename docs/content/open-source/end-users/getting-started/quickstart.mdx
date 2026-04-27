@@ -6,33 +6,128 @@ page_type: tutorial
 audience: integrator
 edition: oss
 version: 1.0
-status: stub
+status: authored
 ---
 
 # Quickstart
 
-:::note Page status
-This page is a stub awaiting authored content. The instructions below define what this page must contain when written.
-:::
+## Outcome
 
-## Writing instructions
+Bring up a local Caracal runtime, open Flow, verify health through host commands, and execute one SDK connectivity check in under ten minutes.
 
-- **Purpose.** Shortest path from zero to working: install, caracal up, caracal flow, then a minimal SDK call from Python. Aim for under ten minutes. End with a verification step the reader can see succeed.
-- **Audience.** integrator.
-- **Page type.** tutorial.
-- **Edition.** oss.
-- **Source files.** `README.md, packages/caracal/caracal/runtime/entrypoints.py, sdk/python-sdk/src/caracal_sdk/client.py`.
+## Prerequisites
 
-## Required sections
+- Python 3.10+ with `caracal-core` available in the active environment.
+- Docker with Compose support (`docker compose`).
+- Network access to pull runtime images when running `caracal up` without `--no-pull`.
 
-1. Outcome.
-2. Prerequisites.
-3. Linear walkthrough with verification at each step.
-4. Where to go next.
+## Step 1: Verify host command and Docker Compose
 
-## Quality rules
+Run:
 
-- Reflect current product behavior only.
-- No marketing language, no emoji, no em-dashes.
-- Cite only the source files listed above.
-- Keep the page short. Split if it grows past one screen of content.
+```bash
+caracal --help
+docker compose version
+```
+
+Verification criteria:
+
+- `caracal --help` prints subcommands.
+- `docker compose version` returns successfully.
+
+If either command fails, fix host environment setup before proceeding.
+
+## Step 2: Start runtime services
+
+Run:
+
+```bash
+caracal up
+```
+
+Expected behavior:
+
+- Runtime stack starts with `postgres`, `redis`, and `mcp` services.
+- Compose startup completes without non-zero exit codes.
+
+Optional variants:
+
+```bash
+caracal up --no-pull
+```
+
+Use `--no-pull` only when required images are already present locally.
+
+## Step 3: Open Flow (TUI)
+
+Run:
+
+```bash
+caracal flow
+```
+
+Expected behavior:
+
+- Flow launches inside the runtime container.
+- You can navigate screens without immediate runtime connection errors.
+
+`caracal` with no args also routes to Flow by default on host entrypoints.
+
+## Step 4: Validate runtime logs and command boundary
+
+Run:
+
+```bash
+caracal logs -f
+```
+
+Optional service filtering:
+
+```bash
+caracal logs postgres redis mcp
+```
+
+Verification criteria:
+
+- Log stream is active.
+- No repeated fatal startup failures.
+
+Then open restricted container CLI:
+
+```bash
+caracal cli
+```
+
+You are now in the in-container command boundary for authority operations.
+
+## Step 5: Validate SDK connectivity baseline (Python)
+
+Minimal SDK check:
+
+```python
+from caracal_sdk.client import CaracalClient
+
+client = CaracalClient(api_key="replace-with-runtime-api-key")
+print("client-initialized")
+client.close()
+```
+
+Verification criteria:
+
+- Client initialization succeeds when `api_key` and runtime URL are valid.
+- No `SDKConfigurationError` is raised.
+
+The SDK resolves base URL from `CCL_API_URL` or defaults to `http://localhost:${CCL_API_PORT:-8080}`.
+
+## Common failure branches
+
+- `caracal up` fails: Docker/Compose unavailable, permissions missing, or image pull/network issues.
+- `caracal flow` fails immediately: runtime services not healthy yet.
+- SDK init fails: missing/invalid API key or incorrect runtime URL/port mapping.
+
+## Where to go next
+
+- [Installation](/open-source/end-users/getting-started/installation)
+- [Host Commands](/open-source/end-users/cli/host-commands)
+- [Environment Variables](/open-source/end-users/configuration/environment-variables)
+- [Authority Enforcement Model](/open-source/end-users/concepts/authority-enforcement-model)

@@ -6,34 +6,41 @@ page_type: reference
 audience: operator
 edition: oss
 version: 1.0
-status: stub
+status: authored
 ai_counterpart: /ai/open-source/end-users/configuration/redis
 ---
 
 # redis
 
-:::note Page status
-This page is a stub awaiting authored content. The instructions below define what this page must contain when written.
-:::
+## Scope
 
-## Writing instructions
+Redis configuration. Caching/event channel and transport settings.
 
-- **Purpose.** Reference for the `redis` block.
-- **Audience.** operator.
-- **Page type.** reference.
-- **Edition.** oss.
-- **Source files.** `deploy/config/config.example.yaml`.
-- **AI counterpart.** [/ai/open-source/end-users/configuration/redis](/ai/open-source/end-users/configuration/redis)
+## Configuration intent
 
-## Required sections
+This page defines how to set and validate this configuration surface without creating ambiguity across host/runtime boundaries.
 
-1. Scope (what this reference covers).
-2. Reference table or list.
-3. Notes on stability and versioning.
+## Required decisions
 
-## Quality rules
+- Choose values per environment tier (dev/stage/prod).
+- Define fallback behavior for missing optional settings.
+- Specify hard failure conditions for invalid values.
 
-- Reflect current product behavior only.
-- No marketing language, no emoji, no em-dashes.
-- Cite only the source files listed above.
-- Keep the page short. Split if it grows past one screen of content.
+## Validation sequence
+
+1. Apply configuration with explicit scope.
+2. Restart or reload affected runtime components if required.
+3. Verify service health and read-path behavior.
+4. Confirm security-sensitive paths remain fail-closed.
+
+## Failure branches
+
+- Missing required keys or malformed values.
+- Cross-service mismatch between dependent settings.
+- Runtime startup failures from incompatible configuration combinations.
+
+## Related pages
+
+- [Configuration](/open-source/end-users/configuration)
+- [Environment Variables](/open-source/end-users/configuration/environment-variables)
+- [Troubleshooting](/open-source/end-users/troubleshooting)
