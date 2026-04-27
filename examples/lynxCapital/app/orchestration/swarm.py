@@ -388,6 +388,8 @@ async def _turn_loop(run_id, agent, model_name, llm_with_tools, summarizer, mem,
             except PermissionError as exc:
                 result_str = json.dumps({"denied": True, "tool": name, "reason": str(exc)})
                 bus.publish(ev.caracal_enforce(run_id, agent.id, name, "deny", str(exc)))
+                mem.append(ToolMessage(content=result_str, tool_call_id=tc["id"]))
+                raise
             tool_calls_total += 1
             mem.append(ToolMessage(content=result_str, tool_call_id=tc["id"]))
         _emit_memory_snapshot(run_id, mem)

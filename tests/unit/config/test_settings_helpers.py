@@ -21,6 +21,7 @@ from caracal.config.settings import (
     _decrypt_config_values,
     _expand_env_vars,
     _has_encrypted_values,
+    _normalize_legacy_config_data,
     _normalize_hardcut_merkle_config_data,
     _persist_normalized_workspace_config,
     _validate_config,
@@ -248,6 +249,47 @@ class TestNormalizeHardcutMerkleConfigData:
         config, changed = _normalize_hardcut_merkle_config_data({})
         assert config["merkle"]["signing_backend"] == "vault"
         assert changed is True
+
+
+@pytest.mark.unit
+class TestNormalizeLegacyConfigData:
+    def test_rewrites_legacy_env_placeholders(self) -> None:
+        config, changed = _normalize_legacy_config_data(
+            {
+                "storage": {"backup_dir": "${CARACAL_HOME:~/.caracal}/backups"},
+                "database": {
+                    "host": "${CARACAL_DB_HOST:localhost}",
+                    "password": "${CARACAL_DB_PASSWORD:caracal}",
+                },
+                "mcp_adapter": {
+                    "listen_address": "${CARACAL_MCP_LISTEN_ADDRESS:0.0.0.0:8080}",
+                },
+            }
+        )
+
+        assert changed is True
+        assert config["storage"]["backup_dir"] == "${CCL_HOME:~/.caracal}/backups"
+        assert config["database"]["host"] == "${CCL_DB_HOST:localhost}"
+        assert config["database"]["password"] == "${CCL_DB_PASSWORD:caracal}"
+        assert config["mcp_adapter"]["listen_address"] == "${CCL_MCP_LISTEN_ADDR:0.0.0.0:8080}"
+
+    def test_removes_legacy_demo_upstream_default(self) -> None:
+        config, changed = _normalize_legacy_config_data(
+            {
+                "mcp_adapter": {
+                    "mcp_server_urls": [
+                        {
+                            "name": "demo-upstream",
+                            "url": "http://host.docker.internal:8090",
+                            "timeout_seconds": 30,
+                        }
+                    ]
+                }
+            }
+        )
+
+        assert changed is True
+        assert config["mcp_adapter"]["mcp_server_urls"] == []
 
 
 @pytest.mark.unit

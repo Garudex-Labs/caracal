@@ -679,6 +679,48 @@ def test_host_cli_run_command_does_not_force_user_override(monkeypatch: pytest.M
 
 
 @pytest.mark.unit
+def test_host_auth_token_runs_container_cli(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    compose_file = Path("/tmp/docker-compose.image.yml")
+    commands: list[list[str]] = []
+
+    monkeypatch.setattr(entrypoints, "_resolve_compose_file", lambda _override=None: compose_file)
+    monkeypatch.setattr(entrypoints, "_compose_cmd", lambda _compose: ["docker", "compose"])
+
+    def _run(cmd, **_kwargs):
+        commands.append(cmd)
+        return SimpleNamespace(
+            returncode=0,
+            stdout="Active Workspace: demo\ncark_testtoken\n",
+            stderr="",
+        )
+
+    monkeypatch.setattr(entrypoints.subprocess, "run", _run)
+
+    exit_code = entrypoints._host_auth_token(SimpleNamespace(quiet=True, rotate=False))
+
+    assert exit_code == 0
+    assert commands[-1] == [
+        "docker",
+        "compose",
+        "--profile",
+        "bootstrap",
+        "run",
+        "--rm",
+        "--no-deps",
+        "-T",
+        "bootstrap",
+        "caracal",
+        "auth",
+        "token",
+        "--quiet",
+    ]
+    assert capsys.readouterr().out == "cark_testtoken\n"
+
+
+@pytest.mark.unit
 def test_host_flow_run_command_does_not_force_user_override(monkeypatch: pytest.MonkeyPatch) -> None:
     compose_file = Path("/tmp/docker-compose.image.yml")
     commands: list[list[str]] = []

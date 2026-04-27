@@ -22,7 +22,7 @@ services:
       - caracal-runtime
 
   vault:
-    image: ${CCL_VAULT_SIDECAR_IMAGE:-${VAULT_IMAGE:-infisical/infisical:v0.93.1}}
+    image: ${CCL_VAULT_SIDECAR_IMAGE:-${VAULT_IMAGE:-infisical/infisical:v0.159.16}}
     container_name: caracal-vault-sidecar
     environment:
       NODE_ENV: production

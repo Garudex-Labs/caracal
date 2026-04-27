@@ -55,7 +55,7 @@ services:
     #   CCL_VAULT_RETRY_BACKOFF_SECONDS  Backoff between retries.
     # ---------------------------------------------------------------------------
     vault:
-        image: ${CCL_VAULT_SIDECAR_IMAGE:-${VAULT_IMAGE:-infisical/infisical:v0.93.1}}
+        image: ${CCL_VAULT_SIDECAR_IMAGE:-${VAULT_IMAGE:-infisical/infisical:v0.159.16}}
         environment:
             NODE_ENV: production
             AUTH_SECRET: ${CCL_VAULT_SIDECAR_AUTH_SECRET:-${VAULT_AUTH_SECRET:?Set CCL_VAULT_SIDECAR_AUTH_SECRET or run `caracal vault init` for local development}}

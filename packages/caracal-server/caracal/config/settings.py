@@ -104,6 +104,83 @@ def _decrypt_config_values(config_data: Dict[str, Any]) -> Dict[str, Any]:
         )
 
 
+_LEGACY_ENV_PLACEHOLDER_RENAMES = {
+    "CARACAL_HOME": "CCL_HOME",
+    "CARACAL_DB_HOST": "CCL_DB_HOST",
+    "CARACAL_DB_PORT": "CCL_DB_PORT",
+    "CARACAL_DB_NAME": "CCL_DB_NAME",
+    "CARACAL_DB_USER": "CCL_DB_USER",
+    "CARACAL_DB_PASSWORD": "CCL_DB_PASSWORD",
+    "CARACAL_DB_POOL_SIZE": "CCL_DB_POOL_SIZE",
+    "CARACAL_DB_MAX_OVERFLOW": "CCL_DB_MAX_OVERFLOW",
+    "CARACAL_DB_POOL_TIMEOUT": "CCL_DB_POOL_TTL",
+    "CARACAL_MCP_LISTEN_ADDRESS": "CCL_MCP_LISTEN_ADDR",
+    "CARACAL_VAULT_MERKLE_SIGNING_KEY_REF": "CCL_VAULT_MERKLE_SIGNING_KEY_REF",
+    "CARACAL_VAULT_MERKLE_PUBLIC_KEY_REF": "CCL_VAULT_MERKLE_PUB_KEY_REF",
+}
+
+
+def _rewrite_legacy_env_placeholders(value: Any) -> tuple[Any, bool]:
+    """Rewrite legacy config placeholders before env expansion."""
+    if isinstance(value, str):
+        rewritten = value
+        for old_name, new_name in _LEGACY_ENV_PLACEHOLDER_RENAMES.items():
+            rewritten = re.sub(
+                rf"\$\{{{re.escape(old_name)}(?=[:}}])",
+                "${" + new_name,
+                rewritten,
+            )
+        return rewritten, rewritten != value
+
+    if isinstance(value, dict):
+        changed = False
+        rewritten_dict: dict[Any, Any] = {}
+        for key, item in value.items():
+            rewritten_item, item_changed = _rewrite_legacy_env_placeholders(item)
+            rewritten_dict[key] = rewritten_item
+            changed = changed or item_changed
+        return rewritten_dict, changed
+
+    if isinstance(value, list):
+        changed = False
+        rewritten_list: list[Any] = []
+        for item in value:
+            rewritten_item, item_changed = _rewrite_legacy_env_placeholders(item)
+            rewritten_list.append(rewritten_item)
+            changed = changed or item_changed
+        return rewritten_list, changed
+
+    return value, False
+
+
+def _normalize_legacy_config_data(config_data: Dict[str, Any]) -> tuple[Dict[str, Any], bool]:
+    """Normalize persisted pre-CCL config defaults."""
+    if not isinstance(config_data, dict):
+        return config_data, False
+
+    normalized, changed = _rewrite_legacy_env_placeholders(config_data)
+    if not isinstance(normalized, dict):
+        return config_data, changed
+
+    mcp_adapter = normalized.get("mcp_adapter")
+    if isinstance(mcp_adapter, dict):
+        servers = mcp_adapter.get("mcp_server_urls")
+        if (
+            isinstance(servers, list)
+            and len(servers) == 1
+            and isinstance(servers[0], dict)
+            and servers[0].get("name") == "demo-upstream"
+            and servers[0].get("url") == "http://host.docker.internal:8090"
+        ):
+            normalized = dict(normalized)
+            normalized_mcp = dict(mcp_adapter)
+            normalized_mcp["mcp_server_urls"] = []
+            normalized["mcp_adapter"] = normalized_mcp
+            changed = True
+
+    return normalized, changed
+
+
 def _has_encrypted_values(value: Any) -> bool:
     """
     Check if configuration contains any encrypted values.
@@ -472,6 +549,15 @@ def load_config(
         if emit_logs:
             logger.info(f"Configuration file {config_path} is empty, using defaults")
         return get_default_config()
+
+    config_data, legacy_normalized = _normalize_legacy_config_data(config_data)
+    if legacy_normalized:
+        _persist_normalized_workspace_config(config_path, config_data)
+        if emit_logs:
+            logger.info(
+                "Normalized legacy config placeholders",
+                config_path=config_path,
+            )
     
     # Expand environment variables in configuration
     config_data = _expand_env_vars(config_data)

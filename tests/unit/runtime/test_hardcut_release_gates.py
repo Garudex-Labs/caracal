@@ -5,6 +5,7 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 import re
+import tomllib
 
 import pytest
 
@@ -84,12 +85,51 @@ _REPO_ROOT = _RepoRootView(Path(__file__).resolve().parents[3])
 _OSS_ROOT = Path(__file__).resolve().parents[3]
 
 
+def _core_package_version() -> str:
+    pyproject = _OSS_ROOT / "packages" / "caracal" / "pyproject.toml"
+    data = tomllib.loads(pyproject.read_text(encoding="utf-8"))
+    return str(data["project"]["version"])
+
+
 def _skip_without_enterprise_repo() -> None:
     marker = _OSS_ROOT.parent / "caracalEnterprise" / "docker-compose.enterprise.yml"
     if not marker.is_file():
         pytest.skip(
             "caracalEnterprise sibling checkout not present (optional for OSS-only clones)"
         )
+
+
+@pytest.mark.unit
+def test_release_version_sources_match_core_package_version() -> None:
+    core_version = _core_package_version()
+
+    assert (_OSS_ROOT / "VERSION").read_text(encoding="utf-8").strip() == core_version
+
+
+@pytest.mark.unit
+def test_runtime_release_image_defaults_match_core_package_version() -> None:
+    core_version = _core_package_version()
+    runtime_image = f"ghcr.io/garudex-labs/caracal-runtime:{core_version}"
+    runtime_image_default = f"CCL_RUNTIME_IMAGE:-{runtime_image}"
+
+    checked_files = (
+        _OSS_ROOT / ".env.example",
+        _OSS_ROOT / "deploy" / "docker-compose.image.yml",
+        caracal_path("runtime", "data", "docker-compose.yml"),
+        caracal_path("runtime", "entrypoints.py"),
+    )
+
+    for checked_file in checked_files:
+        payload = checked_file.read_text(encoding="utf-8")
+        assert runtime_image in payload or runtime_image_default in payload, str(checked_file)
+
+
+@pytest.mark.unit
+def test_runtime_dockerfile_core_constraint_matches_core_package_version() -> None:
+    core_version = _core_package_version()
+    payload = (_OSS_ROOT / "deploy" / "docker" / "Dockerfile.runtime").read_text(encoding="utf-8")
+
+    assert f"caracal-core=={core_version}" in payload
 
 
 @pytest.mark.unit
@@ -221,7 +261,7 @@ def test_runtime_compose_defaults_do_not_ship_latest_dev_tokens_or_baked_secrets
         "CCL_ENV_MODE:-dev",
     )
     required_markers = (
-        "infisical/infisical:v0.93.1",
+        "infisical/infisical:v0.159.16",
         "VAULT_AUTH_SECRET:?",
         "VAULT_ENC_KEY:?",
         "CCL_VAULT_TOKEN:?",
@@ -299,7 +339,7 @@ def test_oss_env_example_uses_vault_only_hardcut_defaults() -> None:
     payload = env_example.read_text(encoding="utf-8")
 
     assert "CCL_PRINCIPAL_KEY_BACKEND=vault" in payload
-    assert "CCL_VAULT_SIDECAR_IMAGE=infisical/infisical:v0.93.1" in payload
+    assert "CCL_VAULT_SIDECAR_IMAGE=infisical/infisical:v0.159.16" in payload
     assert "CCL_SECRET_BACKEND" not in payload
     assert "AWS_" not in payload
     assert "aws_kms" not in payload.lower()
