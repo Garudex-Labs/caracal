@@ -94,7 +94,7 @@ const config: Config = {
       hideOnScroll: false,
       logo: {
         alt: "Caracal Logo",
-        src: "img/logo.svg",
+        src: "img/caracal_inverted.png",
       },
       items: [
         {
