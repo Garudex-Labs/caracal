@@ -10,8 +10,12 @@ import importlib
 import sys
 from types import SimpleNamespace
 
+import pytest
 
-def test_enterprise_flow_imports_without_requests(monkeypatch):
+pytestmark = pytest.mark.unit
+
+
+def test_enterprise_flow_imports_without_requests(monkeypatch: pytest.MonkeyPatch) -> None:
     module_name = "caracal.flow.screens.enterprise_flow"
     previous_module = sys.modules.pop(module_name, None)
     previous_requests = sys.modules.get("requests")
@@ -29,7 +33,7 @@ def test_enterprise_flow_imports_without_requests(monkeypatch):
             sys.modules.pop("requests", None)
 
 
-def test_connection_status_handles_missing_requests(monkeypatch):
+def test_connection_status_handles_missing_requests(monkeypatch: pytest.MonkeyPatch) -> None:
     from caracal.flow.screens import enterprise_flow
 
     previous_requests = sys.modules.get("requests")
