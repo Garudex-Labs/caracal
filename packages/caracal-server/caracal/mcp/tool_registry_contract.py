@@ -265,6 +265,7 @@ def deactivate_invalid_provider_tools(
         try:
             adapter._validate_tool_mapping(
                 session=db_session,
+                workspace_name=getattr(row, "workspace_name", None),
                 provider_name=normalized_provider_name,
                 resource_scope=resource_scope,
                 action_scope=action_scope,

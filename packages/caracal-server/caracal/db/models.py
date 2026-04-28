@@ -946,62 +946,6 @@ class AuthorityPolicy(Base):
         return f"<AuthorityPolicy(policy_id={self.policy_id}, principal_id={self.principal_id}, active={self.active})>"
 
 
-class GatewayProvider(Base):
-    """
-    Registered upstream provider for the enterprise gateway.
-
-    Provider entries are loaded by ProviderRegistry and used to map
-    logical provider IDs to validated upstream URLs, preventing SSRF.
-    """
-
-    __tablename__ = "gateway_providers"
-
-    provider_id = Column(String(255), primary_key=True)
-    workspace_id = Column(PG_UUID(as_uuid=True), nullable=True, index=True)
-    name = Column(String(255), nullable=False)
-    base_url = Column(String(2048), nullable=False)
-    service_type = Column(String(100), nullable=False, default="application", server_default="application")
-    auth_scheme = Column(String(100), nullable=False, default="api_key", server_default="api_key")
-    version = Column(String(255), nullable=True)
-    capabilities = Column(JSON, nullable=False, default=list, server_default=text("'[]'"))
-    tags = Column(JSON, nullable=False, default=list, server_default=text("'[]'"))
-    provider_metadata = Column("metadata", JSON, nullable=False, default=dict, server_default=text("'{}'"))
-    provider_definition = Column(String(255), nullable=False, default="custom", server_default="custom")
-    definition = Column(JSON, nullable=False, default=dict, server_default=text("'{}'"))
-    resources = Column(JSON, nullable=False, default=list, server_default=text("'[]'"))
-    actions = Column(JSON, nullable=False, default=list, server_default=text("'[]'"))
-    enforce_scoped_requests = Column(Boolean, nullable=False, default=False, server_default=text("false"))
-    auth_metadata = Column(JSON, nullable=False, default=dict, server_default=text("'{}'"))
-    provider_layer = Column(String(50), nullable=False, default="user_provider", server_default="user_provider", index=True)
-    template_id = Column(String(255), nullable=True)
-    managed_by = Column(String(255), nullable=True)
-    credential_storage = Column(String(50), nullable=False, default="gateway_vault", server_default="gateway_vault")
-
-    # JSON arrays stored as JSON
-    allowed_paths = Column(JSON, nullable=False, default=list, server_default=text("'[]'"))
-    scopes = Column(JSON, nullable=False, default=list, server_default=text("'[]'"))
-
-    tls_pin = Column(String(255), nullable=True)
-    credential_ref = Column(String(512), nullable=True)
-    healthcheck_path = Column(String(255), nullable=False, default="/health", server_default="/health")
-    timeout_seconds = Column(Integer, nullable=False, default=30, server_default="30")
-    max_retries = Column(Integer, nullable=False, default=3, server_default="3")
-    rate_limit_rpm = Column(Integer, nullable=True)
-    default_headers = Column(JSON, nullable=False, default=dict, server_default=text("'{}'"))
-    access_policy = Column(JSON, nullable=False, default=dict, server_default=text("'{}'"))
-    enabled = Column(Boolean, nullable=False, default=True, index=True)
-
-    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
-    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
-
-    def __init__(self, **kwargs):
-        kwargs.setdefault("enforce_scoped_requests", False)
-        super().__init__(**kwargs)
-
-    def __repr__(self):
-        return f"<GatewayProvider(provider_id={self.provider_id!r}, base_url={self.base_url!r}, enabled={self.enabled})>"
-
-
 class RegisteredTool(Base):
     """Persisted tool registration state for explicit MCP tool recognition."""
 

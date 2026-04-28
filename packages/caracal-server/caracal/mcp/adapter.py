@@ -22,7 +22,7 @@ from uuid import UUID
 
 from caracal.core.metering import MeteringEvent, MeteringCollector
 from caracal.core.authority import AuthorityEvaluator
-from caracal.db.models import AuthorityLedgerEvent, GatewayProvider, RegisteredTool
+from caracal.db.models import AuthorityLedgerEvent, RegisteredTool
 from caracal.deployment.exceptions import SecretNotFoundError
 from caracal.core.error_handling import (
     get_error_handler,
@@ -569,8 +569,14 @@ class MCPAdapter:
         """Create or update a persisted tool registration record."""
         normalized_tool_id = self._normalize_tool_id(tool_id)
         session = self._get_registry_session()
+        normalized_workspace_name = (
+            self._normalize_workspace_name(workspace_name)
+            or self._normalize_workspace_name(self._resolve_workspace_name(None))
+            or "default"
+        )
         mapping = self._validate_tool_mapping(
             session=session,
+            workspace_name=normalized_workspace_name,
             provider_name=provider_name,
             resource_scope=resource_scope,
             action_scope=action_scope,
@@ -581,11 +587,6 @@ class MCPAdapter:
         execution_target = self._normalize_execution_target(
             execution_mode=execution_mode,
             mcp_server_name=mcp_server_name,
-        )
-        normalized_workspace_name = (
-            self._normalize_workspace_name(workspace_name)
-            or self._normalize_workspace_name(self._resolve_workspace_name(None))
-            or "default"
         )
         normalized_tool_type = self._normalize_tool_type(tool_type)
         normalized_handler_ref = self._normalize_handler_ref(handler_ref)
@@ -692,6 +693,7 @@ class MCPAdapter:
         self,
         *,
         session,
+        workspace_name: Optional[str] = None,
         provider_name: str,
         resource_scope: str,
         action_scope: str,
@@ -704,21 +706,20 @@ class MCPAdapter:
         if not normalized_provider:
             raise CaracalError("provider_name is required")
 
-        provider_row = (
-            session.query(GatewayProvider)
-            .filter_by(provider_id=normalized_provider)
-            .first()
+        provider_entry = self._load_workspace_provider_entry(
+            workspace_name=workspace_name,
+            provider_name=normalized_provider,
         )
-        if provider_row is None:
+        if provider_entry is None:
             raise MCPProviderMissingError(
                 f"Provider '{normalized_provider}' is not registered in workspace provider registry"
             )
-        if require_provider_enabled and not bool(getattr(provider_row, "enabled", True)):
+        if require_provider_enabled and not bool(provider_entry.get("enabled", True)):
             raise MCPProviderMissingError(
                 f"Provider '{normalized_provider}' is inactive in workspace provider registry"
             )
 
-        definition_payload = dict(getattr(provider_row, "definition", {}) or {})
+        definition_payload = dict(provider_entry.get("definition") or {})
         if not definition_payload:
             raise MCPToolMappingMismatchError(
                 f"Provider '{normalized_provider}' has no structured definition for tool mapping"
@@ -726,17 +727,17 @@ class MCPAdapter:
 
         resolved_definition_id = str(
             provider_definition_id
-            or getattr(provider_row, "provider_definition", None)
+            or provider_entry.get("provider_definition")
             or normalized_provider
         ).strip()
 
         definition = provider_definition_from_mapping(
             definition_payload,
             default_definition_id=resolved_definition_id,
-            default_service_type=str(getattr(provider_row, "service_type", "api") or "api"),
-            default_display_name=str(getattr(provider_row, "name", normalized_provider) or normalized_provider),
-            default_auth_scheme=str(getattr(provider_row, "auth_scheme", "api_key") or "api_key"),
-            default_base_url=getattr(provider_row, "base_url", None),
+            default_service_type=str(provider_entry.get("service_type") or "api"),
+            default_display_name=str(provider_entry.get("name") or normalized_provider),
+            default_auth_scheme=str(provider_entry.get("auth_scheme") or "api_key"),
+            default_base_url=provider_entry.get("base_url"),
         )
 
         normalized_resource_scope = str(resource_scope or "").strip()
@@ -1408,6 +1409,32 @@ class MCPAdapter:
         except Exception:
             return None
 
+    def _load_workspace_provider_entry(
+        self,
+        *,
+        workspace_name: Optional[str],
+        provider_name: str,
+    ) -> Optional[Dict[str, Any]]:
+        normalized_workspace = self._normalize_workspace_name(workspace_name)
+        if not normalized_workspace:
+            normalized_workspace = self._normalize_workspace_name(
+                self._resolve_workspace_name(None)
+            )
+        if not normalized_workspace:
+            return None
+
+        from caracal.deployment.config_manager import ConfigManager
+        from caracal.provider.workspace import load_workspace_provider_registry
+
+        registry = load_workspace_provider_registry(
+            ConfigManager(),
+            normalized_workspace,
+        )
+        entry = registry.get(provider_name)
+        if not isinstance(entry, dict):
+            return None
+        return dict(entry)
+
     def _resolve_active_tool_mapping(
         self,
         *,
@@ -1444,6 +1471,7 @@ class MCPAdapter:
                 try:
                     self._validate_tool_mapping(
                         session=session,
+                        workspace_name=workspace_name,
                         provider_name=provider_name,
                         resource_scope=resource_scope,
                         action_scope=action_scope,
@@ -1497,18 +1525,22 @@ class MCPAdapter:
             )
 
         session = self._get_registry_session()
-        provider_row = session.query(GatewayProvider).filter_by(provider_id=provider_name).first()
-        if provider_row is None:
+        provider_entry = self._load_workspace_provider_entry(
+            workspace_name=workspace_name,
+            provider_name=provider_name,
+        )
+        if provider_entry is None:
             raise MCPProviderMissingError(
                 f"Mapped provider '{provider_name}' for tool '{tool_id}' was removed"
             )
-        if not bool(getattr(provider_row, "enabled", True)):
+        if not bool(provider_entry.get("enabled", True)):
             raise MCPProviderMissingError(
                 f"Mapped provider '{provider_name}' for tool '{tool_id}' is inactive"
             )
 
         mapping = self._validate_tool_mapping(
             session=session,
+            workspace_name=workspace_name,
             provider_name=provider_name,
             resource_scope=resource_scope,
             action_scope=action_scope,
@@ -1518,10 +1550,10 @@ class MCPAdapter:
             require_provider_enabled=True,
         )
 
-        auth_scheme = str(getattr(provider_row, "auth_scheme", "api_key") or "api_key")
+        auth_scheme = str(provider_entry.get("auth_scheme") or "api_key")
         auth_scheme = auth_scheme.replace("-", "_").strip().lower()
         if require_credential and auth_scheme != "none":
-            credential_ref = str(getattr(provider_row, "credential_ref", "") or "").strip()
+            credential_ref = str(provider_entry.get("credential_ref") or "").strip()
             if not credential_ref:
                 raise CaracalError(
                     f"Mapped provider '{provider_name}' for tool '{tool_id}' has no credential_ref"

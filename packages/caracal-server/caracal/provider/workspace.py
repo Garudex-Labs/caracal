@@ -227,9 +227,8 @@ def sync_workspace_provider_registry_runtime(
     workspace: str,
     providers: Dict[str, Dict[str, Any]],
 ) -> Dict[str, Any]:
-    """Upsert workspace providers into runtime gateway provider rows and disable removed providers."""
+    """Validate workspace providers and refresh affected MCP tool bindings."""
     from caracal.db.connection import get_db_manager
-    from caracal.db.models import GatewayProvider
     from caracal.mcp.tool_registry_contract import deactivate_invalid_provider_tools
 
     normalized_providers: Dict[str, Dict[str, Any]] = {}
@@ -240,65 +239,29 @@ def sync_workspace_provider_registry_runtime(
         normalized_providers[normalized_name] = dict(entry or {})
 
     stats = {
-        "upserted": 0,
-        "disabled": 0,
+        "validated": 0,
         "active": len(normalized_providers),
         "deactivated_tools": 0,
         "impacted": [],
     }
 
+    for provider_name, entry in normalized_providers.items():
+        _runtime_provider_payload(
+            workspace=workspace,
+            provider_name=provider_name,
+            entry=entry,
+        )
+        stats["validated"] += 1
+
     db_manager = get_db_manager()
     try:
         with db_manager.session_scope() as session:
-            existing_rows = (
-                session.query(GatewayProvider)
-                .filter_by(provider_layer="user_provider")
-                .all()
-            )
-            existing_by_id = {
-                str(getattr(row, "provider_id", "") or ""): row
-                for row in existing_rows
-                if str(getattr(row, "provider_id", "") or "").strip()
-            }
-
-            for provider_name, entry in normalized_providers.items():
-                payload = _runtime_provider_payload(
-                    workspace=workspace,
-                    provider_name=provider_name,
-                    entry=entry,
-                )
-                row = existing_by_id.get(provider_name)
-                if row is None:
-                    session.add(GatewayProvider(**payload))
-                else:
-                    for field, value in payload.items():
-                        setattr(row, field, value)
-                stats["upserted"] += 1
-
-            for row in existing_rows:
-                provider_id = str(getattr(row, "provider_id", "") or "").strip()
-                if not provider_id or provider_id in normalized_providers:
-                    continue
-                if bool(getattr(row, "enabled", True)):
-                    row.enabled = False
-                    stats["disabled"] += 1
-
             impacted: list[Dict[str, str]] = []
             for provider_name in normalized_providers.keys():
                 impacted.extend(
                     deactivate_invalid_provider_tools(
                         db_session=session,
                         provider_name=provider_name,
-                    )
-                )
-            for row in existing_rows:
-                provider_id = str(getattr(row, "provider_id", "") or "").strip()
-                if not provider_id or provider_id in normalized_providers:
-                    continue
-                impacted.extend(
-                    deactivate_invalid_provider_tools(
-                        db_session=session,
-                        provider_name=provider_id,
                     )
                 )
 
