@@ -1,17 +1,8 @@
-"""Hard-cut preflight checks for authority/runtime startup paths.
+"""
+Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+Caracal, a product of Garudex Labs
 
-These checks enforce the strict hard-cut constraints:
-- no file-backed runtime state
-- no SQLite backends
-- no JSON/JSONB domain persistence
-- no compatibility aliases
-- no dual-write compatibility windows
-- no legacy migration command path
-
-Frozen hard-cut contracts:
-- `/api/sync` is the only allowed enterprise API family
-- `caracal enterprise` is the only allowed enterprise CLI family
-- runtime code must not depend on legacy sync-state models
+Hard-cut preflight checks for authority and runtime startup paths.
 """
 
 from __future__ import annotations
@@ -62,17 +53,17 @@ _FORBIDDEN_ENTERPRISE_COMPOSE_MARKERS = (
 )
 _REQUIRED_ENTERPRISE_COMPOSE_MARKERS = (
     "  vault:",
-    "image: ${ccle_vault_image",
-    "${ccle_vault_port:-8180}:8080",
-    "ccl_principal_key_backend=${ccle_key_backend:-vault}",
-    "ccl_vault_url=${ccle_vault_url:-http://vault:8080}",
-    "ccl_vault_token=${ccle_vault_token:-enterprise-local-token}",
-    "ccl_vault_workspace_id=${ccle_vault_workspace_id:-caracal-enterprise-local}",
-    "ccl_vault_environment=${ccle_vault_environment:-dev}",
-    "ccl_vault_secret_path=${ccle_vault_secret_path:-/enterprise}",
-    "ccl_vault_signing_key_ref=${ccle_vault_sign_key:-keys/mandate-signing}",
-    "ccl_vault_sess_pub_key_ref=${ccle_vault_sess_key:-keys/session-public}",
-    "ccl_sess_signing_alg=${ccle_session_alg:-rs256}",
+    "image: ${ccl_vault_image",
+    "${ccl_vault_port:-8180}:8080",
+    "ccl_principal_key_backend=${ccl_key_backend:-vault}",
+    "ccl_vault_url=${ccl_vault_url:-http://vault:8080}",
+    "ccl_vault_token=${ccl_vault_token:-enterprise-local-token}",
+    "ccl_vault_workspace_id=${ccl_vault_workspace_id:-caracal-enterprise-local}",
+    "ccl_vault_environment=${ccl_vault_environment:-dev}",
+    "ccl_vault_secret_path=${ccl_vault_secret_path:-/enterprise}",
+    "ccl_vault_signing_key_ref=${ccl_vault_sign_key:-keys/mandate-signing}",
+    "ccl_vault_sess_pub_key_ref=${ccl_vault_sess_key:-keys/session-public}",
+    "ccl_sess_signing_alg=${ccl_session_alg:-rs256}",
     "vault:\n        condition: service_healthy",
 )
 _FORBIDDEN_STATE_RELATIVE_PATHS = (
@@ -122,9 +113,9 @@ _FORBIDDEN_CONFIG_MARKERS = (
     "compatibility alias",
 )
 _GATEWAY_URL_ENV_KEYS = (
-    "CCLE_API_URL",
+    "CCL_GATEWAY_URL",
 )
-_GATEWAY_ENABLED_ENV_KEY = "CCLE_GATEWAY_ENABLED"
+_GATEWAY_ENABLED_ENV_KEY = "CCL_GATEWAY_ENABLED"
 
 
 def _default_models_file() -> Path:

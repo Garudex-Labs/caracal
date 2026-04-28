@@ -2,11 +2,10 @@
 Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 Caracal, a product of Garudex Labs
 
-Gateway Feature Flags & Configuration.
+Gateway feature flag data structures.
 
-Provides the opt-in mechanism for enterprise gateway enforcement.
-OSS default: broker mode (policy check → signed mandate, client routes directly).
-Enterprise opt-in: network-level enforcement via gateway proxy.
+Provides gateway feature flag structures for callers that still consume the
+central edition adapter during the separation period.
 
 Feature flags are resolved in priority order:
     1. Centralized edition adapter for enterprise/gateway execution signals
@@ -26,14 +25,14 @@ from caracal.logging_config import get_logger
 logger = get_logger(__name__)
 
 # ── Environment variable names ──────────────────────────────────────────────
-_ENV_GATEWAY_ENABLED = "CCLE_GATEWAY_ENABLED"
-_ENV_GATEWAY_API_KEY = "CCLE_GATEWAY_API_KEY"
-_ENV_GATEWAY_ENFORCE_NETWORK = "CCLE_GATEWAY_ENFORCE_NETWORK"
-_ENV_GATEWAY_FAIL_CLOSED = "CCLE_GATEWAY_FAIL_CLOSED"
-_ENV_GATEWAY_MANDATE_CACHE_TTL = "CCLE_GATEWAY_MANDATE_CACHE_TTL"
-_ENV_GATEWAY_REVOCATION_SYNC_INTERVAL = "CCLE_GATEWAY_REVOCATION_SYNC_INTERVAL"
-_ENV_GATEWAY_USE_PROVIDER_REGISTRY = "CCLE_GATEWAY_USE_PROVIDER_REGISTRY"
-_ENV_GATEWAY_DEPLOYMENT_TYPE = "CCLE_GATEWAY_DEPLOYMENT_TYPE"
+_ENV_GATEWAY_ENABLED = "CCL_GATEWAY_ENABLED"
+_ENV_GATEWAY_API_KEY = "CCL_GATEWAY_API_KEY"
+_ENV_GATEWAY_ENFORCE_NETWORK = "CCL_GATEWAY_ENFORCE_NETWORK"
+_ENV_GATEWAY_FAIL_CLOSED = "CCL_GATEWAY_FAIL_CLOSED"
+_ENV_GATEWAY_MANDATE_CACHE_TTL = "CCL_GATEWAY_MANDATE_CACHE_TTL"
+_ENV_GATEWAY_REVOCATION_SYNC_INTERVAL = "CCL_GATEWAY_REVOCATION_SYNC_INTERVAL"
+_ENV_GATEWAY_USE_PROVIDER_REGISTRY = "CCL_GATEWAY_USE_PROVIDER_REGISTRY"
+_ENV_GATEWAY_DEPLOYMENT_TYPE = "CCL_GATEWAY_DEPLOYMENT_TYPE"
 
 
 def _bool_env(name: str, default: bool = False) -> bool:

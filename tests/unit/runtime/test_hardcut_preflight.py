@@ -66,19 +66,19 @@ services:
       vault:
         condition: service_healthy
     environment:
-            - CCL_PRINCIPAL_KEY_BACKEND=${CCLE_KEY_BACKEND:-vault}
-            - CCL_VAULT_URL=${CCLE_VAULT_URL:-http://vault:8080}
-            - CCL_VAULT_TOKEN=${CCLE_VAULT_TOKEN:-enterprise-local-token}
-            - CCL_VAULT_WORKSPACE_ID=${CCLE_VAULT_WORKSPACE_ID:-caracal-enterprise-local}
-            - CCL_VAULT_ENVIRONMENT=${CCLE_VAULT_ENVIRONMENT:-dev}
-            - CCL_VAULT_SECRET_PATH=${CCLE_VAULT_SECRET_PATH:-/enterprise}
-            - CCL_VAULT_SIGNING_KEY_REF=${CCLE_VAULT_SIGN_KEY:-keys/mandate-signing}
-            - CCL_VAULT_SESS_PUB_KEY_REF=${CCLE_VAULT_SESS_KEY:-keys/session-public}
-            - CCL_SESS_SIGNING_ALG=${CCLE_SESSION_ALG:-RS256}
+                        - CCL_PRINCIPAL_KEY_BACKEND=${CCL_KEY_BACKEND:-vault}
+                        - CCL_VAULT_URL=${CCL_VAULT_URL:-http://vault:8080}
+                        - CCL_VAULT_TOKEN=${CCL_VAULT_TOKEN:-enterprise-local-token}
+                        - CCL_VAULT_WORKSPACE_ID=${CCL_VAULT_WORKSPACE_ID:-caracal-enterprise-local}
+                        - CCL_VAULT_ENVIRONMENT=${CCL_VAULT_ENVIRONMENT:-dev}
+                        - CCL_VAULT_SECRET_PATH=${CCL_VAULT_SECRET_PATH:-/enterprise}
+                        - CCL_VAULT_SIGNING_KEY_REF=${CCL_VAULT_SIGN_KEY:-keys/mandate-signing}
+                        - CCL_VAULT_SESS_PUB_KEY_REF=${CCL_VAULT_SESS_KEY:-keys/session-public}
+                        - CCL_SESS_SIGNING_ALG=${CCL_SESSION_ALG:-RS256}
   vault:
-        image: ${CCLE_VAULT_IMAGE:-infisical/infisical:latest}
+                image: ${CCL_VAULT_IMAGE:-infisical/infisical:latest}
     ports:
-      - "${CCLE_VAULT_PORT:-8180}:8080"
+            - "${CCL_VAULT_PORT:-8180}:8080"
 """.strip(),
         encoding="utf-8",
     )
@@ -194,7 +194,7 @@ def test_migration_preflight_blocks_sqlite_and_compat_markers_in_config(tmp_path
 @pytest.mark.unit
 def test_runtime_preflight_blocks_gateway_enabled_without_endpoint() -> None:
     env_vars = _valid_vault_env()
-    env_vars["CCLE_GATEWAY_ENABLED"] = "true"
+    env_vars["CCL_GATEWAY_ENABLED"] = "true"
 
     # OSS runtime preflight is decoupled from enterprise gateway flags.
     assert_runtime_hardcut(
@@ -208,8 +208,8 @@ def test_runtime_preflight_blocks_gateway_enabled_without_endpoint() -> None:
 @pytest.mark.unit
 def test_runtime_preflight_blocks_conflicting_gateway_enabled_and_endpoint() -> None:
     env_vars = _valid_vault_env()
-    env_vars["CCLE_GATEWAY_ENABLED"] = "false"
-    env_vars["CCLE_API_URL"] = "https://gateway.example"
+    env_vars["CCL_GATEWAY_ENABLED"] = "false"
+    env_vars["CCL_GATEWAY_URL"] = "https://gateway.example"
 
     # OSS runtime preflight is decoupled from enterprise gateway flags.
     assert_runtime_hardcut(
@@ -224,8 +224,8 @@ def test_runtime_preflight_blocks_conflicting_gateway_enabled_and_endpoint() -> 
 def test_enterprise_preflight_blocks_conflicting_gateway_enabled_and_endpoint() -> None:
     with pytest.raises(HardCutPreflightError, match="Execution exclusivity violation"):
         env_vars = _valid_vault_env()
-        env_vars["CCLE_GATEWAY_ENABLED"] = "false"
-        env_vars["CCLE_API_URL"] = "https://gateway.example"
+        env_vars["CCL_GATEWAY_ENABLED"] = "false"
+        env_vars["CCL_GATEWAY_URL"] = "https://gateway.example"
         assert_enterprise_hardcut(
             database_urls={"DATABASE_URL": "postgresql://ok"},
             check_jsonb=False,

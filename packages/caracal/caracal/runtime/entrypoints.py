@@ -1,7 +1,8 @@
-"""Host/container command entrypoints for Caracal runtime.
+"""
+Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+Caracal, a product of Garudex Labs
 
-Host command (``caracal``): orchestration-only UX.
-Container command (``caracal``): restricted interactive Caracal CLI.
+Host and container command entrypoints for Caracal runtime.
 """
 
 from __future__ import annotations
@@ -59,8 +60,8 @@ AIS_SESSION_CAVEAT_HMAC_KEY_ENV = "CCL_SESS_HMAC"
 AIS_REVOCATION_EVENTS_CHANNEL_ENV = "CCL_REVOKE_CHANNEL"
 AIS_DEFAULT_REVOCATION_EVENTS_CHANNEL = "caracal:identity:revocation_events"
 AIS_REVOCATION_PUBLISHER_MODE_ENV = "CCL_REVOKE_PUBLISHER_MODE"
-AIS_ENTERPRISE_REVOCATION_WEBHOOK_URL_ENV = "CCLE_REVOCATION_WEBHOOK_URL"
-AIS_ENTERPRISE_REVOCATION_SYNC_API_KEY_ENV = "CCLE_REVOCATION_SYNC_API_KEY"
+AIS_ENTERPRISE_REVOCATION_WEBHOOK_URL_ENV = "CCL_REVOCATION_WEBHOOK_URL"
+AIS_ENTERPRISE_REVOCATION_SYNC_API_KEY_ENV = "CCL_REVOCATION_SYNC_API_KEY"
 AIS_DEFAULT_ENTERPRISE_REVOCATION_WEBHOOK_PATH = "/api/sync/revocation-events"
 
 def caracal_entrypoint() -> None:
