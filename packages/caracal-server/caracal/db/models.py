@@ -1033,21 +1033,3 @@ class ResourceAllowlist(Base):
         )
 
 
-class EnterpriseRuntimeConfig(Base):
-    """
-    Enterprise runtime configuration persisted independently from sync-state tables.
-
-    This table stores OSS runtime enterprise license/session settings used by the
-    CLI and runtime startup paths. It intentionally avoids any coupling with
-    sync metadata hard-cut removals.
-    """
-
-    __tablename__ = "enterprise_runtime_config"
-
-    runtime_key = Column(String(64), primary_key=True)
-    config_data = Column(JSON, nullable=False, default=dict, server_default=text("'{}'"))
-    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
-    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
-
-    def __repr__(self):
-        return f"<EnterpriseRuntimeConfig(runtime_key={self.runtime_key})>"

@@ -18,11 +18,14 @@ from typing import Any, Dict, Optional
 from urllib.parse import urlparse
 from uuid import uuid4
 
+from caracal.storage.layout import get_caracal_layout
+
 logger = logging.getLogger(__name__)
 
 _DEFAULT_ENTERPRISE_URL = "https://www.garudexlabs.com"
 _ALLOWED_ENTERPRISE_HOSTS = {"localhost", "garudexlabs.com", "www.garudexlabs.com"}
 _ENTERPRISE_CONFIG_WORKSPACE_KEY = "__enterprise_runtime__"
+_ENTERPRISE_RUNTIME_FILE = "enterprise_runtime.json"
 
 
 def _is_allowed_enterprise_host(host: str) -> bool:
@@ -120,70 +123,41 @@ def _normalize_enterprise_url(raw: Optional[str]) -> Optional[str]:
     return value.rstrip("/")
 
 
-def load_enterprise_config() -> Dict[str, Any]:
-    """Load enterprise config from dedicated enterprise runtime persistence."""
-    try:
-        from caracal.config import load_config
-        from caracal.db.connection import get_db_manager
-        from caracal.db.models import EnterpriseRuntimeConfig
+def _enterprise_config_path() -> Path:
+    return get_caracal_layout(require_explicit=False).metadata_dir / _ENTERPRISE_RUNTIME_FILE
 
-        db_manager = get_db_manager(load_config())
-        try:
-            with db_manager.session_scope() as session:
-                row = session.query(EnterpriseRuntimeConfig).filter_by(
-                    runtime_key=_ENTERPRISE_CONFIG_WORKSPACE_KEY
-                ).first()
-                if row and isinstance(row.config_data, dict):
-                    return dict(row.config_data)
-        finally:
-            db_manager.close()
+
+def load_enterprise_config() -> Dict[str, Any]:
+    """Load enterprise config from host-local runtime storage."""
+    path = _enterprise_config_path()
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        if isinstance(payload, dict):
+            return dict(payload)
     except Exception as exc:
-        logger.warning("Failed to load enterprise config from PostgreSQL: %s", exc)
+        if path.exists():
+            logger.warning("Failed to load enterprise config from %s: %s", path, exc)
 
     return {}
 
 
 def save_enterprise_config(data: Dict[str, Any]) -> None:
-    """Persist enterprise config to dedicated enterprise runtime persistence."""
-    from caracal.config import load_config
-    from caracal.db.connection import get_db_manager
-    from caracal.db.models import EnterpriseRuntimeConfig
-
-    db_manager = get_db_manager(load_config())
+    """Persist enterprise config to host-local runtime storage."""
+    path = _enterprise_config_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(dict(data), indent=2, sort_keys=True) + "\n", encoding="utf-8")
     try:
-        with db_manager.session_scope() as session:
-            row = session.query(EnterpriseRuntimeConfig).filter_by(
-                runtime_key=_ENTERPRISE_CONFIG_WORKSPACE_KEY
-            ).first()
-            if row is None:
-                row = EnterpriseRuntimeConfig(
-                    runtime_key=_ENTERPRISE_CONFIG_WORKSPACE_KEY,
-                    config_data={},
-                )
-                session.add(row)
-                session.flush()
-
-            row.config_data = dict(data)
-    finally:
-        db_manager.close()
+        path.chmod(0o600)
+    except OSError:
+        logger.debug("Failed to set permissions on enterprise runtime config", exc_info=True)
 
 
 def clear_enterprise_config() -> None:
-    """Clear enterprise config from dedicated enterprise runtime persistence."""
-    from caracal.config import load_config
-    from caracal.db.connection import get_db_manager
-    from caracal.db.models import EnterpriseRuntimeConfig
-
-    db_manager = get_db_manager(load_config())
+    """Clear enterprise config from host-local runtime storage."""
     try:
-        with db_manager.session_scope() as session:
-            row = session.query(EnterpriseRuntimeConfig).filter_by(
-                runtime_key=_ENTERPRISE_CONFIG_WORKSPACE_KEY
-            ).first()
-            if row:
-                session.delete(row)
-    finally:
-        db_manager.close()
+        _enterprise_config_path().unlink()
+    except FileNotFoundError:
+        return
 
 
 def _get_or_create_client_instance_id() -> str:
