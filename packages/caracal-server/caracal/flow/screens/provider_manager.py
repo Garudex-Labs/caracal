@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import asyncio
 from contextlib import contextmanager
-from dataclasses import dataclass
 from datetime import datetime
 import json
 import os
@@ -35,10 +34,18 @@ from caracal.flow.screens._workspace_helpers import get_active_workspace_name
 from caracal.flow.state import FlowState, RecentAction
 from caracal.flow.theme import Colors, Icons
 from caracal.provider.catalog import (
+    ActionStarter,
     AUTH_SCHEME_GUIDANCE as SHARED_AUTH_SCHEME_GUIDANCE,
     GATEWAY_ONLY_AUTH as SHARED_GATEWAY_ONLY_AUTH,
+    HTTP_METHODS as SHARED_HTTP_METHODS,
+    IDENTIFIER_RE as SHARED_IDENTIFIER_RE,
     PROVIDER_PATTERNS as SHARED_PROVIDER_PATTERNS,
+    ProviderStarterPattern,
+    ResourceStarter,
     SERVICE_TYPE_GUIDANCE as SHARED_SERVICE_TYPE_GUIDANCE,
+    resource_payload_from_pattern as shared_resource_payload_from_pattern,
+    ensure_identifier,
+    ensure_path_prefix,
     build_provider_record,
     build_resources_from_pattern as shared_build_resources_from_pattern,
 )
@@ -61,572 +68,13 @@ from caracal.mcp.tool_registry_contract import (
 )
 
 
-_IDENTIFIER_RE = re.compile(r"^[a-zA-Z0-9._-]+$")
-_HTTP_METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE"]
-_GATEWAY_ONLY_AUTH = {"oauth2_client_credentials", "service_account"}
-
-_SERVICE_TYPE_GUIDANCE = {
-    "application": {
-        "purpose": "Business APIs, SaaS backends, and general REST/HTTP services.",
-        "examples": "tickets, users, orders, webhooks",
-        "caracal_use": "Groups external app capabilities into provider-scoped resources and actions.",
-    },
-    "ai": {
-        "purpose": "Model inference, embeddings, assistants, and evaluation APIs.",
-        "examples": "chat.completions, embeddings, models, responses",
-        "caracal_use": "Defines the AI operations mandates, delegation, and execution can authorize.",
-    },
-    "data": {
-        "purpose": "Databases, warehouses, query engines, and vector/search services.",
-        "examples": "queries, tables, indexes, vectors",
-        "caracal_use": "Separates read/query surfaces from write, ingest, or migration actions.",
-    },
-    "identity": {
-        "purpose": "Identity providers, directories, access control, and SCIM/OIDC admin APIs.",
-        "examples": "users, groups, clients, sessions",
-        "caracal_use": "Makes it clear when a provider can read identities versus mutate access state.",
-    },
-    "messaging": {
-        "purpose": "Email, chat, SMS, event delivery, and webhook relay providers.",
-        "examples": "messages, templates, events, deliveries",
-        "caracal_use": "Lets policies distinguish send, publish, receive, and delivery-management actions.",
-    },
-    "storage": {
-        "purpose": "Object storage, file APIs, and document repositories.",
-        "examples": "objects, buckets, files, documents",
-        "caracal_use": "Scopes read, upload, delete, and lifecycle operations on stored content.",
-    },
-    "payments": {
-        "purpose": "Payment processors, billing systems, subscriptions, and invoicing APIs.",
-        "examples": "charges, customers, invoices, refunds",
-        "caracal_use": "Separates sensitive billing actions such as charge, refund, and payout.",
-    },
-    "developer-tools": {
-        "purpose": "SCM, CI/CD, issue trackers, artifact registries, and engineering platforms.",
-        "examples": "repos, pull_requests, builds, issues",
-        "caracal_use": "Defines developer workflow operations that agents may observe or mutate.",
-    },
-    "observability": {
-        "purpose": "Logs, metrics, traces, alerts, incidents, and monitoring control planes.",
-        "examples": "logs, dashboards, alerts, incidents",
-        "caracal_use": "Separates read/observe capabilities from alerting, silencing, or incident actions.",
-    },
-    "infrastructure": {
-        "purpose": "Cloud, cluster, deployment, and runtime control planes.",
-        "examples": "deployments, jobs, clusters",
-        "caracal_use": "Lets policies distinguish observe, deploy, restart, and mutate operations.",
-    },
-    "internal": {
-        "purpose": "Internal services, adapters, and webhooks.",
-        "examples": "events, tasks, approvals",
-        "caracal_use": "Captures internal actions that still require explicit authority.",
-    },
-}
-
-_AUTH_SCHEME_GUIDANCE = {
-    "none": {
-        "expects": "No credential input.",
-        "caracal_use": "Calls the provider without injecting auth material.",
-        "example": "Public health endpoint or trusted internal service.",
-    },
-    "api_key": {
-        "expects": "Single API key or token string.",
-        "caracal_use": "Injects the credential as X-API-Key for direct OSS execution.",
-        "example": "sk_live_abc123",
-    },
-    "bearer": {
-        "expects": "Token value only, without the 'Bearer ' prefix.",
-        "caracal_use": "Builds Authorization: Bearer <token> for requests.",
-        "example": "eyJhbGciOi...",
-    },
-    "basic": {
-        "expects": "username:password in one block.",
-        "caracal_use": "Base64-encodes the pair into the Authorization header.",
-        "example": "service-user:super-secret-password",
-    },
-    "header": {
-        "expects": "Any credential string plus an explicit header name.",
-        "caracal_use": "Sends the exact header/value pair you define.",
-        "example": "Header name X-Provider-Key with value tenant-123|secret-456",
-    },
-    "oauth2_client_credentials": {
-        "expects": "Client secret material, token exchange config, or provider-specific bundle.",
-        "caracal_use": "Stores the secret block exactly as entered for gateway-mediated auth exchange.",
-        "example": "client_id/client_secret JSON or multiline credential block.",
-    },
-    "service_account": {
-        "expects": "JSON key, PEM, signed header block, or other multiline service credential.",
-        "caracal_use": "Stores the exact block for gateway-mediated runtime authentication.",
-        "example": "JSON credentials, PEM text, or quoted multiline secret.",
-    },
-}
-
-
-@dataclass(frozen=True)
-class ActionStarter:
-    action_id: str
-    description: str
-    method: str
-    path_prefix: str
-
-
-@dataclass(frozen=True)
-class ResourceStarter:
-    resource_id: str
-    description: str
-    actions: tuple[ActionStarter, ...]
-
-
-@dataclass(frozen=True)
-class ProviderStarterPattern:
-    key: str
-    label: str
-    description: str
-    service_type: str
-    recommended_auth_scheme: str
-    base_url_example: str
-    resources: tuple[ResourceStarter, ...]
-
-
-_PROVIDER_PATTERNS = {
-    "ai": (
-        ProviderStarterPattern(
-            key="ai_chat_platform",
-            label="Chat + embeddings API",
-            description="Common AI provider surface with inference, embeddings, and model listing.",
-            service_type="ai",
-            recommended_auth_scheme="bearer",
-            base_url_example="https://api.example-llm.com",
-            resources=(
-                ResourceStarter(
-                    resource_id="responses",
-                    description="Primary text and multimodal generation endpoint",
-                    actions=(
-                        ActionStarter("create", "Create a model response", "POST", "/v1/responses"),
-                    ),
-                ),
-                ResourceStarter(
-                    resource_id="embeddings",
-                    description="Embedding generation endpoint",
-                    actions=(
-                        ActionStarter("embed", "Generate vector embeddings", "POST", "/v1/embeddings"),
-                    ),
-                ),
-                ResourceStarter(
-                    resource_id="models",
-                    description="Model catalog endpoint",
-                    actions=(
-                        ActionStarter("list", "List available models", "GET", "/v1/models"),
-                    ),
-                ),
-            ),
-        ),
-        ProviderStarterPattern(
-            key="ai_assistant_runtime",
-            label="Assistant / orchestrator runtime",
-            description="Assistant, thread, run, and tool-driven AI execution surface.",
-            service_type="ai",
-            recommended_auth_scheme="bearer",
-            base_url_example="https://assistants.example-ai.com",
-            resources=(
-                ResourceStarter(
-                    resource_id="assistants",
-                    description="Assistant configuration and execution surface",
-                    actions=(
-                        ActionStarter("create", "Create or update an assistant", "POST", "/v1/assistants"),
-                        ActionStarter("list", "List assistants", "GET", "/v1/assistants"),
-                    ),
-                ),
-                ResourceStarter(
-                    resource_id="runs",
-                    description="Thread and run execution surface",
-                    actions=(
-                        ActionStarter("create", "Start an assistant run", "POST", "/v1/threads/runs"),
-                        ActionStarter("read", "Inspect a run", "GET", "/v1/threads/runs"),
-                    ),
-                ),
-            ),
-        ),
-    ),
-    "application": (
-        ProviderStarterPattern(
-            key="saas_crud_api",
-            label="SaaS CRUD API",
-            description="A standard business API with list/create/update/delete routes.",
-            service_type="application",
-            recommended_auth_scheme="api_key",
-            base_url_example="https://api.example.com",
-            resources=(
-                ResourceStarter(
-                    resource_id="records",
-                    description="Primary business objects exposed by the API",
-                    actions=(
-                        ActionStarter("list", "List records", "GET", "/v1/records"),
-                        ActionStarter("create", "Create a record", "POST", "/v1/records"),
-                        ActionStarter("update", "Update a record", "PATCH", "/v1/records"),
-                        ActionStarter("delete", "Delete a record", "DELETE", "/v1/records"),
-                    ),
-                ),
-            ),
-        ),
-        ProviderStarterPattern(
-            key="workflow_ticketing_api",
-            label="Workflow / ticketing API",
-            description="Approval, ticketing, or workflow system with human-review and state transitions.",
-            service_type="application",
-            recommended_auth_scheme="bearer",
-            base_url_example="https://workflow.example.com",
-            resources=(
-                ResourceStarter(
-                    resource_id="tickets",
-                    description="Ticket and case management surface",
-                    actions=(
-                        ActionStarter("list", "List tickets", "GET", "/v1/tickets"),
-                        ActionStarter("create", "Create a ticket", "POST", "/v1/tickets"),
-                        ActionStarter("update", "Update a ticket", "PATCH", "/v1/tickets"),
-                    ),
-                ),
-                ResourceStarter(
-                    resource_id="approvals",
-                    description="Approval workflow surface",
-                    actions=(
-                        ActionStarter("request", "Request approval", "POST", "/v1/approvals"),
-                        ActionStarter("resolve", "Resolve approval", "POST", "/v1/approvals/resolve"),
-                    ),
-                ),
-            ),
-        ),
-    ),
-    "data": (
-        ProviderStarterPattern(
-            key="sql_gateway",
-            label="SQL / warehouse gateway",
-            description="Read/write query execution through an HTTP database facade.",
-            service_type="data",
-            recommended_auth_scheme="basic",
-            base_url_example="https://db.example.com",
-            resources=(
-                ResourceStarter(
-                    resource_id="queries",
-                    description="Ad hoc query execution",
-                    actions=(
-                        ActionStarter("read", "Run a read-only query", "POST", "/query/read"),
-                        ActionStarter("write", "Run a mutating query", "POST", "/query/write"),
-                    ),
-                ),
-                ResourceStarter(
-                    resource_id="schemas",
-                    description="Schema inspection and migration operations",
-                    actions=(
-                        ActionStarter("inspect", "Inspect schema metadata", "GET", "/schema"),
-                        ActionStarter("migrate", "Apply schema changes", "POST", "/schema/migrate"),
-                    ),
-                ),
-            ),
-        ),
-        ProviderStarterPattern(
-            key="vector_search_api",
-            label="Vector / search API",
-            description="Embedding index and retrieval service for semantic lookup workloads.",
-            service_type="data",
-            recommended_auth_scheme="api_key",
-            base_url_example="https://search.example.com",
-            resources=(
-                ResourceStarter(
-                    resource_id="indexes",
-                    description="Vector index management surface",
-                    actions=(
-                        ActionStarter("list", "List indexes", "GET", "/v1/indexes"),
-                        ActionStarter("upsert", "Create or update vectors", "POST", "/v1/indexes"),
-                    ),
-                ),
-                ResourceStarter(
-                    resource_id="search",
-                    description="Semantic search query surface",
-                    actions=(
-                        ActionStarter("query", "Run a vector search", "POST", "/v1/query"),
-                    ),
-                ),
-            ),
-        ),
-    ),
-    "identity": (
-        ProviderStarterPattern(
-            key="directory_admin_api",
-            label="Directory / SCIM admin API",
-            description="Identity directory, SCIM, and user/group lifecycle management.",
-            service_type="identity",
-            recommended_auth_scheme="bearer",
-            base_url_example="https://id.example.com",
-            resources=(
-                ResourceStarter(
-                    resource_id="users",
-                    description="User lifecycle management surface",
-                    actions=(
-                        ActionStarter("list", "List users", "GET", "/scim/v2/Users"),
-                        ActionStarter("create", "Create a user", "POST", "/scim/v2/Users"),
-                        ActionStarter("update", "Update a user", "PATCH", "/scim/v2/Users"),
-                    ),
-                ),
-                ResourceStarter(
-                    resource_id="groups",
-                    description="Group and membership management surface",
-                    actions=(
-                        ActionStarter("list", "List groups", "GET", "/scim/v2/Groups"),
-                        ActionStarter("update", "Update group membership", "PATCH", "/scim/v2/Groups"),
-                    ),
-                ),
-            ),
-        ),
-    ),
-    "messaging": (
-        ProviderStarterPattern(
-            key="notification_platform",
-            label="Notifications / messaging API",
-            description="Email, SMS, or chat provider with outbound delivery and template management.",
-            service_type="messaging",
-            recommended_auth_scheme="bearer",
-            base_url_example="https://notify.example.com",
-            resources=(
-                ResourceStarter(
-                    resource_id="messages",
-                    description="Outbound message delivery surface",
-                    actions=(
-                        ActionStarter("send", "Send a message", "POST", "/v1/messages"),
-                        ActionStarter("status", "Check delivery status", "GET", "/v1/messages"),
-                    ),
-                ),
-                ResourceStarter(
-                    resource_id="templates",
-                    description="Reusable message template surface",
-                    actions=(
-                        ActionStarter("list", "List templates", "GET", "/v1/templates"),
-                        ActionStarter("render", "Render a template", "POST", "/v1/templates/render"),
-                    ),
-                ),
-            ),
-        ),
-        ProviderStarterPattern(
-            key="event_gateway",
-            label="Webhook / event gateway",
-            description="Inbound event receiver or outbound event publisher with signature validation.",
-            service_type="messaging",
-            recommended_auth_scheme="header",
-            base_url_example="https://events.example.com",
-            resources=(
-                ResourceStarter(
-                    resource_id="events",
-                    description="Event publish and validation surface",
-                    actions=(
-                        ActionStarter("publish", "Publish an event", "POST", "/v1/events"),
-                        ActionStarter("validate", "Validate an event signature", "POST", "/v1/events/validate"),
-                    ),
-                ),
-            ),
-        ),
-    ),
-    "storage": (
-        ProviderStarterPattern(
-            key="object_storage_api",
-            label="Object / file storage API",
-            description="Bucket or file-oriented storage service with upload, read, and delete operations.",
-            service_type="storage",
-            recommended_auth_scheme="header",
-            base_url_example="https://storage.example.com",
-            resources=(
-                ResourceStarter(
-                    resource_id="objects",
-                    description="Object read and write surface",
-                    actions=(
-                        ActionStarter("list", "List objects", "GET", "/v1/objects"),
-                        ActionStarter("upload", "Upload an object", "POST", "/v1/objects"),
-                        ActionStarter("delete", "Delete an object", "DELETE", "/v1/objects"),
-                    ),
-                ),
-                ResourceStarter(
-                    resource_id="buckets",
-                    description="Bucket configuration surface",
-                    actions=(
-                        ActionStarter("list", "List buckets", "GET", "/v1/buckets"),
-                    ),
-                ),
-            ),
-        ),
-    ),
-    "payments": (
-        ProviderStarterPattern(
-            key="billing_api",
-            label="Payments / billing API",
-            description="Charges, refunds, customers, and invoice workflows.",
-            service_type="payments",
-            recommended_auth_scheme="bearer",
-            base_url_example="https://payments.example.com",
-            resources=(
-                ResourceStarter(
-                    resource_id="charges",
-                    description="Charge creation and inspection surface",
-                    actions=(
-                        ActionStarter("create", "Create a charge", "POST", "/v1/charges"),
-                        ActionStarter("read", "Inspect a charge", "GET", "/v1/charges"),
-                        ActionStarter("refund", "Refund a charge", "POST", "/v1/refunds"),
-                    ),
-                ),
-                ResourceStarter(
-                    resource_id="customers",
-                    description="Customer billing profile surface",
-                    actions=(
-                        ActionStarter("list", "List customers", "GET", "/v1/customers"),
-                        ActionStarter("update", "Update customer billing details", "PATCH", "/v1/customers"),
-                    ),
-                ),
-            ),
-        ),
-    ),
-    "developer-tools": (
-        ProviderStarterPattern(
-            key="scm_ci_platform",
-            label="SCM / CI platform",
-            description="Source control, pull request, and build automation APIs.",
-            service_type="developer-tools",
-            recommended_auth_scheme="bearer",
-            base_url_example="https://dev.example.com",
-            resources=(
-                ResourceStarter(
-                    resource_id="repositories",
-                    description="Repository metadata and content surface",
-                    actions=(
-                        ActionStarter("list", "List repositories", "GET", "/v1/repos"),
-                        ActionStarter("read", "Read repository metadata", "GET", "/v1/repos"),
-                    ),
-                ),
-                ResourceStarter(
-                    resource_id="pull_requests",
-                    description="Pull request review and merge surface",
-                    actions=(
-                        ActionStarter("list", "List pull requests", "GET", "/v1/pull-requests"),
-                        ActionStarter("merge", "Merge a pull request", "POST", "/v1/pull-requests/merge"),
-                    ),
-                ),
-                ResourceStarter(
-                    resource_id="builds",
-                    description="Build and pipeline execution surface",
-                    actions=(
-                        ActionStarter("run", "Start a build or pipeline", "POST", "/v1/builds"),
-                        ActionStarter("cancel", "Cancel a build or pipeline", "POST", "/v1/builds/cancel"),
-                    ),
-                ),
-            ),
-        ),
-    ),
-    "observability": (
-        ProviderStarterPattern(
-            key="monitoring_platform",
-            label="Monitoring / incident platform",
-            description="Logs, alerts, metrics, and incident-response control surface.",
-            service_type="observability",
-            recommended_auth_scheme="bearer",
-            base_url_example="https://observability.example.com",
-            resources=(
-                ResourceStarter(
-                    resource_id="alerts",
-                    description="Alert management surface",
-                    actions=(
-                        ActionStarter("list", "List alerts", "GET", "/v1/alerts"),
-                        ActionStarter("silence", "Silence an alert", "POST", "/v1/alerts/silence"),
-                    ),
-                ),
-                ResourceStarter(
-                    resource_id="incidents",
-                    description="Incident workflow surface",
-                    actions=(
-                        ActionStarter("create", "Create an incident", "POST", "/v1/incidents"),
-                        ActionStarter("resolve", "Resolve an incident", "POST", "/v1/incidents/resolve"),
-                    ),
-                ),
-                ResourceStarter(
-                    resource_id="logs",
-                    description="Log query surface",
-                    actions=(
-                        ActionStarter("query", "Query logs", "POST", "/v1/logs/query"),
-                    ),
-                ),
-            ),
-        ),
-    ),
-    "infrastructure": (
-        ProviderStarterPattern(
-            key="deployment_control",
-            label="Deployment control plane",
-            description="Release, observe, and operate environments or jobs.",
-            service_type="infrastructure",
-            recommended_auth_scheme="bearer",
-            base_url_example="https://control.example.com",
-            resources=(
-                ResourceStarter(
-                    resource_id="deployments",
-                    description="Deployment operations",
-                    actions=(
-                        ActionStarter("list", "List deployments", "GET", "/v1/deployments"),
-                        ActionStarter("deploy", "Start a deployment", "POST", "/v1/deployments"),
-                        ActionStarter("rollback", "Rollback a deployment", "POST", "/v1/deployments/rollback"),
-                    ),
-                ),
-                ResourceStarter(
-                    resource_id="jobs",
-                    description="Background job control",
-                    actions=(
-                        ActionStarter("run", "Run a job", "POST", "/v1/jobs"),
-                        ActionStarter("cancel", "Cancel a running job", "POST", "/v1/jobs/cancel"),
-                    ),
-                ),
-                ResourceStarter(
-                    resource_id="clusters",
-                    description="Cluster and runtime management surface",
-                    actions=(
-                        ActionStarter("read", "Read cluster state", "GET", "/v1/clusters"),
-                        ActionStarter("restart", "Restart a workload", "POST", "/v1/clusters/restart"),
-                    ),
-                ),
-            ),
-        ),
-    ),
-    "internal": (
-        ProviderStarterPattern(
-            key="internal_service",
-            label="Internal service endpoint",
-            description="Trusted service-to-service calls with simple task surfaces.",
-            service_type="internal",
-            recommended_auth_scheme="none",
-            base_url_example="https://internal.example.local",
-            resources=(
-                ResourceStarter(
-                    resource_id="tasks",
-                    description="Internal task execution surface",
-                    actions=(
-                        ActionStarter("dispatch", "Dispatch a task", "POST", "/tasks/dispatch"),
-                        ActionStarter("status", "Read task status", "GET", "/tasks"),
-                    ),
-                ),
-                ResourceStarter(
-                    resource_id="approvals",
-                    description="Human-in-the-loop approval surface",
-                    actions=(
-                        ActionStarter("request", "Request approval", "POST", "/approvals"),
-                        ActionStarter("resolve", "Resolve approval", "POST", "/approvals/resolve"),
-                    ),
-                ),
-            ),
-        ),
-    ),
-}
-
-# Shared provider contract source of truth. The local literals above remain for
-# test/import stability, but all runtime flows use the shared catalog so CLI,
-# TUI, and enterprise APIs stay aligned.
+_IDENTIFIER_RE = SHARED_IDENTIFIER_RE
+_HTTP_METHODS = SHARED_HTTP_METHODS
 _SERVICE_TYPE_GUIDANCE = SHARED_SERVICE_TYPE_GUIDANCE
 _AUTH_SCHEME_GUIDANCE = SHARED_AUTH_SCHEME_GUIDANCE
 _PROVIDER_PATTERNS = SHARED_PROVIDER_PATTERNS
 _GATEWAY_ONLY_AUTH = SHARED_GATEWAY_ONLY_AUTH
+
 
 
 def _available_patterns(service_type: str) -> tuple[ProviderStarterPattern, ...]:
@@ -2212,7 +1660,7 @@ def _add_resource_to_catalog(
         f"Apply suggested actions for resource '{resource_id}'?",
         default=True,
     ):
-        resources[resource_id] = _resource_payload_from_starter(starter_resource)
+        resources[resource_id] = shared_resource_payload_from_pattern(starter_resource)
 
 
 def _add_action_to_catalog(
@@ -2422,20 +1870,6 @@ def _build_resources_from_pattern(pattern: ProviderStarterPattern) -> dict[str, 
     return shared_build_resources_from_pattern(pattern)
 
 
-def _resource_payload_from_starter(resource: ResourceStarter) -> dict:
-    return {
-        "description": resource.description,
-        "actions": {
-            action.action_id: {
-                "description": action.description,
-                "method": action.method,
-                "path_prefix": action.path_prefix,
-            }
-            for action in resource.actions
-        },
-    }
-
-
 def _resource_examples(service_type: str, pattern: Optional[ProviderStarterPattern]) -> list[str]:
     if pattern:
         return [resource.resource_id for resource in pattern.resources]
@@ -2560,8 +1994,11 @@ def _validate_identifier_value(
     existing = {str(item) for item in existing_values} if existing_values else set()
     if candidate in existing:
         return False, f"{field_name} '{candidate}' already exists"
-    if _IDENTIFIER_RE.match(candidate):
+    try:
+        ensure_identifier(field_name, candidate)
         return True, ""
+    except ValueError:
+        pass
     suggestion = _suggest_identifier(candidate)
     if suggestion and _IDENTIFIER_RE.match(suggestion):
         return (
@@ -2571,32 +2008,37 @@ def _validate_identifier_value(
     return False, f"Invalid {field_name.lower()}. Allowed: letters, numbers, '.', '-', '_'."
 
 
-def _validate_url_or_blank(value: str) -> tuple[bool, str]:
+def _validate_http_url(value: str, *, allow_blank: bool) -> tuple[bool, str]:
     candidate = value.strip()
     if not candidate:
-        return True, ""
+        return (True, "") if allow_blank else (False, "Base URL is required")
+
     parsed = urlparse(candidate)
     if parsed.scheme in {"http", "https"} and parsed.netloc:
         return True, ""
-    return False, "Enter a full http/https URL or leave blank"
+
+    return (
+        False,
+        "Enter a full http/https URL or leave blank" if allow_blank else "Enter a full http/https URL",
+    )
+
+
+def _validate_url_or_blank(value: str) -> tuple[bool, str]:
+    return _validate_http_url(value, allow_blank=True)
 
 
 def _validate_required_url(value: str) -> tuple[bool, str]:
-    candidate = value.strip()
-    if not candidate:
-        return False, "Base URL is required"
-    parsed = urlparse(candidate)
-    if parsed.scheme in {"http", "https"} and parsed.netloc:
-        return True, ""
-    return False, "Enter a full http/https URL"
+    return _validate_http_url(value, allow_blank=False)
 
 
 def _validate_path_prefix(value: str) -> tuple[bool, str]:
     if not value.strip():
         return False, "Path prefix is required"
-    if not value.startswith("/"):
+    try:
+        ensure_path_prefix(value)
+        return True, ""
+    except ValueError:
         return False, "Path prefix must start with '/'"
-    return True, ""
 
 
 def _validate_optional_int(value: str) -> tuple[bool, str]:

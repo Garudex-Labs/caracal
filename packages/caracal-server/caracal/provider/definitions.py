@@ -10,14 +10,14 @@ The authority model uses canonical, provider-scoped identifiers:
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from caracal.provider.catalog import IDENTIFIER_RE as _IDENTIFIER_RE
+from typing import Dict, List, Optional
 import re
 
 
 _SCOPE_RE = re.compile(
     r"^provider:(?P<provider>[a-zA-Z0-9._-]+):(?P<kind>resource|action):(?P<identifier>[a-zA-Z0-9._-]+)$"
 )
-_IDENTIFIER_RE = re.compile(r"^[a-zA-Z0-9._-]+$")
 
 
 class ScopeParseError(ValueError):
@@ -32,7 +32,7 @@ class ProviderActionDefinition:
     description: str
     method: str = "POST"
     path_prefix: str = "/"
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    metadata: Dict[str, object] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if not _IDENTIFIER_RE.match(self.action_id):
@@ -48,7 +48,7 @@ class ProviderResourceDefinition:
     resource_id: str
     description: str
     actions: Dict[str, ProviderActionDefinition]
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    metadata: Dict[str, object] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if not _IDENTIFIER_RE.match(self.resource_id):
@@ -70,7 +70,7 @@ class ProviderDefinition:
     auth_scheme: str
     default_base_url: Optional[str]
     resources: Dict[str, ProviderResourceDefinition]
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    metadata: Dict[str, object] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if not _IDENTIFIER_RE.match(self.definition_id):
@@ -133,7 +133,7 @@ def get_provider_definition(definition_id: str) -> ProviderDefinition:
 
 
 def provider_definition_from_mapping(
-    data: Dict[str, Any],
+    data: Dict[str, object],
     *,
     default_definition_id: str,
     default_service_type: str = "api",

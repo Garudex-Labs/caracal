@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-from typing import Any
 
 
 SENSITIVE_METADATA_KEYS = {
@@ -34,7 +33,7 @@ SENSITIVE_METADATA_KEYS = {
 }
 
 
-def stable_payload_hash(value: Any) -> str:
+def stable_payload_hash(value: object) -> str:
     """Return a deterministic hash for a JSON-like payload without storing it."""
     try:
         payload = json.dumps(value, sort_keys=True, separators=(",", ":"), default=str)
@@ -43,10 +42,10 @@ def stable_payload_hash(value: Any) -> str:
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
-def sanitize_metadata(value: Any) -> Any:
+def sanitize_metadata(value: object) -> object:
     """Remove secret/token material from nested metadata structures."""
     if isinstance(value, dict):
-        sanitized: dict[str, Any] = {}
+        sanitized: dict[str, object] = {}
         for key, item in value.items():
             normalized_key = str(key).strip().lower()
             if normalized_key in SENSITIVE_METADATA_KEYS:

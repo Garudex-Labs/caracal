@@ -10,7 +10,7 @@ monitoring for database operations.
 """
 
 from datetime import datetime, timedelta
-from typing import Optional, List, Dict, Any
+from typing import Dict, List, Optional
 from uuid import UUID
 
 from sqlalchemy import and_, or_
@@ -42,11 +42,11 @@ class QueryOptimizer:
             db_session: SQLAlchemy database session
         """
         self.db_session = db_session
-        self._query_cache: Dict[str, tuple[Any, datetime]] = {}
+        self._query_cache: Dict[str, tuple[object, datetime]] = {}
         self._cache_ttl_seconds = 60  # 1 minute cache TTL
         logger.info("QueryOptimizer initialized")
     
-    def _get_cached_result(self, cache_key: str) -> Optional[Any]:
+    def _get_cached_result(self, cache_key: str) -> Optional[object]:
         """
         Get cached query result if available and not expired.
         
@@ -70,7 +70,7 @@ class QueryOptimizer:
         
         return None
     
-    def _cache_result(self, cache_key: str, result: Any) -> None:
+    def _cache_result(self, cache_key: str, result: object) -> None:
         """
         Cache query result.
         
@@ -99,7 +99,6 @@ class QueryOptimizer:
             mandate = self.db_session.query(ExecutionMandate).options(
                 joinedload(ExecutionMandate.issuer),
                 joinedload(ExecutionMandate.subject),
-                joinedload(ExecutionMandate.source_mandate)
             ).filter(
                 ExecutionMandate.mandate_id == mandate_id
             ).first()

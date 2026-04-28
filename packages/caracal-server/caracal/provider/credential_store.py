@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import os
-from typing import Any, Dict, Tuple
+from typing import Dict, Tuple
 
 from caracal.config.encryption import decrypt_value
 from caracal.core.vault import CaracalVault, SecretNotFound, get_vault, vault_access_context
@@ -157,11 +157,11 @@ def delete_gateway_provider_credential(workspace_id: str, tier: str, credential_
 def migrate_workspace_provider_credentials(
     *,
     workspace: str,
-    providers: Dict[str, Dict[str, Any]],
+    providers: Dict[str, Dict[str, object]],
     legacy_secret_refs: Dict[str, str],
     env_id: str = DEFAULT_PROVIDER_ENV_ID,
-) -> tuple[Dict[str, Dict[str, Any]], Dict[str, str], bool]:
-    updated_providers: Dict[str, Dict[str, Any]] = {
+) -> tuple[Dict[str, Dict[str, object]], Dict[str, str], bool]:
+    updated_providers: Dict[str, Dict[str, object]] = {
         name: dict(entry or {}) for name, entry in providers.items()
     }
     remaining_legacy_refs = dict(legacy_secret_refs)

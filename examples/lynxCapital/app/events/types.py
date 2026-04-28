@@ -7,7 +7,7 @@ Typed event models and factory functions for every lifecycle event kind.
 from __future__ import annotations
 
 import time
-from typing import Any, Literal
+from typing import Literal
 from uuid import uuid4
 
 from pydantic import BaseModel, Field
@@ -21,10 +21,10 @@ class Event(BaseModel):
     ts: float = Field(default_factory=time.time)
     category: Category
     kind: str
-    payload: dict[str, Any] = Field(default_factory=dict)
+    payload: dict[str, object] = Field(default_factory=dict)
 
 
-def _mk(run_id: str, category: Category, kind: str, **payload: Any) -> Event:
+def _mk(run_id: str, category: Category, kind: str, **payload: object) -> Event:
     return Event(run_id=run_id, category=category, kind=kind, payload=payload)
 
 

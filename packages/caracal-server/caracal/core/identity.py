@@ -8,7 +8,7 @@ PostgreSQL-backed principal identity management for Caracal Core.
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
-from typing import Any, Dict, List, Optional
+from typing import Dict, List, Optional
 from uuid import UUID
 
 from caracal.db.models import (
@@ -50,7 +50,7 @@ class PrincipalIdentity:
     name: str
     owner: str
     created_at: str
-    metadata: Dict[str, Any]
+    metadata: Dict[str, object]
     principal_kind: str = PrincipalKind.WORKER.value
     public_key: Optional[str] = None
     workspace_id: Optional[str] = None
@@ -62,7 +62,7 @@ class PrincipalIdentity:
     capabilities: List[str] = field(default_factory=list)
     last_verified_at: Optional[str] = None
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> Dict[str, object]:
         return {
             "principal_id": self.principal_id,
             "principal_kind": self.principal_kind,
@@ -82,7 +82,7 @@ class PrincipalIdentity:
         }
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "PrincipalIdentity":
+    def from_dict(cls, data: Dict[str, object]) -> "PrincipalIdentity":
         status = data.get("verification_status", "unverified")
         if isinstance(status, str):
             status = VerificationStatus(status)
@@ -138,7 +138,7 @@ class PrincipalRegistry:
         name: str,
         owner: str,
         principal_kind: str = PrincipalKind.WORKER.value,
-        metadata: Optional[Dict[str, Any]] = None,
+        metadata: Optional[Dict[str, object]] = None,
         principal_id: Optional[str] = None,
         source_principal_id: Optional[str] = None,
         lifecycle_status: str = PrincipalLifecycleStatus.ACTIVE.value,
@@ -194,7 +194,7 @@ class PrincipalRegistry:
     def create_principal(self, *args, **kwargs) -> PrincipalIdentity:
         return self.register_principal(*args, **kwargs)
 
-    def update_principal(self, principal_id: str, metadata: Optional[Dict[str, Any]] = None) -> PrincipalIdentity:
+    def update_principal(self, principal_id: str, metadata: Optional[Dict[str, object]] = None) -> PrincipalIdentity:
         principal = self._get_row(principal_id)
         principal_metadata = dict(principal.principal_metadata or {})
         principal_metadata.update(metadata or {})

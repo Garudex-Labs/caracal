@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+from typing import Dict, Iterable, List, Optional, Tuple
 
 from caracal.deployment.config_manager import ConfigManager
 from caracal.deployment.exceptions import WorkspaceNotFoundError
@@ -28,7 +28,7 @@ class WorkspaceProviderBinding:
     provider_name: str
     service_type: str
     definition_id: str
-    entry: Dict[str, Any]
+    entry: Dict[str, object]
 
     @property
     def definition(self):
@@ -77,7 +77,7 @@ class WorkspaceProviderBinding:
 def load_workspace_provider_registry(
     config_manager: ConfigManager,
     workspace: str,
-) -> Dict[str, Dict[str, Any]]:
+) -> Dict[str, Dict[str, object]]:
     """Load provider registry from workspace metadata."""
     try:
         config = config_manager.get_workspace_config(workspace)
@@ -91,7 +91,7 @@ def load_workspace_provider_registry(
             "Workspace provider registry must be a dictionary under metadata.providers"
         )
 
-    normalized: Dict[str, Dict[str, Any]] = {}
+    normalized: Dict[str, Dict[str, object]] = {}
     for provider_name, entry in providers.items():
         normalized_name = str(provider_name or "").strip()
         if not normalized_name:
@@ -108,7 +108,7 @@ def load_workspace_provider_registry(
 def save_workspace_provider_registry(
     config_manager: ConfigManager,
     workspace: str,
-    providers: Dict[str, Dict[str, Any]],
+    providers: Dict[str, Dict[str, object]],
 ) -> None:
     """Persist provider registry in workspace metadata."""
     config = config_manager.get_workspace_config(workspace)
@@ -127,8 +127,8 @@ def _runtime_provider_payload(
     *,
     workspace: str,
     provider_name: str,
-    entry: Dict[str, Any],
-) -> Dict[str, Any]:
+    entry: Dict[str, object],
+) -> Dict[str, object]:
     base_url = str(entry.get("base_url") or "").strip()
     if not base_url:
         raise ValueError(
@@ -225,13 +225,13 @@ def _runtime_provider_payload(
 def sync_workspace_provider_registry_runtime(
     *,
     workspace: str,
-    providers: Dict[str, Dict[str, Any]],
-) -> Dict[str, Any]:
+    providers: Dict[str, Dict[str, object]],
+) -> Dict[str, object]:
     """Validate workspace providers and refresh affected MCP tool bindings."""
     from caracal.db.connection import get_db_manager
     from caracal.mcp.tool_registry_contract import deactivate_invalid_provider_tools
 
-    normalized_providers: Dict[str, Dict[str, Any]] = {}
+    normalized_providers: Dict[str, Dict[str, object]] = {}
     for provider_name, entry in providers.items():
         normalized_name = str(provider_name or "").strip()
         if not normalized_name:

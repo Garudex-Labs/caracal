@@ -11,7 +11,7 @@ in file persistence operations and database queries.
 
 import functools
 import time
-from typing import Callable, Type, Tuple, TypeVar, Any
+from typing import Callable, Tuple, Type, TypeVar
 
 from sqlalchemy.exc import (
     DatabaseError,
@@ -53,7 +53,7 @@ def retry_on_transient_failure(
     """
     def decorator(func: Callable[..., T]) -> Callable[..., T]:
         @functools.wraps(func)
-        def wrapper(*args: Any, **kwargs: Any) -> T:
+        def wrapper(*args: object, **kwargs: object) -> T:
             last_exception = None
             
             for attempt in range(max_retries + 1):  # +1 for initial attempt
@@ -190,7 +190,7 @@ def retry_database_operation(
 
     def decorator(func: Callable[..., T]) -> Callable[..., T]:
         @functools.wraps(func)
-        def wrapper(*args: Any, **kwargs: Any) -> T:
+        def wrapper(*args: object, **kwargs: object) -> T:
             last_exception = None
             
             for attempt in range(max_retries + 1):  # +1 for initial attempt

@@ -12,7 +12,7 @@ Step-by-step wizard with:
 
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Callable, Optional
+from typing import Callable, Optional
 
 from rich.console import Console
 from rich.panel import Panel
@@ -36,11 +36,11 @@ class WizardStep:
     key: str                                    # Unique identifier
     title: str                                  # Step title
     description: str                            # Step description
-    action: Callable[["Wizard"], Any]           # Step action
+    action: Callable[["Wizard"], object]           # Step action
     skippable: bool = True                      # Can be skipped
     skip_message: str = ""                      # Message when skipped
     status: StepStatus = StepStatus.PENDING
-    result: Any = None                          # Result from action
+    result: object = None                        # Result from action
 
 
 class Wizard:
@@ -56,7 +56,7 @@ class Wizard:
         self.steps = steps
         self.console = console or Console()
         self.current_step_index = 0
-        self.context: dict[str, Any] = {}  # Shared context between steps
+        self.context: dict[str, object] = {}  # Shared context between steps
         self._cancelled = False
     
     @property
@@ -137,7 +137,7 @@ class Wizard:
                 self.console.print(f"  [{Colors.DIM}]{Icons.INFO} {step.skip_message}[/]")
             self.current_step_index += 1
     
-    def complete_current_step(self, result: Any = None) -> None:
+    def complete_current_step(self, result: object = None) -> None:
         """Mark current step as complete."""
         step = self.current_step
         if step:
@@ -159,7 +159,7 @@ class Wizard:
         """Cancel the wizard."""
         self._cancelled = True
     
-    def run(self) -> dict[str, Any]:
+    def run(self) -> dict[str, object]:
         """
         Run the wizard through all steps.
         

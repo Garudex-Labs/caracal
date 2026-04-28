@@ -2,8 +2,6 @@
 Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 Caracal, a product of Garudex Labs
 
-License Validation Extension (Enterprise Stub).
-
 Enterprise license management and validation.
 In the open-source edition, all methods raise EnterpriseFeatureRequired.
 """

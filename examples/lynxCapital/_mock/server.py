@@ -12,7 +12,6 @@ import os
 import re
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from typing import Any
 from urllib.parse import urlparse
 
 _DATA_DIR = Path(__file__).parent
@@ -55,13 +54,13 @@ def _load(service_id: str) -> dict:
     return _cases[service_id]
 
 
-def _resolve_key(match_key: str | list, payload: dict[str, Any]) -> str:
+def _resolve_key(match_key: str | list, payload: dict[str, object]) -> str:
     if isinstance(match_key, list):
         return "|".join(str(payload.get(k, "")) for k in match_key)
     return str(payload.get(match_key, ""))
 
 
-def _dispatch(service_id: str, action: str, payload: dict[str, Any]) -> tuple[int, dict]:
+def _dispatch(service_id: str, action: str, payload: dict[str, object]) -> tuple[int, dict[str, object]]:
     try:
         spec = _load(service_id)
     except KeyError:
@@ -75,7 +74,7 @@ def _dispatch(service_id: str, action: str, payload: dict[str, Any]) -> tuple[in
 
 
 class Handler(BaseHTTPRequestHandler):
-    def log_message(self, fmt: str, *args: Any) -> None:
+    def log_message(self, fmt: str, *args: object) -> None:
         _LOG.debug(
             '%s - - [%s] %s',
             self.address_string(),
@@ -102,7 +101,7 @@ class Handler(BaseHTTPRequestHandler):
             return
         action = urlparse(self.path).path.strip("/")
         length = int(self.headers.get("Content-Length", 0))
-        payload: dict = {}
+        payload: dict[str, object] = {}
         if length:
             raw_body = self.rfile.read(length)
             try:

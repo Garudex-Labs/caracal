@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from typing import Any
 
 import yaml
 from pydantic import BaseModel
@@ -85,7 +84,7 @@ def load_config() -> AppConfig:
     if _config is not None:
         return _config
     path = Path(os.environ.get("LYNX_CONFIG", "config/company.yaml"))
-    data: dict[str, Any] = yaml.safe_load(path.read_text(encoding="utf-8"))
+    data: dict[str, object] = yaml.safe_load(path.read_text(encoding="utf-8"))
     _config = AppConfig.model_validate(data)
     return _config
 

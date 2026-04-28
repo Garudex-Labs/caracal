@@ -2,8 +2,6 @@
 Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 Caracal, a product of Garudex Labs
 
-Analytics Extension (Enterprise Stub).
-
 Advanced analytics export and dashboard integration.
 In the open-source edition, all methods raise EnterpriseFeatureRequired.
 """

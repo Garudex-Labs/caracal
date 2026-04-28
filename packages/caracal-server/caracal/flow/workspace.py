@@ -29,7 +29,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Optional
+from typing import Optional
 
 import toml
 
@@ -115,7 +115,7 @@ class WorkspaceManager:
     # ------------------------------------------------------------------
 
     @staticmethod
-    def list_workspaces() -> list[dict[str, Any]]:
+    def list_workspaces() -> list[dict[str, object]]:
         """Return discovered workspaces with default selection from workspace metadata."""
         workspaces = _discover_workspace_directories()
         if not workspaces:
@@ -277,7 +277,7 @@ def _resolve_initial_workspace_root() -> Path:
             )
             if candidates:
                 return candidates[0]
-    except Exception:
+    except OSError:
         pass
 
     # Last resort for brand-new installs before onboarding creates a workspace.
@@ -288,18 +288,18 @@ def _workspace_metadata_path(name: str) -> Path:
     return _WORKSPACES_DIR / name / "workspace.toml"
 
 
-def _load_workspace_metadata(name: str) -> dict[str, Any]:
+def _load_workspace_metadata(name: str) -> dict[str, object]:
     config_path = _workspace_metadata_path(name)
     if not config_path.exists():
         return {}
     try:
         loaded = toml.load(config_path)
-    except Exception:
+    except (toml.TomlDecodeError, OSError, TypeError):
         return {}
     return loaded if isinstance(loaded, dict) else {}
 
 
-def _save_workspace_metadata(name: str, metadata: dict[str, Any]) -> None:
+def _save_workspace_metadata(name: str, metadata: dict[str, object]) -> None:
     config_path = _workspace_metadata_path(name)
     config_path.parent.mkdir(parents=True, exist_ok=True)
     config_path.write_text(toml.dumps(metadata))
@@ -332,7 +332,7 @@ def _ensure_workspace_metadata_file(
     )
 
 
-def _resolve_default_workspace_name(workspaces: list[dict[str, Any]]) -> Optional[str]:
+def _resolve_default_workspace_name(workspaces: list[dict[str, object]]) -> Optional[str]:
     if not workspaces:
         return None
 
@@ -357,7 +357,7 @@ def _set_default_workspace_name(name: Optional[str]) -> None:
         metadata["updated_at"] = datetime.now().isoformat()
         _save_workspace_metadata(workspace_name, metadata)
 
-def _ensure_single_default(workspaces: list[dict[str, Any]]) -> None:
+def _ensure_single_default(workspaces: list[dict[str, object]]) -> None:
     """Ensure at most one default workspace and assign one when possible."""
     if not workspaces:
         return
@@ -372,9 +372,9 @@ def _ensure_single_default(workspaces: list[dict[str, Any]]) -> None:
         workspace["default"] = idx == keep
 
 
-def _discover_workspace_directories() -> list[dict[str, Any]]:
+def _discover_workspace_directories() -> list[dict[str, object]]:
     """Discover valid workspace directories from disk."""
-    discovered: list[dict[str, Any]] = []
+    discovered: list[dict[str, object]] = []
     if not _WORKSPACES_DIR.exists():
         return discovered
 

@@ -7,9 +7,8 @@ import {
   getNavigationResults,
   loadSearchDocs,
   navigate,
-  type NavigationAction,
-  type SearchDocEntry,
 } from "@site/src/components/Search/searchData";
+import type { NavigationAction, SearchDocEntry } from "@site/src/components/Search/types";
 
 function ResultCard({
   title,

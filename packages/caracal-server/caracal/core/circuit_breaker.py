@@ -16,7 +16,7 @@ Circuit breaker states:
 import asyncio
 import time
 from dataclasses import dataclass
-from typing import Callable, Optional, TypeVar, Any, Dict
+from typing import Callable, Dict, Optional, TypeVar
 import functools
 
 from caracal.logging_config import get_logger
@@ -173,7 +173,7 @@ class CircuitBreaker:
             if elapsed >= self.config.timeout_seconds:
                 await self._transition_to(CircuitBreakerState.HALF_OPEN)
     
-    async def call(self, func: Callable[..., T], *args: Any, **kwargs: Any) -> T:
+    async def call(self, func: Callable[..., T], *args: object, **kwargs: object) -> T:
         """
         Execute a function protected by the circuit breaker.
         
@@ -349,7 +349,7 @@ class CircuitBreaker:
                 pass
         """
         @functools.wraps(func)
-        async def wrapper(*args: Any, **kwargs: Any) -> T:
+        async def wrapper(*args: object, **kwargs: object) -> T:
             return await self.call(func, *args, **kwargs)
         
         return wrapper

@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any
 
 import yaml
 
@@ -26,7 +25,7 @@ def _load_registry() -> dict[str, str]:
     return _registry
 
 
-def _load_cases(service_id: str) -> dict:
+def _load_cases(service_id: str) -> dict[str, object]:
     if service_id not in _cases:
         reg = _load_registry()
         if service_id not in reg:
@@ -36,13 +35,13 @@ def _load_cases(service_id: str) -> dict:
     return _cases[service_id]
 
 
-def _resolve_key(match_key: str | list[str], payload: dict[str, Any]) -> str:
+def _resolve_key(match_key: str | list[str], payload: dict[str, object]) -> str:
     if isinstance(match_key, list):
         return "|".join(str(payload.get(k, "")) for k in match_key)
     return str(payload.get(match_key, ""))
 
 
-def call(service_id: str, action: str, payload: dict[str, Any]) -> dict[str, Any]:
+def call(service_id: str, action: str, payload: dict[str, object]) -> dict[str, object]:
     spec = _load_cases(service_id)
     action_spec = spec["actions"].get(action)
     if action_spec is None:

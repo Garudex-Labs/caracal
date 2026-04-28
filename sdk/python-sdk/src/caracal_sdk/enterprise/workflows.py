@@ -2,8 +2,6 @@
 Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 Caracal, a product of Garudex Labs
 
-Workflows Extension (Enterprise Stub).
-
 Event-driven workflow automation.
 In the open-source edition, all methods raise EnterpriseFeatureRequired.
 """

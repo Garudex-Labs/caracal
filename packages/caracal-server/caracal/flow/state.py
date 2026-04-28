@@ -15,7 +15,7 @@ import json
 from dataclasses import dataclass, field, asdict
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Optional
 
 from caracal.pathing import ensure_source_tree, source_of
 
@@ -67,7 +67,7 @@ class SessionData:
     previous_screens: list[str] = field(default_factory=list)
     selected_principal_id: Optional[str] = None
     selected_policy_id: Optional[str] = None
-    temp_data: dict[str, Any] = field(default_factory=dict)
+    temp_data: dict[str, object] = field(default_factory=dict)
     
     def navigate_to(self, screen: str) -> None:
         """Navigate to a new screen, tracking history."""

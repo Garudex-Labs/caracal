@@ -6,7 +6,7 @@ import os
 from uuid import uuid4
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any, Optional
+from typing import Optional
 
 from caracal.logging_config import get_logger
 from caracal.storage.key_audit import append_key_audit_event
@@ -111,9 +111,9 @@ class ConfigEncryption:
     def is_encrypted(cls, value: str) -> bool:
         return isinstance(value, str) and value.startswith("ENC[v") and value.endswith(cls.ENCRYPTED_SUFFIX)
 
-    def decrypt_config(self, config_dict: dict[str, Any]) -> dict[str, Any]:
+    def decrypt_config(self, config_dict: dict[str, object]) -> dict[str, object]:
         """Recursively decrypt encrypted values in a configuration dictionary."""
-        result: dict[str, Any] = {}
+        result: dict[str, object] = {}
         for key, value in config_dict.items():
             if isinstance(value, str) and self.is_encrypted(value):
                 result[key] = self.decrypt(value)
@@ -175,7 +175,7 @@ def rotate_master_key(actor: str = "cli") -> RotationSummary:
     return RotationSummary(rewrapped_deks=rewrapped, rotated_at=now)
 
 
-def get_key_status() -> dict[str, Any]:
+def get_key_status() -> dict[str, object]:
     """Return current key status for CLI diagnostics."""
     vault_url = os.getenv("CCL_VAULT_URL")
     workspace = os.getenv("CCL_VAULT_WORKSPACE_ID")

@@ -17,7 +17,7 @@ import sys
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+
 
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Engine
@@ -71,14 +71,14 @@ def _validate_table_name(name: str) -> str:
     return name
 
 
-def _query_scalar(engine: Engine, sql: str, params: dict[str, Any] | None = None) -> Any:
+def _query_scalar(engine: Engine, sql: str, params: dict[str, object] | None = None) -> object:
     with engine.connect() as conn:
         result = conn.execute(text(sql), params or {})
         return result.scalar()
 
 
-def _fetch_schema_metadata(engine: Engine) -> dict[str, Any]:
-    metadata: dict[str, Any] = {}
+def _fetch_schema_metadata(engine: Engine) -> dict[str, object]:
+    metadata: dict[str, object] = {}
     metadata["database_name"] = _query_scalar(engine, "SELECT current_database()")
     metadata["server_version"] = _query_scalar(engine, "SELECT version()")
 
@@ -114,8 +114,8 @@ def _fetch_schema_metadata(engine: Engine) -> dict[str, Any]:
     return metadata
 
 
-def _fetch_table_baseline(engine: Engine, table_names: list[str]) -> list[dict[str, Any]]:
-    rows: list[dict[str, Any]] = []
+def _fetch_table_baseline(engine: Engine, table_names: list[str]) -> list[dict[str, object]]:
+    rows: list[dict[str, object]] = []
     with engine.connect() as conn:
         for table_name in table_names:
             safe_name = _validate_table_name(table_name)
@@ -156,8 +156,8 @@ def _rollback_assets() -> list[RollbackAsset]:
     ]
 
 
-def _rollback_asset_report() -> dict[str, Any]:
-    report: dict[str, Any] = {}
+def _rollback_asset_report() -> dict[str, object]:
+    report: dict[str, object] = {}
     for asset in _rollback_assets():
         report[asset.name] = {
             "path": str(asset.path),
@@ -195,7 +195,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
-def _build_report_base(db_source: str, table_names: list[str]) -> dict[str, Any]:
+def _build_report_base(db_source: str, table_names: list[str]) -> dict[str, object]:
     return {
         "schema_version": 1,
         "generated_at_utc": datetime.now(timezone.utc).isoformat(),

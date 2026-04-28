@@ -79,9 +79,8 @@ These scripts have been replaced by first-class host subcommands in `packages/ca
 `caracal events replay`. Gap closed.
 
 The remaining scripts (`build-images.sh`, `release.sh`,
-`update-version.sh`, `hardcut_*.py`, `partition_authority_ledger.py`,
-`verify_dependency_rules.py`) are repo-development only and must
-stay out of the user path.
+`update-version.sh`, `hardcut_*.py`, `verify_dependency_rules.py`)
+are repo-development only and must stay out of the user path.
 
 ### 2.4 Vault sidecar bootstrap
 

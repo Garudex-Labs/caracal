@@ -2,8 +2,6 @@
 Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 Caracal, a product of Garudex Labs
 
-SSO Extension (Enterprise Stub).
-
 Single Sign-On provider integration.
 In the open-source edition, all methods raise EnterpriseFeatureRequired.
 """

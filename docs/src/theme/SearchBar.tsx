@@ -8,9 +8,8 @@ import {
   getQuickActions,
   loadSearchDocs,
   navigate,
-  type NavigationAction,
-  type SearchDocEntry,
 } from "@site/src/components/Search/searchData";
+import type { NavigationAction, SearchDocEntry } from "@site/src/components/Search/types";
 
 type ResultSectionProps = {
   title: string;

@@ -7,7 +7,7 @@ Authority Metadata for Caracal Core.
 
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Dict, List, Optional
 
 from caracal.core.identity import PrincipalIdentity
 from caracal.core.audit import AuditReference
@@ -42,7 +42,7 @@ class AuthorityMetadata:
         if self.timestamp is None:
             self.timestamp = datetime.utcnow()
     
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> Dict[str, object]:
         """
         Convert to dictionary for JSON serialization.
         
@@ -61,7 +61,7 @@ class AuthorityMetadata:
         }
     
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "AuthorityMetadata":
+    def from_dict(cls, data: Dict[str, object]) -> "AuthorityMetadata":
         """
         Create AuthorityMetadata from dictionary.
         

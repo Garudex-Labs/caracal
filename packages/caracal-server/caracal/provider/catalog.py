@@ -14,6 +14,7 @@ import base64
 import re
 
 _IDENTIFIER_RE = re.compile(r"^[a-zA-Z0-9._-]+$")
+IDENTIFIER_RE = _IDENTIFIER_RE
 HTTP_METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE"]
 GATEWAY_ONLY_AUTH = {"oauth2_client_credentials", "service_account"}
 

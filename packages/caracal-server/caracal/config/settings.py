@@ -13,7 +13,7 @@ import re
 from datetime import datetime
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Dict, Optional
 
 import yaml
 
@@ -23,7 +23,7 @@ from caracal.logging_config import get_logger
 logger = get_logger(__name__)
 
 
-def _expand_env_vars(value: Any) -> Any:
+def _expand_env_vars(value: object) -> object:
     """
     Recursively expand environment variables in configuration values.
     
@@ -58,7 +58,7 @@ def _expand_env_vars(value: Any) -> Any:
         return value
 
 
-def _decrypt_config_values(config_data: Dict[str, Any]) -> Dict[str, Any]:
+def _decrypt_config_values(config_data: Dict[str, object]) -> Dict[str, object]:
     """
     Recursively decrypt encrypted configuration values.
     
@@ -120,7 +120,7 @@ _LEGACY_ENV_PLACEHOLDER_RENAMES = {
 }
 
 
-def _rewrite_legacy_env_placeholders(value: Any) -> tuple[Any, bool]:
+def _rewrite_legacy_env_placeholders(value: object) -> tuple[object, bool]:
     """Rewrite legacy config placeholders before env expansion."""
     if isinstance(value, str):
         rewritten = value
@@ -134,7 +134,7 @@ def _rewrite_legacy_env_placeholders(value: Any) -> tuple[Any, bool]:
 
     if isinstance(value, dict):
         changed = False
-        rewritten_dict: dict[Any, Any] = {}
+        rewritten_dict: dict[str, object] = {}
         for key, item in value.items():
             rewritten_item, item_changed = _rewrite_legacy_env_placeholders(item)
             rewritten_dict[key] = rewritten_item
@@ -143,7 +143,7 @@ def _rewrite_legacy_env_placeholders(value: Any) -> tuple[Any, bool]:
 
     if isinstance(value, list):
         changed = False
-        rewritten_list: list[Any] = []
+        rewritten_list: list[object] = []
         for item in value:
             rewritten_item, item_changed = _rewrite_legacy_env_placeholders(item)
             rewritten_list.append(rewritten_item)
@@ -153,7 +153,7 @@ def _rewrite_legacy_env_placeholders(value: Any) -> tuple[Any, bool]:
     return value, False
 
 
-def _normalize_legacy_config_data(config_data: Dict[str, Any]) -> tuple[Dict[str, Any], bool]:
+def _normalize_legacy_config_data(config_data: Dict[str, object]) -> tuple[Dict[str, object], bool]:
     """Normalize persisted pre-CCL config defaults."""
     if not isinstance(config_data, dict):
         return config_data, False
@@ -181,7 +181,7 @@ def _normalize_legacy_config_data(config_data: Dict[str, Any]) -> tuple[Dict[str
     return normalized, changed
 
 
-def _has_encrypted_values(value: Any) -> bool:
+def _has_encrypted_values(value: object) -> bool:
     """
     Check if configuration contains any encrypted values.
     
@@ -505,7 +505,7 @@ def load_config(
         if cfg_path_obj.name == "config.yaml":
             from caracal.flow.workspace import set_workspace
             set_workspace(cfg_path_obj.parent)
-    except Exception:
+    except ImportError:
         pass
     
     # If config file doesn't exist, return defaults
@@ -528,7 +528,7 @@ def load_config(
                     "Auto-repaired malformed workspace config and retried load",
                     config_path=config_path,
                 )
-            except Exception:
+            except (yaml.YAMLError, OSError):
                 logger.error(f"Failed to parse YAML configuration file '{config_path}': {e}", exc_info=True)
                 raise InvalidConfigurationError(
                     f"Failed to parse YAML configuration file '{config_path}': {e}"
@@ -593,7 +593,7 @@ def load_config(
         )
 
 
-def _build_config_from_dict(config_data: Dict[str, Any]) -> CaracalConfig:
+def _build_config_from_dict(config_data: Dict[str, object]) -> CaracalConfig:
     """
     Build CaracalConfig from dictionary loaded from YAML.
     
@@ -863,7 +863,7 @@ def _attempt_legacy_workspace_config_repair(config_path: str) -> bool:
 
     try:
         original = cfg.read_text()
-    except Exception:
+    except OSError:
         return False
 
     # Limit repair to onboarding-generated files we can confidently regenerate.
@@ -903,13 +903,13 @@ def _attempt_legacy_workspace_config_repair(config_path: str) -> bool:
             f.write("# Caracal Core Configuration\n\n")
             yaml.safe_dump(repaired, f, default_flow_style=False, sort_keys=False)
         return True
-    except Exception:
+    except OSError:
         return False
 
 
 def _normalize_hardcut_merkle_config_data(
-    config_data: Dict[str, Any],
-) -> tuple[Dict[str, Any], bool]:
+    config_data: Dict[str, object],
+) -> tuple[Dict[str, object], bool]:
     """Normalize legacy Merkle config fields for hard-cut runtime mode."""
     if not isinstance(config_data, dict):
         return config_data, False
@@ -948,7 +948,7 @@ def _normalize_hardcut_merkle_config_data(
     return updated, changed
 
 
-def _persist_normalized_workspace_config(config_path: str, config_data: Dict[str, Any]) -> None:
+def _persist_normalized_workspace_config(config_path: str, config_data: Dict[str, object]) -> None:
     """Best-effort write-back of normalized workspace config."""
     cfg = Path(config_path).expanduser()
     if cfg.name != "config.yaml" or not cfg.exists():
@@ -957,7 +957,7 @@ def _persist_normalized_workspace_config(config_path: str, config_data: Dict[str
     try:
         with open(cfg, "w") as f:
             yaml.safe_dump(config_data, f, default_flow_style=False, sort_keys=False)
-    except Exception:
+    except OSError:
         return
 
 

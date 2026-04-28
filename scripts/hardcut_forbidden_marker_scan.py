@@ -16,7 +16,7 @@ import sys
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+
 
 SCAN_REPO_KEYS: tuple[str, ...] = ("opensource", "enterprise")
 
@@ -281,7 +281,7 @@ def _iter_scan_files(root: Path) -> list[Path]:
     return [path for path in root.rglob("*") if _should_scan_file(path)]
 
 
-def _new_marker_hit() -> dict[str, Any]:
+def _new_marker_hit() -> dict[str, object]:
     return {
         "count": 0,
         "file_hits": [],
@@ -293,7 +293,7 @@ def _scan_root(
     definitions: tuple[MarkerDefinition, ...],
     *,
     repo_key: str,
-) -> dict[str, dict[str, Any]]:
+) -> dict[str, dict[str, object]]:
     compiled = {item.key: re.compile(item.pattern, flags=re.IGNORECASE) for item in definitions}
     marker_hits = {item.key: _new_marker_hit() for item in definitions}
 
@@ -333,24 +333,24 @@ def _build_report(
     caracal_root: Path,
     enterprise_root: Path | None,
     definitions: tuple[MarkerDefinition, ...],
-) -> dict[str, Any]:
+) -> dict[str, object]:
     roots = {
         "opensource": caracal_root,
         "enterprise": enterprise_root,
     }
 
-    scan_results: dict[str, dict[str, dict[str, Any]]] = {}
+    scan_results: dict[str, dict[str, dict[str, object]]] = {}
     for repo_key, repo_root in roots.items():
         if repo_root is None:
             scan_results[repo_key] = {item.key: _new_marker_hit() for item in definitions}
             continue
         scan_results[repo_key] = _scan_root(repo_root, definitions, repo_key=repo_key)
 
-    marker_items: list[dict[str, Any]] = []
+    marker_items: list[dict[str, object]] = []
     repo_totals = {repo_key: 0 for repo_key in roots}
 
     for definition in definitions:
-        repo_counts: dict[str, Any] = {}
+        repo_counts: dict[str, object] = {}
         total_count = 0
         for repo_key in roots:
             repo_hit = scan_results[repo_key][definition.key]
@@ -391,12 +391,12 @@ def _build_report(
     return report
 
 
-def _write_json(path: Path, payload: dict[str, Any]) -> None:
+def _write_json(path: Path, payload: dict[str, object]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
 
-def _gate_strict_zero_violations(report: dict[str, Any]) -> list[str]:
+def _gate_strict_zero_violations(report: dict[str, object]) -> list[str]:
     """Return violation messages when any forbidden marker count is non-zero."""
     violations: list[str] = []
 
@@ -430,7 +430,7 @@ def _gate_strict_zero_violations(report: dict[str, Any]) -> list[str]:
     return violations
 
 
-def _gate_missing_repo_violations(report: dict[str, Any]) -> list[str]:
+def _gate_missing_repo_violations(report: dict[str, object]) -> list[str]:
     """Return violation messages when gate mode cannot evaluate both repos."""
     violations: list[str] = []
     roots = report.get("roots", {})
@@ -447,7 +447,7 @@ def _gate_missing_repo_violations(report: dict[str, Any]) -> list[str]:
     return violations
 
 
-def _print_summary(report: dict[str, Any]) -> None:
+def _print_summary(report: dict[str, object]) -> None:
     print("Hard-cut forbidden marker scan summary")
     print(f"Generated: {report.get('generated_at_utc')}")
     totals = report.get("totals", {})

@@ -12,7 +12,7 @@ import fnmatch
 from dataclasses import dataclass, field
 from datetime import datetime
 from decimal import Decimal
-from typing import Any, Dict, List, Optional
+from typing import Dict, List, Optional
 
 from caracal.core.ledger import LedgerWriter
 from caracal.exceptions import (
@@ -43,7 +43,7 @@ class MeteringEvent:
     resource_type: str
     quantity: Decimal
     timestamp: Optional[datetime] = None
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    metadata: Dict[str, object] = field(default_factory=dict)
     correlation_id: Optional[str] = None
     source_event_id: Optional[str] = None
     tags: List[str] = field(default_factory=list)
@@ -96,7 +96,7 @@ class MeteringEvent:
         """
         return fnmatch.fnmatch(self.resource_type, pattern)
     
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> Dict[str, object]:
         """
         Convert to dictionary for JSON serialization.
         
@@ -115,7 +115,7 @@ class MeteringEvent:
         }
     
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "MeteringEvent":
+    def from_dict(cls, data: Dict[str, object]) -> "MeteringEvent":
         """
         Create MeteringEvent from dictionary.
         
@@ -252,5 +252,4 @@ class MeteringCollector:
             f"Validated event: principal_id={event.principal_id}, "
             f"resource={event.resource_type}"
         )
-
 

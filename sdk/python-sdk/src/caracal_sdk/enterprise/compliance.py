@@ -2,8 +2,6 @@
 Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 Caracal, a product of Garudex Labs
 
-Compliance Extension (Enterprise Stub).
-
 SOC 2, ISO 27001, GDPR compliance reporting.
 In the open-source edition, all methods raise EnterpriseFeatureRequired.
 """

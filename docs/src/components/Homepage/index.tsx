@@ -1,21 +1,8 @@
 import React, { type ReactElement } from "react";
 import Link from "@docusaurus/Link";
+import type { LinkCard } from "./types";
 
-type ProductCard = {
-  title: string;
-  description: string;
-  meta: string;
-  to: string;
-};
-
-type LinkCard = {
-  title: string;
-  description: string;
-  to: string;
-  meta: string;
-};
-
-const products: ProductCard[] = [
+const products: LinkCard[] = [
   {
     title: "Authority",
     description: "Evaluate policy, mandate, delegation, and principal state before any protected action runs.",
