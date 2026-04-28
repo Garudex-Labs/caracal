@@ -99,6 +99,9 @@ class Handler(BaseHTTPRequestHandler):
         if not service_id:
             self._reply(400, {"error": "invalid host header: missing service id"})
             return
+        if not _SERVICE_ID_RE.fullmatch(service_id):
+            self._reply(400, {"error": "invalid host header: invalid service id"})
+            return
         action = urlparse(self.path).path.strip("/")
         length = int(self.headers.get("Content-Length", 0))
         payload: dict[str, object] = {}
@@ -122,10 +125,13 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def _server_address_from_env() -> tuple[str, int]:
-    return (
-        os.getenv("MOCK_SERVER_HOST", "0.0.0.0"),
-        int(os.getenv("MOCK_SERVER_PORT", "80")),
-    )
+    host = os.getenv("MOCK_SERVER_HOST", "0.0.0.0")
+    port_text = os.getenv("MOCK_SERVER_PORT", "80")
+    try:
+        port = int(port_text)
+    except ValueError as exc:
+        raise ValueError(f"MOCK_SERVER_PORT must be an integer: {port_text!r}") from exc
+    return host, port
 
 
 if __name__ == "__main__":

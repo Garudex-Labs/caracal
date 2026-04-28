@@ -34,6 +34,7 @@ logger = get_logger(__name__)
 
 ENTERPRISE_DOCS_URL = "https://docs.garudexlabs.com/caracalEnterprise"
 ENTERPRISE_SALES_URL = "https://cal.com/rawx18/caracal-enterprise-sales"
+ENTERPRISE_DOCS_DISPLAY = ENTERPRISE_DOCS_URL.removeprefix("https://")
 
 
 class EnterpriseFlow:
@@ -243,32 +244,32 @@ class EnterpriseFlow:
             (
                 "Centralized Authority Control",
                 "Operate principals, authority policies, mandate lifecycle, and revocations from a unified Enterprise control plane.",
-                "docs.garudexlabs.com/caracalEnterprise/features",
+                f"{ENTERPRISE_DOCS_DISPLAY}/features",
             ),
             (
                 "Enterprise Sync + Gateway Enforcement",
                 "Connect local Caracal workspaces to Enterprise and enforce provider traffic through gateway-managed authority checks.",
-                "docs.garudexlabs.com/caracalEnterprise/guides/gatewayDeployment",
+                f"{ENTERPRISE_DOCS_DISPLAY}/guides/gatewayDeployment",
             ),
             (
                 "Identity and Access Controls",
                 "Enable SSO and role-oriented access patterns so admins, operators, and auditors get scoped permissions.",
-                "docs.garudexlabs.com/caracalEnterprise/guides/usage",
+                f"{ENTERPRISE_DOCS_DISPLAY}/guides/usage",
             ),
             (
                 "Compliance and Audit Readiness",
                 "Maintain tamper-evident authority records and generate reporting artifacts for internal and external compliance workflows.",
-                "docs.garudexlabs.com/caracalEnterprise/features",
+                f"{ENTERPRISE_DOCS_DISPLAY}/features",
             ),
             (
                 "Workspace Isolation",
                 "Run multi-team and multi-workspace deployments with explicit boundaries for policy scope, data visibility, and operational ownership.",
-                "docs.garudexlabs.com/caracalEnterprise/architecture",
+                f"{ENTERPRISE_DOCS_DISPLAY}/architecture",
             ),
             (
                 "Operational Insights",
                 "Track authority activity, policy effectiveness, and anomaly signals to improve reliability and governance.",
-                "docs.garudexlabs.com/caracalEnterprise/features",
+                f"{ENTERPRISE_DOCS_DISPLAY}/features",
             ),
         ]
         
@@ -281,8 +282,8 @@ class EnterpriseFlow:
         # Show upgrade information
         upgrade_panel = Panel(
             f"[bold]Ready to upgrade?[/bold]\n\n"
-            f"Visit [{Colors.LINK}]https://docs.garudexlabs.com/caracalEnterprise[/] for details\n"
-            f"or book a call at [{Colors.LINK}]https://cal.com/rawx18/caracal-enterprise-sales[/].",
+            f"Visit [{Colors.LINK}]{ENTERPRISE_DOCS_URL}[/] for details\n"
+            f"or book a call at [{Colors.LINK}]{ENTERPRISE_SALES_URL}[/].",
             border_style=Colors.PRIMARY,
             padding=(1, 2),
         )

@@ -107,6 +107,10 @@ def test_mock_server_binds_to_container_network_by_default(monkeypatch):
     monkeypatch.setenv("MOCK_SERVER_PORT", "8088")
     assert mock_server._server_address_from_env() == ("127.0.0.1", 8088)
 
+    monkeypatch.setenv("MOCK_SERVER_PORT", "not-a-port")
+    with pytest.raises(ValueError, match="MOCK_SERVER_PORT must be an integer"):
+        mock_server._server_address_from_env()
+
 
 def _mock_http_request(
     method: str,
@@ -152,6 +156,11 @@ def test_mock_http_server_rejects_invalid_host_and_json():
 
     assert status == 400
     assert "invalid host header" in payload["error"]
+
+    status, payload = _mock_http_request("POST", "/get_account_balance", host="bad!.mock")
+
+    assert status == 400
+    assert payload["error"] == "invalid host header: invalid service id"
 
     status, payload = _mock_http_request("POST", "/get_account_balance", body=b"{")
 

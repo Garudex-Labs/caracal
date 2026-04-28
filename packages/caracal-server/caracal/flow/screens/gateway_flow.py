@@ -26,8 +26,7 @@ class GatewayFlow:
     def run(self) -> None:
         runtime = load_enterprise_config()
         api_url = str(runtime.get("api_url") or runtime.get("enterprise_url") or "").strip()
-        dashboard_url = api_url.rstrip("/") if api_url else ""
-        dashboard_display = dashboard_url or "the Caracal Enterprise dashboard"
+        dashboard_display = (api_url.rstrip("/") if api_url else "") or "the Caracal Enterprise dashboard"
         panel = Panel(
             "Gateway clusters, provider routing, revocation, quotas, and logs are managed in "
             f"[{Colors.PRIMARY}]{dashboard_display}[/].\n\n"
