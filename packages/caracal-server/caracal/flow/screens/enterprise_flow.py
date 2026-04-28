@@ -27,7 +27,6 @@ from caracal.deployment.enterprise_runtime import (
 )
 from caracal.deployment.exceptions import MigrationError
 from caracal.logging_config import get_logger
-from caracal.core.gateway_features import get_gateway_features
 from caracal.flow.components.menu import Menu, MenuItem
 from caracal.flow.theme import Colors, Icons
 
@@ -139,16 +138,7 @@ class EnterpriseFlow:
         # Show connection status bar if connected
         if self.validator.is_connected():
             info = self.validator.get_license_info()
-            flags = get_gateway_features(reload=True)
-            if flags.gateway_enabled:
-                mode_label = (
-                    "Managed" if flags.deployment_type == "managed"
-                    else "On-Prem" if flags.deployment_type == "on_prem"
-                    else flags.deployment_type
-                )
-                gateway_status = f"[bold {Colors.SUCCESS}]● Gateway: {mode_label}[/]"
-            else:
-                gateway_status = f"[{Colors.DIM}]○ Gateway: not synced[/]"
+            gateway_status = f"[{Colors.DIM}]○ Gateway: Enterprise dashboard[/]"
             tier = (info.get("tier") or "unknown").upper()
             self.console.print(
                 f"[bold {Colors.SUCCESS}]● Connected[/] — "
