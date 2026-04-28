@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import importlib
 import sys
+from types import SimpleNamespace
 
 
 def test_enterprise_flow_imports_without_requests(monkeypatch):
@@ -22,6 +23,35 @@ def test_enterprise_flow_imports_without_requests(monkeypatch):
         sys.modules.pop(module_name, None)
         if previous_module is not None:
             sys.modules[module_name] = previous_module
+        if previous_requests is not None:
+            sys.modules["requests"] = previous_requests
+        else:
+            sys.modules.pop("requests", None)
+
+
+def test_connection_status_handles_missing_requests(monkeypatch):
+    from caracal.flow.screens import enterprise_flow
+
+    previous_requests = sys.modules.get("requests")
+    monkeypatch.setitem(sys.modules, "requests", None)
+    monkeypatch.setattr(enterprise_flow, "load_enterprise_config", lambda: {})
+    monkeypatch.setattr(enterprise_flow.Prompt, "ask", lambda *args, **kwargs: "")
+
+    flow = enterprise_flow.EnterpriseFlow()
+    flow.validator = SimpleNamespace(
+        get_license_info=lambda: {
+            "license_active": True,
+            "tier": "team",
+            "license_key": "lic-test",
+            "features_available": ["sync"],
+            "expires_at": "Never",
+            "enterprise_api_url": "https://enterprise.example",
+        }
+    )
+
+    try:
+        flow.show_connection_status()
+    finally:
         if previous_requests is not None:
             sys.modules["requests"] = previous_requests
         else:
