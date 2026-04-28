@@ -70,9 +70,18 @@ More coming soon
 ### Quickstart
 
 ```bash
+mkdir -p "${CCL_HOME:-$HOME/.caracal}"
+printf "CCL_REDIS_PASSWORD=%s\n" "$(openssl rand -hex 24)" > "${CCL_HOME:-$HOME/.caracal}/.env"
+chmod 600 "${CCL_HOME:-$HOME/.caracal}/.env"
+
 caracal      # Launch Flow (TUI) inside the runtime container
 caracal up   # Start the full local runtime stack
 ```
+
+The default runtime is secure-by-default: Redis requires `CCL_REDIS_PASSWORD`,
+secret-bearing `.env` files must be owner-only, and privileged AIS/MCP calls
+require AIS-issued session tokens. For SDK and example app usage, mint a session
+token after bootstrap and pass it as `CCL_SESS_TOKEN` or as the SDK bearer token.
 
 ### Command Reference
 
