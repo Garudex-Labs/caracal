@@ -204,11 +204,11 @@ class TestAllowlistManagerCheckResourceNoDb:
         a.pattern_type = pattern_type
         return a
 
-    def test_no_allowlists_default_allow(self):
+    def test_no_allowlists_default_deny(self):
         m, pid = self._manager_with_allowlists([])
         decision = m.check_resource(pid, "https://anywhere.com")
-        assert decision.allowed is True
-        assert "default allow" in decision.reason
+        assert decision.allowed is False
+        assert "default deny" in decision.reason
 
     def test_regex_match_allowed(self):
         a = self._make_allowlist(r"https://api\.openai\.com/.*", "regex")

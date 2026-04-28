@@ -225,7 +225,7 @@ class AllowlistManager:
         Implements the following logic:
         1. Check cache for principal's allowlists
         2. If cache miss or expired, query database and cache results
-        3. If no allowlists exist, return allowed (default allow)
+        3. If no allowlists exist, return denied (default deny)
         4. For each allowlist, test if the pattern matches
         5. If any pattern matches, return allowed
         6. If no patterns match, return denied
@@ -267,14 +267,14 @@ class AllowlistManager:
             self._cache_hits += 1
             allowlists = cached_entry.allowlists
         
-        # Default allow if no allowlists configured
+        # Default deny if no allowlists configured.
         if not allowlists:
             logger.debug(
-                f"No allowlists configured for principal {principal_id}, allowing resource: {resource_url}"
+                f"No allowlists configured for principal {principal_id}, denying resource: {resource_url}"
             )
             return AllowlistDecision(
-                allowed=True,
-                reason="No allowlists configured (default allow)",
+                allowed=False,
+                reason="No allowlists configured (default deny)",
                 matched_pattern=None
             )
         

@@ -137,7 +137,13 @@ def check_health(url):
     default="http://localhost:8080",
     help="Service URL (default: http://localhost:8080)"
 )
-def get_stats(url):
+@click.option(
+    "--token",
+    envvar="CCL_SESS_TOKEN",
+    required=True,
+    help="AIS-issued session token with system.stats.read or system.admin capability.",
+)
+def get_stats(url, token):
     """
     Get statistics from running MCP Adapter Service.
     
@@ -151,7 +157,11 @@ def get_stats(url):
         stats_url = f"{url}/stats"
         logger.info(f"Fetching stats from {stats_url}...")
         
-        response = httpx.get(stats_url, timeout=5.0)
+        response = httpx.get(
+            stats_url,
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=5.0,
+        )
         
         if response.status_code == 200:
             data = response.json()

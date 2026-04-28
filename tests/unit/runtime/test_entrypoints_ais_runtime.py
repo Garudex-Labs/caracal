@@ -543,6 +543,7 @@ def test_create_ais_session_manager_uses_vault_reference_signer_without_loading_
     monkeypatch.setenv(entrypoints.AIS_SESSION_SIGNING_KEY_REF_ENV, "keys/session-private")
     monkeypatch.setenv(entrypoints.AIS_SESSION_VERIFY_KEY_REF_ENV, "keys/session-public")
     monkeypatch.setenv(entrypoints.AIS_SESSION_CAVEAT_MODE_ENV, "jwt")
+    monkeypatch.setenv("CCL_REDIS_PASSWORD", "test-redis-password")
     monkeypatch.delenv(entrypoints.AIS_SESSION_CAVEAT_HMAC_KEY_ENV, raising=False)
     monkeypatch.setattr(entrypoints, "_create_ais_db_manager", lambda: object())
 
@@ -693,7 +694,7 @@ def test_host_auth_token_runs_container_cli(
         commands.append(cmd)
         return SimpleNamespace(
             returncode=0,
-            stdout="Active Workspace: demo\ncark_testtoken\n",
+            stdout="",
             stderr="",
         )
 
@@ -717,7 +718,7 @@ def test_host_auth_token_runs_container_cli(
         "token",
         "--quiet",
     ]
-    assert capsys.readouterr().out == "cark_testtoken\n"
+    assert capsys.readouterr().out == ""
 
 
 @pytest.mark.unit
@@ -785,16 +786,24 @@ def test_build_ais_handlers_issues_and_refreshes_tokens(monkeypatch: pytest.Monk
     assert session_manager.validate_calls == ["caller-token"]
     assert str(session_manager.issue_calls[0]["session_kind"]) == "SessionKind.AUTOMATION"
 
-    refresh_response = handlers.refresh_session(RefreshRequest(refresh_token="refresh-1"))
+    refresh_response = handlers.refresh_session(
+        RefreshRequest(refresh_token="refresh-1"),
+        "Bearer caller-token",
+    )
     assert refresh_response["access_token"] == "access-2"
     assert session_manager.refresh_calls == ["refresh-1"]
 
 
 @pytest.mark.unit
 def test_build_ais_handlers_rejects_unknown_session_kind() -> None:
+    session_manager = _FakeSessionManager()
+    session_manager.validation_claims = {
+        "sub": "principal-1",
+        "capabilities": ["ais.spawn"],
+    }
     handlers = entrypoints._build_ais_handlers(
         db_manager=_FakeDbManager(),
-        session_manager=_FakeSessionManager(),
+        session_manager=session_manager,
         redis_client=object(),
     )
 
@@ -818,9 +827,14 @@ def test_build_ais_handlers_rejects_token_issue_for_unknown_principal(
 ) -> None:
     _patch_principal_registry_for_issue_token(monkeypatch, exists=False)
 
+    session_manager = _FakeSessionManager()
+    session_manager.validation_claims = {
+        "sub": "principal-1",
+        "capabilities": ["ais.spawn"],
+    }
     handlers = entrypoints._build_ais_handlers(
         db_manager=_FakeDbManager(),
-        session_manager=_FakeSessionManager(),
+        session_manager=session_manager,
         redis_client=object(),
     )
 
@@ -880,7 +894,12 @@ def test_build_ais_handlers_token_endpoint_returns_bundle_over_http(
     )
     app = create_ais_app(
         handlers,
-        AISServerConfig(unix_socket_path="", listen_host="127.0.0.1", listen_port=7079),
+        AISServerConfig(
+            unix_socket_path="",
+            listen_host="127.0.0.1",
+            listen_port=7079,
+            allow_tcp_transport=True,
+        ),
     )
     client = TestClient(app)
 
@@ -1017,7 +1036,7 @@ def test_build_ais_handlers_rejects_authenticated_caller_without_delegation(
             "Bearer caller-token",
         )
 
-    assert exc_info.value.status_code == 403
+    assert exc_info.value.status_code == 404
 
 
 @pytest.mark.unit
@@ -1065,9 +1084,14 @@ def test_build_ais_handlers_spawn_response_includes_metadata_without_private_key
     monkeypatch.setattr("caracal.identity.attestation_nonce.AttestationNonceManager", _FakeAttestationNonceManager)
     monkeypatch.setattr("caracal.identity.service.IdentityService", _FakeIdentityService)
 
+    session_manager = _FakeSessionManager()
+    session_manager.validation_claims = {
+        "sub": "principal-1",
+        "capabilities": ["ais.spawn"],
+    }
     handlers = entrypoints._build_ais_handlers(
         db_manager=_FakeDbManager(),
-        session_manager=_FakeSessionManager(),
+        session_manager=session_manager,
         redis_client=object(),
     )
 
@@ -1081,7 +1105,8 @@ def test_build_ais_handlers_spawn_response_includes_metadata_without_private_key
             action_scope=["infer"],
             validity_seconds=300,
             idempotency_key="idemp-1",
-        )
+        ),
+        "Bearer caller-token",
     )
 
     assert response["principal_id"] == "principal-spawned"

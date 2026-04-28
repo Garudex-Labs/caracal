@@ -40,14 +40,14 @@ class _FakeClientWithTools:
 
 def test_sdk_bridge_uses_environment_defaults(monkeypatch) -> None:
     monkeypatch.setattr(sdk_bridge, "CaracalClient", _FakeClient)
-    monkeypatch.setenv("CCL_API_KEY", "env-api-key")
+    monkeypatch.setenv("CCL_SESS_TOKEN", "env-session-token")
     monkeypatch.setenv("CCL_API_PORT", "9010")
     monkeypatch.delenv("CCL_API_URL", raising=False)
 
     bridge = sdk_bridge.SDKBridge()
 
     assert _FakeClient.captured_kwargs == {
-        "api_key": "env-api-key",
+        "api_key": "env-session-token",
         "base_url": "http://localhost:9010",
     }
     assert bridge.current_scope is None
@@ -55,7 +55,7 @@ def test_sdk_bridge_uses_environment_defaults(monkeypatch) -> None:
 
 def test_sdk_bridge_explicit_params_override_environment(monkeypatch) -> None:
     monkeypatch.setattr(sdk_bridge, "CaracalClient", _FakeClient)
-    monkeypatch.setenv("CCL_API_KEY", "env-api-key")
+    monkeypatch.setenv("CCL_SESS_TOKEN", "env-session-token")
     monkeypatch.setenv("CCL_API_URL", "http://env.example")
 
     bridge = sdk_bridge.SDKBridge(

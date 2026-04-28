@@ -32,7 +32,7 @@ class SDKBridge:
 
         from caracal.flow.sdk_bridge import SDKBridge
 
-        bridge = SDKBridge(api_key="sk_test_123")
+        bridge = SDKBridge(api_key="ais-session-token")
         ctx = bridge.checkout(workspace_id="workspace_default")
         result = await bridge.call_tool(
             tool_id="provider:demo:resource:jobs:action:run",
@@ -48,7 +48,7 @@ class SDKBridge:
             "CCL_API_URL",
             f"http://localhost:{os.environ.get('CCL_API_PORT', '8080')}",
         )
-        resolved_api_key = api_key or os.environ.get("CCL_API_KEY")
+        resolved_api_key = api_key or os.environ.get("CCL_SESS_TOKEN")
         self._client = CaracalClient(
             api_key=resolved_api_key,
             base_url=resolved_base_url,

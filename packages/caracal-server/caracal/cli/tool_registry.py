@@ -97,7 +97,6 @@ def _tool_registry_adapter(config) -> Iterator[MCPAdapter]:
     show_default=True,
     help="Tool behavior type",
 )
-@click.option("--handler-ref", required=False, help="Handler reference for logic tools (module:function)")
 @click.option("--mapping-version", required=False, help="Optional mapping fingerprint/version")
 @click.option(
     "--allowed-downstream-scope",
@@ -120,7 +119,6 @@ def register(
     mcp_server_name: str,
     workspace_name: str,
     tool_type: str,
-    handler_ref: str,
     mapping_version: str,
     allowed_downstream_scopes: tuple[str, ...],
     inactive: bool,
@@ -132,6 +130,10 @@ def register(
         resolved_workspace = workspace or config_manager.get_default_workspace_name()
         if not resolved_workspace:
             raise click.ClickException("No default workspace found. Pass --workspace explicitly.")
+        if str(execution_mode or "").strip().lower() == "local":
+            raise click.ClickException(
+                "CLI registry writes cannot create local callable tools; register local tools from trusted startup code."
+            )
 
         providers = load_workspace_provider_registry(config_manager, resolved_workspace)
         provider_entry = providers.get(provider_name)
@@ -180,7 +182,7 @@ def register(
                 mcp_server_name=mcp_server_name,
                 workspace_name=workspace_name or resolved_workspace,
                 tool_type=tool_type,
-                handler_ref=handler_ref,
+                handler_ref=None,
                 mapping_version=mapping_version,
                 allowed_downstream_scopes=list(allowed_downstream_scopes),
             )

@@ -38,6 +38,7 @@ from caracal.exceptions import (
     MCPUnknownToolError,
 )
 from caracal.logging_config import get_logger
+from caracal.mcp.sanitization import sanitize_metadata, stable_payload_hash
 from caracal.provider.credential_store import resolve_workspace_provider_credential
 from caracal.provider.definitions import (
     ScopeParseError,
@@ -513,7 +514,9 @@ class MCPAdapter:
             return bound_func
 
         if expected_handler_ref:
-            return self._resolve_callable_from_handler_ref(expected_handler_ref)
+            raise CaracalError(
+                "Dynamic handler_ref import is disabled; local logic tools must be bound by trusted startup registration"
+            )
 
         raise CaracalError(
             f"No local function binding found for tool '{tool_id}'"
@@ -1139,9 +1142,10 @@ class MCPAdapter:
                     "resource_scope": tool_mapping.get("resource_scope"),
                     "action_scope": tool_mapping.get("action_scope"),
                     "mcp_server_name": tool_mapping.get("mcp_server_name"),
-                    "tool_args": tool_args,
+                    "tool_args_hash": stable_payload_hash(tool_args),
+                    "tool_args_keys": sorted(str(key) for key in (tool_args or {}).keys()),
                     "execution_mode": execution_mode,
-                    "mcp_context": mcp_context.metadata,
+                    "mcp_context": sanitize_metadata(mcp_context.metadata),
                 },
                 correlation_id=correlation_id,
                 source_event_id=source_event_id,

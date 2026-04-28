@@ -60,7 +60,7 @@ services:
             NODE_ENV: production
             AUTH_SECRET: ${CCL_VAULT_SIDECAR_AUTH_SECRET:-${VAULT_AUTH_SECRET:?Set CCL_VAULT_SIDECAR_AUTH_SECRET or run `caracal vault init` for local development}}
             ENCRYPTION_KEY: ${CCL_VAULT_SIDECAR_ENC_KEY:-${VAULT_ENC_KEY:?Set CCL_VAULT_SIDECAR_ENC_KEY or run `caracal vault init` for local development}}
-            REDIS_URL: ${CCL_VAULT_SIDECAR_REDIS_URL:-redis://redis:6379}
+            REDIS_URL: ${CCL_VAULT_SIDECAR_REDIS_URL:-redis://:${CCL_REDIS_PASSWORD:?Set CCL_REDIS_PASSWORD to a strong Redis password}@redis:6379}
             DB_CONNECTION_URI: ${CCL_VAULT_SIDECAR_DB_CONNECTION_URI:-postgresql://${CCL_DB_USER:-caracal}:${CCL_DB_PASSWORD:?Set CCL_DB_PASSWORD to a strong database password}@postgres:5432/${CCL_VAULT_DB_NAME:-caracal_vault}}
             SITE_URL: ${CCL_VAULT_SIDECAR_SITE_URL:-http://localhost:8080}
         ports:
@@ -79,6 +79,8 @@ services:
 
     redis:
         image: redis:7-alpine
+        environment:
+            CCL_REDIS_PASSWORD: ${CCL_REDIS_PASSWORD:?Set CCL_REDIS_PASSWORD to a strong Redis password}
         command:
             - redis-server
             - --appendonly
@@ -92,15 +94,14 @@ services:
             - --save
             - "60"
             - "10000"
+            - --requirepass
+            - ${CCL_REDIS_PASSWORD:?Set CCL_REDIS_PASSWORD to a strong Redis password}
         volumes:
             - redis_data:/data
-        ports:
-            - "6379:6379"
         healthcheck:
             test:
-                - CMD
-                - redis-cli
-                - ping
+                - CMD-SHELL
+                - redis-cli -a "$${CCL_REDIS_PASSWORD}" ping | grep PONG
             interval: 10s
             timeout: 5s
             retries: 10
@@ -172,7 +173,7 @@ services:
             CCL_DB_URL: postgresql://${CCL_DB_USER:-caracal}:${CCL_DB_PASSWORD:?Set CCL_DB_PASSWORD to a strong database password}@postgres:5432/${CCL_DB_NAME:-caracal_db}
             REDIS_HOST: redis
             REDIS_PORT: 6379
-            REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+            CCL_REDIS_PASSWORD: ${CCL_REDIS_PASSWORD:?Set CCL_REDIS_PASSWORD to a strong Redis password}
             CCL_PRINCIPAL_KEY_BACKEND: ${CCL_PRINCIPAL_KEY_BACKEND:-vault}
             CCL_VAULT_URL: ${CCL_VAULT_URL:-http://vault:8080}
             CCL_VAULT_TOKEN: ${CCL_VAULT_TOKEN:?Set CCL_VAULT_TOKEN to an Infisical service token}
@@ -231,12 +232,12 @@ services:
             CCL_DB_PASSWORD: ${CCL_DB_PASSWORD:?Set CCL_DB_PASSWORD to a strong database password}
             REDIS_HOST: redis
             REDIS_PORT: 6379
-            REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+            CCL_REDIS_PASSWORD: ${CCL_REDIS_PASSWORD:?Set CCL_REDIS_PASSWORD to a strong Redis password}
             CCL_AIS_ATTESTATION_NONCE: ${CCL_AIS_ATTESTATION_NONCE:-}
             CCL_AIS_ATTESTATION_PID: ${CCL_AIS_ATTESTATION_PID:-}
             CCL_SESS_CAVEAT_HMAC_KEY: ${CCL_SESS_CAVEAT_HMAC_KEY:-}
             CCL_AIS_API_PREFIX: ${CCL_AIS_API_PREFIX:-/v1/ais}
-            CCL_AIS_UNIX_SOCKET_PATH: ${CCL_AIS_UNIX_SOCKET_PATH:-/tmp/caracal-ais.sock}
+            CCL_AIS_UNIX_SOCKET_PATH: ${CCL_AIS_UNIX_SOCKET_PATH:-/home/caracal/runtime/run/caracal-ais.sock}
             CCL_AIS_LISTEN_HOST: ${CCL_AIS_LISTEN_HOST:-127.0.0.1}
             CCL_AIS_LISTEN_PORT: ${CCL_AIS_LISTEN_PORT:-7079}
             CCL_AIS_HEALTHCHECK_TTL_SECONDS: ${CCL_AIS_HEALTHCHECK_TTL_SECONDS:-3}
@@ -308,7 +309,7 @@ services:
             CCL_DB_PASSWORD: ${CCL_DB_PASSWORD:?Set CCL_DB_PASSWORD to a strong database password}
             REDIS_HOST: redis
             REDIS_PORT: 6379
-            REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+            CCL_REDIS_PASSWORD: ${CCL_REDIS_PASSWORD:?Set CCL_REDIS_PASSWORD to a strong Redis password}
             LOG_LEVEL: ${LOG_LEVEL:-INFO}
         command:
             - caracal
@@ -364,7 +365,7 @@ services:
             CCL_DB_PASSWORD: ${CCL_DB_PASSWORD:?Set CCL_DB_PASSWORD to a strong database password}
             REDIS_HOST: redis
             REDIS_PORT: 6379
-            REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+            CCL_REDIS_PASSWORD: ${CCL_REDIS_PASSWORD:?Set CCL_REDIS_PASSWORD to a strong Redis password}
             LOG_LEVEL: ${LOG_LEVEL:-INFO}
         command:
             - python

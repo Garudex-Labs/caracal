@@ -7,7 +7,6 @@ FastAPI application entry point with Caracal client initialization.
 from __future__ import annotations
 
 import asyncio
-import json
 import os
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -26,33 +25,13 @@ async def lifespan(app: FastAPI):
     load_config()
 
     # caracal-integration: construct Caracal client and check out workspace scope at startup
-    api_key = os.environ.get("CCL_API_KEY", "")
+    session_token = os.environ.get("CCL_SESS_TOKEN", "")
     api_url = os.environ.get("CCL_API_URL", "")
     workspace_id = os.environ.get("CCL_WORKSPACE_ID", "")
-    if api_key and api_url and workspace_id:
-        import httpx
+    if session_token and api_url and workspace_id:
         from caracal_sdk import CaracalClient
         from app.agents.tools import init_enforcement
-        jwt_token = api_key
-        try:
-            async with httpx.AsyncClient() as http:
-                resp = await http.post(
-                    f"{api_url.rstrip('/')}/mcp/token",
-                    headers={"Authorization": f"Bearer {api_key}"},
-                    timeout=10,
-                )
-        except httpx.RequestError:
-            pass
-        else:
-            if resp.status_code == 200:
-                try:
-                    data = resp.json()
-                except json.JSONDecodeError:
-                    pass
-                else:
-                    if isinstance(data, dict):
-                        jwt_token = data.get("access_token", api_key)
-        client = CaracalClient(api_key=jwt_token, base_url=api_url)
+        client = CaracalClient(api_key=session_token, base_url=api_url)
         scope = client.context.checkout(workspace_id=workspace_id)
         app.state.caracal = scope
         init_enforcement(scope=scope, loop=asyncio.get_running_loop())

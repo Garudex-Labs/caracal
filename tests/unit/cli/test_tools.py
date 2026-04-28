@@ -159,6 +159,45 @@ def test_register_command_calls_adapter(monkeypatch: pytest.MonkeyPatch) -> None
 
 
 @pytest.mark.unit
+def test_register_command_rejects_local_execution_mode(monkeypatch: pytest.MonkeyPatch) -> None:
+    adapter = _AdapterStub()
+
+    @contextmanager
+    def _fake_adapter(_config):
+        yield adapter
+
+    monkeypatch.setattr(tool_registry_cli, "_tool_registry_adapter", _fake_adapter)
+    monkeypatch.setattr(
+        tool_registry_cli,
+        "ConfigManager",
+        lambda: SimpleNamespace(get_default_workspace_name=lambda: "alpha"),
+    )
+
+    result = CliRunner().invoke(
+        tool_registry_cli.register,
+        [
+            "--tool-id",
+            "tool.echo",
+            "--provider-name",
+            "endframe",
+            "--resource-id",
+            "deployments",
+            "--action-id",
+            "invoke",
+            "--execution-mode",
+            "local",
+            "--actor-principal-id",
+            "11111111-1111-1111-1111-111111111111",
+        ],
+        obj=SimpleNamespace(config=object()),
+    )
+
+    assert result.exit_code != 0
+    assert "trusted startup code" in result.output
+    assert adapter.register_calls == []
+
+
+@pytest.mark.unit
 def test_list_command_passes_include_inactive_flag(monkeypatch: pytest.MonkeyPatch) -> None:
     adapter = _AdapterStub()
 

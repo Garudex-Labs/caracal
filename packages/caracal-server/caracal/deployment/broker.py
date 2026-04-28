@@ -9,6 +9,8 @@ rate limiting, retry logic, and health checks.
 """
 
 import asyncio
+import ipaddress
+import os
 import random
 import time
 from collections import defaultdict
@@ -16,6 +18,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
 from typing import Any, Dict, List, Optional
+from urllib.parse import urljoin, urlparse
 
 import httpx
 import structlog
@@ -47,6 +50,15 @@ from caracal.provider.catalog import (
 )
 
 logger = structlog.get_logger(__name__)
+
+_RESERVED_OUTBOUND_HEADERS = {
+    "authorization",
+    "cookie",
+    "host",
+    "proxy-authorization",
+    "proxy-authenticate",
+    "x-api-key",
+}
 
 
 class CircuitState(str, Enum):
@@ -106,11 +118,74 @@ class ProviderConfig:
             service_type=self.provider_type,
             requested_definition=self.provider_definition,
         )
+        if self.base_url:
+            self.base_url = validate_provider_base_url(self.base_url)
 
     @property
     def service_type(self) -> str:
         """Alias for provider_type to support service-agnostic terminology."""
         return self.provider_type
+
+
+def _provider_dev_mode_enabled() -> bool:
+    return (os.environ.get("CCL_ENV_MODE") or "").strip().lower() in {"dev", "development", "test"} and (
+        os.environ.get("CCL_ALLOW_INTERNAL_PROVIDER_URLS") or ""
+    ).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _is_forbidden_host(hostname: str) -> bool:
+    normalized = hostname.strip().strip("[]").lower()
+    if normalized in {"localhost", "ip6-localhost"}:
+        return True
+    try:
+        ip_address = ipaddress.ip_address(normalized)
+    except ValueError:
+        return False
+    return (
+        ip_address.is_loopback
+        or ip_address.is_private
+        or ip_address.is_link_local
+        or ip_address.is_multicast
+        or ip_address.is_reserved
+        or ip_address.is_unspecified
+    )
+
+
+def validate_provider_base_url(base_url: str) -> str:
+    """Validate and normalize provider base URLs before broker egress."""
+    raw = str(base_url or "").strip()
+    if not raw:
+        raise ProviderConfigurationError("Provider base_url is required")
+
+    parsed = urlparse(raw)
+    if parsed.username or parsed.password:
+        raise ProviderConfigurationError("Provider base_url must not include credentials")
+    if parsed.scheme not in {"https", "http"}:
+        raise ProviderConfigurationError("Provider base_url must use https")
+    if not parsed.hostname:
+        raise ProviderConfigurationError("Provider base_url must include a hostname")
+
+    dev_internal = _provider_dev_mode_enabled()
+    if parsed.scheme != "https" and not dev_internal:
+        raise ProviderConfigurationError("Provider base_url must use https outside explicit dev mode")
+    if _is_forbidden_host(parsed.hostname) and not dev_internal:
+        raise ProviderConfigurationError(
+            "Provider base_url must not target localhost, private, link-local, or reserved addresses"
+        )
+
+    return raw.rstrip("/")
+
+
+def _reject_reserved_headers(headers: Dict[str, str], *, source: str) -> None:
+    rejected = []
+    for key in (headers or {}).keys():
+        normalized = str(key).strip().lower()
+        if normalized in _RESERVED_OUTBOUND_HEADERS or normalized.startswith("proxy-"):
+            rejected.append(str(key))
+    if rejected:
+        raise ProviderConfigurationError(
+            f"{source} contains reserved outbound headers: {', '.join(sorted(rejected))}"
+        )
 
 
 @dataclass
@@ -434,6 +509,9 @@ class Broker:
                 raise ProviderConfigurationError(
                     "Credential reference is required for authenticated providers"
                 )
+            _reject_reserved_headers(config.default_headers, source="Provider default_headers")
+            if config.base_url:
+                config.base_url = validate_provider_base_url(config.base_url)
             
             # Store configuration
             self._providers[provider] = config
@@ -518,9 +596,10 @@ class Broker:
             # Make test request (provider-specific endpoint)
             client = await self._get_client()
             base_url = config.base_url or self._get_default_base_url(config.provider_type)
+            base_url = validate_provider_base_url(base_url)
             
             response = await client.get(
-                f"{base_url}/{config.healthcheck_path.lstrip('/')}",
+                urljoin(f"{base_url}/", config.healthcheck_path.lstrip("/")),
                 headers={**config.default_headers, **auth_headers},
                 timeout=5.0
             )
@@ -706,12 +785,14 @@ class Broker:
                         f"Provider '{provider}' has no base_url configured and its "
                         "definition has no default_base_url"
                     )
-                url = f"{base_url}/{request.endpoint.lstrip('/')}"
+                base_url = validate_provider_base_url(base_url)
+                url = urljoin(f"{base_url}/", request.endpoint.lstrip("/"))
+                _reject_reserved_headers(request.headers, source="Provider request headers")
                 
                 headers = {
                     **config.default_headers,
+                    **request.headers,
                     **auth_headers,
-                    **request.headers
                 }
                 
                 # Make request

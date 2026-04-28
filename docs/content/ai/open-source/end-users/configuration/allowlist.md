@@ -43,6 +43,8 @@ Deterministic configuration contract for `allowlist` runtime settings.
 
 - Reject malformed values for required keys.
 - Keep security-sensitive defaults fail-closed.
+- Treat missing principal allowlists as deny, not allow.
+- Require explicit active allowlist entries for runtime access.
 - Preserve namespace boundaries (`CCL_*` vs `CCLE_*`).
 - Validate dependent service settings as a single unit.
 

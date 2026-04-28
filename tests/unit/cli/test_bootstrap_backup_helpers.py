@@ -91,17 +91,6 @@ class TestBootstrapHelpers:
         result = _read_env_var(tmp_path / "nonexistent.env", "KEY")
         assert result is None
 
-    def test_mint_api_key_has_prefix(self):
-        from caracal.cli.bootstrap import _mint_api_key
-        key = _mint_api_key()
-        assert key.startswith("cark_")
-
-    def test_mint_api_key_is_unique(self):
-        from caracal.cli.bootstrap import _mint_api_key
-        keys = {_mint_api_key() for _ in range(10)}
-        assert len(keys) == 10
-
-
 class TestBackupHelpers:
     def test_pg_env_includes_pgpassword_when_set(self):
         from caracal.cli.backup import _pg_env

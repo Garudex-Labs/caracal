@@ -193,7 +193,14 @@ class TestMCPAdapterService:
         self.mock_db_connection_manager = Mock()
         self.mock_session_manager = Mock()
         self.mock_session_manager.validate_access_token = AsyncMock(
-            return_value={"sub": self.actor_principal_id}
+            return_value={
+                "sub": self.actor_principal_id,
+                "kind": "automation",
+                "capabilities": [
+                    "mcp.tool_registry.manage",
+                    "system.stats.read",
+                ],
+            }
         )
         self.mock_mcp_adapter.get_registered_tool.return_value = SimpleNamespace(
             tool_id="test_tool",
@@ -434,13 +441,60 @@ class TestMCPAdapterService:
         self.service._tool_call_count = 5
         self.service._resource_read_count = 3
         
-        response = client.get("/stats")
+        response = client.get(
+            "/stats",
+            headers={"Authorization": "Bearer test-token"},
+        )
         
         assert response.status_code == 200
         data = response.json()
         assert data["requests_total"] == 10
         assert data["tool_calls_total"] == 5
         assert data["resource_reads_total"] == 3
+
+    def test_mcp_token_endpoint_removed(self):
+        """Legacy API-key token exchange must not be exposed."""
+        from fastapi.testclient import TestClient
+
+        client = TestClient(self.service.app)
+
+        response = client.post("/mcp/token", headers={"Authorization": "Bearer api-key"})
+
+        assert response.status_code == 404
+
+    def test_stats_endpoint_requires_authorization(self):
+        """Stats leak runtime topology and must be authenticated."""
+        from fastapi.testclient import TestClient
+
+        client = TestClient(self.service.app)
+
+        response = client.get("/stats")
+
+        assert response.status_code == 401
+
+    def test_tool_registry_rejects_local_handler_ref_over_http(self):
+        """Remote registry writes cannot create local executable handler refs."""
+        from fastapi.testclient import TestClient
+
+        client = TestClient(self.service.app)
+
+        response = client.post(
+            "/mcp/tools/register",
+            json={
+                "tool_id": "tool.local",
+                "active": True,
+                "provider_name": "endframe",
+                "resource_scope": "provider:endframe:resource:deployments",
+                "action_scope": "provider:endframe:action:invoke",
+                "execution_mode": "local",
+                "tool_type": "logic",
+                "handler_ref": "evil.module:run",
+            },
+            headers={"Authorization": "Bearer test-token"},
+        )
+
+        assert response.status_code == 400
+        assert "trusted startup" in response.json()["detail"]
 
     def test_tool_registry_register_endpoint_success(self):
         """Tool registry register endpoint should return persisted record payload."""

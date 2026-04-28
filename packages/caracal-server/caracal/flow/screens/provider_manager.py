@@ -999,17 +999,10 @@ def _tool_registry_register(console: Console, state: FlowState) -> None:
     selected_action = dict(action_payload.get(action_id) or {})
     resource_scope = build_resource_scope(provider_name, resource_id)
     action_scope = build_action_scope(provider_name, action_id)
-    execution_mode = prompt.select("Execution mode", ["local", "mcp_forward"], default="mcp_forward")
+    execution_mode = "mcp_forward"
     tool_type = prompt.select("Tool type", ["direct_api", "logic"], default="direct_api")
     handler_ref = None
-    if tool_type == "logic":
-        handler_ref = prompt.text(
-            "Handler reference (module:function)",
-            validator=lambda value: _validate_non_empty("Handler reference", value),
-        ).strip()
-    mcp_server_name = None
-    if execution_mode == "mcp_forward":
-        mcp_server_name = prompt.text("MCP server name (optional)", default="").strip() or None
+    mcp_server_name = prompt.text("MCP server name (optional)", default="").strip() or None
 
     actor_principal_id = prompt.text(
         "Actor principal ID (UUID)",
@@ -1168,8 +1161,8 @@ def _tool_registry_invoke(console: Console, state: FlowState) -> None:
         f"http://localhost:{os.environ.get('CCL_API_PORT', '8080')}",
     )
     base_url = prompt.text("API base URL", default=default_base_url).strip() or default_base_url
-    default_api_key = os.environ.get("CCL_API_KEY", "")
-    api_key = prompt.text("API token (Bearer)", default=default_api_key).strip() or None
+    default_api_key = os.environ.get("CCL_SESS_TOKEN", "")
+    api_key = prompt.text("AIS session token (Bearer)", default=default_api_key).strip() or None
 
     from caracal.flow.sdk_bridge import SDKBridge
 

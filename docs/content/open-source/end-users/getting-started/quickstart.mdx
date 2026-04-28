@@ -107,14 +107,14 @@ Minimal SDK check:
 ```python
 from caracal_sdk.client import CaracalClient
 
-client = CaracalClient(api_key="replace-with-runtime-api-key")
+client = CaracalClient(api_key="replace-with-ais-session-token")
 print("client-initialized")
 client.close()
 ```
 
 Verification criteria:
 
-- Client initialization succeeds when `api_key` and runtime URL are valid.
+- Client initialization succeeds when the AIS-issued session token and runtime URL are valid.
 - No `SDKConfigurationError` is raised.
 
 The SDK resolves base URL from `CCL_API_URL` or defaults to `http://localhost:${CCL_API_PORT:-8080}`.
@@ -123,7 +123,7 @@ The SDK resolves base URL from `CCL_API_URL` or defaults to `http://localhost:${
 
 - `caracal up` fails: Docker/Compose unavailable, permissions missing, or image pull/network issues.
 - `caracal flow` fails immediately: runtime services not healthy yet.
-- SDK init fails: missing/invalid API key or incorrect runtime URL/port mapping.
+- SDK init fails: missing/invalid session token or incorrect runtime URL/port mapping.
 
 ## Where to go next
 

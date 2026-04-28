@@ -43,6 +43,8 @@ Deterministic configuration contract for `redis` runtime settings.
 
 - Reject malformed values for required keys.
 - Keep security-sensitive defaults fail-closed.
+- Require `CCL_REDIS_PASSWORD`; unauthenticated Redis is invalid.
+- Do not expose Redis on the host unless an explicit dev override is selected.
 - Preserve namespace boundaries (`CCL_*` vs `CCLE_*`).
 - Validate dependent service settings as a single unit.
 

@@ -2,7 +2,7 @@
 Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 Caracal, a product of Garudex Labs
 
-Bootstrap command: provisions the system root principal, issues the first-boot AIS nonce, and mints the local SDK API key.
+Bootstrap command: provisions the system root principal and issues the first-boot AIS nonce.
 """
 
 from __future__ import annotations
@@ -16,9 +16,6 @@ import click
 
 from caracal.db import DatabaseConfig, DatabaseConnectionManager
 from caracal.db.models import Principal, PrincipalAttestationStatus, PrincipalKind, PrincipalLifecycleStatus
-
-API_KEY_PREFIX = "cark_"
-
 
 def _runtime_env_path() -> Path:
     """Resolve the runtime .env file that compose loads via --env-file.
@@ -73,10 +70,6 @@ def _read_env_var(env_path: Path, key: str) -> str | None:
     return None
 
 
-def _mint_api_key() -> str:
-    return f"{API_KEY_PREFIX}{secrets.token_urlsafe(32)}"
-
-
 @click.command(name="bootstrap")
 @click.option(
     "--force",
@@ -84,19 +77,12 @@ def _mint_api_key() -> str:
     default=False,
     help="Re-issue nonce even if principals already exist.",
 )
-@click.option(
-    "--rotate-api-key",
-    is_flag=True,
-    default=False,
-    help="Generate a fresh CCL_API_KEY even if one already exists.",
-)
 @click.pass_context
-def bootstrap(ctx, force: bool, rotate_api_key: bool) -> None:
-    """Provision the system principal, issue the first-boot AIS nonce, and mint the local SDK API key.
+def bootstrap(ctx, force: bool) -> None:
+    """Provision the system principal and issue the first-boot AIS nonce.
 
-    Idempotent: skips principal creation and reuses the existing API key on
-    subsequent runs unless --force or --rotate-api-key is passed. All
-    generated values are written to the internal runtime .env that
+    Idempotent: skips principal creation on subsequent runs unless --force is
+    passed. Generated values are written to the internal runtime .env that
     `caracal up` reads automatically; users do not need to touch it.
     """
     from caracal.identity import AttestationNonceManager
@@ -150,7 +136,9 @@ def bootstrap(ctx, force: bool, rotate_api_key: bool) -> None:
 
     redis_host = os.environ.get("REDIS_HOST", "localhost").strip() or "localhost"
     redis_port = int(os.environ.get("REDIS_PORT", "6379").strip() or "6379")
-    redis_password = os.environ.get("REDIS_PASSWORD", "").strip() or None
+    redis_password = os.environ.get("CCL_REDIS_PASSWORD", "").strip()
+    if not redis_password:
+        raise click.ClickException("CCL_REDIS_PASSWORD is required before running bootstrap.")
 
     redis_client = RedisClient(host=redis_host, port=redis_port, password=redis_password)
     nonce_manager = AttestationNonceManager(redis_client)
@@ -169,27 +157,18 @@ def bootstrap(ctx, force: bool, rotate_api_key: bool) -> None:
     existing_caveat_key = _read_env_var(env_path, "CCL_SESS_HMAC")
     caveat_hmac_key = existing_caveat_key or secrets.token_hex(32)
 
-    existing_api_key = _read_env_var(env_path, "CCL_API_KEY")
-    if rotate_api_key or not existing_api_key:
-        api_key = _mint_api_key()
-        api_key_action = "rotated" if existing_api_key else "issued"
-    else:
-        api_key = existing_api_key
-        api_key_action = "reused"
-
     _write_env_vars(env_path, {
         "CCL_AIS_ATTESTATION_NONCE": issued.nonce,
         "CCL_AIS_ATTESTATION_PID": principal_id,
         "CCL_SESS_HMAC": caveat_hmac_key,
-        "CCL_API_KEY": api_key,
     })
 
     click.echo()
     click.echo(f"Bootstrap complete. Internal state written to {env_path}")
-    click.echo(f"  CCL_API_KEY ({api_key_action}): {api_key}")
+    click.echo("  AIS startup nonce issued.")
     click.echo()
     click.echo("Next steps:")
     click.echo("  caracal up            # start the runtime stack")
-    click.echo("  caracal auth token    # reprint the API key at any time")
+    click.echo("  Mint AIS session tokens through the authenticated /v1/ais/token flow.")
 
     db_manager.close()

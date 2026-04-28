@@ -313,7 +313,7 @@ class AllowlistConfig:
     """Resource allowlist configuration for v0.3."""
     
     enabled: bool = True
-    default_behavior: str = "allow"  # "allow" or "deny" when no allowlist defined
+    default_behavior: str = "deny"  # "allow" or "deny" when no allowlist defined
     cache_ttl: int = 60  # Cache compiled patterns for 60 seconds
     max_patterns_per_principal: int = 1000
 

@@ -116,6 +116,7 @@ _GATEWAY_URL_ENV_KEYS = (
     "CCL_GATEWAY_URL",
 )
 _GATEWAY_ENABLED_ENV_KEY = "CCL_GATEWAY_ENABLED"
+_SECRET_FILE_NAMES = (".env",)
 
 
 def _default_models_file() -> Path:
@@ -371,6 +372,32 @@ def _config_path_violations(config_paths: Sequence[Path] | None) -> list[str]:
     return violations
 
 
+def _secret_file_permission_violations(
+    env_vars: Mapping[str, str | None] | None,
+) -> list[str]:
+    if not env_vars:
+        return []
+
+    candidate_roots: list[Path] = []
+    for key in ("CCL_HOME", "CCL_CFG_DIR"):
+        raw_value = (env_vars.get(key) or "").strip()
+        if raw_value:
+            candidate_roots.append(Path(raw_value).expanduser())
+
+    violations: list[str] = []
+    for root in candidate_roots:
+        for name in _SECRET_FILE_NAMES:
+            candidate = root / name
+            if not candidate.exists():
+                continue
+            mode = candidate.stat().st_mode & 0o777
+            if mode & 0o077:
+                violations.append(
+                    f"Secret file {candidate} has mode {mode:o}; use owner-only permissions (chmod 600)."
+                )
+    return violations
+
+
 def _jsonb_violations(models_file: Path | None, check_jsonb: bool) -> list[str]:
     if not check_jsonb:
         return []
@@ -428,6 +455,7 @@ def assert_runtime_hardcut(
     violations.extend(_state_root_violations(state_roots))
     violations.extend(_compatibility_violations(env_vars))
     violations.extend(_secret_backend_violations(env_vars))
+    violations.extend(_secret_file_permission_violations(env_vars))
     violations.extend(_asymmetric_session_signing_violations(env_vars))
     violations.extend(_config_path_violations(config_paths))
     violations.extend(_jsonb_violations(models_file=models_file, check_jsonb=check_jsonb))
@@ -459,6 +487,7 @@ def assert_enterprise_hardcut(
     violations.extend(_compatibility_violations(env_vars))
     violations.extend(_execution_exclusivity_violations(env_vars))
     violations.extend(_secret_backend_violations(env_vars))
+    violations.extend(_secret_file_permission_violations(env_vars))
     violations.extend(_asymmetric_session_signing_violations(env_vars))
     violations.extend(_config_path_violations(config_paths))
     violations.extend(_jsonb_violations(models_file=models_file, check_jsonb=check_jsonb))
@@ -490,6 +519,7 @@ def assert_migration_hardcut(
     violations.extend(_compatibility_violations(env_vars))
     violations.extend(_execution_exclusivity_violations(env_vars))
     violations.extend(_secret_backend_violations(env_vars))
+    violations.extend(_secret_file_permission_violations(env_vars))
     violations.extend(_asymmetric_session_signing_violations(env_vars))
     violations.extend(_config_path_violations(config_paths))
     violations.extend(_jsonb_violations(models_file=models_file, check_jsonb=check_jsonb))

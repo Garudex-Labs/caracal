@@ -23,17 +23,17 @@ from caracal.identity.ais_server import (
 
 def _handlers() -> AISHandlers:
     return AISHandlers(
-        get_identity=lambda principal_id: {"principal_id": principal_id},
+        get_identity=lambda principal_id, _authorization: {"principal_id": principal_id},
         issue_token=lambda req, _authorization=None: {"access_token": f"token:{req.principal_id}"},
-        sign_payload=lambda req: {"signature": f"sig:{req.principal_id}"},
-        spawn_principal=lambda req: {
+        sign_payload=lambda req, _authorization: {"signature": f"sig:{req.principal_id}"},
+        spawn_principal=lambda req, _authorization: {
             "principal_id": "spawned-1",
             "attestation_nonce": "nonce-1",
             "request_name": req.principal_name,
         },
-        derive_task_token=lambda req: {"access_token": f"task:{req.task_id}"},
-        issue_handoff_token=lambda req: {"handoff_token": f"handoff:{req.target_subject_id}"},
-        refresh_session=lambda req: {"access_token": f"refresh:{req.refresh_token}"},
+        derive_task_token=lambda req, _authorization: {"access_token": f"task:{req.task_id}"},
+        issue_handoff_token=lambda req, _authorization: {"handoff_token": f"handoff:{req.target_subject_id}"},
+        refresh_session=lambda req, _authorization: {"access_token": f"refresh:{req.refresh_token}"},
     )
 
 
@@ -50,8 +50,18 @@ def test_validate_ais_bind_host_rejects_non_local() -> None:
 
 
 @pytest.mark.unit
-def test_resolve_ais_listen_target_falls_back_to_loopback_tcp() -> None:
-    config = AISServerConfig(unix_socket_path="", listen_host="127.0.0.1", listen_port=7777)
+def test_resolve_ais_listen_target_requires_explicit_loopback_tcp() -> None:
+    with pytest.raises(AISBindTargetError, match="disabled by default"):
+        resolve_ais_listen_target(
+            AISServerConfig(unix_socket_path="", listen_host="127.0.0.1", listen_port=7777)
+        )
+
+    config = AISServerConfig(
+        unix_socket_path="",
+        listen_host="127.0.0.1",
+        listen_port=7777,
+        allow_tcp_transport=True,
+    )
 
     target = resolve_ais_listen_target(config)
 
@@ -62,7 +72,10 @@ def test_resolve_ais_listen_target_falls_back_to_loopback_tcp() -> None:
 
 @pytest.mark.unit
 def test_create_ais_app_registers_required_routes() -> None:
-    app = create_ais_app(_handlers(), AISServerConfig(unix_socket_path="", listen_host="127.0.0.1"))
+    app = create_ais_app(
+        _handlers(),
+        AISServerConfig(unix_socket_path="", listen_host="127.0.0.1", allow_tcp_transport=True),
+    )
 
     route_paths = {route.path for route in app.routes}
 
@@ -78,10 +91,14 @@ def test_create_ais_app_registers_required_routes() -> None:
 
 @pytest.mark.unit
 def test_ais_endpoints_delegate_to_handlers() -> None:
-    app = create_ais_app(_handlers(), AISServerConfig(unix_socket_path="", listen_host="127.0.0.1"))
+    app = create_ais_app(
+        _handlers(),
+        AISServerConfig(unix_socket_path="", listen_host="127.0.0.1", allow_tcp_transport=True),
+    )
     client = TestClient(app)
+    auth_headers = {"Authorization": "Bearer caller-token"}
 
-    identity_resp = client.get("/v1/ais/identity/p-1")
+    identity_resp = client.get("/v1/ais/identity/p-1", headers=auth_headers)
     assert identity_resp.status_code == 200
     assert identity_resp.json()["principal_id"] == "p-1"
 
@@ -99,6 +116,7 @@ def test_ais_endpoints_delegate_to_handlers() -> None:
     sign_resp = client.post(
         "/v1/ais/sign",
         json=SignRequest(principal_id="p-1", payload={"a": 1}).model_dump(),
+        headers=auth_headers,
     )
     assert sign_resp.status_code == 200
     assert sign_resp.json()["signature"] == "sig:p-1"
@@ -115,6 +133,7 @@ def test_ais_endpoints_delegate_to_handlers() -> None:
             validity_seconds=300,
             idempotency_key="idemp-1",
         ).model_dump(),
+        headers=auth_headers,
     )
     assert spawn_resp.status_code == 200
     assert spawn_resp.json()["attestation_nonce"] == "nonce-1"
@@ -122,6 +141,7 @@ def test_ais_endpoints_delegate_to_handlers() -> None:
     task_resp = client.post(
         "/v1/ais/task-token/derive",
         json=TaskTokenDeriveRequest(parent_access_token="a", task_id="task-1").model_dump(),
+        headers=auth_headers,
     )
     assert task_resp.status_code == 200
     assert task_resp.json()["access_token"] == "task:task-1"
@@ -129,6 +149,7 @@ def test_ais_endpoints_delegate_to_handlers() -> None:
     handoff_resp = client.post(
         "/v1/ais/handoff",
         json=HandoffRequest(source_access_token="a", target_subject_id="p-2").model_dump(),
+        headers=auth_headers,
     )
     assert handoff_resp.status_code == 200
     assert handoff_resp.json()["handoff_token"] == "handoff:p-2"
@@ -136,6 +157,7 @@ def test_ais_endpoints_delegate_to_handlers() -> None:
     refresh_resp = client.post(
         "/v1/ais/refresh",
         json=RefreshRequest(refresh_token="r-1").model_dump(),
+        headers=auth_headers,
     )
     assert refresh_resp.status_code == 200
     assert refresh_resp.json()["access_token"] == "refresh:r-1"
@@ -147,18 +169,18 @@ def test_ais_token_endpoint_forwards_authorization_header() -> None:
 
     app = create_ais_app(
         AISHandlers(
-            get_identity=lambda principal_id: {"principal_id": principal_id},
+            get_identity=lambda principal_id, _authorization: {"principal_id": principal_id},
             issue_token=lambda req, authorization=None: (
                 seen.update({"authorization": authorization})
                 or {"access_token": f"token:{req.principal_id}"}
             ),
-            sign_payload=lambda req: {"signature": f"sig:{req.principal_id}"},
-            spawn_principal=lambda req: {"principal_id": "spawned-1", "attestation_nonce": "nonce-1"},
-            derive_task_token=lambda req: {"access_token": f"task:{req.task_id}"},
-            issue_handoff_token=lambda req: {"handoff_token": f"handoff:{req.target_subject_id}"},
-            refresh_session=lambda req: {"access_token": f"refresh:{req.refresh_token}"},
+            sign_payload=lambda req, _authorization: {"signature": f"sig:{req.principal_id}"},
+            spawn_principal=lambda req, _authorization: {"principal_id": "spawned-1", "attestation_nonce": "nonce-1"},
+            derive_task_token=lambda req, _authorization: {"access_token": f"task:{req.task_id}"},
+            issue_handoff_token=lambda req, _authorization: {"handoff_token": f"handoff:{req.target_subject_id}"},
+            refresh_session=lambda req, _authorization: {"access_token": f"refresh:{req.refresh_token}"},
         ),
-        AISServerConfig(unix_socket_path="", listen_host="127.0.0.1"),
+        AISServerConfig(unix_socket_path="", listen_host="127.0.0.1", allow_tcp_transport=True),
     )
     client = TestClient(app)
 
@@ -178,7 +200,10 @@ def test_ais_token_endpoint_forwards_authorization_header() -> None:
 
 @pytest.mark.unit
 def test_spawn_request_rejects_manual_identity_and_key_material_fields() -> None:
-    app = create_ais_app(_handlers(), AISServerConfig(unix_socket_path="", listen_host="127.0.0.1"))
+    app = create_ais_app(
+        _handlers(),
+        AISServerConfig(unix_socket_path="", listen_host="127.0.0.1", allow_tcp_transport=True),
+    )
     client = TestClient(app)
 
     response = client.post(

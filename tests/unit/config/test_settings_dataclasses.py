@@ -155,7 +155,7 @@ class TestAllowlistConfig:
     def test_defaults(self):
         cfg = AllowlistConfig()
         assert cfg.enabled is True
-        assert cfg.default_behavior == "allow"
+        assert cfg.default_behavior == "deny"
         assert cfg.cache_ttl == 60
         assert cfg.max_patterns_per_principal == 1000
 

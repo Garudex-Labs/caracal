@@ -16,6 +16,10 @@ ai_counterpart: /ai/open-source/end-users/configuration/environment-variables
 
 Environment variable contract. CCL/CCLE namespace and runtime variable mapping.
 
+Secret-bearing env files must be owner-only. Runtime preflight rejects `.env`
+files under `CCL_HOME` or `CCL_CFG_DIR` when group/other permissions are set;
+use `chmod 600 .env` after creating or editing them.
+
 ## Configuration intent
 
 This page defines how to set and validate this configuration surface without creating ambiguity across host/runtime boundaries.
@@ -35,7 +39,7 @@ This page defines how to set and validate this configuration surface without cre
 
 ## Failure branches
 
-- Missing required keys or malformed values.
+- Missing required keys, malformed values, or unsafe `.env` file permissions.
 - Cross-service mismatch between dependent settings.
 - Runtime startup failures from incompatible configuration combinations.
 

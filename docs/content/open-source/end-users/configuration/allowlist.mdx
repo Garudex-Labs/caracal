@@ -16,6 +16,9 @@ ai_counterpart: /ai/open-source/end-users/configuration/allowlist
 
 Allowlist configuration. Resource access pattern rules and defaults.
 
+Allowlists are deny-by-default. When allowlist enforcement is enabled, a
+principal without an active matching allowlist entry is denied at runtime.
+
 ## Configuration intent
 
 This page defines how to set and validate this configuration surface without creating ambiguity across host/runtime boundaries.
@@ -23,7 +26,7 @@ This page defines how to set and validate this configuration surface without cre
 ## Required decisions
 
 - Choose values per environment tier (dev/stage/prod).
-- Define fallback behavior for missing optional settings.
+- Define explicit allowlist entries for every principal/resource pair that must run.
 - Specify hard failure conditions for invalid values.
 
 ## Validation sequence

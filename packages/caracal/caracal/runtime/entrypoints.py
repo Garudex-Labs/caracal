@@ -42,6 +42,7 @@ AIS_STARTUP_NONCE_ENV = "CCL_AIS_ATTESTATION_NONCE"
 AIS_STARTUP_PRINCIPAL_ENV = "CCL_AIS_ATTESTATION_PID"
 AIS_API_PREFIX_ENV = "CCL_AIS_API_PREFIX"
 AIS_UNIX_SOCKET_PATH_ENV = "CCL_AIS_UNIX_SOCKET_PATH"
+AIS_TRANSPORT_ENV = "CCL_AIS_TRANSPORT"
 AIS_LISTEN_HOST_ENV = "CCL_AIS_LISTEN_HOST"
 AIS_LISTEN_PORT_ENV = "CCL_AIS_LISTEN_PORT"
 AIS_HEALTHCHECK_TIMEOUT_ENV = "CCL_AIS_HEALTHCHECK_TTL_SECONDS"
@@ -49,7 +50,7 @@ AIS_HEALTHCHECK_INTERVAL_ENV = "CCL_AIS_HEALTHCHECK_INTERVAL_SECONDS"
 AIS_STARTUP_TIMEOUT_ENV = "CCL_AIS_STARTUP_TTL_SECONDS"
 AIS_MAX_RESTARTS_ENV = "CCL_AIS_MAX_RESTARTS"
 AIS_DEFAULT_API_PREFIX = "/v1/ais"
-AIS_DEFAULT_UNIX_SOCKET_PATH = "/tmp/caracal-ais.sock"
+AIS_DEFAULT_UNIX_SOCKET_PATH = ""
 AIS_DEFAULT_LISTEN_HOST = "127.0.0.1"
 AIS_DEFAULT_LISTEN_PORT = 7079
 AIS_SESSION_SIGNING_KEY_REF_ENV = "CCL_VAULT_SIGNING_KEY_REF"
@@ -239,23 +240,17 @@ def _run_host_orchestrator(args: Sequence[str]) -> int:
     )
     bootstrap_parser.set_defaults(handler=_host_bootstrap)
 
-    auth_parser = subparsers.add_parser("auth", help="Inspect and rotate local runtime auth")
+    auth_parser = subparsers.add_parser("auth", help="Inspect runtime auth guidance")
     auth_subparsers = auth_parser.add_subparsers(dest="auth_command", required=True)
     auth_token_parser = auth_subparsers.add_parser(
         "token",
-        help="Print the local CCL_API_KEY managed by bootstrap",
-    )
-    auth_token_parser.add_argument(
-        "--rotate",
-        action="store_true",
-        default=False,
-        help="Generate a fresh CCL_API_KEY and write it to the runtime .env",
+        help="Explain the authenticated AIS session-token flow",
     )
     auth_token_parser.add_argument(
         "--quiet",
         action="store_true",
         default=False,
-        help="Print only the bare API key value",
+        help="Suppress explanatory text",
     )
     auth_token_parser.set_defaults(handler=_host_auth_token)
 
@@ -1136,8 +1131,6 @@ def _host_auth_token(namespace: argparse.Namespace) -> int:
         "auth",
         "token",
     ]
-    if getattr(namespace, "rotate", False):
-        run_cmd.append("--rotate")
     if getattr(namespace, "quiet", False):
         run_cmd.append("--quiet")
 
@@ -1151,13 +1144,8 @@ def _host_auth_token(namespace: argparse.Namespace) -> int:
         if result.stderr:
             print(result.stderr, file=sys.stderr, end="" if result.stderr.endswith("\n") else "\n")
         if result.returncode == 0:
-            for line in reversed((result.stdout or "").splitlines()):
-                if line.startswith("cark_"):
-                    print(line)
-                    break
-            else:
-                if result.stdout:
-                    print(result.stdout, end="" if result.stdout.endswith("\n") else "\n")
+            if result.stdout:
+                print(result.stdout, end="" if result.stdout.endswith("\n") else "\n")
         elif result.stdout:
             print(result.stdout, end="" if result.stdout.endswith("\n") else "\n")
         return result.returncode
@@ -1549,11 +1537,24 @@ def _parse_int_env(env_key: str, default: int) -> int:
 def _create_ais_server_config():
     from caracal.identity import AISServerConfig
 
+    configured_socket_path = os.environ.get(AIS_UNIX_SOCKET_PATH_ENV)
+    socket_path = (
+        configured_socket_path
+        if configured_socket_path is not None
+        else str(resolve_caracal_home() / "run" / "caracal-ais.sock")
+    )
+    transport = (os.environ.get(AIS_TRANSPORT_ENV) or "").strip().lower()
+    env_mode = (os.environ.get("CCL_ENV_MODE") or "").strip().lower()
+    allow_tcp_transport = transport == "tcp" and env_mode in {"dev", "development", "test"}
+    if transport == "tcp":
+        socket_path = ""
+
     return AISServerConfig(
         api_prefix=(os.environ.get(AIS_API_PREFIX_ENV) or AIS_DEFAULT_API_PREFIX).strip() or AIS_DEFAULT_API_PREFIX,
-        unix_socket_path=os.environ.get(AIS_UNIX_SOCKET_PATH_ENV, AIS_DEFAULT_UNIX_SOCKET_PATH),
+        unix_socket_path=socket_path,
         listen_host=(os.environ.get(AIS_LISTEN_HOST_ENV) or AIS_DEFAULT_LISTEN_HOST).strip() or AIS_DEFAULT_LISTEN_HOST,
         listen_port=_parse_int_env(AIS_LISTEN_PORT_ENV, AIS_DEFAULT_LISTEN_PORT),
+        allow_tcp_transport=allow_tcp_transport,
     )
 
 
@@ -1616,7 +1617,9 @@ def _consume_ais_startup_attestation(
     if nonce_manager_factory is None:
         redis_host = (os.environ.get("REDIS_HOST") or "localhost").strip() or "localhost"
         redis_port = _parse_int_env("REDIS_PORT", 6379)
-        redis_password = (os.environ.get("REDIS_PASSWORD") or "").strip() or None
+        redis_password = (os.environ.get("CCL_REDIS_PASSWORD") or "").strip()
+        if not redis_password:
+            raise RuntimeError("CCL_REDIS_PASSWORD is required for AIS startup attestation")
         redis_client = RedisClient(host=redis_host, port=redis_port, password=redis_password)
         manager = AttestationNonceManager(redis_client)
     else:
@@ -1701,11 +1704,11 @@ def _resolve_runtime_redis_url() -> str:
 
     host = (os.environ.get("REDIS_HOST") or "localhost").strip() or "localhost"
     port = _parse_int_env("REDIS_PORT", 6379)
-    password = (os.environ.get("REDIS_PASSWORD") or "").strip()
-    if password:
-        encoded_password = urllib.parse.quote(password, safe="")
-        return f"redis://:{encoded_password}@{host}:{port}/0"
-    return f"redis://{host}:{port}/0"
+    password = (os.environ.get("CCL_REDIS_PASSWORD") or "").strip()
+    if not password:
+        raise RuntimeError("CCL_REDIS_PASSWORD is required for runtime Redis connections")
+    encoded_password = urllib.parse.quote(password, safe="")
+    return f"redis://:{encoded_password}@{host}:{port}/0"
 
 
 def _resolve_ais_vault_secret(secret_ref: str) -> str:
@@ -1884,7 +1887,9 @@ def _create_runtime_redis_client():
 
     redis_host = (os.environ.get("REDIS_HOST") or "localhost").strip() or "localhost"
     redis_port = _parse_int_env("REDIS_PORT", 6379)
-    redis_password = (os.environ.get("REDIS_PASSWORD") or "").strip() or None
+    redis_password = (os.environ.get("CCL_REDIS_PASSWORD") or "").strip()
+    if not redis_password:
+        raise RuntimeError("CCL_REDIS_PASSWORD is required for runtime Redis connections")
     return RedisClient(host=redis_host, port=redis_port, password=redis_password)
 
 
@@ -2031,7 +2036,7 @@ def _build_ais_handlers(
     from caracal.core.session_manager import SessionKind, SessionValidationError
     from caracal.core.signing_service import SigningService
     from caracal.core.spawn import SpawnManager
-    from caracal.db.models import ExecutionMandate, PrincipalLifecycleStatus
+    from caracal.db.models import ExecutionMandate, Principal, PrincipalLifecycleStatus
     from caracal.exceptions import DuplicatePrincipalNameError, PrincipalNotFoundError
     from caracal.identity import AISHandlers
     from caracal.identity.attestation_nonce import (
@@ -2070,8 +2075,89 @@ def _build_ais_handlers(
         except Exception:
             return normalized
 
-    def _get_identity(principal_id: str) -> dict[str, Any] | None:
+    def _caller_has_capability(
+        self_claims: dict[str, Any] | None,
+        caller_principal_id: str,
+        *capabilities: str,
+    ) -> bool:
+        requested = {str(capability).strip() for capability in capabilities if str(capability).strip()}
+        if not requested:
+            return False
+
+        claim_capabilities = {
+            str(capability).strip()
+            for capability in (self_claims or {}).get("capabilities", []) or []
+            if str(capability).strip()
+        }
+        if "system.admin" in claim_capabilities or requested.intersection(claim_capabilities):
+            return True
+
+        with resolved_db_manager.session_scope() as session:
+            query = getattr(session, "query", None)
+            if not callable(query):
+                return False
+            principal_query = query(Principal)
+            if principal_query is None or not hasattr(principal_query, "filter_by"):
+                return False
+            principal = principal_query.filter_by(principal_id=caller_principal_id).first()
+            if principal is None:
+                return False
+            db_capabilities = {
+                str(capability).strip()
+                for capability in (getattr(principal, "capabilities", []) or [])
+                if str(capability).strip()
+            }
+            return "system.admin" in db_capabilities or bool(requested.intersection(db_capabilities))
+
+    def _resolve_authenticated_caller(
+        authorization_header: str | None,
+    ) -> tuple[str, dict[str, Any]]:
+        token = _extract_bearer_token(authorization_header)
+        if not token:
+            raise SessionValidationError("Missing Authorization header")
+
+        claims = _run_sync(resolved_session_manager.validate_access_token(token))
+        caller_principal_id = _normalize_principal_id(
+            claims.get("sub") or claims.get("principal_id") or ""
+        )
+        if not caller_principal_id:
+            raise SessionValidationError(
+                "Validated caller token is missing subject principal identity"
+            )
+        _require_active_principal(caller_principal_id)
+        return caller_principal_id, claims
+
+    def _authorize_caller_for_target(
+        *,
+        authorization_header: str | None,
+        target_principal_id: str,
+        capability: str,
+        operation: str,
+    ) -> str:
+        caller_principal_id, claims = _resolve_authenticated_caller(authorization_header)
+        normalized_target = _normalize_principal_id(target_principal_id)
+        if caller_principal_id == normalized_target:
+            return caller_principal_id
+        if _caller_has_capability(claims, caller_principal_id, capability):
+            return caller_principal_id
+        if _caller_has_active_delegation_mandate(caller_principal_id, normalized_target):
+            return caller_principal_id
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                f"Authenticated principal '{caller_principal_id}' is not authorized "
+                f"to {operation} for '{normalized_target}'"
+            ),
+        )
+
+    def _get_identity(principal_id: str, authorization_header: str) -> dict[str, Any] | None:
         try:
+            _authorize_caller_for_target(
+                authorization_header=authorization_header,
+                target_principal_id=principal_id,
+                capability="ais.identity.read",
+                operation="read identity",
+            )
             with resolved_db_manager.session_scope() as session:
                 identity_service = IdentityService(principal_registry=PrincipalRegistry(session))
                 identity = identity_service.get_principal(principal_id)
@@ -2090,6 +2176,8 @@ def _build_ais_handlers(
                 return normalized_principal_id
 
             identity_service = IdentityService(principal_registry=PrincipalRegistry(session))
+            if not hasattr(identity_service, "get_principal"):
+                return normalized_principal_id
             identity = identity_service.get_principal(normalized_principal_id)
             if identity is None:
                 raise PrincipalNotFoundError(f"Principal {normalized_principal_id} not found")
@@ -2117,15 +2205,7 @@ def _build_ais_handlers(
         token = _extract_bearer_token(authorization_header)
         if not token:
             return ""
-
-        claims = _run_sync(resolved_session_manager.validate_access_token(token))
-        caller_principal_id = _normalize_principal_id(
-            claims.get("sub") or claims.get("principal_id") or ""
-        )
-        if not caller_principal_id:
-            raise SessionValidationError(
-                "Validated caller token is missing subject principal identity"
-            )
+        caller_principal_id, _ = _resolve_authenticated_caller(authorization_header)
         return caller_principal_id
 
     def _caller_has_active_delegation_mandate(
@@ -2240,8 +2320,14 @@ def _build_ais_handlers(
         except Exception as exc:
             _raise_http_error(exc)
 
-    def _sign_payload(request: object) -> dict[str, Any]:
+    def _sign_payload(request: object, authorization_header: str) -> dict[str, Any]:
         try:
+            _authorize_caller_for_target(
+                authorization_header=authorization_header,
+                target_principal_id=str(getattr(request, "principal_id")),
+                capability="ais.sign",
+                operation="sign payload",
+            )
             with resolved_db_manager.session_scope() as session:
                 principal_registry = PrincipalRegistry(session)
                 signing_service = SigningService(principal_registry)
@@ -2253,8 +2339,15 @@ def _build_ais_handlers(
         except Exception as exc:
             _raise_http_error(exc)
 
-    def _spawn_principal(request: object) -> dict[str, Any]:
+    def _spawn_principal(request: object, authorization_header: str) -> dict[str, Any]:
         try:
+            issuer_principal_id = str(getattr(request, "issuer_principal_id"))
+            _authorize_caller_for_target(
+                authorization_header=authorization_header,
+                target_principal_id=issuer_principal_id,
+                capability="ais.spawn",
+                operation="spawn principal",
+            )
             with resolved_db_manager.session_scope() as session:
                 principal_registry = PrincipalRegistry(session)
                 spawn_manager = SpawnManager(
@@ -2267,7 +2360,7 @@ def _build_ais_handlers(
                     spawn_manager=spawn_manager,
                 )
                 spawn_result = identity_service.spawn_principal(
-                    issuer_principal_id=str(getattr(request, "issuer_principal_id")),
+                    issuer_principal_id=issuer_principal_id,
                     principal_name=str(getattr(request, "principal_name")),
                     principal_kind=str(getattr(request, "principal_kind")),
                     owner=str(getattr(request, "owner")),
@@ -2290,8 +2383,9 @@ def _build_ais_handlers(
         except Exception as exc:
             _raise_http_error(exc)
 
-    def _derive_task_token(request: object) -> dict[str, Any]:
+    def _derive_task_token(request: object, authorization_header: str) -> dict[str, Any]:
         try:
+            _resolve_authenticated_caller(authorization_header)
             issued = resolved_session_manager.issue_task_token(
                 parent_access_token=str(getattr(request, "parent_access_token")),
                 task_id=str(getattr(request, "task_id")),
@@ -2302,8 +2396,9 @@ def _build_ais_handlers(
         except Exception as exc:
             _raise_http_error(exc)
 
-    def _issue_handoff_token(request: object) -> dict[str, Any]:
+    def _issue_handoff_token(request: object, authorization_header: str) -> dict[str, Any]:
         try:
+            _resolve_authenticated_caller(authorization_header)
             token = _run_sync(
                 resolved_session_manager.issue_handoff_token(
                     source_access_token=str(getattr(request, "source_access_token")),
@@ -2316,8 +2411,9 @@ def _build_ais_handlers(
         except Exception as exc:
             _raise_http_error(exc)
 
-    def _refresh_session(request: object) -> dict[str, Any]:
+    def _refresh_session(request: object, authorization_header: str) -> dict[str, Any]:
         try:
+            _resolve_authenticated_caller(authorization_header)
             issued = _run_sync(
                 resolved_session_manager.refresh_session(
                     str(getattr(request, "refresh_token")),
@@ -2483,6 +2579,7 @@ def _run_ais_server() -> int:
         print(f"Error: AIS startup failed: {exc}", file=sys.stderr)
         return 1
 
+    old_umask: int | None = None
     try:
         import uvicorn
 
@@ -2491,15 +2588,33 @@ def _run_ais_server() -> int:
                 raise RuntimeError("AIS Unix socket path is not configured")
 
             socket_path = Path(listen_target.unix_socket_path)
-            socket_path.parent.mkdir(parents=True, exist_ok=True)
+            socket_path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+            try:
+                socket_path.parent.chmod(0o700)
+            except OSError:
+                pass
             if socket_path.exists():
+                stat_result = socket_path.stat()
+                if hasattr(os, "getuid") and stat_result.st_uid != os.getuid():
+                    raise RuntimeError(
+                        f"Refusing to unlink AIS socket not owned by current user: {socket_path}"
+                    )
+                if not socket_path.is_socket():
+                    raise RuntimeError(
+                        f"Refusing to replace non-socket AIS path: {socket_path}"
+                    )
                 socket_path.unlink()
 
+            old_umask = os.umask(0o177)
             config = uvicorn.Config(
                 app=app,
                 uds=listen_target.unix_socket_path,
                 log_level=(os.environ.get("LOG_LEVEL") or "info").lower(),
             )
+            try:
+                socket_path.chmod(0o600)
+            except OSError:
+                pass
         else:
             if listen_target.host is None or listen_target.port is None:
                 raise RuntimeError("AIS TCP listen target is not fully configured")
@@ -2519,6 +2634,8 @@ def _run_ais_server() -> int:
     finally:
         if ttl_listener_stop is not None:
             ttl_listener_stop.set()
+        if old_umask is not None:
+            os.umask(old_umask)
 
 
 def _start_ais_subprocess() -> subprocess.Popen[bytes]:

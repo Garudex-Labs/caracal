@@ -5,7 +5,7 @@ Caracal, a product of Garudex Labs
 Caracal SDK Client & Builder.
 
 Provides two entry points to initialize the SDK:
-    - ``CaracalClient(api_key=...)`` — quick start with sensible defaults
+    - ``CaracalClient(api_key=...)`` — quick start with an AIS-issued session token
     - ``CaracalBuilder().set_api_key(...).use(...).build()`` — advanced config
 
 """
@@ -39,7 +39,7 @@ class CaracalClient:
 
     Quick start::
 
-        client = CaracalClient(api_key="sk_test_123")
+        client = CaracalClient(api_key="ais-session-token")
         result = await client.tools.call(
             tool_id="provider:demo:resource:jobs:action:run",
             tool_args={"job": "example"},
@@ -54,7 +54,7 @@ class CaracalClient:
         )
 
     Args:
-        api_key: API key for authentication.
+        api_key: AIS-issued session token sent as ``Authorization: Bearer``.
         base_url: Root URL of the Caracal API.
             Defaults to ``CCL_API_URL`` when set, else
             ``http://localhost:${CCL_API_PORT:-8080}``.
@@ -146,7 +146,7 @@ class CaracalBuilder:
 
         client = (
             CaracalBuilder()
-            .set_api_key("sk_prod_123")
+            .set_api_key("ais-session-token")
             .set_base_url("https://api.caracal.io")
             .set_transport(CustomAdapter(...))
             .use(ComplianceExtension(standard="soc2"))
@@ -163,7 +163,7 @@ class CaracalBuilder:
         self._extensions: List[CaracalExtension] = []
 
     def set_api_key(self, key: str) -> CaracalBuilder:
-        """Set the API key."""
+        """Set the AIS-issued session token."""
         self._api_key = key
         return self
 

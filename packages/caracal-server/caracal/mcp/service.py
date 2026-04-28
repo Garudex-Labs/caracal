@@ -27,8 +27,11 @@ from caracal._version import __version__
 from caracal.types import JsonObject, StrictAPIModel
 from caracal.mcp.adapter import MCPAdapter, MCPContext, MCPResult
 from caracal.core.authority import AuthorityEvaluator
+from caracal.core.allowlist import AllowlistManager
 from caracal.core.metering import MeteringCollector
 from caracal.db.models import RegisteredTool
+from caracal.db.models import Principal, PrincipalLifecycleStatus
+from caracal.core.session_manager import SessionKind
 from caracal.exceptions import (
     CaracalError,
     MCPProviderMissingError,
@@ -278,10 +281,17 @@ class MCPAdapterService:
             )
         return parts[1].strip()
 
+    def _get_db_session(self) -> Any | None:
+        session = getattr(self.authority_evaluator, "db_session", None)
+        if session is not None:
+            return session
+        return getattr(getattr(self.mcp_adapter, "authority_evaluator", None), "db_session", None)
+
     async def _resolve_authenticated_principal(
         self,
         *,
         raw_request: Request,
+        required_kinds: Optional[set[SessionKind]] = None,
     ) -> tuple[str, Dict[str, Any]]:
         """Validate caller token and return authenticated principal identity."""
         if self.session_manager is None:
@@ -292,7 +302,10 @@ class MCPAdapterService:
 
         token = self._extract_bearer_token(raw_request.headers.get("Authorization"))
         try:
-            claims = await self.session_manager.validate_access_token(token)
+            claims = await self.session_manager.validate_access_token(
+                token,
+                required_kinds=required_kinds,
+            )
         except Exception as exc:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
@@ -328,6 +341,111 @@ class MCPAdapterService:
                 detail="Validated access token subject claim must be a UUID",
             ) from exc
 
+        session = self._get_db_session()
+        query = getattr(session, "query", None)
+        if callable(query):
+            principal_query = query(Principal)
+            if principal_query is None or not hasattr(principal_query, "filter_by"):
+                raise HTTPException(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    detail="Principal registry lookup is not available",
+                )
+            principal = principal_query.filter_by(principal_id=principal_id).first()
+            if principal is None:
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Authenticated principal is not registered",
+                )
+            lifecycle = str(getattr(principal, "lifecycle_status", "") or "").strip().lower()
+            if lifecycle and lifecycle != PrincipalLifecycleStatus.ACTIVE.value:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail=f"Authenticated principal is not active (status={lifecycle})",
+                )
+
+        return principal_id, claims
+
+    def _principal_has_capability(
+        self,
+        *,
+        principal_id: str,
+        token_claims: Dict[str, Any],
+        allowed_capabilities: set[str],
+    ) -> bool:
+        claim_capabilities = {
+            str(capability).strip()
+            for capability in (token_claims or {}).get("capabilities", []) or []
+            if str(capability).strip()
+        }
+        if "system.admin" in claim_capabilities or allowed_capabilities.intersection(claim_capabilities):
+            return True
+
+        session = self._get_db_session()
+        query = getattr(session, "query", None)
+        if not callable(query):
+            return False
+        principal_query = query(Principal)
+        if principal_query is None or not hasattr(principal_query, "filter_by"):
+            return False
+        principal = principal_query.filter_by(principal_id=principal_id).first()
+        if principal is None:
+            return False
+        db_capabilities = {
+            str(capability).strip()
+            for capability in (getattr(principal, "capabilities", []) or [])
+            if str(capability).strip()
+        }
+        return "system.admin" in db_capabilities or bool(allowed_capabilities.intersection(db_capabilities))
+
+    def _enforce_resource_allowlist(
+        self,
+        *,
+        principal_id: str,
+        resource_identifier: str,
+    ) -> None:
+        session = self._get_db_session()
+        if session is None:
+            return
+        if not callable(getattr(session, "execute", None)):
+            return
+        try:
+            decision = AllowlistManager(session).check_resource(
+                UUID(principal_id),
+                resource_identifier,
+            )
+        except Exception as exc:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Allowlist check failed closed: {exc}",
+            ) from exc
+        if not decision.allowed:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Resource denied by allowlist: {decision.reason}",
+            )
+
+    async def _require_capability(
+        self,
+        *,
+        raw_request: Request,
+        allowed_capabilities: set[str],
+    ) -> tuple[str, Dict[str, Any]]:
+        principal_id, claims = await self._resolve_authenticated_principal(
+            raw_request=raw_request,
+            required_kinds={SessionKind.INTERACTIVE, SessionKind.AUTOMATION},
+        )
+        if not self._principal_has_capability(
+            principal_id=principal_id,
+            token_claims=claims,
+            allowed_capabilities=allowed_capabilities,
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=(
+                    "Authenticated principal lacks required capability: "
+                    + ", ".join(sorted(allowed_capabilities))
+                ),
+            )
         return principal_id, claims
 
     @staticmethod
@@ -720,12 +838,16 @@ class MCPAdapterService:
             )
         
         @self.app.get("/stats")
-        async def get_stats():
+        async def get_stats(raw_request: Request):
             """
             Get service statistics.
             
             Returns request counts and performance metrics.
             """
+            await self._require_capability(
+                raw_request=raw_request,
+                allowed_capabilities={"system.stats.read"},
+            )
             return {
                 "requests_total": self._request_count,
                 "tool_calls_total": self._tool_call_count,
@@ -739,70 +861,21 @@ class MCPAdapterService:
                 ]
             }
 
-        @self.app.post("/mcp/token")
-        async def issue_token(raw_request: Request):
-            """Exchange a Caracal API key for a short-lived JWT session token."""
-            import os
-            from pathlib import Path
-            token = self._extract_bearer_token(raw_request.headers.get("Authorization"))
-            stored = os.environ.get("CCL_API_KEY", "").strip()
-            if not stored:
-                caracal_home = os.environ.get("CCL_HOME", "").strip()
-                if caracal_home:
-                    env_path = Path(caracal_home) / ".env"
-                    try:
-                        for line in env_path.read_text(encoding="utf-8").splitlines():
-                            if line.startswith("CCL_API_KEY="):
-                                stored = line.split("=", 1)[1].strip()
-                                break
-                    except Exception:
-                        pass
-            if not stored or not token or token != stored:
-                raise HTTPException(
-                    status_code=status.HTTP_401_UNAUTHORIZED,
-                    detail="Invalid API key",
-                )
-            if self.session_manager is None:
-                raise HTTPException(
-                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                    detail="Session manager not configured",
-                )
-            subject_id = (
-                os.environ.get("CCL_ENFORCE_PID", "").strip()
-                or os.environ.get("CCL_AIS_ATTESTATION_PID", "").strip()
-                or "e394e710-4290-4531-bec2-751ecc431352"
-            )
-            if not subject_id or subject_id == "e394e710-4290-4531-bec2-751ecc431352":
-                caracal_home = os.environ.get("CCL_HOME", "").strip()
-                if caracal_home:
-                    env_path = Path(caracal_home) / ".env"
-                    try:
-                        file_vals: dict[str, str] = {}
-                        for line in env_path.read_text(encoding="utf-8").splitlines():
-                            for key in ("CCL_ENFORCE_PID", "CCL_AIS_ATTESTATION_PID"):
-                                if line.strip().startswith(key + "="):
-                                    val = line.strip().split("=", 1)[1].strip()
-                                    if val:
-                                        file_vals[key] = val
-                        subject_id = (
-                            file_vals.get("CCL_ENFORCE_PID")
-                            or file_vals.get("CCL_AIS_ATTESTATION_PID")
-                            or subject_id
-                        )
-                    except Exception:
-                        pass
-            issued = self.session_manager.issue_session(
-                subject_id=subject_id,
-                workspace_id="lynx-capital",
-                tenant_id="lynx-capital",
-                session_kind="automation",
-            )
-            return {"access_token": issued.access_token, "token_type": "bearer"}
-
         @self.app.post("/mcp/tools/register", response_model=MCPServiceResponse)
         async def register_tool(request: ToolRegistryRegisterRequest, raw_request: Request):
             """Register or update persisted tool lifecycle state."""
-            principal_id, _ = await self._resolve_authenticated_principal(raw_request=raw_request)
+            principal_id, _ = await self._require_capability(
+                raw_request=raw_request,
+                allowed_capabilities={"mcp.tool_registry.manage"},
+            )
+            if str(request.execution_mode or "").strip().lower() == "local" or request.handler_ref:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=(
+                        "HTTP tool registry cannot create local handler_ref bindings; "
+                        "local logic tools must be registered by trusted startup code"
+                    ),
+                )
             try:
                 row = self.mcp_adapter.register_tool(
                     tool_id=request.tool_id,
@@ -840,7 +913,10 @@ class MCPAdapterService:
         @self.app.get("/mcp/tools", response_model=MCPServiceResponse)
         async def list_tools(raw_request: Request, include_inactive: bool = False):
             """List persisted tool registrations."""
-            principal_id, _ = await self._resolve_authenticated_principal(raw_request=raw_request)
+            principal_id, _ = await self._require_capability(
+                raw_request=raw_request,
+                allowed_capabilities={"mcp.tool_registry.manage"},
+            )
             workspace_metadata = self._normalize_workspace_scope_metadata(
                 raw_request=raw_request,
                 metadata={},
@@ -863,7 +939,10 @@ class MCPAdapterService:
         @self.app.post("/mcp/tools/deactivate", response_model=MCPServiceResponse)
         async def deactivate_tool(request: ToolRegistryRequest, raw_request: Request):
             """Deactivate a persisted tool registration."""
-            principal_id, _ = await self._resolve_authenticated_principal(raw_request=raw_request)
+            principal_id, _ = await self._require_capability(
+                raw_request=raw_request,
+                allowed_capabilities={"mcp.tool_registry.manage"},
+            )
             workspace_metadata = self._normalize_workspace_scope_metadata(
                 raw_request=raw_request,
                 metadata={"workspace_name": request.workspace_name},
@@ -894,7 +973,10 @@ class MCPAdapterService:
         @self.app.post("/mcp/tools/reactivate", response_model=MCPServiceResponse)
         async def reactivate_tool(request: ToolRegistryRequest, raw_request: Request):
             """Reactivate a persisted tool registration."""
-            principal_id, _ = await self._resolve_authenticated_principal(raw_request=raw_request)
+            principal_id, _ = await self._require_capability(
+                raw_request=raw_request,
+                allowed_capabilities={"mcp.tool_registry.manage"},
+            )
             workspace_metadata = self._normalize_workspace_scope_metadata(
                 raw_request=raw_request,
                 metadata={"workspace_name": request.workspace_name},
@@ -948,6 +1030,7 @@ class MCPAdapterService:
             try:
                 principal_id, token_claims = await self._resolve_authenticated_principal(
                     raw_request=raw_request,
+                    required_kinds={SessionKind.INTERACTIVE, SessionKind.AUTOMATION, SessionKind.TASK},
                 )
 
                 logger.info(
@@ -982,6 +1065,15 @@ class MCPAdapterService:
                     raw_request=raw_request,
                     metadata=request_metadata,
                     tool_row=tool_row,
+                )
+                resource_identifier = str(
+                    getattr(tool_row, "resource_scope", "")
+                    or request_metadata.get("resource_scope")
+                    or request.tool_id
+                )
+                self._enforce_resource_allowlist(
+                    principal_id=principal_id,
+                    resource_identifier=resource_identifier,
                 )
                 request_metadata = self._apply_trusted_security_metadata(
                     metadata=request_metadata,
@@ -1087,6 +1179,7 @@ class MCPAdapterService:
             try:
                 principal_id, token_claims = await self._resolve_authenticated_principal(
                     raw_request=raw_request,
+                    required_kinds={SessionKind.INTERACTIVE, SessionKind.AUTOMATION, SessionKind.TASK},
                 )
 
                 logger.info(

@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 
 def _env() -> dict[str, str]:
     return {
-        "api_key":      os.environ.get("CCL_API_KEY", ""),
+        "session_token": os.environ.get("CCL_SESS_TOKEN", ""),
         "api_url":      os.environ.get("CCL_API_URL", ""),
         "workspace_id": os.environ.get("CCL_WORKSPACE_ID", ""),
     }
@@ -48,7 +48,7 @@ async def validate_setup(request: Request):
         "id":      "env",
         "label":   "Environment variables set",
         "ok":      env_ok,
-        "detail":  "CCL_API_KEY, CCL_API_URL, CCL_WORKSPACE_ID" if env_ok
+        "detail":  "CCL_SESS_TOKEN, CCL_API_URL, CCL_WORKSPACE_ID" if env_ok
                    else "One or more required env vars are missing.",
     })
 

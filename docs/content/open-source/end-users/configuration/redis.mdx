@@ -16,6 +16,11 @@ ai_counterpart: /ai/open-source/end-users/configuration/redis
 
 Redis configuration. Caching/event channel and transport settings.
 
+Redis requires authentication in the default runtime. Set `CCL_REDIS_PASSWORD` to
+a strong value before starting compose or running bootstrap. The bundled compose
+files do not expose Redis on the host by default; use an explicit local dev
+override if host access is required.
+
 ## Configuration intent
 
 This page defines how to set and validate this configuration surface without creating ambiguity across host/runtime boundaries.
@@ -35,7 +40,7 @@ This page defines how to set and validate this configuration surface without cre
 
 ## Failure branches
 
-- Missing required keys or malformed values.
+- Missing `CCL_REDIS_PASSWORD`, unsafe host exposure, or malformed values.
 - Cross-service mismatch between dependent settings.
 - Runtime startup failures from incompatible configuration combinations.
 

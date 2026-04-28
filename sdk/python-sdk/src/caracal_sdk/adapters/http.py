@@ -23,7 +23,7 @@ class HttpAdapter(BaseAdapter):
 
     Args:
         base_url: Root URL of the Caracal API (e.g. ``http://localhost:8000``).
-        api_key: Optional API key added as ``Authorization: Bearer`` header.
+        api_key: Optional AIS-issued session token added as ``Authorization: Bearer``.
         timeout: Request timeout in seconds.
         max_retries: Maximum retry attempts on transient failures.
         transport: Optional httpx transport override (e.g. ``MockTransport`` for

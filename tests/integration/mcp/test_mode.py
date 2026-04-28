@@ -44,6 +44,10 @@ class _SessionStub:
     def __init__(self, tool_rows: list[Any], provider_rows: list[Any]):
         self._tool_rows = tool_rows
         self._provider_rows = provider_rows
+        self._principal_rows: list[Any] = []
+        self._allowlist_rows = [
+            SimpleNamespace(resource_pattern="*", pattern_type="glob", active=True)
+        ]
 
     def query(self, model):
         model_name = getattr(model, "__name__", str(model))
@@ -51,7 +55,22 @@ class _SessionStub:
             return _Query(self._tool_rows)
         if model_name == "GatewayProvider":
             return _Query(self._provider_rows)
+        if model_name == "Principal":
+            return _Query(self._principal_rows)
         raise AssertionError(f"Unsupported model query: {model_name}")
+
+    def execute(self, *_args, **_kwargs):
+        rows = list(self._allowlist_rows)
+
+        class _ScalarResult:
+            def all(self):
+                return rows
+
+        class _Result:
+            def scalars(self):
+                return _ScalarResult()
+
+        return _Result()
 
 
 class _AuthorityEvaluatorStub:
@@ -107,7 +126,7 @@ class _SessionManagerStub:
     def __init__(self, caller_principal_id: str):
         self._caller_principal_id = caller_principal_id
 
-    async def validate_access_token(self, _token: str):
+    async def validate_access_token(self, _token: str, **_kwargs):
         return {"sub": self._caller_principal_id}
 
 
@@ -174,6 +193,13 @@ def _build_service_app(
     )
 
     db_session = _SessionStub(tool_rows=[tool_row], provider_rows=[provider_row])
+    db_session._principal_rows = [
+        SimpleNamespace(
+            principal_id=caller_principal_id,
+            lifecycle_status="active",
+            capabilities=[],
+        )
+    ]
     authority_evaluator = _AuthorityEvaluatorStub(db_session, caller_principal_id)
     metering_collector = _MeteringCollectorStub()
     mcp_adapter = MCPAdapter(
@@ -336,7 +362,9 @@ async def test_sdk_tool_call_local_and_forward_modes_preserve_authorization_and_
     assert local_events[0].principal_id == forward_events[0].principal_id
     assert local_events[0].resource_type == forward_events[0].resource_type
     assert local_events[0].metadata["tool_name"] == forward_events[0].metadata["tool_name"]
-    assert local_events[0].metadata["mcp_context"]["token_subject"] == forward_events[0].metadata["mcp_context"]["token_subject"]
+    assert "token_subject" not in local_events[0].metadata["mcp_context"]
+    assert "token_subject" not in forward_events[0].metadata["mcp_context"]
+    assert local_events[0].metadata["tool_args_hash"] == forward_events[0].metadata["tool_args_hash"]
 
     local_scope._adapter.close()
     forward_scope._adapter.close()

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field as dataclass_field
 import ipaddress
 import os
 import socket
@@ -18,14 +18,21 @@ class AISBindTargetError(RuntimeError):
     """Raised when AIS is configured to listen on a non-local bind target."""
 
 
+def _default_unix_socket_path() -> str:
+    ccl_home = os.environ.get("CCL_HOME", "").strip()
+    home = ccl_home if ccl_home else os.path.join(os.path.expanduser("~"), ".caracal")
+    return os.path.join(home, "run", "caracal-ais.sock")
+
+
 @dataclass(frozen=True)
 class AISServerConfig:
     """Configuration surface for AIS app construction and bind policy."""
 
     api_prefix: str = "/v1/ais"
-    unix_socket_path: str = "/tmp/caracal-ais.sock"
+    unix_socket_path: str = dataclass_field(default_factory=_default_unix_socket_path)
     listen_host: str = "127.0.0.1"
     listen_port: int = 7079
+    allow_tcp_transport: bool = False
 
 
 @dataclass(frozen=True)
@@ -47,13 +54,13 @@ class AISHandlers:
     without leaking transport concerns into core logic.
     """
 
-    get_identity: Callable[[str], JsonObject | None]
+    get_identity: Callable[[str, str], JsonObject | None]
     issue_token: Callable[["TokenIssueRequest", Optional[str]], JsonObject]
-    sign_payload: Callable[["SignRequest"], JsonObject]
-    spawn_principal: Callable[["SpawnRequest"], JsonObject]
-    derive_task_token: Callable[["TaskTokenDeriveRequest"], JsonObject]
-    issue_handoff_token: Callable[["HandoffRequest"], JsonObject]
-    refresh_session: Callable[["RefreshRequest"], JsonObject]
+    sign_payload: Callable[["SignRequest", str], JsonObject]
+    spawn_principal: Callable[["SpawnRequest", str], JsonObject]
+    derive_task_token: Callable[["TaskTokenDeriveRequest", str], JsonObject]
+    issue_handoff_token: Callable[["HandoffRequest", str], JsonObject]
+    refresh_session: Callable[["RefreshRequest", str], JsonObject]
 
 
 class TokenIssueRequest(StrictAPIModel):
@@ -103,6 +110,19 @@ class RefreshRequest(StrictAPIModel):
     refresh_token: str = Field(..., min_length=1)
 
 
+def _extract_required_bearer(authorization: Optional[str]) -> str:
+    raw = str(authorization or "").strip()
+    if not raw:
+        raise HTTPException(status_code=401, detail="Missing Authorization header")
+    parts = raw.split(" ", 1)
+    if len(parts) != 2 or parts[0].lower() != "bearer" or not parts[1].strip():
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid Authorization header format; expected Bearer token",
+        )
+    return raw
+
+
 def _is_loopback_host(host: str) -> bool:
     normalized = str(host or "").strip().lower()
     if normalized in {"localhost", "127.0.0.1", "::1"}:
@@ -126,13 +146,17 @@ def validate_ais_bind_host(host: str) -> None:
 
 
 def resolve_ais_listen_target(config: AISServerConfig) -> AISListenTarget:
-    """Resolve preferred bind target: Unix socket by default, loopback TCP fallback."""
+    """Resolve preferred bind target: Unix socket by default, explicit dev TCP only."""
     if config.unix_socket_path and hasattr(socket, "AF_UNIX") and os.name != "nt":
         return AISListenTarget(
             transport="unix",
             unix_socket_path=config.unix_socket_path,
         )
 
+    if not config.allow_tcp_transport:
+        raise AISBindTargetError(
+            "AIS TCP transport is disabled by default; configure a Unix socket or explicitly enable dev TCP"
+        )
     validate_ais_bind_host(config.listen_host)
     return AISListenTarget(
         transport="tcp",
@@ -157,8 +181,11 @@ def create_ais_app(
         return {"status": "ok"}
 
     @router.get("/identity/{principal_id}")
-    def identity(principal_id: str) -> JsonObject:
-        payload = handlers.get_identity(principal_id)
+    def identity(
+        principal_id: str,
+        authorization: Optional[str] = Header(default=None),
+    ) -> JsonObject:
+        payload = handlers.get_identity(principal_id, _extract_required_bearer(authorization))
         if payload is None:
             raise HTTPException(status_code=404, detail="principal not found")
         return payload
@@ -171,24 +198,39 @@ def create_ais_app(
         return handlers.issue_token(request, authorization)
 
     @router.post("/sign")
-    def sign(request: SignRequest) -> JsonObject:
-        return handlers.sign_payload(request)
+    def sign(
+        request: SignRequest,
+        authorization: Optional[str] = Header(default=None),
+    ) -> JsonObject:
+        return handlers.sign_payload(request, _extract_required_bearer(authorization))
 
     @router.post("/spawn")
-    def spawn(request: SpawnRequest) -> JsonObject:
-        return handlers.spawn_principal(request)
+    def spawn(
+        request: SpawnRequest,
+        authorization: Optional[str] = Header(default=None),
+    ) -> JsonObject:
+        return handlers.spawn_principal(request, _extract_required_bearer(authorization))
 
     @router.post("/task-token/derive")
-    def task_token_derive(request: TaskTokenDeriveRequest) -> JsonObject:
-        return handlers.derive_task_token(request)
+    def task_token_derive(
+        request: TaskTokenDeriveRequest,
+        authorization: Optional[str] = Header(default=None),
+    ) -> JsonObject:
+        return handlers.derive_task_token(request, _extract_required_bearer(authorization))
 
     @router.post("/handoff")
-    def handoff(request: HandoffRequest) -> JsonObject:
-        return handlers.issue_handoff_token(request)
+    def handoff(
+        request: HandoffRequest,
+        authorization: Optional[str] = Header(default=None),
+    ) -> JsonObject:
+        return handlers.issue_handoff_token(request, _extract_required_bearer(authorization))
 
     @router.post("/refresh")
-    def refresh(request: RefreshRequest) -> JsonObject:
-        return handlers.refresh_session(request)
+    def refresh(
+        request: RefreshRequest,
+        authorization: Optional[str] = Header(default=None),
+    ) -> JsonObject:
+        return handlers.refresh_session(request, _extract_required_bearer(authorization))
 
     app.include_router(router)
     return app

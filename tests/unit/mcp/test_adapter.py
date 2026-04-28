@@ -1256,7 +1256,8 @@ class TestMCPAdapter:
             "resource_scope",
             "action_scope",
             "mcp_server_name",
-            "tool_args",
+            "tool_args_hash",
+            "tool_args_keys",
             "execution_mode",
             "mcp_context",
         }
@@ -1329,23 +1330,20 @@ class TestMCPAdapter:
                 )
 
     @pytest.mark.asyncio
-    async def test_execute_local_tool_resolves_callable_from_handler_ref_without_decorator_binding(self):
-        result = await self.adapter._execute_local_tool(
-            tool_id=_TOOL_ID,
-            principal_id="agent-123",
-            tool_args={"payload": "ok"},
-            handler_ref=f"{__name__}:_local_handler_ref_impl",
-            workspace_name="default",
-            provider_name=_MAPPED_PROVIDER_NAME,
-            resource_scope=_MAPPED_RESOURCE_SCOPE,
-            action_scope=_MAPPED_ACTION_SCOPE,
-            tool_type="logic",
-            allowed_downstream_scopes=[],
-        )
-
-        assert result["mode"] == "handler_ref"
-        assert result["payload"] == "ok"
-        assert result["principal_id"] == "agent-123"
+    async def test_execute_local_tool_rejects_dynamic_handler_ref_without_decorator_binding(self):
+        with pytest.raises(CaracalError, match="Dynamic handler_ref import is disabled"):
+            await self.adapter._execute_local_tool(
+                tool_id=_TOOL_ID,
+                principal_id="agent-123",
+                tool_args={"payload": "ok"},
+                handler_ref=f"{__name__}:_local_handler_ref_impl",
+                workspace_name="default",
+                provider_name=_MAPPED_PROVIDER_NAME,
+                resource_scope=_MAPPED_RESOURCE_SCOPE,
+                action_scope=_MAPPED_ACTION_SCOPE,
+                tool_type="logic",
+                allowed_downstream_scopes=[],
+            )
 
     @pytest.mark.asyncio
     async def test_intercept_tool_call_denies_logic_downstream_scope_outside_allowed_contract(self):

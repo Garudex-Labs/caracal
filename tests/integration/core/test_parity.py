@@ -442,7 +442,7 @@ def test_cli_and_tui_tool_registration_call_identical_core_contract(
 
     class _ToolPrompt:
         def __init__(self, _console):
-            self._select_values = iter(["endframe", "deployments", "invoke", "mcp_forward", "direct_api"])
+            self._select_values = iter(["endframe", "deployments", "invoke", "direct_api"])
             self._text_values = iter(
                 [
                     "tool.echo",
@@ -469,7 +469,7 @@ def test_cli_and_tui_tool_registration_call_identical_core_contract(
 
 
 @pytest.mark.integration
-def test_cli_and_tui_tool_registration_local_logic_contract_parity(
+def test_cli_and_tui_tool_registration_forward_contract_parity(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     runner = CliRunner()
@@ -520,7 +520,7 @@ def test_cli_and_tui_tool_registration_local_logic_contract_parity(
         tool_registry_cli.register,
         [
             "--tool-id",
-            "tool.echo.local.logic",
+            "tool.echo.forward",
             "--provider-name",
             "endframe",
             "--resource-id",
@@ -530,11 +530,11 @@ def test_cli_and_tui_tool_registration_local_logic_contract_parity(
             "--provider-definition-id",
             "endframe",
             "--execution-mode",
-            "local",
+            "mcp_forward",
             "--tool-type",
-            "logic",
-            "--handler-ref",
-            "tests.handlers:run",
+            "direct_api",
+            "--mcp-server-name",
+            "server-0",
             "--actor-principal-id",
             "11111111-1111-1111-1111-111111111111",
         ],
@@ -574,11 +574,11 @@ def test_cli_and_tui_tool_registration_local_logic_contract_parity(
 
     class _ToolPrompt:
         def __init__(self, _console):
-            self._select_values = iter(["endframe", "deployments", "invoke", "local", "logic"])
+            self._select_values = iter(["endframe", "deployments", "invoke", "direct_api"])
             self._text_values = iter(
                 [
-                    "tool.echo.local.logic",
-                    "tests.handlers:run",
+                    "tool.echo.forward",
+                    "server-0",
                     "11111111-1111-1111-1111-111111111111",
                 ]
             )
