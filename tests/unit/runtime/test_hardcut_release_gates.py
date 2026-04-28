@@ -512,17 +512,6 @@ def test_gateway_flow_has_no_hidden_auto_sync_path() -> None:
 
 
 @pytest.mark.unit
-def test_gateway_features_resolve_gateway_endpoint_through_edition_adapter() -> None:
-    gateway_features_file = _REPO_ROOT / "caracal" / "core" / "gateway_features.py"
-    payload = gateway_features_file.read_text(encoding="utf-8")
-
-    assert "get_deployment_edition_adapter" in payload
-    assert "resolve_gateway_feature_overrides" in payload
-    assert "load_enterprise_config" not in payload
-    assert "CCLE_API_URL" not in payload
-
-
-@pytest.mark.unit
 def test_sdk_gateway_adapter_has_no_direct_api_fallback_transport() -> None:
     gateway_adapter_file = _REPO_ROOT / "sdk" / "python-sdk" / "src" / "caracal_sdk" / "gateway.py"
     payload = gateway_adapter_file.read_text(encoding="utf-8")

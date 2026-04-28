@@ -20,7 +20,7 @@ class TestEditionExecutionExclusivity:
         with patch.object(EditionManager, "_auto_detect_edition", return_value=Edition.ENTERPRISE):
             with patch.object(EditionManager, "_resolve_gateway_url", return_value=None):
                 with patch.object(EditionManager, "_has_local_provider_registry_entries", return_value=False):
-                    with pytest.raises(EditionDetectionError, match="requires a gateway URL"):
+                    with pytest.raises(EditionDetectionError, match="requires a configured gateway URL"):
                         self.manager.get_edition()
 
     def test_gateway_and_local_provider_registry_conflict(self) -> None:

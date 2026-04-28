@@ -371,8 +371,17 @@ class TestLoadVaultConfig:
         assert cfg.mode == "managed"
 
     def test_default_environment_is_dev(self, monkeypatch: pytest.MonkeyPatch):
-        self._set_valid_env(monkeypatch)
-        monkeypatch.delenv("CCL_VAULT_ENVIRONMENT", raising=False)
+        from caracal.core import vault as vault_module
+
+        monkeypatch.setattr(
+            vault_module,
+            "_read_env_or_dotenv",
+            lambda name: {
+                "CCL_VAULT_URL": "https://vault.example.com",
+                "CCL_VAULT_TOKEN": "tok-abc",
+                "CCL_VAULT_MODE": "managed",
+            }.get(name),
+        )
         cfg = self.fn()
         assert cfg.default_environment == "dev"
 

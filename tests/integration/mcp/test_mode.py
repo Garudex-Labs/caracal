@@ -183,6 +183,25 @@ def _build_service_app(
         mcp_server_urls={"server-0": "http://upstream.test"},
     )
 
+    provider_registry_entry = {
+        "enabled": True,
+        "definition": _provider_definition_payload(),
+        "provider_definition": "endframe",
+        "service_type": "ai",
+        "name": "endframe",
+        "auth_scheme": "none",
+        "base_url": "https://api.endframe.dev",
+        "credential_ref": None,
+    }
+
+    def _load_provider_entry(*, workspace_name, provider_name):
+        del workspace_name
+        if provider_name == "endframe":
+            return dict(provider_registry_entry)
+        return None
+
+    mcp_adapter._load_workspace_provider_entry = _load_provider_entry
+
     if execution_mode == "local" and normalized_handler_ref:
         @mcp_adapter.as_decorator(tool_id=tool_id)
         async def _local_tool(principal_id: str, **tool_args):
