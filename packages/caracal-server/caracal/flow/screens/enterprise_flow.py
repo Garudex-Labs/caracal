@@ -14,7 +14,6 @@ Displays:
 
 from typing import Optional
 
-import requests as _req
 from rich.console import Console
 from rich.panel import Panel
 from rich.prompt import Prompt
@@ -463,6 +462,8 @@ class EnterpriseFlow:
         api_url = info.get("enterprise_api_url")
         if api_url:
             try:
+                import requests as _req
+
                 resp = _req.get(f"{api_url.rstrip('/')}/health", timeout=5)
                 if resp.ok:
                     self.console.print(f"[{Colors.SUCCESS}]✓ Enterprise API reachable[/]")

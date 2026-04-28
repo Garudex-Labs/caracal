@@ -21,17 +21,36 @@ _cases: dict[str, dict] = {}
 _LOG = logging.getLogger(__name__)
 
 
+def _discover_case_paths() -> dict[str, Path]:
+    data_root = _DATA_DIR.resolve()
+    paths: dict[str, Path] = {}
+    for service_dir in _DATA_DIR.glob("*.mock"):
+        if not service_dir.is_dir():
+            continue
+        service_id = service_dir.name.removesuffix(".mock")
+        if not _SERVICE_ID_RE.fullmatch(service_id):
+            continue
+        case_path = (service_dir / "cases.json").resolve()
+        try:
+            case_path.relative_to(data_root)
+        except ValueError:
+            continue
+        if case_path.is_file():
+            paths[service_id] = case_path
+    return paths
+
+
+_SERVICE_CASE_PATHS = _discover_case_paths()
+
+
 def _load(service_id: str) -> dict:
     if not _SERVICE_ID_RE.fullmatch(service_id):
         raise KeyError(service_id)
     if service_id not in _cases:
-        path = (_DATA_DIR / f"{service_id}.mock" / "cases.json").resolve()
         try:
-            path.relative_to(_DATA_DIR.resolve())
-        except ValueError as exc:
+            path = _SERVICE_CASE_PATHS[service_id]
+        except KeyError as exc:
             raise KeyError(service_id) from exc
-        if not path.exists():
-            raise KeyError(service_id)
         _cases[service_id] = json.loads(path.read_text(encoding="utf-8"))
     return _cases[service_id]
 
@@ -103,9 +122,15 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
 
+def _server_address_from_env() -> tuple[str, int]:
+    return (
+        os.getenv("MOCK_SERVER_HOST", "0.0.0.0"),
+        int(os.getenv("MOCK_SERVER_PORT", "80")),
+    )
+
+
 if __name__ == "__main__":
-    host = os.getenv("MOCK_SERVER_HOST", "127.0.0.1")
-    port = int(os.getenv("MOCK_SERVER_PORT", "80"))
+    host, port = _server_address_from_env()
     server = ThreadingHTTPServer((host, port), Handler)
     print(f"Mock provider server listening on {host}:{port}", flush=True)
     server.serve_forever()

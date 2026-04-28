@@ -16,6 +16,7 @@ os.environ.setdefault("OPENAI_API_KEY", "test-key")
 
 from app.services.registry import call
 from app.core.dataset import INVOICES, VENDORS
+from _mock import server as mock_server
 
 
 # Representative sample: one call per service action, exercised 100 times.
@@ -78,3 +79,26 @@ def test_all_vendor_ids_stable():
     ids_first  = list(VENDORS.keys())
     ids_second = list(VENDORS.keys())
     assert ids_first == ids_second
+
+
+def test_mock_server_loads_only_discovered_case_paths():
+    """Request-controlled service IDs must not be used to construct filesystem paths."""
+    assert "mercury-bank" in mock_server._SERVICE_CASE_PATHS
+    assert mock_server._load("mercury-bank")["actions"]
+
+    with pytest.raises(KeyError):
+        mock_server._load("../mercury-bank")
+
+    with pytest.raises(KeyError):
+        mock_server._load("missing-service")
+
+
+def test_mock_server_binds_to_container_network_by_default(monkeypatch):
+    monkeypatch.delenv("MOCK_SERVER_HOST", raising=False)
+    monkeypatch.delenv("MOCK_SERVER_PORT", raising=False)
+
+    assert mock_server._server_address_from_env() == ("0.0.0.0", 80)
+
+    monkeypatch.setenv("MOCK_SERVER_HOST", "127.0.0.1")
+    monkeypatch.setenv("MOCK_SERVER_PORT", "8088")
+    assert mock_server._server_address_from_env() == ("127.0.0.1", 8088)
