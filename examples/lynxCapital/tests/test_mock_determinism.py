@@ -6,8 +6,12 @@ Mock determinism tests: same inputs always produce identical outputs across repe
 """
 from __future__ import annotations
 
+import json
 import os
 import sys
+from http.client import HTTPConnection
+from http.server import ThreadingHTTPServer
+from threading import Thread
 
 import pytest
 
@@ -102,3 +106,61 @@ def test_mock_server_binds_to_container_network_by_default(monkeypatch):
     monkeypatch.setenv("MOCK_SERVER_HOST", "127.0.0.1")
     monkeypatch.setenv("MOCK_SERVER_PORT", "8088")
     assert mock_server._server_address_from_env() == ("127.0.0.1", 8088)
+
+
+def _mock_http_request(
+    method: str,
+    path: str,
+    *,
+    host: str = "mercury-bank.mock",
+    body: bytes | None = None,
+) -> tuple[int, dict]:
+    httpd = ThreadingHTTPServer(("127.0.0.1", 0), mock_server.Handler)
+    thread = Thread(target=httpd.serve_forever, daemon=True)
+    conn: HTTPConnection | None = None
+    thread.start()
+    try:
+        conn = HTTPConnection("127.0.0.1", httpd.server_port, timeout=5)
+        headers = {"Host": host}
+        if body is not None:
+            headers["Content-Type"] = "application/json"
+        conn.request(method, path, body=body, headers=headers)
+        resp = conn.getresponse()
+        payload = json.loads(resp.read().decode())
+        return resp.status, payload
+    finally:
+        if conn is not None:
+            conn.close()
+        httpd.shutdown()
+        httpd.server_close()
+        thread.join(timeout=5)
+
+
+def test_mock_http_server_dispatches_valid_provider_request():
+    status, payload = _mock_http_request(
+        "POST",
+        "/get_account_balance",
+        body=json.dumps({"vendor_id": "us-axiom-cloud"}).encode(),
+    )
+
+    assert status == 200
+    assert payload["account_id"] == "acct_axm_4521"
+
+
+def test_mock_http_server_rejects_invalid_host_and_json():
+    status, payload = _mock_http_request("POST", "/get_account_balance", host="localhost")
+
+    assert status == 400
+    assert "invalid host header" in payload["error"]
+
+    status, payload = _mock_http_request("POST", "/get_account_balance", body=b"{")
+
+    assert status == 400
+    assert payload["error"] == "invalid JSON in request body"
+
+
+def test_mock_http_server_get_health():
+    status, payload = _mock_http_request("GET", "/health", host="localhost")
+
+    assert status == 200
+    assert payload == {"status": "ok"}
