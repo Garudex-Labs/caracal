@@ -88,6 +88,16 @@ RULES = (
         description="OSS runtime code must not own Enterprise runtime config schema.",
         pattern=r"\bEnterpriseRuntimeConfig\b|\benterprise_runtime_config\b",
     ),
+    Rule(
+        key="enterprise_gateway_client",
+        description="OSS runtime code must not own the Enterprise gateway client.",
+        pattern=r"\bGatewayClient\b|\bgateway_client\b",
+    ),
+    Rule(
+        key="enterprise_gateway_features",
+        description="OSS runtime code must not own Enterprise gateway feature flags.",
+        pattern=r"\bGatewayFeatureFlags\b|\bget_gateway_features\b|\bgateway_features\b",
+    ),
 )
 
 

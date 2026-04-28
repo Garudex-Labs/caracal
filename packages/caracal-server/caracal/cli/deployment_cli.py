@@ -1500,36 +1500,9 @@ def provider_list(workspace: Optional[str], format: str):
         providers_data: List[Dict[str, Any]] = []
 
         if edition_adapter.uses_gateway_execution():
-            from caracal.deployment.gateway_client import GatewayClient
-
-            gateway_url = edition_adapter.require_gateway_url()
-
-            gateway_client = GatewayClient(
-                gateway_url=gateway_url,
-                config_manager=config_manager,
-                workspace=workspace,
+            raise click.ClickException(
+                "Enterprise gateway providers are managed by the Caracal Enterprise dashboard and API."
             )
-            try:
-                providers = asyncio.run(gateway_client.get_available_providers())
-            finally:
-                asyncio.run(gateway_client.close())
-
-            providers_data = [
-                {
-                    "name": provider.name,
-                    "service_type": provider.service_type,
-                    "auth_scheme": provider.auth_scheme,
-                    "base_url": provider.metadata.get("base_url") if isinstance(provider.metadata, dict) else None,
-                    "version": provider.version,
-                    "status": provider.status,
-                    "tags": provider.tags,
-                    "provider_definition": provider.provider_definition,
-                    "resources": provider.resources,
-                    "actions": provider.actions,
-                    "tool_bindings": tool_bindings.get(provider.name, []),
-                }
-                for provider in providers
-            ]
         else:
             broker, registry = _build_oss_broker(config_manager, workspace)
             providers = broker.list_providers()
@@ -1616,30 +1589,9 @@ def provider_test(name: str, workspace: Optional[str]):
             task = progress.add_task(f"Testing provider '{name}'...", total=None)
 
             if edition_adapter.uses_gateway_execution():
-                from caracal.deployment.gateway_client import GatewayClient
-
-                gateway_url = edition_adapter.require_gateway_url()
-
-                gateway_client = GatewayClient(
-                    gateway_url=gateway_url,
-                    config_manager=config_manager,
-                    workspace=workspace,
+                raise click.ClickException(
+                    "Enterprise gateway providers are tested by the Caracal Enterprise dashboard and API."
                 )
-                try:
-                    gateway_health = asyncio.run(gateway_client.check_connection())
-                    providers = asyncio.run(gateway_client.get_available_providers())
-                finally:
-                    asyncio.run(gateway_client.close())
-
-                selected = next((p for p in providers if p.name == name), None)
-                is_healthy = bool(gateway_health.healthy and selected and selected.available)
-                error_message = None
-                if not gateway_health.healthy:
-                    error_message = gateway_health.error
-                elif not selected:
-                    error_message = "Provider not found in gateway registry"
-                elif not selected.available:
-                    error_message = "Provider is currently unavailable"
             else:
                 broker, _ = _build_oss_broker(config_manager, workspace)
                 try:

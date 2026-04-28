@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Any, Optional, Union
+from typing import Any, Optional
 
 from caracal.deployment.edition import Edition, EditionManager
 from caracal.deployment.exceptions import EditionConfigurationError
@@ -151,12 +151,13 @@ class DeploymentEditionAdapter:
 
         return normalized
 
-    def get_provider_client(self) -> Union["Broker", "GatewayClient"]:
+    def get_provider_client(self) -> "Broker":
         from caracal.deployment.broker import Broker
-        from caracal.deployment.gateway_client import GatewayClient
 
         if self.is_enterprise():
-            return GatewayClient(gateway_url=self.require_gateway_url())
+            raise EditionConfigurationError(
+                "Enterprise gateway provider clients are owned by Caracal Enterprise."
+            )
         return Broker()
 
     def clear_cache(self) -> None:

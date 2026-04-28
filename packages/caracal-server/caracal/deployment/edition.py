@@ -334,23 +334,22 @@ class EditionManager:
         """
         return self.get_edition() == Edition.OPENSOURCE
     
-    def get_provider_client(self) -> Union["Broker", "GatewayClient"]:
+    def get_provider_client(self) -> "Broker":
         """
         Returns appropriate client (Broker or Gateway).
         
         Factory method that returns the appropriate provider client based on
         the current edition:
         - Open Source Edition: Returns Broker instance
-        - Enterprise Edition: Returns GatewayClient instance
+        - Enterprise Edition: Raises because gateway clients are Enterprise-owned
         
         Returns:
-            Provider client instance (Broker or GatewayClient)
+            Provider client instance for OSS execution
             
         Raises:
             EditionDetectionError: If edition detection fails
         """
         from caracal.deployment.broker import Broker
-        from caracal.deployment.gateway_client import GatewayClient
         
         edition = self.get_edition()
         self._assert_execution_exclusivity(edition)
@@ -361,12 +360,9 @@ class EditionManager:
                 raise EditionConfigurationError(
                     "Enterprise URL is required for Enterprise provider client"
                 )
-            logger.debug(
-                "provider_client_created",
-                edition=edition.value,
-                client_type="GatewayClient"
+            raise EditionConfigurationError(
+                "Enterprise gateway provider clients are owned by Caracal Enterprise."
             )
-            return GatewayClient(gateway_url=gateway_url)
         else:
             logger.debug(
                 "provider_client_created",
