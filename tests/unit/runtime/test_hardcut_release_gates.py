@@ -417,11 +417,9 @@ def test_runtime_and_cli_gateway_resolution_is_centralized_in_edition_adapter() 
     offenders: list[str] = []
     forbidden_markers = (
         'os.environ.get("CCLE_API_URL")',
+        'os.environ.get("CCLE_GATEWAY_ENABLED")',
     )
-    allowed_files = {
-        "caracal/deployment/edition.py",
-        "caracal/runtime/hardcut_preflight.py",
-    }
+    allowed_files: set[str] = set()
 
     for py_file in source_root.rglob("*.py"):
         relative_path = _caracal_relative_posix(py_file)

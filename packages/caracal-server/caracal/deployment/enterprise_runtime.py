@@ -1,4 +1,9 @@
-"""Canonical enterprise runtime helpers for OSS deployment-owned clients."""
+"""
+Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+Caracal, a product of Garudex Labs
+
+Enterprise runtime helpers for deployment-owned clients.
+"""
 
 from __future__ import annotations
 
@@ -267,7 +272,7 @@ def _resolve_api_url(override: Optional[str] = None) -> str:
     if persisted_url:
         return persisted_url
 
-    enterprise_url = _normalize_enterprise_url(_read_env("CCLE_API_URL"))
+    enterprise_url = _normalize_enterprise_url(_read_env("CCL_ENTERPRISE_API_URL"))
     if enterprise_url:
         return enterprise_url
 
