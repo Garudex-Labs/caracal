@@ -434,6 +434,42 @@ def test_runtime_and_cli_gateway_resolution_is_centralized_in_edition_adapter() 
 
 
 @pytest.mark.unit
+def test_oss_vault_modules_do_not_reference_enterprise_surface() -> None:
+    scoped_files = (
+        _REPO_ROOT / "caracal" / "core" / "vault.py",
+        _REPO_ROOT / "caracal" / "deployment" / "secrets_adapter.py",
+        _REPO_ROOT / "caracal" / "provider" / "credential_store.py",
+    )
+    forbidden_markers = (
+        "CCLE_",
+        "caracalEnterprise",
+        "caracalEnterprise.",
+        "from caracal.enterprise",
+        "import caracal.enterprise",
+    )
+    offenders: list[str] = []
+
+    for py_file in scoped_files:
+        payload = py_file.read_text(encoding="utf-8")
+        if any(marker in payload for marker in forbidden_markers):
+            offenders.append(_caracal_relative_posix(py_file))
+
+    assert offenders == []
+
+
+@pytest.mark.unit
+def test_enterprise_secrets_route_does_not_import_oss_secrets_adapter() -> None:
+    enterprise_root = _OSS_ROOT.parent / "caracalEnterprise"
+    if not enterprise_root.is_dir():
+        pytest.skip("caracalEnterprise sibling checkout not present")
+    route_file = enterprise_root / "services" / "api" / "src" / "caracal_api" / "routes" / "secrets.py"
+    payload = route_file.read_text(encoding="utf-8")
+
+    assert "caracal.deployment.secrets_adapter" not in payload
+    assert "SecretsAdapter(" not in payload
+
+
+@pytest.mark.unit
 def test_feature_modules_do_not_branch_on_is_enterprise_directly() -> None:
     source_root = _REPO_ROOT / "caracal"
     offenders: list[str] = []

@@ -1,0 +1,75 @@
+---
+title: Security And Vault Isolation
+sidebar_label: Security And Vault Isolation
+slug: /enterprise/security-vault-isolation
+page_type: runbook
+audience: operator
+edition: enterprise
+version: 1.0
+status: authored
+---
+
+# Security And Vault Isolation
+
+Caracal Enterprise keeps OSS broker execution separate from CCLE gateway and vault execution. The OSS runtime must not import Enterprise modules, read `CCLE_*` settings, own gateway provider records, or reach Enterprise vault credentials directly.
+
+## Architecture Boundary
+
+- OSS owns local broker runtime, OSS vault adapters, policy evaluation contracts, and SDK-facing CCL behavior.
+- Enterprise owns CCLE API routes, gateway provider registry records, `gateway_vault` provider credentials, metering ingestion, denial compliance events, and dashboard operations.
+- Shared behavior must cross through audited bridge code or stable authority contracts, not direct runtime imports.
+- Provider credentials are stored and resolved by Enterprise gateway/vault paths. Authenticated providers use `gateway_vault`; unauthenticated providers use `none`.
+
+## Gateway Runbook
+
+In production, the Enterprise gateway fails closed unless provider registry enforcement, revocation sync, quota enforcement, secret binding, and their runtime dependencies are available. A production process with those features disabled or missing dependencies must not start.
+
+Operational checks:
+
+- Confirm gateway health before routing traffic.
+- Verify provider registry cache invalidation after provider URL, status, or credential changes.
+- Treat missing workspace or organization context as a gateway denial.
+- Review gateway denial events in compliance reports when investigating rejected traffic.
+- Do not route Enterprise gateway requests with `X-Caracal-Target-URL`; use `X-Caracal-Provider-ID` so the registry builds the upstream URL.
+
+## Provider SSRF Controls
+
+Provider base URLs must be HTTPS public FQDNs. The registry rejects userinfo, IP literals, loopback/private-looking hosts, query strings, and fragments. Allowed paths are segment bounded: `/v1` permits `/v1/models`, but not `/v10/models`. Encoded traversal segments such as `%2e%2e` are rejected.
+
+## Secret Reveal Controls
+
+Secrets and CCLE keys are explicit reveal flows, not ambient page data:
+
+- Provider secrets are revealed through the Enterprise API reveal endpoint and clear from the UI on hide or timeout.
+- CCLE plaintext API keys are returned only to admin users; non-admin users receive key status and masked metadata.
+- Rotate and revoke actions require admin authority.
+- Logs, compliance metadata, and denial events must not include plaintext secret values.
+
+## Dashboard Routes
+
+Dashboard sections are route-backed so operators can deep-link directly to the working view they need:
+
+- `/dashboard/gateway` overview
+- `/dashboard/gateway/clusters`
+- `/dashboard/gateway/routing`
+- `/dashboard/gateway/logs`
+- `/dashboard/gateway/quota`
+- `/dashboard/gateway/revocation`
+- `/dashboard/settings/general`
+- `/dashboard/settings/security`
+- `/dashboard/settings/api`
+- `/dashboard/settings/notifications`
+- `/dashboard/settings/billing`
+- `/dashboard/settings/danger`
+
+Removed or hidden controls must not imply unavailable behavior. If a workflow is not API-backed and usable, either wire it to a real endpoint or remove it from the UI.
+
+## Validation Checklist
+
+Before marking this phase complete:
+
+- Run the OSS/Enterprise separation scan or equivalent import tests.
+- Run provider registry, gateway fail-closed, secret storage, CCLE credential disclosure, and compliance aggregation tests.
+- Run dashboard component tests for gateway, analytics, setup, secrets, providers, compliance, ledger, principals, policies, delegation, and mandates.
+- Run the Enterprise frontend production build.
+- Review logs and compliance output for plaintext secret values.

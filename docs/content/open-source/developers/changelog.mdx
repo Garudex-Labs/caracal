@@ -11,6 +11,14 @@ status: authored
 
 # Changelog
 
+## Unreleased
+
+- Split OSS broker and Enterprise gateway/vault execution paths so OSS runtime code no longer owns CCLE settings, gateway providers, or Enterprise credential lookup.
+- Added Enterprise gateway fail-closed startup validation, provider registry URL hardening, segment-bounded provider path allowlists, and gateway denial compliance events.
+- Limited CCLE plaintext API key disclosure to admin users while preserving masked key status for non-admin users.
+- Reworked Enterprise dashboard gateway and settings into physical subroutes, removed placeholder-only UI controls, and added an analytics offline state for unreachable Enterprise API responses.
+- Added regression coverage for credential storage modes, secret reveal behavior, gateway production startup, compliance aggregation, CCLE credential disclosure, provider SSRF controls, dashboard routes, and production frontend builds.
+
 This reference defines the stable contract for changelog in the `/open-source/developers/changelog` route scope.
 
 ## Scope

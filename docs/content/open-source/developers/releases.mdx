@@ -11,6 +11,17 @@ status: authored
 
 # Releases
 
+## Enterprise Separation Release Notes
+
+Before publishing an Enterprise build that includes the security and vault isolation phase, verify and record:
+
+- OSS package import scans do not include Enterprise runtime modules or CCLE configuration reads.
+- Enterprise gateway provider routing rejects client-supplied target URLs in gateway mode and uses registry-backed `X-Caracal-Provider-ID` routing.
+- Production gateway startup fails closed when registry, revocation, quota, or secret-binding enforcement is unavailable.
+- Compliance exports include gateway denial events without plaintext secret values.
+- Dashboard gateway and settings deep links resolve to their physical subroutes after deployment.
+- The dashboard component suite, Enterprise frontend production build, and targeted backend security tests pass.
+
 This reference defines the stable contract for releases in the `/open-source/developers/releases` route scope.
 
 ## Scope
