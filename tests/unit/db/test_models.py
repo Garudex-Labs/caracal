@@ -21,7 +21,6 @@ from caracal.db.models import (
     AuthorityLedgerEvent,
     AuthorityPolicy,
     RegisteredTool,
-    EnterpriseRuntimeConfig,
     SessionHandoffTransfer,
 )
 
@@ -390,21 +389,3 @@ class TestRegisteredToolModel:
         assert "uq_registered_tools_active_workspace_binding" in index_names
 
 
-@pytest.mark.unit
-class TestEnterpriseRuntimeConfigModel:
-    """Test suite for enterprise runtime config persistence model."""
-
-    def test_enterprise_runtime_config_creation(self):
-        """Test EnterpriseRuntimeConfig model instantiation with valid data."""
-        runtime_config = EnterpriseRuntimeConfig(
-            runtime_key="__enterprise_runtime__",
-            config_data={
-                "license_key": "ent-123",
-                "valid": True,
-                "enterprise_api_url": "https://enterprise.example.com",
-            },
-        )
-
-        assert runtime_config.runtime_key == "__enterprise_runtime__"
-        assert runtime_config.config_data["license_key"] == "ent-123"
-        assert runtime_config.config_data["valid"] is True

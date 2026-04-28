@@ -24,7 +24,6 @@ logger = logging.getLogger(__name__)
 
 _DEFAULT_ENTERPRISE_URL = "https://www.garudexlabs.com"
 _ALLOWED_ENTERPRISE_HOSTS = {"localhost", "garudexlabs.com", "www.garudexlabs.com"}
-_ENTERPRISE_CONFIG_WORKSPACE_KEY = "__enterprise_runtime__"
 _ENTERPRISE_RUNTIME_FILE = "enterprise_runtime.json"
 
 

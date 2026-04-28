@@ -47,6 +47,9 @@ jobs:
         working-directory: sdk/node-sdk
         run: pnpm install --frozen-lockfile
 
+      - name: Run OSS separation scan
+        run: uv run python scripts/oss_separation_scan.py --mode gate
+
       - name: Run tests
         run: >-
           uv run pytest

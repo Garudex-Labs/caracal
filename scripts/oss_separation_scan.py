@@ -73,6 +73,21 @@ RULES = (
         description="OSS runtime code must not read or define CCLE-prefixed runtime names.",
         pattern=r"\bCCLE_[A-Z0-9_]*\b",
     ),
+    Rule(
+        key="enterprise_secret_backend_selector",
+        description="OSS secret code must not select Enterprise vault backends by tier.",
+        pattern=r"\bbackend_for_tier\b",
+    ),
+    Rule(
+        key="enterprise_gateway_provider_model",
+        description="OSS runtime code must not own the Enterprise GatewayProvider model.",
+        pattern=r"\bGatewayProvider\b",
+    ),
+    Rule(
+        key="enterprise_runtime_config_model",
+        description="OSS runtime code must not own Enterprise runtime config schema.",
+        pattern=r"\bEnterpriseRuntimeConfig\b|\benterprise_runtime_config\b",
+    ),
 )
 
 
