@@ -18,20 +18,17 @@ import click
 
 @click.group(name="secrets")
 def secrets_group():
-    """Manage secrets in the tier-appropriate vault backend."""
+    """Manage secrets in CaracalVault."""
 
 
 @secrets_group.command(name="list")
 @click.option("--workspace-id", required=True, help="Workspace ID.")
 @click.option("--env-id", default="default", show_default=True, help="Environment ID.")
-@click.option("--tier", required=True,
-              type=click.Choice(["starter", "growth", "scale", "enterprise"], case_sensitive=False),
-              help="Subscription tier (determines backend).")
-def list_secrets(workspace_id: str, env_id: str, tier: str) -> None:
+def list_secrets(workspace_id: str, env_id: str) -> None:
     """List secret refs in the vault for (org, env)."""
     try:
         from caracal.deployment.secrets_adapter import SecretsAdapter
-        adapter = SecretsAdapter(tier=tier, workspace_id=workspace_id, env_id=env_id)
+        adapter = SecretsAdapter(workspace_id=workspace_id, env_id=env_id)
         refs = adapter.list_refs()
         if not refs:
             click.echo(f"No secrets found for workspace={workspace_id} env={env_id} (backend: {adapter.backend_name}).")

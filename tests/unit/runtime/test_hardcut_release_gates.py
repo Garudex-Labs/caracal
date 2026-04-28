@@ -1068,6 +1068,8 @@ def test_python_sdk_secrets_have_no_aws_fallback_markers() -> None:
     assert "boto3" not in payload
     assert "AWSSecretsManagerBackend" not in payload
     assert "_LocalAWSSecretsManagerBackend" not in payload
+    assert "caracalEnterprise" not in payload
+    assert "backend_for_tier" not in payload
     assert 'return f"aws:' not in payload
     assert 'return f"caracal:' in payload
 

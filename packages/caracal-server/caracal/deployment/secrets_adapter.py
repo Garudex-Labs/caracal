@@ -1,9 +1,8 @@
 """
-Internal secret resolution adapter for Caracal control surfaces.
+Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+Caracal, a product of Garudex Labs
 
-This module intentionally lives outside the public SDK so runtime and CLI
-secret-management behavior remains available without exposing secret admin
-operations as a general SDK API.
+Secret resolution adapter for Caracal control surfaces.
 """
 
 from __future__ import annotations
@@ -19,31 +18,16 @@ class SecretsAdapterError(Exception):
 
 
 class SecretsAdapter:
-    """Resolve/store/delete/list secrets using the tier-selected backend."""
+    """Resolve, store, delete, and list secrets using CaracalVault."""
 
-    def __init__(self, tier: str, workspace_id: str, env_id: str = "default") -> None:
-        self._tier = tier.lower()
+    def __init__(self, workspace_id: str, env_id: str = "default") -> None:
         self._workspace_id = workspace_id
         self._env_id = env_id
-        self._backend = self._create_backend()
+        self._backend = _LocalCaracalVaultBackend(workspace_id=workspace_id)
         logger.info(
-            "SecretsAdapter initialized (tier=%s, backend=%s)",
-            self._tier,
+            "SecretsAdapter initialized (backend=%s)",
             self._backend.name,
         )
-
-    def _create_backend(self):
-        try:
-            from caracalEnterprise.services.gateway.secret_manager import backend_for_tier
-
-            return backend_for_tier(self._tier, self._workspace_id)
-        except ModuleNotFoundError as exc:
-            if exc.name != "caracalEnterprise":
-                raise
-            logger.warning(
-                "caracalEnterprise package not available; using local CaracalVault backend"
-            )
-            return _local_backend_for_tier(self._tier, self._workspace_id)
 
     def resolve(self, ref: str) -> str:
         if not ref:
@@ -85,10 +69,6 @@ class SecretsAdapter:
     @property
     def backend_name(self) -> str:
         return self._backend.name
-
-    @property
-    def tier(self) -> str:
-        return self._tier
 
 
 class _LocalCaracalVaultBackend:
@@ -135,8 +115,3 @@ class _LocalCaracalVaultBackend:
             names = get_vault().list_secrets(workspace_id, env_id)
         return [f"caracal:{env_id}/{name}" for name in names]
 
-
-def _local_backend_for_tier(tier: str, workspace_id: str):
-    if not tier.strip():
-        raise SecretsAdapterError("Tier must not be empty for secret management.")
-    return _LocalCaracalVaultBackend(workspace_id=workspace_id)

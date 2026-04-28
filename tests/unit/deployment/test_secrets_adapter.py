@@ -2,7 +2,7 @@
 Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 Caracal, a product of Garudex Labs
 
-Tests for SecretsAdapter core logic, _LocalCaracalVaultBackend, and helpers.
+Tests for SecretsAdapter and _LocalCaracalVaultBackend.
 """
 
 import pytest
@@ -12,7 +12,6 @@ from caracal.deployment.secrets_adapter import (
     SecretsAdapter,
     SecretsAdapterError,
     _LocalCaracalVaultBackend,
-    _local_backend_for_tier,
 )
 
 pytestmark = pytest.mark.unit
@@ -51,37 +50,14 @@ class TestLocalCaracalVaultBackendParseRef:
         assert b.name == "caracal_vault"
 
 
-class TestLocalBackendForTier:
-    def test_returns_vault_backend(self):
-        b = _local_backend_for_tier("enterprise", "workspace-1")
-        assert isinstance(b, _LocalCaracalVaultBackend)
-        assert b.name == "caracal_vault"
-
-    def test_empty_tier_raises(self):
-        with pytest.raises(SecretsAdapterError, match="Tier must not be empty"):
-            _local_backend_for_tier("", "workspace-1")
-
-    def test_whitespace_tier_raises(self):
-        with pytest.raises(SecretsAdapterError):
-            _local_backend_for_tier("   ", "workspace-1")
-
-
 class TestSecretsAdapterPure:
     def _make_adapter(self):
         mock_backend = MagicMock()
         mock_backend.name = "mock_backend"
-        with patch(
-            "caracal.deployment.secrets_adapter._local_backend_for_tier",
-            return_value=mock_backend,
-        ), patch(
-            "caracal.deployment.secrets_adapter.SecretsAdapter._create_backend",
-            return_value=mock_backend,
-        ):
-            adapter = SecretsAdapter.__new__(SecretsAdapter)
-            adapter._tier = "oss"
-            adapter._workspace_id = "workspace-1"
-            adapter._env_id = "default"
-            adapter._backend = mock_backend
+        adapter = SecretsAdapter.__new__(SecretsAdapter)
+        adapter._workspace_id = "workspace-1"
+        adapter._env_id = "default"
+        adapter._backend = mock_backend
         return adapter, mock_backend
 
     def test_ref_for(self):
@@ -92,10 +68,6 @@ class TestSecretsAdapterPure:
     def test_backend_name_property(self):
         adapter, mock = self._make_adapter()
         assert adapter.backend_name == "mock_backend"
-
-    def test_tier_property(self):
-        adapter, _ = self._make_adapter()
-        assert adapter.tier == "oss"
 
     def test_resolve_calls_backend_get(self):
         adapter, mock = self._make_adapter()
@@ -161,14 +133,8 @@ class TestSecretsAdapterPure:
 
 
 class TestSecretsAdapterCreatesVaultBackend:
-    def test_creates_local_vault_when_enterprise_unavailable(self):
-        with patch(
-            "caracal.deployment.secrets_adapter._local_backend_for_tier",
-            return_value=MagicMock(name="caracal_vault"),
-        ) as mock_local:
-            adapter = SecretsAdapter.__new__(SecretsAdapter)
-            adapter._tier = "oss"
-            adapter._workspace_id = "workspace-1"
-            adapter._env_id = "default"
-            adapter._backend = adapter._create_backend()
-        mock_local.assert_called_once_with("oss", "workspace-1")
+    def test_creates_local_vault_backend(self):
+        adapter = SecretsAdapter(workspace_id="workspace-1", env_id="default")
+
+        assert isinstance(adapter._backend, _LocalCaracalVaultBackend)
+        assert adapter.backend_name == "caracal_vault"
