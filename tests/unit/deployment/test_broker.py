@@ -1,4 +1,4 @@
-"""Unit tests for broker/gateway boundary auth semantics."""
+"""Unit tests for OSS broker auth semantics."""
 
 from __future__ import annotations
 
@@ -13,11 +13,9 @@ from caracal.deployment.broker import (
     ProviderResponse,
 )
 from caracal.deployment.exceptions import (
-    GatewayAuthorizationError,
     ProviderConfigurationError,
     ProviderAuthorizationError,
 )
-from caracal.deployment.gateway_client import GatewayClient, ProviderRequest as GatewayRequest
 
 
 class _FakeResponse:
@@ -29,20 +27,6 @@ class _FakeResponse:
 
     def json(self) -> dict:
         return self._payload
-
-
-class _FakeGatewayClient:
-    def __init__(self, response: _FakeResponse) -> None:
-        self._response = response
-        self.calls: list[tuple[str, str, dict | None]] = []
-
-    async def get(self, url, **kwargs):
-        self.calls.append(("GET", url, kwargs))
-        return self._response
-
-    async def post(self, url, **kwargs):
-        self.calls.append(("POST", url, kwargs))
-        return self._response
 
 
 class _FakeProviderClient:
@@ -69,96 +53,6 @@ class _FakeProviderClient:
     async def delete(self, *_args, **_kwargs):
         self.calls.append("DELETE")
         return self._response
-
-
-@pytest.mark.unit
-@pytest.mark.asyncio
-async def test_gateway_client_raises_authorization_error_for_403(monkeypatch: pytest.MonkeyPatch) -> None:
-    client = GatewayClient(gateway_url="https://gateway.example", config_manager=Mock(), workspace="test")
-
-    async def _token() -> str:
-        return "token"
-
-    async def _quota() -> None:
-        return None
-
-    async def _http_client():
-        return _FakeGatewayClient(
-            _FakeResponse(
-                403,
-                {
-                    "error": {
-                        "code": "AUTH_ACTION_SCOPE_DENIED",
-                        "message": "Action is outside mandate scope",
-                    }
-                },
-            )
-        )
-
-    monkeypatch.setattr(client, "_get_token", _token)
-    monkeypatch.setattr(client, "_check_quota", _quota)
-    monkeypatch.setattr(client, "_get_client", _http_client)
-
-    with pytest.raises(GatewayAuthorizationError, match="AUTH_ACTION_SCOPE_DENIED"):
-        await client.call_provider(
-            provider="openai",
-            request=GatewayRequest(
-                provider="openai",
-                method="GET",
-                endpoint="models",
-            ),
-        )
-
-
-@pytest.mark.unit
-@pytest.mark.asyncio
-async def test_gateway_client_uses_header_based_provider_routing_contract(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    client = GatewayClient(gateway_url="https://gateway.example", config_manager=Mock(), workspace="test")
-    fake_client = _FakeGatewayClient(_FakeResponse(200, {"ok": True}))
-
-    async def _token() -> str:
-        return "token"
-
-    async def _quota() -> None:
-        return None
-
-    async def _http_client():
-        return fake_client
-
-    monkeypatch.setattr(client, "_get_token", _token)
-    monkeypatch.setattr(client, "_check_quota", _quota)
-    monkeypatch.setattr(client, "_get_client", _http_client)
-
-    response = await client.call_provider(
-        provider="openai",
-        request=GatewayRequest(
-            provider="openai",
-            method="GET",
-            endpoint="/v1/models",
-            resource="provider:openai:resource:models",
-            action="provider:openai:action:list",
-        ),
-    )
-
-    assert response.status_code == 200
-    assert fake_client.calls == [
-        (
-            "GET",
-            "https://gateway.example/v1/models",
-            {
-                "params": {},
-                "headers": {
-                    "Authorization": "Bearer token",
-                    "X-Caracal-Provider-ID": "openai",
-                    "X-Caracal-Provider-Resource": "provider:openai:resource:models",
-                    "X-Caracal-Provider-Action": "provider:openai:action:list",
-                },
-                "timeout": 30.0,
-            },
-        )
-    ]
 
 
 @pytest.mark.unit

@@ -140,22 +140,11 @@ def test_get_provider_client_returns_broker_in_oss(monkeypatch: pytest.MonkeyPat
 
 
 @pytest.mark.unit
-def test_get_provider_client_returns_gateway_in_enterprise(monkeypatch: pytest.MonkeyPatch) -> None:
-    import caracal.deployment.gateway_client as gateway_client_module
-
-    created: dict[str, str] = {}
-
-    class _FakeGatewayClient:
-        def __init__(self, gateway_url: str):
-            created["gateway_url"] = gateway_url
-
-    monkeypatch.setattr(gateway_client_module, "GatewayClient", _FakeGatewayClient)
-
+def test_get_provider_client_rejects_enterprise_gateway_client_in_oss() -> None:
     adapter = DeploymentEditionAdapter(edition_manager=_FakeEditionManager(edition=Edition.ENTERPRISE))
-    client = adapter.get_provider_client()
 
-    assert isinstance(client, _FakeGatewayClient)
-    assert created["gateway_url"] == "https://gateway.example"
+    with pytest.raises(EditionConfigurationError, match="Enterprise gateway provider clients"):
+        adapter.get_provider_client()
 
 
 @pytest.mark.unit

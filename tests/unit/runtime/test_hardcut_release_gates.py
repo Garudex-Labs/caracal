@@ -744,6 +744,8 @@ def test_active_provider_code_paths_have_no_legacy_provider_markers() -> None:
 
     offenders: list[str] = []
     for file_path in checked_files:
+        if not file_path.exists():
+            continue
         payload = file_path.read_text(encoding="utf-8")
         if any(marker in payload for marker in forbidden_markers):
             offenders.append(str(file_path.relative_to(workspace_root)))
