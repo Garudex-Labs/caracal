@@ -66,10 +66,10 @@
     <div class="phase-hd"><span>1 · Start runtime</span><span class="ti">▶</span></div>
     <div class="phase-body">
       <div class="note">Host terminal — run in order, wait for each to succeed.</div>
-      <div class="cmd-block">caracal up<div class="copy-row"><button class="cb">copy</button></div></div>
-      <div class="cmd-block">caracal migrate<div class="copy-row"><button class="cb">copy</button></div></div>
       <div class="cmd-block">caracal bootstrap<div class="copy-row"><button class="cb">copy</button></div></div>
-      <div class="note">Mint an AIS session token for the demo principal and set <code>CCL_SESS_TOKEN</code> in <code>.env</code>.</div>
+      <div class="cmd-block">caracal up<div class="copy-row"><button class="cb">copy</button></div></div>
+      <div class="cmd-block">eval "$(caracal auth token --format env)"<div class="copy-row"><button class="cb">copy</button></div></div>
+      <div class="note">Set the printed <code>CCL_SESS_TOKEN</code> in the Lynx environment before starting the app.</div>
     </div>
   </div>
 

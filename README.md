@@ -70,18 +70,31 @@ More coming soon
 ### Quickstart
 
 ```bash
-mkdir -p "${CCL_HOME:-$HOME/.caracal}"
-printf "CCL_REDIS_PASSWORD=%s\n" "$(openssl rand -hex 24)" > "${CCL_HOME:-$HOME/.caracal}/.env"
-chmod 600 "${CCL_HOME:-$HOME/.caracal}/.env"
+export CCL_HOME="${CCL_HOME:-$HOME/.caracal}"
+mkdir -p "$CCL_HOME/runtime"
+umask 077
+cat > "$CCL_HOME/runtime/.env" <<EOF
+CCL_DB_PASSWORD=$(openssl rand -hex 24)
+CCL_REDIS_PASSWORD=$(openssl rand -hex 24)
+CCL_VAULT_TOKEN=dev-local-token
+VAULT_AUTH_SECRET=$(openssl rand -hex 32)
+VAULT_ENC_KEY=$(openssl rand -hex 16)
+CCL_ENV_MODE=dev
+CCL_ALLOW_INTERNAL_PROVIDER_URLS=true
+EOF
+chmod 600 "$CCL_HOME/runtime/.env"
 
+caracal bootstrap
+caracal up
+eval "$(caracal auth token --format env)"
 caracal      # Launch Flow (TUI) inside the runtime container
-caracal up   # Start the full local runtime stack
 ```
 
 The default runtime is secure-by-default: Redis requires `CCL_REDIS_PASSWORD`,
 secret-bearing `.env` files must be owner-only, and privileged AIS/MCP calls
-require AIS-issued session tokens. For SDK and example app usage, mint a session
-token after bootstrap and pass it as `CCL_SESS_TOKEN` or as the SDK bearer token.
+require AIS-issued session tokens. The `caracal auth token --format env` helper
+mints through the local AIS Unix socket and prints `CCL_SESS_TOKEN=...` for SDK
+and example app usage.
 
 ### Command Reference
 
@@ -93,6 +106,8 @@ caracal up --no-pull
 caracal down       # Stop stack and remove services
 caracal cli        # Open a restricted interactive Caracal CLI session in the container
 caracal logs -f    # Tail runtime logs
+caracal bootstrap  # Create the system principal and first-boot AIS nonce
+caracal auth token --format env
 caracal reset      # Down + remove volumes (full local reset)
 caracal purge      # Completely remove Caracal containers, data, networks, images, and local state
 caracal purge --force

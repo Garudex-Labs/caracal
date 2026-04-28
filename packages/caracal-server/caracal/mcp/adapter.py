@@ -1295,7 +1295,7 @@ class MCPAdapter:
                     "resource_uri": resource_uri,
                     "mime_type": resource.mime_type,
                     "size_bytes": resource.size,
-                    "mcp_context": mcp_context.metadata,
+                    "mcp_context": sanitize_metadata(mcp_context.metadata),
                 },
                 correlation_id=correlation_id,
                 source_event_id=source_event_id,

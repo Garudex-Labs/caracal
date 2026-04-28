@@ -15,7 +15,19 @@ from pathlib import Path
 import click
 
 from caracal.db import DatabaseConfig, DatabaseConnectionManager
-from caracal.db.models import Principal, PrincipalAttestationStatus, PrincipalKind, PrincipalLifecycleStatus
+from caracal.db.models import (
+    Principal,
+    PrincipalAttestationStatus,
+    PrincipalKind,
+    PrincipalLifecycleStatus,
+    ResourceAllowlist,
+)
+
+_BOOTSTRAP_ADMIN_CAPABILITIES = {
+    "system.admin",
+    "system.stats.read",
+    "mcp.tool_registry.manage",
+}
 
 def _runtime_env_path() -> Path:
     """Resolve the runtime .env file that compose loads via --env-file.
@@ -68,6 +80,46 @@ def _read_env_var(env_path: Path, key: str) -> str | None:
         if match:
             return match.group(1).strip()
     return None
+
+
+def _dev_example_mode_enabled() -> bool:
+    return (os.environ.get("CCL_ENV_MODE") or "").strip().lower() in {"dev", "development", "test"}
+
+
+def _grant_bootstrap_authority(session, principal_id: str) -> None:
+    system_principal = session.query(Principal).filter_by(principal_id=principal_id).first()
+    if system_principal is None:
+        raise click.ClickException(f"System principal not found after bootstrap: {principal_id}")
+
+    capabilities = {
+        str(capability).strip()
+        for capability in (getattr(system_principal, "capabilities", []) or [])
+        if str(capability).strip()
+    }
+    capabilities.update(_BOOTSTRAP_ADMIN_CAPABILITIES)
+    system_principal.capabilities = sorted(capabilities)
+
+    if _dev_example_mode_enabled():
+        existing_allowlist = (
+            session.query(ResourceAllowlist)
+            .filter_by(
+                principal_id=system_principal.principal_id,
+                resource_pattern="*",
+                pattern_type="glob",
+                active=True,
+            )
+            .first()
+        )
+        if existing_allowlist is None:
+            session.add(
+                ResourceAllowlist(
+                    principal_id=system_principal.principal_id,
+                    resource_pattern="*",
+                    pattern_type="glob",
+                    active=True,
+                )
+            )
+    session.commit()
 
 
 @click.command(name="bootstrap")
@@ -134,6 +186,8 @@ def bootstrap(ctx, force: bool) -> None:
             principal_id = identity.principal_id
             click.echo(f"System principal created: {principal_id}")
 
+        _grant_bootstrap_authority(session, principal_id)
+
     redis_host = os.environ.get("REDIS_HOST", "localhost").strip() or "localhost"
     redis_port = int(os.environ.get("REDIS_PORT", "6379").strip() or "6379")
     redis_password = os.environ.get("CCL_REDIS_PASSWORD", "").strip()
@@ -169,6 +223,6 @@ def bootstrap(ctx, force: bool) -> None:
     click.echo()
     click.echo("Next steps:")
     click.echo("  caracal up            # start the runtime stack")
-    click.echo("  Mint AIS session tokens through the authenticated /v1/ais/token flow.")
+    click.echo("  eval \"$(caracal auth token --format env)\"")
 
     db_manager.close()

@@ -8,6 +8,7 @@ Tests for helper utilities in cli/bootstrap.py and cli/backup.py.
 import os
 import pytest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 pytestmark = pytest.mark.unit
@@ -90,6 +91,53 @@ class TestBootstrapHelpers:
         from caracal.cli.bootstrap import _read_env_var
         result = _read_env_var(tmp_path / "nonexistent.env", "KEY")
         assert result is None
+
+    def test_grant_bootstrap_authority_adds_admin_caps_and_dev_allowlist(self, monkeypatch):
+        from caracal.cli.bootstrap import _grant_bootstrap_authority
+
+        principal = SimpleNamespace(
+            principal_id="11111111-1111-1111-1111-111111111111",
+            capabilities=["existing.cap"],
+        )
+        added_rows = []
+
+        class _Query:
+            def __init__(self, rows):
+                self.rows = rows
+
+            def filter_by(self, **_kwargs):
+                return self
+
+            def first(self):
+                return self.rows[0] if self.rows else None
+
+        class _Session:
+            def query(self, model):
+                if getattr(model, "__name__", "") == "Principal":
+                    return _Query([principal])
+                return _Query([])
+
+            def add(self, row):
+                added_rows.append(row)
+
+            def commit(self):
+                self.committed = True
+
+        monkeypatch.setenv("CCL_ENV_MODE", "dev")
+
+        session = _Session()
+        _grant_bootstrap_authority(session, principal.principal_id)
+
+        assert set(principal.capabilities) >= {
+            "existing.cap",
+            "system.admin",
+            "system.stats.read",
+            "mcp.tool_registry.manage",
+        }
+        assert len(added_rows) == 1
+        assert added_rows[0].resource_pattern == "*"
+        assert added_rows[0].pattern_type == "glob"
+        assert session.committed is True
 
 class TestBackupHelpers:
     def test_pg_env_includes_pgpassword_when_set(self):

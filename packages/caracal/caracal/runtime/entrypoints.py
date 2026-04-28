@@ -240,11 +240,31 @@ def _run_host_orchestrator(args: Sequence[str]) -> int:
     )
     bootstrap_parser.set_defaults(handler=_host_bootstrap)
 
-    auth_parser = subparsers.add_parser("auth", help="Inspect runtime auth guidance")
+    auth_parser = subparsers.add_parser("auth", help="Mint local AIS session tokens")
     auth_subparsers = auth_parser.add_subparsers(dest="auth_command", required=True)
     auth_token_parser = auth_subparsers.add_parser(
         "token",
-        help="Explain the authenticated AIS session-token flow",
+        help="Mint an AIS session token through the runtime Unix socket",
+    )
+    auth_token_parser.add_argument("--principal-id", default=None)
+    auth_token_parser.add_argument("--workspace-id", default="default")
+    auth_token_parser.add_argument("--tenant-id", default="default")
+    auth_token_parser.add_argument(
+        "--session-kind",
+        choices=("interactive", "automation", "task"),
+        default="automation",
+    )
+    auth_token_parser.add_argument(
+        "--format",
+        choices=("text", "env", "json"),
+        default="text",
+    )
+    auth_token_parser.add_argument("--directory-scope", default=None)
+    auth_token_parser.add_argument(
+        "--no-refresh",
+        action="store_true",
+        default=False,
+        help="Do not request a refresh token",
     )
     auth_token_parser.add_argument(
         "--quiet",
@@ -1131,10 +1151,17 @@ def _host_auth_token(namespace: argparse.Namespace) -> int:
         "auth",
         "token",
     ]
+    for option_name in ("principal_id", "workspace_id", "tenant_id", "session_kind", "format", "directory_scope"):
+        value = getattr(namespace, option_name, None)
+        if value:
+            run_cmd += [f"--{option_name.replace('_', '-')}", str(value)]
+    if getattr(namespace, "no_refresh", False):
+        run_cmd.append("--no-refresh")
     if getattr(namespace, "quiet", False):
         run_cmd.append("--quiet")
 
-    if getattr(namespace, "quiet", False):
+    capture_token_output = bool(getattr(namespace, "quiet", False)) or getattr(namespace, "format", "text") in {"env", "json"}
+    if capture_token_output:
         result = subprocess.run(
             run_cmd,
             check=False,

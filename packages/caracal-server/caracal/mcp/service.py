@@ -45,6 +45,7 @@ logger = get_logger(__name__)
 
 # Canonical MCP payload contracts (hard-cut release gates depend on these markers).
 CANONICAL_TOOL_CALL_CONTRACT_VERSION = "v1"
+CANONICAL_RESOURCE_READ_CONTRACT_VERSION = "v1"
 CANONICAL_TOOL_REGISTRY_CONTRACT_VERSION = "v1"
 
 
@@ -404,10 +405,11 @@ class MCPAdapterService:
         resource_identifier: str,
     ) -> None:
         session = self._get_db_session()
-        if session is None:
-            return
-        if not callable(getattr(session, "execute", None)):
-            return
+        if session is None or not callable(getattr(session, "execute", None)):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Allowlist check failed closed: database session unavailable",
+            )
         try:
             decision = AllowlistManager(session).check_resource(
                 UUID(principal_id),
@@ -1192,6 +1194,10 @@ class MCPAdapterService:
                     raw_request=raw_request,
                     metadata=request_metadata,
                 )
+                self._enforce_resource_allowlist(
+                    principal_id=principal_id,
+                    resource_identifier=request.resource_uri,
+                )
                 request_metadata = self._apply_trusted_security_metadata(
                     metadata=request_metadata,
                     token_claims=token_claims,
@@ -1222,7 +1228,10 @@ class MCPAdapterService:
                     success=result.success,
                     result=result.result,
                     error=result.error,
-                    metadata=result.metadata
+                    metadata={
+                        **dict(result.metadata or {}),
+                        "contract_version": CANONICAL_RESOURCE_READ_CONTRACT_VERSION,
+                    },
                 )
                 
             except HTTPException as exc:

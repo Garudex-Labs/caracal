@@ -25,6 +25,62 @@ from caracal.core.metering import MeteringCollector
 from caracal.exceptions import CaracalError, MCPUnknownToolError
 
 
+class _FakeScalarResult:
+    def __init__(self, rows):
+        self._rows = rows
+
+    def all(self):
+        return list(self._rows)
+
+
+class _FakeExecuteResult:
+    def __init__(self, rows):
+        self._rows = rows
+
+    def scalars(self):
+        return _FakeScalarResult(self._rows)
+
+
+class _FakeQuery:
+    def __init__(self, rows):
+        self._rows = rows
+
+    def filter_by(self, **kwargs):
+        rows = [
+            row for row in self._rows
+            if all(str(getattr(row, key, "")) == str(value) for key, value in kwargs.items())
+        ]
+        return _FakeQuery(rows)
+
+    def first(self):
+        return self._rows[0] if self._rows else None
+
+    def count(self):
+        return len(self._rows)
+
+
+class _FakeMCPServiceDBSession:
+    def __init__(self, principal_id: str, allowlists=None):
+        self.principals = [
+            SimpleNamespace(
+                principal_id=principal_id,
+                lifecycle_status="active",
+                capabilities=["mcp.tool_registry.manage", "system.stats.read"],
+            )
+        ]
+        self.allowlists = list(allowlists or [
+            SimpleNamespace(resource_pattern="*", pattern_type="glob", active=True)
+        ])
+
+    def query(self, model):
+        if getattr(model, "__name__", "") == "Principal":
+            return _FakeQuery(self.principals)
+        return _FakeQuery([])
+
+    def execute(self, _stmt):
+        return _FakeExecuteResult(self.allowlists)
+
+
 @pytest.mark.unit
 class TestMCPServerConfig:
     """Test suite for MCPServerConfig dataclass."""
@@ -202,9 +258,12 @@ class TestMCPAdapterService:
                 ],
             }
         )
+        self.fake_db_session = _FakeMCPServiceDBSession(self.actor_principal_id)
+        self.mock_authority_evaluator.db_session = self.fake_db_session
         self.mock_mcp_adapter.get_registered_tool.return_value = SimpleNamespace(
             tool_id="test_tool",
             active=True,
+            resource_scope="*",
         )
         
         # Create server config
@@ -526,6 +585,7 @@ class TestMCPAdapterService:
         assert response.status_code == 200
         data = response.json()
         assert data["success"] is True
+        assert data["metadata"]["contract_version"] == "v1"
         assert data["result"]["tool_id"] == "tool.echo"
         assert data["result"]["active"] is True
         self.mock_mcp_adapter.register_tool.assert_called_once_with(
@@ -674,6 +734,56 @@ class TestMCPAdapterService:
         data = response.json()
         assert data["success"] is False
         assert "denied" in data["error"].lower()
+
+    def test_resource_read_endpoint_denied_without_matching_allowlist(self):
+        from fastapi.testclient import TestClient
+
+        client = TestClient(self.service.app)
+        self.fake_db_session.allowlists = [
+            SimpleNamespace(resource_pattern="file://allowed/*", pattern_type="glob", active=True)
+        ]
+
+        response = client.post(
+            "/mcp/resource/read",
+            json={"resource_uri": "file://test.txt", "metadata": {}},
+            headers={"Authorization": "Bearer test-token"},
+        )
+
+        assert response.status_code == 403
+        assert "allowlist" in response.json()["detail"].lower()
+        self.mock_mcp_adapter.intercept_resource_read.assert_not_called()
+
+    def test_resource_read_endpoint_denied_without_any_allowlist(self):
+        from fastapi.testclient import TestClient
+
+        client = TestClient(self.service.app)
+        self.fake_db_session.allowlists = []
+
+        response = client.post(
+            "/mcp/resource/read",
+            json={"resource_uri": "file://test.txt", "metadata": {}},
+            headers={"Authorization": "Bearer test-token"},
+        )
+
+        assert response.status_code == 403
+        assert "default deny" in response.json()["detail"].lower()
+        self.mock_mcp_adapter.intercept_resource_read.assert_not_called()
+
+    def test_resource_read_endpoint_fails_closed_without_allowlist_infrastructure(self):
+        from fastapi.testclient import TestClient
+
+        client = TestClient(self.service.app)
+        self.mock_authority_evaluator.db_session = SimpleNamespace(query=self.fake_db_session.query)
+
+        response = client.post(
+            "/mcp/resource/read",
+            json={"resource_uri": "file://test.txt", "metadata": {}},
+            headers={"Authorization": "Bearer test-token"},
+        )
+
+        assert response.status_code == 403
+        assert "failed closed" in response.json()["detail"].lower()
+        self.mock_mcp_adapter.intercept_resource_read.assert_not_called()
     
     @pytest.mark.asyncio
     async def test_tool_call_endpoint_error(self):

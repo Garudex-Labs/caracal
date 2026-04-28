@@ -37,20 +37,45 @@ Verification criteria:
 
 If either command fails, fix host environment setup before proceeding.
 
-## Step 2: Start runtime services
+## Step 2: Create the secure local runtime env
 
 Run:
 
 ```bash
+export CCL_HOME="${CCL_HOME:-$HOME/.caracal}"
+mkdir -p "$CCL_HOME/runtime"
+umask 077
+cat > "$CCL_HOME/runtime/.env" <<EOF
+CCL_DB_PASSWORD=$(openssl rand -hex 24)
+CCL_REDIS_PASSWORD=$(openssl rand -hex 24)
+CCL_VAULT_TOKEN=dev-local-token
+VAULT_AUTH_SECRET=$(openssl rand -hex 32)
+VAULT_ENC_KEY=$(openssl rand -hex 16)
+CCL_ENV_MODE=dev
+CCL_ALLOW_INTERNAL_PROVIDER_URLS=true
+EOF
+chmod 600 "$CCL_HOME/runtime/.env"
+```
+
+Expected behavior:
+
+- `$CCL_HOME/runtime/.env` exists with owner-only permissions.
+- Redis, database, local vault bootstrap secrets, and explicit dev relaxations are set before Compose starts.
+
+## Step 3: Bootstrap and start runtime services
+
+```bash
+caracal bootstrap
 caracal up
 ```
 
 Expected behavior:
 
-- Runtime stack starts with `postgres`, `redis`, and `mcp` services.
+- Bootstrap creates the system principal, grants admin/dev setup capabilities, and issues the first AIS nonce.
+- Runtime stack starts with `postgres`, `redis`, `vault`, and `mcp` services.
 - Compose startup completes without non-zero exit codes.
 
-Optional variants:
+Optional variant:
 
 ```bash
 caracal up --no-pull
@@ -58,7 +83,20 @@ caracal up --no-pull
 
 Use `--no-pull` only when required images are already present locally.
 
-## Step 3: Open Flow (TUI)
+## Step 4: Mint a session token
+
+Run:
+
+```bash
+eval "$(caracal auth token --format env)"
+```
+
+Verification criteria:
+
+- `CCL_SESS_TOKEN` is set in the current shell.
+- The token was minted through the local AIS Unix socket.
+
+## Step 5: Open Flow (TUI)
 
 Run:
 
@@ -73,7 +111,7 @@ Expected behavior:
 
 `caracal` with no args also routes to Flow by default on host entrypoints.
 
-## Step 4: Validate runtime logs and command boundary
+## Step 6: Validate runtime logs and command boundary
 
 Run:
 
@@ -100,14 +138,15 @@ caracal cli
 
 You are now in the in-container command boundary for authority operations.
 
-## Step 5: Validate SDK connectivity baseline (Python)
+## Step 7: Validate SDK connectivity baseline (Python)
 
 Minimal SDK check:
 
 ```python
+import os
 from caracal_sdk.client import CaracalClient
 
-client = CaracalClient(api_key="replace-with-ais-session-token")
+client = CaracalClient(api_key=os.environ["CCL_SESS_TOKEN"])
 print("client-initialized")
 client.close()
 ```

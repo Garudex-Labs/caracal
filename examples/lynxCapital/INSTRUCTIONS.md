@@ -354,6 +354,9 @@ Lifecycle invariants the implementation must guarantee:
 - No secrets in source. `OPENAI_API_KEY`, `CCL_SESS_TOKEN`,
   `CCL_API_URL`, and `CCL_WORKSPACE_ID` are read from
   environment variables only.
+- Mint `CCL_SESS_TOKEN` with `eval "$(caracal auth token --format env)"`
+  after `caracal bootstrap` and `caracal up`; protected Caracal calls use
+  AIS-issued session tokens only.
 
 ## 10. General Discipline
 

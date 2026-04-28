@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import ipaddress
 from unittest.mock import Mock
 
 import pytest
 
+from caracal.deployment import broker as broker_module
 from caracal.deployment.broker import (
     Broker,
     ProviderConfig,
@@ -33,26 +35,41 @@ class _FakeProviderClient:
     def __init__(self, response: _FakeResponse) -> None:
         self._response = response
         self.calls: list[str] = []
+        self.requests: list[dict] = []
 
     async def get(self, *_args, **_kwargs):
         self.calls.append("GET")
+        self.requests.append({"args": _args, "kwargs": _kwargs})
         return self._response
 
     async def post(self, *_args, **_kwargs):
         self.calls.append("POST")
+        self.requests.append({"args": _args, "kwargs": _kwargs})
         return self._response
 
     async def put(self, *_args, **_kwargs):
         self.calls.append("PUT")
+        self.requests.append({"args": _args, "kwargs": _kwargs})
         return self._response
 
     async def patch(self, *_args, **_kwargs):
         self.calls.append("PATCH")
+        self.requests.append({"args": _args, "kwargs": _kwargs})
         return self._response
 
     async def delete(self, *_args, **_kwargs):
         self.calls.append("DELETE")
+        self.requests.append({"args": _args, "kwargs": _kwargs})
         return self._response
+
+
+@pytest.fixture(autouse=True)
+def _public_provider_dns(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        broker_module,
+        "resolve_provider_host_addresses",
+        lambda _hostname: [ipaddress.ip_address("93.184.216.34")],
+    )
 
 
 @pytest.mark.unit
@@ -310,3 +327,213 @@ async def test_broker_returns_empty_data_for_non_json_response(monkeypatch: pyte
 
     assert response.status_code == 200
     assert response.data == {}
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_broker_rejects_private_dns_resolution_before_request(monkeypatch: pytest.MonkeyPatch) -> None:
+    broker = Broker(config_manager=Mock(), workspace="test")
+    config = ProviderConfig(
+        name="acme",
+        provider_type="application",
+        credential_ref="caracal:default/providers/acme/credential",
+        base_url="https://api.example",
+        auth_scheme="none",
+    )
+    fake_client = _FakeProviderClient(_FakeResponse(200, {"ok": True}))
+
+    async def _get_client():
+        return fake_client
+
+    monkeypatch.setattr(broker, "_get_client", _get_client)
+    monkeypatch.setattr(broker, "_build_auth_headers", lambda *_args, **_kwargs: {})
+    monkeypatch.setattr(
+        broker_module,
+        "resolve_provider_host_addresses",
+        lambda _hostname: [ipaddress.ip_address("10.0.0.5")],
+    )
+
+    with pytest.raises(ProviderConfigurationError, match="resolved to"):
+        await broker._call_provider_with_retry(
+            provider="acme",
+            config=config,
+            request=BrokerRequest(provider="acme", method="GET", endpoint="health"),
+        )
+
+    assert fake_client.calls == []
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_broker_rejects_dns_resolution_failure_before_request(monkeypatch: pytest.MonkeyPatch) -> None:
+    broker = Broker(config_manager=Mock(), workspace="test")
+    config = ProviderConfig(
+        name="acme",
+        provider_type="application",
+        credential_ref="caracal:default/providers/acme/credential",
+        base_url="https://api.example",
+        auth_scheme="none",
+    )
+    fake_client = _FakeProviderClient(_FakeResponse(200, {"ok": True}))
+
+    async def _get_client():
+        return fake_client
+
+    def _fail_dns(_hostname):
+        raise ProviderConfigurationError("Provider base_url hostname could not be resolved: api.example")
+
+    monkeypatch.setattr(broker, "_get_client", _get_client)
+    monkeypatch.setattr(broker, "_build_auth_headers", lambda *_args, **_kwargs: {})
+    monkeypatch.setattr(broker_module, "resolve_provider_host_addresses", _fail_dns)
+
+    with pytest.raises(ProviderConfigurationError, match="could not be resolved"):
+        await broker._call_provider_with_retry(
+            provider="acme",
+            config=config,
+            request=BrokerRequest(provider="acme", method="GET", endpoint="health"),
+        )
+
+    assert fake_client.calls == []
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_broker_allows_public_https_resolution(monkeypatch: pytest.MonkeyPatch) -> None:
+    broker = Broker(config_manager=Mock(), workspace="test")
+    config = ProviderConfig(
+        name="acme",
+        provider_type="application",
+        credential_ref="caracal:default/providers/acme/credential",
+        base_url="https://api.example",
+        auth_scheme="none",
+    )
+    fake_client = _FakeProviderClient(_FakeResponse(200, {"ok": True}))
+
+    async def _get_client():
+        return fake_client
+
+    monkeypatch.setattr(broker, "_get_client", _get_client)
+    monkeypatch.setattr(broker, "_build_auth_headers", lambda *_args, **_kwargs: {})
+
+    response = await broker._call_provider_with_retry(
+        provider="acme",
+        config=config,
+        request=BrokerRequest(provider="acme", method="GET", endpoint="health"),
+    )
+
+    assert response.status_code == 200
+    assert fake_client.calls == ["GET"]
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_broker_allows_localhost_only_in_explicit_dev_mode(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("CCL_ENV_MODE", "dev")
+    monkeypatch.setenv("CCL_ALLOW_INTERNAL_PROVIDER_URLS", "true")
+    broker = Broker(config_manager=Mock(), workspace="test")
+    config = ProviderConfig(
+        name="local",
+        provider_type="application",
+        credential_ref="caracal:default/providers/local/credential",
+        base_url="http://localhost:8099",
+        auth_scheme="none",
+    )
+    fake_client = _FakeProviderClient(_FakeResponse(200, {"ok": True}))
+
+    async def _get_client():
+        return fake_client
+
+    monkeypatch.setattr(broker, "_get_client", _get_client)
+    monkeypatch.setattr(broker, "_build_auth_headers", lambda *_args, **_kwargs: {})
+
+    response = await broker._call_provider_with_retry(
+        provider="local",
+        config=config,
+        request=BrokerRequest(provider="local", method="GET", endpoint="health"),
+    )
+
+    assert response.status_code == 200
+    assert fake_client.calls == ["GET"]
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_broker_allows_private_dns_only_in_explicit_dev_mode(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("CCL_ENV_MODE", "test")
+    monkeypatch.setenv("CCL_ALLOW_INTERNAL_PROVIDER_URLS", "true")
+    broker = Broker(config_manager=Mock(), workspace="test")
+    config = ProviderConfig(
+        name="internal",
+        provider_type="application",
+        credential_ref="caracal:default/providers/internal/credential",
+        base_url="https://provider.internal.example",
+        auth_scheme="none",
+    )
+    fake_client = _FakeProviderClient(_FakeResponse(200, {"ok": True}))
+
+    async def _get_client():
+        return fake_client
+
+    monkeypatch.setattr(broker, "_get_client", _get_client)
+    monkeypatch.setattr(broker, "_build_auth_headers", lambda *_args, **_kwargs: {})
+    monkeypatch.setattr(
+        broker_module,
+        "resolve_provider_host_addresses",
+        lambda _hostname: [ipaddress.ip_address("10.0.0.5")],
+    )
+
+    response = await broker._call_provider_with_retry(
+        provider="internal",
+        config=config,
+        request=BrokerRequest(provider="internal", method="GET", endpoint="health"),
+    )
+
+    assert response.status_code == 200
+    assert fake_client.calls == ["GET"]
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_broker_rejects_reserved_headers_and_auth_headers_win(monkeypatch: pytest.MonkeyPatch) -> None:
+    broker = Broker(config_manager=Mock(), workspace="test")
+    config = ProviderConfig(
+        name="acme",
+        provider_type="application",
+        credential_ref="caracal:default/providers/acme/credential",
+        base_url="https://api.example",
+        auth_scheme="bearer",
+        default_headers={"X-Trace": "default", "Authorization": "Bearer default"},
+    )
+    fake_client = _FakeProviderClient(_FakeResponse(200, {"ok": True}))
+
+    async def _get_client():
+        return fake_client
+
+    monkeypatch.setattr(broker, "_get_client", _get_client)
+    monkeypatch.setattr(broker, "_build_auth_headers", lambda *_args, **_kwargs: {"Authorization": "Bearer provider"})
+
+    response = await broker._call_provider_with_retry(
+        provider="acme",
+        config=config,
+        request=BrokerRequest(
+            provider="acme",
+            method="GET",
+            endpoint="health",
+            headers={"X-Request": "caller"},
+        ),
+    )
+
+    assert response.status_code == 200
+    assert fake_client.requests[-1]["kwargs"]["headers"]["Authorization"] == "Bearer provider"
+
+    with pytest.raises(ProviderConfigurationError, match="reserved outbound headers"):
+        await broker._call_provider_with_retry(
+            provider="acme",
+            config=config,
+            request=BrokerRequest(
+                provider="acme",
+                method="GET",
+                endpoint="health",
+                headers={"Cookie": "sid=secret"},
+            ),
+        )

@@ -319,7 +319,12 @@ class TestMCPAdapter:
         """Tool calls should deny when no applicable mandate can be resolved."""
         context = MCPContext(
             principal_id="agent-123",
-            metadata={}
+            metadata={
+                "correlation_id": "corr-123",
+                "authorization": "Bearer secret",
+                "task_token_claims": {"sub": "agent-123"},
+                "tool_args": {"secret": "raw"},
+            },
         )
 
         self.mock_authority_evaluator.resolve_applicable_mandates_for_principal.return_value = []
@@ -339,7 +344,12 @@ class TestMCPAdapter:
         mandate_id = uuid4()
         context = MCPContext(
             principal_id="agent-123",
-            metadata={}
+            metadata={
+                "correlation_id": "corr-123",
+                "authorization": "Bearer secret",
+                "task_token_claims": {"sub": "agent-123"},
+                "tool_args": {"secret": "raw"},
+            },
         )
         
         # Mock mandate found
@@ -695,7 +705,12 @@ class TestMCPAdapter:
         mandate_id = uuid4()
         context = MCPContext(
             principal_id="agent-123",
-            metadata={}
+            metadata={
+                "correlation_id": "corr-123",
+                "authorization": "Bearer secret",
+                "task_token_claims": {"sub": "agent-123"},
+                "tool_args": {"secret": "raw"},
+            },
         )
         
         # Mock mandate found
@@ -731,6 +746,13 @@ class TestMCPAdapter:
         assert result.success is True
         assert result.result.content == "test content"
         self.mock_metering_collector.collect_event.assert_called_once()
+        event = self.mock_metering_collector.collect_event.call_args.args[0]
+        metered_context = event.metadata["mcp_context"]
+        assert metered_context["correlation_id"] == "corr-123"
+        assert "authorization" not in metered_context
+        assert "task_token_claims" not in metered_context
+        assert "tool_args" not in metered_context
+        assert "tool_args_hash" in metered_context
 
     @pytest.mark.asyncio
     async def test_intercept_resource_read_forwards_named_server_from_context_metadata(self):

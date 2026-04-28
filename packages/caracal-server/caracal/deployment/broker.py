@@ -12,6 +12,7 @@ import asyncio
 import ipaddress
 import os
 import random
+import socket
 import time
 from collections import defaultdict
 from dataclasses import dataclass, field
@@ -58,6 +59,15 @@ _RESERVED_OUTBOUND_HEADERS = {
     "proxy-authorization",
     "proxy-authenticate",
     "x-api-key",
+}
+
+_METADATA_SERVICE_HOSTNAMES = {
+    "metadata",
+    "metadata.google.internal",
+    "metadata.google.internal.",
+}
+_METADATA_SERVICE_ADDRESSES = {
+    ipaddress.ip_address("169.254.169.254"),
 }
 
 
@@ -137,6 +147,8 @@ def _is_forbidden_host(hostname: str) -> bool:
     normalized = hostname.strip().strip("[]").lower()
     if normalized in {"localhost", "ip6-localhost"}:
         return True
+    if normalized in _METADATA_SERVICE_HOSTNAMES:
+        return True
     try:
         ip_address = ipaddress.ip_address(normalized)
     except ValueError:
@@ -149,6 +161,16 @@ def _is_forbidden_host(hostname: str) -> bool:
         or ip_address.is_reserved
         or ip_address.is_unspecified
     )
+
+
+def _is_metadata_target(hostname: str) -> bool:
+    normalized = hostname.strip().strip("[]").lower()
+    if normalized in _METADATA_SERVICE_HOSTNAMES:
+        return True
+    try:
+        return ipaddress.ip_address(normalized) in _METADATA_SERVICE_ADDRESSES
+    except ValueError:
+        return False
 
 
 def validate_provider_base_url(base_url: str) -> str:
@@ -168,12 +190,64 @@ def validate_provider_base_url(base_url: str) -> str:
     dev_internal = _provider_dev_mode_enabled()
     if parsed.scheme != "https" and not dev_internal:
         raise ProviderConfigurationError("Provider base_url must use https outside explicit dev mode")
+    if _is_metadata_target(parsed.hostname):
+        raise ProviderConfigurationError("Provider base_url must not target metadata service addresses")
     if _is_forbidden_host(parsed.hostname) and not dev_internal:
         raise ProviderConfigurationError(
             "Provider base_url must not target localhost, private, link-local, or reserved addresses"
         )
 
     return raw.rstrip("/")
+
+
+def resolve_provider_host_addresses(hostname: str) -> List[ipaddress._BaseAddress]:
+    """Resolve a provider hostname before egress so DNS rebinding fails closed."""
+    normalized = str(hostname or "").strip().strip("[]")
+    try:
+        address_info = socket.getaddrinfo(normalized, None, type=socket.SOCK_STREAM)
+    except socket.gaierror as exc:
+        raise ProviderConfigurationError(
+            f"Provider base_url hostname could not be resolved: {normalized}"
+        ) from exc
+
+    addresses: list[ipaddress._BaseAddress] = []
+    seen: set[ipaddress._BaseAddress] = set()
+    for item in address_info:
+        sockaddr = item[4]
+        if not sockaddr:
+            continue
+        try:
+            address = ipaddress.ip_address(str(sockaddr[0]).strip("[]"))
+        except ValueError:
+            continue
+        if address not in seen:
+            seen.add(address)
+            addresses.append(address)
+
+    if not addresses:
+        raise ProviderConfigurationError(
+            f"Provider base_url hostname could not be resolved: {normalized}"
+        )
+    return addresses
+
+
+def validate_provider_egress_url(base_url: str) -> str:
+    """Validate provider base URL syntax and resolved egress target."""
+    normalized = validate_provider_base_url(base_url)
+    parsed = urlparse(normalized)
+    hostname = parsed.hostname or ""
+    dev_internal = _provider_dev_mode_enabled()
+    if dev_internal and _is_forbidden_host(hostname):
+        return normalized
+
+    for address in resolve_provider_host_addresses(hostname):
+        if _is_forbidden_host(str(address)):
+            if dev_internal and address not in _METADATA_SERVICE_ADDRESSES:
+                continue
+            raise ProviderConfigurationError(
+                "Provider base_url hostname resolved to localhost, private, link-local, or reserved address"
+            )
+    return normalized
 
 
 def _reject_reserved_headers(headers: Dict[str, str], *, source: str) -> None:
@@ -596,7 +670,7 @@ class Broker:
             # Make test request (provider-specific endpoint)
             client = await self._get_client()
             base_url = config.base_url or self._get_default_base_url(config.provider_type)
-            base_url = validate_provider_base_url(base_url)
+            base_url = validate_provider_egress_url(base_url)
             
             response = await client.get(
                 urljoin(f"{base_url}/", config.healthcheck_path.lstrip("/")),
@@ -785,7 +859,7 @@ class Broker:
                         f"Provider '{provider}' has no base_url configured and its "
                         "definition has no default_base_url"
                     )
-                base_url = validate_provider_base_url(base_url)
+                base_url = validate_provider_egress_url(base_url)
                 url = urljoin(f"{base_url}/", request.endpoint.lstrip("/"))
                 _reject_reserved_headers(request.headers, source="Provider request headers")
                 

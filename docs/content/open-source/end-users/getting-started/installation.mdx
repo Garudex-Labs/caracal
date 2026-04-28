@@ -56,6 +56,27 @@ docker compose version
 caracal --help
 ```
 
+Before starting the runtime, create `$CCL_HOME/runtime/.env` with owner-only
+permissions and the required secure defaults:
+
+```bash
+export CCL_HOME="${CCL_HOME:-$HOME/.caracal}"
+mkdir -p "$CCL_HOME/runtime"
+umask 077
+cat > "$CCL_HOME/runtime/.env" <<EOF
+CCL_DB_PASSWORD=$(openssl rand -hex 24)
+CCL_REDIS_PASSWORD=$(openssl rand -hex 24)
+CCL_VAULT_TOKEN=dev-local-token
+VAULT_AUTH_SECRET=$(openssl rand -hex 32)
+VAULT_ENC_KEY=$(openssl rand -hex 16)
+CCL_ENV_MODE=dev
+CCL_ALLOW_INTERNAL_PROVIDER_URLS=true
+EOF
+chmod 600 "$CCL_HOME/runtime/.env"
+```
+
+Then run `caracal bootstrap`, `caracal up`, and `eval "$(caracal auth token --format env)"`.
+
 ## Runtime State Layout
 
 The runtime resolves state under `CCL_HOME`. If `CCL_HOME` is unset, Caracal falls back to `~/.caracal`.
