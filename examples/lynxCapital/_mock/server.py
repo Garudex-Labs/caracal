@@ -22,7 +22,11 @@ def _load(service_id: str) -> dict:
     if not _SERVICE_ID_RE.fullmatch(service_id):
         raise KeyError(service_id)
     if service_id not in _cases:
-        path = _DATA_DIR / f"{service_id}.mock" / "cases.json"
+        path = (_DATA_DIR / f"{service_id}.mock" / "cases.json").resolve()
+        try:
+            path.relative_to(_DATA_DIR.resolve())
+        except ValueError as exc:
+            raise KeyError(service_id) from exc
         if not path.exists():
             raise KeyError(service_id)
         _cases[service_id] = json.loads(path.read_text(encoding="utf-8"))
