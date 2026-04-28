@@ -1307,13 +1307,10 @@ class ConfigManager:
                     },
                     "includes": {
                         "workspace_files": True,
-                        "secrets": include_secrets and bool(self._load_secret_refs_or_empty(name)),
                         "database_dump": db_dump_included,
                     },
                 }
-                # Manifest contains only boolean flags and metadata — no secret values.
-                # The "secrets" key is a boolean indicating presence, not the secret itself.
-                (staged_workspace_dir / "export_manifest.json").write_text(  # lgtm[py/clear-text-storage-of-sensitive-data]
+                (staged_workspace_dir / "export_manifest.json").write_text(
                     json.dumps(manifest, indent=2)
                 )
 

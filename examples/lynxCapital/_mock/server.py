@@ -42,6 +42,28 @@ def _discover_case_paths() -> dict[str, Path]:
 _SERVICE_CASE_PATHS = _discover_case_paths()
 
 
+def _discover_case_paths() -> dict[str, Path]:
+    data_root = _DATA_DIR.resolve()
+    paths: dict[str, Path] = {}
+    for service_dir in _DATA_DIR.glob("*.mock"):
+        if not service_dir.is_dir():
+            continue
+        service_id = service_dir.name.removesuffix(".mock")
+        if not _SERVICE_ID_RE.fullmatch(service_id):
+            continue
+        case_path = (service_dir / "cases.json").resolve()
+        try:
+            case_path.relative_to(data_root)
+        except ValueError:
+            continue
+        if case_path.is_file():
+            paths[service_id] = case_path
+    return paths
+
+
+_SERVICE_CASE_PATHS = _discover_case_paths()
+
+
 def _load(service_id: str) -> dict:
     if not _SERVICE_ID_RE.fullmatch(service_id):
         raise KeyError(service_id)
