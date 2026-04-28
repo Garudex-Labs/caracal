@@ -14,6 +14,7 @@ Displays:
 
 from typing import Optional
 
+import requests as _req
 from rich.console import Console
 from rich.panel import Panel
 from rich.prompt import Prompt
@@ -31,6 +32,9 @@ from caracal.flow.components.menu import Menu, MenuItem
 from caracal.flow.theme import Colors, Icons
 
 logger = get_logger(__name__)
+
+ENTERPRISE_DOCS_URL = "https://docs.garudexlabs.com/caracalEnterprise"
+ENTERPRISE_SALES_URL = "https://cal.com/rawx18/caracal-enterprise-sales"
 
 
 class EnterpriseFlow:
@@ -207,9 +211,9 @@ class EnterpriseFlow:
         
         content.append("\n")
         content.append("Learn More: ", style="bold")
-        content.append("https://docs.garudexlabs.com/caracalEnterprise\n", style=Colors.LINK)
+        content.append(f"{ENTERPRISE_DOCS_URL}\n", style=Colors.LINK)
         content.append("Enterprise Sales: ", style="bold")
-        content.append("https://cal.com/rawx18/caracal-enterprise-sales", style=Colors.LINK)
+        content.append(ENTERPRISE_SALES_URL, style=Colors.LINK)
         
         return Panel(
             content,
@@ -350,9 +354,14 @@ class EnterpriseFlow:
             ]
             
             if result.sync_api_key:
-                # Mask the API key for display
+                # Mask the API key for display (always redact, including short keys)
                 key = result.sync_api_key
-                masked = key[:8] + "..." + key[-4:] if len(key) > 12 else key
+                if len(key) > 12:
+                    masked = key[:8] + "..." + key[-4:]
+                elif len(key) > 2:
+                    masked = key[0] + "..." + key[-1]
+                else:
+                    masked = "*" * len(key)
                 success_lines.append(f"\n[bold]Sync API Key:[/] {masked}")
                 success_lines.append(
                     f"[{Colors.DIM}]This key is stored in your workspace and used for[/]"
@@ -454,13 +463,16 @@ class EnterpriseFlow:
         api_url = info.get("enterprise_api_url")
         if api_url:
             try:
-                import requests as _req
                 resp = _req.get(f"{api_url.rstrip('/')}/health", timeout=5)
                 if resp.ok:
                     self.console.print(f"[{Colors.SUCCESS}]✓ Enterprise API reachable[/]")
                 else:
                     self.console.print(f"[{Colors.WARNING}]⚠ Enterprise API not reachable[/]")
-            except Exception as exc:
+            except ImportError:
+                self.console.print(
+                    f"[{Colors.WARNING}]⚠ Cannot check API connectivity: the 'requests' library is not installed.[/]"
+                )
+            except Exception:
                 logger.debug("Could not check Enterprise API connectivity", exc_info=True)
                 self.console.print(f"[{Colors.DIM}]Could not check API connectivity[/]")
         

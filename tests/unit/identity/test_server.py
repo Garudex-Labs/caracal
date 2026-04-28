@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from fastapi.testclient import TestClient
+from pydantic import ValidationError
 import pytest
 
 from caracal.identity.ais_server import (
@@ -199,7 +200,7 @@ def test_ais_token_endpoint_forwards_authorization_header() -> None:
 
 
 @pytest.mark.unit
-def test_spawn_request_rejects_manual_identity_and_key_material_fields() -> None:
+def test_spawn_request_rejects_forbidden_fields() -> None:
     app = create_ais_app(
         _handlers(),
         AISServerConfig(unix_socket_path="", listen_host="127.0.0.1", allow_tcp_transport=True),
@@ -233,7 +234,7 @@ def test_spawn_request_rejects_manual_identity_and_key_material_fields() -> None
 
 @pytest.mark.unit
 def test_other_ais_request_models_reject_extra_fields() -> None:
-    with pytest.raises(Exception):
+    with pytest.raises(ValidationError):
         TokenIssueRequest(
             principal_id="p-1",
             workspace_id="org-1",
@@ -241,7 +242,7 @@ def test_other_ais_request_models_reject_extra_fields() -> None:
             authority_sources=["m-1"],
         )
 
-    with pytest.raises(Exception):
+    with pytest.raises(ValidationError):
         HandoffRequest(
             source_access_token="tok-1",
             target_subject_id="p-2",

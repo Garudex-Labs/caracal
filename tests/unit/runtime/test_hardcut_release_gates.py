@@ -284,7 +284,7 @@ def test_enterprise_compose_has_vault_sidecar_and_no_aws_or_null_backend_default
     payload = compose_file.read_text(encoding="utf-8")
 
     assert "  vault:" in payload
-    assert "infisical/infisical:latest" in payload
+    assert "infisical/infisical:" in payload
     assert "CCL_PRINCIPAL_KEY_BACKEND=${CCL_PRINCIPAL_KEY_BACKEND:-vault}" in payload
     assert "CCL_VAULT_URL=${CCL_VAULT_URL:-http://vault:8080}" in payload
     assert "CCL_SECRET_BACKEND" not in payload
@@ -462,7 +462,7 @@ def test_enterprise_secrets_route_does_not_import_oss_secrets_adapter() -> None:
     enterprise_root = _OSS_ROOT.parent / "caracalEnterprise"
     if not enterprise_root.is_dir():
         pytest.skip("caracalEnterprise sibling checkout not present")
-    route_file = enterprise_root / "services" / "api" / "src" / "caracal_api" / "routes" / "secrets.py"
+    route_file = enterprise_root / "services" / "enterprise-api" / "src" / "caracal_api" / "routes" / "secrets.py"
     payload = route_file.read_text(encoding="utf-8")
 
     assert "caracal.deployment.secrets_adapter" not in payload
@@ -776,10 +776,6 @@ def test_active_provider_code_paths_have_no_legacy_provider_markers() -> None:
             offenders.append(str(file_path.relative_to(workspace_root)))
 
     assert offenders == []
-
-
-
-
 
 @pytest.mark.unit
 def test_revocation_webhook_publisher_has_single_sync_header_strategy() -> None:
