@@ -201,18 +201,8 @@ def test_sync_workspace_provider_registry_runtime_upserts_and_disables_removed(
         providers={"openai-main": provider},
     )
 
-    assert result["upserted"] == 1
-    assert result["disabled"] == 1
+    assert result["validated"] == 1
     assert result["active"] == 1
     assert result["deactivated_tools"] == 0
     assert result["impacted"] == []
     assert fake_db_manager.closed is True
-
-    legacy = next(row for row in rows if getattr(row, "provider_id", None) == "legacy")
-    assert legacy.enabled is False
-
-    synced = next(row for row in rows if getattr(row, "provider_id", None) == "openai-main")
-    assert synced.provider_layer == "user_provider"
-    assert synced.base_url == "https://api.example.com"
-    assert synced.provider_metadata["workspace"] == "alpha"
-    assert synced.scopes == ["provider:openai-main:action:list"]

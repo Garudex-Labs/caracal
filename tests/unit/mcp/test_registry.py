@@ -10,7 +10,7 @@ from uuid import uuid4
 import pytest
 from sqlalchemy.exc import IntegrityError
 
-from caracal.db.models import AuthorityLedgerEvent, GatewayProvider, RegisteredTool
+from caracal.db.models import AuthorityLedgerEvent, RegisteredTool
 from caracal.exceptions import CaracalError, MCPToolBindingError, MCPToolTypeMismatchError
 from caracal.mcp.adapter import MCPAdapter
 
@@ -64,6 +64,7 @@ class _QueryStub:
 class _SessionStub:
     def __init__(self) -> None:
         self._rows_by_model: dict[type, list] = {}
+        self.provider_entries: dict[str, dict] = {}
         self.commits = 0
         self.rollbacks = 0
 
@@ -130,16 +131,23 @@ def _make_integrity_error(*, pgcode: str, constraint_name: str, message: str) ->
 
 
 def _add_provider_row(session: _SessionStub, *, provider_id: str = _PROVIDER_NAME) -> None:
-    session.add(
-        GatewayProvider(
-            provider_id=provider_id,
-            name=provider_id,
-            base_url="https://api.example.com",
-            auth_scheme="none",
-            definition=_provider_definition_payload(),
-            enabled=True,
-        )
-    )
+    session.provider_entries[provider_id] = {
+        "provider_id": provider_id,
+        "name": provider_id,
+        "base_url": "https://api.example.com",
+        "auth_scheme": "none",
+        "definition": _provider_definition_payload(),
+        "enabled": True,
+    }
+
+
+@pytest.fixture(autouse=True)
+def _workspace_provider_registry(monkeypatch: pytest.MonkeyPatch) -> None:
+    def load_entry(self, *, workspace_name, provider_name):
+        session = self._get_registry_session()
+        return session.provider_entries.get(provider_name)
+
+    monkeypatch.setattr(MCPAdapter, "_load_workspace_provider_entry", load_entry)
 
 
 @pytest.mark.unit

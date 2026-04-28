@@ -20,7 +20,6 @@ from caracal.db.models import (
     LedgerSnapshot,
     AuthorityLedgerEvent,
     AuthorityPolicy,
-    GatewayProvider,
     RegisteredTool,
     EnterpriseRuntimeConfig,
     SessionHandoffTransfer,
@@ -359,53 +358,6 @@ class TestAuthorityPolicyModel:
         assert policy.allow_delegation is True
         assert policy.max_network_distance == 2
         assert policy.active is True
-
-
-@pytest.mark.unit
-class TestGatewayProviderModel:
-    """Test suite for GatewayProvider model."""
-    
-    def test_gateway_provider_creation(self):
-        """Test GatewayProvider model instantiation with valid data."""
-        # Act
-        provider = GatewayProvider(
-            provider_id="test-provider",
-            name="Test Provider",
-            base_url="https://api.example.com",
-            service_type="application",
-            auth_scheme="api_key",
-            definition={},
-            credential_ref="caracal:default/providers/test-provider/credential",
-            enabled=True
-        )
-        
-        # Assert
-        assert provider.provider_id == "test-provider"
-        assert provider.name == "Test Provider"
-        assert provider.base_url == "https://api.example.com"
-        assert provider.service_type == "application"
-        assert provider.definition == {}
-        assert provider.credential_ref == "caracal:default/providers/test-provider/credential"
-        assert provider.enforce_scoped_requests is False
-        assert provider.enabled is True
-    
-    def test_gateway_provider_repr(self):
-        """Test GatewayProvider string representation."""
-        # Arrange
-        provider = GatewayProvider(
-            provider_id="test-provider",
-            name="Test Provider",
-            base_url="https://api.example.com",
-            enabled=True
-        )
-        
-        # Act
-        repr_str = repr(provider)
-        
-        # Assert — these are repr() content checks, not URL sanitization.
-        assert "GatewayProvider" in repr_str
-        assert "test-provider" in repr_str
-        assert provider.base_url in repr_str  # lgtm[py/incomplete-url-substring-sanitization]
 
 
 @pytest.mark.unit

@@ -18,7 +18,7 @@ from caracal.mcp.adapter import (
 )
 from caracal.core.authority import AuthorityEvaluator, AuthorityDecision
 from caracal.core.metering import MeteringCollector
-from caracal.db.models import ExecutionMandate, GatewayProvider, RegisteredTool
+from caracal.db.models import ExecutionMandate, RegisteredTool
 from caracal.deployment.exceptions import SecretNotFoundError
 from caracal.exceptions import (
     CaracalError,
@@ -74,15 +74,26 @@ class _RuntimeQueryStub:
 
 
 class _RuntimeSessionStub:
-    def __init__(self, providers):
-        self._providers = list(providers)
+    def __init__(self, _providers):
+        self._providers = list(_providers)
 
     def query(self, model):
-        if model is GatewayProvider:
-            return _RuntimeQueryStub(self._providers)
         if model is RegisteredTool:
             return _RuntimeQueryStub([])
         raise AssertionError(f"Unsupported query model: {model}")
+
+
+def _provider_entry(**overrides) -> dict:
+    payload = {
+        "provider_id": _MAPPED_PROVIDER_NAME,
+        "name": "Endframe",
+        "base_url": "https://api.endframe.dev",
+        "auth_scheme": "none",
+        "definition": _definition_payload(),
+        "enabled": True,
+    }
+    payload.update(overrides)
+    return payload
 
 
 @pytest.mark.unit
@@ -175,6 +186,7 @@ class TestMCPAdapter:
             mcp_server_url="http://localhost:3001",
             request_timeout_seconds=30
         )
+        self.adapter._load_workspace_provider_entry = Mock(return_value=_provider_entry())
         self.adapter.get_registered_tool = Mock(
             return_value=SimpleNamespace(
                 tool_id=_TOOL_ID,
@@ -1466,6 +1478,7 @@ class TestMCPAdapter:
         )
 
         self.adapter.get_registered_tool = Mock(return_value=tool_row)
+        self.adapter._load_workspace_provider_entry = Mock(return_value=None)
         self.mock_authority_evaluator.db_session = _RuntimeSessionStub([])
 
         mapping_fn = MCPAdapter._resolve_active_tool_mapping.__get__(self.adapter, MCPAdapter)
@@ -1486,16 +1499,10 @@ class TestMCPAdapter:
             action_scope=_MAPPED_ACTION_SCOPE,
             provider_definition_id=_MAPPED_PROVIDER_NAME,
         )
-        provider_row = GatewayProvider(
-            provider_id=_MAPPED_PROVIDER_NAME,
-            name="Endframe",
-            base_url="https://api.endframe.dev",
-            auth_scheme="none",
-            definition=_definition_payload(),
-            enabled=False,
-        )
+        provider_row = _provider_entry(enabled=False)
 
         self.adapter.get_registered_tool = Mock(return_value=tool_row)
+        self.adapter._load_workspace_provider_entry = Mock(return_value=provider_row)
         self.mock_authority_evaluator.db_session = _RuntimeSessionStub([provider_row])
 
         mapping_fn = MCPAdapter._resolve_active_tool_mapping.__get__(self.adapter, MCPAdapter)
@@ -1516,11 +1523,7 @@ class TestMCPAdapter:
             action_scope=_MAPPED_ACTION_SCOPE,
             provider_definition_id=_MAPPED_PROVIDER_NAME,
         )
-        provider_row = GatewayProvider(
-            provider_id=_MAPPED_PROVIDER_NAME,
-            name="Endframe",
-            base_url="https://api.endframe.dev",
-            auth_scheme="none",
+        provider_row = _provider_entry(
             definition={
                 "definition_id": _MAPPED_PROVIDER_NAME,
                 "resources": {
@@ -1534,10 +1537,10 @@ class TestMCPAdapter:
                     }
                 },
             },
-            enabled=True,
         )
 
         self.adapter.get_registered_tool = Mock(return_value=tool_row)
+        self.adapter._load_workspace_provider_entry = Mock(return_value=provider_row)
         self.mock_authority_evaluator.db_session = _RuntimeSessionStub([provider_row])
 
         mapping_fn = MCPAdapter._resolve_active_tool_mapping.__get__(self.adapter, MCPAdapter)
@@ -1571,17 +1574,13 @@ class TestMCPAdapter:
             action_scope=_MAPPED_ACTION_SCOPE,
             provider_definition_id=_MAPPED_PROVIDER_NAME,
         )
-        provider_row = GatewayProvider(
-            provider_id=_MAPPED_PROVIDER_NAME,
-            name="Endframe",
-            base_url="https://api.endframe.dev",
+        provider_row = _provider_entry(
             auth_scheme="api_key",
             credential_ref="caracal:default/providers/endframe/credential",
-            definition=_definition_payload(),
-            enabled=True,
         )
 
         self.adapter.get_registered_tool = Mock(return_value=tool_row)
+        self.adapter._load_workspace_provider_entry = Mock(return_value=provider_row)
         self.mock_authority_evaluator.db_session = _RuntimeSessionStub([provider_row])
 
         mapping_fn = MCPAdapter._resolve_active_tool_mapping.__get__(self.adapter, MCPAdapter)
@@ -1607,17 +1606,13 @@ class TestMCPAdapter:
             provider_definition_id=_MAPPED_PROVIDER_NAME,
             workspace_name="persisted-workspace",
         )
-        provider_row = GatewayProvider(
-            provider_id=_MAPPED_PROVIDER_NAME,
-            name="Endframe",
-            base_url="https://api.endframe.dev",
+        provider_row = _provider_entry(
             auth_scheme="api_key",
             credential_ref="caracal:default/providers/endframe/credential",
-            definition=_definition_payload(),
-            enabled=True,
         )
 
         self.adapter.get_registered_tool = Mock(return_value=tool_row)
+        self.adapter._load_workspace_provider_entry = Mock(return_value=provider_row)
         self.mock_authority_evaluator.db_session = _RuntimeSessionStub([provider_row])
 
         mapping_fn = MCPAdapter._resolve_active_tool_mapping.__get__(self.adapter, MCPAdapter)
@@ -1650,17 +1645,13 @@ class TestMCPAdapter:
             provider_definition_id=_MAPPED_PROVIDER_NAME,
             workspace_name=None,
         )
-        provider_row = GatewayProvider(
-            provider_id=_MAPPED_PROVIDER_NAME,
-            name="Endframe",
-            base_url="https://api.endframe.dev",
+        provider_row = _provider_entry(
             auth_scheme="api_key",
             credential_ref="caracal:default/providers/endframe/credential",
-            definition=_definition_payload(),
-            enabled=True,
         )
 
         self.adapter.get_registered_tool = Mock(return_value=tool_row)
+        self.adapter._load_workspace_provider_entry = Mock(return_value=provider_row)
         self.mock_authority_evaluator.db_session = _RuntimeSessionStub([provider_row])
 
         mapping_fn = MCPAdapter._resolve_active_tool_mapping.__get__(self.adapter, MCPAdapter)
