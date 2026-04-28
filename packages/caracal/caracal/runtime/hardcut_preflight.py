@@ -62,17 +62,17 @@ _FORBIDDEN_ENTERPRISE_COMPOSE_MARKERS = (
 )
 _REQUIRED_ENTERPRISE_COMPOSE_MARKERS = (
     "  vault:",
-    "image: ${ccl_vault_sidecar_image",
+    "image: ${ccle_vault_image",
     "${ccle_vault_port:-8180}:8080",
-    "ccl_principal_key_backend=${ccl_principal_key_backend:-vault}",
-    "ccl_vault_url=${ccl_vault_url:-http://vault:8080}",
-    "ccl_vault_token=${ccl_vault_token:-enterprise-local-token}",
-    "ccl_vault_workspace_id=${ccl_vault_workspace_id:-caracal-enterprise-local}",
-    "ccl_vault_environment=${ccl_vault_environment:-enterprise-dev}",
-    "ccl_vault_secret_path=${ccl_vault_secret_path:-/enterprise}",
-    "ccl_vault_signing_key_ref=${ccl_vault_signing_key_ref:-keys/mandate-signing}",
-    "ccl_vault_sess_pub_key_ref=${ccl_vault_sess_pub_key_ref:-keys/session-public}",
-    "ccl_sess_signing_alg=${ccl_sess_signing_alg:-rs256}",
+    "ccl_principal_key_backend=${ccle_key_backend:-vault}",
+    "ccl_vault_url=${ccle_vault_url:-http://vault:8080}",
+    "ccl_vault_token=${ccle_vault_token:-enterprise-local-token}",
+    "ccl_vault_workspace_id=${ccle_vault_workspace_id:-caracal-enterprise-local}",
+    "ccl_vault_environment=${ccle_vault_environment:-dev}",
+    "ccl_vault_secret_path=${ccle_vault_secret_path:-/enterprise}",
+    "ccl_vault_signing_key_ref=${ccle_vault_sign_key:-keys/mandate-signing}",
+    "ccl_vault_sess_pub_key_ref=${ccle_vault_sess_key:-keys/session-public}",
+    "ccl_sess_signing_alg=${ccle_session_alg:-rs256}",
     "vault:\n        condition: service_healthy",
 )
 _FORBIDDEN_STATE_RELATIVE_PATHS = (

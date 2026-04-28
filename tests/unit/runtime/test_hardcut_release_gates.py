@@ -306,7 +306,7 @@ def test_enterprise_compose_uses_separate_vault_topology_defaults_from_oss_runti
     assert "${CCLE_VAULT_PORT:-8180}:8080" in payload
     assert "CCL_VAULT_TOKEN=${CCL_VAULT_TOKEN:-enterprise-local-token}" in payload
     assert "CCL_VAULT_WORKSPACE_ID=${CCL_VAULT_WORKSPACE_ID:-caracal-enterprise-local}" in payload
-    assert "CCL_VAULT_ENVIRONMENT=${CCL_VAULT_ENVIRONMENT:-enterprise-dev}" in payload
+    assert "CCL_VAULT_ENVIRONMENT=${CCL_VAULT_ENVIRONMENT:-dev}" in payload
     assert "CCL_VAULT_SECRET_PATH=${CCL_VAULT_SECRET_PATH:-/enterprise}" in payload
 
 

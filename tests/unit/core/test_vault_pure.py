@@ -278,6 +278,14 @@ class TestSaveRecoveredVaultToken:
         content = env_file.read_text()
         assert "CCL_VAULT_ID_TOKEN=my-vault-token" in content
 
+    def test_creates_missing_ccl_home_directory(self, monkeypatch: pytest.MonkeyPatch, tmp_path):
+        nested_home = tmp_path / "nested" / "vault-home"
+        monkeypatch.setenv("CCL_HOME", str(nested_home))
+        self.fn("created-token")
+        env_file = nested_home / ".env"
+        assert env_file.exists()
+        assert "CCL_VAULT_ID_TOKEN=created-token" in env_file.read_text()
+
     def test_replaces_existing_token(self, monkeypatch: pytest.MonkeyPatch, tmp_path):
         monkeypatch.setenv("CCL_HOME", str(tmp_path))
         env_file = tmp_path / ".env"
@@ -375,18 +383,34 @@ class TestLoadVaultConfig:
         assert cfg.default_secret_path == "/"
 
     def test_missing_url_raises(self, monkeypatch: pytest.MonkeyPatch):
+        from caracal.core import vault as vault_module
         from caracal.core.vault import VaultConfigurationError
-        monkeypatch.delenv("CCL_VAULT_URL", raising=False)
-        monkeypatch.setenv("CCL_VAULT_TOKEN", "tok")
-        monkeypatch.setenv("CCL_VAULT_MODE", "managed")
+
+        monkeypatch.setattr(
+            vault_module,
+            "_read_env_or_dotenv",
+            lambda name: {
+                "CCL_VAULT_URL": None,
+                "CCL_VAULT_TOKEN": "tok",
+                "CCL_VAULT_MODE": "managed",
+            }.get(name),
+        )
         with pytest.raises(VaultConfigurationError, match="CCL_VAULT_URL"):
             self.fn()
 
     def test_missing_token_raises(self, monkeypatch: pytest.MonkeyPatch):
+        from caracal.core import vault as vault_module
         from caracal.core.vault import VaultConfigurationError
-        monkeypatch.setenv("CCL_VAULT_URL", "https://vault.example.com")
-        monkeypatch.delenv("CCL_VAULT_TOKEN", raising=False)
-        monkeypatch.setenv("CCL_VAULT_MODE", "managed")
+
+        monkeypatch.setattr(
+            vault_module,
+            "_read_env_or_dotenv",
+            lambda name: {
+                "CCL_VAULT_URL": "https://vault.example.com",
+                "CCL_VAULT_TOKEN": None,
+                "CCL_VAULT_MODE": "managed",
+            }.get(name),
+        )
         with pytest.raises(VaultConfigurationError, match="CCL_VAULT_TOKEN"):
             self.fn()
 

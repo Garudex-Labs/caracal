@@ -193,6 +193,14 @@ class TestSaveRecoveredVaultToken:
         contents = env_file.read_text()
         assert "CCL_VAULT_ID_TOKEN=new-token" in contents
 
+    def test_creates_missing_ccl_home_directory(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        nested_home = tmp_path / "nested" / "vault-home"
+        monkeypatch.setenv("CCL_HOME", str(nested_home))
+        _save_recovered_vault_token("created-token")
+        env_file = nested_home / ".env"
+        assert env_file.exists() is True
+        assert "CCL_VAULT_ID_TOKEN=created-token" in env_file.read_text()
+
     def test_replaces_existing_key(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("CCL_HOME", str(tmp_path))
         env_file = tmp_path / ".env"

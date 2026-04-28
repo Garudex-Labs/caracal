@@ -96,6 +96,7 @@ def _save_recovered_vault_token(token: str) -> None:
     env_path = Path(caracal_home) / ".env"
     key = "CCL_VAULT_ID_TOKEN"
     try:
+        env_path.parent.mkdir(parents=True, exist_ok=True)
         existing = env_path.read_text(encoding="utf-8") if env_path.exists() else ""
         lines = existing.splitlines(keepends=True)
         replaced = False
@@ -237,9 +238,16 @@ def _resolve_local_sidecar_token_and_project(
                 headers=headers,
             )
             if login_response.status_code != 200:
+                recovery_hint = ""
+                if login_response.status_code == 400:
+                    recovery_hint = (
+                        " Local vault token recovery has no persisted CCL_VAULT_ID_TOKEN in CCL_HOME/.env, "
+                        "and email/password login is unavailable for this bootstrapped sidecar. "
+                        "Provide CCL_VAULT_MI_CLIENT_ID and CCL_VAULT_MI_CLIENT_SECRET, or reset the local vault state so bootstrap can mint and persist a fresh identity token."
+                    )
                 raise VaultConfigurationError(
                     "Local vault login failed during token recovery: "
-                    f"{login_response.status_code} {_truncate_detail(login_response.text)}"
+                    f"{login_response.status_code} {_truncate_detail(login_response.text)}{recovery_hint}"
                 )
             login_payload = _json_object(login_response)
             base_token = _extract_string(

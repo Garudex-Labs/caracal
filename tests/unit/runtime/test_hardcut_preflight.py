@@ -66,17 +66,17 @@ services:
       vault:
         condition: service_healthy
     environment:
-      - CCL_PRINCIPAL_KEY_BACKEND=${CCL_PRINCIPAL_KEY_BACKEND:-vault}
-      - CCL_VAULT_URL=${CCL_VAULT_URL:-http://vault:8080}
-      - CCL_VAULT_TOKEN=${CCL_VAULT_TOKEN:-enterprise-local-token}
-      - CCL_VAULT_WORKSPACE_ID=${CCL_VAULT_WORKSPACE_ID:-caracal-enterprise-local}
-      - CCL_VAULT_ENVIRONMENT=${CCL_VAULT_ENVIRONMENT:-enterprise-dev}
-      - CCL_VAULT_SECRET_PATH=${CCL_VAULT_SECRET_PATH:-/enterprise}
-      - CCL_VAULT_SIGNING_KEY_REF=${CCL_VAULT_SIGNING_KEY_REF:-keys/mandate-signing}
-      - CCL_VAULT_SESS_PUB_KEY_REF=${CCL_VAULT_SESS_PUB_KEY_REF:-keys/session-public}
-      - CCL_SESS_SIGNING_ALG=${CCL_SESS_SIGNING_ALG:-RS256}
+            - CCL_PRINCIPAL_KEY_BACKEND=${CCLE_KEY_BACKEND:-vault}
+            - CCL_VAULT_URL=${CCLE_VAULT_URL:-http://vault:8080}
+            - CCL_VAULT_TOKEN=${CCLE_VAULT_TOKEN:-enterprise-local-token}
+            - CCL_VAULT_WORKSPACE_ID=${CCLE_VAULT_WORKSPACE_ID:-caracal-enterprise-local}
+            - CCL_VAULT_ENVIRONMENT=${CCLE_VAULT_ENVIRONMENT:-dev}
+            - CCL_VAULT_SECRET_PATH=${CCLE_VAULT_SECRET_PATH:-/enterprise}
+            - CCL_VAULT_SIGNING_KEY_REF=${CCLE_VAULT_SIGN_KEY:-keys/mandate-signing}
+            - CCL_VAULT_SESS_PUB_KEY_REF=${CCLE_VAULT_SESS_KEY:-keys/session-public}
+            - CCL_SESS_SIGNING_ALG=${CCLE_SESSION_ALG:-RS256}
   vault:
-    image: ${CCL_VAULT_SIDECAR_IMAGE:-infisical/infisical:latest}
+        image: ${CCLE_VAULT_IMAGE:-infisical/infisical:latest}
     ports:
       - "${CCLE_VAULT_PORT:-8180}:8080"
 """.strip(),
