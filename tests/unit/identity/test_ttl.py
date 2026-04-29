@@ -1,4 +1,9 @@
-"""Unit tests for principal TTL registration, reconciliation, and expiry handling."""
+"""
+Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+Caracal, a product of Garudex Labs
+
+Unit tests for principal TTL registration, reconciliation, and expiry handling.
+"""
 
 from __future__ import annotations
 
@@ -91,6 +96,15 @@ class _FakeRedisClient:
             del bucket[member]
         return len(to_delete)
 
+    def zrem(self, name: str, *members: str) -> int:
+        bucket = self.sorted_sets.get(name, {})
+        removed = 0
+        for member in members:
+            if member in bucket:
+                del bucket[member]
+                removed += 1
+        return removed
+
 
 @pytest.mark.unit
 def test_constrain_child_ttl_uses_parent_remaining_lifetime() -> None:
@@ -126,6 +140,27 @@ def test_register_pending_then_activate_principal_updates_lease() -> None:
 
     assert activated.lease_kind == "active"
     assert 0 < activated.ttl_seconds <= 120
+
+
+@pytest.mark.unit
+def test_extend_active_principal_ttl_keeps_maximum_remaining_lifetime() -> None:
+    redis_client = _FakeRedisClient()
+    manager = PrincipalTTLManager(redis_client)
+    manager.register_pending_principal(
+        principal_id="principal-extend",
+        pending_ttl_seconds=30,
+        active_ttl_seconds=60,
+    )
+    manager.activate_principal("principal-extend")
+
+    extended = manager.extend_active_principal_ttl(
+        "principal-extend",
+        ttl_seconds=120,
+    )
+
+    assert extended is not None
+    assert extended.lease_kind == "active"
+    assert 100 <= extended.ttl_seconds <= 120
 
 
 @pytest.mark.unit
@@ -212,11 +247,20 @@ def test_expiry_processor_moves_pending_principal_to_expired_and_revokes_mandate
 def test_expiry_processor_revokes_active_principal_through_orchestrator() -> None:
     orchestrator = Mock()
     orchestrator.revoke_principal = Mock()
+    principal = SimpleNamespace(
+        principal_id=uuid4(),
+        principal_kind="orchestrator",
+        lifecycle_status=PrincipalLifecycleStatus.ACTIVE.value,
+    )
+    principal_query = Mock()
+    principal_query.filter.return_value.first.return_value = principal
+    session = Mock()
+    session.query.return_value = principal_query
 
     class _FakeDbManager:
         @contextmanager
         def session_scope(self):
-            yield object()
+            yield session
 
     processor = PrincipalTTLExpiryProcessor(
         db_manager=_FakeDbManager(),
@@ -235,3 +279,45 @@ def test_expiry_processor_revokes_active_principal_through_orchestrator() -> Non
 
     assert result == "revoked"
     orchestrator.revoke_principal.assert_called_once()
+
+
+@pytest.mark.unit
+def test_expiry_processor_expires_active_worker_and_revokes_mandates() -> None:
+    principal_id = uuid4()
+    principal = SimpleNamespace(
+        principal_id=principal_id,
+        principal_kind="worker",
+        lifecycle_status=PrincipalLifecycleStatus.ACTIVE.value,
+        attestation_status=PrincipalAttestationStatus.ATTESTED.value,
+        principal_metadata={},
+    )
+    mandate = SimpleNamespace(revoked=False, revoked_at=None, revocation_reason=None)
+
+    principal_query = Mock()
+    principal_query.filter.return_value.first.return_value = principal
+    mandate_query = Mock()
+    mandate_query.filter.return_value.filter.return_value.all.return_value = [mandate]
+    session = Mock()
+    session.query.side_effect = [principal_query, mandate_query]
+
+    class _FakeDbManager:
+        @contextmanager
+        def session_scope(self):
+            yield session
+
+    processor = PrincipalTTLExpiryProcessor(db_manager=_FakeDbManager())
+    work_item = SimpleNamespace(
+        principal_id=str(principal_id),
+        lease_kind="active",
+        lease_token="active:1",
+        active_ttl_seconds=60,
+        expired_at=datetime.now(timezone.utc),
+        parent_principal_id=None,
+    )
+
+    result = processor.process(work_item)
+
+    assert result == "expired"
+    assert principal.lifecycle_status == PrincipalLifecycleStatus.EXPIRED.value
+    assert mandate.revoked is True
+    assert mandate.revocation_reason == "worker_ttl_expired"

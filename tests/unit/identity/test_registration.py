@@ -1,4 +1,9 @@
-"""Parity checks for principal registration call shape across CLI and TUI."""
+"""
+Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+Caracal, a product of Garudex Labs
+
+Parity checks for principal registration call shape across CLI and TUI.
+"""
 
 from __future__ import annotations
 
@@ -85,7 +90,7 @@ class _SDKRegistrySpy:
 
 
 class _PromptStub:
-    def __init__(self, *, name: str, owner: str, principal_kind: str = "worker") -> None:
+    def __init__(self, *, name: str, owner: str, principal_kind: str = "orchestrator") -> None:
         self._name = name
         self._owner = owner
         self._principal_kind = principal_kind
@@ -115,9 +120,9 @@ def test_cli_register_uses_identity_service_required_fields(monkeypatch) -> None
         principal_cli.register,
         [
             "--type",
-            "worker",
+            "orchestrator",
             "--name",
-            "worker-cli",
+            "orchestrator-cli",
             "--email",
             "cli@example.com",
             "--metadata",
@@ -127,9 +132,9 @@ def test_cli_register_uses_identity_service_required_fields(monkeypatch) -> None
     )
 
     assert result.exit_code == 0, result.output
-    assert _CliIdentityServiceSpy.captured_kwargs["name"] == "worker-cli"
+    assert _CliIdentityServiceSpy.captured_kwargs["name"] == "orchestrator-cli"
     assert _CliIdentityServiceSpy.captured_kwargs["owner"] == "cli@example.com"
-    assert _CliIdentityServiceSpy.captured_kwargs["principal_kind"] == "worker"
+    assert _CliIdentityServiceSpy.captured_kwargs["principal_kind"] == "orchestrator"
     assert _CliIdentityServiceSpy.captured_kwargs["generate_keys"] is True
     assert db_manager.closed is True
 
@@ -143,13 +148,13 @@ def test_tui_register_uses_identity_service_required_fields(monkeypatch) -> None
     flow = principal_flow.PrincipalFlow(
         console=Console(file=StringIO(), force_terminal=False, width=120)
     )
-    flow.prompt = _PromptStub(name="worker-flow", owner="flow@example.com")
+    flow.prompt = _PromptStub(name="orchestrator-flow", owner="flow@example.com")
 
     flow.create_principal()
 
-    assert _FlowIdentityServiceSpy.captured_kwargs["name"] == "worker-flow"
+    assert _FlowIdentityServiceSpy.captured_kwargs["name"] == "orchestrator-flow"
     assert _FlowIdentityServiceSpy.captured_kwargs["owner"] == "flow@example.com"
-    assert _FlowIdentityServiceSpy.captured_kwargs["principal_kind"] == "worker"
+    assert _FlowIdentityServiceSpy.captured_kwargs["principal_kind"] == "orchestrator"
     assert _FlowIdentityServiceSpy.captured_kwargs["generate_keys"] is True
     assert db_manager.closed is True
 
@@ -166,9 +171,9 @@ def _canonical_registration_payload(kwargs: dict) -> dict:
 
 @pytest.mark.unit
 def test_registration_matrix_sdk_cli_tui_parity(monkeypatch) -> None:
-    shared_name = "worker-unified"
+    shared_name = "orchestrator-unified"
     shared_owner = "unified@example.com"
-    shared_kind = "worker"
+    shared_kind = "orchestrator"
 
     # SDK-facing canonical service call
     sdk_registry = _SDKRegistrySpy()

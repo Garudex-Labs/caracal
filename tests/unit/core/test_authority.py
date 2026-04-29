@@ -284,6 +284,44 @@ class TestAuthorityEvaluator:
         assert "not in mandate scope" in decision.reason.lower()
         assert "resource" in decision.reason.lower()
 
+    def test_validate_action_resource_scope_honors_approved_permission_pairs(self):
+        """Approved permission metadata prevents cross-product overgranting."""
+        mandate = ExecutionMandate(
+            mandate_id=uuid4(),
+            issuer_id=uuid4(),
+            subject_id=uuid4(),
+            valid_from=datetime.utcnow() - timedelta(hours=1),
+            valid_until=datetime.utcnow() + timedelta(hours=1),
+            resource_scope=["secret/a", "secret/b"],
+            action_scope=["read", "write"],
+            signature="test_signature",
+            revoked=False,
+            mandate_metadata={
+                "approval": {
+                    "approved_permissions": [
+                        {"resource": "secret/a", "action": "read"},
+                        {"resource": "secret/b", "action": "write"},
+                    ]
+                }
+            },
+        )
+
+        allowed = self.evaluator._validate_action_and_resource_scope(
+            mandate=mandate,
+            requested_action="read",
+            requested_resource="secret/a",
+        )
+        denied = self.evaluator._validate_action_and_resource_scope(
+            mandate=mandate,
+            requested_action="write",
+            requested_resource="secret/a",
+        )
+
+        assert allowed is None
+        assert denied is not None
+        assert denied.allowed is False
+        assert "approved permission set" in denied.reason
+
     def test_validate_mandate_denies_invalid_caveat_chain(self):
         """Test authority validation fails closed on tampered caveat chain."""
         issuer_id = uuid4()

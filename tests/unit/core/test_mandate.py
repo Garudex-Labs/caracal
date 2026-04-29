@@ -1,13 +1,15 @@
 """
-Unit tests for Mandate core logic.
+Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+Caracal, a product of Garudex Labs
 
-This module tests the MandateManager class and its lifecycle methods.
+Unit tests for Mandate core logic.
 """
 import pytest
 from datetime import datetime, timedelta
 from uuid import uuid4
 from unittest.mock import Mock, MagicMock, patch
 
+from caracal.core.approval import PermissionApprovalError
 from caracal.core.mandate import MandateManager
 from caracal.core.signing_service import SigningServiceKeyError
 from caracal.db.models import ExecutionMandate, AuthorityPolicy, Principal
@@ -101,8 +103,8 @@ class TestMandateManager:
                 validity_seconds=3600
             )
     
-    def test_issue_mandate_exceeds_validity_limit(self):
-        """Test mandate issuance fails when validity exceeds policy limit."""
+    def test_issue_mandate_caps_validity_to_policy_limit(self):
+        """Test mandate issuance reports requested and effective TTL."""
         # Arrange
         issuer_id = uuid4()
         subject_id = uuid4()
@@ -118,20 +120,154 @@ class TestMandateManager:
             allow_delegation=True,
             max_network_distance=3
         )
+
+        issuer = Principal(
+            principal_id=issuer_id,
+            name="test-issuer",
+            principal_kind="human",
+            owner="test",
+            public_key_pem="test_public_key",
+            lifecycle_status="active",
+        )
         
-        mock_query = Mock()
-        mock_query.filter.return_value.first.return_value = policy
-        self.mock_db_session.query.return_value = mock_query
+        def mock_query_side_effect(model):
+            mock_query = Mock()
+            if model == AuthorityPolicy:
+                mock_query.filter.return_value.first.return_value = policy
+            elif model == Principal:
+                mock_query.filter.return_value.first.return_value = issuer
+            return mock_query
+
+        self.mock_db_session.query.side_effect = mock_query_side_effect
+        self.mock_signing_service.sign_canonical_payload_for_principal.return_value = "test_signature"
         
-        # Act & Assert
-        with pytest.raises(ValueError, match="exceeds policy maximum"):
+        mandate = self.manager.issue_mandate(
+            issuer_id=issuer_id,
+            subject_id=subject_id,
+            resource_scope=["secret/test"],
+            action_scope=["read:secrets"],
+            validity_seconds=7200,
+        )
+
+        feedback = mandate.mandate_metadata["approval"]
+        assert feedback["requested_ttl"] == 7200
+        assert feedback["effective_ttl"] == 3600
+        assert feedback["approval_status"] == "full"
+
+    def test_issue_mandate_strict_rejects_entire_request_with_feedback(self):
+        issuer_id = uuid4()
+        subject_id = uuid4()
+        issuer = Principal(
+            principal_id=issuer_id,
+            name="test-issuer",
+            principal_kind="human",
+            owner="test",
+            public_key_pem="test_public_key",
+            lifecycle_status="active",
+        )
+        policy = AuthorityPolicy(
+            policy_id=uuid4(),
+            principal_id=issuer_id,
+            active=True,
+            max_validity_seconds=86400,
+            allowed_resource_patterns=["secret/*"],
+            allowed_actions=["read:secrets"],
+            allow_delegation=False,
+            max_network_distance=0,
+        )
+
+        def mock_query_side_effect(model):
+            mock_query = Mock()
+            if model == AuthorityPolicy:
+                mock_query.filter.return_value.first.return_value = policy
+            elif model == Principal:
+                mock_query.filter.return_value.first.return_value = issuer
+            return mock_query
+
+        self.mock_db_session.query.side_effect = mock_query_side_effect
+
+        with pytest.raises(PermissionApprovalError) as error:
             self.manager.issue_mandate(
                 issuer_id=issuer_id,
                 subject_id=subject_id,
                 resource_scope=["secret/test"],
-                action_scope=["read:secrets"],
-                validity_seconds=7200  # 2 hours - exceeds limit
+                action_scope=["read:secrets", "write:secrets"],
+                validity_seconds=3600,
             )
+
+        decision = error.value.decision.to_dict()
+        assert decision["approval_status"] == "none"
+        assert decision["approved_permissions"] == []
+        assert decision["rejected_permissions"] == [
+            {
+                "resource": "secret/test",
+                "action": "write:secrets",
+                "constraint": "policy",
+                "reason": "Action is outside issuer policy",
+            }
+        ]
+
+    def test_issue_mandate_partial_approves_valid_subset(self):
+        issuer_id = uuid4()
+        subject_id = uuid4()
+        manager = MandateManager(
+            self.mock_db_session,
+            signing_service=self.mock_signing_service,
+            approval_mode="partial",
+        )
+        issuer = Principal(
+            principal_id=issuer_id,
+            name="test-issuer",
+            principal_kind="human",
+            owner="test",
+            public_key_pem="test_public_key",
+            lifecycle_status="active",
+        )
+        policy = AuthorityPolicy(
+            policy_id=uuid4(),
+            principal_id=issuer_id,
+            active=True,
+            max_validity_seconds=86400,
+            allowed_resource_patterns=["secret/allowed"],
+            allowed_actions=["read:secrets"],
+            allow_delegation=False,
+            max_network_distance=0,
+        )
+
+        def mock_query_side_effect(model):
+            mock_query = Mock()
+            if model == AuthorityPolicy:
+                mock_query.filter.return_value.first.return_value = policy
+            elif model == Principal:
+                mock_query.filter.return_value.first.return_value = issuer
+            return mock_query
+
+        self.mock_db_session.query.side_effect = mock_query_side_effect
+        self.mock_signing_service.sign_canonical_payload_for_principal.return_value = "test_signature"
+
+        mandate = manager.issue_mandate(
+            issuer_id=issuer_id,
+            subject_id=subject_id,
+            resource_scope=["secret/allowed", "secret/denied"],
+            action_scope=["read:secrets"],
+            validity_seconds=3600,
+        )
+
+        feedback = mandate.mandate_metadata["approval"]
+        assert feedback["approval_status"] == "partial"
+        assert mandate.resource_scope == ["secret/allowed"]
+        assert mandate.action_scope == ["read:secrets"]
+        assert feedback["approved_permissions"] == [
+            {"resource": "secret/allowed", "action": "read:secrets"}
+        ]
+        assert feedback["rejected_permissions"] == [
+            {
+                "resource": "secret/denied",
+                "action": "read:secrets",
+                "constraint": "policy",
+                "reason": "Resource is outside issuer policy",
+            }
+        ]
 
     def test_issue_mandate_without_resolvable_private_key(self):
         """Test mandate issuance fails when issuer key metadata is missing/invalid."""
@@ -196,6 +332,7 @@ class TestMandateManager:
             resource_scope=["secret/*"],
             action_scope=["read:secrets"],
             network_distance=2,
+            mandate_metadata={"allow_delegation": True},
         )
 
         source_principal = Mock(principal_kind="human")
@@ -254,6 +391,7 @@ class TestMandateManager:
             resource_scope=["secret/*"],
             action_scope=["read:secrets"],
             network_distance=4,
+            mandate_metadata={"allow_delegation": True},
         )
         target_mandate = Mock(
             mandate_id=target_mandate_id,
@@ -314,6 +452,7 @@ class TestMandateManager:
             resource_scope=["provider:anthropic:*"],
             action_scope=["embed"],
             network_distance=4,
+            mandate_metadata={"allow_delegation": True},
         )
         target_mandate = Mock(
             mandate_id=target_mandate_id,
@@ -556,6 +695,7 @@ class TestMandateManager:
             resource_scope=["secret/*"],
             action_scope=["read:secrets"],
             network_distance=0,
+            mandate_metadata={"allow_delegation": True},
         )
         source_principal = Mock(principal_kind="human")
         target_principal = Mock(principal_kind="worker")
@@ -587,24 +727,39 @@ class TestMandateManager:
     def test_delegate_mandate_denies_scope_amplification(self):
         """Delegation must fail when target resource scope is wider than source scope."""
         source_mandate_id = uuid4()
+        source_subject_id = uuid4()
         target_subject_id = uuid4()
 
         source_mandate = Mock(
             mandate_id=source_mandate_id,
-            subject_id=uuid4(),
+            subject_id=source_subject_id,
             revoked=False,
             valid_from=datetime.utcnow() - timedelta(minutes=5),
             valid_until=datetime.utcnow() + timedelta(hours=1),
             resource_scope=["secret/project-a"],
             action_scope=["read:secrets"],
             network_distance=2,
+            mandate_metadata={"allow_delegation": True},
         )
+        source_principal = Mock(principal_kind="human")
+        target_principal = Mock(principal_kind="worker")
 
-        mock_query = Mock()
-        mock_query.filter.return_value.first.return_value = source_mandate
-        self.mock_db_session.query.return_value = mock_query
+        def mock_query_side_effect(model):
+            mock_query = Mock()
+            if model == ExecutionMandate:
+                mock_query.filter.return_value.first.return_value = source_mandate
+            elif model == Principal:
+                call_count = mock_query_side_effect.count
+                mock_query_side_effect.count += 1
+                mock_query.filter.return_value.first.return_value = (
+                    source_principal if call_count == 0 else target_principal
+                )
+            return mock_query
 
-        with pytest.raises(ValueError, match="must be subset"):
+        mock_query_side_effect.count = 0
+        self.mock_db_session.query.side_effect = mock_query_side_effect
+
+        with pytest.raises(PermissionApprovalError) as error:
             self.manager.delegate_mandate(
                 source_mandate_id=source_mandate_id,
                 target_subject_id=target_subject_id,
@@ -612,6 +767,17 @@ class TestMandateManager:
                 action_scope=["read:secrets"],
                 validity_seconds=1800,
             )
+
+        decision = error.value.decision.to_dict()
+        assert decision["approval_status"] == "none"
+        assert decision["rejected_permissions"] == [
+            {
+                "resource": "secret/*",
+                "action": "read:secrets",
+                "constraint": "source mandate",
+                "reason": "Resource is outside source mandate",
+            }
+        ]
 
     def test_revoke_mandate_denies_unauthorized_revoker(self):
         """Revocation must fail when revoker is neither issuer, subject, nor admin."""

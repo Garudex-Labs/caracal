@@ -38,7 +38,7 @@ class TestPrincipalIdentity:
         assert identity.owner == "test-owner"
         assert identity.created_at == "2024-01-01T00:00:00Z"
         assert identity.metadata == {"key": "value"}
-        assert identity.principal_kind == "worker"
+        assert identity.principal_kind == "human"
         assert identity.verification_status == VerificationStatus.UNVERIFIED
 
     def test_principal_to_dict(self):
@@ -92,7 +92,7 @@ class TestPrincipalRegistry:
         mock_principal = Principal(
             principal_id=principal_id,
             name="test-principal",
-            principal_kind="worker",
+            principal_kind="human",
             owner="test-owner",
             created_at=datetime.utcnow(),
             principal_metadata={},
@@ -118,6 +118,14 @@ class TestPrincipalRegistry:
         )
         self.mock_session.add.assert_called_once()
         self.mock_session.commit.assert_called_once()
+
+    def test_register_principal_rejects_worker_kind(self):
+        with pytest.raises(ValueError, match="Worker principals"):
+            self.registry.register_principal(
+                name="manual-worker",
+                owner="test-owner",
+                principal_kind="worker",
+            )
 
     def test_register_principal_allows_same_name_for_different_owner(self):
         mock_query = Mock()
@@ -151,7 +159,7 @@ class TestPrincipalRegistry:
         existing_principal = Principal(
             principal_id=uuid4(),
             name="existing-principal",
-            principal_kind="worker",
+            principal_kind="human",
             owner="test-owner",
             created_at=datetime.utcnow(),
         )
@@ -205,7 +213,7 @@ class TestPrincipalRegistry:
             Principal(
                 principal_id=uuid4(),
                 name=f"principal-{i}",
-                principal_kind="worker",
+                principal_kind="human",
                 owner="test-owner",
                 created_at=datetime.utcnow(),
                 principal_metadata={},
@@ -226,7 +234,7 @@ class TestPrincipalRegistry:
         mock_principal = Principal(
             principal_id=principal_id,
             name="test-principal",
-            principal_kind="worker",
+            principal_kind="human",
             owner="test-owner",
             created_at=datetime.utcnow(),
             principal_metadata={"old_key": "old_value"},

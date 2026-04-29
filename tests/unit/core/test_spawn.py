@@ -13,6 +13,7 @@ from uuid import uuid4
 
 import pytest
 
+from caracal.core.approval import PermissionApprovalError
 from caracal.core.spawn import SpawnManager
 from caracal.db.models import ExecutionMandate, Principal
 from caracal.exceptions import PrincipalNotFoundError
@@ -103,7 +104,10 @@ class TestSpawnManager:
         self.manager._find_existing_spawn = Mock(return_value=None)
 
         issuer_row = SimpleNamespace(
-            principal_id=issuer_id, principal_kind="orchestrator"
+            principal_id=issuer_id,
+            principal_kind="orchestrator",
+            lifecycle_status="active",
+            attestation_status="attested",
         )
         principal_row = SimpleNamespace(
             principal_id=principal_id,
@@ -191,7 +195,10 @@ class TestSpawnManager:
         self.manager._find_existing_spawn = Mock(return_value=None)
 
         issuer_row = SimpleNamespace(
-            principal_id=issuer_id, principal_kind="orchestrator"
+            principal_id=issuer_id,
+            principal_kind="orchestrator",
+            lifecycle_status="active",
+            attestation_status="attested",
         )
         existing_worker = SimpleNamespace(
             principal_id=uuid4(), name="worker-shared", owner="ops"
@@ -241,7 +248,10 @@ class TestSpawnManager:
         assert captured_principal["row"] is not None
         assert captured_principal["row"].name.startswith("worker-shared-")
         assert captured_principal["row"].principal_metadata == {
-            "requested_name": "worker-shared"
+            "created_via": "spawn",
+            "requested_name": "worker-shared",
+            "ttl_source": "execution_mandate",
+            "worker_ephemeral": True,
         }
         assert result.principal_name == captured_principal["row"].name
         assert result.idempotent_replay is False
@@ -262,7 +272,10 @@ class TestSpawnManager:
         )
 
         issuer_row = SimpleNamespace(
-            principal_id=issuer_id, principal_kind="orchestrator"
+            principal_id=issuer_id,
+            principal_kind="orchestrator",
+            lifecycle_status="active",
+            attestation_status="attested",
         )
         duplicate = None
         principal_query = Mock()
@@ -319,6 +332,7 @@ class TestSpawnManager:
             resource_scope=["provider:openai:*"],
             action_scope=["infer"],
             network_distance=2,
+            mandate_metadata={"allow_delegation": True},
         )
         source_query = Mock()
         source_query.filter.return_value.first.return_value = source_mandate
@@ -332,7 +346,7 @@ class TestSpawnManager:
 
         self.mock_session.query.side_effect = _query_side_effect
 
-        with pytest.raises(ValueError, match="resource scope"):
+        with pytest.raises(PermissionApprovalError) as error:
             self.manager.spawn_principal(
                 issuer_principal_id=str(issuer_id),
                 principal_name="worker-invalid-scope",
@@ -345,6 +359,16 @@ class TestSpawnManager:
                 source_mandate_id=str(source_mandate_id),
             )
 
+        decision = error.value.decision.to_dict()
+        assert decision["approval_status"] == "none"
+        assert decision["rejected_permissions"] == [
+            {
+                "resource": "provider:anthropic:models",
+                "action": "infer",
+                "constraint": "source mandate",
+                "reason": "Resource is outside source mandate",
+            }
+        ]
         self.mock_session.begin_nested.assert_not_called()
         self.mock_session.add.assert_not_called()
         self.mock_mandate_manager.issue_mandate.assert_not_called()
@@ -363,6 +387,7 @@ class TestSpawnManager:
             resource_scope=["provider:openai:*"],
             action_scope=["infer"],
             network_distance=1,
+            mandate_metadata={"allow_delegation": True},
         )
         source_query = Mock()
         source_query.filter.return_value.first.return_value = source_mandate
@@ -412,12 +437,16 @@ class TestSpawnManager:
             resource_scope=["provider:openai:*"],
             action_scope=["infer"],
             network_distance=3,
+            mandate_metadata={"allow_delegation": True},
         )
         source_query = Mock()
         source_query.filter.return_value.first.return_value = source_mandate
 
         issuer_row = SimpleNamespace(
-            principal_id=issuer_id, principal_kind="orchestrator"
+            principal_id=issuer_id,
+            principal_kind="orchestrator",
+            lifecycle_status="active",
+            attestation_status="attested",
         )
         duplicate = None
         principal_query = Mock()
@@ -482,7 +511,10 @@ class TestSpawnManager:
         )
 
         issuer_row = SimpleNamespace(
-            principal_id=issuer_id, principal_kind="orchestrator"
+            principal_id=issuer_id,
+            principal_kind="orchestrator",
+            lifecycle_status="active",
+            attestation_status="attested",
         )
         duplicate = None
         principal_query = Mock()
@@ -538,7 +570,10 @@ class TestSpawnManager:
         self.mock_principal_ttl_manager.clear_principal = Mock()
 
         issuer_row = SimpleNamespace(
-            principal_id=issuer_id, principal_kind="orchestrator"
+            principal_id=issuer_id,
+            principal_kind="orchestrator",
+            lifecycle_status="active",
+            attestation_status="attested",
         )
         duplicate = None
         principal_query = Mock()
@@ -604,6 +639,35 @@ class TestSpawnManager:
                 action_scope=["infer"],
                 validity_seconds=300,
                 idempotency_key="spawn-service-issuer",
+            )
+
+        self.mock_session.add.assert_not_called()
+        self.mock_mandate_manager.issue_mandate.assert_not_called()
+
+    def test_spawn_rejects_worker_issuer_without_source_mandate(self) -> None:
+        issuer_id = uuid4()
+        self.manager._find_existing_spawn = Mock(return_value=None)
+
+        worker_issuer = SimpleNamespace(
+            principal_id=issuer_id,
+            principal_kind="worker",
+            lifecycle_status="active",
+            attestation_status="attested",
+        )
+        principal_query = Mock()
+        principal_query.filter.return_value.first.return_value = worker_issuer
+        self.mock_session.query.return_value = principal_query
+
+        with pytest.raises(ValueError, match="explicit delegated source mandate"):
+            self.manager.spawn_principal(
+                issuer_principal_id=str(issuer_id),
+                principal_name="worker-bad-delegation",
+                principal_kind="worker",
+                owner="ops",
+                resource_scope=["provider:openai:models"],
+                action_scope=["infer"],
+                validity_seconds=300,
+                idempotency_key="spawn-worker-without-source",
             )
 
         self.mock_session.add.assert_not_called()

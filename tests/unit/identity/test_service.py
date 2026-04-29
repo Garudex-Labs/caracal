@@ -1,4 +1,9 @@
-"""Unit tests for identity service facade behavior."""
+"""
+Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+Caracal, a product of Garudex Labs
+
+Unit tests for identity service facade behavior.
+"""
 
 from __future__ import annotations
 
@@ -20,9 +25,9 @@ def test_register_principal_delegates_to_registry() -> None:
     service = IdentityService(principal_registry=registry, spawn_manager=spawn_manager)
 
     result = service.register_principal(
-        name="worker-1",
+        name="orchestrator-1",
         owner="ops",
-        principal_kind="worker",
+        principal_kind="orchestrator",
         metadata={"team": "ops"},
         generate_keys=True,
     )
