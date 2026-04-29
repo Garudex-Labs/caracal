@@ -1,8 +1,10 @@
 """
-Unit tests for Principal Identity management.
+Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+Caracal, a product of Garudex Labs
 
-This module tests the PrincipalIdentity and PrincipalRegistry classes.
+Unit tests for principal identity management.
 """
+
 from datetime import datetime
 from unittest.mock import Mock, patch
 from uuid import uuid4
@@ -21,7 +23,7 @@ from caracal.exceptions import DuplicatePrincipalNameError
 @pytest.mark.unit
 class TestPrincipalIdentity:
     """Test suite for PrincipalIdentity dataclass."""
-    
+
     def test_principal_creation_with_valid_data(self):
         """Test principal identity creation with valid data."""
         identity = PrincipalIdentity(
@@ -29,7 +31,7 @@ class TestPrincipalIdentity:
             name="test-principal",
             owner="test-owner",
             created_at="2024-01-01T00:00:00Z",
-            metadata={"key": "value"}
+            metadata={"key": "value"},
         )
         assert identity.principal_id == "test-id-123"
         assert identity.name == "test-principal"
@@ -38,7 +40,7 @@ class TestPrincipalIdentity:
         assert identity.metadata == {"key": "value"}
         assert identity.principal_kind == "worker"
         assert identity.verification_status == VerificationStatus.UNVERIFIED
-    
+
     def test_principal_to_dict(self):
         """Test principal identity serialization to dictionary."""
         identity = PrincipalIdentity(
@@ -47,14 +49,14 @@ class TestPrincipalIdentity:
             owner="test-owner",
             created_at="2024-01-01T00:00:00Z",
             metadata={"key": "value"},
-            verification_status=VerificationStatus.VERIFIED
+            verification_status=VerificationStatus.VERIFIED,
         )
         result = identity.to_dict()
         assert result["principal_id"] == "test-id-123"
         assert result["name"] == "test-principal"
         assert result["verification_status"] == "verified"
         assert result["metadata"] == {"key": "value"}
-    
+
     def test_principal_from_dict(self):
         """Test principal identity deserialization from dictionary."""
         data = {
@@ -63,28 +65,29 @@ class TestPrincipalIdentity:
             "owner": "test-owner",
             "created_at": "2024-01-01T00:00:00Z",
             "metadata": {"key": "value"},
-            "verification_status": "verified"
+            "verification_status": "verified",
         }
         identity = PrincipalIdentity.from_dict(data)
         assert identity.principal_id == "test-id-123"
         assert identity.name == "test-principal"
         assert identity.verification_status == VerificationStatus.VERIFIED
 
+
 @pytest.mark.unit
 class TestPrincipalRegistry:
     """Test suite for PrincipalRegistry class."""
-    
+
     def setup_method(self):
         """Set up test fixtures before each test method."""
         self.mock_session = Mock()
         self.registry = PrincipalRegistry(self.mock_session)
-    
+
     def test_register_principal_with_valid_data(self):
         """Test principal registration with valid data."""
         mock_query = Mock()
         mock_query.filter_by.return_value.first.return_value = None
         self.mock_session.query.return_value = mock_query
-        
+
         principal_id = uuid4()
         mock_principal = Principal(
             principal_id=principal_id,
@@ -92,36 +95,65 @@ class TestPrincipalRegistry:
             principal_kind="worker",
             owner="test-owner",
             created_at=datetime.utcnow(),
-            principal_metadata={}
+            principal_metadata={},
         )
-        
+
         self.mock_session.add = Mock()
         self.mock_session.flush = Mock()
         self.mock_session.commit = Mock()
 
-        with patch('caracal.core.identity.generate_and_store_principal_keypair') as mock_gen:
+        with patch(
+            "caracal.core.identity.generate_and_store_principal_keypair"
+        ) as mock_gen:
             mock_gen.return_value = Mock(
-                public_key_pem="test_public_key",
-                storage=Mock(metadata={})
+                public_key_pem="test_public_key", storage=Mock(metadata={})
             )
             identity = self.registry.register_principal(
-                name="test-principal",
-                owner="test-owner",
-                generate_keys=False
+                name="test-principal", owner="test-owner", generate_keys=False
             )
         assert identity.name == "test-principal"
         assert identity.owner == "test-owner"
+        mock_query.filter_by.assert_called_once_with(
+            owner="test-owner", name="test-principal"
+        )
         self.mock_session.add.assert_called_once()
         self.mock_session.commit.assert_called_once()
-    
-    def test_register_principal_duplicate_name(self):
-        """Test principal registration with duplicate name raises error."""
+
+    def test_register_principal_allows_same_name_for_different_owner(self):
+        mock_query = Mock()
+        mock_query.filter_by.return_value.first.return_value = None
+        self.mock_session.query.return_value = mock_query
+
+        self.mock_session.add = Mock()
+        self.mock_session.flush = Mock()
+        self.mock_session.commit = Mock()
+
+        with patch(
+            "caracal.core.identity.generate_and_store_principal_keypair"
+        ) as mock_gen:
+            mock_gen.return_value = Mock(
+                public_key_pem="test_public_key", storage=Mock(metadata={})
+            )
+            identity = self.registry.register_principal(
+                name="shared-principal",
+                owner="workspace-b",
+                generate_keys=False,
+            )
+
+        assert identity.name == "shared-principal"
+        assert identity.owner == "workspace-b"
+        mock_query.filter_by.assert_called_once_with(
+            owner="workspace-b", name="shared-principal"
+        )
+
+    def test_register_principal_duplicate_name_same_owner(self):
+        """Test principal registration with duplicate scoped name raises error."""
         existing_principal = Principal(
             principal_id=uuid4(),
             name="existing-principal",
             principal_kind="worker",
             owner="test-owner",
-            created_at=datetime.utcnow()
+            created_at=datetime.utcnow(),
         )
 
         mock_query = Mock()
@@ -129,10 +161,9 @@ class TestPrincipalRegistry:
         self.mock_session.query.return_value = mock_query
         with pytest.raises(DuplicatePrincipalNameError):
             self.registry.register_principal(
-                name="existing-principal",
-                owner="test-owner"
+                name="existing-principal", owner="test-owner"
             )
-    
+
     def test_get_principal_valid_id(self):
         """Test getting principal with valid ID."""
         principal_id = uuid4()
@@ -143,9 +174,9 @@ class TestPrincipalRegistry:
             owner="test-owner",
             created_at=datetime.utcnow(),
             principal_metadata={},
-            public_key_pem="test_key"
+            public_key_pem="test_key",
         )
-        
+
         mock_query = Mock()
         mock_query.filter_by.return_value.first.return_value = mock_principal
         self.mock_session.query.return_value = mock_query
@@ -153,7 +184,7 @@ class TestPrincipalRegistry:
         assert identity is not None
         assert identity.principal_id == str(principal_id)
         assert identity.name == "test-principal"
-    
+
     def test_get_principal_not_found(self):
         """Test getting principal with non-existent ID returns None."""
         principal_id = uuid4()
@@ -162,12 +193,12 @@ class TestPrincipalRegistry:
         self.mock_session.query.return_value = mock_query
         identity = self.registry.get_principal(str(principal_id))
         assert identity is None
-    
+
     def test_get_principal_invalid_id(self):
         """Test getting principal with invalid ID returns None."""
         identity = self.registry.get_principal("invalid-uuid")
         assert identity is None
-    
+
     def test_list_principals(self):
         """Test listing all principals."""
         mock_principals = [
@@ -177,18 +208,18 @@ class TestPrincipalRegistry:
                 principal_kind="worker",
                 owner="test-owner",
                 created_at=datetime.utcnow(),
-                principal_metadata={}
+                principal_metadata={},
             )
             for i in range(3)
         ]
-        
+
         mock_query = Mock()
         mock_query.order_by.return_value.all.return_value = mock_principals
         self.mock_session.query.return_value = mock_query
         identities = self.registry.list_principals()
         assert len(identities) == 3
         assert all(isinstance(i, PrincipalIdentity) for i in identities)
-    
+
     def test_update_principal_metadata(self):
         """Test updating principal metadata."""
         principal_id = uuid4()
@@ -198,26 +229,26 @@ class TestPrincipalRegistry:
             principal_kind="worker",
             owner="test-owner",
             created_at=datetime.utcnow(),
-            principal_metadata={"old_key": "old_value"}
+            principal_metadata={"old_key": "old_value"},
         )
-        
+
         mock_query = Mock()
         mock_query.filter_by.return_value.first.return_value = mock_principal
         self.mock_session.query.return_value = mock_query
-        
+
         # Act
         identity = self.registry.update_principal(
-            str(principal_id),
-            metadata={"new_key": "new_value"}
+            str(principal_id), metadata={"new_key": "new_value"}
         )
         assert identity is not None
         self.mock_session.flush.assert_called()
         self.mock_session.commit.assert_called()
 
+
 @pytest.mark.unit
 class TestVerificationStatus:
     """Test suite for VerificationStatus enum."""
-    
+
     def test_verification_status_values(self):
         """Test verification status enum values."""
         assert VerificationStatus.UNVERIFIED.value == "unverified"

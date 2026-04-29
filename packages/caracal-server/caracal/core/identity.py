@@ -98,8 +98,12 @@ class PrincipalIdentity:
             public_key=data.get("public_key"),
             workspace_id=data.get("workspace_id"),
             source_principal_id=data.get("source_principal_id"),
-            lifecycle_status=data.get("lifecycle_status", PrincipalLifecycleStatus.ACTIVE.value),
-            attestation_status=data.get("attestation_status", PrincipalAttestationStatus.UNATTESTED.value),
+            lifecycle_status=data.get(
+                "lifecycle_status", PrincipalLifecycleStatus.ACTIVE.value
+            ),
+            attestation_status=data.get(
+                "attestation_status", PrincipalAttestationStatus.UNATTESTED.value
+            ),
             verification_status=status,
             trust_level=int(data.get("trust_level", 0)),
             capabilities=data.get("capabilities", []),
@@ -121,7 +125,11 @@ class PrincipalRegistry:
     @staticmethod
     def _to_identity(row: Principal) -> PrincipalIdentity:
         metadata = row.principal_metadata or {}
-        created_at = row.created_at.isoformat() + "Z" if isinstance(row.created_at, datetime) else str(row.created_at)
+        created_at = (
+            row.created_at.isoformat() + "Z"
+            if isinstance(row.created_at, datetime)
+            else str(row.created_at)
+        )
         return PrincipalIdentity(
             principal_id=str(row.principal_id),
             principal_kind=row.principal_kind,
@@ -129,8 +137,11 @@ class PrincipalRegistry:
             owner=row.owner,
             created_at=created_at,
             metadata=metadata,
-            public_key=row.public_key_pem or (metadata.get("public_key_pem") if isinstance(metadata, dict) else None),
-            source_principal_id=str(row.source_principal_id) if row.source_principal_id else None,
+            public_key=row.public_key_pem
+            or (metadata.get("public_key_pem") if isinstance(metadata, dict) else None),
+            source_principal_id=(
+                str(row.source_principal_id) if row.source_principal_id else None
+            ),
             lifecycle_status=row.lifecycle_status,
             attestation_status=row.attestation_status,
         )
@@ -151,15 +162,20 @@ class PrincipalRegistry:
         if principal_kind not in known_kinds:
             raise ValueError(f"Unknown principal_kind '{principal_kind}'")
 
-        non_reactivating_kinds = {PrincipalKind.ORCHESTRATOR.value, PrincipalKind.WORKER.value}
+        non_reactivating_kinds = {
+            PrincipalKind.ORCHESTRATOR.value,
+            PrincipalKind.WORKER.value,
+        }
         if (
             principal_kind in non_reactivating_kinds
             and attestation_status != PrincipalAttestationStatus.ATTESTED.value
         ):
             lifecycle_status = PrincipalLifecycleStatus.PENDING_ATTESTATION.value
 
-        if self.session.query(Principal).filter_by(name=name).first():
-            raise DuplicatePrincipalNameError(f"Principal with name '{name}' already exists")
+        if self.session.query(Principal).filter_by(owner=owner, name=name).first():
+            raise DuplicatePrincipalNameError(
+                f"Principal with name '{name}' already exists for owner '{owner}'"
+            )
 
         principal_metadata = dict(metadata or {})
 
@@ -197,13 +213,17 @@ class PrincipalRegistry:
             self.session.flush()
 
         self.session.commit()
-        logger.info("Registered principal", principal_id=str(row.principal_id), name=name)
+        logger.info(
+            "Registered principal", principal_id=str(row.principal_id), name=name
+        )
         return self._to_identity(row)
 
     def create_principal(self, *args, **kwargs) -> PrincipalIdentity:
         return self.register_principal(*args, **kwargs)
 
-    def update_principal(self, principal_id: str, metadata: Optional[Dict[str, object]] = None) -> PrincipalIdentity:
+    def update_principal(
+        self, principal_id: str, metadata: Optional[Dict[str, object]] = None
+    ) -> PrincipalIdentity:
         principal = self._get_row(principal_id)
         principal_metadata = dict(principal.principal_metadata or {})
         principal_metadata.update(metadata or {})
@@ -220,7 +240,9 @@ class PrincipalRegistry:
     ) -> PrincipalIdentity:
         """Transition principal lifecycle status with kind-aware guardrails."""
         principal = self._get_row(principal_id)
-        current_status = str(principal.lifecycle_status or PrincipalLifecycleStatus.ACTIVE.value)
+        current_status = str(
+            principal.lifecycle_status or PrincipalLifecycleStatus.ACTIVE.value
+        )
         self.lifecycle_state_machine.assert_transition_allowed(
             principal_kind=str(principal.principal_kind),
             from_status=current_status,
@@ -269,8 +291,12 @@ class PrincipalRegistry:
         try:
             principal_uuid = UUID(str(principal_id))
         except ValueError as exc:
-            raise PrincipalNotFoundError(f"Invalid principal ID: {principal_id}") from exc
-        row = self.session.query(Principal).filter_by(principal_id=principal_uuid).first()
+            raise PrincipalNotFoundError(
+                f"Invalid principal ID: {principal_id}"
+            ) from exc
+        row = (
+            self.session.query(Principal).filter_by(principal_id=principal_uuid).first()
+        )
         if not row:
             raise PrincipalNotFoundError(f"Principal {principal_id} not found")
         return row
@@ -290,7 +316,9 @@ class PrincipalRegistry:
         principal = self._get_row(principal_id)
         principal_metadata = dict(principal.principal_metadata or {})
 
-        if principal.public_key_pem and principal_has_key_custody(principal.principal_id, self.session):
+        if principal.public_key_pem and principal_has_key_custody(
+            principal.principal_id, self.session
+        ):
             return self._to_identity(principal)
 
         generated = generate_and_store_principal_keypair(
@@ -362,7 +390,9 @@ class PrincipalRegistry:
 
         # Ensure source has signing keys persisted via custody-backed key storage.
         source_metadata = dict(source.principal_metadata or {})
-        if not source.public_key_pem or not principal_has_key_custody(source.principal_id, self.session):
+        if not source.public_key_pem or not principal_has_key_custody(
+            source.principal_id, self.session
+        ):
             generated = generate_and_store_principal_keypair(
                 source.principal_id,
                 db_session=self.session,
@@ -402,7 +432,9 @@ class PrincipalRegistry:
     def get_signing_key_reference(self, principal_id: str) -> str:
         """Resolve the vault-backed signing key reference for a principal."""
         principal_uuid = UUID(str(principal_id))
-        row = self.session.query(Principal).filter_by(principal_id=principal_uuid).first()
+        row = (
+            self.session.query(Principal).filter_by(principal_id=principal_uuid).first()
+        )
         if row is None:
             raise PrincipalNotFoundError(f"Principal {principal_id} not found")
         return resolve_principal_key_reference(

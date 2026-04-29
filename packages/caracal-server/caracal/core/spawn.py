@@ -1,7 +1,13 @@
-"""Atomic principal spawn orchestration for hard-cut authority flows."""
+"""
+Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+Caracal, a product of Garudex Labs
+
+Atomic principal spawn orchestration for hard-cut authority flows.
+"""
 
 from __future__ import annotations
 
+from hashlib import sha256
 from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
@@ -28,7 +34,6 @@ from caracal.db.models import (
 )
 from caracal.exceptions import DuplicatePrincipalNameError, PrincipalNotFoundError
 from caracal.logging_config import get_logger
-
 
 _IDEMPOTENCY_BINDING_TYPE = "spawn_idempotency"
 _BOOTSTRAP_BINDING_TYPE = "attestation_bootstrap"
@@ -91,7 +96,9 @@ class SpawnManager:
             )
 
         issuer_uuid = UUID(str(issuer_principal_id))
-        source_mandate_uuid = UUID(str(source_mandate_id)) if source_mandate_id else None
+        source_mandate_uuid = (
+            UUID(str(source_mandate_id)) if source_mandate_id else None
+        )
         resolved_network_distance = network_distance
 
         if source_mandate_uuid is not None:
@@ -140,24 +147,26 @@ class SpawnManager:
                             f"Service principal '{issuer_principal_id}' is not authorized to spawn principals"
                         )
 
-                    duplicate = (
-                        self.db_session.query(Principal)
-                        .filter(Principal.name == principal_name)
-                        .first()
+                    stored_principal_name = self._resolve_spawn_principal_name(
+                        principal_name=principal_name,
+                        owner=owner,
+                        issuer_id=issuer_uuid,
+                        idempotency_key=idempotency_key,
                     )
-                    if duplicate is not None:
-                        raise DuplicatePrincipalNameError(
-                            f"Principal with name '{principal_name}' already exists"
-                        )
 
                     principal = Principal(
-                        name=principal_name,
+                        name=stored_principal_name,
                         principal_kind=principal_kind,
                         owner=owner,
                         source_principal_id=issuer_uuid,
                         lifecycle_status=PrincipalLifecycleStatus.PENDING_ATTESTATION.value,
                         attestation_status=PrincipalAttestationStatus.PENDING.value,
                         created_at=datetime.utcnow(),
+                        principal_metadata=(
+                            {"requested_name": principal_name}
+                            if stored_principal_name != principal_name
+                            else None
+                        ),
                     )
                     self.db_session.add(principal)
                     self.db_session.flush()
@@ -214,7 +223,9 @@ class SpawnManager:
                             target_mandate_id=mandate.mandate_id,
                             context_tags=context_tags,
                             expires_at=getattr(mandate, "valid_until", None),
-                            metadata={"spawned_principal_id": str(principal.principal_id)},
+                            metadata={
+                                "spawned_principal_id": str(principal.principal_id)
+                            },
                         )
 
                     if ttl_decision is not None and ttl_decision.truncated:
@@ -231,7 +242,9 @@ class SpawnManager:
                                 correlation_id=None,
                                 event_metadata={
                                     "issuer_principal_id": str(issuer_uuid),
-                                    "ttl_decision": serialize_ttl_decision(ttl_decision),
+                                    "ttl_decision": serialize_ttl_decision(
+                                        ttl_decision
+                                    ),
                                 },
                             )
                         )
@@ -268,7 +281,9 @@ class SpawnManager:
                         idempotent_replay=False,
                     )
 
-                issued_nonce = self.attestation_nonce_manager.issue_nonce(spawn_result.principal_id)
+                issued_nonce = self.attestation_nonce_manager.issue_nonce(
+                    spawn_result.principal_id
+                )
                 if self.principal_ttl_manager is not None:
                     ttl_registered_principal_id = spawn_result.principal_id
                     self.principal_ttl_manager.register_pending_principal(
@@ -281,18 +296,26 @@ class SpawnManager:
                         parent_principal_id=str(issuer_uuid),
                     )
         except Exception:
-            if issued_nonce is not None and hasattr(self.attestation_nonce_manager, "revoke_nonce"):
+            if issued_nonce is not None and hasattr(
+                self.attestation_nonce_manager, "revoke_nonce"
+            ):
                 try:
                     self.attestation_nonce_manager.revoke_nonce(issued_nonce.nonce)
                 except Exception:
                     logger.warning(
                         "Failed to clean up attestation nonce after spawn rollback",
-                        principal_id=spawn_result.principal_id if "spawn_result" in locals() else None,
+                        principal_id=(
+                            spawn_result.principal_id
+                            if "spawn_result" in locals()
+                            else None
+                        ),
                         exc_info=True,
                     )
             if ttl_registered_principal_id and self.principal_ttl_manager is not None:
                 try:
-                    self.principal_ttl_manager.clear_principal(ttl_registered_principal_id)
+                    self.principal_ttl_manager.clear_principal(
+                        ttl_registered_principal_id
+                    )
                 except Exception:
                     logger.warning(
                         "Failed to clean up principal TTL lease after spawn rollback",
@@ -367,7 +390,9 @@ class SpawnManager:
             )
             raise ValueError(f"Source mandate '{source_mandate_id}' has expired")
 
-        if not self._scope_is_subset(requested_resource_scope, source_mandate.resource_scope):
+        if not self._scope_is_subset(
+            requested_resource_scope, source_mandate.resource_scope
+        ):
             logger.warning(
                 "Spawn rejected: resource scope amplification attempt",
                 source_mandate_id=str(source_mandate_id),
@@ -375,8 +400,12 @@ class SpawnManager:
                 requested_resource_scope=requested_resource_scope,
                 source_resource_scope=source_mandate.resource_scope,
             )
-            raise ValueError("Spawn resource scope must be a subset of source mandate scope")
-        if not self._scope_is_subset(requested_action_scope, source_mandate.action_scope):
+            raise ValueError(
+                "Spawn resource scope must be a subset of source mandate scope"
+            )
+        if not self._scope_is_subset(
+            requested_action_scope, source_mandate.action_scope
+        ):
             logger.warning(
                 "Spawn rejected: action scope amplification attempt",
                 source_mandate_id=str(source_mandate_id),
@@ -384,7 +413,9 @@ class SpawnManager:
                 requested_action_scope=requested_action_scope,
                 source_action_scope=source_mandate.action_scope,
             )
-            raise ValueError("Spawn action scope must be a subset of source mandate scope")
+            raise ValueError(
+                "Spawn action scope must be a subset of source mandate scope"
+            )
 
         source_depth = int(source_mandate.network_distance or 0)
         if source_depth <= 0:
@@ -427,11 +458,15 @@ class SpawnManager:
     @staticmethod
     def _scope_is_subset(requested_scope: list[str], source_scope: list[str]) -> bool:
         for requested_entry in requested_scope:
-            if not any(fnmatchcase(requested_entry, pattern) for pattern in source_scope):
+            if not any(
+                fnmatchcase(requested_entry, pattern) for pattern in source_scope
+            ):
                 return False
         return True
 
-    def _find_existing_spawn(self, issuer_id: UUID, idempotency_key: str) -> Optional[SpawnResult]:
+    def _find_existing_spawn(
+        self, issuer_id: UUID, idempotency_key: str
+    ) -> Optional[SpawnResult]:
         """Resolve idempotent replay when a spawn already exists for the key."""
         marker = f"{issuer_id}:{idempotency_key}"
         binding = (
@@ -454,7 +489,10 @@ class SpawnManager:
         tag_value = f"spawn:idempotency:{idempotency_key}"
         mandate = (
             self.db_session.query(ExecutionMandate)
-            .join(MandateContextTag, MandateContextTag.mandate_id == ExecutionMandate.mandate_id)
+            .join(
+                MandateContextTag,
+                MandateContextTag.mandate_id == ExecutionMandate.mandate_id,
+            )
             .filter(ExecutionMandate.issuer_id == issuer_id)
             .filter(ExecutionMandate.subject_id == principal.principal_id)
             .filter(ExecutionMandate.revoked.is_(False))
@@ -484,3 +522,35 @@ class SpawnManager:
             attestation_nonce="",
             idempotent_replay=True,
         )
+
+    def _resolve_spawn_principal_name(
+        self,
+        *,
+        principal_name: str,
+        owner: str,
+        issuer_id: UUID,
+        idempotency_key: str,
+    ) -> str:
+        duplicate = (
+            self.db_session.query(Principal)
+            .filter(Principal.owner == owner, Principal.name == principal_name)
+            .first()
+        )
+        if duplicate is None:
+            return principal_name
+
+        suffix = sha256(
+            f"{owner}:{issuer_id}:{idempotency_key}".encode("utf-8")
+        ).hexdigest()[:12]
+        base = principal_name[: 254 - len(suffix)].rstrip("-") or "spawn"
+        scoped_name = f"{base}-{suffix}"
+        duplicate = (
+            self.db_session.query(Principal)
+            .filter(Principal.owner == owner, Principal.name == scoped_name)
+            .first()
+        )
+        if duplicate is not None:
+            raise DuplicatePrincipalNameError(
+                f"Principal with name '{principal_name}' already exists for owner '{owner}'"
+            )
+        return scoped_name
