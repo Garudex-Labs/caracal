@@ -146,11 +146,12 @@ class TestScopeIsCoveredByUnion:
         from caracal.core.delegation_graph import DelegationGraph
         self.covered = DelegationGraph._scope_is_covered_by_union
 
-    def test_none_requested_is_covered(self):
-        assert self.covered(None, [["res:*"]]) is True
+    def test_none_requested_is_denied(self):
+        # Empty scope is deny-all.
+        assert self.covered(None, [["res:*"]]) is False
 
-    def test_empty_requested_is_covered(self):
-        assert self.covered([], [["res:*"]]) is True
+    def test_empty_requested_is_denied(self):
+        assert self.covered([], [["res:*"]]) is False
 
     def test_exact_match_covered(self):
         assert self.covered(["res:foo"], [["res:foo"]]) is True

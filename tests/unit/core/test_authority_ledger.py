@@ -83,7 +83,8 @@ class TestAuthorityLedgerWriterRecordIssuance:
 
     def test_stores_metadata_and_correlation_id(self):
         writer, session = self._make_writer()
-        meta = {"key": "val"}
+        # Sanitizer keeps allowlisted structural keys and drops everything else.
+        meta = {"reason_code": "AUTH_ALLOW", "key": "val"}
         cid = "cid_abc"
         event = writer.record_issuance(
             mandate_id=uuid4(),
@@ -91,7 +92,7 @@ class TestAuthorityLedgerWriterRecordIssuance:
             metadata=meta,
             correlation_id=cid,
         )
-        assert event.event_metadata == meta
+        assert event.event_metadata == {"reason_code": "AUTH_ALLOW"}
         assert event.correlation_id == cid
 
 

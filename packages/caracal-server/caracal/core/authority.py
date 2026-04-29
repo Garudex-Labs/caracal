@@ -19,6 +19,8 @@ from caracal.core.caveat_chain import (
     evaluate_caveat_chain,
     verify_caveat_chain,
 )
+from caracal.core.intent import Intent
+from caracal.core.authority_ledger import LedgerWriteError
 from caracal.db.models import ExecutionMandate, Principal, PrincipalAttestationStatus, PrincipalKind, PrincipalLifecycleStatus
 from caracal.logging_config import get_logger
 from caracal.provider.definitions import parse_provider_scope
@@ -38,6 +40,7 @@ class AuthorityBoundaryStage:
     SUBJECT_BINDING_VALIDATION = "subject_binding_validation"
     CAVEAT_CHAIN_VALIDATION = "caveat_chain_validation"
     ACTION_RESOURCE_AUTHORIZATION_CHECKS = "action_resource_authorization_checks"
+    INTENT_BINDING_VALIDATION = "intent_binding_validation"
     ALLOW = "allow"
 
 
@@ -60,6 +63,8 @@ class AuthorityReasonCode:
     CAVEAT_CHAIN_DENIED = "AUTH_CAVEAT_CHAIN_DENIED"
     PRINCIPAL_NOT_ACTIVE = "AUTH_PRINCIPAL_NOT_ACTIVE"
     PRINCIPAL_NOT_ATTESTED = "AUTH_PRINCIPAL_NOT_ATTESTED"
+    INTENT_BINDING_MISSING = "AUTH_INTENT_BINDING_MISSING"
+    INTENT_BINDING_MISMATCH = "AUTH_INTENT_BINDING_MISMATCH"
 
 # Import for type hints (avoid circular import)
 from typing import TYPE_CHECKING
@@ -376,6 +381,9 @@ class AuthorityEvaluator:
                 )
             except Exception as e:
                 logger.error(f"Failed to record ledger event: {e}", exc_info=True)
+                raise LedgerWriteError(
+                    f"Authority decision aborted: ledger write failed for {event_type}"
+                ) from e
         else:
             logger.debug(f"No ledger writer configured, skipping event recording for {event_type}")
 
@@ -620,6 +628,21 @@ class AuthorityEvaluator:
                     requested_resource=requested_resource,
                 )
 
+            if issuer.lifecycle_status != PrincipalLifecycleStatus.ACTIVE.value:
+                reason = (
+                    f"Issuer principal {mandate.issuer_id} is not active "
+                    f"(status={issuer.lifecycle_status})"
+                )
+                logger.warning(reason)
+                return self._deny_decision(
+                    reason=reason,
+                    reason_code=AuthorityReasonCode.PRINCIPAL_NOT_ACTIVE,
+                    boundary_stage=AuthorityBoundaryStage.ISSUER_AUTHORITY_CHECKS,
+                    mandate=mandate,
+                    requested_action=requested_action,
+                    requested_resource=requested_resource,
+                )
+
             mandate_data = {
                 "mandate_id": str(mandate.mandate_id),
                 "issuer_id": str(mandate.issuer_id),
@@ -783,6 +806,55 @@ class AuthorityEvaluator:
             requested_action=requested_action,
             requested_resource=requested_resource,
         )
+
+    def _validate_intent_binding_stage(
+        self,
+        mandate: ExecutionMandate,
+        requested_action: str,
+        requested_resource: str,
+        intent: Optional[Intent],
+    ) -> Optional[AuthorityDecision]:
+        """enforce mandate intent_hash binding when present.
+
+        When a mandate is bound to a specific intent (intent_hash is set), the
+        request must supply the original Intent object whose semantic hash
+        matches. Missing or mismatching intent denies the request.
+        """
+        bound_hash = getattr(mandate, "intent_hash", None)
+        if not bound_hash:
+            return None
+
+        if intent is None:
+            reason = (
+                f"Mandate {mandate.mandate_id} is intent-bound but no intent was supplied"
+            )
+            logger.warning(reason)
+            return self._deny_decision(
+                reason=reason,
+                reason_code=AuthorityReasonCode.INTENT_BINDING_MISSING,
+                boundary_stage=AuthorityBoundaryStage.INTENT_BINDING_VALIDATION,
+                mandate=mandate,
+                requested_action=requested_action,
+                requested_resource=requested_resource,
+            )
+
+        actual_hash = intent.generate_hash()
+        if actual_hash != bound_hash:
+            reason = (
+                f"Intent hash mismatch for mandate {mandate.mandate_id}: "
+                f"bound={bound_hash}, supplied={actual_hash}"
+            )
+            logger.warning(reason)
+            return self._deny_decision(
+                reason=reason,
+                reason_code=AuthorityReasonCode.INTENT_BINDING_MISMATCH,
+                boundary_stage=AuthorityBoundaryStage.INTENT_BINDING_VALIDATION,
+                mandate=mandate,
+                requested_action=requested_action,
+                requested_resource=requested_resource,
+            )
+
+        return None
     
     def validate_mandate(
         self,
@@ -794,6 +866,7 @@ class AuthorityEvaluator:
         caveat_hmac_key: Optional[str] = None,
         caveat_task_id: Optional[str] = None,
         caller_principal_id: Optional[str] = None,
+        intent: Optional[Intent] = None,
     ) -> AuthorityDecision:
         """
         Validate a mandate for a specific action.
@@ -862,6 +935,7 @@ class AuthorityEvaluator:
                     current_time=current_time,
                 ),
                 self._validate_action_and_resource_scope,
+                lambda m, a, r: self._validate_intent_binding_stage(m, a, r, intent),
             ):
                 decision = check(mandate, requested_action, requested_resource)
                 if decision is not None:

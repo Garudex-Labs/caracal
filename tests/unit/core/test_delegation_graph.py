@@ -713,11 +713,12 @@ class TestDelegationGraphStaticMethods:
     # _scope_is_covered_by_union
     # ------------------------------------------------------------------ #
 
-    def test_empty_requested_scope_always_covered(self):
-        assert DelegationGraph._scope_is_covered_by_union([], [["*"]]) is True
+    def test_empty_requested_scope_denied(self):
+        # Empty scope is deny-all: a mandate with no scopes grants nothing.
+        assert DelegationGraph._scope_is_covered_by_union([], [["*"]]) is False
 
-    def test_none_requested_scope_always_covered(self):
-        assert DelegationGraph._scope_is_covered_by_union(None, [["*"]]) is True
+    def test_none_requested_scope_denied(self):
+        assert DelegationGraph._scope_is_covered_by_union(None, [["*"]]) is False
 
     def test_exact_match_covered(self):
         assert DelegationGraph._scope_is_covered_by_union(

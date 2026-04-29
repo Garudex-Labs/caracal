@@ -22,6 +22,56 @@ from caracal.logging_config import get_logger
 logger = get_logger(__name__)
 
 
+class LedgerWriteError(RuntimeError):
+    """Raised when an authority ledger write cannot be persisted.
+
+    Authority decisions must be auditable. When the ledger cannot be written,
+    the surrounding decision must fail-closed rather than proceed silently.
+    """
+
+
+# Allowlist of structural metadata keys safe to persist in the ledger.
+# Any other keys are dropped or hashed; intent.parameters and arbitrary user
+# input must not flow into the ledger as plaintext.
+SAFE_METADATA_KEYS = frozenset({
+    "boundary_stage",
+    "reason_code",
+    "caller_principal_id",
+    "mandate_subject_id",
+    "delegation_type",
+    "source_mandate_id",
+    "network_distance",
+    "intent_hash",
+    "edge_id",
+    "policy_id",
+    "lifecycle_from",
+    "lifecycle_to",
+    "event_subtype",
+    "principal_kind",
+    "workload_id",
+    "issuer_id",
+})
+
+
+def sanitize_metadata(metadata: Optional[Dict]) -> Optional[Dict]:
+    """Drop any metadata keys not on the structural allowlist.
+
+    Returns None for empty/None input. Values are coerced to JSON-safe scalars
+    or short string representations to prevent leaking nested user payloads.
+    """
+    if not metadata:
+        return None
+    cleaned: Dict = {}
+    for key, value in metadata.items():
+        if key not in SAFE_METADATA_KEYS:
+            continue
+        if value is None or isinstance(value, (bool, int, float, str)):
+            cleaned[key] = value
+        else:
+            cleaned[key] = str(value)[:256]
+    return cleaned or None
+
+
 class AuthorityLedgerWriter:
     """
     Manages authority ledger event recording.
@@ -90,7 +140,7 @@ class AuthorityLedgerWriter:
             denial_reason=None,
             requested_action=None,
             requested_resource=None,
-            event_metadata=metadata,
+            event_metadata=sanitize_metadata(metadata),
             correlation_id=correlation_id
         )
         
@@ -180,7 +230,7 @@ class AuthorityLedgerWriter:
             denial_reason=denial_reason,
             requested_action=requested_action,
             requested_resource=requested_resource,
-            event_metadata=metadata,
+            event_metadata=sanitize_metadata(metadata),
             correlation_id=correlation_id
         )
         
@@ -250,7 +300,7 @@ class AuthorityLedgerWriter:
             denial_reason=reason,  # Store revocation reason in denial_reason field
             requested_action=None,
             requested_resource=None,
-            event_metadata=metadata,
+            event_metadata=sanitize_metadata(metadata),
             correlation_id=correlation_id
         )
         
