@@ -140,19 +140,26 @@ class TestBootstrapHelpers:
         assert session.committed is True
 
 class TestBackupHelpers:
-    def test_pg_env_includes_pgpassword_when_set(self):
+    def test_pg_env_includes_pgpassfile_when_set(self):
         from caracal.cli.backup import _pg_env
         config = MagicMock()
+        config.database.host = "db"
+        config.database.port = 5432
+        config.database.database = "caracal"
+        config.database.user = "caracal"
         config.database.password = "secret"
-        result = _pg_env(config)
-        assert result["PGPASSWORD"] == "secret"
+        with _pg_env(config) as result:
+            pgpass_path = Path(result["PGPASSFILE"])
+            assert pgpass_path.read_text(encoding="utf-8").strip().endswith(":secret")
+        assert not pgpass_path.exists()
 
-    def test_pg_env_no_pgpassword_when_none(self):
+    def test_pg_env_no_pgpassfile_when_none(self):
         from caracal.cli.backup import _pg_env
         config = MagicMock()
         config.database.password = None
-        result = _pg_env(config)
-        assert "PGPASSWORD" not in result or result.get("PGPASSWORD") is None
+        with _pg_env(config) as result:
+            assert "PGPASSFILE" not in result
+            assert "PGPASSWORD" not in result
 
     def test_get_backup_dir_returns_path(self, tmp_path):
         from caracal.cli.backup import get_backup_dir

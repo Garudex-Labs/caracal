@@ -212,12 +212,13 @@ class TestRedisClientGetdel:
         c._client.execute_command.return_value = "v"
         assert c.getdel("k") == "v"
 
-    def test_getdel_fallback_to_lua(self):
+    def test_getdel_unknown_command_raises(self):
         from caracal.redis.client import RedisConnectionError
         c = _make_client()
         c._client.execute_command.side_effect = redis_module.ResponseError("unknown command")
-        c._client.eval.return_value = "v"
-        assert c.getdel("k") == "v"
+        with pytest.raises(RedisConnectionError):
+            c.getdel("k")
+        c._client.eval.assert_not_called()
 
     def test_getdel_redis_error_raises(self):
         from caracal.redis.client import RedisConnectionError

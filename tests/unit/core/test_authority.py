@@ -1,7 +1,8 @@
 """
-Unit tests for Authority core logic.
+Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+Caracal, a product of Garudex Labs
 
-This module tests the AuthorityEvaluator class and its validation methods.
+Tests for mandate authority evaluation.
 """
 import pytest
 from datetime import datetime, timedelta, timezone
@@ -10,7 +11,7 @@ from unittest.mock import Mock, MagicMock, patch
 
 from caracal.core.authority import AuthorityEvaluator, AuthorityDecision
 from caracal.core.caveat_chain import build_caveat_chain
-from caracal.db.models import ExecutionMandate, Principal
+from caracal.db.models import ExecutionMandate, Principal, PrincipalAttestationStatus, PrincipalKind
 
 
 @pytest.mark.unit
@@ -68,6 +69,39 @@ class TestAuthorityEvaluator:
         assert decision.reason_code == "AUTH_MANDATE_REVOKED"
         assert decision.boundary_stage == "mandate_state_validation"
         assert decision.mandate_id == mandate.mandate_id
+
+    def test_validate_mandate_denies_unattested_worker(self):
+        mandate = ExecutionMandate(
+            mandate_id=uuid4(),
+            issuer_id=uuid4(),
+            subject_id=uuid4(),
+            valid_from=datetime.utcnow() - timedelta(hours=1),
+            valid_until=datetime.utcnow() + timedelta(hours=1),
+            resource_scope=["secret/*"],
+            action_scope=["read:secrets"],
+            signature="test_signature",
+            revoked=False,
+        )
+        principal = Principal(
+            principal_id=mandate.subject_id,
+            name="worker",
+            principal_kind=PrincipalKind.WORKER.value,
+            owner="test",
+            lifecycle_status="active",
+            attestation_status=PrincipalAttestationStatus.PENDING.value,
+        )
+
+        with patch.object(self.evaluator, "_get_principal", return_value=principal):
+            decision = self.evaluator._validate_mandate_state(
+                mandate,
+                "read:secrets",
+                "secret/test",
+                datetime.utcnow(),
+            )
+
+        assert decision is not None
+        assert decision.allowed is False
+        assert decision.reason_code == "AUTH_PRINCIPAL_NOT_ATTESTED"
 
     def test_validate_mandate_denies_subject_binding_mismatch(self):
         """Caller identity must match mandate subject when caller context is provided."""

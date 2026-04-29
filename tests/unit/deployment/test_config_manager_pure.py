@@ -158,52 +158,26 @@ class TestIsWorkspaceDiscoverable:
 
 
 class TestPgEnv:
-    def test_includes_pgpassword_when_set(self, tmp_path):
+    def test_includes_pgpassfile_when_set(self, tmp_path):
         mgr = _make_manager(tmp_path)
-        env = mgr._pg_env("mypassword")
-        assert env["PGPASSWORD"] == "mypassword"
+        db_cfg = {"host": "db", "port": 5432, "database": "caracal", "user": "caracal", "password": "mypassword"}
+        with mgr._pg_env(db_cfg) as env:
+            pgpass_path = Path(env["PGPASSFILE"])
+            assert pgpass_path.read_text(encoding="utf-8").strip().endswith(":mypassword")
+        assert not pgpass_path.exists()
 
-    def test_no_pgpassword_on_empty(self, tmp_path):
+    def test_no_pgpassfile_on_empty(self, tmp_path):
         mgr = _make_manager(tmp_path)
-        env = mgr._pg_env("")
-        assert "PGPASSWORD" not in env
+        db_cfg = {"host": "db", "port": 5432, "database": "caracal", "user": "caracal", "password": ""}
+        with mgr._pg_env(db_cfg) as env:
+            assert "PGPASSFILE" not in env
+            assert "PGPASSWORD" not in env
 
     def test_includes_existing_env_vars(self, tmp_path):
         mgr = _make_manager(tmp_path)
-        env = mgr._pg_env("pass")
-        assert "PATH" in env or len(env) > 1
-
-
-class TestExtractUnsupportedPgSettings:
-    def test_extracts_one_setting(self, tmp_path):
-        mgr = _make_manager(tmp_path)
-        output = 'ERROR: unrecognized configuration parameter "enable_seqscan"'
-        result = mgr._extract_unsupported_pg_settings(output)
-        assert result == ["enable_seqscan"]
-
-    def test_extracts_multiple_settings(self, tmp_path):
-        mgr = _make_manager(tmp_path)
-        output = (
-            'ERROR: unrecognized configuration parameter "enable_seqscan"\n'
-            'ERROR: unrecognized configuration parameter "jit_above_cost"'
-        )
-        result = mgr._extract_unsupported_pg_settings(output)
-        assert "enable_seqscan" in result
-        assert "jit_above_cost" in result
-
-    def test_deduplicates_settings(self, tmp_path):
-        mgr = _make_manager(tmp_path)
-        output = (
-            'ERROR: unrecognized configuration parameter "enable_seqscan"\n'
-            'ERROR: unrecognized configuration parameter "enable_seqscan"'
-        )
-        result = mgr._extract_unsupported_pg_settings(output)
-        assert result.count("enable_seqscan") == 1
-
-    def test_returns_empty_on_no_match(self, tmp_path):
-        mgr = _make_manager(tmp_path)
-        result = mgr._extract_unsupported_pg_settings("some other error message")
-        assert result == []
+        db_cfg = {"host": "db", "port": 5432, "database": "caracal", "user": "caracal", "password": "pass"}
+        with mgr._pg_env(db_cfg) as env:
+            assert "PATH" in env or len(env) > 1
 
 
 class TestNormalizeLockKey:

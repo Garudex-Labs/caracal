@@ -175,48 +175,24 @@ class TestExtractWorkspaceDbConfig:
 
 @pytest.mark.unit
 class TestPgEnv:
-    def test_sets_pgpassword_when_provided(
+    def test_sets_pgpassfile_when_provided(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
     ) -> None:
         m = _setup(monkeypatch, tmp_path)
-        env = m._pg_env("my-password")
-        assert env["PGPASSWORD"] == "my-password"
+        db_cfg = {"host": "db", "port": 5432, "database": "caracal", "user": "caracal", "password": "my-password"}
+        with m._pg_env(db_cfg) as env:
+            pgpass_path = Path(env["PGPASSFILE"])
+            assert pgpass_path.read_text(encoding="utf-8").strip().endswith(":my-password")
+        assert not pgpass_path.exists()
 
-    def test_no_pgpassword_when_empty(
+    def test_no_pgpassfile_when_empty(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
     ) -> None:
         m = _setup(monkeypatch, tmp_path)
-        env = m._pg_env("")
-        assert "PGPASSWORD" not in env
-
-
-@pytest.mark.unit
-class TestExtractUnsupportedPgSettings:
-    def test_extracts_setting_names(
-        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-    ) -> None:
-        m = _setup(monkeypatch, tmp_path)
-        output = 'pg_restore: error: unrecognized configuration parameter "default_toast_compression"'
-        result = m._extract_unsupported_pg_settings(output)
-        assert result == ["default_toast_compression"]
-
-    def test_deduplicates_settings(
-        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-    ) -> None:
-        m = _setup(monkeypatch, tmp_path)
-        output = (
-            'unrecognized configuration parameter "foo"\n'
-            'unrecognized configuration parameter "foo"\n'
-            'unrecognized configuration parameter "bar"\n'
-        )
-        result = m._extract_unsupported_pg_settings(output)
-        assert result == ["foo", "bar"]
-
-    def test_empty_output_returns_empty(
-        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-    ) -> None:
-        m = _setup(monkeypatch, tmp_path)
-        assert m._extract_unsupported_pg_settings("") == []
+        db_cfg = {"host": "db", "port": 5432, "database": "caracal", "user": "caracal", "password": ""}
+        with m._pg_env(db_cfg) as env:
+            assert "PGPASSFILE" not in env
+            assert "PGPASSWORD" not in env
 
 
 @pytest.mark.unit
