@@ -121,7 +121,7 @@ class ProviderConfig:
     tags: List[str] = field(default_factory=list)
     access_policy: Dict[str, Any] = field(default_factory=dict)
     metadata: Dict[str, Any] = field(default_factory=dict)
-    enforce_scoped_requests: bool = False
+    enforce_scoped_requests: bool = True
 
     def __post_init__(self) -> None:
         self.provider_definition = resolve_provider_definition_id(

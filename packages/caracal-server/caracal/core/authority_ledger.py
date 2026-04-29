@@ -321,6 +321,148 @@ class AuthorityLedgerWriter:
         
         return event
 
+    def record_lifecycle_transition(
+        self,
+        principal_id: UUID,
+        from_status: str,
+        to_status: str,
+        principal_kind: Optional[str] = None,
+        actor_principal_id: Optional[UUID] = None,
+        timestamp: Optional[datetime] = None,
+        correlation_id: Optional[str] = None,
+    ) -> AuthorityLedgerEvent:
+        """Record a principal lifecycle transition event.
+
+        Raises:
+            RuntimeError: If database write fails.
+        """
+        if timestamp is None:
+            timestamp = datetime.utcnow()
+
+        metadata = sanitize_metadata({
+            "lifecycle_from": from_status,
+            "lifecycle_to": to_status,
+            "principal_kind": principal_kind,
+            "caller_principal_id": str(actor_principal_id) if actor_principal_id else None,
+        })
+
+        event = AuthorityLedgerEvent(
+            event_type="lifecycle_transition",
+            timestamp=timestamp,
+            principal_id=principal_id,
+            mandate_id=None,
+            decision=None,
+            denial_reason=None,
+            requested_action=None,
+            requested_resource=None,
+            event_metadata=metadata,
+            correlation_id=correlation_id,
+        )
+
+        try:
+            self.db_session.add(event)
+            self.db_session.flush()
+        except Exception as e:
+            error_msg = f"Failed to record lifecycle transition event: {e}"
+            logger.error(error_msg, exc_info=True)
+            self.db_session.rollback()
+            raise RuntimeError(error_msg)
+
+        return event
+
+    def record_policy_change(
+        self,
+        policy_id: UUID,
+        change_kind: str,
+        actor_principal_id: Optional[UUID] = None,
+        timestamp: Optional[datetime] = None,
+        correlation_id: Optional[str] = None,
+    ) -> AuthorityLedgerEvent:
+        """Record an authority policy mutation (create/update/delete).
+
+        Raises:
+            RuntimeError: If database write fails.
+        """
+        if timestamp is None:
+            timestamp = datetime.utcnow()
+
+        metadata = sanitize_metadata({
+            "policy_id": str(policy_id),
+            "event_subtype": change_kind,
+            "caller_principal_id": str(actor_principal_id) if actor_principal_id else None,
+        })
+
+        event = AuthorityLedgerEvent(
+            event_type="policy_change",
+            timestamp=timestamp,
+            principal_id=actor_principal_id,
+            mandate_id=None,
+            decision=None,
+            denial_reason=None,
+            requested_action=None,
+            requested_resource=None,
+            event_metadata=metadata,
+            correlation_id=correlation_id,
+        )
+
+        try:
+            self.db_session.add(event)
+            self.db_session.flush()
+        except Exception as e:
+            error_msg = f"Failed to record policy change event: {e}"
+            logger.error(error_msg, exc_info=True)
+            self.db_session.rollback()
+            raise RuntimeError(error_msg)
+
+        return event
+
+    def record_delegation_edge_change(
+        self,
+        edge_id: UUID,
+        change_kind: str,
+        actor_principal_id: Optional[UUID] = None,
+        target_principal_id: Optional[UUID] = None,
+        timestamp: Optional[datetime] = None,
+        correlation_id: Optional[str] = None,
+    ) -> AuthorityLedgerEvent:
+        """Record a delegation graph edge mutation (create/revoke).
+
+        Raises:
+            RuntimeError: If database write fails.
+        """
+        if timestamp is None:
+            timestamp = datetime.utcnow()
+
+        metadata = sanitize_metadata({
+            "edge_id": str(edge_id),
+            "event_subtype": change_kind,
+            "caller_principal_id": str(actor_principal_id) if actor_principal_id else None,
+        })
+
+        event = AuthorityLedgerEvent(
+            event_type="delegation_edge_change",
+            timestamp=timestamp,
+            principal_id=target_principal_id or actor_principal_id,
+            mandate_id=None,
+            decision=None,
+            denial_reason=None,
+            requested_action=None,
+            requested_resource=None,
+            event_metadata=metadata,
+            correlation_id=correlation_id,
+        )
+
+        try:
+            self.db_session.add(event)
+            self.db_session.flush()
+        except Exception as e:
+            error_msg = f"Failed to record delegation edge change event: {e}"
+            logger.error(error_msg, exc_info=True)
+            self.db_session.rollback()
+            raise RuntimeError(error_msg)
+
+        return event
+
 
 class AuthorityLedgerQuery:
     """
