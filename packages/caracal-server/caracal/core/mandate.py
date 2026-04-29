@@ -188,6 +188,23 @@ class MandateManager:
         if pattern.startswith("provider:") or value.startswith("provider:"):
             return False
         return fnmatchcase(value, pattern)
+
+    def _has_revocation_authority(self, revoker_id: UUID, mandate: ExecutionMandate) -> bool:
+        policy = self._get_active_policy(revoker_id)
+        if not policy:
+            return False
+        if not self._validate_scope_subset(["revoke_mandate"], policy.allowed_actions):
+            return False
+
+        revocation_resources = [
+            f"mandate:{mandate.mandate_id}",
+            f"principal:{mandate.issuer_id}",
+            f"principal:{mandate.subject_id}",
+        ]
+        return any(
+            self._validate_scope_subset([resource], policy.allowed_resource_patterns)
+            for resource in revocation_resources
+        )
     
     def _record_ledger_event(
         self,
@@ -559,21 +576,17 @@ class MandateManager:
             logger.warning(error_msg)
             raise ValueError(error_msg)
         
-        # Validate revoker has authority to revoke
-        # Revoker must be either:
-        # 1. The issuer of the mandate
-        # 2. The subject of the mandate (can revoke their own mandate)
-        # 3. An admin (has authority policy with revocation rights)
-        if revoker_id != mandate.issuer_id and revoker_id != mandate.subject_id:
-            # Check if revoker has an authority policy (admin)
-            revoker_policy = self._get_active_policy(revoker_id)
-            if not revoker_policy:
-                error_msg = (
-                    f"Revoker {revoker_id} does not have authority to revoke mandate {mandate_id}. "
-                    f"Only the issuer, subject, or an admin can revoke a mandate."
-                )
-                logger.warning(error_msg)
-                raise ValueError(error_msg)
+        if (
+            revoker_id != mandate.issuer_id
+            and revoker_id != mandate.subject_id
+            and not self._has_revocation_authority(revoker_id, mandate)
+        ):
+            error_msg = (
+                f"Revoker {revoker_id} does not have authority to revoke mandate {mandate_id}. "
+                "Only the issuer, subject, or a principal with explicit revocation authority can revoke a mandate."
+            )
+            logger.warning(error_msg)
+            raise ValueError(error_msg)
         
         # Mark mandate as revoked
         revocation_time = datetime.utcnow()
