@@ -149,6 +149,13 @@ class PrincipalRegistry:
         if principal_kind not in known_kinds:
             raise ValueError(f"Unknown principal_kind '{principal_kind}'")
 
+        non_reactivating_kinds = {PrincipalKind.ORCHESTRATOR.value, PrincipalKind.WORKER.value}
+        if (
+            principal_kind in non_reactivating_kinds
+            and attestation_status != PrincipalAttestationStatus.ATTESTED.value
+        ):
+            lifecycle_status = PrincipalLifecycleStatus.PENDING_ATTESTATION.value
+
         if self.session.query(Principal).filter_by(name=name).first():
             raise DuplicatePrincipalNameError(f"Principal with name '{name}' already exists")
 

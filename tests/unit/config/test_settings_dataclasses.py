@@ -10,7 +10,6 @@ import pytest
 from caracal.config.settings import (
     AllowlistConfig,
     AuthorityEnforcementConfig,
-    CompatibilityConfig,
     DatabaseConfig,
     DefaultsConfig,
     EventReplayConfig,
@@ -184,14 +183,6 @@ class TestMerkleConfig:
         cfg = MerkleConfig(signing_backend="vault", vault_key_ref="kv/signing")
         assert cfg.signing_backend == "vault"
         assert cfg.vault_key_ref == "kv/signing"
-
-
-@pytest.mark.unit
-class TestCompatibilityConfig:
-    def test_defaults(self):
-        cfg = CompatibilityConfig()
-        assert cfg.enable_merkle is True
-        assert cfg.enable_redis is True
 
 
 @pytest.mark.unit

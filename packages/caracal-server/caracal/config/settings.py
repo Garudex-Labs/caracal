@@ -104,83 +104,6 @@ def _decrypt_config_values(config_data: Dict[str, object]) -> Dict[str, object]:
         )
 
 
-_LEGACY_ENV_PLACEHOLDER_RENAMES = {
-    "CARACAL_HOME": "CCL_HOME",
-    "CARACAL_DB_HOST": "CCL_DB_HOST",
-    "CARACAL_DB_PORT": "CCL_DB_PORT",
-    "CARACAL_DB_NAME": "CCL_DB_NAME",
-    "CARACAL_DB_USER": "CCL_DB_USER",
-    "CARACAL_DB_PASSWORD": "CCL_DB_PASSWORD",
-    "CARACAL_DB_POOL_SIZE": "CCL_DB_POOL_SIZE",
-    "CARACAL_DB_MAX_OVERFLOW": "CCL_DB_MAX_OVERFLOW",
-    "CARACAL_DB_POOL_TIMEOUT": "CCL_DB_POOL_TTL",
-    "CARACAL_MCP_LISTEN_ADDRESS": "CCL_MCP_LISTEN_ADDR",
-    "CARACAL_VAULT_MERKLE_SIGNING_KEY_REF": "CCL_VAULT_MERKLE_SIGNING_KEY_REF",
-    "CARACAL_VAULT_MERKLE_PUBLIC_KEY_REF": "CCL_VAULT_MERKLE_PUB_KEY_REF",
-}
-
-
-def _rewrite_legacy_env_placeholders(value: object) -> tuple[object, bool]:
-    """Rewrite legacy config placeholders before env expansion."""
-    if isinstance(value, str):
-        rewritten = value
-        for old_name, new_name in _LEGACY_ENV_PLACEHOLDER_RENAMES.items():
-            rewritten = re.sub(
-                rf"\$\{{{re.escape(old_name)}(?=[:}}])",
-                "${" + new_name,
-                rewritten,
-            )
-        return rewritten, rewritten != value
-
-    if isinstance(value, dict):
-        changed = False
-        rewritten_dict: dict[str, object] = {}
-        for key, item in value.items():
-            rewritten_item, item_changed = _rewrite_legacy_env_placeholders(item)
-            rewritten_dict[key] = rewritten_item
-            changed = changed or item_changed
-        return rewritten_dict, changed
-
-    if isinstance(value, list):
-        changed = False
-        rewritten_list: list[object] = []
-        for item in value:
-            rewritten_item, item_changed = _rewrite_legacy_env_placeholders(item)
-            rewritten_list.append(rewritten_item)
-            changed = changed or item_changed
-        return rewritten_list, changed
-
-    return value, False
-
-
-def _normalize_legacy_config_data(config_data: Dict[str, object]) -> tuple[Dict[str, object], bool]:
-    """Normalize persisted pre-CCL config defaults."""
-    if not isinstance(config_data, dict):
-        return config_data, False
-
-    normalized, changed = _rewrite_legacy_env_placeholders(config_data)
-    if not isinstance(normalized, dict):
-        return config_data, changed
-
-    mcp_adapter = normalized.get("mcp_adapter")
-    if isinstance(mcp_adapter, dict):
-        servers = mcp_adapter.get("mcp_server_urls")
-        if (
-            isinstance(servers, list)
-            and len(servers) == 1
-            and isinstance(servers[0], dict)
-            and servers[0].get("name") == "demo-upstream"
-            and servers[0].get("url") == "http://host.docker.internal:8090"
-        ):
-            normalized = dict(normalized)
-            normalized_mcp = dict(mcp_adapter)
-            normalized_mcp["mcp_server_urls"] = []
-            normalized["mcp_adapter"] = normalized_mcp
-            changed = True
-
-    return normalized, changed
-
-
 def _has_encrypted_values(value: object) -> bool:
     """
     Check if configuration contains any encrypted values.
@@ -347,19 +270,6 @@ class MerkleConfig:
 
 
 @dataclass
-class CompatibilityConfig:
-    """Infrastructure compatibility flags.
-
-    Redis caching and Merkle integrity are mandatory in current Caracal
-    deployments. These fields are retained only for backward compatibility
-    with older config files.
-    """
-
-    enable_merkle: bool = True
-    enable_redis: bool = True
-
-
-@dataclass
 class AuthorityEnforcementConfig:
     """Authority enforcement feature flags for gradual rollout."""
     
@@ -411,7 +321,6 @@ class CaracalConfig:
     snapshot: SnapshotConfig = field(default_factory=SnapshotConfig)
     allowlist: AllowlistConfig = field(default_factory=AllowlistConfig)
     event_replay: EventReplayConfig = field(default_factory=EventReplayConfig)
-    compatibility: CompatibilityConfig = field(default_factory=CompatibilityConfig)
     authority_enforcement: AuthorityEnforcementConfig = field(default_factory=AuthorityEnforcementConfig)
 
 
@@ -461,8 +370,6 @@ def get_default_config() -> CaracalConfig:
         performance=performance,
     )
 
-    cfg.compatibility.enable_redis = True
-    cfg.compatibility.enable_merkle = True
     cfg.merkle.signing_backend = "vault"
     cfg.merkle.vault_key_ref = os.environ.get("CCL_VAULT_MERKLE_SIGNING_KEY_REF", "")
     cfg.merkle.vault_public_key_ref = os.environ.get("CCL_VAULT_MERKLE_PUB_KEY_REF", "")
@@ -520,24 +427,10 @@ def load_config(
         if emit_logs:
             logger.debug(f"Loaded configuration from {config_path}")
     except yaml.YAMLError as e:
-        if _attempt_legacy_workspace_config_repair(config_path):
-            try:
-                with open(config_path, 'r') as f:
-                    config_data = yaml.safe_load(f)
-                logger.warning(
-                    "Auto-repaired malformed workspace config and retried load",
-                    config_path=config_path,
-                )
-            except (yaml.YAMLError, OSError):
-                logger.error(f"Failed to parse YAML configuration file '{config_path}': {e}", exc_info=True)
-                raise InvalidConfigurationError(
-                    f"Failed to parse YAML configuration file '{config_path}': {e}"
-                )
-        else:
-            logger.error(f"Failed to parse YAML configuration file '{config_path}': {e}", exc_info=True)
-            raise InvalidConfigurationError(
-                f"Failed to parse YAML configuration file '{config_path}': {e}"
-            )
+        logger.error(f"Failed to parse YAML configuration file '{config_path}': {e}", exc_info=True)
+        raise InvalidConfigurationError(
+            f"Failed to parse YAML configuration file '{config_path}': {e}"
+        )
     except Exception as e:
         logger.error(f"Failed to read configuration file '{config_path}': {e}", exc_info=True)
         raise InvalidConfigurationError(
@@ -550,15 +443,6 @@ def load_config(
             logger.info(f"Configuration file {config_path} is empty, using defaults")
         return get_default_config()
 
-    config_data, legacy_normalized = _normalize_legacy_config_data(config_data)
-    if legacy_normalized:
-        _persist_normalized_workspace_config(config_path, config_data)
-        if emit_logs:
-            logger.info(
-                "Normalized legacy config placeholders",
-                config_path=config_path,
-            )
-    
     # Expand environment variables in configuration
     config_data = _expand_env_vars(config_data)
     if emit_logs:
@@ -793,13 +677,6 @@ def _build_config_from_dict(config_data: Dict[str, object]) -> CaracalConfig:
         validation_enabled=event_replay_data.get('validation_enabled', default_config.event_replay.validation_enabled),
     )
     
-    # Parse compatibility configuration (optional feature flags)
-    compatibility_data = config_data.get('compatibility', {})
-    compatibility = CompatibilityConfig(
-        enable_merkle=True,
-        enable_redis=True,
-    )
-    
     # Parse authority enforcement configuration
     authority_enforcement_data = config_data.get('authority_enforcement', {})
     authority_enforcement = AuthorityEnforcementConfig(
@@ -807,10 +684,6 @@ def _build_config_from_dict(config_data: Dict[str, object]) -> CaracalConfig:
         per_principal_rollout=authority_enforcement_data.get('per_principal_rollout', default_config.authority_enforcement.per_principal_rollout),
         compatibility_logging_enabled=authority_enforcement_data.get('compatibility_logging_enabled', default_config.authority_enforcement.compatibility_logging_enabled),
     )
-    
-    # Redis and Merkle are mandatory. We still preserve compatibility fields
-    # in-memory for legacy code paths, but they are always forced on.
-    _ = compatibility_data  # Parsed to tolerate legacy config keys.
 
     if merkle.signing_backend == "software":
         if not merkle.private_key_path:
@@ -842,69 +715,9 @@ def _build_config_from_dict(config_data: Dict[str, object]) -> CaracalConfig:
         snapshot=snapshot,
         allowlist=allowlist,
         event_replay=event_replay,
-        compatibility=compatibility,
         authority_enforcement=authority_enforcement,
     )
 
-
-
-def _attempt_legacy_workspace_config_repair(config_path: str) -> bool:
-    """Repair known malformed onboarding YAML files in workspace directories.
-
-    Returns True when a repair was applied.
-    """
-    cfg = Path(config_path).expanduser()
-    if cfg.name != "config.yaml":
-        return False
-
-    workspace_dir = cfg.parent
-    if workspace_dir.name == ".caracal" or workspace_dir.parent.name != "workspaces":
-        return False
-
-    try:
-        original = cfg.read_text()
-    except OSError:
-        return False
-
-    # Limit repair to onboarding-generated files we can confidently regenerate.
-    if "Caracal Core Configuration" not in original:
-        return False
-
-    try:
-        backup = cfg.with_suffix(f".yaml.broken.{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}")
-        backup.write_text(original)
-
-        repaired = {
-            "storage": {
-                "backup_dir": str(workspace_dir / "backups"),
-                "backup_count": 3,
-            },
-            "defaults": {
-                "time_window": "daily",
-            },
-            "logging": {
-                "level": "INFO",
-                "file": str(workspace_dir / "logs" / "caracal.log"),
-            },
-            "redis": {
-                "host": "localhost",
-                "port": 6379,
-                "db": 0,
-            },
-            "merkle": {
-                "signing_backend": "vault",
-                "signing_algorithm": "ES256",
-                "vault_key_ref": os.environ.get("CCL_VAULT_MERKLE_SIGNING_KEY_REF", ""),
-                "vault_public_key_ref": os.environ.get("CCL_VAULT_MERKLE_PUB_KEY_REF", ""),
-            },
-        }
-
-        with open(cfg, "w") as f:
-            f.write("# Caracal Core Configuration\n\n")
-            yaml.safe_dump(repaired, f, default_flow_style=False, sort_keys=False)
-        return True
-    except OSError:
-        return False
 
 
 def _normalize_hardcut_merkle_config_data(
@@ -1098,9 +911,6 @@ def _validate_config(config: CaracalConfig) -> None:
         if not config.mcp_adapter.listen_address:
             raise InvalidConfigurationError("mcp_adapter listen_address cannot be empty when MCP adapter is enabled")
         
-    # Enforce mandatory services regardless of legacy compatibility toggles.
-    config.compatibility.enable_merkle = True
-    config.compatibility.enable_redis = True
     # Validate Merkle configuration (mandatory)
     if config.merkle.signing_backend != "vault":
         raise InvalidConfigurationError(

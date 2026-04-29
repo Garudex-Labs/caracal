@@ -20,7 +20,7 @@ from fnmatch import fnmatchcase
 from caracal.core.identity import PrincipalRegistry
 from caracal.core.intent import Intent
 from caracal.core.signing_service import SigningService, SigningServiceError, SigningServiceKeyError
-from caracal.db.models import ExecutionMandate, AuthorityPolicy, Principal
+from caracal.db.models import ExecutionMandate, AuthorityPolicy, Principal, PrincipalLifecycleStatus
 from caracal.logging_config import get_logger
 from caracal.provider.definitions import parse_provider_scope
 
@@ -384,6 +384,19 @@ class MandateManager:
             error_msg = f"Issuer principal {issuer_id} not found"
             logger.error(error_msg)
             raise RuntimeError(error_msg)
+
+        subject_principal = self._get_principal(subject_id)
+        if not subject_principal:
+            error_msg = f"Subject principal {subject_id} not found"
+            logger.error(error_msg)
+            raise RuntimeError(error_msg)
+        if subject_principal.lifecycle_status != PrincipalLifecycleStatus.ACTIVE.value:
+            error_msg = (
+                f"Cannot issue mandate to non-active principal {subject_id} "
+                f"(status: {subject_principal.lifecycle_status})"
+            )
+            logger.warning(error_msg)
+            raise ValueError(error_msg)
 
         # Create mandate data for signing
         mandate_data = {
