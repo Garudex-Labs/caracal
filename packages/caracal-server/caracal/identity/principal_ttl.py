@@ -11,6 +11,7 @@ from typing import Callable, Iterable, Optional, Protocol
 from uuid import UUID
 
 from caracal.core.lifecycle import PrincipalLifecycleStateMachine
+from caracal.core.authority_ledger import AuthorityLedgerWriter
 from caracal.core.revocation import PrincipalRevocationOrchestrator
 from caracal.db.models import (
     AuthorityLedgerEvent,
@@ -20,6 +21,7 @@ from caracal.db.models import (
     PrincipalLifecycleStatus,
 )
 from caracal.exceptions import PrincipalNotFoundError
+from caracal.core.time_utils import now_utc
 from caracal.logging_config import get_logger
 from caracal.redis.client import RedisClient
 
@@ -422,7 +424,7 @@ class PrincipalTTLExpiryProcessor:
             metadata["principal_ttl_lease_kind"] = work_item.lease_kind
             principal.principal_metadata = metadata
 
-            now = datetime.utcnow()
+            now = now_utc()
             for mandate in self._list_active_mandates(session, UUID(normalized_principal)):
                 mandate.revoked = True
                 mandate.revoked_at = now
@@ -445,6 +447,13 @@ class PrincipalTTLExpiryProcessor:
                         "reason": "attestation_nonce_timeout",
                     },
                 )
+            )
+            AuthorityLedgerWriter(session).record_lifecycle_transition(
+                principal_id=UUID(normalized_principal),
+                from_status=PrincipalLifecycleStatus.PENDING_ATTESTATION.value,
+                to_status=PrincipalLifecycleStatus.EXPIRED.value,
+                principal_kind=str(principal.principal_kind),
+                timestamp=now,
             )
             session.flush()
         return "expired"

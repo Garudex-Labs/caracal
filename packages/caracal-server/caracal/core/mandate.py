@@ -22,6 +22,7 @@ from caracal.core.intent import Intent
 from caracal.core.signing_service import SigningService, SigningServiceError, SigningServiceKeyError
 from caracal.core.authority_ledger import LedgerWriteError
 from caracal.db.models import ExecutionMandate, AuthorityPolicy, Principal, PrincipalLifecycleStatus
+from caracal.core.time_utils import now_utc
 from caracal.logging_config import get_logger
 from caracal.provider.definitions import parse_provider_scope
 
@@ -391,7 +392,7 @@ class MandateManager:
         mandate_id = uuid4()
         
         # Calculate validity period
-        valid_from = datetime.utcnow()
+        valid_from = now_utc()
         valid_until = valid_from + timedelta(seconds=validity_seconds)
         
         # Generate intent hash if intent provided
@@ -457,7 +458,7 @@ class MandateManager:
             resource_scope=resource_scope,
             action_scope=action_scope,
             signature=signature,
-            created_at=datetime.utcnow(),
+            created_at=now_utc(),
             mandate_metadata={
                 "intent_id": str(intent.intent_id) if intent else None,
                 "issued_by": "MandateManager"
@@ -593,7 +594,7 @@ class MandateManager:
             raise ValueError(error_msg)
         
         # Mark mandate as revoked
-        revocation_time = datetime.utcnow()
+        revocation_time = now_utc()
         mandate.revoked = True
         mandate.revoked_at = revocation_time
         mandate.revocation_reason = reason
@@ -685,7 +686,7 @@ class MandateManager:
         if source_mandate.revoked:
             raise ValueError(f"Source mandate {source_mandate_id} is revoked")
         
-        current_time = datetime.utcnow()
+        current_time = now_utc()
         if current_time > source_mandate.valid_until:
             raise ValueError(f"Source mandate {source_mandate_id} is expired")
         if current_time < source_mandate.valid_from:
@@ -698,7 +699,7 @@ class MandateManager:
             raise ValueError("Delegated action scope must be subset of source scope")
         
         # Validate delegated validity is within source validity
-        valid_from = datetime.utcnow()
+        valid_from = now_utc()
         valid_until = valid_from + timedelta(seconds=validity_seconds)
         if valid_until > source_mandate.valid_until:
             # Cap validity to source mandate's expiration
@@ -801,7 +802,7 @@ class MandateManager:
         if target_mandate.revoked:
             raise ValueError(f"Target mandate {target_mandate_id} is revoked")
 
-        current_time = datetime.utcnow()
+        current_time = now_utc()
         if current_time > source_mandate.valid_until:
             raise ValueError(f"Source mandate {source_mandate_id} is expired")
         if current_time < source_mandate.valid_from:

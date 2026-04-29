@@ -153,7 +153,7 @@ def _runtime_provider_payload(
             f"Provider '{provider_name}' must define a non-empty provider_definition for runtime sync"
         )
 
-    scoped_flag = entry.get("enforce_scoped_requests", False)
+    scoped_flag = entry.get("enforce_scoped_requests", True)
     if not isinstance(scoped_flag, bool):
         raise ValueError(
             f"Provider '{provider_name}' must set enforce_scoped_requests as a boolean"

@@ -289,6 +289,13 @@ class AuthorityPolicyFlow:
                 )
                 
                 db_session.add(policy)
+                db_session.flush()
+
+                from caracal.core.authority_ledger import AuthorityLedgerWriter
+                AuthorityLedgerWriter(db_session).record_policy_change(
+                    policy_id=policy.policy_id,
+                    change_kind="created",
+                )
                 db_session.commit()
                 
                 self.console.print(f"  [{Colors.SUCCESS}]{Icons.SUCCESS} Authority policy created![/]")
@@ -495,6 +502,13 @@ class AuthorityPolicyFlow:
                     return
                 
                 policy.active = False
+                db_session.flush()
+
+                from caracal.core.authority_ledger import AuthorityLedgerWriter
+                AuthorityLedgerWriter(db_session).record_policy_change(
+                    policy_id=policy.policy_id,
+                    change_kind="deactivated",
+                )
                 db_session.commit()
                 
                 self.console.print()

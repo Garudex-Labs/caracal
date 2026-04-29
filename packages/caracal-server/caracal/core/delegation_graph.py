@@ -30,6 +30,7 @@ from uuid import UUID, uuid4
 from sqlalchemy.orm import Session
 
 from caracal.db.models import DelegationEdgeModel, ExecutionMandate, Principal
+from caracal.core.time_utils import now_utc
 from caracal.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -91,7 +92,7 @@ class DelegationEdge:
     target_principal_kind: str
     delegation_type: str  # "directed" | "peer"
     context_tags: List[str] = field(default_factory=list)
-    granted_at: datetime = field(default_factory=datetime.utcnow)
+    granted_at: datetime = field(default_factory=now_utc)
     expires_at: Optional[datetime] = None
     revoked: bool = False
     revoked_at: Optional[datetime] = None
@@ -158,7 +159,7 @@ class DelegationGraph:
         """Return True when mandate is currently active and not revoked."""
         if mandate is None:
             return False
-        current_time = now or datetime.utcnow()
+        current_time = now or now_utc()
         if mandate.revoked:
             return False
         if mandate.valid_from and mandate.valid_from > current_time:
@@ -419,7 +420,7 @@ class DelegationGraph:
             target_principal_kind=target_type,
             delegation_type=delegation_type,
             context_tags=context_tags or [],
-            granted_at=datetime.utcnow(),
+            granted_at=now_utc(),
             expires_at=self._resolve_edge_expiration(
                 source_mandate=source_mandate,
                 target_mandate=target_mandate,
@@ -471,7 +472,7 @@ class DelegationGraph:
             raise ValueError(f"Delegation edge {edge_id} is already revoked")
 
         edge.revoked = True
-        edge.revoked_at = datetime.utcnow()
+        edge.revoked_at = now_utc()
         if reason:
             edge.edge_metadata = edge.edge_metadata or {}
             edge.edge_metadata["revocation_reason"] = reason
@@ -521,7 +522,7 @@ class DelegationGraph:
 
         for edge in outgoing_edges:
             edge.revoked = True
-            edge.revoked_at = datetime.utcnow()
+            edge.revoked_at = now_utc()
             edge.edge_metadata = edge.edge_metadata or {}
             edge.edge_metadata["revocation_reason"] = reason or f"Cascade from mandate {mandate_id}"
             revoked_count += 1
@@ -564,7 +565,7 @@ class DelegationGraph:
 
         if active_only:
             query = query.filter(DelegationEdgeModel.revoked == False)
-            now = datetime.utcnow()
+            now = now_utc()
             query = query.filter(
                 (DelegationEdgeModel.expires_at == None) |
                 (DelegationEdgeModel.expires_at > now)
@@ -593,7 +594,7 @@ class DelegationGraph:
 
         if active_only:
             query = query.filter(DelegationEdgeModel.revoked == False)
-            now = datetime.utcnow()
+            now = now_utc()
             query = query.filter(
                 (DelegationEdgeModel.expires_at == None) |
                 (DelegationEdgeModel.expires_at > now)
@@ -854,7 +855,7 @@ class DelegationGraph:
         Returns:
             Dict with keys: root_mandate_id, path, edges, stats
         """
-        now = datetime.utcnow()
+        now = now_utc()
         topology = self.get_topology(root_mandate_id=root_mandate_id, active_only=active_only)
 
         node_by_id = {n["mandate_id"]: n for n in topology.nodes}
@@ -998,7 +999,7 @@ class DelegationGraph:
         if not sources:
             return True
 
-        now = datetime.utcnow()
+        now = now_utc()
 
         for edge in sources:
             # Check source mandate is valid

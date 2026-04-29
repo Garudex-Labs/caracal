@@ -24,7 +24,9 @@ from caracal.core.principal_keys import (
     resolve_principal_key_reference,
 )
 from caracal.core.lifecycle import PrincipalLifecycleStateMachine
+from caracal.core.authority_ledger import AuthorityLedgerWriter
 from caracal.exceptions import DuplicatePrincipalNameError, PrincipalNotFoundError
+from caracal.core.time_utils import now_utc
 from caracal.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -177,7 +179,7 @@ class PrincipalRegistry:
             source_principal_id=source_uuid,
             lifecycle_status=lifecycle_status,
             attestation_status=attestation_status,
-            created_at=datetime.utcnow(),
+            created_at=now_utc(),
             principal_metadata=principal_metadata or None,
         )
         self.session.add(row)
@@ -233,32 +235,25 @@ class PrincipalRegistry:
         principal.lifecycle_status = normalized_target
         principal_metadata = dict(principal.principal_metadata or {})
         principal_metadata["lifecycle_status"] = normalized_target
-        principal_metadata["lifecycle_transitioned_at"] = datetime.utcnow().isoformat() + "Z"
+        principal_metadata["lifecycle_transitioned_at"] = now_utc().isoformat()
         if actor_principal_id:
             principal_metadata["lifecycle_transitioned_by"] = str(actor_principal_id)
         principal.principal_metadata = principal_metadata
 
-        self.session.add(
-            AuthorityLedgerEvent(
-                event_type="lifecycle_transition",
-                timestamp=datetime.utcnow(),
-                principal_id=principal.principal_id,
-                mandate_id=None,
-                decision="allowed",
-                denial_reason=None,
-                requested_action="lifecycle_transition",
-                requested_resource=f"principal:{principal.principal_id}",
-                correlation_id=None,
-                event_metadata={
-                    "principal_kind": principal.principal_kind,
-                    "from_status": current_status,
-                    "to_status": normalized_target,
-                    "actor_principal_id": actor_principal_id,
-                },
-            )
+        actor_uuid = None
+        if actor_principal_id:
+            try:
+                actor_uuid = UUID(str(actor_principal_id))
+            except ValueError:
+                actor_uuid = None
+        AuthorityLedgerWriter(self.session).record_lifecycle_transition(
+            principal_id=principal.principal_id,
+            from_status=current_status,
+            to_status=normalized_target,
+            principal_kind=str(principal.principal_kind),
+            actor_principal_id=actor_uuid,
         )
 
-        self.session.flush()
         self.session.commit()
         logger.info(
             "Principal lifecycle transitioned",
@@ -325,7 +320,7 @@ class PrincipalRegistry:
 
         rotation_history.append(
             {
-                "rotated_at": datetime.utcnow().isoformat(),
+                "rotated_at": now_utc().isoformat(),
                 "old_public_key": principal.public_key_pem,
                 "reason": reason,
             }
@@ -339,7 +334,7 @@ class PrincipalRegistry:
         principal.public_key_pem = generated.public_key_pem
         principal_metadata.update(generated.storage.metadata)
         principal_metadata["key_rotation_reason"] = reason
-        principal_metadata["key_rotated_at"] = datetime.utcnow().isoformat() + "Z"
+        principal_metadata["key_rotated_at"] = now_utc().isoformat()
         if rotated_by:
             principal_metadata["key_rotated_by"] = str(rotated_by)
         principal.principal_metadata = principal_metadata
@@ -395,7 +390,7 @@ class PrincipalRegistry:
                 "token_id": token[:20] + "...",
                 "source_principal_id": str(source.principal_id),
                 "delegation_type": delegation_type,
-                "created_at": datetime.utcnow().isoformat() + "Z",
+                "created_at": now_utc().isoformat(),
                 "expires_in_seconds": expiration_seconds,
             }
         )

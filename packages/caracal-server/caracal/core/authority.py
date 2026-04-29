@@ -22,6 +22,7 @@ from caracal.core.caveat_chain import (
 from caracal.core.intent import Intent
 from caracal.core.authority_ledger import LedgerWriteError
 from caracal.db.models import ExecutionMandate, Principal, PrincipalAttestationStatus, PrincipalKind, PrincipalLifecycleStatus
+from caracal.core.time_utils import now_utc
 from caracal.logging_config import get_logger
 from caracal.provider.definitions import parse_provider_scope
 
@@ -91,7 +92,7 @@ class AuthorityDecision:
     
     def __post_init__(self):
         if self.timestamp is None:
-            self.timestamp = datetime.utcnow()
+            self.timestamp = now_utc()
         if self.reason_code is None:
             self.reason_code = AuthorityReasonCode.ALLOW if self.allowed else "AUTH_DENY"
 
@@ -217,7 +218,7 @@ class AuthorityEvaluator:
             )
             return []
 
-        evaluation_time = current_time or datetime.utcnow()
+        evaluation_time = current_time or now_utc()
         try:
             candidate_mandates = (
                 self.db_session.query(ExecutionMandate)
@@ -894,7 +895,7 @@ class AuthorityEvaluator:
         self._active_caller_principal_id = caller_principal_id
         try:
             if current_time is None:
-                current_time = datetime.utcnow()
+                current_time = now_utc()
 
             # Fail-closed: If mandate is None, deny
             if mandate is None:

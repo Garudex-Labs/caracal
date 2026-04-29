@@ -17,6 +17,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from caracal.db.models import AuthorityLedgerEvent
+from caracal.core.time_utils import now_utc
 from caracal.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -122,7 +123,7 @@ class AuthorityLedgerWriter:
         
         """
         if timestamp is None:
-            timestamp = datetime.utcnow()
+            timestamp = now_utc()
         
         logger.info(
             "Recording mandate issuance",
@@ -199,7 +200,7 @@ class AuthorityLedgerWriter:
         
         """
         if timestamp is None:
-            timestamp = datetime.utcnow()
+            timestamp = now_utc()
         
         # Validate inputs
         if decision not in ["allowed", "denied"]:
@@ -282,7 +283,7 @@ class AuthorityLedgerWriter:
         
         """
         if timestamp is None:
-            timestamp = datetime.utcnow()
+            timestamp = now_utc()
         
         logger.info(
             "Recording mandate revocation",
@@ -337,7 +338,7 @@ class AuthorityLedgerWriter:
             RuntimeError: If database write fails.
         """
         if timestamp is None:
-            timestamp = datetime.utcnow()
+            timestamp = now_utc()
 
         metadata = sanitize_metadata({
             "lifecycle_from": from_status,
@@ -384,7 +385,7 @@ class AuthorityLedgerWriter:
             RuntimeError: If database write fails.
         """
         if timestamp is None:
-            timestamp = datetime.utcnow()
+            timestamp = now_utc()
 
         metadata = sanitize_metadata({
             "policy_id": str(policy_id),
@@ -431,7 +432,7 @@ class AuthorityLedgerWriter:
             RuntimeError: If database write fails.
         """
         if timestamp is None:
-            timestamp = datetime.utcnow()
+            timestamp = now_utc()
 
         metadata = sanitize_metadata({
             "edge_id": str(edge_id),

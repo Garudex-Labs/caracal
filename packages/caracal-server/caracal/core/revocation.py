@@ -12,6 +12,7 @@ from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from caracal.core.lifecycle import PrincipalLifecycleStateMachine
+from caracal.core.authority_ledger import AuthorityLedgerWriter, sanitize_metadata
 from caracal.core.session_contracts import SessionDenylistBackend
 from caracal.db.models import (
     AuthorityLedgerEvent,
@@ -21,6 +22,7 @@ from caracal.db.models import (
     PrincipalLifecycleStatus,
 )
 from caracal.exceptions import PrincipalNotFoundError
+from caracal.core.time_utils import now_utc
 from caracal.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -382,7 +384,7 @@ class PrincipalRevocationOrchestrator:
         )
 
         revoked_edge_ids: list[UUID] = []
-        now = datetime.utcnow()
+        now = now_utc()
         for edge in edges:
             edge.revoked = True
             edge.revoked_at = now
@@ -427,7 +429,7 @@ class PrincipalRevocationOrchestrator:
         metadata = dict(principal.principal_metadata or {})
         metadata["lifecycle_status"] = PrincipalLifecycleStatus.REVOKED.value
         metadata["revocation_reason"] = reason
-        metadata["revoked_at"] = datetime.utcnow().isoformat() + "Z"
+        metadata["revoked_at"] = now_utc().isoformat()
         if actor_principal_id:
             metadata["revoked_by"] = actor_principal_id
         principal.principal_metadata = metadata
@@ -442,9 +444,23 @@ class PrincipalRevocationOrchestrator:
                 "principal_kind": principal.principal_kind,
             },
         )
+        if current_status != PrincipalLifecycleStatus.REVOKED.value:
+            actor_uuid = None
+            if actor_principal_id:
+                try:
+                    actor_uuid = UUID(str(actor_principal_id))
+                except ValueError:
+                    actor_uuid = None
+            AuthorityLedgerWriter(self.db_session).record_lifecycle_transition(
+                principal_id=principal.principal_id,
+                from_status=current_status,
+                to_status=PrincipalLifecycleStatus.REVOKED.value,
+                principal_kind=str(principal.principal_kind),
+                actor_principal_id=actor_uuid,
+            )
 
         mandate_ids: list[UUID] = []
-        now = datetime.utcnow()
+        now = now_utc()
         for mandate in self._list_active_mandates_for_principal(principal_id):
             mandate.revoked = True
             mandate.revoked_at = now
@@ -480,7 +496,7 @@ class PrincipalRevocationOrchestrator:
         self.db_session.add(
             AuthorityLedgerEvent(
                 event_type=event_type,
-                timestamp=datetime.utcnow(),
+                timestamp=now_utc(),
                 principal_id=principal_id,
                 mandate_id=mandate_id,
                 decision="allowed",
@@ -488,6 +504,6 @@ class PrincipalRevocationOrchestrator:
                 requested_action=event_type,
                 requested_resource=f"principal:{principal_id}",
                 correlation_id=None,
-                event_metadata=metadata or {},
+                event_metadata=sanitize_metadata(metadata) or {},
             )
         )

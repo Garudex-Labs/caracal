@@ -187,6 +187,12 @@ def create(
                 
                 session.add(policy)
                 session.flush()
+
+                from caracal.core.authority_ledger import AuthorityLedgerWriter
+                AuthorityLedgerWriter(session).record_policy_change(
+                    policy_id=policy.policy_id,
+                    change_kind="created",
+                )
                 
                 policy_data = {
                     'policy_id': str(policy.policy_id),

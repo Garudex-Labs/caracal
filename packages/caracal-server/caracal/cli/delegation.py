@@ -494,6 +494,12 @@ def revoke(ctx, policy_id: str, confirm: bool):
 
                 policy.active = False
 
+                from caracal.core.authority_ledger import AuthorityLedgerWriter
+                AuthorityLedgerWriter(session).record_policy_change(
+                    policy_id=policy.policy_id,
+                    change_kind="deactivated",
+                )
+
                 click.echo()
                 click.echo("✓ Delegation policy revoked successfully!")
                 click.echo()
