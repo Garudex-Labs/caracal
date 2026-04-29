@@ -29,16 +29,15 @@ class TestMandateManager:
         issuer_id = uuid4()
         subject_id = uuid4()
         
-        # Mock issuer principal with keys
         issuer = Principal(
             principal_id=issuer_id,
             name="test-issuer",
             principal_kind="human",
             owner="test",
             public_key_pem="test_public_key",
+            lifecycle_status="active",
         )
-        
-        # Mock policy
+
         policy = AuthorityPolicy(
             policy_id=uuid4(),
             principal_id=issuer_id,
@@ -145,6 +144,7 @@ class TestMandateManager:
             principal_kind="human",
             owner="test",
             public_key_pem="test_public_key",
+            lifecycle_status="active",
         )
 
         policy = AuthorityPolicy(

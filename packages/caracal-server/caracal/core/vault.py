@@ -710,6 +710,16 @@ class CaracalVault:
         return project_id, environment, secret_path
 
     @staticmethod
+    def _is_missing_bootstrap_endpoint(err: "VaultError") -> bool:
+        msg = str(err)
+        return "/api/caracal/keys/bootstrap" in msg and "-> 404" in msg
+
+    @staticmethod
+    def _is_missing_sign_endpoint(err: "VaultError") -> bool:
+        msg = str(err)
+        return "/api/caracal/sign/jwt" in msg and "-> 404" in msg
+
+    @staticmethod
     def _normalize_secret_path(secret_path: str) -> str:
         normalized = (secret_path or "/").strip()
         if not normalized:

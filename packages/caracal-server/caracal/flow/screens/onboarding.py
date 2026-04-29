@@ -515,7 +515,7 @@ def _step_workspace(wizard: Wizard) -> Any:
                             if not env_issues:
                                 schema_name = _resolve_workspace_schema(imported_name, wizard.context)
                                 config_yaml["database"] = {
-                                    "type": "postgres",
+                                    "type": "postgresql",
                                     "host": env_config["host"],
                                     "port": env_config["port"],
                                     "database": env_config["database"],
@@ -1712,7 +1712,7 @@ def run_onboarding(
                 
                 # Update database section — include schema for workspace isolation
                 config_yaml['database'] = {
-                    'type': 'postgres',
+                    'type': 'postgresql',
                     'host': db_config_data['host'],
                     'port': db_config_data['port'],
                     'database': db_config_data['database'],
