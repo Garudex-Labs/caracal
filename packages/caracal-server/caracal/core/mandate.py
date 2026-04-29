@@ -20,6 +20,7 @@ from fnmatch import fnmatchcase
 from caracal.core.identity import PrincipalRegistry
 from caracal.core.intent import Intent
 from caracal.core.signing_service import SigningService, SigningServiceError, SigningServiceKeyError
+from caracal.core.authority_ledger import LedgerWriteError
 from caracal.db.models import ExecutionMandate, AuthorityPolicy, Principal, PrincipalLifecycleStatus
 from caracal.logging_config import get_logger
 from caracal.provider.definitions import parse_provider_scope
@@ -249,6 +250,9 @@ class MandateManager:
                     logger.warning(f"Unknown event type for ledger recording: {event_type}")
             except Exception as e:
                 logger.error(f"Failed to record ledger event: {e}", exc_info=True)
+                raise LedgerWriteError(
+                    f"Mandate operation aborted: ledger write failed for {event_type}"
+                ) from e
         else:
             logger.debug(f"No ledger writer configured, skipping event recording for {event_type}")
 
@@ -264,8 +268,9 @@ class MandateManager:
         delegation_type: str = "directed",
         source_mandate_id: Optional[UUID] = None,
         network_distance: Optional[int] = None,
-        enforce_issuer_policy: bool = True,
         context_tags: Optional[List[str]] = None,
+        *,
+        _internal_skip_policy_check: bool = False,
     ) -> ExecutionMandate:
         """
         Issue a new execution mandate.
@@ -285,7 +290,6 @@ class MandateManager:
             delegation_type: Type of delegation (directed/peer)
             source_mandate_id: Optional parent mandate ID for delegated mandates
             network_distance: How many additional delegation hops are allowed
-            enforce_issuer_policy: Whether to validate against issuer authority policy
             context_tags: Context tags for dynamic authority filtering
         
         Returns:
@@ -318,7 +322,7 @@ class MandateManager:
                 raise ValueError(error_msg)
         
         issuer_policy = None
-        if enforce_issuer_policy:
+        if not _internal_skip_policy_check:
             # Validate issuer has active authority policy
             issuer_policy = self._get_active_policy(issuer_id)
             if not issuer_policy:
@@ -744,8 +748,8 @@ class MandateManager:
                 delegation_type=delegation_type,
                 source_mandate_id=source_mandate_id,
                 network_distance=delegated_depth,
-                enforce_issuer_policy=False,
                 context_tags=context_tags,
+                _internal_skip_policy_check=True,
             )
             
             graph = self.delegation_graph or DelegationGraph(self.db_session)

@@ -163,7 +163,11 @@ def bootstrap(ctx, force: bool) -> None:
                 .first()
             )
             if system_principal is None:
-                system_principal = session.query(Principal).first()
+                raise click.ClickException(
+                    "Database contains principals but no service principal named 'system'. "
+                    "Refusing to elect an arbitrary principal as system. "
+                    "Re-run with --force to recreate the system principal explicitly."
+                )
 
             principal_id = str(system_principal.principal_id)
             click.echo(

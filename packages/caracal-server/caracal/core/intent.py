@@ -123,8 +123,9 @@ class _IssuingMandateManager(Protocol):
         delegation_type: str = "directed",
         source_mandate_id: Optional[UUID] = None,
         network_distance: Optional[int] = None,
-        enforce_issuer_policy: bool = True,
         context_tags: Optional[List[str]] = None,
+        *,
+        _internal_skip_policy_check: bool = False,
     ) -> "ExecutionMandate":
         ...
 

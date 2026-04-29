@@ -175,13 +175,19 @@ class DelegationGraph:
         requested_scope: Optional[List[str]],
         source_scopes: List[List[str]],
     ) -> bool:
-        """Return True when every requested entry is matched by at least one source entry."""
+        """Return True when every requested entry is matched by at least one source entry.
+
+        Empty or missing requested scope is treated as deny-all: a mandate without
+        explicit scopes grants nothing and therefore cannot be covered by any source.
+        """
+        if not requested_scope:
+            return False
         flattened_patterns = [
             pattern
             for scope in source_scopes
             for pattern in (scope or [])
         ]
-        for requested_entry in requested_scope or []:
+        for requested_entry in requested_scope:
             if not any(fnmatchcase(requested_entry, pattern) for pattern in flattened_patterns):
                 return False
         return True
