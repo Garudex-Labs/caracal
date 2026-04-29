@@ -3,16 +3,16 @@ Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 Caracal, a product of Garudex Labs
 
 Backup and restore commands for Caracal Core.
-
-Provides CLI commands for creating, restoring, and listing backups.
-Implements Requirement 8.8-13 and 11.13-15 from caracal-core spec.
 """
 
 import os
 import hashlib
 import subprocess
+import tempfile
+from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
+from typing import Iterator
 from typing import Optional
 
 import click
@@ -46,11 +46,38 @@ def get_backup_dir(config) -> Path:
     return backup_dir
 
 
-def _pg_env(config) -> dict:
+def _pgpass_value(value: object) -> str:
+    return str(value or "").replace("\\", "\\\\").replace(":", "\\:")
+
+
+@contextmanager
+def _pg_env(config) -> Iterator[dict[str, str]]:
     env = os.environ.copy()
-    if getattr(config.database, "password", None):
-        env["PGPASSWORD"] = str(config.database.password)
-    return env
+    env.pop("PGPASSWORD", None)
+    password = getattr(config.database, "password", None)
+    pgpass_path: Optional[Path] = None
+    if password:
+        with tempfile.NamedTemporaryFile("w", encoding="utf-8", delete=False) as pgpass_file:
+            pgpass_path = Path(pgpass_file.name)
+            pgpass_file.write(
+                ":".join(
+                    [
+                        _pgpass_value(config.database.host),
+                        _pgpass_value(config.database.port),
+                        _pgpass_value(config.database.database),
+                        _pgpass_value(config.database.user),
+                        _pgpass_value(password),
+                    ]
+                )
+                + "\n"
+            )
+        pgpass_path.chmod(0o600)
+        env["PGPASSFILE"] = str(pgpass_path)
+    try:
+        yield env
+    finally:
+        if pgpass_path:
+            pgpass_path.unlink(missing_ok=True)
 
 
 def _run_pg_dump(config, output_file: Path) -> None:
@@ -70,7 +97,8 @@ def _run_pg_dump(config, output_file: Path) -> None:
     if schema:
         cmd.extend(["-n", schema])
 
-    result = subprocess.run(cmd, env=_pg_env(config), capture_output=True, text=True)
+    with _pg_env(config) as pg_env:
+        result = subprocess.run(cmd, env=pg_env, capture_output=True, text=True)
     if result.returncode != 0:
         raise CaracalError(f"pg_dump failed: {result.stderr.strip() or result.stdout.strip()}")
 
@@ -89,7 +117,8 @@ def _run_pg_restore(config, backup_file: Path) -> None:
         str(backup_file),
     ]
 
-    result = subprocess.run(cmd, env=_pg_env(config), capture_output=True, text=True)
+    with _pg_env(config) as pg_env:
+        result = subprocess.run(cmd, env=pg_env, capture_output=True, text=True)
     if result.returncode != 0:
         raise CaracalError(f"pg_restore failed: {result.stderr.strip() or result.stdout.strip()}")
 

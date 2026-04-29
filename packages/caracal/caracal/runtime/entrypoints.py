@@ -2104,7 +2104,6 @@ def _build_ais_handlers(
 
     def _caller_has_capability(
         self_claims: dict[str, Any] | None,
-        caller_principal_id: str,
         *capabilities: str,
     ) -> bool:
         requested = {str(capability).strip() for capability in capabilities if str(capability).strip()}
@@ -2119,22 +2118,7 @@ def _build_ais_handlers(
         if "system.admin" in claim_capabilities or requested.intersection(claim_capabilities):
             return True
 
-        with resolved_db_manager.session_scope() as session:
-            query = getattr(session, "query", None)
-            if not callable(query):
-                return False
-            principal_query = query(Principal)
-            if principal_query is None or not hasattr(principal_query, "filter_by"):
-                return False
-            principal = principal_query.filter_by(principal_id=caller_principal_id).first()
-            if principal is None:
-                return False
-            db_capabilities = {
-                str(capability).strip()
-                for capability in (getattr(principal, "capabilities", []) or [])
-                if str(capability).strip()
-            }
-            return "system.admin" in db_capabilities or bool(requested.intersection(db_capabilities))
+        return False
 
     def _resolve_authenticated_caller(
         authorization_header: str | None,
@@ -2165,7 +2149,7 @@ def _build_ais_handlers(
         normalized_target = _normalize_principal_id(target_principal_id)
         if caller_principal_id == normalized_target:
             return caller_principal_id
-        if _caller_has_capability(claims, caller_principal_id, capability):
+        if _caller_has_capability(claims, capability):
             return caller_principal_id
         if _caller_has_active_delegation_mandate(caller_principal_id, normalized_target):
             return caller_principal_id
@@ -2198,13 +2182,12 @@ def _build_ais_handlers(
             raise ValueError("principal_id is required")
 
         with resolved_db_manager.session_scope() as session:
-            # Lightweight unit-test doubles may not expose query semantics.
             if not hasattr(session, "query"):
-                return normalized_principal_id
+                raise ValueError("Principal validation is unavailable")
 
             identity_service = IdentityService(principal_registry=PrincipalRegistry(session))
             if not hasattr(identity_service, "get_principal"):
-                return normalized_principal_id
+                raise ValueError("Principal lookup is unavailable")
             identity = identity_service.get_principal(normalized_principal_id)
             if identity is None:
                 raise PrincipalNotFoundError(f"Principal {normalized_principal_id} not found")

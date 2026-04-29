@@ -2,13 +2,7 @@
 Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 Caracal, a product of Garudex Labs
 
-Migration system for Caracal deployment architecture.
-
-Handles migration operations including:
-- Repository to package migration
-- Edition switching (Open Source <-> Enterprise)
-- Data preservation and integrity verification
-- Backup and rollback functionality
+Migration operations for deployment transitions and rollback.
 """
 
 import hashlib
@@ -16,7 +10,7 @@ import shutil
 import tarfile
 import tempfile
 from datetime import datetime
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Dict, List, Optional, Any, Iterable, Tuple
 import structlog
 
@@ -33,6 +27,21 @@ from caracal.deployment.exceptions import (
 from caracal.deployment.logging_utils import log_migration_operation
 
 logger = structlog.get_logger(__name__)
+
+
+def _safe_extract_tar(tar: tarfile.TarFile, target: Path) -> None:
+    target_root = target.resolve()
+    for member in tar.getmembers():
+        name = str(member.name or "")
+        parts = PurePosixPath(name).parts
+        if not name or "\x00" in name or name.startswith("/") or ".." in parts:
+            raise RestoreError(f"Unsafe archive path: {name!r}")
+        if member.issym() or member.islnk() or not (member.isfile() or member.isdir()):
+            raise RestoreError(f"Unsafe archive member type: {name!r}")
+        destination = (target / name).resolve()
+        if destination != target_root and target_root not in destination.parents:
+            raise RestoreError(f"Archive member escapes restore directory: {name!r}")
+        tar.extract(member, target)
 
 
 class MigrationManager:
@@ -507,9 +516,8 @@ class MigrationManager:
             with tempfile.TemporaryDirectory() as temp_dir:
                 temp_path = Path(temp_dir)
                 
-                # Extract backup
                 with tarfile.open(backup_path, "r:gz") as tar:
-                    tar.extractall(temp_path)
+                    _safe_extract_tar(tar, temp_path)
                 
                 # Remove current configuration (except backups)
                 if config_dir.exists():

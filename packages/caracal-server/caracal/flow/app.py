@@ -2,15 +2,14 @@
 Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 Caracal, a product of Garudex Labs
 
-Caracal Flow Application Controller.
-
-Main application class orchestrating the TUI experience:
-- Application lifecycle (start, run, exit)
-- State management
-- Screen navigation
+Flow application controller for the terminal interface.
 """
 
-from typing import Optional
+import os
+import tempfile
+from contextlib import contextmanager
+from pathlib import Path
+from typing import Iterator, Optional
 
 from rich.console import Console
 
@@ -20,6 +19,40 @@ from caracal.flow.screens.welcome import show_welcome, wait_for_action
 from caracal.flow.screens.main_menu import show_main_menu, show_submenu
 from caracal.flow.screens.onboarding import run_onboarding
 from caracal.runtime.host_io import in_container_runtime
+
+
+def _pgpass_value(value: object) -> str:
+    return str(value or "").replace("\\", "\\\\").replace(":", "\\:")
+
+
+@contextmanager
+def _pg_env(config) -> Iterator[dict[str, str]]:
+    env = os.environ.copy()
+    env.pop("PGPASSWORD", None)
+    password = config.database.password or ""
+    pgpass_path: Optional[Path] = None
+    if password:
+        with tempfile.NamedTemporaryFile("w", encoding="utf-8", delete=False) as pgpass_file:
+            pgpass_path = Path(pgpass_file.name)
+            pgpass_file.write(
+                ":".join(
+                    [
+                        _pgpass_value(config.database.host or "localhost"),
+                        _pgpass_value(config.database.port or 5432),
+                        _pgpass_value(config.database.database or "caracal"),
+                        _pgpass_value(config.database.user or "caracal"),
+                        _pgpass_value(password),
+                    ]
+                )
+                + "\n"
+            )
+        pgpass_path.chmod(0o600)
+        env["PGPASSFILE"] = str(pgpass_path)
+    try:
+        yield env
+    finally:
+        if pgpass_path:
+            pgpass_path.unlink(missing_ok=True)
 
 
 class FlowApp:
@@ -585,10 +618,6 @@ ledger capabilities.[/]
         timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
         backup_file = backup_dir / f"caracal_backup_{timestamp}.dump"
         
-        # Build pg_dump command
-        env = {
-            "PGPASSWORD": config.database.password or "",
-        }
         cmd = [
             "pg_dump",
             "-h", config.database.host or "localhost",
@@ -606,10 +635,9 @@ ledger capabilities.[/]
         
         self.console.print(f"[{Colors.INFO}]{Icons.INFO} Running pg_dump...[/]")
         
-        import os
-        full_env = {**os.environ, **env}
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=120, env=full_env)
+            with _pg_env(config) as pg_env:
+                result = subprocess.run(cmd, capture_output=True, text=True, timeout=120, env=pg_env)
             if result.returncode == 0:
                 try:
                     backup_file.chmod(0o600)
@@ -674,8 +702,6 @@ ledger capabilities.[/]
             
             confirm = input("> ").strip()
             if confirm == "restore":
-                import os
-                env = {**os.environ, "PGPASSWORD": config.database.password or ""}
                 if backup_file.suffix == ".dump":
                     cmd = [
                         "pg_restore",
@@ -699,7 +725,8 @@ ledger capabilities.[/]
                         "-f", str(backup_file),
                     ]
                 try:
-                    proc = subprocess.run(cmd, capture_output=True, text=True, timeout=120, env=env)
+                    with _pg_env(config) as pg_env:
+                        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=120, env=pg_env)
                     if proc.returncode == 0:
                         self.console.print(f"[{Colors.SUCCESS}]{Icons.SUCCESS} Database restored successfully.[/]")
                     else:

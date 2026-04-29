@@ -2,9 +2,7 @@
 Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 Caracal, a product of Garudex Labs
 
-Configuration management for Caracal deployment architecture.
-
-Handles system-level configuration with encryption and workspace management.
+Deployment configuration and workspace state management.
 """
 
 import base64
@@ -15,11 +13,12 @@ import secrets
 import shutil
 import subprocess
 import tempfile
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
-from pathlib import Path
-from typing import Any, Dict, List, Optional
+from pathlib import Path, PurePosixPath
+from typing import Any, Dict, Iterator, List, Optional
 
 import structlog
 import toml
@@ -46,6 +45,21 @@ from caracal.runtime.host_io import in_container_runtime, normalize_optional_tex
 from caracal.storage.layout import resolve_caracal_home
 
 logger = structlog.get_logger(__name__)
+
+
+def _safe_extract_tar(tar: tarfile.TarFile, target: Path) -> None:
+    target_root = target.resolve()
+    for member in tar.getmembers():
+        name = str(member.name or "")
+        parts = PurePosixPath(name).parts
+        if not name or "\x00" in name or name.startswith("/") or ".." in parts:
+            raise WorkspaceOperationError(f"Unsafe archive path: {name!r}")
+        if member.issym() or member.islnk() or not (member.isfile() or member.isdir()):
+            raise WorkspaceOperationError(f"Unsafe archive member type: {name!r}")
+        destination = (target / name).resolve()
+        if destination != target_root and target_root not in destination.parents:
+            raise WorkspaceOperationError(f"Archive member escapes workspace import directory: {name!r}")
+        tar.extract(member, target)
 
 
 class SyncDirection(str, Enum):
@@ -292,148 +306,38 @@ class ConfigManager:
             "schema": schema,
         }
 
-    def _pg_env(self, password: str) -> Dict[str, str]:
+    def _pgpass_value(self, value: object) -> str:
+        return str(value or "").replace("\\", "\\\\").replace(":", "\\:")
+
+    @contextmanager
+    def _pg_env(self, db_cfg: Dict[str, Any]) -> Iterator[Dict[str, str]]:
         """Build subprocess environment for PostgreSQL CLI tools."""
         env = os.environ.copy()
+        env.pop("PGPASSWORD", None)
+        password = str(db_cfg.get("password", ""))
+        pgpass_path: Optional[Path] = None
         if password:
-            env["PGPASSWORD"] = str(password)
-        return env
-
-    def _extract_unsupported_pg_settings(self, restore_output: str) -> List[str]:
-        """Extract unsupported PostgreSQL setting names from pg_restore output."""
-        matches = re.findall(
-            r'unrecognized configuration parameter "([^"]+)"',
-            restore_output,
-            flags=re.IGNORECASE,
-        )
-        # Preserve order while de-duplicating.
-        seen = set()
-        ordered: List[str] = []
-        for value in matches:
-            normalized = value.strip().lower()
-            if normalized and normalized not in seen:
-                seen.add(normalized)
-                ordered.append(normalized)
-        return ordered
-
-    def _restore_workspace_db_dump_via_sql_fallback(
-        self,
-        workspace: str,
-        db_cfg: Dict[str, Any],
-        dump_path: Path,
-        unsupported_settings: List[str],
-    ) -> None:
-        """Fallback restore path that strips unsupported SET statements from SQL."""
-        with tempfile.TemporaryDirectory() as temp_dir:
-            temp_path = Path(temp_dir)
-            raw_sql_path = temp_path / "workspace_restore_raw.sql"
-            sanitized_sql_path = temp_path / "workspace_restore_sanitized.sql"
-
-            render_cmd = [
-                "pg_restore",
-                "--clean",
-                "--if-exists",
-                "--no-owner",
-                "--no-privileges",
-                "--file",
-                str(raw_sql_path),
-                str(dump_path),
-            ]
-
-            try:
-                render_result = subprocess.run(
-                    render_cmd,
-                    env=self._pg_env(str(db_cfg.get("password", ""))),
-                    capture_output=True,
-                    text=True,
+            with tempfile.NamedTemporaryFile("w", encoding="utf-8", delete=False) as pgpass_file:
+                pgpass_path = Path(pgpass_file.name)
+                pgpass_file.write(
+                    ":".join(
+                        [
+                            self._pgpass_value(db_cfg.get("host", "localhost")),
+                            self._pgpass_value(db_cfg.get("port", 5432)),
+                            self._pgpass_value(db_cfg.get("database", "caracal")),
+                            self._pgpass_value(db_cfg.get("user", "caracal")),
+                            self._pgpass_value(password),
+                        ]
+                    )
+                    + "\n"
                 )
-            except FileNotFoundError as e:
-                raise WorkspaceOperationError(
-                    "Workspace archive contains PostgreSQL dump, but 'pg_restore' is not available. "
-                    "Install PostgreSQL client tools and retry import. "
-                    "If using Caracal runtime containers, rebuild/runtime-restart with latest image."
-                ) from e
-
-            if render_result.returncode != 0:
-                details = (
-                    render_result.stderr.strip()
-                    or render_result.stdout.strip()
-                    or "unknown error"
-                )
-                raise WorkspaceOperationError(
-                    f"Failed to render SQL fallback from workspace dump: {details}"
-                )
-
-            set_patterns = [
-                re.compile(rf"^\s*SET\s+{re.escape(setting)}\s*=", re.IGNORECASE)
-                for setting in unsupported_settings
-            ]
-            select_patterns = [
-                re.compile(
-                    rf"^\s*SELECT\s+pg_catalog\.set_config\(\s*'{re.escape(setting)}'",
-                    re.IGNORECASE,
-                )
-                for setting in unsupported_settings
-            ]
-
-            removed_lines = 0
-            with open(raw_sql_path, "r", encoding="utf-8") as source, open(
-                sanitized_sql_path, "w", encoding="utf-8"
-            ) as target:
-                for line in source:
-                    stripped = line.strip()
-                    if any(pattern.search(stripped) for pattern in set_patterns) or any(
-                        pattern.search(stripped) for pattern in select_patterns
-                    ):
-                        removed_lines += 1
-                        continue
-                    target.write(line)
-
-            logger.warning(
-                "workspace_db_restore_compatibility_fallback",
-                workspace=workspace,
-                schema=str(db_cfg["schema"]),
-                removed_lines=removed_lines,
-                unsupported_settings=unsupported_settings,
-            )
-
-            apply_cmd = [
-                "psql",
-                "-h",
-                str(db_cfg["host"]),
-                "-p",
-                str(db_cfg["port"]),
-                "-U",
-                str(db_cfg["user"]),
-                "-d",
-                str(db_cfg["database"]),
-                "-v",
-                "ON_ERROR_STOP=1",
-                "-f",
-                str(sanitized_sql_path),
-            ]
-
-            try:
-                apply_result = subprocess.run(
-                    apply_cmd,
-                    env=self._pg_env(str(db_cfg.get("password", ""))),
-                    capture_output=True,
-                    text=True,
-                )
-            except FileNotFoundError as e:
-                raise WorkspaceOperationError(
-                    "Workspace archive restore fallback requires 'psql', but it is not available. "
-                    "Install PostgreSQL client tools and retry import. "
-                    "If using Caracal runtime containers, rebuild/runtime-restart with latest image."
-                ) from e
-
-            if apply_result.returncode != 0:
-                details = (
-                    apply_result.stderr.strip() or apply_result.stdout.strip() or "unknown error"
-                )
-                raise WorkspaceOperationError(
-                    f"Failed to import workspace database schema '{db_cfg['schema']}' via SQL fallback: {details}"
-                )
+            pgpass_path.chmod(0o600)
+            env["PGPASSFILE"] = str(pgpass_path)
+        try:
+            yield env
+        finally:
+            if pgpass_path:
+                pgpass_path.unlink(missing_ok=True)
 
     def _normalize_lock_key(self, lock_key: Optional[str]) -> Optional[str]:
         """Normalize optional lock key input."""
@@ -561,12 +465,13 @@ class ConfigManager:
         ]
 
         try:
-            result = subprocess.run(
-                cmd,
-                env=self._pg_env(str(db_cfg.get("password", ""))),
-                capture_output=True,
-                text=True,
-            )
+            with self._pg_env(db_cfg) as pg_env:
+                result = subprocess.run(
+                    cmd,
+                    env=pg_env,
+                    capture_output=True,
+                    text=True,
+                )
         except FileNotFoundError as e:
             raise WorkspaceOperationError(
                 "Workspace has PostgreSQL schema data, but 'pg_dump' is not available. "
@@ -632,12 +537,13 @@ class ConfigManager:
         ]
 
         try:
-            result = subprocess.run(
-                cmd,
-                env=self._pg_env(str(db_cfg.get("password", ""))),
-                capture_output=True,
-                text=True,
-            )
+            with self._pg_env(db_cfg) as pg_env:
+                result = subprocess.run(
+                    cmd,
+                    env=pg_env,
+                    capture_output=True,
+                    text=True,
+                )
         except FileNotFoundError as e:
             raise WorkspaceOperationError(
                 "Workspace archive contains PostgreSQL dump, but 'pg_restore' is not available. "
@@ -647,22 +553,6 @@ class ConfigManager:
 
         if result.returncode != 0:
             details = result.stderr.strip() or result.stdout.strip() or "unknown error"
-            unsupported_settings = self._extract_unsupported_pg_settings(details)
-            if unsupported_settings:
-                try:
-                    self._restore_workspace_db_dump_via_sql_fallback(
-                        workspace,
-                        db_cfg,
-                        dump_path,
-                        unsupported_settings,
-                    )
-                    return True
-                except WorkspaceOperationError as fallback_error:
-                    raise WorkspaceOperationError(
-                        f"Failed to import workspace database schema '{db_cfg['schema']}': {details} "
-                        f"(compatibility fallback also failed: {fallback_error})"
-                    ) from fallback_error
-
             raise WorkspaceOperationError(
                 f"Failed to import workspace database schema '{db_cfg['schema']}': {details}"
             )
@@ -1380,7 +1270,7 @@ class ConfigManager:
                 archive_to_extract = self._prepare_import_archive(path, lock_key, temp_path)
 
                 with tarfile.open(archive_to_extract, "r:gz") as tar:
-                    tar.extractall(temp_path)
+                    _safe_extract_tar(tar, temp_path)
                 
                 # Find workspace directory in archive
                 workspace_dirs = [d for d in temp_path.iterdir() if d.is_dir()]

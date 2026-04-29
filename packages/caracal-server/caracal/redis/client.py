@@ -3,9 +3,6 @@ Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 Caracal, a product of Garudex Labs
 
 Redis client for Caracal Core v0.3.
-
-Provides connection management and basic operations for Redis caching.
-
 """
 
 import redis
@@ -125,23 +122,9 @@ class RedisClient:
             raise RedisConnectionError(f"Failed to get key {key}: {e}") from e
 
     def getdel(self, key: str) -> Optional[str]:
-        """Atomically get and delete a key.
-
-        Uses Redis GETDEL when available; falls back to a small Lua script for
-        compatibility with older server versions.
-        """
+        """Atomically get and delete a key."""
         try:
-            try:
-                return self._client.execute_command("GETDEL", key)
-            except redis.ResponseError as exc:
-                if "unknown command" not in str(exc).lower():
-                    raise
-                script = (
-                    "local v = redis.call('GET', KEYS[1]); "
-                    "if v then redis.call('DEL', KEYS[1]); end; "
-                    "return v"
-                )
-                return self._client.eval(script, 1, key)
+            return self._client.execute_command("GETDEL", key)
         except redis.RedisError as e:
             logger.error(f"Redis GETDEL failed for key {key}: {e}")
             raise RedisConnectionError(f"Failed to getdel key {key}: {e}") from e

@@ -3,9 +3,6 @@ Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 Caracal, a product of Garudex Labs
 
 Authority evaluation for mandate validation.
-
-This module provides the AuthorityEvaluator class for validating execution
-mandates and making allow/deny decisions with fail-closed semantics.
 """
 
 from dataclasses import dataclass
@@ -22,7 +19,7 @@ from caracal.core.caveat_chain import (
     evaluate_caveat_chain,
     verify_caveat_chain,
 )
-from caracal.db.models import ExecutionMandate, Principal, PrincipalLifecycleStatus
+from caracal.db.models import ExecutionMandate, Principal, PrincipalAttestationStatus, PrincipalKind, PrincipalLifecycleStatus
 from caracal.logging_config import get_logger
 from caracal.provider.definitions import parse_provider_scope
 
@@ -62,6 +59,7 @@ class AuthorityReasonCode:
     DELEGATION_PATH_INVALID = "AUTH_DELEGATION_PATH_INVALID"
     CAVEAT_CHAIN_DENIED = "AUTH_CAVEAT_CHAIN_DENIED"
     PRINCIPAL_NOT_ACTIVE = "AUTH_PRINCIPAL_NOT_ACTIVE"
+    PRINCIPAL_NOT_ATTESTED = "AUTH_PRINCIPAL_NOT_ATTESTED"
 
 # Import for type hints (avoid circular import)
 from typing import TYPE_CHECKING
@@ -513,6 +511,26 @@ class AuthorityEvaluator:
             return self._deny_decision(
                 reason=reason,
                 reason_code=AuthorityReasonCode.PRINCIPAL_NOT_ACTIVE,
+                boundary_stage=AuthorityBoundaryStage.MANDATE_STATE_VALIDATION,
+                mandate=mandate,
+                requested_action=requested_action,
+                requested_resource=requested_resource,
+            )
+
+        principal_kind = str(getattr(principal, "principal_kind", "") or "").strip().lower()
+        attestation_status = str(getattr(principal, "attestation_status", "") or "").strip().lower()
+        if (
+            principal_kind in {PrincipalKind.ORCHESTRATOR.value, PrincipalKind.WORKER.value}
+            and attestation_status != PrincipalAttestationStatus.ATTESTED.value
+        ):
+            reason = (
+                f"Mandate {mandate.mandate_id} subject principal is not attested "
+                f"(kind={principal_kind}, attestation_status={attestation_status or 'unknown'})"
+            )
+            logger.warning(reason)
+            return self._deny_decision(
+                reason=reason,
+                reason_code=AuthorityReasonCode.PRINCIPAL_NOT_ATTESTED,
                 boundary_stage=AuthorityBoundaryStage.MANDATE_STATE_VALIDATION,
                 mandate=mandate,
                 requested_action=requested_action,
