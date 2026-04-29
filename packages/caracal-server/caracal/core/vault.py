@@ -9,7 +9,6 @@ Hard-cut requirements:
 
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 import threading
@@ -22,9 +21,6 @@ from typing import Any, Optional
 from uuid import uuid4
 
 import httpx
-
-from caracal.core.vault_key_material import generate_asymmetric_keypair_pem
-
 from caracal.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -997,53 +993,6 @@ class CaracalVault:
             allowed_statuses={200, 201, 202, 409},
         )
 
-    @staticmethod
-    def _is_missing_bootstrap_endpoint(error: VaultError) -> bool:
-        payload = str(error)
-        return (
-            "POST /api/caracal/keys/bootstrap" in payload
-            and "-> 404" in payload
-        )
-
-    @staticmethod
-    def _is_missing_sign_endpoint(error: VaultError) -> bool:
-        payload = str(error)
-        return "POST /api/caracal/sign/" in payload and "-> 404" in payload
-
-    def _bootstrap_asymmetric_keypair_via_secret_upsert(
-        self,
-        *,
-        project_id: str,
-        environment: str,
-        secret_path: str,
-        private_key_name: str,
-        public_key_name: str,
-        algorithm: str,
-    ) -> None:
-        private_exists = self._secret_exists(
-            project_id,
-            environment,
-            secret_path,
-            private_key_name,
-        )
-        public_exists = self._secret_exists(
-            project_id,
-            environment,
-            secret_path,
-            public_key_name,
-        )
-
-        if private_exists and public_exists:
-            return
-        if private_exists != public_exists:
-            raise VaultError(
-                "Asymmetric keypair bootstrap cannot continue: vault keypair state is inconsistent."
-            )
-
-        private_pem, public_pem = generate_asymmetric_keypair_pem(algorithm)
-        self._upsert_secret(project_id, environment, secret_path, private_key_name, private_pem)
-        self._upsert_secret(project_id, environment, secret_path, public_key_name, public_pem)
-
     def _secret_exists(self, project_id: str, environment: str, secret_path: str, name: str) -> bool:
         try:
             self._get_secret_value(project_id, environment, secret_path, name)
@@ -1320,18 +1269,15 @@ class CaracalVault:
         self._rl.check(project_id)
         secret_path, name = self._resolve_secret_locator(secret_path, name)
         try:
-            try:
-                token = self._sign_jwt_via_vault_api(
-                    project_id=project_id,
-                    environment=environment,
-                    secret_path=secret_path,
-                    key_name=name,
-                    payload=payload,
-                    headers=headers,
-                    algorithm=algorithm,
-                )
-            except VaultError:
-                raise
+            token = self._sign_jwt_via_vault_api(
+                project_id=project_id,
+                environment=environment,
+                secret_path=secret_path,
+                key_name=name,
+                payload=payload,
+                headers=headers,
+                algorithm=algorithm,
+            )
             self._audit_event(workspace_id, env_id, name, "sign_jwt", 1, actor, True)
             return token
         except Exception as exc:
@@ -1356,16 +1302,13 @@ class CaracalVault:
         project_id, environment, secret_path = self._resolve_context(workspace_id, env_id)
         secret_path, name = self._resolve_secret_locator(secret_path, name)
         try:
-            try:
-                signature = self._sign_canonical_payload_via_vault_api(
-                    project_id=project_id,
-                    environment=environment,
-                    secret_path=secret_path,
-                    key_name=name,
-                    payload=payload,
-                )
-            except VaultError:
-                raise
+            signature = self._sign_canonical_payload_via_vault_api(
+                project_id=project_id,
+                environment=environment,
+                secret_path=secret_path,
+                key_name=name,
+                payload=payload,
+            )
             self._audit_event(workspace_id, env_id, name, "sign_canonical_payload", 1, actor, True)
             return signature
         except Exception as exc:
@@ -1455,27 +1398,14 @@ class CaracalVault:
             )
 
         try:
-            try:
-                self._bootstrap_asymmetric_keypair_via_vault_api(
-                    project_id=project_id,
-                    environment=environment,
-                    secret_path=secret_path,
-                    private_key_name=private_key_name,
-                    public_key_name=public_key_name,
-                    algorithm=normalized_algorithm,
-                )
-            except VaultError as exc:
-                if not self._is_missing_bootstrap_endpoint(exc):
-                    raise
-
-                self._bootstrap_asymmetric_keypair_via_secret_upsert(
-                    project_id=project_id,
-                    environment=environment,
-                    secret_path=secret_path,
-                    private_key_name=private_key_name,
-                    public_key_name=public_key_name,
-                    algorithm=normalized_algorithm,
-                )
+            self._bootstrap_asymmetric_keypair_via_vault_api(
+                project_id=project_id,
+                environment=environment,
+                secret_path=secret_path,
+                private_key_name=private_key_name,
+                public_key_name=public_key_name,
+                algorithm=normalized_algorithm,
+            )
 
             self._audit_event(workspace_id, env_id, private_key_name, "create", 1, actor, True)
             self._audit_event(workspace_id, env_id, public_key_name, "create", 1, actor, True)

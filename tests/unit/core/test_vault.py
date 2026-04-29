@@ -455,6 +455,48 @@ def test_sign_canonical_payload_uses_vault_managed_private_key(vault):
 
 
 @pytest.mark.unit
+def test_sign_canonical_payload_requires_vault_sign_endpoint(vault):
+    with patch.object(
+        vault,
+        "_request",
+        side_effect=VaultError("Vault API request failed: POST /api/caracal/sign/canonical-payload -> 404 not found"),
+    ):
+        with patch.object(vault, "_get_secret_value") as get_secret:
+            with vault_access_context():
+                with pytest.raises(VaultError, match="sign/canonical-payload"):
+                    vault.sign_canonical_payload(
+                        "org-1",
+                        "env-1",
+                        "signing-key",
+                        payload={"hello": "world"},
+                    )
+
+    get_secret.assert_not_called()
+
+
+@pytest.mark.unit
+def test_sign_jwt_requires_vault_sign_endpoint(vault):
+    with patch.object(
+        vault,
+        "_request",
+        side_effect=VaultError("Vault API request failed: POST /api/caracal/sign/jwt -> 404 not found"),
+    ):
+        with patch.object(vault, "_get_secret_value") as get_secret:
+            with vault_access_context():
+                with pytest.raises(VaultError, match="sign/jwt"):
+                    vault.sign_jwt(
+                        "org-1",
+                        "env-1",
+                        "signing-key",
+                        payload={"sub": "principal-1"},
+                        headers={"kid": "principal-1"},
+                        algorithm="ES256",
+                    )
+
+    get_secret.assert_not_called()
+
+
+@pytest.mark.unit
 def test_ensure_asymmetric_keypair_bootstraps_missing_refs(vault):
     with patch.object(vault, "_request", return_value=FakeResponse(status_code=201, payload={"ok": True})) as request:
         with vault_access_context():
@@ -504,40 +546,15 @@ def test_ensure_asymmetric_keypair_rejects_mismatched_secret_paths(vault):
 
 
 @pytest.mark.unit
-def test_ensure_asymmetric_keypair_falls_back_when_bootstrap_endpoint_missing(vault):
+def test_ensure_asymmetric_keypair_requires_vault_bootstrap_endpoint(vault):
     missing_endpoint = VaultError(
         "Vault API request failed: POST /api/caracal/keys/bootstrap -> 404 not found"
     )
 
     with patch.object(vault, "_request", side_effect=missing_endpoint):
-        with patch.object(vault, "_secret_exists", return_value=False):
-            with patch.object(vault, "_upsert_secret", return_value="entry") as upsert:
-                with vault_access_context():
-                    vault.ensure_asymmetric_keypair(
-                        "org-1",
-                        "env-1",
-                        private_key_name="principal-keys/private",
-                        public_key_name="principal-keys/public",
-                        algorithm="ES256",
-                    )
-
-    assert upsert.call_count == 2
-    first_call = upsert.call_args_list[0].args
-    second_call = upsert.call_args_list[1].args
-    assert first_call[:4] == ("org-1", "env-1", "/principal-keys", "private")
-    assert second_call[:4] == ("org-1", "env-1", "/principal-keys", "public")
-
-
-@pytest.mark.unit
-def test_ensure_asymmetric_keypair_fallback_rejects_inconsistent_secret_state(vault):
-    missing_endpoint = VaultError(
-        "Vault API request failed: POST /api/caracal/keys/bootstrap -> 404 not found"
-    )
-
-    with patch.object(vault, "_request", side_effect=missing_endpoint):
-        with patch.object(vault, "_secret_exists", side_effect=[True, False]):
+        with patch.object(vault, "_upsert_secret") as upsert:
             with vault_access_context():
-                with pytest.raises(VaultError, match="inconsistent"):
+                with pytest.raises(VaultError, match="keys/bootstrap"):
                     vault.ensure_asymmetric_keypair(
                         "org-1",
                         "env-1",
@@ -545,6 +562,8 @@ def test_ensure_asymmetric_keypair_fallback_rejects_inconsistent_secret_state(va
                         public_key_name="principal-keys/public",
                         algorithm="ES256",
                     )
+
+    upsert.assert_not_called()
 
 
 @pytest.mark.unit
