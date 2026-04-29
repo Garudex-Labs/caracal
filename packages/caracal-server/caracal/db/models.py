@@ -885,17 +885,17 @@ def _decode_authority_attribute(value: str, value_type: str) -> Any:
     if normalized == "int":
         try:
             return int(value)
-        except Exception:
+        except ValueError:
             return 0
     if normalized == "float":
         try:
             return float(value)
-        except Exception:
+        except ValueError:
             return 0.0
     if normalized == "json":
         try:
             return json.loads(value)
-        except Exception:
+        except json.JSONDecodeError:
             return value
     return value
 
