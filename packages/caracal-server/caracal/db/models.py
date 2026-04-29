@@ -275,7 +275,7 @@ class Principal(Base):
     principal_id = Column(PG_UUID(as_uuid=True), primary_key=True, default=uuid4)
     
     # Identity
-    name = Column(String(255), unique=True, nullable=False, index=True)
+    name = Column(String(255), nullable=False, index=True)
     principal_kind = Column(String(50), nullable=False, index=True)  # human, orchestrator, worker, service
     owner = Column(String(255), nullable=False)
 
@@ -309,6 +309,10 @@ class Principal(Base):
     # Metadata
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     principal_metadata = Column("metadata", JSON, nullable=True)
+
+    __table_args__ = (
+        Index("uq_principals_owner_name", "owner", "name", unique=True),
+    )
 
     source_principal = relationship(
         "Principal",

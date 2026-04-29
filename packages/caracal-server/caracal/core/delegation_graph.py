@@ -140,14 +140,17 @@ class DelegationGraph:
     Enforces delegation direction rules at edge creation time.
     """
 
-    def __init__(self, db_session: Session):
+    def __init__(self, db_session: Session, ledger_writer=None):
         """
         Initialize DelegationGraph.
 
         Args:
             db_session: SQLAlchemy database session
+            ledger_writer: Optional AuthorityLedgerWriter for emitting edge
+                create/revoke audit events.
         """
         self.db_session = db_session
+        self.ledger_writer = ledger_writer
         logger.info("DelegationGraph initialized")
 
     @staticmethod
@@ -438,6 +441,13 @@ class DelegationGraph:
             self.db_session.rollback()
             raise RuntimeError(f"Failed to create delegation edge: {e}")
 
+        if self.ledger_writer is not None:
+            self.ledger_writer.record_delegation_edge_change(
+                edge_id=edge_id,
+                change_kind="created",
+                target_principal_id=target_principal.principal_id,
+            )
+
         return DelegationEdge.from_model(edge_model)
 
     def revoke_edge(self, edge_id: UUID, reason: Optional[str] = None) -> None:
@@ -472,6 +482,13 @@ class DelegationGraph:
         except Exception as e:
             self.db_session.rollback()
             raise RuntimeError(f"Failed to revoke delegation edge: {e}")
+
+        if self.ledger_writer is not None:
+            self.ledger_writer.record_delegation_edge_change(
+                edge_id=edge_id,
+                change_kind="revoked",
+                target_principal_id=getattr(edge, "target_principal_id", None),
+            )
 
     def revoke_cascade(
         self,
