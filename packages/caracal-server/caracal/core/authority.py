@@ -692,6 +692,41 @@ class AuthorityEvaluator:
         requested_resource: str,
     ) -> Optional[AuthorityDecision]:
         """Stage 4: action/resource authorization checks."""
+        metadata_value = getattr(mandate, "mandate_metadata", None)
+        metadata = metadata_value if isinstance(metadata_value, dict) else {}
+        approval = metadata.get("approval") if isinstance(metadata, dict) else None
+        approved_permissions = (
+            approval.get("approved_permissions")
+            if isinstance(approval, dict)
+            else None
+        )
+        if approved_permissions:
+            approved_pair = False
+            for approved_permission in approved_permissions:
+                if not isinstance(approved_permission, dict):
+                    continue
+                approved_action = str(approved_permission.get("action") or "")
+                approved_resource = str(approved_permission.get("resource") or "")
+                if self._match_pattern(
+                    requested_action, approved_action
+                ) and self._match_pattern(requested_resource, approved_resource):
+                    approved_pair = True
+                    break
+            if not approved_pair:
+                reason = (
+                    f"Requested permission '{requested_action}' on '{requested_resource}' "
+                    "is not in the approved permission set"
+                )
+                logger.warning(reason)
+                return self._deny_decision(
+                    reason=reason,
+                    reason_code=AuthorityReasonCode.ACTION_SCOPE_DENIED,
+                    boundary_stage=AuthorityBoundaryStage.ACTION_RESOURCE_AUTHORIZATION_CHECKS,
+                    mandate=mandate,
+                    requested_action=requested_action,
+                    requested_resource=requested_resource,
+                )
+
         action_in_scope = False
         for allowed_action in mandate.action_scope:
             if self._match_pattern(requested_action, allowed_action):

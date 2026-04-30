@@ -3,8 +3,6 @@ Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 Caracal, a product of Garudex Labs
 
 CLI commands for principal identity management.
-
-Provides commands for registering, listing, and retrieving principal identities.
 """
 
 import json
@@ -38,14 +36,14 @@ def _principal_to_dict(principal) -> dict:
     """Convert DB or legacy principal object to a consistent dict payload."""
     if hasattr(principal, "to_dict"):
         data = principal.to_dict()
-        data.setdefault("principal_kind", getattr(principal, "principal_kind", "worker"))
+        data.setdefault("principal_kind", getattr(principal, "principal_kind", "human"))
         data.setdefault("metadata", getattr(principal, "metadata", {}) or {})
         return data
 
     return {
         "principal_id": str(principal.principal_id),
         "name": principal.name,
-        "principal_kind": getattr(principal, "principal_kind", "worker"),
+        "principal_kind": getattr(principal, "principal_kind", "human"),
         "owner": principal.owner,
         "created_at": principal.created_at,
         "metadata": getattr(principal, "principal_metadata", {}) or {},
@@ -85,8 +83,8 @@ def _get_principal_from_db(config, principal_id: str) -> Optional[dict]:
 @click.option(
     "--type",
     "principal_kind",
-    type=click.Choice(["human", "orchestrator", "worker", "service"]),
-    default="worker",
+    type=click.Choice(["human", "orchestrator", "service"]),
+    default="human",
     help="Behavioral principal kind",
 )
 @click.option(
@@ -119,8 +117,6 @@ def register(ctx, name: str, principal_kind: str, email: str, metadata: tuple):
         caracal principal register --type human --name "Richard Hendricks" --email richard.hendricks@piedpiper.com
 
         caracal principal register --type orchestrator --name "Monica Hall ai" --email monica.hall.ai@piedpiper.com
-
-        caracal principal register --type worker --name anton --email anton@hooli.com
 
         caracal principal register --type service --name Endframe --email endframe@hooli.com
     """
@@ -171,7 +167,7 @@ def register(ctx, name: str, principal_kind: str, email: str, metadata: tuple):
         click.echo()
         click.echo(f"Principal ID:    {principal['principal_id']}")
         click.echo(f"Name:        {principal['name']}")
-        click.echo(f"Kind:        {principal.get('principal_kind', 'worker')}")
+        click.echo(f"Kind:        {principal.get('principal_kind', 'human')}")
 
         click.echo(f"Owner:       {principal['owner']}")
         click.echo(f"Created:     {_format_created(principal.get('created_at'))}")
@@ -258,7 +254,7 @@ def list_principals(ctx, principal_kind: str, format: str):
             max_id_len = max(len(str(principal["principal_id"])) for principal in principals)
             max_name_len = max(len(str(principal["name"])) for principal in principals)
             max_email_len = max(len(str(principal["owner"])) for principal in principals)
-            max_type_len = max(len(str(principal.get("principal_kind", "worker"))) for principal in principals)
+            max_type_len = max(len(str(principal.get("principal_kind", "human"))) for principal in principals)
             
             # Ensure minimum widths for headers
             id_width = max(max_id_len, len("Principal ID"))
@@ -277,7 +273,7 @@ def list_principals(ctx, principal_kind: str, format: str):
                 created = _format_created(principal.get("created_at"))
                 click.echo(
                     f"{str(principal['principal_id']):<{id_width}}  "
-                    f"{str(principal.get('principal_kind', 'worker')):<{type_width}}  "
+                    f"{str(principal.get('principal_kind', 'human')):<{type_width}}  "
                     f"{str(principal['name']):<{name_width}}  "
                     f"{str(principal['owner']):<{email_width}}  "
                     f"{created}"
@@ -345,7 +341,7 @@ def get(ctx, principal_id: str, principal_kind: str, format: str):
             click.echo("=" * 50)
             click.echo(f"Principal ID:    {principal['principal_id']}")
             click.echo(f"Name:        {principal['name']}")
-            click.echo(f"Kind:        {principal.get('principal_kind', 'worker')}")
+            click.echo(f"Kind:        {principal.get('principal_kind', 'human')}")
 
             click.echo(f"Owner:       {principal['owner']}")
             click.echo(f"Created:     {_format_created(principal.get('created_at'))}")  

@@ -2389,6 +2389,12 @@ def _build_ais_handlers(
                 "attestation_bootstrap_artifact": spawn_result.attestation_bootstrap_artifact,
                 "attestation_nonce": spawn_result.attestation_nonce,
                 "idempotent_replay": spawn_result.idempotent_replay,
+                "requested_permissions": list(spawn_result.requested_permissions),
+                "approved_permissions": list(spawn_result.approved_permissions),
+                "rejected_permissions": list(spawn_result.rejected_permissions),
+                "approval_status": spawn_result.approval_status,
+                "requested_ttl": spawn_result.requested_ttl,
+                "effective_ttl": spawn_result.effective_ttl,
             }
         except Exception as exc:
             _raise_http_error(exc)

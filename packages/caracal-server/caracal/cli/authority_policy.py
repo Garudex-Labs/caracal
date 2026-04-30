@@ -3,8 +3,6 @@ Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 Caracal, a product of Garudex Labs
 
 CLI commands for authority policy management.
-
-Provides commands for creating and listing authority policies.
 """
 
 import json
@@ -105,9 +103,6 @@ def create(
 
     Examples:
 
-        # Create a provider-scoped policy for a worker principal (for example Fiona)
-        caracal policy create --principal-id <fiona-principal-id> --max-validity-seconds 3600 --provider endframe --resource-pattern "provider:endframe:resource:deployments" --action "provider:endframe:action:invoke"
-
         # Create a policy with delegation for an orchestrator principal (for example Jared Dunn ai)
         caracal policy create -p <jared-dunn-ai-principal-id> -v 7200 --provider endframe -r "provider:endframe:resource:deployments" -a "provider:endframe:action:invoke" --allow-delegation --max-delegation-network-distance 2
 
@@ -168,6 +163,12 @@ def create(
                     click.echo(
                         f"Error: Principal not found: {principal_uuid}. "
                         "Register the principal before creating a policy.",
+                        err=True,
+                    )
+                    sys.exit(1)
+                if principal.principal_kind == "worker":
+                    click.echo(
+                        "Error: Worker principals are mandate-only and cannot hold authority policies.",
                         err=True,
                     )
                     sys.exit(1)
