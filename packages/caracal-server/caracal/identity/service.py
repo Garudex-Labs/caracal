@@ -1,4 +1,9 @@
-"""Unified identity service facade for principal registration and spawn flows."""
+"""
+Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+Caracal, a product of Garudex Labs
+
+Unified identity service facade for principal registration and spawn flows.
+"""
 
 from __future__ import annotations
 
@@ -31,7 +36,7 @@ class IdentityService:
         source_principal_id: Optional[str] = None,
         generate_keys: bool = True,
     ) -> PrincipalIdentity:
-        """Register a principal through the canonical registry path."""
+        """Register a non-worker principal through the canonical registry path."""
         return self._principal_registry.register_principal(
             name=name,
             owner=owner,

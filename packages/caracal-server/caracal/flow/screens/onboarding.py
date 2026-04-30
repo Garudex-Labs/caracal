@@ -2,13 +2,7 @@
 Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 Caracal, a product of Garudex Labs
 
-Caracal Flow Onboarding Screen.
-
-First-run setup wizard with:
-- Step 1: Configuration path selection
-- Step 2: Database setup (optional)
-- Step 3: First principal registration
-- Skip options with actionable to-dos
+Caracal Flow screen for first-run onboarding.
 """
 
 import os
@@ -1292,12 +1286,12 @@ def _step_principal(wizard: Wizard) -> Any:
         return False, "Please enter a valid email address."
     
     console.print(f"  [{Colors.NEUTRAL}]Let's register your first principal.")
-    console.print(f"  [{Colors.DIM}]This will be the first human, orchestrator, worker, or service you want to start with.[/]")
+    console.print(f"  [{Colors.DIM}]This will be the first human, orchestrator, or service you want to start with.[/]")
     console.print()
     
     principal_kind = prompt.select(
         "Principal kind",
-        choices=["human", "orchestrator", "worker", "service"],
+        choices=["human", "orchestrator", "service"],
     )
     
     name = prompt.text(

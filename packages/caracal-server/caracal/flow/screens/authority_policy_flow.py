@@ -2,14 +2,7 @@
 Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 Caracal, a product of Garudex Labs
 
-Caracal Flow Authority Policy Flow Screen.
-
-Authority policy management flows:
-- Create authority policy (with resource patterns, action patterns, validity)
-- List/filter authority policies
-- View policy details
-- Edit policy
-- Deactivate policy
+Caracal Flow screen for authority policy management.
 """
 
 from typing import Optional
@@ -159,6 +152,13 @@ class AuthorityPolicyFlow:
                 if not principals:
                     self.console.print(f"  [{Colors.WARNING}]{Icons.WARNING} No principals registered.[/]")
                     self.console.print(f"  [{Colors.HINT}]Register a principal first before creating policies.[/]")
+                    return
+
+                principals = [p for p in principals if p.principal_kind != "worker"]
+                if not principals:
+                    self.console.print(
+                        f"  [{Colors.WARNING}]{Icons.WARNING} No policy-bearing principals registered.[/]"
+                    )
                     return
                 
                 # Select principal

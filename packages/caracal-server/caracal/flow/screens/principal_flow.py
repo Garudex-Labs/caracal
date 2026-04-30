@@ -2,17 +2,7 @@
 Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 Caracal, a product of Garudex Labs
 
-Caracal Flow Principal Flow Screen.
-
-Principal management flows:
-- Register new principal (guided form) — ECDSA P-256 keypair generated automatically
-- List principals with authority status
-- View principal authority (policies and mandates)
-- Rotate Key — replace the keypair and choose mandate disposition
-
-Key storage:
-    Hard-cut    : private keys are custody-managed by vault backend.
-    Runtime     : principal metadata stores only opaque vault references.
+Caracal Flow screen for principal management.
 """
 
 from datetime import datetime
@@ -154,7 +144,7 @@ class PrincipalFlow:
             # Collect information
             principal_kind = self.prompt.select(
                 "Principal kind",
-                choices=["human", "orchestrator", "worker", "service"],
+                choices=["human", "orchestrator", "service"],
             )
 
             name = self.prompt.text(
