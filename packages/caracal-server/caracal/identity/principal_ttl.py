@@ -1,4 +1,9 @@
-"""Redis-backed principal TTL tracking and expiry reconciliation."""
+"""
+Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+Caracal, a product of Garudex Labs
+
+Redis-backed principal TTL tracking and expiry reconciliation.
+"""
 
 from __future__ import annotations
 
@@ -18,6 +23,7 @@ from caracal.db.models import (
     ExecutionMandate,
     Principal,
     PrincipalAttestationStatus,
+    PrincipalKind,
     PrincipalLifecycleStatus,
 )
 from caracal.exceptions import PrincipalNotFoundError
@@ -262,6 +268,68 @@ class PrincipalTTLManager:
             parent_principal_id=metadata.get("parent_principal_id") or None,
         )
 
+    def extend_active_principal_ttl(
+        self,
+        principal_id: str,
+        *,
+        ttl_seconds: int,
+        now: Optional[datetime] = None,
+    ) -> Optional[PrincipalTTLLease]:
+        normalized_principal = self._normalize_principal_id(principal_id)
+        requested_ttl = self._normalize_ttl(ttl_seconds)
+        metadata = self._read_metadata(normalized_principal)
+        if metadata is None:
+            return None
+        if metadata.get("lease_kind") != self._LEASE_KIND_ACTIVE:
+            return None
+
+        current_ttl = self.remaining_ttl_seconds(normalized_principal) or 0
+        effective_ttl = max(current_ttl, requested_ttl)
+        if effective_ttl <= current_ttl:
+            return PrincipalTTLLease(
+                principal_id=normalized_principal,
+                lease_kind=self._LEASE_KIND_ACTIVE,
+                ttl_seconds=current_ttl,
+                active_ttl_seconds=int(metadata.get("active_ttl_seconds", current_ttl)),
+                expires_at=self._parse_timestamp(metadata.get("expires_at")),
+                lease_token=str(metadata.get("lease_token") or ""),
+                parent_principal_id=metadata.get("parent_principal_id") or None,
+            )
+
+        issued_at = now or self._utcnow()
+        expires_at = issued_at + timedelta(seconds=effective_ttl)
+        lease_token = self._lease_token(self._LEASE_KIND_ACTIVE, expires_at)
+        active_ttl_seconds = max(
+            int(metadata.get("active_ttl_seconds", "0") or 0),
+            effective_ttl,
+        )
+
+        self._redis.set(
+            self.lease_key(normalized_principal),
+            self._LEASE_KIND_ACTIVE,
+            ex=effective_ttl,
+        )
+        metadata.update(
+            {
+                "lease_kind": self._LEASE_KIND_ACTIVE,
+                "active_ttl_seconds": str(active_ttl_seconds),
+                "expires_at": expires_at.isoformat(),
+                "lease_token": lease_token,
+            }
+        )
+        self._write_metadata(normalized_principal, metadata)
+        self._redis.zadd(self._INDEX_KEY, {normalized_principal: expires_at.timestamp()})
+
+        return PrincipalTTLLease(
+            principal_id=normalized_principal,
+            lease_kind=self._LEASE_KIND_ACTIVE,
+            ttl_seconds=effective_ttl,
+            active_ttl_seconds=active_ttl_seconds,
+            expires_at=expires_at,
+            lease_token=lease_token,
+            parent_principal_id=metadata.get("parent_principal_id") or None,
+        )
+
     def clear_principal(self, principal_id: str) -> None:
         """Best-effort cleanup for leases created during failed spawn orchestration."""
         normalized_principal = self._normalize_principal_id(principal_id)
@@ -460,6 +528,14 @@ class PrincipalTTLExpiryProcessor:
 
     def _revoke_expired_principal(self, work_item: PrincipalTTLExpiryWorkItem) -> str:
         with self._db_manager.session_scope() as session:
+            principal = (
+                session.query(Principal)
+                .filter(Principal.principal_id == UUID(work_item.principal_id))
+                .first()
+            )
+            if principal is not None and principal.principal_kind == PrincipalKind.WORKER.value:
+                return self._expire_active_worker(session, principal, work_item)
+
             orchestrator = (
                 self._revocation_orchestrator_factory(session)
                 if self._revocation_orchestrator_factory is not None
@@ -473,6 +549,63 @@ class PrincipalTTLExpiryProcessor:
             if inspect.isawaitable(result):
                 asyncio.run(result)
         return "revoked"
+
+    def _expire_active_worker(
+        self,
+        session,
+        principal: Principal,
+        work_item: PrincipalTTLExpiryWorkItem,
+    ) -> str:
+        current_status = str(principal.lifecycle_status or PrincipalLifecycleStatus.ACTIVE.value)
+        if current_status == PrincipalLifecycleStatus.EXPIRED.value:
+            return "noop"
+
+        self._lifecycle_state_machine.assert_transition_allowed(
+            principal_kind=str(principal.principal_kind),
+            from_status=current_status,
+            to_status=PrincipalLifecycleStatus.EXPIRED.value,
+            attestation_status=str(principal.attestation_status),
+        )
+        principal.lifecycle_status = PrincipalLifecycleStatus.EXPIRED.value
+        metadata = dict(principal.principal_metadata or {})
+        metadata["lifecycle_status"] = PrincipalLifecycleStatus.EXPIRED.value
+        metadata["worker_ttl_expired_at"] = work_item.expired_at.isoformat()
+        metadata["principal_ttl_lease_kind"] = work_item.lease_kind
+        principal.principal_metadata = metadata
+
+        now = now_utc()
+        for mandate in self._list_active_mandates(session, principal.principal_id):
+            mandate.revoked = True
+            mandate.revoked_at = now
+            mandate.revocation_reason = "worker_ttl_expired"
+
+        session.add(
+            AuthorityLedgerEvent(
+                event_type="worker_expired",
+                timestamp=now,
+                principal_id=principal.principal_id,
+                mandate_id=None,
+                decision="allowed",
+                denial_reason=None,
+                requested_action="worker_expired",
+                requested_resource=f"principal:{principal.principal_id}",
+                correlation_id=None,
+                event_metadata={
+                    "lease_kind": work_item.lease_kind,
+                    "expired_at": work_item.expired_at.isoformat(),
+                    "reason": "worker_ttl_expired",
+                },
+            )
+        )
+        AuthorityLedgerWriter(session).record_lifecycle_transition(
+            principal_id=principal.principal_id,
+            from_status=current_status,
+            to_status=PrincipalLifecycleStatus.EXPIRED.value,
+            principal_kind=str(principal.principal_kind),
+            timestamp=now,
+        )
+        session.flush()
+        return "expired"
 
     @staticmethod
     def _list_active_mandates(session, principal_id: UUID) -> list[ExecutionMandate]:

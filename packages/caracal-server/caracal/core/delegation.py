@@ -3,11 +3,6 @@ Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 Caracal, a product of Garudex Labs
 
 Delegation token management for Caracal Core.
-
-This module provides the DelegationTokenManager for generating and validating
-delegation tokens using JWT with ECDSA P-256 signatures. Supports graph-based
-authority delegation across principal types (human, orchestrator, worker, service).
-
 """
 
 from dataclasses import dataclass
@@ -71,8 +66,8 @@ class DelegationTokenClaims:
     token_id: UUID
     allowed_operations: List[str]
     delegation_type: str = "directed"
-    source_principal_kind: str = "worker"
-    target_principal_kind: str = "worker"
+    source_principal_kind: str = "human"
+    target_principal_kind: str = "human"
     context_tags: Optional[List[str]] = None
     source_mandate_id: Optional[UUID] = None
 
@@ -105,8 +100,8 @@ class DelegationTokenManager:
         expiration_seconds: int = 86400,
         allowed_operations: Optional[List[str]] = None,
         delegation_type: str = "directed",
-        source_principal_kind: str = "worker",
-        target_principal_kind: str = "worker",
+        source_principal_kind: str = "human",
+        target_principal_kind: str = "human",
         context_tags: Optional[List[str]] = None,
         source_mandate_id: Optional[UUID] = None,
     ) -> str:
@@ -319,8 +314,8 @@ class DelegationTokenManager:
                 token_id = UUID(payload["jti"])
                 allowed_operations = payload["allowedOperations"]
                 delegation_type = payload.get("delegationType", "directed")
-                source_principal_kind = payload.get("sourcePrincipalKind", "worker")
-                target_principal_kind = payload.get("targetPrincipalKind", "worker")
+                source_principal_kind = payload.get("sourcePrincipalKind", "human")
+                target_principal_kind = payload.get("targetPrincipalKind", "human")
                 context_tags = payload.get("contextTags")
                 source_mandate_claim = payload.get("sourceMandateId")
                 source_mandate_id = UUID(source_mandate_claim) if source_mandate_claim else None

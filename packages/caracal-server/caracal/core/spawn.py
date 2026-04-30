@@ -11,12 +11,19 @@ from hashlib import sha256
 from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
-from fnmatch import fnmatchcase
 from typing import Optional
 from uuid import UUID
 
 from sqlalchemy.orm import Session
 
+from caracal.core.approval import (
+    ApprovalDecision,
+    ApprovalMode,
+    ApprovalStatus,
+    PermissionApprovalError,
+    PermissionApprovalEvaluator,
+    extract_approval_feedback,
+)
 from caracal.identity.principal_ttl import PrincipalTTLManager, serialize_ttl_decision
 from caracal.identity.attestation_nonce import AttestationNonceManager
 from caracal.core.ledger import LedgerWriter
@@ -53,6 +60,12 @@ class SpawnResult:
     attestation_bootstrap_artifact: str
     attestation_nonce: str
     idempotent_replay: bool
+    requested_permissions: tuple[dict[str, str], ...] = ()
+    approved_permissions: tuple[dict[str, str], ...] = ()
+    rejected_permissions: tuple[dict[str, str], ...] = ()
+    approval_status: str = ApprovalStatus.FULL.value
+    requested_ttl: Optional[int] = None
+    effective_ttl: Optional[int] = None
 
 
 class SpawnManager:
@@ -67,7 +80,10 @@ class SpawnManager:
         principal_ttl_manager: Optional[PrincipalTTLManager] = None,
     ) -> None:
         self.db_session = db_session
-        self.mandate_manager = mandate_manager or MandateManager(db_session=db_session)
+        self.mandate_manager = mandate_manager or MandateManager(
+            db_session=db_session,
+            principal_ttl_manager=principal_ttl_manager,
+        )
         self.ledger_writer = ledger_writer
         self.attestation_nonce_manager = attestation_nonce_manager
         self.principal_ttl_manager = principal_ttl_manager
@@ -87,27 +103,26 @@ class SpawnManager:
         network_distance: Optional[int] = None,
     ) -> SpawnResult:
         """Create principal + attenuated mandate + bootstrap artifact in one transaction."""
-        if principal_kind not in {
-            PrincipalKind.ORCHESTRATOR.value,
-            PrincipalKind.WORKER.value,
-        }:
-            raise ValueError(
-                "spawn_principal only supports orchestrator and worker principal kinds"
-            )
+        if principal_kind != PrincipalKind.WORKER.value:
+            raise ValueError("spawn_principal only creates ephemeral worker principals")
+        if not resource_scope or not action_scope:
+            raise ValueError("Spawn requires at least one resource scope and action scope")
 
         issuer_uuid = UUID(str(issuer_principal_id))
         source_mandate_uuid = (
             UUID(str(source_mandate_id)) if source_mandate_id else None
         )
         resolved_network_distance = network_distance
+        approval_decision: Optional[ApprovalDecision] = None
 
         if source_mandate_uuid is not None:
-            resolved_network_distance = self._resolve_source_mandate_network_distance(
+            resolved_network_distance, approval_decision = self._resolve_source_mandate_network_distance(
                 issuer_id=issuer_uuid,
                 source_mandate_id=source_mandate_uuid,
                 requested_resource_scope=resource_scope,
                 requested_action_scope=action_scope,
                 requested_network_distance=network_distance,
+                requested_ttl_seconds=validity_seconds,
             )
 
         effective_validity_seconds = int(validity_seconds)
@@ -123,6 +138,8 @@ class SpawnManager:
             raise RuntimeError(
                 "Attestation nonce manager is required for spawn attestation bootstrap"
             )
+        if self.principal_ttl_manager is None:
+            raise RuntimeError("Principal TTL manager is required for worker spawn")
 
         issued_nonce = None
         ttl_registered_principal_id: Optional[str] = None
@@ -146,6 +163,26 @@ class SpawnManager:
                         raise ValueError(
                             f"Service principal '{issuer_principal_id}' is not authorized to spawn principals"
                         )
+                    if (
+                        issuer.principal_kind == PrincipalKind.WORKER.value
+                        and source_mandate_uuid is None
+                    ):
+                        raise ValueError(
+                            "Worker principals can spawn only with an explicit delegated source mandate"
+                        )
+                    if issuer.lifecycle_status != PrincipalLifecycleStatus.ACTIVE.value:
+                        raise ValueError(
+                            f"Issuer principal '{issuer_principal_id}' is not active"
+                        )
+                    if (
+                        issuer.principal_kind
+                        in {PrincipalKind.ORCHESTRATOR.value, PrincipalKind.WORKER.value}
+                        and issuer.attestation_status
+                        != PrincipalAttestationStatus.ATTESTED.value
+                    ):
+                        raise ValueError(
+                            f"Issuer principal '{issuer_principal_id}' is not attested"
+                        )
 
                     stored_principal_name = self._resolve_spawn_principal_name(
                         principal_name=principal_name,
@@ -162,11 +199,16 @@ class SpawnManager:
                         lifecycle_status=PrincipalLifecycleStatus.PENDING_ATTESTATION.value,
                         attestation_status=PrincipalAttestationStatus.PENDING.value,
                         created_at=datetime.utcnow(),
-                        principal_metadata=(
-                            {"requested_name": principal_name}
-                            if stored_principal_name != principal_name
-                            else None
-                        ),
+                        principal_metadata={
+                            "created_via": "spawn",
+                            "worker_ephemeral": True,
+                            "ttl_source": "execution_mandate",
+                            **(
+                                {"requested_name": principal_name}
+                                if stored_principal_name != principal_name
+                                else {}
+                            ),
+                        },
                     )
                     self.db_session.add(principal)
                     self.db_session.flush()
@@ -211,6 +253,7 @@ class SpawnManager:
                         network_distance=resolved_network_distance,
                         context_tags=context_tags,
                     )
+                    mandate_feedback = extract_approval_feedback(mandate)
 
                     if source_mandate_uuid is not None:
                         graph = self.mandate_manager.delegation_graph
@@ -279,6 +322,20 @@ class SpawnManager:
                         attestation_bootstrap_artifact=bootstrap_artifact,
                         attestation_nonce="",
                         idempotent_replay=False,
+                        requested_permissions=tuple(
+                            mandate_feedback.get("requested_permissions", ())
+                        ),
+                        approved_permissions=tuple(
+                            mandate_feedback.get("approved_permissions", ())
+                        ),
+                        rejected_permissions=tuple(
+                            mandate_feedback.get("rejected_permissions", ())
+                        ),
+                        approval_status=str(
+                            mandate_feedback.get("approval_status", ApprovalStatus.FULL.value)
+                        ),
+                        requested_ttl=mandate_feedback.get("requested_ttl"),
+                        effective_ttl=mandate_feedback.get("effective_ttl"),
                     )
 
                 issued_nonce = self.attestation_nonce_manager.issue_nonce(
@@ -332,6 +389,14 @@ class SpawnManager:
             attestation_bootstrap_artifact=spawn_result.attestation_bootstrap_artifact,
             attestation_nonce=issued_nonce.nonce,
             idempotent_replay=spawn_result.idempotent_replay,
+            requested_permissions=tuple(getattr(spawn_result, "requested_permissions", ())),
+            approved_permissions=tuple(getattr(spawn_result, "approved_permissions", ())),
+            rejected_permissions=tuple(getattr(spawn_result, "rejected_permissions", ())),
+            approval_status=str(
+                getattr(spawn_result, "approval_status", ApprovalStatus.FULL.value)
+            ),
+            requested_ttl=getattr(spawn_result, "requested_ttl", None),
+            effective_ttl=getattr(spawn_result, "effective_ttl", None),
         )
 
     def _resolve_source_mandate_network_distance(
@@ -342,7 +407,8 @@ class SpawnManager:
         requested_resource_scope: list[str],
         requested_action_scope: list[str],
         requested_network_distance: Optional[int],
-    ) -> int:
+        requested_ttl_seconds: int,
+    ) -> tuple[int, ApprovalDecision]:
         """Validate delegated spawn constraints before any write-side transaction begins."""
         source_mandate = (
             self.db_session.query(ExecutionMandate)
@@ -356,65 +422,32 @@ class SpawnManager:
                 issuer_principal_id=str(issuer_id),
             )
             raise ValueError(f"Source mandate '{source_mandate_id}' does not exist")
-        if source_mandate.revoked:
-            logger.warning(
-                "Spawn rejected: source mandate revoked",
-                source_mandate_id=str(source_mandate_id),
-                issuer_principal_id=str(issuer_id),
-            )
-            raise ValueError(f"Source mandate '{source_mandate_id}' is revoked")
-        if source_mandate.subject_id != issuer_id:
-            logger.warning(
-                "Spawn rejected: source mandate subject mismatch",
-                source_mandate_id=str(source_mandate_id),
-                issuer_principal_id=str(issuer_id),
-                source_subject_id=str(source_mandate.subject_id),
-            )
-            raise ValueError(
-                "Source mandate subject does not match spawn issuer principal"
-            )
 
-        now = datetime.utcnow()
-        if source_mandate.valid_from and now < source_mandate.valid_from:
+        effective_ttl_seconds = requested_ttl_seconds
+        if getattr(source_mandate, "valid_until", None) is not None:
+            source_remaining_seconds = int(
+                (source_mandate.valid_until - datetime.utcnow()).total_seconds()
+            )
+            effective_ttl_seconds = min(effective_ttl_seconds, source_remaining_seconds)
+        approval_mode = getattr(self.mandate_manager, "approval_mode", None)
+        if not isinstance(approval_mode, (ApprovalMode, str)):
+            approval_mode = None
+        approval_decision = PermissionApprovalEvaluator(approval_mode).evaluate_source_mandate_request(
+            resource_scope=requested_resource_scope,
+            action_scope=requested_action_scope,
+            source_mandate=source_mandate,
+            issuer_id=issuer_id,
+            requested_ttl=requested_ttl_seconds,
+            effective_ttl=effective_ttl_seconds,
+        )
+        if approval_decision.approval_status is ApprovalStatus.NONE:
             logger.warning(
-                "Spawn rejected: source mandate not yet valid",
+                "Spawn rejected: no requested permissions approved",
                 source_mandate_id=str(source_mandate_id),
                 issuer_principal_id=str(issuer_id),
             )
-            raise ValueError(f"Source mandate '{source_mandate_id}' is not yet valid")
-        if source_mandate.valid_until and now > source_mandate.valid_until:
-            logger.warning(
-                "Spawn rejected: source mandate expired",
-                source_mandate_id=str(source_mandate_id),
-                issuer_principal_id=str(issuer_id),
-            )
-            raise ValueError(f"Source mandate '{source_mandate_id}' has expired")
-
-        if not self._scope_is_subset(
-            requested_resource_scope, source_mandate.resource_scope
-        ):
-            logger.warning(
-                "Spawn rejected: resource scope amplification attempt",
-                source_mandate_id=str(source_mandate_id),
-                issuer_principal_id=str(issuer_id),
-                requested_resource_scope=requested_resource_scope,
-                source_resource_scope=source_mandate.resource_scope,
-            )
-            raise ValueError(
-                "Spawn resource scope must be a subset of source mandate scope"
-            )
-        if not self._scope_is_subset(
-            requested_action_scope, source_mandate.action_scope
-        ):
-            logger.warning(
-                "Spawn rejected: action scope amplification attempt",
-                source_mandate_id=str(source_mandate_id),
-                issuer_principal_id=str(issuer_id),
-                requested_action_scope=requested_action_scope,
-                source_action_scope=source_mandate.action_scope,
-            )
-            raise ValueError(
-                "Spawn action scope must be a subset of source mandate scope"
+            raise PermissionApprovalError(
+                "Requested spawn permissions were not approved", approval_decision
             )
 
         source_depth = int(source_mandate.network_distance or 0)
@@ -431,7 +464,7 @@ class SpawnManager:
 
         max_child_depth = source_depth - 1
         if requested_network_distance is None:
-            return max_child_depth
+            return max_child_depth, approval_decision
 
         resolved_network_distance = int(requested_network_distance)
         if resolved_network_distance < 0:
@@ -453,16 +486,7 @@ class SpawnManager:
             raise ValueError(
                 "Spawn delegation depth exceeds source mandate remaining delegation depth"
             )
-        return resolved_network_distance
-
-    @staticmethod
-    def _scope_is_subset(requested_scope: list[str], source_scope: list[str]) -> bool:
-        for requested_entry in requested_scope:
-            if not any(
-                fnmatchcase(requested_entry, pattern) for pattern in source_scope
-            ):
-                return False
-        return True
+        return resolved_network_distance, approval_decision
 
     def _find_existing_spawn(
         self, issuer_id: UUID, idempotency_key: str
@@ -512,6 +536,7 @@ class SpawnManager:
         )
         if bootstrap_binding is None:
             return None
+        approval_feedback = extract_approval_feedback(mandate)
 
         return SpawnResult(
             principal_id=str(principal.principal_id),
@@ -521,6 +546,14 @@ class SpawnManager:
             attestation_bootstrap_artifact=bootstrap_binding.workload,
             attestation_nonce="",
             idempotent_replay=True,
+            requested_permissions=tuple(approval_feedback.get("requested_permissions", ())),
+            approved_permissions=tuple(approval_feedback.get("approved_permissions", ())),
+            rejected_permissions=tuple(approval_feedback.get("rejected_permissions", ())),
+            approval_status=str(
+                approval_feedback.get("approval_status", ApprovalStatus.FULL.value)
+            ),
+            requested_ttl=approval_feedback.get("requested_ttl"),
+            effective_ttl=approval_feedback.get("effective_ttl"),
         )
 
     def _resolve_spawn_principal_name(

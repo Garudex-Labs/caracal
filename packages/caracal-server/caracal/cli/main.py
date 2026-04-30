@@ -2,10 +2,7 @@
 Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 Caracal, a product of Garudex Labs
 
-CLI entry point for Caracal Core - Refactored Structure.
-
-Industry-standard CLI with workspace-centric design.
-Follows patterns from git, docker, kubectl for familiarity.
+CLI entry point for Caracal Core.
 """
 
 import difflib
@@ -461,7 +458,6 @@ def principal(ctx):
     Examples:
         caracal principal register --type human --name "Richard Hendricks" --email richard.hendricks@piedpiper.com
         caracal principal register --type orchestrator --name "Jared Dunn ai" --email jared.dunn.ai@hooli.com
-        caracal principal register --type worker --name Fiona --email fiona@ravigacapital.com
         caracal principal register --type service --name Endframe --email endframe@hooli.com
         caracal principal list --type orchestrator
         caracal principal get --principal-id <principal-id>
