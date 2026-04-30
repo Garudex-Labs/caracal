@@ -1,4 +1,9 @@
-"""Principal lifecycle state-machine rules for hard-cut identity flows."""
+"""
+Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+Caracal, a product of Garudex Labs
+
+Principal lifecycle state-machine rules for identity flows.
+"""
 
 from __future__ import annotations
 
@@ -47,7 +52,7 @@ class PrincipalLifecycleStateMachine:
 
     _NON_REACTIVATING_TRANSITIONS: dict[str, set[str]] = {
         _PENDING_ATTESTATION: {_ACTIVE, _EXPIRED, _REVOKED},
-        _ACTIVE: {_DEACTIVATED, _REVOKED},
+        _ACTIVE: {_DEACTIVATED, _EXPIRED, _REVOKED},
         _SUSPENDED: {_DEACTIVATED, _REVOKED},
         _EXPIRED: {_REVOKED},
         _DEACTIVATED: {_REVOKED},

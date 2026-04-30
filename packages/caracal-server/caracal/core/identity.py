@@ -53,7 +53,7 @@ class PrincipalIdentity:
     owner: str
     created_at: str
     metadata: Dict[str, object]
-    principal_kind: str = PrincipalKind.WORKER.value
+    principal_kind: str = PrincipalKind.HUMAN.value
     public_key: Optional[str] = None
     workspace_id: Optional[str] = None
     source_principal_id: Optional[str] = None
@@ -90,7 +90,7 @@ class PrincipalIdentity:
             status = VerificationStatus(status)
         return cls(
             principal_id=str(data["principal_id"]),
-            principal_kind=data.get("principal_kind", PrincipalKind.WORKER.value),
+            principal_kind=data.get("principal_kind", PrincipalKind.HUMAN.value),
             name=data["name"],
             owner=data["owner"],
             created_at=str(data["created_at"]),
@@ -150,7 +150,7 @@ class PrincipalRegistry:
         self,
         name: str,
         owner: str,
-        principal_kind: str = PrincipalKind.WORKER.value,
+        principal_kind: str = PrincipalKind.HUMAN.value,
         metadata: Optional[Dict[str, object]] = None,
         principal_id: Optional[str] = None,
         source_principal_id: Optional[str] = None,
@@ -162,9 +162,13 @@ class PrincipalRegistry:
         if principal_kind not in known_kinds:
             raise ValueError(f"Unknown principal_kind '{principal_kind}'")
 
+        if principal_kind == PrincipalKind.WORKER.value:
+            raise ValueError(
+                "Worker principals are ephemeral and must be created through spawn_principal"
+            )
+
         non_reactivating_kinds = {
             PrincipalKind.ORCHESTRATOR.value,
-            PrincipalKind.WORKER.value,
         }
         if (
             principal_kind in non_reactivating_kinds
@@ -378,8 +382,8 @@ class PrincipalRegistry:
         expiration_seconds: int = 86400,
         allowed_operations: Optional[List[str]] = None,
         delegation_type: str = "directed",
-        source_principal_kind: str = "worker",
-        target_principal_kind: str = "worker",
+        source_principal_kind: str = PrincipalKind.HUMAN.value,
+        target_principal_kind: str = PrincipalKind.HUMAN.value,
         context_tags: Optional[List[str]] = None,
     ) -> Optional[str]:
         if self.delegation_token_manager is None:

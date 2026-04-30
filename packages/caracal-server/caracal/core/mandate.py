@@ -3,10 +3,6 @@ Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 Caracal, a product of Garudex Labs
 
 Mandate management for authority enforcement.
-
-This module provides the MandateManager class for managing execution mandate
-lifecycle including issuance, revocation, and graph-based delegation.
-
 """
 
 from datetime import datetime, timedelta
@@ -17,12 +13,30 @@ from sqlalchemy.orm import Session
 
 from fnmatch import fnmatchcase
 
+from caracal.core.approval import (
+    ApprovalMode,
+    ApprovalStatus,
+    PermissionApprovalError,
+    PermissionApprovalEvaluator,
+    resolve_approval_mode,
+)
 from caracal.core.identity import PrincipalRegistry
 from caracal.core.intent import Intent
-from caracal.core.signing_service import SigningService, SigningServiceError, SigningServiceKeyError
+from caracal.core.signing_service import (
+    SigningService,
+    SigningServiceError,
+    SigningServiceKeyError,
+)
 from caracal.core.authority_ledger import LedgerWriteError
-from caracal.db.models import ExecutionMandate, AuthorityPolicy, Principal, PrincipalLifecycleStatus
+from caracal.db.models import (
+    ExecutionMandate,
+    AuthorityPolicy,
+    Principal,
+    PrincipalKind,
+    PrincipalLifecycleStatus,
+)
 from caracal.core.time_utils import now_utc
+from caracal.identity.principal_ttl import PrincipalTTLManager
 from caracal.logging_config import get_logger
 from caracal.provider.definitions import parse_provider_scope
 
@@ -59,6 +73,8 @@ class MandateManager:
         delegation_graph=None,
         authority_evaluator=None,
         signing_service: Optional[SigningService] = None,
+        principal_ttl_manager: Optional[PrincipalTTLManager] = None,
+        approval_mode: ApprovalMode | str | None = None,
     ):
         """
         Initialize MandateManager.
@@ -77,6 +93,8 @@ class MandateManager:
         self.delegation_graph = delegation_graph
         self._authority_evaluator = authority_evaluator
         self._signing_service = signing_service or SigningService(PrincipalRegistry(db_session))
+        self.principal_ttl_manager = principal_ttl_manager
+        self.approval_mode = resolve_approval_mode(approval_mode)
         logger.info(
             f"MandateManager initialized (cache_enabled={mandate_cache is not None}, "
             f"rate_limiter_enabled={rate_limiter is not None}, "
@@ -108,6 +126,13 @@ class MandateManager:
             AuthorityPolicy if found and active, None otherwise
         """
         try:
+            principal = self._get_principal(principal_id)
+            if (
+                principal is not None
+                and getattr(principal, "principal_kind", None) == PrincipalKind.WORKER.value
+            ):
+                return None
+
             policy = self.db_session.query(AuthorityPolicy).filter(
                 AuthorityPolicy.principal_id == principal_id,
                 AuthorityPolicy.active == True
@@ -270,8 +295,6 @@ class MandateManager:
         source_mandate_id: Optional[UUID] = None,
         network_distance: Optional[int] = None,
         context_tags: Optional[List[str]] = None,
-        *,
-        _internal_skip_policy_check: bool = False,
     ) -> ExecutionMandate:
         """
         Issue a new execution mandate.
@@ -322,8 +345,10 @@ class MandateManager:
                 )
                 raise ValueError(error_msg)
         
+        requested_validity_seconds = int(validity_seconds)
         issuer_policy = None
-        if not _internal_skip_policy_check:
+        delegated_source = None
+        if source_mandate_id is None:
             # Validate issuer has active authority policy
             issuer_policy = self._get_active_policy(issuer_id)
             if not issuer_policy:
@@ -337,53 +362,66 @@ class MandateManager:
                 )
                 raise ValueError(error_msg)
 
-            # Validate requested validity period against policy
-            if validity_seconds > issuer_policy.max_validity_seconds:
-                error_msg = (
-                    f"Requested mandate validity {validity_seconds}s exceeds policy maximum "
-                    f"{issuer_policy.max_validity_seconds}s"
-                )
-                logger.warning(error_msg)
-                self._record_ledger_event(
-                    event_type="denied",
-                    principal_id=issuer_id,
-                    decision="denied",
-                    denial_reason=error_msg
-                )
-                raise ValueError(error_msg)
-
-            # Validate requested scope against policy
-            if not self._validate_scope_subset(resource_scope, issuer_policy.allowed_resource_patterns):
-                error_msg = "Requested resource scope exceeds policy limits"
-                logger.warning(error_msg)
-                self._record_ledger_event(
-                    event_type="denied",
-                    principal_id=issuer_id,
-                    decision="denied",
-                    denial_reason=error_msg
-                )
-                raise ValueError(error_msg)
-
-            if not self._validate_scope_subset(action_scope, issuer_policy.allowed_actions):
-                error_msg = "Requested action scope exceeds policy limits"
-                logger.warning(error_msg)
-                self._record_ledger_event(
-                    event_type="denied",
-                    principal_id=issuer_id,
-                    decision="denied",
-                    denial_reason=error_msg
-                )
-                raise ValueError(error_msg)
-
-        # network_distance represents the depth in the delegation chain:
-        #   0 = root mandate (DB constraint requires this when source_mandate_id IS NULL)
-        #   N = N-th level delegate (set by delegate_mandate, not by this method)
-        if source_mandate_id is None:
-            # Root mandates must always be at depth 0 (DB constraint).
-            resolved_network_distance = 0
+            validity_seconds = min(validity_seconds, issuer_policy.max_validity_seconds)
+            approval_decision = PermissionApprovalEvaluator(
+                self.approval_mode
+            ).evaluate_policy_request(
+                resource_scope=resource_scope,
+                action_scope=action_scope,
+                policy=issuer_policy,
+                requested_ttl=requested_validity_seconds,
+                effective_ttl=validity_seconds,
+            )
         else:
-            # Delegated mandates: caller (delegate_mandate) provides the correct depth.
-            resolved_network_distance = int(network_distance) if network_distance is not None else 1
+            delegated_source = self.db_session.query(ExecutionMandate).filter(
+                ExecutionMandate.mandate_id == source_mandate_id
+            ).first()
+            if delegated_source is not None:
+                source_remaining_seconds = int(
+                    (delegated_source.valid_until - now_utc()).total_seconds()
+                )
+                validity_seconds = min(validity_seconds, source_remaining_seconds)
+            approval_decision = PermissionApprovalEvaluator(
+                self.approval_mode
+            ).evaluate_source_mandate_request(
+                resource_scope=resource_scope,
+                action_scope=action_scope,
+                source_mandate=delegated_source,
+                issuer_id=issuer_id,
+                requested_ttl=requested_validity_seconds,
+                effective_ttl=validity_seconds,
+            )
+
+        if approval_decision.approval_status is ApprovalStatus.NONE:
+            error_msg = "Requested permissions were not approved"
+            logger.warning(error_msg)
+            self._record_ledger_event(
+                event_type="denied",
+                principal_id=issuer_id,
+                decision="denied",
+                denial_reason=error_msg,
+                metadata={"approval": approval_decision.to_dict()},
+            )
+            raise PermissionApprovalError(error_msg, approval_decision)
+        if validity_seconds <= 0:
+            raise ValueError("Source mandate is practically expired, cannot issue delegated mandate")
+
+        resource_scope = approval_decision.approved_resource_scope
+        action_scope = approval_decision.approved_action_scope
+
+        # network_distance tracks remaining delegation depth for this mandate.
+        if source_mandate_id is None:
+            requested_depth = int(network_distance or 0)
+            max_policy_depth = int(getattr(issuer_policy, "max_network_distance", 0) or 0)
+            if requested_depth == 0 and getattr(issuer_policy, "allow_delegation", False):
+                requested_depth = max_policy_depth
+            if requested_depth > 0 and not getattr(issuer_policy, "allow_delegation", False):
+                raise ValueError("Issuer policy does not allow delegation")
+            if requested_depth > max_policy_depth:
+                raise ValueError("Requested delegation depth exceeds policy maximum")
+            resolved_network_distance = requested_depth
+        else:
+            resolved_network_distance = int(network_distance) if network_distance is not None else 0
 
         if resolved_network_distance < 0:
             raise ValueError("Delegation depth cannot be negative")
@@ -412,7 +450,7 @@ class MandateManager:
             error_msg = f"Subject principal {subject_id} not found"
             logger.error(error_msg)
             raise RuntimeError(error_msg)
-        if subject_principal.lifecycle_status != PrincipalLifecycleStatus.ACTIVE.value:
+        if not self._can_subject_receive_mandate(subject_principal, issuer_id):
             error_msg = (
                 f"Cannot issue mandate to non-active principal {subject_id} "
                 f"(status: {subject_principal.lifecycle_status})"
@@ -461,7 +499,10 @@ class MandateManager:
             created_at=now_utc(),
             mandate_metadata={
                 "intent_id": str(intent.intent_id) if intent else None,
-                "issued_by": "MandateManager"
+                "issued_by": "MandateManager",
+                "allow_delegation": resolved_network_distance > 0,
+                "max_network_distance": resolved_network_distance,
+                "approval": approval_decision.to_dict(),
             },
             revoked=False,
             delegation_type=delegation_type,
@@ -506,8 +547,90 @@ class MandateManager:
                 self.rate_limiter.record_request(issuer_id)
             except Exception as e:
                 logger.warning(f"Failed to record rate limit: {e}")
+
+        self._extend_worker_ttl_from_mandates(subject_principal)
         
         return mandate
+
+    def _validate_delegated_issue_source(
+        self,
+        *,
+        source_mandate_id: UUID,
+        issuer_id: UUID,
+        resource_scope: List[str],
+        action_scope: List[str],
+        validity_seconds: int,
+    ) -> ExecutionMandate:
+        source_mandate = self.db_session.query(ExecutionMandate).filter(
+            ExecutionMandate.mandate_id == source_mandate_id
+        ).first()
+        if source_mandate is None:
+            raise ValueError(f"Source mandate {source_mandate_id} not found")
+        if source_mandate.revoked:
+            raise ValueError(f"Source mandate {source_mandate_id} is revoked")
+        if source_mandate.subject_id != issuer_id:
+            raise ValueError("Source mandate subject must be the delegated issuer")
+
+        current_time = now_utc()
+        if current_time > source_mandate.valid_until:
+            raise ValueError(f"Source mandate {source_mandate_id} is expired")
+        if current_time < source_mandate.valid_from:
+            raise ValueError(f"Source mandate {source_mandate_id} is not yet valid")
+        if not self._mandate_allows_delegation(source_mandate):
+            raise ValueError("Source mandate does not explicitly allow delegation")
+        if int(source_mandate.network_distance or 0) <= 0:
+            raise ValueError(f"Source mandate {source_mandate_id} has no remaining delegation depth")
+        if not self._validate_scope_subset(resource_scope, source_mandate.resource_scope):
+            raise ValueError("Delegated resource scope must be subset of source scope")
+        if not self._validate_scope_subset(action_scope, source_mandate.action_scope):
+            raise ValueError("Delegated action scope must be subset of source scope")
+        if current_time + timedelta(seconds=validity_seconds) > source_mandate.valid_until:
+            logger.info("Delegated mandate validity capped to source mandate lifetime")
+        return source_mandate
+
+    @staticmethod
+    def _mandate_allows_delegation(mandate: ExecutionMandate) -> bool:
+        source_metadata = getattr(mandate, "mandate_metadata", None)
+        metadata = source_metadata if isinstance(source_metadata, dict) else {}
+        return metadata.get("allow_delegation") is True
+
+    @staticmethod
+    def _can_subject_receive_mandate(subject_principal: Principal, issuer_id: UUID) -> bool:
+        if getattr(subject_principal, "lifecycle_status", None) == PrincipalLifecycleStatus.ACTIVE.value:
+            return True
+        return (
+            getattr(subject_principal, "principal_kind", None) == PrincipalKind.WORKER.value
+            and getattr(subject_principal, "lifecycle_status", None)
+            == PrincipalLifecycleStatus.PENDING_ATTESTATION.value
+            and getattr(subject_principal, "source_principal_id", None) == issuer_id
+        )
+
+    def _extend_worker_ttl_from_mandates(self, subject_principal: Principal) -> None:
+        if getattr(subject_principal, "principal_kind", None) != PrincipalKind.WORKER.value:
+            return
+        if self.principal_ttl_manager is None:
+            return
+
+        current_time = now_utc()
+        active_mandates = (
+            self.db_session.query(ExecutionMandate)
+            .filter(ExecutionMandate.subject_id == subject_principal.principal_id)
+            .filter(ExecutionMandate.revoked.is_(False))
+            .filter(ExecutionMandate.valid_from <= current_time)
+            .filter(ExecutionMandate.valid_until >= current_time)
+            .all()
+        )
+        if not active_mandates:
+            return
+
+        max_valid_until = max(mandate.valid_until for mandate in active_mandates)
+        ttl_seconds = int((max_valid_until - current_time).total_seconds())
+        if ttl_seconds <= 0:
+            return
+        self.principal_ttl_manager.extend_active_principal_ttl(
+            str(subject_principal.principal_id),
+            ttl_seconds=ttl_seconds,
+        )
 
     def validate_mandate(
         self,
@@ -692,12 +815,6 @@ class MandateManager:
         if current_time < source_mandate.valid_from:
             raise ValueError(f"Source mandate {source_mandate_id} is not yet valid")
         
-        # Validate target scope is subset of source scope
-        if not self._validate_scope_subset(resource_scope, source_mandate.resource_scope):
-            raise ValueError("Delegated resource scope must be subset of source scope")
-        if not self._validate_scope_subset(action_scope, source_mandate.action_scope):
-            raise ValueError("Delegated action scope must be subset of source scope")
-        
         # Validate delegated validity is within source validity
         valid_from = now_utc()
         valid_until = valid_from + timedelta(seconds=validity_seconds)
@@ -750,7 +867,6 @@ class MandateManager:
                 source_mandate_id=source_mandate_id,
                 network_distance=delegated_depth,
                 context_tags=context_tags,
-                _internal_skip_policy_check=True,
             )
             
             graph = self.delegation_graph or DelegationGraph(self.db_session)
@@ -807,6 +923,8 @@ class MandateManager:
             raise ValueError(f"Source mandate {source_mandate_id} is expired")
         if current_time < source_mandate.valid_from:
             raise ValueError(f"Source mandate {source_mandate_id} is not yet valid")
+        if not self._mandate_allows_delegation(source_mandate):
+            raise ValueError("Source mandate does not explicitly allow delegation")
         if current_time > target_mandate.valid_until:
             raise ValueError(f"Target mandate {target_mandate_id} is expired")
         if current_time < target_mandate.valid_from:
