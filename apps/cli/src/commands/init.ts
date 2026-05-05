@@ -110,9 +110,10 @@ function parseFlags(argv: string[]): InitOptions {
   return { apiUrl, zoneUrl, configPath, adminToken: token, force }
 }
 
-function renderToml(opts: { zoneUrl: string; clientId: string; clientSecret: string; resource: string }): string {
+function renderToml(opts: { zoneUrl: string; zoneId: string; clientId: string; clientSecret: string; resource: string }): string {
   return [
     `zone_url = "${opts.zoneUrl}"`,
+    `zone_id = "${opts.zoneId}"`,
     `app_client_id = "${opts.clientId}"`,
     `app_client_secret = "${opts.clientSecret}"`,
     '',
@@ -169,6 +170,7 @@ export async function initCommand(argv: string[]): Promise<void> {
 
   const toml = renderToml({
     zoneUrl: opts.zoneUrl,
+    zoneId: data.zone_id,
     clientId: data.app_client_id,
     clientSecret: data.app_client_secret,
     resource: data.resource,
