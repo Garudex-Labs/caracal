@@ -7,10 +7,13 @@ import type {
   AdminClient,
   AgentSession,
   Application,
+  CredentialType,
   Grant,
   Policy,
   PolicySet,
   Provider,
+  ProviderKind,
+  RegistrationMethod,
   Resource,
   Session,
   Zone,
@@ -138,9 +141,6 @@ const appEditFields: FieldDef[] = [
   { key: 'consent', label: 'Consent', hint: 'true / false' },
 ]
 
-type CredType = 'token' | 'password' | 'public-key' | 'url' | 'public'
-type RegMethod = 'managed' | 'dcr'
-
 export function applicationsView(ctx: Ctx): View {
   return new ListView<Application>({
     title: 'applications',
@@ -159,8 +159,8 @@ export function applicationsView(ctx: Ctx): View {
         app.push(new FormView('create application', appCreateFields, async (v, a) => {
           const app_ = await ctx.client.applications.create(ctx.zoneId, {
             name: v.name!,
-            registration_method: (v.registration_method as RegMethod) || 'managed',
-            credential_type: (v.credential_type as CredType) || undefined,
+            registration_method: (v.registration_method as RegistrationMethod) || 'managed',
+            credential_type: (v.credential_type as CredentialType) || undefined,
             client_secret: v.client_secret || undefined,
             traits: v.traits ? v.traits.split(',').map((s) => s.trim()).filter(Boolean) : undefined,
             consent: v.consent ? parseBool(v.consent) : undefined,
@@ -174,7 +174,7 @@ export function applicationsView(ctx: Ctx): View {
         app.push(new FormView('edit application', appEditFields, async (v, a) => {
           await ctx.client.applications.patch(ctx.zoneId, row.id, {
             name: v.name || undefined,
-            credential_type: (v.credential_type as CredType) || undefined,
+            credential_type: (v.credential_type as CredentialType) || undefined,
             client_secret: v.client_secret || undefined,
             traits: v.traits ? v.traits.split(',').map((s) => s.trim()).filter(Boolean) : undefined,
             consent: v.consent ? parseBool(v.consent) : undefined,
@@ -290,8 +290,6 @@ export function resourcesView(ctx: Ctx): View {
 }
 
 // ── Providers ─────────────────────────────────────────────────────────────────
-
-type ProviderKind = 'oauth2' | 'oidc' | 'apikey' | 'workload'
 
 const providerCreateFields: FieldDef[] = [
   { key: 'identifier', label: 'Identifier', required: true },

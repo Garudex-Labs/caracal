@@ -71,7 +71,7 @@ async function exchangeWithStepUp(
     body: form.toString(),
   })
   if (!res.ok) {
-    const msg = await res.text().catch(() => res.statusText)
+    const msg = await res.text()
     throw new Error(`step_up_retry_failed: ${msg}`)
   }
   const data = (await res.json()) as { access_token: string }

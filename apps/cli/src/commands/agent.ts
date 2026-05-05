@@ -75,8 +75,11 @@ export async function agentCommand(argv: string[], cfg?: CliConfig): Promise<voi
         process.stdout.write(`terminated ${id}\n`)
         return
       }
+      case 'help':
+      case '--help':
+      case '-h':
       default:
-        return usage('agent <list|get|tree|suspend|resume|terminate> [...]')
+        return agentHelp()
     }
   } catch (err) {
     fail(err)
@@ -123,12 +126,63 @@ export async function delegationCommand(argv: string[], cfg?: CliConfig): Promis
         if (!id) return usage('delegation revoke <edge-id> [--zone …]')
         return printJSON(await client.delegations.revoke(zoneId, id))
       }
+      case 'help':
+      case '--help':
+      case '-h':
       default:
-        return usage('delegation <inbound|outbound|traverse|revoke> [...]')
+        return delegationHelp()
     }
   } catch (err) {
     fail(err)
   }
+}
+
+function agentHelp(): void {
+  process.stdout.write(
+    [
+      'Usage: caracal agent <verb> [options]',
+      '',
+      'Requires: CARACAL_COORDINATOR_TOKEN (JWT with scope agent:lifecycle)',
+      '',
+      'Verbs:',
+      '  list                    List agent sessions in a zone',
+      '  get <id>                Fetch an agent session by ID as JSON',
+      '  tree <id>               List direct child sessions of an agent',
+      '  suspend <id>            Pause an active agent session',
+      '  resume <id>             Resume a suspended agent session',
+      '  terminate <id>          Permanently end an agent session',
+      '',
+      'Flags:',
+      '  --zone <id>             Zone selector (or CARACAL_ZONE_ID)',
+      '  --json                  Emit raw JSON',
+      '  --help, -h              Show this help',
+      '',
+    ].join('\n'),
+  )
+  process.exit(0)
+}
+
+function delegationHelp(): void {
+  process.stdout.write(
+    [
+      'Usage: caracal delegation <verb> [options]',
+      '',
+      'Requires: CARACAL_COORDINATOR_TOKEN (JWT with scope agent:lifecycle)',
+      '',
+      'Verbs:',
+      '  inbound <session-id>    Show delegation edges arriving at a session',
+      '  outbound <session-id>   Show delegation edges originating from a session',
+      '  traverse <edge-id>      Walk the full delegation chain for an edge',
+      '  revoke <edge-id>        Revoke a delegation edge and affected sessions',
+      '',
+      'Flags:',
+      '  --zone <id>             Zone selector (or CARACAL_ZONE_ID)',
+      '  --json                  Emit raw JSON',
+      '  --help, -h              Show this help',
+      '',
+    ].join('\n'),
+  )
+  process.exit(0)
 }
 
 function usage(line: string): void {
