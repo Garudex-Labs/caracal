@@ -1,0 +1,21 @@
+---
+/*
+ * Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+ * Caracal, a product of Garudex Labs
+ *
+ * Quick-start component for the documentation landing page.
+ */
+
+const commands = ['pnpm install', 'pnpm --filter @caracalai/api dev', 'pnpm --filter @caracalai/docs dev']
+---
+
+<section class="quickStart" aria-labelledby="quickStartTitle">
+  <div>
+    <p class="landingEyebrow">Quick start</p>
+    <h2 id="quickStartTitle">A docs-ready workspace in minutes.</h2>
+    <p>
+      Start with the monorepo package manager, run the API locally, then open this documentation site as the source of truth for implementation details.
+    </p>
+  </div>
+  <pre aria-label="Quick start commands"><code>{commands.join('\n')}</code></pre>
+</section>

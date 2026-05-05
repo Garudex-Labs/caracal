@@ -1,0 +1,47 @@
+---
+/*
+ * Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+ * Caracal, a product of Garudex Labs
+ *
+ * Feature card grid component for documentation entry points.
+ */
+
+const items = [
+  {
+    title: 'Getting started',
+    text: 'Follow the shortest path from install to a working local environment.',
+    href: '/getting-started/',
+  },
+  {
+    title: 'Architecture',
+    text: 'Review the service topology, trust boundaries, and execution flow.',
+    href: '/architecture/',
+  },
+  {
+    title: 'SDKs',
+    text: 'Use language-specific packages to integrate Caracal into apps and tools.',
+    href: '/sdks/',
+  },
+  {
+    title: 'Operations',
+    text: 'Prepare deployment, configuration, observability, and audit workflows.',
+    href: '/operations/',
+  },
+]
+---
+
+<section class="landingSection" aria-labelledby="featureGridTitle">
+  <div class="landingSectionHeader">
+    <p class="landingEyebrow">Explore</p>
+    <h2 id="featureGridTitle">Find the right path fast.</h2>
+  </div>
+  <div class="featureGrid">
+    {items.map((item) => (
+      <a class="featureCard" href={item.href}>
+        <span aria-hidden="true">↗</span>
+        <strong>{item.title}</strong>
+        <p>{item.text}</p>
+      </a>
+    ))}
+  </div>
+</section>

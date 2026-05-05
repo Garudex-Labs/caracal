@@ -1,0 +1,796 @@
+---
+title: Architecture
+description: Deep technical reconstruction of the Caracal system architecture and runtime behavior.
+---
+
+# Architecture
+
+This document reconstructs the implemented architecture from the repository as it exists in code. It covers both products in this workspace:
+
+- `caracal/`: the open-source control plane, token service, gateway, audit pipeline, agent coordination service, SDKs, CLI, docs, and local infrastructure.
+- `caracalEnterprise/`: the enterprise console, SSO service, SIEM export service, BYOC/OpenTofu tooling, enterprise SDK, and shared UI packages.
+
+The system is an agent-oriented authorization and credential exchange platform. Its core model is: management APIs create zones, applications, resources, providers, policies, grants, and agent sessions; the STS evaluates policy and issues short-lived resource-scoped JWTs; the gateway and SDKs exchange and forward those tokens; audit events flow through Redis Streams into Postgres, Parquet export, and enterprise SIEM connectors.
+
+## System Model
+
+The implemented runtime has five primary layers.
+
+### 1. Product Boundary Layer
+
+`caracal/` and `caracalEnterprise/` are separate product roots. They are intended to remain isolated as products, but the enterprise SDK currently imports OSS packages through workspace package dependencies. The enterprise apps talk to the OSS management/API plane over HTTP instead of importing OSS service code directly.
+
+The main product split is:
+
+- OSS runtime services: `caracal/apps/api`, `caracal/services/sts`, `caracal/services/gateway`, `caracal/services/audit`, `caracal/apps/agent-coordinator`.
+- OSS developer integration libraries: `caracal/packages/caracalai-oauth`, `caracal/packages/caracalai-agent`, `caracal/packages/caracalai-mcp`, `caracal/packages/caracalai-mcp-fastmcp`, `caracal/packages/caracalai-mcp-go`, `caracal/packages/caracalai-mcp-python`, `caracal/packages/caracalai-cloudflare`, `caracal/packages/ts-shared`, `caracal/packages/shared`.
+- Enterprise user-facing and operations tools: `caracalEnterprise/apps/console`, `caracalEnterprise/apps/sso-console`, `caracalEnterprise/apps/audit-siem`, `caracalEnterprise/apps/byoc-installer`, `caracalEnterprise/services/opentofu-provider`.
+
+### 2. Management Plane
+
+The management plane is the Fastify API in `caracal/apps/api`. Its entry point is `caracal/apps/api/src/main.ts`, which loads environment configuration, creates a Postgres pool, creates a Redis client, builds the Fastify app, starts the DCR cleanup job, and listens on `0.0.0.0` with the configured `PORT`.
+
+The app factory in `caracal/apps/api/src/app.ts` decorates Fastify with `db` and `redis`, registers Swagger at `/docs`, and registers all management routes under `/v1`.
+
+Implemented route modules include:
+
+- `routes/zones.ts`: create, read, patch, and delete zones.
+- `routes/applications.ts`: list, create, read, patch, delete managed applications, plus `POST /zones/:zoneId/applications/dcr` for dynamic client registration.
+- `routes/resources.ts`: list and CRUD resource identifiers, scopes, and provider bindings.
+- `routes/providers.ts`: list and CRUD provider metadata.
+- `routes/policies.ts`: immutable Rego policy versions with SHA-256 stamps.
+- `routes/policy-sets.ts`: policy sets, policy set versions, activation, and Redis policy invalidation.
+- `routes/grants.ts`: delegated grant creation and revocation, including session revocation publishing.
+- `routes/invitations.ts`, `routes/teams.ts`, `routes/step-up-challenges.ts`, `routes/policy-templates.ts`: collaboration and step-up metadata endpoints.
+
+### 3. Authorization and Token Plane
+
+The STS in `caracal/services/sts` is the center of runtime authorization. The Go entry point `cmd/sts/main.go` builds an internal server through `internal.New(ctx)` and runs it until process cancellation.
+
+`internal/server.go` wires:
+
+- `POST /oauth/2/token`: RFC 8693 token exchange.
+- `GET /.well-known/jwks.json`: zone public keys for JWT validation.
+- `GET /step-up/{id}`: challenge polling.
+- `GET /health` and `GET /ready`.
+
+At boot, STS loads config, opens Postgres and Redis clients, resolves the zone KEK, initializes the signing key cache, initializes the OPA engine, and starts background consumers and policy polling. The token exchange flow in `internal/exchange.go` authenticates the application from `client_id`, validates optional subject and actor tokens against issuer, zone, and active session state, validates step-up challenge responses, evaluates OPA per target resource, enforces rate limits, inserts a session row, signs an ES256 JWT, and emits audit events.
+
+The JWT format is implemented in `internal/jwt.go`. Tokens carry standard registered claims plus Caracal fields: `zone_id`, `client_id`, `scope`, `sid`, and `target`. The token audience is the list of granted resource identifiers.
+
+The OPA engine in `internal/opa.go` compiles one policy bundle per zone. It loads the active policy set binding, reads the policy set manifest, loads the referenced policy versions, prepares a query for `data.caracal.authz.result`, and swaps compiled state atomically. Redis invalidation and 60-second Postgres polling keep compiled policy state current. If no active policy set exists, STS installs a deny-all policy for that zone.
+
+### 4. Data and Event Plane
+
+Postgres is the system of record for zones, applications, resources, providers, policies, sessions, grants, audit rows, agent sessions, step-up challenges, teams, and invitations. The initial schema is in `caracal/infra/postgres/migrations/0001_init.up.sql`. Service roles and grants are defined in `0002_roles.up.sql`. Audit tamper hashing and delegated-grant refresh versioning are added in `0003_audit_hash.up.sql` and `0004_grant_version.up.sql`.
+
+Redis is the event and coordination layer. `caracal/infra/redis/provision-streams.sh` provisions these streams and consumer groups:
+
+- `caracal.audit.events`: consumed by OSS audit (`audit-ingestor`) and enterprise SIEM export (`siem-export`).
+- `caracal.policy.invalidate`: consumed by STS/OPA (`opa-engine`).
+- `caracal.sessions.revoke`: consumed by STS (`sts-revocation`).
+- `caracal.agents.lifecycle`: consumed by the Go relay in agent coordinator (`agent-coordinator`).
+- `caracal.providers.ratelimit`: initialized as a stream but used conceptually for provider rate limiting.
+
+The audit service in `caracal/services/audit` consumes `caracal.audit.events`, writes normalized events into Postgres, exposes `/metrics`, exports Parquet batches to local/S3-compatible storage, and runs a tamper-detection sweep that recomputes stored content hashes.
+
+### 5. Integration and Experience Layer
+
+The OSS CLI in `caracal/apps/cli` reads `caracal.toml`, exchanges credentials through `@caracalai/oauth`, injects tokens into child process environment variables for `caracal run`, and prints one-shot tokens for `caracal credential read`. It also performs MCP process governance by detecting command indicators such as `mcp-server`, `fastmcp`, and `@modelcontextprotocol`.
+
+The enterprise console in `caracalEnterprise/apps/console` is a Vite/React SPA with TanStack Router. It talks to the OSS API, enterprise SIEM service, and SSO service over HTTP. `src/lib/api.ts` wraps management and SIEM calls, while `src/lib/session.ts` checks admin sessions with `sso-console`.
+
+The SDK layer supplies runtime libraries for agent/tool developers:
+
+- `@caracalai/oauth`: RFC 8693 exchange client with in-process caching and 401 retry.
+- `@caracalai/agent`: agent runtime and A2A request helper.
+- `@caracalai/mcp`: Express middleware and Postgres token-state backend for MCP servers.
+- `@caracalai/mcp-fastmcp`: FastMCP token verifier using the same JWKS cache surface.
+- `caracalai-mcp-go`: Go `net/http` middleware for MCP tool boundaries.
+- `caracalai_mcp`: Python FastMCP/JWT middleware.
+
+## Repository Structure
+
+### `caracal/`
+
+`caracal/package.json` declares a private pnpm workspace root with package manager `pnpm@10.28.0`. There are no root scripts in this file; each app/package owns its own commands.
+
+`caracal/go.work` ties together the Go modules under OSS services and shared packages.
+
+`caracal/apps/` contains user-facing OSS apps:
+
+- `apps/api`: the Fastify management API. Major files: `src/main.ts`, `src/app.ts`, `src/config.ts`, `src/db.ts`, `src/redis.ts`, `src/jobs/dcr-gc.ts`, and route modules under `src/routes`.
+- `apps/cli`: the Bun-based CLI. Major files: `src/index.ts`, `src/config.ts`, `src/mcp.ts`, `src/commands/run.ts`, and `src/commands/credential.ts`.
+
+`caracal/services/` contains long-running backend services:
+
+- `services/sts`: Go security token service, OPA engine, JWT signer, Redis consumers, and audit emitter.
+- `services/gateway`: Go reverse proxy that performs STS token exchange before proxying to MCP upstreams.
+- `services/audit`: Go audit consumer/exporter/metrics service.
+- `apps/agent-coordinator`: Node Fastify service plus a Go Redis relay process.
+
+`caracal/packages/` contains reusable OSS libraries:
+
+- `packages/shared`: Go shared config, crypto, errors, and logging.
+- `packages/ts-shared`: TypeScript shared config, errors, and logging exports.
+- `packages/caracalai-oauth`: TypeScript OAuth/token-exchange client.
+- `packages/caracalai-agent`: TypeScript agent runtime and A2A helper.
+- `packages/caracalai-mcp`: Express MCP auth middleware, JWKS cache, and Postgres backend.
+- `packages/caracalai-mcp-fastmcp`: FastMCP JWT validation wrapper.
+- `packages/caracalai-mcp-go`: Go HTTP middleware and JWKS cache.
+- `packages/caracalai-mcp-python`: Python JWT/FastMCP middleware.
+- `packages/caracalai-cloudflare`: Cloudflare-oriented fetch/cache/JWKS helpers.
+
+`caracal/infra/` contains local infrastructure:
+
+- `infra/postgres`: PostgreSQL image, entrypoint, migrations, and verification scripts.
+- `infra/redis`: Redis image/config, stream provisioning, and verification scripts.
+- `infra/docker/docker-compose.yml`: local-dev service topology for Postgres, Redis, STS, API, gateway, audit, and coordinator.
+
+`caracal/docs/` is the Astro/Starlight documentation app. `src/content/docs/architecture.mdx` is this architecture file.
+
+### `caracalEnterprise/`
+
+`caracalEnterprise/package.json` declares the enterprise workspace root with package manager `pnpm@11`. It also has no root scripts in the file currently present.
+
+`caracalEnterprise/apps/` contains enterprise apps:
+
+- `apps/console`: React/Vite console UI. Entry point: `src/main.tsx`; router: `src/routeTree.gen.ts`; API/session clients: `src/lib/api.ts`, `src/lib/session.ts`; routes under `src/routes`; reusable UI composition under `src/components`.
+- `apps/sso-console`: Fastify SSO service for enterprise admin sessions. Entry point: `src/main.ts`; auth routes in `src/routes/auth.ts`; OIDC and SAML connectors under `src/connectors`.
+- `apps/audit-siem`: Fastify plus Redis consumer for exporting audit events to SIEM connectors. Entry point: `src/main.ts`; server routes in `src/server.ts`; stream consumer in `src/consumer.ts`; connectors under `src/connectors`.
+- `apps/byoc-installer`: Commander CLI that generates and executes OpenTofu modules for AWS, GCP, and Azure.
+
+`caracalEnterprise/packages/` contains enterprise libraries:
+
+- `packages/enterprise-sdk`: re-exports OSS SDKs and adds license validation, SIEM client, BYOC helpers, and console widget types/components.
+- `packages/ts-ui`: React UI primitives.
+- `packages/ts-env`: web environment validation helpers.
+- `packages/ts-config`: TypeScript config package.
+
+`caracalEnterprise/services/opentofu-provider` is a Go Terraform/OpenTofu provider. It serves provider `registry.opentofu.org/garudex-labs/caracal`, reads `api_url` and `token`, and exposes resources for zones, applications, resources, providers, policies, policy sets, policy set versions, and grants.
+
+## Runtime Startup
+
+### Local OSS Stack Startup
+
+The intended local stack is defined in `caracal/infra/docker/docker-compose.yml`:
+
+1. Postgres starts from the custom image under `infra/postgres`; its entrypoint applies all `*.up.sql` migrations in order.
+2. Redis starts from the custom image under `infra/redis` with password auth.
+3. The `init` service waits for both, then runs `provision-streams.sh` to create Redis Streams and consumer groups.
+4. STS starts after stream provisioning. It requires `DATABASE_URL`, `REDIS_URL`, `ZONE_KEK_PROVIDER`, and `PORT`.
+5. API starts after STS is healthy. It requires `DATABASE_URL`, `REDIS_URL`, `STS_URL`, and `PORT`.
+6. Gateway starts after STS is healthy and needs `STS_URL` and `PORT`.
+7. Audit starts after stream provisioning and needs `DATABASE_URL`, `REDIS_URL`, optional S3 export settings, and `PORT`.
+8. Coordinator starts after STS and needs `DATABASE_URL`, `REDIS_URL`, `STS_URL`, and `PORT`.
+
+Current implementation issue: several compose build contexts are path-inconsistent with the compose file location. From `caracal/infra/docker/docker-compose.yml`, contexts such as `../apps/api` and `../infra/postgres` resolve under `caracal/infra`, not the actual `caracal/apps/api` and `caracal/infra/postgres` directories. This affects the local boot path until corrected.
+
+### API Startup
+
+`apps/api/src/main.ts` performs this sequence:
+
+1. `loadConfig()` reads `PORT`, `DATABASE_URL`, `REDIS_URL`, and `LOG_LEVEL`.
+2. `newDB()` creates a `pg.Pool` with max 20 connections.
+3. `newRedis()` creates an `ioredis` client.
+4. `buildApp()` creates Fastify, decorates `db` and `redis`, registers Swagger UI, registers route modules, and adds `/health` and `/ready`.
+5. `startDCRGC(db)` starts a 60-second interval that archives expired DCR applications after a 24-hour grace period.
+6. Fastify listens on `cfg.port` at `0.0.0.0`.
+
+### STS Startup
+
+`services/sts/internal/server.go` performs this sequence:
+
+1. `loadConfig()` reads service configuration.
+2. `newDB()` opens the Postgres connection.
+3. `newRedis()` opens Redis.
+4. `resolveKEK()` resolves the zone encryption key. The local provider reads `ZONE_KEK`; if missing, it returns a zero key for development.
+5. `newKeyCache()` creates a 15-minute decrypted signing key cache.
+6. `newOPAEngine()` creates per-zone OPA compiled-policy state.
+7. `newAuditBuffer()` creates a non-blocking audit buffer backed by Redis.
+8. `Run()` starts audit flushing, Redis consumers, OPA Postgres polling, and the HTTP server.
+
+### Gateway Startup
+
+`services/gateway/cmd/gateway/main.go` builds `internal.Server` and runs it. The server creates an STS client from `STS_URL`, creates the reverse proxy, exposes `/health` and `/ready`, and sends every other path to the proxy handler.
+
+### Audit Startup
+
+`services/audit/cmd/audit/main.go` starts a server that creates a pgx pool, Redis client, Postgres writer, Parquet exporter, and tamper sweeper. `Run()` starts the Redis consumer, exporter, sweeper, lag polling, and an HTTP server with `/health`, `/ready`, and `/metrics`.
+
+### Agent Coordinator Startup
+
+The coordinator image builds two binaries: a Go relay and a Node coordinator. `start.sh` launches `/relay` in the background and then starts `node /app/dist/main.js` in the foreground. The Node service exposes the agent lifecycle API; the Go relay consumes `caracal.agents.lifecycle` and logs ordered lifecycle events.
+
+## Request and Execution Flows
+
+### Admin Console to Management API
+
+1. Browser loads the enterprise console SPA from `apps/console`.
+2. TanStack Router mounts from `src/main.tsx` and routes through generated `routeTree.gen.ts`.
+3. The `/console` layout route calls `getSession()` from `src/lib/session.ts` before loading protected console pages.
+4. `getSession()` calls `sso-console` at `GET /auth/session` with cookies included.
+5. If no admin session exists, the route redirects to `/console/login`.
+6. Once authenticated, route components call `api` methods from `src/lib/api.ts`.
+7. API methods call the OSS API at `VITE_CARACAL_API_URL` or `http://localhost:3000` by default, and include cookies.
+8. The OSS API route parses and validates JSON with Zod, performs SQL using `pg`, optionally publishes Redis stream messages, and returns JSON.
+
+Current implementation issue: the console client calls routes and field shapes that do not fully match the OSS API. Examples: `api.zones.list()` calls `GET /v1/zones`, but `routes/zones.ts` does not implement a zone list route; `api.audit.list()` and `api.sessions.list()` call `/audit` and `/sessions` routes that are not implemented in the API route registry; console `Zone` uses `name` and `description`, while the API `ZoneBody` requires `org_id` and `slug`.
+
+### SSO Login Flow
+
+1. User navigates to `GET /auth/login` on `sso-console`.
+2. The service creates a random `state`, `nonce`, and CSRF cookie.
+3. For OIDC, it redirects to the OIDC provider using `OidcConnector.buildAuthUrl()`; for SAML, it redirects to the SAML entry point.
+4. The callback validates state, handles OIDC or SAML response parsing, and extracts `sub` and `email`.
+5. `SessionStore.create()` inserts a row into `enterprise_admin_sessions`.
+6. The service sets an HTTP-only `caracal_admin_sid` cookie and redirects to the console.
+7. Subsequent console loads call `/auth/session`; the session store checks idle TTL and absolute TTL, touches the session, and returns admin identity.
+
+Current implementation issue: `POST /auth/logout` requires an `X-CSRF-Token` header matching the `caracal_csrf` cookie, but `apps/console/src/lib/session.ts` calls logout without that header.
+
+### CLI Credential Injection Flow
+
+1. `caracal apps/cli/src/index.ts` reads `caracal.toml` using `smol-toml`.
+2. `caracal run <cmd...>` checks MCP governance for the command name.
+3. For each required credential, `runCommand()` constructs `OAuthClient(cfg.zone_url, cfg.app_client_id)`.
+4. The CLI calls `OAuthClient.exchange('', resource, { clientSecret: cfg.app_client_secret, ttlSeconds: 3600 })`.
+5. The OAuth client posts form data to `${zone_url}/oauth/2/token`.
+6. If STS returns `interaction_required`, the CLI writes challenge metadata to stderr and polls `${zone_url}/step-up/:challengeId` until satisfied or timed out.
+7. Resolved tokens are placed into configured environment variables.
+8. Bun spawns the target command with inherited stdio and injected environment.
+
+### STS Token Exchange Flow
+
+1. Caller posts to `POST /oauth/2/token` with `grant_type`, `client_id`, optional `client_secret`, optional `subject_token`, one or more `resource` values, optional `scope`, and optional `challenge_response`.
+2. STS parses the form and creates a request ID from `X-Request-Id` or a generated UUIDv7.
+3. `authenticateApp()` expects `client_id` format `{zone_id}:{app_id}` and loads the application from Postgres.
+4. If `subject_token` is present, STS validates it with the zone public key, expected issuer, zone claim, and active session state.
+5. If `challenge_response` is present, STS checks `step_up_challenges` for an unexpired satisfied challenge.
+6. For each requested resource, STS loads the resource by identifier. Unknown resources are soft-denied for that slot.
+7. If the resource has a credential provider, STS attempts delegated-grant refresh for brokered credentials.
+8. STS checks rate limiting for the `(zone, resource, actor)` tuple and denies when the Redis counter is unavailable.
+9. STS builds OPA input with principal, resource, action `TokenExchange`, actor claims, subject claims, and requested scopes.
+10. OPA evaluates `data.caracal.authz.result` for the active policy bundle.
+11. STS emits an audit event for the policy decision.
+12. If OPA evaluation returns `partial`, STS denies the whole exchange.
+13. If OPA diagnostics require step-up and no challenge has been resolved, STS creates a challenge and returns `401 interaction_required`.
+14. Allowed resources are collected. If none are allowed, STS returns `403 policy denied`.
+15. STS inserts a user or application session with the token TTL.
+16. STS signs an ES256 JWT with the zone key and returns an OAuth token response.
+
+### Gateway to MCP Upstream Flow
+
+1. Client sends a request through the gateway with `Authorization: Bearer <subject-token>`, `X-Caracal-Client-ID`, and `X-Caracal-Resource`.
+2. Gateway rejects missing bearer tokens.
+3. Gateway decodes the JWT payload without signature verification only to inspect `exp` and rejects tokens inside the 35-second preflight window.
+4. Gateway calls STS `/oauth/2/token`, using the inbound bearer as `subject_token`, the header client ID as `client_id`, and the header resource as `resource`.
+5. STS returns a resource-scoped token plus the approved upstream URL for the granted resource.
+6. On success, Gateway parses the STS-approved upstream, reverse-proxies the request to that target, and replaces `Authorization` with the STS-issued token.
+7. The proxy strips Caracal routing headers before forwarding.
+
+### MCP Tool Boundary Flow
+
+1. A tool server includes one of the Caracal middleware packages.
+2. Middleware extracts the bearer token.
+3. Middleware fetches JWKS from the issuer/STSes, caches keys, and validates signature, issuer, audience, and required scopes where supported.
+4. On success, tool code receives claims and executes with resource-scoped authorization.
+5. On missing or invalid tokens, middleware returns `401`; on missing scopes, TypeScript Express middleware returns `403`.
+
+Resource middleware validates signature, issuer, audience, scope, and token `zone_id` where the integration supplies an expected zone. STS can serve either all zone signing keys or a filtered JWKS with `zone_id`.
+
+### Audit Flow
+
+1. STS token exchange builds an `AuditEvent` for each OPA decision.
+2. `AuditBuffer.Emit()` attempts a non-blocking send into an in-memory channel. If full, the event is dropped silently.
+3. The flusher batches up to 1,000 events or flushes every 50 ms.
+4. Each event is serialized into Redis Stream `caracal.audit.events` with fields `id` and `data`.
+5. OSS audit service consumes the `audit-ingestor` group, deserializes events, and inserts into Postgres.
+6. The audit service exporter writes Parquet batches to configured storage.
+7. The enterprise audit-siem service consumes the same stream through `siem-export`, converts events to OCSF, and dispatches to configured Splunk, Datadog, Elastic, or webhook connectors.
+8. Failed SIEM deliveries create or update Postgres checkpoints with exponential backoff and move to a dead-letter table after 24 hours.
+
+### Agent Lifecycle Flow
+
+1. Client calls `POST /zones/:zoneId/agents` on the coordinator with `application_id`, `session_sid`, optional `parent_id`, capabilities, and TTL.
+2. The coordinator enforces active-agent count (`MAX_TOTAL = 50`), child count (`MAX_CHILDREN = 10`), and depth (`MAX_DEPTH = 10`).
+3. It inserts an `agent_sessions` row and optionally an `agent_topology` edge in a transaction.
+4. It publishes a `spawn` event to `caracal.agents.lifecycle`.
+5. The Go relay consumes and logs lifecycle events from the `agent-coordinator` group.
+6. Suspend/resume update session status and publish lifecycle events.
+7. Delete performs recursive termination, marks descendants terminated, publishes session revocations, and publishes `terminate` lifecycle events.
+8. The TTL sweeper terminates expired active agent sessions every 60 seconds and publishes revocation and lifecycle messages.
+
+## Component Deep Dive
+
+### API Service
+
+Responsibility: management CRUD and administrative metadata operations.
+
+Inputs:
+
+- JSON HTTP bodies validated with Zod.
+- Path params such as `zoneId`, `id`, and policy set IDs.
+- Environment variables for Postgres, Redis, port, and log level.
+
+Outputs:
+
+- JSON management resources.
+- Redis invalidation and revocation events.
+- DCR archive side effects in Postgres.
+
+Core workflows:
+
+- Policy creation validates that Rego contains a `package` declaration, computes SHA-256, creates an immutable version, and uses database transactions for multi-row writes.
+- Policy set activation updates `policy_set_bindings.active_version_id` and publishes to `caracal.policy.invalidate` so STS reloads OPA state.
+- Grant revocation marks the grant revoked, revokes active sessions for the grant user, and publishes `caracal.sessions.revoke` messages.
+- DCR applies Redis fixed-window rate limiting and a Postgres cap of 1,000 active DCR apps per zone.
+
+Important data handling detail: API uses direct SQL, not an ORM. Route-level code owns query shape and response shape.
+
+### STS
+
+Responsibility: token exchange, policy evaluation, JWT issuance, JWKS serving, session creation, revocation consumption, and audit emission.
+
+Inputs:
+
+- OAuth form posts.
+- Postgres zone/application/resource/policy/session/grant data.
+- Redis invalidation and revocation streams.
+
+Outputs:
+
+- ES256 JWT access tokens.
+- JWKS documents.
+- Audit stream records.
+- Session rows and challenge rows.
+
+Core workflows:
+
+- OPA policy loading is lazy per zone, then refreshed by Redis invalidation and Postgres polling.
+- Signing keys are stored as encrypted secrets and decrypted into an in-memory 15-minute cache.
+- Deny-all is the default when a zone has no active policy set.
+- Step-up is driven by OPA diagnostics containing `step_up_required`.
+
+### Gateway
+
+Responsibility: MCP reverse proxy and per-request token exchange.
+
+Inputs:
+
+- Inbound bearer token.
+- Caracal routing headers.
+- STS URL.
+
+Outputs:
+
+- Proxied upstream request with a target-scoped bearer token.
+- JSON Caracal errors on missing headers, invalid upstreams, expiring credentials, or STS failure.
+
+Core workflow:
+
+- The gateway never evaluates policy itself. It relies on STS to exchange the inbound subject token into a resource-scoped token.
+
+### Audit Service
+
+Responsibility: durable audit ingestion, export, metrics, and tamper detection.
+
+Inputs:
+
+- Redis audit stream.
+- S3/local export configuration.
+
+Outputs:
+
+- Postgres `audit_events` rows.
+- Parquet exports.
+- `/metrics` JSON counters.
+- tamper mismatch warnings in logs.
+
+### Agent Coordinator
+
+Responsibility: agent session topology and lifecycle events.
+
+Inputs:
+
+- Bearer-protected HTTP agent lifecycle calls.
+- Postgres agent/session tables.
+
+Outputs:
+
+- `agent_sessions` and `agent_topology` rows.
+- Redis lifecycle events.
+- Session revocation messages.
+
+The service validates bearer tokens against STS JWKS with issuer, audience, required scope, and route-zone binding.
+
+### Enterprise Console
+
+Responsibility: browser UI for zones, applications, resources, policies, providers, sessions, audit, teams, and SIEM configuration.
+
+Inputs:
+
+- Admin session cookies from `sso-console`.
+- Vite env vars: `VITE_CARACAL_API_URL`, `VITE_SIEM_URL`, `VITE_SSO_URL`.
+
+Outputs:
+
+- HTTP calls to API, SIEM, and SSO services.
+- UI state held in route components and React hooks.
+
+State model:
+
+- The console does not currently use Redux, Zustand, TanStack Query, or another centralized cache. It relies on route lifecycle, component state, and ad-hoc fetch wrappers.
+
+### SSO Console
+
+Responsibility: enterprise admin authentication and session management.
+
+Inputs:
+
+- OIDC/SAML provider responses.
+- Cookie session ID.
+- Postgres session table.
+
+Outputs:
+
+- HTTP-only admin session cookie.
+- Session rows in `enterprise_admin_sessions`.
+
+Security controls:
+
+- State and nonce for login.
+- Signed cookies through `@fastify/cookie`.
+- HTTP-only admin session cookie.
+- CSRF token for logout.
+
+### Audit SIEM
+
+Responsibility: enterprise audit export to external security systems.
+
+Inputs:
+
+- Redis audit stream.
+- Connector config from env and persisted Postgres credentials.
+
+Outputs:
+
+- OCSF events to Splunk, Datadog, Elastic, or webhook targets.
+- Delivery checkpoints and dead-letter rows in Postgres.
+
+### BYOC Installer
+
+Responsibility: generate and execute OpenTofu modules for customer-owned cloud deployments.
+
+Inputs:
+
+- Cloud target, zone ID, region, output directory, OpenTofu variables.
+
+Outputs:
+
+- `main.tf`, `variables.tf`, `outputs.tf`, cloud-specific documentation, and compose override files.
+- `tofu plan`, `tofu apply`, and `tofu destroy` subprocesses.
+
+### OpenTofu Provider
+
+Responsibility: manage Caracal API resources from Terraform/OpenTofu.
+
+Inputs:
+
+- Provider config/env: `api_url` or `CARACAL_API_URL`, `token` or `CARACAL_ADMIN_TOKEN`.
+
+Outputs:
+
+- HTTP CRUD calls to the OSS API.
+- Terraform state for Caracal resources.
+
+Current implementation issue: the provider client uses camelCase JSON fields, `PUT` updates, and paths such as `/v1/policy-sets/:id/versions`, while the API implements snake_case bodies, `PATCH` updates, and zone-prefixed policy set version routes. The provider contract currently does not match the API contract.
+
+## Communication Layer
+
+Communication mechanisms are:
+
+- Browser to services: HTTP/JSON using `fetch`.
+- CLI/SDK to STS: HTTP form-encoded RFC 8693 token exchange.
+- Gateway to upstream: HTTP reverse proxy.
+- Services to Postgres: SQL through `pg` or `pgx`.
+- Services to Redis: Streams and counters through `ioredis` or `go-redis`.
+- STS policy engine: in-process OPA Go library.
+- OpenTofu provider to API: HTTP/JSON.
+- BYOC installer to OpenTofu: local process execution through `spawnSync`.
+
+There is no RPC framework, message bus, IPC protocol, or gRPC implementation in the current code. The only multi-process local coupling is the coordinator container, where `start.sh` runs the Go relay as a background process and the Node coordinator as the foreground process.
+
+## TypeScript and Go Integration
+
+The split is mostly by runtime concern:
+
+- TypeScript owns management APIs, browser/UI code, SDKs, CLI ergonomics, and enterprise services that are HTTP/JSON-heavy.
+- Go owns hot authorization/proxy/audit paths where static binaries, low-latency HTTP, Redis consumption, OPA integration, and Parquet/export logic are useful.
+- Python is a consumer integration surface only, through the MCP middleware package.
+
+The integration boundary is not shared in-memory types. It is HTTP, JWT, Redis Stream records, and Postgres schema. Examples:
+
+- TypeScript API writes `policy_set_bindings`; Go STS reads them to compile OPA bundles.
+- TypeScript API publishes `caracal.policy.invalidate`; Go STS consumes and reloads policy.
+- Go STS publishes `caracal.audit.events`; Go audit and TypeScript audit-siem consume.
+- TypeScript CLI/SDK posts token-exchange forms; Go STS returns JSON OAuth responses.
+- Go gateway posts token-exchange forms and receives JSON OAuth responses.
+- TypeScript, Go, and Python middleware validate the same ES256 JWTs through JWKS.
+
+## State and Data Flow
+
+Frontend state:
+
+- Enterprise console auth state is derived from `sso-console` cookies and `/auth/session`.
+- Route data is fetched through `src/lib/api.ts` and held locally in route/component state.
+- Feature flags live in `apps/console/src/config/feature-flags.ts`.
+
+Backend state:
+
+- Postgres owns durable management state and audit persistence.
+- Redis owns transient coordination, invalidation, stream fanout, and rate limiting.
+- STS holds in-memory decrypted signing keys with a 15-minute TTL.
+- STS holds in-memory compiled OPA bundles per zone.
+- OAuth clients hold in-process token caches keyed by subject token and resource.
+- SSO holds admin sessions in Postgres and browser cookies.
+
+End-to-end data movement for a token exchange:
+
+1. Management data is created through API and stored in Postgres.
+2. Policy activation publishes Redis invalidation.
+3. STS reloads the active policy bundle from Postgres.
+4. Runtime client calls STS for a resource token.
+5. STS reads application/resource/session/grant/policy data from Postgres.
+6. STS evaluates OPA in memory.
+7. STS writes a session row and emits audit to Redis.
+8. STS returns a JWT.
+9. Middleware validates the JWT using JWKS.
+10. Audit consumers persist and export the audit event.
+
+## Desktop Runtime Model
+
+No desktop application runtime is implemented in this repository. A code search and package manifest inspection show no Electron, Tauri, Wails, or comparable desktop shell dependencies.
+
+The closest desktop/local runtime is the CLI:
+
+- `caracal/apps/cli` builds native-ish Bun single-file executables for Linux and macOS targets.
+- The CLI runs locally, reads `caracal.toml`, obtains tokens from STS, and spawns child processes with token environment variables.
+
+Compared with the web runtime, the CLI has no browser session state, no cookies, and no SPA router. It uses local config plus OAuth token exchange. The enterprise console is a web SPA served by Vite/nginx and does not include a desktop process model.
+
+## Build and Tooling
+
+### Package Managers
+
+- OSS root: `pnpm@10.28.0` in `caracal/package.json`.
+- Enterprise root: `pnpm@11` in `caracalEnterprise/package.json`.
+- CLI builds use Bun.
+- Enterprise console Dockerfile uses Bun for build and nginx for static serving.
+- Go services use module-specific `go.mod` files and workspace `go.work` files.
+
+The OSS root pins pnpm to an exact version so package-manager switching can resolve the workspace toolchain without warnings.
+
+### TypeScript Builds
+
+- API: `tsx watch src/main.ts`, `tsc`, `node dist/main.js`.
+- Agent coordinator: `tsc`, `node dist/main.js`.
+- CLI: Bun compile targets for Linux x64/arm64 and Darwin x64/arm64.
+- Enterprise console: `vite dev`, `vite build`, `vite preview`.
+- SSO and audit-siem: `tsx watch`, `tsc --outDir dist`, `node dist/main.js`.
+- BYOC installer: `tsc --outDir dist`.
+- SDK packages: generally `tsc`.
+
+### Go Builds
+
+- STS Dockerfile builds `/sts` from `services/sts/cmd/sts`.
+- Gateway Dockerfile builds the gateway binary from `services/gateway/cmd/gateway`.
+- Audit Dockerfile builds the audit binary from `services/audit/cmd/audit`.
+- Agent coordinator Dockerfile builds Go relay `/relay` from `apps/agent-coordinator/relay/cmd/relay`.
+- OpenTofu provider starts at `services/opentofu-provider/cmd/terraform-provider-caracal/main.go`.
+
+### Docs Build
+
+`caracal/docs` is an Astro/Starlight project. `pnpm --dir caracal/docs build` builds static docs, Pagefind search, and sitemap output under `caracal/docs/dist`.
+
+## Dependencies
+
+Key TypeScript dependencies:
+
+- `fastify`: API, coordinator, SSO, and audit-siem HTTP services.
+- `@fastify/swagger` and `@fastify/swagger-ui`: API docs.
+- `@fastify/cookie`: SSO session cookies.
+- `pg`: Postgres access in TypeScript services.
+- `ioredis`: Redis Streams/counters in TypeScript services.
+- `zod`: input validation.
+- `jose`: JWT/JWKS validation.
+- `smol-toml`: CLI config parsing.
+- `commander`: BYOC CLI command structure.
+- `openid-client`: OIDC connector.
+- `samlify`: SAML connector.
+- `@tanstack/react-router`: enterprise console routing.
+- `@monaco-editor/react`: policy editor support in the console package.
+- `lucide-react`, Tailwind, `next-themes`, and local `ts-ui`: console UI.
+
+Key Go dependencies:
+
+- `github.com/golang-jwt/jwt/v5`: JWT parsing/signing.
+- `github.com/open-policy-agent/opa`: OPA/Rego evaluation.
+- `github.com/jackc/pgx/v5`: Postgres access in Go services.
+- `github.com/redis/go-redis/v9`: Redis access in Go services.
+- `github.com/rs/zerolog`: structured logging.
+- `github.com/hashicorp/terraform-plugin-framework`: OpenTofu provider framework.
+
+Key Python dependencies are defined in `caracal/packages/caracalai-mcp-python/pyproject.toml` and support JWT validation and HTTP/JWKS behavior for Python MCP servers.
+
+## Configuration
+
+The code uses environment-driven configuration for services and file-driven configuration for the CLI.
+
+Common service env:
+
+- `PORT`: HTTP listen port.
+- `DATABASE_URL`: Postgres connection string.
+- `REDIS_URL`: Redis connection string.
+- `LOG_LEVEL`: API log level.
+
+STS env:
+
+- `ZONE_KEK_PROVIDER`: currently supports local behavior.
+- `ZONE_KEK`: optional hex-encoded 32-byte local key.
+- `ISSUER_URL`: used as JWT issuer in token signing.
+
+API env:
+
+- `DATABASE_URL`, `REDIS_URL`, `PORT`, `LOG_LEVEL`.
+- Compose also passes `STS_URL`, but the current API config does not read it.
+
+Gateway env:
+
+- `STS_URL`, `PORT`.
+
+Audit env:
+
+- `DATABASE_URL`, `REDIS_URL`, `PORT`.
+- `AUDIT_EXPORT_S3_ENDPOINT`, `AUDIT_EXPORT_S3_BUCKET`.
+
+Coordinator env:
+
+- `DATABASE_URL`, `REDIS_URL`, `STS_URL`, `PORT`.
+
+Enterprise console env:
+
+- `VITE_CARACAL_API_URL`.
+- `VITE_SIEM_URL`.
+- `VITE_SSO_URL`.
+
+SSO env:
+
+- `PORT`, `DATABASE_URL`, `CONSOLE_ORIGIN`, `SESSION_SECRET`, `SESSION_TTL_MS`, `SESSION_ABSOLUTE_TTL_MS`.
+- OIDC/SAML-specific values such as issuer, client ID/secret, redirect URI, entry point, and certificate.
+
+Audit SIEM env:
+
+- `PORT`, `DATABASE_URL`, `REDIS_URL`.
+- `SPLUNK_HEC_URL`, `SPLUNK_HEC_TOKEN`.
+- `DATADOG_API_KEY`, `DATADOG_LOGS_URL`.
+- `ELASTIC_URL`, `ELASTIC_API_KEY`.
+- `WEBHOOK_URL`, `WEBHOOK_SECRET`.
+
+OpenTofu provider env:
+
+- `CARACAL_API_URL`.
+- `CARACAL_ADMIN_TOKEN`.
+
+CLI config:
+
+- `caracal.toml` supplies `zone_url`, `app_client_id`, `app_client_secret`, required credentials, optional credentials, `continue_on_failure`, and `mcp_governance.mode`.
+
+## Error Handling
+
+Patterns by layer:
+
+- API routes rely on Zod parse errors, route-local status responses, and Fastify's default thrown-error behavior for uncaught SQL errors.
+- STS uses shared `CaracalError` values from `packages/shared/errors`, serializes them as JSON, and maps policy/access/token failures to HTTP status codes.
+- STS audit emission is intentionally non-blocking; a full buffer drops events silently.
+- Gateway returns JSON `CaracalError` responses for missing bearer tokens, missing/invalid upstream headers, expiring credentials, and STS errors.
+- Audit service logs stream/insert/export failures and leaves unacknowledged stream messages in Redis when handling fails.
+- Audit-siem leaves failed messages in the pending entries list and records connector retry checkpoints.
+- CLI prints structured JSON errors for credential failures and exits nonzero.
+- OpenTofu provider surfaces API failures through Terraform diagnostics.
+
+## Security
+
+Implemented controls:
+
+- STS issues short-lived ES256 JWTs scoped to granted resources.
+- JWKS endpoint exposes zone signing public keys.
+- OPA policy evaluation controls token issuance.
+- Policy versions are immutable at the database level.
+- Policy set activation publishes invalidation to avoid stale authorization state.
+- Session revocation is propagated through Redis Streams.
+- Secrets and signing keys are modeled as encrypted database records with nonce and DEK ID.
+- DCR has per-zone rate limits and active DCR caps.
+- Agent spawning has depth, child count, and total count limits.
+- SSO uses state, nonce, secure cookies, and session TTL/absolute TTL.
+- SIEM delivery has retry and dead-letter behavior.
+- Audit rows include content hashing for tamper detection.
+
+Security gaps or risks grounded in code:
+
+- The API service currently has no authentication/authorization middleware. Management routes are publicly callable if the service is exposed.
+- Direct resource middleware validates JWT claims statelessly and does not consult session status after issuance.
+- STS audit-buffer events can still be dropped under pressure without a counter.
+- SSO logout CSRF requirements and console logout implementation do not match.
+- The local `ZONE_KEK` fallback to a zero key is explicitly development-oriented and must not be used in production.
+
+## Observability
+
+Implemented observability:
+
+- Fastify/Pino logging in TypeScript services.
+- Zerolog structured logging in Go services.
+- Health and readiness endpoints across API, STS, gateway, audit, SSO, and SIEM services.
+- Audit service `/metrics` exposes JSON counters: inserts, export events, export errors, export duration, and consumer lag.
+- STS emits audit events for token exchange policy decisions.
+- Audit tamper sweeper logs mismatch warnings.
+- Agent relay logs lifecycle events from Redis.
+
+Missing or incomplete observability:
+
+- No OpenTelemetry tracing is implemented.
+- No Prometheus text exposition is implemented; audit metrics are JSON.
+- API route errors and validation failures are not normalized through a shared error model.
+- Dropped STS audit-buffer events are not counted.
+- SIEM retry state exists in Postgres, but there is no visible HTTP metric endpoint for SIEM retry backlog.
+
+## Code Quality and Architectural Gaps
+
+The following issues are visible in code and affect maintainability or runtime correctness:
+
+1. API schema and database schema mismatch. `routes/zones.ts` inserts `token_config_json` and omits required `name` and `dek_ciphertext`, while `0001_init.up.sql` defines `zones.name` and `zones.dek_ciphertext` as required and has no `token_config_json`. `routes/providers.ts` reads/writes `kind`, but the migration defines no `kind` column.
+
+2. Enterprise console contract mismatch. The console calls `GET /v1/zones`, `/v1/zones/:zoneId/audit`, and `/v1/zones/:zoneId/sessions`, but those routes are not implemented in `apps/api/src/app.ts`. It also uses field shapes like `name`, `description`, and camelCase types that do not match several API route schemas.
+
+3. OpenTofu provider contract mismatch. The provider client sends camelCase JSON, uses `PUT` for updates, and uses some paths that do not exist in the API implementation.
+
+4. Gateway streams request bodies to approved upstreams from STS; retry is limited to replayable requests.
+
+5. Compose build-context mismatch. Several build contexts in `infra/docker/docker-compose.yml` do not resolve to existing directories from the compose file location.
+
+6. Enterprise console Dockerfile path mismatch. `apps/console/Dockerfile` copies `apps/web` and `apps/web/nginx.conf`, but the workspace contains `apps/console`.
+
+7. API route authentication is absent. There is no Fastify hook or middleware protecting management routes.
+
+8. Direct resource middleware is stateless. It validates JWT signature, issuer, audience, scope, and zone, but it does not consult session status after issuance.
+
+9. Enterprise database migrations are not present for `enterprise_admin_sessions`, SIEM connector credentials, delivery checkpoints, or dead-letter tables used by enterprise services.
+
+10. Audit buffer drops events silently under pressure. This protects token-exchange latency but weakens audit completeness without a counter or alert.
+
+11. Frontend state is ad hoc. The console has no centralized data-fetching/cache layer, which will make invalidation, loading, and error consistency harder as workflows grow.
+
+12. Provider and console naming conventions diverge from API naming. The API mostly returns snake_case database-oriented fields; enterprise clients model camelCase product fields.
+
+13. STS policy fallback is secure but implicit. A zone without active policy silently compiles deny-all; operationally this needs clear UI/API feedback.
+
+15. Agent coordinator JWT verification is zone-bound and checks issuer, audience, and required scope; direct downstream resources still need their own audience/scope/zone configuration.
+
+## End-to-End System Walkthrough
+
+The intended full system works like this:
+
+1. Operators start infrastructure: Postgres, Redis, migrations, and Redis Streams.
+2. Management actors create a zone, applications, resources, providers, policies, and policy sets through the API, console, or OpenTofu provider.
+3. Policy authors create immutable Rego policy versions and assemble them into policy set versions.
+4. Activating a policy set updates Postgres and publishes `caracal.policy.invalidate`.
+5. STS consumes the invalidation and compiles the active policy bundle for the zone.
+6. A runtime client, CLI, gateway, or SDK requests a token for a target resource.
+7. STS authenticates the application, validates any subject token, optionally checks step-up state, evaluates OPA, records a session, and signs a short-lived JWT.
+8. The caller uses the token against an MCP tool, upstream service, or agent. Middleware validates the JWT using STS JWKS and enforces issuer/audience/scope rules where implemented.
+9. STS emits audit decisions to Redis without blocking the token exchange hot path.
+10. OSS audit persists and exports audit records. Enterprise audit-siem exports OCSF-shaped events to external SIEM targets.
+11. Revoking grants, terminating agents, or expiring agent sessions publishes session revocation events. STS consumes those events and marks sessions revoked.
+12. Enterprise console and SSO provide the browser admin surface; BYOC/OpenTofu tooling provides infrastructure and declarative resource management.
+
+The architectural core is strong and consistent in intent: Postgres for durable state, Redis Streams for fanout and invalidation, STS plus OPA for authorization, JWT/JWKS for runtime boundaries, and SDK/middleware packages for tool integration. The main maintenance priority is aligning the management API, database schema, enterprise clients, Docker paths, and JWKS/auth model so the implemented control plane can boot and operate as designed.

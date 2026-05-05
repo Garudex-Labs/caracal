@@ -1,0 +1,42 @@
+---
+/*
+ * Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+ * Caracal, a product of Garudex Labs
+ *
+ * Hero component for the documentation landing page.
+ */
+
+const primaryHref = '/getting-started/'
+const secondaryHref = '/architecture/'
+---
+
+<section class="landingHero" aria-labelledby="landingHeroTitle">
+  <div class="landingHeroContent">
+    <p class="landingEyebrow">Documentation</p>
+    <h1 id="landingHeroTitle">Build agent-ready systems with Caracal.</h1>
+    <p class="landingHeroText">
+      Practical guides, architecture notes, and integration references for teams building secure MCP-first products.
+    </p>
+    <div class="landingHeroActions" aria-label="Primary documentation links">
+      <a class="landingButton landingButtonPrimary" href={primaryHref}>Get started</a>
+      <a class="landingButton landingButtonSecondary" href={secondaryHref}>View architecture</a>
+    </div>
+  </div>
+  <div class="landingHeroPanel" aria-label="Documentation highlights">
+    <div>
+      <span>01</span>
+      <strong>Install and configure</strong>
+      <p>Set up the local stack, SDKs, and service credentials.</p>
+    </div>
+    <div>
+      <span>02</span>
+      <strong>Connect runtime flows</strong>
+      <p>Understand gateway, STS, audit, and agent coordinator boundaries.</p>
+    </div>
+    <div>
+      <span>03</span>
+      <strong>Ship with confidence</strong>
+      <p>Use reference material for production-ready integrations.</p>
+    </div>
+  </div>
+</section>
