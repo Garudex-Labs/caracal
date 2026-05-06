@@ -6,7 +6,8 @@
 import type { FastifyPluginAsync } from 'fastify'
 import { z } from 'zod'
 import { v7 as uuidv7 } from 'uuid'
-import { publishSessionRevocation } from '../redis.js'
+import { STREAM_SESSIONS_REVOKE } from '../redis.js'
+import { enqueueOutbox } from '../outbox.js'
 
 const GrantBody = z.object({
   application_id: z.string().min(1),
@@ -74,29 +75,44 @@ export const grantsRoutes: FastifyPluginAsync = async (fastify) => {
     return reply.code(201).send(rows[0])
   })
 
-  // Revoke grant and publish session revocation for affected sessions.
   fastify.delete('/zones/:zoneId/grants/:id', async (req, reply) => {
     const { zoneId, id } = req.params as { zoneId: string; id: string }
-    const { rows } = await fastify.db.query(
-      `UPDATE delegated_grants SET status = 'revoked'
-       WHERE id = $1 AND zone_id = $2
-       RETURNING user_id`,
-      [id, zoneId],
-    )
-    if (!rows[0]) return reply.code(404).send({ error: 'grant_not_found' })
+    const client = await fastify.db.connect()
+    try {
+      await client.query('BEGIN')
+      const { rows } = await client.query<{ user_id: string }>(
+        `UPDATE delegated_grants SET status = 'revoked'
+         WHERE id = $1 AND zone_id = $2
+         RETURNING user_id`,
+        [id, zoneId],
+      )
+      if (!rows[0]) {
+        await client.query('ROLLBACK')
+        return reply.code(404).send({ error: 'grant_not_found' })
+      }
 
-    const { rows: sessions } = await fastify.db.query(
-      `UPDATE sessions SET status = 'revoked'
-       WHERE zone_id = $1 AND status = 'active' AND subject_id = $2
-       RETURNING id`,
-      [zoneId, rows[0].user_id],
-    )
-    await Promise.all(
-      sessions.map((s: { id: string }) =>
-        publishSessionRevocation(fastify.redis, zoneId, s.id),
-      ),
-    )
+      const { rows: sessions } = await client.query<{ id: string }>(
+        `UPDATE sessions SET status = 'revoked'
+         WHERE zone_id = $1 AND status = 'active' AND subject_id = $2
+         RETURNING id`,
+        [zoneId, rows[0].user_id],
+      )
 
-    return reply.code(204).send()
+      for (const s of sessions) {
+        await enqueueOutbox(client, {
+          streamName: STREAM_SESSIONS_REVOKE,
+          payload: { zone_id: zoneId, session_id: s.id, reason: 'grant_revoked', grant_id: id },
+          requestId: req.id,
+        })
+      }
+
+      await client.query('COMMIT')
+      return reply.code(204).send()
+    } catch (err) {
+      await client.query('ROLLBACK')
+      throw err
+    } finally {
+      client.release()
+    }
   })
 }
