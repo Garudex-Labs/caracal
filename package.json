@@ -13,6 +13,7 @@
     "test:typescript": "pnpm --dir apps/api test && pnpm --dir apps/agent-coordinator test && pnpm --dir apps/cli test && pnpm --dir packages/ts-shared test && pnpm --dir packages/caracalai-agent test && pnpm --dir packages/caracalai-oauth test && pnpm --dir packages/caracalai-mcp test && pnpm --dir packages/caracalai-cloudflare test"
   },
   "devDependencies": {
+    "@vitest/coverage-v8": "3.2.4",
     "fastify": "^5.2.1"
   }
 }
