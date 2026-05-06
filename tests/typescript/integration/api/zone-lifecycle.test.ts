@@ -108,7 +108,7 @@ describe('Zone lifecycle: delete returns 204', () => {
     expect([204, 404]).toContain(res.statusCode)
   })
 
-  it('DELETE is idempotent — returns 204 even for non-existent zone', async () => {
+  it('DELETE returns 404 when zone does not exist', async () => {
     const { app, db } = buildApp()
     db.query.mockResolvedValue({ rowCount: 0, rows: [] })
     await app.ready()
@@ -117,7 +117,7 @@ describe('Zone lifecycle: delete returns 204', () => {
       method: 'DELETE',
       url: '/v1/zones/does-not-exist',
     })
-    expect(res.statusCode).toBe(204)
+    expect(res.statusCode).toBe(404)
   })
 })
 

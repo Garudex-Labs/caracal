@@ -22,7 +22,9 @@ function buildApp() {
 describe('POST /v1/zones/:zoneId/resources', () => {
   it('rejects provider references outside the zone', async () => {
     const { app, db } = buildApp()
-    db.query.mockResolvedValueOnce({ rows: [] })
+    db.query
+      .mockResolvedValueOnce({ rows: [{ '?column?': 1 }] })
+      .mockResolvedValueOnce({ rows: [] })
 
     await app.ready()
     const res = await app.inject({
@@ -37,12 +39,13 @@ describe('POST /v1/zones/:zoneId/resources', () => {
 
     expect(res.statusCode).toBe(404)
     expect(JSON.parse(res.body)).toMatchObject({ error: 'provider_not_found' })
-    expect(db.query).toHaveBeenCalledTimes(1)
+    expect(db.query).toHaveBeenCalledTimes(2)
   })
 
   it('creates a resource when provider belongs to the zone', async () => {
     const { app, db } = buildApp()
     db.query
+      .mockResolvedValueOnce({ rows: [{ '?column?': 1 }] })
       .mockResolvedValueOnce({ rows: [{ exists: 1 }] })
       .mockResolvedValueOnce({ rows: [{ id: 'res-1', zone_id: 'z1', credential_provider_id: 'provider-1' }] })
 
