@@ -8,6 +8,8 @@ import { z } from 'zod'
 import { v7 as uuidv7 } from 'uuid'
 import { STREAM_SESSIONS_REVOKE } from '../redis.js'
 import { enqueueOutbox } from '../outbox.js'
+import { ZoneIdParams, ZoneParams, parseParams } from './params.js'
+import { zoneExists } from '../zone-guard.js'
 
 const GrantBody = z.object({
   application_id: z.string().min(1),
@@ -22,29 +24,35 @@ function scopesAllowed(requested: string[], available: string[]): boolean {
 }
 
 export const grantsRoutes: FastifyPluginAsync = async (fastify) => {
-  fastify.get('/zones/:zoneId/grants', async (req) => {
-    const { zoneId } = req.params as { zoneId: string }
+  fastify.get('/zones/:zoneId/grants', async (req, reply) => {
+    const params = parseParams(ZoneParams, req, reply)
+    if (!params) return
     const { rows } = await fastify.db.query(
       `SELECT id, zone_id, application_id, user_id, resource_id, scopes, status, created_at
        FROM delegated_grants WHERE zone_id = $1 ORDER BY created_at DESC`,
-      [zoneId],
+      [params.zoneId],
     )
     return rows
   })
 
   fastify.get('/zones/:zoneId/grants/:id', async (req, reply) => {
-    const { zoneId, id } = req.params as { zoneId: string; id: string }
+    const params = parseParams(ZoneIdParams, req, reply)
+    if (!params) return
     const { rows } = await fastify.db.query(
       `SELECT id, zone_id, application_id, user_id, resource_id, scopes, status, created_at
        FROM delegated_grants WHERE id = $1 AND zone_id = $2`,
-      [id, zoneId],
+      [params.id, params.zoneId],
     )
     if (!rows[0]) return reply.code(404).send({ error: 'grant_not_found' })
     return rows[0]
   })
 
   fastify.post('/zones/:zoneId/grants', async (req, reply) => {
-    const { zoneId } = req.params as { zoneId: string }
+    const params = parseParams(ZoneParams, req, reply)
+    if (!params) return
+    if (!(await zoneExists(fastify.db, params.zoneId))) {
+      return reply.code(404).send({ error: 'zone_not_found' })
+    }
     const body = GrantBody.parse(req.body)
     const { rows: refs } = await fastify.db.query(
       `SELECT
@@ -53,8 +61,8 @@ export const grantsRoutes: FastifyPluginAsync = async (fastify) => {
            WHERE id = $2 AND zone_id = $1 AND archived_at IS NULL
              AND (expires_at IS NULL OR expires_at > now())
          ) AS application_exists,
-         (SELECT scopes FROM resources WHERE id = $3 AND zone_id = $1) AS resource_scopes`,
-      [zoneId, body.application_id, body.resource_id],
+         (SELECT scopes FROM resources WHERE id = $3 AND zone_id = $1 AND archived_at IS NULL) AS resource_scopes`,
+      [params.zoneId, body.application_id, body.resource_id],
     )
     if (!refs[0]?.application_exists) {
       return reply.code(404).send({ error: 'application_not_found' })
@@ -70,13 +78,14 @@ export const grantsRoutes: FastifyPluginAsync = async (fastify) => {
       `INSERT INTO delegated_grants (id, zone_id, application_id, user_id, resource_id, scopes, status)
        VALUES ($1, $2, $3, $4, $5, $6, 'active')
        RETURNING id, zone_id, application_id, user_id, resource_id, scopes, status, created_at`,
-      [id, zoneId, body.application_id, body.user_id, body.resource_id, body.scopes],
+      [id, params.zoneId, body.application_id, body.user_id, body.resource_id, body.scopes],
     )
     return reply.code(201).send(rows[0])
   })
 
   fastify.delete('/zones/:zoneId/grants/:id', async (req, reply) => {
-    const { zoneId, id } = req.params as { zoneId: string; id: string }
+    const params = parseParams(ZoneIdParams, req, reply)
+    if (!params) return
     const client = await fastify.db.connect()
     try {
       await client.query('BEGIN')
@@ -84,7 +93,7 @@ export const grantsRoutes: FastifyPluginAsync = async (fastify) => {
         `UPDATE delegated_grants SET status = 'revoked'
          WHERE id = $1 AND zone_id = $2
          RETURNING user_id`,
-        [id, zoneId],
+        [params.id, params.zoneId],
       )
       if (!rows[0]) {
         await client.query('ROLLBACK')
@@ -95,13 +104,13 @@ export const grantsRoutes: FastifyPluginAsync = async (fastify) => {
         `UPDATE sessions SET status = 'revoked'
          WHERE zone_id = $1 AND status = 'active' AND subject_id = $2
          RETURNING id`,
-        [zoneId, rows[0].user_id],
+        [params.zoneId, rows[0].user_id],
       )
 
       for (const s of sessions) {
         await enqueueOutbox(client, {
           streamName: STREAM_SESSIONS_REVOKE,
-          payload: { zone_id: zoneId, session_id: s.id, reason: 'grant_revoked', grant_id: id },
+          payload: { zone_id: params.zoneId, session_id: s.id, reason: 'grant_revoked', grant_id: params.id },
           requestId: req.id,
         })
       }
