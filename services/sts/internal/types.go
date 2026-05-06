@@ -22,7 +22,8 @@ type TokenExchangeRequest struct {
 	ClientSecret        string
 	ClientAssertion     string
 	ClientAssertionType string
-	ChallengeResponse   string
+	ChallengeID         string // identifier of a previously issued step-up challenge
+	ChallengeResponse   string // single-use secret presented to consume the challenge
 	SessionID           string
 	AgentSessionID      string
 	DelegationEdgeID    string
@@ -122,11 +123,14 @@ type AuditEvent struct {
 }
 
 // StepUpChallenge describes the 401 response body for interaction_required.
+// ChallengeSecret is the high-entropy single-use proof the client must echo back as
+// challenge_response on the follow-up token-exchange request.
 type StepUpChallenge struct {
 	Error              string `json:"error"`
 	ErrorDescription   string `json:"error_description"`
 	ChallengeID        string `json:"challenge_id"`
 	ChallengeType      string `json:"challenge_type"`
+	ChallengeSecret    string `json:"challenge_secret"`
 	ChallengeExpiresAt string `json:"challenge_expires_at"`
 	RequestID          string `json:"requestId"`
 }

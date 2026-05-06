@@ -222,22 +222,22 @@ func (s *stubDB) GetDelegationPath(_ context.Context, _, _, _ string, _ int) ([]
 func (s *stubDB) GetDelegationGraphEpoch(_ context.Context, _ string) (int64, error) {
 	return s.graphEpoch, s.epochErr
 }
-func (s *stubDB) InsertSession(_ context.Context, _ *Session) error { return s.sessErr }
-func (s *stubDB) RevokeSession(_ context.Context, _ string) error   { return nil }
+func (s *stubDB) InsertSession(_ context.Context, _ *Session) error      { return s.sessErr }
+func (s *stubDB) RevokeSession(_ context.Context, _, _ string) error     { return nil }
 func (s *stubDB) GetStepUpChallenge(_ context.Context, _ string) (*StepUpChallengePG, error) {
 	return nil, errors.New("stub")
 }
 func (s *stubDB) InsertStepUpChallenge(_ context.Context, _ *StepUpChallengePG) error {
 	return nil
 }
-func (s *stubDB) SatisfyStepUpChallenge(_ context.Context, _ string) error { return nil }
+func (s *stubDB) SatisfyStepUpChallenge(_ context.Context, _ string) error          { return nil }
+func (s *stubDB) ConsumeStepUpChallenge(_ context.Context, _ ConsumeStepUpParams) error {
+	return nil
+}
 func (s *stubDB) GetZoneSigningKeySecret(_ context.Context, _ string) (*SecretRow, error) {
 	return nil, errors.New("stub")
 }
 func (s *stubDB) GetZoneSigningKeySecrets(_ context.Context, _ string) ([]SecretRow, error) {
-	return nil, errors.New("stub")
-}
-func (s *stubDB) GetAllZoneSigningKeySecrets(_ context.Context) ([]SecretRow, error) {
 	return nil, errors.New("stub")
 }
 func (s *stubDB) GetActivePolicySetBinding(_ context.Context, _ string) (*PolicySetBinding, error) {
@@ -248,6 +248,10 @@ func (s *stubDB) GetPolicySetVersion(_ context.Context, _ string) (*PolicySetVer
 }
 func (s *stubDB) GetPolicyVersionsByIDs(_ context.Context, _ []string) ([]PolicyVersion, error) {
 	return nil, errors.New("stub")
+}
+func (s *stubDB) ListBoundZoneIDs(_ context.Context) ([]string, error) { return nil, nil }
+func (s *stubDB) UpdateApplicationSecretHash(_ context.Context, _, _, _ string) error {
+	return nil
 }
 
 // TestExchangePartialDeny verifies that partial OPA evaluation status causes HTTP 403.
@@ -557,8 +561,8 @@ func TestExchangeRejectsResourceOutsideDelegationEdge(t *testing.T) {
 		AgentSessionID:   source.ID,
 		DelegationEdgeID: "edge1",
 	}, "req-1")
-	if code != http.StatusForbidden || apiErr == nil || apiErr.Description != "requested resource exceeds delegation edge" {
-		t.Fatalf("want resource-bound delegation denial, code=%d err=%#v", code, apiErr)
+	if code != http.StatusForbidden || apiErr == nil || apiErr.Description != "policy denied" {
+		t.Fatalf("want soft-deny with no granted resources, code=%d err=%#v", code, apiErr)
 	}
 }
 

@@ -55,7 +55,12 @@ func newAuditBuffer(redis *RedisClient, log zerolog.Logger) *AuditBuffer {
 }
 
 // Emit enqueues an audit event and records pressure when the buffer is full.
+// A nil receiver is a no-op so unit tests that exercise the exchange path
+// without a configured Redis sink do not need to wire one up.
 func (a *AuditBuffer) Emit(event AuditEvent) {
+	if a == nil {
+		return
+	}
 	select {
 	case a.ch <- event:
 	default:
