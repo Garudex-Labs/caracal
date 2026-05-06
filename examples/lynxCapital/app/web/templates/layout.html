@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}{{ company }}{% endblock %}</title>
+  <link rel="stylesheet" href="/static/theme.css">
+  <style>
+    :root {
+      --primary: {{ theme.primary }};
+      --accent:  {{ theme.accent }};
+      --surface: {{ theme.surface }};
+      --border:  {{ theme.border }};
+      --text:    {{ theme.text }};
+      --danger:  {{ theme.danger }};
+      --success: {{ theme.success }};
+      --warning: {{ theme.warning }};
+      --amber:   {{ theme.amber }};
+      --teal:    {{ theme.teal }};
+    }
+  </style>
+</head>
+<body>
+  <nav>
+    <a class="brand" href="/">{{ company }}</a>
+    <div class="links">
+      <a href="/" id="nav-landing">Overview</a>
+      {% if accepted %}
+      <a href="/setup" id="nav-setup">Setup</a>
+      {% endif %}
+      {% if setup_validated %}
+      <a href="/demo" id="nav-demo">Demo</a>
+      <a href="/prompts" id="nav-prompts">Prompts</a>
+      <a href="/caracal" id="nav-caracal">Caracal</a>
+      <a href="/logs" id="nav-logs">Logs</a>
+      {% endif %}
+    </div>
+  </nav>
+  <main>
+    {% block content %}{% endblock %}
+  </main>
+  <script src="/static/app.js" type="module"></script>
+  {% block scripts %}{% endblock %}
+</body>
+</html>

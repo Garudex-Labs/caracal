@@ -1,0 +1,16 @@
+{
+  "service": "ocr-vision",
+  "actions": {
+    "extract_invoice": {
+      "match_key": "invoice_id",
+      "cases": {
+        "INV-00001": {"invoice_id": "INV-00001", "vendor_name": "Sterling Digital",        "amount": 678.53,  "currency": "USD", "date": "2026-03-11", "line_items": [{"desc": "Enterprise software subscription - March 2026", "qty": 1, "unit": 678.53}], "confidence": 0.98},
+        "INV-00002": {"invoice_id": "INV-00002", "vendor_name": "Northgate Systems",       "amount": 1132.63, "currency": "USD", "date": "2026-03-25", "line_items": [{"desc": "Cloud infrastructure and compute services - March 2026", "qty": 1, "unit": 1132.63}], "confidence": 0.97},
+        "INV-00003": {"invoice_id": "INV-00003", "vendor_name": "Cascade Solutions",       "amount": 648.48,  "currency": "USD", "date": "2026-02-25", "line_items": [{"desc": "Analytics platform license and services - February 2026", "qty": 1, "unit": 648.48}], "confidence": 0.99},
+        "INV-00841": {"invoice_id": "INV-00841", "vendor_name": "Zylotech Solutions",      "amount": 56832.0, "currency": "INR", "date": "2026-03-18", "line_items": [{"desc": "Cloud infrastructure and compute services - March 2026", "qty": 1, "unit": 56832.0}], "confidence": 0.96},
+        "INV-01681": {"invoice_id": "INV-01681", "vendor_name": "Berliner Datentechnik GmbH", "amount": 1104.0, "currency": "EUR", "date": "2026-03-22", "line_items": [{"desc": "Data processing and management services - March 2026", "qty": 1, "unit": 1104.0}], "confidence": 0.97},
+        "default":   {"invoice_id": null,        "vendor_name": null,                       "amount": null,    "currency": null, "date": null,         "line_items": [], "confidence": 0.94}
+      }
+    }
+  }
+}

@@ -1,0 +1,367 @@
+{# Copyright (C) 2026 Garudex Labs.  All Rights Reserved. #}
+{# Caracal setup checklist: workspace, principals, providers, policies, mandates. #}
+{% extends "layout.html" %}
+{% block title %}Setup — {{ company }}{% endblock %}
+
+{% block content %}
+<style>
+  .setup-wrap { max-width: 1100px; margin: 0 auto; padding: 24px 20px 48px; display: grid; grid-template-columns: 1fr 280px; gap: 28px; align-items: start; }
+  .setup-main  { min-width: 0; }
+  .setup-title { grid-column: 1 / -1; }
+  .demo-panel  { border: 1px dashed #c8b84a; border-radius: 4px; padding: 14px; background: #fdfbef; }
+  .demo-tag    { font-size: 10px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: #8a6e00; background: #fdf3c0; border: 1px solid #e0c84a; border-radius: 2px; padding: 1px 5px; display: inline-block; margin-bottom: 8px; }
+  .demo-title  { font-size: 12px; font-weight: 600; color: #1a1f2e; margin-bottom: 4px; }
+  .demo-note   { font-size: 11px; color: #5a6478; margin-bottom: 10px; }
+  .demo-note code { font-family: ui-monospace, monospace; font-size: 10px; background: #1a1f2e; color: #c9d1e0; padding: 1px 5px; border-radius: 2px; }
+  h1          { font-size: 17px; font-weight: 600; margin-bottom: 4px; }
+  .sub        { color: #5a6478; font-size: 12px; margin-bottom: 24px; }
+  .phase      { margin-bottom: 10px; border: 1px solid var(--border); border-radius: 4px; overflow: hidden; }
+  .phase-hd   { background: var(--primary); color: #fff; padding: 8px 14px; font-size: 12px; font-weight: 600; display: flex; justify-content: space-between; align-items: center; cursor: pointer; user-select: none; }
+  .ti         { font-size: 11px; opacity: 0.7; transition: transform 0.2s; display: inline-block; }
+  .phase.open .ti { transform: rotate(90deg); }
+  .phase:not(.open) .phase-body { display: none; }
+  .phase-body { padding: 14px; display: flex; flex-direction: column; gap: 10px; }
+  .cmd-block  { background: #1a1f2e; color: #c9d1e0; font-family: ui-monospace, monospace; font-size: 11px; line-height: 1.7; padding: 10px 10px 32px; border-radius: 3px; white-space: pre-wrap; word-break: break-all; position: relative; }
+  .cc         { color: #5a9e5a; }
+  .copy-row   { position: absolute; bottom: 6px; right: 6px; display: flex; gap: 4px; }
+  .cb, .cba   { background: rgba(255,255,255,0.1); border: none; color: #c9d1e0; font-size: 10px; padding: 2px 7px; border-radius: 2px; cursor: pointer; font-family: inherit; }
+  .cb:hover, .cba:hover { background: rgba(255,255,255,0.2); }
+  .note       { font-size: 11px; color: #5a6478; }
+  .note code  { font-family: ui-monospace, monospace; font-size: 10px; background: #1a1f2e; color: #c9d1e0; padding: 1px 5px; border-radius: 2px; }
+  .ph         { background: #2e2a14; color: #f5d76e; border-radius: 2px; padding: 0 2px; font-style: italic; }
+  .validate-bar { display: flex; align-items: center; gap: 12px; margin-top: 20px; }
+  #fill-uuids-btn { background: #2e2a14; color: #f5d76e; border: 1px solid #c8b84a; padding: 8px 18px; font-size: 12px; font-weight: 600; border-radius: 3px; cursor: pointer; }
+  #fill-uuids-btn:hover { background: #3e3a1e; }
+  #fill-uuids-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+  #validate-btn { background: var(--primary); color: #fff; border: none; padding: 8px 18px; font-size: 12px; font-weight: 600; border-radius: 3px; cursor: pointer; }
+  #validate-btn:hover { opacity: 0.85; }
+  #validate-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+  #validate-out { flex: 1; }
+  .rs         { display: flex; align-items: center; gap: 7px; font-size: 12px; padding: 4px 0; }
+  .rs .badge  { width: 14px; height: 14px; border-radius: 50%; flex-shrink: 0; display: flex; align-items: center; justify-content: center; font-size: 8px; font-weight: 800; }
+  .badge-ok   { background: var(--success); color: #fff; }
+  .badge-fail { background: var(--danger);  color: #fff; }
+  .rd         { font-size: 10px; color: #5a6478; margin-left: 21px; }
+</style>
+
+<div class="setup-wrap">
+  <div class="setup-title">
+    <h1>Caracal setup</h1>
+    <p class="sub">Complete each phase in order. Sections 2–6 run inside <code style="font-family:ui-monospace,monospace;font-size:11px;background:#f0f2f7;padding:1px 5px;border-radius:2px">caracal cli</code>.</p>
+  </div>
+
+  <div class="setup-main">
+
+  <!-- 0: Install -->
+  <div class="phase">
+    <div class="phase-hd"><span>0 · Install</span><span class="ti">▶</span></div>
+    <div class="phase-body">
+      <div class="cmd-block">pip install caracal-core caracal-sdk<div class="copy-row"><button class="cb">copy</button></div></div>
+      <div class="note">Requires Python 3.10+ and Docker.</div>
+    </div>
+  </div>
+
+  <!-- 1: Runtime -->
+  <div class="phase">
+    <div class="phase-hd"><span>1 · Start runtime</span><span class="ti">▶</span></div>
+    <div class="phase-body">
+      <div class="note">Host terminal — run in order, wait for each to succeed.</div>
+      <div class="cmd-block">caracal bootstrap<div class="copy-row"><button class="cb">copy</button></div></div>
+      <div class="cmd-block">caracal up<div class="copy-row"><button class="cb">copy</button></div></div>
+      <div class="cmd-block">eval "$(caracal auth token --format env)"<div class="copy-row"><button class="cb">copy</button></div></div>
+      <div class="note">Set the printed <code>CCL_SESS_TOKEN</code> in the Lynx environment before starting the app.</div>
+    </div>
+  </div>
+
+  <!-- 2: Workspace -->
+  <div class="phase">
+    <div class="phase-hd"><span>2 · Workspace</span><span class="ti">▶</span></div>
+    <div class="phase-body">
+      <div class="note">Enter <code>caracal cli</code> then paste.</div>
+      <div class="cmd-block">workspace create lynx-capital
+workspace use lynx-capital<div class="copy-row"><button class="cb">copy</button></div></div>
+    </div>
+  </div>
+
+  <!-- 3: Principals -->
+  <div class="phase">
+    <div class="phase-hd"><span>3 · Principals</span><span class="ti">▶</span></div>
+    <div class="phase-body">
+      <div class="note">Inside <code>caracal cli</code>. Note the UUID each line prints — needed in phases 5 and 6.</div>
+      <div class="cmd-block"><span class="cc"># Finance Control — root orchestrator; holds master authority and delegates to regions</span>
+principal register --type orchestrator --name "Finance Control" --email finance-control@lynxcapital.local<div class="copy-row"><button class="cb">copy</button></div></div>
+      <div class="cmd-block"><span class="cc"># Regional Orchestrator — per-region dispatch layer; receives delegated mandates</span>
+principal register --type orchestrator --name "Regional Orchestrator" --email regional-orchestrator@lynxcapital.local<div class="copy-row"><button class="cb">copy</button></div></div>
+      <div class="cmd-block"><span class="cc"># Invoice Intake — ingests and parses incoming invoice documents</span>
+principal register --type worker --name "Invoice Intake" --email invoice-intake@lynxcapital.local<div class="copy-row"><button class="cb">copy</button></div></div>
+      <div class="cmd-block"><span class="cc"># Ledger Match — reconciles parsed invoices against internal ledger entries</span>
+principal register --type worker --name "Ledger Match" --email ledger-match@lynxcapital.local<div class="copy-row"><button class="cb">copy</button></div></div>
+      <div class="cmd-block"><span class="cc"># Policy Check — validates each transaction against compliance and limit rules</span>
+principal register --type worker --name "Policy Check" --email policy-check@lynxcapital.local<div class="copy-row"><button class="cb">copy</button></div></div>
+      <div class="cmd-block"><span class="cc"># Route Optimization — selects the optimal payment rail and external provider</span>
+principal register --type worker --name "Route Optimization" --email route-optimization@lynxcapital.local<div class="copy-row"><button class="cb">copy</button></div></div>
+      <div class="cmd-block"><span class="cc"># Payment Execution — submits approved payments to external banking providers</span>
+principal register --type worker --name "Payment Execution" --email payment-execution@lynxcapital.local<div class="copy-row"><button class="cb">copy</button></div></div>
+      <div class="cmd-block"><span class="cc"># Audit — records the full immutable audit trail for every transaction</span>
+principal register --type worker --name "Audit" --email audit@lynxcapital.local<div class="copy-row"><button class="cb">copy</button></div></div>
+      <div class="cmd-block"><span class="cc"># Exception Investigation — investigates and resolves failed or flagged transactions</span>
+principal register --type worker --name "Exception Investigation" --email exception@lynxcapital.local<div class="copy-row"><button class="cb">copy</button></div></div>
+    </div>
+  </div>
+
+  <!-- 4: Providers -->
+  <div class="phase">
+    <div class="phase-hd"><span>4 · Providers</span><span class="ti">▶</span></div>
+    <div class="phase-body">
+      <div class="note">Inside <code>caracal cli</code>. Run each line separately.</div>
+      <div class="cmd-block"><span class="cc"># Mercury Bank — banking</span>
+provider add mercury-bank --service-type banking --base-url http://mercury-bank.mock --auth-scheme api-key --credential demo-mercury-key<div class="copy-row"><button class="cb">copy</button></div></div>
+      <div class="cmd-block"><span class="cc"># Wise Payouts — payouts</span>
+provider add wise-payouts --service-type payouts --base-url http://wise-payouts.mock --auth-scheme api-key --credential demo-wise-key<div class="copy-row"><button class="cb">copy</button></div></div>
+      <div class="cmd-block"><span class="cc"># Stripe Treasury — banking</span>
+provider add stripe-treasury --service-type banking --base-url http://stripe-treasury.mock --auth-scheme api-key --credential demo-stripe-key<div class="copy-row"><button class="cb">copy</button></div></div>
+      <div class="cmd-block"><span class="cc"># NetSuite — erp</span>
+provider add netsuite --service-type erp --base-url http://netsuite.mock --auth-scheme api-key --credential demo-netsuite-key<div class="copy-row"><button class="cb">copy</button></div></div>
+      <div class="cmd-block"><span class="cc"># SAP ERP — erp</span>
+provider add sap-erp --service-type erp --base-url http://sap-erp.mock --auth-scheme api-key --credential demo-sap-key<div class="copy-row"><button class="cb">copy</button></div></div>
+      <div class="cmd-block"><span class="cc"># QuickBooks — erp</span>
+provider add quickbooks --service-type erp --base-url http://quickbooks.mock --auth-scheme api-key --credential demo-quickbooks-key<div class="copy-row"><button class="cb">copy</button></div></div>
+      <div class="cmd-block"><span class="cc"># Compliance Nexus — compliance</span>
+provider add compliance-nexus --service-type compliance --base-url http://compliance-nexus.mock --auth-scheme api-key --credential demo-compliance-key<div class="copy-row"><button class="cb">copy</button></div></div>
+      <div class="cmd-block"><span class="cc"># OCR Vision — document</span>
+provider add ocr-vision --service-type document --base-url http://ocr-vision.mock --auth-scheme api-key --credential demo-ocr-key<div class="copy-row"><button class="cb">copy</button></div></div>
+      <div class="cmd-block"><span class="cc"># Vendor Portal — vendor</span>
+provider add vendor-portal --service-type vendor --base-url http://vendor-portal.mock --auth-scheme api-key --credential demo-vendor-key<div class="copy-row"><button class="cb">copy</button></div></div>
+      <div class="cmd-block"><span class="cc"># Tax Rules Engine — tax</span>
+provider add tax-rules --service-type tax --base-url http://tax-rules.mock --auth-scheme api-key --credential demo-tax-key<div class="copy-row"><button class="cb">copy</button></div></div>
+      <div class="cmd-block"><span class="cc"># FX Rates — fx</span>
+provider add fx-rates --service-type fx --base-url http://fx-rates.mock --auth-scheme api-key --credential demo-fx-key<div class="copy-row"><button class="cb">copy</button></div></div>
+      <div class="note" style="margin-top:1.2rem;">Upgrade payment providers to scoped mode so tools can be registered against them.</div>
+      <div class="cmd-block"><span class="cc"># Mercury Bank — add scoped catalog (payment resource + actions)</span>
+provider update mercury-bank --mode scoped --resource "payment=Payment account management" --action "payment:get_account_balance:GET:/v1/balance" --action "payment:submit_payment:POST:/v1/payments"<div class="copy-row"><button class="cb">copy</button></div></div>
+      <div class="cmd-block"><span class="cc"># Wise Payouts — add scoped catalog (payout resource + actions)</span>
+provider update wise-payouts --mode scoped --resource "payout=Cross-border payout transfers" --action "payout:get_quote:GET:/v1/quotes" --action "payout:submit_payout:POST:/v1/payouts"<div class="copy-row"><button class="cb">copy</button></div></div>
+      <div class="note" style="margin-top:1.2rem;">Register tools so mandates in Phase 6 can reference them. Click <strong>Fill UUIDs</strong> after Phase 3 first so <code>&lt;finance-control-uuid&gt;</code> is substituted.</div>
+      <div class="cmd-block"><span class="cc"># Mercury Bank payment tool — used as the root mandate tool</span>
+tool register --tool-id "provider:mercury-bank:resource:payment:action:submit_payment" --provider-name mercury-bank --resource-id payment --action-id submit_payment --actor-principal-id <span class="ph">&lt;finance-control-uuid&gt;</span><div class="copy-row"><button class="cb">copy</button></div></div>
+      <div class="cmd-block"><span class="cc"># Wise Payouts payout tool — used as the payment mandate tool</span>
+tool register --tool-id "provider:wise-payouts:resource:payout:action:submit_payout" --provider-name wise-payouts --resource-id payout --action-id submit_payout --actor-principal-id <span class="ph">&lt;finance-control-uuid&gt;</span><div class="copy-row"><button class="cb">copy</button></div></div>
+    </div>
+  </div>
+
+  <!-- 5: Policies -->
+  <div class="phase">
+    <div class="phase-hd"><span>5 · Policies</span><span class="ti">▶</span></div>
+    <div class="phase-body">
+      <div class="note">Inside <code>caracal cli</code>. Run <code>principal list</code> first to get each UUID, then substitute below.</div>
+      <div class="cmd-block"><span class="cc"># Run this to get principal UUIDs for the commands below</span>
+principal list<div class="copy-row"><button class="cb">copy</button></div></div>
+      <div class="cmd-block"><span class="cc"># Finance Control — scoped to both payment providers, delegation allowed (8-hour window)</span>
+policy create --principal-id <span class="ph">&lt;finance-control-uuid&gt;</span> --max-validity-seconds 28800 --resource-pattern "provider:mercury-bank:resource:payment" --resource-pattern "provider:wise-payouts:resource:payout" --action "provider:mercury-bank:action:submit_payment" --action "provider:wise-payouts:action:submit_payout" --allow-delegation --max-delegation-network-distance 3<div class="copy-row"><button class="cb">copy</button></div></div>
+      <div class="cmd-block"><span class="cc"># Regional Orchestrator — scoped to wise-payouts, delegation allowed (6-hour window)</span>
+policy create --principal-id <span class="ph">&lt;regional-orchestrator-uuid&gt;</span> --max-validity-seconds 21600 --resource-pattern "provider:wise-payouts:resource:payout" --action "provider:wise-payouts:action:submit_payout" --allow-delegation --max-delegation-network-distance 2<div class="copy-row"><button class="cb">copy</button></div></div>
+      <div class="cmd-block"><span class="cc"># Policy Check — read-only access to compliance-nexus (1-hour window)</span>
+policy create --principal-id <span class="ph">&lt;policy-check-uuid&gt;</span> --max-validity-seconds 3600 --provider compliance-nexus --resource-pattern "provider:compliance-nexus:resource:*" --action "provider:compliance-nexus:action:*"<div class="copy-row"><button class="cb">copy</button></div></div>
+      <div class="cmd-block"><span class="cc"># Payment Execution — Mercury Bank payment submission (30-minute window)</span>
+policy create --principal-id <span class="ph">&lt;payment-execution-uuid&gt;</span> --max-validity-seconds 1800 --provider mercury-bank --resource-pattern "provider:mercury-bank:resource:payment" --action "provider:mercury-bank:action:submit_payment"<div class="copy-row"><button class="cb">copy</button></div></div>
+      <div class="cmd-block"><span class="cc"># Payment Execution — Wise payouts submission (30-minute window)</span>
+policy create --principal-id <span class="ph">&lt;payment-execution-uuid&gt;</span> --max-validity-seconds 1800 --provider wise-payouts --resource-pattern "provider:wise-payouts:resource:payout" --action "provider:wise-payouts:action:submit_payout"<div class="copy-row"><button class="cb">copy</button></div></div>
+    </div>
+  </div>
+
+  <!-- 6: Mandates -->
+  <div class="phase">
+    <div class="phase-hd"><span>6 · Mandates</span><span class="ti">▶</span></div>
+    <div class="phase-body">
+      <div class="note">Inside <code>caracal cli</code>. Run the two helper commands below to get principal UUIDs and tool IDs, then substitute the <span style="background:#2e2a14;color:#f5d76e;padding:0 3px;border-radius:2px;font-style:italic;font-size:10px">&lt;…&gt;</span> placeholders.</div>
+      <div class="cmd-block"><span class="cc"># Run this to get principal UUIDs</span>
+principal list<div class="copy-row"><button class="cb">copy</button></div></div>
+      <div class="cmd-block"><span class="cc"># Run this to get tool IDs</span>
+tool list<div class="copy-row"><button class="cb">copy</button></div></div>
+      <div class="cmd-block"><span class="cc"># Finance Control — self-issued root mandate covering both payment tools (8-hour window)</span>
+authority mandate --issuer-id <span class="ph">&lt;finance-control-uuid&gt;</span> --subject-id <span class="ph">&lt;finance-control-uuid&gt;</span> --tool-id <span class="ph">&lt;tool-id&gt;</span> --tool-id <span class="ph">&lt;payment-tool-id&gt;</span> --validity-seconds 28800<div class="copy-row"><button class="cb">copy</button></div></div>
+      <div class="note">Click <strong>Fill UUIDs</strong> to get the mandate ID from the previous step, then run the delegate commands.</div>
+{% for r in regions %}
+      <div class="cmd-block"><span class="cc"># Delegate to Regional Orchestrator — {{ r.name }} ({{ r.id }})</span>
+authority delegate --source-mandate-id <span class="ph">&lt;finance-control-mandate-uuid&gt;</span> --target-subject-id <span class="ph">&lt;regional-orchestrator-uuid&gt;</span> --resource-scope "provider:wise-payouts:resource:payout" --action-scope "provider:wise-payouts:action:submit_payout" --validity-seconds 21600 --context-tags "region:{{ r.id }}"<div class="copy-row"><button class="cb">copy</button></div></div>
+{% endfor %}
+      <div class="cmd-block"><span class="cc"># Payment Execution — per-transaction mandate; issue at dispatch time (30-minute window)</span>
+authority mandate --issuer-id <span class="ph">&lt;regional-orchestrator-uuid&gt;</span> --subject-id <span class="ph">&lt;payment-execution-uuid&gt;</span> --tool-id <span class="ph">&lt;payment-tool-id&gt;</span> --validity-seconds 1800<div class="copy-row"><button class="cb">copy</button></div></div>
+    </div>
+  </div>
+
+  </div>
+
+  <!-- Demo-only side panel -->
+  <div class="demo-panel">
+    <span class="demo-tag">Demo only</span>
+    <div class="demo-title">Mock provider network</div>
+    <div class="demo-note">Not part of the core setup. Starts a single container that acts as all 11 external providers on the <code>caracal-runtime</code> Docker network. Run this once after <code>caracal up</code>.</div>
+    <div class="cmd-block" style="margin-bottom:0">docker compose -f _mock/docker-compose.yml up -d --build<div class="copy-row"><button class="cb">copy</button></div></div>
+  </div>
+
+  <div class="validate-bar" style="grid-column:1">
+    <button id="fill-uuids-btn">Fill UUIDs</button>
+    <button id="validate-btn">Validate configuration</button>
+    <button id="start-demo-btn" style="display:none; background:var(--accent); color:#fff; border:none; padding:8px 18px; font-size:12px; font-weight:600; border-radius:3px; cursor:pointer;">Start Demo →</button>
+    <div id="validate-out"></div>
+  </div>
+</div>
+
+<script type="module">
+  document.querySelectorAll('.phase-hd').forEach(hd => {
+    hd.addEventListener('click', () => hd.closest('.phase').classList.toggle('open'));
+  });
+
+  function extractText(block, includeComments) {
+    let out = '';
+    block.childNodes.forEach(node => {
+      if (node.nodeType === Node.TEXT_NODE) {
+        out += node.textContent;
+      } else if (node.nodeType === Node.ELEMENT_NODE) {
+        if (node.classList.contains('copy-row')) return;
+        if (node.classList.contains('cc')) {
+          if (includeComments) out += node.textContent;
+        } else {
+          out += node.textContent;
+        }
+      }
+    });
+    return out.trim().replace(/\n{3,}/g, '\n\n');
+  }
+
+  document.querySelectorAll('.cb').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const block = btn.closest('.cmd-block');
+      navigator.clipboard.writeText(extractText(block, false))
+        .then(() => { btn.textContent = 'copied'; setTimeout(() => btn.textContent = 'copy', 1500); });
+    });
+  });
+
+  document.querySelectorAll('.cba').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const block = btn.closest('.cmd-block');
+      navigator.clipboard.writeText(extractText(block, true))
+        .then(() => { btn.textContent = 'copied'; setTimeout(() => btn.textContent = 'copy w/ notes', 1500); });
+    });
+  });
+
+  const validateBtn = document.getElementById('validate-btn');
+  const fillBtn = document.getElementById('fill-uuids-btn');
+  const startDemoBtn = document.getElementById('start-demo-btn');
+  const validateOut = document.getElementById('validate-out');
+
+  fillBtn.addEventListener('click', async () => {
+    fillBtn.disabled = true;
+    fillBtn.textContent = 'Fetching...';
+    try {
+      const [pRes, tRes, mRes] = await Promise.all([
+        fetch('/api/setup/principals').then(r => r.json()),
+        fetch('/api/setup/tools').then(r => r.json()),
+        fetch('/api/setup/mandates').then(r => r.json()),
+      ]);
+      if (!pRes.ok) throw new Error(pRes.error || 'principals fetch failed');
+
+      // Build lookup maps
+      const byName = {};
+      for (const p of pRes.principals) byName[p.name] = p.principal_id;
+
+      const tools = tRes.ok ? (tRes.tools || []) : [];
+      const mandates = mRes.ok ? (mRes.mandates || []) : [];
+
+      // principal slug → principal name
+      const SLUG_MAP = [
+        ['finance-control-uuid',        'Finance Control'],
+        ['regional-orchestrator-uuid',  'Regional Orchestrator'],
+        ['policy-check-uuid',           'Policy Check'],
+        ['payment-execution-uuid',      'Payment Execution'],
+      ];
+
+      // payment providers for payment-tool-id lookup
+      const PAYMENT_PROVIDERS = new Set(['mercury-bank', 'wise-payouts']);
+
+      const firstTool = tools[0];
+      const paymentTool = tools.find(t => t.provider_name === 'wise-payouts')
+                       || tools.find(t => PAYMENT_PROVIDERS.has(t.provider_name));
+
+      // Finance Control root mandate: self-issued (issuer === subject), no source mandate
+      const fcPrincipalId = byName['Finance Control'];
+      const rootMandate = fcPrincipalId
+        ? mandates.find(m => !m.source_mandate_id && m.issuer_id === fcPrincipalId)
+        : undefined;
+
+      function applyFill(span, value) {
+        span.textContent = value;
+        span.style.fontStyle = 'normal';
+        span.style.color = '#7fd47f';
+        span.style.background = 'transparent';
+      }
+
+      document.querySelectorAll('span.ph').forEach(span => {
+        const slug = span.textContent.replace(/[<>]/g, '').trim();
+
+        // Principal UUIDs
+        const pm = SLUG_MAP.find(([s]) => slug === s);
+        if (pm) {
+          const uuid = byName[pm[1]];
+          if (uuid) applyFill(span, uuid);
+          return;
+        }
+
+        // Tool IDs
+        if (slug === 'tool-id' && firstTool) {
+          applyFill(span, firstTool.tool_id);
+          return;
+        }
+        if (slug === 'payment-tool-id' && paymentTool) {
+          applyFill(span, paymentTool.tool_id);
+          return;
+        }
+
+        // Mandate UUID (filled after root mandate is issued)
+        if (slug === 'finance-control-mandate-uuid' && rootMandate) {
+          applyFill(span, rootMandate.mandate_id);
+          return;
+        }
+      });
+
+      fillBtn.textContent = 'Filled';
+      setTimeout(() => { fillBtn.textContent = 'Fill UUIDs'; fillBtn.disabled = false; }, 2000);
+    } catch (e) {
+      fillBtn.textContent = 'Failed: ' + e.message;
+      setTimeout(() => { fillBtn.textContent = 'Fill UUIDs'; fillBtn.disabled = false; }, 3000);
+    }
+  });
+
+
+  validateBtn.addEventListener('click', async () => {
+    validateBtn.disabled = true;
+    validateBtn.textContent = 'Checking...';
+    validateOut.innerHTML = '';
+    startDemoBtn.style.display = 'none';
+    try {
+      const r = await fetch('/api/setup/validate');
+      const data = await r.json();
+      validateOut.innerHTML = data.steps.map(s => `
+        <div class="rs">
+          <div class="badge ${s.ok ? 'badge-ok' : 'badge-fail'}">${s.ok ? '✓' : '✗'}</div>
+          <span>${s.label}</span>
+        </div>
+        ${s.detail ? `<div class="rd">${s.detail}</div>` : ''}
+      `).join('');
+      if (data.ok) startDemoBtn.style.display = 'inline-block';
+    } catch (e) {
+      validateOut.textContent = 'Validation failed: ' + e.message;
+    } finally {
+      validateBtn.disabled = false;
+      validateBtn.textContent = 'Validate configuration';
+    }
+  });
+
+  startDemoBtn.addEventListener('click', async () => {
+    startDemoBtn.disabled = true;
+    await fetch('/api/session/setup-complete', {method: 'POST'});
+    window.location = '/demo';
+  });
+</script>
+{% endblock %}

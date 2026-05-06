@@ -1,0 +1,152 @@
+{% extends "layout.html" %}
+{% block title %}{{ company }} — Example Prompts{% endblock %}
+{% block content %}
+<style>
+.prompts-page { padding: 28px 24px; }
+.prompts-page-head { max-width: 960px; margin: 0 auto 20px; }
+.prompts-page-head h1 { font-size: 19px; font-weight: 600; color: var(--text); margin-bottom: 5px; }
+.prompts-page-head p  { font-size: 12px; color: #5a6478; line-height: 1.55; }
+.prompts-page-head p a { color: var(--accent); }
+
+.columns-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+  max-width: 1160px;
+  margin: 0 auto;
+}
+
+.col-header {
+  display: flex; align-items: center; gap: 8px; margin-bottom: 10px;
+}
+.col-badge {
+  display: inline-flex; align-items: center; gap: 4px; padding: 3px 9px;
+  border-radius: 3px; font-size: 10px; font-weight: 700;
+  letter-spacing: 0.05em; text-transform: uppercase;
+}
+.badge-allow   { background: #e6f5ec; color: var(--success); }
+.badge-partial { background: #fff7e6; color: var(--warning); }
+.badge-deny    { background: #fdecea; color: var(--danger); }
+
+.col-desc { font-size: 11px; color: #5a6478; margin-bottom: 12px; }
+
+.prompt-card {
+  background: #fff; border: 1px solid var(--border); border-radius: 6px;
+  padding: 12px 14px; margin-bottom: 8px; cursor: pointer;
+  transition: border-color 0.12s, box-shadow 0.12s;
+}
+.prompt-card:hover { border-color: var(--accent); box-shadow: 0 1px 6px rgba(30,91,216,0.07); }
+
+.prompt-card-top { display: flex; align-items: flex-start; gap: 8px; margin-bottom: 6px; }
+.prompt-icon { font-size: 13px; flex-shrink: 0; margin-top: 2px; }
+.prompt-text { font-size: 12px; font-weight: 500; color: var(--text); line-height: 1.4; flex: 1; }
+
+.prompt-reason { font-size: 11px; color: #5a6478; line-height: 1.45; margin-bottom: 7px; }
+
+.prompt-footer { display: flex; align-items: center; justify-content: space-between; }
+.prompt-tags { display: flex; flex-wrap: wrap; gap: 3px; flex: 1; min-width: 0; }
+.prompt-tag {
+  font-size: 10px; padding: 1px 5px; border-radius: 3px;
+  background: var(--surface); border: 1px solid var(--border); color: #5a6478;
+  white-space: nowrap;
+}
+.copy-btn {
+  flex-shrink: 0; padding: 3px 9px; font-size: 10px;
+  border: 1px solid var(--border); border-radius: 3px;
+  background: var(--surface); cursor: pointer; color: #5a6478;
+  transition: background 0.12s, border-color 0.12s, color 0.12s;
+}
+.copy-btn:hover   { background: var(--accent); color: #fff; border-color: var(--accent); }
+.copy-btn.copied  { background: var(--success); color: #fff; border-color: var(--success); }
+
+.col-loading { font-size: 12px; color: #aab0bc; font-style: italic; padding: 10px 0; }
+
+.go-demo-row {
+  max-width: 960px; margin: 20px auto 0;
+  display: flex; align-items: center; gap: 12px;
+}
+.go-demo-row p { font-size: 12px; color: #5a6478; }
+</style>
+
+<div class="prompts-page">
+
+  <div class="columns-grid">
+
+    <div class="col" id="col-allow">
+      <div class="col-header">
+        <span class="col-badge badge-allow">✓ Succeeds</span>
+      </div>
+      <p class="col-desc">Payment rail is registered. Agents spawn, delegate, and Caracal allows the core action.</p>
+      <div class="cards-list" id="cards-allow">
+        <div class="col-loading">Loading…</div>
+      </div>
+    </div>
+
+    <div class="col" id="col-partial">
+      <div class="col-header">
+        <span class="col-badge badge-partial">⚡ Partial</span>
+      </div>
+      <p class="col-desc">Pre-payment steps are denied. Agents note denials and continue — payments still execute.</p>
+      <div class="cards-list" id="cards-partial">
+        <div class="col-loading">Loading…</div>
+      </div>
+    </div>
+
+    <div class="col" id="col-deny">
+      <div class="col-header">
+        <span class="col-badge badge-deny">✗ Denied</span>
+      </div>
+      <p class="col-desc">The primary requested action is an unregistered tool. Caracal blocks at first enforcement.</p>
+      <div class="cards-list" id="cards-deny">
+        <div class="col-loading">Loading…</div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+function _card(p) {
+  const tags = (p.tags || []).map(t => `<span class="prompt-tag">${t}</span>`).join('');
+  const el = document.createElement('div');
+  el.className = 'prompt-card';
+  el.dataset.prompt = p.text;
+  el.innerHTML = `
+    <div class="prompt-card-top">
+      <span class="prompt-icon">${p.icon || '•'}</span>
+      <span class="prompt-text">${p.text}</span>
+    </div>
+    <div class="prompt-reason">${p.reason}</div>
+    <div class="prompt-footer">
+      <div class="prompt-tags">${tags}</div>
+      <button class="copy-btn">Copy</button>
+    </div>`;
+  el.querySelector('.copy-btn').addEventListener('click', e => {
+    e.stopPropagation();
+    navigator.clipboard.writeText(p.text).then(() => {
+      const btn = e.currentTarget;
+      btn.textContent = 'Copied!';
+      btn.classList.add('copied');
+      setTimeout(() => { btn.textContent = 'Copy'; btn.classList.remove('copied'); }, 1800);
+    });
+  });
+  return el;
+}
+
+async function loadPrompts() {
+  const r = await fetch('/static/prompts.json');
+  const d = await r.json();
+  for (const outcome of ['allow', 'partial', 'deny']) {
+    const container = document.getElementById(`cards-${outcome}`);
+    container.innerHTML = '';
+    (d[outcome] || []).forEach(p => container.appendChild(_card(p)));
+  }
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  const a = document.getElementById('nav-prompts');
+  if (a) a.classList.add('active');
+  loadPrompts();
+});
+</script>
+{% endblock %}

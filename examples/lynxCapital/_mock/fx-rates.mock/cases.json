@@ -1,0 +1,30 @@
+{
+  "service": "fx-rates",
+  "actions": {
+    "get_rate": {
+      "match_key": ["from_currency", "to_currency"],
+      "cases": {
+        "USD|USD": {"from_currency": "USD", "to_currency": "USD", "rate": 1.0,     "mid_rate": 1.0,     "bid": 1.0,     "ask": 1.0,     "source": "ECB", "timestamp": "2026-04-22T09:00:00Z"},
+        "USD|EUR": {"from_currency": "USD", "to_currency": "EUR", "rate": 0.926,   "mid_rate": 0.926,   "bid": 0.924,   "ask": 0.928,   "source": "ECB", "timestamp": "2026-04-22T09:00:00Z"},
+        "USD|INR": {"from_currency": "USD", "to_currency": "INR", "rate": 83.47,   "mid_rate": 83.47,   "bid": 83.35,   "ask": 83.59,   "source": "RBI", "timestamp": "2026-04-22T09:00:00Z"},
+        "USD|SGD": {"from_currency": "USD", "to_currency": "SGD", "rate": 1.348,   "mid_rate": 1.348,   "bid": 1.346,   "ask": 1.350,   "source": "MAS", "timestamp": "2026-04-22T09:00:00Z"},
+        "USD|BRL": {"from_currency": "USD", "to_currency": "BRL", "rate": 5.05,    "mid_rate": 5.05,    "bid": 5.03,    "ask": 5.07,    "source": "BCB", "timestamp": "2026-04-22T09:00:00Z"},
+        "EUR|USD": {"from_currency": "EUR", "to_currency": "USD", "rate": 1.08,    "mid_rate": 1.08,    "bid": 1.078,   "ask": 1.082,   "source": "ECB", "timestamp": "2026-04-22T09:00:00Z"},
+        "INR|USD": {"from_currency": "INR", "to_currency": "USD", "rate": 0.01198, "mid_rate": 0.01198, "bid": 0.01196, "ask": 0.01200, "source": "RBI", "timestamp": "2026-04-22T09:00:00Z"},
+        "SGD|USD": {"from_currency": "SGD", "to_currency": "USD", "rate": 0.742,   "mid_rate": 0.742,   "bid": 0.741,   "ask": 0.743,   "source": "MAS", "timestamp": "2026-04-22T09:00:00Z"},
+        "BRL|USD": {"from_currency": "BRL", "to_currency": "USD", "rate": 0.198,   "mid_rate": 0.198,   "bid": 0.197,   "ask": 0.199,   "source": "BCB", "timestamp": "2026-04-22T09:00:00Z"},
+        "EUR|INR": {"from_currency": "EUR", "to_currency": "INR", "rate": 90.17,   "mid_rate": 90.17,   "bid": 90.05,   "ask": 90.29,   "source": "ECB", "timestamp": "2026-04-22T09:00:00Z"},
+        "EUR|SGD": {"from_currency": "EUR", "to_currency": "SGD", "rate": 1.457,   "mid_rate": 1.457,   "bid": 1.455,   "ask": 1.459,   "source": "ECB", "timestamp": "2026-04-22T09:00:00Z"},
+        "default": {"from_currency": null,  "to_currency": null,  "rate": 1.0,     "mid_rate": 1.0,     "bid": 1.0,     "ask": 1.0,     "source": "fallback", "timestamp": "2026-04-22T09:00:00Z"}
+      }
+    },
+    "get_rates_batch": {
+      "match_key": "base_currency",
+      "cases": {
+        "USD": {"base": "USD", "timestamp": "2026-04-22T09:00:00Z", "rates": {"USD": 1.0, "EUR": 0.926, "INR": 83.47, "SGD": 1.348, "BRL": 5.05}},
+        "EUR": {"base": "EUR", "timestamp": "2026-04-22T09:00:00Z", "rates": {"USD": 1.08, "EUR": 1.0, "INR": 90.17, "SGD": 1.457, "BRL": 5.454}},
+        "default": {"base": "USD", "timestamp": "2026-04-22T09:00:00Z", "rates": {"USD": 1.0, "EUR": 0.926, "INR": 83.47, "SGD": 1.348, "BRL": 5.05}}
+      }
+    }
+  }
+}
