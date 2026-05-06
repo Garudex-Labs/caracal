@@ -24,5 +24,8 @@ func main() {
 		fmt.Fprintf(os.Stderr, "startup: %v\n", err)
 		os.Exit(1)
 	}
-	srv.Run(ctx)
+	if err := srv.Run(ctx); err != nil {
+		fmt.Fprintf(os.Stderr, "shutdown: %v\n", err)
+		os.Exit(1)
+	}
 }
