@@ -156,6 +156,20 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile --prefer-offline
 
+      - name: Build TypeScript packages
+        shell: bash
+        run: |
+          set -euo pipefail
+          pnpm --dir packages/ts-shared build
+          pnpm --dir packages/caracalai-oauth build
+          pnpm --dir packages/caracalai-admin build
+          pnpm --dir packages/caracalai-agent build
+          pnpm --dir packages/caracalai-mcp build
+          pnpm --dir packages/caracalai-mcp-fastmcp build
+          pnpm --dir packages/caracalai-cloudflare build
+          pnpm --dir apps/api build
+          pnpm --dir apps/agent-coordinator build
+
       - name: Run lint scripts
         run: pnpm -r --if-present lint
 
@@ -207,15 +221,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          pnpm --dir apps/api build
-          pnpm --dir apps/agent-coordinator build
-          pnpm --dir packages/ts-shared build
-          pnpm --dir packages/caracalai-admin build
-          pnpm --dir packages/caracalai-agent build
-          pnpm --dir packages/caracalai-oauth build
-          pnpm --dir packages/caracalai-mcp build
           pnpm --dir packages/caracalai-mcp-fastmcp build
-          pnpm --dir packages/caracalai-cloudflare build
 
       - name: Upload TypeScript coverage artifact
         uses: actions/upload-artifact@v4
@@ -284,11 +290,11 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          python -m pip install -e packages/caracalai-mcp-python coverage
+          python -m pip install -e packages/caracalai-mcp-python coverage cryptography
 
       - name: Run Python tests with coverage
         env:
-          PYTHONPATH: ${{ github.workspace }}/packages/caracalai-mcp-python
+          PYTHONPATH: ${{ github.workspace }}/packages/caracalai-mcp-python:${{ github.workspace }}/tests/shared/test-utils/python
         run: |
           set -euxo pipefail
           mkdir -p coverage/python
