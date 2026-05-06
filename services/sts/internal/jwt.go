@@ -113,6 +113,7 @@ type IssueParams struct {
 	Scopes           string
 	Resources        []string
 	TTL              time.Duration
+	OnBehalfOf       string
 	DelegationEdgeID string
 	SourceSessionID  string
 	TargetSessionID  string
@@ -128,11 +129,12 @@ func issueToken(ctx context.Context, params IssueParams, keys *KeyCache, issuerU
 
 	now := time.Now()
 	jti, _ := uuid.NewV7()
+	audience := append([]string{issuerURL}, params.Resources...)
 	claims := Claims{
 		RegisteredClaims: jwt.RegisteredClaims{
 			Issuer:    issuerURL,
 			Subject:   params.SubjectID,
-			Audience:  params.Resources,
+			Audience:  audience,
 			ExpiresAt: jwt.NewNumericDate(now.Add(params.TTL)),
 			IssuedAt:  jwt.NewNumericDate(now),
 			ID:        jti.String(),
@@ -142,6 +144,7 @@ func issueToken(ctx context.Context, params IssueParams, keys *KeyCache, issuerU
 		Scope:            params.Scopes,
 		SID:              params.SID,
 		Target:           params.Resources,
+		OnBehalf:         params.OnBehalfOf,
 		DelegationEdgeID: params.DelegationEdgeID,
 		SourceSessionID:  params.SourceSessionID,
 		TargetSessionID:  params.TargetSessionID,

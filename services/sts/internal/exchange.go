@@ -234,7 +234,7 @@ func (s *Server) exchange(ctx context.Context, req TokenExchangeRequest, request
 		}
 
 		if !challengeResolved && pendingChallenge == nil {
-			if t := stepUpRequiredFromResult(result); t != "" {
+			if t := stepUpRequired(result); t != "" {
 				stepUpType = t
 			}
 		}
@@ -422,7 +422,7 @@ func buildAuditEvent(requestID, zoneID, decision, status string, result *OPAResu
 	}
 }
 
-func stepUpRequiredFromResult(result *OPAResult) string {
+func stepUpRequired(result *OPAResult) string {
 	for _, d := range result.Diagnostics {
 		if ct, ok := d["step_up_required"].(string); ok {
 			return ct
@@ -430,9 +430,6 @@ func stepUpRequiredFromResult(result *OPAResult) string {
 	}
 	return ""
 }
-
-// stepUpRequired is retained for tests and callers that read diagnostics directly.
-func stepUpRequired(result *OPAResult) string { return stepUpRequiredFromResult(result) }
 
 func sessionInput(sessionID string) *OPASession {
 	if sessionID == "" {
