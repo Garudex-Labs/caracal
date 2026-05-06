@@ -37,7 +37,16 @@ export interface Config {
   databaseUrl: string
   redisUrl: string
   logLevel: string
-  adminToken: string
+  bootstrapAdminToken: string | null
+  localBootstrapEnabled: boolean
+  shutdownTimeoutMs: number
+  workerId: string
+  outbox: {
+    pollIntervalMs: number
+    batchSize: number
+    lockDurationSec: number
+    maxAttempts: number
+  }
 }
 
 function buildDatabaseUrl(): string {
@@ -58,12 +67,41 @@ function buildRedisUrl(): string {
   return `redis://:${password}@${host}:${port}`
 }
 
+function parseBool(value: string | undefined, fallback: boolean): boolean {
+  if (value === undefined || value === '') return fallback
+  return value === '1' || value.toLowerCase() === 'true'
+}
+
+function parseIntEnv(name: string, fallback: number): number {
+  const raw = process.env[name]
+  if (!raw) return fallback
+  const parsed = parseInt(raw, 10)
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    throw new Error(`${name} must be a positive integer`)
+  }
+  return parsed
+}
+
+function deriveWorkerId(): string {
+  return process.env.CARACAL_WORKER_ID
+    ?? `${process.env.HOSTNAME ?? 'api'}:${process.pid}`
+}
+
 export function loadConfig(): Config {
   return {
-    port: parseInt(getenv('PORT', '3000'), 10),
+    port: parseIntEnv('PORT', 3000),
     databaseUrl: buildDatabaseUrl(),
     redisUrl: buildRedisUrl(),
     logLevel: getenv('LOG_LEVEL', 'info'),
-    adminToken: mustGetenv('CARACAL_ADMIN_TOKEN'),
+    bootstrapAdminToken: process.env.CARACAL_ADMIN_TOKEN ?? null,
+    localBootstrapEnabled: parseBool(process.env.CARACAL_LOCAL_BOOTSTRAP_ENABLED, false),
+    shutdownTimeoutMs: parseIntEnv('CARACAL_SHUTDOWN_TIMEOUT_MS', 15_000),
+    workerId: deriveWorkerId(),
+    outbox: {
+      pollIntervalMs: parseIntEnv('CARACAL_OUTBOX_POLL_MS', 250),
+      batchSize: parseIntEnv('CARACAL_OUTBOX_BATCH', 32),
+      lockDurationSec: parseIntEnv('CARACAL_OUTBOX_LOCK_SEC', 30),
+      maxAttempts: parseIntEnv('CARACAL_OUTBOX_MAX_ATTEMPTS', 100),
+    },
   }
 }

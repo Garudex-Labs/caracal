@@ -62,6 +62,19 @@ export const localBootstrapRoutes: FastifyPluginAsync = async (fastify) => {
     const existing = await fastify.db.query(`SELECT id FROM zones WHERE id = $1`, [ZONE_ID])
     const zoneExists = existing.rowCount! > 0
 
+    if (zoneExists) {
+      const { rows: secretRows } = await fastify.db.query<{ dek_id: string }>(
+        `SELECT dek_id FROM secrets WHERE id = $1 AND zone_id = $2`,
+        [SIGNING_KEY_ID, ZONE_ID],
+      )
+      if (secretRows[0] && secretRows[0].dek_id !== 'local') {
+        return reply.code(409).send({
+          error: 'zone_not_local_bootstrap',
+          detail: 'refusing to overwrite zone whose signing key was sealed under a real KEK',
+        })
+      }
+    }
+
     if (zoneExists && !force) {
       return {
         zone_id: ZONE_ID,
