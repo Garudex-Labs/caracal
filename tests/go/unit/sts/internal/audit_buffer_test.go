@@ -85,7 +85,7 @@ func TestOPAMetricsSnapshotReflectsIncrements(t *testing.T) {
 	e.metrics.EvalErrors.Add(2)
 	e.metrics.CompileTotal.Add(1)
 
-	snap := e.Metrics()
+	snap := e.MetricsSnapshot()
 	if snap.EvalTotal != 10 {
 		t.Errorf("want EvalTotal=10, got %d", snap.EvalTotal)
 	}

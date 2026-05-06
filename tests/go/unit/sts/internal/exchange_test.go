@@ -222,15 +222,15 @@ func (s *stubDB) GetDelegationPath(_ context.Context, _, _, _ string, _ int) ([]
 func (s *stubDB) GetDelegationGraphEpoch(_ context.Context, _ string) (int64, error) {
 	return s.graphEpoch, s.epochErr
 }
-func (s *stubDB) InsertSession(_ context.Context, _ *Session) error      { return s.sessErr }
-func (s *stubDB) RevokeSession(_ context.Context, _, _ string) error     { return nil }
+func (s *stubDB) InsertSession(_ context.Context, _ *Session) error  { return s.sessErr }
+func (s *stubDB) RevokeSession(_ context.Context, _, _ string) error { return nil }
 func (s *stubDB) GetStepUpChallenge(_ context.Context, _ string) (*StepUpChallengePG, error) {
 	return nil, errors.New("stub")
 }
 func (s *stubDB) InsertStepUpChallenge(_ context.Context, _ *StepUpChallengePG) error {
 	return nil
 }
-func (s *stubDB) SatisfyStepUpChallenge(_ context.Context, _ string) error          { return nil }
+func (s *stubDB) SatisfyStepUpChallenge(_ context.Context, _ string) error { return nil }
 func (s *stubDB) ConsumeStepUpChallenge(_ context.Context, _ ConsumeStepUpParams) error {
 	return nil
 }
@@ -754,7 +754,7 @@ result := {"decision": "allow", "evaluation_status": "complete", "determining_po
 			t.Fatalf("want allow complete at iteration %d, got %#v", iteration, result)
 		}
 	}
-	if got := opaEngine.Metrics().EvalTotal; got != 250 {
+	if got := opaEngine.MetricsSnapshot().EvalTotal; got != 250 {
 		t.Fatalf("want 250 OPA evaluations, got %d", got)
 	}
 }

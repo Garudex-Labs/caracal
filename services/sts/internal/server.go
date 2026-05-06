@@ -60,7 +60,7 @@ func New(ctx context.Context) (*Server, error) {
 	}
 
 	keys := newKeyCache(db, kek)
-	opa := newOPAEngine(db)
+	opa := newOPAEngine(db, log)
 	buf := newAuditBuffer(rdb, log)
 
 	return &Server{
@@ -188,7 +188,7 @@ func (s *Server) handleMetrics(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
 		"sts":           s.metrics.Snapshot(),
-		"opa":           s.opa.Metrics(),
+		"opa":           s.opa.MetricsSnapshot(),
 		"audit_dropped": s.auditBuffer.Dropped(),
 	})
 }
