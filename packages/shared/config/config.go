@@ -13,6 +13,7 @@ type Base struct {
 	DatabaseURL string
 	RedisURL    string
 	LogLevel    string
+	Env         string
 }
 
 // Load reads Base from environment variables, panicking on missing required values.
@@ -22,7 +23,17 @@ func Load() Base {
 		DatabaseURL: MustGetenv("DATABASE_URL"),
 		RedisURL:    MustGetenv("REDIS_URL"),
 		LogLevel:    Getenv("LOG_LEVEL", "info"),
+		Env:         Getenv("CARACAL_ENV", "development"),
 	}
+}
+
+// IsProduction reports whether the service runs in a production-like environment.
+func (b Base) IsProduction() bool {
+	switch b.Env {
+	case "production", "prod", "staging":
+		return true
+	}
+	return false
 }
 
 // MustGetenv returns the value of key or panics if it is unset or empty.
