@@ -218,14 +218,15 @@ func (s *Server) exchange(ctx context.Context, req TokenExchangeRequest, request
 		}
 
 		result, evalErr := s.opa.Evaluate(ctx, opaInput)
+		bundle := s.opa.BundleInfo(zoneID)
 		if evalErr != nil {
-			s.auditBuffer.Emit(buildAuditEvent(requestID, zoneID, "deny", "policy_eval_failed", &OPAResult{},
-				map[string]interface{}{"resource": resource.Identifier}))
+			s.auditBuffer.Emit(buildAuditEventWithBundle(requestID, zoneID, "deny", "policy_eval_failed", &OPAResult{},
+				map[string]interface{}{"resource": resource.Identifier}, bundle))
 			return nil, nil, http.StatusServiceUnavailable, sharederr.New(sharederr.PolicyEvalFailed, "policy evaluation unavailable")
 		}
 
-		s.auditBuffer.Emit(buildAuditEvent(requestID, zoneID, result.Decision, result.EvaluationStatus, result,
-			map[string]interface{}{"resource": resource.Identifier}))
+		s.auditBuffer.Emit(buildAuditEventWithBundle(requestID, zoneID, result.Decision, result.EvaluationStatus, result,
+			map[string]interface{}{"resource": resource.Identifier}, bundle))
 
 		// Partial evaluation is a hard-deny invariant: any partial answer fails the
 		// entire request rather than silently dropping a resource slot.
@@ -233,7 +234,7 @@ func (s *Server) exchange(ctx context.Context, req TokenExchangeRequest, request
 			return nil, nil, http.StatusForbidden, sharederr.New(sharederr.PolicyEvalFailed, "partial policy evaluation")
 		}
 
-		if !challengeResolved && pendingChallenge == nil {
+		if !challengeResolved {
 			if t := stepUpRequired(result); t != "" {
 				stepUpType = t
 			}
@@ -399,6 +400,10 @@ func (s *Server) validateTokenSession(ctx context.Context, zoneID, sessionID str
 }
 
 func buildAuditEvent(requestID, zoneID, decision, status string, result *OPAResult, meta map[string]interface{}) AuditEvent {
+	return buildAuditEventWithBundle(requestID, zoneID, decision, status, result, meta, ZoneBundleInfo{})
+}
+
+func buildAuditEventWithBundle(requestID, zoneID, decision, status string, result *OPAResult, meta map[string]interface{}, bundle ZoneBundleInfo) AuditEvent {
 	id, _ := uuid.NewV7()
 	dpJSON, _ := json.Marshal(result.DeterminingPolicies)
 	diagJSON, _ := json.Marshal(result.Diagnostics)
@@ -414,6 +419,8 @@ func buildAuditEvent(requestID, zoneID, decision, status string, result *OPAResu
 		EventType:               "token_exchange",
 		RequestID:               requestID,
 		Decision:                decision,
+		PolicySetVersionID:      bundle.PolicySetVersionID,
+		ManifestSHA:             bundle.ManifestSHA,
 		EvaluationStatus:        status,
 		DeterminingPoliciesJSON: dpJSON,
 		DiagnosticsJSON:         diagJSON,

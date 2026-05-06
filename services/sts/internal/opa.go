@@ -16,14 +16,16 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/open-policy-agent/opa/rego"
+	"github.com/rs/zerolog"
 )
 
 const pgPollInterval = 60 * time.Second
 
 // opaZoneState holds a compiled query and the manifest SHA that produced it.
 type opaZoneState struct {
-	query       *rego.PreparedEvalQuery
-	manifestSHA string
+	query              *rego.PreparedEvalQuery
+	manifestSHA        string
+	policySetVersionID string
 }
 
 // OPAEngine maintains one compiled policy per zone, swapped atomically on invalidation.
@@ -32,6 +34,7 @@ type OPAEngine struct {
 	zones   map[string]*opaZoneState
 	db      DBQuerier
 	metrics OPAMetrics
+	log     zerolog.Logger
 }
 
 type OPAMetrics struct {
@@ -52,10 +55,17 @@ type OPAMetricsSnapshot struct {
 	CompileDurationNs uint64 `json:"compile_duration_ns"`
 }
 
-func newOPAEngine(db DBQuerier) *OPAEngine {
+func newOPAEngine(db DBQuerier, log ...zerolog.Logger) *OPAEngine {
+	var l zerolog.Logger
+	if len(log) > 0 {
+		l = log[0]
+	} else {
+		l = zerolog.Nop()
+	}
 	return &OPAEngine{
 		zones: make(map[string]*opaZoneState),
 		db:    db,
+		log:   l,
 	}
 }
 
@@ -102,7 +112,27 @@ func (e *OPAEngine) Evaluate(ctx context.Context, input OPAInput) (*OPAResult, e
 	return &result, nil
 }
 
-func (e *OPAEngine) Metrics() OPAMetricsSnapshot {
+// ZoneBundleInfo identifies the policy_set version backing a zone's compiled bundle so
+// callers can stamp audit events with the exact manifest used for the decision.
+type ZoneBundleInfo struct {
+	PolicySetVersionID string
+	ManifestSHA        string
+}
+
+// BundleInfo returns the manifest SHA and policy_set version ID currently installed
+// for a zone, or an empty struct when no bundle is loaded yet.
+func (e *OPAEngine) BundleInfo(zoneID string) ZoneBundleInfo {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	state, ok := e.zones[zoneID]
+	if !ok {
+		return ZoneBundleInfo{}
+	}
+	return ZoneBundleInfo{PolicySetVersionID: state.policySetVersionID, ManifestSHA: state.manifestSHA}
+}
+
+// MetricsSnapshot returns a point-in-time copy of OPA evaluation and compilation counters.
+func (e *OPAEngine) MetricsSnapshot() OPAMetricsSnapshot {
 	return OPAMetricsSnapshot{
 		EvalTotal:         e.metrics.EvalTotal.Load(),
 		EvalErrors:        e.metrics.EvalErrors.Load(),
@@ -128,10 +158,13 @@ func (e *OPAEngine) SeedZones(ctx context.Context) {
 	}
 	zones, err := e.db.ListBoundZoneIDs(ctx)
 	if err != nil {
+		e.log.Error().Err(err).Msg("opa seed: list bound zones")
 		return
 	}
 	for _, z := range zones {
-		_ = e.loadZone(ctx, z)
+		if err := e.loadZone(ctx, z); err != nil {
+			e.log.Error().Err(err).Str("zone", z).Msg("opa seed: load zone")
+		}
 	}
 }
 
@@ -150,7 +183,9 @@ func (e *OPAEngine) StartPGPolling(ctx context.Context) {
 			}
 			e.mu.RUnlock()
 			for _, zoneID := range zones {
-				_ = e.loadZone(ctx, zoneID)
+				if err := e.loadZone(ctx, zoneID); err != nil {
+					e.log.Error().Err(err).Str("zone", zoneID).Msg("opa pg poll: reload zone")
+				}
 			}
 		case <-ctx.Done():
 			return
@@ -233,7 +268,7 @@ func (e *OPAEngine) loadZone(ctx context.Context, zoneID string) error {
 	}
 
 	e.mu.Lock()
-	e.zones[zoneID] = &opaZoneState{query: &pq, manifestSHA: psv.ManifestSHA256}
+	e.zones[zoneID] = &opaZoneState{query: &pq, manifestSHA: psv.ManifestSHA256, policySetVersionID: psv.ID}
 	e.mu.Unlock()
 	return nil
 }

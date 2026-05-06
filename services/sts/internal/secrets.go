@@ -63,20 +63,32 @@ func verifyClientSecret(stored, presented string) (ok bool, needsRehash bool) {
 	return false, false
 }
 
+// verifyArgon2id checks `presented` against an `argon2id$<saltB64>$<hashB64>` storage
+// form. Malformed records are still run through one full Argon2id derivation against a
+// fixed dummy salt so the verification time does not reveal whether the stored hash
+// was parseable — only legitimate operator misconfiguration produces a mismatch here,
+// but the constant-time stance avoids leaking format-validity bits over the network.
 func verifyArgon2id(stored, presented string) bool {
 	parts := strings.Split(strings.TrimPrefix(stored, argon2Prefix), "$")
-	if len(parts) != 2 {
-		return false
+	var salt, want []byte
+	parsed := len(parts) == 2
+	if parsed {
+		s, errSalt := base64.RawStdEncoding.DecodeString(parts[0])
+		w, errHash := base64.RawStdEncoding.DecodeString(parts[1])
+		if errSalt == nil && errHash == nil && len(s) > 0 && len(w) > 0 {
+			salt, want = s, w
+		} else {
+			parsed = false
+		}
 	}
-	salt, err := base64.RawStdEncoding.DecodeString(parts[0])
-	if err != nil {
-		return false
-	}
-	want, err := base64.RawStdEncoding.DecodeString(parts[1])
-	if err != nil {
-		return false
+	if !parsed {
+		salt = make([]byte, argon2SaltLen)
+		want = make([]byte, argon2KeyLen)
 	}
 	got := argon2.IDKey([]byte(presented), salt, argon2Time, argon2Memory, argon2Threads, uint32(len(want)))
+	if !parsed {
+		return false
+	}
 	return subtle.ConstantTimeCompare(got, want) == 1
 }
 
