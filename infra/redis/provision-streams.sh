@@ -29,7 +29,9 @@ ensureGroup caracal.audit.events       audit-ingestor
 ensureGroup caracal.audit.events       siem-export
 ensureGroup caracal.policy.invalidate  opa-engine
 ensureGroup caracal.sessions.revoke    sts-revocation
-ensureGroup caracal.agents.lifecycle   agent-coordinator
+ensureGroup caracal.agents.lifecycle       agent-coordinator-relay
+ensureGroup caracal.invocations.lifecycle  invocations-observer
+ensureGroup caracal.delegations.invalidate delegations-observer
 
 cli XADD caracal.providers.ratelimit MAXLEN '~' 1 '*' init 1 >/dev/null
 
