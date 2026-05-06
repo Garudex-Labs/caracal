@@ -7,6 +7,7 @@ import type { FastifyPluginAsync } from 'fastify'
 import { z } from 'zod'
 import { v7 as uuidv7 } from 'uuid'
 import { buildPatchUpdate, patchColumn } from './patch.js'
+import { IdParams, parseParams } from './params.js'
 
 const ZoneBody = z.object({
   org_id: z.string().min(1).default('default'),
@@ -25,7 +26,7 @@ export const zonesRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.get('/zones', async () => {
     const { rows } = await fastify.db.query(
       `SELECT id, org_id, name, slug, dcr_enabled, pkce_required, login_flow, created_at, updated_at
-       FROM zones ORDER BY created_at DESC`,
+       FROM zones WHERE archived_at IS NULL ORDER BY created_at DESC`,
     )
     return rows
   })
@@ -53,22 +54,24 @@ export const zonesRoutes: FastifyPluginAsync = async (fastify) => {
   })
 
   fastify.get('/zones/:id', async (req, reply) => {
-    const { id } = req.params as { id: string }
+    const params = parseParams(IdParams, req, reply)
+    if (!params) return
     const { rows } = await fastify.db.query(
       `SELECT id, org_id, name, slug, dcr_enabled, pkce_required, login_flow, created_at, updated_at
-       FROM zones WHERE id = $1`,
-      [id],
+       FROM zones WHERE id = $1 AND archived_at IS NULL`,
+      [params.id],
     )
     if (!rows[0]) return reply.code(404).send({ error: 'zone_not_found' })
     return rows[0]
   })
 
   fastify.patch('/zones/:id', async (req, reply) => {
-    const { id } = req.params as { id: string }
+    const params = parseParams(IdParams, req, reply)
+    if (!params) return
     const parsed = ZoneBody.partial().safeParse(req.body)
     if (!parsed.success) return reply.code(400).send({ error: 'invalid_zone' })
     const body = parsed.data
-    const update = buildPatchUpdate([id], [
+    const update = buildPatchUpdate([params.id], [
       patchColumn('org_id', body.org_id),
       patchColumn('name', body.name),
       patchColumn('slug', body.slug),
@@ -78,7 +81,8 @@ export const zonesRoutes: FastifyPluginAsync = async (fastify) => {
     ])
     if (!update) return reply.code(400).send({ error: 'no_fields' })
     const { rows } = await fastify.db.query(
-      `UPDATE zones SET ${update.sets.join(', ')}, updated_at = now() WHERE id = $1
+      `UPDATE zones SET ${update.sets.join(', ')}, updated_at = now()
+       WHERE id = $1 AND archived_at IS NULL
        RETURNING id, org_id, name, slug, dcr_enabled, pkce_required, login_flow, created_at, updated_at`,
       update.values,
     )
@@ -87,8 +91,14 @@ export const zonesRoutes: FastifyPluginAsync = async (fastify) => {
   })
 
   fastify.delete('/zones/:id', async (req, reply) => {
-    const { id } = req.params as { id: string }
-    await fastify.db.query('DELETE FROM zones WHERE id = $1', [id])
+    const params = parseParams(IdParams, req, reply)
+    if (!params) return
+    const { rowCount } = await fastify.db.query(
+      `UPDATE zones SET archived_at = now(), updated_at = now()
+       WHERE id = $1 AND archived_at IS NULL`,
+      [params.id],
+    )
+    if (!rowCount) return reply.code(404).send({ error: 'zone_not_found' })
     return reply.code(204).send()
   })
 }
