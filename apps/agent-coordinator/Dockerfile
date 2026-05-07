@@ -3,7 +3,7 @@
 #
 # Agent coordinator image; build context must be the caracal/ workspace root.
 
-FROM golang:1.26-alpine AS go-builder
+FROM golang:1.26-alpine@sha256:f85330846cde1e57ca9ec309382da3b8e6ae3ab943d2739500e08c86393a21b1 AS go-builder
 WORKDIR /build
 COPY go.work go.work
 COPY packages/shared/ packages/shared/
@@ -17,16 +17,21 @@ WORKDIR /build/apps/agent-coordinator/relay
 RUN go mod download && \
     CGO_ENABLED=0 GOOS=linux go build -trimpath -o /relay ./cmd/relay
 
-FROM node:24-alpine AS node-builder
+FROM node:24-alpine@sha256:d1b3b4da11eefd5941e7f0b9cf17783fc99d9c6fc34884a665f40a06dbdfc94f AS node-builder
 WORKDIR /workspace
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY apps/agent-coordinator/package.json apps/agent-coordinator/package.json
-RUN npm install -g pnpm && pnpm install --frozen-lockfile --filter @caracalai/agent-coordinator...
+COPY packages/ts-shared/package.json packages/ts-shared/package.json
+RUN npm install -g pnpm@10.28.0 && pnpm install --frozen-lockfile --filter @caracalai/agent-coordinator...
+COPY packages/ts-shared/tsconfig.json packages/ts-shared/tsconfig.json
+COPY packages/ts-shared/src packages/ts-shared/src
 COPY apps/agent-coordinator/tsconfig.json apps/agent-coordinator/tsconfig.json
 COPY apps/agent-coordinator/src/ apps/agent-coordinator/src/
-RUN pnpm --filter @caracalai/agent-coordinator build && pnpm --filter @caracalai/agent-coordinator deploy --prod --legacy /out
+RUN pnpm --filter @caracalai/shared build && \
+    pnpm --filter @caracalai/agent-coordinator build && \
+    pnpm --filter @caracalai/agent-coordinator deploy --prod --legacy /out
 
-FROM node:24-alpine
+FROM node:24-alpine@sha256:d1b3b4da11eefd5941e7f0b9cf17783fc99d9c6fc34884a665f40a06dbdfc94f
 WORKDIR /app
 COPY --from=go-builder /relay /relay
 COPY --from=node-builder /out ./

@@ -48,8 +48,8 @@ htmlcov/
 *.egg-info/
 
 # Go
-bin/
-pkg/
+/bin/
+/pkg/
 *.test
 *.out
 coverage.out
