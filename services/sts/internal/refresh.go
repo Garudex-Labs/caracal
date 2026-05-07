@@ -8,6 +8,7 @@ package internal
 import (
 	"context"
 	"crypto/rand"
+	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -31,6 +32,7 @@ const (
 	providerMaxBodyBytes    = 64 * 1024
 	grantPersistAttempts    = 3
 	grantPersistBackoff     = 25 * time.Millisecond
+	providerRetryBackoff    = 100 * time.Millisecond
 )
 
 func sealZEK(zek, plaintext []byte) ([]byte, error) {
@@ -178,10 +180,19 @@ func (s *Server) persistRefreshedGrant(
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
-		case <-time.After(grantPersistBackoff * time.Duration(attempt+1)):
+		case <-time.After(jitteredBackoff(grantPersistBackoff, attempt)):
 		}
 	}
 	return ErrConcurrentGrantUpdate
+}
+
+// jitteredBackoff returns base*(attempt+1) plus uniform random jitter in [0, base).
+// Decorrelates retries so concurrent contenders do not re-collide on the same tick.
+func jitteredBackoff(base time.Duration, attempt int) time.Duration {
+	var b [8]byte
+	_, _ = rand.Read(b[:])
+	jitter := time.Duration(binary.LittleEndian.Uint64(b[:]) % uint64(base))
+	return base*time.Duration(attempt+1) + jitter
 }
 
 // validateTokenEndpoint enforces SSRF defenses: HTTPS only, mandatory non-empty host
@@ -288,6 +299,13 @@ func (s *Server) refreshProviderToken(ctx context.Context, providerID string, en
 	client := safeHTTPClient(providerRefreshTimeout)
 	var lastErr error
 	for attempt := 0; attempt < providerRefreshAttempts; attempt++ {
+		if attempt > 0 {
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			case <-time.After(jitteredBackoff(providerRetryBackoff, attempt-1)):
+			}
+		}
 		req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint.String(), strings.NewReader(form.Encode()))
 		if err != nil {
 			return nil, err

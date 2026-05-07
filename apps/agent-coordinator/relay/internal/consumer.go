@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/garudex-labs/caracal/shared/config"
+	sharedcrypto "github.com/garudex-labs/caracal/shared/crypto"
 	"github.com/redis/go-redis/v9"
 	"github.com/rs/zerolog"
 )
@@ -24,8 +25,10 @@ const (
 )
 
 type Consumer struct {
-	redis *redis.Client
-	log   zerolog.Logger
+	redis      *redis.Client
+	log        zerolog.Logger
+	hmacKey    []byte
+	requireSig bool
 }
 
 func New(_ context.Context) (*Consumer, error) {
@@ -36,7 +39,19 @@ func New(_ context.Context) (*Consumer, error) {
 	}
 	r := redis.NewClient(opts)
 	log := zerolog.New(os.Stderr).With().Timestamp().Logger()
-	return &Consumer{redis: r, log: log}, nil
+
+	base := config.Load()
+	hmacKey, err := sharedcrypto.DecodeStreamKey(config.Getenv("STREAMS_HMAC_KEY", ""))
+	if err != nil {
+		return nil, err
+	}
+	if base.IsProduction() && len(hmacKey) == 0 {
+		return nil, errors.New("STREAMS_HMAC_KEY is required in production")
+	}
+	if len(hmacKey) == 0 {
+		log.Warn().Msg("STREAMS_HMAC_KEY not set; lifecycle events will not be origin-verified")
+	}
+	return &Consumer{redis: r, log: log, hmacKey: hmacKey, requireSig: base.IsProduction()}, nil
 }
 
 func (c *Consumer) Run(ctx context.Context) {
@@ -65,6 +80,11 @@ func (c *Consumer) Run(ctx context.Context) {
 		}
 		for _, stream := range msgs {
 			for _, msg := range stream.Messages {
+				if !c.verify(msg.Values) {
+					c.log.Warn().Str("id", msg.ID).Msg("dropping lifecycle event with invalid origin signature")
+					c.redis.XAck(ctx, lifecycleStream, consumerGroup, msg.ID)
+					continue
+				}
 				c.log.Info().
 					Str("id", msg.ID).
 					Interface("event", msg.Values["event"]).
@@ -74,6 +94,13 @@ func (c *Consumer) Run(ctx context.Context) {
 			}
 		}
 	}
+}
+
+func (c *Consumer) verify(values map[string]interface{}) bool {
+	if !c.requireSig && len(c.hmacKey) == 0 {
+		return true
+	}
+	return sharedcrypto.VerifyStream(c.hmacKey, lifecycleStream, values)
 }
 
 func (c *Consumer) ensureGroup(ctx context.Context) error {

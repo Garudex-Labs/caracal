@@ -14,14 +14,14 @@ import (
 
 type Config struct {
 	config.Base
-	S3Endpoint        string
-	S3Bucket          string
-	S3Region          string
-	HMACKey           []byte
-	RetentionDays     int
-	ConsumerName      string
-	MaxDeliveries     int64
-	ClaimIdleSecs     int64
+	S3Endpoint         string
+	S3Bucket           string
+	S3Region           string
+	HMACKey            []byte
+	RetentionDays      int
+	ConsumerName       string
+	MaxDeliveries      int64
+	ClaimIdleSecs      int64
 	TamperRollingHours int
 }
 
