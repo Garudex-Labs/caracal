@@ -18,17 +18,17 @@ import (
 )
 
 type TamperSweeper struct {
-	db             *PGWriter
-	hmacKey        []byte
-	log            zerolog.Logger
-	retention      time.Duration
-	rolling        time.Duration
-	checkedTotal   atomic.Int64
-	mismatchTotal  atomic.Int64
-	chainBreak     atomic.Int64
-	hmacMismatch   atomic.Int64
-	lastSweepUnix  atomic.Int64
-	lastFullUnix   atomic.Int64
+	db            *PGWriter
+	hmacKey       []byte
+	log           zerolog.Logger
+	retention     time.Duration
+	rolling       time.Duration
+	checkedTotal  atomic.Int64
+	mismatchTotal atomic.Int64
+	chainBreak    atomic.Int64
+	hmacMismatch  atomic.Int64
+	lastSweepUnix atomic.Int64
+	lastFullUnix  atomic.Int64
 }
 
 func newTamperSweeper(db *PGWriter, key []byte, retention, rolling time.Duration, log zerolog.Logger) *TamperSweeper {

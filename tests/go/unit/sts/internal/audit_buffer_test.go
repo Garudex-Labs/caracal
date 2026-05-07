@@ -13,7 +13,8 @@ import (
 )
 
 func TestAuditBufferEmitNonBlocking(t *testing.T) {
-	buf, err := newAuditBuffer(nil, zerolog.Nop(), false)
+	t.Setenv("AUDIT_HMAC_KEY", "")
+	buf, err := newAuditBuffer(nil, zerolog.Nop(), false, t.TempDir(), &STSMetrics{})
 	if err != nil {
 		t.Fatalf("newAuditBuffer: %v", err)
 	}
@@ -54,7 +55,8 @@ func TestAuditBufferDroppedCounterAccumulates(t *testing.T) {
 }
 
 func TestAuditBufferDroppedInitiallyZero(t *testing.T) {
-	buf, err := newAuditBuffer(nil, zerolog.Nop(), false)
+	t.Setenv("AUDIT_HMAC_KEY", "")
+	buf, err := newAuditBuffer(nil, zerolog.Nop(), false, t.TempDir(), &STSMetrics{})
 	if err != nil {
 		t.Fatalf("newAuditBuffer: %v", err)
 	}
@@ -104,7 +106,8 @@ func TestOPAMetricsSnapshotReflectsIncrements(t *testing.T) {
 }
 
 func TestAuditBufferChannelCapacity(t *testing.T) {
-	buf, err := newAuditBuffer(nil, zerolog.Nop(), false)
+	t.Setenv("AUDIT_HMAC_KEY", "")
+	buf, err := newAuditBuffer(nil, zerolog.Nop(), false, t.TempDir(), &STSMetrics{})
 	if err != nil {
 		t.Fatalf("newAuditBuffer: %v", err)
 	}
