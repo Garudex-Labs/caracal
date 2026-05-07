@@ -68,8 +68,8 @@ function main(): void {
     process.stderr.write('caracal-tui: CARACAL_ADMIN_TOKEN not set; export it or add it to infra/docker/.env\n')
     process.exit(1)
   }
-  const apiUrl = process.env.CARACAL_API_URL ?? 'http://localhost:3000'
-  const coordinatorUrl = process.env.CARACAL_COORDINATOR_URL ?? 'http://localhost:4000'
+  const apiUrl = resolveServiceUrl('CARACAL_API_URL', 'http://localhost:3000')
+  const coordinatorUrl = resolveServiceUrl('CARACAL_COORDINATOR_URL', 'http://localhost:4000')
   const coordinatorToken = process.env.CARACAL_COORDINATOR_TOKEN
   const cfg = loadConfig()
   const zoneId = process.env.CARACAL_ZONE_ID ?? cfg?.zone_id
@@ -77,6 +77,17 @@ function main(): void {
   const client = new AdminClient({ apiUrl, coordinatorUrl, adminToken, coordinatorToken })
   const app = new App('Caracal TUI', `${apiUrl}${zoneId ? `  zone:${zoneId}` : ''}`)
   void app.run(new MenuView(client, zoneId))
+}
+
+function resolveServiceUrl(envKey: string, devDefault: string): string {
+  const v = process.env[envKey]
+  if (v) return v
+  const env = process.env.NODE_ENV ?? 'development'
+  if (env !== 'development') {
+    process.stderr.write(`caracal-tui: ${envKey} is required when NODE_ENV=${env}\n`)
+    process.exit(1)
+  }
+  return devDefault
 }
 
 main()

@@ -46,7 +46,11 @@ export async function verifyBearer(req: FastifyRequest, reply: FastifyReply): Pr
     reply.code(401).send({ error: 'missing_token' })
     return
   }
-  const token = auth.slice(7)
+  const token = auth.slice(7).trim()
+  if (!token) {
+    reply.code(401).send({ error: 'missing_token' })
+    return
+  }
   let payload: Awaited<ReturnType<typeof jwtVerify>>['payload']
   try {
     const verified = await jwtVerify(token, JWKS, {

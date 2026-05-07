@@ -5,6 +5,19 @@
 
 const PACKAGE_NAME = /^[a-zA-Z_][a-zA-Z0-9_]*(?:\.[a-zA-Z_][a-zA-Z0-9_]*)*$/
 
+// Built-ins that reach the network, the host clock, or the OPA runtime.
+// Disallowed in tenant-authored policies because evaluation runs inside STS.
+const FORBIDDEN_BUILTINS = [
+  'http.send',
+  'net.lookup_ip_addr',
+  'net.cidr_contains',
+  'net.cidr_intersects',
+  'net.cidr_expand',
+  'opa.runtime',
+  'rand.intn',
+  'time.now_ns',
+] as const
+
 interface Stripped {
   source: string
   unterminatedString: boolean
@@ -84,6 +97,13 @@ export function parseRego(content: string): RegoCheck {
     const name = m[2]
     if (name === 'package' || name === 'import' || name === 'else' || name === 'with') continue
     rules.add(name)
+  }
+
+  for (const builtin of FORBIDDEN_BUILTINS) {
+    const escaped = builtin.replace(/\./g, '\\.')
+    if (new RegExp(`(?:^|[^A-Za-z0-9_.])${escaped}\\s*\\(`).test(source)) {
+      return { packageName: null, rules: new Set(), error: `forbidden_builtin:${builtin}` }
+    }
   }
 
   return { packageName, rules, error: null }

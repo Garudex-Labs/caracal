@@ -53,14 +53,28 @@ export function buildAdminClient(cfg?: CliConfig): AdminContext {
     )
     process.exit(1)
   }
-  const apiUrl = process.env.CARACAL_API_URL ?? DEFAULT_API_URL
-  const coordinatorUrl = process.env.CARACAL_COORDINATOR_URL ?? DEFAULT_COORDINATOR_URL
+  const apiUrl = resolveServiceUrl('CARACAL_API_URL', DEFAULT_API_URL)
+  const coordinatorUrl = resolveServiceUrl('CARACAL_COORDINATOR_URL', DEFAULT_COORDINATOR_URL)
   const coordinatorToken = process.env.CARACAL_COORDINATOR_TOKEN
   const zoneId = process.env.CARACAL_ZONE_ID ?? cfg?.zone_id
   return {
     client: new AdminClient({ apiUrl, coordinatorUrl, adminToken, coordinatorToken }),
     zoneId,
   }
+}
+
+// resolveServiceUrl falls back to the dev default only in development. In any other
+// environment, it requires the env var to be set so a misconfigured production CLI
+// fails loudly instead of silently hammering localhost.
+function resolveServiceUrl(envKey: string, devDefault: string): string {
+  const v = process.env[envKey]
+  if (v) return v
+  const env = process.env.NODE_ENV ?? 'development'
+  if (env !== 'development') {
+    process.stderr.write(`Error: ${envKey} is required when NODE_ENV=${env}\n`)
+    process.exit(1)
+  }
+  return devDefault
 }
 
 export interface ParsedArgs {
