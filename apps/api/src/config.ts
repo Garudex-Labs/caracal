@@ -6,7 +6,7 @@
 import { existsSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { loadEnvFile } from 'node:process'
-import { getenv, mustGetenv } from '@caracalai/shared'
+import { getenv, mustGetenv } from '@caracalai/core'
 
 function loadEnvChain(): void {
   const seen = new Set<string>()

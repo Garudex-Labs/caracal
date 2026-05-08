@@ -6,7 +6,7 @@
 import type { FastifyPluginAsync } from 'fastify'
 import { z } from 'zod'
 import { createHash, generateKeyPairSync, randomBytes } from 'node:crypto'
-import { isProduction, loadZoneKek, open, seal } from '@caracalai/shared'
+import { isProduction, loadZoneKek, open, seal } from '@caracalai/core'
 
 const ZONE_ID = 'zone1'
 const APP_ID = 'app1'

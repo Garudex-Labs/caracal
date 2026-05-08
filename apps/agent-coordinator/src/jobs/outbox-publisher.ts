@@ -5,7 +5,7 @@
 
 import type { Pool } from 'pg'
 import type { Redis } from 'ioredis'
-import { STREAM_SIG_FIELD, loadStreamsHmacKey, signStream } from '@caracalai/shared'
+import { STREAM_SIG_FIELD, loadStreamsHmacKey, signStream } from '@caracalai/core'
 import { cfg } from '../config.js'
 
 const streamHmacKey = loadStreamsHmacKey()

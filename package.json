@@ -8,9 +8,9 @@
   "scripts": {
     "caracal": "node apps/cli/bin/caracal-workspace.mjs",
     "test": "pnpm run test:typescript && pnpm run test:go && pnpm run test:python",
-    "test:go": "go test ./packages/shared/... ./services/sts/... ./services/audit/... ./services/gateway/... ./apps/agent-coordinator/relay/... ./packages/caracalai-mcp-go/...",
-    "test:python": "PYTHONPATH=packages/caracalai-mcp-python python -m unittest discover -s tests/python -p 'test_*.py'",
-    "test:typescript": "pnpm --dir apps/api test && pnpm --dir apps/agent-coordinator test && pnpm --dir apps/cli test && pnpm --dir packages/ts-shared test && pnpm --dir packages/caracalai-agent test && pnpm --dir packages/caracalai-oauth test && pnpm --dir packages/caracalai-mcp test && pnpm --dir packages/caracalai-cloudflare test"
+    "test:go": "go test ./packages/core/go/... ./services/sts/... ./services/audit/... ./services/gateway/... ./apps/agent-coordinator/relay/... ./packages/transport-mcp/go/... ./packages/framework-adaptor/mcp-nethttp/go/...",
+    "test:python": "PYTHONPATH=packages/identity/python:packages/revocation/python:packages/transport-mcp/python:packages/framework-adaptor/mcp-fastmcp/python python -m unittest discover -s tests/python -p 'test_*.py'",
+    "test:typescript": "pnpm --dir apps/api test && pnpm --dir apps/agent-coordinator test && pnpm --dir apps/cli test && pnpm --dir packages/core/ts test && pnpm --dir packages/transport-a2a/ts test && pnpm --dir packages/agent-core/ts test && pnpm --dir packages/framework-adaptor/agent-crewai/ts test && pnpm --dir packages/framework-adaptor/agent-langchain/ts test && pnpm --dir packages/oauth/ts test && pnpm --dir packages/framework-adaptor/mcp-express/ts test && pnpm --dir packages/state-backend/tokencache-cloudflare/ts test && pnpm --dir packages/runtime-adaptor/cloudflare/ts test"
   },
   "devDependencies": {
     "@vitest/coverage-v8": "3.2.4",

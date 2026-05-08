@@ -12,7 +12,7 @@
   "dependencies": {
     "@fastify/swagger": "^9.4.0",
     "@fastify/swagger-ui": "^5.2.1",
-    "@caracalai/shared": "workspace:*",
+    "@caracalai/core": "workspace:*",
     "fastify": "^5.2.1",
     "fastify-plugin": "^5.0.1",
     "ioredis": "^5.6.0",
