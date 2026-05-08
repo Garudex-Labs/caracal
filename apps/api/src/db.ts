@@ -28,8 +28,14 @@ export function newDB(options: DBOptions): DB {
   const stmt = options.statementTimeoutMs ?? 15_000
   const idleTx = options.idleInTxTimeoutMs ?? 30_000
   pool.on('connect', (client) => {
-    client.query(`SET statement_timeout = ${stmt}`).catch(() => {})
-    client.query(`SET idle_in_transaction_session_timeout = ${idleTx}`).catch(() => {})
+    void (async () => {
+      try {
+        await client.query(`SET statement_timeout = ${stmt}`)
+        await client.query(`SET idle_in_transaction_session_timeout = ${idleTx}`)
+      } catch {
+        // Session-level SETs are best-effort; failures surface on the next query.
+      }
+    })()
   })
   return pool
 }

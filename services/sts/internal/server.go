@@ -54,14 +54,31 @@ func New(ctx context.Context) (*Server, error) {
 		return nil, fmt.Errorf("redis: %w", err)
 	}
 
-	kek, err := resolveKEK(cfg.ZoneKEKProvider, cfg.IsProduction())
+	streamKey, err := sharedcrypto.DecodeStreamKey(cfg.StreamsHMACKey)
+	if err != nil {
+		return nil, fmt.Errorf("streams hmac key: %w", err)
+	}
+	if cfg.IsProduction() && len(streamKey) == 0 {
+		return nil, errors.New("STREAMS_HMAC_KEY is required in production")
+	}
+	if len(streamKey) == 0 {
+		log.Warn().Msg("STREAMS_HMAC_KEY not set; stream messages will not be origin-verified")
+	}
+	rdb.SetStreamSigning(streamKey, cfg.IsProduction())
+
+	kek, err := resolveKEK(cfg.ZoneKEKProvider)
 	if err != nil {
 		return nil, fmt.Errorf("kek: %w", err)
 	}
 
 	keys := newKeyCache(db, kek)
 	opa := newOPAEngine(db, log)
-	buf := newAuditBuffer(rdb, log)
+	opa.SetPollInterval(time.Duration(cfg.OPAPollSeconds) * time.Second)
+	metrics := &STSMetrics{}
+	buf, err := newAuditBuffer(rdb, log, cfg.IsProduction(), cfg.AuditReplayDir, metrics)
+	if err != nil {
+		return nil, fmt.Errorf("audit: %w", err)
+	}
 
 	return &Server{
 		cfg:         cfg,
@@ -70,13 +87,14 @@ func New(ctx context.Context) (*Server, error) {
 		opa:         opa,
 		keys:        keys,
 		auditBuffer: buf,
-		metrics:     &STSMetrics{},
+		metrics:     metrics,
 		log:         log,
 	}, nil
 }
 
 // Run starts the HTTP server and all background workers; blocks until ctx is cancelled.
 func (s *Server) Run(ctx context.Context) error {
+	s.auditBuffer.replayPending(ctx)
 	s.auditBuffer.start(ctx)
 	go s.startConsumers(ctx)
 	go s.opa.StartPGPolling(ctx)
@@ -133,10 +151,14 @@ func (s *Server) handleJWKS(w http.ResponseWriter, r *http.Request) {
 	for _, secret := range secrets {
 		keyBytes, err := sharedcrypto.Open(s.keys.zek, secret.Nonce, secret.Ciphertext)
 		if err != nil {
+			s.metrics.JWKSInvalidKeys.Add(1)
+			s.log.Warn().Err(err).Str("zone", zoneID).Str("kid", secret.ID).Str("reason", "decrypt").Msg("jwks: skipped invalid signing key")
 			continue
 		}
 		priv, err := jwt.ParseECPrivateKeyFromPEM(keyBytes)
 		if err != nil {
+			s.metrics.JWKSInvalidKeys.Add(1)
+			s.log.Warn().Err(err).Str("zone", zoneID).Str("kid", secret.ID).Str("reason", "parse").Msg("jwks: skipped invalid signing key")
 			continue
 		}
 		entries = append(entries, JWKSEntry{Pub: &priv.PublicKey, Kid: secret.ID})
@@ -193,18 +215,15 @@ func (s *Server) handleMetrics(w http.ResponseWriter, _ *http.Request) {
 	})
 }
 
-// resolveKEK loads the 32-byte zone encryption key. In production-like environments
-// (CARACAL_ENV=production|prod|staging) ZONE_KEK is mandatory; the dev-only zero key
-// is rejected to prevent silent issuance with predictable signing-key encryption.
-func resolveKEK(provider string, production bool) ([]byte, error) {
+// resolveKEK loads the 32-byte zone encryption key. ZONE_KEK is mandatory in every
+// environment: an all-zero fallback would let any database snapshot decrypt every
+// zone's signing keys.
+func resolveKEK(provider string) ([]byte, error) {
 	switch provider {
 	case "local", "":
 		raw := os.Getenv("ZONE_KEK")
 		if raw == "" {
-			if production {
-				return nil, errors.New("ZONE_KEK is required in production")
-			}
-			return make([]byte, 32), nil
+			return nil, errors.New("ZONE_KEK is required")
 		}
 		b, err := hex.DecodeString(raw)
 		if err != nil {
@@ -212,6 +231,13 @@ func resolveKEK(provider string, production bool) ([]byte, error) {
 		}
 		if len(b) != 32 {
 			return nil, fmt.Errorf("ZONE_KEK must be 32 bytes, got %d", len(b))
+		}
+		var allZero byte
+		for _, x := range b {
+			allZero |= x
+		}
+		if allZero == 0 {
+			return nil, errors.New("ZONE_KEK must not be all zeros")
 		}
 		return b, nil
 	default:

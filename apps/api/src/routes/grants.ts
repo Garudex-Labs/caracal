@@ -11,11 +11,18 @@ import { enqueueOutbox } from '../outbox.js'
 import { ZoneIdParams, ZoneParams, parseParams } from './params.js'
 import { zoneExists } from '../zone-guard.js'
 
+// Scope strings cross trust boundaries (Rego policies, upstream IdPs). Restrict to a
+// safe charset and bounded length so neither side has to sanitize control characters,
+// whitespace, or absurdly long values.
+const ScopePattern = /^[a-z0-9:_./-]+$/
+const ScopeMaxLen = 200
+const Scope = z.string().min(1).max(ScopeMaxLen).regex(ScopePattern)
+
 const GrantBody = z.object({
   application_id: z.string().min(1),
   user_id: z.string().min(1),
   resource_id: z.string().min(1),
-  scopes: z.array(z.string()).min(1),
+  scopes: z.array(Scope).min(1).max(64),
 })
 
 function scopesAllowed(requested: string[], available: string[]): boolean {

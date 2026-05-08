@@ -5,6 +5,7 @@
 
 import { jwtVerify } from 'jose'
 import { getKeySet } from '@caracalai/mcp'
+import { hasScope } from '@caracalai/shared'
 
 export interface FastMcpAuthOptions {
   issuer: string
@@ -35,7 +36,7 @@ export async function verifyFastMcpToken(
     throw new Error('Token zone validation failed')
   }
   for (const required of opts.requiredScopes ?? []) {
-    if (!scope.split(' ').includes(required)) {
+    if (!hasScope(scope, required)) {
       throw new Error(`Missing required scope: ${required}`)
     }
   }
@@ -44,6 +45,10 @@ export async function verifyFastMcpToken(
 }
 
 export function extractBearer(authHeader: string | undefined): string {
-  if (!authHeader?.startsWith('Bearer ')) throw new Error('Missing bearer token')
-  return authHeader.slice(7)
+  if (!authHeader?.startsWith('Bearer ') || authHeader.length <= 7) {
+    throw new Error('Missing bearer token')
+  }
+  const token = authHeader.slice(7).trim()
+  if (!token) throw new Error('Missing bearer token')
+  return token
 }

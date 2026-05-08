@@ -6,3 +6,4 @@
 export * from './jwks.js'
 export * from './middleware.js'
 export * from './pg-backend.js'
+export * from './revocation.js'

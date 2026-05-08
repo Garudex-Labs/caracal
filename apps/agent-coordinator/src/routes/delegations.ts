@@ -303,7 +303,7 @@ async function wouldCreateCycle(
          AND e.status = 'active'
          AND e.expires_at > now()
          AND NOT e.id = ANY(p.visited)
-         AND cardinality(p.visited) < 10
+         AND cardinality(p.visited) < 5
      )
      SELECT 1 FROM path WHERE target_session_id = $3 LIMIT 1`,
     [zoneId, targetId, sourceId],

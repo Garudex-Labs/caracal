@@ -5,7 +5,13 @@
 
 import type { Pool } from 'pg'
 import type { Redis } from 'ioredis'
+import { STREAM_SIG_FIELD, loadStreamsHmacKey, signStream } from '@caracalai/shared'
 import { cfg } from '../config.js'
+
+const streamHmacKey = loadStreamsHmacKey()
+if (streamHmacKey === null && process.env.CARACAL_ENV && ['production', 'prod', 'staging'].includes(process.env.CARACAL_ENV)) {
+  throw new Error('STREAMS_HMAC_KEY is required in production')
+}
 
 interface OutboxRow {
   id: string
@@ -131,10 +137,17 @@ export async function publishBatch(
 }
 
 function streamFields(row: OutboxRow): string[] {
-  const out: string[] = ['outbox_id', row.id, 'dedupe_key', row.dedupe_key]
+  const values: Record<string, string> = { outbox_id: row.id, dedupe_key: row.dedupe_key }
   for (const [key, value] of Object.entries(row.payload_json)) {
-    if (key === 'outbox_id' || key === 'dedupe_key') continue
-    out.push(key, typeof value === 'string' ? value : JSON.stringify(value))
+    if (key === 'outbox_id' || key === 'dedupe_key' || key === STREAM_SIG_FIELD) continue
+    values[key] = typeof value === 'string' ? value : JSON.stringify(value)
+  }
+  if (streamHmacKey) {
+    values[STREAM_SIG_FIELD] = signStream(streamHmacKey, row.topic, values)
+  }
+  const out: string[] = []
+  for (const [key, value] of Object.entries(values)) {
+    out.push(key, value)
   }
   return out
 }

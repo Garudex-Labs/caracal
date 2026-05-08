@@ -15,7 +15,7 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: ${POSTGRES_DB}
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     volumes:
       - postgresData:/var/lib/postgresql
     healthcheck:
@@ -32,7 +32,7 @@ services:
       - "--requirepass"
       - "${REDIS_PASSWORD}"
     ports:
-      - "6379:6379"
+      - "127.0.0.1:6379:6379"
     volumes:
       - redisData:/data
     healthcheck:
@@ -68,6 +68,9 @@ services:
     environment:
       DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
+      ZONE_KEK: ${ZONE_KEK}
+      AUDIT_HMAC_KEY: ${AUDIT_HMAC_KEY}
+      STREAMS_HMAC_KEY: ${STREAMS_HMAC_KEY}
       ZONE_KEK_PROVIDER: local
       ISSUER_URL: http://localhost:8080
       PORT: 8080
@@ -91,6 +94,8 @@ services:
       DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
       STS_URL: http://sts:8080
+      ZONE_KEK: ${ZONE_KEK}
+      STREAMS_HMAC_KEY: ${STREAMS_HMAC_KEY}
       CARACAL_ADMIN_TOKEN: ${CARACAL_ADMIN_TOKEN}
       CARACAL_LOCAL_BOOTSTRAP_ENABLED: ${CARACAL_LOCAL_BOOTSTRAP_ENABLED:-false}
       PORT: 3000
@@ -116,6 +121,7 @@ services:
       STS_URL: http://sts:8080
       INSECURE_STS: ${INSECURE_STS:-false}
       INSECURE_HTTP: ${INSECURE_HTTP:-false}
+      RESOURCE_CLIENT_BINDINGS: ${RESOURCE_CLIENT_BINDINGS}
       PORT: 8081
     ports:
       - "8081:8081"
@@ -160,6 +166,7 @@ services:
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
       STS_URL: http://sts:8080
       ISSUER_URL: http://localhost:8080
+      STREAMS_HMAC_KEY: ${STREAMS_HMAC_KEY}
       AGENT_COORDINATOR_AUDIENCE: caracal.agent-coordinator
       AGENT_COORDINATOR_SCOPE: agent:lifecycle
       PORT: 4000

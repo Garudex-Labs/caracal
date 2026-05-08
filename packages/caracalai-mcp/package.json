@@ -17,6 +17,7 @@
     "test": "vitest run --root ../.. tests/typescript/unit/sdk/caracalai-mcp"
   },
   "dependencies": {
+    "@caracalai/shared": "workspace:*",
     "jose": "^5.9.0",
     "pg": "^8.14.1"
   },

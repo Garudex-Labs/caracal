@@ -8,7 +8,7 @@ import { existsSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { CARACAL_VERSION } from '../runtime/version.ts'
-import { installRuntimeAssets, runtimePaths } from '../runtime/install.ts'
+import { installRuntimeAssets, runtimePaths, seedEnvFile } from '../runtime/install.ts'
 
 export interface StackPaths {
   composeFile: string
@@ -68,6 +68,10 @@ function devPaths(repoRoot: string): StackPaths {
     )
     process.exit(1)
   }
+  const { seeded } = seedEnvFile(envFile)
+  if (seeded) {
+    process.stdout.write(`caracal: seeded missing secrets in ${envFile}\n`)
+  }
   return { composeFile, envFile, cwd: repoRoot, mode: 'dev' }
 }
 
@@ -78,6 +82,10 @@ function runtimeStackPaths(): StackPaths {
     process.stdout.write(`caracal: provisioned runtime assets at ${paths.home}\n`)
   }
   const envFile = process.env.CARACAL_ENV_FILE ?? paths.envFile
+  const { seeded } = seedEnvFile(envFile)
+  if (seeded) {
+    process.stdout.write(`caracal: seeded missing secrets in ${envFile}\n`)
+  }
   return { composeFile: paths.composeFile, envFile, cwd: paths.home, mode: 'runtime' }
 }
 

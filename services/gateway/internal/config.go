@@ -28,44 +28,48 @@ const (
 
 // Config holds gateway runtime configuration.
 type Config struct {
-	Port                  string
-	LogLevel              string
-	STSURL                string
-	STSTimeout            time.Duration
-	UpstreamTimeout       time.Duration
-	ReadHeaderTimeout     time.Duration
-	ReadTimeout           time.Duration
-	WriteTimeout          time.Duration
-	IdleTimeout           time.Duration
-	MaxRequestBytes       int64
-	TLSCertFile           string
-	TLSKeyFile            string
-	InsecureHTTP          bool
-	InsecureSTS           bool
-	AllowPrivateUpstreams bool
-	UpstreamHostAllowlist []string
+	Port                   string
+	LogLevel               string
+	STSURL                 string
+	STSTimeout             time.Duration
+	UpstreamTimeout        time.Duration
+	ReadHeaderTimeout      time.Duration
+	ReadTimeout            time.Duration
+	WriteTimeout           time.Duration
+	IdleTimeout            time.Duration
+	MaxRequestBytes        int64
+	TLSCertFile            string
+	TLSKeyFile             string
+	InsecureHTTP           bool
+	InsecureSTS            bool
+	AllowPrivateUpstreams  bool
+	UpstreamHostAllowlist  []string
+	ResourceClientBindings map[string]string
+	RedisURL               string
 }
 
 // loadConfig reads configuration from environment variables.
 // It panics on missing required values or unsafe defaults.
 func loadConfig() Config {
 	cfg := Config{
-		Port:                  config.Getenv("PORT", defaultPort),
-		LogLevel:              config.Getenv("LOG_LEVEL", "info"),
-		STSURL:                config.MustGetenv("STS_URL"),
-		STSTimeout:            durationEnv("STS_TIMEOUT", defaultSTSTimeout),
-		UpstreamTimeout:       durationEnv("UPSTREAM_TIMEOUT", defaultUpstreamTO),
-		ReadHeaderTimeout:     durationEnv("READ_HEADER_TIMEOUT", defaultReadHeader),
-		ReadTimeout:           durationEnv("READ_TIMEOUT", defaultReadTimeout),
-		WriteTimeout:          durationEnv("WRITE_TIMEOUT", defaultWriteTimeout),
-		IdleTimeout:           durationEnv("IDLE_TIMEOUT", defaultIdleTimeout),
-		MaxRequestBytes:       int64Env("MAX_REQUEST_BYTES", defaultMaxRequestSize),
-		TLSCertFile:           config.Getenv("TLS_CERT_FILE", ""),
-		TLSKeyFile:            config.Getenv("TLS_KEY_FILE", ""),
-		InsecureHTTP:          boolEnv("INSECURE_HTTP", false),
-		InsecureSTS:           boolEnv("INSECURE_STS", false),
-		AllowPrivateUpstreams: boolEnv("ALLOW_PRIVATE_UPSTREAMS", false),
-		UpstreamHostAllowlist: splitCSV(config.Getenv("UPSTREAM_HOST_ALLOWLIST", "")),
+		Port:                   config.Getenv("PORT", defaultPort),
+		LogLevel:               config.Getenv("LOG_LEVEL", "info"),
+		STSURL:                 config.MustGetenv("STS_URL"),
+		STSTimeout:             durationEnv("STS_TIMEOUT", defaultSTSTimeout),
+		UpstreamTimeout:        durationEnv("UPSTREAM_TIMEOUT", defaultUpstreamTO),
+		ReadHeaderTimeout:      durationEnv("READ_HEADER_TIMEOUT", defaultReadHeader),
+		ReadTimeout:            durationEnv("READ_TIMEOUT", defaultReadTimeout),
+		WriteTimeout:           durationEnv("WRITE_TIMEOUT", defaultWriteTimeout),
+		IdleTimeout:            durationEnv("IDLE_TIMEOUT", defaultIdleTimeout),
+		MaxRequestBytes:        int64Env("MAX_REQUEST_BYTES", defaultMaxRequestSize),
+		TLSCertFile:            config.Getenv("TLS_CERT_FILE", ""),
+		TLSKeyFile:             config.Getenv("TLS_KEY_FILE", ""),
+		InsecureHTTP:           boolEnv("INSECURE_HTTP", false),
+		InsecureSTS:            boolEnv("INSECURE_STS", false),
+		AllowPrivateUpstreams:  boolEnv("ALLOW_PRIVATE_UPSTREAMS", false),
+		UpstreamHostAllowlist:  splitCSV(config.Getenv("UPSTREAM_HOST_ALLOWLIST", "")),
+		ResourceClientBindings: parseBindings(config.MustGetenv("RESOURCE_CLIENT_BINDINGS")),
+		RedisURL:               config.Getenv("REDIS_URL", ""),
 	}
 	if err := cfg.validate(); err != nil {
 		panic("gateway config: " + err.Error())
@@ -100,11 +104,41 @@ func (c Config) validate() error {
 	if c.MaxRequestBytes <= 0 {
 		return fmt.Errorf("MAX_REQUEST_BYTES must be positive")
 	}
+	if len(c.ResourceClientBindings) == 0 {
+		return fmt.Errorf("RESOURCE_CLIENT_BINDINGS must declare at least one resource=client_id pair")
+	}
 	return nil
 }
 
 // TLSEnabled reports whether HTTPS is configured.
 func (c Config) TLSEnabled() bool { return c.TLSCertFile != "" && c.TLSKeyFile != "" }
+
+// parseBindings parses RESOURCE_CLIENT_BINDINGS as a comma-separated list of
+// `resource=client_id` pairs. The gateway derives the exchanging principal from
+// this map; client-supplied client_id headers are never honored.
+func parseBindings(s string) map[string]string {
+	out := make(map[string]string)
+	for _, pair := range strings.Split(s, ",") {
+		pair = strings.TrimSpace(pair)
+		if pair == "" {
+			continue
+		}
+		eq := strings.IndexByte(pair, '=')
+		if eq <= 0 || eq == len(pair)-1 {
+			panic(fmt.Sprintf("RESOURCE_CLIENT_BINDINGS entry %q must be resource=client_id", pair))
+		}
+		resource := strings.TrimSpace(pair[:eq])
+		clientID := strings.TrimSpace(pair[eq+1:])
+		if resource == "" || clientID == "" {
+			panic(fmt.Sprintf("RESOURCE_CLIENT_BINDINGS entry %q has empty resource or client_id", pair))
+		}
+		if _, dup := out[resource]; dup {
+			panic(fmt.Sprintf("RESOURCE_CLIENT_BINDINGS resource %q declared more than once", resource))
+		}
+		out[resource] = clientID
+	}
+	return out
+}
 
 func splitCSV(s string) []string {
 	if s == "" {

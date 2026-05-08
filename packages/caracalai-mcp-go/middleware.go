@@ -7,6 +7,7 @@ package mcp
 
 import (
 	"encoding/json"
+	"log"
 	"net/http"
 	"strings"
 
@@ -65,7 +66,11 @@ func extractBearer(r *http.Request) (string, error) {
 	if !strings.HasPrefix(auth, "Bearer ") {
 		return "", jwt.ErrTokenMalformed
 	}
-	return strings.TrimPrefix(auth, "Bearer "), nil
+	token := strings.TrimSpace(strings.TrimPrefix(auth, "Bearer "))
+	if token == "" {
+		return "", jwt.ErrTokenMalformed
+	}
+	return token, nil
 }
 
 func validateToken(tokenStr string, opts Options) (jwt.MapClaims, error) {
@@ -85,6 +90,9 @@ func validateToken(tokenStr string, opts Options) (jwt.MapClaims, error) {
 }
 
 func containsScope(scope, target string) bool {
+	if target == "" {
+		return false
+	}
 	for _, s := range strings.Fields(scope) {
 		if s == target {
 			return true
@@ -96,5 +104,7 @@ func containsScope(scope, target string) bool {
 func writeErr(w http.ResponseWriter, status int, code, desc string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	json.NewEncoder(w).Encode(errBody{Error: code, ErrorDescription: desc}) //nolint:errcheck
+	if err := json.NewEncoder(w).Encode(errBody{Error: code, ErrorDescription: desc}); err != nil {
+		log.Printf("caracalai-mcp: failed to encode error response: %v", err)
+	}
 }

@@ -17,6 +17,7 @@
   },
   "dependencies": {
     "@caracalai/mcp": "workspace:*",
+    "@caracalai/shared": "workspace:*",
     "jose": "^5.9.0"
   },
   "devDependencies": {

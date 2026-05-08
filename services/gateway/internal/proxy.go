@@ -31,9 +31,11 @@ type proxy struct {
 	client   *http.Client
 	log      zerolog.Logger
 	maxBytes int64
+	bindings map[string]string
+	tracker  *jtiTracker
 }
 
-func newProxy(sts *stsClient, guard *upstreamGuard, log zerolog.Logger, maxBytes int64, upstreamTimeout time.Duration) *proxy {
+func newProxy(sts *stsClient, guard *upstreamGuard, log zerolog.Logger, maxBytes int64, upstreamTimeout time.Duration, bindings map[string]string, tracker *jtiTracker) *proxy {
 	transport := &http.Transport{
 		DialContext:           guard.SafeDialContext(5*time.Second, 30*time.Second),
 		MaxIdleConns:          200,
@@ -51,6 +53,8 @@ func newProxy(sts *stsClient, guard *upstreamGuard, log zerolog.Logger, maxBytes
 		client:   &http.Client{Transport: transport},
 		log:      log,
 		maxBytes: maxBytes,
+		bindings: bindings,
+		tracker:  tracker,
 	}
 }
 
@@ -77,11 +81,21 @@ func (p *proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	clientID := strings.TrimSpace(r.Header.Get("X-Caracal-Client-ID"))
+	if r.Header.Get("X-Caracal-Client-ID") != "" {
+		writeErr(w, requestID, http.StatusBadRequest, sharederr.InvalidToken, "client id is bound by gateway configuration")
+		logger.Info().Int("status", http.StatusBadRequest).Msg("denied: client id header not honored")
+		return
+	}
 	resource := strings.TrimSpace(r.Header.Get("X-Caracal-Resource"))
-	if clientID == "" || resource == "" {
+	if resource == "" {
 		writeErr(w, requestID, http.StatusBadRequest, sharederr.InvalidToken, "missing routing headers")
 		logger.Info().Int("status", http.StatusBadRequest).Msg("denied: missing routing headers")
+		return
+	}
+	clientID, ok := p.bindings[resource]
+	if !ok {
+		writeErr(w, requestID, http.StatusForbidden, sharederr.AccessDenied, "resource not configured")
+		logger.Info().Int("status", http.StatusForbidden).Str("resource", resource).Msg("denied: resource has no client binding")
 		return
 	}
 
@@ -96,6 +110,8 @@ func (p *proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		Str("resource", resource).
 		Str("subject_fp", tokenFingerprint(bearer)).
 		Logger()
+
+	p.tracker.Observe(r.Context(), jwtJTI(bearer), exp, requestID, resource, clientID, tokenFingerprint(bearer))
 
 	stsCtx, cancel := context.WithTimeout(r.Context(), p.sts.client.Timeout)
 	res, status, cerr, internalErr := p.sts.Exchange(stsCtx, bearer, clientID, resource, requestID)
@@ -177,12 +193,12 @@ func buildUpstreamRequest(r *http.Request, upstreamURL *url.URL, token string, b
 	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("X-Request-Id", requestID)
 
+	// Replace, never append: the gateway is a trust boundary and any caller-supplied
+	// X-Forwarded-* values are spoofable. Upstreams that key on the first XFF entry
+	// would otherwise read attacker-controlled data.
+	req.Header.Del("X-Forwarded-For")
 	if ip := clientIP(r.RemoteAddr); ip != "" {
-		if prior := req.Header.Get("X-Forwarded-For"); prior != "" {
-			req.Header.Set("X-Forwarded-For", prior+", "+ip)
-		} else {
-			req.Header.Set("X-Forwarded-For", ip)
-		}
+		req.Header.Set("X-Forwarded-For", ip)
 	}
 	if r.TLS != nil {
 		req.Header.Set("X-Forwarded-Proto", "https")

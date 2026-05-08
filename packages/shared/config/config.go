@@ -5,7 +5,10 @@
 
 package config
 
-import "os"
+import (
+	"os"
+	"strings"
+)
 
 // Base holds env-driven configuration common to every Go service.
 type Base struct {
@@ -16,15 +19,32 @@ type Base struct {
 	Env         string
 }
 
-// Load reads Base from environment variables, panicking on missing required values.
+// Load reads Base from environment variables, collecting all missing required values
+// into a single error rather than panicking on the first miss.
 func Load() Base {
+	missing := MissingRequired("PORT", "DATABASE_URL", "REDIS_URL")
+	if len(missing) > 0 {
+		panic("required env vars missing: " + strings.Join(missing, ", "))
+	}
 	return Base{
-		Port:        MustGetenv("PORT"),
-		DatabaseURL: MustGetenv("DATABASE_URL"),
-		RedisURL:    MustGetenv("REDIS_URL"),
+		Port:        os.Getenv("PORT"),
+		DatabaseURL: os.Getenv("DATABASE_URL"),
+		RedisURL:    os.Getenv("REDIS_URL"),
 		LogLevel:    Getenv("LOG_LEVEL", "info"),
 		Env:         Getenv("CARACAL_ENV", "development"),
 	}
+}
+
+// MissingRequired returns the names of any required env vars that are unset or empty.
+// Use this at startup to surface every missing var in one structured error.
+func MissingRequired(keys ...string) []string {
+	var missing []string
+	for _, k := range keys {
+		if os.Getenv(k) == "" {
+			missing = append(missing, k)
+		}
+	}
+	return missing
 }
 
 // IsProduction reports whether the service runs in a production-like environment.

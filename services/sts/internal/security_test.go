@@ -22,32 +22,31 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-func TestResolveKEKRejectsZeroKeyInProduction(t *testing.T) {
+func TestResolveKEKRejectsEmpty(t *testing.T) {
 	t.Setenv("ZONE_KEK", "")
-	_, err := resolveKEK("local", true)
+	_, err := resolveKEK("local")
 	if err == nil {
-		t.Fatal("production must reject empty ZONE_KEK")
+		t.Fatal("must reject empty ZONE_KEK")
 	}
 }
 
-func TestResolveKEKAcceptsZeroKeyInDevelopment(t *testing.T) {
-	t.Setenv("ZONE_KEK", "")
-	k, err := resolveKEK("local", false)
-	if err != nil || len(k) != 32 {
-		t.Fatalf("dev must accept zero key, got err=%v len=%d", err, len(k))
+func TestResolveKEKRejectsAllZeros(t *testing.T) {
+	t.Setenv("ZONE_KEK", hex.EncodeToString(make([]byte, 32)))
+	if _, err := resolveKEK("local"); err == nil {
+		t.Fatal("must reject all-zero ZONE_KEK")
 	}
 }
 
 func TestResolveKEKRejectsBadHex(t *testing.T) {
 	t.Setenv("ZONE_KEK", "not-hex")
-	if _, err := resolveKEK("local", false); err == nil {
+	if _, err := resolveKEK("local"); err == nil {
 		t.Fatal("expected hex decode error")
 	}
 }
 
 func TestResolveKEKRejectsWrongLength(t *testing.T) {
 	t.Setenv("ZONE_KEK", hex.EncodeToString(make([]byte, 16)))
-	if _, err := resolveKEK("local", false); err == nil {
+	if _, err := resolveKEK("local"); err == nil {
 		t.Fatal("expected length error")
 	}
 }

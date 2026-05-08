@@ -15,26 +15,58 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/open-policy-agent/opa/ast"
 	"github.com/open-policy-agent/opa/rego"
 	"github.com/rs/zerolog"
 )
 
-const pgPollInterval = 60 * time.Second
+const defaultPGPollInterval = 60 * time.Second
+
+// forbiddenBuiltins names Rego built-ins that policies must not use because they
+// reach the network, the host clock, or the OPA runtime — any of which would
+// give tenant policy authors a side channel out of the STS process.
+var forbiddenBuiltins = map[string]struct{}{
+	"http.send":           {},
+	"net.lookup_ip_addr":  {},
+	"net.cidr_contains":   {},
+	"net.cidr_intersects": {},
+	"net.cidr_expand":     {},
+	"opa.runtime":         {},
+	"rand.intn":           {},
+	"time.now_ns":         {},
+}
+
+// safeCapabilities returns the OPA capability set with forbidden built-ins removed.
+func safeCapabilities() *ast.Capabilities {
+	caps := ast.CapabilitiesForThisVersion()
+	filtered := caps.Builtins[:0]
+	for _, b := range caps.Builtins {
+		if _, blocked := forbiddenBuiltins[b.Name]; blocked {
+			continue
+		}
+		filtered = append(filtered, b)
+	}
+	caps.Builtins = filtered
+	caps.AllowNet = []string{}
+	return caps
+}
 
 // opaZoneState holds a compiled query and the manifest SHA that produced it.
 type opaZoneState struct {
 	query              *rego.PreparedEvalQuery
 	manifestSHA        string
 	policySetVersionID string
+	loadedAt           time.Time
 }
 
 // OPAEngine maintains one compiled policy per zone, swapped atomically on invalidation.
 type OPAEngine struct {
-	mu      sync.RWMutex
-	zones   map[string]*opaZoneState
-	db      DBQuerier
-	metrics OPAMetrics
-	log     zerolog.Logger
+	mu           sync.RWMutex
+	zones        map[string]*opaZoneState
+	db           DBQuerier
+	metrics      OPAMetrics
+	log          zerolog.Logger
+	pollInterval time.Duration
 }
 
 type OPAMetrics struct {
@@ -47,12 +79,14 @@ type OPAMetrics struct {
 }
 
 type OPAMetricsSnapshot struct {
-	EvalTotal         uint64 `json:"eval_total"`
-	EvalErrors        uint64 `json:"eval_errors"`
-	EvalDurationNs    uint64 `json:"eval_duration_ns"`
-	CompileTotal      uint64 `json:"compile_total"`
-	CompileErrors     uint64 `json:"compile_errors"`
-	CompileDurationNs uint64 `json:"compile_duration_ns"`
+	EvalTotal           uint64  `json:"eval_total"`
+	EvalErrors          uint64  `json:"eval_errors"`
+	EvalDurationNs      uint64  `json:"eval_duration_ns"`
+	CompileTotal        uint64  `json:"compile_total"`
+	CompileErrors       uint64  `json:"compile_errors"`
+	CompileDurationNs   uint64  `json:"compile_duration_ns"`
+	MaxPolicyAgeSeconds float64 `json:"max_policy_age_seconds"`
+	PollIntervalSeconds float64 `json:"poll_interval_seconds"`
 }
 
 func newOPAEngine(db DBQuerier, log ...zerolog.Logger) *OPAEngine {
@@ -63,14 +97,25 @@ func newOPAEngine(db DBQuerier, log ...zerolog.Logger) *OPAEngine {
 		l = zerolog.Nop()
 	}
 	return &OPAEngine{
-		zones: make(map[string]*opaZoneState),
-		db:    db,
-		log:   l,
+		zones:        make(map[string]*opaZoneState),
+		db:           db,
+		log:          l,
+		pollInterval: defaultPGPollInterval,
 	}
 }
 
+// SetPollInterval overrides the default 60s PG poll cadence; values <= 0 are ignored.
+// Lower this for high-risk zones where revocation latency must be tighter than the
+// 60s safety net documented for the Redis pubsub fast path.
+func (e *OPAEngine) SetPollInterval(d time.Duration) {
+	if d <= 0 {
+		return
+	}
+	e.pollInterval = d
+}
+
 // Evaluate evaluates the active policy for the zone in input.Principal.ZoneID.
-// Partial evaluation status always results in deny.
+// Callers must reject any result whose EvaluationStatus is not "complete".
 func (e *OPAEngine) Evaluate(ctx context.Context, input OPAInput) (*OPAResult, error) {
 	started := time.Now()
 	e.metrics.EvalTotal.Add(1)
@@ -133,13 +178,27 @@ func (e *OPAEngine) BundleInfo(zoneID string) ZoneBundleInfo {
 
 // MetricsSnapshot returns a point-in-time copy of OPA evaluation and compilation counters.
 func (e *OPAEngine) MetricsSnapshot() OPAMetricsSnapshot {
+	var maxAge time.Duration
+	now := time.Now()
+	e.mu.RLock()
+	for _, state := range e.zones {
+		if state.loadedAt.IsZero() {
+			continue
+		}
+		if age := now.Sub(state.loadedAt); age > maxAge {
+			maxAge = age
+		}
+	}
+	e.mu.RUnlock()
 	return OPAMetricsSnapshot{
-		EvalTotal:         e.metrics.EvalTotal.Load(),
-		EvalErrors:        e.metrics.EvalErrors.Load(),
-		EvalDurationNs:    e.metrics.EvalNanos.Load(),
-		CompileTotal:      e.metrics.CompileTotal.Load(),
-		CompileErrors:     e.metrics.CompileErrors.Load(),
-		CompileDurationNs: e.metrics.CompileNanos.Load(),
+		EvalTotal:           e.metrics.EvalTotal.Load(),
+		EvalErrors:          e.metrics.EvalErrors.Load(),
+		EvalDurationNs:      e.metrics.EvalNanos.Load(),
+		CompileTotal:        e.metrics.CompileTotal.Load(),
+		CompileErrors:       e.metrics.CompileErrors.Load(),
+		CompileDurationNs:   e.metrics.CompileNanos.Load(),
+		MaxPolicyAgeSeconds: maxAge.Seconds(),
+		PollIntervalSeconds: e.pollInterval.Seconds(),
 	}
 }
 
@@ -168,10 +227,12 @@ func (e *OPAEngine) SeedZones(ctx context.Context) {
 	}
 }
 
-// StartPGPolling polls PostgreSQL every 60 seconds for policy changes on all known zones.
-// This ensures the OPA engine stays current when Redis invalidation events are missed.
+// StartPGPolling polls PostgreSQL on the configured cadence (default 60s) for policy
+// changes on all known zones. This is the safety net when Redis pubsub silently drops
+// invalidation messages; the engine's revocation SLA is therefore bounded by this
+// interval. Tighten via SetPollInterval for high-risk zones.
 func (e *OPAEngine) StartPGPolling(ctx context.Context) {
-	ticker := time.NewTicker(pgPollInterval)
+	ticker := time.NewTicker(e.pollInterval)
 	defer ticker.Stop()
 	for {
 		select {
@@ -252,11 +313,12 @@ func (e *OPAEngine) loadZone(ctx context.Context, zoneID string) error {
 		return err
 	}
 
-	modules := make([]func(*rego.Rego), 0, len(versions))
+	modules := make([]func(*rego.Rego), 0, len(versions)+2)
 	for _, v := range versions {
 		modules = append(modules, rego.Module(v.ID+".rego", v.Content))
 	}
 	modules = append(modules, rego.Query("result = data.caracal.authz.result"))
+	modules = append(modules, rego.Capabilities(safeCapabilities()))
 
 	started := time.Now()
 	e.metrics.CompileTotal.Add(1)
@@ -268,7 +330,7 @@ func (e *OPAEngine) loadZone(ctx context.Context, zoneID string) error {
 	}
 
 	e.mu.Lock()
-	e.zones[zoneID] = &opaZoneState{query: &pq, manifestSHA: psv.ManifestSHA256, policySetVersionID: psv.ID}
+	e.zones[zoneID] = &opaZoneState{query: &pq, manifestSHA: psv.ManifestSHA256, policySetVersionID: psv.ID, loadedAt: time.Now()}
 	e.mu.Unlock()
 	return nil
 }
@@ -283,11 +345,12 @@ func (e *OPAEngine) storeFallback(zoneID string) {
 	pq, err := rego.New(
 		rego.Module("fallback.rego", denyAllPolicy),
 		rego.Query("result = data.caracal.authz.result"),
+		rego.Capabilities(safeCapabilities()),
 	).PrepareForEval(context.Background())
 	if err != nil {
 		return
 	}
 	e.mu.Lock()
-	e.zones[zoneID] = &opaZoneState{query: &pq, manifestSHA: "no_active_policy_set"}
+	e.zones[zoneID] = &opaZoneState{query: &pq, manifestSHA: "no_active_policy_set", loadedAt: time.Now()}
 	e.mu.Unlock()
 }

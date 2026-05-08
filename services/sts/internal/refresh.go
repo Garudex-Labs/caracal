@@ -8,6 +8,7 @@ package internal
 import (
 	"context"
 	"crypto/rand"
+	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -29,6 +30,9 @@ const (
 	providerFailureTTL      = 5 * time.Minute
 	providerFailureLimit    = int64(5)
 	providerMaxBodyBytes    = 64 * 1024
+	grantPersistAttempts    = 3
+	grantPersistBackoff     = 25 * time.Millisecond
+	providerRetryBackoff    = 100 * time.Millisecond
 )
 
 func sealZEK(zek, plaintext []byte) ([]byte, error) {
@@ -119,11 +123,76 @@ func (s *Server) tryRefreshBrokeredGrant(ctx context.Context, zoneID, userID, re
 	if err != nil {
 		return sharederr.New(sharederr.Internal, "token re-encryption failed")
 	}
-	expiresAt := time.Now().Add(time.Duration(tokenResp.ExpiresIn) * time.Second)
-	if err := s.db.UpdateGrantTokens(ctx, grant.ID, grant.RefreshTokenVersion, newAccessCt, newRefreshCt, expiresAt); err != nil {
+	cappedTTL := capGrantTTL(tokenResp.ExpiresIn, s.cfg.MaxGrantTTLSeconds)
+	expiresAt := time.Now().Add(cappedTTL)
+	if cappedTTL < time.Duration(tokenResp.ExpiresIn)*time.Second {
+		s.log.Warn().
+			Str("provider", provider.ID).
+			Int("provider_expires_in", tokenResp.ExpiresIn).
+			Int("max_grant_ttl_seconds", s.cfg.MaxGrantTTLSeconds).
+			Msg("capped provider token ttl")
+	}
+	if err := s.persistRefreshedGrant(ctx, zoneID, userID, resourceID, grant, newAccessCt, newRefreshCt, expiresAt); err != nil {
 		return sharederr.New(sharederr.Internal, "grant update failed")
 	}
 	return nil
+}
+
+// capGrantTTL bounds the provider-returned lifetime to STS's configured maximum
+// so a misbehaving upstream cannot extend Caracal's short-TTL invariant.
+func capGrantTTL(providerSeconds, maxSeconds int) time.Duration {
+	if providerSeconds <= 0 {
+		return time.Duration(maxSeconds) * time.Second
+	}
+	if providerSeconds > maxSeconds {
+		return time.Duration(maxSeconds) * time.Second
+	}
+	return time.Duration(providerSeconds) * time.Second
+}
+
+// persistRefreshedGrant writes the refreshed tokens with optimistic-lock retries.
+// On version conflict it re-reads the grant; if a peer already produced fresh
+// tokens, the call returns nil without re-writing.
+func (s *Server) persistRefreshedGrant(
+	ctx context.Context,
+	zoneID, userID, resourceID string,
+	grant *DelegatedGrant,
+	accessCt, refreshCt []byte,
+	expiresAt time.Time,
+) error {
+	expectedVersion := grant.RefreshTokenVersion
+	for attempt := 0; attempt < grantPersistAttempts; attempt++ {
+		err := s.db.UpdateGrantTokens(ctx, grant.ID, expectedVersion, accessCt, refreshCt, expiresAt)
+		if err == nil {
+			return nil
+		}
+		if !errors.Is(err, ErrConcurrentGrantUpdate) {
+			return err
+		}
+		latest, readErr := s.db.GetDelegatedGrant(ctx, zoneID, userID, resourceID)
+		if readErr != nil {
+			return readErr
+		}
+		if latest.ExpiresAt != nil && latest.ExpiresAt.After(time.Now()) {
+			return nil
+		}
+		expectedVersion = latest.RefreshTokenVersion
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(jitteredBackoff(grantPersistBackoff, attempt)):
+		}
+	}
+	return ErrConcurrentGrantUpdate
+}
+
+// jitteredBackoff returns base*(attempt+1) plus uniform random jitter in [0, base).
+// Decorrelates retries so concurrent contenders do not re-collide on the same tick.
+func jitteredBackoff(base time.Duration, attempt int) time.Duration {
+	var b [8]byte
+	_, _ = rand.Read(b[:])
+	jitter := time.Duration(binary.LittleEndian.Uint64(b[:]) % uint64(base))
+	return base*time.Duration(attempt+1) + jitter
 }
 
 // validateTokenEndpoint enforces SSRF defenses: HTTPS only, mandatory non-empty host
@@ -230,6 +299,13 @@ func (s *Server) refreshProviderToken(ctx context.Context, providerID string, en
 	client := safeHTTPClient(providerRefreshTimeout)
 	var lastErr error
 	for attempt := 0; attempt < providerRefreshAttempts; attempt++ {
+		if attempt > 0 {
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			case <-time.After(jitteredBackoff(providerRetryBackoff, attempt-1)):
+			}
+		}
 		req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint.String(), strings.NewReader(form.Encode()))
 		if err != nil {
 			return nil, err

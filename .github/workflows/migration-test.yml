@@ -1,0 +1,76 @@
+name: migration-roundtrip
+on:
+  pull_request:
+    paths:
+      - 'infra/postgres/migrations/**'
+      - '.github/workflows/migration-test.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'infra/postgres/migrations/**'
+
+jobs:
+  roundtrip:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: caracal
+          POSTGRES_DB: caracal
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    env:
+      PGPASSWORD: caracal
+      PGHOST: localhost
+      PGPORT: '5432'
+      PGUSER: postgres
+      PGDATABASE: caracal
+    steps:
+      - uses: actions/checkout@v4
+      - name: Apply all up migrations
+        run: |
+          set -eu
+          for f in $(ls infra/postgres/migrations/*.up.sql | sort); do
+            echo "==> up: $f"
+            psql -v ON_ERROR_STOP=1 -f "$f"
+          done
+      - name: Snapshot schema after first up
+        run: |
+          pg_dump --schema-only --no-owner --no-privileges \
+            --exclude-schema=pg_catalog --exclude-schema=information_schema \
+            > /tmp/schema-after-up.sql
+      - name: Apply all down migrations in reverse
+        run: |
+          set -eu
+          for f in $(ls infra/postgres/migrations/*.down.sql | sort -r); do
+            echo "==> down: $f"
+            psql -v ON_ERROR_STOP=1 -f "$f"
+          done
+      - name: Verify schema is empty
+        run: |
+          tables=$(psql -At -c "select count(*) from information_schema.tables where table_schema='public'")
+          if [ "$tables" -ne 0 ]; then
+            echo "down migrations did not drop all public tables (count=$tables)" >&2
+            psql -c "select table_name from information_schema.tables where table_schema='public'"
+            exit 1
+          fi
+      - name: Re-apply all up migrations
+        run: |
+          set -eu
+          for f in $(ls infra/postgres/migrations/*.up.sql | sort); do
+            psql -v ON_ERROR_STOP=1 -f "$f"
+          done
+      - name: Snapshot schema after second up and compare
+        run: |
+          pg_dump --schema-only --no-owner --no-privileges \
+            --exclude-schema=pg_catalog --exclude-schema=information_schema \
+            > /tmp/schema-after-second-up.sql
+          if ! diff -u /tmp/schema-after-up.sql /tmp/schema-after-second-up.sql; then
+            echo "schema differs between first and second up — migrations are not idempotent" >&2
+            exit 1
+          fi

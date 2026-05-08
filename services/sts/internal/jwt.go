@@ -121,14 +121,15 @@ type IssueParams struct {
 	GraphEpoch       int64
 }
 
-func issueToken(ctx context.Context, params IssueParams, keys *KeyCache, issuerURL string) (string, error) {
+func issueToken(ctx context.Context, params IssueParams, keys *KeyCache, issuerURL string) (string, string, error) {
 	key, kid, err := keys.getKeyAndKid(ctx, params.ZoneID)
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 
 	now := time.Now()
 	jti, _ := uuid.NewV7()
+	jtiStr := jti.String()
 	audience := append([]string{issuerURL}, params.Resources...)
 	claims := Claims{
 		RegisteredClaims: jwt.RegisteredClaims{
@@ -137,7 +138,7 @@ func issueToken(ctx context.Context, params IssueParams, keys *KeyCache, issuerU
 			Audience:  audience,
 			ExpiresAt: jwt.NewNumericDate(now.Add(params.TTL)),
 			IssuedAt:  jwt.NewNumericDate(now),
-			ID:        jti.String(),
+			ID:        jtiStr,
 		},
 		ZoneID:           params.ZoneID,
 		ClientID:         params.AppID,
@@ -156,7 +157,11 @@ func issueToken(ctx context.Context, params IssueParams, keys *KeyCache, issuerU
 	if kid != "" {
 		t.Header["kid"] = kid
 	}
-	return t.SignedString(key)
+	signed, err := t.SignedString(key)
+	if err != nil {
+		return "", "", err
+	}
+	return signed, jtiStr, nil
 }
 
 // JWKSKey is a single key in a JWKS document.

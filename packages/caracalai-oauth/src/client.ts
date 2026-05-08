@@ -30,6 +30,7 @@ async function readSTSErrorResponse(res: Response): Promise<STSErrorResponse> {
 
 export class OAuthClient {
   private readonly cache: TokenCache
+  private readonly inflight = new Map<string, Promise<TokenExchangeResponse>>()
 
   constructor(
     private readonly stsUrl: string,
@@ -55,9 +56,21 @@ export class OAuthClient {
       if (remaining > preflightWindow) return cached
     }
 
-    const token = await this.doExchange(subjectToken, resource, opts, false)
-    this.cache.set(cacheSubject, cacheResource, token)
-    return token
+    const inflightKey = `${cacheSubject}::${cacheResource}`
+    const existing = this.inflight.get(inflightKey)
+    if (existing) return existing
+
+    const pending = (async () => {
+      try {
+        const token = await this.doExchange(subjectToken, resource, opts, false)
+        this.cache.set(cacheSubject, cacheResource, token)
+        return token
+      } finally {
+        this.inflight.delete(inflightKey)
+      }
+    })()
+    this.inflight.set(inflightKey, pending)
+    return pending
   }
 
   private cacheSubject(subjectToken: string, opts: ExchangeOptions): string {

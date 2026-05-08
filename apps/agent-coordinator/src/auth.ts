@@ -3,11 +3,29 @@
 //
 // JWT bearer verification against STS JWKS endpoint.
 
-import { createRemoteJWKSet, jwtVerify, errors as joseErrors } from 'jose'
+import { createRemoteJWKSet, decodeJwt, jwtVerify, errors as joseErrors } from 'jose'
 import type { FastifyRequest, FastifyReply } from 'fastify'
 import { cfg } from './config.js'
 
-const JWKS = createRemoteJWKSet(new URL(`${cfg.stsUrl}/.well-known/jwks.json`))
+// Per-zone JWKS resolvers. STS exposes one signing keyset per zone so a single
+// document never reveals every zone's keys; callers must pass ?zone_id=. Each
+// resolver enforces a hard cacheMaxAge so a sustained STS outage fails closed
+// instead of accepting tokens against indefinitely stale keys.
+const jwksByZone = new Map<string, ReturnType<typeof createRemoteJWKSet>>()
+
+function jwksForZone(zoneId: string): ReturnType<typeof createRemoteJWKSet> {
+  let resolver = jwksByZone.get(zoneId)
+  if (resolver) return resolver
+  const url = new URL(`${cfg.stsUrl}/.well-known/jwks.json`)
+  url.searchParams.set('zone_id', zoneId)
+  resolver = createRemoteJWKSet(url, {
+    cooldownDuration: 30_000,
+    cacheMaxAge: 600_000,
+    timeoutDuration: 5_000,
+  })
+  jwksByZone.set(zoneId, resolver)
+  return resolver
+}
 
 declare module 'fastify' {
   interface FastifyRequest {
@@ -46,10 +64,20 @@ export async function verifyBearer(req: FastifyRequest, reply: FastifyReply): Pr
     reply.code(401).send({ error: 'missing_token' })
     return
   }
-  const token = auth.slice(7)
+  const token = auth.slice(7).trim()
+  if (!token) {
+    reply.code(401).send({ error: 'missing_token' })
+    return
+  }
   let payload: Awaited<ReturnType<typeof jwtVerify>>['payload']
   try {
-    const verified = await jwtVerify(token, JWKS, {
+    const claims = decodeJwt(token)
+    const tokenZone = claims['zone_id']
+    if (typeof tokenZone !== 'string' || tokenZone === '') {
+      reply.code(401).send({ error: 'invalid_token' })
+      return
+    }
+    const verified = await jwtVerify(token, jwksForZone(tokenZone), {
       issuer: cfg.issuerUrl,
       audience: cfg.audience,
       algorithms: ['ES256'],

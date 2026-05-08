@@ -19,9 +19,10 @@ const (
 )
 
 // checkRateLimit enforces a fixed-window 1000 req/min limit per zone+resource.
+// Fails closed when Redis is unreachable so a backend outage cannot lift caps.
 func (s *Server) checkRateLimit(ctx context.Context, zoneID, resourceID, actorID string) *sharederr.CaracalError {
 	if s.redis == nil {
-		return nil
+		return sharederr.New(sharederr.ProviderRateLimited, "rate limit unavailable")
 	}
 	window := rateLimitWindow
 	maxRequests := rateLimitMax

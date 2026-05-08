@@ -18,7 +18,9 @@ RUN go mod download && \
     CGO_ENABLED=0 GOOS=linux go build -trimpath -o /sts ./cmd/sts
 
 FROM alpine:3.22@sha256:310c62b5e7ca5b08167e4384c68db0fd2905dd9c7493756d356e893909057601
-RUN apk add --no-cache ca-certificates wget
+RUN apk add --no-cache ca-certificates wget && \
+    mkdir -p /var/lib/caracal/audit-replay && \
+    chown -R 65532:65532 /var/lib/caracal
 COPY --from=builder /sts /sts
 USER 65532:65532
 ENTRYPOINT ["/sts"]

@@ -8,12 +8,18 @@ package internal
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"time"
 
+	"github.com/garudex-labs/caracal/shared/crypto"
 	"github.com/redis/go-redis/v9"
 )
 
-type RedisClient struct{ c *redis.Client }
+type RedisClient struct {
+	c           *redis.Client
+	streamHMAC  []byte
+	requireSigs bool
+}
 
 func newRedis(dsn string) (*RedisClient, error) {
 	opts, err := redis.ParseURL(dsn)
@@ -23,11 +29,41 @@ func newRedis(dsn string) (*RedisClient, error) {
 	return &RedisClient{c: redis.NewClient(opts)}, nil
 }
 
+// SetStreamSigning configures the HMAC key used by SignedXAdd and verified by
+// VerifyStream callers. When require is true, missing or invalid signatures cause
+// consumer-side rejection.
+func (r *RedisClient) SetStreamSigning(key []byte, require bool) {
+	r.streamHMAC = key
+	r.requireSigs = require
+}
+
+// VerifyStream returns true when the message values carry a valid origin signature
+// (or signing is disabled in dev mode and required is false).
+func (r *RedisClient) VerifyStream(stream string, values map[string]interface{}) bool {
+	if !r.requireSigs && len(r.streamHMAC) == 0 {
+		return true
+	}
+	return crypto.VerifyStream(r.streamHMAC, stream, values)
+}
+
 func (r *RedisClient) XAdd(ctx context.Context, stream string, values map[string]interface{}) error {
 	return r.c.XAdd(ctx, &redis.XAddArgs{
 		Stream: stream,
 		Values: values,
 	}).Err()
+}
+
+// SignedXAdd attaches an HMAC over the canonicalized values before publishing so a
+// consumer with the same key can confirm the message originated from a trusted
+// producer rather than an attacker with Redis write access.
+func (r *RedisClient) SignedXAdd(ctx context.Context, stream string, values map[string]interface{}) error {
+	if r.requireSigs && len(r.streamHMAC) == 0 {
+		return fmt.Errorf("stream signing required but no key configured")
+	}
+	if sig := crypto.SignStream(r.streamHMAC, stream, values); sig != "" {
+		values[crypto.StreamSigField] = sig
+	}
+	return r.XAdd(ctx, stream, values)
 }
 
 func (r *RedisClient) XReadGroup(ctx context.Context, group, consumer, stream string, count int64) ([]redis.XMessage, error) {
@@ -82,6 +118,12 @@ func (r *RedisClient) Del(ctx context.Context, key string) error {
 func (r *RedisClient) Exists(ctx context.Context, key string) (bool, error) {
 	n, err := r.c.Exists(ctx, key).Result()
 	return n > 0, err
+}
+
+// SetNXTTL stores value at key only if it does not already exist, with the given TTL.
+// Returns true when the key was newly created and false when it already existed.
+func (r *RedisClient) SetNXTTL(ctx context.Context, key, value string, ttl time.Duration) (bool, error) {
+	return r.c.SetNX(ctx, key, value, ttl).Result()
 }
 
 // IncrWithExpiry atomically increments key and sets TTL on first increment (fixed-window counter).

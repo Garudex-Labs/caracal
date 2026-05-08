@@ -75,7 +75,15 @@ export function registerAdminAuditHook(app: FastifyInstance, opts: AuditPluginOp
 
   app.addHook('onResponse', async (req: FastifyRequest, reply: FastifyReply) => {
     if (!req.url.startsWith('/v1/')) return
-    if (!MUTATING_METHODS.has(req.method)) return
+
+    const authenticated = !!req.actor
+    const success = reply.statusCode < 400
+    const mutating = MUTATING_METHODS.has(req.method)
+
+    // Record every mutation, plus every unauthenticated or rejected /v1 hit so that
+    // recon, brute force, and token-spray are visible. Successful reads are skipped
+    // to keep the table focused on state changes and abuse signal.
+    if (!mutating && authenticated && success) return
 
     const entity = entityFromUrl(req.url)
     const event: AdminAuditEvent = {

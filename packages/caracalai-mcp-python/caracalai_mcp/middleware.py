@@ -46,7 +46,7 @@ async def verify_token(
     if not zone_id or (expected_zone_id and zone_id != expected_zone_id):
         raise ValueError("Token zone validation failed")
     for required in required_scopes or []:
-        if required not in scope.split():
+        if not required or required not in scope.split():
             raise PermissionError(f"Missing required scope: {required}")
 
     return decoded

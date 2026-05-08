@@ -10,6 +10,7 @@ import { v7 as uuidv7 } from 'uuid'
 import { buildPatchUpdate, patchColumn } from './patch.js'
 import { ZoneIdParams, ZoneParams, parseParams } from './params.js'
 import { zoneExists } from '../zone-guard.js'
+import { activePolicyReferencesApp } from '../policy-invariants.js'
 
 const AppBody = z.object({
   name: z.string().min(1),
@@ -77,6 +78,9 @@ export const applicationsRoutes: FastifyPluginAsync = async (fastify) => {
     const params = parseParams(ZoneIdParams, req, reply)
     if (!params) return
     const body = AppBody.partial().parse(req.body)
+    if (body.credential_type === 'public' && await activePolicyReferencesApp(fastify.db, params.zoneId, params.id)) {
+      return reply.code(409).send({ error: 'app_referenced_by_active_policy' })
+    }
     const update = buildPatchUpdate([params.id, params.zoneId], [
       patchColumn('name', body.name),
       patchColumn('credential_type', body.credential_type),

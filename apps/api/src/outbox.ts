@@ -5,6 +5,7 @@
 // a cooperative dispatcher that drains rows to Redis streams with backoff.
 
 import { v7 as uuidv7 } from 'uuid'
+import { STREAM_SIG_FIELD, loadStreamsHmacKey, signStream } from '@caracalai/shared'
 import type { DB } from './db.js'
 import type { RedisClient } from './redis.js'
 
@@ -75,8 +76,14 @@ export class OutboxDispatcher {
   private timer: NodeJS.Timeout | null = null
   private running = false
   private stopping = false
+  private readonly streamHmacKey: Buffer | null
 
-  constructor(private readonly opts: DispatcherOptions) {}
+  constructor(private readonly opts: DispatcherOptions) {
+    this.streamHmacKey = loadStreamsHmacKey()
+    if (this.streamHmacKey === null && process.env.CARACAL_ENV && ['production', 'prod', 'staging'].includes(process.env.CARACAL_ENV)) {
+      throw new Error('STREAMS_HMAC_KEY is required in production')
+    }
+  }
 
   start(): void {
     if (this.timer) return
@@ -140,7 +147,11 @@ export class OutboxDispatcher {
   }
 
   private async dispatch(row: OutboxRow): Promise<void> {
-    const fields = flattenForXAdd(row.payload_json)
+    const signed: OutboxPayload = { ...row.payload_json }
+    if (this.streamHmacKey) {
+      signed[STREAM_SIG_FIELD] = signStream(this.streamHmacKey, row.stream_name, signed)
+    }
+    const fields = flattenForXAdd(signed)
     try {
       await this.opts.redis.xadd(row.stream_name, '*', ...fields)
       await this.opts.db.query(

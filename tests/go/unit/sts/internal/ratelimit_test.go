@@ -10,10 +10,10 @@ import (
 	"testing"
 )
 
-func TestCheckRateLimitNilRedis(t *testing.T) {
+func TestCheckRateLimitFailsClosedWhenRedisUnavailable(t *testing.T) {
 	s := &Server{db: &stubDB{}, redis: nil}
-	if err := s.checkRateLimit(context.Background(), "z1", "res-1", "app-1"); err != nil {
-		t.Errorf("want nil when redis is nil, got %v", err)
+	if err := s.checkRateLimit(context.Background(), "z1", "res-1", "app-1"); err == nil {
+		t.Error("rate limit must fail closed when redis is unavailable")
 	}
 }
 

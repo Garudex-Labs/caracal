@@ -54,6 +54,30 @@ function readEnvFile(path: string): Record<string, string> {
   return out
 }
 
+function envFilePath(): string | undefined {
+  const candidates = [
+    process.env.CARACAL_ENV_FILE,
+    join(process.cwd(), 'infra', 'docker', '.env'),
+    join(process.cwd(), '.env'),
+  ].filter((p): p is string => Boolean(p))
+  return candidates.find((p) => existsSync(p))
+}
+
+function upsertEnvVar(path: string, key: string, value: string): boolean {
+  const text = existsSync(path) ? readFileSync(path, 'utf8') : ''
+  const re = new RegExp(`^${key}=.*$`, 'm')
+  const line = `${key}=${value}`
+  if (re.test(text)) {
+    const next = text.replace(re, line)
+    if (next === text) return false
+    writeFileSync(path, next, { mode: 0o600 })
+    return true
+  }
+  const sep = text.length === 0 || text.endsWith('\n') ? '' : '\n'
+  writeFileSync(path, `${text}${sep}${line}\n`, { mode: 0o600 })
+  return true
+}
+
 function discoverAdminToken(explicit?: string): string | undefined {
   if (explicit) return explicit
   if (process.env.CARACAL_ADMIN_TOKEN) return process.env.CARACAL_ADMIN_TOKEN
@@ -154,6 +178,16 @@ export async function initCommand(argv: string[]): Promise<void> {
   }
 
   const data = (await res.json()) as BootstrapResponse
+
+  const envPath = envFilePath()
+  if (envPath) {
+    const binding = `${data.resource}=${data.app_client_id}`
+    if (upsertEnvVar(envPath, 'RESOURCE_CLIENT_BINDINGS', binding)) {
+      process.stdout.write(
+        `Updated RESOURCE_CLIENT_BINDINGS in ${envPath}; restart the gateway with \`caracal up\` to apply.\n`,
+      )
+    }
+  }
 
   if (!data.app_client_secret) {
     if (existsSync(opts.configPath)) {

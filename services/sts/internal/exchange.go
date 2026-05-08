@@ -90,7 +90,9 @@ func (s *Server) handleTokenExchange(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(resp)
+	if err := json.NewEncoder(w).Encode(resp); err != nil {
+		s.log.Warn().Err(err).Str("request_id", requestID).Msg("failed to encode token response")
+	}
 }
 
 func (s *Server) exchange(ctx context.Context, req TokenExchangeRequest, requestID string) (*TokenResponse, *challengeState, int, *sharederr.CaracalError) {
@@ -228,10 +230,11 @@ func (s *Server) exchange(ctx context.Context, req TokenExchangeRequest, request
 		s.auditBuffer.Emit(buildAuditEventWithBundle(requestID, zoneID, result.Decision, result.EvaluationStatus, result,
 			map[string]interface{}{"resource": resource.Identifier}, bundle))
 
-		// Partial evaluation is a hard-deny invariant: any partial answer fails the
-		// entire request rather than silently dropping a resource slot.
-		if result.EvaluationStatus == "partial" {
-			return nil, nil, http.StatusForbidden, sharederr.New(sharederr.PolicyEvalFailed, "partial policy evaluation")
+		// Only an explicit "complete" status is treated as a usable decision; any
+		// other value (partial, error, future enum) is a hard deny so an unknown
+		// state cannot silently grant access.
+		if result.EvaluationStatus != "complete" {
+			return nil, nil, http.StatusForbidden, sharederr.New(sharederr.PolicyEvalFailed, "policy evaluation incomplete")
 		}
 
 		if !challengeResolved {
@@ -312,10 +315,12 @@ func (s *Server) exchange(ctx context.Context, req TokenExchangeRequest, request
 		// JWT so downstream resources can render audit subjects without re-walking the graph.
 		issueParams.OnBehalfOf = delegation.edge.IssuerAppID
 	}
-	token, err := issueToken(ctx, issueParams, s.keys, s.cfg.IssuerURL)
+	token, jti, err := issueToken(ctx, issueParams, s.keys, s.cfg.IssuerURL)
 	if err != nil {
+		s.log.Error().Err(err).Str("zone_id", zoneID).Str("request_id", requestID).Msg("token issuance failed")
 		return nil, nil, http.StatusInternalServerError, sharederr.New(sharederr.Internal, "token issuance failed")
 	}
+	s.recordIssuedJTI(ctx, jti, app.ID, zoneID, requestID, ttl)
 
 	return &TokenResponse{
 		AccessToken:     token,

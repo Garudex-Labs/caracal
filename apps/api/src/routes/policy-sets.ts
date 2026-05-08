@@ -12,6 +12,7 @@ import { enqueueOutbox } from '../outbox.js'
 import { ZoneIdParams, ZoneParams, parseParams } from './params.js'
 import { zoneExists } from '../zone-guard.js'
 import { validateAuthzPolicy } from '../rego.js'
+import { publicAppsReferencedByContents } from '../policy-invariants.js'
 
 const MANIFEST_MAX_ENTRIES = 256
 
@@ -187,6 +188,27 @@ export const policySetsRoutes: FastifyPluginAsync = async (fastify) => {
     let outboxId: string
     try {
       await client.query('BEGIN')
+      const referencedIds = collectManifestIds(vRows[0].manifest_json)
+      if (body.shadow_version_id) {
+        const { rows: shadowVer } = await client.query<{ manifest_json: PolicyManifest }>(
+          `SELECT manifest_json FROM policy_set_versions WHERE id = $1`,
+          [body.shadow_version_id],
+        )
+        if (shadowVer[0]) referencedIds.push(...collectManifestIds(shadowVer[0].manifest_json))
+      }
+      // Hold SHARE locks on every referenced policy_version row so a concurrent
+      // delete of one of them blocks until activation commits. This closes the
+      // TOCTOU between policySetContractError and the UPDATE below.
+      if (referencedIds.length > 0) {
+        const { rows: locked } = await client.query<{ id: string }>(
+          `SELECT id FROM policy_versions WHERE id = ANY($1::text[]) FOR SHARE`,
+          [Array.from(new Set(referencedIds))],
+        )
+        if (locked.length !== new Set(referencedIds).size) {
+          await client.query('ROLLBACK')
+          return reply.code(409).send({ error: 'referenced_policy_version_missing' })
+        }
+      }
       const { rowCount } = await client.query(
         `UPDATE policy_set_bindings
          SET active_version_id = $1, shadow_version_id = $2, updated_at = now()
@@ -250,15 +272,29 @@ type Queryable = {
 
 type PolicyManifest = Array<{ policy_version_id?: string }>
 
+function collectManifestIds(manifest: string | PolicyManifest): string[] {
+  const list = Array.isArray(manifest) ? manifest : safeParseManifest(manifest)
+  return list
+    .map((entry) => entry.policy_version_id)
+    .filter((id): id is string => typeof id === 'string' && id !== '')
+}
+
+function safeParseManifest(raw: string): PolicyManifest {
+  try {
+    const parsed = JSON.parse(raw)
+    return Array.isArray(parsed) ? parsed as PolicyManifest : []
+  } catch {
+    return []
+  }
+}
+
 async function policySetContractError(
   db: Queryable,
   zoneId: string,
   manifestJSON: string | PolicyManifest,
 ): Promise<string | null> {
-  const manifest = Array.isArray(manifestJSON) ? manifestJSON : JSON.parse(manifestJSON) as PolicyManifest
-  const rawIds = manifest
-    .map((entry) => entry.policy_version_id)
-    .filter((id): id is string => typeof id === 'string' && id !== '')
+  const manifest = Array.isArray(manifestJSON) ? manifestJSON : safeParseManifest(manifestJSON)
+  const rawIds = collectManifestIds(manifest)
   if (rawIds.length === 0) return 'policy set manifest must reference at least one policy version'
   if (rawIds.length > MANIFEST_MAX_ENTRIES) {
     return `policy set manifest exceeds maximum of ${MANIFEST_MAX_ENTRIES} entries`
@@ -289,6 +325,14 @@ async function policySetContractError(
     if (err) {
       return `policy version ${row.id} failed validation: ${err}`
     }
+  }
+  const publicHits = await publicAppsReferencedByContents(
+    db,
+    zoneId,
+    rows.map((r) => String(r.content)),
+  )
+  if (publicHits.length > 0) {
+    return `policy references public application(s): ${publicHits.join(', ')}`
   }
   return null
 }

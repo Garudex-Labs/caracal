@@ -83,7 +83,7 @@ describe('startOutboxPublisher', () => {
     const db = { connect: vi.fn().mockResolvedValue(client) }
     const redis = { xadd: vi.fn() }
 
-    const handle = startOutboxPublisher(db as never, redis as never, { intervalMs: 100 })
+    const handle = startOutboxPublisher(db as never, redis as never, { intervalMs: 100, batchSize: 50, maxAttempts: 10 })
     await vi.advanceTimersByTimeAsync(100)
     await handle.stop()
     expect(client.release).toHaveBeenCalled()

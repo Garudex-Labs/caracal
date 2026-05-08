@@ -9,7 +9,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -17,6 +16,10 @@ import (
 )
 
 type DB struct{ pool *pgxpool.Pool }
+
+// ErrConcurrentGrantUpdate signals an optimistic-lock conflict on delegated_grants.
+// Callers refresh.go retries on this; other errors are returned as-is.
+var ErrConcurrentGrantUpdate = errors.New("concurrent grant update")
 
 func newDB(ctx context.Context, dsn string) (*DB, error) {
 	pool, err := pgxpool.New(ctx, dsn)
@@ -400,19 +403,27 @@ func (d *DB) SatisfyStepUpChallenge(ctx context.Context, id string) error {
 
 // ConsumeStepUpChallenge atomically transitions a challenge to consumed state, but only
 // when every binding matches: zone, principal, secret hash, resource set, satisfied,
-// not yet expired, not yet consumed. Returns ErrChallengeInvalid otherwise.
+// not yet expired, not yet consumed, and the originating session is still active.
+// Returns ErrChallengeInvalid otherwise.
 func (d *DB) ConsumeStepUpChallenge(ctx context.Context, p ConsumeStepUpParams) error {
 	tag, err := d.pool.Exec(ctx,
-		`UPDATE step_up_challenges
+		`UPDATE step_up_challenges c
 		 SET consumed_at = $6
-		 WHERE id = $1
-		   AND zone_id = $2
-		   AND principal_id = $3
-		   AND challenge_secret_hash = $4
-		   AND resource_set_hash = $5
-		   AND satisfied_at IS NOT NULL
-		   AND consumed_at IS NULL
-		   AND expires_at > $6`,
+		 WHERE c.id = $1
+		   AND c.zone_id = $2
+		   AND c.principal_id = $3
+		   AND c.challenge_secret_hash = $4
+		   AND c.resource_set_hash = $5
+		   AND c.satisfied_at IS NOT NULL
+		   AND c.consumed_at IS NULL
+		   AND c.expires_at > $6
+		   AND EXISTS (
+		     SELECT 1 FROM sessions s
+		     WHERE s.id = c.session_id
+		       AND s.zone_id = c.zone_id
+		       AND s.status = 'active'
+		       AND s.expires_at > $6
+		   )`,
 		p.ID, p.ZoneID, p.PrincipalID, p.ChallengeSecretHash, p.ResourceSetHash, p.Now,
 	)
 	if err != nil {
@@ -545,7 +556,7 @@ func (d *DB) GetDelegatedGrant(ctx context.Context, zoneID, userID, resourceID s
 }
 
 // UpdateGrantTokens updates tokens using optimistic locking on refresh_token_version.
-// Returns an error if the row was concurrently modified since it was read.
+// Returns ErrConcurrentGrantUpdate if the row was concurrently modified since it was read.
 func (d *DB) UpdateGrantTokens(ctx context.Context, id string, expectedVersion int, accessCt, refreshCt []byte, expiresAt time.Time) error {
 	tag, err := d.pool.Exec(ctx,
 		`UPDATE delegated_grants
@@ -558,7 +569,7 @@ func (d *DB) UpdateGrantTokens(ctx context.Context, id string, expectedVersion i
 		return err
 	}
 	if tag.RowsAffected() == 0 {
-		return fmt.Errorf("concurrent refresh detected for grant %s", id)
+		return ErrConcurrentGrantUpdate
 	}
 	return nil
 }

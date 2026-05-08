@@ -5,7 +5,8 @@
 
 import type { FastifyPluginAsync } from 'fastify'
 import { z } from 'zod'
-import { createCipheriv, createHash, generateKeyPairSync, randomBytes } from 'node:crypto'
+import { createHash, generateKeyPairSync, randomBytes } from 'node:crypto'
+import { isProduction, loadZoneKek, open, seal } from '@caracalai/shared'
 
 const ZONE_ID = 'zone1'
 const APP_ID = 'app1'
@@ -16,6 +17,7 @@ const POLICY_VERSION_ID = 'local-dev-allow-v1'
 const POLICY_SET_ID = 'local-dev-policy-set'
 const POLICY_SET_VERSION_ID = 'local-dev-policy-set-v1'
 const SIGNING_KEY_ID = 'zone1-signing-key-v1'
+const LOCAL_DEK_ID = 'local-dev'
 const ALLOW_POLICY = `package caracal.authz
 result := {"decision": "allow", "evaluation_status": "complete", "determining_policies": [{"policy": "local-dev-allow"}], "diagnostics": []}
 `
@@ -32,19 +34,11 @@ interface BootstrapResult {
   resource: string
   scope: string
   rotated: boolean
+  signing_key_resealed?: boolean
 }
 
 function sha256Hex(data: string | Buffer): string {
   return createHash('sha256').update(data).digest('hex')
-}
-
-function sealZeroKey(plaintext: Buffer): { ciphertext: Buffer; nonce: Buffer } {
-  const key = Buffer.alloc(32)
-  const nonce = randomBytes(12)
-  const cipher = createCipheriv('chacha20-poly1305', key, nonce, { authTagLength: 16 })
-  const enc = Buffer.concat([cipher.update(plaintext), cipher.final()])
-  const tag = cipher.getAuthTag()
-  return { ciphertext: Buffer.concat([enc, tag]), nonce }
 }
 
 function generateSigningKeyPem(): Buffer {
@@ -54,7 +48,16 @@ function generateSigningKeyPem(): Buffer {
 }
 
 export const localBootstrapRoutes: FastifyPluginAsync = async (fastify) => {
+  if (isProduction()) {
+    throw new Error('local bootstrap routes must not be registered in production')
+  }
+  const kek = loadZoneKek()
+
   fastify.post('/local/bootstrap', async (req, reply) => {
+    const remote = req.socket.remoteAddress ?? ''
+    if (!isLoopback(remote)) {
+      return reply.code(403).send({ error: 'local_bootstrap_loopback_only' })
+    }
     const parsed = BootstrapBody.safeParse(req.body ?? {})
     if (!parsed.success) return reply.code(400).send({ error: 'invalid_body' })
     const { force } = parsed.data
@@ -62,16 +65,30 @@ export const localBootstrapRoutes: FastifyPluginAsync = async (fastify) => {
     const existing = await fastify.db.query(`SELECT id FROM zones WHERE id = $1`, [ZONE_ID])
     const zoneExists = existing.rowCount! > 0
 
+    let signingKeyResealed = false
     if (zoneExists) {
-      const { rows: secretRows } = await fastify.db.query<{ dek_id: string }>(
-        `SELECT dek_id FROM secrets WHERE id = $1 AND zone_id = $2`,
+      const { rows: secretRows } = await fastify.db.query<{ dek_id: string; ciphertext: Buffer; nonce: Buffer }>(
+        `SELECT dek_id, ciphertext, nonce FROM secrets WHERE id = $1 AND zone_id = $2`,
         [SIGNING_KEY_ID, ZONE_ID],
       )
-      if (secretRows[0] && secretRows[0].dek_id !== 'local') {
+      if (secretRows[0] && secretRows[0].dek_id !== LOCAL_DEK_ID) {
         return reply.code(409).send({
           error: 'zone_not_local_bootstrap',
-          detail: 'refusing to overwrite zone whose signing key was sealed under a real KEK',
+          detail: 'refusing to overwrite zone whose signing key was sealed under a different DEK',
         })
+      }
+      if (secretRows[0]) {
+        try {
+          open(kek, { ciphertext: secretRows[0].ciphertext, nonce: secretRows[0].nonce })
+        } catch {
+          const reseal = seal(kek, generateSigningKeyPem())
+          await fastify.db.query(
+            `UPDATE secrets SET ciphertext = $1, nonce = $2, updated_at = now()
+             WHERE id = $3 AND zone_id = $4`,
+            [reseal.ciphertext, reseal.nonce, SIGNING_KEY_ID, ZONE_ID],
+          )
+          signingKeyResealed = true
+        }
       }
     }
 
@@ -84,6 +101,7 @@ export const localBootstrapRoutes: FastifyPluginAsync = async (fastify) => {
         resource: RESOURCE_NAME,
         scope: 'read',
         rotated: false,
+        signing_key_resealed: signingKeyResealed,
       } satisfies BootstrapResult
     }
 
@@ -93,7 +111,7 @@ export const localBootstrapRoutes: FastifyPluginAsync = async (fastify) => {
     const manifest = JSON.stringify([{ policy_version_id: POLICY_VERSION_ID }])
     const manifestHash = sha256Hex(manifest)
     const signingPem = generateSigningKeyPem()
-    const sealed = sealZeroKey(signingPem)
+    const sealed = seal(kek, signingPem)
 
     const client = await fastify.db.connect()
     try {
@@ -149,9 +167,9 @@ export const localBootstrapRoutes: FastifyPluginAsync = async (fastify) => {
       )
       await client.query(
         `INSERT INTO secrets (id, zone_id, entity_id, name, type, ciphertext, nonce, dek_id)
-         VALUES ($1, $2, $2, 'zone_signing_key', 'token', $3, $4, 'local')
+         VALUES ($1, $2, $2, 'zone_signing_key', 'token', $3, $4, $5)
          ON CONFLICT (id) DO UPDATE SET ciphertext = EXCLUDED.ciphertext, nonce = EXCLUDED.nonce, updated_at = now()`,
-        [SIGNING_KEY_ID, ZONE_ID, sealed.ciphertext, sealed.nonce],
+        [SIGNING_KEY_ID, ZONE_ID, sealed.ciphertext, sealed.nonce, LOCAL_DEK_ID],
       )
 
       await client.query('COMMIT')
@@ -172,4 +190,22 @@ export const localBootstrapRoutes: FastifyPluginAsync = async (fastify) => {
       rotated: zoneExists,
     } satisfies BootstrapResult)
   })
+}
+
+function isLoopback(remote: string): boolean {
+  if (!remote) return false
+  const addr = remote.startsWith('::ffff:') ? remote.slice(7) : remote
+  if (addr === '127.0.0.1' || addr === '::1' || addr.startsWith('127.')) return true
+  return isPrivateIPv4(addr)
+}
+
+function isPrivateIPv4(addr: string): boolean {
+  const m = addr.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.\d{1,3}$/)
+  if (!m) return false
+  const a = Number(m[1])
+  const b = Number(m[2])
+  if (a === 10) return true
+  if (a === 192 && b === 168) return true
+  if (a === 172 && b >= 16 && b <= 31) return true
+  return false
 }
