@@ -4,7 +4,7 @@
 // TypeScript shared logging tests for JSON emission and level filtering.
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { createLogger } from '../../../../packages/ts-shared/src/logging.js'
+import { createLogger } from '../../../../packages/core/ts/src/logging.js'
 
 describe('createLogger', () => {
   afterEach(() => {

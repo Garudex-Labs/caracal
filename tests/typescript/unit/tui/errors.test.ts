@@ -4,7 +4,7 @@
 // explainError unit tests.
 
 import { describe, it, expect } from 'vitest'
-import { AdminApiError } from '../../../../packages/caracalai-admin/src/errors.js'
+import { AdminApiError } from '../../../../packages/admin/ts/src/errors.js'
 import { explainError } from '../../../../apps/tui/src/errors.ts'
 
 describe('explainError', () => {

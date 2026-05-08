@@ -1,11 +1,11 @@
 // Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 // Caracal, a product of Garudex Labs
 //
-// caracalAuth middleware unit tests: missing token, invalid token, scope check.
+// caracalAuth Express middleware unit tests: missing token, invalid token, scope check.
 
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import type { Request, Response, NextFunction } from 'express'
-import { caracalAuth } from '../../../../../packages/caracalai-mcp/src/middleware.js'
+import { caracalAuth } from '../../../../../packages/framework-adaptor/mcp-express/ts/src/middleware.js'
 
 function makeMockRes(): Partial<Response> & { statusCode?: number; body?: unknown } {
   const res: Partial<Response> & { statusCode?: number; body?: unknown } = {}
@@ -39,9 +39,9 @@ describe('caracalAuth middleware', () => {
   })
 
   it('rejects invalid JWT', async () => {
-    // Mock getKeySet to throw so jwtVerify fails
-    vi.mock('./jwks.js', () => ({
-      getKeySet: vi.fn().mockRejectedValue(new Error('jwks fetch failed')),
+    vi.mock('@caracalai/transport-mcp', async () => ({
+      authenticate: vi.fn().mockResolvedValue({ ok: false, error: { code: 'invalid_token', description: 'Token validation failed' } }),
+      extractBearer: (h: string | undefined) => (h?.startsWith('Bearer ') ? h.slice(7).trim() : null),
     }))
     const middleware = caracalAuth({ issuer: 'https://sts.zone1', audience: 'resource://api' })
     const req = { headers: { authorization: 'Bearer invalid.jwt.token' } } as Request
