@@ -17,7 +17,7 @@ import (
 	"strings"
 	"time"
 
-	sharederr "github.com/garudex-labs/caracal/shared/errors"
+	sharederr "github.com/garudex-labs/caracal/core/errors"
 )
 
 // stsErrorBodyLimit caps the bytes we read from STS error responses.

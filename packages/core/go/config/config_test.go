@@ -1,1 +1,1 @@
-../../../tests/go/unit/shared/config/config_test.go
+../../../../tests/go/unit/shared/config/config_test.go

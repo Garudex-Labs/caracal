@@ -3,7 +3,7 @@ module github.com/garudex-labs/caracal/sts
 go 1.26
 
 require (
-	github.com/garudex-labs/caracal/shared v0.0.0
+	github.com/garudex-labs/caracal/core v0.0.0
 	github.com/golang-jwt/jwt/v5 v5.2.2
 	github.com/google/uuid v1.6.0
 	github.com/jackc/pgx/v5 v5.9.2
@@ -52,4 +52,4 @@ require (
 	sigs.k8s.io/yaml v1.4.0 // indirect
 )
 
-replace github.com/garudex-labs/caracal/shared => ../../packages/shared
+replace github.com/garudex-labs/caracal/core => ../../packages/core/go
