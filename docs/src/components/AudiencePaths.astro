@@ -1,0 +1,74 @@
+---
+/*
+ * Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+ * Caracal, a product of Garudex Labs
+ *
+ * Audience-routed cards directing operators, developers, and security to docs.
+ */
+---
+
+<section class="audience" aria-labelledby="audience-heading">
+  <div class="audience__inner">
+    <h2 id="audience-heading" class="audience__heading">
+      <span class="audience__heading-lead">Pick your path</span>
+      <span class="audience__heading-name">Where to start</span>
+    </h2>
+    <p class="audience__lede">
+      Caracal serves three audiences. Jump straight into the docs that match
+      how you work.
+    </p>
+
+    <div class="audience__grid">
+      <a class="audience__card" href="/cli/overview/">
+        <span class="audience__card-glyph" aria-hidden="true">
+          <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="3" y="4" width="18" height="16" rx="2" />
+            <path d="m7 9 3 3-3 3" />
+            <path d="M13 15h4" />
+          </svg>
+        </span>
+        <p class="audience__card-eyebrow">Operators</p>
+        <h3 class="audience__card-title">Run Caracal in production</h3>
+        <p class="audience__card-body">
+          Install the CLI, bring up the runtime, and route agent traffic through
+          enforced authority in minutes.
+        </p>
+        <span class="audience__card-cta">CLI &amp; configuration →</span>
+      </a>
+
+      <a class="audience__card" href="/sdk/typescript/">
+        <span class="audience__card-glyph" aria-hidden="true">
+          <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+            <path d="m8 6-6 6 6 6" />
+            <path d="m16 6 6 6-6 6" />
+            <path d="m14 4-4 16" />
+          </svg>
+        </span>
+        <p class="audience__card-eyebrow">Developers</p>
+        <h3 class="audience__card-title">Build agents under authority</h3>
+        <p class="audience__card-body">
+          Use the SDKs to request mandates, wrap tool calls, and ship agents
+          that obey policy by construction.
+        </p>
+        <span class="audience__card-cta">SDK &amp; API →</span>
+      </a>
+
+      <a class="audience__card" href="/architecture/threat-model/">
+        <span class="audience__card-glyph" aria-hidden="true">
+          <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 2 4 6v6c0 4.4 3.4 8.4 8 10 4.6-1.6 8-5.6 8-10V6l-8-4Z" />
+            <path d="M12 8v5" />
+            <circle cx="12" cy="16" r="0.8" fill="currentColor" stroke="none" />
+          </svg>
+        </span>
+        <p class="audience__card-eyebrow">Security &amp; Platform</p>
+        <h3 class="audience__card-title">Design the control plane</h3>
+        <p class="audience__card-body">
+          Understand the runtime model, threat surface, and data flows behind
+          pre-execution enforcement.
+        </p>
+        <span class="audience__card-cta">Architecture &amp; threat model →</span>
+      </a>
+    </div>
+  </div>
+</section>

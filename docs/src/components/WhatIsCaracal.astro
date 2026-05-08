@@ -1,0 +1,72 @@
+---
+/*
+ * Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+ * Caracal, a product of Garudex Labs
+ *
+ * Three-card explainer section describing what Caracal is.
+ */
+---
+
+<section class="what-is" aria-labelledby="what-is-heading">
+  <div class="what-is__inner">
+    <h2 id="what-is-heading" class="what-is__heading">
+      <span class="what-is__heading-lead">What is</span>
+      <span class="what-is__heading-name">Caracal?</span>
+    </h2>
+    <p class="what-is__lede">
+      Caracal turns ambient credentials into short-lived, signed mandates that
+      every agent action is checked against — before a single line of code runs.
+    </p>
+
+    <div class="what-is__grid">
+      <a class="what-is__card" href="/concepts/mandate/">
+        <span class="what-is__card-glyph" aria-hidden="true">
+          <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 2 4 6v6c0 4.4 3.4 8.4 8 10 4.6-1.6 8-5.6 8-10V6l-8-4Z" />
+            <path d="m9 12 2 2 4-4" />
+          </svg>
+        </span>
+        <h3 class="what-is__card-title">Mandates</h3>
+        <p class="what-is__card-body">
+          Short-lived, signed authority objects scoped to a principal, policy,
+          and intent. The replacement for long-lived API keys.
+        </p>
+        <span class="what-is__card-cta">Read the model →</span>
+      </a>
+
+      <a class="what-is__card" href="/concepts/policy/">
+        <span class="what-is__card-glyph" aria-hidden="true">
+          <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M4 6h16" />
+            <path d="M4 12h16" />
+            <path d="M4 18h10" />
+            <circle cx="18" cy="18" r="2.2" fill="currentColor" stroke="none" />
+          </svg>
+        </span>
+        <h3 class="what-is__card-title">Policies</h3>
+        <p class="what-is__card-body">
+          Declarative rules evaluated at the gate. Every action is permitted,
+          denied, or constrained — deterministically and explainably.
+        </p>
+        <span class="what-is__card-cta">Author a policy →</span>
+      </a>
+
+      <a class="what-is__card" href="/concepts/ledger/">
+        <span class="what-is__card-glyph" aria-hidden="true">
+          <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="3.5" y="4" width="17" height="16" rx="2" />
+            <path d="M7.5 9h9" />
+            <path d="M7.5 13h9" />
+            <path d="M7.5 17h6" />
+          </svg>
+        </span>
+        <h3 class="what-is__card-title">Audit</h3>
+        <p class="what-is__card-body">
+          Every decision recorded in an append-only ledger. Replay any agent
+          run, prove compliance, and revoke authority instantly.
+        </p>
+        <span class="what-is__card-cta">Audit & replay →</span>
+      </a>
+    </div>
+  </div>
+</section>

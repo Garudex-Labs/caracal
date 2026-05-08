@@ -1,0 +1,102 @@
+---
+/**
+ * Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+ * Caracal, a product of Garudex Labs
+ *
+ * Custom hero override for the docs landing page.
+ *
+ * For pages that opt into a `hero` block in frontmatter (typically
+ * `template: splash` landing pages), render the bespoke Caracal hero.
+ * For everything else (404, doc pages, etc.) fall back to Starlight's
+ * default hero so prop assumptions stay safe.
+ */
+import Default from '@astrojs/starlight/components/Hero.astro'
+
+const route = (Astro.locals as any)?.starlightRoute
+const data = route?.entry?.data ?? {}
+const hero = data.hero as
+  | undefined
+  | {
+      eyebrow?: string
+      title?: string
+      tagline?: string
+      actions?: Array<{ text: string; link: string; variant?: 'primary' | 'secondary' }>
+    }
+
+const useCustom = !!hero && data.template === 'splash'
+const title = hero?.title ?? data.title ?? ''
+const tagline = hero?.tagline ?? data.description ?? ''
+const eyebrow = hero?.eyebrow ?? 'Caracal'
+const actions = hero?.actions ?? []
+---
+
+{
+  useCustom ? (
+    <section class="landing-hero" aria-label="Caracal documentation hero">
+      <div class="landing-hero__content">
+        <p class="landing-hero__eyebrow">{eyebrow}</p>
+        <h1 class="landing-hero__title" set:html={title} />
+        {actions.length > 0 && (
+          <div class="landing-hero__actions">
+            {actions.map((a) => (
+              <a
+                class={`landing-button landing-button--${a.variant ?? 'secondary'}`}
+                href={a.link}
+              >
+                {a.text}
+              </a>
+            ))}
+          </div>
+        )}
+      </div>
+    </section>
+  ) : (
+    <Default />
+  )
+}
+
+<script>
+  const node = document.querySelector<HTMLElement>('.hero-rotator')
+  if (node && !window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    const words = (node.dataset.words ?? '').split(',').map((w) => w.trim()).filter(Boolean)
+    if (words.length > 0) {
+      const typeMs = 70
+      const eraseMs = 35
+      const holdMs = 3000
+      let wordIndex = 0
+      let charIndex = 0
+      let phase: 'type' | 'hold' | 'erase' = 'type'
+
+      const tick = () => {
+        const word = words[wordIndex]
+        if (phase === 'type') {
+          charIndex += 1
+          node.textContent = word.slice(0, charIndex)
+          if (charIndex === word.length) {
+            phase = 'hold'
+            window.setTimeout(tick, holdMs)
+            return
+          }
+          window.setTimeout(tick, typeMs)
+        } else if (phase === 'hold') {
+          phase = 'erase'
+          window.setTimeout(tick, eraseMs)
+        } else {
+          charIndex -= 1
+          node.textContent = word.slice(0, charIndex)
+          if (charIndex === 0) {
+            wordIndex = (wordIndex + 1) % words.length
+            phase = 'type'
+          }
+          window.setTimeout(tick, eraseMs)
+        }
+      }
+
+      node.textContent = ''
+      tick()
+    }
+  } else if (node) {
+    const words = (node.dataset.words ?? '').split(',').map((w) => w.trim()).filter(Boolean)
+    node.textContent = words[0] ?? ''
+  }
+</script>
