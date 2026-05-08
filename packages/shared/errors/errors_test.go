@@ -1,1 +1,0 @@
-../../../tests/go/unit/shared/errors/errors_test.go
