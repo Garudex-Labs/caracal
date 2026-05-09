@@ -49,7 +49,7 @@ export function ownsApplication(req: FastifyRequest, applicationId: string): boo
   return req.caracalAuth?.clientId === applicationId
 }
 
-const PUBLIC_PATHS = new Set(['/health'])
+const PUBLIC_PATHS = new Set(['/health', '/v1/verify'])
 
 function classifyError(err: unknown): string {
   if (err instanceof joseErrors.JWTExpired) return 'token_expired'
