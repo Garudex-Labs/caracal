@@ -29,12 +29,8 @@ export function newDB(options: DBOptions): DB {
   const idleTx = options.idleInTxTimeoutMs ?? 30_000
   pool.on('connect', (client) => {
     void (async () => {
-      try {
-        await client.query(`SET statement_timeout = ${stmt}`)
-        await client.query(`SET idle_in_transaction_session_timeout = ${idleTx}`)
-      } catch {
-        // Session-level SETs are best-effort; failures surface on the next query.
-      }
+      await client.query(`SET statement_timeout = ${stmt}`)
+      await client.query(`SET idle_in_transaction_session_timeout = ${idleTx}`)
     })()
   })
   return pool

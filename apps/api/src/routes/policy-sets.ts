@@ -273,19 +273,15 @@ type Queryable = {
 type PolicyManifest = Array<{ policy_version_id?: string }>
 
 function collectManifestIds(manifest: string | PolicyManifest): string[] {
-  const list = Array.isArray(manifest) ? manifest : safeParseManifest(manifest)
+  const list = Array.isArray(manifest) ? manifest : parseManifest(manifest)
   return list
     .map((entry) => entry.policy_version_id)
     .filter((id): id is string => typeof id === 'string' && id !== '')
 }
 
-function safeParseManifest(raw: string): PolicyManifest {
-  try {
-    const parsed = JSON.parse(raw)
-    return Array.isArray(parsed) ? parsed as PolicyManifest : []
-  } catch {
-    return []
-  }
+function parseManifest(raw: string): PolicyManifest {
+  const parsed = JSON.parse(raw)
+  return Array.isArray(parsed) ? parsed as PolicyManifest : []
 }
 
 async function policySetContractError(
@@ -293,7 +289,7 @@ async function policySetContractError(
   zoneId: string,
   manifestJSON: string | PolicyManifest,
 ): Promise<string | null> {
-  const manifest = Array.isArray(manifestJSON) ? manifestJSON : safeParseManifest(manifestJSON)
+  const manifest = Array.isArray(manifestJSON) ? manifestJSON : parseManifest(manifestJSON)
   const rawIds = collectManifestIds(manifest)
   if (rawIds.length === 0) return 'policy set manifest must reference at least one policy version'
   if (rawIds.length > MANIFEST_MAX_ENTRIES) {

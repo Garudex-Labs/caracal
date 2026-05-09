@@ -99,7 +99,7 @@ func (c *Consumer) Run(ctx context.Context) {
 	}
 }
 
-func (c *Consumer) verify(values map[string]interface{}) bool {
+func (c *Consumer) verify(values map[string]any) bool {
 	if !c.requireSig && len(c.hmacKey) == 0 {
 		return true
 	}

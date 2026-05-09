@@ -97,10 +97,6 @@ export function registerAdminAuditHook(app: FastifyInstance, opts: AuditPluginOp
       statusCode: reply.statusCode,
       payload: null,
     }
-    try {
-      await recordAdminEvent(opts.db, event)
-    } catch (err) {
-      req.log.error({ err: (err as Error).message, requestId: req.id }, 'admin audit insert failed')
-    }
+    await recordAdminEvent(opts.db, event)
   })
 }
