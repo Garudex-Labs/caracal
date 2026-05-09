@@ -10,8 +10,10 @@ import unittest
 from caracalai_sdk import (
     Caracal,
     CaracalASGIMiddleware,
-    CoordinatorClient,
     CaracalConfig,
+)
+from caracalai_sdk.advanced import (
+    CoordinatorClient,
     HEADER_AGENT_SESSION,
     HEADER_HOP,
     HEADER_SUBJECT_TOKEN,

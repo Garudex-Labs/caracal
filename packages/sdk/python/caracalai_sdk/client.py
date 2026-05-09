@@ -140,6 +140,25 @@ class Caracal:
         finally:
             _ctx_var.reset(token)
 
+    def context(self) -> CaracalContext:
+        ctx = try_current()
+        if ctx is None:
+            raise RuntimeError("Caracal context is not bound on this execution path")
+        return ctx
+
+    def try_context(self) -> CaracalContext | None:
+        return try_current()
+
+    def middleware(self) -> Any:
+        from .http import CaracalASGIMiddleware
+
+        outer = self
+
+        def factory(app: Any) -> CaracalASGIMiddleware:
+            return CaracalASGIMiddleware(app, outer)
+
+        return factory
+
     def httpx_client(self, **kwargs: Any) -> httpx.AsyncClient:
         """Returns an httpx.AsyncClient that auto-injects the envelope on every request."""
         outer = self
