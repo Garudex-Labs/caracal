@@ -23,7 +23,6 @@
   "devDependencies": {
     "@types/node": "^22.15.3",
     "@types/pg": "^8.11.14",
-    "@types/uuid": "^10.0.0",
     "tsx": "^4.19.3",
     "typescript": "^5.8.3",
     "vitest": "^3.0.0"

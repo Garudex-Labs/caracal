@@ -22,7 +22,6 @@
     "prepare": "tsc"
   },
   "dependencies": {
-    "@caracalai/identity": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",
