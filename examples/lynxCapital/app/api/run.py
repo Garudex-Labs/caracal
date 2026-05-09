@@ -6,14 +6,12 @@ Run lifecycle endpoints: start, SSE event stream, lineage, and graph.
 """
 from __future__ import annotations
 
-import asyncio
 from uuid import uuid4
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException
 from pydantic import BaseModel
 from sse_starlette.sse import EventSourceResponse
 
-from app.agents.runner import get_runner
 from app.core.cancellation import cancellation
 from app.events.bus import bus
 from app.events.sse import run_stream

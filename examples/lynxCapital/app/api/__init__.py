@@ -12,7 +12,6 @@ from app.api.logs import router as logs_router
 from app.api.memories import router as memories_router
 from app.api.session import router as session_router
 from app.api.setup import router as setup_router
-from app.api.caracal_status import router as caracal_router
 
 router = APIRouter()
 router.include_router(system_router, prefix="/system")
@@ -21,4 +20,3 @@ router.include_router(logs_router, prefix="/logs")
 router.include_router(memories_router, prefix="/memories")
 router.include_router(session_router, prefix="/session")
 router.include_router(setup_router, prefix="/setup")
-router.include_router(caracal_router, prefix="/caracal")
