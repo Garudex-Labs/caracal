@@ -147,7 +147,7 @@ func (s *Server) exchange(ctx context.Context, req TokenExchangeRequest, request
 		}
 		challengeResolved = true
 	}
-	if req.AgentSessionID != "" {
+	if req.AgentSessionID != "" && req.DelegationEdgeID == "" {
 		if aerr := s.validateAgentSessionOwnership(ctx, zoneID, app.ID, req.AgentSessionID); aerr != nil {
 			return nil, nil, http.StatusForbidden, aerr
 		}
