@@ -20,9 +20,6 @@ func TestSTSExchangeReturnsOutcomeForTransportError(t *testing.T) {
 	defer cancel()
 
 	outcome := c.Exchange(ctx, "tok", binding{ZoneID: "z", ApplicationID: "a"}, "r", "rid")
-	if outcome == nil {
-		t.Fatal("expected exchange outcome")
-	}
 	if outcome.InternalError == nil {
 		t.Fatal("expected transport error")
 	}
@@ -52,9 +49,6 @@ func TestSTSExchangeReturnsOutcomeResultOnSuccess(t *testing.T) {
 	defer cancel()
 
 	outcome := c.Exchange(ctx, "tok", binding{ZoneID: "z", ApplicationID: "a"}, "r1", "rid")
-	if outcome == nil {
-		t.Fatal("expected exchange outcome")
-	}
 	if outcome.BusinessError != nil || outcome.InternalError != nil {
 		t.Fatalf("unexpected errors: business=%v internal=%v", outcome.BusinessError, outcome.InternalError)
 	}
