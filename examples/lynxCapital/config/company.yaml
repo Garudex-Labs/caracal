@@ -15,6 +15,7 @@ theme:
 
 llm:
   model: "gpt-5.4-nano"
+  summarizerModel: "gpt-5.4-nano"
   temperature: 0.1
 
 regions:

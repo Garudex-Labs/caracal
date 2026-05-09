@@ -6,8 +6,11 @@ Session-level conversation and run history retained across multiple runs.
 """
 from __future__ import annotations
 
+import json
+import os
 import time
 from dataclasses import dataclass, field
+from pathlib import Path
 from threading import Lock
 from typing import Literal
 
@@ -42,28 +45,34 @@ class Turn:
 
 
 class SessionMemory:
-    """In-process session store. Cleared on server restart or via DELETE /api/memories."""
+    """Session store with optional JSON file persistence so conversation and
+    run history survive process restarts. Set LYNX_SESSION_PATH to enable."""
 
-    def __init__(self) -> None:
+    def __init__(self, path: str | None = None) -> None:
         self._turns: list[Turn] = []
         self._runs: list[RunRecord] = []
         self._lock = Lock()
+        self._path = Path(path) if path else None
+        self._load()
 
     def add_user(self, content: str, run_id: str) -> None:
         with self._lock:
             self._turns.append(Turn(role="user", content=content, run_id=run_id))
             self._trim()
+        self._persist()
 
     def add_assistant(self, content: str, run_id: str) -> None:
         with self._lock:
             self._turns.append(Turn(role="assistant", content=content, run_id=run_id))
             self._trim()
+        self._persist()
 
     def record_run(self, record: RunRecord) -> None:
         with self._lock:
             self._runs.append(record)
             if len(self._runs) > MAX_RUNS:
                 self._runs = self._runs[-MAX_RUNS:]
+        self._persist()
 
     def context_block(self) -> str:
         """Return a compact context string for LLM injection, or '' if no history."""
@@ -94,6 +103,7 @@ class SessionMemory:
         with self._lock:
             self._turns.clear()
             self._runs.clear()
+        self._persist()
 
     def as_dict(self) -> dict:
         with self._lock:
@@ -121,5 +131,53 @@ class SessionMemory:
         if len(self._turns) > MAX_TURNS * 2:
             self._turns = self._turns[-(MAX_TURNS * 2):]
 
+    def _load(self) -> None:
+        if not self._path or not self._path.exists():
+            return
+        try:
+            data = json.loads(self._path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return
+        with self._lock:
+            self._runs = [
+                RunRecord(
+                    run_id=r["run_id"], prompt=r["prompt"], status=r["status"],
+                    regions=list(r.get("regions") or []),
+                    errors=list(r.get("errors") or []),
+                    ts=float(r.get("ts") or time.time()),
+                )
+                for r in data.get("runs", [])
+            ]
+            self._turns = [
+                Turn(role=t["role"], content=t["content"],
+                     run_id=t.get("run_id"), ts=float(t.get("ts") or time.time()))
+                for t in data.get("turns", [])
+            ]
 
-session_memory = SessionMemory()
+    def _persist(self) -> None:
+        if not self._path:
+            return
+        with self._lock:
+            payload = {
+                "runs": [
+                    {
+                        "run_id": r.run_id, "prompt": r.prompt, "status": r.status,
+                        "regions": r.regions, "errors": r.errors, "ts": r.ts,
+                    }
+                    for r in self._runs
+                ],
+                "turns": [
+                    {"role": t.role, "content": t.content, "run_id": t.run_id, "ts": t.ts}
+                    for t in self._turns
+                ],
+            }
+        try:
+            self._path.parent.mkdir(parents=True, exist_ok=True)
+            tmp = self._path.with_suffix(self._path.suffix + ".tmp")
+            tmp.write_text(json.dumps(payload), encoding="utf-8")
+            os.replace(tmp, self._path)
+        except OSError:
+            pass
+
+
+session_memory = SessionMemory(os.environ.get("LYNX_SESSION_PATH") or None)

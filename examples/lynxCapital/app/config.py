@@ -28,6 +28,7 @@ class ThemeConfig(BaseModel):
 
 class LlmConfig(BaseModel):
     model: str
+    summarizerModel: str = ""
     temperature: float
 
 

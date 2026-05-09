@@ -19,6 +19,7 @@ from langchain_openai import ChatOpenAI
 from app.agents import tools as tool_fns
 from app.agents.runner import AgentHandle, create_runner
 from app.config import get_config
+from app.core.blackboard import RunBlackboard
 from app.core.cancellation import cancellation
 from app.core.dataset import INVOICES, REGIONS, VENDORS
 from app.core.files import RunFileStore
@@ -130,8 +131,10 @@ async def _stream_assistant(run_id, agent_id, model_name, llm, messages) -> AIMe
 # ---------- DeepAgents built-ins: planning + files ----------
 
 
-def _build_agent_builtins(run_id: str, agent_id: str, plans: RunPlanStore, files: RunFileStore):
-    """Planning + file tools scoped to one agent_id so events carry correct attribution."""
+def _build_agent_builtins(run_id: str, agent_id: str, plans: RunPlanStore, files: RunFileStore,
+                          board: RunBlackboard, region: str | None = None):
+    """Planning, file, and blackboard tools scoped to one agent_id so events
+    carry correct attribution."""
 
     @tool
     def write_todos(todos: list) -> str:
@@ -171,7 +174,24 @@ def _build_agent_builtins(run_id: str, agent_id: str, plans: RunPlanStore, files
         """List all files in this run's memory store."""
         return json.dumps(files.ls())
 
-    return [write_todos, write_file, read_file, ls_files]
+    @tool
+    def post_finding(kind: str, content: str) -> str:
+        """Post a short finding to the run's shared blackboard so other agents
+        can read it. `kind` is a short tag like 'risk', 'fx', 'compliance',
+        'summary'. `content` is one or two sentences."""
+        f = board.post(agent_id, region, kind, content[:600])
+        bus.publish(ev.blackboard_post(run_id, agent_id, region, f.kind, f.content))
+        return json.dumps({"ok": True, "ts": f.ts})
+
+    @tool
+    def read_findings(kind: str = "", region_filter: str = "", limit: int = 10) -> str:
+        """Read recent findings from the shared blackboard. Filter by `kind`
+        (e.g. 'risk') or `region_filter` ('US', 'IN', 'DE', 'SG', 'BR'). Returns
+        a JSON list ordered oldest-first."""
+        items = board.read(kind=kind or None, region=region_filter or None, limit=limit)
+        return json.dumps([f.as_dict() for f in items])
+
+    return [write_todos, write_file, read_file, ls_files, post_finding, read_findings]
 
 
 # ---------- Regional domain tools ----------
@@ -282,7 +302,8 @@ def _build_regional_domain_tools(run_id, runner, parent, region):
 
 async def _turn_loop(run_id, agent, model_name, llm_with_tools, summarizer, mem, tool_map, max_turns):
     """Run the assistant turn loop for one agent. Independent tool calls in a
-    single turn are executed concurrently. Returns total tool calls executed."""
+    single turn are executed concurrently, with bounded retries on transient
+    exceptions. Returns total tool calls executed."""
     tool_calls_total = 0
     for _turn in range(max_turns):
         _check_cancel(run_id)
@@ -299,15 +320,31 @@ async def _turn_loop(run_id, agent, model_name, llm_with_tools, summarizer, mem,
             args = tc["args"]
             fn = tool_map.get(name)
             if fn is None:
-                return tc, None, f"Unknown tool: {name}"
+                return tc, None, json.dumps({"error": f"unknown tool {name!r}"})
             bus.publish(ev.tool_call(run_id, agent.id, name, args))
-            result = await fn.ainvoke(args)
-            result_str = str(result)
-            bus.publish(ev.tool_result(
-                run_id, agent.id, name,
-                {"result": result_str[:400], "truncated": len(result_str) > 400},
-            ))
-            return tc, name, result_str
+            attempt = 0
+            last_exc: Exception | None = None
+            while attempt < 3:
+                try:
+                    result = await fn.ainvoke(args)
+                    result_str = str(result)
+                    bus.publish(ev.tool_result(
+                        run_id, agent.id, name,
+                        {"result": result_str[:400], "truncated": len(result_str) > 400},
+                    ))
+                    return tc, name, result_str
+                except RunCancelled:
+                    raise
+                except Exception as exc:
+                    last_exc = exc
+                    attempt += 1
+                    bus.publish(ev.tool_retry(run_id, agent.id, name, attempt, str(exc)[:200]))
+                    if attempt >= 3:
+                        break
+                    await asyncio.sleep(0.1 * (2 ** (attempt - 1)))
+            err = json.dumps({"error": f"tool {name!r} failed after {attempt} attempts: {last_exc}"})
+            bus.publish(ev.tool_result(run_id, agent.id, name, {"result": err, "truncated": False}))
+            return tc, name, err
 
         results = await asyncio.gather(*[_exec(tc) for tc in ai_msg.tool_calls])
         for tc, name, result_str in results:
@@ -321,8 +358,8 @@ async def _turn_loop(run_id, agent, model_name, llm_with_tools, summarizer, mem,
 # ---------- Regional orchestrator ----------
 
 
-async def _run_regional_orchestrator(run_id, runner, parent, memory_store, plans, files,
-                                     parent_summary, region, focus, model_name):
+async def _run_regional_orchestrator(run_id, runner, parent, memory_store, plans, files, board,
+                                     parent_summary, region, focus, model_name, summarizer_model):
     cfg = get_config()
     region_meta = REGIONS.get(region)
     if region_meta is None:
@@ -335,14 +372,14 @@ async def _run_regional_orchestrator(run_id, runner, parent, memory_store, plans
     ro.start()
 
     tools = [
-        *_build_agent_builtins(run_id, ro.id, plans, files),
+        *_build_agent_builtins(run_id, ro.id, plans, files, board, region=region),
         *_build_regional_domain_tools(run_id, runner, ro, region),
     ]
     tool_map = {t.name: t for t in tools}
 
     llm = _make_llm(model_name, cfg.llm.temperature)
     llm_with_tools = llm.bind_tools(tools)
-    summarizer = _make_llm(model_name, 0.0)
+    summarizer = _make_llm(summarizer_model, 0.0)
 
     system_prompt = cfg.prompts.regionalOrchestrator.format(
         region=region, region_name=region_meta.name,
@@ -375,8 +412,8 @@ async def _run_regional_orchestrator(run_id, runner, parent, memory_store, plans
 # ---------- Finance Control tools ----------
 
 
-def _build_fc_domain_tools(run_id, runner, fc, memory_store, plans, files, model_name,
-                            dispatched_regions: list[str]):
+def _build_fc_domain_tools(run_id, runner, fc, memory_store, plans, files, board, model_name,
+                            summarizer_model, dispatched_regions: list[str]):
     @tool
     async def dispatch_region(region: str, focus: str = "") -> str:
         """Dispatch a Regional Orchestrator sub-agent to process one region.
@@ -392,8 +429,8 @@ def _build_fc_domain_tools(run_id, runner, fc, memory_store, plans, files, model
         )
         try:
             result = await _run_regional_orchestrator(
-                run_id, runner, fc, memory_store, plans, files,
-                parent_summary, r, focus or "", model_name,
+                run_id, runner, fc, memory_store, plans, files, board,
+                parent_summary, r, focus or "", model_name, summarizer_model,
             )
             return json.dumps(result)
         except Exception as exc:
@@ -408,6 +445,7 @@ def _build_fc_domain_tools(run_id, runner, fc, memory_store, plans, files, model
 async def run_swarm(run_id: str, prompt: str) -> None:
     cfg = get_config()
     model_name = settings.model
+    summarizer_model = cfg.llm.summarizerModel or model_name
     cancellation.register(run_id)
     bus.publish(ev.run_start(run_id, prompt))
     bus.publish(ev.chat_user(run_id, prompt))
@@ -417,6 +455,7 @@ async def run_swarm(run_id: str, prompt: str) -> None:
     memory_store = RunMemoryStore(run_id, model_name)
     plans = RunPlanStore(run_id)
     files = RunFileStore(run_id=run_id)
+    board = RunBlackboard(run_id)
 
     fc = runner.spawn(
         role="finance-control", scope="global", parent=None,
@@ -424,17 +463,16 @@ async def run_swarm(run_id: str, prompt: str) -> None:
     )
     fc.start()
 
-    loop = asyncio.get_running_loop()
     dispatched_regions: list[str] = []
     tools = [
-        *_build_agent_builtins(run_id, fc.id, plans, files),
-        *_build_fc_domain_tools(run_id, runner, fc, memory_store, plans, files, model_name,
-                                 dispatched_regions),
+        *_build_agent_builtins(run_id, fc.id, plans, files, board),
+        *_build_fc_domain_tools(run_id, runner, fc, memory_store, plans, files, board, model_name,
+                                 summarizer_model, dispatched_regions),
     ]
     tool_map = {t.name: t for t in tools}
     llm = _make_llm(model_name, cfg.llm.temperature)
     llm_with_tools = llm.bind_tools(tools)
-    summarizer = _make_llm(model_name, 0.0)
+    summarizer = _make_llm(summarizer_model, 0.0)
 
     session_memory.add_user(prompt, run_id)
     ctx = session_memory.context_block()
