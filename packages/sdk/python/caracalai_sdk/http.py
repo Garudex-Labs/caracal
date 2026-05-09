@@ -7,9 +7,10 @@ Generic ASGI middleware that extracts the envelope and binds CaracalContext per 
 
 from __future__ import annotations
 
-from typing import Any, Awaitable, Callable
+from typing import TYPE_CHECKING, Any, Awaitable, Callable
 
-from .client import Caracal
+if TYPE_CHECKING:
+    from .client import Caracal
 
 
 Scope = dict[str, Any]

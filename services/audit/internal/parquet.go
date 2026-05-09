@@ -123,7 +123,7 @@ func (e *ParquetExporter) exportHour(ctx context.Context, hour time.Time) (int64
 	// Streaming collect into a slice; parquet-go writes in-memory but we cap by hour.
 	var batch []OCSFEvent
 	err := e.pg.QuerySinceFn(ctx, since, until, true, func(r EventRow) error {
-		batch = append(batch, r.Event.toOCSF(r.ContentSHA256, r.ChainHMAC, r.ChainSeq))
+		batch = append(batch, toOCSF(r.Event, r.ContentSHA256, r.ChainHMAC, r.ChainSeq))
 		return nil
 	})
 	if err != nil {

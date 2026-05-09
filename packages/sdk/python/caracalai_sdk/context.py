@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import contextvars
 from dataclasses import dataclass, replace
-from typing import Any, Callable, TypeVar
+from typing import Any, Awaitable, Callable, TypeVar
 
 from .envelope import Envelope
 
@@ -52,7 +52,7 @@ def bind(ctx: CaracalContext, fn: Callable[[], T]) -> T:
         _ctx_var.reset(token)
 
 
-async def abind(ctx: CaracalContext, coro: Any) -> Any:
+async def abind(ctx: CaracalContext, coro: Awaitable[T]) -> T:
     token = _ctx_var.set(ctx)
     try:
         return await coro
