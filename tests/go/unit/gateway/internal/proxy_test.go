@@ -531,18 +531,18 @@ func TestSTSClientTransportFailureSanitised(t *testing.T) {
 	c := newSTSClient("http://127.0.0.1:1", 100*time.Millisecond)
 	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
 	defer cancel()
-	_, status, cerr, internalErr := c.Exchange(ctx, "tok", binding{ZoneID: "z", ApplicationID: "a"}, "r", "rid")
-	if internalErr == nil {
+	outcome := c.Exchange(ctx, "tok", binding{ZoneID: "z", ApplicationID: "a"}, "r", "rid")
+	if outcome.InternalError == nil {
 		t.Fatal("expected transport error")
 	}
-	if cerr == nil {
+	if outcome.BusinessError == nil {
 		t.Fatal("expected sanitised CaracalError")
 	}
-	if status < 500 {
-		t.Errorf("transport failure should map to 5xx, got %d", status)
+	if outcome.StatusCode < 500 {
+		t.Errorf("transport failure should map to 5xx, got %d", outcome.StatusCode)
 	}
-	if strings.Contains(cerr.Description, "127.0.0.1") {
-		t.Errorf("internal address leaked: %s", cerr.Description)
+	if strings.Contains(outcome.BusinessError.Description, "127.0.0.1") {
+		t.Errorf("internal address leaked: %s", outcome.BusinessError.Description)
 	}
 }
 

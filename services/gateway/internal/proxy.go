@@ -131,34 +131,34 @@ func (p *proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	stsCtx, cancel := context.WithTimeout(r.Context(), p.sts.client.Timeout)
-	res, status, cerr, internalErr := p.sts.Exchange(stsCtx, bearer, bind, resource, requestID)
+	exchange := p.sts.Exchange(stsCtx, bearer, bind, resource, requestID)
 	cancel()
-	if cerr != nil {
-		writeErr(w, requestID, status, cerr.Code, cerr.Description)
+	if exchange.BusinessError != nil {
+		writeErr(w, requestID, exchange.StatusCode, exchange.BusinessError.Code, exchange.BusinessError.Description)
 		logger.Warn().
-			Int("status", status).
-			Str("error_code", string(cerr.Code)).
-			Err(internalErr).
+			Int("status", exchange.StatusCode).
+			Str("error_code", string(exchange.BusinessError.Code)).
+			Err(exchange.InternalError).
 			Msg("sts exchange failed")
 		return
 	}
 
-	upstreamURL, err := p.guard.Check(res.Upstream.URL)
+	upstreamURL, err := p.guard.Check(exchange.Result.Upstream.URL)
 	if err != nil {
 		writeErr(w, requestID, http.StatusBadGateway, sharederr.Internal, "upstream not addressable")
-		logger.Error().Err(err).Str("upstream_raw", res.Upstream.URL).Msg("upstream rejected by guard")
+		logger.Error().Err(err).Str("upstream_raw", exchange.Result.Upstream.URL).Msg("upstream rejected by guard")
 		return
 	}
 	logger = logger.With().
 		Str("upstream_host", upstreamURL.Host).
-		Str("auth_mode", res.Upstream.AuthMode).
-		Dur("sts_latency_ms", res.Latency).
+		Str("auth_mode", exchange.Result.Upstream.AuthMode).
+		Dur("sts_latency_ms", exchange.Result.Latency).
 		Logger()
 
 	body := http.MaxBytesReader(w, r.Body, p.maxBytes)
 	defer body.Close()
 
-	upstreamReq, err := buildUpstreamRequest(r, upstreamURL, res.AccessToken, res.Upstream, body, requestID)
+	upstreamReq, err := buildUpstreamRequest(r, upstreamURL, exchange.Result.AccessToken, exchange.Result.Upstream, body, requestID)
 	if err != nil {
 		writeErr(w, requestID, http.StatusBadRequest, sharederr.Internal, "upstream request build failed")
 		logger.Error().Err(err).Msg("build upstream request")

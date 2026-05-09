@@ -54,6 +54,15 @@ type stsResult struct {
 	Latency     time.Duration
 }
 
+// exchangeOutcome captures all Exchange outputs in a single return value.
+// Exactly one of Result or errors should be set by callers of Exchange.
+type exchangeOutcome struct {
+	Result        *stsResult
+	StatusCode    int
+	BusinessError *sharederr.CaracalError
+	InternalError error
+}
+
 func newSTSClient(stsURL string, timeout time.Duration) *stsClient {
 	transport := &http.Transport{
 		MaxIdleConns:          200,
@@ -75,7 +84,7 @@ func newSTSClient(stsURL string, timeout time.Duration) *stsClient {
 // neither value depends on a separator-free encoding.
 // Internal error detail is returned for the gateway to log; a sanitised CaracalError is
 // safe to forward to the client.
-func (c *stsClient) Exchange(ctx context.Context, subjectToken string, bind binding, resource, requestID string) (*stsResult, int, *sharederr.CaracalError, error) {
+func (c *stsClient) Exchange(ctx context.Context, subjectToken string, bind binding, resource, requestID string) *exchangeOutcome {
 	form := url.Values{
 		"grant_type":         {"urn:ietf:params:oauth:grant-type:token-exchange"},
 		"zone_id":            {bind.ZoneID},
@@ -87,8 +96,12 @@ func (c *stsClient) Exchange(ctx context.Context, subjectToken string, bind bind
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
 		c.url+"/oauth/2/token", strings.NewReader(form.Encode()))
 	if err != nil {
-		return nil, http.StatusInternalServerError,
-			sharederr.New(sharederr.STSUnavailable, "sts request build failed"), err
+		return &exchangeOutcome{
+			Result:        nil,
+			StatusCode:    http.StatusInternalServerError,
+			BusinessError: sharederr.New(sharederr.STSUnavailable, "sts request build failed"),
+			InternalError: err,
+		}
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("User-Agent", "caracal-gateway")
@@ -102,7 +115,12 @@ func (c *stsClient) Exchange(ctx context.Context, subjectToken string, bind bind
 	latency := time.Since(start)
 	if err != nil {
 		status, code, msg := classifySTSTransportError(err)
-		return nil, status, sharederr.New(code, msg), err
+		return &exchangeOutcome{
+			Result:        nil,
+			StatusCode:    status,
+			BusinessError: sharederr.New(code, msg),
+			InternalError: err,
+		}
 	}
 	defer resp.Body.Close()
 
@@ -110,29 +128,52 @@ func (c *stsClient) Exchange(ctx context.Context, subjectToken string, bind bind
 		var e sharederr.CaracalError
 		body := io.LimitReader(resp.Body, stsErrorBodyLimit)
 		if err := json.NewDecoder(body).Decode(&e); err == nil && e.Code != "" {
-			return nil, resp.StatusCode, &e, fmt.Errorf("sts %d: %s", resp.StatusCode, e.Code)
+			return &exchangeOutcome{
+				Result:        nil,
+				StatusCode:    resp.StatusCode,
+				BusinessError: &e,
+				InternalError: fmt.Errorf("sts %d: %s", resp.StatusCode, e.Code),
+			}
 		}
-		return nil, resp.StatusCode,
-			sharederr.New(sharederr.STSUnavailable, http.StatusText(resp.StatusCode)),
-			fmt.Errorf("sts non-200 status: %d", resp.StatusCode)
+		return &exchangeOutcome{
+			Result:        nil,
+			StatusCode:    resp.StatusCode,
+			BusinessError: sharederr.New(sharederr.STSUnavailable, http.StatusText(resp.StatusCode)),
+			InternalError: fmt.Errorf("sts non-200 status: %d", resp.StatusCode),
+		}
 	}
 	var tr tokenResponse
 	if err := json.NewDecoder(io.LimitReader(resp.Body, stsErrorBodyLimit)).Decode(&tr); err != nil {
-		return nil, http.StatusBadGateway,
-			sharederr.New(sharederr.STSUnavailable, "sts response invalid"), err
+		return &exchangeOutcome{
+			Result:        nil,
+			StatusCode:    http.StatusBadGateway,
+			BusinessError: sharederr.New(sharederr.STSUnavailable, "sts response invalid"),
+			InternalError: err,
+		}
 	}
 	if tr.AccessToken == "" {
-		return nil, http.StatusBadGateway,
-			sharederr.New(sharederr.STSUnavailable, "sts response invalid"),
-			fmt.Errorf("sts returned empty access_token")
+		return &exchangeOutcome{
+			Result:        nil,
+			StatusCode:    http.StatusBadGateway,
+			BusinessError: sharederr.New(sharederr.STSUnavailable, "sts response invalid"),
+			InternalError: fmt.Errorf("sts returned empty access_token"),
+		}
 	}
 	upstream, ok := tr.Upstreams[resource]
 	if !ok || upstream.URL == "" {
-		return nil, http.StatusForbidden,
-			sharederr.New(sharederr.AccessDenied, "resource upstream not configured"),
-			fmt.Errorf("resource %q not in upstreams", resource)
+		return &exchangeOutcome{
+			Result:        nil,
+			StatusCode:    http.StatusForbidden,
+			BusinessError: sharederr.New(sharederr.AccessDenied, "resource upstream not configured"),
+			InternalError: fmt.Errorf("resource %q not in upstreams", resource),
+		}
 	}
-	return &stsResult{AccessToken: tr.AccessToken, Upstream: upstream, Latency: latency}, http.StatusOK, nil, nil
+	return &exchangeOutcome{
+		Result:        &stsResult{AccessToken: tr.AccessToken, Upstream: upstream, Latency: latency},
+		StatusCode:    http.StatusOK,
+		BusinessError: nil,
+		InternalError: nil,
+	}
 }
 
 // classifySTSTransportError maps low-level transport errors to gateway-safe responses.
