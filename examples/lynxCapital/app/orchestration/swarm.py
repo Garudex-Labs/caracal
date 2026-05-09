@@ -2,9 +2,7 @@
 Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 Caracal, a product of Garudex Labs
 
-LLM-driven orchestration: DeepAgents-style planning (write_todos), file-backed
-externalized memory, streaming prose reasoning, token-aware compaction,
-cooperative cancellation, and runtime model selection.
+LLM-driven orchestration with DeepAgents-style planning, file-backed memory, streaming, compaction, and cancellation.
 """
 from __future__ import annotations
 
@@ -19,7 +17,7 @@ from langchain_core.tools import tool
 from langchain_openai import ChatOpenAI
 
 from app.agents import tools as tool_fns
-from app.agents.runner import AgentHandle, AgentRunner, create_runner
+from app.agents.runner import AgentHandle, create_runner
 from app.config import get_config
 from app.core.cancellation import cancellation
 from app.core.dataset import INVOICES, REGIONS, VENDORS
@@ -68,12 +66,12 @@ PAYOUT CYCLE WORKFLOW (only when the user actually asks for it)
 
 Only dispatch the regions the user asked about. If the user says "US only", dispatch only US. If no specific regions are mentioned in a payout request, dispatch all five.
 
-PARTIAL AUTHORIZATION
-A tool result may contain {"denied": true, "reason": "..."}. This means Caracal blocked that specific action. When this happens:
+PARTIAL FAILURE
+A tool result may contain {"error": "..."}. This means that step failed. When this happens:
 - Do NOT stop the entire run. Continue dispatching other regions.
-- Note the denial in your final summary: which region was blocked and why.
-- If ALL regions return denials, summarize the policy blocks clearly.
-- Treat a partial result (some regions succeeded, some denied) as a partial success.
+- Note the failure in your final summary: which region failed and why.
+- If ALL regions return errors, summarize the failures clearly.
+- Treat a partial result (some regions succeeded, some failed) as a partial success.
 
 MEMORY
 If session context is injected above the user message, it contains a summary of previous runs and recent conversation turns. Use it to answer follow-up questions accurately. If no prior runs exist, say so clearly rather than fabricating results.
@@ -106,17 +104,17 @@ You decide your own approach. No procedure is given.
 
 PAYMENT EXECUTION RULES (only when your focus explicitly involves payment, settlement, or disbursement)
 - If your focus includes payment: list_pending_invoices returns all fields you need: vendor_id, amount, currency, preferred_rail. You can call submit_payment directly — no OCR, ERP, or compliance required.
-- If your focus is extraction, archiving, compliance screening, FX lookup, or other non-payment tasks: do NOT call submit_payment. Record what was attempted, what was denied, and stop.
+- If your focus is extraction, archiving, compliance screening, FX lookup, or other non-payment tasks: do NOT call submit_payment. Record what was attempted and stop.
 - Use invoice_id as the reference value when submitting payment.
 
-PARTIAL AUTHORIZATION
-If a tool returns {{"denied": true, "reason": "..."}}, Caracal blocked that specific action. When this happens:
+PARTIAL FAILURE
+If a tool returns {{"error": "..."}}, that step failed. When this happens:
 - Immediately skip that step and call the NEXT tool in your plan. Do not pause or summarize.
-- A denial on extract_invoice_data, match_invoice_in_ledger, check_vendor_compliance, lookup_fx_rate, or lookup_withholding_rate NEVER blocks submit_payment — but only if payment is part of your focus.
-- After all pre-payment steps (whether they succeeded or were denied), attempt submit_payment for each vendor if payment was requested in your focus.
-- Only mark a payment as blocked if submit_payment itself returns {{"denied": true}}.
-- Never retry a denied tool in the same run.
-- Record all denials and outcomes in record_audit at the end.
+- A failure on extract_invoice_data, match_invoice_in_ledger, check_vendor_compliance, lookup_fx_rate, or lookup_withholding_rate NEVER blocks submit_payment — but only if payment is part of your focus.
+- After all pre-payment steps (whether they succeeded or failed), attempt submit_payment for each vendor if payment was requested in your focus.
+- Only mark a payment as failed if submit_payment itself returns {{"error": "..."}}.
+- Never retry a failed tool in the same run.
+- Record all outcomes in record_audit at the end.
 
 Real services are executed; you are not simulating. Be concise, plain prose, no emojis."""
 
@@ -378,18 +376,12 @@ async def _turn_loop(run_id, agent, model_name, llm_with_tools, summarizer, mem,
                 mem.append(ToolMessage(content=f"Unknown tool: {name}", tool_call_id=tc["id"]))
                 continue
             bus.publish(ev.tool_call(run_id, agent.id, name, args))
-            try:
-                result = await asyncio.to_thread(fn.invoke, args)
-                result_str = str(result)
-                bus.publish(ev.tool_result(
-                    run_id, agent.id, name,
-                    {"result": result_str[:400], "truncated": len(result_str) > 400},
-                ))
-            except PermissionError as exc:
-                result_str = json.dumps({"denied": True, "tool": name, "reason": str(exc)})
-                bus.publish(ev.caracal_enforce(run_id, agent.id, name, "deny", str(exc)))
-                mem.append(ToolMessage(content=result_str, tool_call_id=tc["id"]))
-                raise
+            result = await asyncio.to_thread(fn.invoke, args)
+            result_str = str(result)
+            bus.publish(ev.tool_result(
+                run_id, agent.id, name,
+                {"result": result_str[:400], "truncated": len(result_str) > 400},
+            ))
             tool_calls_total += 1
             mem.append(ToolMessage(content=result_str, tool_call_id=tc["id"]))
         _emit_memory_snapshot(run_id, mem)
@@ -477,8 +469,6 @@ def _build_fc_domain_tools(run_id, runner, fc, memory_store, plans, files, loop,
         )
         try:
             return json.dumps(future.result())
-        except PermissionError:
-            raise
         except Exception as exc:
             return json.dumps({"error": str(exc), "region": r, "toolCalls": 0})
 
@@ -547,14 +537,6 @@ async def run_swarm(run_id: str, prompt: str) -> None:
         if not fc._terminated:
             fc.terminate("cancelled")
         bus.publish(ev.run_end(run_id, "cancelled"))
-    except PermissionError as exc:
-        run_status = "denied"
-        run_errors.append(str(exc))
-        log.warning("run_swarm denied run_id=%s reason=%s", run_id, exc)
-        bus.publish(ev.error(run_id, str(exc), fc.id))
-        if not fc._terminated:
-            fc.terminate("denied")
-        bus.publish(ev.run_end(run_id, "denied"))
     except Exception as exc:
         run_status = "failed"
         run_errors.append(str(exc))

@@ -668,22 +668,6 @@ function handleEvent(event) {
       break;
     }
 
-    case "caracal_bind":
-      addInline("caracal", {
-        kicker: "Caracal",
-        title: `${agentLabel(state.agents[payload.agent_id])} bound to policy scope`,
-        body: payload.reason || payload.decision || "",
-      });
-      break;
-
-    case "caracal_enforce":
-      addInline(payload.decision === "deny" ? "error" : "caracal", {
-        kicker: "Policy",
-        title: `${payload.decision === "deny" ? "Denied" : "Allowed"} ${payload.tool_id || "tool access"}`,
-        body: payload.reason || "",
-      });
-      break;
-
     case "audit_record":
       addInline("audit", {
         kicker: "Audit",

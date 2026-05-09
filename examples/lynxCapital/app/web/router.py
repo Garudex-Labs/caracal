@@ -29,7 +29,6 @@ def _setup_validated(request: Request) -> bool:
 def _ctx(request: Request) -> dict:
     cfg = get_config()
     return {
-        "request": request,
         "company": cfg.company,
         "shortName": cfg.shortName,
         "theme": cfg.theme.model_dump(),
@@ -45,39 +44,32 @@ def _ctx(request: Request) -> dict:
 
 @router.get("/", response_class=HTMLResponse)
 def landing(request: Request):
-    return templates.TemplateResponse("landing.html", _ctx(request))
+    return templates.TemplateResponse(request, "landing.html", _ctx(request))
 
 
 @router.get("/setup", response_class=HTMLResponse)
 def setup(request: Request):
     if not _accepted(request):
         return RedirectResponse(url="/", status_code=303)
-    return templates.TemplateResponse("setup.html", _ctx(request))
+    return templates.TemplateResponse(request, "setup.html", _ctx(request))
 
 
 @router.get("/demo", response_class=HTMLResponse)
 def demo(request: Request):
     if not _setup_validated(request):
         return RedirectResponse(url="/setup" if _accepted(request) else "/", status_code=303)
-    return templates.TemplateResponse("demo.html", _ctx(request))
+    return templates.TemplateResponse(request, "demo.html", _ctx(request))
 
 
 @router.get("/logs", response_class=HTMLResponse)
 def logs(request: Request):
     if not _setup_validated(request):
         return RedirectResponse(url="/setup" if _accepted(request) else "/", status_code=303)
-    return templates.TemplateResponse("logs.html", _ctx(request))
+    return templates.TemplateResponse(request, "logs.html", _ctx(request))
 
 
 @router.get("/prompts", response_class=HTMLResponse)
 def prompts(request: Request):
     if not _setup_validated(request):
         return RedirectResponse(url="/setup" if _accepted(request) else "/", status_code=303)
-    return templates.TemplateResponse("prompts.html", _ctx(request))
-
-
-@router.get("/caracal", response_class=HTMLResponse)
-def caracal(request: Request):
-    if not _setup_validated(request):
-        return RedirectResponse(url="/setup" if _accepted(request) else "/", status_code=303)
-    return templates.TemplateResponse("caracal.html", _ctx(request))
+    return templates.TemplateResponse(request, "prompts.html", _ctx(request))

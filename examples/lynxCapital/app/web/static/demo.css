@@ -791,7 +791,6 @@
 .kind-memory, .kind-plan { color: rgba(93, 70, 163, 0.9); }
 .kind-file { color: rgba(13, 110, 114, 0.9); }
 .kind-audit { color: rgba(125, 74, 30, 0.9); }
-.kind-caracal { color: rgba(41, 69, 108, 0.9); }
 .kind-error { color: rgba(155, 28, 15, 0.9); }
 
 .chat-composer {
