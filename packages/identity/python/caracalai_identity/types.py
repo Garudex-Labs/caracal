@@ -22,3 +22,4 @@ class Claims:
     zone_id: str
     sid: str
     scope: str
+    agent_session_id: str | None = None

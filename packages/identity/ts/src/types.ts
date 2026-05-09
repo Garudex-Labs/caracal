@@ -15,4 +15,5 @@ export interface Claims {
   zoneId: string
   sid: string
   scope: string
+  agentSessionId?: string
 }

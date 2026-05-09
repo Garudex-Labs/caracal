@@ -55,5 +55,6 @@ export async function verify(token: string, config: JwtConfig): Promise<Claims> 
   }
 
   const sid = typeof payload['sid'] === 'string' ? (payload['sid'] as string) : ''
-  return { sub: payload.sub ?? '', zoneId, sid, scope }
+  const agentSessionId = typeof payload['agent_session_id'] === 'string' ? (payload['agent_session_id'] as string) : undefined
+  return { sub: payload.sub ?? '', zoneId, sid, scope, agentSessionId }
 }

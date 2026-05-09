@@ -22,9 +22,9 @@ async def authenticate(
     token: str,
     issuer: str,
     audience: str,
-    required_scopes: list[str] | None = None,
-    expected_zone_id: str | None = None,
-    revocations: RevocationStore | None = None,
+    required_scopes: list[str] | None,
+    expected_zone_id: str | None,
+    revocations: RevocationStore,
 ) -> AuthResult:
     if not token:
         return AuthResult(None, AuthError("missing_token", "Missing bearer token"))
@@ -40,7 +40,7 @@ async def authenticate(
         return AuthResult(None, AuthError("invalid_token", "Token validation failed"))
 
     sid = claims.get("sid")
-    if revocations is not None and isinstance(sid, str) and sid and revocations.is_revoked(sid):
+    if isinstance(sid, str) and sid and revocations.is_revoked(sid):
         return AuthResult(None, AuthError("session_revoked", "Session revoked"))
 
     return AuthResult(claims, None)
