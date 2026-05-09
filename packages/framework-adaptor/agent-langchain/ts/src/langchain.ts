@@ -3,7 +3,7 @@
 //
 // LangChain adapter: thin Layer 3 shim over the Caracal SDK.
 
-import { current, withAgent, withDelegation, toHeaders, type CaracalContext, type CoordinatorClient } from '@caracalai/sdk'
+import { current, withAgent, withDelegation, toHeaders, type CaracalContext, type CoordinatorClient } from '@caracalai/sdk/advanced'
 
 export interface LangChainRunnable {
   invoke: (input: unknown) => Promise<unknown> | unknown

@@ -3,7 +3,7 @@
 //
 // CrewAI adapter: thin Layer 3 shim that binds Caracal identity to each task execution.
 
-import { withAgent, withDelegation, current, toHeaders, type CoordinatorClient } from '@caracalai/sdk'
+import { withAgent, withDelegation, current, toHeaders, type CoordinatorClient } from '@caracalai/sdk/advanced'
 
 export interface CrewAITask {
   execute: (input: unknown) => Promise<unknown> | unknown

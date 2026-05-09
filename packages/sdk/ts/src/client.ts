@@ -141,4 +141,26 @@ export class Caracal {
     const fetchImpl = this.config.coordinator.fetchImpl ?? fetch;
     return fetchImpl(input as URL, { ...init, headers: merged });
   }) as typeof fetch;
+
+  context(): CaracalContext {
+    const ctx = tryCurrent();
+    if (!ctx) throw new Error("Caracal context is not bound on this execution path");
+    return ctx;
+  }
+
+  tryContext(): CaracalContext | undefined {
+    return tryCurrent();
+  }
+
+  middleware() {
+    return (
+      req: { headers: Record<string, string | string[] | undefined> },
+      _res: unknown,
+      next: (err?: unknown) => void,
+    ): void => {
+      this.bindFromHeaders(req.headers, async () => {
+        next();
+      }).catch(next);
+    };
+  }
 }
