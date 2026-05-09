@@ -42,8 +42,11 @@ func TestFromEnvOK(t *testing.T) {
 func TestHeadersFallback(t *testing.T) {
 	c := &sdk.Caracal{SubjectToken: "tok"}
 	h := c.Headers(context.Background())
-	if h.Get("Caracal-Subject-Token") != "tok" {
-		t.Fatalf("missing subject token: %v", h)
+	if h.Get(sdk.HeaderAuthorization) != "Bearer tok" {
+		t.Fatalf("missing authorization: %v", h)
+	}
+	if sdk.ParseTraceparent(h.Get(sdk.HeaderTraceparent)) == "" {
+		t.Fatalf("missing traceparent: %v", h)
 	}
 }
 
@@ -61,8 +64,9 @@ func TestMiddlewareBindsContext(t *testing.T) {
 	srv := httptest.NewServer(handler)
 	defer srv.Close()
 	req, _ := http.NewRequest("GET", srv.URL, nil)
-	req.Header.Set("Caracal-Subject-Token", "inbound")
-	req.Header.Set("Caracal-Agent-Session", "sess1")
+	req.Header.Set(sdk.HeaderAuthorization, "Bearer inbound")
+	req.Header.Set(sdk.HeaderTraceparent, "00-0123456789abcdef0123456789abcdef-aabbccddeeff0011-01")
+	req.Header.Set(sdk.HeaderBaggage, sdk.BaggageAgentSession+"=sess1")
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatal(err)
@@ -96,10 +100,11 @@ func TestHTTPClientInjects(t *testing.T) {
 		t.Fatal(err)
 	}
 	resp.Body.Close()
-	if got.Get("Caracal-Agent-Session") != "sess9" {
+	bag := sdk.ParseBaggage(got.Get(sdk.HeaderBaggage))
+	if bag[sdk.BaggageAgentSession] != "sess9" {
 		t.Fatalf("envelope not injected: %v", got)
 	}
-	if got.Get("Caracal-Hop") != "1" {
+	if bag[sdk.BaggageHop] != "1" {
 		t.Fatalf("hop not injected: %v", got)
 	}
 }
