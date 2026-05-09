@@ -2,8 +2,7 @@
  * Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
  * Caracal, a product of Garudex Labs
  *
- * Graph panel: real-time topology showing Lynx internal execution, Caracal
- * enforcement, and external providers without pre-drawn orchestration.
+ * Graph panel: real-time topology showing Lynx internal execution and external providers.
  */
 
 const svg = document.getElementById("graph-svg");
@@ -18,12 +17,9 @@ const BOTTOM_PAD = 30;
 const SECTION_TOP = 30;
 
 const LYNX_LEFT = 124;
-const LYNX_RIGHT = 812;
-const CARACAL_LEFT = 860;
-const CARACAL_RIGHT = 920;
+const LYNX_RIGHT = 880;
 const SERVICE_LEFT = 970;
 const SERVICE_RIGHT = 1380;
-const CARACAL_X = Math.round((CARACAL_LEFT + CARACAL_RIGHT) / 2);
 
 const LAYER_BAND_H = 96;
 const LAYER_GAP = 28;
@@ -64,17 +60,16 @@ const STATUS_COLOR = {
   spawned: "var(--statusSpawned)",
   running: "var(--statusRunning)",
   completed: "var(--statusCompleted)",
-  denied: "var(--statusDenied)",
   failed: "var(--statusFailed)",
   cancelled: "var(--statusCancelled)",
   default: "var(--border)",
 };
 
 const FLOW_STYLE = {
-  pending: { color: "var(--warning, #B85C00)", marker: "url(#arrow-pending)", dash: "6 4" },
   in_progress: { color: "var(--statusRunning, #1E5BD8)", marker: "url(#arrow-progress)", dash: "" },
-  allowed: { color: "var(--statusCompleted, #1A7F4B)", marker: "url(#arrow-allowed)", dash: "" },
-  denied: { color: "var(--statusDenied, #C0392B)", marker: "url(#arrow-denied)", dash: "" },
+  completed: { color: "var(--statusCompleted, #1A7F4B)", marker: "url(#arrow-completed)", dash: "" },
+  failed: { color: "var(--statusFailed, #C0392B)", marker: "url(#arrow-failed)", dash: "" },
+  pending: { color: "var(--warning, #B85C00)", marker: "url(#arrow-pending)", dash: "6 4" },
 };
 
 const LAYER_ORDER = [
@@ -149,21 +144,14 @@ function shortScope(scope) {
 }
 
 function flowState(flow) {
-  if (flow.pendingAuth > 0) return "pending";
-  if (flow.activeService > 0 || flow.state === "in_progress") return "in_progress";
-  if (flow.state === "denied" || flow.failed > 0) return "denied";
-  if (flow.completed > 0 || flow.allowed > 0) return "allowed";
+  if (flow.activeService > 0) return "in_progress";
+  if (flow.failed > 0) return "failed";
+  if (flow.completed > 0) return "completed";
   return "pending";
 }
 
 function shortAction(action) {
   return truncate(titleCase(String(action || "").replace(/_/g, " ")), 26);
-}
-
-function parseToolId(toolId) {
-  const match = String(toolId || "").match(/^provider:([^:]+):resource:[^:]+:action:(.+)$/);
-  if (!match) return null;
-  return { serviceId: match[1], action: match[2] };
 }
 
 function scheduleRender() {
@@ -201,13 +189,9 @@ function ensureFlow(agentId, serviceId, action, toolName = "") {
       action,
       toolName,
       count: 0,
-      pendingAuth: 0,
       activeService: 0,
-      allowed: 0,
-      denied: 0,
       completed: 0,
       failed: 0,
-      state: "pending",
       lastReason: "",
       lastTs: sequence,
     };
@@ -230,28 +214,23 @@ function updateStatus() {
 function serviceMetrics(serviceId) {
   const linkedFlows = Object.values(flows).filter((flow) => flow.serviceId === serviceId);
   const metrics = {
-    pending: 0,
     active: 0,
-    allowed: 0,
-    denied: 0,
     completed: 0,
+    failed: 0,
     total: 0,
     lastState: "pending",
   };
 
   for (const flow of linkedFlows) {
-    metrics.pending += flow.pendingAuth;
     metrics.active += flow.activeService;
-    metrics.allowed += flow.allowed;
-    metrics.denied += flow.denied + flow.failed;
     metrics.completed += flow.completed;
+    metrics.failed += flow.failed;
     metrics.total += flow.count;
   }
 
-  if (metrics.pending > 0) metrics.lastState = "pending";
-  else if (metrics.active > 0) metrics.lastState = "in_progress";
-  else if (metrics.denied > 0) metrics.lastState = "denied";
-  else if (metrics.allowed > 0 || metrics.completed > 0) metrics.lastState = "allowed";
+  if (metrics.active > 0) metrics.lastState = "in_progress";
+  else if (metrics.failed > 0) metrics.lastState = "failed";
+  else if (metrics.completed > 0) metrics.lastState = "completed";
 
   return metrics;
 }
@@ -356,8 +335,8 @@ function resetSvg(viewH) {
 
   const defs = svgEl("defs");
   defs.append(
-    marker("arrow-allowed", FLOW_STYLE.allowed.color),
-    marker("arrow-denied", FLOW_STYLE.denied.color),
+    marker("arrow-completed", FLOW_STYLE.completed.color),
+    marker("arrow-failed", FLOW_STYLE.failed.color),
     marker("arrow-progress", FLOW_STYLE.in_progress.color),
     marker("arrow-pending", FLOW_STYLE.pending.color),
   );
@@ -367,16 +346,6 @@ function resetSvg(viewH) {
 function drawSectionFrame(viewH) {
   const bodyTop = SECTION_TOP + 12;
   const bodyBottom = viewH - BOTTOM_PAD;
-
-  svg.appendChild(svgEl("line", {
-    x1: CARACAL_X,
-    y1: bodyTop,
-    x2: CARACAL_X,
-    y2: bodyBottom,
-    stroke: "rgba(184, 92, 0, 0.38)",
-    "stroke-width": 2,
-    "stroke-dasharray": "4 4",
-  }));
 
   svg.appendChild(svgEl("line", {
     x1: SERVICE_LEFT - 18,
@@ -397,18 +366,6 @@ function drawSectionFrame(viewH) {
     "font-size": 10,
   });
 
-  drawText(CARACAL_X, 22, "Caracal", {
-    fill: "var(--warning, #B85C00)",
-    "font-size": 12.5,
-    "font-weight": 700,
-    "text-anchor": "middle",
-  });
-  drawText(CARACAL_X, 36, "policy intercept", {
-    fill: "rgba(26, 31, 46, 0.58)",
-    "font-size": 9.5,
-    "text-anchor": "middle",
-  });
-
   drawText(SERVICE_LEFT, 22, "External", {
     fill: "var(--teal, #0D6E72)",
     "font-size": 12.5,
@@ -419,19 +376,11 @@ function drawSectionFrame(viewH) {
     "font-size": 10,
   });
 
-  drawText((LYNX_RIGHT + CARACAL_LEFT) / 2, 22, "runtime boundary", {
-    fill: "rgba(26, 31, 46, 0.46)",
-    "font-size": 9.5,
-    "font-weight": 700,
-    "letter-spacing": "0.08em",
-    "text-anchor": "middle",
-  });
-
   const legendX = SERVICE_RIGHT - 182;
   const legendItems = [
-    { label: "Allowed", color: FLOW_STYLE.allowed.color },
-    { label: "Denied", color: FLOW_STYLE.denied.color },
-    { label: "Pending / active", color: FLOW_STYLE.in_progress.color },
+    { label: "Completed", color: FLOW_STYLE.completed.color },
+    { label: "Failed", color: FLOW_STYLE.failed.color },
+    { label: "Active", color: FLOW_STYLE.in_progress.color },
   ];
 
   legendItems.forEach((item, index) => {
@@ -587,9 +536,6 @@ function placeServices(viewH) {
     service._x = SERVICE_LEFT + 10;
     service._cx = service._x + SERVICE_W / 2;
     service._cy = service._y + SERVICE_H / 2;
-    service._gateX = CARACAL_X;
-    service._gateCx = CARACAL_X;
-    service._gateCy = service._cy;
   });
 }
 
@@ -662,28 +608,6 @@ function drawFlowBadge(x, y, text, color, options = {}) {
   return width;
 }
 
-function drawPolicyBadge(flow, x, y, color) {
-  const state = flowState(flow);
-  const label = `${state === "in_progress" ? "live" : state}${flow.count > 1 ? ` x${flow.count}` : ""}`;
-  const width = Math.max(44, label.length * 6 + 12);
-  svg.appendChild(svgEl("rect", {
-    x: x - width / 2,
-    y: y - 8,
-    width,
-    height: 16,
-    rx: 5,
-    fill: "#fff",
-    stroke: color,
-    "stroke-width": 1,
-  }));
-  drawText(x, y + 3, label, {
-    fill: color,
-    "font-size": 8.8,
-    "font-weight": 700,
-    "text-anchor": "middle",
-  });
-}
-
 function drawFlows() {
   const serviceFlowMap = {};
   for (const flow of Object.values(flows)) {
@@ -714,68 +638,48 @@ function drawFlows() {
       const startY = agent._cy;
       const state = flowState(flow);
       const style = FLOW_STYLE[state];
-      const gateY = Math.round(startY + (service._cy - startY) * 0.48 + offsets[index]);
+      const endX = service._x;
       const serviceY = Math.round(service._cy + offsets[index] * 0.55);
-      const gateX = service._gateX;
-      const serviceX = service._x;
-      const endX = serviceX;
-      const startCurve = Math.max(18, (gateX - startX) * 0.28);
-      const endCurve = Math.max(18, (endX - gateX) * 0.28);
+      const curve = Math.max(24, (endX - startX) * 0.28);
 
       const baseTitle = [
         `${agent.role} -> ${service.id}`,
         `Action: ${flow.action}`,
         `Status: ${state}`,
         `Calls: ${flow.count}`,
-        agent.bind?.mandateId ? `Mandate: ${agent.bind.mandateId}` : "",
       ];
       if (flow.lastReason) baseTitle.push(`Detail: ${flow.lastReason}`);
 
-      if (state === "denied" || state === "pending") {
-        drawFlowPath(
-          {
-            d: `M ${startX} ${startY} C ${startX + startCurve} ${startY}, ${gateX - 12} ${gateY}, ${gateX} ${gateY}`,
-            fill: "none",
-            stroke: style.color,
-            "stroke-width": Math.min(3.2, 1.5 + Math.log2(1 + flow.count) * 0.8),
-            "stroke-dasharray": style.dash,
-            opacity: 0.88,
-            "marker-end": style.marker,
-          },
-          baseTitle.join("\n"),
-        );
-      } else {
-        drawFlowPath(
-          {
-            d: `M ${startX} ${startY} C ${startX + startCurve} ${startY}, ${gateX - 14} ${gateY}, ${gateX} ${gateY} S ${endX - endCurve} ${serviceY}, ${endX} ${serviceY}`,
-            fill: "none",
-            stroke: style.color,
-            "stroke-width": Math.min(3.2, 1.5 + Math.log2(1 + flow.count) * 0.8),
-            opacity: 0.84,
-            "marker-end": style.marker,
-          },
-          baseTitle.join("\n"),
-        );
+      drawFlowPath(
+        {
+          d: `M ${startX} ${startY} C ${startX + curve} ${startY}, ${endX - curve} ${serviceY}, ${endX} ${serviceY}`,
+          fill: "none",
+          stroke: style.color,
+          "stroke-width": Math.min(3.2, 1.5 + Math.log2(1 + flow.count) * 0.8),
+          "stroke-dasharray": style.dash,
+          opacity: 0.86,
+          "marker-end": style.marker,
+        },
+        baseTitle.join("\n"),
+      );
 
-        if (flow.completed > 0 || flow.failed > 0) {
-          const returnColor = flow.failed > 0 ? FLOW_STYLE.denied.color : FLOW_STYLE.allowed.color;
-          drawFlowPath(
-            {
-              d: `M ${endX + SERVICE_W} ${serviceY + 6} C ${endX + SERVICE_W - endCurve} ${serviceY + 6}, ${gateX + 18} ${gateY + 6}, ${gateX} ${gateY + 6} S ${agent._right + startCurve} ${startY + 6}, ${agent._right} ${startY + 6}`,
-              fill: "none",
-              stroke: returnColor,
-              "stroke-width": 1.35,
-              "stroke-dasharray": "4 4",
-              opacity: 0.68,
-              "marker-end": flow.failed > 0 ? FLOW_STYLE.denied.marker : FLOW_STYLE.allowed.marker,
-            },
-            `${baseTitle.join("\n")}\nReturn: ${flow.failed > 0 ? "failed" : "completed"}`,
-          );
-        }
+      if (flow.completed > 0 || flow.failed > 0) {
+        const returnColor = flow.failed > 0 ? FLOW_STYLE.failed.color : FLOW_STYLE.completed.color;
+        drawFlowPath(
+          {
+            d: `M ${endX + SERVICE_W} ${serviceY + 6} C ${endX + SERVICE_W - curve} ${serviceY + 6}, ${startX + curve} ${startY + 6}, ${startX} ${startY + 6}`,
+            fill: "none",
+            stroke: returnColor,
+            "stroke-width": 1.35,
+            "stroke-dasharray": "4 4",
+            opacity: 0.66,
+            "marker-end": flow.failed > 0 ? FLOW_STYLE.failed.marker : FLOW_STYLE.completed.marker,
+          },
+          `${baseTitle.join("\n")}\nReturn: ${flow.failed > 0 ? "failed" : "completed"}`,
+        );
       }
 
-      drawPolicyBadge(flow, gateX - 42, gateY, style.color);
-      drawFlowBadge(serviceX - 12, serviceY, shortAction(flow.action), style.color, { align: "end" });
+      drawFlowBadge(endX - 12, serviceY, shortAction(flow.action), style.color, { align: "end" });
     });
   });
 }
@@ -820,24 +724,6 @@ function drawAgentNodes() {
       "font-weight": 700,
     });
 
-    if (node.bind) {
-      const badgeX = node._x + NODE_W - 24;
-      const badgeY = node._y + 10;
-      const badgeColor = node.bind.decision === "deny" ? FLOW_STYLE.denied.color : FLOW_STYLE.allowed.color;
-      group.appendChild(svgEl("circle", { cx: badgeX, cy: badgeY, r: 7, fill: badgeColor, opacity: 0.92 }));
-      const badgeText = svgEl("text", {
-        x: badgeX,
-        y: badgeY + 3,
-        fill: "#fff",
-        "font-size": 8,
-        "font-weight": 700,
-        "text-anchor": "middle",
-        "font-family": "system-ui, sans-serif",
-      });
-      badgeText.textContent = node.bind.decision === "deny" ? "!" : "C";
-      group.appendChild(badgeText);
-    }
-
     addTitle(
       group,
       [
@@ -845,7 +731,6 @@ function drawAgentNodes() {
         `Layer: ${node.layer}`,
         node.region ? `Region: ${node.region}` : "",
         node.scope ? `Delegation scope: ${node.scope}` : "",
-        node.bind?.reason ? `Authority: ${node.bind.reason}` : "",
       ].filter(Boolean).join("\n"),
     );
 
@@ -853,7 +738,7 @@ function drawAgentNodes() {
   });
 }
 
-function drawCaracalAndServices() {
+function drawServices() {
   Object.values(services).forEach((service) => {
     if (service._y == null) return;
 
@@ -897,7 +782,7 @@ function drawCaracalAndServices() {
       box,
       service._x + 12,
       service._y + 60,
-      state === "denied" ? "Denied" : state === "allowed" ? "Returning" : "Outbound dependency",
+      state === "failed" ? "Failed" : state === "completed" ? "Returning" : "Outbound dependency",
       {
         fill: color,
         "font-size": 9.1,
@@ -909,9 +794,9 @@ function drawCaracalAndServices() {
       [
         `${service.id}`,
         `Calls: ${metrics.total}`,
-        `Pending: ${metrics.pending}`,
-        `Allowed: ${metrics.allowed}`,
-        `Denied: ${metrics.denied}`,
+        `Active: ${metrics.active}`,
+        `Completed: ${metrics.completed}`,
+        `Failed: ${metrics.failed}`,
       ].join("\n"),
     );
     svg.appendChild(box);
@@ -942,7 +827,7 @@ function buildLayout() {
   drawInternalEdges();
   drawFlows();
   drawAgentNodes();
-  drawCaracalAndServices();
+  drawServices();
   updateStatus();
 }
 
@@ -964,7 +849,6 @@ function handleEvent(event) {
         parent: payload.parent_id || null,
         scope: payload.scope || "",
         status: "spawned",
-        bind: null,
       };
       revealSvg();
       scheduleRender();
@@ -990,38 +874,7 @@ function handleEvent(event) {
       if (!mapping) break;
       const flow = ensureFlow(payload.agent_id, mapping.serviceId, mapping.action, payload.tool_name);
       flow.count += 1;
-      flow.pendingAuth += 1;
-      flow.state = "pending";
       flow.lastTs = sequence++;
-      scheduleRender();
-      break;
-    }
-
-    case "caracal_bind":
-      if (nodes[payload.agent_id]) {
-        nodes[payload.agent_id].bind = {
-          decision: payload.decision,
-          reason: payload.reason || "",
-          mandateId: payload.mandate_id || "",
-        };
-      }
-      scheduleRender();
-      break;
-
-    case "caracal_enforce": {
-      const parsed = parseToolId(payload.tool_id);
-      if (!parsed) break;
-      const flow = ensureFlow(payload.agent_id, parsed.serviceId, parsed.action);
-      flow.pendingAuth = Math.max(0, flow.pendingAuth - 1);
-      flow.lastReason = payload.reason || payload.decision || "";
-      flow.lastTs = sequence++;
-      if (payload.decision === "deny") {
-        flow.denied += 1;
-        flow.state = "denied";
-      } else {
-        flow.allowed += 1;
-        flow.state = "allowed";
-      }
       scheduleRender();
       break;
     }
@@ -1029,7 +882,6 @@ function handleEvent(event) {
     case "service_call": {
       const flow = ensureFlow(payload.agent_id, payload.service_id, payload.action);
       flow.activeService += 1;
-      flow.state = "in_progress";
       flow.lastTs = sequence++;
       const service = ensureService(payload.service_id);
       service.lastAction = payload.action;
@@ -1047,10 +899,8 @@ function handleEvent(event) {
       );
       if (failed) {
         flow.failed += 1;
-        flow.state = "denied";
       } else {
         flow.completed += 1;
-        flow.state = "allowed";
       }
       scheduleRender();
       break;

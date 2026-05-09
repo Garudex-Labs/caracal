@@ -24,7 +24,6 @@
   --logTool:     var(--teal);
   --logService:  var(--teal);
   --logAudit:    var(--amber);
-  --logCaracal:  var(--primary);
   --logDelegation: #6B47A8;
 
   /* Lifecycle status color tokens */

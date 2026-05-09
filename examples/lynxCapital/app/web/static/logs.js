@@ -32,7 +32,6 @@ const CAT_CSS = {
   tool:       'cat-tool',
   service:    'cat-service',
   audit:      'cat-audit',
-  caracal:    'cat-caracal',
   delegation: 'cat-delegation',
   chat:       'cat-chat',
 };
@@ -61,8 +60,6 @@ function summarize(ev) {
     case 'service_call':    return `SVC call    ${p.service_id} -> ${p.action}`;
     case 'service_result':  return `SVC result  ${p.service_id}`;
     case 'audit_record':    return `Audit record  agent=${agent}`;
-    case 'caracal_bind':    return `Caracal bind  decision=${p.decision}  agent=${agent}`;
-    case 'caracal_enforce': return `Caracal enforce  ${p.tool_id}  decision=${p.decision}`;
     case 'chat_user':       return `User  ${(p.text || '').slice(0, 80)}`;
     case 'chat_token':      return `Token  ${JSON.stringify(p.token || '')}`;
     case 'chat_message':    return `Message  ${(p.text || '').slice(0, 80)}`;
