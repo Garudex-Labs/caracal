@@ -9,5 +9,6 @@ use (
 	./packages/identity/go
 	./packages/revocation/go
 	./packages/transport-mcp/go
+	./packages/caracalai-mcp/go
 	./packages/framework-adaptor/mcp-nethttp/go
 )

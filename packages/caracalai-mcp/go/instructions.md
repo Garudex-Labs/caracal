@@ -1,7 +1,7 @@
-# caracalai-mcp-go
+# caracalai-mcp/go
 
 ## Scope
-- Covers only the Go `net/http` middleware under `caracal/packages/caracalai-mcp-go/`.
+- Covers only the Go `net/http` middleware under `caracal/packages/caracalai-mcp/go/`.
 
 ## Required
 - Must wire bearer-token extraction and HTTP error responses to `github.com/garudex-labs/caracal/identity` for JWT verify, JWKS, and scope evaluation.

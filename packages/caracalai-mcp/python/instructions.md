@@ -1,7 +1,7 @@
-# caracalai-mcp-python
+# caracalai-mcp/python
 
 ## Scope
-- Covers only the Python `caracalai-mcp` package under `caracal/packages/caracalai-mcp-python/`.
+- Covers only the Python `caracalai-mcp` package under `caracal/packages/caracalai-mcp/python/`.
 
 ## Required
 - Must wire FastMCP middleware to `caracalai_identity` for JWT verify, JWKS, scope, and claim shapes.

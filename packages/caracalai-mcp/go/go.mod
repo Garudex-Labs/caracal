@@ -14,7 +14,7 @@ require (
 )
 
 replace (
-	github.com/garudex-labs/caracal/core => ../core/go
-	github.com/garudex-labs/caracal/identity => ../identity/go
-	github.com/garudex-labs/caracal/revocation => ../revocation/go
+	github.com/garudex-labs/caracal/core => ../../core/go
+	github.com/garudex-labs/caracal/identity => ../../identity/go
+	github.com/garudex-labs/caracal/revocation => ../../revocation/go
 )

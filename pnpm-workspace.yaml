@@ -10,6 +10,7 @@ packages:
   - 'packages/transport-a2a/ts'
   - 'packages/agent-core/ts'
   - 'packages/admin/ts'
+  - 'packages/caracalai-mcp/ts'
   - 'packages/framework-adaptor/mcp-express/ts'
   - 'packages/framework-adaptor/mcp-fastmcp/ts'
   - 'packages/framework-adaptor/agent-crewai/ts'
