@@ -54,7 +54,7 @@ type stsResult struct {
 	Latency     time.Duration
 }
 
-// exchangeOutcome captures all Exchange outputs in a single return value.
+// exchangeOutcome is the result of an STS Exchange operation.
 // StatusCode is always populated.
 // On success Result is populated and errors are nil.
 // On failure, Result is nil and BusinessError is always non-nil; InternalError may also be set for gateway logs.
