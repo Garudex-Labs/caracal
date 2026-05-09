@@ -64,6 +64,11 @@ class ContentConfig(BaseModel):
     disclaimer: str
 
 
+class PromptsConfig(BaseModel):
+    financeControl: str
+    regionalOrchestrator: str
+
+
 class AppConfig(BaseModel):
     company: str
     shortName: str
@@ -74,6 +79,7 @@ class AppConfig(BaseModel):
     agentLayers: list[AgentLayerEntry]
     scenario: ScenarioConfig
     content: ContentConfig
+    prompts: PromptsConfig
 
 
 _config: AppConfig | None = None

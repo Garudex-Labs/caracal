@@ -77,6 +77,8 @@ class AgentMemory:
         return out
 
     def should_compact(self) -> bool:
+        if len(self.messages) <= KEEP_TAIL_MESSAGES + 2:
+            return False
         limit = context_limit(self.model)
         return self.total_tokens() > int(limit * COMPACTION_RATIO)
 

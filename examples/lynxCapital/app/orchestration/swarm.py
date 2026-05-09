@@ -44,81 +44,6 @@ class RunCancelled(Exception):
     """Raised when a run is cancelled cooperatively."""
 
 
-FC_SYSTEM_PROMPT = """You are Finance Control, the orchestration assistant for Lynx Capital.
-
-Lynx Capital runs a multi-region payment and payout platform. You have access to regional data and can dispatch Regional Orchestrator agents to process payouts across five regions: US, IN, DE, SG, BR.
-
-HOW YOU DECIDE WHAT TO DO
-Read the user's message carefully and respond to what was actually asked.
-
-- If the message is a general question (about the platform, about a concept, asking for information), answer it directly in plain prose. Do not call any tools unless the question requires data you must look up.
-- If the message requests a payout run, invoice processing, or regional dispatch, follow the plan-then-act loop below.
-- If the message is ambiguous, answer conversationally and ask a clarifying question rather than launching a payout run.
-- If the message is a follow-up like "what happened", "why did it fail", "show last run", or similar, answer from the session context provided below your system prompt. Reference the actual run IDs, statuses, regions, and errors from that context. Do not invent information.
-
-PAYOUT CYCLE WORKFLOW (only when the user actually asks for it)
-1. FIRST TURN: call write_todos with a concrete list of steps specific to what was requested. Mark the first step in_progress. Do not call domain tools on the first turn.
-2. EACH FOLLOWING TURN: write one short prose sentence stating what you are about to do, then call the next tool. After a result comes back, write one sentence interpreting it, then update write_todos or call the next domain tool.
-3. DOMAIN TOOLS:
-   - dispatch_region(region, focus): hand off to a Regional Orchestrator. Use exactly: US, IN, DE, SG, BR.
-   - write_file(path, content), read_file(path), ls_files(): offload large results or pass context forward.
-4. FINAL TURN: mark all todos completed via write_todos, then output one short paragraph summarizing what was processed. Do not call tools on the final turn.
-
-Only dispatch the regions the user asked about. If the user says "US only", dispatch only US. If no specific regions are mentioned in a payout request, dispatch all five.
-
-PARTIAL FAILURE
-A tool result may contain {"error": "..."}. This means that step failed. When this happens:
-- Do NOT stop the entire run. Continue dispatching other regions.
-- Note the failure in your final summary: which region failed and why.
-- If ALL regions return errors, summarize the failures clearly.
-- Treat a partial result (some regions succeeded, some failed) as a partial success.
-
-MEMORY
-If session context is injected above the user message, it contains a summary of previous runs and recent conversation turns. Use it to answer follow-up questions accurately. If no prior runs exist, say so clearly rather than fabricating results.
-
-Be concise, plain prose, no emojis, no marketing language."""
-
-
-REGIONAL_SYSTEM_TEMPLATE = """You are the Regional Orchestrator agent for the {region} region ({region_name}, currency {currency}) at Lynx Capital.
-
-Your ONLY job is to complete exactly what is described in this focus — nothing more: {focus}
-
-HOW YOU WORK
-You decide your own approach. No procedure is given.
-
-1. FIRST TURN: call write_todos with the specific steps YOU decide are needed to complete this focus. Do not copy a template - think about what this specific focus actually requires. Mark the first step in_progress. Do not call any other tool on the first turn.
-
-2. EACH FOLLOWING TURN: write ONE short prose sentence about what you are about to do and why, then call the next tool. After a tool returns, write ONE short sentence interpreting the result, then either update write_todos or call the next tool.
-
-3. DOMAIN TOOLS available to you (pick what you need, in the order YOU decide):
-   - list_pending_invoices(limit): inspect pending invoices
-   - extract_invoice_data(invoice_id): OCR extract invoice data
-   - match_invoice_in_ledger(invoice_id, vendor_id, amount, currency): reconcile against ERP
-   - check_vendor_compliance(vendor_id): run compliance screening
-   - lookup_fx_rate(from_currency, to_currency), lookup_withholding_rate(currency): tax/fx lookups
-   - submit_payment(vendor_id, amount, currency, rail, reference): execute payment
-   - record_audit(summary): seal an audit entry (call this at most once, at the end)
-   - write_file, read_file, ls_files: offload large intermediate results
-
-4. FINAL TURN: mark all todos completed via write_todos, then output ONE short status sentence. Do not call more tools.
-
-PAYMENT EXECUTION RULES (only when your focus explicitly involves payment, settlement, or disbursement)
-- If your focus includes payment: list_pending_invoices returns all fields you need: vendor_id, amount, currency, preferred_rail. You can call submit_payment directly — no OCR, ERP, or compliance required.
-- If your focus is extraction, archiving, compliance screening, FX lookup, or other non-payment tasks: do NOT call submit_payment. Record what was attempted and stop.
-- Use invoice_id as the reference value when submitting payment.
-
-PARTIAL FAILURE
-If a tool returns {{"error": "..."}}, that step failed. When this happens:
-- Immediately skip that step and call the NEXT tool in your plan. Do not pause or summarize.
-- A failure on extract_invoice_data, match_invoice_in_ledger, check_vendor_compliance, lookup_fx_rate, or lookup_withholding_rate NEVER blocks submit_payment — but only if payment is part of your focus.
-- After all pre-payment steps (whether they succeeded or failed), attempt submit_payment for each vendor if payment was requested in your focus.
-- Only mark a payment as failed if submit_payment itself returns {{"error": "..."}}.
-- Never retry a failed tool in the same run.
-- Record all outcomes in record_audit at the end.
-
-Real services are executed; you are not simulating. Be concise, plain prose, no emojis."""
-
-
 def _make_llm(model: str, temperature: float = 0.1) -> ChatOpenAI:
     """Factory for a streaming ChatOpenAI. Swapped out by tests via monkeypatch."""
     return ChatOpenAI(
@@ -356,8 +281,8 @@ def _build_regional_domain_tools(run_id, runner, parent, region):
 
 
 async def _turn_loop(run_id, agent, model_name, llm_with_tools, summarizer, mem, tool_map, max_turns):
-    """Run the assistant turn loop for one agent. Publishes tool_call / tool_result
-    for every invocation. Returns number of tool calls executed."""
+    """Run the assistant turn loop for one agent. Independent tool calls in a
+    single turn are executed concurrently. Returns total tool calls executed."""
     tool_calls_total = 0
     for _turn in range(max_turns):
         _check_cancel(run_id)
@@ -367,23 +292,28 @@ async def _turn_loop(run_id, agent, model_name, llm_with_tools, summarizer, mem,
         _emit_memory_snapshot(run_id, mem)
         if not ai_msg.tool_calls:
             break
-        for tc in ai_msg.tool_calls:
+
+        async def _exec(tc):
             _check_cancel(run_id)
             name = tc["name"]
             args = tc["args"]
             fn = tool_map.get(name)
             if fn is None:
-                mem.append(ToolMessage(content=f"Unknown tool: {name}", tool_call_id=tc["id"]))
-                continue
+                return tc, None, f"Unknown tool: {name}"
             bus.publish(ev.tool_call(run_id, agent.id, name, args))
-            result = await asyncio.to_thread(fn.invoke, args)
+            result = await fn.ainvoke(args)
             result_str = str(result)
             bus.publish(ev.tool_result(
                 run_id, agent.id, name,
                 {"result": result_str[:400], "truncated": len(result_str) > 400},
             ))
-            tool_calls_total += 1
+            return tc, name, result_str
+
+        results = await asyncio.gather(*[_exec(tc) for tc in ai_msg.tool_calls])
+        for tc, name, result_str in results:
             mem.append(ToolMessage(content=result_str, tool_call_id=tc["id"]))
+            if name is not None:
+                tool_calls_total += 1
         _emit_memory_snapshot(run_id, mem)
     return tool_calls_total
 
@@ -414,7 +344,7 @@ async def _run_regional_orchestrator(run_id, runner, parent, memory_store, plans
     llm_with_tools = llm.bind_tools(tools)
     summarizer = _make_llm(model_name, 0.0)
 
-    system_prompt = REGIONAL_SYSTEM_TEMPLATE.format(
+    system_prompt = cfg.prompts.regionalOrchestrator.format(
         region=region, region_name=region_meta.name,
         currency=region_meta.currency,
         focus=focus or "process the pending batch end-to-end",
@@ -445,10 +375,10 @@ async def _run_regional_orchestrator(run_id, runner, parent, memory_store, plans
 # ---------- Finance Control tools ----------
 
 
-def _build_fc_domain_tools(run_id, runner, fc, memory_store, plans, files, loop, model_name,
+def _build_fc_domain_tools(run_id, runner, fc, memory_store, plans, files, model_name,
                             dispatched_regions: list[str]):
     @tool
-    def dispatch_region(region: str, focus: str = "") -> str:
+    async def dispatch_region(region: str, focus: str = "") -> str:
         """Dispatch a Regional Orchestrator sub-agent to process one region.
         region must be one of: US, IN, DE, SG, BR. `focus` is a short sentence
         describing the intent for this dispatch."""
@@ -460,15 +390,12 @@ def _build_fc_domain_tools(run_id, runner, fc, memory_store, plans, files, loop,
         parent_summary = (fc_mem.seed_summary if fc_mem else "") or (
             f"Finance Control dispatched region {r} with focus: {focus or '(none)'}."
         )
-        future = asyncio.run_coroutine_threadsafe(
-            _run_regional_orchestrator(
+        try:
+            result = await _run_regional_orchestrator(
                 run_id, runner, fc, memory_store, plans, files,
                 parent_summary, r, focus or "", model_name,
-            ),
-            loop,
-        )
-        try:
-            return json.dumps(future.result())
+            )
+            return json.dumps(result)
         except Exception as exc:
             return json.dumps({"error": str(exc), "region": r, "toolCalls": 0})
 
@@ -501,7 +428,7 @@ async def run_swarm(run_id: str, prompt: str) -> None:
     dispatched_regions: list[str] = []
     tools = [
         *_build_agent_builtins(run_id, fc.id, plans, files),
-        *_build_fc_domain_tools(run_id, runner, fc, memory_store, plans, files, loop, model_name,
+        *_build_fc_domain_tools(run_id, runner, fc, memory_store, plans, files, model_name,
                                  dispatched_regions),
     ]
     tool_map = {t.name: t for t in tools}
@@ -512,7 +439,7 @@ async def run_swarm(run_id: str, prompt: str) -> None:
     session_memory.add_user(prompt, run_id)
     ctx = session_memory.context_block()
 
-    mem = memory_store.open(fc.id, SystemMessage(content=FC_SYSTEM_PROMPT))
+    mem = memory_store.open(fc.id, SystemMessage(content=cfg.prompts.financeControl))
     if ctx:
         mem.append(SystemMessage(content=f"[Session context — prior runs and conversation]\n{ctx}"))
     mem.append(HumanMessage(content=prompt))

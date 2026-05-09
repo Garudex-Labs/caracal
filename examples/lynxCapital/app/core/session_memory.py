@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass, field
+from threading import Lock
 from typing import Literal
 
 MAX_TURNS = 20   # user + assistant pairs kept
@@ -46,32 +47,39 @@ class SessionMemory:
     def __init__(self) -> None:
         self._turns: list[Turn] = []
         self._runs: list[RunRecord] = []
+        self._lock = Lock()
 
     def add_user(self, content: str, run_id: str) -> None:
-        self._turns.append(Turn(role="user", content=content, run_id=run_id))
-        self._trim()
+        with self._lock:
+            self._turns.append(Turn(role="user", content=content, run_id=run_id))
+            self._trim()
 
     def add_assistant(self, content: str, run_id: str) -> None:
-        self._turns.append(Turn(role="assistant", content=content, run_id=run_id))
-        self._trim()
+        with self._lock:
+            self._turns.append(Turn(role="assistant", content=content, run_id=run_id))
+            self._trim()
 
     def record_run(self, record: RunRecord) -> None:
-        self._runs.append(record)
-        if len(self._runs) > MAX_RUNS:
-            self._runs = self._runs[-MAX_RUNS:]
+        with self._lock:
+            self._runs.append(record)
+            if len(self._runs) > MAX_RUNS:
+                self._runs = self._runs[-MAX_RUNS:]
 
     def context_block(self) -> str:
         """Return a compact context string for LLM injection, or '' if no history."""
+        with self._lock:
+            runs = list(self._runs)
+            turns = list(self._turns)
         lines: list[str] = []
 
-        if self._runs:
+        if runs:
             lines.append("PREVIOUS RUNS (most recent last):")
-            for r in self._runs[-5:]:
+            for r in runs[-5:]:
                 lines.append(f"  - {r.summary()}")
 
-        if self._turns:
+        if turns:
             lines.append("RECENT CONVERSATION:")
-            for t in self._turns[-8:]:
+            for t in turns[-8:]:
                 role = "User" if t.role == "user" else "Assistant"
                 snippet = t.content[:150].replace("\n", " ")
                 lines.append(f"  {role}: {snippet}")
@@ -79,13 +87,18 @@ class SessionMemory:
         return "\n".join(lines)
 
     def last_run(self) -> RunRecord | None:
-        return self._runs[-1] if self._runs else None
+        with self._lock:
+            return self._runs[-1] if self._runs else None
 
     def clear(self) -> None:
-        self._turns.clear()
-        self._runs.clear()
+        with self._lock:
+            self._turns.clear()
+            self._runs.clear()
 
     def as_dict(self) -> dict:
+        with self._lock:
+            runs = list(self._runs)
+            turns = list(self._turns)
         return {
             "runs": [
                 {
@@ -96,11 +109,11 @@ class SessionMemory:
                     "errors": r.errors,
                     "ts": r.ts,
                 }
-                for r in self._runs
+                for r in runs
             ],
             "turns": [
                 {"role": t.role, "content": t.content[:200], "ts": t.ts}
-                for t in self._turns
+                for t in turns
             ],
         }
 
