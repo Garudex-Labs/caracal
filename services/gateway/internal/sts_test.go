@@ -24,7 +24,7 @@ func TestSTSExchangeTransportError(t *testing.T) {
 		t.Fatal("expected transport error")
 	}
 	if outcome.BusinessError == nil {
-		t.Fatal("expected sanitised CaracalError")
+		t.Fatal("expected sanitized CaracalError")
 	}
 	if outcome.StatusCode < 500 {
 		t.Fatalf("transport failure should map to 5xx, got %d", outcome.StatusCode)

@@ -84,7 +84,7 @@ func newSTSClient(stsURL string, timeout time.Duration) *stsClient {
 // Exchange performs an RFC 8693 token exchange. The caller's identity is sent as
 // (zone_id, application_id) form fields rather than a positional client_id, so
 // neither value depends on a separator-free encoding.
-// Internal error detail is returned for the gateway to log; a sanitised CaracalError is
+// Internal error detail is returned for the gateway to log; a sanitized CaracalError is
 // safe to forward to the client.
 func (c *stsClient) Exchange(ctx context.Context, subjectToken string, bind binding, resource, requestID string) *exchangeOutcome {
 	form := url.Values{
