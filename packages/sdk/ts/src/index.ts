@@ -9,3 +9,5 @@ export * from "./envelope.js";
 export * from "./context.js";
 export * from "./coordinator.js";
 export * from "./primitives.js";
+export * from "./client.js";
+export * from "./http.js";
