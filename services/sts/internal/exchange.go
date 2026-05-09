@@ -21,6 +21,12 @@ import (
 )
 
 const (
+	// ttlPerCallSDK caps the lifetime of every per-call exchange. The gateway
+	// re-exchanges on each request, so streams longer than this lifetime
+	// (LLM completions, SSE, websockets) cannot rotate mid-stream. Callers
+	// initiating long streams must treat ttlPerCallSDK as the contract upper
+	// bound: streams running past it should expect upstream-side disconnect
+	// or a fresh exchange + reconnect orchestrated by the SDK (Issue J).
 	ttlPerCallSDK = 15 * time.Minute
 	ttlAmbient    = 60 * time.Minute
 )
@@ -148,11 +154,6 @@ func (s *Server) exchange(ctx context.Context, req TokenExchangeRequest, request
 			return nil, nil, http.StatusUnauthorized, sharederr.New(sharederr.AccessDenied, "challenge not satisfied or expired")
 		}
 		challengeResolved = true
-	}
-	if req.AgentSessionID != "" && req.DelegationEdgeID == "" {
-		if aerr := s.validateAgentSessionOwnership(ctx, zoneID, app.ID, req.AgentSessionID); aerr != nil {
-			return nil, nil, http.StatusForbidden, aerr
-		}
 	}
 	delegation, refErr := s.validateSessionReferences(ctx, zoneID, app.ID, req)
 	if refErr != nil {
@@ -583,12 +584,23 @@ func (s *Server) validateAgentSessionOwnership(ctx context.Context, zoneID, appI
 	return nil
 }
 
+// validateSessionReferences is the single source of truth for binding a token
+// exchange to user/agent sessions and delegation edges. When a delegation_edge_id
+// is present the source agent session's ownership is verified inside the
+// delegation block (source.ApplicationID == appID); otherwise the calling
+// application's ownership of the asserted agent_session_id is verified directly
+// (Issue I — consolidation prevents peer-app forgery via either path).
 func (s *Server) validateSessionReferences(ctx context.Context, zoneID, appID string, req TokenExchangeRequest) (*delegationProof, *sharederr.CaracalError) {
 	now := time.Now()
 	if req.SessionID != "" {
 		session, err := s.db.GetSession(ctx, req.SessionID)
 		if err != nil || session.ZoneID != zoneID || session.Status != "active" || !session.ExpiresAt.After(now) {
 			return nil, sharederr.New(sharederr.AccessDenied, "session inactive or expired")
+		}
+	}
+	if req.AgentSessionID != "" && req.DelegationEdgeID == "" {
+		if aerr := s.validateAgentSessionOwnership(ctx, zoneID, appID, req.AgentSessionID); aerr != nil {
+			return nil, aerr
 		}
 	}
 	if req.DelegationEdgeID == "" {

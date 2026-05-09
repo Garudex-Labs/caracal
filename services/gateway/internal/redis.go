@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 // Caracal, a product of Garudex Labs
 //
-// Minimal Redis client used by the gateway for JTI replay detection and audit emission.
+// Minimal Redis client used by the gateway for JTI replay detection, audit emission, and revocation propagation.
 
 package internal
 
@@ -31,4 +31,40 @@ func (r *RedisClient) SetNXTTL(ctx context.Context, key, value string, ttl time.
 // XAdd appends an entry to a Redis stream.
 func (r *RedisClient) XAdd(ctx context.Context, stream string, values map[string]any) error {
 	return r.c.XAdd(ctx, &redis.XAddArgs{Stream: stream, Values: values}).Err()
+}
+
+// EnsureGroup creates a Redis consumer group (MKSTREAM) if it does not exist.
+func (r *RedisClient) EnsureGroup(ctx context.Context, stream, group string) error {
+	err := r.c.XGroupCreateMkStream(ctx, stream, group, "$").Err()
+	if err != nil && err.Error() == "BUSYGROUP Consumer Group name already exists" {
+		return nil
+	}
+	return err
+}
+
+// XReadGroup blocks for up to one second waiting for new entries in stream that
+// have not been delivered to consumer in group.
+func (r *RedisClient) XReadGroup(ctx context.Context, group, consumer, stream string, count int64) ([]redis.XMessage, error) {
+	streams, err := r.c.XReadGroup(ctx, &redis.XReadGroupArgs{
+		Group:    group,
+		Consumer: consumer,
+		Streams:  []string{stream, ">"},
+		Count:    count,
+		Block:    time.Second,
+	}).Result()
+	if err != nil {
+		if err == redis.Nil {
+			return nil, nil
+		}
+		return nil, err
+	}
+	if len(streams) == 0 {
+		return nil, nil
+	}
+	return streams[0].Messages, nil
+}
+
+// XAck acknowledges a delivered stream message so it is not redelivered.
+func (r *RedisClient) XAck(ctx context.Context, stream, group, id string) error {
+	return r.c.XAck(ctx, stream, group, id).Err()
 }

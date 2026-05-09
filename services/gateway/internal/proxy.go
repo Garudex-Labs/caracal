@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"net/url"
 	"path"
+	"strconv"
 	"strings"
 	"time"
 
@@ -28,16 +29,17 @@ const preflightWindow = 35 * time.Second
 
 // proxy implements the gateway's reverse-proxy handler.
 type proxy struct {
-	sts      *stsClient
-	guard    *upstreamGuard
-	client   *http.Client
-	log      zerolog.Logger
-	maxBytes int64
-	bindings *bindingStore
-	tracker  *jtiTracker
+	sts         *stsClient
+	guard       *upstreamGuard
+	client      *http.Client
+	log         zerolog.Logger
+	maxBytes    int64
+	bindings    *bindingStore
+	tracker     *jtiTracker
+	revocations *revocationStore
 }
 
-func newProxy(sts *stsClient, guard *upstreamGuard, log zerolog.Logger, maxBytes int64, upstreamTimeout time.Duration, bindings *bindingStore, tracker *jtiTracker) *proxy {
+func newProxy(sts *stsClient, guard *upstreamGuard, log zerolog.Logger, maxBytes int64, upstreamTimeout time.Duration, bindings *bindingStore, tracker *jtiTracker, revocations *revocationStore) *proxy {
 	transport := &http.Transport{
 		DialContext:           guard.SafeDialContext(5*time.Second, 30*time.Second),
 		MaxIdleConns:          200,
@@ -50,13 +52,14 @@ func newProxy(sts *stsClient, guard *upstreamGuard, log zerolog.Logger, maxBytes
 		ForceAttemptHTTP2:     true,
 	}
 	return &proxy{
-		sts:      sts,
-		guard:    guard,
-		client:   &http.Client{Transport: transport},
-		log:      log,
-		maxBytes: maxBytes,
-		bindings: bindings,
-		tracker:  tracker,
+		sts:         sts,
+		guard:       guard,
+		client:      &http.Client{Transport: transport},
+		log:         log,
+		maxBytes:    maxBytes,
+		bindings:    bindings,
+		tracker:     tracker,
+		revocations: revocations,
 	}
 }
 
@@ -120,6 +123,13 @@ func (p *proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	sid := jwtSID(bearer)
+	if p.revocations.IsRevoked(sid) {
+		writeErr(w, requestID, http.StatusUnauthorized, sharederr.InvalidToken, "session revoked")
+		logger.Info().Int("status", http.StatusUnauthorized).Str("sid", sid).Msg("denied: session revoked")
+		return
+	}
+
 	stsCtx, cancel := context.WithTimeout(r.Context(), p.sts.client.Timeout)
 	res, status, cerr, internalErr := p.sts.Exchange(stsCtx, bearer, bind, resource, requestID)
 	cancel()
@@ -166,7 +176,10 @@ func (p *proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	defer resp.Body.Close()
 
 	stripHopByHop(resp.Header)
-	copyResponse(w, resp)
+	if exp.After(time.Now()) {
+		w.Header().Set("X-Caracal-Token-Expires-In", strconv.FormatInt(int64(time.Until(exp).Seconds()), 10))
+	}
+	copyResponse(w, resp, p.revocations, sid)
 	logger.Info().
 		Int("status", resp.StatusCode).
 		Dur("upstream_latency_ms", time.Since(start)).
@@ -275,8 +288,12 @@ func joinURLPath(upstreamPath, requestPath string) string {
 }
 
 // copyResponse streams the upstream response back to the client, flushing on every chunk
-// so SSE consumers see real-time data without server-side buffering.
-func copyResponse(w http.ResponseWriter, resp *http.Response) {
+// so SSE consumers see real-time data without server-side buffering. Between chunks it
+// consults revocations: if the session id bound to the token is revoked mid-stream the
+// upstream body is closed and the response is truncated. This is the runtime side of
+// Issue K — without it, an attacker holding a leaked token keeps the SSE pipe open
+// indefinitely even after revocation.
+func copyResponse(w http.ResponseWriter, resp *http.Response, revocations *revocationStore, sid string) {
 	for key, vals := range resp.Header {
 		for _, val := range vals {
 			w.Header().Add(key, val)
@@ -290,13 +307,19 @@ func copyResponse(w http.ResponseWriter, resp *http.Response) {
 		return
 	}
 	flusher.Flush()
-	streamCopy(w, resp.Body, flusher)
+	streamCopy(w, resp.Body, flusher, revocations, sid)
 }
 
 // streamCopy reads from src in small chunks and flushes after every successful write.
-func streamCopy(w io.Writer, src io.Reader, flusher http.Flusher) {
+// On every chunk boundary it re-checks the revocation cache for sid and aborts the
+// stream if the session has been revoked while data is in flight.
+func streamCopy(w io.Writer, src io.ReadCloser, flusher http.Flusher, revocations *revocationStore, sid string) {
 	buf := make([]byte, 4*1024)
 	for {
+		if revocations.IsRevoked(sid) {
+			_ = src.Close()
+			return
+		}
 		n, rerr := src.Read(buf)
 		if n > 0 {
 			if _, werr := w.Write(buf[:n]); werr != nil {

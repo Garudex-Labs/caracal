@@ -25,12 +25,14 @@ type requestIDKey struct{}
 
 // Server owns the HTTP listener and its dependencies.
 type Server struct {
-	cfg      Config
-	log      zerolog.Logger
-	sts      *stsClient
-	guard    *upstreamGuard
-	tracker  *jtiTracker
-	bindings *bindingStore
+	cfg         Config
+	log         zerolog.Logger
+	sts         *stsClient
+	guard       *upstreamGuard
+	tracker     *jtiTracker
+	bindings    *bindingStore
+	redis       *RedisClient
+	revocations *revocationStore
 }
 
 // New constructs a Server from environment configuration.
@@ -38,14 +40,16 @@ func New(ctx context.Context) (*Server, error) {
 	cfg := loadConfig()
 	log := logging.New("gateway")
 	var tracker *jtiTracker
+	var rdb *RedisClient
 	if cfg.RedisURL != "" {
-		rdb, err := newRedis(cfg.RedisURL)
+		var err error
+		rdb, err = newRedis(cfg.RedisURL)
 		if err != nil {
 			return nil, err
 		}
 		tracker = newJTITracker(rdb, log)
 	} else {
-		log.Warn().Msg("REDIS_URL unset; jti replay detection disabled")
+		log.Warn().Msg("REDIS_URL unset; jti replay detection and revocation propagation disabled")
 	}
 	pool, err := pgxpool.New(ctx, cfg.DatabaseURL)
 	if err != nil {
@@ -56,19 +60,22 @@ func New(ctx context.Context) (*Server, error) {
 		return nil, err
 	}
 	return &Server{
-		cfg:      cfg,
-		log:      log,
-		sts:      newSTSClient(cfg.STSURL, cfg.STSTimeout),
-		guard:    newUpstreamGuard(cfg.UpstreamHostAllowlist, cfg.AllowPrivateUpstreams),
-		tracker:  tracker,
-		bindings: bindings,
+		cfg:         cfg,
+		log:         log,
+		sts:         newSTSClient(cfg.STSURL, cfg.STSTimeout),
+		guard:       newUpstreamGuard(cfg.UpstreamHostAllowlist, cfg.AllowPrivateUpstreams),
+		tracker:     tracker,
+		bindings:    bindings,
+		redis:       rdb,
+		revocations: newRevocationStore(log),
 	}, nil
 }
 
 // Run starts the HTTP(S) listener and blocks until ctx is cancelled.
 func (s *Server) Run(ctx context.Context) error {
 	go s.bindings.StartPolling(ctx)
-	p := newProxy(s.sts, s.guard, s.log, s.cfg.MaxRequestBytes, s.cfg.UpstreamTimeout, s.bindings, s.tracker)
+	startRevocationConsumer(ctx, s.redis, s.revocations, s.log)
+	p := newProxy(s.sts, s.guard, s.log, s.cfg.MaxRequestBytes, s.cfg.UpstreamTimeout, s.bindings, s.tracker, s.revocations)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
