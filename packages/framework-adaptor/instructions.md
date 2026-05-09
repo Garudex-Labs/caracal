@@ -5,8 +5,8 @@
 
 ## Required
 - Each `mcp-*` child must wrap exactly one framework binding around the `transport-mcp` core.
-- Each `agent-*` child must wrap exactly one framework binding around the `agent-core` runtime.
+- Each `agent-*` child must wrap exactly one framework binding around the `@caracalai/sdk` primitives (`withAgent`, `withDelegation`, context envelope).
 
 ## Forbidden
 - Must not implement JWT verification, JWKS fetch, or revocation lookup directly.
-- Must not duplicate agent runtime logic; route through `@caracalai/agent-core`.
+- Must not duplicate identity, delegation, or token-exchange logic; route through `@caracalai/sdk`.

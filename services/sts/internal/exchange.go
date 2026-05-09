@@ -21,6 +21,12 @@ import (
 )
 
 const (
+	// ttlPerCallSDK caps the lifetime of every per-call exchange. The gateway
+	// re-exchanges on each request, so streams longer than this lifetime
+	// (LLM completions, SSE, websockets) cannot rotate mid-stream. Callers
+	// initiating long streams must treat ttlPerCallSDK as the contract upper
+	// bound: streams running past it should expect upstream-side disconnect
+	// or a fresh exchange + reconnect orchestrated by the SDK (Issue J).
 	ttlPerCallSDK = 15 * time.Minute
 	ttlAmbient    = 60 * time.Minute
 )
@@ -28,6 +34,7 @@ const (
 type delegationProof struct {
 	edge       *DelegationEdge
 	path       []string
+	chain      []ChainHop
 	graphEpoch int64
 }
 
@@ -61,7 +68,8 @@ func (s *Server) handleTokenExchange(w http.ResponseWriter, r *http.Request) {
 		ActorToken:          r.FormValue("actor_token"),
 		Resources:           r.Form["resource"],
 		Scope:               r.FormValue("scope"),
-		ClientID:            r.FormValue("client_id"),
+		ZoneID:              r.FormValue("zone_id"),
+		ApplicationID:       r.FormValue("application_id"),
 		ClientSecret:        r.FormValue("client_secret"),
 		ClientAssertion:     r.FormValue("client_assertion"),
 		ClientAssertionType: r.FormValue("client_assertion_type"),
@@ -105,7 +113,7 @@ func (s *Server) exchange(ctx context.Context, req TokenExchangeRequest, request
 		return nil, nil, http.StatusBadRequest, sharederr.New(sharederr.InvalidToken, "at least one resource is required")
 	}
 
-	var subjectClaims map[string]interface{}
+	var subjectClaims map[string]any
 	if req.SubjectToken != "" {
 		subjectClaims, err = s.validateSubjectToken(ctx, req.SubjectToken, zoneID)
 		if err != nil {
@@ -120,7 +128,7 @@ func (s *Server) exchange(ctx context.Context, req TokenExchangeRequest, request
 		}
 	}
 
-	actorClaims := map[string]interface{}{}
+	actorClaims := map[string]any{}
 	if req.ActorToken != "" {
 		actorClaims, err = s.validateSubjectToken(ctx, req.ActorToken, zoneID)
 		if err != nil {
@@ -147,19 +155,17 @@ func (s *Server) exchange(ctx context.Context, req TokenExchangeRequest, request
 		}
 		challengeResolved = true
 	}
-	if req.AgentSessionID != "" && req.DelegationEdgeID == "" {
-		if aerr := s.validateAgentSessionOwnership(ctx, zoneID, app.ID, req.AgentSessionID); aerr != nil {
-			return nil, nil, http.StatusForbidden, aerr
-		}
-	}
-	delegation, refErr := s.validateSessionReferences(ctx, zoneID, app.ID, req)
+	delegation, refErr := s.validateSessionReferences(ctx, zoneID, app.ID, req, subjectClaims != nil)
 	if refErr != nil {
 		return nil, nil, http.StatusForbidden, refErr
 	}
 
+	delegationMeta := delegationAuditMeta(delegation)
+
 	scopes := strings.Fields(req.Scope)
 	var grantedResources []string
-	grantedUpstreams := map[string]string{}
+	grantedDirectives := map[string]UpstreamDirective{}
+	grantedResourceRows := map[string]*Resource{}
 	var pendingChallenge *challengeState
 	stepUpType := ""
 
@@ -167,31 +173,49 @@ func (s *Server) exchange(ctx context.Context, req TokenExchangeRequest, request
 		resource, dbErr := s.db.GetResourceByIdentifier(ctx, zoneID, identifier)
 		if dbErr != nil {
 			s.auditBuffer.Emit(buildAuditEvent(requestID, zoneID, "deny", "resource_not_found", &OPAResult{},
-				map[string]interface{}{"resource": identifier}))
+				map[string]any{"resource": identifier}))
 			continue
 		}
 		if !scopesAllowed(scopes, resource.Scopes) {
 			s.auditBuffer.Emit(buildAuditEvent(requestID, zoneID, "deny", "scope_mismatch", &OPAResult{},
-				map[string]interface{}{"resource": resource.Identifier}))
+				map[string]any{"resource": resource.Identifier}))
 			continue
 		}
 		if delegation != nil && delegation.edge.ResourceID != nil && *delegation.edge.ResourceID != resource.ID {
 			s.auditBuffer.Emit(buildAuditEvent(requestID, zoneID, "deny", "resource_outside_delegation", &OPAResult{},
-				map[string]interface{}{"resource": resource.Identifier}))
+				map[string]any{"resource": resource.Identifier}))
 			continue
 		}
 
 		if rateErr := s.checkRateLimit(ctx, zoneID, resource.ID, app.ID); rateErr != nil {
 			s.auditBuffer.Emit(buildAuditEvent(requestID, zoneID, "deny", "rate_limited", &OPAResult{},
-				map[string]interface{}{"resource": resource.Identifier}))
+				map[string]any{"resource": resource.Identifier}))
 			continue
 		}
 
 		if resource.CredentialProviderID != nil {
 			userID, _ := subjectClaims["sub"].(string)
+			if userID == "" {
+				// Provider-credentialed resources require a user-bound grant;
+				// application-principal exchanges (no subject_token) cannot
+				// produce a usable upstream credential.
+				s.auditBuffer.Emit(buildAuditEvent(requestID, zoneID, "deny", "credential_not_provisioned", &OPAResult{},
+					map[string]any{"resource": resource.Identifier, "reason": "no_user_principal"}))
+				continue
+			}
 			if rerr := s.tryRefreshBrokeredGrant(ctx, zoneID, userID, resource.ID); rerr != nil {
 				s.auditBuffer.Emit(buildAuditEvent(requestID, zoneID, "deny", "credential_refresh_failed", &OPAResult{},
-					map[string]interface{}{"resource": resource.Identifier, "reason": string(rerr.Code)}))
+					map[string]any{"resource": resource.Identifier, "reason": string(rerr.Code)}))
+				continue
+			}
+			// Confirm we actually have a usable provider AT before letting
+			// OPA approve. Without this, the directive build downstream
+			// would silently fall back to caracal_jwt mode and the provider
+			// would reject the request with no clear deny signal.
+			grant, gerr := s.db.GetDelegatedGrant(ctx, zoneID, userID, resource.ID)
+			if gerr != nil || grant == nil || len(grant.AccessTokenCt) == 0 {
+				s.auditBuffer.Emit(buildAuditEvent(requestID, zoneID, "deny", "credential_not_provisioned", &OPAResult{},
+					map[string]any{"resource": resource.Identifier, "reason": "no_grant"}))
 				continue
 			}
 		}
@@ -229,12 +253,12 @@ func (s *Server) exchange(ctx context.Context, req TokenExchangeRequest, request
 		bundle := s.opa.BundleInfo(zoneID)
 		if evalErr != nil {
 			s.auditBuffer.Emit(buildAuditEventWithBundle(requestID, zoneID, "deny", "policy_eval_failed", &OPAResult{},
-				map[string]interface{}{"resource": resource.Identifier}, bundle))
+				map[string]any{"resource": resource.Identifier}, bundle))
 			return nil, nil, http.StatusServiceUnavailable, sharederr.New(sharederr.PolicyEvalFailed, "policy evaluation unavailable")
 		}
 
 		s.auditBuffer.Emit(buildAuditEventWithBundle(requestID, zoneID, result.Decision, result.EvaluationStatus, result,
-			map[string]interface{}{"resource": resource.Identifier}, bundle))
+			mergeAuditMeta(map[string]any{"resource": resource.Identifier}, delegationMeta), bundle))
 
 		// Only an explicit "complete" status is treated as a usable decision; any
 		// other value (partial, error, future enum) is a hard deny so an unknown
@@ -251,9 +275,7 @@ func (s *Server) exchange(ctx context.Context, req TokenExchangeRequest, request
 
 		if result.Decision == "allow" {
 			grantedResources = append(grantedResources, resource.Identifier)
-			if resource.UpstreamURL != nil && *resource.UpstreamURL != "" {
-				grantedUpstreams[resource.Identifier] = *resource.UpstreamURL
-			}
+			grantedResourceRows[resource.Identifier] = resource
 		}
 	}
 
@@ -271,7 +293,7 @@ func (s *Server) exchange(ctx context.Context, req TokenExchangeRequest, request
 
 	if len(grantedResources) == 0 {
 		s.auditBuffer.Emit(buildAuditEvent(requestID, zoneID, "deny", "exchange_denied", &OPAResult{},
-			map[string]interface{}{"requested": req.Resources}))
+			map[string]any{"requested": req.Resources}))
 		return nil, nil, http.StatusForbidden, sharederr.New(sharederr.AccessDenied, "policy denied")
 	}
 
@@ -287,6 +309,18 @@ func (s *Server) exchange(ctx context.Context, req TokenExchangeRequest, request
 	if sub := claimString(subjectClaims, "sub"); sub != "" {
 		subjectID = sub
 		sessionType = "user"
+	}
+
+	subType := SubTypeApplication
+	if sessionType == "user" {
+		subType = SubTypeUser
+	}
+	// Per-call by default. Tokens minted without a subject_token (first-mile
+	// bootstrap of an application principal) are ambient session tokens so they
+	// can be re-presented to STS for narrowing.
+	use := UsePerCall
+	if req.SubjectToken == "" {
+		use = UseAmbient
 	}
 
 	sess := &Session{
@@ -306,6 +340,8 @@ func (s *Server) exchange(ctx context.Context, req TokenExchangeRequest, request
 		ZoneID:         zoneID,
 		AppID:          app.ID,
 		SubjectID:      subjectID,
+		SubType:        subType,
+		Use:            use,
 		SID:            sessID,
 		Scopes:         req.Scope,
 		Resources:      grantedResources,
@@ -317,10 +353,8 @@ func (s *Server) exchange(ctx context.Context, req TokenExchangeRequest, request
 		issueParams.SourceSessionID = delegation.edge.SourceSessionID
 		issueParams.TargetSessionID = delegation.edge.TargetSessionID
 		issueParams.DelegationPath = delegation.path
+		issueParams.DelegationChain = delegation.chain
 		issueParams.GraphEpoch = delegation.graphEpoch
-		// On-behalf is the immediate issuer in the delegation chain; surface it in the
-		// JWT so downstream resources can render audit subjects without re-walking the graph.
-		issueParams.OnBehalfOf = delegation.edge.IssuerAppID
 	}
 	token, jti, err := issueToken(ctx, issueParams, s.keys, s.cfg.IssuerURL)
 	if err != nil {
@@ -329,6 +363,35 @@ func (s *Server) exchange(ctx context.Context, req TokenExchangeRequest, request
 	}
 	s.recordIssuedJTI(ctx, jti, app.ID, zoneID, requestID, ttl)
 
+	// Build per-resource upstream directives so the gateway can substitute the
+	// provider-native credential where the resource expects one.
+	for _, identifier := range grantedResources {
+		resource := grantedResourceRows[identifier]
+		directive := UpstreamDirective{
+			AuthMode:   UpstreamAuthCaracalJWT,
+			AuthHeader: "Authorization",
+			AuthScheme: "Bearer",
+		}
+		if resource.UpstreamURL != nil {
+			directive.URL = *resource.UpstreamURL
+		}
+		if resource.CredentialProviderID != nil {
+			userID, _ := subjectClaims["sub"].(string)
+			if userID != "" {
+				if grant, gerr := s.db.GetDelegatedGrant(ctx, zoneID, userID, resource.ID); gerr == nil && len(grant.AccessTokenCt) > 0 {
+					if at, openErr := openZEK(s.keys.zek, grant.AccessTokenCt); openErr == nil {
+						directive.AuthMode = UpstreamAuthProviderOAuth
+						directive.ProviderToken = string(at)
+						if grant.ExpiresAt != nil {
+							directive.ExpiresAt = grant.ExpiresAt.Unix()
+						}
+					}
+				}
+			}
+		}
+		grantedDirectives[identifier] = directive
+	}
+
 	return &TokenResponse{
 		AccessToken:     token,
 		TokenType:       "Bearer",
@@ -336,16 +399,16 @@ func (s *Server) exchange(ctx context.Context, req TokenExchangeRequest, request
 		Scope:           req.Scope,
 		IssuedTokenType: "urn:ietf:params:oauth:token-type:access_token",
 		TargetResources: grantedResources,
-		TargetUpstreams: grantedUpstreams,
+		Upstreams:       grantedDirectives,
 	}, nil, http.StatusOK, nil
 }
 
 func (s *Server) authenticateApp(ctx context.Context, req TokenExchangeRequest) (*Application, string, error) {
-	parts := strings.SplitN(req.ClientID, ":", 2)
-	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
-		return nil, "", fmt.Errorf("invalid client_id format")
+	zoneID := strings.TrimSpace(req.ZoneID)
+	appID := strings.TrimSpace(req.ApplicationID)
+	if zoneID == "" || appID == "" {
+		return nil, "", fmt.Errorf("missing zone_id or application_id")
 	}
-	zoneID, appID := parts[0], parts[1]
 	app, err := s.db.GetApplicationByID(ctx, appID, zoneID)
 	if err != nil {
 		return nil, "", err
@@ -364,15 +427,25 @@ func (s *Server) authenticateApp(ctx context.Context, req TokenExchangeRequest) 
 				_ = s.db.UpdateApplicationSecretHash(ctx, app.ID, app.ZoneID, newHash)
 			}
 		}
-	} else if derefStr(app.CredentialType) != "public" {
+	} else if derefStr(app.CredentialType) == "public" {
+		if strings.TrimSpace(req.ClientAssertion) == "" {
+			return nil, "", fmt.Errorf("public client requires client_assertion (DPoP/private_key_jwt) — secretless flows are not yet supported")
+		}
+		// TODO(security/H): verify DPoP proof (RFC 9449) or private_key_jwt assertion against
+		// a registered JWK for this application, and bind the issued token via cnf.jkt.
+		// Until then, public clients still require a verifiable client_assertion to
+		// prevent unauthenticated token minting (Issue H).
+	} else {
 		return nil, "", fmt.Errorf("client secret not configured")
 	}
 	return app, zoneID, nil
 }
 
 // validateSubjectToken verifies an inbound STS-issued token: ES256 signature, this STS
-// as issuer, the token-exchange audience, and a matching zone_id claim.
-func (s *Server) validateSubjectToken(ctx context.Context, tokenStr, zoneID string) (map[string]interface{}, error) {
+// as issuer, the issuer audience, a matching zone_id, and use=ambient. Per-call tokens
+// are deliberately rejected here (RFC 8693 §2.1 subject-confusion mitigation): a token
+// already narrowed to resources A,B must not bootstrap the minting of one for resource C.
+func (s *Server) validateSubjectToken(ctx context.Context, tokenStr, zoneID string) (map[string]any, error) {
 	pub, _, err := s.keys.getPublicKeyAndKid(ctx, zoneID)
 	if err != nil {
 		return nil, fmt.Errorf("get zone key: %w", err)
@@ -384,7 +457,7 @@ func (s *Server) validateSubjectToken(ctx context.Context, tokenStr, zoneID stri
 		jwt.WithAudience(s.cfg.IssuerURL),
 		jwt.WithExpirationRequired(),
 		jwt.WithIssuedAt(),
-	).ParseWithClaims(tokenStr, mc, func(*jwt.Token) (interface{}, error) {
+	).ParseWithClaims(tokenStr, mc, func(*jwt.Token) (any, error) {
 		return pub, nil
 	})
 	if err != nil {
@@ -393,10 +466,13 @@ func (s *Server) validateSubjectToken(ctx context.Context, tokenStr, zoneID stri
 	if claimString(mc, "zone_id") != zoneID {
 		return nil, errors.New("token zone mismatch")
 	}
+	if claimString(mc, "use") != UseAmbient {
+		return nil, errors.New("subject_token must be an ambient session token")
+	}
 	return mc, nil
 }
 
-func (s *Server) validateTokenSession(ctx context.Context, zoneID, sessionID string, claims map[string]interface{}) (string, *sharederr.CaracalError) {
+func (s *Server) validateTokenSession(ctx context.Context, zoneID, sessionID string, claims map[string]any) (string, *sharederr.CaracalError) {
 	sid := claimString(claims, "sid")
 	if sid == "" {
 		return "", sharederr.New(sharederr.InvalidToken, "missing token session")
@@ -408,14 +484,22 @@ func (s *Server) validateTokenSession(ctx context.Context, zoneID, sessionID str
 	if err != nil || session.ZoneID != zoneID || session.Status != "active" || !session.ExpiresAt.After(time.Now()) {
 		return "", sharederr.New(sharederr.AccessDenied, "session inactive or expired")
 	}
+	// Defense in depth: even with a valid signature, the session row's
+	// subject must match the JWT sub claim. A leaked signing key or any
+	// other path that could mint a structurally-valid token still fails
+	// this bind unless the session row was also tampered with.
+	sub := claimString(claims, "sub")
+	if sub == "" || session.SubjectID == nil || *session.SubjectID != sub {
+		return "", sharederr.New(sharederr.AccessDenied, "session subject mismatch")
+	}
 	return sid, nil
 }
 
-func buildAuditEvent(requestID, zoneID, decision, status string, result *OPAResult, meta map[string]interface{}) AuditEvent {
+func buildAuditEvent(requestID, zoneID, decision, status string, result *OPAResult, meta map[string]any) AuditEvent {
 	return buildAuditEventWithBundle(requestID, zoneID, decision, status, result, meta, ZoneBundleInfo{})
 }
 
-func buildAuditEventWithBundle(requestID, zoneID, decision, status string, result *OPAResult, meta map[string]interface{}, bundle ZoneBundleInfo) AuditEvent {
+func buildAuditEventWithBundle(requestID, zoneID, decision, status string, result *OPAResult, meta map[string]any, bundle ZoneBundleInfo) AuditEvent {
 	id, _ := uuid.NewV7()
 	dpJSON, _ := json.Marshal(result.DeterminingPolicies)
 	diagJSON, _ := json.Marshal(result.Diagnostics)
@@ -439,6 +523,36 @@ func buildAuditEventWithBundle(requestID, zoneID, decision, status string, resul
 		MetadataJSON:            metaJSON,
 		OccurredAt:              time.Now(),
 	}
+}
+
+// delegationAuditMeta returns audit metadata extracted from a delegation proof.
+// When delegation is nil, returns nil (no delegation active).
+func delegationAuditMeta(d *delegationProof) map[string]any {
+	if d == nil {
+		return nil
+	}
+	hops := make([]map[string]any, len(d.chain))
+	for i, h := range d.chain {
+		hops[i] = map[string]any{
+			"app":     h.AppID,
+			"session": h.AgentSessionID,
+			"edge":    h.DelegationEdgeID,
+		}
+	}
+	return map[string]any{
+		"delegation_edge_id":     d.edge.ID,
+		"delegation_chain":       hops,
+		"delegation_hop_count":   len(d.path),
+		"delegation_graph_epoch": d.graphEpoch,
+	}
+}
+
+// mergeAuditMeta merges extra key/value pairs into base, returning base.
+func mergeAuditMeta(base, extra map[string]any) map[string]any {
+	for k, v := range extra {
+		base[k] = v
+	}
+	return base
 }
 
 func stepUpRequired(result *OPAResult) string {
@@ -496,12 +610,32 @@ func (s *Server) validateAgentSessionOwnership(ctx context.Context, zoneID, appI
 	return nil
 }
 
-func (s *Server) validateSessionReferences(ctx context.Context, zoneID, appID string, req TokenExchangeRequest) (*delegationProof, *sharederr.CaracalError) {
+// validateSessionReferences is the single source of truth for binding a token
+// exchange to user/agent sessions and delegation edges. When a delegation_edge_id
+// is present the source agent session's ownership is verified inside the
+// delegation block (source.ApplicationID == appID); otherwise the calling
+// application's ownership of the asserted agent_session_id is verified directly
+// (Issue I — consolidation prevents peer-app forgery via either path).
+func (s *Server) validateSessionReferences(ctx context.Context, zoneID, appID string, req TokenExchangeRequest, hasSubjectToken bool) (*delegationProof, *sharederr.CaracalError) {
 	now := time.Now()
 	if req.SessionID != "" {
 		session, err := s.db.GetSession(ctx, req.SessionID)
 		if err != nil || session.ZoneID != zoneID || session.Status != "active" || !session.ExpiresAt.After(now) {
 			return nil, sharederr.New(sharederr.AccessDenied, "session inactive or expired")
+		}
+		// Application-principal flows (no subject_token) must assert a
+		// session owned by the calling app. Without this, peer apps in a
+		// zone could pass another app's session_id and have OPA evaluate
+		// against a session reputation/state that is not their own.
+		if !hasSubjectToken {
+			if session.SessionType != "application" || session.SubjectID == nil || *session.SubjectID != appID {
+				return nil, sharederr.New(sharederr.AccessDenied, "session not owned by caller")
+			}
+		}
+	}
+	if req.AgentSessionID != "" && req.DelegationEdgeID == "" {
+		if aerr := s.validateAgentSessionOwnership(ctx, zoneID, appID, req.AgentSessionID); aerr != nil {
+			return nil, aerr
 		}
 	}
 	if req.DelegationEdgeID == "" {
@@ -564,7 +698,58 @@ func (s *Server) validateSessionReferences(ctx context.Context, zoneID, appID st
 	if err != nil {
 		return nil, sharederr.New(sharederr.AccessDenied, "delegation graph epoch unavailable")
 	}
-	return &delegationProof{edge: edge, path: path, graphEpoch: graphEpoch}, nil
+	chain, chainErr := s.buildDelegationChain(ctx, path, edge, source, target)
+	if chainErr != nil {
+		return nil, chainErr
+	}
+	return &delegationProof{edge: edge, path: path, chain: chain, graphEpoch: graphEpoch}, nil
+}
+
+// buildDelegationChain resolves each edge id along the path to a chain hop the
+// resource side can audit and authorize against. The chain walks from the
+// originating issuer to the immediate receiver in order.
+func (s *Server) buildDelegationChain(ctx context.Context, path []string, edge *DelegationEdge, source, target *AgentSession) ([]ChainHop, *sharederr.CaracalError) {
+	if len(path) == 0 {
+		return nil, nil
+	}
+	now := time.Now()
+	hops := make([]ChainHop, 0, len(path)+1)
+	var prevReceiverApp string
+	for _, edgeID := range path {
+		var hopEdge *DelegationEdge
+		if edgeID == edge.ID {
+			hopEdge = edge
+		} else {
+			fetched, err := s.db.GetDelegationEdge(ctx, edgeID)
+			if err != nil || fetched == nil {
+				return nil, sharederr.New(sharederr.AccessDenied, "delegation path edge unavailable")
+			}
+			hopEdge = fetched
+		}
+		// Re-validate each path edge against current state. GetDelegationPath
+		// filters in SQL, but a revoke racing the path computation could
+		// otherwise let a stale-but-attested chain hop ship in the JWT.
+		if hopEdge.ZoneID != edge.ZoneID || hopEdge.Status != "active" || hopEdge.RevokedAt != nil || !hopEdge.ExpiresAt.After(now) {
+			return nil, sharederr.New(sharederr.AccessDenied, "delegation path edge inactive or revoked")
+		}
+		if prevReceiverApp != "" && hopEdge.IssuerAppID != prevReceiverApp {
+			return nil, sharederr.New(sharederr.AccessDenied, "delegation chain discontinuous")
+		}
+		hops = append(hops, ChainHop{
+			AppID:            hopEdge.IssuerAppID,
+			AgentSessionID:   hopEdge.SourceSessionID,
+			DelegationEdgeID: hopEdge.ID,
+		})
+		prevReceiverApp = hopEdge.ReceiverAppID
+	}
+	hops = append(hops, ChainHop{
+		AppID:          edge.ReceiverAppID,
+		AgentSessionID: target.ID,
+	})
+	if hops[0].AppID != source.ApplicationID || hops[len(hops)-1].AppID != target.ApplicationID {
+		return nil, sharederr.New(sharederr.AccessDenied, "delegation chain endpoints mismatch")
+	}
+	return hops, nil
 }
 
 func parseDelegationConstraints(raw json.RawMessage) (delegationConstraints, error) {
@@ -612,7 +797,7 @@ func tokenTTL(ttlSeconds int, ambientAllowed bool) (time.Duration, error) {
 	return ttl, nil
 }
 
-func claimString(claims map[string]interface{}, key string) string {
+func claimString(claims map[string]any, key string) string {
 	if claims == nil {
 		return ""
 	}

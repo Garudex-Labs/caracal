@@ -20,7 +20,7 @@ describe('OAuthClient', () => {
       json: async () => ({ access_token: 'tok-1', expires_in: 900 }),
     })
     vi.stubGlobal('fetch', fetchMock)
-    const client = new OAuthClient('http://sts:8080', 'zone1:app1')
+    const client = new OAuthClient('http://sts:8080', 'zone1', 'app1')
     const res = await client.exchange('subject-tok', 'resource://api', { clientSecret: 'secret-1' })
     expect(res.accessToken).toBe('tok-1')
     expect(res.expiresIn).toBe(900)
@@ -35,7 +35,7 @@ describe('OAuthClient', () => {
       json: async () => ({ access_token: 'tok-cached', expires_in: 900 }),
     })
     vi.stubGlobal('fetch', fetchMock)
-    const client = new OAuthClient('http://sts:8080', 'zone1:app1')
+    const client = new OAuthClient('http://sts:8080', 'zone1', 'app1')
     await client.exchange('subject-tok', 'resource://api')
     await client.exchange('subject-tok', 'resource://api')
     expect(fetchMock).toHaveBeenCalledTimes(1)
@@ -50,7 +50,7 @@ describe('OAuthClient', () => {
       }
       return { ok: true, status: 200, json: async () => ({ access_token: 'tok-retry', expires_in: 900 }) }
     }))
-    const client = new OAuthClient('http://sts:8080', 'zone1:app1')
+    const client = new OAuthClient('http://sts:8080', 'zone1', 'app1')
     const res = await client.exchange('subject-tok', 'resource://api')
     expect(res.accessToken).toBe('tok-retry')
     expect(callCount).toBe(2)
@@ -66,7 +66,7 @@ describe('OAuthClient', () => {
         challenge_id: 'chal-1',
       }),
     }))
-    const client = new OAuthClient('http://sts:8080', 'zone1:app1')
+    const client = new OAuthClient('http://sts:8080', 'zone1', 'app1')
     await expect(client.exchange('subject-tok', 'resource://api')).rejects.toThrow(InteractionRequiredError)
   })
 
@@ -77,7 +77,7 @@ describe('OAuthClient', () => {
       json: async () => ({ access_token: 'tok-shared', expires_in: 900 }),
     })
     vi.stubGlobal('fetch', fetchMock)
-    const client = new OAuthClient('http://sts:8080', 'zone1:app1')
+    const client = new OAuthClient('http://sts:8080', 'zone1', 'app1')
     await client.exchange('subject-a', 'resource://api')
     await client.exchange('subject-b', 'resource://api')
     expect(fetchMock).toHaveBeenCalledTimes(2)
@@ -90,7 +90,7 @@ describe('OAuthClient', () => {
       json: async () => ({ access_token: 'tok-scoped', expires_in: 900 }),
     })
     vi.stubGlobal('fetch', fetchMock)
-    const client = new OAuthClient('http://sts:8080', 'zone1:app1')
+    const client = new OAuthClient('http://sts:8080', 'zone1', 'app1')
     await client.exchange('subject-a', 'resource://api', { scopes: ['read'] })
     await client.exchange('subject-a', 'resource://api', { scopes: ['write'] })
     expect(fetchMock).toHaveBeenCalledTimes(2)
@@ -103,7 +103,7 @@ describe('OAuthClient', () => {
       json: async () => ({ access_token: 'tok-delegated', expires_in: 900 }),
     })
     vi.stubGlobal('fetch', fetchMock)
-    const client = new OAuthClient('http://sts:8080', 'zone1:app1')
+    const client = new OAuthClient('http://sts:8080', 'zone1', 'app1')
     await client.exchange('subject-a', 'resource://api', {
       clientAssertion: 'assertion-1',
       clientAssertionType: 'urn:ietf:params:oauth:client-assertion-type:jwt-bearer',
@@ -128,7 +128,7 @@ describe('OAuthClient', () => {
       json: async () => ({ access_token: 'tok-edge', expires_in: 900 }),
     })
     vi.stubGlobal('fetch', fetchMock)
-    const client = new OAuthClient('http://sts:8080', 'zone1:app1')
+    const client = new OAuthClient('http://sts:8080', 'zone1', 'app1')
     await client.exchange('subject-a', 'resource://api', { delegationEdgeId: 'edge-a' })
     await client.exchange('subject-a', 'resource://api', { delegationEdgeId: 'edge-b' })
     expect(fetchMock).toHaveBeenCalledTimes(2)
@@ -141,7 +141,7 @@ describe('OAuthClient', () => {
       json: async () => ({ access_token: 'tok-agent-session', expires_in: 900 }),
     })
     vi.stubGlobal('fetch', fetchMock)
-    const client = new OAuthClient('http://sts:8080', 'zone1:app1')
+    const client = new OAuthClient('http://sts:8080', 'zone1', 'app1')
     await client.exchange('subject-a', 'resource://api', { agentSessionId: 'agent-a' })
     await client.exchange('subject-a', 'resource://api', { agentSessionId: 'agent-b' })
     expect(fetchMock).toHaveBeenCalledTimes(2)
@@ -154,7 +154,7 @@ describe('OAuthClient', () => {
       json: async () => ({ access_token: 'tok-normalized', expires_in: 900 }),
     })
     vi.stubGlobal('fetch', fetchMock)
-    const client = new OAuthClient('http://sts:8080', 'zone1:app1')
+    const client = new OAuthClient('http://sts:8080', 'zone1', 'app1')
 
     await client.exchange('subject-a', 'resource://api', { scopes: ['write', 'read', 'write'] })
     await client.exchange('subject-a', 'resource://api', { scopes: ['read', 'write'] })
@@ -171,7 +171,7 @@ describe('OAuthClient', () => {
       json: async () => ({ access_token: 'tok-fresh', expires_in: 20 }),
     })
     vi.stubGlobal('fetch', fetchMock)
-    const client = new OAuthClient('http://sts:8080', 'zone1:app1')
+    const client = new OAuthClient('http://sts:8080', 'zone1', 'app1')
 
     await client.exchange('subject-a', 'resource://api', { timeoutMs: 5_000 })
     const res = await client.exchange('subject-a', 'resource://api', { timeoutMs: 5_000 })
@@ -186,7 +186,7 @@ describe('OAuthClient', () => {
       status: 503,
       text: async () => 'not-json',
     }))
-    const client = new OAuthClient('http://sts:8080', 'zone1:app1')
+    const client = new OAuthClient('http://sts:8080', 'zone1', 'app1')
 
     await expect(client.exchange('subject-tok', 'resource://api')).rejects.toThrow('invalid error response')
   })

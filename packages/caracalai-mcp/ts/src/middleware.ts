@@ -49,7 +49,7 @@ export function caracalAuth(opts: MiddlewareOptions): RequestHandler {
       })
     } catch (err) {
       if (err instanceof ScopeInsufficientError) {
-        res.status(403).json({ error: 'insufficient_scope', error_description: err.message })
+        res.status(403).json({ error: 'insufficient_scope', error_description: (err as Error).message })
         return
       }
       if (err instanceof ZoneInvalidError) {

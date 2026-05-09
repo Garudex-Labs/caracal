@@ -1,38 +1,20 @@
 // Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 // Caracal, a product of Garudex Labs
 //
-// Audit event types and OCSF v1.7.0 Authorization Activity mapping.
+// OCSF v1.7.0 Authorization Activity mapping for Caracal audit events.
 
 package internal
 
 import (
 	"encoding/json"
-	"strings"
-	"time"
+
+	"github.com/garudex-labs/caracal/core/audit"
 )
 
-// AuditEvent matches the payload emitted by STS to caracal.audit.events.
-// JSON tags align with services/sts/internal/types.go AuditEvent.
-type AuditEvent struct {
-	ID                      string          `json:"id"`
-	ZoneID                  string          `json:"zone_id"`
-	EventType               string          `json:"event_type"`
-	RequestID               string          `json:"request_id"`
-	Decision                string          `json:"decision"`
-	PolicySetID             string          `json:"policy_set_id,omitempty"`
-	PolicySetVersionID      string          `json:"policy_set_version_id,omitempty"`
-	ManifestSHA             string          `json:"manifest_sha,omitempty"`
-	EvaluationStatus        string          `json:"evaluation_status"`
-	DeterminingPoliciesJSON json.RawMessage `json:"determining_policies_json"`
-	DiagnosticsJSON         json.RawMessage `json:"diagnostics_json"`
-	MetadataJSON            json.RawMessage `json:"metadata_json,omitempty"`
-	OccurredAt              time.Time       `json:"occurred_at"`
-}
-
-// IsDeny returns true for any case-insensitive variant of "deny".
-func (e AuditEvent) IsDeny() bool {
-	return strings.EqualFold(e.Decision, "deny")
-}
+// AuditEvent is the wire payload emitted by STS to caracal.audit.events.
+// Aliased from the canonical definition in core/audit so STS and the audit
+// service share a single source of truth.
+type AuditEvent = audit.Event
 
 // OCSFEvent is the OCSF v1.7.0 Authorization Activity (class_uid 6003) shape for Parquet.
 // Forensic fields beyond the OCSF base set ride alongside to preserve archive fidelity.
@@ -62,7 +44,7 @@ type OCSFEvent struct {
 	ChainSeq            int64  `parquet:"chain_seq"`
 }
 
-func (e AuditEvent) toOCSF(contentSHA, chainHMAC string, chainSeq int64) OCSFEvent {
+func toOCSF(e AuditEvent, contentSHA, chainHMAC string, chainSeq int64) OCSFEvent {
 	severityID := int32(1)
 	activityID := int32(1)
 	if e.IsDeny() {

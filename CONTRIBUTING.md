@@ -35,9 +35,9 @@ packages/
   oauth/               RFC 8693 token exchange client (TypeScript)
   transport-mcp/       MCP authentication core (TypeScript, Go, Python)
   transport-a2a/       Agent-to-agent transport primitives (TypeScript)
-  agent-core/          Provider-neutral agent runtime (TypeScript)
+  sdk/                 Caracal identity/delegation SDK (TypeScript, Python, Go)
   admin/               Typed admin API client (TypeScript)
-  framework-adaptor/   Per-framework adaptors over transport-mcp / agent-core
+  framework-adaptor/   Per-framework adaptors over transport-mcp / sdk
   runtime-adaptor/     Per-runtime adaptors (e.g. Cloudflare)
   state-backend/       Storage backends (token state, token cache)
 infra/

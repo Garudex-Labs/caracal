@@ -11,6 +11,7 @@ interface STSErrorResponse {
   error?: string
   error_description?: string
   challenge_id?: string
+  acr_values?: string
 }
 
 function parseSTSErrorResponse(body: string): STSErrorResponse {
@@ -31,13 +32,16 @@ async function readSTSErrorResponse(res: Response): Promise<STSErrorResponse> {
 export class OAuthClient {
   private readonly cache: TokenCache
   private readonly inflight = new Map<string, Promise<TokenExchangeResponse>>()
+  private readonly identityKey: string
 
   constructor(
     private readonly stsUrl: string,
-    private readonly clientId: string,
+    private readonly zoneId: string,
+    private readonly applicationId: string,
     cache?: TokenCache,
   ) {
     this.cache = cache ?? new InMemoryTokenCache()
+    this.identityKey = `${zoneId}::${applicationId}`
   }
 
   async exchange(
@@ -75,7 +79,7 @@ export class OAuthClient {
 
   private cacheSubject(subjectToken: string, opts: ExchangeOptions): string {
     return [
-      this.clientId,
+      this.identityKey,
       subjectToken,
       opts.actorToken ?? '',
       opts.sessionId ?? '',
@@ -104,7 +108,8 @@ export class OAuthClient {
       subject_token: subjectToken,
       subject_token_type: 'urn:ietf:params:oauth:token-type:access_token',
       resource,
-      client_id: this.clientId,
+      zone_id: this.zoneId,
+      application_id: this.applicationId,
     })
     if (opts.clientSecret) body.set('client_secret', opts.clientSecret)
     if (opts.clientAssertion) body.set('client_assertion', opts.clientAssertion)
@@ -142,6 +147,8 @@ export class OAuthClient {
         throw new InteractionRequiredError(
           err['error_description'] ?? 'Step-up required',
           err['challenge_id'] ?? '',
+          resource,
+          err['acr_values'],
         )
       }
       if (res.status === 401 && !isRetry) {

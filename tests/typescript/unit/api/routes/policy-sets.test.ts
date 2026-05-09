@@ -62,6 +62,7 @@ describe('POST /v1/zones/:zoneId/policy-sets/:id/activate', () => {
     db.query
       .mockResolvedValueOnce({ rows: [{ id: 'psv-1', manifest_json: manifest }] })
       .mockResolvedValueOnce({ rows: [{ id: 'pv-1', content, zone_id: 'z1' }] })
+      .mockResolvedValueOnce({ rows: [] })
 
     const client = { query: vi.fn(), release: vi.fn() }
     client.query

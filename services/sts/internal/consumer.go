@@ -138,7 +138,7 @@ func (s *Server) handleKeyInvalidation(_ context.Context, msg streamMessage) err
 
 type streamMessage struct {
 	ID     string
-	Values map[string]interface{}
+	Values map[string]any
 }
 
 func (s *Server) replayPending(ctx context.Context, stream, group, consumer string, handle func(context.Context, streamMessage) error) {
@@ -188,7 +188,7 @@ func (s *Server) trackFailure(ctx context.Context, stream, group string, msg str
 		return
 	}
 	values, _ := json.Marshal(msg.Values)
-	if err := s.redis.SignedXAdd(ctx, stream+".dead", map[string]interface{}{
+	if err := s.redis.SignedXAdd(ctx, stream+".dead", map[string]any{
 		"original_id": msg.ID,
 		"error":       cause.Error(),
 		"values":      string(values),

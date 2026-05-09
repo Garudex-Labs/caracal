@@ -5,7 +5,7 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import type { Request, Response, NextFunction } from 'express'
-import { InMemoryRevocationStore } from '@caracalai/revocation'
+import { InMemoryRevocationStore } from '../../../../../packages/revocation/ts/src/inmem.js'
 import { caracalAuth } from '../../../../../packages/framework-adaptor/mcp-express/ts/src/middleware.js'
 
 function makeMockRes(): Partial<Response> & { statusCode?: number; body?: unknown } {

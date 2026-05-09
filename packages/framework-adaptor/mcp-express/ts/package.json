@@ -20,7 +20,8 @@
   "dependencies": {
     "@caracalai/transport-mcp": "workspace:*",
     "@caracalai/identity": "workspace:*",
-    "@caracalai/revocation": "workspace:*"
+    "@caracalai/revocation": "workspace:*",
+    "@caracalai/sdk": "workspace:*"
   },
   "devDependencies": {
     "@types/express": "^5.0.0",

@@ -12,7 +12,7 @@ export async function credentialReadCommand(resource: string, cfg: CliConfig): P
     process.exit(1)
   }
 
-  const client = new OAuthClient(cfg.zone_url, cfg.app_client_id)
+  const client = new OAuthClient(cfg.zone_url, cfg.zone_id, cfg.application_id)
   try {
     const token = await client.exchange('', resource, { clientSecret: cfg.app_client_secret, ttlSeconds: 900 })
     process.stdout.write(token.accessToken + '\n')

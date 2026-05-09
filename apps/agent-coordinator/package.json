@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@caracalai/core": "workspace:*",
+    "@caracalai/identity": "workspace:*",
     "fastify": "^5.2.1",
     "jose": "^5.0.0",
     "pg": "^8.14.1",

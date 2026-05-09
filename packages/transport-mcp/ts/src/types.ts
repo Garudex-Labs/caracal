@@ -13,6 +13,8 @@ export type AuthErrorCode =
   | 'invalid_zone'
   | 'insufficient_scope'
   | 'session_revoked'
+  | 'agent_required'
+  | 'delegation_required'
 
 export interface AuthError {
   code: AuthErrorCode

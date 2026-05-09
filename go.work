@@ -11,4 +11,5 @@ use (
 	./packages/transport-mcp/go
 	./packages/caracalai-mcp/go
 	./packages/framework-adaptor/mcp-nethttp/go
+	./packages/sdk/go
 )

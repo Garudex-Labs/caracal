@@ -6,11 +6,12 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
+import { discoverAdminToken } from '@caracalai/core'
 
 interface BootstrapResponse {
   zone_id: string
   app_id: string
-  app_client_id: string
+  application_id: string
   app_client_secret: string | null
   resource: string
   scope: string
@@ -39,21 +40,6 @@ function defaultConfigPath(): string {
   return join(base, 'caracal', 'caracal.toml')
 }
 
-function readEnvFile(path: string): Record<string, string> {
-  if (!existsSync(path)) return {}
-  const out: Record<string, string> = {}
-  for (const line of readFileSync(path, 'utf8').split(/\r?\n/)) {
-    const m = line.match(/^\s*([A-Z_][A-Z0-9_]*)\s*=\s*(.*)\s*$/)
-    if (!m) continue
-    let value = m[2]!
-    if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
-      value = value.slice(1, -1)
-    }
-    out[m[1]!] = value
-  }
-  return out
-}
-
 function envFilePath(): string | undefined {
   const candidates = [
     process.env.CARACAL_ENV_FILE,
@@ -76,21 +62,6 @@ function upsertEnvVar(path: string, key: string, value: string): boolean {
   const sep = text.length === 0 || text.endsWith('\n') ? '' : '\n'
   writeFileSync(path, `${text}${sep}${line}\n`, { mode: 0o600 })
   return true
-}
-
-function discoverAdminToken(explicit?: string): string | undefined {
-  if (explicit) return explicit
-  if (process.env.CARACAL_ADMIN_TOKEN) return process.env.CARACAL_ADMIN_TOKEN
-  const candidates = [
-    process.env.CARACAL_ENV_FILE,
-    join(process.cwd(), 'infra', 'docker', '.env'),
-    join(process.cwd(), '.env'),
-  ].filter((p): p is string => Boolean(p))
-  for (const path of candidates) {
-    const env = readEnvFile(path)
-    if (env.CARACAL_ADMIN_TOKEN) return env.CARACAL_ADMIN_TOKEN
-  }
-  return undefined
 }
 
 function parseFlags(argv: string[]): InitOptions {
@@ -134,11 +105,11 @@ function parseFlags(argv: string[]): InitOptions {
   return { apiUrl, zoneUrl, configPath, adminToken: token, force }
 }
 
-function renderToml(opts: { zoneUrl: string; zoneId: string; clientId: string; clientSecret: string; resource: string }): string {
+function renderToml(opts: { zoneUrl: string; zoneId: string; applicationId: string; clientSecret: string; resource: string }): string {
   return [
     `zone_url = "${opts.zoneUrl}"`,
     `zone_id = "${opts.zoneId}"`,
-    `app_client_id = "${opts.clientId}"`,
+    `application_id = "${opts.applicationId}"`,
     `app_client_secret = "${opts.clientSecret}"`,
     '',
     '[[credentials]]',
@@ -181,10 +152,10 @@ export async function initCommand(argv: string[]): Promise<void> {
 
   const envPath = envFilePath()
   if (envPath) {
-    const binding = `${data.resource}=${data.app_client_id}`
-    if (upsertEnvVar(envPath, 'RESOURCE_CLIENT_BINDINGS', binding)) {
+    const binding = `${data.resource}=${data.application_id}`
+    if (upsertEnvVar(envPath, 'RESOURCE_APPLICATION_BINDINGS', binding)) {
       process.stdout.write(
-        `Updated RESOURCE_CLIENT_BINDINGS in ${envPath}; restart the gateway with \`caracal up\` to apply.\n`,
+        `Updated RESOURCE_APPLICATION_BINDINGS in ${envPath}; restart the gateway with \`caracal up\` to apply.\n`,
       )
     }
   }
@@ -205,7 +176,7 @@ export async function initCommand(argv: string[]): Promise<void> {
   const toml = renderToml({
     zoneUrl: opts.zoneUrl,
     zoneId: data.zone_id,
-    clientId: data.app_client_id,
+    applicationId: data.application_id,
     clientSecret: data.app_client_secret,
     resource: data.resource,
   })

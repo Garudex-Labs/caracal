@@ -18,7 +18,6 @@ export interface A2ARequest {
 
 export interface A2AOptions {
   stsUrl: string
-  zoneId?: string
   clientSecret?: string
   clientAssertion?: string
   clientAssertionType?: string

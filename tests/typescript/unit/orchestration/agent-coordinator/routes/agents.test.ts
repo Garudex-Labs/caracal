@@ -12,6 +12,19 @@ function buildApp() {
   const db = { query: vi.fn(), connect: vi.fn() }
   app.decorate('db', db as never)
   app.decorate('redis', {} as never)
+  app.addHook('preHandler', async (req) => {
+    const body = (req.body ?? {}) as Record<string, unknown>
+    const clientId = (body.application_id as string)
+      ?? (req.params as Record<string, string>)?.id
+      ?? 'test-client'
+    ;(req as unknown as { caracalAuth: unknown }).caracalAuth = {
+      zoneId: (req.params as Record<string, string>)?.zoneId ?? 'z1',
+      scopes: ['coordinator.admin'],
+      subject: 'test',
+      clientId,
+      sessionId: 'sid-test',
+    }
+  })
   app.register(agentsRoutes, { prefix: '/v1' })
   return { app, db }
 }
@@ -66,11 +79,11 @@ describe('POST /v1/zones/:zoneId/agents — spawn', () => {
     expect(JSON.parse(res.body)).toMatchObject({ error: 'session_not_found' })
   })
 
-  it('returns 429 when total agent cap is reached', async () => {
+  it('returns 429 when per-app agent cap is reached', async () => {
     const { app, db } = buildApp()
     db.connect.mockResolvedValueOnce(spawnClient({
       refs: { application_exists: true, session_exists: true },
-      count: { n: '50' },
+      count: { n: '200' },
     }))
     await app.ready()
     const res = await app.inject({
@@ -104,7 +117,7 @@ describe('POST /v1/zones/:zoneId/agents — spawn', () => {
     db.connect.mockResolvedValueOnce(spawnClient({
       refs: { application_exists: true, session_exists: true },
       count: { n: '1' },
-      parent: { depth: 1, child_count: 10, max_children: 10 },
+      parent: { depth: 1, child_count: 10, max_children: 10, application_id: 'app-1' },
     }))
     await app.ready()
     const res = await app.inject({
@@ -121,7 +134,7 @@ describe('POST /v1/zones/:zoneId/agents — spawn', () => {
     db.connect.mockResolvedValueOnce(spawnClient({
       refs: { application_exists: true, session_exists: true },
       count: { n: '1' },
-      parent: { depth: 10, child_count: 0, max_children: 10 },
+      parent: { depth: 10, child_count: 0, max_children: 10, application_id: 'app-1' },
     }))
     await app.ready()
     const res = await app.inject({
@@ -174,6 +187,7 @@ describe('DELETE /v1/zones/:zoneId/agents/:id — cascade terminate', () => {
     const client = {
       query: vi.fn()
         .mockResolvedValueOnce({ rows: [] })
+        .mockResolvedValueOnce({ rows: [{ application_id: 'app-1' }] })
         .mockResolvedValueOnce({ rows: [
           { id: 'agent-root', session_sid: 'sid-root', parent_id: null },
           { id: 'agent-child', session_sid: 'sid-child', parent_id: 'agent-root' },

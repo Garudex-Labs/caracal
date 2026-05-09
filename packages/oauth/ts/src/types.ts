@@ -44,6 +44,8 @@ export class InteractionRequiredError extends Error {
   constructor(
     message: string,
     public readonly challengeId: string,
+    public readonly resource?: string,
+    public readonly acrValues?: string,
   ) {
     super(message)
     this.name = 'InteractionRequiredError'

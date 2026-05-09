@@ -115,7 +115,7 @@ func (a *AuditBuffer) xaddEvent(ctx context.Context, ev AuditEvent) error {
 	if err != nil {
 		return fmt.Errorf("marshal: %w", err)
 	}
-	values := map[string]interface{}{
+	values := map[string]any{
 		"id":   ev.ID,
 		"data": string(data),
 	}

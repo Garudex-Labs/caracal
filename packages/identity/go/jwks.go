@@ -20,7 +20,7 @@ import (
 const jwksTTL = 5 * time.Minute
 
 type jwksEntry struct {
-	keys      map[string]interface{}
+	keys      map[string]any
 	fetchedAt time.Time
 }
 
@@ -30,7 +30,7 @@ var (
 )
 
 // GetJWKS returns the cached key set for issuer, fetching if missing or stale.
-func GetJWKS(issuer string) (map[string]interface{}, error) {
+func GetJWKS(issuer string) (map[string]any, error) {
 	url := issuer + "/.well-known/jwks.json"
 
 	jwksMu.RLock()
@@ -56,7 +56,7 @@ func GetJWKS(issuer string) (map[string]interface{}, error) {
 		return nil, err
 	}
 
-	keys := make(map[string]interface{}, len(body.Keys))
+	keys := make(map[string]any, len(body.Keys))
 	for _, raw := range body.Keys {
 		key, kid, err := parseJWK(raw)
 		if err != nil {

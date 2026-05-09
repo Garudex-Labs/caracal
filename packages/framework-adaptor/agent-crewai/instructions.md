@@ -1,10 +1,10 @@
 # agent-crewai
 
 ## Scope
-- Covers the per-language CrewAI adaptors for the Caracal agent runtime.
+- Covers the per-language CrewAI adaptors that bind Caracal identity to CrewAI tasks and crews.
 
 ## Required
-- Each language subdirectory must wrap the `agent-core` runtime around the CrewAI agent surface.
+- Each language subdirectory must wrap the `@caracalai/sdk` primitives (`withAgent`, `withDelegation`, envelope helpers) around the CrewAI agent surface.
 
 ## Forbidden
-- Must not duplicate runtime logic that belongs in `agent-core`.
+- Must not duplicate identity, delegation, or token-exchange logic; route through `@caracalai/sdk`.

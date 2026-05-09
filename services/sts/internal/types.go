@@ -7,8 +7,14 @@ package internal
 
 import (
 	"encoding/json"
-	"time"
+
+	"github.com/garudex-labs/caracal/core/audit"
 )
+
+// AuditEvent is the wire-format audit record produced by STS.
+// Aliased from the canonical definition in core/audit so STS and the audit
+// service share a single source of truth.
+type AuditEvent = audit.Event
 
 // TokenExchangeRequest is the parsed body of POST /oauth/2/token (application/x-www-form-urlencoded).
 type TokenExchangeRequest struct {
@@ -18,7 +24,8 @@ type TokenExchangeRequest struct {
 	ActorToken          string
 	Resources           []string // one or more resource identifiers; repeated param supported
 	Scope               string
-	ClientID            string
+	ZoneID              string
+	ApplicationID       string
 	ClientSecret        string
 	ClientAssertion     string
 	ClientAssertionType string
@@ -30,15 +37,35 @@ type TokenExchangeRequest struct {
 	TTLSeconds          int
 }
 
+// UpstreamAuthMode classifies how the gateway must authenticate to a resource.
+const (
+	UpstreamAuthCaracalJWT     = "caracal_jwt"
+	UpstreamAuthProviderOAuth  = "provider_oauth"
+	UpstreamAuthProviderAPIKey = "provider_apikey"
+)
+
+// UpstreamDirective tells the gateway which URL to dial and which credential
+// shape the upstream expects. ProviderToken is the raw bearer the provider
+// itself accepts; for caracal_jwt mode it is empty and the gateway forwards the
+// Caracal JWT from TokenResponse.AccessToken instead.
+type UpstreamDirective struct {
+	URL           string `json:"url"`
+	AuthMode      string `json:"auth_mode"`
+	AuthHeader    string `json:"auth_header,omitempty"`
+	AuthScheme    string `json:"auth_scheme,omitempty"`
+	ProviderToken string `json:"provider_token,omitempty"`
+	ExpiresAt     int64  `json:"expires_at,omitempty"`
+}
+
 // TokenResponse is the JSON response body for a successful exchange.
 type TokenResponse struct {
-	AccessToken     string            `json:"access_token"`
-	TokenType       string            `json:"token_type"`
-	ExpiresIn       int               `json:"expires_in"`
-	Scope           string            `json:"scope,omitempty"`
-	IssuedTokenType string            `json:"issued_token_type"`
-	TargetResources []string          `json:"target_resources,omitempty"`
-	TargetUpstreams map[string]string `json:"target_upstreams,omitempty"`
+	AccessToken     string                       `json:"access_token"`
+	TokenType       string                       `json:"token_type"`
+	ExpiresIn       int                          `json:"expires_in"`
+	Scope           string                       `json:"scope,omitempty"`
+	IssuedTokenType string                       `json:"issued_token_type"`
+	TargetResources []string                     `json:"target_resources,omitempty"`
+	Upstreams       map[string]UpstreamDirective `json:"upstreams,omitempty"`
 }
 
 // OPAInput is the canonical input shape for every policy evaluation.
@@ -89,38 +116,22 @@ type OPADelegationEdge struct {
 }
 
 type OPAContext struct {
-	ActorClaims       map[string]interface{} `json:"actor_claims"`
-	SubjectClaims     map[string]interface{} `json:"subject_claims,omitempty"`
-	TraceID           string                 `json:"trace_id,omitempty"`
-	SessionID         string                 `json:"session_id,omitempty"`
-	AgentSessionID    string                 `json:"agent_session_id,omitempty"`
-	DelegationEdgeID  string                 `json:"delegation_edge_id,omitempty"`
-	ChallengeResolved bool                   `json:"challenge_resolved"`
-	RequestedScopes   []string               `json:"requested_scopes"`
+	ActorClaims       map[string]any `json:"actor_claims"`
+	SubjectClaims     map[string]any `json:"subject_claims,omitempty"`
+	TraceID           string         `json:"trace_id,omitempty"`
+	SessionID         string         `json:"session_id,omitempty"`
+	AgentSessionID    string         `json:"agent_session_id,omitempty"`
+	DelegationEdgeID  string         `json:"delegation_edge_id,omitempty"`
+	ChallengeResolved bool           `json:"challenge_resolved"`
+	RequestedScopes   []string       `json:"requested_scopes"`
 }
 
 // OPAResult holds the decoded output of a policy evaluation.
 type OPAResult struct {
-	Decision            string                   `json:"decision"`
-	DeterminingPolicies []map[string]interface{} `json:"determining_policies"`
-	EvaluationStatus    string                   `json:"evaluation_status"`
-	Diagnostics         []map[string]interface{} `json:"diagnostics"`
-}
-
-// AuditEvent is published to caracal.audit.events via Redis Streams.
-type AuditEvent struct {
-	ID                      string          `json:"id"`
-	ZoneID                  string          `json:"zone_id"`
-	EventType               string          `json:"event_type"`
-	RequestID               string          `json:"request_id"`
-	Decision                string          `json:"decision"`
-	PolicySetVersionID      string          `json:"policy_set_version_id,omitempty"`
-	ManifestSHA             string          `json:"manifest_sha,omitempty"`
-	EvaluationStatus        string          `json:"evaluation_status"`
-	DeterminingPoliciesJSON json.RawMessage `json:"determining_policies_json"`
-	DiagnosticsJSON         json.RawMessage `json:"diagnostics_json"`
-	MetadataJSON            json.RawMessage `json:"metadata_json,omitempty"`
-	OccurredAt              time.Time       `json:"occurred_at"`
+	Decision            string           `json:"decision"`
+	DeterminingPolicies []map[string]any `json:"determining_policies"`
+	EvaluationStatus    string           `json:"evaluation_status"`
+	Diagnostics         []map[string]any `json:"diagnostics"`
 }
 
 // StepUpChallenge describes the 401 response body for interaction_required.

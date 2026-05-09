@@ -39,14 +39,14 @@ func (r *RedisClient) SetStreamSigning(key []byte, require bool) {
 
 // VerifyStream returns true when the message values carry a valid origin signature
 // (or signing is disabled in dev mode and required is false).
-func (r *RedisClient) VerifyStream(stream string, values map[string]interface{}) bool {
+func (r *RedisClient) VerifyStream(stream string, values map[string]any) bool {
 	if !r.requireSigs && len(r.streamHMAC) == 0 {
 		return true
 	}
 	return crypto.VerifyStream(r.streamHMAC, stream, values)
 }
 
-func (r *RedisClient) XAdd(ctx context.Context, stream string, values map[string]interface{}) error {
+func (r *RedisClient) XAdd(ctx context.Context, stream string, values map[string]any) error {
 	return r.c.XAdd(ctx, &redis.XAddArgs{
 		Stream: stream,
 		Values: values,
@@ -56,7 +56,7 @@ func (r *RedisClient) XAdd(ctx context.Context, stream string, values map[string
 // SignedXAdd attaches an HMAC over the canonicalized values before publishing so a
 // consumer with the same key can confirm the message originated from a trusted
 // producer rather than an attacker with Redis write access.
-func (r *RedisClient) SignedXAdd(ctx context.Context, stream string, values map[string]interface{}) error {
+func (r *RedisClient) SignedXAdd(ctx context.Context, stream string, values map[string]any) error {
 	if r.requireSigs && len(r.streamHMAC) == 0 {
 		return fmt.Errorf("stream signing required but no key configured")
 	}
@@ -99,7 +99,7 @@ func (r *RedisClient) XAck(ctx context.Context, stream, group, id string) error 
 	return r.c.XAck(ctx, stream, group, id).Err()
 }
 
-func (r *RedisClient) SetTTL(ctx context.Context, key string, value interface{}, ttl time.Duration) error {
+func (r *RedisClient) SetTTL(ctx context.Context, key string, value any, ttl time.Duration) error {
 	b, err := json.Marshal(value)
 	if err != nil {
 		return err

@@ -1,49 +1,71 @@
 // Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 // Caracal, a product of Garudex Labs
 //
-// LangChain adapter unit tests for runnable invocation and tool token wrapping.
+// Unit tests for the LangChain adapter: run, node, tool, delegate.
 
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { AgentServiceConfig } from '../../../../packages/agent-core/ts/src/types.js'
-import { LangChainAdapter } from '../../../../packages/framework-adaptor/agent-langchain/ts/src/langchain.js'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { CaracalCallbackHandler } from '../../../../packages/framework-adaptor/agent-langchain/ts/src/langchain.js'
 
-const config: AgentServiceConfig = {
-  id: 'agent-a',
-  url: 'https://agent.example.com',
-  zoneId: 'zone1',
-  clientId: 'zone1:agent-a',
-  subjectToken: 'subject-token',
-  agentSessionId: 'agent-session-1',
+function makeCoordinator(extra?: ReturnType<typeof vi.fn>[]) {
+  const calls = [
+    { ok: true, status: 200, json: async () => ({ agent_session_id: 'ses-1' }) },
+    { ok: true, status: 200, json: async () => ({}) },
+    ...(extra ?? []),
+  ]
+  const fetchImpl = vi.fn()
+  calls.forEach((r) => fetchImpl.mockResolvedValueOnce(r))
+  return { baseUrl: 'http://coord', fetchImpl }
 }
 
-describe('LangChainAdapter', () => {
-  beforeEach(() => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
-      ok: true,
-      json: async () => ({ access_token: 'tool-token', expires_in: 900 }),
-    }))
+const BASE_OPTS = {
+  zoneId: 'z1',
+  applicationId: 'app1',
+  subjectToken: 'tok',
+}
+
+describe('CaracalCallbackHandler', () => {
+  beforeEach(() => vi.restoreAllMocks())
+
+  it('run executes fn inside an agent session and returns result', async () => {
+    const coordinator = makeCoordinator()
+    const handler = new CaracalCallbackHandler({ coordinator, ...BASE_OPTS })
+    const fn = vi.fn().mockResolvedValue('result')
+    const out = await handler.run(fn)
+    expect(out).toBe('result')
+    expect(fn).toHaveBeenCalledOnce()
   })
 
-  afterEach(() => {
-    vi.restoreAllMocks()
+  it('run spawns and terminates the agent session', async () => {
+    const coordinator = makeCoordinator()
+    const handler = new CaracalCallbackHandler({ coordinator, ...BASE_OPTS })
+    await handler.run(async () => {})
+    const [spawnCall, terminateCall] = coordinator.fetchImpl.mock.calls
+    expect((spawnCall[0] as string)).toContain('/zones/z1/agents')
+    expect((terminateCall[0] as string)).toContain('ses-1')
   })
 
-  it('requires a runnable before running', async () => {
-    const adapter = new LangChainAdapter(config, 'https://sts.example.com')
-
-    await expect(adapter.run({ value: 1 })).rejects.toThrow('LangChain runnable is required')
+  it('node runs fn inside a nested ephemeral session', async () => {
+    const coordinator = makeCoordinator([
+      { ok: true, status: 200, json: async () => ({ agent_session_id: 'ses-2' }) },
+      { ok: true, status: 200, json: async () => ({}) },
+    ])
+    const handler = new CaracalCallbackHandler({ coordinator, ...BASE_OPTS })
+    const fn = vi.fn().mockResolvedValue('node-out')
+    const out = await handler.run(async () => handler.node(fn))
+    expect(out).toBe('node-out')
+    expect(coordinator.fetchImpl).toHaveBeenCalledTimes(4)
   })
 
-  it('wraps tools with resource tokens', async () => {
-    const runnable = { invoke: vi.fn() }
-    const tool = { call: vi.fn().mockResolvedValue('done') }
-    const adapter = new LangChainAdapter(config, 'https://sts.example.com', runnable)
-
-    const wrapped = adapter.tool('resource://tool', tool, { scopes: ['invoke'] })
-
-    await expect(wrapped({ prompt: 'go' })).resolves.toBe('done')
-    expect(tool.call).toHaveBeenCalledWith({ prompt: 'go' }, { token: 'tool-token' })
-    const body = vi.mocked(fetch).mock.calls[0][1]?.body as URLSearchParams
-    expect(body.get('scope')).toBe('invoke')
+  it('tool wraps a LangChainTool and passes outbound headers', async () => {
+    const coordinator = makeCoordinator()
+    const handler = new CaracalCallbackHandler({ coordinator, ...BASE_OPTS })
+    const toolFn = { call: vi.fn().mockResolvedValue('tool-result') }
+    let toolOut: unknown
+    await handler.run(async () => {
+      toolOut = await handler.tool('svc://resource', toolFn)('my-input')
+    })
+    expect(toolOut).toBe('tool-result')
+    const passedHeaders = (toolFn.call.mock.calls[0][1] as { headers: Record<string, string> }).headers
+    expect(passedHeaders['baggage']).toContain('caracal.agent_session=ses-1')
   })
 })

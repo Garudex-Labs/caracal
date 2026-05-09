@@ -1,0 +1,16 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "caracalai-sdk"
+version = "0.1.0"
+description = "Caracal agent identity and delegation SDK: context propagation, spawn, delegate, transport hooks"
+requires-python = ">=3.11"
+dependencies = [
+  "httpx>=0.28.0",
+  "caracalai-identity>=0.1.0",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["caracalai_sdk"]

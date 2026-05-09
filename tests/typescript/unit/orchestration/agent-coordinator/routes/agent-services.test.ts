@@ -12,6 +12,17 @@ function buildApp() {
   const db = { query: vi.fn(), connect: vi.fn() }
   app.decorate('db', db as never)
   app.decorate('redis', {} as never)
+  app.addHook('preHandler', async (req) => {
+    const body = (req.body ?? {}) as Record<string, unknown>
+    const clientId = (body.application_id as string) ?? 'test-client'
+    ;(req as unknown as { caracalAuth: unknown }).caracalAuth = {
+      zoneId: (req.params as Record<string, string>)?.zoneId ?? 'z1',
+      scopes: ['coordinator.admin'],
+      subject: 'test',
+      clientId,
+      sessionId: 'sid-test',
+    }
+  })
   app.register(agentServicesRoutes, { prefix: '/v1' })
   return { app, db }
 }

@@ -80,16 +80,3 @@ export function seedEnvFile(envFile: string, mode = 0o600): { seeded: boolean } 
   return { seeded: true }
 }
 
-export function readEnvVar(envFile: string, key: string): string | undefined {
-  if (!existsSync(envFile)) return undefined
-  for (const line of readFileSync(envFile, 'utf8').split(/\r?\n/)) {
-    const m = line.match(/^\s*([A-Z_][A-Z0-9_]*)\s*=\s*(.*)\s*$/)
-    if (!m || m[1] !== key) continue
-    let value = m[2] ?? ''
-    if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
-      value = value.slice(1, -1)
-    }
-    return value
-  }
-  return undefined
-}

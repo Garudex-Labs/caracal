@@ -9,7 +9,8 @@ import type { CliConfig } from '../../../../apps/cli/src/config.js'
 
 const cfg: CliConfig = {
   zone_url: 'https://sts.example.com',
-  app_client_id: 'zone1:app1',
+  zone_id: 'zone1',
+  application_id: 'app1',
   app_client_secret: 'secret',
 }
 
@@ -48,7 +49,8 @@ describe('credentialReadCommand', () => {
 
     const body = fetchMock.mock.calls[0][1].body as URLSearchParams
     expect(fetchMock.mock.calls[0][0]).toBe('https://sts.example.com/oauth/2/token')
-    expect(body.get('client_id')).toBe('zone1:app1')
+    expect(body.get('zone_id')).toBe('zone1')
+    expect(body.get('application_id')).toBe('app1')
     expect(body.get('client_secret')).toBe('secret')
     expect(body.get('resource')).toBe('resource://api')
     expect(body.get('ttl_seconds')).toBe('900')

@@ -33,11 +33,23 @@ declare module 'fastify' {
       zoneId: string
       scopes: string[]
       subject: string
+      clientId: string
+      agentSessionId?: string
+      delegationEdgeId?: string
+      sessionId?: string
     }
   }
 }
 
-const PUBLIC_PATHS = new Set(['/health'])
+export function requireScope(req: FastifyRequest, scope: string): boolean {
+  return req.caracalAuth?.scopes.includes(scope) ?? false
+}
+
+export function ownsApplication(req: FastifyRequest, applicationId: string): boolean {
+  return req.caracalAuth?.clientId === applicationId
+}
+
+const PUBLIC_PATHS = new Set(['/health', '/v1/verify'])
 
 function classifyError(err: unknown): string {
   if (err instanceof joseErrors.JWTExpired) return 'token_expired'
@@ -111,5 +123,13 @@ export async function verifyBearer(req: FastifyRequest, reply: FastifyReply): Pr
     reply.code(403).send({ error: 'zone_mismatch' })
     return
   }
-  req.caracalAuth = { zoneId, scopes, subject }
+  const clientId = typeof payload['client_id'] === 'string' ? payload['client_id'] : ''
+  if (clientId === '') {
+    reply.code(401).send({ error: 'invalid_token' })
+    return
+  }
+  const agentSessionId = typeof payload['agent_session_id'] === 'string' ? payload['agent_session_id'] : undefined
+  const delegationEdgeId = typeof payload['delegation_edge_id'] === 'string' ? payload['delegation_edge_id'] : undefined
+  const sessionId = typeof payload['sid'] === 'string' ? payload['sid'] : undefined
+  req.caracalAuth = { zoneId, scopes, subject, clientId, agentSessionId, delegationEdgeId, sessionId }
 }

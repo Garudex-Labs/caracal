@@ -32,7 +32,7 @@ func (s *Server) recordIssuedJTI(ctx context.Context, jti, appID, zoneID, reques
 	}
 	if !created {
 		id, _ := uuid.NewV7()
-		meta, _ := json.Marshal(map[string]interface{}{
+		meta, _ := json.Marshal(map[string]any{
 			"jti":        jti,
 			"app_id":     appID,
 			"request_id": requestID,

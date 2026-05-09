@@ -23,11 +23,22 @@ import (
 // stsErrorBodyLimit caps the bytes we read from STS error responses.
 const stsErrorBodyLimit = 16 * 1024
 
+// upstreamDirective mirrors STS UpstreamDirective so the gateway can build the
+// outbound Authorization header from the credential class STS chose for the resource.
+type upstreamDirective struct {
+	URL           string `json:"url"`
+	AuthMode      string `json:"auth_mode"`
+	AuthHeader    string `json:"auth_header,omitempty"`
+	AuthScheme    string `json:"auth_scheme,omitempty"`
+	ProviderToken string `json:"provider_token,omitempty"`
+	ExpiresAt     int64  `json:"expires_at,omitempty"`
+}
+
 // tokenResponse mirrors the STS RFC 8693 response shape.
 type tokenResponse struct {
-	AccessToken     string            `json:"access_token"`
-	ExpiresIn       int               `json:"expires_in"`
-	TargetUpstreams map[string]string `json:"target_upstreams"`
+	AccessToken string                       `json:"access_token"`
+	ExpiresIn   int                          `json:"expires_in"`
+	Upstreams   map[string]upstreamDirective `json:"upstreams"`
 }
 
 // stsClient performs token exchanges against the configured STS.
@@ -39,7 +50,7 @@ type stsClient struct {
 // stsResult is the outcome of a single Exchange call.
 type stsResult struct {
 	AccessToken string
-	Upstream    string
+	Upstream    upstreamDirective
 	Latency     time.Duration
 }
 
@@ -59,13 +70,16 @@ func newSTSClient(stsURL string, timeout time.Duration) *stsClient {
 	}
 }
 
-// Exchange performs an RFC 8693 token exchange.
+// Exchange performs an RFC 8693 token exchange. The caller's identity is sent as
+// (zone_id, application_id) form fields rather than a positional client_id, so
+// neither value depends on a separator-free encoding.
 // Internal error detail is returned for the gateway to log; a sanitised CaracalError is
 // safe to forward to the client.
-func (c *stsClient) Exchange(ctx context.Context, subjectToken, clientID, resource, requestID string) (*stsResult, int, *sharederr.CaracalError, error) {
+func (c *stsClient) Exchange(ctx context.Context, subjectToken string, bind binding, resource, requestID string) (*stsResult, int, *sharederr.CaracalError, error) {
 	form := url.Values{
 		"grant_type":         {"urn:ietf:params:oauth:grant-type:token-exchange"},
-		"client_id":          {clientID},
+		"zone_id":            {bind.ZoneID},
+		"application_id":     {bind.ApplicationID},
 		"subject_token":      {subjectToken},
 		"subject_token_type": {"urn:ietf:params:oauth:token-type:access_token"},
 		"resource":           {resource},
@@ -112,11 +126,11 @@ func (c *stsClient) Exchange(ctx context.Context, subjectToken, clientID, resour
 			sharederr.New(sharederr.STSUnavailable, "sts response invalid"),
 			fmt.Errorf("sts returned empty access_token")
 	}
-	upstream := tr.TargetUpstreams[resource]
-	if upstream == "" {
+	upstream, ok := tr.Upstreams[resource]
+	if !ok || upstream.URL == "" {
 		return nil, http.StatusForbidden,
 			sharederr.New(sharederr.AccessDenied, "resource upstream not configured"),
-			fmt.Errorf("resource %q not in target_upstreams", resource)
+			fmt.Errorf("resource %q not in upstreams", resource)
 	}
 	return &stsResult{AccessToken: tr.AccessToken, Upstream: upstream, Latency: latency}, http.StatusOK, nil, nil
 }

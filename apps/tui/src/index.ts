@@ -8,38 +8,11 @@ import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { parse } from 'smol-toml'
 import { AdminClient } from '@caracalai/admin'
+import { discoverAdminToken } from '@caracalai/core'
 import { App } from './screen.ts'
 import { MenuView } from './views/menu.ts'
 
 interface CliConfig { zone_id?: string }
-
-function readEnvFile(path: string): Record<string, string> {
-  if (!existsSync(path)) return {}
-  const out: Record<string, string> = {}
-  for (const line of readFileSync(path, 'utf8').split(/\r?\n/)) {
-    const m = line.match(/^\s*([A-Z_][A-Z0-9_]*)\s*=\s*(.*)\s*$/)
-    if (!m) continue
-    let v = m[2]!
-    if ((v.startsWith('"') && v.endsWith('"')) || (v.startsWith("'") && v.endsWith("'"))) v = v.slice(1, -1)
-    out[m[1]!] = v
-  }
-  return out
-}
-
-function discoverAdminToken(): string | undefined {
-  if (process.env.CARACAL_ADMIN_TOKEN) return process.env.CARACAL_ADMIN_TOKEN
-  for (const p of [
-    process.env.CARACAL_ENV_FILE,
-    join(process.cwd(), 'infra', 'docker', '.env'),
-    join(process.cwd(), '.env'),
-    process.env.INIT_CWD && join(process.env.INIT_CWD, 'infra', 'docker', '.env'),
-    process.env.INIT_CWD && join(process.env.INIT_CWD, '.env'),
-  ].filter((x): x is string => Boolean(x))) {
-    const env = readEnvFile(p)
-    if (env.CARACAL_ADMIN_TOKEN) return env.CARACAL_ADMIN_TOKEN
-  }
-  return undefined
-}
 
 function loadConfig(): CliConfig | undefined {
   const candidates: string[] = []

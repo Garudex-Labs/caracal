@@ -31,7 +31,8 @@ async function exchangeWithStepUp(
   exchangeFn: (resource: string) => Promise<{ accessToken: string }>,
   resource: string,
   zoneUrl: string,
-  clientId: string,
+  zoneId: string,
+  applicationId: string,
   clientSecret: string,
   env: Record<string, string>,
   envKey: string,
@@ -58,7 +59,8 @@ async function exchangeWithStepUp(
 
   const form = new URLSearchParams({
     grant_type: 'urn:ietf:params:oauth:grant-type:token-exchange',
-    client_id: clientId,
+    zone_id: zoneId,
+    application_id: applicationId,
     client_secret: clientSecret,
     subject_token: '',
     subject_token_type: 'urn:ietf:params:oauth:token-type:access_token',
@@ -85,7 +87,7 @@ export async function runCommand(argv: string[], cfg: CliConfig): Promise<void> 
     process.exit(1)
   }
 
-  const client = new OAuthClient(cfg.zone_url, cfg.app_client_id)
+  const client = new OAuthClient(cfg.zone_url, cfg.zone_id, cfg.application_id)
   const env: Record<string, string> = { ...(process.env as Record<string, string>) }
 
   for (const cred of cfg.credentials ?? []) {
@@ -94,7 +96,8 @@ export async function runCommand(argv: string[], cfg: CliConfig): Promise<void> 
         (r) => client.exchange('', r, { clientSecret: cfg.app_client_secret, ttlSeconds: 3600 }),
         cred.resource,
         cfg.zone_url,
-        cfg.app_client_id,
+        cfg.zone_id,
+        cfg.application_id,
         cfg.app_client_secret,
         env,
         cred.env,
@@ -117,7 +120,8 @@ export async function runCommand(argv: string[], cfg: CliConfig): Promise<void> 
         (r) => client.exchange('', r, { clientSecret: cfg.app_client_secret, ttlSeconds: 3600 }),
         cred.resource,
         cfg.zone_url,
-        cfg.app_client_id,
+        cfg.zone_id,
+        cfg.application_id,
         cfg.app_client_secret,
         env,
         cred.env,

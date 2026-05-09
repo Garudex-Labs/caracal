@@ -21,7 +21,7 @@ const StreamSigField = "_sig"
 // CanonicalizeStream produces a deterministic byte serialization of a stream values
 // map for signing. Keys are sorted; values are coerced to strings via Sprint, the same
 // shape Redis preserves on the wire. The reserved sig field is skipped.
-func CanonicalizeStream(stream string, values map[string]interface{}) []byte {
+func CanonicalizeStream(stream string, values map[string]any) []byte {
 	keys := make([]string, 0, len(values))
 	for k := range values {
 		if k == StreamSigField {
@@ -44,7 +44,7 @@ func CanonicalizeStream(stream string, values map[string]interface{}) []byte {
 
 // SignStream returns the hex HMAC-SHA256 of the canonical form. An empty key returns
 // "" so callers can keep signing optional in non-production startup paths.
-func SignStream(key []byte, stream string, values map[string]interface{}) string {
+func SignStream(key []byte, stream string, values map[string]any) string {
 	if len(key) == 0 {
 		return ""
 	}
@@ -56,7 +56,7 @@ func SignStream(key []byte, stream string, values map[string]interface{}) string
 // VerifyStream returns true when the message carries a sig that matches the expected
 // HMAC. With no key configured (dev mode) every message verifies so producers and
 // consumers can be rolled out independently.
-func VerifyStream(key []byte, stream string, values map[string]interface{}) bool {
+func VerifyStream(key []byte, stream string, values map[string]any) bool {
 	if len(key) == 0 {
 		return true
 	}

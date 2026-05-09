@@ -69,11 +69,6 @@ func (k *KeyCache) getKeyAndKid(ctx context.Context, zoneID string) (*ecdsa.Priv
 	return priv, secret.ID, nil
 }
 
-func (k *KeyCache) getKey(ctx context.Context, zoneID string) (*ecdsa.PrivateKey, error) {
-	priv, _, err := k.getKeyAndKid(ctx, zoneID)
-	return priv, err
-}
-
 func (k *KeyCache) getPublicKeyAndKid(ctx context.Context, zoneID string) (*ecdsa.PublicKey, string, error) {
 	priv, kid, err := k.getKeyAndKid(ctx, zoneID)
 	if err != nil {
@@ -88,21 +83,47 @@ func (k *KeyCache) Invalidate(zoneID string) {
 	k.mu.Unlock()
 }
 
+// ChainHop is a single step in the delegation chain attribution.
+type ChainHop struct {
+	AppID            string `json:"app"`
+	AgentSessionID   string `json:"session,omitempty"`
+	DelegationEdgeID string `json:"edge,omitempty"`
+}
+
+// Token use classes. Ambient tokens represent a session and may be re-presented to STS
+// as subject_token; per-call tokens are narrowed to a specific resource set and must
+// never be reused as subject_token (RFC 8693 subject-confusion mitigation).
+const (
+	UseAmbient = "ambient"
+	UsePerCall = "per_call"
+)
+
+// Subject classes. Disambiguates whether sub identifies a human user or an
+// application principal so resource servers can apply different policies without
+// inferring class from claim shape.
+const (
+	SubTypeUser        = "user"
+	SubTypeApplication = "application"
+)
+
 // Claims is the full Caracal JWT claim set.
 type Claims struct {
 	jwt.RegisteredClaims
-	ZoneID           string   `json:"zone_id"`
-	ClientID         string   `json:"client_id"`
-	Scope            string   `json:"scope,omitempty"`
-	SID              string   `json:"sid"`
-	Target           []string `json:"target,omitempty"`
-	OnBehalf         string   `json:"on_behalf,omitempty"`
-	AgentSessionID   string   `json:"agent_session_id,omitempty"`
-	DelegationEdgeID string   `json:"delegation_edge_id,omitempty"`
-	SourceSessionID  string   `json:"source_session_id,omitempty"`
-	TargetSessionID  string   `json:"target_session_id,omitempty"`
-	DelegationPath   []string `json:"delegation_path,omitempty"`
-	GraphEpoch       int64    `json:"delegation_graph_epoch,omitempty"`
+	ZoneID           string     `json:"zone_id"`
+	ClientID         string     `json:"client_id"`
+	Scope            string     `json:"scope,omitempty"`
+	SID              string     `json:"sid"`
+	Use              string     `json:"use"`
+	SubType          string     `json:"sub_type"`
+	Target           []string   `json:"target,omitempty"`
+	AgentSessionID   string     `json:"agent_session_id,omitempty"`
+	DelegationEdgeID string     `json:"delegation_edge_id,omitempty"`
+	SourceSessionID  string     `json:"source_session_id,omitempty"`
+	TargetSessionID  string     `json:"target_session_id,omitempty"`
+	DelegationPath   []string   `json:"delegation_path,omitempty"`
+	DelegationChain  []ChainHop `json:"delegation_chain,omitempty"`
+	HopCount         int        `json:"hop_count,omitempty"`
+	GraphEpoch       int64      `json:"delegation_graph_epoch,omitempty"`
 }
 
 // IssueParams holds everything needed to produce a signed JWT.
@@ -110,16 +131,18 @@ type IssueParams struct {
 	ZoneID           string
 	AppID            string
 	SubjectID        string
+	SubType          string
+	Use              string
 	SID              string
 	Scopes           string
 	Resources        []string
 	TTL              time.Duration
-	OnBehalfOf       string
 	AgentSessionID   string
 	DelegationEdgeID string
 	SourceSessionID  string
 	TargetSessionID  string
 	DelegationPath   []string
+	DelegationChain  []ChainHop
 	GraphEpoch       int64
 }
 
@@ -132,7 +155,23 @@ func issueToken(ctx context.Context, params IssueParams, keys *KeyCache, issuerU
 	now := time.Now()
 	jti, _ := uuid.NewV7()
 	jtiStr := jti.String()
-	audience := append([]string{issuerURL}, params.Resources...)
+	use := params.Use
+	if use == "" {
+		use = UsePerCall
+	}
+	subType := params.SubType
+	if subType == "" {
+		subType = SubTypeApplication
+	}
+	// Audience is class-disjoint: ambient tokens carry only the issuer (so they
+	// can be re-presented as subject_token), per-call tokens carry only their
+	// target resources (so they cannot bootstrap further exchanges).
+	var audience []string
+	if use == UseAmbient {
+		audience = []string{issuerURL}
+	} else {
+		audience = append(audience, params.Resources...)
+	}
 	claims := Claims{
 		RegisteredClaims: jwt.RegisteredClaims{
 			Issuer:    issuerURL,
@@ -146,13 +185,16 @@ func issueToken(ctx context.Context, params IssueParams, keys *KeyCache, issuerU
 		ClientID:         params.AppID,
 		Scope:            params.Scopes,
 		SID:              params.SID,
+		Use:              use,
+		SubType:          subType,
 		Target:           params.Resources,
-		OnBehalf:         params.OnBehalfOf,
 		AgentSessionID:   params.AgentSessionID,
 		DelegationEdgeID: params.DelegationEdgeID,
 		SourceSessionID:  params.SourceSessionID,
 		TargetSessionID:  params.TargetSessionID,
 		DelegationPath:   params.DelegationPath,
+		DelegationChain:  params.DelegationChain,
+		HopCount:         len(params.DelegationPath),
 		GraphEpoch:       params.GraphEpoch,
 	}
 
@@ -190,7 +232,7 @@ func BuildJWKS(keys []JWKSEntry) ([]byte, error) {
 			Y: b64URLUint(e.Pub.Y),
 		}
 	}
-	return json.Marshal(map[string]interface{}{"keys": jwksKeys})
+	return json.Marshal(map[string]any{"keys": jwksKeys})
 }
 
 // JWKSEntry pairs a public key with its key ID for JWKS construction.

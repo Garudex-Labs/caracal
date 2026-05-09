@@ -6,6 +6,7 @@
 export * from './config.js';
 export * from './crypto.js';
 export * from './env.js';
+export * from './envfile.js';
 export * from './errors.js';
 export * from './logging.js';
 export * from './scope.js';

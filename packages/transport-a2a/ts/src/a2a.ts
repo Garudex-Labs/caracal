@@ -19,10 +19,11 @@ type RuntimeFetch = (url: string, init: {
 export async function a2aCall(
   req: A2ARequest,
   subjectToken: string,
-  clientId: string,
+  zoneId: string,
+  applicationId: string,
   opts: A2AOptions,
 ): Promise<A2AResponse> {
-  const token = await new OAuthClient(opts.stsUrl, clientId).exchange(subjectToken, req.resource ?? req.agentUrl, {
+  const token = await new OAuthClient(opts.stsUrl, zoneId, applicationId).exchange(subjectToken, req.resource ?? req.agentUrl, {
     clientSecret: opts.clientSecret,
     clientAssertion: opts.clientAssertion,
     clientAssertionType: opts.clientAssertionType,
@@ -38,14 +39,15 @@ export async function a2aCall(
     headers: {
       'Content-Type': 'application/json',
       Authorization: `Bearer ${token.accessToken}`,
-      'X-Caracal-Client-ID': clientId,
+      'X-Caracal-Zone-Id': zoneId,
+      'X-Caracal-Application-Id': applicationId,
     },
     body: JSON.stringify({
       method: req.method,
       params: req.params,
       requestId: req.requestId,
-      clientId,
-      zoneId: opts.zoneId,
+      zoneId,
+      applicationId,
       resource: req.resource ?? req.agentUrl,
       scopes: req.scopes,
       sessionId: req.sessionId,

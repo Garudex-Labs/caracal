@@ -25,22 +25,6 @@ export function patchExpression(value: PatchValue | undefined, assignment: Patch
   return { value, assignment }
 }
 
-export function patchJson(column: string, value: unknown | undefined): PatchField {
-  if (value === undefined) return { value: undefined, assignment: (p) => `${column} = ${p}::jsonb` }
-  return { value: JSON.stringify(value), assignment: (p) => `${column} = ${p}::jsonb` }
-}
-
-export function patchEnum<T extends string>(
-  column: string,
-  value: T | undefined,
-  allowed: readonly T[],
-): PatchField {
-  if (value !== undefined && !allowed.includes(value)) {
-    throw new Error(`patchEnum: value '${value}' not in allowed set for column '${column}'`)
-  }
-  return { value, assignment: (placeholder) => `${column} = ${placeholder}` }
-}
-
 export function buildPatchUpdate(baseValues: PatchValue[], fields: PatchField[]): PatchUpdate | null {
   const sets: string[] = []
   const values = [...baseValues]

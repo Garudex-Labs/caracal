@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"net/url"
 	"path"
+	"strconv"
 	"strings"
 	"time"
 
@@ -28,16 +29,17 @@ const preflightWindow = 35 * time.Second
 
 // proxy implements the gateway's reverse-proxy handler.
 type proxy struct {
-	sts      *stsClient
-	guard    *upstreamGuard
-	client   *http.Client
-	log      zerolog.Logger
-	maxBytes int64
-	bindings *bindingStore
-	tracker  *jtiTracker
+	sts         *stsClient
+	guard       *upstreamGuard
+	client      *http.Client
+	log         zerolog.Logger
+	maxBytes    int64
+	bindings    *bindingStore
+	tracker     *jtiTracker
+	revocations *revocationStore
 }
 
-func newProxy(sts *stsClient, guard *upstreamGuard, log zerolog.Logger, maxBytes int64, upstreamTimeout time.Duration, bindings *bindingStore, tracker *jtiTracker) *proxy {
+func newProxy(sts *stsClient, guard *upstreamGuard, log zerolog.Logger, maxBytes int64, upstreamTimeout time.Duration, bindings *bindingStore, tracker *jtiTracker, revocations *revocationStore) *proxy {
 	transport := &http.Transport{
 		DialContext:           guard.SafeDialContext(5*time.Second, 30*time.Second),
 		MaxIdleConns:          200,
@@ -50,13 +52,14 @@ func newProxy(sts *stsClient, guard *upstreamGuard, log zerolog.Logger, maxBytes
 		ForceAttemptHTTP2:     true,
 	}
 	return &proxy{
-		sts:      sts,
-		guard:    guard,
-		client:   &http.Client{Transport: transport},
-		log:      log,
-		maxBytes: maxBytes,
-		bindings: bindings,
-		tracker:  tracker,
+		sts:         sts,
+		guard:       guard,
+		client:      &http.Client{Transport: transport},
+		log:         log,
+		maxBytes:    maxBytes,
+		bindings:    bindings,
+		tracker:     tracker,
+		revocations: revocations,
 	}
 }
 
@@ -94,7 +97,7 @@ func (p *proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		logger.Info().Int("status", http.StatusBadRequest).Msg("denied: missing routing headers")
 		return
 	}
-	clientID, ok := p.bindings.Get(resource)
+	bind, ok := p.bindings.Get(resource)
 	if !ok {
 		writeErr(w, requestID, http.StatusForbidden, sharederr.AccessDenied, "resource not configured")
 		logger.Info().Int("status", http.StatusForbidden).Str("resource", resource).Msg("denied: resource has no client binding")
@@ -108,19 +111,27 @@ func (p *proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	logger = logger.With().
-		Str("client_id", clientID).
+		Str("zone_id", bind.ZoneID).
+		Str("application_id", bind.ApplicationID).
 		Str("resource", resource).
 		Str("subject_fp", tokenFingerprint(bearer)).
 		Logger()
 
-	if !p.tracker.Check(r.Context(), jwtJTI(bearer), exp, requestID, resource, clientID, tokenFingerprint(bearer)) {
+	if !p.tracker.Check(r.Context(), jwtJTI(bearer), exp, jwtUse(bearer), requestID, resource, bind.ApplicationID, tokenFingerprint(bearer)) {
 		writeErr(w, requestID, http.StatusUnauthorized, sharederr.InvalidToken, "token replay detected")
 		logger.Info().Int("status", http.StatusUnauthorized).Msg("denied: jti replay")
 		return
 	}
 
+	sid := jwtSID(bearer)
+	if p.revocations.IsRevoked(sid) {
+		writeErr(w, requestID, http.StatusUnauthorized, sharederr.InvalidToken, "session revoked")
+		logger.Info().Int("status", http.StatusUnauthorized).Str("sid", sid).Msg("denied: session revoked")
+		return
+	}
+
 	stsCtx, cancel := context.WithTimeout(r.Context(), p.sts.client.Timeout)
-	res, status, cerr, internalErr := p.sts.Exchange(stsCtx, bearer, clientID, resource, requestID)
+	res, status, cerr, internalErr := p.sts.Exchange(stsCtx, bearer, bind, resource, requestID)
 	cancel()
 	if cerr != nil {
 		writeErr(w, requestID, status, cerr.Code, cerr.Description)
@@ -132,21 +143,22 @@ func (p *proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	upstreamURL, err := p.guard.Check(res.Upstream)
+	upstreamURL, err := p.guard.Check(res.Upstream.URL)
 	if err != nil {
 		writeErr(w, requestID, http.StatusBadGateway, sharederr.Internal, "upstream not addressable")
-		logger.Error().Err(err).Str("upstream_raw", res.Upstream).Msg("upstream rejected by guard")
+		logger.Error().Err(err).Str("upstream_raw", res.Upstream.URL).Msg("upstream rejected by guard")
 		return
 	}
 	logger = logger.With().
 		Str("upstream_host", upstreamURL.Host).
+		Str("auth_mode", res.Upstream.AuthMode).
 		Dur("sts_latency_ms", res.Latency).
 		Logger()
 
 	body := http.MaxBytesReader(w, r.Body, p.maxBytes)
 	defer body.Close()
 
-	upstreamReq, err := buildUpstreamRequest(r, upstreamURL, res.AccessToken, body, requestID)
+	upstreamReq, err := buildUpstreamRequest(r, upstreamURL, res.AccessToken, res.Upstream, body, requestID)
 	if err != nil {
 		writeErr(w, requestID, http.StatusBadRequest, sharederr.Internal, "upstream request build failed")
 		logger.Error().Err(err).Msg("build upstream request")
@@ -164,7 +176,10 @@ func (p *proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	defer resp.Body.Close()
 
 	stripHopByHop(resp.Header)
-	copyResponse(w, resp)
+	if exp.After(time.Now()) {
+		w.Header().Set("X-Caracal-Token-Expires-In", strconv.FormatInt(int64(time.Until(exp).Seconds()), 10))
+	}
+	copyResponse(w, resp, p.revocations, sid)
 	logger.Info().
 		Int("status", resp.StatusCode).
 		Dur("upstream_latency_ms", time.Since(start)).
@@ -172,9 +187,12 @@ func (p *proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 // buildUpstreamRequest constructs the outbound request with safe headers, joined path,
-// merged query string, and a fresh STS-issued bearer token. The original Authorization
-// header is replaced; Caracal routing headers are stripped.
-func buildUpstreamRequest(r *http.Request, upstreamURL *url.URL, token string, body io.ReadCloser, requestID string) (*http.Request, error) {
+// merged query string, and the credential class STS chose for the resource. For
+// caracal_jwt mode the Caracal STS-issued bearer is forwarded; for provider_oauth /
+// provider_apikey the provider-native credential is substituted into the header the
+// upstream expects, and the Caracal JWT is exposed separately as X-Caracal-Identity so
+// Caracal-aware sidecars can still attribute the call.
+func buildUpstreamRequest(r *http.Request, upstreamURL *url.URL, caracalToken string, directive upstreamDirective, body io.ReadCloser, requestID string) (*http.Request, error) {
 	joinedPath := joinURLPath(upstreamURL.Path, r.URL.Path)
 	mergedQuery, err := mergeQuery(upstreamURL.RawQuery, r.URL.RawQuery)
 	if err != nil {
@@ -196,7 +214,28 @@ func buildUpstreamRequest(r *http.Request, upstreamURL *url.URL, token string, b
 	req.Header.Del("X-Caracal-Client-ID")
 	req.Header.Del("X-Caracal-Resource")
 	req.Header.Del("X-Caracal-Upstream")
-	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Del("X-Caracal-Identity")
+
+	authHeader := directive.AuthHeader
+	if authHeader == "" {
+		authHeader = "Authorization"
+	}
+	switch directive.AuthMode {
+	case "provider_oauth", "provider_apikey":
+		scheme := directive.AuthScheme
+		value := directive.ProviderToken
+		if scheme != "" {
+			value = scheme + " " + value
+		}
+		req.Header.Set(authHeader, value)
+		req.Header.Set("X-Caracal-Identity", caracalToken)
+	default:
+		scheme := directive.AuthScheme
+		if scheme == "" {
+			scheme = "Bearer"
+		}
+		req.Header.Set(authHeader, scheme+" "+caracalToken)
+	}
 	req.Header.Set("X-Request-Id", requestID)
 
 	// Replace, never append: the gateway is a trust boundary and any caller-supplied
@@ -249,8 +288,12 @@ func joinURLPath(upstreamPath, requestPath string) string {
 }
 
 // copyResponse streams the upstream response back to the client, flushing on every chunk
-// so SSE consumers see real-time data without server-side buffering.
-func copyResponse(w http.ResponseWriter, resp *http.Response) {
+// so SSE consumers see real-time data without server-side buffering. Between chunks it
+// consults revocations: if the session id bound to the token is revoked mid-stream the
+// upstream body is closed and the response is truncated. This is the runtime side of
+// Issue K — without it, an attacker holding a leaked token keeps the SSE pipe open
+// indefinitely even after revocation.
+func copyResponse(w http.ResponseWriter, resp *http.Response, revocations *revocationStore, sid string) {
 	for key, vals := range resp.Header {
 		for _, val := range vals {
 			w.Header().Add(key, val)
@@ -264,13 +307,19 @@ func copyResponse(w http.ResponseWriter, resp *http.Response) {
 		return
 	}
 	flusher.Flush()
-	streamCopy(w, resp.Body, flusher)
+	streamCopy(w, resp.Body, flusher, revocations, sid)
 }
 
 // streamCopy reads from src in small chunks and flushes after every successful write.
-func streamCopy(w io.Writer, src io.Reader, flusher http.Flusher) {
+// On every chunk boundary it re-checks the revocation cache for sid and aborts the
+// stream if the session has been revoked while data is in flight.
+func streamCopy(w io.Writer, src io.ReadCloser, flusher http.Flusher, revocations *revocationStore, sid string) {
 	buf := make([]byte, 4*1024)
 	for {
+		if revocations.IsRevoked(sid) {
+			_ = src.Close()
+			return
+		}
 		n, rerr := src.Read(buf)
 		if n > 0 {
 			if _, werr := w.Write(buf[:n]); werr != nil {

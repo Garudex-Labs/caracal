@@ -4,7 +4,6 @@
 // @caracalai/mcp — MCP server auth middleware with PostgresBackend.
 
 export * from './middleware.js'
-export * from './pg-backend.js'
 export {
   getKeySet,
   hasScope,

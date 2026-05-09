@@ -3,42 +3,15 @@
 //
 // Shared helpers for admin-surface CLI subcommands: client bootstrap and IO.
 
-import { existsSync, readFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { readFileSync } from 'node:fs'
 import { AdminClient, AdminApiError } from '@caracalai/admin'
+import { discoverAdminToken } from '@caracalai/core'
 import type { CliConfig } from '../config.ts'
 
 const DEFAULT_API_URL = 'http://localhost:3000'
 const DEFAULT_COORDINATOR_URL = 'http://localhost:4000'
 
-function readEnvFile(path: string): Record<string, string> {
-  if (!existsSync(path)) return {}
-  const out: Record<string, string> = {}
-  for (const line of readFileSync(path, 'utf8').split(/\r?\n/)) {
-    const m = line.match(/^\s*([A-Z_][A-Z0-9_]*)\s*=\s*(.*)\s*$/)
-    if (!m) continue
-    let value = m[2]!
-    if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
-      value = value.slice(1, -1)
-    }
-    out[m[1]!] = value
-  }
-  return out
-}
-
-export function discoverAdminToken(): string | undefined {
-  if (process.env.CARACAL_ADMIN_TOKEN) return process.env.CARACAL_ADMIN_TOKEN
-  const candidates = [
-    process.env.CARACAL_ENV_FILE,
-    join(process.cwd(), 'infra', 'docker', '.env'),
-    join(process.cwd(), '.env'),
-  ].filter((p): p is string => Boolean(p))
-  for (const path of candidates) {
-    const env = readEnvFile(path)
-    if (env.CARACAL_ADMIN_TOKEN) return env.CARACAL_ADMIN_TOKEN
-  }
-  return undefined
-}
+export { discoverAdminToken }
 
 export interface AdminContext {
   client: AdminClient

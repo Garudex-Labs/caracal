@@ -6,6 +6,7 @@
 import type { FastifyPluginAsync } from 'fastify'
 import { z } from 'zod'
 import { v7 as uuidv7 } from 'uuid'
+import { ownsApplication, requireScope } from '../auth.js'
 
 const LIST_DEFAULT_LIMIT = 100
 const LIST_MAX_LIMIT = 500
@@ -38,6 +39,10 @@ export const agentServicesRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.post('/zones/:zoneId/agent-services', async (req, reply) => {
     const { zoneId } = req.params as { zoneId: string }
     const body = ServiceBody.parse(req.body)
+    if (!ownsApplication(req, body.application_id)
+      && !requireScope(req, `coordinator.spawn_for:${body.application_id}`)) {
+      return reply.code(403).send({ error: 'application_ownership_required' })
+    }
     const { rows: applications } = await fastify.db.query(
       `SELECT 1 FROM applications
        WHERE id = $1 AND zone_id = $2 AND archived_at IS NULL
@@ -116,15 +121,21 @@ export const agentServicesRoutes: FastifyPluginAsync = async (fastify) => {
         await client.query('ROLLBACK')
         return reply.code(404).send({ error: 'agent_not_found' })
       }
+      if (!ownsApplication(req, agents[0].application_id)
+        && !requireScope(req, 'coordinator.admin')
+        && !requireScope(req, `coordinator.spawn_for:${agents[0].application_id}`)) {
+        await client.query('ROLLBACK')
+        return reply.code(403).send({ error: 'application_ownership_required' })
+      }
       let service = null
       if (body.service_id) {
         const { rows: svc } = await client.query(
           `UPDATE agent_services
            SET health = $1, metadata_json = $2, last_heartbeat_at = now(), updated_at = now()
-           WHERE id = $3 AND zone_id = $4
+           WHERE id = $3 AND zone_id = $4 AND application_id = $5
            RETURNING id, zone_id, application_id, endpoint_url, protocol_versions,
                      framework_name, framework_version, capabilities, health, metadata_json, last_heartbeat_at`,
-          [body.status, body.metadata, body.service_id, zoneId],
+          [body.status, body.metadata, body.service_id, zoneId, agents[0].application_id],
         )
         if (!svc[0]) {
           await client.query('ROLLBACK')

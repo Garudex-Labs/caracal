@@ -4,6 +4,8 @@
 // Transport-neutral MCP authentication: bearer verify, revocation check, typed result.
 
 import {
+  AgentIdentityRequiredError,
+  DelegationRequiredError,
   ScopeInsufficientError,
   TokenInvalidError,
   ZoneInvalidError,
@@ -17,6 +19,8 @@ export interface AuthDeps {
   audience: string
   zoneId?: string
   requiredScopes?: string[]
+  requireAgent?: boolean
+  requireDelegation?: boolean
   revocations: RevocationStore
 }
 
@@ -37,6 +41,8 @@ export async function authenticate(token: string, deps: AuthDeps): Promise<AuthR
       audience: deps.audience,
       zoneId: deps.zoneId,
       requiredScopes: deps.requiredScopes,
+      requireAgent: deps.requireAgent,
+      requireDelegation: deps.requireDelegation,
     })
     if (claims.sid && (await deps.revocations.isRevoked(claims.sid))) {
       return { ok: false, error: { code: 'session_revoked', description: 'Session revoked' } }
@@ -45,6 +51,12 @@ export async function authenticate(token: string, deps: AuthDeps): Promise<AuthR
   } catch (err) {
     if (err instanceof ScopeInsufficientError) {
       return { ok: false, error: { code: 'insufficient_scope', description: err.message } }
+    }
+    if (err instanceof AgentIdentityRequiredError) {
+      return { ok: false, error: { code: 'agent_required', description: err.message } }
+    }
+    if (err instanceof DelegationRequiredError) {
+      return { ok: false, error: { code: 'delegation_required', description: err.message } }
     }
     if (err instanceof ZoneInvalidError) {
       return { ok: false, error: { code: 'invalid_zone', description: 'Token zone validation failed' } }

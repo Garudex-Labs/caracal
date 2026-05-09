@@ -99,7 +99,7 @@ jobs:
           python=false
           docs=false
 
-          if [[ "$run_all" == 'true' ]] || grep -Eq '^(apps/|tests/typescript/|packages/(admin/ts|transport-a2a/ts|agent-core/ts|oauth/ts|identity/ts|revocation/ts|transport-mcp/ts|framework-adaptor/|runtime-adaptor/|state-backend/|core/ts)/)' changed-files.txt; then
+          if [[ "$run_all" == 'true' ]] || grep -Eq '^(apps/|tests/typescript/|packages/(admin/ts|transport-a2a/ts|oauth/ts|identity/ts|revocation/ts|transport-mcp/ts|framework-adaptor/|runtime-adaptor/|state-backend/|core/ts)/)' changed-files.txt; then
             typescript=true
           fi
 
@@ -167,7 +167,6 @@ jobs:
           pnpm --dir packages/oauth/ts build
           pnpm --dir packages/admin/ts build
           pnpm --dir packages/transport-a2a/ts build
-          pnpm --dir packages/agent-core/ts build
           pnpm --dir packages/identity/ts build
           pnpm --dir packages/revocation/ts build
           pnpm --dir packages/transport-mcp/ts build
@@ -217,7 +216,6 @@ jobs:
           run_pkg packages/core/ts core tests/typescript/unit/shared
           run_pkg packages/admin/ts admin tests/typescript/unit/admin
           run_pkg packages/transport-a2a/ts transport-a2a tests/typescript/unit/transport-a2a
-          run_pkg packages/agent-core/ts agent-core tests/typescript/unit/agent-core
           run_pkg packages/framework-adaptor/agent-crewai/ts agent-crewai tests/typescript/unit/agent-crewai
           run_pkg packages/framework-adaptor/agent-langchain/ts agent-langchain tests/typescript/unit/agent-langchain
           run_pkg packages/oauth/ts oauth tests/typescript/unit/sdk/oauth

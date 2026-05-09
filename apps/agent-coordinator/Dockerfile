@@ -12,6 +12,7 @@ COPY packages/revocation/go/ packages/revocation/go/
 COPY packages/transport-mcp/go/ packages/transport-mcp/go/
 COPY packages/caracalai-mcp/go/ packages/caracalai-mcp/go/
 COPY packages/framework-adaptor/mcp-nethttp/go/ packages/framework-adaptor/mcp-nethttp/go/
+COPY packages/sdk/go/ packages/sdk/go/
 COPY services/sts/ services/sts/
 COPY services/audit/ services/audit/
 COPY services/gateway/ services/gateway/
@@ -26,12 +27,16 @@ WORKDIR /workspace
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY apps/agent-coordinator/package.json apps/agent-coordinator/package.json
 COPY packages/core/ts/package.json packages/core/ts/package.json
+COPY packages/identity/ts/package.json packages/identity/ts/package.json
 RUN npm install -g pnpm@10.28.0 && pnpm install --frozen-lockfile --ignore-scripts --filter @caracalai/agent-coordinator...
 COPY packages/core/ts/tsconfig.json packages/core/ts/tsconfig.json
 COPY packages/core/ts/src packages/core/ts/src
+COPY packages/identity/ts/tsconfig.json packages/identity/ts/tsconfig.json
+COPY packages/identity/ts/src packages/identity/ts/src
 COPY apps/agent-coordinator/tsconfig.json apps/agent-coordinator/tsconfig.json
 COPY apps/agent-coordinator/src/ apps/agent-coordinator/src/
 RUN pnpm --filter @caracalai/core build && \
+    pnpm --filter @caracalai/identity build && \
     pnpm --filter @caracalai/agent-coordinator build && \
     pnpm --filter @caracalai/agent-coordinator deploy --prod --legacy /out
 

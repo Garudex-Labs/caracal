@@ -132,9 +132,6 @@ async def _stream_assistant(run_id, agent_id, model_name, llm, messages) -> AIMe
     return AIMessage(content=text, tool_calls=tool_calls)
 
 
-# ---------- DeepAgents built-ins: planning + files + stages + workers ----------
-
-
 def _build_agent_builtins(run_id: str, agent_id: str, plans: RunPlanStore, files: RunFileStore,
                           board: RunBlackboard, region: str | None = None,
                           stage_state: dict | None = None,
@@ -259,9 +256,6 @@ def _build_agent_builtins(run_id: str, agent_id: str, plans: RunPlanStore, files
     return out
 
 
-# ---------- Regional domain tools ----------
-
-
 def _build_regional_domain_tools(run_id, runner, parent, region):
     """Dynamically-spawned worker tools for a region."""
     region_invoices = [inv for inv in INVOICES if inv.region == region]
@@ -362,9 +356,6 @@ def _build_regional_domain_tools(run_id, runner, parent, region):
     ]
 
 
-# ---------- Turn loop ----------
-
-
 async def _turn_loop(run_id, agent, model_name, llm_with_tools, summarizer, mem, tool_map,
                       *, stage_budget: int, state: dict):
     """Run the assistant turn loop for one agent stage. Independent tool calls
@@ -451,9 +442,6 @@ async def _drive_stages(run_id, agent, model_name, llm_with_tools, summarizer, m
     return state["tool_calls"]
 
 
-# ---------- Regional orchestrator ----------
-
-
 async def _run_regional_orchestrator(run_id, runner, parent, memory_store, plans, files, board,
                                      parent_summary, region, focus, model_name, summarizer_model):
     cfg = get_config()
@@ -509,9 +497,6 @@ async def _run_regional_orchestrator(run_id, runner, parent, memory_store, plans
     ro.end(result)
     ro.terminate("completed")
     return result
-
-
-# ---------- Workflow domain tools ----------
 
 
 def _build_workflow_domain_tools(run_id, runner, parent, workflow_id):
@@ -735,9 +720,6 @@ def _build_workflow_domain_tools(run_id, runner, parent, workflow_id):
     ]
 
 
-# ---------- Workflow orchestrator ----------
-
-
 async def _run_workflow_orchestrator(run_id, runner, parent, memory_store, plans, files, board,
                                      parent_summary, workflow_id, label, focus,
                                      model_name, summarizer_model):
@@ -789,9 +771,6 @@ async def _run_workflow_orchestrator(run_id, runner, parent, memory_store, plans
     wo.end(result)
     wo.terminate("completed")
     return result
-
-
-# ---------- Finance Control tools ----------
 
 
 def _build_fc_domain_tools(run_id, runner, fc, memory_store, plans, files, board, model_name,
@@ -872,9 +851,6 @@ def _build_fc_domain_tools(run_id, runner, fc, memory_store, plans, files, board
         return json.dumps(results)
 
     return [dispatch_region, dispatch_workflow, await_jobs]
-
-
-# ---------- Top-level entry ----------
 
 
 async def run_swarm(run_id: str, prompt: str) -> None:

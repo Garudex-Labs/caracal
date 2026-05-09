@@ -177,9 +177,7 @@ def _run(coro):
     return asyncio.run(coro)
 
 
-# ---------------------------------------------------------------------------
-# 1. Every agent_spawn has exactly one agent_terminate with the same agent_id
-# ---------------------------------------------------------------------------
+# Every agent_spawn has exactly one agent_terminate with the same agent_id
 
 def test_spawn_terminate_pairing(fresh_bus):
     run_id = "test-lifecycle-pairing"
@@ -200,9 +198,7 @@ def test_spawn_terminate_pairing(fresh_bus):
         assert aid in spawns, f"agent_terminate for {aid!r} has no matching agent_spawn"
 
 
-# ---------------------------------------------------------------------------
-# 2. run_end fires only after all agents have terminated
-# ---------------------------------------------------------------------------
+# run_end fires only after all agents have terminated
 
 def test_run_end_after_all_terminates(fresh_bus):
     run_id = "test-run-end-order"
@@ -224,10 +220,8 @@ def test_run_end_after_all_terminates(fresh_bus):
     )
 
 
-# ---------------------------------------------------------------------------
-# 3. Ephemeral agents: payment-execution terminates, no later sibling events
-#    from the same parent before the next non-ephemeral layer begins.
-# ---------------------------------------------------------------------------
+# Ephemeral agents: payment-execution terminates, no later sibling events
+# from the same parent before the next non-ephemeral layer begins.
 
 def test_ephemeral_agents_terminate_completely(fresh_bus):
     run_id = "test-ephemeral"
@@ -254,9 +248,7 @@ def test_ephemeral_agents_terminate_completely(fresh_bus):
         assert aid in terminates, f"Ephemeral payment-execution agent {aid} never terminated"
 
 
-# ---------------------------------------------------------------------------
-# 4. agent_start and agent_end appear between spawn and terminate for every agent
-# ---------------------------------------------------------------------------
+# agent_start and agent_end appear between spawn and terminate for every agent
 
 def test_start_end_within_lifecycle(fresh_bus):
     run_id = "test-lifecycle-order"

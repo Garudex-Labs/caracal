@@ -12,7 +12,7 @@ describe('a2aCall', () => {
   })
 
   it('exchanges the subject token and sends a resource token', async () => {
-    const captured: { auth?: string; clientId?: string; body?: Record<string, unknown> } = {}
+    const captured: { auth?: string; zoneId?: string; applicationId?: string; body?: Record<string, unknown> } = {}
     const fetchMock = vi.fn().mockImplementation(async (url: string, opts: RequestInit) => {
       if (url === 'http://sts:8080/oauth/2/token') {
         const body = opts.body as URLSearchParams
@@ -28,7 +28,8 @@ describe('a2aCall', () => {
       }
       const headers = opts.headers as Record<string, string>
       captured.auth = headers['Authorization']
-      captured.clientId = headers['X-Caracal-Client-ID']
+      captured.zoneId = headers['X-Caracal-Zone-Id']
+      captured.applicationId = headers['X-Caracal-Application-Id']
       captured.body = JSON.parse(String(opts.body)) as Record<string, unknown>
       return {
         ok: true,
@@ -47,12 +48,14 @@ describe('a2aCall', () => {
         delegationEdgeId: 'edge-1',
       },
       'subject-tok',
-      'zone1:app1',
+      'zone1',
+      'app1',
       { stsUrl: 'http://sts:8080' },
     )
 
     expect(captured.auth).toBe('Bearer agent-token')
-    expect(captured.clientId).toBe('zone1:app1')
+    expect(captured.zoneId).toBe('zone1')
+    expect(captured.applicationId).toBe('app1')
     expect(captured.body).toMatchObject({ agentSessionId: 'agent-src', delegationEdgeId: 'edge-1' })
     expect(fetchMock).toHaveBeenCalledTimes(2)
   })
@@ -66,7 +69,8 @@ describe('a2aCall', () => {
       a2aCall(
         { agentUrl: 'http://agent-b:4001', method: 'run', params: {}, requestId: 'req-2' },
         'subject-tok',
-        'zone1:app1',
+        'zone1',
+        'app1',
         { stsUrl: 'http://sts:8080' },
       ),
     ).rejects.toThrow('A2A call failed: 403')
@@ -80,7 +84,8 @@ describe('a2aCall', () => {
     const res = await a2aCall(
       { agentUrl: 'http://agent-b:4001', method: 'query', params: { x: 1 }, requestId: 'req-3' },
       'tok',
-      'zone1:app2',
+      'zone1',
+      'app2',
       { stsUrl: 'http://sts:8080' },
     )
     expect(res).toEqual({ id: 'resp-2', result: { data: 42 } })

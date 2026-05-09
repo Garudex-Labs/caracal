@@ -17,7 +17,7 @@ const POLICY_VERSION_ID = 'local-dev-allow-v1'
 const POLICY_SET_ID = 'local-dev-policy-set'
 const POLICY_SET_VERSION_ID = 'local-dev-policy-set-v1'
 const SIGNING_KEY_ID = 'zone1-signing-key-v1'
-const LOCAL_DEK_ID = 'local-dev'
+const LOCAL_DEK_ID = 'local'
 const ALLOW_POLICY = `package caracal.authz
 result := {"decision": "allow", "evaluation_status": "complete", "determining_policies": [{"policy": "local-dev-allow"}], "diagnostics": []}
 `
@@ -30,6 +30,7 @@ interface BootstrapResult {
   zone_id: string
   app_id: string
   app_client_id: string
+  application_id: string
   app_client_secret: string | null
   resource: string
   scope: string
@@ -93,6 +94,7 @@ export const localBootstrapRoutes: FastifyPluginAsync = async (fastify) => {
         zone_id: ZONE_ID,
         app_id: APP_ID,
         app_client_id: `${ZONE_ID}:${APP_ID}`,
+        application_id: APP_ID,
         app_client_secret: null,
         resource: RESOURCE_NAME,
         scope: 'read',
@@ -180,6 +182,7 @@ export const localBootstrapRoutes: FastifyPluginAsync = async (fastify) => {
       zone_id: ZONE_ID,
       app_id: APP_ID,
       app_client_id: `${ZONE_ID}:${APP_ID}`,
+      application_id: APP_ID,
       app_client_secret: clientSecret,
       resource: RESOURCE_NAME,
       scope: 'read',

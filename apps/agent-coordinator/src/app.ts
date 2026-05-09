@@ -10,6 +10,7 @@ import { agentsRoutes } from './routes/agents.js'
 import { agentServicesRoutes } from './routes/agent-services.js'
 import { delegationsRoutes } from './routes/delegations.js'
 import { invocationsRoutes } from './routes/invocations.js'
+import { v1Routes } from './routes/v1.js'
 import { db } from './db.js'
 import { redis } from './redis.js'
 import { verifyBearer } from './auth.js'
@@ -45,6 +46,7 @@ export async function buildApp() {
   await app.register(agentServicesRoutes)
   await app.register(delegationsRoutes)
   await app.register(invocationsRoutes)
+  await app.register(v1Routes)
   return app
 }
 

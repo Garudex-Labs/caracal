@@ -18,8 +18,8 @@ export interface McpGovernance {
 
 export interface CliConfig {
   zone_url: string
-  zone_id?: string
-  app_client_id: string
+  zone_id: string
+  application_id: string
   app_client_secret: string
   continue_on_failure?: boolean
   credentials?: Credential[]

@@ -8,7 +8,7 @@ packages:
   - 'packages/oauth/ts'
   - 'packages/transport-mcp/ts'
   - 'packages/transport-a2a/ts'
-  - 'packages/agent-core/ts'
+  - 'packages/sdk/ts'
   - 'packages/admin/ts'
   - 'packages/caracalai-mcp/ts'
   - 'packages/framework-adaptor/mcp-express/ts'

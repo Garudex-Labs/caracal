@@ -272,7 +272,7 @@ func (c *Consumer) ack(ctx context.Context, id string) {
 
 func (c *Consumer) toDLQ(ctx context.Context, msg redis.XMessage, reason string) {
 	c.dlqTotal.Add(1)
-	fields := map[string]interface{}{
+	fields := map[string]any{
 		"reason":      reason,
 		"src_id":      msg.ID,
 		"received_at": strconv.FormatInt(time.Now().UnixMilli(), 10),

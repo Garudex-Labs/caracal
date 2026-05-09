@@ -8,7 +8,7 @@ import { ansi, pad, truncate } from '../ansi.ts'
 import { explainError } from '../errors.ts'
 import type { Key } from '../keys.ts'
 import type { App, View, ViewContext } from '../screen.ts'
-import { detailViewFor } from './factory.ts'
+import { DetailView } from './detail.ts'
 
 const POLL_MS = 2_000
 const MAX_ROWS = 500
@@ -142,7 +142,10 @@ export class AuditTailView implements View {
     if (key === 'enter') {
       const ev = this.events[this.cursor]
       if (ev?.request_id) {
-        ctx.app.push(detailViewFor(`audit / ${ev.request_id}`, () => this.client.audit.byRequest(this.zoneId, ev.request_id!)))
+        ctx.app.push(new DetailView({
+          title: `audit / ${ev.request_id}`,
+          load: () => this.client.audit.byRequest(this.zoneId, ev.request_id!),
+        }))
       }
       return
     }

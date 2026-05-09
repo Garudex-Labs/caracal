@@ -8,10 +8,11 @@ import { z } from 'zod'
 import { v7 as uuidv7 } from 'uuid'
 import type { PoolClient } from 'pg'
 import { enqueue, Topics, type Queryable } from '../outbox.js'
+import { ownsApplication, requireScope } from '../auth.js'
 
 const MAX_DEPTH = 10
 const MAX_CHILDREN = 10
-const MAX_TOTAL = 50
+const MAX_PER_APP = 200
 const DEFAULT_TTL = 3600
 const LIST_DEFAULT_LIMIT = 100
 const LIST_MAX_LIMIT = 500
@@ -37,6 +38,10 @@ export const agentsRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.post('/zones/:zoneId/agents', async (req, reply) => {
     const { zoneId } = req.params as { zoneId: string }
     const body = SpawnBody.parse(req.body)
+    if (!ownsApplication(req, body.application_id)
+      && !requireScope(req, `coordinator.spawn_for:${body.application_id}`)) {
+      return reply.code(403).send({ error: 'application_ownership_required' })
+    }
     const id = uuidv7()
     const client = await fastify.db.connect()
     try {
@@ -67,10 +72,11 @@ export const agentsRoutes: FastifyPluginAsync = async (fastify) => {
         return reply.code(404).send({ error: 'session_not_found' })
       }
       const { rows: cnt } = await client.query(
-        `SELECT COUNT(*) AS n FROM agent_sessions WHERE zone_id = $1 AND status = 'active'`,
-        [zoneId],
+        `SELECT COUNT(*) AS n FROM agent_sessions
+         WHERE zone_id = $1 AND application_id = $2 AND status = 'active'`,
+        [zoneId, body.application_id],
       )
-      if (parseInt(cnt[0].n, 10) >= MAX_TOTAL) {
+      if (parseInt(cnt[0].n, 10) >= MAX_PER_APP) {
         await client.query('ROLLBACK')
         return reply.code(429).send({ error: 'agent_limit_exceeded' })
       }
@@ -78,7 +84,7 @@ export const agentsRoutes: FastifyPluginAsync = async (fastify) => {
       let depth = 0
       if (body.parent_id) {
         const { rows: parent } = await client.query(
-          `SELECT depth, child_count, max_children FROM agent_sessions
+          `SELECT depth, child_count, max_children, application_id FROM agent_sessions
            WHERE id = $1 AND zone_id = $2 AND status = 'active'
            FOR UPDATE`,
           [body.parent_id, zoneId],
@@ -86,6 +92,11 @@ export const agentsRoutes: FastifyPluginAsync = async (fastify) => {
         if (!parent[0]) {
           await client.query('ROLLBACK')
           return reply.code(404).send({ error: 'parent_not_found' })
+        }
+        if (parent[0].application_id !== body.application_id
+          && !requireScope(req, `coordinator.spawn_under:${parent[0].application_id}`)) {
+          await client.query('ROLLBACK')
+          return reply.code(403).send({ error: 'parent_ownership_required' })
         }
         if (parent[0].child_count >= parent[0].max_children) {
           await client.query('ROLLBACK')
@@ -181,6 +192,20 @@ export const agentsRoutes: FastifyPluginAsync = async (fastify) => {
     const client = await fastify.db.connect()
     try {
       await client.query('BEGIN')
+      const { rows: own } = await client.query(
+        `SELECT application_id FROM agent_sessions WHERE id = $1 AND zone_id = $2`,
+        [id, zoneId],
+      )
+      if (!own[0]) {
+        await client.query('ROLLBACK')
+        return reply.code(404).send({ error: 'agent_not_found' })
+      }
+      if (!ownsApplication(req, own[0].application_id)
+        && !requireScope(req, 'coordinator.admin')
+        && !requireScope(req, `coordinator.spawn_for:${own[0].application_id}`)) {
+        await client.query('ROLLBACK')
+        return reply.code(403).send({ error: 'application_ownership_required' })
+      }
       const { rows } = await client.query(
         `UPDATE agent_sessions SET status = 'suspended'
          WHERE id = $1 AND zone_id = $2 AND status = 'active'
@@ -209,6 +234,20 @@ export const agentsRoutes: FastifyPluginAsync = async (fastify) => {
     const client = await fastify.db.connect()
     try {
       await client.query('BEGIN')
+      const { rows: own } = await client.query(
+        `SELECT application_id FROM agent_sessions WHERE id = $1 AND zone_id = $2`,
+        [id, zoneId],
+      )
+      if (!own[0]) {
+        await client.query('ROLLBACK')
+        return reply.code(404).send({ error: 'agent_not_found' })
+      }
+      if (!ownsApplication(req, own[0].application_id)
+        && !requireScope(req, 'coordinator.admin')
+        && !requireScope(req, `coordinator.spawn_for:${own[0].application_id}`)) {
+        await client.query('ROLLBACK')
+        return reply.code(403).send({ error: 'application_ownership_required' })
+      }
       const { rows } = await client.query(
         `UPDATE agent_sessions SET status = 'active', last_active_at = now()
          WHERE id = $1 AND zone_id = $2 AND status = 'suspended'
@@ -237,6 +276,20 @@ export const agentsRoutes: FastifyPluginAsync = async (fastify) => {
     const client = await fastify.db.connect()
     try {
       await client.query('BEGIN')
+      const { rows: own } = await client.query(
+        `SELECT application_id FROM agent_sessions WHERE id = $1 AND zone_id = $2`,
+        [id, zoneId],
+      )
+      if (!own[0]) {
+        await client.query('ROLLBACK')
+        return reply.code(404).send({ error: 'agent_not_found' })
+      }
+      if (!ownsApplication(req, own[0].application_id)
+        && !requireScope(req, 'coordinator.admin')
+        && !requireScope(req, `coordinator.spawn_for:${own[0].application_id}`)) {
+        await client.query('ROLLBACK')
+        return reply.code(403).send({ error: 'application_ownership_required' })
+      }
       const terminated = await cascadeTerminate(client, zoneId, id, 'requested')
       if (terminated === 0) {
         await client.query('ROLLBACK')
