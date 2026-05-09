@@ -14,7 +14,7 @@ import (
 	"time"
 )
 
-func TestSTSExchangeReturnsOutcomeForTransportError(t *testing.T) {
+func TestSTSExchangeTransportError(t *testing.T) {
 	c := newSTSClient("http://127.0.0.1:1", 100*time.Millisecond)
 	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
 	defer cancel()
@@ -37,7 +37,7 @@ func TestSTSExchangeReturnsOutcomeForTransportError(t *testing.T) {
 	}
 }
 
-func TestSTSExchangeReturnsOutcomeResultOnSuccess(t *testing.T) {
+func TestSTSExchangeSuccess(t *testing.T) {
 	sts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"access_token":"sts-token","expires_in":300,"upstreams":{"r1":{"url":"https://api.example.com","auth_mode":"caracal_jwt"}}}`))
