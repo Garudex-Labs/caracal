@@ -7,17 +7,36 @@ package identity
 
 // Config configures JWT verification.
 type Config struct {
-	Issuer         string
-	Audience       string
-	ZoneID         string
-	RequiredScopes []string
+	Issuer               string
+	Audience             string
+	ZoneID               string
+	RequiredScopes       []string
+	RequireAgent         bool
+	RequireDelegation    bool
+	RequireChainContains []string
+}
+
+// ChainHop is one step in a delegation chain.
+type ChainHop struct {
+	ApplicationID    string
+	AgentSessionID   string
+	DelegationEdgeID string
 }
 
 // Claims is the validated subset of a Caracal JWT payload.
 type Claims struct {
-	Sub            string
-	ZoneID         string
-	Sid            string
-	Scope          string
-	AgentSessionID string
+	Sub              string
+	ZoneID           string
+	ClientID         string
+	Sid              string
+	Scope            string
+	AgentSessionID   string
+	DelegationEdgeID string
+	SourceSessionID  string
+	TargetSessionID  string
+	DelegationPath   []string
+	DelegationChain  []ChainHop
+	GraphEpoch       int64
+	HopCount         int
+	OnBehalf         string
 }

@@ -5,7 +5,32 @@
 
 from .jwks import JwksCache
 from .scope import has_scope
-from .types import Claims, JwtConfig
-from .verify import verify_token
+from .types import ChainHop, Claims, JwtConfig
+from .verify import (
+    AgentIdentityRequiredError,
+    ChainMismatchError,
+    DelegationRequiredError,
+    ScopeInsufficientError,
+    TokenInvalidError,
+    ZoneInvalidError,
+    verify,
+    verify_chain_contains,
+    verify_token,
+)
 
-__all__ = ["Claims", "JwksCache", "JwtConfig", "has_scope", "verify_token"]
+__all__ = [
+    "AgentIdentityRequiredError",
+    "ChainHop",
+    "ChainMismatchError",
+    "Claims",
+    "DelegationRequiredError",
+    "JwksCache",
+    "JwtConfig",
+    "ScopeInsufficientError",
+    "TokenInvalidError",
+    "ZoneInvalidError",
+    "has_scope",
+    "verify",
+    "verify_chain_contains",
+    "verify_token",
+]

@@ -18,6 +18,12 @@ var ErrTokenInvalid = errors.New("token validation failed")
 // ErrZoneInvalid signals the zone_id claim is missing or did not match Config.ZoneID.
 var ErrZoneInvalid = errors.New("token zone validation failed")
 
+// ErrAgentIdentityRequired signals the token has no agent_session_id.
+var ErrAgentIdentityRequired = errors.New("agent identity required")
+
+// ErrDelegationRequired signals the token has no delegation_edge_id.
+var ErrDelegationRequired = errors.New("delegation required")
+
 // ScopeMissingError signals a required scope is absent from the token.
 type ScopeMissingError struct {
 	Scope string
@@ -25,6 +31,60 @@ type ScopeMissingError struct {
 
 func (e *ScopeMissingError) Error() string {
 	return fmt.Sprintf("missing scope: %s", e.Scope)
+}
+
+// ChainMismatchError signals a required delegation chain application is absent.
+type ChainMismatchError struct {
+	ApplicationID string
+}
+
+func (e *ChainMismatchError) Error() string {
+	return fmt.Sprintf("delegation chain missing application: %s", e.ApplicationID)
+}
+
+func readChain(raw any) []ChainHop {
+	list, ok := raw.([]any)
+	if !ok {
+		return nil
+	}
+	out := make([]ChainHop, 0, len(list))
+	for _, item := range list {
+		m, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		appID, _ := m["app"].(string)
+		if appID == "" {
+			appID, _ = m["application_id"].(string)
+		}
+		if appID == "" {
+			continue
+		}
+		session, _ := m["session"].(string)
+		if session == "" {
+			session, _ = m["agent_session_id"].(string)
+		}
+		edge, _ := m["edge"].(string)
+		if edge == "" {
+			edge, _ = m["delegation_edge_id"].(string)
+		}
+		out = append(out, ChainHop{ApplicationID: appID, AgentSessionID: session, DelegationEdgeID: edge})
+	}
+	return out
+}
+
+func readStringSlice(raw any) []string {
+	list, ok := raw.([]any)
+	if !ok {
+		return nil
+	}
+	out := make([]string, 0, len(list))
+	for _, v := range list {
+		if s, ok := v.(string); ok {
+			out = append(out, s)
+		}
+	}
+	return out
 }
 
 // Verify parses and validates a JWT, returning typed Claims on success.
@@ -58,6 +118,87 @@ func Verify(tokenStr string, cfg Config) (Claims, error) {
 
 	sub, _ := mapClaims["sub"].(string)
 	sid, _ := mapClaims["sid"].(string)
+	clientID, _ := mapClaims["client_id"].(string)
 	agentSessionID, _ := mapClaims["agent_session_id"].(string)
-	return Claims{Sub: sub, ZoneID: zoneID, Sid: sid, Scope: scope, AgentSessionID: agentSessionID}, nil
+	delegationEdgeID, _ := mapClaims["delegation_edge_id"].(string)
+	sourceSessionID, _ := mapClaims["source_session_id"].(string)
+	targetSessionID, _ := mapClaims["target_session_id"].(string)
+	onBehalf, _ := mapClaims["on_behalf"].(string)
+	chain := readChain(mapClaims["delegation_chain"])
+	path := readStringSlice(mapClaims["delegation_path"])
+
+	var graphEpoch int64
+	switch v := mapClaims["delegation_graph_epoch"].(type) {
+	case float64:
+		graphEpoch = int64(v)
+	case int64:
+		graphEpoch = v
+	}
+	if graphEpoch == 0 {
+		switch v := mapClaims["graph_epoch"].(type) {
+		case float64:
+			graphEpoch = int64(v)
+		case int64:
+			graphEpoch = v
+		}
+	}
+	var hopCount int
+	switch v := mapClaims["hop_count"].(type) {
+	case float64:
+		hopCount = int(v)
+	case int64:
+		hopCount = int(v)
+	}
+
+	if cfg.RequireAgent && agentSessionID == "" {
+		return Claims{}, ErrAgentIdentityRequired
+	}
+	if cfg.RequireDelegation && delegationEdgeID == "" {
+		return Claims{}, ErrDelegationRequired
+	}
+	for _, expected := range cfg.RequireChainContains {
+		present := onBehalf == expected
+		if !present {
+			for _, hop := range chain {
+				if hop.ApplicationID == expected {
+					present = true
+					break
+				}
+			}
+		}
+		if !present {
+			return Claims{}, &ChainMismatchError{ApplicationID: expected}
+		}
+	}
+
+	return Claims{
+		Sub:              sub,
+		ZoneID:           zoneID,
+		ClientID:         clientID,
+		Sid:              sid,
+		Scope:            scope,
+		AgentSessionID:   agentSessionID,
+		DelegationEdgeID: delegationEdgeID,
+		SourceSessionID:  sourceSessionID,
+		TargetSessionID:  targetSessionID,
+		DelegationPath:   path,
+		DelegationChain:  chain,
+		GraphEpoch:       graphEpoch,
+		HopCount:         hopCount,
+		OnBehalf:         onBehalf,
+	}, nil
+}
+
+// VerifyChainContains reports whether the claims include the given application
+// either as an issuing party or in the delegation chain.
+func VerifyChainContains(claims Claims, applicationID string) bool {
+	if claims.ClientID == applicationID || claims.OnBehalf == applicationID {
+		return true
+	}
+	for _, hop := range claims.DelegationChain {
+		if hop.ApplicationID == applicationID {
+			return true
+		}
+	}
+	return false
 }
