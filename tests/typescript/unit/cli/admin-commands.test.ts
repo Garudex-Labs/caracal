@@ -31,7 +31,7 @@ describe('CLI commands (e2e against stubbed fetch)', () => {
   let exit: ReturnType<typeof vi.spyOn>
 
   beforeEach(() => {
-    process.env = { ...ORIG_ENV, CARACAL_ADMIN_TOKEN: 'secret', CARACAL_API_URL: 'http://api', CARACAL_ZONE_ID: 'z1' }
+    process.env = { ...ORIG_ENV, CARACAL_ADMIN_TOKEN: 'secret', CARACAL_API_URL: 'http://api', CARACAL_COORDINATOR_URL: 'http://coordinator', CARACAL_ZONE_ID: 'z1' }
     delete process.env.CARACAL_COORDINATOR_TOKEN
     stdout = vi.spyOn(process.stdout, 'write').mockImplementation(() => true)
     stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true)

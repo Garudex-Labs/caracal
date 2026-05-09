@@ -7,6 +7,10 @@
   },
   "scripts": {
     "caracal": "node apps/cli/bin/caracal-workspace.mjs",
+    "build:typescript": "pnpm --dir packages/core/ts build && pnpm --dir packages/oauth/ts build && pnpm --dir packages/admin/ts build && pnpm --dir packages/transport-a2a/ts build && pnpm --dir packages/identity/ts build && pnpm --dir packages/revocation/ts build && pnpm --dir packages/transport-mcp/ts build && pnpm --dir packages/framework-adaptor/mcp-express/ts build && pnpm --dir packages/framework-adaptor/mcp-fastmcp/ts build && pnpm --dir packages/framework-adaptor/agent-crewai/ts build && pnpm --dir packages/framework-adaptor/agent-langchain/ts build && pnpm --dir packages/state-backend/tokenstate-postgres/ts build && pnpm --dir packages/state-backend/tokencache-cloudflare/ts build && pnpm --dir packages/runtime-adaptor/cloudflare/ts build && pnpm --dir apps/api build && pnpm --dir apps/agent-coordinator build",
+    "lint": "pnpm -r --if-present lint",
+    "typecheck": "pnpm -r --if-present typecheck",
+    "ci": "pnpm --dir apps/cli sync-embedded && pnpm run build:typescript && pnpm run lint && pnpm run typecheck && pnpm run test",
     "test": "pnpm run test:typescript && pnpm run test:go && pnpm run test:python",
     "test:go": "go test ./packages/core/go/... ./services/sts/... ./services/audit/... ./services/gateway/... ./apps/agent-coordinator/relay/... ./packages/transport-mcp/go/... ./packages/framework-adaptor/mcp-nethttp/go/...",
     "test:python": "PYTHONPATH=packages/identity/python:packages/revocation/python:packages/transport-mcp/python:packages/framework-adaptor/mcp-fastmcp/python python -m unittest discover -s tests/python -p 'test_*.py'",
