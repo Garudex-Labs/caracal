@@ -55,7 +55,7 @@ type stsResult struct {
 }
 
 // exchangeOutcome captures all Exchange outputs in a single return value.
-// Exactly one of Result or errors should be set by callers of Exchange.
+// Exactly one of Result or errors should be set by Exchange.
 type exchangeOutcome struct {
 	Result        *stsResult
 	StatusCode    int
@@ -97,7 +97,6 @@ func (c *stsClient) Exchange(ctx context.Context, subjectToken string, bind bind
 		c.url+"/oauth/2/token", strings.NewReader(form.Encode()))
 	if err != nil {
 		return &exchangeOutcome{
-			Result:        nil,
 			StatusCode:    http.StatusInternalServerError,
 			BusinessError: sharederr.New(sharederr.STSUnavailable, "sts request build failed"),
 			InternalError: err,
@@ -116,7 +115,6 @@ func (c *stsClient) Exchange(ctx context.Context, subjectToken string, bind bind
 	if err != nil {
 		status, code, msg := classifySTSTransportError(err)
 		return &exchangeOutcome{
-			Result:        nil,
 			StatusCode:    status,
 			BusinessError: sharederr.New(code, msg),
 			InternalError: err,
@@ -129,14 +127,12 @@ func (c *stsClient) Exchange(ctx context.Context, subjectToken string, bind bind
 		body := io.LimitReader(resp.Body, stsErrorBodyLimit)
 		if err := json.NewDecoder(body).Decode(&e); err == nil && e.Code != "" {
 			return &exchangeOutcome{
-				Result:        nil,
 				StatusCode:    resp.StatusCode,
 				BusinessError: &e,
 				InternalError: fmt.Errorf("sts %d: %s", resp.StatusCode, e.Code),
 			}
 		}
 		return &exchangeOutcome{
-			Result:        nil,
 			StatusCode:    resp.StatusCode,
 			BusinessError: sharederr.New(sharederr.STSUnavailable, http.StatusText(resp.StatusCode)),
 			InternalError: fmt.Errorf("sts non-200 status: %d", resp.StatusCode),
@@ -145,7 +141,6 @@ func (c *stsClient) Exchange(ctx context.Context, subjectToken string, bind bind
 	var tr tokenResponse
 	if err := json.NewDecoder(io.LimitReader(resp.Body, stsErrorBodyLimit)).Decode(&tr); err != nil {
 		return &exchangeOutcome{
-			Result:        nil,
 			StatusCode:    http.StatusBadGateway,
 			BusinessError: sharederr.New(sharederr.STSUnavailable, "sts response invalid"),
 			InternalError: err,
@@ -153,7 +148,6 @@ func (c *stsClient) Exchange(ctx context.Context, subjectToken string, bind bind
 	}
 	if tr.AccessToken == "" {
 		return &exchangeOutcome{
-			Result:        nil,
 			StatusCode:    http.StatusBadGateway,
 			BusinessError: sharederr.New(sharederr.STSUnavailable, "sts response invalid"),
 			InternalError: fmt.Errorf("sts returned empty access_token"),
@@ -162,17 +156,14 @@ func (c *stsClient) Exchange(ctx context.Context, subjectToken string, bind bind
 	upstream, ok := tr.Upstreams[resource]
 	if !ok || upstream.URL == "" {
 		return &exchangeOutcome{
-			Result:        nil,
 			StatusCode:    http.StatusForbidden,
 			BusinessError: sharederr.New(sharederr.AccessDenied, "resource upstream not configured"),
 			InternalError: fmt.Errorf("resource %q not in upstreams", resource),
 		}
 	}
 	return &exchangeOutcome{
-		Result:        &stsResult{AccessToken: tr.AccessToken, Upstream: upstream, Latency: latency},
-		StatusCode:    http.StatusOK,
-		BusinessError: nil,
-		InternalError: nil,
+		Result:     &stsResult{AccessToken: tr.AccessToken, Upstream: upstream, Latency: latency},
+		StatusCode: http.StatusOK,
 	}
 }
 
