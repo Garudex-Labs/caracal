@@ -179,6 +179,37 @@ importers:
         specifier: ^3.0.0
         version: 3.2.4(@types/debug@4.1.13)(@types/node@24.12.2)(tsx@4.21.0)(yaml@2.8.4)
 
+  packages/caracalai-mcp/ts:
+    dependencies:
+      '@caracalai/core':
+        specifier: workspace:*
+        version: link:../../core/ts
+      '@caracalai/identity':
+        specifier: workspace:*
+        version: link:../../identity/ts
+      '@caracalai/revocation':
+        specifier: workspace:*
+        version: link:../../revocation/ts
+      pg:
+        specifier: ^8.14.1
+        version: 8.20.0
+    devDependencies:
+      '@types/express':
+        specifier: ^5.0.0
+        version: 5.0.6
+      '@types/node':
+        specifier: ^24.0.0
+        version: 24.12.2
+      '@types/pg':
+        specifier: ^8.11.10
+        version: 8.20.0
+      typescript:
+        specifier: ^5.8.0
+        version: 5.9.3
+      vitest:
+        specifier: ^3.0.0
+        version: 3.2.4(@types/debug@4.1.13)(@types/node@24.12.2)(tsx@4.21.0)(yaml@2.8.4)
+
   packages/core/ts:
     devDependencies:
       '@types/node':

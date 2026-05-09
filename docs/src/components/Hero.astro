@@ -32,7 +32,10 @@ const actions = hero?.actions ?? []
 
 {
   useCustom ? (
-    <section class="landing-hero" aria-label="Caracal documentation hero">
+    <section id="home" class="landing-hero" aria-label="Caracal documentation hero">
+      <div class="landing-hero__bg" aria-hidden="true">
+        <div class="landing-hero__glow" />
+      </div>
       <div class="landing-hero__content">
         <p class="landing-hero__eyebrow">{eyebrow}</p>
         <h1 class="landing-hero__title" set:html={title} />
@@ -57,7 +60,8 @@ const actions = hero?.actions ?? []
 
 <script>
   const node = document.querySelector<HTMLElement>('.hero-rotator')
-  if (node && !window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+  const motionQuery = window.matchMedia('(prefers-reduced-motion: reduce)')
+  if (node && !motionQuery.matches) {
     const words = (node.dataset.words ?? '').split(',').map((w) => w.trim()).filter(Boolean)
     if (words.length > 0) {
       const typeMs = 70
@@ -66,21 +70,28 @@ const actions = hero?.actions ?? []
       let wordIndex = 0
       let charIndex = 0
       let phase: 'type' | 'hold' | 'erase' = 'type'
+      let timer: number | undefined
+      let paused = false
+
+      const schedule = (delay: number) => {
+        timer = window.setTimeout(tick, delay)
+      }
 
       const tick = () => {
+        if (paused) return
         const word = words[wordIndex]
         if (phase === 'type') {
           charIndex += 1
           node.textContent = word.slice(0, charIndex)
           if (charIndex === word.length) {
             phase = 'hold'
-            window.setTimeout(tick, holdMs)
+            schedule(holdMs)
             return
           }
-          window.setTimeout(tick, typeMs)
+          schedule(typeMs)
         } else if (phase === 'hold') {
           phase = 'erase'
-          window.setTimeout(tick, eraseMs)
+          schedule(eraseMs)
         } else {
           charIndex -= 1
           node.textContent = word.slice(0, charIndex)
@@ -88,9 +99,20 @@ const actions = hero?.actions ?? []
             wordIndex = (wordIndex + 1) % words.length
             phase = 'type'
           }
-          window.setTimeout(tick, eraseMs)
+          schedule(eraseMs)
         }
       }
+
+      const onVisibility = () => {
+        if (document.hidden) {
+          paused = true
+          if (timer !== undefined) window.clearTimeout(timer)
+        } else if (paused) {
+          paused = false
+          schedule(typeMs)
+        }
+      }
+      document.addEventListener('visibilitychange', onVisibility)
 
       node.textContent = ''
       tick()
