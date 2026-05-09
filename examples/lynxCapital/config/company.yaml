@@ -124,18 +124,101 @@ workflows:
   - id: "vendorLifecycle"
     label: "Vendor Lifecycle"
     focus: "Onboard, screen, and maintain vendor records: KYB, contract terms, banking details, ongoing compliance refresh."
+    stages:
+      - id: "intake"
+        label: "Intake"
+        intent: "Collect candidate vendor identifiers and basic profile data."
+      - id: "kyb"
+        label: "KYB"
+        intent: "Run KYB screening; gate on cleared status before continuing."
+      - id: "contract"
+        label: "Contract"
+        intent: "Pull or negotiate contract terms; validate approved rails."
+      - id: "register"
+        label: "Register"
+        intent: "Register the vendor in the master and capture banking details."
+      - id: "activate"
+        label: "Activate"
+        intent: "Refresh compliance, run a trial transaction, and seal an audit record."
   - id: "treasury"
     label: "Treasury"
     focus: "Cash position across accounts, FX exposure hedging, liquidity forecasting, intra-company funding moves."
+    stages:
+      - id: "assess"
+        label: "Assess"
+        intent: "Snapshot cash position across regions."
+      - id: "forecast"
+        label: "Forecast"
+        intent: "Forecast 7/30/90-day liquidity and identify shortfalls."
+      - id: "hedge"
+        label: "Hedge"
+        intent: "Place FX hedges against material exposures."
+      - id: "fund"
+        label: "Fund"
+        intent: "Move cash between regions to cover forecast shortfalls."
+      - id: "reconcile"
+        label: "Reconcile"
+        intent: "Confirm transfer settlement and audit-record the cycle."
   - id: "close"
     label: "Period Close"
     focus: "Account reconciliation, accrual computation, journal entry posting, sub-ledger to GL tie-out for the close cycle."
+    stages:
+      - id: "extract"
+        label: "Extract"
+        intent: "Extract sub-ledger balances and pending transactions for the period."
+      - id: "reconcile"
+        label: "Reconcile"
+        intent: "Reconcile each cash and key GL account; flag variances for replanning."
+      - id: "accrue"
+        label: "Accrue"
+        intent: "Compute accruals for payroll, interest, utilities."
+      - id: "post"
+        label: "Post"
+        intent: "Post adjusting journal entries."
+      - id: "close"
+        label: "Close"
+        intent: "Lock the period."
+      - id: "file"
+        label: "File"
+        intent: "Prepare regulatory filings driven by the closed period."
   - id: "compliance"
     label: "Compliance & Risk"
     focus: "AML transaction monitoring, sanctions screening at scale, regulatory filing preparation, control attestations."
+    stages:
+      - id: "monitor"
+        label: "Monitor"
+        intent: "AML-screen the day's flagged transactions."
+      - id: "screen"
+        label: "Screen"
+        intent: "Run a batch sanctions screen across the active vendor list."
+      - id: "investigate"
+        label: "Investigate"
+        intent: "Triage hits; replan if escalations or false-positive patterns appear."
+      - id: "file"
+        label: "File"
+        intent: "Prepare jurisdictional filings (FinCEN-CTR, BACEN-RDE, MAS-FATCA, etc.)."
+      - id: "attest"
+        label: "Attest"
+        intent: "Attest SOX/internal controls and seal the audit record."
   - id: "receivables"
     label: "Receivables"
     focus: "Customer invoicing, dunning on overdue balances, cash application, AR aging analysis."
+    stages:
+      - id: "invoice"
+        label: "Invoice"
+        intent: "Issue customer invoices for the cycle."
+      - id: "age"
+        label: "Age"
+        intent: "Pull AR aging buckets to identify overdue accounts."
+      - id: "dun"
+        label: "Dun"
+        intent: "Send dunning notices at the appropriate stage; escalate as needed."
+      - id: "apply"
+        label: "Apply"
+        intent: "Apply received customer payments against open invoices."
+      - id: "report"
+        label: "Report"
+        intent: "Summarize cycle outcomes and seal an audit record."
 
 scenario:
   invoices: 4200
@@ -172,8 +255,9 @@ prompts:
     1. FIRST TURN: call write_todos with a concrete list of steps specific to what was requested. Mark the first step in_progress. Do not call domain tools on the first turn.
     2. EACH FOLLOWING TURN: write one short prose sentence stating what you are about to do, then call the next tool. After a result comes back, write one sentence interpreting it, then update write_todos or call the next domain tool.
     3. DOMAIN TOOLS:
-       - dispatch_region(region, focus): hand off to a Regional Orchestrator. Use exactly: US, IN, DE, SG, BR. You may dispatch multiple regions in the same turn; they run in parallel.
-       - dispatch_workflow(workflow_id, focus): hand off to a Workflow Orchestrator for company-level operations. Valid workflow_id values: vendorLifecycle, treasury, close, compliance, receivables. Use this for non-payout work like vendor onboarding, period close, treasury management, AML monitoring, or AR. Multiple workflows may run in parallel.
+       - dispatch_region(region, focus): hand off to a Regional Orchestrator. Returns a job_id IMMEDIATELY (non-blocking). You MUST call await_jobs([job_id, ...]) before relying on results. Use exactly: US, IN, DE, SG, BR.
+       - dispatch_workflow(workflow_id, focus): hand off to a Workflow Orchestrator. Returns a job_id IMMEDIATELY (non-blocking). You MUST call await_jobs([job_id, ...]) before relying on results. Valid workflow_id values: vendorLifecycle, treasury, close, compliance, receivables.
+       - await_jobs(job_ids, timeout_s=120): wait until job_ids complete or timeout. Use ONE await_jobs call per parallel batch. Returns a JSON array of {job_id, status, result|error}.
        - write_file(path, content), read_file(path), ls_files(): offload large results or pass context forward.
     4. FINAL TURN: mark all todos completed via write_todos, then output one short paragraph summarizing what was processed. Do not call tools on the final turn.
 
@@ -187,6 +271,14 @@ prompts:
     - "AML check", "sanctions screen", "regulatory filing", "control attestation" → compliance
     - "send customer invoice", "dunning", "AR aging", "apply payment" → receivables
     The dispatch_workflow result returns the same shape as dispatch_region. Treat workflow failures the same way as regional failures.
+
+    LONG-HORIZON EXECUTION
+    Real company work spans many turns. Pace yourself:
+    - Declare phases with start_stage(name, intent) and complete_stage(name, summary). complete_stage exits the current turn loop and lets you begin a fresh stage on the next call.
+    - Between stages, post_finding(kind, content) so sub-orchestrators can see what you decided.
+    - Dispatch is non-blocking: every dispatch_region/dispatch_workflow returns a job_id. To act on results you MUST follow up with await_jobs([...]). Issue several dispatches in one turn, then a single await_jobs to fan-in.
+    - When stage outcomes invalidate the plan, call replan(reason, todos) instead of forcing the original plan through.
+    - Use acquire_worker(role, scope) when you need a long-lived sub-agent that handles several follow-up actions; release_worker(worker_id, summary) when done.
 
     PARTIAL FAILURE
     A tool result may contain {"error": "..."}. This means that step failed. When this happens:
@@ -238,6 +330,13 @@ prompts:
     - Never retry a failed tool in the same run.
     - Record all outcomes in record_audit at the end.
 
+    LONG-HORIZON EXECUTION
+    Use stages to pace multi-step work across turns:
+    - start_stage(name, intent) declares the current phase. complete_stage(name, summary) ends it, posts a stage finding to the shared blackboard, and exits the current turn loop so a fresh budget starts on the next stage.
+    - Between stages, call post_finding(kind, content) so durable state survives memory compaction and is visible to siblings.
+    - Use acquire_worker(role, scope) when one delegated task spans several follow-up tool calls; release_worker(worker_id, summary) when done. Atomic single-call work does not need acquire/release.
+    - Call replan(reason, todos) when a stage outcome invalidates the plan; do not force the original plan through.
+
     Real services are executed; you are not simulating. Be concise, plain prose, no emojis.
 
   workflowOrchestrator: |
@@ -262,5 +361,12 @@ prompts:
 
     PARTIAL FAILURE
     If a tool returns {{"error": "..."}}, skip that step and continue with the next planned tool. Record outcomes in record_audit at the end.
+
+    LONG-HORIZON EXECUTION
+    The configured stages for this workflow are passed to you in {focus} or referenced by id. Pace yourself:
+    - start_stage(name, intent) declares the current phase; complete_stage(name, summary) ends it, posts a stage finding to the shared blackboard, and exits the current turn loop so the next stage begins with a fresh budget.
+    - Between stages, call post_finding(kind, content) so durable cross-stage state lives on the blackboard rather than in compactable memory. read_findings() pulls back what prior stages recorded.
+    - Use acquire_worker(role, scope) for multi-step delegated tasks within a stage; release_worker(worker_id, summary) when done.
+    - Call replan(reason, todos) when a stage outcome invalidates the plan.
 
     Real services are executed; you are not simulating. Be concise, plain prose, no emojis.

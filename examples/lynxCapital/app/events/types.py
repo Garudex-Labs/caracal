@@ -194,3 +194,45 @@ def tool_retry(run_id: str, agent_id: str, tool_name: str, attempt: int, error: 
 
 def run_cancelled(run_id: str) -> Event:
     return _mk(run_id, "system", "run_cancelled")
+
+
+def stage_start(run_id: str, agent_id: str, stage: str, intent: str) -> Event:
+    return _mk(run_id, "system", "stage_start", agent_id=agent_id, stage=stage, intent=intent)
+
+
+def stage_end(run_id: str, agent_id: str, stage: str, summary: str) -> Event:
+    return _mk(run_id, "system", "stage_end", agent_id=agent_id, stage=stage, summary=summary)
+
+
+def replan(run_id: str, agent_id: str, reason: str, revision: int) -> Event:
+    return _mk(run_id, "system", "replan", agent_id=agent_id, reason=reason, revision=revision)
+
+
+def worker_acquire(run_id: str, agent_id: str, worker_id: str, role: str, scope: str) -> Event:
+    return _mk(
+        run_id, "system", "worker_acquire",
+        agent_id=agent_id, worker_id=worker_id, role=role, scope=scope,
+    )
+
+
+def worker_release(run_id: str, agent_id: str, worker_id: str, result: dict) -> Event:
+    return _mk(
+        run_id, "system", "worker_release",
+        agent_id=agent_id, worker_id=worker_id, result=result,
+    )
+
+
+def job_started(run_id: str, agent_id: str, job_id: str, kind: str, target: str) -> Event:
+    return _mk(
+        run_id, "system", "job_started",
+        agent_id=agent_id, job_id=job_id, job_kind=kind, target=target,
+    )
+
+
+def job_completed(run_id: str, agent_id: str, job_id: str, status: str, result: dict,
+                  kind: str = "", target: str = "") -> Event:
+    return _mk(
+        run_id, "system", "job_completed",
+        agent_id=agent_id, job_id=job_id, status=status, result=result,
+        job_kind=kind, target=target,
+    )

@@ -83,6 +83,27 @@ class _FakeLLM:
                     for r in ("US", "IN", "DE", "SG", "BR")
                 ]
                 yield AIMessageChunk(content="Dispatching regions.", tool_calls=tool_calls)
+            elif self._turn == 3:
+                import json as _json
+                from langchain_core.messages import ToolMessage
+                job_ids: list[str] = []
+                for m in messages:
+                    if isinstance(m, ToolMessage):
+                        try:
+                            d = _json.loads(str(m.content))
+                        except Exception:
+                            continue
+                        if isinstance(d, dict) and "job_id" in d:
+                            job_ids.append(d["job_id"])
+                yield AIMessageChunk(
+                    content="Awaiting region jobs.",
+                    tool_calls=[{
+                        "name": "await_jobs",
+                        "args": {"job_ids": job_ids, "timeout_s": 60},
+                        "id": "fc-await",
+                        "type": "tool_call",
+                    }],
+                )
             else:
                 yield AIMessageChunk(content="All regions completed.")
             return

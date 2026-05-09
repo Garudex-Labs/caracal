@@ -2,7 +2,7 @@
 Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 Caracal, a product of Garudex Labs
 
-LLM-driven orchestration with DeepAgents-style planning, file-backed memory, streaming, compaction, and cancellation.
+LLM-driven orchestration with stages, replanning, long-lived workers, background dispatch, file-backed memory, streaming, compaction, and cancellation.
 """
 from __future__ import annotations
 
@@ -23,10 +23,12 @@ from app.core.blackboard import RunBlackboard
 from app.core.cancellation import cancellation
 from app.core.dataset import INVOICES, REGIONS, VENDORS
 from app.core.files import RunFileStore
+from app.core.jobs import JobRegistry
 from app.core.memory import AgentMemory, RunMemoryStore, context_limit
 from app.core.plans import RunPlanStore
 from app.core.session_memory import RunRecord, session_memory
 from app.core.settings import settings
+from app.core.workers import WorkerPool
 from app.events import types as ev
 from app.events.bus import bus
 
@@ -39,6 +41,8 @@ if not log.handlers:
 
 
 REGION_IDS = ("US", "IN", "DE", "SG", "BR")
+STAGE_BUDGET = 12
+TOTAL_BUDGET = 60
 
 
 class RunCancelled(Exception):
@@ -128,13 +132,16 @@ async def _stream_assistant(run_id, agent_id, model_name, llm, messages) -> AIMe
     return AIMessage(content=text, tool_calls=tool_calls)
 
 
-# ---------- DeepAgents built-ins: planning + files ----------
+# ---------- DeepAgents built-ins: planning + files + stages + workers ----------
 
 
 def _build_agent_builtins(run_id: str, agent_id: str, plans: RunPlanStore, files: RunFileStore,
-                          board: RunBlackboard, region: str | None = None):
-    """Planning, file, and blackboard tools scoped to one agent_id so events
-    carry correct attribution."""
+                          board: RunBlackboard, region: str | None = None,
+                          stage_state: dict | None = None,
+                          worker_pool: WorkerPool | None = None):
+    """Planning, file, blackboard, stage, and worker tools scoped to one
+    agent_id so events carry correct attribution. stage_state and worker_pool
+    are only provided for orchestrators."""
 
     @tool
     def write_todos(todos: list) -> str:
@@ -191,7 +198,65 @@ def _build_agent_builtins(run_id: str, agent_id: str, plans: RunPlanStore, files
         items = board.read(kind=kind or None, region=region_filter or None, limit=limit)
         return json.dumps([f.as_dict() for f in items])
 
-    return [write_todos, write_file, read_file, ls_files, post_finding, read_findings]
+    out = [write_todos, write_file, read_file, ls_files, post_finding, read_findings]
+
+    if stage_state is not None:
+        @tool
+        def start_stage(name: str, intent: str) -> str:
+            """Declare the start of a stage. `name` is a short stage id
+            (e.g. 'extract', 'reconcile'); `intent` is one sentence on what
+            this stage will accomplish."""
+            stage_state["current"] = name
+            bus.publish(ev.stage_start(run_id, agent_id, name, intent))
+            return json.dumps({"ok": True, "stage": name})
+
+        @tool
+        def complete_stage(name: str, summary: str) -> str:
+            """End the current stage. Posts a 'stage' finding to the
+            blackboard with the summary and exits the current turn loop so a
+            fresh budget begins on the next stage."""
+            board.post(agent_id, region, "stage", f"{name}: {summary[:500]}")
+            bus.publish(ev.stage_end(run_id, agent_id, name, summary))
+            stage_state["stage_done"] = True
+            stage_state["current"] = None
+            return json.dumps({"ok": True, "stage": name})
+
+        @tool
+        def replan(reason: str, todos: list) -> str:
+            """Replace the plan when stage outcomes invalidate it. `reason` is
+            one sentence describing why; `todos` is the new task list (same
+            shape as write_todos)."""
+            if isinstance(todos, dict):
+                todos = todos.get("items", todos.get("todos", []))
+            plan = plans.write(agent_id, todos)
+            bus.publish(ev.replan(run_id, agent_id, reason, plan.revision))
+            bus.publish(ev.plan_update(
+                run_id=run_id, agent_id=agent_id,
+                todos=plan.as_list(), revision=plan.revision,
+            ))
+            return json.dumps({"ok": True, "revision": plan.revision, "reason": reason})
+
+        out.extend([start_stage, complete_stage, replan])
+
+    if worker_pool is not None:
+        @tool
+        def acquire_worker(role: str, scope: str) -> str:
+            """Spawn a long-lived worker that stays alive across multiple tool
+            calls. Returns the worker_id; use release_worker(worker_id, summary)
+            when the delegated task is done."""
+            w = worker_pool.acquire(role, scope)
+            return json.dumps({"worker_id": w.id, "role": role, "scope": scope})
+
+        @tool
+        def release_worker(worker_id: str, summary: str) -> str:
+            """End and terminate a worker previously created with
+            acquire_worker. `summary` records what the worker accomplished."""
+            ok = worker_pool.release(worker_id, {"summary": summary[:400]})
+            return json.dumps({"ok": ok, "worker_id": worker_id})
+
+        out.extend([acquire_worker, release_worker])
+
+    return out
 
 
 # ---------- Regional domain tools ----------
@@ -300,17 +365,24 @@ def _build_regional_domain_tools(run_id, runner, parent, region):
 # ---------- Turn loop ----------
 
 
-async def _turn_loop(run_id, agent, model_name, llm_with_tools, summarizer, mem, tool_map, max_turns):
-    """Run the assistant turn loop for one agent. Independent tool calls in a
-    single turn are executed concurrently, with bounded retries on transient
-    exceptions. Returns total tool calls executed."""
-    tool_calls_total = 0
-    for _turn in range(max_turns):
+async def _turn_loop(run_id, agent, model_name, llm_with_tools, summarizer, mem, tool_map,
+                      *, stage_budget: int, state: dict):
+    """Run the assistant turn loop for one agent stage. Independent tool calls
+    in a single turn are executed concurrently, with bounded retries on
+    transient exceptions. Honors stage_budget and state['total_used'] /
+    state['stage_done'] / state['total_budget']. Increments state['tool_calls']."""
+    total_budget = state.get("total_budget", TOTAL_BUDGET)
+    for _ in range(stage_budget):
+        if state["total_used"] >= total_budget:
+            break
+        if state.get("stage_done"):
+            break
         _check_cancel(run_id)
         await _maybe_compact(run_id, mem, summarizer)
         ai_msg = await _stream_assistant(run_id, agent.id, model_name, llm_with_tools, mem.as_prompt())
         mem.append(ai_msg)
         _emit_memory_snapshot(run_id, mem)
+        state["total_used"] += 1
         if not ai_msg.tool_calls:
             break
 
@@ -350,9 +422,33 @@ async def _turn_loop(run_id, agent, model_name, llm_with_tools, summarizer, mem,
         for tc, name, result_str in results:
             mem.append(ToolMessage(content=result_str, tool_call_id=tc["id"]))
             if name is not None:
-                tool_calls_total += 1
+                state["tool_calls"] = state.get("tool_calls", 0) + 1
         _emit_memory_snapshot(run_id, mem)
-    return tool_calls_total
+        if state.get("stage_done"):
+            break
+    return state.get("tool_calls", 0)
+
+
+async def _drive_stages(run_id, agent, model_name, llm_with_tools, summarizer, mem, tool_map,
+                         *, stage_budget: int = STAGE_BUDGET, total_budget: int = TOTAL_BUDGET):
+    """Run successive stages until the LLM stops requesting tools or budgets
+    are exhausted. Each call to complete_stage exits the inner turn loop so a
+    new stage starts with a fresh budget."""
+    state = {"total_used": 0, "tool_calls": 0, "stage_done": False, "current": None,
+             "total_budget": total_budget}
+    while state["total_used"] < total_budget:
+        state["stage_done"] = False
+        before = state["total_used"]
+        await _turn_loop(
+            run_id=run_id, agent=agent, model_name=model_name,
+            llm_with_tools=llm_with_tools, summarizer=summarizer,
+            mem=mem, tool_map=tool_map, stage_budget=stage_budget, state=state,
+        )
+        if not state["stage_done"]:
+            break
+        if state["total_used"] == before:
+            break
+    return state["tool_calls"]
 
 
 # ---------- Regional orchestrator ----------
@@ -371,37 +467,43 @@ async def _run_regional_orchestrator(run_id, runner, parent, memory_store, plans
     )
     ro.start()
 
-    tools = [
-        *_build_agent_builtins(run_id, ro.id, plans, files, board, region=region),
-        *_build_regional_domain_tools(run_id, runner, ro, region),
-    ]
-    tool_map = {t.name: t for t in tools}
+    pool = WorkerPool(run_id, runner, ro)
+    stage_state = {"current": None}
+    try:
+        tools = [
+            *_build_agent_builtins(run_id, ro.id, plans, files, board, region=region,
+                                    stage_state=stage_state, worker_pool=pool),
+            *_build_regional_domain_tools(run_id, runner, ro, region),
+        ]
+        tool_map = {t.name: t for t in tools}
 
-    llm = _make_llm(model_name, cfg.llm.temperature)
-    llm_with_tools = llm.bind_tools(tools)
-    summarizer = _make_llm(summarizer_model, 0.0)
+        llm = _make_llm(model_name, cfg.llm.temperature)
+        llm_with_tools = llm.bind_tools(tools)
+        summarizer = _make_llm(summarizer_model, 0.0)
 
-    system_prompt = cfg.prompts.regionalOrchestrator.format(
-        region=region, region_name=region_meta.name,
-        currency=region_meta.currency,
-        focus=focus or "process the pending batch end-to-end",
-    )
-    mem = memory_store.open(
-        agent_id=ro.id,
-        system=SystemMessage(content=system_prompt),
-        seed_summary=parent_summary,
-    )
-    mem.append(HumanMessage(content=(
-        f"Begin now. Your first turn MUST be a write_todos call "
-        f"listing your specific planned steps for focus={focus!r}."
-    )))
-    _emit_memory_snapshot(run_id, mem)
+        system_prompt = cfg.prompts.regionalOrchestrator.format(
+            region=region, region_name=region_meta.name,
+            currency=region_meta.currency,
+            focus=focus or "process the pending batch end-to-end",
+        )
+        mem = memory_store.open(
+            agent_id=ro.id,
+            system=SystemMessage(content=system_prompt),
+            seed_summary=parent_summary,
+        )
+        mem.append(HumanMessage(content=(
+            f"Begin now. Your first turn MUST be a write_todos call "
+            f"listing your specific planned steps for focus={focus!r}."
+        )))
+        _emit_memory_snapshot(run_id, mem)
 
-    tool_calls = await _turn_loop(
-        run_id=run_id, agent=ro, model_name=model_name,
-        llm_with_tools=llm_with_tools, summarizer=summarizer,
-        mem=mem, tool_map=tool_map, max_turns=16,
-    )
+        tool_calls = await _drive_stages(
+            run_id=run_id, agent=ro, model_name=model_name,
+            llm_with_tools=llm_with_tools, summarizer=summarizer,
+            mem=mem, tool_map=tool_map,
+        )
+    finally:
+        pool.drain("cancelled")
 
     result = {"region": region, "toolCalls": tool_calls}
     ro.end(result)
@@ -647,35 +749,41 @@ async def _run_workflow_orchestrator(run_id, runner, parent, memory_store, plans
     )
     wo.start()
 
-    tools = [
-        *_build_agent_builtins(run_id, wo.id, plans, files, board, region=None),
-        *_build_workflow_domain_tools(run_id, runner, wo, workflow_id),
-    ]
-    tool_map = {t.name: t for t in tools}
+    pool = WorkerPool(run_id, runner, wo)
+    stage_state = {"current": None}
+    try:
+        tools = [
+            *_build_agent_builtins(run_id, wo.id, plans, files, board, region=None,
+                                    stage_state=stage_state, worker_pool=pool),
+            *_build_workflow_domain_tools(run_id, runner, wo, workflow_id),
+        ]
+        tool_map = {t.name: t for t in tools}
 
-    llm = _make_llm(model_name, cfg.llm.temperature)
-    llm_with_tools = llm.bind_tools(tools)
-    summarizer = _make_llm(summarizer_model, 0.0)
+        llm = _make_llm(model_name, cfg.llm.temperature)
+        llm_with_tools = llm.bind_tools(tools)
+        summarizer = _make_llm(summarizer_model, 0.0)
 
-    system_prompt = cfg.prompts.workflowOrchestrator.format(
-        label=label, focus=focus or "complete the operational task end-to-end",
-    )
-    mem = memory_store.open(
-        agent_id=wo.id,
-        system=SystemMessage(content=system_prompt),
-        seed_summary=parent_summary,
-    )
-    mem.append(HumanMessage(content=(
-        f"Begin now. Your first turn MUST be a write_todos call "
-        f"listing your specific planned steps for focus={focus!r}."
-    )))
-    _emit_memory_snapshot(run_id, mem)
+        system_prompt = cfg.prompts.workflowOrchestrator.format(
+            label=label, focus=focus or "complete the operational task end-to-end",
+        )
+        mem = memory_store.open(
+            agent_id=wo.id,
+            system=SystemMessage(content=system_prompt),
+            seed_summary=parent_summary,
+        )
+        mem.append(HumanMessage(content=(
+            f"Begin now. Your first turn MUST be a write_todos call "
+            f"listing your specific planned steps for focus={focus!r}."
+        )))
+        _emit_memory_snapshot(run_id, mem)
 
-    tool_calls = await _turn_loop(
-        run_id=run_id, agent=wo, model_name=model_name,
-        llm_with_tools=llm_with_tools, summarizer=summarizer,
-        mem=mem, tool_map=tool_map, max_turns=16,
-    )
+        tool_calls = await _drive_stages(
+            run_id=run_id, agent=wo, model_name=model_name,
+            llm_with_tools=llm_with_tools, summarizer=summarizer,
+            mem=mem, tool_map=tool_map,
+        )
+    finally:
+        pool.drain("cancelled")
 
     result = {"workflow_id": workflow_id, "toolCalls": tool_calls}
     wo.end(result)
@@ -688,15 +796,16 @@ async def _run_workflow_orchestrator(run_id, runner, parent, memory_store, plans
 
 def _build_fc_domain_tools(run_id, runner, fc, memory_store, plans, files, board, model_name,
                             summarizer_model, dispatched_regions: list[str],
-                            dispatched_workflows: list[str]):
+                            dispatched_workflows: list[str], jobs: JobRegistry):
     cfg = get_config()
     workflow_map = {w.id: w for w in cfg.workflows}
 
     @tool
     async def dispatch_region(region: str, focus: str = "") -> str:
-        """Dispatch a Regional Orchestrator sub-agent to process one region.
-        region must be one of: US, IN, DE, SG, BR. `focus` is a short sentence
-        describing the intent for this dispatch."""
+        """Dispatch a Regional Orchestrator sub-agent. Returns IMMEDIATELY with
+        a job_id; the orchestrator runs in the background. You MUST follow up
+        with await_jobs([job_id, ...]) before relying on the result.
+        region must be one of: US, IN, DE, SG, BR."""
         r = region.upper().strip()
         if r not in REGION_IDS:
             return json.dumps({"error": f"unknown region {region!r}"})
@@ -705,21 +814,25 @@ def _build_fc_domain_tools(run_id, runner, fc, memory_store, plans, files, board
         parent_summary = (fc_mem.seed_summary if fc_mem else "") or (
             f"Finance Control dispatched region {r} with focus: {focus or '(none)'}."
         )
+        coro = _run_regional_orchestrator(
+            run_id, runner, fc, memory_store, plans, files, board,
+            parent_summary, r, focus or "", model_name, summarizer_model,
+        )
         try:
-            result = await _run_regional_orchestrator(
-                run_id, runner, fc, memory_store, plans, files, board,
-                parent_summary, r, focus or "", model_name, summarizer_model,
-            )
-            return json.dumps(result)
-        except Exception as exc:
-            return json.dumps({"error": str(exc), "region": r, "toolCalls": 0})
+            job_id = jobs.start(coro, kind="region", target=r)
+        except RuntimeError as exc:
+            coro.close()
+            return json.dumps({"error": str(exc), "region": r})
+        bus.publish(ev.job_started(run_id, fc.id, job_id, "region", r))
+        return json.dumps({"job_id": job_id, "kind": "region", "target": r})
 
     @tool
     async def dispatch_workflow(workflow_id: str, focus: str = "") -> str:
-        """Dispatch a Workflow Orchestrator sub-agent for a company-level
-        operation. workflow_id must be one of: vendorLifecycle, treasury, close,
-        compliance, receivables. `focus` is a short sentence describing the
-        intent."""
+        """Dispatch a Workflow Orchestrator sub-agent. Returns IMMEDIATELY with
+        a job_id; the orchestrator runs in the background. You MUST follow up
+        with await_jobs([job_id, ...]) before relying on the result.
+        workflow_id must be one of: vendorLifecycle, treasury, close,
+        compliance, receivables."""
         wf = workflow_map.get(workflow_id.strip())
         if wf is None:
             return json.dumps({"error": f"unknown workflow {workflow_id!r}"})
@@ -728,17 +841,37 @@ def _build_fc_domain_tools(run_id, runner, fc, memory_store, plans, files, board
         parent_summary = (fc_mem.seed_summary if fc_mem else "") or (
             f"Finance Control dispatched workflow {wf.id} with focus: {focus or wf.focus}."
         )
+        coro = _run_workflow_orchestrator(
+            run_id, runner, fc, memory_store, plans, files, board,
+            parent_summary, wf.id, wf.label, focus or wf.focus,
+            model_name, summarizer_model,
+        )
         try:
-            result = await _run_workflow_orchestrator(
-                run_id, runner, fc, memory_store, plans, files, board,
-                parent_summary, wf.id, wf.label, focus or wf.focus,
-                model_name, summarizer_model,
-            )
-            return json.dumps(result)
-        except Exception as exc:
-            return json.dumps({"error": str(exc), "workflow_id": wf.id, "toolCalls": 0})
+            job_id = jobs.start(coro, kind="workflow", target=wf.id)
+        except RuntimeError as exc:
+            coro.close()
+            return json.dumps({"error": str(exc), "workflow_id": wf.id})
+        bus.publish(ev.job_started(run_id, fc.id, job_id, "workflow", wf.id))
+        return json.dumps({"job_id": job_id, "kind": "workflow", "target": wf.id})
 
-    return [dispatch_region, dispatch_workflow]
+    @tool
+    async def await_jobs(job_ids: list[str], timeout_s: float = 120.0) -> str:
+        """Wait for the listed job_ids until they complete or timeout. Returns
+        a JSON array of {job_id, kind, target, status, result|error}. Status is
+        'completed', 'failed', or 'pending' (timed out)."""
+        if isinstance(job_ids, str):
+            job_ids = [job_ids]
+        results = await jobs.await_many(list(job_ids), float(timeout_s))
+        for r in results:
+            if r["status"] in ("completed", "failed"):
+                payload = r.get("result") if r["status"] == "completed" else {"error": r.get("error")}
+                bus.publish(ev.job_completed(
+                    run_id, fc.id, r["job_id"], r["status"], payload or {},
+                    kind=r.get("kind", ""), target=r.get("target", ""),
+                ))
+        return json.dumps(results)
+
+    return [dispatch_region, dispatch_workflow, await_jobs]
 
 
 # ---------- Top-level entry ----------
@@ -758,6 +891,7 @@ async def run_swarm(run_id: str, prompt: str) -> None:
     plans = RunPlanStore(run_id)
     files = RunFileStore(run_id=run_id)
     board = RunBlackboard(run_id)
+    jobs = JobRegistry(run_id)
 
     fc = runner.spawn(
         role="finance-control", scope="global", parent=None,
@@ -765,12 +899,15 @@ async def run_swarm(run_id: str, prompt: str) -> None:
     )
     fc.start()
 
+    pool = WorkerPool(run_id, runner, fc)
+    stage_state = {"current": None}
     dispatched_regions: list[str] = []
     dispatched_workflows: list[str] = []
     tools = [
-        *_build_agent_builtins(run_id, fc.id, plans, files, board),
+        *_build_agent_builtins(run_id, fc.id, plans, files, board,
+                                stage_state=stage_state, worker_pool=pool),
         *_build_fc_domain_tools(run_id, runner, fc, memory_store, plans, files, board, model_name,
-                                 summarizer_model, dispatched_regions, dispatched_workflows),
+                                 summarizer_model, dispatched_regions, dispatched_workflows, jobs),
     ]
     tool_map = {t.name: t for t in tools}
     llm = _make_llm(model_name, cfg.llm.temperature)
@@ -789,11 +926,20 @@ async def run_swarm(run_id: str, prompt: str) -> None:
     run_errors: list[str] = []
     run_status = "completed"
     try:
-        await _turn_loop(
+        await _drive_stages(
             run_id=run_id, agent=fc, model_name=model_name,
             llm_with_tools=llm_with_tools, summarizer=summarizer,
-            mem=mem, tool_map=tool_map, max_turns=14,
+            mem=mem, tool_map=tool_map,
         )
+        drained = await jobs.drain(timeout_s=180.0)
+        for r in drained:
+            if r["status"] in ("completed", "failed"):
+                payload = r.get("result") if r["status"] == "completed" else {"error": r.get("error")}
+                bus.publish(ev.job_completed(
+                    run_id, fc.id, r["job_id"], r["status"], payload or {},
+                    kind=r.get("kind", ""), target=r.get("target", ""),
+                ))
+        pool.drain("completed")
         fc.end({"status": "completed"})
         fc.terminate("completed")
         bus.publish(ev.run_end(run_id, "completed"))
@@ -802,6 +948,8 @@ async def run_swarm(run_id: str, prompt: str) -> None:
         run_status = "cancelled"
         log.info("run_swarm cancelled run_id=%s", run_id)
         bus.publish(ev.run_cancelled(run_id))
+        await jobs.drain(timeout_s=5.0)
+        pool.drain("cancelled")
         if not fc._terminated:
             fc.terminate("cancelled")
         bus.publish(ev.run_end(run_id, "cancelled"))
@@ -810,6 +958,8 @@ async def run_swarm(run_id: str, prompt: str) -> None:
         run_errors.append(str(exc))
         log.exception("run_swarm failed run_id=%s", run_id)
         bus.publish(ev.error(run_id, str(exc), fc.id))
+        await jobs.drain(timeout_s=5.0)
+        pool.drain("failed")
         if not fc._terminated:
             fc.terminate("failed")
         bus.publish(ev.run_end(run_id, "failed"))
