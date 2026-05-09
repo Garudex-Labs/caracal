@@ -1,0 +1,299 @@
+---
+/*
+ * Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+ * Caracal, a product of Garudex Labs
+ *
+ * Site header with logo, centered top navigation, and theme toggle.
+ */
+import Default from '@astrojs/starlight/components/Header.astro'
+import ThemeSelect from './ThemeSelect.astro'
+
+const route = (Astro.locals as any)?.starlightRoute
+const isLanding = route?.entry?.data?.template === 'splash'
+const links = [
+  { label: 'Home', href: isLanding ? '#home' : '/#home' },
+  { label: 'About', href: isLanding ? '#about' : '/#about' },
+  { label: 'Community', href: isLanding ? '#community' : '/#community' },
+  { label: 'Contact', href: isLanding ? '#contact' : '/#contact' },
+  { label: 'Docs', href: '/start/overview/' },
+]
+---
+
+{
+  isLanding ? (
+    <header class="site-nav">
+      <a class="site-nav__brand" href="/" aria-label="Caracal home">
+        <img class="site-nav__logo" src="/img/caracal.png" alt="" width="28" height="28" />
+        <span>Caracal</span>
+      </a>
+      <button
+        type="button"
+        class="site-nav__toggle"
+        aria-label="Toggle navigation"
+        aria-expanded="false"
+        aria-controls="site-nav-links"
+      >
+        <span class="site-nav__toggle-bars" aria-hidden="true">
+          <span /><span /><span />
+        </span>
+      </button>
+      <nav id="site-nav-links" class="site-nav__links" aria-label="Primary">
+        {links.map((l) => (
+          <a class="site-nav__link" href={l.href}>{l.label}</a>
+        ))}
+      </nav>
+      <div class="site-nav__end">
+        <ThemeSelect />
+      </div>
+    </header>
+  ) : (
+    <Default />
+  )
+}
+
+<script is:inline>
+  (() => {
+    if (!document.querySelector('.landing-hero')) return;
+    if ('scrollRestoration' in history) {
+      history.scrollRestoration = 'manual';
+    }
+    const nav = performance.getEntriesByType('navigation')[0];
+    const isReload = nav && nav.type === 'reload';
+    if (isReload) {
+      if (window.location.hash) {
+        history.replaceState(null, '', window.location.pathname + window.location.search);
+      }
+      window.scrollTo(0, 0);
+    }
+  })();
+</script>
+
+<script is:inline>
+  (() => {
+    const init = () => {
+      let btn = document.querySelector('.back-to-top');
+      if (!btn) {
+        btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'back-to-top';
+        btn.setAttribute('aria-label', 'Back to top');
+        btn.dataset.visible = 'false';
+        btn.innerHTML =
+          '<svg aria-hidden="true" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5"/><path d="M5 12l7-7 7 7"/></svg>';
+        document.body.appendChild(btn);
+      }
+      if (btn.dataset.bound === 'true') return;
+      btn.dataset.bound = 'true';
+      const update = () => {
+        btn.dataset.visible = String(window.scrollY > 200);
+      };
+      update();
+      window.addEventListener('scroll', update, { passive: true });
+      btn.addEventListener('click', () => {
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      });
+    };
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', init);
+    } else {
+      init();
+    }
+    document.addEventListener('astro:page-load', init);
+  })();
+</script>
+
+<script>
+  const toggle = document.querySelector<HTMLButtonElement>('.site-nav__toggle')
+  const nav = document.querySelector<HTMLElement>('#site-nav-links')
+  if (toggle && nav) {
+    toggle.addEventListener('click', () => {
+      const open = toggle.getAttribute('aria-expanded') === 'true'
+      toggle.setAttribute('aria-expanded', String(!open))
+      nav.dataset.open = String(!open)
+    })
+    nav.querySelectorAll('a').forEach((a) => {
+      a.addEventListener('click', () => {
+        toggle.setAttribute('aria-expanded', 'false')
+        nav.dataset.open = 'false'
+      })
+    })
+  }
+</script>
+
+<style is:global>
+  body:has(.landing-hero) > .page > header.header {
+    background: transparent !important;
+    border-bottom: 0 !important;
+    padding: 0 !important;
+    height: auto !important;
+  }
+</style>
+
+<style>
+  .site-nav {
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    align-items: center;
+    gap: 1rem;
+    padding: 0.75rem clamp(1rem, 4vw, 2rem);
+    background: color-mix(in srgb, var(--sl-color-bg) 92%, transparent);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    border-bottom: 1px solid var(--sl-color-hairline);
+  }
+
+  .site-nav__brand {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    font-family: 'Space Grotesk', var(--sl-font);
+    font-weight: 700;
+    font-size: 1.05rem;
+    color: var(--sl-color-text);
+    text-decoration: none;
+    justify-self: start;
+  }
+
+  .site-nav__brand img {
+    display: block;
+    border-radius: 6px;
+    width: 28px;
+    height: 28px;
+    object-fit: contain;
+  }
+
+  :root:not([data-theme='light']) .site-nav__logo {
+    filter: invert(1);
+  }
+
+  .site-nav__links {
+    display: flex;
+    align-items: center;
+    gap: clamp(1rem, 3vw, 2rem);
+    justify-self: center;
+  }
+
+  .site-nav__link {
+    font-size: 0.9rem;
+    font-weight: 500;
+    color: var(--caracal-text-muted, var(--sl-color-text));
+    text-decoration: none;
+    padding: 0.35rem 0.25rem;
+    border-bottom: 1px solid transparent;
+    transition: color 0.15s ease, border-color 0.15s ease;
+  }
+
+  .site-nav__link:hover {
+    color: var(--sl-color-text);
+    border-bottom-color: var(--caracal-link);
+  }
+
+  .site-nav__end {
+    justify-self: end;
+    display: inline-flex;
+    align-items: center;
+  }
+
+  .site-nav__toggle {
+    display: none;
+    align-items: center;
+    justify-content: center;
+    width: 2.25rem;
+    height: 2.25rem;
+    padding: 0;
+    border: 1px solid var(--sl-color-hairline);
+    border-radius: 6px;
+    background: var(--caracal-panel, transparent);
+    color: var(--sl-color-text);
+    cursor: pointer;
+  }
+
+  .site-nav__toggle-bars {
+    display: inline-flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .site-nav__toggle-bars span {
+    display: block;
+    width: 18px;
+    height: 2px;
+    background: currentColor;
+    border-radius: 2px;
+  }
+
+  @media (max-width: 50rem) {
+    .site-nav {
+      grid-template-columns: auto 1fr auto;
+    }
+    .site-nav__toggle {
+      display: inline-flex;
+      justify-self: end;
+    }
+    .site-nav__end {
+      display: none;
+    }
+    .site-nav__links {
+      position: absolute;
+      top: 100%;
+      left: 0;
+      right: 0;
+      flex-direction: column;
+      align-items: stretch;
+      gap: 0;
+      padding: 0.5rem 1rem 1rem;
+      background: var(--sl-color-bg);
+      border-bottom: 1px solid var(--sl-color-hairline);
+      display: none;
+    }
+    .site-nav__links[data-open='true'] {
+      display: flex;
+    }
+    .site-nav__link {
+      padding: 0.75rem 0.25rem;
+      border-bottom: 1px solid var(--sl-color-hairline);
+    }
+    .site-nav__link:last-child {
+      border-bottom: none;
+    }
+  }
+</style>
+
+<style is:global>
+  .back-to-top {
+    position: fixed;
+    right: clamp(1rem, 3vw, 2rem);
+    bottom: clamp(1rem, 3vw, 2rem);
+    z-index: 90;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 3.25rem;
+    height: 3.25rem;
+    padding: 0;
+    border: 1px solid var(--caracal-link);
+    border-radius: 999px;
+    background: var(--caracal-link);
+    color: #1a0410;
+    cursor: pointer;
+    opacity: 0;
+    pointer-events: none;
+    transform: translateY(8px);
+    transition: opacity 0.18s ease, transform 0.18s ease, background 0.15s ease, box-shadow 0.15s ease;
+    box-shadow: 0 8px 24px color-mix(in srgb, var(--caracal-link) 35%, transparent);
+  }
+
+  .back-to-top[data-visible='true'] {
+    opacity: 1;
+    pointer-events: auto;
+    transform: translateY(0);
+  }
+
+  .back-to-top:hover {
+    background: color-mix(in srgb, var(--caracal-link) 88%, white);
+    box-shadow: 0 10px 28px color-mix(in srgb, var(--caracal-link) 55%, transparent);
+  }
+</style>
