@@ -13,7 +13,7 @@ import {
   withAgent,
   type CaracalContext,
   type CoordinatorClient,
-} from '@caracalai/sdk'
+} from '@caracalai/sdk/advanced'
 
 export interface MiddlewareOptions {
   issuer: string
