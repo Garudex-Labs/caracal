@@ -194,7 +194,7 @@ func BuildJWKS(keys []JWKSEntry) ([]byte, error) {
 			Y: b64URLUint(e.Pub.Y),
 		}
 	}
-	return json.Marshal(map[string]interface{}{"keys": jwksKeys})
+	return json.Marshal(map[string]any{"keys": jwksKeys})
 }
 
 // JWKSEntry pairs a public key with its key ID for JWKS construction.

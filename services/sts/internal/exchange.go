@@ -106,7 +106,7 @@ func (s *Server) exchange(ctx context.Context, req TokenExchangeRequest, request
 		return nil, nil, http.StatusBadRequest, sharederr.New(sharederr.InvalidToken, "at least one resource is required")
 	}
 
-	var subjectClaims map[string]interface{}
+	var subjectClaims map[string]any
 	if req.SubjectToken != "" {
 		subjectClaims, err = s.validateSubjectToken(ctx, req.SubjectToken, zoneID)
 		if err != nil {
@@ -121,7 +121,7 @@ func (s *Server) exchange(ctx context.Context, req TokenExchangeRequest, request
 		}
 	}
 
-	actorClaims := map[string]interface{}{}
+	actorClaims := map[string]any{}
 	if req.ActorToken != "" {
 		actorClaims, err = s.validateSubjectToken(ctx, req.ActorToken, zoneID)
 		if err != nil {
@@ -170,23 +170,23 @@ func (s *Server) exchange(ctx context.Context, req TokenExchangeRequest, request
 		resource, dbErr := s.db.GetResourceByIdentifier(ctx, zoneID, identifier)
 		if dbErr != nil {
 			s.auditBuffer.Emit(buildAuditEvent(requestID, zoneID, "deny", "resource_not_found", &OPAResult{},
-				map[string]interface{}{"resource": identifier}))
+				map[string]any{"resource": identifier}))
 			continue
 		}
 		if !scopesAllowed(scopes, resource.Scopes) {
 			s.auditBuffer.Emit(buildAuditEvent(requestID, zoneID, "deny", "scope_mismatch", &OPAResult{},
-				map[string]interface{}{"resource": resource.Identifier}))
+				map[string]any{"resource": resource.Identifier}))
 			continue
 		}
 		if delegation != nil && delegation.edge.ResourceID != nil && *delegation.edge.ResourceID != resource.ID {
 			s.auditBuffer.Emit(buildAuditEvent(requestID, zoneID, "deny", "resource_outside_delegation", &OPAResult{},
-				map[string]interface{}{"resource": resource.Identifier}))
+				map[string]any{"resource": resource.Identifier}))
 			continue
 		}
 
 		if rateErr := s.checkRateLimit(ctx, zoneID, resource.ID, app.ID); rateErr != nil {
 			s.auditBuffer.Emit(buildAuditEvent(requestID, zoneID, "deny", "rate_limited", &OPAResult{},
-				map[string]interface{}{"resource": resource.Identifier}))
+				map[string]any{"resource": resource.Identifier}))
 			continue
 		}
 
@@ -194,7 +194,7 @@ func (s *Server) exchange(ctx context.Context, req TokenExchangeRequest, request
 			userID, _ := subjectClaims["sub"].(string)
 			if rerr := s.tryRefreshBrokeredGrant(ctx, zoneID, userID, resource.ID); rerr != nil {
 				s.auditBuffer.Emit(buildAuditEvent(requestID, zoneID, "deny", "credential_refresh_failed", &OPAResult{},
-					map[string]interface{}{"resource": resource.Identifier, "reason": string(rerr.Code)}))
+					map[string]any{"resource": resource.Identifier, "reason": string(rerr.Code)}))
 				continue
 			}
 		}
@@ -232,12 +232,12 @@ func (s *Server) exchange(ctx context.Context, req TokenExchangeRequest, request
 		bundle := s.opa.BundleInfo(zoneID)
 		if evalErr != nil {
 			s.auditBuffer.Emit(buildAuditEventWithBundle(requestID, zoneID, "deny", "policy_eval_failed", &OPAResult{},
-				map[string]interface{}{"resource": resource.Identifier}, bundle))
+				map[string]any{"resource": resource.Identifier}, bundle))
 			return nil, nil, http.StatusServiceUnavailable, sharederr.New(sharederr.PolicyEvalFailed, "policy evaluation unavailable")
 		}
 
 		s.auditBuffer.Emit(buildAuditEventWithBundle(requestID, zoneID, result.Decision, result.EvaluationStatus, result,
-			mergeAuditMeta(map[string]interface{}{"resource": resource.Identifier}, delegationMeta), bundle))
+			mergeAuditMeta(map[string]any{"resource": resource.Identifier}, delegationMeta), bundle))
 
 		// Only an explicit "complete" status is treated as a usable decision; any
 		// other value (partial, error, future enum) is a hard deny so an unknown
@@ -274,7 +274,7 @@ func (s *Server) exchange(ctx context.Context, req TokenExchangeRequest, request
 
 	if len(grantedResources) == 0 {
 		s.auditBuffer.Emit(buildAuditEvent(requestID, zoneID, "deny", "exchange_denied", &OPAResult{},
-			map[string]interface{}{"requested": req.Resources}))
+			map[string]any{"requested": req.Resources}))
 		return nil, nil, http.StatusForbidden, sharederr.New(sharederr.AccessDenied, "policy denied")
 	}
 
@@ -373,7 +373,7 @@ func (s *Server) authenticateApp(ctx context.Context, req TokenExchangeRequest) 
 
 // validateSubjectToken verifies an inbound STS-issued token: ES256 signature, this STS
 // as issuer, the token-exchange audience, and a matching zone_id claim.
-func (s *Server) validateSubjectToken(ctx context.Context, tokenStr, zoneID string) (map[string]interface{}, error) {
+func (s *Server) validateSubjectToken(ctx context.Context, tokenStr, zoneID string) (map[string]any, error) {
 	pub, _, err := s.keys.getPublicKeyAndKid(ctx, zoneID)
 	if err != nil {
 		return nil, fmt.Errorf("get zone key: %w", err)
@@ -385,7 +385,7 @@ func (s *Server) validateSubjectToken(ctx context.Context, tokenStr, zoneID stri
 		jwt.WithAudience(s.cfg.IssuerURL),
 		jwt.WithExpirationRequired(),
 		jwt.WithIssuedAt(),
-	).ParseWithClaims(tokenStr, mc, func(*jwt.Token) (interface{}, error) {
+	).ParseWithClaims(tokenStr, mc, func(*jwt.Token) (any, error) {
 		return pub, nil
 	})
 	if err != nil {
@@ -397,7 +397,7 @@ func (s *Server) validateSubjectToken(ctx context.Context, tokenStr, zoneID stri
 	return mc, nil
 }
 
-func (s *Server) validateTokenSession(ctx context.Context, zoneID, sessionID string, claims map[string]interface{}) (string, *sharederr.CaracalError) {
+func (s *Server) validateTokenSession(ctx context.Context, zoneID, sessionID string, claims map[string]any) (string, *sharederr.CaracalError) {
 	sid := claimString(claims, "sid")
 	if sid == "" {
 		return "", sharederr.New(sharederr.InvalidToken, "missing token session")
@@ -412,11 +412,11 @@ func (s *Server) validateTokenSession(ctx context.Context, zoneID, sessionID str
 	return sid, nil
 }
 
-func buildAuditEvent(requestID, zoneID, decision, status string, result *OPAResult, meta map[string]interface{}) AuditEvent {
+func buildAuditEvent(requestID, zoneID, decision, status string, result *OPAResult, meta map[string]any) AuditEvent {
 	return buildAuditEventWithBundle(requestID, zoneID, decision, status, result, meta, ZoneBundleInfo{})
 }
 
-func buildAuditEventWithBundle(requestID, zoneID, decision, status string, result *OPAResult, meta map[string]interface{}, bundle ZoneBundleInfo) AuditEvent {
+func buildAuditEventWithBundle(requestID, zoneID, decision, status string, result *OPAResult, meta map[string]any, bundle ZoneBundleInfo) AuditEvent {
 	id, _ := uuid.NewV7()
 	dpJSON, _ := json.Marshal(result.DeterminingPolicies)
 	diagJSON, _ := json.Marshal(result.Diagnostics)
@@ -444,28 +444,28 @@ func buildAuditEventWithBundle(requestID, zoneID, decision, status string, resul
 
 // delegationAuditMeta returns audit metadata extracted from a delegation proof.
 // When delegation is nil, returns nil (no delegation active).
-func delegationAuditMeta(d *delegationProof) map[string]interface{} {
+func delegationAuditMeta(d *delegationProof) map[string]any {
 	if d == nil {
 		return nil
 	}
-	hops := make([]map[string]interface{}, len(d.chain))
+	hops := make([]map[string]any, len(d.chain))
 	for i, h := range d.chain {
-		hops[i] = map[string]interface{}{
+		hops[i] = map[string]any{
 			"app":     h.AppID,
 			"session": h.AgentSessionID,
 			"edge":    h.DelegationEdgeID,
 		}
 	}
-	return map[string]interface{}{
-		"delegation_edge_id":    d.edge.ID,
-		"delegation_chain":      hops,
-		"delegation_hop_count":  len(d.path),
+	return map[string]any{
+		"delegation_edge_id":     d.edge.ID,
+		"delegation_chain":       hops,
+		"delegation_hop_count":   len(d.path),
 		"delegation_graph_epoch": d.graphEpoch,
 	}
 }
 
 // mergeAuditMeta merges extra key/value pairs into base, returning base.
-func mergeAuditMeta(base, extra map[string]interface{}) map[string]interface{} {
+func mergeAuditMeta(base, extra map[string]any) map[string]any {
 	for k, v := range extra {
 		base[k] = v
 	}
@@ -687,7 +687,7 @@ func tokenTTL(ttlSeconds int, ambientAllowed bool) (time.Duration, error) {
 	return ttl, nil
 }
 
-func claimString(claims map[string]interface{}, key string) string {
+func claimString(claims map[string]any, key string) string {
 	if claims == nil {
 		return ""
 	}
