@@ -57,7 +57,7 @@ type stsResult struct {
 // exchangeOutcome captures all Exchange outputs in a single return value.
 // StatusCode is always populated.
 // On success Result is populated and errors are nil.
-// On failure Result is nil, BusinessError is always non-nil, and InternalError may also be set for gateway logs.
+// On failure, Result is nil and BusinessError is always non-nil; InternalError may also be set for gateway logs.
 type exchangeOutcome struct {
 	Result        *stsResult
 	StatusCode    int

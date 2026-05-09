@@ -40,7 +40,13 @@ func TestSTSExchangeTransportError(t *testing.T) {
 func TestSTSExchangeSuccess(t *testing.T) {
 	stsServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"access_token":"sts-token","expires_in":300,"upstreams":{"r1":{"url":"https://api.example.com","auth_mode":"caracal_jwt"}}}`))
+		_, _ = w.Write([]byte(`{
+			"access_token":"sts-token",
+			"expires_in":300,
+			"upstreams":{
+				"r1":{"url":"https://api.example.com","auth_mode":"caracal_jwt"}
+			}
+		}`))
 	}))
 	defer stsServer.Close()
 
