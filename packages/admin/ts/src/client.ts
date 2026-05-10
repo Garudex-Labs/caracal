@@ -22,6 +22,7 @@ import type {
   PolicyVersion,
   Provider,
   ProviderInput,
+  LocalBootstrapResult,
   Resource,
   ResourceInput,
   Session,
@@ -96,6 +97,11 @@ export class AdminClient {
     }
     if (opts.expectEmpty || res.status === 204) return undefined as T
     return await res.json() as T
+  }
+
+  // Local bootstrap (development/self-hosted)
+  bootstrap(force = false): Promise<LocalBootstrapResult> {
+    return this.request<LocalBootstrapResult>('/v1/local/bootstrap', { method: 'POST', body: { force } })
   }
 
   // Zones

@@ -72,7 +72,7 @@ describe('OutboxDispatcher', () => {
     redis.xadd.mockRejectedValueOnce(new Error('boom'))
     const dispatcher = new OutboxDispatcher({ db: db as never, redis: redis as never, workerId: 'w', maxAttempts: 5, log: makeLogger() })
     await dispatcher.tick()
-    const park = dbCalls.find((c) => c.sql.includes("available_at = now() + INTERVAL '1 hour'"))
+    const park = dbCalls.find((c) => c.sql.includes("available_at = 'infinity'::timestamptz"))
     expect(park).toBeDefined()
   })
 })

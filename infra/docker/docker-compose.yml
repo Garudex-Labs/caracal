@@ -118,6 +118,7 @@ services:
       api:
         condition: service_healthy
     environment:
+      CARACAL_ENV: ${CARACAL_ENV:-dev}
       DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
       STS_URL: http://sts:8080
