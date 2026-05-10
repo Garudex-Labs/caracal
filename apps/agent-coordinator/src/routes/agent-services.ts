@@ -43,41 +43,55 @@ export const agentServicesRoutes: FastifyPluginAsync = async (fastify) => {
       && !requireScope(req, `coordinator.spawn_for:${body.application_id}`)) {
       return reply.code(403).send({ error: 'application_ownership_required' })
     }
-    const { rows: applications } = await fastify.db.query(
-      `SELECT 1 FROM applications
-       WHERE id = $1 AND zone_id = $2 AND archived_at IS NULL
-         AND (expires_at IS NULL OR expires_at > now())`,
-      [body.application_id, zoneId],
-    )
-    if (!applications[0]) return reply.code(404).send({ error: 'application_not_found' })
     const id = uuidv7()
-    const { rows } = await fastify.db.query(
-      `INSERT INTO agent_services
-       (id, zone_id, application_id, endpoint_url, protocol_versions, framework_name, framework_version,
-        capabilities, health, metadata_json, last_heartbeat_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'starting',$9,now())
-       ON CONFLICT (zone_id, application_id, endpoint_url)
-       DO UPDATE SET protocol_versions = EXCLUDED.protocol_versions,
-                     framework_name = EXCLUDED.framework_name,
-                     framework_version = EXCLUDED.framework_version,
-                     capabilities = EXCLUDED.capabilities,
-                     metadata_json = EXCLUDED.metadata_json,
-                     updated_at = now()
-       RETURNING id, zone_id, application_id, endpoint_url, protocol_versions,
-                 framework_name, framework_version, capabilities, health, metadata_json, last_heartbeat_at`,
-      [
-        id,
-        zoneId,
-        body.application_id,
-        body.endpoint_url,
-        body.protocol_versions,
-        body.framework?.name ?? null,
-        body.framework?.version ?? null,
-        body.capabilities,
-        body.metadata,
-      ],
-    )
-    return reply.code(201).send(rows[0])
+    const client = await fastify.db.connect()
+    try {
+      await client.query('BEGIN')
+      const { rows: applications } = await client.query(
+        `SELECT 1 FROM applications
+         WHERE id = $1 AND zone_id = $2 AND archived_at IS NULL
+           AND (expires_at IS NULL OR expires_at > now())
+         FOR SHARE`,
+        [body.application_id, zoneId],
+      )
+      if (!applications[0]) {
+        await client.query('ROLLBACK')
+        return reply.code(404).send({ error: 'application_not_found' })
+      }
+      const { rows } = await client.query(
+        `INSERT INTO agent_services
+         (id, zone_id, application_id, endpoint_url, protocol_versions, framework_name, framework_version,
+          capabilities, health, metadata_json, last_heartbeat_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'starting',$9,now())
+         ON CONFLICT (zone_id, application_id, endpoint_url)
+         DO UPDATE SET protocol_versions = EXCLUDED.protocol_versions,
+                       framework_name = EXCLUDED.framework_name,
+                       framework_version = EXCLUDED.framework_version,
+                       capabilities = EXCLUDED.capabilities,
+                       metadata_json = EXCLUDED.metadata_json,
+                       updated_at = now()
+         RETURNING id, zone_id, application_id, endpoint_url, protocol_versions,
+                   framework_name, framework_version, capabilities, health, metadata_json, last_heartbeat_at`,
+        [
+          id,
+          zoneId,
+          body.application_id,
+          body.endpoint_url,
+          body.protocol_versions,
+          body.framework?.name ?? null,
+          body.framework?.version ?? null,
+          body.capabilities,
+          body.metadata,
+        ],
+      )
+      await client.query('COMMIT')
+      return reply.code(201).send(rows[0])
+    } catch (err) {
+      await client.query('ROLLBACK')
+      throw err
+    } finally {
+      client.release()
+    }
   })
 
   fastify.get('/zones/:zoneId/agent-services', async (req, reply) => {
@@ -85,20 +99,25 @@ export const agentServicesRoutes: FastifyPluginAsync = async (fastify) => {
     const query = ListQuery.safeParse(req.query)
     if (!query.success) return reply.code(400).send({ error: 'invalid_query' })
     const { limit, cursor } = query.data
+    if (cursor) {
+      const { rows: probe } = await fastify.db.query(
+        `SELECT 1 FROM agent_services WHERE id = $1 AND zone_id = $2`,
+        [cursor, zoneId],
+      )
+      if (!probe[0]) return reply.code(400).send({ error: 'invalid_cursor' })
+    }
     const params: unknown[] = [zoneId, limit]
     let cursorClause = ''
     if (cursor) {
       params.push(cursor)
-      cursorClause = `AND (created_at, id) < (
-        (SELECT created_at FROM agent_services WHERE id = $3 AND zone_id = $1),
-        $3)`
+      cursorClause = `AND id < $3`
     }
     const { rows } = await fastify.db.query(
       `SELECT id, zone_id, application_id, endpoint_url, protocol_versions,
               framework_name, framework_version, capabilities, health, metadata_json, last_heartbeat_at
        FROM agent_services
        WHERE zone_id = $1 ${cursorClause}
-       ORDER BY created_at DESC, id DESC LIMIT $2`,
+       ORDER BY id DESC LIMIT $2`,
       params,
     )
     const nextCursor = rows.length === limit ? rows[rows.length - 1].id : null
@@ -111,31 +130,41 @@ export const agentServicesRoutes: FastifyPluginAsync = async (fastify) => {
     const client = await fastify.db.connect()
     try {
       await client.query('BEGIN')
-      const { rows: agents } = await client.query(
-        `UPDATE agent_sessions SET last_active_at = now()
-         WHERE id = $1 AND zone_id = $2 AND status IN ('active', 'suspended')
-         RETURNING id, zone_id, application_id, last_active_at`,
+      const { rows: own } = await client.query<{ application_id: string; status: string }>(
+        `SELECT application_id, status FROM agent_sessions
+         WHERE id = $1 AND zone_id = $2 FOR UPDATE`,
         [id, zoneId],
       )
-      if (!agents[0]) {
+      if (!own[0]) {
         await client.query('ROLLBACK')
         return reply.code(404).send({ error: 'agent_not_found' })
       }
-      if (!ownsApplication(req, agents[0].application_id)
+      if (!ownsApplication(req, own[0].application_id)
         && !requireScope(req, 'coordinator.admin')
-        && !requireScope(req, `coordinator.spawn_for:${agents[0].application_id}`)) {
+        && !requireScope(req, `coordinator.spawn_for:${own[0].application_id}`)) {
         await client.query('ROLLBACK')
         return reply.code(403).send({ error: 'application_ownership_required' })
       }
+      if (own[0].status !== 'active' && own[0].status !== 'suspended') {
+        await client.query('ROLLBACK')
+        return reply.code(409).send({ error: 'agent_not_live' })
+      }
+      const { rows: agents } = await client.query(
+        `UPDATE agent_sessions SET last_active_at = now()
+         WHERE id = $1 AND zone_id = $2
+         RETURNING id, zone_id, application_id, last_active_at`,
+        [id, zoneId],
+      )
       let service = null
       if (body.service_id) {
         const { rows: svc } = await client.query(
           `UPDATE agent_services
-           SET health = $1, metadata_json = $2, last_heartbeat_at = now(), updated_at = now()
+           SET health = $1, metadata_json = metadata_json || $2::jsonb,
+               last_heartbeat_at = now(), updated_at = now()
            WHERE id = $3 AND zone_id = $4 AND application_id = $5
            RETURNING id, zone_id, application_id, endpoint_url, protocol_versions,
                      framework_name, framework_version, capabilities, health, metadata_json, last_heartbeat_at`,
-          [body.status, body.metadata, body.service_id, zoneId, agents[0].application_id],
+          [body.status, JSON.stringify(body.metadata), body.service_id, zoneId, agents[0].application_id],
         )
         if (!svc[0]) {
           await client.query('ROLLBACK')

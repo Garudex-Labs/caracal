@@ -31,9 +31,14 @@ function buildCfg() {
     outboxIntervalMs: intEnv('OUTBOX_INTERVAL_MS', 1_000),
     outboxBatchSize: intEnv('OUTBOX_BATCH_SIZE', 50),
     outboxMaxAttempts: intEnv('OUTBOX_MAX_ATTEMPTS', 10),
+    streamsMaxLen: intEnv('STREAMS_MAXLEN', 100_000),
     ttlSweepIntervalMs: intEnv('TTL_SWEEP_INTERVAL_MS', 60_000),
     deadlineSweepIntervalMs: intEnv('DEADLINE_SWEEP_INTERVAL_MS', 5_000),
+    sweeperBatchSize: intEnv('SWEEPER_BATCH_SIZE', 500),
     shutdownGraceMs: intEnv('SHUTDOWN_GRACE_MS', 15_000),
+    jwksCacheMax: intEnv('JWKS_CACHE_MAX', 256),
+    verifyRateLimitPerMin: intEnv('VERIFY_RATE_LIMIT_PER_MIN', 60, 0),
+    dedupeWindowSec: intEnv('RELAY_DEDUPE_WINDOW_SEC', 3600),
     logLevel: getenv('LOG_LEVEL', 'info'),
   }
 }

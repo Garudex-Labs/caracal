@@ -28,8 +28,8 @@ export async function buildApp() {
   })
   app.decorate('db', db)
   app.decorate('redis', redis)
-  app.get('/health', async () => ({ ok: true }))
   app.addHook('preHandler', verifyBearer)
+  app.get('/health', async () => ({ ok: true }))
   app.get('/metrics', async () => {
     const { rows: invocations } = await app.db.query(
       `SELECT status, COUNT(*) AS n FROM agent_invocations GROUP BY status`,
@@ -49,4 +49,3 @@ export async function buildApp() {
   await app.register(v1Routes)
   return app
 }
-

@@ -10,20 +10,31 @@ import { cfg } from './config.js'
 // Per-zone JWKS resolvers. STS exposes one signing keyset per zone so a single
 // document never reveals every zone's keys; callers must pass ?zone_id=. Each
 // resolver enforces a hard cacheMaxAge so a sustained STS outage fails closed
-// instead of accepting tokens against indefinitely stale keys.
-const jwksByZone = new Map<string, ReturnType<typeof createRemoteJWKSet>>()
+// instead of accepting tokens against indefinitely stale keys. The map is
+// bounded so an attacker who can mint zone ids cannot exhaust memory.
+type JwksResolver = ReturnType<typeof createRemoteJWKSet>
+const jwksByZone = new Map<string, JwksResolver>()
 
-function jwksForZone(zoneId: string): ReturnType<typeof createRemoteJWKSet> {
-  let resolver = jwksByZone.get(zoneId)
-  if (resolver) return resolver
+function jwksForZone(zoneId: string): JwksResolver {
+  const existing = jwksByZone.get(zoneId)
+  if (existing) {
+    jwksByZone.delete(zoneId)
+    jwksByZone.set(zoneId, existing)
+    return existing
+  }
   const url = new URL(`${cfg.stsUrl}/.well-known/jwks.json`)
   url.searchParams.set('zone_id', zoneId)
-  resolver = createRemoteJWKSet(url, {
+  const resolver = createRemoteJWKSet(url, {
     cooldownDuration: 30_000,
     cacheMaxAge: 600_000,
     timeoutDuration: 5_000,
   })
   jwksByZone.set(zoneId, resolver)
+  while (jwksByZone.size > cfg.jwksCacheMax) {
+    const oldest = jwksByZone.keys().next().value
+    if (oldest === undefined) break
+    jwksByZone.delete(oldest)
+  }
   return resolver
 }
 
@@ -82,13 +93,15 @@ export async function verifyBearer(req: FastifyRequest, reply: FastifyReply): Pr
     return
   }
   let payload: Awaited<ReturnType<typeof jwtVerify>>['payload']
+  let tokenZone: string
   try {
     const claims = decodeJwt(token)
-    const tokenZone = claims['zone_id']
-    if (typeof tokenZone !== 'string' || tokenZone === '') {
+    const zoneClaim = claims['zone_id']
+    if (typeof zoneClaim !== 'string' || zoneClaim === '') {
       reply.code(401).send({ error: 'invalid_token' })
       return
     }
+    tokenZone = zoneClaim
     const verified = await jwtVerify(token, jwksForZone(tokenZone), {
       issuer: cfg.issuerUrl,
       audience: cfg.audience,
@@ -101,23 +114,22 @@ export async function verifyBearer(req: FastifyRequest, reply: FastifyReply): Pr
     return
   }
 
-  const scopes = typeof payload.scope === 'string' ? payload.scope.split(/\s+/) : []
-  if (!scopes.includes(cfg.requiredScope)) {
-    reply.code(403).send({ error: 'missing_scope' })
-    return
-  }
   const zoneId = payload['zone_id']
-  const subject = payload.sub
-  if (typeof zoneId !== 'string' || zoneId === '') {
-    req.log.warn('jwt_missing_zone_claim')
+  if (typeof zoneId !== 'string' || zoneId === '' || zoneId !== tokenZone) {
+    req.log.warn('jwt_zone_claim_mismatch')
     reply.code(401).send({ error: 'invalid_token' })
     return
   }
+  const subject = payload.sub
   if (typeof subject !== 'string' || subject === '') {
     reply.code(401).send({ error: 'invalid_token' })
     return
   }
-
+  const scopes = typeof payload.scope === 'string' ? payload.scope.split(/\s+/).filter(Boolean) : []
+  if (!scopes.includes(cfg.requiredScope)) {
+    reply.code(403).send({ error: 'missing_scope' })
+    return
+  }
   const params = req.params as { zoneId?: string } | undefined
   if (params?.zoneId && params.zoneId !== zoneId) {
     reply.code(403).send({ error: 'zone_mismatch' })

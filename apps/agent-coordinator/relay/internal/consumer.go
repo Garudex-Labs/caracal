@@ -8,7 +8,9 @@ package internal
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -29,6 +31,7 @@ type Consumer struct {
 	log        zerolog.Logger
 	hmacKey    []byte
 	requireSig bool
+	dedupeTTL  time.Duration
 }
 
 func New(_ context.Context) (*Consumer, error) {
@@ -51,7 +54,19 @@ func New(_ context.Context) (*Consumer, error) {
 	if len(hmacKey) == 0 {
 		log.Warn().Msg("STREAMS_HMAC_KEY not set; lifecycle events will not be origin-verified")
 	}
-	return &Consumer{redis: r, log: log, hmacKey: hmacKey, requireSig: base.IsProduction()}, nil
+	dedupeSec := 3600
+	if raw := config.Getenv("RELAY_DEDUPE_WINDOW_SEC", ""); raw != "" {
+		n, err := strconv.Atoi(raw)
+		if err != nil || n < 1 {
+			return nil, fmt.Errorf("invalid RELAY_DEDUPE_WINDOW_SEC: %s", raw)
+		}
+		dedupeSec = n
+	}
+	return &Consumer{
+		redis: r, log: log, hmacKey: hmacKey,
+		requireSig: base.IsProduction(),
+		dedupeTTL:  time.Duration(dedupeSec) * time.Second,
+	}, nil
 }
 
 func (c *Consumer) Run(ctx context.Context) {
@@ -88,6 +103,11 @@ func (c *Consumer) Run(ctx context.Context) {
 					c.redis.XAck(ctx, lifecycleStream, consumerGroup, msg.ID)
 					continue
 				}
+				if c.duplicate(ctx, msg.Values) {
+					c.log.Debug().Str("id", msg.ID).Msg("skipping duplicate lifecycle event")
+					c.redis.XAck(ctx, lifecycleStream, consumerGroup, msg.ID)
+					continue
+				}
 				c.log.Info().
 					Str("id", msg.ID).
 					Interface("event", msg.Values["event"]).
@@ -104,6 +124,20 @@ func (c *Consumer) verify(values map[string]any) bool {
 		return true
 	}
 	return sharedcrypto.VerifyStream(c.hmacKey, lifecycleStream, values)
+}
+
+func (c *Consumer) duplicate(ctx context.Context, values map[string]any) bool {
+	id, ok := values["outbox_id"].(string)
+	if !ok || id == "" {
+		return false
+	}
+	key := fmt.Sprintf("coordinator:relay_dedupe:%s", id)
+	set, err := c.redis.SetNX(ctx, key, "1", c.dedupeTTL).Result()
+	if err != nil {
+		c.log.Warn().Err(err).Str("id", id).Msg("dedupe setnx failed; proceeding")
+		return false
+	}
+	return !set
 }
 
 func (c *Consumer) ensureGroup(ctx context.Context) error {
