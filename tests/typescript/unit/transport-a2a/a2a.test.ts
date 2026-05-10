@@ -4,7 +4,7 @@
 // a2aCall unit tests: subject token forwarding, error propagation.
 
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { a2aCall } from '../../../../packages/transport-a2a/ts/src/a2a.js'
+import { a2aCall } from '../../../../packages/transport/a2a/ts/src/a2a.js'
 
 describe('a2aCall', () => {
   beforeEach(() => {
