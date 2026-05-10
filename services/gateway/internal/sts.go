@@ -123,6 +123,10 @@ func (c *stsClient) Exchange(ctx context.Context, subjectToken string, bind bind
 			ClientErr:   sharederr.New(sharederr.STSUnavailable, http.StatusText(resp.StatusCode)),
 			InternalErr: fmt.Errorf("sts non-200 status: %d", resp.StatusCode)}
 	}
+	if !isJSONResponse(resp.Header.Get("Content-Type")) {
+		return exchangeOutcome{Status: http.StatusBadGateway,
+			ClientErr: sharederr.New(sharederr.STSUnavailable, "sts response invalid"), InternalErr: fmt.Errorf("sts response content-type invalid")}
+	}
 	var tr tokenResponse
 	if err := json.NewDecoder(io.LimitReader(resp.Body, stsErrorBodyLimit)).Decode(&tr); err != nil {
 		return exchangeOutcome{Status: http.StatusBadGateway,
@@ -140,6 +144,14 @@ func (c *stsClient) Exchange(ctx context.Context, subjectToken string, bind bind
 			InternalErr: fmt.Errorf("resource %q not in upstreams", resource)}
 	}
 	return exchangeOutcome{Result: &stsResult{AccessToken: tr.AccessToken, Upstream: upstream, Latency: latency}, Status: http.StatusOK}
+}
+
+func isJSONResponse(contentType string) bool {
+	if contentType == "" {
+		return false
+	}
+	mediaType := strings.ToLower(strings.Split(contentType, ";")[0])
+	return mediaType == "application/json" || strings.HasSuffix(mediaType, "+json")
 }
 
 // classifySTSTransportError maps low-level transport errors to gateway-safe responses.

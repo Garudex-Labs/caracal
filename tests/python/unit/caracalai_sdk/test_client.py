@@ -7,10 +7,13 @@ Caracal drop-in client tests for env loading, header projection, and ASGI middle
 
 import unittest
 
+import httpx
+
 from caracalai_sdk import (
     Caracal,
     CaracalASGIMiddleware,
     CaracalConfig,
+    ResourceBinding,
 )
 from caracalai_sdk.advanced import (
     CoordinatorClient,
@@ -61,6 +64,36 @@ class HeadersTests(unittest.TestCase):
         self.assertEqual(h[HEADER_AUTHORIZATION], "Bearer tok")
         self.assertIsNotNone(parse_traceparent(h[HEADER_TRACEPARENT]))
         self.assertEqual(parse_baggage(h.get(HEADER_BAGGAGE)).get(BAGGAGE_HOP), "0")
+
+
+class GatewayRoutingTests(unittest.IsolatedAsyncioTestCase):
+    async def test_transport_routes_bound_provider_calls_through_gateway(self) -> None:
+        c = Caracal(
+            CaracalConfig(
+                coordinator=CoordinatorClient(base_url="http://coord"),
+                zone_id="z",
+                application_id="app",
+                subject_token="tok",
+                gateway_url="https://gateway.example.com/proxy",
+                resources=[
+                    ResourceBinding(
+                        resource_id="calendar",
+                        upstream_prefix="https://api.example.com/v1",
+                    )
+                ],
+            )
+        )
+
+        async def handler(request):
+            self.assertEqual(str(request.url), "https://gateway.example.com/proxy/events?limit=10")
+            self.assertEqual(request.headers["X-Caracal-Resource"], "calendar")
+            self.assertEqual(request.headers[HEADER_AUTHORIZATION], "Bearer tok")
+            return httpx.Response(204)
+
+        async with c.transport(transport=httpx.MockTransport(handler)) as client:
+            response = await client.get("https://api.example.com/v1/events?limit=10")
+
+        self.assertEqual(response.status_code, 204)
 
 
 class AsgiMiddlewareTests(unittest.IsolatedAsyncioTestCase):

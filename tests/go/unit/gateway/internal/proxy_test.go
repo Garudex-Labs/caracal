@@ -119,6 +119,25 @@ func TestProxyMissingBearerReturns401(t *testing.T) {
 	}
 }
 
+func TestProxyOversizedBearerRejectedWithoutSTSCall(t *testing.T) {
+	var calls int32
+	sts := newFakeSTS(t, "http://127.0.0.1:1", &calls)
+	defer sts.Close()
+	p := newProxyForTest(t, sts, true)
+
+	hdr := http.Header{
+		"Authorization":      {"Bearer " + strings.Repeat("x", maxBearerBytes+1)},
+		"X-Caracal-Resource": {"r"},
+	}
+	resp := doProxiedRequest(t, p, "GET", "/x", nil, hdr)
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("oversized bearer should 401, got %d", resp.StatusCode)
+	}
+	if atomic.LoadInt32(&calls) != 0 {
+		t.Errorf("oversized bearer must not reach STS, got %d calls", calls)
+	}
+}
+
 func TestProxyMalformedBearerRejectedWithoutSTSCall(t *testing.T) {
 	var calls int32
 	sts := newFakeSTS(t, "http://127.0.0.1:1", &calls)
@@ -300,6 +319,20 @@ func TestProxySTSExchangedExactlyOncePerRequest(t *testing.T) {
 	}
 }
 
+func TestSTSExchangeRejectsNonJSONSuccess(t *testing.T) {
+	sts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		_, _ = io.WriteString(w, `{"access_token":"tok","upstreams":{"r":{"url":"https://upstream.example.com","auth_mode":"caracal_jwt"}}}`)
+	}))
+	defer sts.Close()
+
+	client := newSTSClient(sts.URL, time.Second)
+	out := client.Exchange(context.Background(), "subject-token", binding{ZoneID: "z", ApplicationID: "app"}, "r", "req-1")
+	if out.Status != http.StatusBadGateway || out.ClientErr == nil {
+		t.Fatalf("want bad gateway invalid response, got %#v", out)
+	}
+}
+
 func TestProxyConcurrentRequestsEachExchange(t *testing.T) {
 	const requests = 25
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -343,6 +376,7 @@ func TestProxyPathAndQueryComposition(t *testing.T) {
 	defer upstream.Close()
 
 	sts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(stsResponseFixture{
 			AccessToken: "tok",
 			Upstreams:   map[string]upstreamDirectiveFixture{"r1": {URL: upstream.URL + "/base?fixed=upstream&shared=upstream", AuthMode: "caracal_jwt"}},
