@@ -1,0 +1,32 @@
+{
+  "name": "@caracalai/mcp-express",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run --root ../../../.. tests/typescript/unit/sdk/mcp-express",
+    "prepare": "tsc"
+  },
+  "dependencies": {
+    "@caracalai/transport-mcp": "workspace:*",
+    "@caracalai/identity": "workspace:*",
+    "@caracalai/revocation": "workspace:*",
+    "@caracalai/sdk": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.0",
+    "@types/node": "^24.0.0",
+    "typescript": "^5.8.0",
+    "vitest": "^3.0.0"
+  }
+}
