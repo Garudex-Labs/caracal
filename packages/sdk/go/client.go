@@ -9,7 +9,9 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"net/url"
 	"os"
+	"strings"
 )
 
 // Caracal binds the four config values needed to integrate with Caracal.
@@ -18,8 +20,18 @@ type Caracal struct {
 	ZoneID            string
 	ApplicationID     string
 	SubjectToken      string
+	GatewayURL        string
+	Resources         []ResourceBinding
 	DefaultKind       AgentKind
 	DefaultTTLSeconds int
+}
+
+// ResourceBinding maps a registered Caracal resource id to the upstream URL
+// prefix it serves. The prefix is matched against outbound request URLs so the
+// HTTPClient can rewrite the call through the gateway transparently.
+type ResourceBinding struct {
+	ResourceID     string
+	UpstreamPrefix string
 }
 
 // FromEnv constructs a Caracal client from CARACAL_COORDINATOR_URL,
@@ -48,7 +60,37 @@ func FromEnv() (*Caracal, error) {
 		ZoneID:        zone,
 		ApplicationID: app,
 		SubjectToken:  tok,
+		GatewayURL:    os.Getenv("CARACAL_GATEWAY_URL"),
+		Resources:     parseResourceBindings(os.Getenv("CARACAL_RESOURCES")),
 	}, nil
+}
+
+// parseResourceBindings reads the CARACAL_RESOURCES env format
+// "rid=https://upstream/prefix,rid2=https://other/prefix".
+func parseResourceBindings(raw string) []ResourceBinding {
+	if raw == "" {
+		return nil
+	}
+	out := []ResourceBinding{}
+	for _, entry := range strings.Split(raw, ",") {
+		trimmed := strings.TrimSpace(entry)
+		if trimmed == "" {
+			continue
+		}
+		idx := strings.Index(trimmed, "=")
+		if idx <= 0 {
+			continue
+		}
+		rid := strings.TrimSpace(trimmed[:idx])
+		prefix := strings.TrimSpace(trimmed[idx+1:])
+		if rid != "" && prefix != "" {
+			out = append(out, ResourceBinding{ResourceID: rid, UpstreamPrefix: prefix})
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 // RunOptions overrides defaults for a single Run call.
@@ -192,5 +234,106 @@ func (t *caracalTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 			clone.Header.Set(canon, value)
 		}
 	})
+	if rewritten := t.client.routeThroughGateway(clone.URL, clone.Header.Get("X-Caracal-Resource")); rewritten != nil {
+		clone.URL = rewritten.url
+		clone.Host = rewritten.url.Host
+		clone.RequestURI = ""
+		clone.Header.Set("X-Caracal-Resource", rewritten.resourceID)
+		token := env.SubjectToken
+		if token == "" {
+			token = t.client.SubjectToken
+		}
+		clone.Header.Set("Authorization", "Bearer "+token)
+	}
 	return t.base.RoundTrip(clone)
+}
+
+type gatewayRoute struct {
+	url        *url.URL
+	resourceID string
+}
+
+// routeThroughGateway rewrites target to point at the gateway when the request
+// matches a configured ResourceBinding. Returns nil to leave the request alone.
+func (c *Caracal) routeThroughGateway(target *url.URL, explicitResource string) *gatewayRoute {
+	if c.GatewayURL == "" || target == nil {
+		return nil
+	}
+	gw, err := url.Parse(c.GatewayURL)
+	if err != nil {
+		return nil
+	}
+	if sameOrigin(target, gw) {
+		return nil
+	}
+	var binding *ResourceBinding
+	if explicitResource != "" {
+		for i := range c.Resources {
+			if c.Resources[i].ResourceID == explicitResource {
+				binding = &c.Resources[i]
+				break
+			}
+		}
+	} else {
+		for i := range c.Resources {
+			if urlMatchesPrefix(target, c.Resources[i].UpstreamPrefix) {
+				binding = &c.Resources[i]
+				break
+			}
+		}
+		if binding == nil {
+			return nil
+		}
+	}
+	suffix := target.Path
+	if target.RawQuery != "" {
+		suffix += "?" + target.RawQuery
+	}
+	if binding != nil {
+		prefix, err := url.Parse(binding.UpstreamPrefix)
+		if err == nil && prefix.Path != "" && prefix.Path != "/" && strings.HasPrefix(target.Path, prefix.Path) {
+			suffix = strings.TrimPrefix(target.Path, prefix.Path)
+			if !strings.HasPrefix(suffix, "/") {
+				suffix = "/" + suffix
+			}
+			if target.RawQuery != "" {
+				suffix += "?" + target.RawQuery
+			}
+		}
+	}
+	base := strings.TrimRight(gw.Scheme+"://"+gw.Host+gw.Path, "/")
+	rewritten, err := url.Parse(base + suffix)
+	if err != nil {
+		return nil
+	}
+	rid := explicitResource
+	if binding != nil {
+		rid = binding.ResourceID
+	}
+	return &gatewayRoute{url: rewritten, resourceID: rid}
+}
+
+func sameOrigin(a, b *url.URL) bool {
+	return a.Scheme == b.Scheme && a.Host == b.Host
+}
+
+func urlMatchesPrefix(target *url.URL, prefix string) bool {
+	p, err := url.Parse(prefix)
+	if err != nil {
+		return false
+	}
+	if p.Scheme != target.Scheme || p.Host != target.Host {
+		return false
+	}
+	if p.Path == "" || p.Path == "/" {
+		return true
+	}
+	if target.Path == p.Path {
+		return true
+	}
+	pp := p.Path
+	if !strings.HasSuffix(pp, "/") {
+		pp += "/"
+	}
+	return strings.HasPrefix(target.Path, pp)
 }
