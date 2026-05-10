@@ -14,6 +14,7 @@ import {
   printJSON,
   printTable,
   requireZone,
+  unknownVerb,
   usage,
 } from './shared.ts'
 
@@ -61,8 +62,9 @@ export async function grantCommand(argv: string[], cfg?: CliConfig): Promise<voi
       case 'help':
       case '--help':
       case '-h':
-      default:
         return help()
+      default:
+        return unknownVerb('grant', verb, help)
     }
   } catch (err) {
     fail(err)

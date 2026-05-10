@@ -15,6 +15,7 @@ import {
   printTable,
   readContent,
   requireZone,
+  unknownVerb,
   usage,
 } from './shared.ts'
 
@@ -77,8 +78,9 @@ export async function policyCommand(argv: string[], cfg?: CliConfig): Promise<vo
       case 'help':
       case '--help':
       case '-h':
-      default:
         return policyHelp()
+      default:
+        return unknownVerb('policy', verb, policyHelp)
     }
   } catch (err) {
     fail(err)
@@ -142,8 +144,9 @@ export async function policySetCommand(argv: string[], cfg?: CliConfig): Promise
       case 'help':
       case '--help':
       case '-h':
+        return policyHelp()
       default:
-        return policySetHelp()
+        return unknownVerb('policy', verb, policyHelp)
     }
   } catch (err) {
     fail(err)
