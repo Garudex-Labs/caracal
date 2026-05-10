@@ -29,11 +29,14 @@ type Options struct {
 type ErrorCode string
 
 const (
-	ErrMissingToken      ErrorCode = "missing_token"
-	ErrInvalidToken      ErrorCode = "invalid_token"
-	ErrInvalidZone       ErrorCode = "invalid_zone"
-	ErrInsufficientScope ErrorCode = "insufficient_scope"
-	ErrSessionRevoked    ErrorCode = "session_revoked"
+	ErrMissingToken       ErrorCode = "missing_token"
+	ErrInvalidToken       ErrorCode = "invalid_token"
+	ErrInvalidZone        ErrorCode = "invalid_zone"
+	ErrInsufficientScope  ErrorCode = "insufficient_scope"
+	ErrSessionRevoked     ErrorCode = "session_revoked"
+	ErrAgentRequired      ErrorCode = "agent_required"
+	ErrDelegationRequired ErrorCode = "delegation_required"
+	ErrChainMismatch      ErrorCode = "chain_mismatch"
 )
 
 // AuthError is the typed failure returned by Authenticate.
@@ -73,11 +76,18 @@ func Authenticate(token string, opts Options) (identity.Claims, *AuthError) {
 	claims, err := identity.Verify(token, cfg)
 	if err != nil {
 		var scopeErr *identity.ScopeMissingError
+		var chainErr *identity.ChainMismatchError
 		switch {
 		case errors.As(err, &scopeErr):
 			return identity.Claims{}, &AuthError{Code: ErrInsufficientScope, Description: "Missing scope: " + scopeErr.Scope}
 		case errors.Is(err, identity.ErrZoneInvalid):
 			return identity.Claims{}, &AuthError{Code: ErrInvalidZone, Description: "Token zone validation failed"}
+		case errors.Is(err, identity.ErrAgentIdentityRequired):
+			return identity.Claims{}, &AuthError{Code: ErrAgentRequired, Description: "Agent identity required"}
+		case errors.Is(err, identity.ErrDelegationRequired):
+			return identity.Claims{}, &AuthError{Code: ErrDelegationRequired, Description: "Delegation required"}
+		case errors.As(err, &chainErr):
+			return identity.Claims{}, &AuthError{Code: ErrChainMismatch, Description: "Delegation chain missing application: " + chainErr.ApplicationID}
 		default:
 			return identity.Claims{}, &AuthError{Code: ErrInvalidToken, Description: "Token validation failed"}
 		}

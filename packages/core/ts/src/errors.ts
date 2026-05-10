@@ -12,7 +12,8 @@ export type ErrorCode =
   | 'provider_rate_limited'
   | 'interaction_required'
   | 'sts_unavailable'
-  | 'credential_expired_not_renewable';
+  | 'credential_expired_not_renewable'
+  | 'payload_too_large';
 
 export class CaracalError extends Error {
   constructor(

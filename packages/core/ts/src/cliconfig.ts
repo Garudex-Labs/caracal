@@ -29,15 +29,21 @@ export function resolveCliConfigPath(env: NodeJS.ProcessEnv = process.env): stri
   return undefined;
 }
 
-// Returns the env-var override or the dev default. Fails loudly in non-development
-// so a misconfigured production CLI never silently hits localhost.
+export class ServiceUrlMissingError extends Error {
+  constructor(public readonly envKey: string, public readonly nodeEnv: string) {
+    super(`${envKey} is required when NODE_ENV=${nodeEnv}`);
+    this.name = 'ServiceUrlMissingError';
+  }
+}
+
+// Returns the env-var override or the dev default. Throws ServiceUrlMissingError
+// in non-development so a misconfigured production CLI never silently hits localhost.
 export function resolveServiceUrl(envKey: string, devDefault: string): string {
   const v = process.env[envKey];
   if (v) return v;
   const env = process.env.NODE_ENV ?? 'development';
   if (env !== 'development') {
-    process.stderr.write(`Error: ${envKey} is required when NODE_ENV=${env}\n`);
-    process.exit(1);
+    throw new ServiceUrlMissingError(envKey, env);
   }
   return devDefault;
 }
