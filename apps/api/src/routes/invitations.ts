@@ -6,6 +6,7 @@
 import type { FastifyPluginAsync } from 'fastify'
 import { z } from 'zod'
 import { v7 as uuidv7 } from 'uuid'
+import { ZoneIdParams, ZoneParams, parseParams } from './params.js'
 
 const InviteBody = z.object({
   email: z.string().email(),
@@ -15,18 +16,20 @@ const InviteBody = z.object({
 })
 
 export const invitationsRoutes: FastifyPluginAsync = async (fastify) => {
-  fastify.get('/zones/:zoneId/invitations', async (req) => {
-    const { zoneId } = req.params as { zoneId: string }
+  fastify.get('/zones/:zoneId/invitations', async (req, reply) => {
+    const params = parseParams(ZoneParams, req, reply)
+    if (!params) return
     const { rows } = await fastify.db.query(
       `SELECT id, zone_id, email, role, invited_by, accepted_at, expires_at, created_at
        FROM invitations WHERE zone_id = $1 ORDER BY created_at DESC`,
-      [zoneId],
+      [params.zoneId],
     )
     return rows
   })
 
   fastify.post('/zones/:zoneId/invitations', async (req, reply) => {
-    const { zoneId } = req.params as { zoneId: string }
+    const params = parseParams(ZoneParams, req, reply)
+    if (!params) return
     const parsed = InviteBody.safeParse(req.body)
     if (!parsed.success) return reply.code(400).send({ error: 'invalid_invitation' })
     const body = parsed.data
@@ -37,16 +40,17 @@ export const invitationsRoutes: FastifyPluginAsync = async (fastify) => {
       `INSERT INTO invitations (id, zone_id, email, role, invited_by, expires_at)
        VALUES ($1, $2, $3, $4, $5, $6)
        RETURNING id, zone_id, email, role, invited_by, accepted_at, expires_at, created_at`,
-      [id, zoneId, body.email, body.role, body.invited_by, expiresAt],
+      [id, params.zoneId, body.email, body.role, body.invited_by, expiresAt],
     )
     return reply.code(201).send(rows[0])
   })
 
   fastify.delete('/zones/:zoneId/invitations/:id', async (req, reply) => {
-    const { zoneId, id } = req.params as { zoneId: string; id: string }
+    const params = parseParams(ZoneIdParams, req, reply)
+    if (!params) return
     const { rowCount } = await fastify.db.query(
       `DELETE FROM invitations WHERE id = $1 AND zone_id = $2 AND accepted_at IS NULL`,
-      [id, zoneId],
+      [params.id, params.zoneId],
     )
     if (!rowCount) return reply.code(404).send({ error: 'invitation_not_found' })
     return reply.code(204).send()

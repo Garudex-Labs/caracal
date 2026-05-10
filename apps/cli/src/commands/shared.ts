@@ -110,6 +110,21 @@ export function requireZone(ctx: AdminContext, flags: Record<string, string | bo
   return zoneId
 }
 
+export function usage(line: string): never {
+  process.stderr.write(`Usage: caracal ${line}\n`)
+  process.exit(1)
+}
+
+export function unknownVerb(group: string, verb: string | undefined, help: () => void): never {
+  if (verb === undefined || verb === 'help' || verb === '--help' || verb === '-h') {
+    help()
+    process.exit(0)
+  }
+  process.stderr.write(`Error: unknown ${group} verb '${verb}'\n`)
+  help()
+  process.exit(1)
+}
+
 export function fail(err: unknown): never {
   if (err instanceof AdminApiError) {
     process.stderr.write(`Error: ${err.code} (HTTP ${err.status})\n`)

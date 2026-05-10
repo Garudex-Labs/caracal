@@ -12,6 +12,7 @@ import {
   printJSON,
   printTable,
   requireZone,
+  usage,
 } from './shared.ts'
 
 function ensureCoordinator(): void {
@@ -184,7 +185,3 @@ function delegationHelp(): void {
   process.exit(0)
 }
 
-function usage(line: string): void {
-  process.stderr.write(`Usage: caracal ${line}\n`)
-  process.exit(1)
-}
