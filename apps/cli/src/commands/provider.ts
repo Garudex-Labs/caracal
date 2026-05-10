@@ -15,6 +15,7 @@ import {
   printTable,
   readContent,
   requireZone,
+  usage,
 } from './shared.ts'
 
 function parseConfig(value: string | undefined): Record<string, unknown> | undefined {
@@ -118,7 +119,3 @@ function help(): void {
   process.exit(0)
 }
 
-function usage(line: string): void {
-  process.stderr.write(`Usage: caracal ${line}\n`)
-  process.exit(1)
-}

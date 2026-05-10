@@ -107,7 +107,14 @@ function runCompose(args: string[], paths: StackPaths): Promise<number> {
       ['compose', '--env-file', paths.envFile, '-f', paths.composeFile, ...args],
       { stdio: 'inherit', cwd: paths.cwd, env },
     )
-    proc.on('exit', (code) => resolveExit(code ?? 1))
+    proc.on('exit', (code, signal) => {
+      if (typeof code === 'number') return resolveExit(code)
+      if (signal) {
+        const map: Record<string, number> = { SIGINT: 2, SIGTERM: 15, SIGKILL: 9, SIGHUP: 1, SIGQUIT: 3 }
+        return resolveExit(128 + (map[signal] ?? 15))
+      }
+      resolveExit(1)
+    })
     proc.on('error', (err) => {
       process.stderr.write(`Error: failed to invoke docker compose: ${err.message}\n`)
       resolveExit(127)
