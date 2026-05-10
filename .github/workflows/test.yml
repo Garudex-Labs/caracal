@@ -77,11 +77,22 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile --prefer-offline
 
-      - name: TypeScript typecheck
-        run: pnpm -r --if-present typecheck
+      - name: TypeScript build (topological)
+        run: pnpm -r build
 
       - name: Go vet
-        run: go vet ./...
+        run: |
+          go vet \
+            ./packages/core/go/... \
+            ./services/sts/... \
+            ./services/audit/... \
+            ./services/gateway/... \
+            ./apps/coordinator/relay/... \
+            ./packages/transport/mcp/go/... \
+            ./packages/connectors/nethttp/go/... \
+            ./packages/identity/go/... \
+            ./packages/revocation/go/... \
+            ./packages/sdk/go/...
 
   changes:
     name: Detect changes

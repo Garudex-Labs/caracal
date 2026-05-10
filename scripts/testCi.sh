@@ -47,10 +47,20 @@ step() { echo; echo "==> $*"; }
 if $run_smoke; then
   step "smoke: pnpm install"
   pnpm install --frozen-lockfile --prefer-offline
-  step "smoke: typecheck"
-  pnpm -r --if-present typecheck
+  step "smoke: pnpm -r build"
+  pnpm -r build
   step "smoke: go vet"
-  go vet ./...
+  go vet \
+    ./packages/core/go/... \
+    ./services/sts/... \
+    ./services/audit/... \
+    ./services/gateway/... \
+    ./apps/coordinator/relay/... \
+    ./packages/transport/mcp/go/... \
+    ./packages/connectors/nethttp/go/... \
+    ./packages/identity/go/... \
+    ./packages/revocation/go/... \
+    ./packages/sdk/go/...
 fi
 
 if $run_ts || $run_docs; then

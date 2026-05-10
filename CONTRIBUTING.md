@@ -102,6 +102,19 @@ pnpm --dir apps/<name> test                # single package
 go test ./services/<name>/...              # single Go service
 ```
 
+### CI parity locally
+
+`scripts/testCi.sh` runs the same checks as `.github/workflows/test.yml` against the local checkout.
+
+```bash
+scripts/testCi.sh             # full suite (ts + go + py + docs)
+scripts/testCi.sh --smoke     # post-merge smoke: pnpm -r build + go vet
+scripts/testCi.sh --ts        # any subset
+scripts/testCi.sh --go --py
+```
+
+`--smoke` mirrors the post-merge job that runs on push to `main`; the full suite mirrors the daily scheduled and `workflow_dispatch` runs.
+
 ## Code Style
 
 - Header and naming rules are enforced by `.claude/rules/` and `.github/instructions/`.
