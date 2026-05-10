@@ -47,6 +47,7 @@ export const agentsRoutes: FastifyPluginAsync = async (fastify) => {
       && !requireScope(req, `coordinator.spawn_for:${body.application_id}`)) {
       return reply.code(403).send({ error: 'application_ownership_required' })
     }
+    const idempotencyKey = (req.headers['idempotency-key'] as string | undefined)?.trim() || null
     const id = uuidv7()
     const client = await fastify.db.connect()
     try {
@@ -55,6 +56,21 @@ export const agentsRoutes: FastifyPluginAsync = async (fastify) => {
         `SELECT pg_advisory_xact_lock(hashtext($1))`,
         [spawnLockKey(zoneId)],
       )
+      if (idempotencyKey) {
+        const { rows: existing } = await client.query(
+          `SELECT id, zone_id, application_id, parent_id, session_sid, status, depth, spawned_at
+           FROM agent_sessions
+           WHERE zone_id = $1 AND application_id = $2 AND session_sid = $3
+             AND COALESCE(parent_id, '') = COALESCE($4, '')
+             AND status IN ('active','suspended')
+           LIMIT 1`,
+          [zoneId, body.application_id, body.session_sid, body.parent_id],
+        )
+        if (existing[0]) {
+          await client.query('ROLLBACK')
+          return reply.code(200).send(existing[0])
+        }
+      }
       const { rows: refs } = await client.query(
         `SELECT
            EXISTS (

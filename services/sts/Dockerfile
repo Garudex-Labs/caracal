@@ -27,4 +27,5 @@ RUN apk add --no-cache ca-certificates wget && \
     chown -R 65532:65532 /var/lib/caracal
 COPY --from=builder /sts /sts
 USER 65532:65532
+HEALTHCHECK --interval=10s --timeout=3s --retries=3 CMD wget -qO- "http://127.0.0.1:${PORT:-8080}/health" || exit 1
 ENTRYPOINT ["/sts"]

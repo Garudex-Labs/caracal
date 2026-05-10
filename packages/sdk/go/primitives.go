@@ -7,6 +7,7 @@ package sdk
 
 import (
 	"context"
+	"errors"
 )
 
 // LifecycleHook fires before fn runs (start) and after it returns (end).
@@ -107,12 +108,9 @@ type DelegateInput struct {
 // Delegate creates a delegation edge from the current agent session,
 // binds a child context with the edge, and runs fn.
 func Delegate(ctx context.Context, opts DelegateInput, fn func(context.Context) error) error {
-	c, err := Current(ctx)
-	if err != nil {
-		return err
-	}
-	if c.AgentSessionID == "" {
-		return ErrNoContext
+	c, ok := Current(ctx)
+	if !ok || c.AgentSessionID == "" {
+		return errors.New("caracal: Delegate requires an active agent session in context")
 	}
 
 	res, err := CreateDelegation(ctx, opts.Coordinator, c.SubjectToken, DelegationRequest{

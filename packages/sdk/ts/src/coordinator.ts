@@ -113,13 +113,21 @@ export async function createDelegation(
   bearer: string,
   req: DelegationRequest,
 ): Promise<DelegationResponse> {
+  const constraints = req.constraints
+    ? {
+        resources: req.constraints.resources,
+        actions: req.constraints.actions,
+        max_depth: req.constraints.maxDepth,
+        expires_at: req.constraints.expiresAt,
+      }
+    : undefined;
   return call(client, "POST", `/zones/${encodeURIComponent(req.zoneId)}/delegations`, bearer, {
     issuer_application_id: req.issuerApplicationId,
     source_session_id: req.sourceSessionId,
     target_session_id: req.targetSessionId,
     receiver_application_id: req.receiverApplicationId,
     scopes: req.scopes,
-    constraints: req.constraints,
+    constraints,
     ttl_seconds: req.ttlSeconds,
   });
 }
