@@ -65,6 +65,11 @@ jobs:
           cache: pnpm
           cache-dependency-path: pnpm-lock.yaml
 
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: latest
+
       - name: Setup Go
         uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
@@ -160,6 +165,7 @@ jobs:
           pnpm --dir packages/core/ts build
           pnpm --dir packages/oauth/ts build
           pnpm --dir packages/admin/ts build
+          pnpm --dir packages/sdk/ts build
           pnpm --dir packages/transport/a2a/ts build
           pnpm --dir packages/identity/ts build
           pnpm --dir packages/revocation/ts build

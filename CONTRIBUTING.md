@@ -109,8 +109,7 @@ go test ./services/<name>/...              # single Go service
 ```bash
 scripts/testCi.sh             # full suite (ts + go + py + docs)
 scripts/testCi.sh --smoke     # post-merge smoke: pnpm -r build + go vet
-scripts/testCi.sh --ts        # any subset
-scripts/testCi.sh --go --py
+scripts/testCi.sh [--ts / --go / --py]        # any subset
 ```
 
 `--smoke` mirrors the post-merge job that runs on push to `main`; the full suite mirrors the daily scheduled and `workflow_dispatch` runs.

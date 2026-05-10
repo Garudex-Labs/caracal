@@ -47,6 +47,11 @@ step() { echo; echo "==> $*"; }
 if $run_smoke; then
   step "smoke: pnpm install"
   pnpm install --frozen-lockfile --prefer-offline
+  if ! command -v bun >/dev/null 2>&1; then
+    echo "bun is required for pnpm -r build (apps/cli, apps/tui)." >&2
+    echo "Install: curl -fsSL https://bun.sh/install | bash" >&2
+    exit 1
+  fi
   step "smoke: pnpm -r build"
   pnpm -r build
   step "smoke: go vet"
@@ -76,6 +81,7 @@ if $run_ts; then
   pnpm --dir packages/core/ts build
   pnpm --dir packages/oauth/ts build
   pnpm --dir packages/admin/ts build
+  pnpm --dir packages/sdk/ts build
   pnpm --dir packages/transport/a2a/ts build
   pnpm --dir packages/identity/ts build
   pnpm --dir packages/revocation/ts build
