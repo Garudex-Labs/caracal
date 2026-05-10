@@ -4,7 +4,7 @@ use (
 	./services/sts
 	./services/audit
 	./services/gateway
-	./apps/agent-coordinator/relay
+	./apps/coordinator/relay
 	./packages/core/go
 	./packages/identity/go
 	./packages/revocation/go

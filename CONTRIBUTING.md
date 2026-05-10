@@ -23,7 +23,7 @@ apps/
   api/                 Admin / management plane (Fastify, TypeScript)
   cli/                 caracal CLI (TypeScript, Node 24 / Bun compile)
   tui/                 caracal-tui terminal UI (TypeScript, Node 24 / Bun compile)
-  agent-coordinator/   Agent coordinator with embedded Go relay
+  coordinator/         Coordinator with embedded Go relay
 services/
   sts/                 Security Token Service (Go)
   gateway/             Policy enforcement gateway (Go)
@@ -318,7 +318,7 @@ The `release` workflow triggers on `v*.*.*` tags and runs three jobs:
 | `ghcr.io/garudex-labs/caracal-sts` | `services/sts/Dockerfile` |
 | `ghcr.io/garudex-labs/caracal-gateway` | `services/gateway/Dockerfile` |
 | `ghcr.io/garudex-labs/caracal-audit` | `services/audit/Dockerfile` |
-| `ghcr.io/garudex-labs/caracal-coordinator` | `apps/agent-coordinator/Dockerfile` |
+| `ghcr.io/garudex-labs/caracal-coordinator` | `apps/coordinator/Dockerfile` |
 
 Each image is tagged `vX.Y.Z`, `vX.Y`, and `latest`.
 

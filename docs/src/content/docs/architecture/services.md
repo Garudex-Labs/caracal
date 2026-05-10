@@ -37,7 +37,7 @@ Stateless reverse proxy in front of MCP / HTTP resource servers.
 - **Trust model:** never the trust root. Verifies bearer signatures locally
   against the per-zone JWKS; defers all authority decisions to STS.
 
-## Agent Coordinator — `apps/agent-coordinator`
+## Coordinator — `apps/coordinator`
 
 Control-plane service for agent sessions and delegations.
 

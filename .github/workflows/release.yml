@@ -101,7 +101,7 @@ jobs:
             dockerfile: services/audit/Dockerfile
           - name: coordinator
             context: .
-            dockerfile: apps/agent-coordinator/Dockerfile
+            dockerfile: apps/coordinator/Dockerfile
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       - uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3
