@@ -1,0 +1,19 @@
+syntax = "proto3";
+
+package lynx.compliance;
+
+service ComplianceFeed {
+  rpc StreamWatchlistDeltas (StreamRequest) returns (stream WatchlistDelta);
+}
+
+message StreamRequest { string cursor = 1; repeated string lists = 2; }
+
+message WatchlistDelta {
+  string cursor    = 1;
+  string list_name = 2;
+  string action    = 3;
+  string entity_id = 4;
+  string country   = 5;
+  string reason    = 6;
+  string ts        = 7;
+}
