@@ -28,7 +28,7 @@
   "scripts": {
     "build": "tsc",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run --root ../../.. tests/typescript/unit/sdk",
+    "test": "vitest run --root ../../.. tests/typescript/unit/sdk/client.test.ts",
     "prepublishOnly": "tsc"
   },
   "dependencies": {

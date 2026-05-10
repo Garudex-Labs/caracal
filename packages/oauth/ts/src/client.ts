@@ -178,6 +178,9 @@ export class OAuthClient {
       throw new Error(err['error_description'] ?? `STS error ${res.status}`)
     }
 
+    if (!isJsonResponse(res)) {
+      throw new Error('STS response invalid: expected application/json')
+    }
     const data = (await res.json()) as {
       access_token: string
       expires_in: number
@@ -189,4 +192,11 @@ export class OAuthClient {
       issuedAt: Math.floor(Date.now() / 1000),
     }
   }
+}
+
+function isJsonResponse(res: Response): boolean {
+  const contentType = res.headers?.get('content-type')
+  if (contentType === null || contentType === undefined) return true
+  const mediaType = contentType.toLowerCase().split(';', 1)[0]
+  return mediaType === 'application/json' || mediaType.endsWith('+json')
 }

@@ -18,7 +18,7 @@ export interface A2ARequest {
 
 export type FetchLike = (
   url: string,
-  init: { method: string; headers: Record<string, string>; body: string },
+  init: { method: string; headers: Record<string, string>; body: string; signal?: AbortSignal },
 ) => Promise<{ ok: boolean; status: number; json: () => Promise<unknown> }>
 
 export interface A2AOptions {
@@ -27,6 +27,9 @@ export interface A2AOptions {
   clientAssertion?: string
   clientAssertionType?: string
   ttlSeconds?: number
+  timeoutMs?: number
+  retries?: number
+  retryBaseMs?: number
   fetchImpl?: FetchLike
 }
 

@@ -16,6 +16,7 @@ export interface FastMcpAuthOptions {
   requireAgent?: boolean
   requireDelegation?: boolean
   requireChainContains?: string[]
+  maxHopCount?: number
 }
 
 export interface FastMcpContext {
