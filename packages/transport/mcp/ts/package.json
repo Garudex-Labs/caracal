@@ -1,5 +1,5 @@
 {
-  "name": "@caracalai/transport-a2a",
+  "name": "@caracalai/transport-mcp",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -14,13 +14,15 @@
   "scripts": {
     "build": "tsc",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run --root ../../.. tests/typescript/unit/transport-a2a",
+    "test": "vitest run --root ../../.. tests/typescript/unit/transport-mcp",
     "prepare": "tsc"
   },
   "dependencies": {
-    "@caracalai/oauth": "workspace:*"
+    "@caracalai/identity": "workspace:*",
+    "@caracalai/revocation": "workspace:*"
   },
   "devDependencies": {
+    "@types/node": "^24.0.0",
     "typescript": "^5.8.0",
     "vitest": "^3.0.0"
   }
