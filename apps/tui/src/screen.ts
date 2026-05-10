@@ -28,36 +28,50 @@ export class App {
   private statusKind: 'info' | 'error' = 'info'
   private rendering = false
   private dirty = true
+  private exiting = false
+  private renderTimer: NodeJS.Timeout | undefined
   readonly bannerLeft: string
-  readonly bannerRight: string
+  private bannerRightFn: () => string
 
-  constructor(bannerLeft: string, bannerRight: string) {
+  constructor(bannerLeft: string, bannerRight: string | (() => string)) {
     this.bannerLeft = bannerLeft
-    this.bannerRight = bannerRight
+    this.bannerRightFn = typeof bannerRight === 'function' ? bannerRight : () => bannerRight
+  }
+
+  get bannerRight(): string { return this.bannerRightFn() }
+
+  setBannerRight(fn: () => string): void {
+    this.bannerRightFn = fn
+    this.dirty = true
   }
 
   push(view: View): void {
     this.stack.push(view)
     this.dirty = true
-    if (view.init) Promise.resolve(view.init(this)).catch((err) => this.setStatus(`init: ${err?.message ?? err}`, 'error'))
+    if (view.init) {
+      Promise.resolve(view.init(this)).catch((err) => this.setStatus(`init: ${explain(err)}`, 'error'))
+    }
   }
 
   pop(): void {
     if (this.stack.length > 1) {
       const view = this.stack.pop()!
-      view.dispose?.()
+      try { view.dispose?.() } catch { /* ignore dispose errors */ }
+      this.status = ''
       this.dirty = true
     } else {
-      this.exit()
+      void this.exit()
     }
   }
 
   replaceTop(view: View): void {
     const old = this.stack.pop()
-    old?.dispose?.()
+    try { old?.dispose?.() } catch { /* ignore */ }
     this.stack.push(view)
     this.dirty = true
-    if (view.init) Promise.resolve(view.init(this)).catch((err) => this.setStatus(`init: ${err?.message ?? err}`, 'error'))
+    if (view.init) {
+      Promise.resolve(view.init(this)).catch((err) => this.setStatus(`init: ${explain(err)}`, 'error'))
+    }
   }
 
   current(): View {
@@ -73,14 +87,25 @@ export class App {
   invalidate(): void { this.dirty = true }
 
   async exit(code = 0): Promise<void> {
-    process.stdout.write(ansi.exitAlt + ansi.reset)
-    if (process.stdin.isTTY) process.stdin.setRawMode(false)
+    if (this.exiting) return
+    this.exiting = true
+    if (this.renderTimer) { clearInterval(this.renderTimer); this.renderTimer = undefined }
+    while (this.stack.length > 0) {
+      const v = this.stack.pop()!
+      try { v.dispose?.() } catch { /* ignore */ }
+    }
+    if (process.stdin.isTTY) {
+      try { process.stdin.setRawMode(false) } catch { /* ignore */ }
+    }
     process.stdin.pause()
+    await new Promise<void>((resolve) => {
+      process.stdout.write(ansi.exitAlt + ansi.reset, () => resolve())
+    })
     process.exit(code)
   }
 
   private renderFrame(): void {
-    if (this.rendering) return
+    if (this.rendering || this.exiting) return
     this.rendering = true
     try {
       const sz = size()
@@ -96,7 +121,7 @@ export class App {
       }
       lines.push(this.statusLine(sz))
       lines.push(this.hintsLine(view, sz))
-      process.stdout.write(ansi.home + lines.join('\n'))
+      process.stdout.write(ansi.home + lines.join('\r\n'))
     } finally {
       this.rendering = false
     }
@@ -121,7 +146,7 @@ export class App {
   }
 
   private hintsLine(view: View, sz: Size): string {
-    const hints = view.hints().concat(['?:help', 'q:quit'])
+    const hints = view.hints().concat(['q:quit'])
     const text = ' ' + hints.join('  ')
     return ansi.invert + pad(truncate(text, sz.cols), sz.cols) + ansi.reset
   }
@@ -140,29 +165,39 @@ export class App {
     process.stdin.setEncoding('utf8')
 
     if (initial.init) {
-      try { await initial.init(this) } catch (err) { this.setStatus(`init: ${(err as Error)?.message ?? err}`, 'error') }
+      try { await initial.init(this) } catch (err) { this.setStatus(`init: ${explain(err)}`, 'error') }
     }
 
     process.on('SIGWINCH', () => { this.dirty = true })
-    process.on('exit', () => { process.stdout.write(ansi.exitAlt + ansi.reset) })
+    process.on('SIGTERM', () => { void this.exit(0) })
+    process.on('SIGHUP', () => { void this.exit(0) })
+    process.on('uncaughtException', (err) => {
+      this.setStatus(`fatal: ${explain(err)}`, 'error')
+      void this.exit(1)
+    })
 
-    const tick = setInterval(() => {
+    this.renderTimer = setInterval(() => {
       if (this.dirty) {
         this.dirty = false
         this.renderFrame()
       }
     }, 30)
-    tick.unref?.()
+    this.renderTimer.unref?.()
 
     process.stdin.on('data', (chunk: Buffer | string) => {
       const text = typeof chunk === 'string' ? chunk : chunk.toString('utf8')
       const key = parseKey(text)
-      this.dispatchKey(key).then(() => { this.dirty = true }).catch((err) => {
-        this.setStatus(`error: ${err?.message ?? err}`, 'error')
-      })
+      this.dispatchKey(key)
+        .then(() => { this.dirty = true })
+        .catch((err) => { this.setStatus(`error: ${explain(err)}`, 'error') })
     })
 
     this.renderFrame()
     await new Promise<void>(() => { /* loop forever; exit() terminates */ })
   }
+}
+
+function explain(err: unknown): string {
+  if (err && typeof err === 'object' && 'message' in err) return String((err as { message: unknown }).message)
+  return String(err)
 }

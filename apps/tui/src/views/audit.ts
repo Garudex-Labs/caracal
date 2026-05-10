@@ -25,6 +25,7 @@ export class AuditTailView implements View {
   private timer: NodeJS.Timeout | undefined
   private lastSince: string | undefined
   private app: App | undefined
+  private aborted = false
 
   constructor(client: AdminClient, zoneId: string) {
     this.client = client
@@ -50,11 +51,13 @@ export class AuditTailView implements View {
 
   async start(app: App): Promise<void> {
     this.app = app
+    this.aborted = false
     await this.fetchInitial()
-    this.scheduleNext()
+    if (!this.aborted) this.scheduleNext()
   }
 
   stop(): void {
+    this.aborted = true
     if (this.timer) { clearTimeout(this.timer); this.timer = undefined }
   }
 
@@ -64,20 +67,26 @@ export class AuditTailView implements View {
         limit: 100,
         decision: this.decision === 'all' ? undefined : this.decision,
       })
+      if (this.aborted) return
       this.events = rows
+      this.cursor = 0
+      this.offset = 0
       this.lastSince = rows[0]?.occurred_at
       this.app?.invalidate()
     } catch (err) {
+      if (this.aborted) return
       this.app?.setStatus(`audit: ${explainError(err)}`, 'error')
     }
   }
 
   private scheduleNext(): void {
+    if (this.aborted) return
     this.timer = setTimeout(() => { void this.poll() }, POLL_MS)
     this.timer.unref?.()
   }
 
   private async poll(): Promise<void> {
+    if (this.aborted) return
     if (this.paused) { this.scheduleNext(); return }
     try {
       const rows = await this.client.audit.list(this.zoneId, {
@@ -85,14 +94,17 @@ export class AuditTailView implements View {
         limit: 200,
         decision: this.decision === 'all' ? undefined : this.decision,
       })
-      const fresh = rows.filter((r) => !this.events.some((e) => e.id === r.id))
+      if (this.aborted) return
+      const known = new Set(this.events.map((e) => e.id))
+      const fresh = rows.filter((r) => !known.has(r.id))
       if (fresh.length > 0) {
         this.events = [...fresh, ...this.events].slice(0, MAX_ROWS)
         this.lastSince = this.events[0]?.occurred_at
+        this.cursor = Math.min(this.cursor, this.events.length - 1)
         this.app?.invalidate()
       }
     } catch (err) {
-      this.app?.setStatus(`audit: ${explainError(err)}`, 'error')
+      if (!this.aborted) this.app?.setStatus(`audit: ${explainError(err)}`, 'error')
     } finally {
       this.scheduleNext()
     }
@@ -149,7 +161,7 @@ export class AuditTailView implements View {
       }
       return
     }
-    if (key === 'left' || key === 'h' || key === 'esc') { this.stop(); ctx.app.pop() }
+    if (key === 'left' || key === 'h' || key === 'esc') { ctx.app.pop() }
   }
 }
 
