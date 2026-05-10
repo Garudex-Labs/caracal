@@ -12,6 +12,7 @@ import {
   parseArgs,
   printJSON,
   printTable,
+  usage,
 } from './shared.ts'
 
 export async function zoneCommand(argv: string[], cfg?: CliConfig): Promise<void> {
@@ -101,9 +102,4 @@ function help(): void {
     ].join('\n'),
   )
   process.exit(0)
-}
-
-function usage(line: string): void {
-  process.stderr.write(`Usage: caracal ${line}\n`)
-  process.exit(1)
 }
