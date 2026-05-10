@@ -158,7 +158,7 @@ services:
   coordinator:
     build:
       context: ../..
-      dockerfile: apps/agent-coordinator/Dockerfile
+      dockerfile: apps/coordinator/Dockerfile
     image: caracal/coordinator:dev
     depends_on:
       sts:
@@ -169,7 +169,7 @@ services:
       STS_URL: http://sts:8080
       ISSUER_URL: http://localhost:8080
       STREAMS_HMAC_KEY: ${STREAMS_HMAC_KEY}
-      AGENT_COORDINATOR_AUDIENCE: caracal.agent-coordinator
+      AGENT_COORDINATOR_AUDIENCE: caracal.coordinator
       AGENT_COORDINATOR_SCOPE: agent:lifecycle
       PORT: 4000
     ports:
