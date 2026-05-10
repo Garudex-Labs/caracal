@@ -51,6 +51,7 @@ const dispatcher = new OutboxDispatcher({
   pollIntervalMs: cfg.outbox.pollIntervalMs,
   lockDurationSec: cfg.outbox.lockDurationSec,
   maxAttempts: cfg.outbox.maxAttempts,
+  streamMaxLen: cfg.outbox.streamMaxLen,
   log: (level, msg, meta) => app.log[level]({ ...meta }, msg),
 })
 

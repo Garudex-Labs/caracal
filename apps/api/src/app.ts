@@ -45,12 +45,15 @@ export interface AppDeps {
 export async function buildApp({ cfg, db, redis, isDraining }: AppDeps) {
   const app = Fastify({
     logger: { level: cfg.logLevel },
+    bodyLimit: cfg.bodyLimitBytes,
     genReqId: (req) => {
       const incoming = req.headers['x-request-id']
       const value = Array.isArray(incoming) ? incoming[0] : incoming
       return value && /^[A-Za-z0-9_.\-:]{1,128}$/.test(value) ? value : randomUUID()
     },
     requestIdHeader: 'x-request-id',
+    disableRequestLogging: false,
+    trustProxy: false,
   })
 
   app.decorate('db', db)
@@ -81,7 +84,9 @@ export async function buildApp({ cfg, db, redis, isDraining }: AppDeps) {
       servers: [{ url: `http://localhost:${cfg.port}` }],
     },
   })
-  await app.register(swaggerUI, { routePrefix: '/docs' })
+  if (!isProduction()) {
+    await app.register(swaggerUI, { routePrefix: '/docs' })
+  }
 
   await app.register(zonesRoutes, { prefix: '/v1' })
   await app.register(applicationsRoutes, { prefix: '/v1' })

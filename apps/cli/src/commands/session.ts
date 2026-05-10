@@ -14,6 +14,7 @@ import {
   printJSON,
   printTable,
   requireZone,
+  unknownVerb,
 } from './shared.ts'
 
 export async function sessionCommand(argv: string[], cfg?: CliConfig): Promise<void> {
@@ -38,8 +39,9 @@ export async function sessionCommand(argv: string[], cfg?: CliConfig): Promise<v
       case 'help':
       case '--help':
       case '-h':
-      default:
         return help()
+      default:
+        return unknownVerb('session', verb, help)
     }
   } catch (err) {
     fail(err)
