@@ -15,6 +15,7 @@ import {
   printTable,
   readContent,
   requireZone,
+  unknownVerb,
   usage,
 } from './shared.ts'
 
@@ -82,8 +83,9 @@ export async function providerCommand(argv: string[], cfg?: CliConfig): Promise<
       case 'help':
       case '--help':
       case '-h':
-      default:
         return help()
+      default:
+        return unknownVerb('provider', verb, help)
     }
   } catch (err) {
     fail(err)

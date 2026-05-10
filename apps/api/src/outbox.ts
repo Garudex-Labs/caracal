@@ -76,6 +76,7 @@ export interface DispatcherOptions {
   pollIntervalMs?: number
   lockDurationSec?: number
   maxAttempts?: number
+  streamMaxLen?: number
   log: (level: 'info' | 'warn' | 'error', msg: string, meta?: Record<string, unknown>) => void
 }
 
@@ -160,7 +161,12 @@ export class OutboxDispatcher {
     }
     const fields = flattenForXAdd(signed)
     try {
-      await this.opts.redis.xadd(row.stream_name, '*', ...fields)
+      const maxLen = this.opts.streamMaxLen
+      if (maxLen && maxLen > 0) {
+        await this.opts.redis.xadd(row.stream_name, 'MAXLEN', '~', String(maxLen), '*', ...fields)
+      } else {
+        await this.opts.redis.xadd(row.stream_name, '*', ...fields)
+      }
       await this.opts.db.query(
         `UPDATE event_outbox
          SET dispatched_at = now(), locked_until = NULL, last_error = NULL

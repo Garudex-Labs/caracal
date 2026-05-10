@@ -15,6 +15,7 @@ import {
   printJSON,
   printTable,
   requireZone,
+  unknownVerb,
   usage,
 } from './shared.ts'
 
@@ -87,8 +88,9 @@ export async function appCommand(argv: string[], cfg?: CliConfig): Promise<void>
       case 'help':
       case '--help':
       case '-h':
-      default:
         return help()
+      default:
+        return unknownVerb('app', verb, help)
     }
   } catch (err) {
     fail(err)
