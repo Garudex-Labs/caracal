@@ -25,23 +25,25 @@ const (
 // presentations of the same JTI within the token's TTL. A nil tracker is a no-op
 // so deployments without REDIS_URL still serve traffic but lose replay protection.
 type jtiTracker struct {
-	redis *RedisClient
-	log   zerolog.Logger
+	redis    *RedisClient
+	log      zerolog.Logger
+	failOpen bool
 }
 
-func newJTITracker(redis *RedisClient, log zerolog.Logger) *jtiTracker {
+func newJTITracker(redis *RedisClient, log zerolog.Logger, failOpen bool) *jtiTracker {
 	if redis == nil {
 		return nil
 	}
-	return &jtiTracker{redis: redis, log: log}
+	return &jtiTracker{redis: redis, log: log, failOpen: failOpen}
 }
 
 // Check records the JTI as seen with TTL = time-until-exp. Returns true when the
 // caller may proceed (first use, ambient session token, or tracker disabled).
 // Returns false on a confirmed replay of a per-call token, after emitting a
-// replay_detected audit event. Errors talking to Redis fail open: the request
-// proceeds and the error is logged, since STS signature validation remains the
-// primary access control.
+// replay_detected audit event. Errors talking to Redis are governed by failOpen:
+// when false (production default) the request is rejected so a flaky Redis cannot
+// silently widen the replay window; when true the request proceeds and the error
+// is logged.
 //
 // Ambient session tokens are explicitly reusable — they are the long-lived bearer
 // the SDK presents to the gateway across many calls. Per-call tokens are minted
@@ -60,8 +62,8 @@ func (t *jtiTracker) Check(ctx context.Context, jti string, exp time.Time, use, 
 	}
 	created, err := t.redis.SetNXTTL(ctx, seenJTIPrefix+jti, requestID, ttl)
 	if err != nil {
-		t.log.Warn().Err(err).Str("jti", jti).Msg("jti tracker setnx failed")
-		return true
+		t.log.Warn().Err(err).Bool("fail_open", t.failOpen).Str("jti", jti).Msg("jti tracker setnx failed")
+		return t.failOpen
 	}
 	if created {
 		return true
