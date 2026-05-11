@@ -162,12 +162,13 @@ if $run_py; then
     -e packages/sdk/python \
     -e packages/transport/mcp/python \
     -e packages/connectors/fastmcp/python \
+    -e packages/connectors/redis/python \
     coverage==7.13.5 cryptography==48.0.0
 
   step "py: coverage run"
   mkdir -p coverage/python
-  PYTHONPATH="$root/packages/core/python:$root/packages/identity/python:$root/packages/revocation/python:$root/packages/sdk/python:$root/packages/transport/mcp/python:$root/packages/connectors/fastmcp/python:$root/tests/shared/test-utils/python" \
-    coverage run --source=packages/core/python/caracalai_core,packages/identity/python/caracalai_identity,packages/revocation/python/caracalai_revocation,packages/sdk/python/caracalai_sdk,packages/transport/mcp/python/caracalai_transport_mcp,packages/connectors/fastmcp/python/caracalai_mcp_fastmcp \
+  PYTHONPATH="$root/packages/core/python:$root/packages/identity/python:$root/packages/revocation/python:$root/packages/sdk/python:$root/packages/transport/mcp/python:$root/packages/connectors/fastmcp/python:$root/packages/connectors/redis/python:$root/tests/shared/test-utils/python" \
+    coverage run --source=packages/core/python/caracalai_core,packages/identity/python/caracalai_identity,packages/revocation/python/caracalai_revocation,packages/sdk/python/caracalai_sdk,packages/transport/mcp/python/caracalai_transport_mcp,packages/connectors/fastmcp/python/caracalai_mcp_fastmcp,packages/connectors/redis/python/caracalai_revocation_redis \
     -m unittest discover -s tests/python -p 'test_*.py' -v
   coverage xml -o coverage/python/coverage.xml
   coverage report --show-missing

@@ -242,7 +242,7 @@ func TestVerifyRejectsLongChainKeys(t *testing.T) {
 		RequireChainContains: []string{"app-parent"},
 	})
 	if err == nil {
-		t.Fatal("expected ChainMismatchError; long-form keys are no longer accepted")
+		t.Fatal("expected ChainMismatchError: only short-form chain hop keys (app/session/edge) are supported")
 	}
 	if _, ok := err.(*identity.ChainMismatchError); !ok {
 		t.Fatalf("expected *ChainMismatchError, got %T: %v", err, err)
