@@ -6,6 +6,8 @@ build-backend = "hatchling.build"
 name = "caracalai-core"
 version = "0.1.0"
 description = "Caracal core utilities shared across Python packages: scope evaluation and primitives"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
 requires-python = ">=3.11"
 dependencies = []
 

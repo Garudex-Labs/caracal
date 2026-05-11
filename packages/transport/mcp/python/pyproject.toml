@@ -6,6 +6,8 @@ build-backend = "hatchling.build"
 name = "caracalai-transport-mcp"
 version = "0.1.0"
 description = "Transport-neutral MCP authentication for Caracal-issued JWTs"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
 requires-python = ">=3.11"
 dependencies = [
   "caracalai-identity",

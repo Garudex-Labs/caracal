@@ -3,12 +3,18 @@
 #
 # Python package metadata for the Redis revocation connector.
 
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
 [project]
 name = "caracalai-revocation-redis"
 version = "0.1.0"
 description = "Caracal Redis-backed revocation connector."
+license = "Apache-2.0"
+license-files = ["LICENSE"]
 requires-python = ">=3.11"
 dependencies = ["caracalai-revocation", "redis>=5.0"]
 
-[tool.setuptools]
+[tool.hatch.build.targets.wheel]
 packages = ["caracalai_revocation_redis"]

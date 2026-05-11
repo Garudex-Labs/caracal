@@ -6,6 +6,8 @@ build-backend = "hatchling.build"
 name = "caracalai-mcp-fastmcp"
 version = "0.1.0"
 description = "FastMCP adaptor for Caracal MCP authentication"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
 requires-python = ">=3.11"
 dependencies = [
   "caracalai-transport-mcp",
