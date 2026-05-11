@@ -1,7 +1,177 @@
 ---
 title: Environment Variables
-description: Required and optional environment variables for each service and app.
+description: All required and optional environment variables for each Caracal service, with defaults and constraints.
 pageType: config
 ---
 
-Required and optional environment variables for each service and app.
+Every Caracal service is configured entirely through environment variables. This page lists all variables grouped by service. Variables marked **required** will cause the service to fail at startup if absent. Variables with defaults are optional.
+
+## Shared secrets
+
+These three secrets must be generated before the stack starts. Generate each with `openssl rand -hex 32`.
+
+| Variable | Services that use it | Description |
+| --- | --- | --- |
+| `ZONE_KEK` | STS, API | 32-byte hex-encoded key encryption key. Encrypts zone signing key material at rest. Must not be all zeros. |
+| `AUDIT_HMAC_KEY` | STS, Audit | 32-byte hex-encoded key for audit event chain HMAC. Required in production. |
+| `STREAMS_HMAC_KEY` | API, Gateway, Coordinator, Audit | 32-byte hex-encoded key for signing Redis stream messages. Optional but strongly recommended in production. |
+
+---
+
+## Postgres
+
+| Variable | Default | Description |
+| --- | --- | --- |
+| `POSTGRES_USER` | `caracal` | Database user |
+| `POSTGRES_PASSWORD` | — | **Required.** Database password |
+| `POSTGRES_DB` | `caracal` | Database name |
+
+Services accept either a `DATABASE_URL` connection string or the individual `POSTGRES_*` variables (API and Coordinator build the URL if `DATABASE_URL` is absent).
+
+---
+
+## Redis
+
+| Variable | Default | Description |
+| --- | --- | --- |
+| `REDIS_PASSWORD` | — | **Required.** Redis auth password |
+| `REDIS_HOST` | `localhost` | Redis host (used when REDIS_URL is absent) |
+| `REDIS_PORT` | `6379` | Redis port |
+
+Services accept either `REDIS_URL` or the individual `REDIS_*` variables.
+
+---
+
+## STS
+
+| Variable | Default | Description |
+| --- | --- | --- |
+| `DATABASE_URL` | — | **Required.** Postgres connection string |
+| `REDIS_URL` | — | **Required.** Redis connection string |
+| `ZONE_KEK` | — | **Required.** 32-byte hex-encoded KEK |
+| `AUDIT_HMAC_KEY` | — | **Required.** 32-byte hex-encoded HMAC key |
+| `ISSUER_URL` | — | **Required.** Absolute URL of the STS (e.g., `http://localhost:8080`). Written into JWT `iss` claim. |
+| `PORT` | `8080` | Listen port. Must be `8080`. |
+| `ZONE_KEK_PROVIDER` | `local` | KEK provider. Currently only `local` is supported. |
+| `STREAMS_HMAC_KEY` | — | 32-byte hex-encoded key for signing Redis stream messages |
+| `MAX_GRANT_TTL_SECONDS` | `3600` | Maximum token lifetime in seconds |
+| `OPA_POLL_SECONDS` | `60` | Interval (seconds) between OPA policy bundle polls |
+| `LOG_LEVEL` | `info` | Log verbosity (`debug`, `info`, `warn`, `error`) |
+| `CARACAL_ENV` | `development` | Environment label |
+
+---
+
+## API
+
+| Variable | Default | Description |
+| --- | --- | --- |
+| `DATABASE_URL` | — | **Required.** Postgres connection string |
+| `REDIS_URL` | — | **Required.** Redis connection string |
+| `STS_URL` | — | **Required.** STS base URL (e.g., `http://sts:8080`) |
+| `ZONE_KEK` | — | **Required.** 32-byte hex-encoded KEK |
+| `CARACAL_ADMIN_TOKEN` | — | Bootstrap admin token. Seeded into the database on first startup. |
+| `PORT` | `3000` | Listen port |
+| `STREAMS_HMAC_KEY` | — | 32-byte hex-encoded key for signing outbox stream messages |
+| `CARACAL_LOCAL_BOOTSTRAP_ENABLED` | `false` | Set `true` to enable local-dev auto-bootstrap on startup |
+| `LOG_LEVEL` | `info` | Log verbosity |
+| `CARACAL_SHUTDOWN_TIMEOUT_MS` | `15000` | Graceful shutdown window in milliseconds |
+| `CARACAL_API_BODY_LIMIT_BYTES` | `1048576` | Request body size limit (1 MB) |
+| **Database pool** | | |
+| `CARACAL_DB_POOL_MAX` | `20` | Maximum Postgres connection pool size |
+| `CARACAL_DB_STATEMENT_TIMEOUT_MS` | `15000` | Per-statement timeout |
+| `CARACAL_DB_IDLE_IN_TX_TIMEOUT_MS` | `30000` | Idle-in-transaction timeout |
+| `CARACAL_DB_CONNECTION_TIMEOUT_MS` | `5000` | Connection acquisition timeout |
+| `CARACAL_DB_IDLE_TIMEOUT_MS` | `30000` | Idle connection eviction timeout |
+| **Outbox dispatcher** | | |
+| `CARACAL_OUTBOX_POLL_MS` | `250` | Outbox poll interval in milliseconds |
+| `CARACAL_OUTBOX_BATCH` | `32` | Messages to lock per poll cycle |
+| `CARACAL_OUTBOX_LOCK_SEC` | `30` | Advisory lock duration for outbox rows |
+| `CARACAL_OUTBOX_MAX_ATTEMPTS` | `100` | Max delivery attempts before a message is marked `dead` |
+| `CARACAL_OUTBOX_STREAM_MAXLEN` | `100000` | XADD MAXLEN for all outbox-published streams |
+
+---
+
+## Gateway
+
+| Variable | Default | Description |
+| --- | --- | --- |
+| `DATABASE_URL` | — | **Required.** Postgres connection string |
+| `REDIS_URL` | — | **Required.** Redis connection string |
+| `STS_URL` | — | **Required.** STS base URL with scheme (http or https) |
+| `STREAMS_HMAC_KEY` | — | **Required in production.** 32-byte hex-encoded key for verifying stream signatures |
+| `PORT` | — | **Must be `8081`.** Enforced at startup; any other value panics. |
+| `CARACAL_ENV` | `production` | Must be `production` or `dev`. Controls which safety checks are enforced. |
+| `INSECURE_HTTP` | `false` | Set `true` to run without TLS. Forbidden when `CARACAL_ENV=production`. |
+| `INSECURE_STS` | `false` | Set `true` to allow HTTP to STS. Forbidden when `CARACAL_ENV=production`. |
+| `TLS_CERT_FILE` | — | Path to TLS certificate. Required unless `INSECURE_HTTP=true`. |
+| `TLS_KEY_FILE` | — | Path to TLS private key. Required unless `INSECURE_HTTP=true`. |
+| `ALLOW_PRIVATE_UPSTREAMS` | `false` | Allow proxying to private/loopback upstream URLs |
+| `UPSTREAM_HOST_ALLOWLIST` | — | Comma-separated upstream host allowlist. Required in production when `ALLOW_PRIVATE_UPSTREAMS=true`. |
+| `JTI_FAIL_OPEN` | `false` | Skip JTI replay check on Redis error. Forbidden in production. |
+| `STS_TIMEOUT` | `5s` | STS request timeout (duration format, e.g., `5s`, `500ms`) |
+| `UPSTREAM_TIMEOUT` | `30s` | Upstream proxy timeout |
+| `READ_HEADER_TIMEOUT` | `5s` | HTTP read header timeout |
+| `READ_TIMEOUT` | `30s` | HTTP read timeout |
+| `WRITE_TIMEOUT` | `60s` | HTTP write timeout |
+| `IDLE_TIMEOUT` | `120s` | HTTP keep-alive idle timeout |
+| `MAX_REQUEST_BYTES` | `10485760` | Maximum request body size (10 MB) |
+| `LOG_LEVEL` | `info` | Log verbosity |
+
+---
+
+## Audit
+
+| Variable | Default | Description |
+| --- | --- | --- |
+| `DATABASE_URL` | — | **Required.** Postgres connection string |
+| `REDIS_URL` | — | **Required.** Redis connection string |
+| `AUDIT_HMAC_KEY` | — | **Required in production.** 32-byte hex-encoded HMAC key for audit chain verification |
+| `PORT` | — | **Must be `9090`.** |
+| `AUDIT_RETENTION_DAYS` | `365` | Number of days to retain audit events. Older monthly partitions are dropped. |
+| `AUDIT_MAX_DELIVERIES` | `5` | Max delivery attempts for an audit event before DLQ routing |
+| `AUDIT_CLAIM_IDLE_SECS` | `30` | Seconds before an unclaimed PEL entry is reclaimed by another consumer |
+| `AUDIT_TAMPER_ROLLING_HOURS` | `4` | Rolling window for tamper detection sweep |
+| `AUDIT_EXPORT_S3_ENDPOINT` | — | S3-compatible endpoint URL for Parquet export (e.g., MinIO) |
+| `AUDIT_EXPORT_S3_BUCKET` | — | S3 bucket name for Parquet export. Leave empty to disable export. |
+| `AUDIT_EXPORT_S3_REGION` | `us-east-1` | AWS region for S3 export |
+| `HOSTNAME` | `audit-worker-0` | Consumer name for the audit stream consumer group |
+| `LOG_LEVEL` | `info` | Log verbosity |
+| `CARACAL_ENV` | `development` | Environment label |
+
+---
+
+## Coordinator
+
+| Variable | Default | Description |
+| --- | --- | --- |
+| `DATABASE_URL` | — | **Required.** Postgres connection string |
+| `REDIS_URL` | — | **Required.** Redis connection string |
+| `STS_URL` | — | **Required.** STS base URL |
+| `ISSUER_URL` | — | **Required.** STS issuer URL (same as `ISSUER_URL` in STS) |
+| `AGENT_COORDINATOR_AUDIENCE` | — | **Required.** JWT audience the Coordinator accepts (e.g., `caracal.coordinator`) |
+| `AGENT_COORDINATOR_SCOPE` | — | **Required.** Required scope for coordinator calls (e.g., `agent:lifecycle`) |
+| `PORT` | `4000` | Listen port |
+| `STREAMS_HMAC_KEY` | — | 32-byte hex-encoded key for signing outbox stream messages |
+| **Database pool** | | |
+| `DB_POOL_MAX` | `20` | Maximum Postgres connection pool size |
+| `DB_STATEMENT_TIMEOUT_MS` | `10000` | Per-statement timeout |
+| `DB_CONNECTION_TIMEOUT_MS` | `5000` | Connection acquisition timeout |
+| `DB_IDLE_TIMEOUT_MS` | `30000` | Idle connection eviction timeout |
+| **Outbox publisher** | | |
+| `OUTBOX_INTERVAL_MS` | `1000` | Outbox poll interval |
+| `OUTBOX_BATCH_SIZE` | `50` | Messages to lock per poll cycle |
+| `OUTBOX_MAX_ATTEMPTS` | `10` | Max delivery attempts before `dead` status |
+| `STREAMS_MAXLEN` | `100000` | XADD MAXLEN for coordinator-published streams |
+| **Background jobs** | | |
+| `TTL_SWEEP_INTERVAL_MS` | `60000` | Interval between agent session TTL sweeps |
+| `DEADLINE_SWEEP_INTERVAL_MS` | `5000` | Interval between invocation deadline enforcement sweeps |
+| `SWEEPER_BATCH_SIZE` | `500` | Rows processed per sweep batch |
+| `RETENTION_CLEANUP_INTERVAL_MS` | `900000` | Interval between delegation/outbox retention cleanup runs (15 min) |
+| `RETENTION_CLEANUP_BATCH_SIZE` | `500` | Rows deleted per cleanup batch |
+| `DELEGATION_RETENTION_DAYS` | `90` | Days to retain completed delegation edges |
+| `OUTBOX_RETENTION_DAYS` | `7` | Days to retain published/dead outbox rows |
+| `SHUTDOWN_GRACE_MS` | `15000` | Graceful shutdown window |
+| `VERIFY_RATE_LIMIT_PER_MIN` | `60` | Token verify rate limit per client per minute (minimum 0) |
+| `RELAY_DEDUPE_WINDOW_SEC` | `3600` | Window for relay deduplication (Go relay) |
+| `JWKS_CACHE_MAX` | `256` | Maximum JWKS cache entries |
+| `LOG_LEVEL` | `info` | Log verbosity |

@@ -1,7 +1,49 @@
 ---
 title: Operations
-description: Deploy, configure, and run Caracal in production.
+description: Deploy, configure, monitor, and maintain Caracal in production environments.
 pageType: landing
 ---
 
-Deploy, configure, and run Caracal in production.
+This section covers everything needed to run Caracal reliably in production: deployment topology, service configuration, database and Redis management, TLS, key management, observability, audit retention, and incident response.
+
+## What you are operating
+
+Caracal consists of five services sharing two infrastructure dependencies:
+
+| Service | Role | Port |
+| --- | --- | --- |
+| STS | Issues and verifies ES256 mandates; serves JWKS; evaluates OPA policy | 8080 |
+| API | Control-plane REST; manages zones, applications, policies, grants | 3000 |
+| Gateway | Proxies inbound requests; enforces mandates; revocation-aware | 8081 |
+| Coordinator | Agent session lifecycle; delegation graph; invocation tracking | 4000 |
+| Audit | Consumes audit event stream; persists to Postgres; Parquet export | 9090 |
+| Postgres | Primary durable store for all five services (separate DB roles) | 5432 |
+| Redis | Transactional outbox relay, revocation stream, rate limits | 6379 |
+
+Each service writes to Postgres under a dedicated role with minimum necessary permissions. Redis carries the transactional outbox (streams) and ephemeral rate-limit state. No service has direct access to another service's tables.
+
+## Section map
+
+| Page | What it covers |
+| --- | --- |
+| [Deployment with Docker Compose](./docker-compose/) | Reference `docker-compose.yml`, startup order, volume strategy, first-run procedure |
+| [Environment Variables](./env-vars/) | All required and optional env vars, grouped by service, with defaults |
+| [PostgreSQL](./postgres/) | Schema overview, migrations, pool sizing, partitioning, advisory locks |
+| [Redis Streams](./redis/) | Stream provisioning, consumer groups, persistence config, retention |
+| [TLS and Production Hardening](./tls-hardening/) | TLS certificate setup, INSECURE flags, SSRF defenses, production constraints |
+| [Key Management and Rotation](./key-management/) | ZONE_KEK, zone signing keys, JWKS, rotation procedure |
+| [Observability and Health](./observability/) | `/health`, `/ready`, `/metrics` endpoints and what each check covers |
+| [Backup and Retention](./backup-retention/) | Audit partition lifecycle, S3 Parquet export, tamper detection |
+| [Incident Response](./incident-response/) | Revocation playbook, key compromise, audit alerts, escalation |
+
+## Prerequisites
+
+Before deploying, generate the three HMAC/encryption secrets the stack requires:
+
+```bash
+openssl rand -hex 32   # ZONE_KEK
+openssl rand -hex 32   # AUDIT_HMAC_KEY
+openssl rand -hex 32   # STREAMS_HMAC_KEY
+```
+
+These must be set in the environment before any service starts. Changing them after initial deployment requires a key rotation procedure — see [Key Management and Rotation](./key-management/).

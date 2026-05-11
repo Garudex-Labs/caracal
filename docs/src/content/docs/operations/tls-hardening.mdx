@@ -1,7 +1,142 @@
 ---
 title: TLS and Production Hardening
-description: TLS material, dev-mode flags, SSRF defenses, and production toggles.
+description: Gateway TLS configuration, INSECURE flag constraints, SSRF defenses, upstream allowlisting, and production validation rules.
 pageType: config
 ---
 
-TLS material, dev-mode flags, SSRF defenses, and production toggles.
+The Gateway is the only Caracal service exposed to external traffic. It enforces TLS, validates upstream URLs, and applies several production-mode constraints that are deliberately disabled in development. This page covers all hardening controls and how to configure them correctly.
+
+## TLS configuration
+
+The Gateway requires TLS when `CARACAL_ENV=production` (the default). Provide a certificate and private key:
+
+```bash
+TLS_CERT_FILE=/etc/caracal/tls/server.crt
+TLS_KEY_FILE=/etc/caracal/tls/server.key
+```
+
+Both variables must be set together. Setting one without the other causes the Gateway to panic at startup with:
+
+```
+TLS_CERT_FILE and TLS_KEY_FILE must both be set
+```
+
+If neither is set and `INSECURE_HTTP` is not `true`, the Gateway panics:
+
+```
+TLS_CERT_FILE/TLS_KEY_FILE required; set INSECURE_HTTP=true to run plaintext
+```
+
+**Minimum TLS version:** TLS 1.2, enforced by the Go runtime (`tls.Config{MinVersion: tls.VersionTLS12}`). Cipher suite selection uses Go's defaults for TLS 1.2 and TLS 1.3.
+
+**Certificate format:** Standard PEM. Provide a full certificate chain (leaf + intermediates) in `TLS_CERT_FILE` if your CA requires chain presentation.
+
+---
+
+## Development escape hatches
+
+Two flags disable TLS and plain-HTTP restrictions for local development:
+
+| Variable | Effect | Forbidden when |
+| --- | --- | --- |
+| `INSECURE_HTTP=true` | Run the Gateway without TLS | `CARACAL_ENV=production` |
+| `INSECURE_STS=true` | Allow the Gateway to connect to STS over HTTP | `CARACAL_ENV=production` |
+
+Both variables are explicitly rejected in production mode. The Gateway panics at startup if either is set with `CARACAL_ENV=production`.
+
+Do not set these flags in any environment that handles real credentials or tokens.
+
+---
+
+## Production mode enforcement
+
+`CARACAL_ENV=production` activates the full set of production safety rules. The Gateway validates all of the following at startup and panics if any constraint is violated:
+
+- `INSECURE_HTTP` must not be `true`
+- `INSECURE_STS` must not be `true`
+- `JTI_FAIL_OPEN` must not be `true`
+- `TLS_CERT_FILE` and `TLS_KEY_FILE` must both be set
+- `PORT` must be `8081`
+
+`CARACAL_ENV=dev` disables these checks and allows the escape hatches. Any value other than `production` or `dev` is rejected.
+
+---
+
+## SSRF defenses
+
+The Gateway proxies requests to upstream resource URLs fetched from Postgres. To prevent server-side request forgery:
+
+**Private upstream blocking (default):**
+
+By default, `ALLOW_PRIVATE_UPSTREAMS=false` prevents the Gateway from forwarding requests to private IP ranges (RFC 1918: `10.x`, `172.16–31.x`, `192.168.x`) and loopback addresses. Any resource with a private upstream URL is rejected at proxy time.
+
+**Upstream allowlist (production with private upstreams):**
+
+If your architecture requires the Gateway to reach private upstreams (e.g., internal microservices), set:
+
+```bash
+ALLOW_PRIVATE_UPSTREAMS=true
+UPSTREAM_HOST_ALLOWLIST=api.internal.company.com,payments.internal.company.com
+```
+
+`UPSTREAM_HOST_ALLOWLIST` is a comma-separated list of permitted hostnames. In production with `ALLOW_PRIVATE_UPSTREAMS=true`, the allowlist is required. Requests to hosts not on the list are rejected.
+
+**Path traversal protection:**
+
+The Gateway rejects upstream URLs containing path traversal sequences (`..`). This check runs before any upstream DNS resolution.
+
+---
+
+## JTI replay protection
+
+The Gateway tracks JWT IDs (`jti` claims) in Redis to prevent replay of intercepted per-call mandates. This check is always active. If Redis is unavailable:
+
+- `JTI_FAIL_OPEN=false` (the default): The Gateway rejects requests — safer but reduces availability during Redis outages.
+- `JTI_FAIL_OPEN=true`: The Gateway allows requests through without the JTI check — forbidden in production.
+
+---
+
+## Request size limits
+
+| Variable | Default | Description |
+| --- | --- | --- |
+| `MAX_REQUEST_BYTES` | `10485760` | Maximum request body (10 MB). Larger requests are rejected with 413. |
+
+---
+
+## Upstream timeouts
+
+| Variable | Default | Description |
+| --- | --- | --- |
+| `STS_TIMEOUT` | `5s` | Timeout for STS token exchange calls |
+| `UPSTREAM_TIMEOUT` | `30s` | Timeout for proxied upstream requests |
+| `READ_HEADER_TIMEOUT` | `5s` | Time allowed to read HTTP request headers |
+| `READ_TIMEOUT` | `30s` | Time allowed to read the full request |
+| `WRITE_TIMEOUT` | `60s` | Time allowed to write the full response |
+| `IDLE_TIMEOUT` | `120s` | Keep-alive idle connection timeout |
+
+Tune `UPSTREAM_TIMEOUT` based on your upstream services' P99 response times. Setting it lower than your upstreams' worst-case latency causes false timeouts.
+
+---
+
+## Hardening checklist for production
+
+- `CARACAL_ENV=production`
+- `TLS_CERT_FILE` and `TLS_KEY_FILE` set to valid, non-expired certificate and key
+- `INSECURE_HTTP` not set (or explicitly `false`)
+- `INSECURE_STS` not set (or explicitly `false`)
+- `JTI_FAIL_OPEN` not set (or explicitly `false`)
+- `STREAMS_HMAC_KEY` set to a 32-byte hex secret shared with all publishers
+- `ALLOW_PRIVATE_UPSTREAMS=false` unless an internal allowlist is configured
+- `UPSTREAM_HOST_ALLOWLIST` set if `ALLOW_PRIVATE_UPSTREAMS=true`
+- Gateway not directly reachable on its internal Postgres or Redis ports
+- Only port 8081 exposed externally (all other services on a private network)
+- TLS certificate renewed before expiry (set up automated renewal with Let's Encrypt or your PKI)
+
+---
+
+## Inter-service communication
+
+In the Docker Compose stack, services communicate over Docker's internal network using container names (`http://sts:8080`, `http://api:3000`, etc.). No inter-service traffic passes through the Gateway. The Gateway connects to STS via `STS_URL` and to Postgres/Redis directly.
+
+In production container orchestration, inter-service traffic should use mTLS or be constrained to a private network segment. The current stack does not provide mTLS for inter-service communication — enforce it at the network layer (Kubernetes NetworkPolicy, AWS VPC security groups, etc.).

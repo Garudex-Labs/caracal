@@ -1,7 +1,203 @@
 ---
 title: Testing
-description: Unit, integration, e2e, contract, fuzz, property, security, and performance tiers.
+description: Test tiers, commands, and CI behavior across TypeScript, Go, and Python.
 pageType: workflow
 ---
 
-Unit, integration, e2e, contract, fuzz, property, security, and performance tiers.
+Caracal has a multi-tier test suite across three languages. Tests live under `tests/` organized by type, with unit tests co-located alongside source files in each package. This page describes how to run tests locally and what CI enforces.
+
+---
+
+## Test tiers
+
+| Tier | What it covers | When it runs |
+| --- | --- | --- |
+| `unit` | Individual functions and classes with no external deps | Always |
+| `integration` | Service boundaries with real databases or Redis | Full suite |
+| `e2e` | Full request flows across services | Full suite |
+| `contract` | API surface contracts between services | Full suite |
+| `property` | Property-based invariants via generative inputs | Full suite |
+| `security` | Auth edge cases, injection, and boundary conditions | Full suite |
+| `performance` | Latency and throughput targets under load | Full suite |
+| `regression` | Specific bug replay tests | Full suite |
+| `fuzz` | Fuzz targets for parsers and cryptographic paths | Full suite |
+| `smoke` | Minimal stack-up verification | Every push to `main` and every PR |
+
+The smoke tier confirms the stack boots and basic endpoints respond. All other tiers run on the daily schedule (06:17 UTC) or on `workflow_dispatch`.
+
+---
+
+## TypeScript tests
+
+TypeScript tests use **Vitest 3.0**.
+
+**Run unit tests:**
+```sh
+pnpm test
+```
+
+**Run unit tests for a specific package:**
+```sh
+pnpm --filter @caracalai/sdk test
+pnpm --filter @caracalai/identity test
+```
+
+**Run in watch mode (development):**
+```sh
+pnpm test --watch
+```
+
+**Run integration tests:**
+```sh
+pnpm test:integration
+```
+
+Integration tests require a running PostgreSQL and Redis. Start the stack first with `caracal up`, then run integration tests.
+
+**Run a specific test file:**
+```sh
+pnpm test packages/sdk/src/__tests__/tokenExchange.test.ts
+```
+
+**Run tests matching a name pattern:**
+```sh
+pnpm test -t "should reject expired token"
+```
+
+**Coverage:**
+```sh
+pnpm test --coverage
+```
+
+Coverage is uploaded to Codecov on every full CI run.
+
+---
+
+## Go tests
+
+Go tests use the standard `go test` tool with the race detector enabled.
+
+**Run all tests with race detection:**
+```sh
+go test -race ./...
+```
+
+**Run tests for a specific module:**
+```sh
+cd services/sts && go test -race ./...
+cd services/gateway && go test -race ./...
+```
+
+**Run a specific test:**
+```sh
+go test -race -run TestChainHMACVerification ./...
+```
+
+**Run with verbose output:**
+```sh
+go test -race -v ./...
+```
+
+**Integration tests:**
+```sh
+go test -race -tags integration ./...
+```
+
+Integration tests are guarded by the `integration` build tag and require `DATABASE_URL` and `REDIS_URL` to be set.
+
+**Fuzz targets:**
+```sh
+go test -fuzz=FuzzParseJWT -fuzztime=30s ./services/sts/...
+```
+
+**Coverage:**
+```sh
+go test -race -coverprofile=coverage.out ./...
+go tool cover -html=coverage.out
+```
+
+---
+
+## Python tests
+
+Python tests use **pytest** with **coverage**.
+
+**Setup (per-package):**
+```sh
+cd packages/caracalai-python
+source .venv/bin/activate
+pip install -e ".[dev]"
+```
+
+**Run tests:**
+```sh
+python -m pytest
+```
+
+**Run with coverage:**
+```sh
+python -m coverage run -m pytest
+python -m coverage report
+python -m coverage html    # generates htmlcov/
+```
+
+**Run a specific test file:**
+```sh
+python -m pytest tests/unit/test_revocation.py
+```
+
+**Run tests matching a pattern:**
+```sh
+python -m pytest -k "test_hmac"
+```
+
+**Verbose output:**
+```sh
+python -m pytest -v
+```
+
+---
+
+## Test organization
+
+```
+tests/
+  unit/
+    ts/          TypeScript unit tests for cross-package concerns
+    go/          Go unit tests for shared logic
+    python/      Python unit tests
+  integration/
+    ts/
+    go/
+    python/
+  e2e/           End-to-end flows (runs against live stack)
+  contract/      Service-to-service API contracts
+  property/      Property-based tests (ts-fast-check, Go's testing/quick)
+  security/      Security-focused edge cases
+  performance/   Benchmark and load tests
+  regression/    Specific bug regression tests
+  fuzz/          Fuzz targets
+  smoke/         Smoke tests (minimal stack verification)
+```
+
+Unit tests for individual packages also live alongside source files:
+
+```
+packages/sdk/src/__tests__/
+services/sts/internal/hmac_test.go
+packages/caracalai-python/tests/
+```
+
+---
+
+## Writing new tests
+
+**Unit tests:** co-locate them with the source file in a `__tests__/` directory (TS) or `_test.go` suffix (Go) or `tests/` subdirectory (Python).
+
+**Integration tests:** place them under `tests/integration/` when they cross package boundaries. Add the `integration` build tag in Go. Set up a real database/Redis — do not mock the persistence layer.
+
+**Test data:** put fixtures under `tests/fixtures/`. Do not embed test credentials or secrets in fixtures — use well-known placeholder values that are clearly test-only.
+
+**What to test:** test the behavior visible at the public interface of a function, type, or endpoint. Do not test implementation details that can change without changing behavior.
+
+**Race conditions:** all Go tests run with `-race`. Write tests that would catch race conditions rather than tests that avoid them through locking only.
