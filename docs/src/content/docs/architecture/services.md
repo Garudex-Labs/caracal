@@ -1,6 +1,11 @@
 ---
 title: Services
 description: STS, gateway, audit, and broker components in detail.
+pageType: architecture
+concepts: []
+relatedConcepts: [mandate, zone, resource-binding, ledger]
+keywords: [STS, gateway, coordinator, audit, endpoints, trust model, streams, database, ports]
+service: all
 ---
 
 This page lists each Caracal service, what it owns, and which contracts it

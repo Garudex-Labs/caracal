@@ -1,0 +1,42 @@
+---
+/*
+ * Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+ * Caracal, a product of Garudex Labs
+ *
+ * Invisible machine-readable page context block for AI parsers.
+ */
+
+interface Props {
+  product: string
+  system: string
+  pageType: string
+  concepts?: string[]
+  summary?: string
+  schemaTerm?: { name: string; description: string }
+}
+
+const { product, system, pageType, concepts = [], summary, schemaTerm } = Astro.props
+---
+
+<div class="sr-only" data-pagefind-ignore="true">
+  {`Product: ${product}. System: ${system}. Page type: ${pageType}.`}
+  {concepts.length > 0 && ` Primary concepts: ${concepts.join(', ')}.`}
+  {summary && ` ${summary}`}
+</div>
+
+{schemaTerm && (
+  <script
+    type="application/ld+json"
+    set:html={JSON.stringify({
+      '@context': 'https://schema.org',
+      '@type': 'DefinedTerm',
+      name: schemaTerm.name,
+      description: schemaTerm.description,
+      inDefinedTermSet: {
+        '@type': 'DefinedTermSet',
+        name: 'Caracal Concepts',
+        url: 'https://docs.garudexlabs.com/reference/glossary/',
+      },
+    })}
+  />
+)}

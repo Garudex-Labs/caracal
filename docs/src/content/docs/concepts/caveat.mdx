@@ -1,0 +1,100 @@
+---
+title: Caveat
+description: A constraint attached to a mandate at issuance time to narrow its scope, TTL, or permitted resources.
+pageType: concept
+concepts: [caveat]
+relatedConcepts: [mandate, policy, intent]
+requires: [mandate, policy]
+keywords: [constraint, attenuation, TTL limit, resource constraint, scope narrowing, blast radius]
+aliases: [constraint, attenuation, mandate constraint]
+service: sts
+---
+
+import AiContext from '../../../components/AiContext.astro'
+import ConceptRelationGraph from '../../../components/ConceptRelationGraph.astro'
+import SeeAlso from '../../../components/SeeAlso.astro'
+
+<AiContext
+  product="Caracal"
+  system="Pre-execution authority enforcement for AI agents"
+  pageType="concept"
+  concepts={['caveat']}
+  summary="A Caveat is a constraint attached to a mandate by a policy constrain rule. Caveats narrow the mandate's scope, TTL, or permitted resources beyond what the base permit rule allows. The STS embeds caveats in the JWT at issuance; the gateway enforces them on every request. Caveats reduce blast radius: even if a mandate is compromised, the caveat limits what it can authorize."
+  schemaTerm={{ name: 'Caveat', description: 'A constraint attached to a mandate to narrow its scope, TTL, or permitted resources.' }}
+/>
+
+## Definition
+
+A **Caveat** is a narrowing constraint embedded in a [Mandate](/concepts/mandate/) by the STS at issuance time. Caveats are produced by `caracal.constrain` Rego rules in the workspace [Policy](/concepts/policy/).
+
+A caveat cannot expand what a mandate permits — it can only reduce it. A caveat on a mandate that permits `file:read` for `/data/**` could narrow the scope to `/data/public/**` only, or reduce the TTL to 60 seconds, but it could not grant `file:write` or extend the TTL beyond the mandate's original expiry.
+
+## Types of caveats
+
+| Type | Field | Description |
+|---|---|---|
+| `ttl` | `max_seconds: number` | Reduces the effective TTL of the mandate. The STS uses the smaller of the mandate's `exp` and the caveat's window. |
+| `resource` | `pattern: string` | Further restricts the `intent.resource` glob. Requests to resources outside the pattern are rejected by the gateway. |
+| `action` | `allowed: string[]` | Restricts which action verbs are valid. Useful for delegation where a sub-agent should only perform a subset of actions. |
+| `context` | `require: object` | Requires specific fields in the request context to match before the gateway forwards. |
+
+## Why it exists
+
+Caveats separate *what a policy generally permits* from *what is safe in this specific context*. A policy might permit `db:query` for the `analytics-app` application. A caveat on a specific mandate could further restrict that to read-only tables only, or cap the TTL for particularly sensitive operations.
+
+In delegation, caveats are the mechanism for scope reduction: when principal A delegates to agent B, the delegation adds caveats that ensure agent B cannot exceed what A is permitted to do, and usually operates with a narrower scope than A.
+
+## Lifecycle
+
+Caveats are born with the mandate and die with it. They cannot be added, removed, or modified after issuance. The gateway enforces all caveats on every request against the mandate; any caveat violation returns `403 caveat_violated`.
+
+## Relationships
+
+<ConceptRelationGraph
+  concept="Caveat"
+  relations={[
+    { type: 'constrains', label: 'Constrains', target: 'Mandate', targetPath: '/concepts/mandate/' },
+    { type: 'produced-by', label: 'Produced by', target: 'Policy', targetPath: '/concepts/policy/' },
+    { type: 'limits', label: 'Limits scope of', target: 'Intent', targetPath: '/concepts/intent/' },
+    { type: 'used-in', label: 'Used in', target: 'Delegation', targetPath: '/concepts/delegation/' },
+  ]}
+/>
+
+## Examples
+
+**Policy constrain rule producing a TTL caveat:**
+
+```rego title="Constrain mandate TTL for sensitive resources"
+package caracal.constrain
+
+constrain[caveat] {
+  startswith(input.intent.resource, "/data/sensitive/")
+  caveat := {"type": "ttl", "max_seconds": 60}
+}
+```
+
+**Policy constrain rule restricting action to read-only:**
+
+```rego title="Constrain delegation to read-only actions"
+package caracal.constrain
+
+constrain[caveat] {
+  input.principal.type == "delegate"
+  caveat := {"type": "action", "allowed": ["file:read", "db:read", "api:read"]}
+}
+```
+
+## Constraints and limits
+
+- Caveats are additive: multiple constrain rules can fire on the same request. All resulting caveats are attached to the mandate.
+- When multiple caveats of the same type are attached, the most restrictive wins. Two TTL caveats of 300 s and 60 s result in an effective TTL of 60 s.
+- Caveats are not visible to the SDK caller. The SDK observes only the effective mandate behavior (shorter TTL, rejected requests outside the resource pattern).
+- There is no mechanism to request a mandate without the caveats a policy would attach. Caveat application is the policy's decision, not the caller's.
+
+<SeeAlso links={[
+  { title: 'Mandate', href: '/concepts/mandate/', relationship: 'required-by', description: 'Caveats are embedded in the mandate at issuance.' },
+  { title: 'Policy', href: '/concepts/policy/', relationship: 'required-by', description: 'Constrain rules in the policy produce caveats.' },
+  { title: 'Delegation', href: '/concepts/delegation/', relationship: 'used-in', description: 'Delegation uses caveats to scope delegated authority.' },
+  { title: 'Intent', href: '/concepts/intent/', relationship: 'related', description: 'Resource caveats further restrict the intent resource pattern.' },
+  { title: 'Authority Enforcement Model', href: '/concepts/authority-enforcement/', relationship: 'canonical', description: 'The full model this concept belongs to.' },
+]} />
