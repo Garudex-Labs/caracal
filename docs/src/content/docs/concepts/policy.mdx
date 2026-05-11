@@ -1,0 +1,131 @@
+---
+title: Policy
+description: Declarative OPA Rego rules that decide what a principal may do and under what conditions.
+pageType: concept
+concepts: [policy]
+relatedConcepts: [mandate, principal, workspace, intent, caveat]
+requires: []
+keywords: [OPA, Rego, authorization, policy evaluation, permit, deny, step-up, quota]
+aliases: [authorization policy, rego policy, access policy]
+service: sts
+---
+
+import AiContext from '../../../components/AiContext.astro'
+import ConceptRelationGraph from '../../../components/ConceptRelationGraph.astro'
+import SeeAlso from '../../../components/SeeAlso.astro'
+
+<AiContext
+  product="Caracal"
+  system="Pre-execution authority enforcement for AI agents"
+  pageType="concept"
+  concepts={['policy']}
+  summary="A Policy is a set of OPA Rego rules stored in a workspace. When a principal requests a mandate, the STS evaluates the declared intent against the workspace policy. The policy can permit the intent, deny it, require step-up authentication, or constrain the resulting mandate with caveats. Policies are workspace-scoped: each workspace has exactly one active policy bundle."
+  schemaTerm={{ name: 'Policy', description: 'Declarative OPA Rego rules that decide what a principal may do and under what conditions.' }}
+/>
+
+## Definition
+
+A **Policy** is a bundle of [Open Policy Agent (OPA)](https://www.openpolicyagent.org/) Rego rules that the STS evaluates on every mandate request. Policies are stored in a [Workspace](/concepts/workspace/) and govern every [Principal](/concepts/principal/) in that workspace.
+
+When a principal calls `POST /oauth/2/token` to request a mandate, the STS extracts the declared [Intent](/concepts/intent/) and evaluates it against the workspace's active policy. The policy returns one of four outcomes: **permit**, **deny**, **step-up** (require additional authentication), or **constrain** (permit but attach [Caveats](/concepts/caveat/) that narrow the mandate).
+
+## Why it exists
+
+Agents and services cannot self-govern their own authority. Declaring "I am allowed to read this file" is not authorization — it is a claim. Policies are the independent rule layer that validates claims against an operator-controlled definition of what is permitted.
+
+By storing policies in OPA Rego, Caracal makes authorization decisions auditable, testable, and version-controllable. A policy can be reviewed, tested offline, and deployed without restarting services.
+
+## Lifecycle
+
+| Stage | Description |
+|---|---|
+| **Authored** | Operator writes Rego rules in a `.rego` file. Rules use the `caracal.permit`, `caracal.deny`, `caracal.step_up`, and `caracal.constrain` packages. |
+| **Loaded** | Policy bundle is loaded into the workspace via `caracal init` or the coordinator API. STS caches the compiled bundle in memory. |
+| **Evaluated** | On every `POST /oauth/2/token`, STS passes the intent, principal attributes, and workspace context as OPA input. The policy evaluates and returns a decision. |
+| **Updated** | When a new bundle is loaded, STS hot-reloads it without restart. In-flight requests continue against the previous bundle until they complete. |
+
+## Input document
+
+The OPA input document on each evaluation contains:
+
+| Field | Type | Description |
+|---|---|---|
+| `input.principal.id` | string | The authenticated principal ID. |
+| `input.principal.type` | string | `application`, `user`, or `delegate`. |
+| `input.principal.application_id` | string | For application principals. |
+| `input.intent.action` | string | The declared action verb (e.g., `file:read`). |
+| `input.intent.resource` | string | The resource identifier. |
+| `input.intent.context` | object | Arbitrary context the SDK passed with the intent. |
+| `input.workspace_id` | string | The workspace being evaluated. |
+| `input.timestamp` | string | RFC 3339 timestamp of the request. |
+
+## Policy rules
+
+**Permit rule** — allows the intent and issues the mandate:
+
+```rego title="Permit file:read for any application principal"
+package caracal.permit
+
+default allow = false
+
+allow {
+  input.principal.type == "application"
+  input.intent.action == "file:read"
+}
+```
+
+**Deny rule** — blocks the intent regardless of permit rules:
+
+```rego title="Deny all actions outside business hours (UTC)"
+package caracal.deny
+
+deny {
+  time_of_day := time.clock(time.now_ns())
+  time_of_day[0] < 9
+}
+
+deny {
+  time_of_day := time.clock(time.now_ns())
+  time_of_day[0] >= 17
+}
+```
+
+**Constrain rule** — permits the intent but attaches caveats to the mandate:
+
+```rego title="Constrain mandate TTL to 60 seconds for sensitive resources"
+package caracal.constrain
+
+constrain[caveat] {
+  startswith(input.intent.resource, "/data/sensitive/")
+  caveat := {"type": "ttl", "max_seconds": 60}
+}
+```
+
+## Relationships
+
+<ConceptRelationGraph
+  concept="Policy"
+  relations={[
+    { type: 'evaluated-by', label: 'Evaluated by', target: 'STS', targetPath: '/architecture/services/' },
+    { type: 'governs', label: 'Governs', target: 'Mandate', targetPath: '/concepts/mandate/' },
+    { type: 'scoped-to', label: 'Scoped to', target: 'Workspace', targetPath: '/concepts/workspace/' },
+    { type: 'evaluates', label: 'Evaluates', target: 'Intent', targetPath: '/concepts/intent/' },
+    { type: 'produces', label: 'Produces', target: 'Caveat', targetPath: '/concepts/caveat/' },
+  ]}
+/>
+
+## Constraints and limits
+
+- Policies are workspace-scoped. One workspace has one active policy bundle. Multiple policies within a workspace must be composed into a single bundle before loading.
+- OPA is embedded in the STS process. Policies run in the STS's OPA instance, not in a separate OPA server.
+- Policy evaluation is synchronous and blocking. Keep evaluation time well under 5 ms for production deployments; complex policies with external data should use OPA's bundle mechanism to pre-load data.
+- `caracal.step_up` decisions require the coordinator to be reachable; they introduce a round-trip latency.
+
+<SeeAlso links={[
+  { title: 'Mandate', href: '/concepts/mandate/', relationship: 'related', description: 'The mandate is issued only if the policy permits the intent.' },
+  { title: 'Intent', href: '/concepts/intent/', relationship: 'required-by', description: 'The intent is the primary input to policy evaluation.' },
+  { title: 'Caveat', href: '/concepts/caveat/', relationship: 'related', description: 'Constrain rules produce caveats that narrow the issued mandate.' },
+  { title: 'Workspace', href: '/concepts/workspace/', relationship: 'required-by', description: 'Policies are scoped to a workspace.' },
+  { title: 'Authority Enforcement Model', href: '/concepts/authority-enforcement/', relationship: 'canonical', description: 'The full enforcement model this concept belongs to.' },
+  { title: 'Services', href: '/architecture/services/', relationship: 'used-in', description: 'STS owns policy evaluation.' },
+]} />
