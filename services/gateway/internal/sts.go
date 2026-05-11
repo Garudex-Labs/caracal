@@ -79,6 +79,23 @@ func newSTSClient(stsURL string, timeout time.Duration) *stsClient {
 	}
 }
 
+// Health checks whether STS is reachable enough for the gateway to exchange tokens.
+func (c *stsClient) Health(ctx context.Context) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.url+"/health", nil)
+	if err != nil {
+		return err
+	}
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		return fmt.Errorf("sts health status: %d", resp.StatusCode)
+	}
+	return nil
+}
+
 // Exchange performs an RFC 8693 token exchange. The caller's identity is sent as
 // (zone_id, application_id) form fields rather than a positional client_id, so
 // neither value depends on a separator-free encoding.
