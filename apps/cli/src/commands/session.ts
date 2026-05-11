@@ -14,6 +14,7 @@ import {
   printJSON,
   printTable,
   requireZone,
+  showHelp,
   unknownVerb,
 } from './shared.ts'
 
@@ -48,8 +49,8 @@ export async function sessionCommand(argv: string[], cfg?: CliConfig): Promise<v
   }
 }
 
-function help(): void {
-  process.stdout.write(
+function help(): never {
+  return showHelp(
     [
       'Usage: caracal session list [options]',
       '',
@@ -63,7 +64,6 @@ function help(): void {
       '  --json                    Emit raw JSON',
       '  --help, -h                Show this help',
       '',
-    ].join('\n'),
+    ],
   )
-  process.exit(0)
 }

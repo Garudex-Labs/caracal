@@ -15,6 +15,7 @@ import {
   printTable,
   readContent,
   requireZone,
+  showHelp,
   unknownVerb,
   usage,
 } from './shared.ts'
@@ -153,8 +154,8 @@ export async function policySetCommand(argv: string[], cfg?: CliConfig): Promise
   }
 }
 
-function policyHelp(): void {
-  process.stdout.write(
+function policyHelp(): never {
+  return showHelp(
     [
       'Usage: caracal policy <verb> [options]',
       '',
@@ -177,13 +178,12 @@ function policyHelp(): void {
       '  --json                     Emit raw JSON',
       '  --help, -h                 Show this help',
       '',
-    ].join('\n'),
+    ],
   )
-  process.exit(0)
 }
 
-function policySetHelp(): void {
-  process.stdout.write(
+function policySetHelp(): never {
+  return showHelp(
     [
       'Usage: caracal policy-set <verb> [options]',
       '',
@@ -205,7 +205,6 @@ function policySetHelp(): void {
       '  --json                     Emit raw JSON',
       '  --help, -h                 Show this help',
       '',
-    ].join('\n'),
+    ],
   )
-  process.exit(0)
 }

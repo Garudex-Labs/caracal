@@ -14,6 +14,7 @@ import {
   printJSON,
   printTable,
   requireZone,
+  showHelp,
   unknownVerb,
   usage,
 } from './shared.ts'
@@ -88,8 +89,8 @@ export async function resourceCommand(argv: string[], cfg?: CliConfig): Promise<
   }
 }
 
-function help(): void {
-  process.stdout.write(
+function help(): never {
+  return showHelp(
     [
       'Usage: caracal resource <verb> [options]',
       '',
@@ -112,7 +113,6 @@ function help(): void {
       '  --json                    Emit raw JSON',
       '  --help, -h                Show this help',
       '',
-    ].join('\n'),
+    ],
   )
-  process.exit(0)
 }

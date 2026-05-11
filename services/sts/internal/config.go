@@ -7,7 +7,6 @@ package internal
 
 import (
 	"os"
-	"strconv"
 	"strings"
 
 	"github.com/garudex-labs/caracal/core/config"
@@ -31,17 +30,9 @@ func loadConfig() Config {
 		Base:               config.Load(),
 		ZoneKEKProvider:    config.Getenv("ZONE_KEK_PROVIDER", "local"),
 		IssuerURL:          os.Getenv("ISSUER_URL"),
-		MaxGrantTTLSeconds: parsePositiveInt(config.Getenv("MAX_GRANT_TTL_SECONDS", "3600"), 3600),
+		MaxGrantTTLSeconds: config.PositiveIntEnv("MAX_GRANT_TTL_SECONDS", 3600),
 		AuditReplayDir:     config.Getenv("AUDIT_REPLAY_DIR", "/var/lib/caracal/audit-replay"),
 		StreamsHMACKey:     config.Getenv("STREAMS_HMAC_KEY", ""),
-		OPAPollSeconds:     parsePositiveInt(config.Getenv("OPA_POLL_SECONDS", "60"), 60),
+		OPAPollSeconds:     config.PositiveIntEnv("OPA_POLL_SECONDS", 60),
 	}
-}
-
-func parsePositiveInt(raw string, fallback int) int {
-	n, err := strconv.Atoi(raw)
-	if err != nil || n <= 0 {
-		return fallback
-	}
-	return n
 }
