@@ -26,5 +26,5 @@ RUN apk add --no-cache ca-certificates wget
 COPY --from=builder /audit /audit
 USER 65532:65532
 EXPOSE 9090
-HEALTHCHECK --interval=10s --timeout=3s --retries=3 CMD wget -qO- "http://127.0.0.1:${PORT:-9090}/health" || exit 1
+HEALTHCHECK --interval=10s --timeout=3s --retries=3 CMD wget -qO- "http://127.0.0.1:${PORT:-9090}/ready" || exit 1
 ENTRYPOINT ["/audit"]

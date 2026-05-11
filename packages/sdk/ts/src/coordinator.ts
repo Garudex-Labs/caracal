@@ -36,6 +36,7 @@ export interface SpawnRequest {
 }
 
 export interface SpawnResponse {
+  id?: string;
   agent_session_id: string;
 }
 
@@ -51,6 +52,7 @@ export interface DelegationRequest {
 }
 
 export interface DelegationResponse {
+  id?: string;
   delegation_edge_id: string;
 }
 
@@ -82,7 +84,7 @@ export async function spawnAgent(
   bearer: string,
   req: SpawnRequest,
 ): Promise<SpawnResponse> {
-  return call(client, "POST", `/zones/${encodeURIComponent(req.zoneId)}/agents`, bearer, {
+  const res = await call<SpawnResponse>(client, "POST", `/zones/${encodeURIComponent(req.zoneId)}/agents`, bearer, {
     application_id: req.applicationId,
     session_sid: req.sessionSid,
     parent_id: req.parentId,
@@ -90,6 +92,8 @@ export async function spawnAgent(
     ttl_seconds: req.ttlSeconds,
     metadata: req.metadata,
   });
+  if (!res.agent_session_id && res.id) res.agent_session_id = res.id;
+  return res;
 }
 
 export async function terminateAgent(
@@ -121,7 +125,7 @@ export async function createDelegation(
         expires_at: req.constraints.expiresAt,
       }
     : undefined;
-  return call(client, "POST", `/zones/${encodeURIComponent(req.zoneId)}/delegations`, bearer, {
+  const res = await call<DelegationResponse>(client, "POST", `/zones/${encodeURIComponent(req.zoneId)}/delegations`, bearer, {
     issuer_application_id: req.issuerApplicationId,
     source_session_id: req.sourceSessionId,
     target_session_id: req.targetSessionId,
@@ -130,4 +134,6 @@ export async function createDelegation(
     constraints,
     ttl_seconds: req.ttlSeconds,
   });
+  if (!res.delegation_edge_id && res.id) res.delegation_edge_id = res.id;
+  return res;
 }

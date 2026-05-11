@@ -47,6 +47,7 @@ type Config struct {
 	UpstreamHostAllowlist []string
 	DatabaseURL           string
 	RedisURL              string
+	StreamsHMACKey        string
 	JTIFailOpen           bool
 }
 
@@ -73,6 +74,7 @@ func loadConfig() Config {
 		UpstreamHostAllowlist: splitCSV(config.Getenv("UPSTREAM_HOST_ALLOWLIST", "")),
 		DatabaseURL:           config.MustGetenv("DATABASE_URL"),
 		RedisURL:              config.Getenv("REDIS_URL", ""),
+		StreamsHMACKey:        config.Getenv("STREAMS_HMAC_KEY", ""),
 		JTIFailOpen:           boolEnv("JTI_FAIL_OPEN", false),
 	}
 	if err := cfg.validate(); err != nil {
@@ -118,6 +120,9 @@ func (c Config) validate() error {
 		}
 	} else if c.TLSCertFile == "" || c.TLSKeyFile == "" {
 		return fmt.Errorf("TLS_CERT_FILE and TLS_KEY_FILE must both be set")
+	}
+	if c.Env == "production" && c.StreamsHMACKey == "" {
+		return fmt.Errorf("STREAMS_HMAC_KEY is required when CARACAL_ENV=production")
 	}
 	if c.Port != defaultPort {
 		return fmt.Errorf("PORT must be %s", defaultPort)
