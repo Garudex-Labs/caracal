@@ -1,0 +1,14 @@
+# Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+# Caracal, a product of Garudex Labs
+#
+# Python package metadata for the Redis revocation connector.
+
+[project]
+name = "caracalai-revocation-redis"
+version = "0.1.0"
+description = "Caracal Redis-backed revocation connector."
+requires-python = ">=3.11"
+dependencies = ["caracalai-revocation", "redis>=5.0"]
+
+[tool.setuptools]
+packages = ["caracalai_revocation_redis"]
