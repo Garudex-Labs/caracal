@@ -1,0 +1,111 @@
+{
+  "principal": {
+    "title": "Principal",
+    "path": "/concepts/principal/",
+    "description": "The identity — human, agent, or service — requesting authority.",
+    "aliases": ["caller identity", "agent identity", "requester"],
+    "relations": {
+      "produces": ["mandate"],
+      "participates-in": ["delegation"],
+      "scoped-to": ["workspace"]
+    }
+  },
+  "mandate": {
+    "title": "Mandate",
+    "path": "/concepts/mandate/",
+    "description": "A short-lived signed JWT binding a principal to a policy and intent.",
+    "aliases": ["authority token", "subject token"],
+    "relations": {
+      "issued-by": ["sts"],
+      "bound-to": ["principal", "policy"],
+      "governs": ["intent"],
+      "constrained-by": ["caveat"],
+      "scoped-to": ["zone"]
+    }
+  },
+  "policy": {
+    "title": "Policy",
+    "path": "/concepts/policy/",
+    "description": "Declarative OPA Rego rules evaluated at the gate before any action runs.",
+    "aliases": ["authorization policy", "rego policy"],
+    "relations": {
+      "evaluated-by": ["sts"],
+      "governs": ["mandate"],
+      "scoped-to": ["workspace"]
+    }
+  },
+  "delegation": {
+    "title": "Delegation",
+    "path": "/concepts/delegation/",
+    "description": "Transfer of scoped authority from one principal to another.",
+    "aliases": ["authority delegation"],
+    "relations": {
+      "transfers": ["mandate"],
+      "between": ["principal"],
+      "managed-by": ["coordinator"]
+    }
+  },
+  "caveat": {
+    "title": "Caveat",
+    "path": "/concepts/caveat/",
+    "description": "A constraint attached to a mandate to narrow its scope or TTL.",
+    "aliases": ["constraint", "attenuation"],
+    "relations": {
+      "constrains": ["mandate"],
+      "limits": ["intent"]
+    }
+  },
+  "intent": {
+    "title": "Intent",
+    "path": "/concepts/intent/",
+    "description": "The declared structured action a principal is about to take.",
+    "aliases": ["declared action", "action intent"],
+    "relations": {
+      "contained-in": ["mandate"],
+      "evaluated-against": ["policy"]
+    }
+  },
+  "workspace": {
+    "title": "Workspace",
+    "path": "/concepts/workspace/",
+    "description": "The boundary of policies, principals, and audit data Caracal manages.",
+    "aliases": ["tenant", "policy namespace"],
+    "relations": {
+      "contains": ["policy", "principal", "ledger"],
+      "belongs-to": ["zone"]
+    }
+  },
+  "ledger": {
+    "title": "Ledger",
+    "path": "/concepts/ledger/",
+    "description": "The append-only tamper-evident record of every authority decision.",
+    "aliases": ["audit log", "audit ledger"],
+    "relations": {
+      "records": ["mandate"],
+      "scoped-to": ["workspace"],
+      "written-by": ["sts", "gateway", "coordinator"],
+      "consumed-by": ["audit"]
+    }
+  },
+  "zone": {
+    "title": "Zone",
+    "path": "/concepts/zone/",
+    "description": "A deployment unit owning ES256 signing keys and a zone encryption key for provider credentials.",
+    "aliases": ["deployment zone"],
+    "relations": {
+      "contains": ["workspace"],
+      "owns": ["signing-keys", "zek"],
+      "managed-by": ["sts"]
+    }
+  },
+  "resource-binding": {
+    "title": "Resource Binding",
+    "path": "/concepts/resource-binding/",
+    "description": "A mapping from a resource identifier to an upstream URL and routing directives.",
+    "aliases": ["resource binding", "upstream binding"],
+    "relations": {
+      "consumed-by": ["gateway", "sdk"],
+      "authoritative-in": ["sts"]
+    }
+  }
+}
