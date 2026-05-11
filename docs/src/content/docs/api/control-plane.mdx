@@ -1,7 +1,646 @@
 ---
 title: Control-Plane REST
-description: Endpoints under /v1 for zones, applications, resources, providers, policies, grants, and more.
+description: Complete endpoint reference for the Caracal control-plane API — zones, applications, resources, providers, policies, grants, sessions, audit, and more.
 pageType: api
 ---
 
-Endpoints under /v1 for zones, applications, resources, providers, policies, grants, and more.
+The control-plane API manages all Caracal configuration — zones, applications, resources, providers, policies, grants, invitations, sessions, and audit events. It runs on port `3000` and is built on Fastify with Zod request validation. All resource routes are prefixed `/v1` except zone-scoped routes which begin with `/v1/zones/{zoneId}/`.
+
+## Authentication
+
+All `/v1/*` endpoints require a bearer token:
+
+```
+Authorization: Bearer <admin-token>
+```
+
+Tokens are stored as SHA-256 hashes in the `admin_tokens` table. Each token carries a scope:
+
+- **`global`** — access to all zones and zone-independent endpoints.
+- **`zone`** — access restricted to routes matching the token's zone ID.
+
+**Errors:**
+
+| Code | Status | Condition |
+| --- | --- | --- |
+| `invalid_admin_token` | 401 | Token missing, malformed, or hash does not match |
+| `admin_token_zone_mismatch` | 403 | Zone-scoped token used on a different zone's routes |
+
+Every request generates a unique request ID (UUIDv7) if `X-Request-Id` is not provided. The ID is echoed in the `X-Request-Id` response header and recorded in the audit log.
+
+## Error format
+
+```json
+{
+  "error": "error_code",
+  "issues": [{ "path": ["field"], "message": "description" }],
+  "detail": "optional elaboration"
+}
+```
+
+`issues` appears only on Zod validation errors (`400 invalid_body`). `detail` appears on errors where additional context is available.
+
+## Soft deletes
+
+Zones, applications, resources, providers, policies, and policy sets are never physically removed. `DELETE` sets `archived_at`; queries filter on `archived_at IS NULL`.
+
+---
+
+## Zones — `/v1/zones`
+
+### `GET /v1/zones`
+
+List all active zones. Requires global scope.
+
+**Response 200:**
+
+```json
+[
+  {
+    "id": "zone1",
+    "org_id": "default",
+    "name": "Production",
+    "slug": "production",
+    "dcr_enabled": false,
+    "pkce_required": true,
+    "login_flow": "default",
+    "created_at": "2026-01-01T00:00:00Z",
+    "updated_at": "2026-01-01T00:00:00Z"
+  }
+]
+```
+
+### `POST /v1/zones`
+
+Create a zone. Requires global scope.
+
+**Request body:**
+
+| Field | Type | Required | Default | Constraint |
+| --- | --- | --- | --- | --- |
+| `name` | string | Yes | — | 1+ characters |
+| `org_id` | string | No | `"default"` | 1+ characters |
+| `slug` | string | No | auto-derived | `^[a-z0-9-]+$`, globally unique |
+| `dcr_enabled` | boolean | No | `false` | — |
+| `pkce_required` | boolean | No | `true` | — |
+| `login_flow` | string | No | `"default"` | — |
+
+**Response 201:** Zone object.  
+**Error 400:** `invalid_zone` — slug already taken.
+
+### `GET /v1/zones/{id}`
+
+**Response 200:** Single zone object.  
+**Error 404:** `zone_not_found`
+
+### `PATCH /v1/zones/{id}`
+
+Partial update. All fields optional (same as POST). At least one field required.
+
+**Error 400:** `no_fields` — body contains no updatable fields.  
+**Error 404:** `zone_not_found`
+
+### `DELETE /v1/zones/{id}`
+
+Archives the zone (sets `archived_at`).
+
+**Response 204:** No content.  
+**Error 404:** `zone_not_found`
+
+---
+
+## Applications — `/v1/zones/{zoneId}/applications`
+
+### `GET /v1/zones/{zoneId}/applications`
+
+**Response 200:**
+
+```json
+[
+  {
+    "id": "app1",
+    "zone_id": "zone1",
+    "name": "My Agent",
+    "registration_method": "managed",
+    "credential_type": "token",
+    "traits": [],
+    "consent": "implicit",
+    "created_at": "2026-01-01T00:00:00Z"
+  }
+]
+```
+
+### `POST /v1/zones/{zoneId}/applications`
+
+**Request body:**
+
+| Field | Type | Required | Default |
+| --- | --- | --- | --- |
+| `name` | string | Yes | — |
+| `registration_method` | `"managed" \| "dcr"` | Yes | — |
+| `credential_type` | `"token" \| "password" \| "public-key" \| "url" \| "public"` | No | `"public"` |
+| `client_secret` | string | No | — | Hashed before storage; never returned |
+| `traits` | string[] | No | `[]` |
+| `consent` | boolean | No | `false` | Stored as `"implicit"` (false) or `"required"` (true) |
+
+**Response 201:** Application object. `client_secret` is not included in the response.  
+**Error 404:** `zone_not_found`
+
+### `POST /v1/zones/{zoneId}/applications/dcr`
+
+Dynamic Client Registration. Zone must have `dcr_enabled: true`.
+
+**Request body:**
+
+| Field | Type | Required |
+| --- | --- | --- |
+| `name` | string | Yes |
+| `credential_type` | string | No |
+| `client_secret` | string | No |
+| `traits` | string[] | No |
+| `expires_in` | integer | No | Seconds until the application expires |
+
+**Rate limit:** 10 requests/second per zone.  
+**Limit:** 1,000 active DCR applications per zone.
+
+**Errors:**
+
+| Code | Status | Condition |
+| --- | --- | --- |
+| `dcr_disabled` | 403 | Zone does not have `dcr_enabled: true` |
+| `dcr_rate_limit_exceeded` | 429 | 10 req/s limit exceeded |
+| `dcr_limit_exceeded` | 429 | 1,000 active DCR app limit reached |
+
+### `GET /v1/zones/{zoneId}/applications/{id}`
+
+**Error 404:** `application_not_found`
+
+### `PATCH /v1/zones/{zoneId}/applications/{id}`
+
+All fields optional. Cannot downgrade `credential_type` to `"public"` if an active policy references the application.
+
+**Error 409:** `app_referenced_by_active_policy`
+
+### `DELETE /v1/zones/{zoneId}/applications/{id}`
+
+**Response 204.**
+
+---
+
+## Resources — `/v1/zones/{zoneId}/resources`
+
+### `GET /v1/zones/{zoneId}/resources`
+
+**Response 200:**
+
+```json
+[
+  {
+    "id": "resource-uuid",
+    "zone_id": "zone1",
+    "name": "MCP Server",
+    "identifier": "resource://my-mcp-server",
+    "upstream_url": "https://mcp.internal/",
+    "prefix": false,
+    "scopes": ["read", "write"],
+    "credential_provider_id": null,
+    "created_at": "2026-01-01T00:00:00Z",
+    "updated_at": "2026-01-01T00:00:00Z"
+  }
+]
+```
+
+### `POST /v1/zones/{zoneId}/resources`
+
+**Request body:**
+
+| Field | Type | Required | Constraint |
+| --- | --- | --- | --- |
+| `identifier` | string | Yes | Unique within zone |
+| `scopes` | string[] | Yes | 1+ scopes |
+| `name` | string | No | Defaults to `identifier` |
+| `upstream_url` | string | No | Must be `http://` or `https://` |
+| `prefix` | boolean | No | `false` — if true, `identifier` is a prefix match |
+| `credential_provider_id` | UUID | No | Provider must exist in zone |
+
+**Error 404:** `provider_not_found` — referenced provider does not exist.
+
+### `GET /v1/zones/{zoneId}/resources/{id}`
+### `PATCH /v1/zones/{zoneId}/resources/{id}`
+### `DELETE /v1/zones/{zoneId}/resources/{id}`
+
+Response 204 on delete.
+
+---
+
+## Providers — `/v1/zones/{zoneId}/providers`
+
+Providers supply upstream credentials when `auth_mode` is `provider_oauth` or `provider_apikey`. The `config_json` and `secret_config` fields in the request body are merged — fields matching `/secret|password|token|api[_-]?key|private[_-]?key|credential|passphrase/i` are extracted and encrypted under the zone's DEK before storage. Decrypted secrets are never returned in responses; only `secret_config_keys` (an array of key names) indicates which secrets are stored.
+
+### `GET /v1/zones/{zoneId}/providers`
+
+**Response 200:**
+
+```json
+[
+  {
+    "id": "provider-uuid",
+    "zone_id": "zone1",
+    "name": "GitHub OAuth",
+    "identifier": "github",
+    "kind": "oauth2",
+    "owner_type": "customer",
+    "config_json": { "token_url": "https://github.com/login/oauth/access_token" },
+    "secret_config_keys": ["client_secret"],
+    "created_at": "2026-01-01T00:00:00Z",
+    "updated_at": "2026-01-01T00:00:00Z"
+  }
+]
+```
+
+### `POST /v1/zones/{zoneId}/providers`
+
+**Request body:**
+
+| Field | Type | Required |
+| --- | --- | --- |
+| `identifier` | string | Yes |
+| `kind` | `"oauth2" \| "oidc" \| "apikey" \| "workload"` | Yes |
+| `name` | string | No |
+| `owner_type` | string | No | Default `"customer"` |
+| `config_json` | object | No | Public configuration fields |
+| `secret_config` | object | No | Secret fields — encrypted before storage |
+
+### `GET /v1/zones/{zoneId}/providers/{id}`
+### `PATCH /v1/zones/{zoneId}/providers/{id}`
+### `DELETE /v1/zones/{zoneId}/providers/{id}`
+
+---
+
+## Policies — `/v1/zones/{zoneId}/policies`
+
+Policies are Rego modules. Policy versions are immutable — once created, a version's content cannot change. Add a new version to revise the policy's logic.
+
+### `GET /v1/zones/{zoneId}/policies`
+
+**Response 200:** Array of policy objects (without version content).
+
+### `POST /v1/zones/{zoneId}/policies`
+
+Creates the policy and its first version simultaneously.
+
+**Request body:**
+
+| Field | Type | Required | Default |
+| --- | --- | --- | --- |
+| `name` | string | Yes | — |
+| `content` | string | Yes | Rego source; validated before storage |
+| `description` | string | No | — |
+| `owner_type` | string | No | `"customer"` |
+| `schema_version` | string | No | `"2026-03-16"` |
+
+**Rego validation:** Content must declare `package caracal.authz` and emit `data.caracal.authz.result`. Invalid Rego returns `422 invalid_rego`.
+
+**Response 201:**
+
+```json
+{
+  "id": "policy-uuid",
+  "zone_id": "zone1",
+  "name": "RBAC Policy",
+  "description": null,
+  "owner_type": "customer",
+  "created_by": "token-actor",
+  "created_at": "2026-01-01T00:00:00Z",
+  "version": {
+    "id": "version-uuid",
+    "policy_id": "policy-uuid",
+    "version": 1,
+    "content_sha256": "<hex>",
+    "schema_version": "2026-03-16",
+    "created_at": "2026-01-01T00:00:00Z"
+  }
+}
+```
+
+### `GET /v1/zones/{zoneId}/policies/{id}`
+
+Returns the policy with its full version history including `versions` array.
+
+### `POST /v1/zones/{zoneId}/policies/{id}/versions`
+
+Add a new immutable version. Version numbers auto-increment (1, 2, 3…).
+
+**Request body:**
+
+| Field | Type | Required |
+| --- | --- | --- |
+| `content` | string | Yes | New Rego source |
+| `schema_version` | string | No | Default `"2026-03-16"` |
+
+**Response 201:** PolicyVersion object.
+
+### `DELETE /v1/zones/{zoneId}/policies/{id}`
+
+Archives the policy. **Response 204.**
+
+---
+
+## Policy Sets — `/v1/zones/{zoneId}/policy-sets`
+
+A policy set bundles one or more policy versions into a versioned manifest that can be atomically activated. Only one version is active at a time per zone. An optional shadow version runs in observe-only mode for canary evaluation.
+
+### `POST /v1/zones/{zoneId}/policy-sets`
+
+**Request body:**
+
+| Field | Type | Required |
+| --- | --- | --- |
+| `name` | string | Yes |
+| `description` | string | No |
+
+### `POST /v1/zones/{zoneId}/policy-sets/{id}/versions`
+
+Create a version from a manifest of policy version IDs.
+
+**Request body:**
+
+```json
+{
+  "manifest": [
+    { "policy_version_id": "version-uuid-1" },
+    { "policy_version_id": "version-uuid-2" }
+  ],
+  "schema_version": "2026-03-16"
+}
+```
+
+**Constraints:** 1–256 entries; no duplicates; all versions must belong to the same zone; all policies must declare `package caracal.authz` and emit `data.caracal.authz.result`.
+
+**Response 201:**
+
+```json
+{
+  "id": "pset-version-uuid",
+  "policy_set_id": "pset-uuid",
+  "version": 1,
+  "manifest_sha256": "<hex>",
+  "schema_version": "2026-03-16",
+  "created_at": "2026-01-01T00:00:00Z"
+}
+```
+
+**Error 422:** `invalid_policy_contract` — a policy in the manifest does not meet the contract requirements.
+
+### `POST /v1/zones/{zoneId}/policy-sets/{id}/activate`
+
+Atomically activate a version, optionally with a shadow version for canary evaluation.
+
+**Request body:**
+
+| Field | Type | Required |
+| --- | --- | --- |
+| `version_id` | UUID | Yes |
+| `shadow_version_id` | UUID | No |
+
+**Response 202:**
+
+```json
+{
+  "activated": true,
+  "version_id": "pset-version-uuid",
+  "shadow_version_id": null,
+  "outbox_id": "outbox-uuid"
+}
+```
+
+Activation enqueues a `caracal.policy.invalidate` stream message via the outbox, which causes the STS to reload its policy bundle within seconds.
+
+**Errors:**
+
+| Code | Status | Condition |
+| --- | --- | --- |
+| `version_not_found` | 404 | `version_id` does not exist |
+| `shadow_version_not_found` | 404 | `shadow_version_id` does not exist |
+| `referenced_policy_version_missing` | 409 | A policy version in the manifest was archived after the set version was created |
+| `invalid_policy_contract` | 422 | Policy contract validation failed at activation time |
+
+---
+
+## Grants — `/v1/zones/{zoneId}/grants`
+
+Grants bind an application to a resource with a set of scopes. They authorize the application to exchange a session token for a mandate scoped to that resource. Revoking a grant also revokes all active sessions for the granted user.
+
+### `POST /v1/zones/{zoneId}/grants`
+
+**Request body:**
+
+| Field | Type | Required | Constraint |
+| --- | --- | --- | --- |
+| `application_id` | UUID | Yes | — |
+| `user_id` | string | Yes | 1+ characters |
+| `resource_id` | UUID | Yes | — |
+| `scopes` | string[] | Yes | 1–64 scopes; each scope: `^[a-z0-9:_./-]+$`, ≤ 200 chars; must be a subset of the resource's scopes |
+
+**Error 403:** `grant_scopes_exceed_resource` — requested scopes are not a subset of the resource's declared scopes.
+
+**Response 201:** Grant object with `"status": "active"`.
+
+### `DELETE /v1/zones/{zoneId}/grants/{id}`
+
+Revokes the grant (sets `status: "revoked"`) and enqueues session revocation events for all active sessions belonging to the user in that zone.
+
+**Response 204.**
+
+---
+
+## Sessions — `/v1/zones/{zoneId}/sessions` (read-only)
+
+### `GET /v1/zones/{zoneId}/sessions`
+
+**Query parameters:**
+
+| Parameter | Type | Description |
+| --- | --- | --- |
+| `status` | string | `"active" \| "revoked" \| "expired"` |
+| `subject_id` | string | Filter by subject |
+| `limit` | integer | 1–1000; default 100 |
+| `cursor` | string | Base64url pagination cursor |
+
+**Response 200:**
+
+```json
+{
+  "rows": [
+    {
+      "id": "session-id",
+      "zone_id": "zone1",
+      "session_type": "user",
+      "subject_id": "user@example.com",
+      "parent_id": null,
+      "status": "active",
+      "expires_at": "2026-06-01T00:00:00Z",
+      "authenticated_at": "2026-05-11T00:00:00Z",
+      "created_at": "2026-05-11T00:00:00Z"
+    }
+  ],
+  "next_cursor": null
+}
+```
+
+Ordered by `created_at DESC, id DESC`.
+
+---
+
+## Audit — `/v1/zones/{zoneId}/audit`
+
+### `GET /v1/zones/{zoneId}/audit`
+
+**Query parameters:**
+
+| Parameter | Type | Description |
+| --- | --- | --- |
+| `since` | ISO 8601 | Events after this timestamp |
+| `until` | ISO 8601 | Events before this timestamp |
+| `request_id` | string | Filter by request ID |
+| `decision` | string | `"allow" \| "deny" \| "partial"` |
+| `event_type` | string | Filter by event type |
+| `limit` | integer | 1–1000; default 100 |
+| `cursor` | string | Pagination cursor |
+
+**Response 200:** `{ "rows": [...], "next_cursor": "..." }`
+
+Each row:
+
+```json
+{
+  "id": "event-uuid",
+  "zone_id": "zone1",
+  "event_type": "token_exchange",
+  "request_id": "req-abc",
+  "decision": "allow",
+  "evaluation_status": "complete",
+  "metadata_json": {},
+  "occurred_at": "2026-05-11T20:00:00Z",
+  "ingested_at": "2026-05-11T20:00:01Z"
+}
+```
+
+`metadata_json` has sensitive fields redacted.
+
+### `GET /v1/zones/{zoneId}/audit/by-request/{requestId}`
+
+Returns all audit events for a single request ID with full diagnostic detail.
+
+**Response 200:** Array of detailed audit event objects, each including:
+
+```json
+{
+  "policy_set_id": "pset-uuid",
+  "policy_set_version_id": "pset-version-uuid",
+  "manifest_sha": "<hex>",
+  "determining_policies_json": [],
+  "diagnostics_json": []
+}
+```
+
+**Error 404:** `request_not_found`
+
+---
+
+## Step-up challenges — `/v1/zones/{zoneId}/step-up-challenges`
+
+### `GET /v1/zones/{zoneId}/step-up-challenges`
+
+List all challenges for the zone.
+
+**Response 200:**
+
+```json
+[
+  {
+    "id": "challenge-uuid",
+    "zone_id": "zone1",
+    "session_id": "session-id",
+    "challenge_type": "mfa",
+    "metadata_json": {},
+    "created_at": "2026-05-11T20:00:00Z",
+    "expires_at": "2026-05-11T20:05:00Z",
+    "satisfied_at": null
+  }
+]
+```
+
+### `POST /v1/zones/{zoneId}/step-up-challenges/{id}/satisfy`
+
+Mark a challenge as satisfied by an external mechanism (e.g., a human-approval workflow).
+
+**Response 200:** `{ "id": "challenge-uuid", "satisfied_at": "2026-05-11T20:01:00Z" }`  
+**Error 404:** `challenge_not_found_or_expired`
+
+---
+
+## Policy templates — `/v1/policy-templates`
+
+### `GET /v1/policy-templates`
+
+Public endpoint (no authentication required). Returns the catalog of built-in Rego templates.
+
+**Response 200:**
+
+```json
+[
+  {
+    "id": "role-based",
+    "name": "Role-Based Access Control",
+    "description": "...",
+    "content": "package caracal.authz\n..."
+  }
+]
+```
+
+Available template IDs: `role-based`, `attribute-based`, `delegation`, `baseline-scopes`, `baseline-resource-constraints`, `baseline-delegation-constraints`, `baseline-session-state`, `baseline-step-up-triggers`, `baseline-rate-limits`.
+
+---
+
+## Bootstrap — `/v1/local/bootstrap` (development only)
+
+Available only when `CARACAL_LOCAL_BOOTSTRAP_ENABLED=true` on the API.
+
+### `POST /v1/local/bootstrap`
+
+Creates zone, application, resource, policy, and policy set in one transaction. Idempotent: returns the existing bootstrap state if already created.
+
+**Request body:**
+
+| Field | Type | Description |
+| --- | --- | --- |
+| `force` | boolean | Regenerate client secret and reseal signing key |
+
+**Response 201 (new) or 200 (existing):**
+
+```json
+{
+  "zone_id": "zone1",
+  "app_id": "app1",
+  "application_id": "app1",
+  "app_client_secret": "secret-value",
+  "resource": "resource://example",
+  "scope": "read",
+  "rotated": false,
+  "signing_key_resealed": false
+}
+```
+
+`app_client_secret` is only present in the initial creation response or when `force: true`.
+
+**Error 409:** `zone_not_local_bootstrap` — a non-bootstrap zone with this ID already exists.
+
+---
+
+## Health and readiness
+
+| Method | Path | Auth | Description |
+| --- | --- | --- | --- |
+| `GET` | `/health` | None | Liveness; always `200 {"ok": true}` |
+| `GET` | `/ready` | None | Readiness; `200 {"ok": true, "draining": false}` when healthy, `503` otherwise |

@@ -1,7 +1,359 @@
 ---
 title: Coordinator REST
-description: "Flat-HTTP endpoints: /v1/begin, /v1/end, /v1/exchange, /v1/verify."
+description: Agent lifecycle, delegation graph, and V1 façade endpoints — complete request and response reference for the Coordinator service.
 pageType: api
 ---
 
-Flat-HTTP endpoints: /v1/begin, /v1/end, /v1/exchange, /v1/verify.
+The Coordinator manages agent sessions and delegation edges. It enforces depth and child limits, prevents delegation cycles, and cascades revocation through the agent subtree and delegation graph. It runs on port `4000`.
+
+## Authentication
+
+All routes except `/health`, `/ready`, and `POST /v1/verify` require a bearer token issued by the STS:
+
+```
+Authorization: Bearer <sts-issued-mandate>
+```
+
+The token must carry the `zone_id` claim matching the URL's `{zoneId}` parameter, and must include one of the coordinator scopes for the target operation:
+
+| Scope | Permits |
+| --- | --- |
+| `coordinator.admin` | All operations |
+| `coordinator.spawn_for:{appId}` | Spawn agents for the specified application |
+| `coordinator.spawn_under:{appId}` | Spawn agents as children of the specified application's agents |
+| `coordinator.delegate_from:{appId}` | Create delegation edges from the specified application |
+| `coordinator.delegate_to:{appId}` | Accept delegation edges to the specified application |
+
+## Error format
+
+```json
+{
+  "error": "error_code",
+  "message": "human-readable description"
+}
+```
+
+---
+
+## Agent lifecycle — `/v1/zones/{zoneId}/agents`
+
+### `POST /v1/zones/{zoneId}/agents`
+
+Spawn a new agent session. Equivalent to `POST /v1/begin`.
+
+**Request body:**
+
+| Field | Type | Required | Default |
+| --- | --- | --- | --- |
+| `application_id` | string | Yes | — |
+| `session_sid` | string | No | STS session `sid` from the bearer token |
+| `parent_id` | string \| null | No | `null` (root agent) |
+| `kind` | `"service" \| "instance" \| "ephemeral"` | No | — |
+| `capabilities` | string[] | No | `[]` |
+| `ttl_seconds` | integer | No | `3600` | 1–86400 |
+| `metadata` | object | No | `{}` |
+
+**Limits:**
+
+| Constraint | Value |
+| --- | --- |
+| Max depth | 10 |
+| Max children per agent | 10 |
+| Max agents per zone | 50 |
+| Max agents per application | 200 |
+
+**Validation:** `session_sid` must reference an active session. If `parent_id` is set, the parent must be active and the caller must own the parent's application or hold `coordinator.spawn_under:{parentAppId}`.
+
+**Response 201:**
+
+```json
+{
+  "id": "agent-session-id",
+  "agent_session_id": "agent-session-id",
+  "zone_id": "zone1",
+  "application_id": "app1",
+  "parent_id": null,
+  "session_sid": "sts-session-sid",
+  "status": "active",
+  "depth": 0,
+  "spawned_at": "2026-05-11T20:00:00Z",
+  "terminated_at": null
+}
+```
+
+**Idempotency:** If `Idempotency-Key` is provided, returns the existing agent session if one already matches `(zone, application_id, session_sid, parent_id)`.
+
+**Errors:**
+
+| Code | Status | Condition |
+| --- | --- | --- |
+| `session_sid_required` | 400 | No resolvable session SID |
+| `application_not_found` | 404 | `application_id` does not exist |
+| `session_not_found` | 404 | `session_sid` does not reference an active session |
+| `parent_not_found` | 404 | `parent_id` does not exist |
+| `application_ownership_required` | 403 | Caller does not own `application_id` and lacks spawn scope |
+| `agent_zone_limit_exceeded` | 429 | 50-agent zone limit reached |
+| `agent_limit_exceeded` | 429 | 200-agent per-application limit reached |
+| `agent_children_limit_exceeded` | 429 | Parent has 10 children |
+| `agent_depth_limit_exceeded` | 429 | Nesting depth would exceed 10 |
+
+### `GET /v1/zones/{zoneId}/agents`
+
+List agent sessions. Paginated.
+
+**Query parameters:** `limit` (1–500, default 100), `cursor` (agent ID)
+
+**Response 200:** `{ "items": [...], "next_cursor": "..." }`
+
+### `GET /v1/zones/{zoneId}/agents/{id}`
+
+Get a single agent session.
+
+**Response 200:** Agent session object.  
+**Error 404:** `agent_not_found`
+
+### `GET /v1/zones/{zoneId}/agents/{id}/children`
+
+List direct children of an agent session.
+
+**Response 200:** `{ "items": [...], "next_cursor": "..." }`
+
+### `PATCH /v1/zones/{zoneId}/agents/{id}/suspend`
+
+Suspend the agent and all its descendants. Active operations may continue to completion; new operations are blocked.
+
+**Response 200:** `{ "suspended": true }`
+
+### `PATCH /v1/zones/{zoneId}/agents/{id}/resume`
+
+Resume a suspended agent and its descendants.
+
+**Response 200:** `{ "resumed": true }`
+
+### `DELETE /v1/zones/{zoneId}/agents/{id}`
+
+Terminate the agent and its entire subtree (all children, grandchildren, and so on). Cascades revocation to all delegation edges whose source or target is in the subtree. Enqueues session revocation events for each terminated session.
+
+**Query parameters:** `reason` (string, 1–256 characters; default `"requested"`)
+
+**Response 204.**
+
+**Errors:**
+
+| Code | Status | Condition |
+| --- | --- | --- |
+| `agent_not_found` | 404 | Agent session does not exist |
+| `application_ownership_required` | 403 | Caller does not own the agent's application |
+
+---
+
+## Delegation graph — `/v1/zones/{zoneId}/delegations`
+
+### `POST /v1/zones/{zoneId}/delegations`
+
+Create a delegation edge from a source agent session to a target agent session. Equivalent to `POST /v1/exchange`.
+
+**Request body:**
+
+| Field | Type | Required |
+| --- | --- | --- |
+| `source_session_id` | string | Yes |
+| `target_session_id` | string | Yes |
+| `issuer_application_id` | string | Yes |
+| `receiver_application_id` | string | Yes |
+| `resource_id` | string \| null | No |
+| `scopes` | string[] | No |
+| `expires_at` | ISO 8601 datetime | Cond. — required unless `ttl_seconds` set |
+| `ttl_seconds` | integer | Cond. — 1–86400; alternative to `expires_at` |
+| `constraints_json` | object | No |
+
+**`constraints_json` fields:**
+
+| Field | Type | Description |
+| --- | --- | --- |
+| `ttl_seconds` | integer | Maximum lifetime of tokens issued under this edge |
+| `max_hops` | integer | Maximum delegation chain depth; default 1 |
+| `budget` | integer | Maximum scope count per token exchange |
+
+**Validation:** `source_session_id ≠ target_session_id`. The issuer application must own the source session; the receiver application must own the target session. If `resource_id` is set, the requested `scopes` must be a subset of the resource's declared scopes. The edge must not create a cycle in the delegation graph (checked via recursive CTE before insertion).
+
+**Response 201:**
+
+```json
+{
+  "id": "edge-id",
+  "delegation_edge_id": "edge-id",
+  "zone_id": "zone1",
+  "source_session_id": "agent1",
+  "target_session_id": "agent2",
+  "issuer_application_id": "app1",
+  "receiver_application_id": "app2",
+  "resource_id": "resource-uuid",
+  "scopes": ["read"],
+  "constraints_json": { "max_hops": 1 },
+  "status": "active",
+  "expires_at": "2026-05-11T21:00:00Z",
+  "edge_version": 0,
+  "revoked_at": null,
+  "created_at": "2026-05-11T20:00:00Z"
+}
+```
+
+**Errors:**
+
+| Code | Status | Condition |
+| --- | --- | --- |
+| `self_delegation_denied` | 400 | Source and target are the same session |
+| `delegation_expiry_required` | 400 | Neither `expires_at` nor `ttl_seconds` provided |
+| `delegation_expired` | 400 | `expires_at` is in the past |
+| `invalid_max_hops` | 400 | `max_hops` is less than 1 |
+| `issuer_ownership_required` | 403 | Caller does not own the issuer application |
+| `resource_ownership_required` | 403 | Resource not accessible to issuer application |
+| `delegation_scopes_exceed_resource` | 403 | Requested scopes exceed resource's scopes |
+| `delegation_endpoint_not_found` | 404 | Source or target agent session does not exist |
+| `resource_not_found` | 404 | `resource_id` does not exist |
+| `delegation_cycle_denied` | 409 | Edge would create a cycle in the delegation graph |
+| `delegation_application_mismatch` | 409 | Issuer or receiver application does not match the session's owning application |
+
+### `GET /v1/zones/{zoneId}/delegations/inbound/{sessionId}`
+
+List delegation edges where `target_session_id` equals `sessionId`.
+
+**Query parameters:** `limit` (1–500, default 100), `cursor` (edge ID)
+
+**Response 200:** `{ "items": [DelegationEdge, ...], "next_cursor": "..." }`
+
+### `GET /v1/zones/{zoneId}/delegations/outbound/{sessionId}`
+
+List delegation edges where `source_session_id` equals `sessionId`.
+
+**Response 200:** Same structure as inbound.
+
+### `GET /v1/zones/{zoneId}/delegations/{id}/traverse`
+
+Traverse the delegation graph reachable from the given edge, up to 10 hops.
+
+**Response 200:** Array of reachable edges with depth:
+
+```json
+[
+  {
+    "id": "edge-id",
+    "source_session_id": "agent1",
+    "target_session_id": "agent2",
+    "depth": 1
+  }
+]
+```
+
+### `PATCH /v1/zones/{zoneId}/delegations/{id}/revoke`
+
+Cascade-revoke the edge and all downstream edges reachable from it. Terminates the target agent subtrees of all revoked edges. Increments the delegation graph epoch.
+
+**Response 200:**
+
+```json
+{
+  "revoked_edges": 3,
+  "affected_sessions": 5,
+  "terminated_agents": 2
+}
+```
+
+**Errors:**
+
+| Code | Status | Condition |
+| --- | --- | --- |
+| `delegation_not_found` | 404 | Edge does not exist |
+| `issuer_ownership_required` | 403 | Caller does not own the issuer application |
+
+---
+
+## V1 façade
+
+These flat-path routes are aliases for the zone-scoped routes above. They accept all the same fields, with `zone_id` moved into the request body.
+
+### `POST /v1/begin`
+
+Alias for `POST /v1/zones/{zoneId}/agents`. Include `zone_id` in the request body.
+
+**Additional required field:** `zone_id` (string)
+
+**Response:** Identical to the agent spawn response.
+
+### `POST /v1/end`
+
+Alias for `DELETE /v1/zones/{zoneId}/agents/{id}`.
+
+**Request body:**
+
+| Field | Type | Required |
+| --- | --- | --- |
+| `zone_id` | string | Yes |
+| `session_id` | string | Yes | Agent session ID to terminate |
+| `reason` | string | No |
+
+**Response 204.**
+
+### `POST /v1/exchange`
+
+Alias for `POST /v1/zones/{zoneId}/delegations`. Include `zone_id` in the request body.
+
+**Additional required field:** `zone_id` (string)
+
+**Response:** Identical to the delegation edge creation response.
+
+---
+
+## Token verification — `POST /v1/verify`
+
+Verify a Caracal mandate without requiring authentication. Useful for debugging and for services that want to validate a token before forwarding it.
+
+**Request body:**
+
+| Field | Type | Description |
+| --- | --- | --- |
+| `token` | string | JWT to verify directly |
+| `authorization` | string | `"Bearer <token>"` — alternative to `token` |
+| `zone_id` | string | If set, verify the token's `zone_id` claim matches |
+| `required_scope` | string | If set, verify this scope is present in the `scope` claim |
+| `require_agent` | boolean | If true, verify `agent_session_id` claim is present |
+| `require_delegation` | boolean | If true, verify `delegation_edge_id` claim is present |
+
+**Response 200 (valid):**
+
+```json
+{
+  "valid": true,
+  "claims": { "sub": "...", "zone_id": "...", "scope": "..." }
+}
+```
+
+**Response 401 (invalid):**
+
+```json
+{
+  "valid": false,
+  "error": "token_expired",
+  "message": "token has expired"
+}
+```
+
+**Response 429 (rate limited):**
+
+```json
+{
+  "valid": false,
+  "error": "rate_limited"
+}
+```
+
+---
+
+## Health and readiness
+
+| Method | Path | Description |
+| --- | --- | --- |
+| `GET` | `/health` | Liveness; always `200 {"ok": true}` |
+| `GET` | `/ready` | Readiness; `200` when database and Redis are healthy |
+| `GET` | `/metrics` | JSON counters for agent lifecycle and delegation operations |
