@@ -1022,26 +1022,15 @@ main:has(.landing-hero) {
   position: absolute;
   inset: 0;
   border-radius: inherit;
-  padding: 1px;
-  background: linear-gradient(140deg,
-    color-mix(in srgb, var(--caracal-link) 35%, transparent),
-    transparent 55%);
-  mask:
-    linear-gradient(#000 0 0) content-box,
-    linear-gradient(#000 0 0);
-  mask-composite: exclude;
+  border: 1px solid transparent;
+  background:
+    linear-gradient(transparent, transparent) padding-box,
+    linear-gradient(140deg,
+      color-mix(in srgb, var(--caracal-link) 35%, transparent),
+      transparent 55%) border-box;
   opacity: 0;
   transition: opacity 200ms ease;
   pointer-events: none;
-}
-
-@supports (-webkit-mask-composite: xor) {
-  .audience__card::before {
-    -webkit-mask:
-      linear-gradient(#000 0 0) content-box,
-      linear-gradient(#000 0 0);
-    -webkit-mask-composite: xor;
-  }
 }
 
 .audience__card:hover {

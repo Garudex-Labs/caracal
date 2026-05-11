@@ -23,16 +23,6 @@ export default defineConfig({
       },
       favicon: '/img/caracal.png',
       customCss: ['./src/styles/custom.css'],
-      head: [
-        {
-          tag: 'link',
-          attrs: { rel: 'preconnect', href: 'https://fonts.googleapis.com' },
-        },
-        {
-          tag: 'link',
-          attrs: { rel: 'preconnect', href: 'https://fonts.gstatic.com', crossorigin: '' },
-        },
-      ],
       editLink: {
         baseUrl: 'https://github.com/Garudex-Labs/caracal/edit/main/docs/',
       },
