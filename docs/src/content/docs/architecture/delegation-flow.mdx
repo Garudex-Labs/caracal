@@ -1,7 +1,230 @@
 ---
 title: Delegation and Coordinator Flow
-description: How the Coordinator opens, exchanges, verifies, and ends agent sessions.
+description: How the Coordinator manages agent sessions, tracks the delegation graph, drives cascade revocation, and how the SDK propagates authority across service boundaries.
 pageType: architecture
 ---
 
-How the Coordinator opens, exchanges, verifies, and ends agent sessions.
+The Coordinator is the runtime bookkeeper for agent authority. It records who exists (sessions), tracks how authority flows between agents (delegation edges), and publishes the events that let the STS and Gateway enforce revocation in near real time. The SDK wraps these operations into `spawn()` and `delegate()` calls that bind authority to async execution contexts.
+
+## Agent sessions
+
+Every agent execution begins with a session. The session is the Coordinator's record that an agent exists, is active, and occupies a specific position in the delegation tree.
+
+**Opening a session (`POST /v1/begin`):**
+
+The SDK calls `/v1/begin` with:
+```json
+{
+  "zone_id": "...",
+  "application_id": "...",
+  "session_sid": "...",
+  "parent_id": null,
+  "capabilities": [],
+  "ttl_seconds": null
+}
+```
+
+The Coordinator inserts an `agent_sessions` row. The row's `depth` is computed from the parent's depth + 1. If the session has a TTL, the TTL sweeper enforces expiration. The response contains the `agent_session_id` that the SDK embeds in all subsequent STS exchange requests.
+
+**Closing a session (`POST /v1/end`):**
+
+Termination cascades. The Coordinator runs a recursive CTE that walks the subtree rooted at the terminated session, marks all descendants as `terminated`, and enqueues a revocation event for every affected `session_sid` through the outbox.
+
+**Session states:** `active → suspended ↔ active → terminated`. Suspension affects the entire subtree. Termination is irreversible.
+
+**Session limits:**
+
+| Limit | Value |
+| ----- | ----- |
+| Max depth | 10 |
+| Max children per session | 10 |
+| Max active sessions per zone per application | 50 |
+| Max active sessions per application across zones | 200 |
+
+**Agent kinds:** `service`, `instance`, `ephemeral`. These are metadata on the spawn request. The Coordinator treats all three identically — kind is available to policies via `actor_claims` and to the TUI for display.
+
+---
+
+## Delegation edges
+
+A delegation edge connects two sessions. When agent A creates an edge to agent B, B can use that edge in a token exchange to obtain authority scoped to what the edge permits.
+
+**Creating an edge (`POST /v1/exchange`):**
+
+The Coordinator receives:
+- `source_session_id`, `target_session_id` — the two ends of the edge
+- `issuer_application_id`, `receiver_application_id` — who owns each end
+- `scopes` — what B may request
+- `resource_id` — optional; restricts B's authority to this single resource
+- `constraints_json` — caveats (ttl_seconds, max_hops, budget, policy_approved)
+- `expires_at` — when the edge itself expires
+
+**Edge creation sequence:**
+
+```
+1. Validate both sessions exist and are active
+2. Acquire pg_advisory_xact_lock('delegation:{zone_id}')
+3. Validate resource scope (if resource_id present)
+4. Run cycle detection CTE — reject if path back to source exists
+5. INSERT delegation_edges row
+6. Increment delegation_graph_epochs.epoch for the zone
+7. Enqueue 'edge_create' event to caracal_outbox
+   → published to caracal.delegations.invalidate
+```
+
+**Cycle detection CTE:**
+
+```sql
+WITH RECURSIVE path AS (
+  SELECT target_session_id, ARRAY[id] AS visited
+  FROM delegation_edges
+  WHERE zone_id = $zone AND source_session_id = $source
+    AND status = 'active' AND expires_at > now()
+  UNION ALL
+  SELECT e.target_session_id, p.visited || e.id
+  FROM delegation_edges e
+  JOIN path p ON e.source_session_id = p.target_session_id
+  WHERE e.zone_id = $zone
+    AND e.status = 'active'
+    AND e.expires_at > now()
+    AND NOT e.id = ANY(p.visited)
+    AND cardinality(p.visited) < 10
+)
+SELECT 1 FROM path WHERE target_session_id = $source LIMIT 1
+```
+
+If the CTE finds any path back to the source, the edge is rejected. This prevents circular delegations at any depth.
+
+---
+
+## Cascade revocation
+
+Revoking a delegation edge propagates forward through the entire subgraph rooted at that edge.
+
+**Revocation CTE:**
+
+```sql
+WITH RECURSIVE affected AS (
+  SELECT id, target_session_id, ARRAY[id] AS visited
+  FROM delegation_edges
+  WHERE id = $edge AND zone_id = $zone AND status = 'active'
+  UNION ALL
+  SELECT e.id, e.target_session_id, a.visited || e.id
+  FROM delegation_edges e
+  JOIN affected a ON e.source_session_id = a.target_session_id
+  WHERE e.zone_id = $zone
+    AND e.status = 'active'
+    AND NOT e.id = ANY(a.visited)
+    AND cardinality(a.visited) < 10
+)
+UPDATE delegation_edges
+SET status = 'revoked', revoked_at = now(), edge_version = edge_version + 1
+FROM affected
+WHERE delegation_edges.id = affected.id
+RETURNING id, target_session_id
+```
+
+For each affected `target_session_id`, the Coordinator calls `terminateSubtree()` and enqueues a revocation event per `session_sid` to the outbox. Those events flow to the `caracal.sessions.revoke` stream.
+
+**Effect of revocation:**
+- The **STS** marks the session ID as revoked in DB state. Subsequent exchange requests for that session fail before OPA is evaluated.
+- The **Gateway** checks `revocationStore.IsRevoked(sid)` on every request and at every 4 KB chunk boundary during streaming. If the session is revoked mid-stream, the Gateway closes the upstream connection and sets an `X-Caracal-Revoked` response trailer. Revocation entries are retained for 24 hours — long enough to outlast any per-call token's 15-minute TTL.
+
+---
+
+## Outbox publisher
+
+The Coordinator writes events to `caracal_outbox` inside the same database transaction as the state change. A background job reads the outbox and publishes to Redis:
+
+```
+1. SELECT … FROM caracal_outbox
+     WHERE producer = 'coordinator'
+       AND status = 'pending'
+       AND available_at <= now()
+     ORDER BY created_at
+     LIMIT {batch_size}
+     FOR UPDATE SKIP LOCKED
+
+2. For each row:
+   → XADD {topic} MAXLEN ~ {maxlen} * {fields}
+   → On success: mark status = 'published'
+   → On transient error: increment attempts,
+       set available_at += exponential_backoff_with_jitter
+   → After max_attempts: mark status = 'dead'
+```
+
+Backoff: `min(baseMs × 2^attempt, 5000) / 2 + random × 5000 / 2`. Default poll interval: 1,000 ms. Default batch: 50 rows. `FOR UPDATE SKIP LOCKED` prevents two publisher instances from processing the same row.
+
+---
+
+## SDK wire protocol
+
+The SDK uses two mechanisms to propagate authority: `AsyncLocalStorage` (TypeScript) or goroutine context (Go) for in-process tracking, and W3C headers for cross-process propagation.
+
+### In-process context
+
+Each `spawn()` call binds a `CaracalContext` to an `AsyncLocalStorage` slot. All code running inside the callback — including awaited calls at any depth — sees the same context. When the callback completes, the binding is released and the session is terminated.
+
+```typescript
+interface CaracalContext {
+  subjectToken: string;       // Bearer token
+  zoneId: string;
+  clientId: string;           // Application ID
+  agentSessionId?: string;    // Current agent session
+  delegationEdgeId?: string;  // Current delegation edge
+  parentEdgeId?: string;      // Previous edge (for chain reconstruction)
+  traceId?: string;
+  hop: number;                // Call depth (0–32)
+}
+```
+
+### Cross-process headers
+
+When the transport wrapper sends an outbound HTTP request, it reads the current context and encodes it into standard headers:
+
+| Header | Content |
+| ------ | ------- |
+| `Authorization` | `Bearer <subjectToken>` |
+| `traceparent` | W3C Trace Context: `00-{traceId}-{spanId}-01` |
+| `baggage` | W3C Baggage: `caracal.agent_session={id},caracal.delegation_edge={id},caracal.hop={n}` |
+
+`traceparent` carries a 128-bit trace ID (constant across a top-level context) and a 64-bit span ID (regenerated per hop). Receivers can reconstruct the full authority lineage from these headers without an out-of-band call.
+
+### `spawn()` end-to-end
+
+```
+1. POST /zones/{zoneId}/agents → agent_session_id
+2. Build CaracalContext with new agent_session_id
+3. Bind context to AsyncLocalStorage
+4. Run fn() — all outbound calls carry the context in headers
+5. DELETE /zones/{zoneId}/agents/{agent_session_id} (best-effort)
+```
+
+### `delegate()` end-to-end
+
+```
+1. Require current() to return a live context
+2. POST /zones/{zoneId}/delegations → delegation_edge_id
+3. Build child context:
+     parentEdgeId      = ctx.delegationEdgeId
+     delegationEdgeId  = delegation_edge_id
+     hop               = ctx.hop + 1
+4. Bind child context
+5. Run fn() — outbound calls carry the new delegation edge
+```
+
+The delegation edge remains active after `delegate()` completes. It expires at its `expires_at` or when the enclosing session is terminated.
+
+### MCP and A2A transports
+
+**MCP transport:** Wraps MCP tool calls. On each call it performs a per-call token exchange with the STS (exchanging the ambient mandate for a resource-specific per-call mandate) before forwarding to the MCP server.
+
+**A2A transport:** Used for agent-to-agent HTTP calls. Before sending to the target agent's endpoint, it exchanges the ambient mandate for a per-call mandate scoped to the target, injects W3C headers from the current context, and retries transient failures with exponential backoff (2 retries, 30-second default timeout).
+
+---
+
+## Token verification (`POST /v1/verify`)
+
+The `/v1/verify` route provides synchronous bearer mandate validation. It accepts a bearer token, validates the ES256 signature against the zone JWKS, checks session revocation status, and optionally validates required scopes, agent presence, delegation presence, and hop count. It returns `{ valid: true, claims }` or `{ valid: false, error, message }`. Rate-limited to 60 requests per minute per IP.
+
+This route is used by services that cannot cache the zone JWKS locally — for example, short-lived workers or serverless functions.

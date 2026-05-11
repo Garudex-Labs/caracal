@@ -1,7 +1,216 @@
 ---
 title: Storage Model
-description: The Postgres schema for zones, policies, grants, sessions, delegation edges, and the ledger.
+description: The Postgres schema for zones, policies, grants, sessions, delegation edges, and the audit ledger — including partitioning, Row Level Security, and database roles.
 pageType: architecture
 ---
 
-The Postgres schema for zones, policies, grants, sessions, delegation edges, and the ledger.
+All persistent state in Caracal lives in a single Postgres database. Thirty tables cover the control plane (zones, applications, policies, resources, grants), the runtime plane (sessions, delegation edges, step-up challenges), the audit ledger, and the operational outbox. Schema changes are applied via numbered migration files in `infra/postgres/migrations/`.
+
+## Tables
+
+### Control plane
+
+| Table | Purpose |
+| ----- | ------- |
+| `zones` | Tenant boundaries. Each zone has its own signing key, policy set, and session namespace. |
+| `applications` | OAuth clients registered in a zone. Carries credential type, traits, and DCR settings. |
+| `resources` | Protected targets. Each resource has an identifier, upstream URL, scope list, and optional credential provider. |
+| `providers` | Credential providers (OAuth2, OIDC, API key, workload). Sensitive fields encrypted under the zone KEK. |
+| `policies` | Rego policy source. Immutable after creation; each policy has an associated `policy_versions` row. |
+| `policy_versions` | Immutable versioned snapshots of policy source, identified by SHA-256 content hash. |
+| `policy_sets` | Named groupings of policies. One policy set per zone may be active at a time. |
+| `policy_set_versions` | Immutable versioned snapshots of a policy set manifest. |
+| `policy_set_bindings` | Maps a zone to its active (and optional shadow) policy set version. One active binding per zone. |
+| `secrets` | Encrypted key material. Stores zone signing keys (PEM private key, encrypted with ChaCha20-Poly1305 under ZONE_KEK). |
+| `invitations` | Zone member invitations (email-based, expiring). |
+| `teams` | Team groupings within a zone. |
+| `admin_tokens` | Hashed API admin tokens for the control plane. |
+| `application_dependencies` | Application-to-resource dependency declarations. |
+
+### Runtime plane
+
+| Table | Purpose |
+| ----- | ------- |
+| `sessions` | User and application sessions. Tracks subject, status, expiry, and claims snapshot. |
+| `agent_sessions` | Agent execution sessions. Tracks depth in tree, child count, capabilities, TTL, and status. |
+| `agent_topology` | Parent-child relationships for the agent tree. Enforces MAX_CHILDREN. |
+| `delegation_edges` | Directed authority transfers. Tracks status, scope, constraints, expiry, and edge version. |
+| `delegation_graph_epochs` | Monotonic epoch counter per zone. Incremented on every edge create or revoke. |
+| `step_up_challenges` | Active step-up challenges. Tracks secret hash, resource set hash, satisfaction, and consumption. |
+| `delegated_grants` | Brokered third-party grant tokens (OAuth flow state). |
+| `agent_services` | Agent service registry. Maps application IDs to endpoint URLs and framework metadata. |
+| `agent_invocations` | Durable invocation tracking. Supports idempotency, retry policy, and deadline enforcement. |
+| `resource_rate_limits` | Per-resource rate limit state. |
+
+### Audit
+
+| Table | Purpose |
+| ----- | ------- |
+| `audit_events` | Append-only HMAC-chained record of every OPA evaluation. Partitioned by `occurred_at`. |
+| `admin_audit_events` | Administrative action audit log (control plane operations). |
+| `audit_export_watermark` | Tracks Parquet export progress (offset into the audit_events table). |
+| `audit_ingest_alerts` | Records tamper detection findings from the Audit service's chain validation. |
+
+### Operational
+
+| Table | Purpose |
+| ----- | ------- |
+| `caracal_outbox` | Transactional event outbox. Events are written here in the same transaction as the state change, then published to Redis streams by a background job. |
+| `gateway_resource_bindings` | Cached resource-to-upstream bindings for the Gateway's in-memory binding store. |
+
+---
+
+## Audit events partitioning
+
+`audit_events` is partitioned by RANGE on `occurred_at`. Monthly partitions are pre-created:
+
+```sql
+CREATE TABLE audit_events_y2026m05
+  PARTITION OF audit_events
+  FOR VALUES FROM ('2026-05-01') TO ('2026-06-01');
+```
+
+The Audit service's retention job drops partitions older than `AUDIT_RETENTION_DAYS` (default 365). Pre-creating forward partitions prevents `INSERT` failures when a partition does not yet exist for the current month.
+
+---
+
+## Row Level Security
+
+RLS is enabled on all 22 zone-scoped tables. The policy on each table is:
+
+```sql
+CREATE POLICY zone_isolation ON {table}
+  USING (zone_id = current_setting('caracal.zone_id', true)
+         OR current_setting('caracal.zone_id', true) IS NULL
+         OR current_setting('caracal.zone_id', true) = '');
+```
+
+When a connection sets `SET LOCAL caracal.zone_id = '{zone_id}'` at the start of a transaction, the database filters every query to that zone automatically. When the setting is absent or empty, all rows are visible (used by admin and maintenance operations). This provides a defense-in-depth layer: even if application code omits a `WHERE zone_id = ?` clause, the database enforces isolation.
+
+Tables with RLS: `providers`, `applications`, `sessions`, `secrets`, `delegated_grants`, `policies`, `policy_sets`, `policy_set_bindings`, `resources`, `audit_events`, `agent_sessions`, `invitations`, `teams`, `delegation_edges`, `agent_services`, `agent_invocations`, `gateway_resource_bindings`, `resource_rate_limits`, `step_up_challenges`, `admin_audit_events`, `admin_tokens`, `delegation_graph_epochs`.
+
+---
+
+## Database roles
+
+Each service connects with a Postgres role scoped to the minimum permissions it requires.
+
+### `caracalSts`
+
+| Tables | Permissions |
+| ------ | ----------- |
+| `zones`, `applications`, `providers`, `resources`, `application_dependencies`, `policies`, `policy_versions`, `policy_sets`, `policy_set_versions`, `policy_set_bindings`, `agent_services` | SELECT |
+| `sessions`, `delegated_grants`, `secrets`, `step_up_challenges`, `agent_sessions`, `agent_topology`, `delegation_edges` | SELECT, INSERT, UPDATE |
+
+The STS reads zone configuration and policies. It writes sessions and step-up challenges as exchanges proceed. Audit events flow through the Redis stream, not direct DB writes.
+
+### `caracalApi`
+
+| Tables | Permissions |
+| ------ | ----------- |
+| `zones`, `applications`, `providers`, `resources`, `application_dependencies`, `policies`, `policy_sets`, `delegated_grants`, `secrets`, `invitations`, `teams`, `agent_services`, `caracal_outbox`, `delegation_graph_epochs` | SELECT, INSERT, UPDATE, DELETE |
+| `policy_versions`, `policy_set_versions` | SELECT, INSERT (immutable; never deleted) |
+| `policy_set_bindings` | SELECT, INSERT, UPDATE, DELETE |
+
+The API is the control plane and needs broad write access. It cannot read audit tables.
+
+### `caracalAudit`
+
+| Tables | Permissions |
+| ------ | ----------- |
+| `audit_events`, `audit_export_watermark`, `audit_ingest_alerts` | SELECT, INSERT |
+
+The Audit service has no UPDATE or DELETE on `audit_events`. This is enforced at the database layer, not just in application code. The append-only guarantee is a database constraint.
+
+### `caracalCoordinator`
+
+| Tables | Permissions |
+| ------ | ----------- |
+| `agent_sessions`, `agent_topology`, `agent_invocations`, `agent_services`, `caracal_outbox`, `delegation_graph_epochs`, `delegation_edges` | SELECT, INSERT, UPDATE |
+| `zones`, `applications` | SELECT |
+
+The Coordinator manages the agent graph and invocations. It does not touch policy, audit, or credential tables.
+
+### `caracalGateway`
+
+| Tables | Permissions |
+| ------ | ----------- |
+| `zones`, `applications`, `resources`, `providers`, `gateway_resource_bindings` | SELECT |
+
+The Gateway is read-only. It fetches resource bindings to resolve upstream URLs and credential provider configuration. It writes nothing to Postgres.
+
+---
+
+## Key table schemas
+
+### `audit_events`
+
+| Column | Type | Notes |
+| ------ | ---- | ----- |
+| `id` | TEXT | UUID primary key |
+| `zone_id` | TEXT | Zone reference (partition-scoped) |
+| `event_type` | TEXT | e.g., `"token_exchange"`, `"jti_collision"` |
+| `request_id` | TEXT | Trace ID from the exchange request |
+| `decision` | TEXT | `"allow"` or `"deny"` |
+| `policy_set_id` | TEXT | Policy set that was active |
+| `policy_set_version_id` | TEXT | Specific version that evaluated |
+| `manifest_sha` | TEXT | SHA-256 of the policy set version manifest |
+| `evaluation_status` | TEXT | `"complete"` or other OPA status |
+| `determining_policies_json` | JSONB | Policies that drove the decision |
+| `diagnostics_json` | JSONB | Policy-returned diagnostic metadata |
+| `metadata_json` | JSONB | Additional context (principal, resource, session IDs) |
+| `occurred_at` | TIMESTAMPTZ | Partition key; microsecond precision |
+| `ingested_at` | TIMESTAMPTZ | When the Audit service wrote the row |
+| `content_sha256` | BYTEA | SHA-256 of all event fields (chain anchor) |
+| `prev_content_sha256` | BYTEA | SHA-256 of the previous event in sequence |
+| `chain_hmac` | BYTEA | HMAC-SHA256 linking this event to its predecessor |
+| `chain_seq` | BIGINT | Monotonic sequence number within the zone |
+| `ingest_signature` | BYTEA | Audit service's own signature over the row |
+
+### `delegation_edges`
+
+| Column | Type | Notes |
+| ------ | ---- | ----- |
+| `id` | TEXT | UUID primary key |
+| `zone_id` | TEXT | Zone reference |
+| `source_session_id` | TEXT | Delegating agent session |
+| `target_session_id` | TEXT | Agent session receiving authority |
+| `issuer_application_id` | TEXT | Application owning the source session |
+| `receiver_application_id` | TEXT | Application owning the target session |
+| `resource_id` | TEXT (nullable) | If set, restricts authority to this resource |
+| `scopes` | TEXT[] | Scopes the target may request |
+| `constraints_json` | JSONB | Caveats (ttl_seconds, max_hops, budget, policy_approved) |
+| `status` | TEXT | `"active"`, `"revoked"`, or `"expired"` |
+| `expires_at` | TIMESTAMPTZ | Edge expiry |
+| `edge_version` | INT | Incremented on every status change |
+| `revoked_at` | TIMESTAMPTZ | When the edge was revoked (nullable) |
+
+### `caracal_outbox`
+
+| Column | Type | Notes |
+| ------ | ---- | ----- |
+| `id` | TEXT | UUID primary key |
+| `producer` | TEXT | `"api"` or `"coordinator"` |
+| `topic` | TEXT | Target Redis stream name |
+| `dedupe_key` | TEXT | Idempotency key (unique per producer + topic) |
+| `payload_json` | JSONB | Stream message payload |
+| `status` | TEXT | `"pending"`, `"published"`, or `"dead"` |
+| `attempts` | INT | Retry counter |
+| `available_at` | TIMESTAMPTZ | Next eligible publish time (backoff delay) |
+| `published_at` | TIMESTAMPTZ | Set on successful publish |
+
+### `step_up_challenges`
+
+| Column | Type | Notes |
+| ------ | ---- | ----- |
+| `id` | TEXT | UUID primary key |
+| `zone_id` | TEXT | Zone reference |
+| `session_id` | TEXT | Agent session that triggered the challenge |
+| `principal_id` | TEXT | Application or user ID of the requester |
+| `challenge_type` | TEXT | `"mfa"`, `"human_approval"`, or `"software_attestation"` |
+| `challenge_secret_hash` | BYTEA | SHA-256 of the raw secret returned to the client |
+| `resource_set_hash` | BYTEA | SHA-256 of the canonical resource list (binds challenge to request) |
+| `metadata_json` | JSONB | Additional context |
+| `expires_at` | TIMESTAMPTZ | Challenge expiry (5 minutes from creation) |
+| `satisfied_at` | TIMESTAMPTZ | Set by the external system via the satisfaction API |
+| `consumed_at` | TIMESTAMPTZ | Set atomically by the STS when the challenge is used in an exchange retry |

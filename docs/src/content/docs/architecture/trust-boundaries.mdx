@@ -1,7 +1,167 @@
 ---
 title: Trust Boundaries
-description: Which components hold secrets, which only verify, and where attacker capability stops.
+description: Which components hold private key material, which only verify, what each service is trusted to do, where attacker capability stops, and how the system limits blast radius.
 pageType: architecture
 ---
 
-Which components hold secrets, which only verify, and where attacker capability stops.
+A trust boundary in Caracal is the edge where one component must verify claims made by another rather than accepting them on faith. Understanding the boundaries determines the blast radius of a compromise: which component being breached produces which class of damage, and which security properties survive the breach.
+
+## Trust model overview
+
+```
+┌─────────────────────────────────────────────────────┐
+│  TRUST BOUNDARY: Admin token required               │
+│                                                     │
+│  API (control plane)                                │
+│  • Holds ZONE_KEK (provider secret encryption)      │
+│  • Writes policy, grants, applications, zones       │
+│  • Authenticated by CARACAL_ADMIN_TOKEN             │
+└───────────────────────┬─────────────────────────────┘
+                        │ Postgres (policy, grants, keys)
+┌───────────────────────▼─────────────────────────────┐
+│  TRUST BOUNDARY: Client credentials + subject token │
+│                                                     │
+│  STS                                                │
+│  • Holds ZONE_KEK → decrypts zone private keys      │
+│  • Sole issuer of signed mandates                   │
+│  • Evaluates OPA — no policy bypass path            │
+│  • Holds AUDIT_HMAC_KEY → signs audit events        │
+│  • Authenticated by client_secret or assertion      │
+└───────────────────────┬─────────────────────────────┘
+                        │ ES256-signed mandate
+┌───────────────────────▼─────────────────────────────┐
+│  TRUST BOUNDARY: Valid ES256 signature required      │
+│                                                     │
+│  Gateway                                            │
+│  • Holds only zone public keys (via JWKS)           │
+│  • Verifies mandate signature, checks revocation    │
+│  • SSRF protection on upstream routing              │
+│  • Cannot issue or modify mandates                  │
+└───────────────────────┬─────────────────────────────┘
+                        │ verified request
+┌───────────────────────▼─────────────────────────────┐
+│  Upstream services                                  │
+│  • Verify mandates using zone JWKS                  │
+│  • Inspect claims: target, scope, delegation_chain  │
+│  • Trust only what the mandate asserts              │
+└─────────────────────────────────────────────────────┘
+```
+
+---
+
+## What each component is trusted to do
+
+### API (control plane)
+
+The API holds `ZONE_KEK` and is protected by `CARACAL_ADMIN_TOKEN`. Its trust scope covers all configuration: creating zones, registering applications, activating policies, issuing grants, managing credential providers. An attacker with API access can modify policy to allow arbitrary requests, issue grants to any application, and provision new zones.
+
+The API stores zone signing keys encrypted — it does not hold decrypted private keys and cannot issue mandates directly. Policy changes take effect on the next OPA bundle reload in the STS; they do not invalidate already-issued tokens.
+
+**Least privilege enforced by:**
+- `CARACAL_ADMIN_TOKEN` required for all write operations
+- `caracalApi` Postgres role has no access to audit tables
+- Loopback-only bootstrap route is restricted to localhost connections (`CARACAL_LOCAL_BOOTSTRAP_ENABLED=true`)
+
+### STS
+
+The STS is the highest-privilege runtime component. It holds `ZONE_KEK` (to decrypt zone signing keys) and `AUDIT_HMAC_KEY`. It is the only component that can issue new mandates.
+
+**Blast radius containment:**
+- The STS trusts only ES256-signed subject tokens with `use = "ambient"` — unsigned input cannot produce a mandate
+- `client_secret` or a valid `client_assertion` is required; unauthenticated calls are rejected before any database lookup
+- OPA evaluation cannot be bypassed — the exchange handler is a sequential pipeline with no code path that issues a mandate without calling `OPAEngine.Evaluate`
+- The JTI SETNX check means a stolen mandate cannot be replayed; each JTI is single-use per its TTL
+
+### Gateway
+
+The Gateway holds only zone public keys (fetched from the STS JWKS endpoint and cached for up to 5 minutes). It cannot issue, modify, or replay mandates.
+
+**Security properties the Gateway enforces:**
+- **Signature verification:** A request with an invalid mandate signature returns HTTP 401 before reaching the upstream
+- **JTI deduplication:** Replaying a valid mandate is rejected after the first use via the `seen:jti:{jti}` SETNX check in Redis
+- **Revocation:** A revoked session's requests are rejected even if the mandate signature is valid; the `sid` claim is checked against the revocation store
+- **SSRF protection:** Upstream URLs are validated against a configurable allowlist; private IP ranges are blocked by default (`ALLOW_PRIVATE_UPSTREAMS=false`)
+- **Mid-stream revocation:** If a session is revoked during an active streaming response, the Gateway closes the upstream connection at the next 4 KB chunk boundary and sets an `X-Caracal-Revoked` trailer
+
+An attacker with Gateway code execution can reject or forward requests and read in-transit request/response bodies. They cannot forge mandates or alter audit records.
+
+### Coordinator
+
+The Coordinator manages agent sessions and the delegation graph. It holds no signing keys. An attacker with Coordinator code execution can create spurious sessions, forge delegation edges, and publish revocation events.
+
+**Trust limited by:**
+- Delegation edge creation requires the issuer to own the source session (enforced via Postgres query)
+- The STS validates delegation edge integrity independently on every exchange — forged graph state causes exchange failure, not mandate issuance
+- Outbox events are HMAC-signed by `STREAMS_HMAC_KEY`; consumers reject unsigned messages in production
+
+### Audit service
+
+The Audit service has INSERT and SELECT on audit tables only. An attacker with Audit service code execution can suppress new event insertion or write malformed events. They cannot retroactively alter or delete the existing audit chain — enforced at the Postgres role level (no UPDATE, no DELETE).
+
+---
+
+## Database role isolation
+
+| Service | Can write to | Cannot touch |
+| ------- | ------------ | ------------ |
+| STS | Sessions, step-up challenges, delegation edges | Audit events, policies, applications |
+| API | All control plane tables | Audit events (no write access at all) |
+| Audit | Audit tables only (INSERT, SELECT) | Everything else |
+| Coordinator | Agent sessions, delegation edges, outbox | Policies, resources, audit events |
+| Gateway | Nothing (SELECT only on 4 tables) | Everything |
+
+Row Level Security on 22 tables provides a defense-in-depth layer: a SQL injection or application logic bug that forgets a `WHERE zone_id = ?` clause is automatically contained to the zone the connection is operating in.
+
+---
+
+## Secret placement
+
+| Secret | Held by | Risk if disclosed |
+| ------ | ------- | ----------------- |
+| `ZONE_KEK` | STS, API | Can decrypt zone signing keys from DB → can issue arbitrary mandates for any zone |
+| Zone EC P-256 private key (in-memory, 15-min cache) | STS only | Can sign arbitrary mandates for that zone during the cache window |
+| `AUDIT_HMAC_KEY` | STS, Audit | Can forge audit events; cannot retroactively alter existing chain without DB write access |
+| `STREAMS_HMAC_KEY` | All services | Can inject forged revocations or policy invalidations into any Redis stream |
+| `CARACAL_ADMIN_TOKEN` | API callers | Can modify policy, issue grants, create zones, provision credentials |
+| `DATABASE_URL` | All services | Access level bounded by the service's Postgres role (see above) |
+| `REDIS_URL` | All services | Can read/write all Redis state; mitigated by `STREAMS_HMAC_KEY` verification on stream messages |
+
+---
+
+## What an upstream must verify
+
+An upstream service that receives a request via the Gateway sees only the mandate in the `Authorization` header. It should verify:
+
+1. **Signature:** Fetch zone JWKS (`GET {sts_url}/.well-known/jwks.json?zone_id={zone_id}`), verify ES256 signature using the key matching the `kid` header
+2. **Issuer:** `iss` claim must match the expected issuer URL
+3. **Audience:** `aud` claim must include the resource identifier this upstream serves
+4. **Target:** `target` claim must include this resource's identifier
+5. **Expiry:** `exp` must be in the future
+6. **Scope:** `scope` claim must contain the required scopes for the operation
+
+Claims the upstream can trust without additional verification — `delegation_chain`, `hop_count`, `delegation_graph_epoch`, `agent_session_id` — are embedded by the STS after the full validation pipeline and cannot be forged in a valid ES256-signed token without the zone private key.
+
+**Real-time revocation:** A valid mandate with a revoked `sid` will pass signature and expiry checks. The Gateway enforces revocation before forwarding, so upstreams behind the Gateway are protected. Upstreams accessed directly (not via Gateway) must check the `sid` claim against a local revocation store fed by the `caracal.sessions.revoke` stream if they need sub-TTL revocation enforcement.
+
+---
+
+## SSRF protection
+
+The Gateway validates upstream URLs before forwarding:
+
+- Private IP ranges (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 127.0.0.0/8, ::1, etc.) are blocked by default
+- `ALLOW_PRIVATE_UPSTREAMS=true` disables this check (intended for development stacks where services are on a private network)
+- `UPSTREAM_HOST_ALLOWLIST` (CSV) restricts forwarding to named hosts only; any host not in the list is rejected regardless of IP range
+
+This prevents an attacker who can register arbitrary upstream URLs (via a compromised admin token) from using the Gateway to probe internal services.
+
+---
+
+## Session revocation timing
+
+Revocation propagates from the Coordinator through the Redis stream to the STS and Gateway consumers in near real time. However, a per-call token already issued before revocation completes will have a valid signature and unexpired `exp` for up to 15 minutes. During that window:
+
+- The **Gateway** checks the `sid` claim against its revocation store on every request. Because the Gateway consumes the revocation stream, it typically blocks the revoked session within seconds.
+- An **upstream** that does not subscribe to the revocation stream will accept the mandate until it expires.
+
+The 15-minute per-call TTL is the intentional upper bound on revocation lag. Ambient tokens (60-minute TTL) cannot be presented directly to upstreams — they must be exchanged for a per-call token at the STS, where the session status is checked before issuance.

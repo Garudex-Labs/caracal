@@ -1,7 +1,35 @@
 ---
 title: Architecture
-description: How the OSS services, apps, packages, and event streams fit together.
+description: How Caracal's services, data stores, event streams, and cryptographic primitives fit together as a complete authorization system.
 pageType: landing
 ---
 
-How the OSS services, apps, packages, and event streams fit together.
+Caracal is a distributed authorization system built around a single enforcement principle: no agent executes a privileged action unless the STS has evaluated it against the active policy and signed a mandate authorizing exactly that action, for exactly that resource, at exactly that moment.
+
+The system is composed of five runtime services, two shared data stores, nine Redis event streams, and a set of per-zone cryptographic keys. Each page in this section explains one structural dimension of the system.
+
+## Section map
+
+| Page | What it covers |
+| ---- | -------------- |
+| [System Topology](./system-topology/) | The five services, their ports, languages, dependency ordering, and the connection matrix between them |
+| [Token Exchange Flow](./token-exchange-flow/) | The complete STS request path: validation sequence, OPA evaluation, mandate signing, JTI registry, and async audit emission |
+| [Delegation and Coordinator Flow](./delegation-flow/) | How the Coordinator manages agent sessions, delegation edges, cascade revocation, and the SDK wire protocol |
+| [Event Streams and Outbox](./event-streams/) | The nine Redis streams, the transactional outbox pattern, consumer groups, and stream HMAC integrity |
+| [Storage Model](./storage-model/) | The Postgres schema: all 30 tables, partitioning, Row Level Security, and the five database roles |
+| [Cryptography and Keys](./crypto-keys/) | The per-zone key hierarchy, ChaCha20-Poly1305 encryption, ES256 signing, JWKS distribution, and HMAC chains |
+| [Trust Boundaries](./trust-boundaries/) | Which components hold private material, which only verify, and where the system's security perimeter sits |
+
+## Design principles
+
+**Pre-execution enforcement.** The STS evaluates OPA and signs a mandate before the agent's action reaches any upstream resource. The Gateway enforces this at the boundary: a request without a valid mandate cannot reach the upstream. There is no post-hoc audit-only mode.
+
+**One policy evaluation per resource.** OPA is called once per requested resource, not once per exchange. A request for three resources produces three independent evaluations and three independent audit events. This makes per-resource denial granular and its audit trail unambiguous.
+
+**Append-only tamper-evident audit.** Every OPA evaluation — allow or deny — is recorded in an HMAC-chained append-only Postgres table via a Redis stream. Neither the STS nor the Audit service can UPDATE or DELETE audit rows; the Postgres role for the Audit service has INSERT and SELECT permissions only.
+
+**Zone isolation.** Every tenant-level object (application, resource, policy, session, signing key) belongs to exactly one zone. Zone signing keys are derived per-zone and are never shared. A token issued in zone A cannot be verified in zone B.
+
+**Transactional event publishing.** The Coordinator and API write events to the `caracal_outbox` table inside the same database transaction as the state change that produced them. A background publisher reads the outbox and publishes to Redis streams. This eliminates dual-write races between state and events.
+
+**Least-privilege database roles.** Each service connects to Postgres with a dedicated role whose permissions are scoped to the tables and operations it actually needs. The Gateway has SELECT on four tables. The Audit service has INSERT and SELECT on audit tables only. No service has superuser access.

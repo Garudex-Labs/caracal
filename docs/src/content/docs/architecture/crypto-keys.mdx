@@ -1,7 +1,173 @@
 ---
 title: Cryptography and Keys
-description: Per-zone signing keys, DEK encryption, JWKS distribution, and HMAC chains.
+description: The per-zone key hierarchy, ChaCha20-Poly1305 signing key encryption, ES256 mandate signing, JWKS distribution, in-memory key caching, and HMAC integrity chains.
 pageType: architecture
 ---
 
-Per-zone signing keys, DEK encryption, JWKS distribution, and HMAC chains.
+Caracal's security model rests on two distinct cryptographic purposes: signing mandates so that any verifier can confirm they came from the STS, and authenticating events in transit so that forged revocations, policy invalidations, or audit records are detectable. These are served by separate key hierarchies that never interact.
+
+## Zone key hierarchy
+
+Each zone has its own signing key pair. The private key is encrypted at rest; the public key is published via JWKS. The hierarchy has two layers:
+
+```
+ZONE_KEK (environment variable, 32 bytes, hex-encoded)
+    │
+    │  ChaCha20-Poly1305
+    ▼
+Encrypted EC P-256 private key (stored in secrets table)
+    │
+    │  ES256
+    ▼
+Signed mandate JWT
+```
+
+**ZONE_KEK** is a 32-byte key supplied as a hex-encoded environment variable. It is validated at STS startup: must be present, must decode to exactly 32 bytes, must not be all zeros. The STS uses it to decrypt zone signing keys on demand. The API uses the same key to encrypt credential provider secrets.
+
+**Zone signing key**: An EC P-256 private key stored encrypted in the `secrets` table. Columns: `ciphertext` (BYTEA), `nonce` (BYTEA, 12 bytes), `dek_id`. The STS decrypts it with:
+
+```
+plaintext = ChaCha20-Poly1305-Open(
+  key       = ZONE_KEK,
+  nonce     = secret.nonce,     -- 12 random bytes
+  ciphertext = secret.ciphertext
+)
+```
+
+The result is a PEM-encoded ECDSA P-256 private key, parsed and used directly for JWT signing.
+
+---
+
+## In-memory key cache
+
+The STS maintains an in-memory LRU key cache per zone to avoid decrypting the signing key on every token issuance.
+
+| Property | Value |
+| -------- | ----- |
+| TTL | 15 minutes per cached entry |
+| Cache entry | `(*ecdsa.PrivateKey, kid string, expiresAt time.Time)` |
+| Early eviction | `caracal.keys.invalidate` Redis stream; on receipt, calls `KeyCache.Invalidate(zoneID)` |
+
+The `kid` value from the cache entry is written into the JWT `kid` header. Verifiers use the `kid` to select the correct public key from the JWKS response.
+
+---
+
+## JWKS distribution
+
+```
+GET /.well-known/jwks.json?zone_id={zone_id}
+Cache-Control: public, max-age=300, must-revalidate
+```
+
+The `zone_id` parameter is mandatory. The STS never exposes all zones' keys on a single endpoint.
+
+The endpoint returns the **two most recent signing key secrets** for the zone. Returning two keys enables zero-downtime key rotation: tokens signed with the previous key remain verifiable while all new tokens use the current key. The 24-hour gap between key creation and old-key removal ensures no valid token outlives the previous key's presence in the JWKS.
+
+**JWKS key format:**
+
+```json
+{
+  "kty": "EC",
+  "crv": "P-256",
+  "use": "sig",
+  "alg": "ES256",
+  "kid": "<secret id from database>",
+  "x": "<base64url P-256 public key x coordinate>",
+  "y": "<base64url P-256 public key y coordinate>"
+}
+```
+
+---
+
+## Mandate signing
+
+Mandates are signed with ES256 (ECDSA P-256 with SHA-256). The signed JWT looks like:
+
+```
+Header:    { "alg": "ES256", "kid": "<key_id>" }
+Payload:   { "iss": "...", "sub": "...", "aud": [...], "exp": ..., "jti": "...", ... }
+Signature: ECDSA-P256-SHA256(header.payload, private_key)
+```
+
+Verifiers fetch the zone JWKS, locate the key matching the `kid` header, and verify the signature. No other algorithm is accepted. The `subject_token` input to the exchange endpoint must itself be a valid ES256 JWT with `use = "ambient"` — per-call tokens cannot be used as input to a new exchange (RFC 8693 subject-confusion mitigation).
+
+---
+
+## Credential provider secret encryption
+
+Provider configuration is split into a public part (stored as JSONB in `config_json`) and a secret part (encrypted). The API encrypts any field whose name matches:
+
+```
+/(secret|password|token|api[_-]?key|private[_-]?key|credential|passphrase)/i
+```
+
+The matched fields are extracted, serialized to JSON, and encrypted with ChaCha20-Poly1305 under ZONE_KEK:
+
+```
+nonce      = rand_bytes(12)
+ciphertext = ChaCha20-Poly1305-Seal(key=ZONE_KEK, nonce=nonce,
+                                    plaintext=JSON(secret_fields))
+```
+
+The database stores `secret_config_ct` (ciphertext), `secret_config_nonce` (12-byte nonce), and `secret_config_keys` (sorted list of encrypted field names for audit). The raw secret values are never returned by any API response.
+
+---
+
+## Stream HMAC integrity
+
+Every message written to a Redis stream in production includes an HMAC-SHA256 signature:
+
+```
+key    = STREAMS_HMAC_KEY (≥32 bytes, hex-encoded, validated at startup)
+input  = "{stream_name}\n" + sorted(field_name=field_value pairs)
+sig    = HMAC-SHA256(key, input)
+```
+
+The signature is written as the `_sig` field in the stream message. The `_sig` field is excluded from its own signing input. Consumers reject messages whose signature does not match. In development mode (no `STREAMS_HMAC_KEY`), verification is skipped.
+
+This protects against an attacker with Redis write access injecting forged revocations, forged policy invalidations, or spoofed audit events into any stream.
+
+---
+
+## Audit HMAC chain
+
+The Audit service writes events to Postgres with a cryptographic chain that makes any modification or deletion detectable.
+
+**Content hash (SHA-256):**
+
+All audit event fields are concatenated with `0x1f` (ASCII Unit Separator) between each field, in a fixed order: `id`, `zone_id`, `event_type`, `request_id`, `decision`, `policy_set_id`, `policy_set_version_id`, `manifest_sha`, `evaluation_status`, `determining_policies_json`, `diagnostics_json`, `metadata_json`, then `occurred_at` as Unix nanoseconds. The SHA-256 of this concatenation is `content_sha256`.
+
+**Chain HMAC (HMAC-SHA256):**
+
+```
+chain_hmac = HMAC-SHA256(
+  key  = AUDIT_HMAC_KEY,
+  data = hex(content_sha256) || "|" || hex(prev_content_sha256)
+)
+```
+
+Each event stores `content_sha256`, `prev_content_sha256` (the previous event's hash), `chain_hmac`, and `chain_seq` (monotonic sequence number within the zone).
+
+**Per-zone serialization:** The Audit service acquires `pg_advisory_xact_lock` per zone before computing and inserting the chain. This ensures monotonic ordering within a zone even with multiple Audit service replicas.
+
+**What the chain detects:**
+
+| Attack | Detection |
+| ------ | --------- |
+| Modify any field | `content_sha256` changes, `chain_hmac` becomes invalid (requires `AUDIT_HMAC_KEY` to forge) |
+| Delete an event | Next event's `prev_content_sha256` no longer matches |
+| Insert a fake event | Requires producing a valid `chain_hmac` — requires `AUDIT_HMAC_KEY` |
+
+**Tamper detection runs:** Full chain validation at startup; incremental rolling validation every hour. Findings are written to `audit_ingest_alerts`. No automatic remediation — the chain is evidence, not a correctable state.
+
+---
+
+## Key material summary
+
+| Key | Size | Algorithm | Held by | Risk if disclosed |
+| --- | ---- | --------- | ------- | ----------------- |
+| `ZONE_KEK` | 32 bytes | ChaCha20-Poly1305 (encryption key) | STS, API | Can decrypt zone signing keys from DB → can issue arbitrary mandates |
+| Zone EC P-256 private key (in-memory) | P-256 | ES256 signing | STS only | Can sign arbitrary mandates for that zone (15-minute window) |
+| `AUDIT_HMAC_KEY` | ≥32 bytes | HMAC-SHA256 | STS, Audit | Can forge audit events; cannot alter existing chain without DB write access |
+| `STREAMS_HMAC_KEY` | ≥32 bytes | HMAC-SHA256 | All services | Can inject forged revocations or policy invalidations into Redis |
+| Provider secrets (plaintext) | varies | ChaCha20-Poly1305 | API (encrypt), STS (decrypt) | Exposure limited to the specific credential; does not affect mandate issuance |

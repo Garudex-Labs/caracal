@@ -1,7 +1,280 @@
 ---
 title: Token Exchange Flow
-description: The pre-execution path from agent request to OPA decision to mandate issuance.
+description: The complete path from an agent's exchange request through validation, OPA evaluation, mandate signing, JTI registration, and async audit emission.
 pageType: architecture
 ---
 
-The pre-execution path from agent request to OPA decision to mandate issuance.
+The token exchange is the central operation in Caracal. Everything that precedes it (session management, delegation, policy authoring) is setup for this moment; everything that follows it (Gateway routing, upstream authentication) depends on its result. This page traces the full path from the agent's HTTP request to the signed mandate returned in the response.
+
+## The exchange endpoint
+
+```
+POST /oauth/2/token
+Content-Type: application/x-www-form-urlencoded
+```
+
+The endpoint follows RFC 8693 (OAuth 2.0 Token Exchange). The maximum request body is 64 KiB. Key form parameters:
+
+| Parameter | Description |
+| --------- | ----------- |
+| `grant_type` | RFC 8693 grant type |
+| `subject_token` | Ambient mandate JWT (the caller's proof of identity) |
+| `subject_token_type` | Token type URI |
+| `actor_token` | Optional second principal (for on-behalf-of flows) |
+| `resource` | One or more resource identifiers (repeated parameter) |
+| `scope` | Space-delimited scopes to request |
+| `zone_id` | Zone in which to evaluate |
+| `application_id` | The application making the request |
+| `client_secret` | Application credential |
+| `client_assertion` | JWT-based application credential (alternative to `client_secret`) |
+| `agent_session_id` | Agent session (for delegation-aware requests) |
+| `delegation_edge_id` | Delegation edge to use for scoped authority |
+| `challenge_id` | Step-up challenge ID (on retry after 401) |
+| `challenge_response` | Step-up challenge secret (on retry after 401) |
+| `ttl_seconds` | Requested token lifetime |
+
+---
+
+## Validation sequence
+
+The STS executes validations in strict order. Any failure stops processing with the appropriate HTTP status. Validations that run before the per-resource loop apply to the whole request; validations inside the loop apply per resource.
+
+### Pre-loop validations
+
+```
+[1]  Authenticate application
+       → client_secret hash match, or client_assertion JWT
+       → public-credential applications are rejected
+       → HTTP 401 on failure
+
+[2]  Require at least one resource
+       → HTTP 400 if resource list is empty
+
+[3]  Validate subject_token (if present)
+       → ES256 signature, issuer == IssuerURL
+       → audience == IssuerURL (rejects per-call tokens as subject)
+       → zone_id claim matches request zone_id
+       → use claim == "ambient" (RFC 8693 subject-confusion mitigation)
+       → HTTP 401 on failure
+
+[4]  Validate subject token session
+       → DB lookup by session ID in token claims
+       → session must be active, not expired, zone must match
+       → subject in token must match session's subject
+       → HTTP 403 on failure
+
+[5]  Validate actor_token (if present)
+       → same checks as subject_token
+       → HTTP 401 on failure
+
+[6]  Reject if actor and subject identify the same principal
+       → HTTP 400 on failure
+
+[7]  Check step-up throttle (if challenge_id or challenge_response present)
+       → 5 failures in 2-minute window triggers 5-minute cooldown
+       → HTTP 429 during cooldown
+
+[8]  Verify and atomically consume challenge (if present)
+       → verifies: secret hash, resource set hash, principal, zone,
+                   consumed_at IS NULL, expires_at > now
+       → HTTP 401 on mismatch or already consumed
+
+[9]  Validate delegation references (if delegation_edge_id present)
+       → edge active, not expired, target session matches caller
+       → full delegation path validated (max hops, scope containment, TTL caveat)
+       → HTTP 403 on failure
+```
+
+### Per-resource loop
+
+For each resource in the request:
+
+```
+[A]  Load resource by identifier
+       → emit audit deny if not found; continue to next resource
+
+[B]  Verify requested scopes ⊆ resource scopes
+       → emit audit deny; continue
+
+[C]  If delegation present, verify resource ⊆ delegation scope
+       → emit audit deny; continue
+
+[D]  Check rate limit
+       → emit audit deny; continue
+
+[E]  If resource has credential provider
+       → require subject_token (user-bound grant path)
+       → verify grant exists with valid access token
+       → emit audit deny; continue
+
+[F]  Call OPA.Evaluate(input)
+       → build OPAInput struct
+       → HTTP 503 if OPA engine unavailable
+
+[G]  Require evaluation_status == "complete"
+       → HTTP 403 if status is anything else
+
+[H]  Check diagnostics for step_up_required
+       → extract challenge type if present
+
+[I]  If decision == "allow", add resource to granted set
+       → emit audit allow event
+```
+
+After the loop:
+
+```
+[10] If step-up required and not yet resolved
+       → create challenge (UUIDv7, 32-byte random secret, 5-minute TTL)
+       → HTTP 401 with StepUpChallenge response
+
+[11] Require at least one granted resource
+       → HTTP 403 if nothing was allowed
+
+[12] Validate ttl_seconds (if present)
+       → ambient tokens: max 3600 seconds (60 minutes)
+       → per-call tokens: max 900 seconds (15 minutes)
+       → HTTP 400 on invalid value
+```
+
+---
+
+## OPA input structure
+
+Each per-resource OPA call receives a complete snapshot of the request context:
+
+```json
+{
+  "principal": {
+    "type": "Application",
+    "id": "<application_id>",
+    "zone_id": "<zone_id>",
+    "credential_type": "<credential_type>",
+    "agent_session_id": "<agent_session_id>"
+  },
+  "resource": {
+    "type": "Resource",
+    "id": "<resource_db_uuid>",
+    "identifier": "<resource_identifier>",
+    "scopes": ["read", "write"]
+  },
+  "action": {
+    "id": "TokenExchange"
+  },
+  "session": {
+    "id": "<session_id>"
+  },
+  "delegation_edge": {
+    "id": "<edge_id>",
+    "source_session_id": "...",
+    "target_session_id": "...",
+    "issuer_application_id": "...",
+    "receiver_application_id": "...",
+    "resource_id": "...",
+    "scopes": ["read"],
+    "edge_version": 1,
+    "path": ["edge-A", "edge-B"],
+    "graph_epoch": 1715123456,
+    "constraints_json": "{}"
+  },
+  "context": {
+    "actor_claims": {},
+    "subject_claims": {},
+    "trace_id": "<request_id>",
+    "session_id": "<session_id>",
+    "agent_session_id": "<agent_session_id>",
+    "delegation_edge_id": "<delegation_edge_id>",
+    "challenge_resolved": false,
+    "requested_scopes": ["read"]
+  }
+}
+```
+
+The OPA query is `result = data.caracal.authz.result`. The result must have `evaluation_status = "complete"` for the decision to be acted on. An empty result set is treated as deny with `evaluation_status = "complete"`.
+
+Forbidden OPA builtins (stripped from the capability set at engine initialization): `http.send`, `net.lookup_ip_addr`, `net.cidr_*`, `opa.runtime`, `rand.intn`, `time.now_ns`.
+
+---
+
+## Mandate structure
+
+When OPA allows a resource, the STS issues an ES256-signed JWT with this complete claim set:
+
+| Claim | Type | Content |
+| ----- | ---- | ------- |
+| `iss` | string | Issuer URL (`ISSUER_URL` env var) |
+| `sub` | string | Subject (user ID or application ID) |
+| `aud` | []string | Issuer URL for ambient; resource identifiers for per-call |
+| `exp` | int64 | Expiration (NumericDate) |
+| `iat` | int64 | Issued at (NumericDate) |
+| `jti` | string | JWT ID (UUIDv7) |
+| `zone_id` | string | Zone of the exchange |
+| `client_id` | string | Authenticated application ID |
+| `scope` | string | Space-delimited granted scopes |
+| `sid` | string | Session ID |
+| `use` | string | `"ambient"` or `"per_call"` |
+| `sub_type` | string | `"user"` or `"application"` |
+| `target` | []string | Granted resource identifiers |
+| `agent_session_id` | string | Agent session ID (when present) |
+| `delegation_edge_id` | string | Current delegation edge (when present) |
+| `source_session_id` | string | Delegation source session (when present) |
+| `target_session_id` | string | Delegation target session (when present) |
+| `delegation_path` | []string | Ordered edge IDs in delegation chain |
+| `delegation_chain` | []object | Hops: `{applicationId, agentSessionId, delegationEdgeId}` |
+| `hop_count` | int | Length of delegation chain |
+| `delegation_graph_epoch` | int64 | Graph version at issuance |
+
+**Signing:** ES256 (ECDSA P-256). The zone's private signing key is retrieved from the `secrets` table, decrypted with ChaCha20-Poly1305 under `ZONE_KEK`, cached in memory for up to 15 minutes, and invalidated early by the `caracal.keys.invalidate` Redis stream. The `kid` JWT header matches the key ID stored in the database.
+
+---
+
+## JTI registry
+
+After signing, the STS registers the JTI to detect reuse:
+
+- **Redis key:** `audit:jti:{jti}`
+- **Value:** `"{appID}|{unixTimestamp}"`
+- **TTL:** Matches the token's TTL
+- **Operation:** SETNX (atomic; only sets if key does not exist)
+
+If SETNX returns false, a JTI collision was detected. The STS emits an audit event with `event_type = "jti_collision"` and `decision = "deny"`. The exchange is rejected. In normal operation UUIDv7 collisions cannot occur; a collision indicates clock skew or a forged token.
+
+The Gateway performs a second JTI check using `seen:jti:{jti}` with the same SETNX pattern, catching any replayed token that bypasses the STS.
+
+---
+
+## Audit emission
+
+Every OPA evaluation — allow or deny — produces an audit event. The STS does not write to Redis synchronously. It enqueues events into an in-process `AuditBuffer`:
+
+- **Channel capacity:** 10,000 events
+- **Flush thresholds:** 1,000 events accumulated, or 50 ms elapsed (whichever comes first)
+- **Flush destination:** `XADD caracal.audit.events`; each message is HMAC-SHA256 signed under `AUDIT_HMAC_KEY`
+
+**Fallback on Redis unavailable:** The AuditBuffer writes `.ndjson` files to `AUDIT_REPLAY_DIR` (one event per line, file permissions 0o600). On next STS startup these files are replayed to Redis and deleted.
+
+**Shutdown drain:** On graceful shutdown, the STS drains remaining events from the channel. Events that cannot reach Redis are persisted to disk rather than dropped.
+
+---
+
+## Token response
+
+A successful exchange returns:
+
+```json
+{
+  "access_token": "<signed JWT>",
+  "token_type": "Bearer",
+  "expires_in": 900,
+  "target_resources": ["resource://payments", "resource://ledger"],
+  "upstreams": [
+    {
+      "resource_identifier": "resource://payments",
+      "auth_mode": "bearer",
+      "credential": "<provider credential, if applicable>"
+    }
+  ]
+}
+```
+
+`upstreams` is present when the resource has a credential provider. The Gateway reads `upstreams` to determine which Authorization header to inject when forwarding to the upstream. The agent never holds the provider credential directly.
