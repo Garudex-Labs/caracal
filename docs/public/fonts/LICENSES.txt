@@ -3,8 +3,6 @@ Caracal, a product of Garudex Labs
 
 SIL Open Font License attribution for bundled documentation fonts.
 
-SIL Open Font License (OFL) attribution for bundled docs fonts.
-
 This directory includes redistributed font binaries under the SIL Open Font License, Version 1.1:
 
 - IBM Plex Sans
