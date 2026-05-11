@@ -137,6 +137,9 @@ func (s *Server) exchange(ctx context.Context, req TokenExchangeRequest, request
 		if _, serr := s.validateTokenSession(ctx, zoneID, "", actorClaims); serr != nil {
 			return nil, nil, http.StatusForbidden, serr
 		}
+		if sameTokenPrincipal(subjectClaims, actorClaims) {
+			return nil, nil, http.StatusBadRequest, sharederr.New(sharederr.InvalidToken, "actor_token and subject_token must identify distinct principals")
+		}
 	}
 	// client_id is the authenticated calling application; it is published on a separate
 	// key so it never shadows actor token claims (which carry a distinct application id).
@@ -418,23 +421,12 @@ func (s *Server) authenticateApp(ctx context.Context, req TokenExchangeRequest) 
 		if credential == "" {
 			credential = req.ClientAssertion
 		}
-		ok, needsRehash := verifyClientSecret(*app.ClientSecretHash, credential)
+		ok := verifyClientSecret(*app.ClientSecretHash, credential)
 		if !ok {
 			return nil, "", errSecretMismatch
 		}
-		if needsRehash {
-			if newHash, herr := hashClientSecret(credential); herr == nil {
-				_ = s.db.UpdateApplicationSecretHash(ctx, app.ID, app.ZoneID, newHash)
-			}
-		}
 	} else if derefStr(app.CredentialType) == "public" {
-		if strings.TrimSpace(req.ClientAssertion) == "" {
-			return nil, "", fmt.Errorf("public client requires client_assertion (DPoP/private_key_jwt) — secretless flows are not yet supported")
-		}
-		// TODO(security/H): verify DPoP proof (RFC 9449) or private_key_jwt assertion against
-		// a registered JWK for this application, and bind the issued token via cnf.jkt.
-		// Until then, public clients still require a verifiable client_assertion to
-		// prevent unauthenticated token minting (Issue H).
+		return nil, "", fmt.Errorf("public clients are not supported: register a confidential application (client_secret) to issue tokens")
 	} else {
 		return nil, "", fmt.Errorf("client secret not configured")
 	}
@@ -457,6 +449,7 @@ func (s *Server) validateSubjectToken(ctx context.Context, tokenStr, zoneID stri
 		jwt.WithAudience(s.cfg.IssuerURL),
 		jwt.WithExpirationRequired(),
 		jwt.WithIssuedAt(),
+		jwt.WithLeeway(60*time.Second),
 	).ParseWithClaims(tokenStr, mc, func(*jwt.Token) (any, error) {
 		return pub, nil
 	})
@@ -803,6 +796,17 @@ func claimString(claims map[string]any, key string) string {
 	}
 	value, _ := claims[key].(string)
 	return value
+}
+
+func sameTokenPrincipal(subjectClaims, actorClaims map[string]any) bool {
+	subject := claimString(subjectClaims, "sub")
+	actor := claimString(actorClaims, "sub")
+	if subject == "" || actor == "" || subject != actor {
+		return false
+	}
+	subjectClient := claimString(subjectClaims, "client_id")
+	actorClient := claimString(actorClaims, "client_id")
+	return subjectClient == "" || actorClient == "" || subjectClient == actorClient
 }
 
 func scopesAllowed(requested, available []string) bool {

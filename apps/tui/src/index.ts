@@ -3,32 +3,25 @@
 //
 // Caracal TUI entry point: bootstraps the AdminClient and launches the menu.
 
-import { existsSync, readFileSync } from 'node:fs'
-import { homedir } from 'node:os'
-import { join } from 'node:path'
+import { readFileSync } from 'node:fs'
 import { parse } from 'smol-toml'
 import { AdminClient } from '@caracalai/admin'
 import { discoverAdminToken } from '@caracalai/core'
+import {
+  DEFAULT_API_URL,
+  DEFAULT_COORDINATOR_URL,
+  resolveCliConfigPath,
+  resolveServiceUrl,
+} from '@caracalai/core/cli'
 import { App } from './screen.ts'
 import { MenuView } from './views/menu.ts'
 
 interface CliConfig { zone_id?: string }
 
 function loadConfig(): CliConfig | undefined {
-  const candidates: string[] = []
-  if (process.env.CARACAL_CONFIG) candidates.push(process.env.CARACAL_CONFIG)
-  for (const dir of [process.cwd(), process.env.PWD, process.env.INIT_CWD]) {
-    if (dir) candidates.push(join(dir, 'caracal.toml'))
-  }
-  const xdg = process.env.XDG_CONFIG_HOME && process.env.XDG_CONFIG_HOME.length > 0
-    ? process.env.XDG_CONFIG_HOME
-    : join(homedir(), '.config')
-  candidates.push(join(xdg, 'caracal', 'caracal.toml'))
-  for (const p of candidates) {
-    if (!existsSync(p)) continue
-    try { return parse(readFileSync(p, 'utf8')) as unknown as CliConfig } catch { /* Try the next config candidate. */ }
-  }
-  return undefined
+  const path = resolveCliConfigPath()
+  if (!path) return undefined
+  try { return parse(readFileSync(path, 'utf8')) as unknown as CliConfig } catch { return undefined }
 }
 
 function main(): void {
@@ -41,26 +34,19 @@ function main(): void {
     process.stderr.write('caracal-tui: CARACAL_ADMIN_TOKEN not set; export it or add it to infra/docker/.env\n')
     process.exit(1)
   }
-  const apiUrl = resolveServiceUrl('CARACAL_API_URL', 'http://localhost:3000')
-  const coordinatorUrl = resolveServiceUrl('CARACAL_COORDINATOR_URL', 'http://localhost:4000')
+  const apiUrl = resolveServiceUrl('CARACAL_API_URL', DEFAULT_API_URL)
+  const coordinatorUrl = resolveServiceUrl('CARACAL_COORDINATOR_URL', DEFAULT_COORDINATOR_URL)
   const coordinatorToken = process.env.CARACAL_COORDINATOR_TOKEN
   const cfg = loadConfig()
   const zoneId = process.env.CARACAL_ZONE_ID ?? cfg?.zone_id
 
   const client = new AdminClient({ apiUrl, coordinatorUrl, adminToken, coordinatorToken })
-  const app = new App('Caracal TUI', `${apiUrl}${zoneId ? `  zone:${zoneId}` : ''}`)
-  void app.run(new MenuView(client, zoneId))
-}
-
-function resolveServiceUrl(envKey: string, devDefault: string): string {
-  const v = process.env[envKey]
-  if (v) return v
-  const env = process.env.NODE_ENV ?? 'development'
-  if (env !== 'development') {
-    process.stderr.write(`caracal-tui: ${envKey} is required when NODE_ENV=${env}\n`)
-    process.exit(1)
-  }
-  return devDefault
+  const menu = new MenuView(client, zoneId)
+  const app = new App('Caracal TUI', () => {
+    const zid = menu.currentZoneId()
+    return `${apiUrl}${zid ? `  zone:${zid}` : ''}`
+  })
+  void app.run(menu)
 }
 
 main()

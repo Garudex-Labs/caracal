@@ -9,13 +9,12 @@ COPY go.work go.work
 COPY packages/core/go/ packages/core/go/
 COPY packages/identity/go/ packages/identity/go/
 COPY packages/revocation/go/ packages/revocation/go/
-COPY packages/transport-mcp/go/ packages/transport-mcp/go/
-COPY packages/caracalai-mcp/go/ packages/caracalai-mcp/go/
-COPY packages/framework-adaptor/mcp-nethttp/go/ packages/framework-adaptor/mcp-nethttp/go/
+COPY packages/transport/mcp/go/ packages/transport/mcp/go/
+COPY packages/connectors/nethttp/go/ packages/connectors/nethttp/go/
 COPY packages/sdk/go/ packages/sdk/go/
 COPY services/audit/ services/audit/
 COPY services/gateway/ services/gateway/
-COPY apps/agent-coordinator/relay/ apps/agent-coordinator/relay/
+COPY apps/coordinator/relay/ apps/coordinator/relay/
 COPY services/sts/ services/sts/
 COPY tests/go/ tests/go/
 WORKDIR /build/services/sts
@@ -28,4 +27,6 @@ RUN apk add --no-cache ca-certificates wget && \
     chown -R 65532:65532 /var/lib/caracal
 COPY --from=builder /sts /sts
 USER 65532:65532
+EXPOSE 8080
+HEALTHCHECK --interval=10s --timeout=3s --retries=3 CMD wget -qO- "http://127.0.0.1:${PORT:-8080}/health" || exit 1
 ENTRYPOINT ["/sts"]

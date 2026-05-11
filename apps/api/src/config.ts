@@ -41,6 +41,7 @@ export interface Config {
   localBootstrapEnabled: boolean
   shutdownTimeoutMs: number
   workerId: string
+  bodyLimitBytes: number
   db: {
     poolMax: number
     statementTimeoutMs: number
@@ -53,6 +54,7 @@ export interface Config {
     batchSize: number
     lockDurationSec: number
     maxAttempts: number
+    streamMaxLen: number
   }
 }
 
@@ -104,6 +106,7 @@ export function loadConfig(): Config {
     localBootstrapEnabled: parseBool(process.env.CARACAL_LOCAL_BOOTSTRAP_ENABLED, false),
     shutdownTimeoutMs: parseIntEnv('CARACAL_SHUTDOWN_TIMEOUT_MS', 15_000),
     workerId: deriveWorkerId(),
+    bodyLimitBytes: parseIntEnv('CARACAL_API_BODY_LIMIT_BYTES', 1_048_576),
     db: {
       poolMax: parseIntEnv('CARACAL_DB_POOL_MAX', 20),
       statementTimeoutMs: parseIntEnv('CARACAL_DB_STATEMENT_TIMEOUT_MS', 15_000),
@@ -116,6 +119,7 @@ export function loadConfig(): Config {
       batchSize: parseIntEnv('CARACAL_OUTBOX_BATCH', 32),
       lockDurationSec: parseIntEnv('CARACAL_OUTBOX_LOCK_SEC', 30),
       maxAttempts: parseIntEnv('CARACAL_OUTBOX_MAX_ATTEMPTS', 100),
+      streamMaxLen: parseIntEnv('CARACAL_OUTBOX_STREAM_MAXLEN', 100_000),
     },
   }
 }

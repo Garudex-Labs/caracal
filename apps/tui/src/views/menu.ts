@@ -3,7 +3,7 @@
 //
 // Top-level menu listing every resource the TUI can navigate.
 
-import type { AdminClient } from '@caracalai/admin'
+import type { AdminClient, Zone } from '@caracalai/admin'
 import { ansi } from '../ansi.ts'
 import { explainError } from '../errors.ts'
 import type { Key } from '../keys.ts'
@@ -30,16 +30,16 @@ interface Entry {
 }
 
 const ENTRIES: Entry[] = [
-  { key: '1', label: 'Zones',        needsZone: false, open: (c) => zonesView(c) },
-  { key: '2', label: 'Applications', needsZone: true,  open: (c) => applicationsView(c) },
-  { key: '3', label: 'Resources',    needsZone: true,  open: (c) => resourcesView(c) },
-  { key: '4', label: 'Providers',    needsZone: true,  open: (c) => providersView(c) },
-  { key: '5', label: 'Policies',     needsZone: true,  open: (c) => policiesView(c) },
-  { key: '6', label: 'Policy-sets',  needsZone: true,  open: (c) => policySetsView(c) },
-  { key: '7', label: 'Grants',       needsZone: true,  open: (c) => grantsView(c) },
-  { key: '8', label: 'Sessions',     needsZone: true,  open: (c) => sessionsView(c) },
-  { key: '9', label: 'Audit (live)', needsZone: true,  open: (c) => auditView(c) },
-  { key: '0', label: 'Agents',       needsZone: true,  open: (c) => agentsView(c) },
+  { key: '1', label: 'Zones',        needsZone: false, open: zonesView },
+  { key: '2', label: 'Applications', needsZone: true,  open: applicationsView },
+  { key: '3', label: 'Resources',    needsZone: true,  open: resourcesView },
+  { key: '4', label: 'Providers',    needsZone: true,  open: providersView },
+  { key: '5', label: 'Policies',     needsZone: true,  open: policiesView },
+  { key: '6', label: 'Policy-sets',  needsZone: true,  open: policySetsView },
+  { key: '7', label: 'Grants',       needsZone: true,  open: grantsView },
+  { key: '8', label: 'Sessions',     needsZone: true,  open: sessionsView },
+  { key: '9', label: 'Audit (live)', needsZone: true,  open: auditView },
+  { key: '0', label: 'Agents',       needsZone: true,  open: agentsView },
 ]
 
 export class MenuView implements View {
@@ -57,10 +57,18 @@ export class MenuView implements View {
     return ['↑/↓ or 0-9:select', 'enter:open', 'z:set-zone']
   }
 
-  render(ctx: ViewContext): string[] {
+  currentZoneId(): string | undefined { return this.zoneId }
+
+  setZone(id: string, slug: string | undefined, app: App): void {
+    this.zoneId = id
+    app.setStatus(`zone set to ${slug ?? id}`)
+    app.invalidate()
+  }
+
+  render(_ctx: ViewContext): string[] {
     const lines: string[] = []
     lines.push('')
-    lines.push(' ' + ansi.bold + 'Caracal' + ansi.reset + ansi.dim + '  Manage the OSS stack interactively.' + ansi.reset)
+    lines.push(' ' + ansi.bold + 'Caracal' + ansi.reset + ansi.dim + '  Inspect the OSS stack interactively.' + ansi.reset)
     lines.push('')
     const zone = this.zoneId ? ansi.fg(76) + this.zoneId + ansi.reset : ansi.fg(214) + '(no zone selected)' + ansi.reset
     lines.push(' zone: ' + zone)
@@ -76,8 +84,6 @@ export class MenuView implements View {
     lines.push('')
     return lines
   }
-
-  setZone(id: string): void { this.zoneId = id }
 
   async onKey(key: Key, ctx: ViewContext): Promise<void> {
     if (key === 'up' || key === 'k') { this.cursor = Math.max(0, this.cursor - 1); return }
@@ -97,7 +103,7 @@ export class MenuView implements View {
     app.push(e.open({
       client: this.client,
       zoneId: this.zoneId ?? '',
-      onZoneSelect: (id, slug) => { this.setZone(id); app.setStatus(`zone set to ${slug}`) },
+      onZoneSelect: (id, slug) => this.setZone(id, slug, app),
     }))
   }
 
@@ -105,10 +111,7 @@ export class MenuView implements View {
     try {
       const zones = await this.client.zones.list()
       if (zones.length === 0) { app.setStatus('no zones found — run `caracal init`', 'error'); return }
-      app.push(new ZonePickerView(zones, (id, slug) => {
-        this.zoneId = id
-        app.setStatus(`zone set to ${slug} (${id})`)
-      }))
+      app.push(new ZonePickerView(zones, (id, slug) => this.setZone(id, slug, app)))
     } catch (err) {
       app.setStatus(`zone list: ${explainError(err)}`, 'error')
     }
@@ -118,13 +121,11 @@ export class MenuView implements View {
 class ZonePickerView implements View {
   readonly title = 'select zone'
   private cursor = 0
-  private readonly zones: { id: string; slug: string; display_name?: string }[]
+  private offset = 0
+  private readonly zones: Zone[]
   private readonly pick: (id: string, slug: string) => void
 
-  constructor(
-    zones: { id: string; slug: string; display_name?: string }[],
-    pick: (id: string, slug: string) => void,
-  ) {
+  constructor(zones: Zone[], pick: (id: string, slug: string) => void) {
     this.zones = zones
     this.pick = pick
   }
@@ -133,9 +134,12 @@ class ZonePickerView implements View {
 
   render(ctx: ViewContext): string[] {
     const lines: string[] = ['', ' Pick a zone to administer:']
-    for (let i = 0; i < this.zones.length; i++) {
+    const visible = Math.max(1, ctx.size.rows - 2)
+    if (this.cursor < this.offset) this.offset = this.cursor
+    if (this.cursor >= this.offset + visible) this.offset = this.cursor - visible + 1
+    for (let i = this.offset; i < Math.min(this.zones.length, this.offset + visible); i++) {
       const z = this.zones[i]!
-      const text = `${z.slug.padEnd(20)} ${z.id}  ${z.display_name ?? ''}`
+      const text = `${z.slug.padEnd(20)} ${z.id}  ${z.name ?? ''}`
       lines.push(i === this.cursor ? ansi.invert + ' ' + text + ' ' + ansi.reset : ' ' + text)
     }
     return lines
@@ -144,6 +148,10 @@ class ZonePickerView implements View {
   onKey(key: Key, ctx: ViewContext): void {
     if (key === 'up' || key === 'k') { this.cursor = Math.max(0, this.cursor - 1); return }
     if (key === 'down' || key === 'j') { this.cursor = Math.min(this.zones.length - 1, this.cursor + 1); return }
+    if (key === 'pgup') { this.cursor = Math.max(0, this.cursor - 10); return }
+    if (key === 'pgdn') { this.cursor = Math.min(this.zones.length - 1, this.cursor + 10); return }
+    if (key === 'home' || key === 'g') { this.cursor = 0; return }
+    if (key === 'end' || key === 'G') { this.cursor = this.zones.length - 1; return }
     if (key === 'enter') {
       const z = this.zones[this.cursor]!
       this.pick(z.id, z.slug)

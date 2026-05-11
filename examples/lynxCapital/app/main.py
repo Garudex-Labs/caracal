@@ -21,7 +21,12 @@ load_dotenv(Path(__file__).parent.parent / ".env")
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     load_config()
-    yield
+    from app.services.streams import start_streams, stop_streams
+    start_streams()
+    try:
+        yield
+    finally:
+        stop_streams()
 
 
 app = FastAPI(title="Lynx Capital", lifespan=lifespan)
@@ -32,6 +37,9 @@ if _static.exists():
 
 from app.api import router as api_router
 app.include_router(api_router, prefix="/api")
+
+from app.api.hooks import router as hooks_router
+app.include_router(hooks_router)
 
 from app.web.router import router as web_router
 app.include_router(web_router)

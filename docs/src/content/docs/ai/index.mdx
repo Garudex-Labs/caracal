@@ -1,0 +1,18 @@
+---
+title: AI Agents
+description: Patterns for building AI agents and multi-agent workflows that run under Caracal's enforced authority.
+---
+
+import SectionHub from '../../../components/SectionHub.astro'
+
+> **Documentation in progress.** This section is being filled in as the open-source rewrite lands.
+
+Caracal is designed agent-first. This section covers workflows, MCP, and the coordinator runtime.
+
+<SectionHub
+  items={[
+    { title: 'Agent Workflows', href: '/ai/workflows/', description: 'Patterns for single-agent and multi-agent runs under enforced policy.' },
+    { title: 'MCP Integration', href: '/ai/mcp/', description: 'Front an MCP server with Caracal so every tool call is policy-checked.' },
+    { title: 'Coordinator', href: '/ai/coordinator/', description: 'Route agent traffic, delegate authority, and observe runs end-to-end.' },
+  ]}
+/>

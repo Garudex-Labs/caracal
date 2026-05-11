@@ -6,10 +6,12 @@
 import { readFileSync } from 'node:fs'
 import { AdminClient, AdminApiError } from '@caracalai/admin'
 import { discoverAdminToken } from '@caracalai/core'
+import {
+  DEFAULT_API_URL,
+  DEFAULT_COORDINATOR_URL,
+  resolveServiceUrl,
+} from '@caracalai/core/cli'
 import type { CliConfig } from '../config.ts'
-
-const DEFAULT_API_URL = 'http://localhost:3000'
-const DEFAULT_COORDINATOR_URL = 'http://localhost:4000'
 
 export { discoverAdminToken }
 
@@ -34,20 +36,6 @@ export function buildAdminClient(cfg?: CliConfig): AdminContext {
     client: new AdminClient({ apiUrl, coordinatorUrl, adminToken, coordinatorToken }),
     zoneId,
   }
-}
-
-// resolveServiceUrl falls back to the dev default only in development. In any other
-// environment, it requires the env var to be set so a misconfigured production CLI
-// fails loudly instead of silently hammering localhost.
-function resolveServiceUrl(envKey: string, devDefault: string): string {
-  const v = process.env[envKey]
-  if (v) return v
-  const env = process.env.NODE_ENV ?? 'development'
-  if (env !== 'development') {
-    process.stderr.write(`Error: ${envKey} is required when NODE_ENV=${env}\n`)
-    process.exit(1)
-  }
-  return devDefault
 }
 
 export interface ParsedArgs {
@@ -108,6 +96,21 @@ export function requireZone(ctx: AdminContext, flags: Record<string, string | bo
     process.exit(1)
   }
   return zoneId
+}
+
+export function usage(line: string): never {
+  process.stderr.write(`Usage: caracal ${line}\n`)
+  process.exit(1)
+}
+
+export function unknownVerb(group: string, verb: string | undefined, help: () => void): never {
+  if (verb === undefined || verb === 'help' || verb === '--help' || verb === '-h') {
+    help()
+    process.exit(0)
+  }
+  process.stderr.write(`Error: unknown ${group} verb '${verb}'\n`)
+  help()
+  process.exit(1)
 }
 
 export function fail(err: unknown): never {

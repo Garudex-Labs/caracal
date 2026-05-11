@@ -35,6 +35,7 @@ export interface ExchangeOptions {
   delegationEdgeId?: string
   scopes?: string[]
   timeoutMs?: number
+  retries?: number
   ttlSeconds?: number
 }
 

@@ -66,6 +66,19 @@ describe('adminAuthPlugin', () => {
     await app.close()
   })
 
+  it('rejects oversized bearer tokens before lookup', async () => {
+    const db = makeDb({ token: 'secret' })
+    const app = await buildPluginApp(db)
+    const res = await app.inject({
+      method: 'GET',
+      url: '/v1/zones',
+      headers: { authorization: `Bearer ${'x'.repeat(4097)}` },
+    })
+    expect(res.statusCode).toBe(401)
+    expect(db.query).not.toHaveBeenCalled()
+    await app.close()
+  })
+
   it('accepts requests with the matching bearer', async () => {
     const app = await buildPluginApp(makeDb({ token: 'secret' }))
     const res = await app.inject({

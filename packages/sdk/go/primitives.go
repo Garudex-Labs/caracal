@@ -1,16 +1,20 @@
 // Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 // Caracal, a product of Garudex Labs
 //
-// SDK primitives: WithAgent and WithDelegation.
+// SDK primitives: spawn an agent session and delegate authority.
 
 package sdk
 
 import (
 	"context"
+	"errors"
 )
 
-// WithAgentOptions controls agent session spawning.
-type WithAgentOptions struct {
+// LifecycleHook fires before fn runs (start) and after it returns (end).
+type LifecycleHook func(context.Context, CaracalContext) error
+
+// SpawnInput controls agent session spawning.
+type SpawnInput struct {
 	Coordinator   *CoordinatorClient
 	ZoneID        string
 	ApplicationID string
@@ -21,11 +25,13 @@ type WithAgentOptions struct {
 	TTLSeconds    int
 	Metadata      map[string]any
 	TraceID       string
+	OnAgentStart  LifecycleHook
+	OnAgentEnd    LifecycleHook
 }
 
-// WithAgent spawns an agent session, runs fn with the bound CaracalContext,
+// Spawn spawns an agent session, runs fn with the bound CaracalContext,
 // then terminates the session. For Kind==KindService, termination is skipped.
-func WithAgent(ctx context.Context, opts WithAgentOptions, fn func(context.Context) error) error {
+func Spawn(ctx context.Context, opts SpawnInput, fn func(context.Context) error) error {
 	parent, _ := Current(ctx)
 	parentID := opts.ParentID
 	if parentID == "" {
@@ -59,18 +65,29 @@ func WithAgent(ctx context.Context, opts WithAgentOptions, fn func(context.Conte
 	}
 
 	c := CaracalContext{
-		SubjectToken:     opts.SubjectToken,
-		ZoneID:           opts.ZoneID,
-		ClientID:         opts.ApplicationID,
-		AgentSessionID:   res.AgentSessionID,
-		ParentEdgeID:     parent.DelegationEdgeID,
-		SessionID:        sessionID,
-		TraceID:          traceID,
-		Hop:              parent.Hop,
+		SubjectToken:   opts.SubjectToken,
+		ZoneID:         opts.ZoneID,
+		ClientID:       opts.ApplicationID,
+		AgentSessionID: res.AgentSessionID,
+		ParentEdgeID:   parent.DelegationEdgeID,
+		SessionID:      sessionID,
+		TraceID:        traceID,
+		Hop:            parent.Hop,
 	}
 
 	child := Bind(ctx, c)
+	if opts.OnAgentStart != nil {
+		if err := opts.OnAgentStart(child, c); err != nil {
+			if kind != KindService {
+				TerminateAgent(ctx, opts.Coordinator, opts.SubjectToken, opts.ZoneID, res.AgentSessionID)
+			}
+			return err
+		}
+	}
 	runErr := fn(child)
+	if opts.OnAgentEnd != nil {
+		_ = opts.OnAgentEnd(child, c)
+	}
 
 	if kind != KindService {
 		TerminateAgent(ctx, opts.Coordinator, opts.SubjectToken, opts.ZoneID, res.AgentSessionID)
@@ -78,25 +95,22 @@ func WithAgent(ctx context.Context, opts WithAgentOptions, fn func(context.Conte
 	return runErr
 }
 
-// WithDelegationOptions controls delegation edge creation.
-type WithDelegationOptions struct {
-	Coordinator        *CoordinatorClient
-	ToAgentSessionID   string
-	ToApplicationID    string
-	Scopes             []string
-	Constraints        map[string]any
-	TTLSeconds         int
+// DelegateInput controls delegation edge creation.
+type DelegateInput struct {
+	Coordinator      *CoordinatorClient
+	ToAgentSessionID string
+	ToApplicationID  string
+	Scopes           []string
+	Constraints      *DelegationConstraints
+	TTLSeconds       int
 }
 
-// WithDelegation creates a delegation edge from the current agent session,
+// Delegate creates a delegation edge from the current agent session,
 // binds a child context with the edge, and runs fn.
-func WithDelegation(ctx context.Context, opts WithDelegationOptions, fn func(context.Context) error) error {
-	c, err := Current(ctx)
-	if err != nil {
-		return err
-	}
-	if c.AgentSessionID == "" {
-		return ErrNoContext
+func Delegate(ctx context.Context, opts DelegateInput, fn func(context.Context) error) error {
+	c, ok := Current(ctx)
+	if !ok || c.AgentSessionID == "" {
+		return errors.New("caracal: Delegate requires an active agent session in context")
 	}
 
 	res, err := CreateDelegation(ctx, opts.Coordinator, c.SubjectToken, DelegationRequest{

@@ -22,13 +22,7 @@ export interface CaracalContext {
 
 const storage = new AsyncLocalStorage<CaracalContext>();
 
-export function current(): CaracalContext {
-  const ctx = storage.getStore();
-  if (!ctx) throw new Error("Caracal context is not bound on this execution path");
-  return ctx;
-}
-
-export function tryCurrent(): CaracalContext | undefined {
+export function current(): CaracalContext | undefined {
   return storage.getStore();
 }
 
@@ -40,7 +34,7 @@ export function withOverrides<T>(
   patch: Partial<CaracalContext>,
   fn: () => T | Promise<T>,
 ): T | Promise<T> {
-  const base = tryCurrent();
+  const base = current();
   if (!base) throw new Error("withOverrides requires an existing Caracal context");
   return storage.run({ ...base, ...patch }, fn);
 }

@@ -1,0 +1,120 @@
+# Per-provider transport behavior. Latency in milliseconds. Probabilities 0-1.
+# Errors: list of {status, weight} drawn deterministically when probability hits.
+# rate_limit: token-bucket. capacity tokens, refilled at refill_per_s.
+# auth: env var holding the secret the provider expects.
+# All randomness is seeded by (provider, action, payload_hash, attempt) so
+# repeated identical calls reproduce; flakiness is observable across attempts.
+
+defaults:
+  latency: { p50_ms: 25, p95_ms: 80, p99_ms: 250, jitter_ms: 10 }
+  error_rate: 0.0
+  errors: [{ status: 503, weight: 3 }, { status: 504, weight: 1 }]
+  rate_limit: { capacity: 1000, refill_per_s: 1000 }
+
+providers:
+  mercury-bank:
+    auth: { header: "Authorization", prefix: "Bearer ", env: "MERCURY_API_KEY" }
+    error_rate: 0.02
+    latency: { p50_ms: 80,  p95_ms: 250, p99_ms: 600, jitter_ms: 25 }
+    idempotency: required
+    webhook_secret_env: "MERCURY_WEBHOOK_SECRET"
+    rate_limit: { capacity: 200, refill_per_s: 50 }
+
+  wise-payouts:
+    auth: { header: "Authorization", prefix: "Bearer ", env: "WISE_BEARER" }
+    error_rate: 0.015
+    latency: { p50_ms: 120, p95_ms: 400, p99_ms: 900, jitter_ms: 40 }
+    idempotency: required
+    webhook_secret_env: "WISE_WEBHOOK_SECRET"
+    rate_limit: { capacity: 100, refill_per_s: 30 }
+
+  stripe-treasury:
+    auth: { header: "Authorization", prefix: "Bearer ", env: "STRIPE_SECRET" }
+    error_rate: 0.01
+    latency: { p50_ms: 60,  p95_ms: 200, p99_ms: 500, jitter_ms: 20 }
+    idempotency: required
+    webhook_secret_env: "STRIPE_WEBHOOK_SECRET"
+    rate_limit: { capacity: 100, refill_per_s: 50 }
+
+  quickbooks:
+    auth: { header: "Authorization", prefix: "Bearer ", env: "QB_ACCESS_TOKEN" }
+    error_rate: 0.005
+    latency: { p50_ms: 90,  p95_ms: 300, p99_ms: 800, jitter_ms: 30 }
+    idempotency: required
+    rate_limit: { capacity: 30, refill_per_s: 5 }
+
+  netsuite:
+    auth: { header: "Authorization", prefix: "Bearer ", env: "NETSUITE_TOKEN" }
+    error_rate: 0.005
+    latency: { p50_ms: 200, p95_ms: 800, p99_ms: 2000, jitter_ms: 100 }
+    job: { processing_ms: 400, jitter_ms: 200 }
+    webhook_secret_env: "NETSUITE_WEBHOOK_SECRET"
+    rate_limit: { capacity: 50, refill_per_s: 10 }
+
+  sap-erp:
+    auth: { header: "X-SAP-Token", prefix: "", env: "SAP_TOKEN" }
+    error_rate: 0.005
+    latency: { p50_ms: 220, p95_ms: 900, p99_ms: 2500, jitter_ms: 100 }
+    job: { processing_ms: 600, jitter_ms: 300 }
+    webhook_secret_env: "SAP_WEBHOOK_SECRET"
+    rate_limit: { capacity: 40, refill_per_s: 8 }
+
+  ocr-vision:
+    auth: { header: "X-API-Key", prefix: "", env: "OCR_API_KEY" }
+    error_rate: 0.01
+    latency: { p50_ms: 50,  p95_ms: 150, p99_ms: 400, jitter_ms: 20 }
+    job: { processing_ms: 250, jitter_ms: 150 }
+    webhook_secret_env: "OCR_WEBHOOK_SECRET"
+    rate_limit: { capacity: 200, refill_per_s: 40 }
+
+  close-engine:
+    auth: { header: "Authorization", prefix: "Bearer ", env: "CLOSE_TOKEN" }
+    error_rate: 0.005
+    latency: { p50_ms: 40, p95_ms: 120, p99_ms: 300, jitter_ms: 15 }
+    job: { processing_ms: 800, jitter_ms: 400 }
+    webhook_secret_env: "CLOSE_WEBHOOK_SECRET"
+    rate_limit: { capacity: 50, refill_per_s: 10 }
+
+  regulatory-filings:
+    auth: { header: "Authorization", prefix: "Bearer ", env: "REGFILE_TOKEN" }
+    error_rate: 0.0
+    latency: { p50_ms: 30, p95_ms: 90, p99_ms: 200, jitter_ms: 10 }
+    job: { processing_ms: 1200, jitter_ms: 600 }
+    webhook_secret_env: "REGFILE_WEBHOOK_SECRET"
+    rate_limit: { capacity: 30, refill_per_s: 5 }
+
+  customer-billing:
+    auth: { header: "Authorization", prefix: "Bearer ", env: "BILLING_TOKEN" }
+    error_rate: 0.01
+    latency: { p50_ms: 70, p95_ms: 220, p99_ms: 500, jitter_ms: 25 }
+    idempotency: required
+    webhook_secret_env: "BILLING_WEBHOOK_SECRET"
+    rate_limit: { capacity: 100, refill_per_s: 30 }
+
+  fx-rates:
+    auth: { header: "X-API-Key", prefix: "", env: "FX_API_KEY" }
+    error_rate: 0.0
+    latency: { p50_ms: 8, p95_ms: 25, p99_ms: 60, jitter_ms: 4 }
+    rate_limit: { capacity: 2000, refill_per_s: 1000 }
+
+  tax-rules:
+    auth: { header: "X-API-Key", prefix: "", env: "TAX_API_KEY" }
+    error_rate: 0.0
+    latency: { p50_ms: 15, p95_ms: 50, p99_ms: 100, jitter_ms: 5 }
+    rate_limit: { capacity: 500, refill_per_s: 200 }
+
+  treasury-ops:
+    auth: { header: "metadata-token", prefix: "", env: "TREASURY_TOKEN" }
+    error_rate: 0.005
+    latency: { p50_ms: 20, p95_ms: 80, p99_ms: 200, jitter_ms: 10 }
+
+  vendor-portal:
+    auth: { header: "X-MCP-Token", prefix: "", env: "VENDOR_PORTAL_TOKEN" }
+    error_rate: 0.0
+    latency: { p50_ms: 15, p95_ms: 50, p99_ms: 120, jitter_ms: 5 }
+
+  compliance-nexus:
+    auth: { header: "Authorization", prefix: "Bearer ", env: "COMPLIANCE_TOKEN" }
+    error_rate: 0.0
+    latency: { p50_ms: 40, p95_ms: 150, p99_ms: 350, jitter_ms: 20 }
+    webhook_secret_env: "COMPLIANCE_WEBHOOK_SECRET"

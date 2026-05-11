@@ -14,6 +14,7 @@ import {
   printJSON,
   printTable,
   requireZone,
+  unknownVerb,
 } from './shared.ts'
 
 export async function auditCommand(argv: string[], cfg?: CliConfig): Promise<void> {
@@ -25,8 +26,7 @@ export async function auditCommand(argv: string[], cfg?: CliConfig): Promise<voi
 
   try {
     switch (verb) {
-      case 'tail':
-      case 'list': {
+      case 'tail': {
         const zoneId = requireZone(ctx, flags)
         const rows = await client.audit.list(zoneId, {
           since: flagString(flags, 'since'),
@@ -39,8 +39,12 @@ export async function auditCommand(argv: string[], cfg?: CliConfig): Promise<voi
         if (json) return printJSON(rows)
         return printTable(rows, ['occurred_at', 'event_type', 'decision', 'evaluation_status', 'request_id', 'id'])
       }
-      default:
+      case 'help':
+      case '--help':
+      case '-h':
         return auditHelp()
+      default:
+        return unknownVerb('audit', verb, auditHelp)
     }
   } catch (err) {
     fail(err)

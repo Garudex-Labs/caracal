@@ -1,21 +1,13 @@
 // Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 // Caracal, a product of Garudex Labs
 //
-// OAuth 2.0 scope-string evaluation per RFC 6749 §3.3.
+// OAuth 2.0 scope-string evaluation, delegated to core/scope.
 
 package identity
 
-import "strings"
+import "github.com/garudex-labs/caracal/core/scope"
 
 // HasScope reports whether scope grants target. Empty target never matches.
-func HasScope(scope, target string) bool {
-	if target == "" {
-		return false
-	}
-	for _, s := range strings.Fields(scope) {
-		if s == target {
-			return true
-		}
-	}
-	return false
+func HasScope(scopeStr, target string) bool {
+	return scope.Has(scopeStr, target)
 }

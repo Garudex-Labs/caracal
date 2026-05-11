@@ -3,21 +3,21 @@ Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 Caracal, a product of Garudex Labs
 
 Public surface of the Caracal Python SDK.
-
-The drop-in API is the ``Caracal`` class. Construct it once (or call
-``Caracal.from_env()``) and use ``run``, ``delegate``, ``httpx_client``,
-``middleware``, ``context``, and ``headers`` directly. Everything else
-is advanced and lives in ``caracalai_sdk.advanced``.
 """
 
-from .client import Caracal, CaracalConfig
+from .client import Caracal, CaracalConfig, ResourceBinding
 from .context import CaracalContext
+from .coordinator import AgentKind, DelegationConstraints
 from .http import CaracalASGIMiddleware
+from .primitives import LifecycleHook
 
 __all__ = [
     "Caracal",
     "CaracalConfig",
     "CaracalContext",
     "CaracalASGIMiddleware",
+    "AgentKind",
+    "DelegationConstraints",
+    "LifecycleHook",
+    "ResourceBinding",
 ]
-

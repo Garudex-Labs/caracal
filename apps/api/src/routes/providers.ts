@@ -149,8 +149,8 @@ export const providersRoutes: FastifyPluginAsync = async (fastify) => {
         split ? JSON.stringify(split.publicConfig) : undefined,
         (placeholder) => `config_json = config_json || ${placeholder}::jsonb`,
       ),
-      patchColumn('secret_config_ct', split?.sealed?.ciphertext ?? undefined),
-      patchColumn('secret_config_nonce', split?.sealed?.nonce ?? undefined),
+      patchColumn('secret_config_ct', split ? (split.sealed?.ciphertext ?? null) : undefined),
+      patchColumn('secret_config_nonce', split ? (split.sealed?.nonce ?? null) : undefined),
       patchColumn('secret_config_keys', split?.secretKeys),
     ])
     if (!update) return reply.code(400).send({ error: 'no_fields' })

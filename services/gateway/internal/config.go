@@ -28,6 +28,7 @@ const (
 
 // Config holds gateway runtime configuration.
 type Config struct {
+	Env                   string
 	Port                  string
 	LogLevel              string
 	STSURL                string
@@ -46,12 +47,14 @@ type Config struct {
 	UpstreamHostAllowlist []string
 	DatabaseURL           string
 	RedisURL              string
+	JTIFailOpen           bool
 }
 
 // loadConfig reads configuration from environment variables.
 // It panics on missing required values or unsafe defaults.
 func loadConfig() Config {
 	cfg := Config{
+		Env:                   config.Getenv("CARACAL_ENV", "production"),
 		Port:                  config.Getenv("PORT", defaultPort),
 		LogLevel:              config.Getenv("LOG_LEVEL", "info"),
 		STSURL:                config.MustGetenv("STS_URL"),
@@ -70,6 +73,7 @@ func loadConfig() Config {
 		UpstreamHostAllowlist: splitCSV(config.Getenv("UPSTREAM_HOST_ALLOWLIST", "")),
 		DatabaseURL:           config.MustGetenv("DATABASE_URL"),
 		RedisURL:              config.Getenv("REDIS_URL", ""),
+		JTIFailOpen:           boolEnv("JTI_FAIL_OPEN", false),
 	}
 	if err := cfg.validate(); err != nil {
 		panic("gateway config: " + err.Error())
@@ -78,6 +82,23 @@ func loadConfig() Config {
 }
 
 func (c Config) validate() error {
+	switch c.Env {
+	case "production", "dev":
+	default:
+		return fmt.Errorf("CARACAL_ENV must be production or dev")
+	}
+	if c.Env == "production" && (c.InsecureHTTP || c.InsecureSTS) {
+		return fmt.Errorf("INSECURE_HTTP and INSECURE_STS are forbidden when CARACAL_ENV=production")
+	}
+	if c.Env == "production" && c.RedisURL == "" {
+		return fmt.Errorf("REDIS_URL is required when CARACAL_ENV=production")
+	}
+	if c.Env == "production" && c.JTIFailOpen {
+		return fmt.Errorf("JTI_FAIL_OPEN is forbidden when CARACAL_ENV=production")
+	}
+	if c.Env == "production" && c.AllowPrivateUpstreams && len(c.UpstreamHostAllowlist) == 0 {
+		return fmt.Errorf("UPSTREAM_HOST_ALLOWLIST is required when ALLOW_PRIVATE_UPSTREAMS=true in production")
+	}
 	u, err := url.Parse(c.STSURL)
 	if err != nil || u.Scheme == "" || u.Host == "" {
 		return fmt.Errorf("STS_URL must be an absolute URL")

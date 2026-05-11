@@ -9,13 +9,12 @@ COPY go.work go.work
 COPY packages/core/go/ packages/core/go/
 COPY packages/identity/go/ packages/identity/go/
 COPY packages/revocation/go/ packages/revocation/go/
-COPY packages/transport-mcp/go/ packages/transport-mcp/go/
-COPY packages/caracalai-mcp/go/ packages/caracalai-mcp/go/
-COPY packages/framework-adaptor/mcp-nethttp/go/ packages/framework-adaptor/mcp-nethttp/go/
+COPY packages/transport/mcp/go/ packages/transport/mcp/go/
+COPY packages/connectors/nethttp/go/ packages/connectors/nethttp/go/
 COPY packages/sdk/go/ packages/sdk/go/
 COPY services/sts/ services/sts/
 COPY services/audit/ services/audit/
-COPY apps/agent-coordinator/relay/ apps/agent-coordinator/relay/
+COPY apps/coordinator/relay/ apps/coordinator/relay/
 COPY services/gateway/ services/gateway/
 COPY tests/go/ tests/go/
 WORKDIR /build/services/gateway

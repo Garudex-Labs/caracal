@@ -4,6 +4,9 @@
 // End-to-end CLI command tests using a stubbed fetch and admin token env.
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { mkdtempSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { auditCommand, explainCommand } from '../../../../apps/cli/src/commands/audit.ts'
 import { zoneCommand } from '../../../../apps/cli/src/commands/zone.ts'
 import { agentCommand } from '../../../../apps/cli/src/commands/agent.ts'
@@ -114,8 +117,14 @@ describe('CLI commands (e2e against stubbed fetch)', () => {
   })
 
   it('audit command exits 1 when CARACAL_ADMIN_TOKEN is missing', async () => {
+    const cwd = process.cwd()
+    process.chdir(mkdtempSync(join(tmpdir(), 'caracal-empty-cwd-')))
     delete process.env.CARACAL_ADMIN_TOKEN
-    await expect(auditCommand(['tail'])).rejects.toThrow(/__exit:1/)
-    expect(stderr.mock.calls.map((c) => c[0]).join('')).toContain('CARACAL_ADMIN_TOKEN')
+    try {
+      await expect(auditCommand(['tail'])).rejects.toThrow(/__exit:1/)
+      expect(stderr.mock.calls.map((c) => c[0]).join('')).toContain('CARACAL_ADMIN_TOKEN')
+    } finally {
+      process.chdir(cwd)
+    }
   })
 })

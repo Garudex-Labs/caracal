@@ -3,7 +3,7 @@
 //
 // Policies route unit tests: Rego validation, version creation.
 
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import Fastify from 'fastify'
 import { policiesRoutes } from '../../../../../apps/api/src/routes/policies.js'
 

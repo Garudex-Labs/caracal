@@ -33,14 +33,7 @@ class CaracalContext:
     hop: int = 0
 
 
-def current() -> CaracalContext:
-    ctx = _ctx_var.get(None)
-    if ctx is None:
-        raise RuntimeError("Caracal context is not bound on this execution path")
-    return ctx
-
-
-def try_current() -> CaracalContext | None:
+def current() -> CaracalContext | None:
     return _ctx_var.get(None)
 
 
@@ -62,6 +55,8 @@ async def abind(ctx: CaracalContext, coro: Awaitable[T]) -> T:
 
 def with_overrides(**patch: Any) -> CaracalContext:
     base = current()
+    if base is None:
+        raise RuntimeError("with_overrides requires an existing Caracal context")
     return replace(base, **patch)
 
 

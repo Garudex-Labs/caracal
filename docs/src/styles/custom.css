@@ -236,7 +236,14 @@ header.header {
   background: color-mix(in srgb, var(--sl-color-bg) 88%, transparent);
   backdrop-filter: saturate(160%) blur(10px);
   -webkit-backdrop-filter: saturate(160%) blur(10px);
-  position: relative;
+  position: sticky;
+  top: 0;
+  z-index: var(--sl-z-index-navbar, 50);
+}
+
+.page > header.header {
+  position: sticky;
+  top: 0;
 }
 
 header.header > div.header > div:nth-child(2) {
@@ -281,6 +288,40 @@ nav.sidebar {
 
 .content-panel + .content-panel {
   border-top: 1px solid var(--sl-color-hairline);
+}
+
+.main-frame:not(:has(.landing-hero)) {
+  padding-top: 1.25rem;
+}
+
+.main-frame:not(:has(.landing-hero)) .content-panel:first-of-type {
+  padding-block: 1rem;
+}
+
+.main-frame:not(:has(.landing-hero)) .content-panel:first-of-type h1 {
+  margin-top: 0;
+}
+
+/* Mobile "On this page" dropdown — give it room below the sticky header */
+mobile-starlight-toc {
+  display: block;
+}
+
+mobile-starlight-toc nav {
+  position: sticky;
+  top: var(--sl-nav-height, 3.75rem);
+  z-index: 40;
+  background: color-mix(in srgb, var(--sl-color-bg) 92%, transparent);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border-bottom: 1px solid var(--sl-color-hairline);
+}
+
+/* On viewports where the mobile TOC is visible, push first content down */
+@media (max-width: 72rem) {
+  .main-frame:not(:has(.landing-hero)) .content-panel:first-of-type {
+    padding-top: 1.5rem;
+  }
 }
 
 .sl-markdown-content :is(code):not(pre code) {
@@ -1611,4 +1652,228 @@ select,
 .what-is__card,
 .audience__card {
   cursor: var(--caracal-cursor-pointer);
+}
+
+/* ───────────────────────── Inner docs reading UX ───────────────────────── */
+
+/* TOC + meta refinements */
+.right-sidebar h2,
+.right-sidebar .sl-heading-text {
+  font-family: "Space Grotesk", var(--sl-font);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  font-size: 0.72rem;
+  color: var(--sl-color-gray-4);
+}
+
+.right-sidebar a[aria-current="true"] {
+  color: var(--sl-color-text-accent);
+  border-left-color: var(--caracal-link);
+}
+
+footer .meta,
+footer.meta {
+  font-size: 0.85rem;
+  color: var(--sl-color-gray-3);
+}
+
+footer .meta a {
+  color: var(--sl-color-text-accent);
+}
+
+/* Pagination links — compact text style */
+.pagination-links a .link-title {
+  font-family: "Space Grotesk", var(--sl-font);
+  font-size: 0.95rem;
+  font-weight: 600;
+  letter-spacing: -0.005em;
+}
+
+.pagination-links a > span {
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--sl-color-gray-4);
+}
+
+.pagination-links a:hover .link-title {
+  color: var(--caracal-link);
+}
+
+/* Inline placeholder callout (used on stub pages) */
+.sl-markdown-content blockquote:first-child {
+  margin-block: 1rem 1.5rem;
+}
+
+/* ─────────────────────── SectionHub (in-docs) ─────────────────────── */
+
+.section-hub {
+  margin-top: 1.5rem;
+  display: grid;
+  gap: 0.85rem;
+  grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
+}
+
+.section-hub--cols-3 {
+  grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+}
+
+.section-hub__card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 1.1rem 1.15rem 1.2rem;
+  border: 1px solid var(--sl-color-hairline);
+  border-radius: 10px;
+  background: var(--caracal-panel);
+  color: var(--sl-color-text);
+  text-decoration: none;
+  transition: border-color 160ms ease, transform 160ms ease, box-shadow 160ms ease;
+}
+
+.section-hub__card:hover {
+  border-color: color-mix(in srgb, var(--caracal-link) 50%, var(--sl-color-hairline));
+  transform: translateY(-1px);
+  box-shadow: 0 10px 28px -18px color-mix(in srgb, var(--caracal-link) 35%, transparent);
+}
+
+.section-hub__card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.section-hub__card-title {
+  margin: 0;
+  font-family: "Space Grotesk", var(--sl-font);
+  font-size: 1.02rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--sl-color-text);
+}
+
+.section-hub__card-meta {
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--caracal-link);
+  padding: 0.15rem 0.45rem;
+  border: 1px solid color-mix(in srgb, var(--caracal-link) 35%, transparent);
+  border-radius: 999px;
+}
+
+.section-hub__card-body {
+  margin: 0;
+  font-size: 0.9rem;
+  line-height: 1.5;
+  color: var(--sl-color-gray-3);
+}
+
+.section-hub__card-cta {
+  margin-top: auto;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--caracal-link);
+}
+
+/* ─────────────────────────── 404 layout ─────────────────────────── */
+
+.main-frame:has(.notfound) {
+  padding-top: 0 !important;
+}
+
+.main-pane:has(.notfound),
+.main-pane:has(.notfound) .main-frame,
+.content-panel:has(.notfound) {
+  max-width: none !important;
+  width: 100% !important;
+}
+
+.main-frame:has(.notfound) .content-panel {
+  padding: 0 !important;
+  border: 0 !important;
+  margin: 0 !important;
+}
+
+.main-frame:has(.notfound) .sl-container {
+  max-width: none !important;
+  margin: 0 !important;
+  padding: 0 !important;
+}
+
+.main-frame:has(.notfound) .sl-container > h1#_top {
+  display: none;
+}
+
+.notfound {
+  width: 100%;
+  min-height: calc(100vh - 6rem);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: clamp(3rem, 8vh, 6rem) clamp(1rem, 4vw, 3rem);
+  position: relative;
+  isolation: isolate;
+}
+
+.notfound::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background:
+    radial-gradient(
+      circle at center,
+      color-mix(in srgb, var(--caracal-link) 25%, transparent) 0%,
+      transparent 60%
+    );
+  filter: blur(60px);
+  opacity: 0.5;
+}
+
+.notfound__inner {
+  max-width: 42rem;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  align-items: center;
+}
+
+.notfound__eyebrow {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--caracal-link);
+  font-family: var(--sl-font-mono);
+}
+
+.notfound__title {
+  margin: 0;
+  font-family: "Space Grotesk", var(--sl-font);
+  font-size: clamp(2rem, 5vw, 3.25rem);
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  color: var(--sl-color-text);
+}
+
+.notfound__lede {
+  margin: 0;
+  max-width: 32rem;
+  font-size: 1rem;
+  line-height: 1.6;
+  color: color-mix(in srgb, var(--sl-color-text) 72%, transparent);
+}
+
+.notfound__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  justify-content: center;
+  margin-top: 0.75rem;
 }

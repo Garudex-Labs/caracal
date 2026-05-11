@@ -1,16 +1,14 @@
 // Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 // Caracal, a product of Garudex Labs
 //
-// Application client-secret hashing: Argon2id with backward-compatible legacy verification.
+// Application client-secret hashing using Argon2id.
 
 package internal
 
 import (
 	"crypto/rand"
-	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/base64"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"strings"
@@ -42,31 +40,21 @@ func hashClientSecret(secret string) (string, error) {
 	), nil
 }
 
-// verifyClientSecret checks a presented secret against the stored hash. It accepts both
-// the Argon2id format above and the legacy hex-encoded SHA-256 used by earlier deploys.
-// The second return value is true when the stored hash is legacy and should be re-encoded.
-func verifyClientSecret(stored, presented string) (ok bool, needsRehash bool) {
+// verifyClientSecret checks a presented secret against the stored Argon2id hash.
+func verifyClientSecret(stored, presented string) bool {
 	if stored == "" || presented == "" {
-		return false, false
+		return false
 	}
-	if strings.HasPrefix(stored, argon2Prefix) {
-		ok = verifyArgon2id(stored, presented)
-		return ok, false
+	if !strings.HasPrefix(stored, argon2Prefix) {
+		return false
 	}
-	// Legacy fallback: hex-encoded SHA-256 with no salt. Constant-time compared and
-	// flagged so the caller can rehash on success.
-	digest := sha256.Sum256([]byte(presented))
-	actual := hex.EncodeToString(digest[:])
-	if subtle.ConstantTimeCompare([]byte(actual), []byte(stored)) == 1 {
-		return true, true
-	}
-	return false, false
+	return verifyArgon2id(stored, presented)
 }
 
 // verifyArgon2id checks `presented` against an `argon2id$<saltB64>$<hashB64>` storage
 // form. Malformed records are still run through one full Argon2id derivation against a
-// fixed dummy salt so the verification time does not reveal whether the stored hash
-// was parseable — only legitimate operator misconfiguration produces a mismatch here,
+// constant dummy salt so the verification time does not reveal whether the stored hash
+// is parseable — only legitimate operator misconfiguration produces a mismatch here,
 // but the constant-time stance avoids leaking format-validity bits over the network.
 func verifyArgon2id(stored, presented string) bool {
 	parts := strings.Split(strings.TrimPrefix(stored, argon2Prefix), "$")

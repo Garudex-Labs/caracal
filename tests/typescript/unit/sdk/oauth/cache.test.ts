@@ -65,4 +65,13 @@ describe('InMemoryTokenCache', () => {
     cache.set('subject-a', 'resource://api', second)
     expect(cache.get('subject-a', 'resource://api')).toBe(second)
   })
+
+  it('does not store raw subject tokens in cache keys', () => {
+    const token = makeToken(900)
+    cache.set('sensitive-subject-token', 'resource://api', token)
+    const keys = [...(cache as unknown as { map: Map<string, unknown> }).map.keys()]
+    expect(keys).toHaveLength(1)
+    expect(keys[0]).not.toContain('sensitive-subject-token')
+    expect(keys[0]).not.toContain('resource://api')
+  })
 })

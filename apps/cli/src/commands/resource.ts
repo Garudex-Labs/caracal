@@ -14,6 +14,8 @@ import {
   printJSON,
   printTable,
   requireZone,
+  unknownVerb,
+  usage,
 } from './shared.ts'
 
 export async function resourceCommand(argv: string[], cfg?: CliConfig): Promise<void> {
@@ -77,8 +79,9 @@ export async function resourceCommand(argv: string[], cfg?: CliConfig): Promise<
       case 'help':
       case '--help':
       case '-h':
-      default:
         return help()
+      default:
+        return unknownVerb('resource', verb, help)
     }
   } catch (err) {
     fail(err)
@@ -112,8 +115,4 @@ function help(): void {
     ].join('\n'),
   )
   process.exit(0)
-}
-function usage(line: string): void {
-  process.stderr.write(`Usage: caracal ${line}\n`)
-  process.exit(1)
 }

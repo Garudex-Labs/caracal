@@ -52,6 +52,31 @@ type SpawnResponse struct {
 	AgentSessionID string `json:"agent_session_id"`
 }
 
+// DelegationConstraints narrows a delegation edge.
+type DelegationConstraints struct {
+	Resources []string
+	Actions   []string
+	MaxDepth  int
+	ExpiresAt string
+}
+
+func (d *DelegationConstraints) toWire() map[string]any {
+	out := map[string]any{}
+	if d.Resources != nil {
+		out["resources"] = d.Resources
+	}
+	if d.Actions != nil {
+		out["actions"] = d.Actions
+	}
+	if d.MaxDepth > 0 {
+		out["max_depth"] = d.MaxDepth
+	}
+	if d.ExpiresAt != "" {
+		out["expires_at"] = d.ExpiresAt
+	}
+	return out
+}
+
 // DelegationRequest parameters for coordinator delegation edge creation.
 type DelegationRequest struct {
 	ZoneID                string
@@ -60,7 +85,7 @@ type DelegationRequest struct {
 	TargetSessionID       string
 	ReceiverApplicationID string
 	Scopes                []string
-	Constraints           map[string]any
+	Constraints           *DelegationConstraints
 	TTLSeconds            int
 }
 
@@ -108,7 +133,7 @@ func CreateDelegation(ctx context.Context, client *CoordinatorClient, bearer str
 		"scopes":                  req.Scopes,
 	}
 	if req.Constraints != nil {
-		body["constraints"] = req.Constraints
+		body["constraints"] = req.Constraints.toWire()
 	}
 	if req.TTLSeconds > 0 {
 		body["ttl_seconds"] = req.TTLSeconds

@@ -1,0 +1,26 @@
+---
+title: Page not found
+description: We couldn't find what you were looking for in the Caracal docs.
+template: splash
+editUrl: false
+---
+
+import LandingFooter from '../../components/LandingFooter.astro'
+
+<div class="notfound">
+  <div class="notfound__inner">
+    <p class="notfound__eyebrow">Error · 404</p>
+    <h1 class="notfound__title">This path is unenforced.</h1>
+    <p class="notfound__lede">
+      The page you tried to open does not exist — or it has moved as part of
+      the ongoing documentation rewrite. Try the entry points below or use the
+      site search.
+    </p>
+    <div class="notfound__actions">
+      <a class="landing-button landing-button--primary" href="/">Go to home page</a>
+      <a class="landing-button landing-button--secondary" href="/#contact">Report broken page</a>
+    </div>
+  </div>
+</div>
+
+<LandingFooter />

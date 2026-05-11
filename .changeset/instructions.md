@@ -1,0 +1,7 @@
+- Scope: Changesets configuration for caracal/ TS package publishing.
+- Required: must keep `access: public` in `config.json`.
+- Required: must list every internal-only package in `ignore` so version commands skip them.
+- Required: must add a `.md` changeset file per change set across one or more public packages before opening a release PR.
+- Forbidden: must not list non-existent packages in `ignore`.
+- Forbidden: must not commit changeset files referencing private workspace packages as bumpable.
+- Only public `@caracalai/*` packages under `packages/` may be released through this configuration.

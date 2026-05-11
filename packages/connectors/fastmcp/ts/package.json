@@ -1,0 +1,39 @@
+{
+  "name": "@caracalai/mcp-fastmcp",
+  "version": "0.1.0",
+  "description": "Caracal MCP authentication adapter for FastMCP.",
+  "license": "Apache-2.0",
+  "homepage": "https://github.com/Garudex-Labs/caracal",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Garudex-Labs/caracal.git",
+    "directory": "packages/connectors/fastmcp/ts"
+  },
+  "keywords": ["caracal", "mcp", "fastmcp", "connector"],
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "files": ["dist", "README.md", "LICENSE"],
+  "publishConfig": { "access": "public" },
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "test": "pnpm --dir ../../../transport/mcp/ts build && vitest run --root ../../../.. tests/typescript/unit/sdk/mcp-fastmcp",
+    "prepublishOnly": "tsc"
+  },
+  "dependencies": {
+    "@caracalai/transport-mcp": "workspace:*",
+    "@caracalai/revocation": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "typescript": "^5.8.0",
+    "vitest": "^3.0.0"
+  }
+}

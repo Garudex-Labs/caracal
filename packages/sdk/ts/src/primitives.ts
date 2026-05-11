@@ -2,19 +2,20 @@
  * Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
  * Caracal, a product of Garudex Labs
  *
- * SDK primitives: withAgent and withDelegation.
+ * SDK primitives: spawn an agent session and delegate authority.
  */
 
-import { bind, current, tryCurrent, CaracalContext } from "./context.js";
+import { bind, current, CaracalContext } from "./context.js";
 import {
   CoordinatorClient,
   spawnAgent,
   terminateAgent,
   createDelegation,
   AgentKind,
+  DelegationConstraints,
 } from "./coordinator.js";
 
-export interface WithAgentOptions {
+export interface SpawnInput {
   coordinator: CoordinatorClient;
   zoneId: string;
   applicationId: string;
@@ -25,66 +26,72 @@ export interface WithAgentOptions {
   ttlSeconds?: number;
   metadata?: Record<string, unknown>;
   traceId?: string;
+  onAgentStart?: (ctx: CaracalContext) => void | Promise<void>;
+  onAgentEnd?: (ctx: CaracalContext) => void | Promise<void>;
 }
 
-export async function withAgent<T>(opts: WithAgentOptions, fn: () => Promise<T>): Promise<T> {
-  const parent = tryCurrent();
-  const parentId = opts.parentId ?? parent?.agentSessionId;
-  const bearer = opts.subjectToken;
-  const res = await spawnAgent(opts.coordinator, bearer, {
-    zoneId: opts.zoneId,
-    applicationId: opts.applicationId,
-    sessionSid: opts.sessionSid,
+export async function spawn<T>(input: SpawnInput, fn: () => Promise<T>): Promise<T> {
+  const parent = current();
+  const parentId = input.parentId ?? parent?.agentSessionId;
+  const bearer = input.subjectToken;
+  const kind = input.kind ?? AgentKind.Instance;
+  const res = await spawnAgent(input.coordinator, bearer, {
+    zoneId: input.zoneId,
+    applicationId: input.applicationId,
+    sessionSid: input.sessionSid,
     parentId,
-    kind: opts.kind ?? "instance",
-    ttlSeconds: opts.ttlSeconds,
-    metadata: opts.metadata,
+    kind,
+    ttlSeconds: input.ttlSeconds,
+    metadata: input.metadata,
   });
   const ctx: CaracalContext = {
     subjectToken: bearer,
-    zoneId: opts.zoneId,
-    clientId: opts.applicationId,
+    zoneId: input.zoneId,
+    clientId: input.applicationId,
     agentSessionId: res.agent_session_id,
     parentEdgeId: parent?.delegationEdgeId,
-    sessionId: opts.sessionSid ?? parent?.sessionId,
-    traceId: opts.traceId ?? parent?.traceId,
-    hop: (parent?.hop ?? 0),
+    sessionId: input.sessionSid ?? parent?.sessionId,
+    traceId: input.traceId ?? parent?.traceId,
+    hop: parent?.hop ?? 0,
   };
+  if (input.onAgentStart) await input.onAgentStart(ctx);
   try {
     return await (bind(ctx, fn) as Promise<T>);
   } finally {
-    if (opts.kind !== "service") {
-      await terminateAgent(opts.coordinator, bearer, opts.zoneId, res.agent_session_id);
+    if (input.onAgentEnd) await input.onAgentEnd(ctx);
+    if (kind !== AgentKind.Service) {
+      await terminateAgent(input.coordinator, bearer, input.zoneId, res.agent_session_id);
     }
   }
 }
 
-export interface WithDelegationOptions {
+export interface DelegateInput {
   coordinator: CoordinatorClient;
   toAgentSessionId: string;
   toApplicationId: string;
   scopes: string[];
-  constraints?: Record<string, unknown>;
+  constraints?: DelegationConstraints;
   ttlSeconds?: number;
 }
 
-export async function withDelegation<T>(
-  opts: WithDelegationOptions,
+export async function delegate<T>(
+  input: DelegateInput,
   fn: () => Promise<T>,
 ): Promise<T> {
   const ctx = current();
+  if (!ctx) throw new Error("delegate requires a Caracal context bound on this path");
   if (!ctx.agentSessionId) {
-    throw new Error("withDelegation requires an active agent session in context");
+    throw new Error("delegate requires an active agent session in context");
   }
-  const res = await createDelegation(opts.coordinator, ctx.subjectToken, {
+  const res = await createDelegation(input.coordinator, ctx.subjectToken, {
     zoneId: ctx.zoneId,
     issuerApplicationId: ctx.clientId,
     sourceSessionId: ctx.agentSessionId,
-    targetSessionId: opts.toAgentSessionId,
-    receiverApplicationId: opts.toApplicationId,
-    scopes: opts.scopes,
-    constraints: opts.constraints,
-    ttlSeconds: opts.ttlSeconds,
+    targetSessionId: input.toAgentSessionId,
+    receiverApplicationId: input.toApplicationId,
+    scopes: input.scopes,
+    constraints: input.constraints,
+    ttlSeconds: input.ttlSeconds,
   });
   const child: CaracalContext = {
     ...ctx,

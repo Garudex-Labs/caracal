@@ -9,13 +9,12 @@ COPY go.work go.work
 COPY packages/core/go/ packages/core/go/
 COPY packages/identity/go/ packages/identity/go/
 COPY packages/revocation/go/ packages/revocation/go/
-COPY packages/transport-mcp/go/ packages/transport-mcp/go/
-COPY packages/caracalai-mcp/go/ packages/caracalai-mcp/go/
-COPY packages/framework-adaptor/mcp-nethttp/go/ packages/framework-adaptor/mcp-nethttp/go/
+COPY packages/transport/mcp/go/ packages/transport/mcp/go/
+COPY packages/connectors/nethttp/go/ packages/connectors/nethttp/go/
 COPY packages/sdk/go/ packages/sdk/go/
 COPY services/sts/ services/sts/
 COPY services/gateway/ services/gateway/
-COPY apps/agent-coordinator/relay/ apps/agent-coordinator/relay/
+COPY apps/coordinator/relay/ apps/coordinator/relay/
 COPY services/audit/ services/audit/
 COPY tests/go/ tests/go/
 WORKDIR /build/services/audit
@@ -26,4 +25,6 @@ FROM alpine:3.22@sha256:310c62b5e7ca5b08167e4384c68db0fd2905dd9c7493756d356e8939
 RUN apk add --no-cache ca-certificates wget
 COPY --from=builder /audit /audit
 USER 65532:65532
+EXPOSE 9090
+HEALTHCHECK --interval=10s --timeout=3s --retries=3 CMD wget -qO- "http://127.0.0.1:${PORT:-9090}/health" || exit 1
 ENTRYPOINT ["/audit"]

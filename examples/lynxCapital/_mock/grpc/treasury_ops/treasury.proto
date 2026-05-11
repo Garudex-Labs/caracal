@@ -1,0 +1,22 @@
+syntax = "proto3";
+
+package lynx.treasury;
+
+service TreasuryOps {
+  rpc GetCashPosition    (CashPositionRequest)    returns (CashPositionResponse);
+  rpc ForecastLiquidity  (ForecastRequest)        returns (ForecastResponse);
+  rpc PlaceFxHedge       (FxHedgeRequest)         returns (FxHedgeResponse);
+  rpc TransferFunds      (TransferRequest)        returns (TransferResponse);
+}
+
+message CashPositionRequest  { string entity_id = 1; }
+message CashPositionResponse { string json = 1; }
+
+message ForecastRequest  { string entity_id = 1; int32 horizon_days = 2; }
+message ForecastResponse { string json = 1; }
+
+message FxHedgeRequest  { string pair = 1; double notional = 2; string tenor = 3; }
+message FxHedgeResponse { string json = 1; }
+
+message TransferRequest  { string from_account = 1; string to_account = 2; double amount = 3; string currency = 4; string idempotency_key = 5; }
+message TransferResponse { string json = 1; }

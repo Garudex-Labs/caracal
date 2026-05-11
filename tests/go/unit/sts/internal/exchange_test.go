@@ -91,6 +91,27 @@ func TestTokenTTL(t *testing.T) {
 	}
 }
 
+func TestSameTokenPrincipal(t *testing.T) {
+	if !sameTokenPrincipal(
+		map[string]any{"sub": "user1", "client_id": "app1"},
+		map[string]any{"sub": "user1", "client_id": "app1"},
+	) {
+		t.Fatal("matching subject and client must be same principal")
+	}
+	if sameTokenPrincipal(
+		map[string]any{"sub": "user1", "client_id": "app1"},
+		map[string]any{"sub": "user1", "client_id": "app2"},
+	) {
+		t.Fatal("different clients must be distinct principals")
+	}
+	if sameTokenPrincipal(
+		map[string]any{"sub": "user1", "client_id": "app1"},
+		map[string]any{"sub": "user2", "client_id": "app1"},
+	) {
+		t.Fatal("different subjects must be distinct principals")
+	}
+}
+
 func TestBuildAuditEventFields(t *testing.T) {
 	result := &OPAResult{
 		Decision:         "allow",
@@ -263,7 +284,11 @@ func (s *stubDB) UpdateApplicationSecretHash(_ context.Context, _, _, _ string) 
 // TestExchangePartialDeny verifies that partial OPA evaluation status causes HTTP 403.
 // This is the hard invariant: a partial result must never produce a token.
 func TestExchangePartialDeny(t *testing.T) {
-	credType := "public"
+	credType := "confidential"
+	hash, err := hashClientSecret("hunter2")
+	if err != nil {
+		t.Fatalf("hash secret: %v", err)
+	}
 	db := &stubDB{
 		app: &Application{
 			ID:                 "app1",
@@ -271,6 +296,7 @@ func TestExchangePartialDeny(t *testing.T) {
 			Name:               "Test App",
 			RegistrationMethod: "managed",
 			CredentialType:     &credType,
+			ClientSecretHash:   &hash,
 		},
 		resource: &Resource{
 			ID:         "res1",
@@ -306,7 +332,7 @@ result := {"decision": "partial", "evaluation_status": "partial", "determining_p
 		"grant_type":        {"urn:ietf:params:oauth:grant-type:token-exchange"},
 		"zone_id":           {"zone1"},
 		"application_id":    {"app1"},
-		"client_assertion":  {"test-public-client-assertion"},
+		"client_assertion":  {"hunter2"},
 		"resource":          {"https://api.example.com"},
 	}
 	req := httptest.NewRequest(http.MethodPost, "/oauth/2/token",
@@ -513,7 +539,11 @@ func TestValidateSessionReferencesRejectsMalformedDelegationConstraints(t *testi
 
 func TestExchangeRejectsResourceOutsideDelegationEdge(t *testing.T) {
 	now := time.Now()
-	credentialType := "public"
+	credentialType := "confidential"
+	hash, hashErr := hashClientSecret("hunter2")
+	if hashErr != nil {
+		t.Fatalf("hash secret: %v", hashErr)
+	}
 	boundResourceID := "res-bound"
 	source := &AgentSession{
 		ID:            "agent-src",
@@ -538,6 +568,7 @@ func TestExchangeRejectsResourceOutsideDelegationEdge(t *testing.T) {
 			Name:               "Test App",
 			RegistrationMethod: "managed",
 			CredentialType:     &credentialType,
+			ClientSecretHash:   &hash,
 		},
 		resource: &Resource{
 			ID:         "res-other",
@@ -565,7 +596,7 @@ func TestExchangeRejectsResourceOutsideDelegationEdge(t *testing.T) {
 	_, _, code, apiErr := srv.exchange(context.Background(), TokenExchangeRequest{
 		ZoneID:           "zone1",
 		ApplicationID:    "app1",
-		ClientAssertion:  "test-public-client-assertion",
+		ClientAssertion:  "hunter2",
 		Resources:        []string{"resource://api/other"},
 		Scope:            "read",
 		AgentSessionID:   source.ID,

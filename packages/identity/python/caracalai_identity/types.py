@@ -17,6 +17,7 @@ class JwtConfig:
     require_agent: bool = False
     require_delegation: bool = False
     require_chain_contains: list[str] = field(default_factory=list)
+    max_hop_count: int | None = None
 
 
 @dataclass

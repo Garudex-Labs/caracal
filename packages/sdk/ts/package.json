@@ -1,7 +1,15 @@
 {
   "name": "@caracalai/sdk",
   "version": "0.1.0",
-  "private": true,
+  "description": "Caracal agent identity and delegation SDK.",
+  "license": "Apache-2.0",
+  "homepage": "https://github.com/Garudex-Labs/caracal",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Garudex-Labs/caracal.git",
+    "directory": "packages/sdk/ts"
+  },
+  "keywords": ["caracal", "agent", "identity", "delegation", "sdk"],
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -15,11 +23,13 @@
       "types": "./dist/advanced.d.ts"
     }
   },
+  "files": ["dist", "README.md", "LICENSE"],
+  "publishConfig": { "access": "public" },
   "scripts": {
     "build": "tsc",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run --root ../../.. tests/typescript/unit/sdk",
-    "prepare": "tsc"
+    "test": "vitest run --root ../../.. tests/typescript/unit/sdk/client.test.ts",
+    "prepublishOnly": "tsc"
   },
   "dependencies": {
   },

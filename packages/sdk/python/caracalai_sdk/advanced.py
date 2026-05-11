@@ -2,9 +2,7 @@
 Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 Caracal, a product of Garudex Labs
 
-Advanced surface: low-level primitives, codec, ambient context plumbing, and
-the raw coordinator client. Most integrators only need ``caracalai_sdk``;
-reach for these when building a transport adapter or framework shim.
+Advanced surface: low-level primitives, codec, ambient context plumbing, and the raw coordinator client.
 """
 
 from .envelope import (
@@ -35,12 +33,12 @@ from .context import (
     current,
     from_envelope,
     to_envelope,
-    try_current,
     with_overrides,
 )
 from .coordinator import (
     AgentKind,
     CoordinatorClient,
+    DelegationConstraints,
     DelegationRequest,
     DelegationResponse,
     SpawnRequest,
@@ -49,8 +47,8 @@ from .coordinator import (
     spawn_agent,
     terminate_agent,
 )
-from .primitives import with_agent, with_delegation
-from .client import Caracal, CaracalConfig
+from .primitives import LifecycleHook, delegate, spawn
+from .client import Caracal, CaracalConfig, ResourceBinding
 from .http import CaracalASGIMiddleware
 
 __all__ = [
@@ -75,13 +73,13 @@ __all__ = [
     "parse_traceparent",
     "CaracalContext",
     "current",
-    "try_current",
     "bind",
     "abind",
     "with_overrides",
     "to_envelope",
     "from_envelope",
     "AgentKind",
+    "DelegationConstraints",
     "CoordinatorClient",
     "SpawnRequest",
     "SpawnResponse",
@@ -90,9 +88,11 @@ __all__ = [
     "spawn_agent",
     "terminate_agent",
     "create_delegation",
-    "with_agent",
-    "with_delegation",
+    "spawn",
+    "delegate",
+    "LifecycleHook",
     "Caracal",
     "CaracalConfig",
+    "ResourceBinding",
     "CaracalASGIMiddleware",
 ]

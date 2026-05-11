@@ -60,7 +60,6 @@ type DBQuerier interface {
 	GetPolicySetVersion(ctx context.Context, id string) (*PolicySetVersion, error)
 	GetPolicyVersionsByIDs(ctx context.Context, ids []string) ([]PolicyVersion, error)
 	ListBoundZoneIDs(ctx context.Context) ([]string, error)
-	UpdateApplicationSecretHash(ctx context.Context, id, zoneID, hash string) error
 }
 
 // Zone holds the fields STS needs from the zones table.
@@ -513,17 +512,6 @@ func (d *DB) ListBoundZoneIDs(ctx context.Context) ([]string, error) {
 		zones = append(zones, z)
 	}
 	return zones, rows.Err()
-}
-
-// UpdateApplicationSecretHash rewrites the stored client_secret_hash for an application
-// once a legacy SHA-256 verification succeeds, so subsequent verifications use Argon2id.
-func (d *DB) UpdateApplicationSecretHash(ctx context.Context, id, zoneID, hash string) error {
-	_, err := d.pool.Exec(ctx,
-		`UPDATE applications SET client_secret_hash = $3, updated_at = now()
-		 WHERE id = $1 AND zone_id = $2`,
-		id, zoneID, hash,
-	)
-	return err
 }
 
 // DelegatedGrant holds the provider OAuth tokens for a user+resource pair.

@@ -3,7 +3,7 @@
 //
 // Generic scrollable list view with column rendering and selection.
 
-import { ansi, pad, truncate, visibleLength } from '../ansi.ts'
+import { ansi, pad, truncate } from '../ansi.ts'
 import { explainError } from '../errors.ts'
 import type { Key } from '../keys.ts'
 import type { App, View, ViewContext } from '../screen.ts'
@@ -19,8 +19,6 @@ export interface ListOptions<T> {
   columns: Column<T>[]
   load: () => Promise<T[]>
   onEnter?: (app: App, row: T) => void | Promise<void>
-  onKey?: (app: App, key: Key, row: T | undefined, view: ListView<T>) => void | Promise<void>
-  extraHints?: string[]
 }
 
 export class ListView<T> implements View {
@@ -28,45 +26,47 @@ export class ListView<T> implements View {
   private readonly columns: Column<T>[]
   private readonly loader: () => Promise<T[]>
   private readonly enter?: (app: App, row: T) => void | Promise<void>
-  private readonly extraOnKey?: ListOptions<T>['onKey']
-  private readonly extraHints: string[]
   private rows: T[] = []
   private cursor = 0
   private offset = 0
   private loading = true
   private error: string | undefined
+  private aborted = false
 
   constructor(opts: ListOptions<T>) {
     this.title = opts.title
     this.columns = opts.columns
     this.loader = opts.load
     this.enter = opts.onEnter
-    this.extraOnKey = opts.onKey
-    this.extraHints = opts.extraHints ?? []
   }
 
   selected(): T | undefined { return this.rows[this.cursor] }
 
   hints(): string[] {
-    return ['↑/↓:move', 'enter:open', 'r:reload', 'h:back', ...this.extraHints]
+    return ['↑/↓:move', 'enter:open', 'r:reload', 'h:back']
   }
 
-  async init(app: App): Promise<void> {
-    await this.reload(app)
-  }
+  async init(app: App): Promise<void> { await this.reload(app) }
+
+  dispose(): void { this.aborted = true }
 
   async reload(app: App): Promise<void> {
     this.loading = true
     this.error = undefined
     app.invalidate()
     try {
-      this.rows = await this.loader()
-      this.cursor = Math.min(this.cursor, Math.max(0, this.rows.length - 1))
+      const rows = await this.loader()
+      if (this.aborted) return
+      this.rows = rows
+      this.cursor = Math.min(this.cursor, Math.max(0, rows.length - 1))
     } catch (err) {
+      if (this.aborted) return
       this.error = explainError(err)
     } finally {
-      this.loading = false
-      app.invalidate()
+      if (!this.aborted) {
+        this.loading = false
+        app.invalidate()
+      }
     }
   }
 
@@ -77,7 +77,7 @@ export class ListView<T> implements View {
     if (this.rows.length === 0) { lines.push(ansi.dim + ' (no rows)' + ansi.reset); return lines }
     const widths = this.computeWidths(ctx.size.cols)
     lines.push(this.headerRow(widths))
-    const visible = ctx.size.rows - 1
+    const visible = Math.max(1, ctx.size.rows - 1)
     if (this.cursor < this.offset) this.offset = this.cursor
     if (this.cursor >= this.offset + visible) this.offset = this.cursor - visible + 1
     for (let i = this.offset; i < Math.min(this.rows.length, this.offset + visible); i++) {
@@ -116,16 +116,6 @@ export class ListView<T> implements View {
     if (key === 'enter') {
       const row = this.selected()
       if (row && this.enter) await this.enter(ctx.app, row)
-      return
     }
-    if (this.extraOnKey) await this.extraOnKey(ctx.app, key, this.selected(), this)
   }
-
-  static fmt(value: unknown): string {
-    if (value === null || value === undefined) return '-'
-    if (typeof value === 'object') return JSON.stringify(value)
-    return String(value)
-  }
-
-  static visibleLength = visibleLength
 }

@@ -1,0 +1,38 @@
+---
+/*
+ * Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+ * Caracal, a product of Garudex Labs
+ *
+ * SectionHub: reusable in-docs grid of cards used by section landing pages
+ * to give every top-level navigation node a polished, scannable overview.
+ */
+
+interface Item {
+  title: string
+  href: string
+  description?: string
+  meta?: string
+}
+
+interface Props {
+  items: Item[]
+  columns?: number
+}
+
+const { items, columns = 2 } = Astro.props as Props
+---
+
+<div class={`section-hub section-hub--cols-${columns}`}>
+  {items.map((item) => (
+    <a class="section-hub__card" href={item.href}>
+      <div class="section-hub__card-head">
+        <h3 class="section-hub__card-title">{item.title}</h3>
+        {item.meta && <span class="section-hub__card-meta">{item.meta}</span>}
+      </div>
+      {item.description && (
+        <p class="section-hub__card-body">{item.description}</p>
+      )}
+      <span class="section-hub__card-cta" aria-hidden="true">Read →</span>
+    </a>
+  ))}
+</div>

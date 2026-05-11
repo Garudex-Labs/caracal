@@ -48,16 +48,16 @@ function randomHex(byteLen: number): string {
   return s;
 }
 
-function newTraceId(): string {
+function genTraceId(): string {
   return randomHex(16);
 }
 
-function newSpanId(): string {
+function genSpanId(): string {
   return randomHex(8);
 }
 
 export function formatTraceparent(traceId: string): string {
-  return `00-${traceId}-${newSpanId()}-01`;
+  return `00-${traceId}-${genSpanId()}-01`;
 }
 
 export function parseTraceparent(value: string): { traceId: string } | undefined {
@@ -130,7 +130,7 @@ export function decodeEnvelope(get: HeaderGetter): Envelope {
 
 export function encodeEnvelope(env: Envelope, set: HeaderSetter): void {
   if (env.subjectToken) set(HeaderAuthorization, `Bearer ${env.subjectToken}`);
-  const traceId = env.traceId && /^[0-9a-f]{32}$/.test(env.traceId) ? env.traceId : newTraceId();
+  const traceId = env.traceId && /^[0-9a-f]{32}$/.test(env.traceId) ? env.traceId : genTraceId();
   set(HeaderTraceparent, formatTraceparent(traceId));
   const baggage = encodeBaggage({
     [BaggageAgentSession]: env.agentSessionId,

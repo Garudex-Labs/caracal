@@ -19,7 +19,7 @@ applyTo: "**"
 
 ## Forbidden
 
-- Must not use prefixes: `new_`, `fixed_`, `updated_`, `old_`, or similar.
+- Must not use prefixes: `new_`, `fixed_`, `updated_`, `old_`, or similar. Idiomatic Go constructors named `NewX` are exempt.
 - Must not use `-` in names.
 - Must not write comments referencing edits, history, or comparisons (e.g., "changed from", "updated to", "fixed", "previously", "now", "added", "removed").
 - Must not reference prompt text, task descriptions, or requirements in comments.

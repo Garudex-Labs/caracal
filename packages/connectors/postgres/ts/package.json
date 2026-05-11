@@ -1,0 +1,39 @@
+{
+  "name": "@caracalai/tokenstate-postgres",
+  "version": "0.1.0",
+  "description": "Caracal Postgres-backed token state connector.",
+  "license": "Apache-2.0",
+  "homepage": "https://github.com/Garudex-Labs/caracal",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Garudex-Labs/caracal.git",
+    "directory": "packages/connectors/postgres/ts"
+  },
+  "keywords": ["caracal", "postgres", "tokenstate", "connector"],
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "files": ["dist", "README.md", "LICENSE"],
+  "publishConfig": { "access": "public" },
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run --root ../../../.. tests/typescript/unit/connectors/postgres",
+    "prepublishOnly": "tsc"
+  },
+  "dependencies": {
+    "pg": "^8.14.1"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "@types/pg": "^8.11.10",
+    "typescript": "^5.8.0",
+    "vitest": "^3.0.0"
+  }
+}

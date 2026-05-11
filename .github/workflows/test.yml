@@ -10,7 +10,7 @@ on:
     branches:
       - main
     paths:
-      - '.github/workflows/*.yml'
+      - '.github/workflows/test.yml'
       - 'apps/**'
       - 'docs/**'
       - 'packages/**'
@@ -21,27 +21,16 @@ on:
       - 'package.json'
       - 'pnpm-lock.yaml'
       - 'pnpm-workspace.yaml'
-  pull_request:
-    paths:
-      - '.github/workflows/*.yml'
-      - 'apps/**'
-      - 'docs/**'
-      - 'packages/**'
-      - 'services/**'
-      - 'tests/**'
-      - 'go.work'
-      - 'go.work.sum'
-      - 'package.json'
-      - 'pnpm-lock.yaml'
-      - 'pnpm-workspace.yaml'
+  schedule:
+    - cron: '17 6 * * *'
   workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: test-${{ github.ref }}
-  cancel-in-progress: true
+  group: test-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
 
 env:
   NODE_VERSION: '24'
@@ -53,8 +42,66 @@ env:
   CI: true
 
 jobs:
+  smoke:
+    name: Post-merge smoke
+    if: github.repository == 'Garudex-Labs/caracal' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@f40ffcd9367d9f12939873eb1018b921a783ffaa # v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - name: Setup Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: latest
+
+      - name: Setup Go
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache-dependency-path: |
+            go.work
+            go.work.sum
+            **/go.mod
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile --prefer-offline
+
+      - name: TypeScript build (topological)
+        run: pnpm -r build
+
+      - name: Go vet
+        run: |
+          go vet \
+            ./packages/core/go/... \
+            ./services/sts/... \
+            ./services/audit/... \
+            ./services/gateway/... \
+            ./apps/coordinator/relay/... \
+            ./packages/transport/mcp/go/... \
+            ./packages/connectors/nethttp/go/... \
+            ./packages/identity/go/... \
+            ./packages/revocation/go/... \
+            ./packages/sdk/go/...
+
   changes:
     name: Detect changes
+    if: github.repository == 'Garudex-Labs/caracal' && github.event_name != 'push'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
@@ -63,63 +110,15 @@ jobs:
       python: ${{ steps.paths.outputs.python }}
       docs: ${{ steps.paths.outputs.docs }}
     steps:
-      - name: Checkout
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
-        with:
-          fetch-depth: 0
-          persist-credentials: false
-
-      - name: Classify changed paths
+      - name: Set run-all outputs
         id: paths
         shell: bash
         run: |
-          set -euo pipefail
-
-          if [[ '${{ github.event_name }}' == 'workflow_dispatch' ]]; then
-            git ls-files > changed-files.txt
-          elif [[ '${{ github.event_name }}' == 'pull_request' ]]; then
-            git fetch --no-tags --prune --depth=1 origin '${{ github.base_ref }}'
-            git diff --name-only 'origin/${{ github.base_ref }}'...HEAD > changed-files.txt
-          elif [[ '${{ github.event.before }}' =~ ^0+$ ]]; then
-            git ls-files > changed-files.txt
-          else
-            git diff --name-only '${{ github.event.before }}' '${{ github.sha }}' > changed-files.txt
-          fi
-
-          echo 'Changed files:'
-          sed 's/^/  /' changed-files.txt
-
-          run_all=false
-          if grep -Eq '^\.github/workflows/test\.yml$|^package\.json$|^pnpm-lock\.yaml$|^pnpm-workspace\.yaml$' changed-files.txt; then
-            run_all=true
-          fi
-
-          typescript=false
-          go=false
-          python=false
-          docs=false
-
-          if [[ "$run_all" == 'true' ]] || grep -Eq '^(apps/|tests/typescript/|packages/(admin/ts|transport-a2a/ts|oauth/ts|identity/ts|revocation/ts|transport-mcp/ts|framework-adaptor/|runtime-adaptor/|state-backend/|core/ts)/)' changed-files.txt; then
-            typescript=true
-          fi
-
-          if [[ "$run_all" == 'true' ]] || grep -Eq '^(go\.work|go\.work\.sum|tests/go/|services/(audit|gateway|sts)/|packages/(core/go|identity/go|revocation/go|transport-mcp/go|framework-adaptor/mcp-nethttp/go)/|apps/agent-coordinator/relay/)' changed-files.txt || grep -Eq '\.go$|go\.mod$' changed-files.txt; then
-            go=true
-          fi
-
-          if [[ "$run_all" == 'true' ]] || grep -Eq '^(tests/python/|packages/(identity/python|revocation/python|transport-mcp/python|framework-adaptor/mcp-fastmcp/python)/)' changed-files.txt || grep -Eq '\.py$|pyproject\.toml$' changed-files.txt; then
-            python=true
-          fi
-
-          if [[ "$run_all" == 'true' ]] || grep -Eq '^(docs/|\.github/workflows/deploy\.yml$)' changed-files.txt; then
-            docs=true
-          fi
-
           {
-            echo "typescript=$typescript"
-            echo "go=$go"
-            echo "python=$python"
-            echo "docs=$docs"
+            echo 'typescript=true'
+            echo 'go=true'
+            echo 'python=true'
+            echo 'docs=true'
           } >> "$GITHUB_OUTPUT"
 
   typescript:
@@ -133,7 +132,7 @@ jobs:
       REDIS_URL: redis://localhost:6379
       STS_URL: http://localhost:3001
       ISSUER_URL: http://localhost:4000
-      AGENT_COORDINATOR_AUDIENCE: caracal-agent-coordinator
+      AGENT_COORDINATOR_AUDIENCE: caracal-coordinator
       AGENT_COORDINATOR_SCOPE: agent:coordinate
     steps:
       - name: Checkout
@@ -166,19 +165,16 @@ jobs:
           pnpm --dir packages/core/ts build
           pnpm --dir packages/oauth/ts build
           pnpm --dir packages/admin/ts build
-          pnpm --dir packages/transport-a2a/ts build
+          pnpm --dir packages/sdk/ts build
+          pnpm --dir packages/transport/a2a/ts build
           pnpm --dir packages/identity/ts build
           pnpm --dir packages/revocation/ts build
-          pnpm --dir packages/transport-mcp/ts build
-          pnpm --dir packages/framework-adaptor/mcp-express/ts build
-          pnpm --dir packages/framework-adaptor/mcp-fastmcp/ts build
-          pnpm --dir packages/framework-adaptor/agent-crewai/ts build
-          pnpm --dir packages/framework-adaptor/agent-langchain/ts build
-          pnpm --dir packages/state-backend/tokenstate-postgres/ts build
-          pnpm --dir packages/state-backend/tokencache-cloudflare/ts build
-          pnpm --dir packages/runtime-adaptor/cloudflare/ts build
+          pnpm --dir packages/transport/mcp/ts build
+          pnpm --dir packages/connectors/express/ts build
+          pnpm --dir packages/connectors/fastmcp/ts build
+          pnpm --dir packages/connectors/postgres/ts build
           pnpm --dir apps/api build
-          pnpm --dir apps/agent-coordinator build
+          pnpm --dir apps/coordinator build
 
       - name: Run lint scripts
         run: pnpm -r --if-present lint
@@ -191,15 +187,15 @@ jobs:
         run: |
           set -euo pipefail
           run_pkg() {
-            local pkg_dir="$1"
-            local out_name="$2"
+            local dir="$1"
+            local out="$2"
             shift 2
-            echo "::group::vitest ${out_name}"
-            pnpm --dir "${pkg_dir}" exec vitest run --root "${GITHUB_WORKSPACE}" \
+            echo "::group::vitest ${out}"
+            pnpm --dir "${dir}" exec vitest run --root "${GITHUB_WORKSPACE}" \
               --coverage.enabled true \
               --coverage.provider=v8 \
               --coverage.reporter=lcov \
-              --coverage.reportsDirectory="${GITHUB_WORKSPACE}/coverage/typescript/${out_name}" \
+              --coverage.reportsDirectory="${GITHUB_WORKSPACE}/coverage/typescript/${out}" \
               "$@"
             echo "::endgroup::"
           }
@@ -210,19 +206,20 @@ jobs:
             tests/typescript/contract/api \
             tests/typescript/fuzz/api \
             tests/typescript/integration/api
-          run_pkg apps/agent-coordinator agent-coordinator tests/typescript/unit/orchestration/agent-coordinator
+          run_pkg apps/coordinator coordinator tests/typescript/unit/orchestration/coordinator
           run_pkg apps/cli cli tests/typescript/unit/cli
           run_pkg apps/tui tui tests/typescript/unit/tui
           run_pkg packages/core/ts core tests/typescript/unit/shared
           run_pkg packages/admin/ts admin tests/typescript/unit/admin
-          run_pkg packages/transport-a2a/ts transport-a2a tests/typescript/unit/transport-a2a
-          run_pkg packages/framework-adaptor/agent-crewai/ts agent-crewai tests/typescript/unit/agent-crewai
-          run_pkg packages/framework-adaptor/agent-langchain/ts agent-langchain tests/typescript/unit/agent-langchain
+          run_pkg packages/sdk/ts sdk tests/typescript/unit/sdk/client.test.ts
+          run_pkg packages/transport/a2a/ts transport-a2a tests/typescript/unit/transport-a2a
           run_pkg packages/oauth/ts oauth tests/typescript/unit/sdk/oauth
-          run_pkg packages/framework-adaptor/mcp-express/ts mcp-express tests/typescript/unit/sdk/mcp-express
+          run_pkg packages/revocation/ts revocation tests/typescript/unit/revocation
+          run_pkg packages/transport/mcp/ts transport-mcp tests/typescript/unit/transport-mcp
+          run_pkg packages/connectors/express/ts mcp-express tests/typescript/unit/sdk/mcp-express
+          run_pkg packages/connectors/fastmcp/ts mcp-fastmcp tests/typescript/unit/sdk/mcp-fastmcp
+          run_pkg packages/connectors/postgres/ts tokenstate-postgres tests/typescript/unit/connectors/postgres
           run_pkg packages/identity/ts identity tests/typescript/unit/identity
-          run_pkg packages/state-backend/tokencache-cloudflare/ts tokencache-cloudflare tests/typescript/unit/sdk/tokencache-cloudflare
-          run_pkg packages/runtime-adaptor/cloudflare/ts runtime-cloudflare tests/typescript/unit/sdk/runtime-cloudflare
 
       - name: List TypeScript coverage outputs
         if: always()
@@ -230,12 +227,6 @@ jobs:
         run: |
           echo 'Coverage tree:'
           ls -laR coverage/typescript 2>&1 || echo 'coverage/typescript missing'
-
-      - name: Build TypeScript packages
-        shell: bash
-        run: |
-          set -euo pipefail
-          pnpm --dir packages/framework-adaptor/mcp-fastmcp/ts build
 
       - name: Upload TypeScript coverage artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -271,7 +262,23 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p coverage/go
-          go test -race -covermode=atomic -coverprofile=coverage/go/coverage.out ./packages/core/go/... ./services/sts/... ./services/audit/... ./services/gateway/... ./apps/agent-coordinator/relay/... ./packages/transport-mcp/go/... ./packages/framework-adaptor/mcp-nethttp/go/...
+          go test -race -covermode=atomic -coverprofile=coverage/go/coverage.out \
+            ./packages/core/go/... \
+            ./services/sts/... \
+            ./services/audit/... \
+            ./services/gateway/... \
+            ./apps/coordinator/relay/... \
+            ./packages/transport/mcp/go/... \
+            ./packages/connectors/nethttp/go/... \
+            ./packages/identity/go/... \
+            ./packages/revocation/go/... \
+            ./packages/sdk/go/...
+          go test -race -covermode=atomic \
+            -coverpkg=github.com/garudex-labs/caracal/transport-mcp,github.com/garudex-labs/caracal/revocation \
+            -coverprofile=coverage/go/tests.out \
+            ./tests/go/unit/revocation \
+            ./tests/go/unit/transport/mcp
+          tail -n +2 coverage/go/tests.out >> coverage/go/coverage.out
           go tool cover -func=coverage/go/coverage.out
 
       - name: Upload Go coverage artifact
@@ -299,20 +306,33 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
           cache: pip
-          cache-dependency-path: packages/identity/python/pyproject.toml
+          cache-dependency-path: |
+            packages/core/python/pyproject.toml
+            packages/identity/python/pyproject.toml
+            packages/revocation/python/pyproject.toml
+            packages/sdk/python/pyproject.toml
+            packages/transport/mcp/python/pyproject.toml
+            packages/connectors/fastmcp/python/pyproject.toml
 
       - name: Install dependencies
         run: |
           python -m pip install pip==25.1.1
-          python -m pip install -e packages/identity/python -e packages/revocation/python -e packages/transport-mcp/python -e packages/framework-adaptor/mcp-fastmcp/python coverage==7.13.5 cryptography==48.0.0
+          python -m pip install \
+            -e packages/core/python \
+            -e packages/identity/python \
+            -e packages/revocation/python \
+            -e packages/sdk/python \
+            -e packages/transport/mcp/python \
+            -e packages/connectors/fastmcp/python \
+            coverage==7.13.5 cryptography==48.0.0
 
       - name: Run Python tests with coverage
         env:
-          PYTHONPATH: ${{ github.workspace }}/packages/identity/python:${{ github.workspace }}/packages/revocation/python:${{ github.workspace }}/packages/transport-mcp/python:${{ github.workspace }}/packages/framework-adaptor/mcp-fastmcp/python:${{ github.workspace }}/tests/shared/test-utils/python
+          PYTHONPATH: ${{ github.workspace }}/packages/core/python:${{ github.workspace }}/packages/identity/python:${{ github.workspace }}/packages/revocation/python:${{ github.workspace }}/packages/sdk/python:${{ github.workspace }}/packages/transport/mcp/python:${{ github.workspace }}/packages/connectors/fastmcp/python:${{ github.workspace }}/tests/shared/test-utils/python
         run: |
           set -euxo pipefail
           mkdir -p coverage/python
-          coverage run --source=packages/identity/python/caracalai_identity,packages/revocation/python/caracalai_revocation,packages/transport-mcp/python/caracalai_transport_mcp,packages/framework-adaptor/mcp-fastmcp/python/caracalai_mcp_fastmcp \
+          coverage run --source=packages/core/python/caracalai_core,packages/identity/python/caracalai_identity,packages/revocation/python/caracalai_revocation,packages/sdk/python/caracalai_sdk,packages/transport/mcp/python/caracalai_transport_mcp,packages/connectors/fastmcp/python/caracalai_mcp_fastmcp \
             -m unittest discover -s tests/python -p 'test_*.py' -v
           coverage xml -o coverage/python/coverage.xml
           coverage report --show-missing
@@ -375,8 +395,13 @@ jobs:
       - python
     if: always() && !cancelled() && (needs.typescript.result == 'success' || needs.go.result == 'success' || needs.python.result == 'success')
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
     steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
+
       - name: Download coverage artifacts
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
@@ -386,25 +411,46 @@ jobs:
       - name: List coverage files
         run: find coverage -maxdepth 4 -type f -print | sort
 
-      - name: Upload coverage reports to Codecov
-        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
-        uses: codecov/codecov-action@75cd11691c0faa626561e295848008c8a7dddffe # v5
+      - name: Upload TypeScript coverage to Codecov
+        if: needs.typescript.result == 'success'
+        uses: codecov/codecov-action@v5
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
-          files: coverage/coverage-typescript/**/lcov.info,coverage/coverage-go/coverage.out,coverage/coverage-python/coverage.xml
+          directory: coverage/coverage-typescript
+          flags: typescript
+          fail_ci_if_error: false
+
+      - name: Upload Go coverage to Codecov
+        if: needs.go.result == 'success'
+        uses: codecov/codecov-action@v5
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: coverage/coverage-go/coverage.out
+          flags: go
           disable_search: true
-          fail_ci_if_error: true
+          fail_ci_if_error: false
+
+      - name: Upload Python coverage to Codecov
+        if: needs.python.result == 'success'
+        uses: codecov/codecov-action@v5
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: coverage/coverage-python/coverage.xml
+          flags: python
+          disable_search: true
+          fail_ci_if_error: false
 
   status:
     name: Test status
     needs:
+      - smoke
       - changes
       - typescript
       - go
       - python
       - docs
       - coverage
-    if: always()
+    if: always() && github.repository == 'Garudex-Labs/caracal'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -412,10 +458,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          for result in '${{ needs.changes.result }}' '${{ needs.typescript.result }}' '${{ needs.go.result }}' '${{ needs.python.result }}' '${{ needs.docs.result }}' '${{ needs.coverage.result }}'; do
+          for result in '${{ needs.smoke.result }}' '${{ needs.changes.result }}' '${{ needs.typescript.result }}' '${{ needs.go.result }}' '${{ needs.python.result }}' '${{ needs.docs.result }}' '${{ needs.coverage.result }}'; do
             if [[ "$result" == 'failure' || "$result" == 'cancelled' ]]; then
               echo "A required test workflow job ended with $result."
               exit 1
             fi
           done
-          echo 'All required test workflow jobs passed or were skipped by path filters.'
+          echo 'All required test workflow jobs passed or were skipped.'

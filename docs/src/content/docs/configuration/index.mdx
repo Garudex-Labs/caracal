@@ -1,0 +1,20 @@
+---
+title: Configuration
+description: Configure the Caracal runtime — environment variables, database, Redis, logging, and the MCP adapter.
+---
+
+import SectionHub from '../../../components/SectionHub.astro'
+
+> **Documentation in progress.** This section is being filled in as the open-source rewrite lands.
+
+Every knob you can turn on a Caracal deployment, with safe defaults documented alongside.
+
+<SectionHub
+  items={[
+    { title: 'Environment Variables', href: '/configuration/env/', description: 'The complete environment surface, grouped by service.' },
+    { title: 'Database', href: '/configuration/database/', description: 'Postgres connection, migrations, and tuning.' },
+    { title: 'Redis', href: '/configuration/redis/', description: 'Streams, retention, and cache configuration.' },
+    { title: 'Logging', href: '/configuration/logging/', description: 'Structured logs, levels, and forwarding.' },
+    { title: 'MCP Adapter', href: '/configuration/mcp/', description: 'Wire Caracal into MCP-speaking agents and tools.' },
+  ]}
+/>

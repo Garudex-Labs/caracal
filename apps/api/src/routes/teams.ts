@@ -7,6 +7,7 @@ import type { FastifyPluginAsync } from 'fastify'
 import { z } from 'zod'
 import { v7 as uuidv7 } from 'uuid'
 import { buildPatchUpdate, patchColumn } from './patch.js'
+import { ZoneIdParams, ZoneParams, parseParams } from './params.js'
 
 const TeamBody = z.object({
   name: z.string().min(1),
@@ -14,44 +15,48 @@ const TeamBody = z.object({
 })
 
 export const teamsRoutes: FastifyPluginAsync = async (fastify) => {
-  fastify.get('/zones/:zoneId/teams', async (req) => {
-    const { zoneId } = req.params as { zoneId: string }
+  fastify.get('/zones/:zoneId/teams', async (req, reply) => {
+    const params = parseParams(ZoneParams, req, reply)
+    if (!params) return
     const { rows } = await fastify.db.query(
       `SELECT id, zone_id, name, members_json, created_at, updated_at
        FROM teams WHERE zone_id = $1 ORDER BY name`,
-      [zoneId],
+      [params.zoneId],
     )
     return rows
   })
 
   fastify.get('/zones/:zoneId/teams/:id', async (req, reply) => {
-    const { zoneId, id } = req.params as { zoneId: string; id: string }
+    const params = parseParams(ZoneIdParams, req, reply)
+    if (!params) return
     const { rows } = await fastify.db.query(
       `SELECT id, zone_id, name, members_json, created_at, updated_at
        FROM teams WHERE id = $1 AND zone_id = $2`,
-      [id, zoneId],
+      [params.id, params.zoneId],
     )
     if (!rows[0]) return reply.code(404).send({ error: 'team_not_found' })
     return rows[0]
   })
 
   fastify.post('/zones/:zoneId/teams', async (req, reply) => {
-    const { zoneId } = req.params as { zoneId: string }
+    const params = parseParams(ZoneParams, req, reply)
+    if (!params) return
     const body = TeamBody.parse(req.body)
     const id = uuidv7()
     const { rows } = await fastify.db.query(
       `INSERT INTO teams (id, zone_id, name, members_json)
        VALUES ($1, $2, $3, $4)
        RETURNING id, zone_id, name, members_json, created_at, updated_at`,
-      [id, zoneId, body.name, JSON.stringify(body.members)],
+      [id, params.zoneId, body.name, JSON.stringify(body.members)],
     )
     return reply.code(201).send(rows[0])
   })
 
   fastify.patch('/zones/:zoneId/teams/:id', async (req, reply) => {
-    const { zoneId, id } = req.params as { zoneId: string; id: string }
+    const params = parseParams(ZoneIdParams, req, reply)
+    if (!params) return
     const body = TeamBody.partial().parse(req.body)
-    const update = buildPatchUpdate([id, zoneId], [
+    const update = buildPatchUpdate([params.id, params.zoneId], [
       patchColumn('name', body.name),
       patchColumn('members_json', body.members === undefined ? undefined : JSON.stringify(body.members)),
     ])
@@ -66,10 +71,11 @@ export const teamsRoutes: FastifyPluginAsync = async (fastify) => {
   })
 
   fastify.delete('/zones/:zoneId/teams/:id', async (req, reply) => {
-    const { zoneId, id } = req.params as { zoneId: string; id: string }
+    const params = parseParams(ZoneIdParams, req, reply)
+    if (!params) return
     const { rowCount } = await fastify.db.query(
       `DELETE FROM teams WHERE id = $1 AND zone_id = $2`,
-      [id, zoneId],
+      [params.id, params.zoneId],
     )
     if (!rowCount) return reply.code(404).send({ error: 'team_not_found' })
     return reply.code(204).send()

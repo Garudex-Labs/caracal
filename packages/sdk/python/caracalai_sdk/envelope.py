@@ -45,16 +45,16 @@ HeaderGetter = Callable[[str], str | None]
 HeaderSetter = Callable[[str, str], None]
 
 
-def _new_trace_id() -> str:
+def _gen_trace_id() -> str:
     return secrets.token_hex(16)
 
 
-def _new_span_id() -> str:
+def _gen_span_id() -> str:
     return secrets.token_hex(8)
 
 
 def format_traceparent(trace_id: str) -> str:
-    return f"00-{trace_id}-{_new_span_id()}-01"
+    return f"00-{trace_id}-{_gen_span_id()}-01"
 
 
 def parse_traceparent(value: str) -> str | None:
@@ -127,7 +127,7 @@ def decode_envelope(get: HeaderGetter) -> Envelope:
 def encode_envelope(env: Envelope, set_header: HeaderSetter) -> None:
     if env.subject_token:
         set_header(HEADER_AUTHORIZATION, f"Bearer {env.subject_token}")
-    trace_id = env.trace_id if (env.trace_id and re.match(r"^[0-9a-f]{32}$", env.trace_id)) else _new_trace_id()
+    trace_id = env.trace_id if (env.trace_id and re.match(r"^[0-9a-f]{32}$", env.trace_id)) else _gen_trace_id()
     set_header(HEADER_TRACEPARENT, format_traceparent(trace_id))
     baggage = encode_baggage(
         {

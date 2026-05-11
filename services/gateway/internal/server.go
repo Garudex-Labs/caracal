@@ -28,6 +28,7 @@ type Server struct {
 	cfg         Config
 	log         zerolog.Logger
 	sts         *stsClient
+	jwks        *jwksCache
 	guard       *upstreamGuard
 	tracker     *jtiTracker
 	bindings    *bindingStore
@@ -47,7 +48,7 @@ func New(ctx context.Context) (*Server, error) {
 		if err != nil {
 			return nil, err
 		}
-		tracker = newJTITracker(rdb, log)
+		tracker = newJTITracker(rdb, log, cfg.JTIFailOpen)
 	} else {
 		log.Warn().Msg("REDIS_URL unset; jti replay detection and revocation propagation disabled")
 	}
@@ -63,6 +64,7 @@ func New(ctx context.Context) (*Server, error) {
 		cfg:         cfg,
 		log:         log,
 		sts:         newSTSClient(cfg.STSURL, cfg.STSTimeout),
+		jwks:        newJWKSCache(cfg.STSURL, cfg.STSTimeout, log),
 		guard:       newUpstreamGuard(cfg.UpstreamHostAllowlist, cfg.AllowPrivateUpstreams),
 		tracker:     tracker,
 		bindings:    bindings,
@@ -75,7 +77,7 @@ func New(ctx context.Context) (*Server, error) {
 func (s *Server) Run(ctx context.Context) error {
 	go s.bindings.StartPolling(ctx)
 	startRevocationConsumer(ctx, s.redis, s.revocations, s.log)
-	p := newProxy(s.sts, s.guard, s.log, s.cfg.MaxRequestBytes, s.cfg.UpstreamTimeout, s.bindings, s.tracker, s.revocations)
+	p := newProxy(s.sts, s.jwks, s.guard, s.log, s.cfg.MaxRequestBytes, s.cfg.UpstreamTimeout, s.bindings, s.tracker, s.revocations)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })

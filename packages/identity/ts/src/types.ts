@@ -11,6 +11,7 @@ export interface JwtConfig {
   requireAgent?: boolean
   requireDelegation?: boolean
   requireChainContains?: string[]
+  maxHopCount?: number
 }
 
 export interface ChainHop {

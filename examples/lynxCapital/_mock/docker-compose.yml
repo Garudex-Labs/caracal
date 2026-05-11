@@ -1,31 +1,93 @@
-name: lynx-mock
+# Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+# Caracal, a product of Garudex Labs
+#
+# Mock provider network: runs every transport (REST, SSE, gRPC, MCP) on its
+# own service so the Lynx app exercises real network boundaries.
 
 services:
-  providers:
-    build: .
-    image: lynx-mock-providers:latest
+
+  rest:
+    build:
+      context: ..
+      dockerfile: _mock/Dockerfile
+    image: lynx-mock:latest
+    command: python -m _mock.run_rest
+    environment:
+      LYNX_REST_HOST: "0.0.0.0"
+      LYNX_REST_PORT: "8800"
+      LYNX_MOCK_FAST: "${LYNX_MOCK_FAST:-0}"
+      LYNX_HOOK_BASE: "${LYNX_HOOK_BASE:-http://host.docker.internal:8000}"
+    ports:
+      - "8800:8800"
     networks:
-      lynx-mock-network:
+      lynx-mock:
         aliases:
           - mercury-bank.mock
           - wise-payouts.mock
           - stripe-treasury.mock
+          - quickbooks.mock
           - netsuite.mock
           - sap-erp.mock
-          - quickbooks.mock
-          - compliance-nexus.mock
           - ocr-vision.mock
-          - vendor-portal.mock
+          - close-engine.mock
+          - regulatory-filings.mock
+          - customer-billing.mock
           - tax-rules.mock
+          - compliance-nexus.mock
           - fx-rates.mock
-    restart: unless-stopped
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost/health').read()"]
-      interval: 15s
-      timeout: 5s
-      retries: 3
-      start_period: 5s
+      test: ["CMD", "python", "-c", "import urllib.request,sys; urllib.request.urlopen('http://127.0.0.1:8800/healthz').read()"]
+      interval: 5s
+      timeout: 2s
+      retries: 5
+
+  fx-stream:
+    image: lynx-mock:latest
+    depends_on: [rest]
+    command: python -m _mock.run_sse_fx
+    environment:
+      LYNX_FX_HOST: "0.0.0.0"
+      LYNX_FX_PORT: "8810"
+      LYNX_MOCK_FAST: "${LYNX_MOCK_FAST:-0}"
+    ports:
+      - "8810:8810"
+    networks: [lynx-mock]
+
+  treasury-grpc:
+    image: lynx-mock:latest
+    depends_on: [rest]
+    command: python -m _mock.run_grpc_treasury
+    environment:
+      LYNX_GRPC_TREASURY_ADDR: "0.0.0.0:50051"
+      LYNX_MOCK_FAST: "${LYNX_MOCK_FAST:-0}"
+      LYNX_HOOK_BASE: "${LYNX_HOOK_BASE:-http://host.docker.internal:8000}"
+    ports:
+      - "50051:50051"
+    networks: [lynx-mock]
+
+  compliance-grpc:
+    image: lynx-mock:latest
+    depends_on: [rest]
+    command: python -m _mock.run_grpc_compliance
+    environment:
+      LYNX_GRPC_COMPLIANCE_ADDR: "0.0.0.0:50052"
+      LYNX_MOCK_FAST: "${LYNX_MOCK_FAST:-0}"
+    ports:
+      - "50052:50052"
+    networks: [lynx-mock]
+
+  vendor-mcp:
+    image: lynx-mock:latest
+    depends_on: [rest]
+    command: python -m _mock.run_mcp_vendor
+    environment:
+      LYNX_MCP_HOST: "0.0.0.0"
+      LYNX_MCP_PORT: "7800"
+      LYNX_MOCK_FAST: "${LYNX_MOCK_FAST:-0}"
+    ports:
+      - "7800:7800"
+    networks: [lynx-mock]
 
 networks:
-  lynx-mock-network:
+  lynx-mock:
     driver: bridge

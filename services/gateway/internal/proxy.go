@@ -27,9 +27,12 @@ import (
 // signature validity is established at STS exchange and at the upstream resource.
 const preflightWindow = 35 * time.Second
 
+const maxBearerBytes = 4096
+
 // proxy implements the gateway's reverse-proxy handler.
 type proxy struct {
 	sts         *stsClient
+	jwks        *jwksCache
 	guard       *upstreamGuard
 	client      *http.Client
 	log         zerolog.Logger
@@ -39,7 +42,7 @@ type proxy struct {
 	revocations *revocationStore
 }
 
-func newProxy(sts *stsClient, guard *upstreamGuard, log zerolog.Logger, maxBytes int64, upstreamTimeout time.Duration, bindings *bindingStore, tracker *jtiTracker, revocations *revocationStore) *proxy {
+func newProxy(sts *stsClient, jwks *jwksCache, guard *upstreamGuard, log zerolog.Logger, maxBytes int64, upstreamTimeout time.Duration, bindings *bindingStore, tracker *jtiTracker, revocations *revocationStore) *proxy {
 	transport := &http.Transport{
 		DialContext:           guard.SafeDialContext(5*time.Second, 30*time.Second),
 		MaxIdleConns:          200,
@@ -53,6 +56,7 @@ func newProxy(sts *stsClient, guard *upstreamGuard, log zerolog.Logger, maxBytes
 	}
 	return &proxy{
 		sts:         sts,
+		jwks:        jwks,
 		guard:       guard,
 		client:      &http.Client{Transport: transport},
 		log:         log,
@@ -71,6 +75,11 @@ func (p *proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if bearer == "" {
 		writeErr(w, requestID, http.StatusUnauthorized, sharederr.InvalidToken, "missing bearer token")
 		logger.Info().Int("status", http.StatusUnauthorized).Msg("denied: missing bearer")
+		return
+	}
+	if len(bearer) > maxBearerBytes {
+		writeErr(w, requestID, http.StatusUnauthorized, sharederr.InvalidToken, "bearer token too large")
+		logger.Info().Int("status", http.StatusUnauthorized).Msg("denied: bearer too large")
 		return
 	}
 
@@ -117,6 +126,12 @@ func (p *proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		Str("subject_fp", tokenFingerprint(bearer)).
 		Logger()
 
+	if err := p.jwks.Verify(r.Context(), bind.ZoneID, bearer); err != nil {
+		writeErr(w, requestID, http.StatusUnauthorized, sharederr.InvalidToken, "bearer signature invalid")
+		logger.Info().Err(err).Int("status", http.StatusUnauthorized).Msg("denied: bearer signature")
+		return
+	}
+
 	if !p.tracker.Check(r.Context(), jwtJTI(bearer), exp, jwtUse(bearer), requestID, resource, bind.ApplicationID, tokenFingerprint(bearer)) {
 		writeErr(w, requestID, http.StatusUnauthorized, sharederr.InvalidToken, "token replay detected")
 		logger.Info().Int("status", http.StatusUnauthorized).Msg("denied: jti replay")
@@ -131,17 +146,18 @@ func (p *proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	stsCtx, cancel := context.WithTimeout(r.Context(), p.sts.client.Timeout)
-	res, status, cerr, internalErr := p.sts.Exchange(stsCtx, bearer, bind, resource, requestID)
+	out := p.sts.Exchange(stsCtx, bearer, bind, resource, requestID)
 	cancel()
-	if cerr != nil {
-		writeErr(w, requestID, status, cerr.Code, cerr.Description)
+	if out.ClientErr != nil {
+		writeErr(w, requestID, out.Status, out.ClientErr.Code, out.ClientErr.Description)
 		logger.Warn().
-			Int("status", status).
-			Str("error_code", string(cerr.Code)).
-			Err(internalErr).
+			Int("status", out.Status).
+			Str("error_code", string(out.ClientErr.Code)).
+			Err(out.InternalErr).
 			Msg("sts exchange failed")
 		return
 	}
+	res := out.Result
 
 	upstreamURL, err := p.guard.Check(res.Upstream.URL)
 	if err != nil {
@@ -237,6 +253,9 @@ func buildUpstreamRequest(r *http.Request, upstreamURL *url.URL, caracalToken st
 		req.Header.Set(authHeader, scheme+" "+caracalToken)
 	}
 	req.Header.Set("X-Request-Id", requestID)
+	if req.Header.Get("Traceparent") == "" {
+		req.Header.Set("Traceparent", traceparentFromRequestID(requestID))
+	}
 
 	// Replace, never append: the gateway is a trust boundary and any caller-supplied
 	// X-Forwarded-* values are spoofable. Upstreams that key on the first XFF entry
@@ -267,7 +286,7 @@ func classifyUpstreamError(err error) (int, sharederr.Code, string) {
 	}
 	var maxBytesErr *http.MaxBytesError
 	if errors.As(err, &maxBytesErr) {
-		return http.StatusRequestEntityTooLarge, sharederr.InvalidToken, "request body too large"
+		return http.StatusRequestEntityTooLarge, sharederr.PayloadTooLarge, "request body too large"
 	}
 	return http.StatusBadGateway, sharederr.Internal, "upstream unreachable"
 }
@@ -369,4 +388,16 @@ func writeErr(w http.ResponseWriter, requestID string, status int, code shareder
 	w.Header().Set("X-Request-Id", requestID)
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(e)
+}
+
+// traceparentFromRequestID builds a W3C traceparent value seeded from the request id
+// so a single trace identifier flows from the gateway through to upstream provider hops.
+func traceparentFromRequestID(requestID string) string {
+	hex := strings.ReplaceAll(requestID, "-", "")
+	for len(hex) < 32 {
+		hex += "0"
+	}
+	traceID := hex[:32]
+	spanID := hex[:16]
+	return "00-" + traceID + "-" + spanID + "-01"
 }

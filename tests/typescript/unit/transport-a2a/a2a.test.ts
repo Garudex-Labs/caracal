@@ -4,7 +4,7 @@
 // a2aCall unit tests: subject token forwarding, error propagation.
 
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { a2aCall } from '../../../../packages/transport-a2a/ts/src/a2a.js'
+import { a2aCall } from '../../../../packages/transport/a2a/ts/src/a2a.js'
 
 describe('a2aCall', () => {
   beforeEach(() => {
@@ -89,5 +89,24 @@ describe('a2aCall', () => {
       { stsUrl: 'http://sts:8080' },
     )
     expect(res).toEqual({ id: 'resp-2', result: { data: 42 } })
+  })
+
+  it('retries transient A2A responses with bounded backoff', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ access_token: 'agent-token', expires_in: 900 }) })
+      .mockResolvedValueOnce({ ok: false, status: 503 })
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ id: 'resp-3', result: 'ok' }) })
+    vi.stubGlobal('fetch', fetchMock)
+    vi.spyOn(Math, 'random').mockReturnValue(0)
+
+    const res = await a2aCall(
+      { agentUrl: 'http://agent-b:4001', method: 'query', params: {}, requestId: 'req-4' },
+      'tok',
+      'zone1',
+      'app2',
+      { stsUrl: 'http://sts:8080', retries: 1, retryBaseMs: 1 },
+    )
+    expect(res).toEqual({ id: 'resp-3', result: 'ok' })
+    expect(fetchMock).toHaveBeenCalledTimes(3)
   })
 })

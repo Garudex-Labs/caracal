@@ -7,20 +7,13 @@ import type { CliConfig } from './config.ts'
 
 const KNOWN_MCP_INDICATORS = ['mcp-server', 'fastmcp', '@modelcontextprotocol']
 
-export function checkMcpGovernance(cmd: string, cfg: CliConfig): void {
-  const isUnauthorized = KNOWN_MCP_INDICATORS.some((ind) => cmd.includes(ind))
+export function checkMcpGovernance(args: string[] | string, cfg: CliConfig): void {
+  const haystack = (Array.isArray(args) ? args : [args]).join(' ')
+  const isUnauthorized = KNOWN_MCP_INDICATORS.some((ind) => haystack.includes(ind))
   if (!isUnauthorized) return
 
   const mode = cfg.mcp_governance?.mode ?? 'block'
-  if (mode === 'log') {
-    process.stderr.write(
-      JSON.stringify({ event: 'mcp_governance', action: 'log', cmd }) + '\n',
-    )
-    return
-  }
-
-  process.stderr.write(
-    JSON.stringify({ event: 'mcp_governance', action: 'blocked', cmd }) + '\n',
-  )
-  process.exit(1)
+  const action = mode === 'log' ? 'log' : 'blocked'
+  process.stderr.write(JSON.stringify({ event: 'mcp_governance', action, cmd: haystack }) + '\n')
+  if (mode !== 'log') process.exit(1)
 }

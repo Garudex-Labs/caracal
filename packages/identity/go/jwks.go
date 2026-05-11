@@ -6,6 +6,7 @@
 package identity
 
 import (
+	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"encoding/base64"
@@ -17,7 +18,10 @@ import (
 	"time"
 )
 
-const jwksTTL = 5 * time.Minute
+const (
+	jwksTTL          = 5 * time.Minute
+	jwksFetchTimeout = 10 * time.Second
+)
 
 type jwksEntry struct {
 	keys      map[string]any
@@ -25,12 +29,18 @@ type jwksEntry struct {
 }
 
 var (
-	jwksMu    sync.RWMutex
-	jwksCache = map[string]*jwksEntry{}
+	jwksMu     sync.RWMutex
+	jwksCache  = map[string]*jwksEntry{}
+	jwksClient = &http.Client{Timeout: jwksFetchTimeout}
 )
 
 // GetJWKS returns the cached key set for issuer, fetching if missing or stale.
 func GetJWKS(issuer string) (map[string]any, error) {
+	return GetJWKSContext(context.Background(), issuer)
+}
+
+// GetJWKSContext is GetJWKS with caller-supplied cancellation.
+func GetJWKSContext(ctx context.Context, issuer string) (map[string]any, error) {
 	url := issuer + "/.well-known/jwks.json"
 
 	jwksMu.RLock()
@@ -40,7 +50,11 @@ func GetJWKS(issuer string) (map[string]any, error) {
 		return entry.keys, nil
 	}
 
-	resp, err := http.Get(url) //nolint:gosec
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := jwksClient.Do(req)
 	if err != nil {
 		return nil, err
 	}

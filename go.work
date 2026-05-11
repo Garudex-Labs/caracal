@@ -1,15 +1,15 @@
 go 1.26
 
 use (
-	./services/sts
-	./services/audit
-	./services/gateway
-	./apps/agent-coordinator/relay
+	./apps/coordinator/relay
+	./packages/connectors/nethttp/go
 	./packages/core/go
 	./packages/identity/go
 	./packages/revocation/go
-	./packages/transport-mcp/go
-	./packages/caracalai-mcp/go
-	./packages/framework-adaptor/mcp-nethttp/go
 	./packages/sdk/go
+	./packages/transport/mcp/go
+	./services/audit
+	./services/gateway
+	./services/sts
+	./tests/go
 )

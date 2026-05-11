@@ -1,0 +1,18 @@
+# Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+# Caracal, a product of Garudex Labs
+#
+# Codecov configuration: paths excluded from coverage reporting.
+
+ignore:
+  - "examples/**"
+  - "docs/**"
+
+coverage:
+  status:
+    project:
+      default:
+        target: auto
+        threshold: 1%
+    patch:
+      default:
+        target: auto

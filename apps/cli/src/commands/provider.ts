@@ -15,6 +15,8 @@ import {
   printTable,
   readContent,
   requireZone,
+  unknownVerb,
+  usage,
 } from './shared.ts'
 
 function parseConfig(value: string | undefined): Record<string, unknown> | undefined {
@@ -81,8 +83,9 @@ export async function providerCommand(argv: string[], cfg?: CliConfig): Promise<
       case 'help':
       case '--help':
       case '-h':
-      default:
         return help()
+      default:
+        return unknownVerb('provider', verb, help)
     }
   } catch (err) {
     fail(err)
@@ -118,7 +121,3 @@ function help(): void {
   process.exit(0)
 }
 
-function usage(line: string): void {
-  process.stderr.write(`Usage: caracal ${line}\n`)
-  process.exit(1)
-}

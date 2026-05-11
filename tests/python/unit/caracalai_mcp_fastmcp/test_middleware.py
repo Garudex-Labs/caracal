@@ -47,7 +47,7 @@ class CaracalAuthTests(unittest.IsolatedAsyncioTestCase):
 
         claims = await auth(token)
 
-        self.assertEqual(claims["zone_id"], "zone2")
+        self.assertEqual(claims.zone_id, "zone2")
 
 
 if __name__ == "__main__":

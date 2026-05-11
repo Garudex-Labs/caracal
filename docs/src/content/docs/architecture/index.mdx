@@ -1,0 +1,20 @@
+---
+title: Architecture
+description: How Caracal is built — system layers, runtime model, services, storage, and threat surface.
+---
+
+import SectionHub from '../../../components/SectionHub.astro'
+
+> **Documentation in progress.** This section is being filled in as the open-source rewrite lands.
+
+The internals of the Caracal control plane and gate, written for platform and security engineers.
+
+<SectionHub
+  items={[
+    { title: 'System Overview', href: '/architecture/system/', description: 'The complete picture: control plane, gate, SDKs, and data flow.' },
+    { title: 'Runtime Model', href: '/architecture/runtime/', description: 'How requests, mandates, and decisions move through the runtime.' },
+    { title: 'Services', href: '/architecture/services/', description: 'API, coordinator, audit, gateway, STS — what each service owns.' },
+    { title: 'Storage & Data', href: '/architecture/storage/', description: 'Postgres, Redis streams, and the ledger model.' },
+    { title: 'Threat Model', href: '/architecture/threat-model/', description: 'Trust boundaries, adversary classes, and mitigations.' },
+  ]}
+/>

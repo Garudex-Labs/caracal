@@ -190,4 +190,16 @@ describe('OAuthClient', () => {
 
     await expect(client.exchange('subject-tok', 'resource://api')).rejects.toThrow('invalid error response')
   })
+
+  it('rejects non-json successful STS responses', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      headers: { get: () => 'text/html' },
+      json: async () => ({ access_token: 'tok-html', expires_in: 900 }),
+    }))
+    const client = new OAuthClient('http://sts:8080', 'zone1', 'app1')
+
+    await expect(client.exchange('subject-tok', 'resource://api')).rejects.toThrow('expected application/json')
+  })
 })

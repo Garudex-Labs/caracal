@@ -26,30 +26,18 @@ type CaracalContext struct {
 	Hop              int
 }
 
-// ErrNoContext is returned when no CaracalContext is bound.
-var ErrNoContext = errors.New("caracal: no context bound on this path")
-
-// Bind returns a new context.Context carrying ctx.
+// Bind returns a new context.Context carrying c.
 func Bind(parent context.Context, c CaracalContext) context.Context {
 	return context.WithValue(parent, contextKey{}, c)
 }
 
-// Current returns the CaracalContext from ctx, or ErrNoContext.
-func Current(ctx context.Context) (CaracalContext, error) {
+// Current returns the CaracalContext bound on ctx and whether one was found.
+func Current(ctx context.Context) (CaracalContext, bool) {
 	v := ctx.Value(contextKey{})
 	if v == nil {
-		return CaracalContext{}, ErrNoContext
+		return CaracalContext{}, false
 	}
-	return v.(CaracalContext), nil
-}
-
-// MustCurrent panics if no CaracalContext is bound.
-func MustCurrent(ctx context.Context) CaracalContext {
-	c, err := Current(ctx)
-	if err != nil {
-		panic(err)
-	}
-	return c
+	return v.(CaracalContext), true
 }
 
 // FromEnvelope builds a CaracalContext from a deserialized Envelope.

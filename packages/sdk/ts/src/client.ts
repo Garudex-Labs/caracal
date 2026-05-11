@@ -5,7 +5,7 @@
  * Caracal: drop-in bound client wrapping zone, application, subject token, and coordinator.
  */
 
-import { bind, fromEnvelope, toEnvelope, tryCurrent, type CaracalContext } from "./context.js";
+import { bind, fromEnvelope, toEnvelope, current, type CaracalContext } from "./context.js";
 import {
   decodeEnvelope,
   toHeaders,
@@ -13,7 +13,13 @@ import {
   type HeaderGetter,
 } from "./envelope.js";
 import { type CoordinatorClient } from "./coordinator.js";
-import { withAgent, withDelegation, type WithAgentOptions, type WithDelegationOptions } from "./primitives.js";
+import {
+  spawn as spawnPrimitive,
+  delegate as delegatePrimitive,
+  type SpawnInput,
+  type DelegateInput,
+} from "./primitives.js";
+import { AgentKind, type DelegationConstraints } from "./coordinator.js";
 
 export interface ResourceBinding {
   resourceId: string;
@@ -27,12 +33,12 @@ export interface CaracalConfig {
   subjectToken: string;
   gatewayUrl?: string;
   resources?: ResourceBinding[];
-  defaultKind?: "service" | "instance" | "ephemeral";
+  defaultKind?: AgentKind;
   defaultTtlSeconds?: number;
 }
 
-export interface RunOptions {
-  kind?: "service" | "instance" | "ephemeral";
+export interface SpawnOptions {
+  kind?: AgentKind;
   ttlSeconds?: number;
   sessionSid?: string;
   parentId?: string;
@@ -44,11 +50,16 @@ export interface DelegateOptions {
   to: string;
   toApplicationId: string;
   scopes: string[];
-  constraints?: Record<string, unknown>;
+  constraints?: DelegationConstraints;
   ttlSeconds?: number;
 }
 
+export type LifecycleHook = (ctx: CaracalContext) => void | Promise<void>;
+
 export class Caracal {
+  private agentStartHooks: LifecycleHook[] = [];
+  private agentEndHooks: LifecycleHook[] = [];
+
   constructor(public readonly config: CaracalConfig) {}
 
   static fromEnv(env: NodeJS.ProcessEnv = process.env): Caracal {
@@ -76,24 +87,26 @@ export class Caracal {
     });
   }
 
-  run<T>(fn: () => Promise<T>, opts: RunOptions = {}): Promise<T> {
-    const full: WithAgentOptions = {
+  spawn<T>(fn: () => Promise<T>, opts: SpawnOptions = {}): Promise<T> {
+    const input: SpawnInput = {
       coordinator: this.config.coordinator,
       zoneId: this.config.zoneId,
       applicationId: this.config.applicationId,
       subjectToken: this.config.subjectToken,
-      kind: opts.kind ?? this.config.defaultKind ?? "instance",
+      kind: opts.kind ?? this.config.defaultKind ?? AgentKind.Instance,
       ttlSeconds: opts.ttlSeconds ?? this.config.defaultTtlSeconds,
       sessionSid: opts.sessionSid,
       parentId: opts.parentId,
       metadata: opts.metadata,
       traceId: opts.traceId,
+      onAgentStart: this.agentStartHooks.length ? (c) => this.fire(this.agentStartHooks, c) : undefined,
+      onAgentEnd: this.agentEndHooks.length ? (c) => this.fire(this.agentEndHooks, c) : undefined,
     };
-    return withAgent(full, fn);
+    return spawnPrimitive(input, fn);
   }
 
   delegate<T>(opts: DelegateOptions, fn: () => Promise<T>): Promise<T> {
-    const full: WithDelegationOptions = {
+    const input: DelegateInput = {
       coordinator: this.config.coordinator,
       toAgentSessionId: opts.to,
       toApplicationId: opts.toApplicationId,
@@ -101,11 +114,27 @@ export class Caracal {
       constraints: opts.constraints,
       ttlSeconds: opts.ttlSeconds,
     };
-    return withDelegation(full, fn) as Promise<T>;
+    return delegatePrimitive(input, fn);
+  }
+
+  onAgentStart(cb: LifecycleHook): void {
+    this.agentStartHooks.push(cb);
+  }
+
+  onAgentEnd(cb: LifecycleHook): void {
+    this.agentEndHooks.push(cb);
+  }
+
+  private async fire(hooks: LifecycleHook[], ctx: CaracalContext): Promise<void> {
+    for (const h of hooks) await h(ctx);
+  }
+
+  current(): CaracalContext | undefined {
+    return current();
   }
 
   headers(): Record<string, string> {
-    const ctx = tryCurrent();
+    const ctx = current();
     if (!ctx) {
       return toHeaders({
         subjectToken: this.config.subjectToken,
@@ -139,26 +168,36 @@ export class Caracal {
     return bind(ctx, fn) as Promise<T>;
   }
 
-  fetch: typeof fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
-    const ctx = tryCurrent();
-    const env: Envelope = ctx
-      ? toEnvelope(ctx)
-      : { subjectToken: this.config.subjectToken, hop: 0 };
-    const merged = new Headers(init?.headers ?? {});
-    for (const [k, v] of Object.entries(toHeaders(env))) {
-      if (!merged.has(k)) merged.set(k, v);
-    }
-    const fetchImpl = this.config.coordinator.fetchImpl ?? fetch;
+  /**
+   * Returns a fetch-shaped function that injects the Caracal envelope (traceparent
+   * + baggage) onto outbound requests and, for gateway-routed calls, replaces the
+   * `Authorization` header with the current subject token. Pass to any provider
+   * SDK that accepts a custom fetch.
+   */
+  transport(): typeof fetch {
+    const outer = this;
+    const fn: typeof fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const ctx = current();
+      const env: Envelope = ctx
+        ? toEnvelope(ctx)
+        : { subjectToken: outer.config.subjectToken, hop: 0 };
+      const merged = new Headers(init?.headers ?? {});
+      for (const [k, v] of Object.entries(toHeaders(env))) {
+        if (!merged.has(k)) merged.set(k, v);
+      }
+      const fetchImpl = outer.config.coordinator.fetchImpl ?? fetch;
 
-    const explicitResource = merged.get("X-Caracal-Resource") ?? undefined;
-    const rewritten = this.routeThroughGateway(input, explicitResource);
-    if (rewritten) {
-      merged.set("X-Caracal-Resource", rewritten.resourceId);
-      merged.set("Authorization", `Bearer ${env.subjectToken ?? this.config.subjectToken}`);
-      return fetchImpl(rewritten.url as unknown as URL, { ...init, headers: merged });
-    }
-    return fetchImpl(input as URL, { ...init, headers: merged });
-  }) as typeof fetch;
+      const explicitResource = merged.get("X-Caracal-Resource") ?? undefined;
+      const rewritten = outer.routeThroughGateway(input, explicitResource);
+      if (rewritten) {
+        merged.set("X-Caracal-Resource", rewritten.resourceId);
+        merged.set("Authorization", `Bearer ${env.subjectToken ?? outer.config.subjectToken}`);
+        return fetchImpl(rewritten.url as unknown as URL, { ...init, headers: merged });
+      }
+      return fetchImpl(input as URL, { ...init, headers: merged });
+    }) as typeof fetch;
+    return fn;
+  }
 
   private routeThroughGateway(
     input: RequestInfo | URL,
@@ -193,18 +232,9 @@ export class Caracal {
         if (!suffix.startsWith("/")) suffix = "/" + suffix;
       }
     }
-    const target = gateway.toString().replace(/\/$/, "") + suffix;
+    const base = gateway.origin + gateway.pathname.replace(/\/$/, "");
+    const target = base + suffix;
     return { url: target, resourceId: binding?.resourceId ?? explicitResource! };
-  }
-
-  context(): CaracalContext {
-    const ctx = tryCurrent();
-    if (!ctx) throw new Error("Caracal context is not bound on this execution path");
-    return ctx;
-  }
-
-  tryContext(): CaracalContext | undefined {
-    return tryCurrent();
   }
 
   middleware() {

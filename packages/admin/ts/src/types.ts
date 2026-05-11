@@ -246,3 +246,14 @@ export interface TraverseNode {
   target_session_id: string
   depth: number
 }
+
+export interface LocalBootstrapResult {
+  zone_id: string
+  app_id: string
+  application_id: string
+  app_client_secret: string | null
+  resource: string
+  scope: string
+  rotated: boolean
+  signing_key_resealed?: boolean
+}

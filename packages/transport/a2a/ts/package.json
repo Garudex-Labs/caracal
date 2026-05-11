@@ -1,0 +1,38 @@
+{
+  "name": "@caracalai/transport-a2a",
+  "version": "0.1.0",
+  "description": "Caracal agent-to-agent transport primitives.",
+  "license": "Apache-2.0",
+  "homepage": "https://github.com/Garudex-Labs/caracal",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Garudex-Labs/caracal.git",
+    "directory": "packages/transport/a2a/ts"
+  },
+  "keywords": ["caracal", "a2a", "agent-to-agent", "transport"],
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "files": ["dist", "README.md", "LICENSE"],
+  "publishConfig": { "access": "public" },
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run --root ../../../.. tests/typescript/unit/transport-a2a",
+    "prepublishOnly": "tsc"
+  },
+  "dependencies": {
+    "@caracalai/oauth": "workspace:*",
+    "@caracalai/sdk": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "^5.8.0",
+    "vitest": "^3.0.0"
+  }
+}

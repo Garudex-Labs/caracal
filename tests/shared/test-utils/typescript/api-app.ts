@@ -64,11 +64,13 @@ export function apiAppDeps(opts: ApiDepsOptions = {}): ApiDeps {
     localBootstrapEnabled: false,
     shutdownTimeoutMs: 1000,
     workerId: 'test:0',
+    bodyLimitBytes: 1_048_576,
     outbox: {
       pollIntervalMs: 1000,
       batchSize: 8,
       lockDurationSec: 5,
       maxAttempts: 3,
+      streamMaxLen: 10_000,
     },
   }
 

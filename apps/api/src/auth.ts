@@ -35,6 +35,7 @@ declare module 'fastify' {
 }
 
 const BEARER_PREFIX = 'Bearer '
+const MAX_ADMIN_BEARER_BYTES = 4096
 
 function bytesEqual(a: Buffer, b: Buffer): boolean {
   return a.length === b.length && timingSafeEqual(a, b)
@@ -44,7 +45,7 @@ function extractBearer(req: FastifyRequest): string | null {
   const auth = req.headers.authorization
   if (!auth || !auth.startsWith(BEARER_PREFIX)) return null
   const token = auth.slice(BEARER_PREFIX.length).trim()
-  return token.length > 0 ? token : null
+  return token.length > 0 && token.length <= MAX_ADMIN_BEARER_BYTES ? token : null
 }
 
 function zoneFromUrl(url: string): string | null {

@@ -24,6 +24,9 @@ var ErrAgentIdentityRequired = errors.New("agent identity required")
 // ErrDelegationRequired signals the token has no delegation_edge_id.
 var ErrDelegationRequired = errors.New("delegation required")
 
+// ErrHopCountExceeded signals the token's hop_count exceeds Config.MaxHopCount.
+var ErrHopCountExceeded = errors.New("hop count exceeded")
+
 // ScopeMissingError signals a required scope is absent from the token.
 type ScopeMissingError struct {
 	Scope string
@@ -154,6 +157,9 @@ func Verify(tokenStr string, cfg Config) (Claims, error) {
 	}
 	if cfg.RequireDelegation && delegationEdgeID == "" {
 		return Claims{}, ErrDelegationRequired
+	}
+	if cfg.MaxHopCount > 0 && hopCount > cfg.MaxHopCount {
+		return Claims{}, ErrHopCountExceeded
 	}
 	for _, expected := range cfg.RequireChainContains {
 		present := false

@@ -54,9 +54,9 @@ func TestMiddlewareBindsContext(t *testing.T) {
 	c := &sdk.Caracal{ZoneID: "z", ApplicationID: "a", SubjectToken: "fallback"}
 	var seen string
 	handler := c.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		cur, err := sdk.Current(r.Context())
-		if err != nil {
-			t.Errorf("no context: %v", err)
+		cur, ok := sdk.Current(r.Context())
+		if !ok {
+			t.Errorf("no context")
 		}
 		seen = cur.SubjectToken
 		w.WriteHeader(200)
@@ -93,7 +93,7 @@ func TestHTTPClientInjects(t *testing.T) {
 		AgentSessionID: "sess9",
 		Hop:            1,
 	})
-	client := c.HTTPClient(nil)
+	client := c.Transport(nil)
 	req, _ := http.NewRequestWithContext(ctx, "GET", srv.URL, nil)
 	resp, err := client.Do(req)
 	if err != nil {

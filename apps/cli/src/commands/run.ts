@@ -5,10 +5,11 @@
 
 import { spawn } from 'node:child_process'
 import { OAuthClient, InteractionRequiredError } from '@caracalai/oauth'
-import type { CliConfig } from '../config.ts'
+import type { CliConfig, Credential } from '../config.ts'
 
 const STEP_UP_POLL_MS = 2000
 const STEP_UP_TIMEOUT_MS = 300_000
+const TOKEN_TTL_SECONDS = 3600
 
 async function waitForChallenge(zoneUrl: string, challengeId: string): Promise<boolean> {
   const deadline = Date.now() + STEP_UP_TIMEOUT_MS
@@ -28,56 +29,35 @@ async function waitForChallenge(zoneUrl: string, challengeId: string): Promise<b
 }
 
 async function exchangeWithStepUp(
-  exchangeFn: (resource: string) => Promise<{ accessToken: string }>,
+  client: OAuthClient,
+  cfg: CliConfig,
   resource: string,
-  zoneUrl: string,
-  zoneId: string,
-  applicationId: string,
-  clientSecret: string,
-  env: Record<string, string>,
-  envKey: string,
-): Promise<void> {
-  let challengeId: string | undefined
+): Promise<string> {
   try {
-    const token = await exchangeFn(resource)
-    env[envKey] = token.accessToken
-    return
+    const token = await client.exchange('', resource, {
+      clientSecret: cfg.app_client_secret,
+      ttlSeconds: TOKEN_TTL_SECONDS,
+    })
+    return token.accessToken
   } catch (err) {
-    if (err instanceof InteractionRequiredError && err.challengeId) {
-      challengeId = err.challengeId
-    } else {
-      throw err
-    }
+    if (!(err instanceof InteractionRequiredError) || !err.challengeId) throw err
+    process.stderr.write(
+      JSON.stringify({ resource, challenge_id: err.challengeId, reason: 'step_up_required' }) + '\n',
+    )
+    const satisfied = await waitForChallenge(cfg.zone_url, err.challengeId)
+    if (!satisfied) throw new Error('step_up_challenge_timed_out')
+    const token = await client.exchange('', resource, {
+      clientSecret: cfg.app_client_secret,
+      ttlSeconds: TOKEN_TTL_SECONDS,
+    })
+    return token.accessToken
   }
+}
 
-  process.stderr.write(
-    JSON.stringify({ resource, challenge_id: challengeId, reason: 'step_up_required' }) + '\n',
-  )
-
-  const satisfied = await waitForChallenge(zoneUrl, challengeId!)
-  if (!satisfied) throw new Error('step_up_challenge_timed_out')
-
-  const form = new URLSearchParams({
-    grant_type: 'urn:ietf:params:oauth:grant-type:token-exchange',
-    zone_id: zoneId,
-    application_id: applicationId,
-    client_secret: clientSecret,
-    subject_token: '',
-    subject_token_type: 'urn:ietf:params:oauth:token-type:access_token',
-    resource,
-    challenge_response: challengeId!,
-  })
-  const res = await fetch(`${zoneUrl}/oauth/2/token`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: form.toString(),
-  })
-  if (!res.ok) {
-    const msg = await res.text()
-    throw new Error(`step_up_retry_failed: ${msg}`)
-  }
-  const data = (await res.json()) as { access_token: string }
-  env[envKey] = data.access_token
+function logFailure(cred: Credential, err: unknown): void {
+  const reason = err instanceof Error ? err.message : String(err)
+  const requestId = err instanceof InteractionRequiredError ? err.challengeId : undefined
+  process.stderr.write(JSON.stringify({ resource: cred.resource, reason, requestId }) + '\n')
 }
 
 export async function runCommand(argv: string[], cfg: CliConfig): Promise<void> {
@@ -92,44 +72,20 @@ export async function runCommand(argv: string[], cfg: CliConfig): Promise<void> 
 
   for (const cred of cfg.credentials ?? []) {
     try {
-      await exchangeWithStepUp(
-        (r) => client.exchange('', r, { clientSecret: cfg.app_client_secret, ttlSeconds: 3600 }),
-        cred.resource,
-        cfg.zone_url,
-        cfg.zone_id,
-        cfg.application_id,
-        cfg.app_client_secret,
-        env,
-        cred.env,
-      )
+      env[cred.env] = await exchangeWithStepUp(client, cfg, cred.resource)
     } catch (err) {
-      if (!cfg.continue_on_failure) {
-        const desc = err instanceof Error ? err.message : String(err)
-        const requestId = err instanceof InteractionRequiredError ? err.challengeId : undefined
-        process.stderr.write(
-          JSON.stringify({ resource: cred.resource, reason: desc, requestId }) + '\n',
-        )
-        process.exit(1)
-      }
+      logFailure(cred, err)
+      if (!cfg.continue_on_failure) process.exit(1)
     }
   }
 
   for (const cred of cfg.optional_credentials ?? []) {
     try {
-      await exchangeWithStepUp(
-        (r) => client.exchange('', r, { clientSecret: cfg.app_client_secret, ttlSeconds: 3600 }),
-        cred.resource,
-        cfg.zone_url,
-        cfg.zone_id,
-        cfg.application_id,
-        cfg.app_client_secret,
-        env,
-        cred.env,
-      )
+      env[cred.env] = await exchangeWithStepUp(client, cfg, cred.resource)
     } catch (err) {
-      const desc = err instanceof Error ? err.message : String(err)
+      const reason = err instanceof Error ? err.message : String(err)
       process.stderr.write(
-        `warn: optional credential skipped resource=${cred.resource} reason=${desc}\n`,
+        `warn: optional credential skipped resource=${cred.resource} reason=${reason}\n`,
       )
     }
   }
@@ -138,11 +94,15 @@ export async function runCommand(argv: string[], cfg: CliConfig): Promise<void> 
   const proc = spawn(cmd!, args, { env, stdio: 'inherit' })
 
   const code: number = await new Promise((resolve) => {
-    proc.on('exit', (c, signal) => resolve(c ?? (signal ? 128 : 1)))
-    proc.on('error', () => resolve(1))
+    proc.on('exit', (c, signal) => {
+      if (typeof c === 'number') return resolve(c)
+      if (signal) {
+        const map: Record<string, number> = { SIGINT: 2, SIGTERM: 15, SIGKILL: 9, SIGHUP: 1, SIGQUIT: 3 }
+        return resolve(128 + (map[signal] ?? 15))
+      }
+      resolve(1)
+    })
+    proc.on('error', () => resolve(127))
   })
-  for (const key of Object.keys(env)) {
-    if (!(key in process.env)) delete env[key]
-  }
   process.exit(code)
 }

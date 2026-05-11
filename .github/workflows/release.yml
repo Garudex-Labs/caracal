@@ -1,14 +1,26 @@
 # Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 # Caracal, a product of Garudex Labs
 #
-# Release pipeline: build CLI binaries, push runtime images to GHCR, publish GitHub Release on v* tags.
+# Release pipeline: builds CLI binaries, publishes npm/PyPI packages, pushes runtime images to GHCR, and creates the GitHub Release on CalVer tags.
 
 name: release
 
 on:
   push:
     tags:
-      - 'v*.*.*'
+      - 'v[0-9][0-9][0-9][0-9].[0-9][0-9].[0-9][0-9]'
+      - 'v[0-9][0-9][0-9][0-9].[0-9][0-9].[0-9][0-9].[0-9]+'
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: 'Ref to release from (defaults to current)'
+        required: false
+        default: ''
+      dryRun:
+        description: 'Dry run: build and stage artifacts without publishing'
+        required: false
+        type: boolean
+        default: true
 
 permissions:
   contents: write
@@ -24,6 +36,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          ref: ${{ inputs.ref || github.ref }}
       - uses: pnpm/action-setup@f40ffcd9367d9f12939873eb1018b921a783ffaa # v4
         with:
           version: 10.28.0
@@ -42,6 +56,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          ref: ${{ inputs.ref || github.ref }}
       - uses: pnpm/action-setup@f40ffcd9367d9f12939873eb1018b921a783ffaa # v4
         with:
           version: 10.28.0
@@ -53,9 +69,18 @@ jobs:
         with:
           bun-version: latest
       - run: pnpm install --frozen-lockfile
-      - name: Stamp version
+      - name: Resolve release version
+        id: ver
         run: |
-          VERSION="${GITHUB_REF_NAME#v}"
+          if [ "${{ github.event_name }}" = "push" ]; then
+            VERSION="${GITHUB_REF_NAME#v}"
+          else
+            VERSION="$(date -u +%Y.%m.%d)-dev"
+          fi
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+      - name: Stamp CLI version
+        run: |
+          VERSION="${{ steps.ver.outputs.version }}"
           printf '%s\n' \
             '// Copyright (C) 2026 Garudex Labs.  All Rights Reserved.' \
             '// Caracal, a product of Garudex Labs' \
@@ -64,8 +89,8 @@ jobs:
             '' \
             "export const CARACAL_VERSION = '${VERSION}'" \
             > apps/cli/src/runtime/version.ts
-          jq --arg v "${VERSION}" '.version = $v' apps/cli/package.json > apps/cli/package.json.new
-          mv apps/cli/package.json.new apps/cli/package.json
+          jq --arg v "${VERSION}" '.version = $v' apps/cli/package.json > apps/cli/package.json.tmp
+          mv apps/cli/package.json.tmp apps/cli/package.json
       - run: pnpm --dir apps/cli build
       - run: pnpm --dir apps/tui build
       - name: Stage artifacts
@@ -80,6 +105,96 @@ jobs:
         with:
           name: cli-binaries
           path: release-dist/*
+      - uses: actions/attest-build-provenance@7668a9fa50f3da3d83fbb0a4c5fb4ac3fc6d1c2e # v2
+        if: github.event_name == 'push'
+        with:
+          subject-path: release-dist/caracal-*
+
+  npm:
+    needs: validate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+          fetch-depth: 0
+      - uses: pnpm/action-setup@f40ffcd9367d9f12939873eb1018b921a783ffaa # v4
+        with:
+          version: 10.28.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 24
+          cache: pnpm
+          registry-url: 'https://registry.npmjs.org'
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run build:typescript
+      - name: Publish via Changesets
+        if: github.event_name == 'push' && inputs.dryRun != true
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NPM_CONFIG_PROVENANCE: 'true'
+        run: pnpm changeset publish
+      - name: Dry-run publish
+        if: github.event_name != 'push' || inputs.dryRun == true
+        run: |
+          pnpm changeset status --since=HEAD~1 || true
+          for d in \
+            packages/core/ts \
+            packages/oauth/ts \
+            packages/admin/ts \
+            packages/identity/ts \
+            packages/revocation/ts \
+            packages/sdk/ts \
+            packages/transport/mcp/ts \
+            packages/transport/a2a/ts \
+            packages/connectors/express/ts \
+            packages/connectors/fastmcp/ts \
+            packages/connectors/postgres/ts
+          do
+            pnpm --dir "$d" pack --pack-destination /tmp/caracal-pack
+          done
+          ls -la /tmp/caracal-pack
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: github.event_name != 'push' || inputs.dryRun == true
+        with:
+          name: npm-tarballs
+          path: /tmp/caracal-pack/*.tgz
+
+  pypi:
+    needs: validate
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+    strategy:
+      matrix:
+        package:
+          - packages/core/python
+          - packages/identity/python
+          - packages/revocation/python
+          - packages/sdk/python
+          - packages/transport/mcp/python
+          - packages/connectors/fastmcp/python
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+      - uses: actions/setup-python@7f4fc3e22c37d6ff65e88745f38bd3157c663f7c # v5
+        with:
+          python-version: '3.12'
+      - name: Build sdist + wheel
+        working-directory: ${{ matrix.package }}
+        run: |
+          pip install build
+          python -m build
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: pypi-${{ strategy.job-index }}
+          path: ${{ matrix.package }}/dist/*
+      - uses: pypa/gh-action-pypi-publish@76f52bc884231f62b9a034ebfe128415bbaabdfc # v1
+        if: github.event_name == 'push' && inputs.dryRun != true
+        with:
+          packages-dir: ${{ matrix.package }}/dist
+          skip-existing: true
 
   images:
     needs: validate
@@ -101,12 +216,15 @@ jobs:
             dockerfile: services/audit/Dockerfile
           - name: coordinator
             context: .
-            dockerfile: apps/agent-coordinator/Dockerfile
+            dockerfile: apps/coordinator/Dockerfile
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          ref: ${{ inputs.ref || github.ref }}
       - uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3
       - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
       - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        if: github.event_name == 'push' && inputs.dryRun != true
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
@@ -116,22 +234,24 @@ jobs:
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/caracal-${{ matrix.name }}
           tags: |
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=raw,value=latest
+            type=raw,value=${{ github.ref_name }},enable=${{ github.event_name == 'push' }}
+            type=match,pattern=v(\d+\.\d+)\.\d+(\.\d+)?,group=1,prefix=v
+            type=raw,value=latest,enable=${{ github.event_name == 'push' }}
+            type=raw,value=dryrun,enable=${{ github.event_name != 'push' }}
       - uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
           context: ${{ matrix.context }}
           file: ${{ matrix.dockerfile }}
           platforms: linux/amd64,linux/arm64
-          push: true
+          push: ${{ github.event_name == 'push' && inputs.dryRun != true }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           provenance: true
           sbom: true
 
   publish:
-    needs: [cli, images]
+    needs: [cli, npm, pypi, images]
+    if: github.event_name == 'push' && inputs.dryRun != true
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4

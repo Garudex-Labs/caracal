@@ -14,6 +14,7 @@ type Config struct {
 	RequireAgent         bool
 	RequireDelegation    bool
 	RequireChainContains []string
+	MaxHopCount          int
 }
 
 // ChainHop is one step in a delegation chain.

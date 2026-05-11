@@ -1,10 +1,8 @@
 # Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 # Caracal, a product of Garudex Labs
 #
-# OAuth 2.0 scope-string evaluation per RFC 6749 §3.3.
+# OAuth 2.0 scope-string evaluation, delegated to caracalai_core.
 
+from caracalai_core import has_scope
 
-def has_scope(scope: str, target: str) -> bool:
-    if not target:
-        return False
-    return target in scope.split()
+__all__ = ["has_scope"]

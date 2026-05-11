@@ -124,17 +124,38 @@ export class OAuthClient {
 
     const controller = new AbortController()
     const timeout = setTimeout(() => controller.abort(), opts.timeoutMs ?? 30_000)
-    let res: Awaited<ReturnType<typeof fetch>>
+    const maxRetries = opts.retries ?? 3
+    let res: Awaited<ReturnType<typeof fetch>> | undefined
     try {
-      res = await fetch(`${this.stsUrl}/oauth/2/token`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body,
-        signal: controller.signal,
-      })
+      for (let attempt = 0; attempt <= maxRetries; attempt++) {
+        res = await fetch(`${this.stsUrl}/oauth/2/token`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body,
+          signal: controller.signal,
+        })
+        const status = res.status
+        const transient = status === 408 || status === 425 || status === 429 || (status >= 500 && status < 600)
+        if (!transient || attempt === maxRetries) break
+        const retryAfter = res.headers?.get('retry-after')
+        let waitMs: number
+        if (retryAfter) {
+          const secs = Number(retryAfter)
+          if (Number.isFinite(secs)) waitMs = Math.max(0, secs * 1000)
+          else {
+            const date = Date.parse(retryAfter)
+            waitMs = Number.isNaN(date) ? 250 * 2 ** attempt : Math.max(0, date - Date.now())
+          }
+        } else {
+          const base = Math.min(2 ** attempt * 250, 5_000)
+          waitMs = base / 2 + Math.random() * (base / 2)
+        }
+        await new Promise(r => setTimeout(r, waitMs))
+      }
     } finally {
       clearTimeout(timeout)
     }
+    if (!res) throw new Error('STS request failed: no response')
 
     if (!res.ok) {
       let err: STSErrorResponse
@@ -157,6 +178,9 @@ export class OAuthClient {
       throw new Error(err['error_description'] ?? `STS error ${res.status}`)
     }
 
+    if (!isJsonResponse(res)) {
+      throw new Error('STS response invalid: expected application/json')
+    }
     const data = (await res.json()) as {
       access_token: string
       expires_in: number
@@ -168,4 +192,11 @@ export class OAuthClient {
       issuedAt: Math.floor(Date.now() / 1000),
     }
   }
+}
+
+function isJsonResponse(res: Response): boolean {
+  const contentType = res.headers?.get('content-type')
+  if (contentType === null || contentType === undefined) return true
+  const mediaType = contentType.toLowerCase().split(';', 1)[0]
+  return mediaType === 'application/json' || mediaType.endsWith('+json')
 }

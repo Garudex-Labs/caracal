@@ -8,11 +8,12 @@ import {
   buildAdminClient,
   fail,
   flagBool,
-  flagString,
   parseArgs,
   printJSON,
   printTable,
   requireZone,
+  unknownVerb,
+  usage,
 } from './shared.ts'
 
 function ensureCoordinator(): void {
@@ -78,8 +79,9 @@ export async function agentCommand(argv: string[], cfg?: CliConfig): Promise<voi
       case 'help':
       case '--help':
       case '-h':
-      default:
         return agentHelp()
+      default:
+        return unknownVerb('agent', verb, agentHelp)
     }
   } catch (err) {
     fail(err)
@@ -129,8 +131,9 @@ export async function delegationCommand(argv: string[], cfg?: CliConfig): Promis
       case 'help':
       case '--help':
       case '-h':
+        return agentHelp()
       default:
-        return delegationHelp()
+        return unknownVerb('agent', verb, agentHelp)
     }
   } catch (err) {
     fail(err)
@@ -185,7 +188,3 @@ function delegationHelp(): void {
   process.exit(0)
 }
 
-function usage(line: string): void {
-  process.stderr.write(`Usage: caracal ${line}\n`)
-  process.exit(1)
-}

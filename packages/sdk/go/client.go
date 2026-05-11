@@ -9,7 +9,9 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"net/url"
 	"os"
+	"strings"
 )
 
 // Caracal binds the four config values needed to integrate with Caracal.
@@ -18,8 +20,21 @@ type Caracal struct {
 	ZoneID            string
 	ApplicationID     string
 	SubjectToken      string
+	GatewayURL        string
+	Resources         []ResourceBinding
 	DefaultKind       AgentKind
 	DefaultTTLSeconds int
+
+	agentStartHooks []LifecycleHook
+	agentEndHooks   []LifecycleHook
+}
+
+// ResourceBinding maps a registered Caracal resource id to the upstream URL
+// prefix it serves. The prefix is matched against outbound request URLs so the
+// transport can rewrite the call through the gateway transparently.
+type ResourceBinding struct {
+	ResourceID     string
+	UpstreamPrefix string
 }
 
 // FromEnv constructs a Caracal client from CARACAL_COORDINATOR_URL,
@@ -48,11 +63,60 @@ func FromEnv() (*Caracal, error) {
 		ZoneID:        zone,
 		ApplicationID: app,
 		SubjectToken:  tok,
+		GatewayURL:    os.Getenv("CARACAL_GATEWAY_URL"),
+		Resources:     parseResourceBindings(os.Getenv("CARACAL_RESOURCES")),
 	}, nil
 }
 
-// RunOptions overrides defaults for a single Run call.
-type RunOptions struct {
+// parseResourceBindings reads the CARACAL_RESOURCES env format
+// "rid=https://upstream/prefix,rid2=https://other/prefix".
+func parseResourceBindings(raw string) []ResourceBinding {
+	if raw == "" {
+		return nil
+	}
+	out := []ResourceBinding{}
+	for _, entry := range strings.Split(raw, ",") {
+		trimmed := strings.TrimSpace(entry)
+		if trimmed == "" {
+			continue
+		}
+		idx := strings.Index(trimmed, "=")
+		if idx <= 0 {
+			continue
+		}
+		rid := strings.TrimSpace(trimmed[:idx])
+		prefix := strings.TrimSpace(trimmed[idx+1:])
+		if rid != "" && prefix != "" {
+			out = append(out, ResourceBinding{ResourceID: rid, UpstreamPrefix: prefix})
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+// OnAgentStart registers a hook fired when Spawn binds a new agent session.
+func (c *Caracal) OnAgentStart(h LifecycleHook) {
+	c.agentStartHooks = append(c.agentStartHooks, h)
+}
+
+// OnAgentEnd registers a hook fired when Spawn unwinds an agent session.
+func (c *Caracal) OnAgentEnd(h LifecycleHook) {
+	c.agentEndHooks = append(c.agentEndHooks, h)
+}
+
+func (c *Caracal) fire(hooks []LifecycleHook, ctx context.Context, cc CaracalContext) error {
+	for _, h := range hooks {
+		if err := h(ctx, cc); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// SpawnOptions overrides defaults for a single Spawn call.
+type SpawnOptions struct {
 	Kind       AgentKind
 	TTLSeconds int
 	SessionSID string
@@ -61,9 +125,9 @@ type RunOptions struct {
 	TraceID    string
 }
 
-// Run spawns an agent session and invokes fn with the bound context.
-func (c *Caracal) Run(ctx context.Context, fn func(context.Context) error, opts ...RunOptions) error {
-	o := RunOptions{}
+// Spawn spawns an agent session and invokes fn with the bound context.
+func (c *Caracal) Spawn(ctx context.Context, fn func(context.Context) error, opts ...SpawnOptions) error {
+	o := SpawnOptions{}
 	if len(opts) > 0 {
 		o = opts[0]
 	}
@@ -78,7 +142,14 @@ func (c *Caracal) Run(ctx context.Context, fn func(context.Context) error, opts 
 	if ttl == 0 {
 		ttl = c.DefaultTTLSeconds
 	}
-	return WithAgent(ctx, WithAgentOptions{
+	var onStart, onEnd LifecycleHook
+	if len(c.agentStartHooks) > 0 {
+		onStart = func(cx context.Context, cc CaracalContext) error { return c.fire(c.agentStartHooks, cx, cc) }
+	}
+	if len(c.agentEndHooks) > 0 {
+		onEnd = func(cx context.Context, cc CaracalContext) error { return c.fire(c.agentEndHooks, cx, cc) }
+	}
+	return Spawn(ctx, SpawnInput{
 		Coordinator:   c.Coordinator,
 		ZoneID:        c.ZoneID,
 		ApplicationID: c.ApplicationID,
@@ -89,6 +160,8 @@ func (c *Caracal) Run(ctx context.Context, fn func(context.Context) error, opts 
 		TTLSeconds:    ttl,
 		Metadata:      o.Metadata,
 		TraceID:       o.TraceID,
+		OnAgentStart:  onStart,
+		OnAgentEnd:    onEnd,
 	}, fn)
 }
 
@@ -97,19 +170,19 @@ type DelegateOptions struct {
 	To              string
 	ToApplicationID string
 	Scopes          []string
-	Constraints     map[string]any
+	Constraints     *DelegationConstraints
 	TTLSeconds      int
 }
 
 // Delegate creates a delegation edge from the current session and runs fn under it.
 func (c *Caracal) Delegate(ctx context.Context, opts DelegateOptions, fn func(context.Context) error) error {
-	return WithDelegation(ctx, WithDelegationOptions{
-		Coordinator:        c.Coordinator,
-		ToAgentSessionID:   opts.To,
-		ToApplicationID:    opts.ToApplicationID,
-		Scopes:             opts.Scopes,
-		Constraints:        opts.Constraints,
-		TTLSeconds:         opts.TTLSeconds,
+	return Delegate(ctx, DelegateInput{
+		Coordinator:      c.Coordinator,
+		ToAgentSessionID: opts.To,
+		ToApplicationID:  opts.ToApplicationID,
+		Scopes:           opts.Scopes,
+		Constraints:      opts.Constraints,
+		TTLSeconds:       opts.TTLSeconds,
 	}, fn)
 }
 
@@ -117,8 +190,8 @@ func (c *Caracal) Delegate(ctx context.Context, opts DelegateOptions, fn func(co
 // using the configured subject token if no context is bound).
 func (c *Caracal) Headers(ctx context.Context) http.Header {
 	h := http.Header{}
-	cur, err := Current(ctx)
-	if err != nil {
+	cur, ok := Current(ctx)
+	if !ok {
 		InjectHTTP(Envelope{SubjectToken: c.SubjectToken, Hop: 0}, h)
 		return h
 	}
@@ -141,25 +214,15 @@ func (c *Caracal) BindFromRequest(ctx context.Context, r *http.Request) context.
 	return Bind(ctx, cc)
 }
 
-// Context returns the current Caracal context bound on ctx. Returns an error
-// if no Caracal context has been bound on this execution path.
-func (c *Caracal) Context(ctx context.Context) (CaracalContext, error) {
+// Current returns the Caracal context bound on ctx, or a zero value and false.
+func (c *Caracal) Current(ctx context.Context) (CaracalContext, bool) {
 	return Current(ctx)
 }
 
-// TryContext returns the current Caracal context if one is bound on ctx, or
-// the zero value and false otherwise.
-func (c *Caracal) TryContext(ctx context.Context) (CaracalContext, bool) {
-	cur, err := Current(ctx)
-	if err != nil {
-		return CaracalContext{}, false
-	}
-	return cur, true
-}
-
-// HTTPClient returns an *http.Client whose RoundTripper auto-injects the
-// Caracal envelope headers from the request's context.
-func (c *Caracal) HTTPClient(base *http.Client) *http.Client {
+// Transport returns an *http.Client whose RoundTripper auto-injects the
+// Caracal envelope headers from the request's context. Pass to any HTTP or
+// provider SDK that accepts a custom *http.Client.
+func (c *Caracal) Transport(base *http.Client) *http.Client {
 	if base == nil {
 		base = &http.Client{}
 	}
@@ -178,9 +241,9 @@ type caracalTransport struct {
 }
 
 func (t *caracalTransport) RoundTrip(req *http.Request) (*http.Response, error) {
-	cur, err := Current(req.Context())
+	cur, ok := Current(req.Context())
 	var env Envelope
-	if err != nil {
+	if !ok {
 		env = Envelope{SubjectToken: t.client.SubjectToken, Hop: 0}
 	} else {
 		env = ToEnvelope(cur)
@@ -192,5 +255,106 @@ func (t *caracalTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 			clone.Header.Set(canon, value)
 		}
 	})
+	if rewritten := t.client.routeThroughGateway(clone.URL, clone.Header.Get("X-Caracal-Resource")); rewritten != nil {
+		clone.URL = rewritten.url
+		clone.Host = rewritten.url.Host
+		clone.RequestURI = ""
+		clone.Header.Set("X-Caracal-Resource", rewritten.resourceID)
+		token := env.SubjectToken
+		if token == "" {
+			token = t.client.SubjectToken
+		}
+		clone.Header.Set("Authorization", "Bearer "+token)
+	}
 	return t.base.RoundTrip(clone)
+}
+
+type gatewayRoute struct {
+	url        *url.URL
+	resourceID string
+}
+
+// routeThroughGateway rewrites target to point at the gateway when the request
+// matches a configured ResourceBinding. Returns nil to leave the request alone.
+func (c *Caracal) routeThroughGateway(target *url.URL, explicitResource string) *gatewayRoute {
+	if c.GatewayURL == "" || target == nil {
+		return nil
+	}
+	gw, err := url.Parse(c.GatewayURL)
+	if err != nil {
+		return nil
+	}
+	if sameOrigin(target, gw) {
+		return nil
+	}
+	var binding *ResourceBinding
+	if explicitResource != "" {
+		for i := range c.Resources {
+			if c.Resources[i].ResourceID == explicitResource {
+				binding = &c.Resources[i]
+				break
+			}
+		}
+	} else {
+		for i := range c.Resources {
+			if urlMatchesPrefix(target, c.Resources[i].UpstreamPrefix) {
+				binding = &c.Resources[i]
+				break
+			}
+		}
+		if binding == nil {
+			return nil
+		}
+	}
+	suffix := target.Path
+	if target.RawQuery != "" {
+		suffix += "?" + target.RawQuery
+	}
+	if binding != nil {
+		prefix, err := url.Parse(binding.UpstreamPrefix)
+		if err == nil && prefix.Path != "" && prefix.Path != "/" && strings.HasPrefix(target.Path, prefix.Path) {
+			suffix = strings.TrimPrefix(target.Path, prefix.Path)
+			if !strings.HasPrefix(suffix, "/") {
+				suffix = "/" + suffix
+			}
+			if target.RawQuery != "" {
+				suffix += "?" + target.RawQuery
+			}
+		}
+	}
+	base := strings.TrimRight(gw.Scheme+"://"+gw.Host+gw.Path, "/")
+	rewritten, err := url.Parse(base + suffix)
+	if err != nil {
+		return nil
+	}
+	rid := explicitResource
+	if binding != nil {
+		rid = binding.ResourceID
+	}
+	return &gatewayRoute{url: rewritten, resourceID: rid}
+}
+
+func sameOrigin(a, b *url.URL) bool {
+	return a.Scheme == b.Scheme && a.Host == b.Host
+}
+
+func urlMatchesPrefix(target *url.URL, prefix string) bool {
+	p, err := url.Parse(prefix)
+	if err != nil {
+		return false
+	}
+	if p.Scheme != target.Scheme || p.Host != target.Host {
+		return false
+	}
+	if p.Path == "" || p.Path == "/" {
+		return true
+	}
+	if target.Path == p.Path {
+		return true
+	}
+	pp := p.Path
+	if !strings.HasSuffix(pp, "/") {
+		pp += "/"
+	}
+	return strings.HasPrefix(target.Path, pp)
 }

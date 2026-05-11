@@ -9,6 +9,13 @@ import { STREAM_SIG_FIELD, loadStreamsHmacKey, signStream } from '@caracalai/cor
 import type { DB } from './db.js'
 import type { RedisClient } from './redis.js'
 
+function isProductionLike(): boolean {
+  const ce = (process.env.CARACAL_ENV ?? '').toLowerCase()
+  if (ce === 'production' || ce === 'prod' || ce === 'staging') return true
+  const ne = (process.env.NODE_ENV ?? '').toLowerCase()
+  return ne === 'production' || ne === 'staging'
+}
+
 export type OutboxPayload = Record<string, string | number | boolean | null>
 
 export interface OutboxRow {
@@ -69,6 +76,7 @@ export interface DispatcherOptions {
   pollIntervalMs?: number
   lockDurationSec?: number
   maxAttempts?: number
+  streamMaxLen?: number
   log: (level: 'info' | 'warn' | 'error', msg: string, meta?: Record<string, unknown>) => void
 }
 
@@ -80,7 +88,7 @@ export class OutboxDispatcher {
 
   constructor(private readonly opts: DispatcherOptions) {
     this.streamHmacKey = loadStreamsHmacKey()
-    if (this.streamHmacKey === null && process.env.CARACAL_ENV && ['production', 'prod', 'staging'].includes(process.env.CARACAL_ENV)) {
+    if (this.streamHmacKey === null && isProductionLike()) {
       throw new Error('STREAMS_HMAC_KEY is required in production')
     }
   }
@@ -153,7 +161,12 @@ export class OutboxDispatcher {
     }
     const fields = flattenForXAdd(signed)
     try {
-      await this.opts.redis.xadd(row.stream_name, '*', ...fields)
+      const maxLen = this.opts.streamMaxLen
+      if (maxLen && maxLen > 0) {
+        await this.opts.redis.xadd(row.stream_name, 'MAXLEN', '~', String(maxLen), '*', ...fields)
+      } else {
+        await this.opts.redis.xadd(row.stream_name, '*', ...fields)
+      }
       await this.opts.db.query(
         `UPDATE event_outbox
          SET dispatched_at = now(), locked_until = NULL, last_error = NULL
@@ -173,7 +186,7 @@ export class OutboxDispatcher {
         await this.opts.db.query(
           `UPDATE event_outbox
            SET locked_until = NULL,
-               available_at = now() + INTERVAL '1 hour',
+               available_at = 'infinity'::timestamptz,
                last_error   = $2
            WHERE id = $1`,
           [row.id, message],

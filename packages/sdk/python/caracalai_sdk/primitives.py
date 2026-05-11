@@ -2,19 +2,20 @@
 Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 Caracal, a product of Garudex Labs
 
-SDK primitives: with_agent and with_delegation as async context managers.
+SDK primitives: spawn an agent session and delegate authority as async context managers.
 """
 
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
 from dataclasses import replace
-from typing import Any, AsyncGenerator
+from typing import Any, AsyncGenerator, Awaitable, Callable
 
-from .context import CaracalContext, current, try_current, _ctx_var
+from .context import CaracalContext, current, _ctx_var
 from .coordinator import (
     AgentKind,
     CoordinatorClient,
+    DelegationConstraints,
     DelegationRequest,
     SpawnRequest,
     create_delegation,
@@ -23,8 +24,11 @@ from .coordinator import (
 )
 
 
+LifecycleHook = Callable[[CaracalContext], Awaitable[None]]
+
+
 @asynccontextmanager
-async def with_agent(
+async def spawn(
     *,
     coordinator: CoordinatorClient,
     zone_id: str,
@@ -32,12 +36,14 @@ async def with_agent(
     subject_token: str,
     session_sid: str | None = None,
     parent_id: str | None = None,
-    kind: AgentKind = "instance",
+    kind: AgentKind = AgentKind.INSTANCE,
     ttl_seconds: int | None = None,
     metadata: dict[str, Any] | None = None,
     trace_id: str | None = None,
+    on_agent_start: LifecycleHook | None = None,
+    on_agent_end: LifecycleHook | None = None,
 ) -> AsyncGenerator[CaracalContext, None]:
-    parent = try_current()
+    parent = current()
     resolved_parent_id = parent_id or (parent.agent_session_id if parent else None)
     bearer = subject_token
 
@@ -66,28 +72,33 @@ async def with_agent(
         hop=parent.hop if parent else 0,
     )
 
+    if on_agent_start is not None:
+        await on_agent_start(ctx)
+
     token = _ctx_var.set(ctx)
     try:
         yield ctx
     finally:
         _ctx_var.reset(token)
-        if kind != "service":
+        if on_agent_end is not None:
+            await on_agent_end(ctx)
+        if kind != AgentKind.SERVICE:
             await terminate_agent(coordinator, bearer, zone_id, res.agent_session_id)
 
 
 @asynccontextmanager
-async def with_delegation(
+async def delegate(
     *,
     coordinator: CoordinatorClient,
     to_agent_session_id: str,
     to_application_id: str,
     scopes: list[str],
-    constraints: dict[str, Any] | None = None,
+    constraints: DelegationConstraints | None = None,
     ttl_seconds: int | None = None,
 ) -> AsyncGenerator[CaracalContext, None]:
     ctx = current()
-    if not ctx.agent_session_id:
-        raise RuntimeError("with_delegation requires an active agent session in context")
+    if ctx is None or not ctx.agent_session_id:
+        raise RuntimeError("delegate requires an active agent session in context")
 
     res = await create_delegation(
         coordinator,

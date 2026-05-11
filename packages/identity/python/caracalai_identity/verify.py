@@ -45,6 +45,10 @@ class ChainMismatchError(PermissionError):
         self.missing_application_id = missing_application_id
 
 
+class HopCountExceededError(PermissionError):
+    pass
+
+
 def _read_chain(raw: Any) -> list[ChainHop]:
     if not isinstance(raw, list):
         return []
@@ -74,9 +78,23 @@ async def verify_token(
 ) -> dict[str, Any]:
     keys = await _cache.get_keys(issuer)
 
+    try:
+        header = jwt.get_unverified_header(token)
+    except Exception as e:
+        raise TokenInvalidError(f"Token validation failed: {e}") from e
+
+    token_kid = header.get("kid")
+    candidates: list[dict[str, Any]]
+    if token_kid:
+        candidates = [k for k in keys if k.get("kid") == token_kid]
+        if not candidates:
+            raise TokenInvalidError(f"Token validation failed: unknown kid {token_kid}")
+    else:
+        candidates = list(keys)
+
     decoded: dict[str, Any] | None = None
     last_err: Exception | None = None
-    for key in keys:
+    for key in candidates:
         try:
             decoded = jwt.decode(
                 token,
@@ -124,6 +142,14 @@ async def verify_config(token: str, config: JwtConfig) -> Claims:
         present = any(hop.application_id == expected for hop in delegation_chain)
         if not present:
             raise ChainMismatchError(expected)
+
+    hop_count = decoded.get("hop_count")
+    if (
+        config.max_hop_count is not None
+        and isinstance(hop_count, int)
+        and hop_count > config.max_hop_count
+    ):
+        raise HopCountExceededError("Hop count exceeded")
 
     delegation_path = decoded.get("delegation_path") or []
     if not isinstance(delegation_path, list):

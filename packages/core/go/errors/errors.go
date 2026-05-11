@@ -20,6 +20,7 @@ const (
 	InteractionRequired Code = "interaction_required"
 	STSUnavailable      Code = "sts_unavailable"
 	CredentialExpired   Code = "credential_expired_not_renewable"
+	PayloadTooLarge     Code = "payload_too_large"
 )
 
 // CaracalError is the canonical error type for all Caracal service responses.

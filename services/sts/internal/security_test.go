@@ -59,32 +59,19 @@ func TestArgon2idRoundTrip(t *testing.T) {
 	if !strings.HasPrefix(hash, argon2Prefix) {
 		t.Fatalf("hash missing argon2id prefix: %q", hash)
 	}
-	ok, needs := verifyClientSecret(hash, "hunter2")
-	if !ok || needs {
-		t.Fatalf("argon2id verify must succeed without rehash, ok=%v needs=%v", ok, needs)
+	if !verifyClientSecret(hash, "hunter2") {
+		t.Fatal("argon2id verify must succeed")
 	}
-	if ok, _ := verifyClientSecret(hash, "wrong"); ok {
+	if verifyClientSecret(hash, "wrong") {
 		t.Fatal("wrong secret must not verify")
 	}
 }
 
-func TestVerifyClientSecretLegacySHA256TriggersRehash(t *testing.T) {
-	digest := sha256.Sum256([]byte("legacy-secret"))
-	stored := hex.EncodeToString(digest[:])
-	ok, needs := verifyClientSecret(stored, "legacy-secret")
-	if !ok || !needs {
-		t.Fatalf("legacy verify must succeed and request rehash, ok=%v needs=%v", ok, needs)
-	}
-	if ok, _ := verifyClientSecret(stored, "wrong"); ok {
-		t.Fatal("legacy wrong secret must not verify")
-	}
-}
-
 func TestVerifyClientSecretEmptyInputs(t *testing.T) {
-	if ok, _ := verifyClientSecret("", "x"); ok {
+	if verifyClientSecret("", "x") {
 		t.Error("empty stored must reject")
 	}
-	if ok, _ := verifyClientSecret("x", ""); ok {
+	if verifyClientSecret("x", "") {
 		t.Error("empty presented must reject")
 	}
 }

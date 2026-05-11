@@ -20,6 +20,7 @@ export class DetailView implements View {
   private offset = 0
   private loading = true
   private error: string | undefined
+  private aborted = false
 
   constructor(opts: DetailOptions) {
     this.title = opts.title
@@ -28,9 +29,9 @@ export class DetailView implements View {
 
   hints(): string[] { return ['↑/↓:scroll', 'r:reload', 'h:back'] }
 
-  async init(app: App): Promise<void> {
-    await this.reload(app)
-  }
+  async init(app: App): Promise<void> { await this.reload(app) }
+
+  dispose(): void { this.aborted = true }
 
   async reload(app: App): Promise<void> {
     this.loading = true
@@ -39,13 +40,17 @@ export class DetailView implements View {
     app.invalidate()
     try {
       const data = await this.loader()
+      if (this.aborted) return
       this.body = JSON.stringify(data, null, 2).split('\n')
       this.offset = 0
     } catch (err) {
+      if (this.aborted) return
       this.error = explainError(err)
     } finally {
-      this.loading = false
-      app.invalidate()
+      if (!this.aborted) {
+        this.loading = false
+        app.invalidate()
+      }
     }
   }
 

@@ -28,6 +28,7 @@ type Config struct {
 func loadConfig() Config {
 	hexKey := config.Getenv("AUDIT_HMAC_KEY", "")
 	var key []byte
+	base := config.Load()
 	if hexKey != "" {
 		k, err := hex.DecodeString(hexKey)
 		if err != nil {
@@ -37,6 +38,8 @@ func loadConfig() Config {
 			panic("AUDIT_HMAC_KEY: must be at least 32 bytes")
 		}
 		key = k
+	} else if base.IsProduction() {
+		panic("AUDIT_HMAC_KEY: required in production")
 	}
 	retention, _ := strconv.Atoi(config.Getenv("AUDIT_RETENTION_DAYS", "365"))
 	if retention < 1 {
@@ -49,7 +52,7 @@ func loadConfig() Config {
 		rolling = 4
 	}
 	return Config{
-		Base:               config.Load(),
+		Base:               base,
 		S3Endpoint:         config.Getenv("AUDIT_EXPORT_S3_ENDPOINT", ""),
 		S3Bucket:           config.Getenv("AUDIT_EXPORT_S3_BUCKET", ""),
 		S3Region:           config.Getenv("AUDIT_EXPORT_S3_REGION", "us-east-1"),

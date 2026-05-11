@@ -8,6 +8,7 @@ import { loadConfig } from './config.js'
 import { newDB } from './db.js'
 import { newRedis } from './redis.js'
 import { startDCRGC } from './jobs/dcr-gc.js'
+import { startSessionsReaper } from './jobs/sessions-reaper.js'
 import { runMigrations } from './migrate.js'
 import { ShutdownRegistry } from './lifecycle.js'
 import { OutboxDispatcher } from './outbox.js'
@@ -51,12 +52,15 @@ const dispatcher = new OutboxDispatcher({
   pollIntervalMs: cfg.outbox.pollIntervalMs,
   lockDurationSec: cfg.outbox.lockDurationSec,
   maxAttempts: cfg.outbox.maxAttempts,
+  streamMaxLen: cfg.outbox.streamMaxLen,
   log: (level, msg, meta) => app.log[level]({ ...meta }, msg),
 })
 
-const dcrTimer = startDCRGC(db)
+const dcrTimer = startDCRGC(db, app.log)
+const sessionsReaperTimer = startSessionsReaper(db, app.log)
 
 shutdown.register('dcr-gc-timer', () => { clearInterval(dcrTimer) })
+shutdown.register('sessions-reaper', () => { clearInterval(sessionsReaperTimer) })
 shutdown.register('outbox-dispatcher', () => dispatcher.stop())
 shutdown.register('fastify', () => app.close())
 shutdown.register('redis', async () => { await redis.quit() })

@@ -1,7 +1,15 @@
 {
   "name": "@caracalai/oauth",
   "version": "0.1.0",
-  "private": true,
+  "description": "Caracal RFC 8693 OAuth 2.0 token exchange client.",
+  "license": "Apache-2.0",
+  "homepage": "https://github.com/Garudex-Labs/caracal",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Garudex-Labs/caracal.git",
+    "directory": "packages/oauth/ts"
+  },
+  "keywords": ["caracal", "oauth", "token-exchange", "rfc8693"],
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -11,11 +19,13 @@
       "types": "./dist/index.d.ts"
     }
   },
+  "files": ["dist", "README.md", "LICENSE"],
+  "publishConfig": { "access": "public" },
   "scripts": {
     "build": "tsc",
     "typecheck": "tsc --noEmit",
     "test": "vitest run --root ../../.. tests/typescript/unit/sdk/oauth",
-    "prepare": "tsc"
+    "prepublishOnly": "tsc"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",

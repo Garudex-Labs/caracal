@@ -47,7 +47,7 @@ ensureGroup caracal.audit.events.dlq   audit-dlq-observer
 ensureGroup caracal.policy.invalidate  opa-engine
 ensureGroup caracal.sessions.revoke    sts-revocation
 ensureGroup caracal.keys.invalidate    sts-keys
-ensureGroup caracal.agents.lifecycle       agent-coordinator-relay
+ensureGroup caracal.agents.lifecycle       coordinator-relay
 ensureGroup caracal.invocations.lifecycle  invocations-observer
 ensureGroup caracal.delegations.invalidate delegations-observer
 

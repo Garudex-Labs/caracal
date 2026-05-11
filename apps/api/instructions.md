@@ -16,5 +16,5 @@
 - Must not import from caracalEnterprise/.
 - Must not return plaintext secrets, credentials, or key material in any response.
 - Must not accept Cedar policies; only Rego content.
-- Must not add endpoints not listed in plan.md Phase 2.
+- Must not add endpoints not listed in plan.md.
 - Must not duplicate config, error handling, or logging patterns already in caracal/shared/ts/.

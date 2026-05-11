@@ -3,6 +3,7 @@
 //
 // DCR auto-archive job: marks expired DCR apps as archived 24 hours after expires_at.
 
+import type { FastifyBaseLogger } from 'fastify'
 import type { DB } from '../db.js'
 
 const GC_LOCK_KEY = '7163920485318472'
@@ -45,10 +46,10 @@ export async function runDCRGCIfLeader(db: DB): Promise<number | null> {
   }
 }
 
-export function startDCRGC(db: DB, intervalMs = 60_000): NodeJS.Timeout {
+export function startDCRGC(db: DB, log: FastifyBaseLogger, intervalMs = 60_000): NodeJS.Timeout {
   return setInterval(() => {
     runDCRGCIfLeader(db).catch((err) => {
-      console.error('DCR garbage collection failed:', err)
+      log.error({ err }, 'DCR garbage collection failed')
     })
   }, intervalMs)
 }

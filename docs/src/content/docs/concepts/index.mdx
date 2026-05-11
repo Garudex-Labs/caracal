@@ -1,0 +1,25 @@
+---
+title: Concepts
+description: The primitives behind pre-execution authority enforcement — mandates, policies, principals, delegation, caveats, intent, workspace, and ledger.
+---
+
+import SectionHub from '../../../components/SectionHub.astro'
+
+> **Documentation in progress.** This section is being filled in as the open-source rewrite lands.
+
+The vocabulary every operator, developer, and security engineer should share before reaching the architecture or SDK chapters.
+
+<SectionHub
+  columns={3}
+  items={[
+    { title: 'Authority Enforcement', href: '/concepts/authority-enforcement/', description: 'The model Caracal implements: bind agents to policy before code runs.' },
+    { title: 'Mandate', href: '/concepts/mandate/', description: 'Short-lived, signed authority objects scoped to principal, policy, and intent.' },
+    { title: 'Policy', href: '/concepts/policy/', description: 'Declarative rules evaluated at the gate — permit, deny, or constrain.' },
+    { title: 'Principal', href: '/concepts/principal/', description: 'The identity (human, service, or agent) acting under a mandate.' },
+    { title: 'Delegation', href: '/concepts/delegation/', description: 'Pass scoped authority safely from one principal to another.' },
+    { title: 'Caveat', href: '/concepts/caveat/', description: 'Narrowing conditions attached to mandates to shrink blast radius.' },
+    { title: 'Intent', href: '/concepts/intent/', description: 'The declared operation an agent is about to perform.' },
+    { title: 'Workspace', href: '/concepts/workspace/', description: 'Boundary for policies, principals, and audit data.' },
+    { title: 'Ledger', href: '/concepts/ledger/', description: 'Append-only record of every decision — replay, prove, revoke.' },
+  ]}
+/>

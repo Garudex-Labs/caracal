@@ -47,11 +47,20 @@ type stsClient struct {
 	client *http.Client
 }
 
-// stsResult is the outcome of a single Exchange call.
+// stsResult holds the successful token and upstream directive from a single Exchange call.
 type stsResult struct {
 	AccessToken string
 	Upstream    upstreamDirective
 	Latency     time.Duration
+}
+
+// exchangeOutcome bundles every field an Exchange call can return so callers
+// never have to juggle a 4-tuple.
+type exchangeOutcome struct {
+	Result      *stsResult
+	Status      int
+	ClientErr   *sharederr.CaracalError
+	InternalErr error
 }
 
 func newSTSClient(stsURL string, timeout time.Duration) *stsClient {
@@ -73,9 +82,7 @@ func newSTSClient(stsURL string, timeout time.Duration) *stsClient {
 // Exchange performs an RFC 8693 token exchange. The caller's identity is sent as
 // (zone_id, application_id) form fields rather than a positional client_id, so
 // neither value depends on a separator-free encoding.
-// Internal error detail is returned for the gateway to log; a sanitised CaracalError is
-// safe to forward to the client.
-func (c *stsClient) Exchange(ctx context.Context, subjectToken string, bind binding, resource, requestID string) (*stsResult, int, *sharederr.CaracalError, error) {
+func (c *stsClient) Exchange(ctx context.Context, subjectToken string, bind binding, resource, requestID string) exchangeOutcome {
 	form := url.Values{
 		"grant_type":         {"urn:ietf:params:oauth:grant-type:token-exchange"},
 		"zone_id":            {bind.ZoneID},
@@ -87,8 +94,8 @@ func (c *stsClient) Exchange(ctx context.Context, subjectToken string, bind bind
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
 		c.url+"/oauth/2/token", strings.NewReader(form.Encode()))
 	if err != nil {
-		return nil, http.StatusInternalServerError,
-			sharederr.New(sharederr.STSUnavailable, "sts request build failed"), err
+		return exchangeOutcome{Status: http.StatusInternalServerError,
+			ClientErr: sharederr.New(sharederr.STSUnavailable, "sts request build failed"), InternalErr: err}
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("User-Agent", "caracal-gateway")
@@ -102,7 +109,7 @@ func (c *stsClient) Exchange(ctx context.Context, subjectToken string, bind bind
 	latency := time.Since(start)
 	if err != nil {
 		status, code, msg := classifySTSTransportError(err)
-		return nil, status, sharederr.New(code, msg), err
+		return exchangeOutcome{Status: status, ClientErr: sharederr.New(code, msg), InternalErr: err}
 	}
 	defer resp.Body.Close()
 
@@ -110,29 +117,41 @@ func (c *stsClient) Exchange(ctx context.Context, subjectToken string, bind bind
 		var e sharederr.CaracalError
 		body := io.LimitReader(resp.Body, stsErrorBodyLimit)
 		if err := json.NewDecoder(body).Decode(&e); err == nil && e.Code != "" {
-			return nil, resp.StatusCode, &e, fmt.Errorf("sts %d: %s", resp.StatusCode, e.Code)
+			return exchangeOutcome{Status: resp.StatusCode, ClientErr: &e, InternalErr: fmt.Errorf("sts %d: %s", resp.StatusCode, e.Code)}
 		}
-		return nil, resp.StatusCode,
-			sharederr.New(sharederr.STSUnavailable, http.StatusText(resp.StatusCode)),
-			fmt.Errorf("sts non-200 status: %d", resp.StatusCode)
+		return exchangeOutcome{Status: resp.StatusCode,
+			ClientErr:   sharederr.New(sharederr.STSUnavailable, http.StatusText(resp.StatusCode)),
+			InternalErr: fmt.Errorf("sts non-200 status: %d", resp.StatusCode)}
+	}
+	if !isJSONResponse(resp.Header.Get("Content-Type")) {
+		return exchangeOutcome{Status: http.StatusBadGateway,
+			ClientErr: sharederr.New(sharederr.STSUnavailable, "sts response invalid"), InternalErr: fmt.Errorf("sts response content-type invalid")}
 	}
 	var tr tokenResponse
 	if err := json.NewDecoder(io.LimitReader(resp.Body, stsErrorBodyLimit)).Decode(&tr); err != nil {
-		return nil, http.StatusBadGateway,
-			sharederr.New(sharederr.STSUnavailable, "sts response invalid"), err
+		return exchangeOutcome{Status: http.StatusBadGateway,
+			ClientErr: sharederr.New(sharederr.STSUnavailable, "sts response invalid"), InternalErr: err}
 	}
 	if tr.AccessToken == "" {
-		return nil, http.StatusBadGateway,
-			sharederr.New(sharederr.STSUnavailable, "sts response invalid"),
-			fmt.Errorf("sts returned empty access_token")
+		return exchangeOutcome{Status: http.StatusBadGateway,
+			ClientErr:   sharederr.New(sharederr.STSUnavailable, "sts response invalid"),
+			InternalErr: fmt.Errorf("sts returned empty access_token")}
 	}
 	upstream, ok := tr.Upstreams[resource]
 	if !ok || upstream.URL == "" {
-		return nil, http.StatusForbidden,
-			sharederr.New(sharederr.AccessDenied, "resource upstream not configured"),
-			fmt.Errorf("resource %q not in upstreams", resource)
+		return exchangeOutcome{Status: http.StatusForbidden,
+			ClientErr:   sharederr.New(sharederr.AccessDenied, "resource upstream not configured"),
+			InternalErr: fmt.Errorf("resource %q not in upstreams", resource)}
 	}
-	return &stsResult{AccessToken: tr.AccessToken, Upstream: upstream, Latency: latency}, http.StatusOK, nil, nil
+	return exchangeOutcome{Result: &stsResult{AccessToken: tr.AccessToken, Upstream: upstream, Latency: latency}, Status: http.StatusOK}
+}
+
+func isJSONResponse(contentType string) bool {
+	if contentType == "" {
+		return false
+	}
+	mediaType := strings.ToLower(strings.Split(contentType, ";")[0])
+	return mediaType == "application/json" || strings.HasSuffix(mediaType, "+json")
 }
 
 // classifySTSTransportError maps low-level transport errors to gateway-safe responses.

@@ -93,6 +93,10 @@ export function registerAdminAuditHook(app: FastifyInstance, opts: AuditPluginOp
       statusCode: reply.statusCode,
       payload: null,
     }
-    await recordAdminEvent(opts.db, event)
+    try {
+      await recordAdminEvent(opts.db, event)
+    } catch (err) {
+      req.log.warn({ err, requestId: req.id }, 'failed to record admin audit event')
+    }
   })
 }

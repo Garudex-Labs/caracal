@@ -63,7 +63,7 @@ func newFakeSTS(t *testing.T, upstream string, calls *int32) *httptest.Server {
 func newProxyForTest(_ *testing.T, sts *httptest.Server, allowPrivate bool) *proxy {
 	stsClient := newSTSClient(sts.URL, 2*time.Second)
 	guard := newUpstreamGuard(nil, allowPrivate)
-	return newProxy(stsClient, guard, zerolog.New(io.Discard), 1<<20, 5*time.Second, testBindings(), nil, nil)
+	return newProxy(stsClient, nil, guard, zerolog.New(io.Discard), 1<<20, 5*time.Second, testBindings(), nil, nil)
 }
 
 // testBindings returns a bindingStore preloaded with the resource identifiers used
@@ -116,6 +116,25 @@ func TestProxyMissingBearerReturns401(t *testing.T) {
 	}
 	if resp.Header.Get("X-Request-Id") == "" {
 		t.Error("missing X-Request-Id in error response")
+	}
+}
+
+func TestProxyOversizedBearerRejectedWithoutSTSCall(t *testing.T) {
+	var calls int32
+	sts := newFakeSTS(t, "http://127.0.0.1:1", &calls)
+	defer sts.Close()
+	p := newProxyForTest(t, sts, true)
+
+	hdr := http.Header{
+		"Authorization":      {"Bearer " + strings.Repeat("x", maxBearerBytes+1)},
+		"X-Caracal-Resource": {"r"},
+	}
+	resp := doProxiedRequest(t, p, "GET", "/x", nil, hdr)
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("oversized bearer should 401, got %d", resp.StatusCode)
+	}
+	if atomic.LoadInt32(&calls) != 0 {
+		t.Errorf("oversized bearer must not reach STS, got %d calls", calls)
 	}
 }
 
@@ -300,6 +319,20 @@ func TestProxySTSExchangedExactlyOncePerRequest(t *testing.T) {
 	}
 }
 
+func TestSTSExchangeRejectsNonJSONSuccess(t *testing.T) {
+	sts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		_, _ = io.WriteString(w, `{"access_token":"tok","upstreams":{"r":{"url":"https://upstream.example.com","auth_mode":"caracal_jwt"}}}`)
+	}))
+	defer sts.Close()
+
+	client := newSTSClient(sts.URL, time.Second)
+	out := client.Exchange(context.Background(), "subject-token", binding{ZoneID: "z", ApplicationID: "app"}, "r", "req-1")
+	if out.Status != http.StatusBadGateway || out.ClientErr == nil {
+		t.Fatalf("want bad gateway invalid response, got %#v", out)
+	}
+}
+
 func TestProxyConcurrentRequestsEachExchange(t *testing.T) {
 	const requests = 25
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -343,6 +376,7 @@ func TestProxyPathAndQueryComposition(t *testing.T) {
 	defer upstream.Close()
 
 	sts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(stsResponseFixture{
 			AccessToken: "tok",
 			Upstreams:   map[string]upstreamDirectiveFixture{"r1": {URL: upstream.URL + "/base?fixed=upstream&shared=upstream", AuthMode: "caracal_jwt"}},
@@ -382,7 +416,7 @@ func TestProxyBodySizeLimitEnforced(t *testing.T) {
 
 	stsClient := newSTSClient(sts.URL, 2*time.Second)
 	guard := newUpstreamGuard(nil, true)
-	p := newProxy(stsClient, guard, zerolog.New(io.Discard), 16, 2*time.Second, testBindings(), nil, nil)
+	p := newProxy(stsClient, nil, guard, zerolog.New(io.Discard), 16, 2*time.Second, testBindings(), nil, nil)
 
 	tok := makeJWT(t, time.Hour)
 	hdr := http.Header{
@@ -531,18 +565,18 @@ func TestSTSClientTransportFailureSanitised(t *testing.T) {
 	c := newSTSClient("http://127.0.0.1:1", 100*time.Millisecond)
 	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
 	defer cancel()
-	_, status, cerr, internalErr := c.Exchange(ctx, "tok", binding{ZoneID: "z", ApplicationID: "a"}, "r", "rid")
-	if internalErr == nil {
+	out := c.Exchange(ctx, "tok", binding{ZoneID: "z", ApplicationID: "a"}, "r", "rid")
+	if out.InternalErr == nil {
 		t.Fatal("expected transport error")
 	}
-	if cerr == nil {
+	if out.ClientErr == nil {
 		t.Fatal("expected sanitised CaracalError")
 	}
-	if status < 500 {
-		t.Errorf("transport failure should map to 5xx, got %d", status)
+	if out.Status < 500 {
+		t.Errorf("transport failure should map to 5xx, got %d", out.Status)
 	}
-	if strings.Contains(cerr.Description, "127.0.0.1") {
-		t.Errorf("internal address leaked: %s", cerr.Description)
+	if strings.Contains(out.ClientErr.Description, "127.0.0.1") {
+		t.Errorf("internal address leaked: %s", out.ClientErr.Description)
 	}
 }
 

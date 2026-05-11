@@ -10,6 +10,7 @@ services:
     build:
       context: ../postgres
     image: caracal/postgres:dev
+    restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
@@ -28,6 +29,7 @@ services:
     build:
       context: ../redis
     image: caracal/redis:dev
+    restart: unless-stopped
     command:
       - "--requirepass"
       - "${REDIS_PASSWORD}"
@@ -62,6 +64,7 @@ services:
       context: ../..
       dockerfile: services/sts/Dockerfile
     image: caracal/sts:dev
+    restart: unless-stopped
     depends_on:
       init:
         condition: service_completed_successfully
@@ -87,6 +90,7 @@ services:
       context: ../..
       dockerfile: apps/api/Dockerfile
     image: caracal/api:dev
+    restart: unless-stopped
     depends_on:
       sts:
         condition: service_healthy
@@ -97,7 +101,7 @@ services:
       ZONE_KEK: ${ZONE_KEK}
       STREAMS_HMAC_KEY: ${STREAMS_HMAC_KEY}
       CARACAL_ADMIN_TOKEN: ${CARACAL_ADMIN_TOKEN}
-      CARACAL_LOCAL_BOOTSTRAP_ENABLED: ${CARACAL_LOCAL_BOOTSTRAP_ENABLED:-false}
+      CARACAL_LOCAL_BOOTSTRAP_ENABLED: ${CARACAL_LOCAL_BOOTSTRAP_ENABLED:-true}
       PORT: 3000
     ports:
       - "3000:3000"
@@ -112,12 +116,14 @@ services:
       context: ../..
       dockerfile: services/gateway/Dockerfile
     image: caracal/gateway:dev
+    restart: unless-stopped
     depends_on:
       sts:
         condition: service_healthy
       api:
         condition: service_healthy
     environment:
+      CARACAL_ENV: ${CARACAL_ENV:-dev}
       DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
       STS_URL: http://sts:8080
@@ -138,12 +144,14 @@ services:
       context: ../..
       dockerfile: services/audit/Dockerfile
     image: caracal/audit:dev
+    restart: unless-stopped
     depends_on:
       init:
         condition: service_completed_successfully
     environment:
       DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
+      AUDIT_HMAC_KEY: ${AUDIT_HMAC_KEY}
       AUDIT_EXPORT_S3_ENDPOINT: ${AUDIT_EXPORT_S3_ENDPOINT:-}
       AUDIT_EXPORT_S3_BUCKET: ${AUDIT_EXPORT_S3_BUCKET:-}
       PORT: "9090"
@@ -158,8 +166,9 @@ services:
   coordinator:
     build:
       context: ../..
-      dockerfile: apps/agent-coordinator/Dockerfile
+      dockerfile: apps/coordinator/Dockerfile
     image: caracal/coordinator:dev
+    restart: unless-stopped
     depends_on:
       sts:
         condition: service_healthy
@@ -169,7 +178,7 @@ services:
       STS_URL: http://sts:8080
       ISSUER_URL: http://localhost:8080
       STREAMS_HMAC_KEY: ${STREAMS_HMAC_KEY}
-      AGENT_COORDINATOR_AUDIENCE: caracal.agent-coordinator
+      AGENT_COORDINATOR_AUDIENCE: caracal.coordinator
       AGENT_COORDINATOR_SCOPE: agent:lifecycle
       PORT: 4000
     ports:

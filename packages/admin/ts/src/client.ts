@@ -22,6 +22,7 @@ import type {
   PolicyVersion,
   Provider,
   ProviderInput,
+  LocalBootstrapResult,
   Resource,
   ResourceInput,
   Session,
@@ -37,6 +38,9 @@ export interface AdminClientOptions {
   adminToken: string
   coordinatorToken?: string
   fetchImpl?: typeof fetch
+  timeoutMs?: number
+  retries?: number
+  signal?: AbortSignal
 }
 
 interface RequestOptions {
@@ -45,6 +49,29 @@ interface RequestOptions {
   body?: unknown
   base?: 'api' | 'coordinator'
   expectEmpty?: boolean
+  signal?: AbortSignal
+}
+
+const DEFAULT_TIMEOUT_MS = 30_000
+const DEFAULT_RETRIES = 3
+
+function jitterBackoff(attempt: number): number {
+  const base = Math.min(2 ** attempt * 250, 5_000)
+  return base / 2 + Math.random() * (base / 2)
+}
+
+function shouldRetry(status: number): boolean {
+  return status === 408 || status === 425 || status === 429 || (status >= 500 && status < 600)
+}
+
+function retryAfterMs(res: Response): number | undefined {
+  const h = res.headers.get('retry-after')
+  if (!h) return undefined
+  const secs = Number(h)
+  if (Number.isFinite(secs)) return Math.max(0, secs * 1000)
+  const date = Date.parse(h)
+  if (!Number.isNaN(date)) return Math.max(0, date - Date.now())
+  return undefined
 }
 
 export class AdminClient {
@@ -53,6 +80,9 @@ export class AdminClient {
   private readonly adminToken: string
   private readonly coordinatorToken: string | undefined
   private readonly doFetch: typeof fetch
+  private readonly timeoutMs: number
+  private readonly retries: number
+  private readonly callerSignal: AbortSignal | undefined
 
   constructor(opts: AdminClientOptions) {
     this.apiUrl = opts.apiUrl.replace(/\/$/, '')
@@ -60,6 +90,9 @@ export class AdminClient {
     this.adminToken = opts.adminToken
     this.coordinatorToken = opts.coordinatorToken
     this.doFetch = opts.fetchImpl ?? fetch
+    this.timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS
+    this.retries = opts.retries ?? DEFAULT_RETRIES
+    this.callerSignal = opts.signal
   }
 
   private async request<T>(path: string, opts: RequestOptions = {}): Promise<T> {
@@ -81,21 +114,57 @@ export class AdminClient {
       headers['Content-Type'] = 'application/json'
       body = JSON.stringify(opts.body)
     }
-    const res = await this.doFetch(url, { method: opts.method ?? 'GET', headers, body })
-    if (!res.ok) {
-      const text = await res.text()
-      let parsed: unknown = text
-      let code = res.statusText || 'request_failed'
+    const method = opts.method ?? 'GET'
+
+    let lastErr: unknown
+    for (let attempt = 0; attempt <= this.retries; attempt++) {
+      const controller = new AbortController()
+      const timer = setTimeout(() => controller.abort(new Error('admin_request_timeout')), this.timeoutMs)
+      const onAbort = () => controller.abort((opts.signal ?? this.callerSignal)?.reason)
+      opts.signal?.addEventListener('abort', onAbort, { once: true })
+      this.callerSignal?.addEventListener('abort', onAbort, { once: true })
       try {
-        parsed = text ? JSON.parse(text) : {}
-        if (parsed && typeof parsed === 'object' && 'error' in parsed && typeof (parsed as { error: unknown }).error === 'string') {
-          code = (parsed as { error: string }).error
+        const res = await this.doFetch(url, { method, headers, body, signal: controller.signal })
+        if (!res.ok) {
+          if (attempt < this.retries && shouldRetry(res.status)) {
+            const wait = retryAfterMs(res) ?? jitterBackoff(attempt)
+            await new Promise(r => setTimeout(r, wait))
+            continue
+          }
+          const text = await res.text()
+          let parsed: unknown = text
+          let code = res.statusText || 'request_failed'
+          try {
+            parsed = text ? JSON.parse(text) : {}
+            if (parsed && typeof parsed === 'object' && 'error' in parsed && typeof (parsed as { error: unknown }).error === 'string') {
+              code = (parsed as { error: string }).error
+            }
+          } catch { /* keep raw text */ }
+          throw new AdminApiError(res.status, code, parsed)
         }
-      } catch { /* keep raw text */ }
-      throw new AdminApiError(res.status, code, parsed)
+        if (opts.expectEmpty || res.status === 204) return undefined as T
+        return await res.json() as T
+      } catch (err) {
+        lastErr = err
+        if (err instanceof AdminApiError) throw err
+        if ((opts.signal ?? this.callerSignal)?.aborted) throw err
+        if (attempt < this.retries) {
+          await new Promise(r => setTimeout(r, jitterBackoff(attempt)))
+          continue
+        }
+        throw err
+      } finally {
+        clearTimeout(timer)
+        opts.signal?.removeEventListener('abort', onAbort)
+        this.callerSignal?.removeEventListener('abort', onAbort)
+      }
     }
-    if (opts.expectEmpty || res.status === 204) return undefined as T
-    return await res.json() as T
+    throw lastErr ?? new Error('admin_request_exhausted')
+  }
+
+  // Local bootstrap (development/self-hosted)
+  bootstrap(force = false): Promise<LocalBootstrapResult> {
+    return this.request<LocalBootstrapResult>('/v1/local/bootstrap', { method: 'POST', body: { force } })
   }
 
   // Zones

@@ -1,7 +1,15 @@
 {
   "name": "@caracalai/core",
   "version": "0.1.0",
-  "private": true,
+  "description": "Caracal SDK foundation: logging, config, errors.",
+  "license": "Apache-2.0",
+  "homepage": "https://github.com/Garudex-Labs/caracal",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Garudex-Labs/caracal.git",
+    "directory": "packages/core/ts"
+  },
+  "keywords": ["caracal", "agent", "identity", "sdk"],
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -9,14 +17,20 @@
     ".": {
       "import": "./dist/index.js",
       "types": "./dist/index.d.ts"
+    },
+    "./cli": {
+      "import": "./dist/cliconfig.js",
+      "types": "./dist/cliconfig.d.ts"
     }
   },
+  "files": ["dist", "README.md", "LICENSE"],
+  "publishConfig": { "access": "public" },
   "scripts": {
     "build": "tsc",
     "dev": "tsc --watch",
     "typecheck": "tsc --noEmit",
     "test": "vitest run --root ../../.. tests/typescript/unit/shared",
-    "prepare": "tsc"
+    "prepublishOnly": "tsc"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",

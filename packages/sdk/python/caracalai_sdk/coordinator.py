@@ -8,11 +8,16 @@ Coordinator REST client for the Python SDK.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Literal
+from enum import StrEnum
+from typing import Any
 
 import httpx
 
-AgentKind = Literal["service", "instance", "ephemeral"]
+
+class AgentKind(StrEnum):
+    SERVICE = "service"
+    INSTANCE = "instance"
+    EPHEMERAL = "ephemeral"
 
 
 @dataclass
@@ -28,12 +33,32 @@ class CoordinatorClient:
 
 
 @dataclass
+class DelegationConstraints:
+    resources: list[str] | None = None
+    actions: list[str] | None = None
+    max_depth: int | None = None
+    expires_at: str | None = None
+
+    def to_wire(self) -> dict[str, Any]:
+        out: dict[str, Any] = {}
+        if self.resources is not None:
+            out["resources"] = self.resources
+        if self.actions is not None:
+            out["actions"] = self.actions
+        if self.max_depth is not None:
+            out["max_depth"] = self.max_depth
+        if self.expires_at is not None:
+            out["expires_at"] = self.expires_at
+        return out
+
+
+@dataclass
 class SpawnRequest:
     zone_id: str
     application_id: str
     session_sid: str | None = None
     parent_id: str | None = None
-    kind: AgentKind = "instance"
+    kind: AgentKind = AgentKind.INSTANCE
     ttl_seconds: int | None = None
     metadata: dict[str, Any] | None = None
 
@@ -51,7 +76,7 @@ class DelegationRequest:
     target_session_id: str
     receiver_application_id: str
     scopes: list[str]
-    constraints: dict[str, Any] | None = None
+    constraints: DelegationConstraints | None = None
     ttl_seconds: int | None = None
 
 
@@ -63,7 +88,7 @@ class DelegationResponse:
 async def spawn_agent(client: CoordinatorClient, bearer: str, req: SpawnRequest) -> SpawnResponse:
     body: dict[str, Any] = {
         "application_id": req.application_id,
-        "kind": req.kind,
+        "kind": str(req.kind),
     }
     if req.session_sid:
         body["session_sid"] = req.session_sid
@@ -107,8 +132,8 @@ async def create_delegation(
         "receiver_application_id": req.receiver_application_id,
         "scopes": req.scopes,
     }
-    if req.constraints:
-        body["constraints"] = req.constraints
+    if req.constraints is not None:
+        body["constraints"] = req.constraints.to_wire()
     if req.ttl_seconds:
         body["ttl_seconds"] = req.ttl_seconds
 

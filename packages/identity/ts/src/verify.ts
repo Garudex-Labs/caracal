@@ -54,6 +54,13 @@ export class ChainMismatchError extends Error {
   }
 }
 
+export class HopCountExceededError extends Error {
+  constructor(message = 'Hop count exceeded') {
+    super(message)
+    this.name = 'HopCountExceededError'
+  }
+}
+
 function readChain(raw: unknown): ChainHop[] | undefined {
   if (!Array.isArray(raw)) return undefined
   const out: ChainHop[] = []
@@ -85,6 +92,7 @@ export async function verify(token: string, config: JwtConfig): Promise<Claims> 
     ;({ payload } = await jwtVerify(token, keySet, {
       issuer: config.issuer,
       audience: config.audience,
+      algorithms: ['ES256'],
     }))
   } catch {
     throw new TokenInvalidError()
@@ -121,6 +129,9 @@ export async function verify(token: string, config: JwtConfig): Promise<Claims> 
   }
   if (config.requireDelegation && !delegationEdgeId) {
     throw new DelegationRequiredError()
+  }
+  if (config.maxHopCount !== undefined && hopCount !== undefined && hopCount > config.maxHopCount) {
+    throw new HopCountExceededError()
   }
   for (const expected of config.requireChainContains ?? []) {
     const present = delegationChain?.some((h) => h.applicationId === expected)

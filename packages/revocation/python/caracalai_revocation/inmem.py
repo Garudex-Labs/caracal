@@ -5,21 +5,29 @@
 
 from __future__ import annotations
 
+import threading
 import time
+
+DEFAULT_TTL_MS = 24 * 60 * 60 * 1000
 
 
 class InMemoryRevocationStore:
-    def __init__(self) -> None:
-        self._entries: dict[str, float | None] = {}
+    def __init__(self, default_ttl_ms: int = DEFAULT_TTL_MS) -> None:
+        self._entries: dict[str, float] = {}
+        self._lock = threading.Lock()
+        self._default_ttl_ms = default_ttl_ms
 
     def is_revoked(self, sid: str) -> bool:
-        expiry = self._entries.get(sid)
-        if sid not in self._entries:
-            return False
-        if expiry is not None and time.time() * 1000 >= expiry:
-            del self._entries[sid]
-            return False
-        return True
+        with self._lock:
+            expiry = self._entries.get(sid)
+            if expiry is None:
+                return False
+            if time.time() * 1000 >= expiry:
+                del self._entries[sid]
+                return False
+            return True
 
     def mark_revoked(self, sid: str, ttl_ms: int | None = None) -> None:
-        self._entries[sid] = None if ttl_ms is None else time.time() * 1000 + ttl_ms
+        with self._lock:
+            ttl = self._default_ttl_ms if ttl_ms is None else ttl_ms
+            self._entries[sid] = time.time() * 1000 + ttl

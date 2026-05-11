@@ -2,7 +2,7 @@
 # Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 # Caracal, a product of Garudex Labs
 #
-# Verifies postgres Phase 5: migration round-trip, role grants, append-only audit.
+# Verifies postgres: migration round-trip, role grants, append-only audit.
 # Usage: DATABASE_URL=postgres://... bash verify.sh
 
 set -euo pipefail

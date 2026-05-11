@@ -7,6 +7,7 @@ import type { FastifyPluginAsync } from 'fastify'
 import { z } from 'zod'
 import { generateKeyPairSync, randomBytes } from 'node:crypto'
 import { isProduction, loadZoneKek, open, seal, sha256Hex } from '@caracalai/core'
+import { hashClientSecret } from '../hash-secret.js'
 
 const ZONE_ID = 'zone1'
 const APP_ID = 'app1'
@@ -51,10 +52,6 @@ export const localBootstrapRoutes: FastifyPluginAsync = async (fastify) => {
   const kek = loadZoneKek()
 
   fastify.post('/local/bootstrap', async (req, reply) => {
-    const remote = req.socket.remoteAddress ?? ''
-    if (!isLoopback(remote)) {
-      return reply.code(403).send({ error: 'local_bootstrap_loopback_only' })
-    }
     const parsed = BootstrapBody.safeParse(req.body ?? {})
     if (!parsed.success) return reply.code(400).send({ error: 'invalid_body' })
     const { force } = parsed.data
@@ -104,7 +101,7 @@ export const localBootstrapRoutes: FastifyPluginAsync = async (fastify) => {
     }
 
     const clientSecret = randomBytes(24).toString('hex')
-    const clientSecretHash = sha256Hex(clientSecret)
+    const clientSecretHash = await hashClientSecret(clientSecret)
     const policyHash = sha256Hex(ALLOW_POLICY)
     const manifest = JSON.stringify([{ policy_version_id: POLICY_VERSION_ID }])
     const manifestHash = sha256Hex(manifest)
@@ -166,7 +163,7 @@ export const localBootstrapRoutes: FastifyPluginAsync = async (fastify) => {
       await client.query(
         `INSERT INTO secrets (id, zone_id, entity_id, name, type, ciphertext, nonce, dek_id)
          VALUES ($1, $2, $2, 'zone_signing_key', 'token', $3, $4, $5)
-         ON CONFLICT (id) DO UPDATE SET ciphertext = EXCLUDED.ciphertext, nonce = EXCLUDED.nonce, updated_at = now()`,
+         ON CONFLICT (id) DO UPDATE SET ciphertext = EXCLUDED.ciphertext, nonce = EXCLUDED.nonce, dek_id = EXCLUDED.dek_id, updated_at = now()`,
         [SIGNING_KEY_ID, ZONE_ID, sealed.ciphertext, sealed.nonce, LOCAL_DEK_ID],
       )
 
@@ -191,20 +188,4 @@ export const localBootstrapRoutes: FastifyPluginAsync = async (fastify) => {
   })
 }
 
-function isLoopback(remote: string): boolean {
-  if (!remote) return false
-  const addr = remote.startsWith('::ffff:') ? remote.slice(7) : remote
-  if (addr === '127.0.0.1' || addr === '::1' || addr.startsWith('127.')) return true
-  return isPrivateIPv4(addr)
-}
 
-function isPrivateIPv4(addr: string): boolean {
-  const m = addr.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.\d{1,3}$/)
-  if (!m) return false
-  const a = Number(m[1])
-  const b = Number(m[2])
-  if (a === 10) return true
-  if (a === 192 && b === 168) return true
-  if (a === 172 && b >= 16 && b <= 31) return true
-  return false
-}

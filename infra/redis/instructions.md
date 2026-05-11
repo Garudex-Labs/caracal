@@ -9,7 +9,7 @@
 - Must apply `requirepass` via the `REDIS_PASSWORD` env var passed to `redis-server` on the CLI.
 - Must run `provision-streams.sh` once at compose `init` time; the script must remain idempotent.
 - Must keep `appendonly yes`, `appendfsync everysec`, and `maxmemory-policy noeviction`.
-- Must keep these streams and consumer groups: `caracal.audit.events` (`audit-ingestor`, `siem-export`), `caracal.audit.events.dlq` (`audit-dlq-observer`), `caracal.policy.invalidate` (`opa-engine`), `caracal.sessions.revoke` (`sts-revocation`), `caracal.agents.lifecycle` (`agent-coordinator`), `caracal.providers.ratelimit` (no group).
+- Must keep these streams and consumer groups: `caracal.audit.events` (`audit-ingestor`, `siem-export`), `caracal.audit.events.dlq` (`audit-dlq-observer`), `caracal.policy.invalidate` (`opa-engine`), `caracal.sessions.revoke` (`sts-revocation`), `caracal.agents.lifecycle` (`coordinator-relay`), `caracal.providers.ratelimit` (no group).
 
 ## Forbidden
 - Must not import or reference `caracalEnterprise/`.

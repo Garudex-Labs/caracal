@@ -3,19 +3,29 @@ title: Threat Model
 description: Adversaries Caracal defends against and the assumptions it makes.
 ---
 
-> **Documentation in progress.** This page is part of the new Caracal docs platform and will be filled in as the open-source rewrite lands.
+The canonical threat model lives at [Security → Threat Model](/security/threat-model).
 
-Adversaries Caracal defends against and the assumptions it makes.
+This page is the architecture-flavored cross-link: it lists the trust
+boundaries and adversary classes, then defers detailed threats and
+mitigations to the security page.
 
-## What you'll find here
+## Adversary classes
 
-This page will cover **Threat Model** in depth, including:
+- **Compromised application:** a tenant app whose process memory is
+  exfiltrable. Caracal mitigates via short-lived per-call tokens, revocation,
+  and provider-credential isolation in STS+gateway.
+- **Network observer:** an on-path attacker between SDK and gateway, or
+  gateway and upstream. Caracal requires TLS on every hop and never logs
+  plaintext bearers.
+- **Hostile caller:** any HTTP client that can reach the gateway. Caracal
+  rejects spoofed `X-Caracal-*` headers, replaces `X-Forwarded-*`, and
+  verifies bearer signatures before any audit event uses claim values.
+- **Compromised resource:** an upstream that wants to harvest tokens or
+  credentials. Mitigated by per-call STS exchange (no long-lived bearer at
+  upstream), provider-credential substitution, and absence of token caching.
 
-- Concepts and definitions
-- Practical, copy-pasteable examples
-- Configuration and operational guidance
-- Cross-links to related Caracal primitives
+## Trust boundaries
 
-## Track progress
-
-Until then, follow the [Caracal repository](https://github.com/Garudex-Labs/caracal) for the latest changes, or open an issue if you'd like to help shape this section.
+See [System Overview → Planes](/architecture/system) for how the control,
+authority, and data planes split, and [Security → Threat Model](/security/threat-model)
+for the detailed boundary table and threat-by-threat mitigations.

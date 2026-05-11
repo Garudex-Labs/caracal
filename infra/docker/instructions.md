@@ -16,4 +16,4 @@
 - Must not bind the same host port twice across services.
 - Must not run any container as root.
 - Must not bake secrets into images.
-- Must not add services beyond the parent plan's Phase 2 list.
+- Must not add services beyond the parent plan's service list.

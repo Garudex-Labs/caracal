@@ -7,16 +7,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { discoverAdminToken } from '@caracalai/core'
-
-interface BootstrapResponse {
-  zone_id: string
-  app_id: string
-  application_id: string
-  app_client_secret: string | null
-  resource: string
-  scope: string
-  rotated: boolean
-}
+import { AdminClient, AdminApiError, type LocalBootstrapResult } from '@caracalai/admin'
 
 interface InitOptions {
   apiUrl: string
@@ -51,7 +42,7 @@ function envFilePath(): string | undefined {
 
 function upsertEnvVar(path: string, key: string, value: string): boolean {
   const text = existsSync(path) ? readFileSync(path, 'utf8') : ''
-  const re = new RegExp(`^${key}=.*$`, 'm')
+  const re = new RegExp(`^${escapeRegex(key)}=.*$`, 'm')
   const line = `${key}=${value}`
   if (re.test(text)) {
     const next = text.replace(re, line)
@@ -62,6 +53,49 @@ function upsertEnvVar(path: string, key: string, value: string): boolean {
   const sep = text.length === 0 || text.endsWith('\n') ? '' : '\n'
   writeFileSync(path, `${text}${sep}${line}\n`, { mode: 0o600 })
   return true
+}
+
+function mergeResourceBinding(path: string, resource: string, applicationId: string): boolean {
+  const text = existsSync(path) ? readFileSync(path, 'utf8') : ''
+  const re = /^RESOURCE_APPLICATION_BINDINGS=(.*)$/m
+  const match = re.exec(text)
+  const existing = match ? match[1]!.split(',').map((s) => s.trim()).filter(Boolean) : []
+  const next = existing.filter((entry) => !entry.startsWith(`${resource}=`))
+  next.push(`${resource}=${applicationId}`)
+  return upsertEnvVar(path, 'RESOURCE_APPLICATION_BINDINGS', next.join(','))
+}
+
+function nextArg(argv: string[], i: number, flag: string): string {
+  const v = argv[i + 1]
+  if (v === undefined || v.startsWith('--')) {
+    process.stderr.write(`Error: ${flag} requires a value\n`)
+    process.exit(1)
+  }
+  return v
+}
+
+function initHelp(): never {
+  process.stdout.write(
+    [
+      'Usage: caracal init [options]',
+      '',
+      'Provisions the local zone via POST /v1/local/bootstrap and writes caracal.toml.',
+      '',
+      'Flags:',
+      '  --api-url <url>        Caracal API URL (default: http://localhost:3000)',
+      '  --zone-url <url>       STS/zone base URL (default: http://localhost:8080)',
+      '  --admin-token <t>      CARACAL_ADMIN_TOKEN override',
+      '  --config <path>        Output path for caracal.toml',
+      '  --force                Rotate the client secret if the zone exists',
+      '  --help, -h             Show this help',
+      '',
+    ].join('\n'),
+  )
+  process.exit(0)
+}
+
+function escapeRegex(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
 
 function parseFlags(argv: string[]): InitOptions {
@@ -75,20 +109,19 @@ function parseFlags(argv: string[]): InitOptions {
     const arg = argv[i]!
     switch (arg) {
       case '--api-url':
-        apiUrl = argv[++i] ?? apiUrl
-        break
+        apiUrl = nextArg(argv, i, arg); i++; break
       case '--zone-url':
-        zoneUrl = argv[++i] ?? zoneUrl
-        break
+        zoneUrl = nextArg(argv, i, arg); i++; break
       case '--admin-token':
-        adminToken = argv[++i]
-        break
+        adminToken = nextArg(argv, i, arg); i++; break
       case '--config':
-        configPath = argv[++i] ?? configPath
-        break
+        configPath = nextArg(argv, i, arg); i++; break
       case '--force':
         force = true
         break
+      case '--help':
+      case '-h':
+        initHelp()
       default:
         process.stderr.write(`Unknown flag: ${arg}\n`)
         process.exit(1)
@@ -125,35 +158,23 @@ function renderToml(opts: { zoneUrl: string; zoneId: string; applicationId: stri
 export async function initCommand(argv: string[]): Promise<void> {
   const opts = parseFlags(argv)
 
-  const url = `${opts.apiUrl.replace(/\/$/, '')}/v1/local/bootstrap`
-  let res: Response
+  const client = new AdminClient({ apiUrl: opts.apiUrl, adminToken: opts.adminToken })
+  let data: LocalBootstrapResult
   try {
-    res = await fetch(url, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${opts.adminToken}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ force: opts.force }),
-    })
+    data = await client.bootstrap(opts.force)
   } catch (err) {
-    const desc = err instanceof Error ? err.message : String(err)
-    process.stderr.write(`Error: cannot reach Caracal API at ${opts.apiUrl}: ${desc}\n`)
+    if (err instanceof AdminApiError) {
+      process.stderr.write(`Error: bootstrap failed (${err.status}): ${err.code}\n`)
+    } else {
+      const desc = err instanceof Error ? err.message : String(err)
+      process.stderr.write(`Error: cannot reach Caracal API at ${opts.apiUrl}: ${desc}\n`)
+    }
     process.exit(1)
   }
-
-  if (!res.ok) {
-    const body = await res.text()
-    process.stderr.write(`Error: bootstrap failed (${res.status}): ${body}\n`)
-    process.exit(1)
-  }
-
-  const data = (await res.json()) as BootstrapResponse
 
   const envPath = envFilePath()
   if (envPath) {
-    const binding = `${data.resource}=${data.application_id}`
-    if (upsertEnvVar(envPath, 'RESOURCE_APPLICATION_BINDINGS', binding)) {
+    if (mergeResourceBinding(envPath, data.resource, data.application_id)) {
       process.stdout.write(
         `Updated RESOURCE_APPLICATION_BINDINGS in ${envPath}; restart the gateway with \`caracal up\` to apply.\n`,
       )

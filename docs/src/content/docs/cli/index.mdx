@@ -1,0 +1,21 @@
+---
+title: CLI
+description: The caracal command-line interface — install, run, inspect, audit, and manage delegated agents.
+---
+
+import SectionHub from '../../../components/SectionHub.astro'
+
+> **Documentation in progress.** This section is being filled in as the open-source rewrite lands.
+
+Everything `caracal` can do from the terminal — for both operators and developers.
+
+<SectionHub
+  items={[
+    { title: 'Commands', href: '/cli/overview/', description: 'The full command surface and global flags.' },
+    { title: 'Stack lifecycle', href: '/cli/stack/', description: '`caracal up`, `down`, and `status` for the local runtime.' },
+    { title: 'caracal init', href: '/cli/init/', description: 'Bootstrap a new workspace with sensible defaults.' },
+    { title: 'caracal run', href: '/cli/run/', description: 'Execute an agent under an enforced mandate.' },
+    { title: 'audit & explain', href: '/cli/audit/', description: 'Inspect decisions, replay runs, and explain denials.' },
+    { title: 'agent & delegation', href: '/cli/agent/', description: 'Manage agents and pass scoped authority between principals.' },
+  ]}
+/>
