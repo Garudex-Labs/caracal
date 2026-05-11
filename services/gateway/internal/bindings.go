@@ -50,6 +50,11 @@ func (s *bindingStore) Get(resource string) (binding, bool) {
 	return b, ok
 }
 
+// Size returns the number of bindings currently cached.
+func (s *bindingStore) Size() int {
+	return len(*s.cache.Load())
+}
+
 // Reload re-reads every binding row in a single query and atomically swaps the cache.
 // Errors leave the previous snapshot in place so a flaky DB does not blank the gateway.
 func (s *bindingStore) Reload(ctx context.Context) error {

@@ -40,9 +40,10 @@ type proxy struct {
 	bindings    *bindingStore
 	tracker     *jtiTracker
 	revocations *revocationStore
+	metrics     *GatewayMetrics
 }
 
-func newProxy(sts *stsClient, jwks *jwksCache, guard *upstreamGuard, log zerolog.Logger, maxBytes int64, upstreamTimeout time.Duration, bindings *bindingStore, tracker *jtiTracker, revocations *revocationStore) *proxy {
+func newProxy(sts *stsClient, jwks *jwksCache, guard *upstreamGuard, log zerolog.Logger, maxBytes int64, upstreamTimeout time.Duration, bindings *bindingStore, tracker *jtiTracker, revocations *revocationStore, metrics *GatewayMetrics) *proxy {
 	transport := &http.Transport{
 		DialContext:           guard.SafeDialContext(5*time.Second, 30*time.Second),
 		MaxIdleConns:          200,
@@ -64,21 +65,27 @@ func newProxy(sts *stsClient, jwks *jwksCache, guard *upstreamGuard, log zerolog
 		bindings:    bindings,
 		tracker:     tracker,
 		revocations: revocations,
+		metrics:     metrics,
 	}
 }
 
 func (p *proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	requestID := requestIDFromContext(r.Context())
 	logger := p.log.With().Str("request_id", requestID).Str("client_ip", clientIP(r.RemoteAddr)).Logger()
+	p.metrics.RequestsTotal.Add(1)
 
 	bearer := extractBearer(r.Header.Get("Authorization"))
 	if bearer == "" {
 		writeErr(w, requestID, http.StatusUnauthorized, sharederr.InvalidToken, "missing bearer token")
+		p.metrics.RequestsDenied.Add(1)
+		p.metrics.DenialsMissingAuth.Add(1)
 		logger.Info().Int("status", http.StatusUnauthorized).Msg("denied: missing bearer")
 		return
 	}
 	if len(bearer) > maxBearerBytes {
 		writeErr(w, requestID, http.StatusUnauthorized, sharederr.InvalidToken, "bearer token too large")
+		p.metrics.RequestsDenied.Add(1)
+		p.metrics.DenialsBadBearer.Add(1)
 		logger.Info().Int("status", http.StatusUnauthorized).Msg("denied: bearer too large")
 		return
 	}
@@ -86,35 +93,47 @@ func (p *proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	exp, ok := jwtExp(bearer)
 	if !ok {
 		writeErr(w, requestID, http.StatusUnauthorized, sharederr.InvalidToken, "malformed bearer token")
+		p.metrics.RequestsDenied.Add(1)
+		p.metrics.DenialsBadBearer.Add(1)
 		logger.Info().Int("status", http.StatusUnauthorized).Msg("denied: malformed bearer")
 		return
 	}
 	if time.Until(exp) < preflightWindow {
 		writeErr(w, requestID, http.StatusUnauthorized, sharederr.CredentialExpired, "credential expiring within pre-flight window")
+		p.metrics.RequestsDenied.Add(1)
+		p.metrics.DenialsExpiring.Add(1)
 		logger.Info().Int("status", http.StatusUnauthorized).Msg("denied: bearer near expiry")
 		return
 	}
 
 	if r.Header.Get("X-Caracal-Client-ID") != "" {
 		writeErr(w, requestID, http.StatusBadRequest, sharederr.InvalidToken, "client id is bound by gateway configuration")
+		p.metrics.RequestsDenied.Add(1)
+		p.metrics.DenialsBadRouting.Add(1)
 		logger.Info().Int("status", http.StatusBadRequest).Msg("denied: client id header not honored")
 		return
 	}
 	resource := strings.TrimSpace(r.Header.Get("X-Caracal-Resource"))
 	if resource == "" {
 		writeErr(w, requestID, http.StatusBadRequest, sharederr.InvalidToken, "missing routing headers")
+		p.metrics.RequestsDenied.Add(1)
+		p.metrics.DenialsBadRouting.Add(1)
 		logger.Info().Int("status", http.StatusBadRequest).Msg("denied: missing routing headers")
 		return
 	}
 	bind, ok := p.bindings.Get(resource)
 	if !ok {
 		writeErr(w, requestID, http.StatusForbidden, sharederr.AccessDenied, "resource not configured")
+		p.metrics.RequestsDenied.Add(1)
+		p.metrics.DenialsBinding.Add(1)
 		logger.Info().Int("status", http.StatusForbidden).Str("resource", resource).Msg("denied: resource has no client binding")
 		return
 	}
 
 	if pathContainsTraversal(r.URL.Path) {
 		writeErr(w, requestID, http.StatusBadRequest, sharederr.InvalidToken, "path traversal not permitted")
+		p.metrics.RequestsDenied.Add(1)
+		p.metrics.DenialsPathTrav.Add(1)
 		logger.Info().Int("status", http.StatusBadRequest).Str("path", r.URL.Path).Msg("denied: path traversal")
 		return
 	}
@@ -128,12 +147,16 @@ func (p *proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	if err := p.jwks.Verify(r.Context(), bind.ZoneID, bearer); err != nil {
 		writeErr(w, requestID, http.StatusUnauthorized, sharederr.InvalidToken, "bearer signature invalid")
+		p.metrics.RequestsDenied.Add(1)
+		p.metrics.DenialsSignature.Add(1)
 		logger.Info().Err(err).Int("status", http.StatusUnauthorized).Msg("denied: bearer signature")
 		return
 	}
 
 	if !p.tracker.Check(r.Context(), jwtJTI(bearer), exp, jwtUse(bearer), requestID, resource, bind.ApplicationID, tokenFingerprint(bearer)) {
 		writeErr(w, requestID, http.StatusUnauthorized, sharederr.InvalidToken, "token replay detected")
+		p.metrics.RequestsDenied.Add(1)
+		p.metrics.DenialsJTIReplay.Add(1)
 		logger.Info().Int("status", http.StatusUnauthorized).Msg("denied: jti replay")
 		return
 	}
@@ -141,6 +164,8 @@ func (p *proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	sid := jwtSID(bearer)
 	if p.revocations.IsRevoked(sid) {
 		writeErr(w, requestID, http.StatusUnauthorized, sharederr.InvalidToken, "session revoked")
+		p.metrics.RequestsDenied.Add(1)
+		p.metrics.DenialsRevoked.Add(1)
 		logger.Info().Int("status", http.StatusUnauthorized).Str("sid", sid).Msg("denied: session revoked")
 		return
 	}
@@ -150,6 +175,8 @@ func (p *proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	cancel()
 	if out.ClientErr != nil {
 		writeErr(w, requestID, out.Status, out.ClientErr.Code, out.ClientErr.Description)
+		p.metrics.RequestsDenied.Add(1)
+		p.metrics.STSExchangeErrors.Add(1)
 		logger.Warn().
 			Int("status", out.Status).
 			Str("error_code", string(out.ClientErr.Code)).
@@ -162,6 +189,7 @@ func (p *proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	upstreamURL, err := p.guard.Check(res.Upstream.URL)
 	if err != nil {
 		writeErr(w, requestID, http.StatusBadGateway, sharederr.Internal, "upstream not addressable")
+		p.metrics.UpstreamErrors.Add(1)
 		logger.Error().Err(err).Str("upstream_raw", res.Upstream.URL).Msg("upstream rejected by guard")
 		return
 	}
@@ -177,6 +205,7 @@ func (p *proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	upstreamReq, err := buildUpstreamRequest(r, upstreamURL, res.AccessToken, res.Upstream, body, requestID)
 	if err != nil {
 		writeErr(w, requestID, http.StatusBadRequest, sharederr.Internal, "upstream request build failed")
+		p.metrics.UpstreamErrors.Add(1)
 		logger.Error().Err(err).Msg("build upstream request")
 		return
 	}
@@ -186,6 +215,7 @@ func (p *proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		status, code, msg := classifyUpstreamError(err)
 		writeErr(w, requestID, status, code, msg)
+		p.metrics.UpstreamErrors.Add(1)
 		logger.Error().Err(err).Int("status", status).Msg("upstream request failed")
 		return
 	}
@@ -196,6 +226,7 @@ func (p *proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Caracal-Token-Expires-In", strconv.FormatInt(int64(time.Until(exp).Seconds()), 10))
 	}
 	copyResponse(w, resp, p.revocations, sid)
+	p.metrics.RequestsAllowed.Add(1)
 	logger.Info().
 		Int("status", resp.StatusCode).
 		Dur("upstream_latency_ms", time.Since(start)).

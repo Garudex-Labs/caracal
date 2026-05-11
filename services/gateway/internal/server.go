@@ -8,6 +8,7 @@ package internal
 import (
 	"context"
 	"crypto/tls"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -36,6 +37,7 @@ type Server struct {
 	bindings    *bindingStore
 	redis       *RedisClient
 	revocations *revocationStore
+	metrics     *GatewayMetrics
 }
 
 // New constructs a Server from environment configuration.
@@ -80,6 +82,7 @@ func New(ctx context.Context) (*Server, error) {
 		bindings:    bindings,
 		redis:       rdb,
 		revocations: newRevocationStore(log),
+		metrics:     &GatewayMetrics{},
 	}, nil
 }
 
@@ -87,11 +90,12 @@ func New(ctx context.Context) (*Server, error) {
 func (s *Server) Run(ctx context.Context) error {
 	go s.bindings.StartPolling(ctx)
 	startRevocationConsumer(ctx, s.redis, s.revocations, s.log)
-	p := newProxy(s.sts, s.jwks, s.guard, s.log, s.cfg.MaxRequestBytes, s.cfg.UpstreamTimeout, s.bindings, s.tracker, s.revocations)
+	p := newProxy(s.sts, s.jwks, s.guard, s.log, s.cfg.MaxRequestBytes, s.cfg.UpstreamTimeout, s.bindings, s.tracker, s.revocations, s.metrics)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
 	mux.HandleFunc("/ready", s.handleReady)
+	mux.HandleFunc("/metrics", s.handleMetrics)
 	mux.Handle("/", p)
 
 	handler := requestIDMiddleware(mux)
@@ -172,6 +176,17 @@ func (s *Server) handleReady(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusOK)
+}
+
+func (s *Server) handleMetrics(w http.ResponseWriter, _ *http.Request) {
+	if s.bindings != nil {
+		s.metrics.BindingsLoaded.Store(uint64(s.bindings.Size()))
+	}
+	if s.revocations != nil {
+		s.metrics.RevocationsActive.Store(uint64(s.revocations.Size()))
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(s.metrics.Snapshot()) //nolint:errcheck
 }
 
 // requestIDMiddleware ensures every request has a server-assigned UUID in its context
