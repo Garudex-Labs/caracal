@@ -1,0 +1,130 @@
+---
+/*
+ * Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+ * Caracal, a product of Garudex Labs
+ *
+ * Starlight Footer override that injects AI action buttons on every doc page.
+ */
+
+import Default from '@astrojs/starlight/components/Footer.astro'
+
+const pageUrl = Astro.url.href
+const pagePathname = Astro.url.pathname
+const isSplash = pagePathname === '/'
+---
+
+{!isSplash && (
+  <aside class="ai-action-bar">
+    <span class="ai-action-label">AI tools</span>
+    <button
+      class="ai-action-btn"
+      id="btn-copy-md"
+      data-llms-url="/llms-full.txt"
+      data-page-url={pageUrl}
+      type="button"
+    >
+      Copy as Markdown
+    </button>
+    <a
+      class="ai-action-btn"
+      href={`https://claude.ai/new?q=${encodeURIComponent(`Read the Caracal documentation at ${pageUrl} and explain it.`)}`}
+      target="_blank"
+      rel="noopener noreferrer"
+    >
+      Ask Claude
+    </a>
+    <a
+      class="ai-action-btn"
+      href={`https://chatgpt.com/?q=${encodeURIComponent(`Read the Caracal documentation at ${pageUrl} and explain it.`)}`}
+      target="_blank"
+      rel="noopener noreferrer"
+    >
+      Ask ChatGPT
+    </a>
+  </aside>
+)}
+
+<Default {...Astro.props} />
+
+<script>
+  const btn = document.getElementById('btn-copy-md')
+  if (btn) {
+    btn.addEventListener('click', async () => {
+      const llmsUrl = (btn as HTMLButtonElement).dataset.llmsUrl!
+      const pageUrl = (btn as HTMLButtonElement).dataset.pageUrl!
+
+      try {
+        const text = await fetch(llmsUrl).then((r) => r.text())
+        const urlMarker = `# URL: ${pageUrl}`
+        const start = text.indexOf(urlMarker)
+
+        if (start === -1) {
+          await navigator.clipboard.writeText(text)
+          btn.textContent = 'Copied full docs!'
+        } else {
+          // Find the next page separator after this page's content
+          const bodyStart = text.indexOf('\n---\n', start)
+          const bodyEnd = text.indexOf('\n---\n', bodyStart + 5)
+          const section =
+            bodyEnd === -1
+              ? text.slice(start)
+              : text.slice(start, bodyEnd)
+          await navigator.clipboard.writeText(section)
+          btn.textContent = 'Copied!'
+        }
+      } catch {
+        btn.textContent = 'Copy failed'
+      }
+
+      setTimeout(() => {
+        btn.textContent = 'Copy as Markdown'
+      }, 2000)
+    })
+  }
+</script>
+
+<style>
+  .ai-action-bar {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    padding: 0.75rem 0;
+    border-top: 1px solid var(--sl-color-hairline);
+    margin-bottom: 1rem;
+  }
+
+  .ai-action-label {
+    font-size: var(--sl-text-xs);
+    color: var(--sl-color-text-accent);
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-right: 0.25rem;
+  }
+
+  .ai-action-btn {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.3rem 0.75rem;
+    border-radius: 4px;
+    font-size: var(--sl-text-xs);
+    font-family: var(--sl-font);
+    font-weight: 500;
+    cursor: pointer;
+    text-decoration: none;
+    border: 1px solid var(--sl-color-hairline);
+    background: var(--sl-color-bg-nav);
+    color: var(--sl-color-text);
+    transition: border-color 0.15s, color 0.15s;
+  }
+
+  .ai-action-btn:hover {
+    border-color: var(--sl-color-text-accent);
+    color: var(--sl-color-text-accent);
+  }
+
+  button.ai-action-btn {
+    appearance: none;
+  }
+</style>

@@ -127,14 +127,6 @@ func Verify(tokenStr string, cfg Config) (Claims, error) {
 	case int64:
 		graphEpoch = v
 	}
-	if graphEpoch == 0 {
-		switch v := mapClaims["graph_epoch"].(type) {
-		case float64:
-			graphEpoch = int64(v)
-		case int64:
-			graphEpoch = v
-		}
-	}
 	var hopCount int
 	switch v := mapClaims["hop_count"].(type) {
 	case float64:

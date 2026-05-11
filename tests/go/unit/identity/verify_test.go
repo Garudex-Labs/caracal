@@ -277,6 +277,19 @@ func TestVerifyChainContains(t *testing.T) {
 	}
 }
 
+func TestVerifyIgnoresLegacyGraphEpochClaim(t *testing.T) {
+	token, issuer, closeServer := mintToken(t, jwt.MapClaims{"graph_epoch": float64(99)})
+	defer closeServer()
+
+	claims, err := identity.Verify(token, identity.Config{Issuer: issuer, Audience: "resource://api"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if claims.GraphEpoch != 0 {
+		t.Fatalf("expected GraphEpoch 0 for legacy claim, got %d", claims.GraphEpoch)
+	}
+}
+
 func TestHasScope(t *testing.T) {
 	tests := []struct {
 		scope  string

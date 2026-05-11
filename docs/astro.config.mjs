@@ -97,6 +97,7 @@ export default defineConfig({
         Header: './src/components/Header.astro',
         Hero: './src/components/Hero.astro',
         ThemeSelect: './src/components/ThemeSelect.astro',
+        Footer: './src/components/DocFooter.astro',
       },
       sidebar: [
         {
