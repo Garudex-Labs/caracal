@@ -1,7 +1,160 @@
 ---
 title: Release and Versioning
-description: CalVer tags, container images, CLI binaries, npm, and PyPI release flow.
+description: CalVer tags, npm Changesets, PyPI OIDC publishing, CLI binaries, and container images.
 pageType: workflow
 ---
 
-CalVer tags, container images, CLI binaries, npm, and PyPI release flow.
+Caracal uses CalVer for all release artifacts. A single git tag triggers the full release pipeline: npm packages, PyPI packages, CLI binaries, and container images.
+
+---
+
+## Version scheme
+
+All release artifacts share the same version format:
+
+```
+vYYYY.MM.DD[.N]
+```
+
+- `vYYYY.MM.DD` — primary release for that date.
+- `vYYYY.MM.DD.1`, `.2`, … — subsequent releases on the same date (hotfixes or corrections).
+
+Examples: `v2026.05.11`, `v2026.05.11.1`, `v2026.06.01`.
+
+The version is set by the git tag. The release pipeline reads the tag and propagates it to all artifact types.
+
+---
+
+## Release trigger
+
+Releases are triggered by pushing a CalVer tag to `main`:
+
+```sh
+git tag v2026.05.11
+git push origin v2026.05.11
+```
+
+This triggers `release.yml` in GitHub Actions. The pipeline:
+
+1. Runs the full test suite across all three languages.
+2. Builds all artifacts (binaries, npm packages, PyPI packages, container images).
+3. Publishes to GHCR, npm, and PyPI.
+4. Creates a GitHub Release with generated release notes and SLSA provenance attestations.
+
+Only maintainers push release tags. Do not push CalVer tags from feature branches.
+
+---
+
+## npm packages (TypeScript)
+
+npm packages are versioned by [Changesets](https://github.com/changesets/changesets). Changesets track which packages changed and what the semver bump should be, independent of the CalVer tag.
+
+**Adding a changeset before opening a PR:**
+
+```sh
+pnpm changeset add
+```
+
+Follow the interactive prompts:
+1. Select affected packages from the workspace.
+2. Choose the change type: `patch` (bug fix), `minor` (backward-compatible new feature), `major` (breaking change).
+3. Write a short description of the change.
+
+Commit the generated `.changeset/*.md` file with your code. PRs that touch published packages without a changeset file fail CI.
+
+**Packages published to npm:**
+
+| Package | Description |
+| --- | --- |
+| `@caracalai/sdk` | Core TypeScript SDK |
+| `@caracalai/identity` | JWT identity and claims types |
+| `@caracalai/oauth` | OAuth token exchange client |
+| `@caracalai/revocation` | Revocation store and consumer |
+| `@caracalai/admin` | Admin API client |
+| `@caracalai/transport-mcp` | MCP transport adapter |
+| `@caracalai/transport-a2a` | A2A transport adapter |
+| `@caracalai/mcp-express` | Express.js connector middleware |
+| `@caracalai/tokenstate-postgres` | PostgreSQL token state backend |
+| `@caracalai/tokenstate-redis` | Redis revocation store and consumer |
+| `@caracalai/connector-redis` | Redis revocation consumer (alias) |
+
+---
+
+## PyPI packages (Python)
+
+Python packages use **OIDC trusted publishing** — no long-lived API tokens are stored in CI. The `release.yml` workflow has the `id-token: write` permission and requests a short-lived PyPI token at publish time.
+
+**Packages published to PyPI:**
+
+| Package | Description |
+| --- | --- |
+| `caracalai` | Core Python SDK |
+| `caracalai-identity` | JWT identity and claims |
+| `caracalai-oauth` | OAuth token exchange |
+| `caracalai-revocation` | Revocation store and consumer |
+| `caracalai-mcp-fastmcp` | FastMCP connector |
+| `caracalai-tokenstate-redis` | Redis token state backend |
+
+Python package versions are set from the CalVer tag by the release script — there is no Changesets equivalent. All Python packages release at the same version as the tag.
+
+---
+
+## CLI and TUI binaries
+
+The CLI (`caracal`) and TUI (`caracal-tui`) are compiled to self-contained binaries using `bun --compile`. Ten binaries are produced per release (five targets × two tools):
+
+| Target | Binary names |
+| --- | --- |
+| `linux-x64` | `caracal-linux-x64`, `caracal-tui-linux-x64` |
+| `linux-arm64` | `caracal-linux-arm64`, `caracal-tui-linux-arm64` |
+| `darwin-arm64` | `caracal-darwin-arm64`, `caracal-tui-darwin-arm64` |
+| `darwin-x64` | `caracal-darwin-x64`, `caracal-tui-darwin-x64` |
+| `windows-x64` | `caracal-windows-x64.exe`, `caracal-tui-windows-x64.exe` |
+
+Binaries are attached to the GitHub Release and include SHA-256 checksums. SLSA provenance attestations are generated for all binaries.
+
+To build a binary locally:
+
+```sh
+bun build --compile --target=bun-linux-x64 apps/cli/src/index.ts --outfile dist/caracal-linux-x64
+```
+
+---
+
+## Container images
+
+Five container images are published to GitHub Container Registry (`ghcr.io/garudex-labs/caracal/*`) on every release:
+
+| Image | Service |
+| --- | --- |
+| `ghcr.io/garudex-labs/caracal/api` | Control-Plane API |
+| `ghcr.io/garudex-labs/caracal/sts` | Security Token Service |
+| `ghcr.io/garudex-labs/caracal/gateway` | Gateway |
+| `ghcr.io/garudex-labs/caracal/coordinator` | Coordinator |
+| `ghcr.io/garudex-labs/caracal/audit` | Audit service |
+
+All images are multi-arch (`linux/amd64`, `linux/arm64`). Images are tagged with the CalVer version and `latest`.
+
+---
+
+## SLSA provenance
+
+The release pipeline generates SLSA Level 3 provenance attestations for all binaries and container images. Attestations are attached to the GitHub Release as `.intoto.jsonl` files. Verify an artifact:
+
+```sh
+gh attestation verify caracal-linux-x64 --repo garudex-labs/caracal
+```
+
+---
+
+## Hotfixes
+
+For a critical fix on an already-released version:
+
+1. Branch from the release tag: `git checkout -b hotfix-jti v2026.05.11`
+2. Apply the fix and add a changeset if it affects npm packages.
+3. Push the branch, open a PR against `main`, and get it reviewed and merged.
+4. Cherry-pick to `main` if needed.
+5. Tag the hotfix: `git tag v2026.05.11.1 && git push origin v2026.05.11.1`.
+
+Do not tag from a feature branch. Tags must point to commits reachable from `main`.

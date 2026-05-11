@@ -1,7 +1,124 @@
 ---
 title: Code Style
-description: Naming, comments, file headers, and the no-legacy rule.
+description: File headers, naming conventions, directory instructions, and the no-legacy rule.
 pageType: reference
 ---
 
-Naming, comments, file headers, and the no-legacy rule.
+Caracal enforces a uniform set of code standards across all languages and packages. These rules are codified in `.claude/rules/` at the repository root and are applied to every source file.
+
+---
+
+## File headers
+
+Every source file must begin with the copyright header, adapted to the file's comment syntax:
+
+**TypeScript / JavaScript:**
+```ts
+// Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+// Caracal, a product of Garudex Labs
+//
+// One-sentence description of what this file is.
+```
+
+**Go:**
+```go
+// Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+// Caracal, a product of Garudex Labs
+//
+// One-sentence description of what this file is.
+```
+
+**Python:**
+```python
+# Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+# Caracal, a product of Garudex Labs
+#
+# One-sentence description of what this file is.
+```
+
+**MDX (docs pages — frontmatter only, no comment header):**
+
+MDX files use frontmatter as their header. Do not add a comment block before `---`. The `title` and `description` frontmatter fields serve as the file descriptor.
+
+Rules for the header:
+- Two spaces after `All Rights Reserved.` — exact spacing is required.
+- Blank line between the copyright block and the description.
+- Description is a single sentence, present tense, describing what the file *is* — not what it does, not why it exists.
+- No metadata, version notes, or author lines inside the header block.
+
+---
+
+## Naming conventions
+
+| Rule | Example |
+| --- | --- |
+| Variables and functions: CamelCase | `tokenCache`, `exchangeToken` |
+| Types and classes: PascalCase | `TokenClaims`, `OPAEngine` |
+| Files and directories: camelCase or kebab-case matching surrounding convention | `tokenCache.ts`, `token-cache.go` |
+| Go exported identifiers: PascalCase | `func NewKeyCache(...)` |
+| Python modules: snake_case | `token_state.py` |
+| Constants: UPPER_SNAKE in Python; CamelCase in Go and TS | `AUDIT_HMAC_KEY`, `MaxGrantTTL` |
+
+**Forbidden prefixes:** `new_`, `fixed_`, `updated_`, `old_`, or similar mutation-history prefixes. Go constructor functions named `NewX` are exempt.
+
+**Forbidden in names:** `-` (hyphen). Use `_` only when the language requires it (Python module files, test fixtures).
+
+Match the naming pattern in the surrounding code. If an existing file uses a convention that differs from the above, match what is already there.
+
+---
+
+## Comments
+
+Write comments only when the *why* is non-obvious — a hidden constraint, a subtle invariant, a workaround for a known bug, behavior that would surprise a reader.
+
+Do not write comments that:
+- Restate what the code already expresses through clear identifiers.
+- Reference the current task, fix, issue number, or PR.
+- Describe what was changed, removed, or added.
+- Say "previously", "now", "added for", "used by".
+
+One short line is the maximum for inline comments. Do not write multi-paragraph docstrings or multi-line comment blocks for internal code. Public API documentation (Go `godoc`, TypeScript JSDoc) is the exception — keep it concise and accurate.
+
+---
+
+## `instructions.md` files
+
+Every non-trivial directory that contains logic or structure must have exactly one `instructions.md` file. The file covers only the directory it lives in.
+
+Required structure:
+1. First bullet: scope of the directory.
+2. Required rules (using `must`, `must not`, `only`).
+3. Forbidden rules.
+
+`instructions.md` files must not duplicate rules from parent directories, include pseudocode, or use weak language (`should`, `consider`, `prefer`).
+
+When you add a new directory with meaningful structure, create its `instructions.md`. When you change the naming patterns or conventions for a directory, update the `instructions.md` immediately. Delete or rewrite instructions that no longer match the actual code.
+
+Only `root/README.md` and files under `docs/` may be `.md` files outside of `instructions.md`. Do not create `README.md` inside `packages/`, `services/`, or any subdirectory — use `instructions.md` instead.
+
+---
+
+## No-legacy rule
+
+The repository enforces a strict no-legacy policy:
+
+- Each feature has exactly one execution path. There are no fallback paths, compatibility shims, or version-conditional branches.
+- Remove deprecated functions, classes, or modules when the replacement lands — do not keep them "just in case".
+- Remove feature flags that gate old vs. new behavior once the new behavior is the only behavior.
+- Remove dead code, commented-out blocks, and unused abstractions.
+- Do not layer a new implementation on top of an existing one. Rewrite the affected area cleanly.
+- Do not add migration helpers unless a migration is explicitly required right now.
+
+When you encounter legacy code while working on a change, remove it as part of the same PR rather than leaving it for later.
+
+---
+
+## Product isolation
+
+The `caracal/` and `caracalEnterprise/` directories are separate products with a hard boundary:
+
+- Do not import, require, or reference source files across the two roots.
+- Do not copy or mirror implementation code from one product into the other.
+- Shared behavior crosses the boundary only through explicitly approved, license-compliant interfaces.
+
+Local service ports must also be isolated: `caracal/` and `caracalEnterprise/` services use non-overlapping port assignments so both stacks can run side by side.

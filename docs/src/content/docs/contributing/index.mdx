@@ -4,4 +4,53 @@ description: How to build, test, and ship changes to Caracal.
 pageType: landing
 ---
 
-How to build, test, and ship changes to Caracal.
+Caracal is an open-source project maintained by Garudex Labs. Contributions are welcome — bug reports, documentation improvements, test coverage, and new features. This section covers everything you need to work on the repository: how to set up a local stack, what code style to follow, how to run tests, and how to get changes merged and released.
+
+## Structure of this section
+
+| Page | What it covers |
+| --- | --- |
+| [Local Setup](./setup) | Required toolchains, cloning, and bootstrapping the dev stack |
+| [Development Workflow](./workflow) | Branching, commits, Changesets, code review, and DCO sign-off |
+| [Code Style](./style) | File headers, naming conventions, the no-legacy rule, and `instructions.md` |
+| [Testing](./testing) | Test tiers, how to run each suite, and what CI enforces |
+| [Release and Versioning](./release) | CalVer tags, npm Changesets, PyPI OIDC publishing, and container images |
+| [Governance](./governance) | Maintainership, decision-making, RFCs, and the security disclosure process |
+
+## Repository layout
+
+```
+caracal/
+  apps/          CLI and TUI applications
+  services/      Long-running services (API, STS, Gateway, Coordinator, Audit)
+  packages/      Shared TypeScript packages
+  infra/         Docker Compose stacks, Postgres migrations, Redis config
+  docs/          This documentation site (Astro/Starlight)
+  tests/         Cross-package test suites organized by test type
+  examples/      Reference applications (e.g., lynxCapital)
+  scripts/       Build, release, and maintenance scripts
+  governance/    CODEOWNERS, RFC templates, maintainer policies
+```
+
+## Package ecosystem
+
+| Language | Manager | Count | Location |
+| --- | --- | --- | --- |
+| TypeScript | pnpm 11 workspace | 13 packages | `packages/`, `apps/`, `services/` (TS) |
+| Go | `go.work` | 11 modules | `services/` (Go), `packages/` (Go) |
+| Python | per-package venv | 6 packages | `packages/` (Python) |
+
+All three ecosystems coexist in the same repository. They share no build tooling — each uses its own language-native commands.
+
+## Quick start
+
+```sh
+git clone https://github.com/garudex-labs/caracal.git
+cd caracal
+pnpm install
+cp .env.example .env
+caracal up
+caracal init
+```
+
+Full details are in [Local Setup](./setup).

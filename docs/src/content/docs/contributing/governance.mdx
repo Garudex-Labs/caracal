@@ -1,7 +1,94 @@
 ---
 title: Governance
-description: Decision-making, maintainership, and project stewardship.
+description: Maintainership, decision-making, RFCs, and the security disclosure process.
 pageType: reference
 ---
 
-Decision-making, maintainership, and project stewardship.
+Caracal is a project of Garudex Labs. This page describes how decisions are made, who maintains the project, and how to report security issues.
+
+---
+
+## Maintainership
+
+Active maintainers are listed in `governance/CODEOWNERS`. CODEOWNERS entries map repository paths to the maintainers responsible for reviewing changes in those areas.
+
+Maintainers are responsible for:
+- Reviewing and merging pull requests.
+- Triaging issues and assigning priority.
+- Tagging and triggering releases.
+- Enforcing code standards and the DCO requirement.
+- Making architectural decisions, with RFCs for significant changes.
+
+The project does not have a public nomination process for maintainers. Maintainer status is granted by existing maintainers based on demonstrated contribution quality and sustained involvement.
+
+---
+
+## Decision-making
+
+**Small changes** (bug fixes, documentation, test coverage, minor additions that fit within existing patterns) — open a PR. No prior discussion required. The PR description should make the motivation clear.
+
+**Medium changes** (new packages, new API endpoints, significant refactors within an existing component) — open a GitHub issue first, describe the change and its motivation, and allow for discussion before investing in implementation. Link to the issue in the PR.
+
+**Large or architectural changes** (new services, protocol-level changes, cross-cutting security properties, changes to the token model or key management) — open an RFC.
+
+---
+
+## RFC process
+
+An RFC (Request for Comments) is a GitHub issue with the `[RFC]` prefix in its title:
+
+```
+[RFC] Add agent session inheritance to token exchange
+```
+
+An RFC describes:
+1. **Problem** — what situation or limitation motivates the change.
+2. **Proposal** — what the change is, at the design level (not implementation).
+3. **Alternatives** — what was considered and why it was not chosen.
+4. **Trade-offs** — what is gained and what is lost.
+5. **Open questions** — unresolved design questions where input is needed.
+
+RFCs stay open for at least 7 days to allow async review. Maintainers close the RFC with a decision: accepted, rejected, or deferred. An accepted RFC does not commit to a timeline — it means the approach is approved for implementation.
+
+For security-sensitive RFCs, use the private security disclosure channel instead of a public issue (see below).
+
+---
+
+## Coding standards enforcement
+
+All contributions must follow the standards in [Code Style](./style). Reviewers enforce these standards as part of code review. Submissions with missing file headers, incorrect naming, undocumented directory structures, or legacy code patterns will not be merged without corrections.
+
+The DCO sign-off (`git commit -s`) is required on every commit. PRs without DCO sign-off on all commits will fail the DCO check in CI. If you forgot to sign off on prior commits:
+
+```sh
+git rebase HEAD~N --signoff   # sign off on the last N commits
+git push --force-with-lease
+```
+
+---
+
+## Security disclosure
+
+Do not open public GitHub issues for security vulnerabilities.
+
+Report security issues to: **security@garudex.io**
+
+Include:
+- A description of the vulnerability.
+- Steps to reproduce or a proof-of-concept (minimal is fine).
+- The affected component(s) and version(s).
+- Your assessment of severity and impact.
+
+Garudex Labs will respond within 72 hours with an acknowledgement. The typical resolution timeline is 14–30 days depending on complexity.
+
+After the vulnerability is fixed and a patch release is available, Garudex Labs will publish a security advisory on GitHub with CVE assignment (if applicable) and credit to the reporter unless anonymity is requested.
+
+Do not disclose the issue publicly until the patch release is available. Coordinated disclosure is the expected norm.
+
+---
+
+## Project stewardship
+
+Caracal is licensed under the Apache License 2.0. The project is stewardship of Garudex Labs but welcomes external contributors under the same license. Contributions are accepted under the DCO — you retain copyright in your contribution while granting Garudex Labs the right to use it under the project's license.
+
+Garudex Labs makes decisions about the project's strategic direction. External contributors influence direction through issues, RFCs, and sustained code contribution. There is no external governance board.
