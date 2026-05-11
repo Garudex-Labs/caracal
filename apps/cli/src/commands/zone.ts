@@ -12,6 +12,7 @@ import {
   parseArgs,
   printJSON,
   printTable,
+  showHelp,
   unknownVerb,
   usage,
 } from './shared.ts'
@@ -77,8 +78,8 @@ export async function zoneCommand(argv: string[], cfg?: CliConfig): Promise<void
   }
 }
 
-function help(): void {
-  process.stdout.write(
+function help(): never {
+  return showHelp(
     [
       'Usage: caracal zone <verb> [options]',
       '',
@@ -101,7 +102,6 @@ function help(): void {
       '  --json                  Emit raw JSON instead of a table',
       '  --help, -h              Show this help',
       '',
-    ].join('\n'),
+    ],
   )
-  process.exit(0)
 }

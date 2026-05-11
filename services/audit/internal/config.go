@@ -41,16 +41,10 @@ func loadConfig() Config {
 	} else if base.IsProduction() {
 		panic("AUDIT_HMAC_KEY: required in production")
 	}
-	retention, _ := strconv.Atoi(config.Getenv("AUDIT_RETENTION_DAYS", "365"))
-	if retention < 1 {
-		retention = 365
-	}
+	retention := config.PositiveIntEnv("AUDIT_RETENTION_DAYS", 365)
 	maxDeliv, _ := strconv.ParseInt(config.Getenv("AUDIT_MAX_DELIVERIES", "5"), 10, 64)
 	idleSecs, _ := strconv.ParseInt(config.Getenv("AUDIT_CLAIM_IDLE_SECS", "30"), 10, 64)
-	rolling, _ := strconv.Atoi(config.Getenv("AUDIT_TAMPER_ROLLING_HOURS", "4"))
-	if rolling < 1 {
-		rolling = 4
-	}
+	rolling := config.PositiveIntEnv("AUDIT_TAMPER_ROLLING_HOURS", 4)
 	return Config{
 		Base:               base,
 		S3Endpoint:         config.Getenv("AUDIT_EXPORT_S3_ENDPOINT", ""),

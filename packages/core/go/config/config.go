@@ -7,6 +7,7 @@ package config
 
 import (
 	"os"
+	"strconv"
 	"strings"
 )
 
@@ -71,4 +72,17 @@ func Getenv(key, fallback string) string {
 		return v
 	}
 	return fallback
+}
+
+// PositiveIntEnv returns a positive integer env var or fallback when unset or invalid.
+func PositiveIntEnv(key string, fallback int) int {
+	raw := os.Getenv(key)
+	if raw == "" {
+		return fallback
+	}
+	n, err := strconv.Atoi(raw)
+	if err != nil || n <= 0 {
+		return fallback
+	}
+	return n
 }
