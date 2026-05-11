@@ -1,0 +1,54 @@
+---
+/*
+ * Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+ * Caracal, a product of Garudex Labs
+ *
+ * Structured "See also" section with labeled relationship types.
+ */
+
+type Relationship = 'related' | 'required-by' | 'used-in' | 'extends' | 'canonical'
+
+interface RelatedLink {
+  title: string
+  href: string
+  description?: string
+  relationship: Relationship
+}
+
+interface Props {
+  links: RelatedLink[]
+}
+
+const { links } = Astro.props
+
+const labels: Record<Relationship, string> = {
+  'related': 'Related',
+  'required-by': 'Required by',
+  'used-in': 'Used in',
+  'extends': 'Extends',
+  'canonical': 'Canonical reference',
+}
+
+const grouped = links.reduce<Record<Relationship, RelatedLink[]>>((acc, l) => {
+  acc[l.relationship] = acc[l.relationship] ?? []
+  acc[l.relationship].push(l)
+  return acc
+}, {} as Record<Relationship, RelatedLink[]>)
+---
+
+<section class="see-also">
+  <h2>See also</h2>
+  <dl>
+    {(Object.entries(grouped) as [Relationship, RelatedLink[]][]).map(([rel, items]) => (
+      <>
+        <dt data-pagefind-ignore="true">{labels[rel]}</dt>
+        {items.map((l) => (
+          <dd>
+            <a href={l.href}>{l.title}</a>
+            {l.description && ` — ${l.description}`}
+          </dd>
+        ))}
+      </>
+    ))}
+  </dl>
+</section>

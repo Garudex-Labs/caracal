@@ -1,0 +1,26 @@
+---
+/*
+ * Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+ * Caracal, a product of Garudex Labs
+ *
+ * Code block wrapper that preserves context adjacent to the snippet.
+ */
+
+interface Props {
+  language: string
+  title: string
+  context: string
+  service?: string
+}
+
+const { language, title, context, service } = Astro.props
+---
+
+<figure class="code-example">
+  <figcaption>
+    <span class="code-example-title">{title}</span>
+    {service && <span class="code-example-service">{service}</span>}
+    <span class="code-example-context">{context}</span>
+  </figcaption>
+  <slot />
+</figure>

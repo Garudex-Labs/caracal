@@ -1,6 +1,11 @@
 ---
 title: System Overview
 description: The major services and data flows behind Caracal.
+pageType: architecture
+concepts: []
+relatedConcepts: [mandate, principal, zone, resource-binding]
+keywords: [three-plane, coordinator, STS, gateway, request lifecycle, routing matrix, deployment, JWKS, revocation]
+service: all
 ---
 
 Caracal is split into three planes, each running as its own service.
