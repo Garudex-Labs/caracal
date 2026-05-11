@@ -29,6 +29,10 @@ func newRedis(dsn string) (*RedisClient, error) {
 	return &RedisClient{c: redis.NewClient(opts)}, nil
 }
 
+func (r *RedisClient) Ping(ctx context.Context) error {
+	return r.c.Ping(ctx).Err()
+}
+
 // SetStreamSigning configures the HMAC key used by SignedXAdd and verified by
 // VerifyStream callers. When require is true, missing or invalid signatures cause
 // consumer-side rejection.
