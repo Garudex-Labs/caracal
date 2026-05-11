@@ -87,6 +87,80 @@ class TransportMcpAuthenticateTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(result.error.code if result.error else None, "chain_mismatch")
 
+    async def test_rejects_insufficient_scope(self) -> None:
+        token, jwk = mint_es256_token(scopes=("read",))
+        self.cache.keys = [jwk]
+
+        result = await authenticate(
+            token,
+            "https://sts.example.com",
+            "resource://api",
+            ["admin"],
+            "zone1",
+            InMemoryRevocationStore(),
+        )
+
+        self.assertEqual(result.error.code if result.error else None, "insufficient_scope")
+
+    async def test_rejects_agent_required(self) -> None:
+        token, jwk = mint_es256_token()
+        self.cache.keys = [jwk]
+
+        result = await authenticate(
+            token,
+            "https://sts.example.com",
+            "resource://api",
+            [],
+            "zone1",
+            InMemoryRevocationStore(),
+            require_agent=True,
+        )
+
+        self.assertEqual(result.error.code if result.error else None, "agent_required")
+
+    async def test_rejects_delegation_required(self) -> None:
+        token, jwk = mint_es256_token()
+        self.cache.keys = [jwk]
+
+        result = await authenticate(
+            token,
+            "https://sts.example.com",
+            "resource://api",
+            [],
+            "zone1",
+            InMemoryRevocationStore(),
+            require_delegation=True,
+        )
+
+        self.assertEqual(result.error.code if result.error else None, "delegation_required")
+
+    async def test_rejects_invalid_zone(self) -> None:
+        token, jwk = mint_es256_token()
+        self.cache.keys = [jwk]
+
+        result = await authenticate(
+            token,
+            "https://sts.example.com",
+            "resource://api",
+            [],
+            "zone-other",
+            InMemoryRevocationStore(),
+        )
+
+        self.assertEqual(result.error.code if result.error else None, "invalid_zone")
+
+    async def test_rejects_invalid_token(self) -> None:
+        result = await authenticate(
+            "not.a.jwt",
+            "https://sts.example.com",
+            "resource://api",
+            [],
+            None,
+            InMemoryRevocationStore(),
+        )
+
+        self.assertEqual(result.error.code if result.error else None, "invalid_token")
+
 
 if __name__ == "__main__":
     unittest.main()

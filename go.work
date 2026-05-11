@@ -3,6 +3,7 @@ go 1.26
 use (
 	./apps/coordinator/relay
 	./packages/connectors/nethttp/go
+	./packages/connectors/redis/go
 	./packages/core/go
 	./packages/identity/go
 	./packages/revocation/go

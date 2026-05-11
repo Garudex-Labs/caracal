@@ -13,7 +13,7 @@ sys.path.append(str(Path(__file__).parents[3] / "shared" / "test-utils" / "pytho
 
 from caracal_test_tokens import mint_es256_token
 from caracalai_identity import verify
-from caracalai_mcp_fastmcp import CaracalAuth
+from caracalai_mcp_fastmcp import CaracalAuth, CaracalAuthError
 from caracalai_revocation import InMemoryRevocationStore
 
 
