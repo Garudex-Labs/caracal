@@ -27,7 +27,7 @@ COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY apps/coordinator/package.json apps/coordinator/package.json
 COPY packages/core/ts/package.json packages/core/ts/package.json
 COPY packages/identity/ts/package.json packages/identity/ts/package.json
-RUN npm install -g pnpm@10.28.0 && pnpm install --frozen-lockfile --ignore-scripts --filter @caracalai/coordinator...
+RUN npm install -g pnpm@11.0.9 && pnpm install --frozen-lockfile --ignore-scripts --filter @caracalai/coordinator...
 COPY packages/core/ts/tsconfig.json packages/core/ts/tsconfig.json
 COPY packages/core/ts/src packages/core/ts/src
 COPY packages/identity/ts/tsconfig.json packages/identity/ts/tsconfig.json

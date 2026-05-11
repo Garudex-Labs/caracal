@@ -158,4 +158,9 @@ export async function initCommand(argv: string[]): Promise<void> {
   mkdirSync(dirname(opts.configPath), { recursive: true })
   writeFileSync(opts.configPath, toml, { mode: 0o600 })
   process.stdout.write(`Wrote ${opts.configPath}\n`)
+  process.stdout.write(
+    'Note: Caracal enforces policy only on traffic that reaches the gateway or a Caracal connector.\n' +
+      '      Direct calls to the host or to provider APIs bypass Caracal. Firewall every path that\n' +
+      '      is not fronted by the gateway/connector in production.\n',
+  )
 }
