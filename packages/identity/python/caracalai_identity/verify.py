@@ -12,7 +12,7 @@ import jwt
 
 from .jwks import JwksCache
 from .scope import has_scope
-from .types import ChainHop, Claims, JwtConfig
+from .types import DEFAULT_MAX_HOP_COUNT, ChainHop, Claims, JwtConfig
 
 _cache = JwksCache()
 
@@ -56,14 +56,14 @@ def _read_chain(raw: Any) -> list[ChainHop]:
     for item in raw:
         if not isinstance(item, dict):
             continue
-        application_id = item.get("app") or item.get("application_id")
+        application_id = item.get("app")
         if not isinstance(application_id, str) or not application_id:
             continue
         out.append(
             ChainHop(
                 application_id=application_id,
-                agent_session_id=item.get("session") or item.get("agent_session_id"),
-                delegation_edge_id=item.get("edge") or item.get("delegation_edge_id"),
+                agent_session_id=item.get("session"),
+                delegation_edge_id=item.get("edge"),
             )
         )
     return out
@@ -144,11 +144,13 @@ async def verify_config(token: str, config: JwtConfig) -> Claims:
             raise ChainMismatchError(expected)
 
     hop_count = decoded.get("hop_count")
-    if (
-        config.max_hop_count is not None
-        and isinstance(hop_count, int)
-        and hop_count > config.max_hop_count
-    ):
+    max_hops = (
+        config.max_hop_count
+        if config.max_hop_count is not None and config.max_hop_count > 0
+        else DEFAULT_MAX_HOP_COUNT
+    )
+    observed = hop_count if isinstance(hop_count, int) else 0
+    if observed > max_hops:
         raise HopCountExceededError("Hop count exceeded")
 
     delegation_path = decoded.get("delegation_path") or []
@@ -156,8 +158,6 @@ async def verify_config(token: str, config: JwtConfig) -> Claims:
         delegation_path = []
 
     graph_epoch = decoded.get("delegation_graph_epoch")
-    if graph_epoch is None:
-        graph_epoch = decoded.get("graph_epoch")
 
     return Claims(
         sub=decoded.get("sub", ""),

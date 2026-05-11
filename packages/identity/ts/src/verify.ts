@@ -6,7 +6,7 @@
 import { jwtVerify } from 'jose'
 import { hasScope } from '@caracalai/core'
 import { getKeySet } from './jwks.js'
-import type { ChainHop, Claims, JwtConfig } from './types.js'
+import { DEFAULT_MAX_HOP_COUNT, type ChainHop, type Claims, type JwtConfig } from './types.js'
 
 export class TokenInvalidError extends Error {
   constructor(message = 'Token validation failed') {
@@ -67,18 +67,12 @@ function readChain(raw: unknown): ChainHop[] | undefined {
   for (const item of raw) {
     if (item && typeof item === 'object') {
       const r = item as Record<string, unknown>
-      const applicationId = typeof r['app'] === 'string'
-        ? r['app']
-        : typeof r['application_id'] === 'string' ? r['application_id'] : ''
+      const applicationId = typeof r['app'] === 'string' ? r['app'] : ''
       if (!applicationId) continue
       out.push({
         applicationId,
-        agentSessionId: typeof r['session'] === 'string'
-          ? r['session']
-          : typeof r['agent_session_id'] === 'string' ? r['agent_session_id'] as string : undefined,
-        delegationEdgeId: typeof r['edge'] === 'string'
-          ? r['edge']
-          : typeof r['delegation_edge_id'] === 'string' ? r['delegation_edge_id'] as string : undefined,
+        agentSessionId: typeof r['session'] === 'string' ? r['session'] : undefined,
+        delegationEdgeId: typeof r['edge'] === 'string' ? r['edge'] : undefined,
       })
     }
   }
@@ -121,7 +115,7 @@ export async function verify(token: string, config: JwtConfig): Promise<Claims> 
   const delegationChain = readChain(payload['delegation_chain'])
   const graphEpoch = typeof payload['delegation_graph_epoch'] === 'number'
     ? payload['delegation_graph_epoch'] as number
-    : (typeof payload['graph_epoch'] === 'number' ? payload['graph_epoch'] as number : undefined)
+    : undefined
   const hopCount = typeof payload['hop_count'] === 'number' ? payload['hop_count'] as number : undefined
 
   if (config.requireAgent && !agentSessionId) {
@@ -130,7 +124,10 @@ export async function verify(token: string, config: JwtConfig): Promise<Claims> 
   if (config.requireDelegation && !delegationEdgeId) {
     throw new DelegationRequiredError()
   }
-  if (config.maxHopCount !== undefined && hopCount !== undefined && hopCount > config.maxHopCount) {
+  const maxHops = config.maxHopCount !== undefined && config.maxHopCount > 0
+    ? config.maxHopCount
+    : DEFAULT_MAX_HOP_COUNT
+  if ((hopCount ?? 0) > maxHops) {
     throw new HopCountExceededError()
   }
   for (const expected of config.requireChainContains ?? []) {

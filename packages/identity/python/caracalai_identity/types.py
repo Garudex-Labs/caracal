@@ -8,6 +8,13 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 
+# DEFAULT_MAX_HOP_COUNT caps delegation chain depth when verifier callers leave
+# JwtConfig.max_hop_count unset. Matches the coordinator's MAX_DEPTH so a token
+# that would have been blocked at spawn time cannot pass a permissive resource
+# server.
+DEFAULT_MAX_HOP_COUNT = 10
+
+
 @dataclass
 class JwtConfig:
     issuer: str

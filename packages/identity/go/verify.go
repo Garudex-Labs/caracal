@@ -58,19 +58,10 @@ func readChain(raw any) []ChainHop {
 		}
 		appID, _ := m["app"].(string)
 		if appID == "" {
-			appID, _ = m["application_id"].(string)
-		}
-		if appID == "" {
 			continue
 		}
 		session, _ := m["session"].(string)
-		if session == "" {
-			session, _ = m["agent_session_id"].(string)
-		}
 		edge, _ := m["edge"].(string)
-		if edge == "" {
-			edge, _ = m["delegation_edge_id"].(string)
-		}
 		out = append(out, ChainHop{ApplicationID: appID, AgentSessionID: session, DelegationEdgeID: edge})
 	}
 	return out
@@ -158,7 +149,11 @@ func Verify(tokenStr string, cfg Config) (Claims, error) {
 	if cfg.RequireDelegation && delegationEdgeID == "" {
 		return Claims{}, ErrDelegationRequired
 	}
-	if cfg.MaxHopCount > 0 && hopCount > cfg.MaxHopCount {
+	maxHops := cfg.MaxHopCount
+	if maxHops <= 0 {
+		maxHops = DefaultMaxHopCount
+	}
+	if hopCount > maxHops {
 		return Claims{}, ErrHopCountExceeded
 	}
 	for _, expected := range cfg.RequireChainContains {
