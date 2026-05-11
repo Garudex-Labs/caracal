@@ -1,7 +1,284 @@
 ---
 title: Observability and Health
-description: Health, readiness, and metrics endpoints across services.
+description: Health, readiness, and metrics endpoints across all five services — response formats, check details, and monitoring guidance.
 pageType: config
 ---
 
-Health, readiness, and metrics endpoints across services.
+Every Caracal service exposes three HTTP endpoints for operational visibility: `/health` for liveness, `/ready` for readiness, and `/metrics` for service-specific counters.
+
+## Endpoint summary
+
+| Service | Port | `/health` | `/ready` | `/metrics` |
+| --- | --- | --- | --- | --- |
+| STS | 8080 | 200 | 200 / 503 | 200 JSON |
+| API | 3000 | 200 | 200 / 503 | — |
+| Gateway | 8081 | 200 | 200 / 503 | 200 JSON |
+| Coordinator | 4000 | 200 | 200 / 503 | 200 JSON |
+| Audit | 9090 | 200 / 503 | 200 / 503 | 200 JSON |
+
+`/health` is a liveness check — use it to determine if the process is alive and should continue receiving traffic. `/ready` is a readiness check — use it to gate traffic until dependencies are available.
+
+---
+
+## STS
+
+### `GET /health`
+
+HTTP 200 with empty body. Always succeeds if the process is running.
+
+### `GET /ready`
+
+HTTP 200 on success. HTTP 503 with a plain-text error message if any dependency is unavailable:
+
+```
+postgres unreachable: <error>
+redis unreachable: <error>
+audit replay unavailable: <error>
+```
+
+Checks: Postgres `Ping()`, Redis connectivity, audit replay buffer readiness.
+
+### `GET /metrics`
+
+HTTP 200, JSON:
+
+```json
+{
+  "sts": {
+    "graph_traversals": 0,
+    "graph_traversal_errors": 0,
+    "audit_dropped": 0,
+    "audit_replay_pending": 0,
+    "audit_replay_replayed": 0,
+    "audit_sink_errors": 0,
+    "jwks_invalid_keys": 0
+  },
+  "opa": { ... },
+  "audit_dropped": 0
+}
+```
+
+| Metric | Meaning |
+| --- | --- |
+| `graph_traversals` | Delegation chain traversals performed |
+| `graph_traversal_errors` | Failed traversals (alert if non-zero) |
+| `audit_dropped` | Audit events dropped due to sink errors — these are not persisted |
+| `audit_replay_pending` | Events in the replay buffer awaiting re-delivery |
+| `audit_replay_replayed` | Events successfully re-delivered from the replay buffer |
+| `audit_sink_errors` | Errors publishing to the audit stream |
+| `jwks_invalid_keys` | Keys in the JWKS document that fail validation (alert if non-zero) |
+
+`audit_dropped` and `audit_sink_errors` indicate that audit events are being silently lost. Investigate Redis availability and outbox lag.
+
+---
+
+## API
+
+### `GET /health`
+
+HTTP 200, JSON: `{ "ok": true }`
+
+### `GET /ready`
+
+HTTP 200 or 503, JSON:
+
+```json
+{
+  "ok": true,
+  "draining": false
+}
+```
+
+On failure:
+
+```json
+{
+  "ok": false,
+  "error": "<reason>"
+}
+```
+
+Checks: draining flag (set during graceful shutdown), Postgres `SELECT 1`, Redis `PING`.
+
+The API exposes no `/metrics` endpoint directly. Monitor it via the Postgres pool state (connection counts) and Redis stream consumer lag.
+
+---
+
+## Gateway
+
+### `GET /health`
+
+HTTP 200 with empty body.
+
+### `GET /ready`
+
+HTTP 200 or 503. Checks: bindings reload health, Postgres connectivity, Redis connectivity, STS `/health` reachable.
+
+### `GET /metrics`
+
+HTTP 200, JSON:
+
+```json
+{
+  "requests_total": 0,
+  "requests_allowed": 0,
+  "requests_denied": 0,
+  "denials_missing_auth": 0,
+  "denials_bad_bearer": 0,
+  "denials_expiring": 0,
+  "denials_bad_routing": 0,
+  "denials_path_traversal": 0,
+  "denials_signature": 0,
+  "denials_jti_replay": 0,
+  "denials_revoked": 0,
+  "denials_binding": 0,
+  "sts_exchange_errors": 0,
+  "upstream_errors": 0,
+  "bindings_loaded": 0,
+  "revocations_active": 0
+}
+```
+
+| Metric | Alert condition |
+| --- | --- |
+| `denials_revoked` | Non-zero: sessions being revoked are reaching the Gateway |
+| `denials_jti_replay` | Non-zero: possible replay attack or clock skew |
+| `sts_exchange_errors` | Elevated: STS unreachable or overloaded |
+| `upstream_errors` | Elevated: upstream services degraded |
+| `denials_path_traversal` | Non-zero: investigate request source |
+| `revocations_active` | Should track known revoked sessions; sudden spike indicates batch revocation |
+
+---
+
+## Coordinator
+
+### `GET /health`
+
+HTTP 200, JSON: `{ "ok": true }`
+
+### `GET /ready`
+
+HTTP 200 or 503, JSON:
+
+```json
+{
+  "ok": true
+}
+```
+
+On failure:
+
+```json
+{
+  "ok": false,
+  "error": "<reason>"
+}
+```
+
+Checks: Postgres `SELECT 1`, Redis `PING`.
+
+### `GET /metrics`
+
+HTTP 200, JSON (structure approximate):
+
+```json
+{
+  "invocations": {
+    "pending": 0,
+    "running": 0,
+    "succeeded": 0,
+    "failed": 0,
+    "dead": 0
+  },
+  "outbox": {
+    "pending": 0,
+    "published": 0,
+    "dead": 0
+  },
+  "ttl_sweeper": { ... },
+  "retention_cleaner": { ... }
+}
+```
+
+`outbox.dead` non-zero means the Coordinator has outbox rows that exceeded `OUTBOX_MAX_ATTEMPTS`. These events (lifecycle, delegation, revocation) will not be delivered. Investigate Redis availability.
+
+---
+
+## Audit
+
+### `GET /health`
+
+HTTP 200 or 503. Checks `consumer.Healthy()` — the audit stream consumer must be running and processing. Returns 503 if the consumer is unhealthy.
+
+### `GET /ready`
+
+HTTP 200 or 503. Checks: Postgres `Ping()`, Redis `Ping()`.
+
+### `GET /metrics`
+
+HTTP 200, JSON (all fields are numeric unless noted):
+
+```json
+{
+  "inserts_total": 0,
+  "export_events_total": 0,
+  "export_errors_total": 0,
+  "export_duration_ms": 0,
+  "consumer_lag": 0,
+  "consumer_pel_oldest_secs": 0,
+  "parse_errors_total": 0,
+  "dlq_total": 0,
+  "retries_total": 0,
+  "hmac_failures_total": 0,
+  "tamper_replay_total": 0,
+  "tamper_checked_total": 0,
+  "tamper_mismatch_total": 0,
+  "tamper_chain_breaks": 0,
+  "tamper_hmac_failures": 0,
+  "tamper_last_sweep_unix": 0,
+  "tamper_last_full_unix": 0,
+  "retention_created_total": 0,
+  "retention_dropped_total": 0,
+  "is_export_leader": false,
+  "is_retention_leader": false
+}
+```
+
+| Metric | Alert condition |
+| --- | --- |
+| `consumer_lag` | Growing: Audit is falling behind the event stream |
+| `consumer_pel_oldest_secs` | Large value: messages stuck in PEL, check consumer health |
+| `dlq_total` | Any increment: events exceeding max deliveries |
+| `hmac_failures_total` | Any increment: stream message signature verification failures |
+| `tamper_mismatch_total` | Any increment: audit chain integrity violation detected |
+| `tamper_chain_breaks` | Any increment: serious tamper event — escalate immediately |
+| `export_errors_total` | Sustained non-zero: S3 export failing, events not archived |
+| `is_export_leader` | Should be `true` on exactly one Audit replica |
+| `is_retention_leader` | Should be `true` on exactly one Audit replica |
+
+---
+
+## Monitoring setup
+
+The metrics endpoints return JSON, not Prometheus exposition format. To feed them into Prometheus, use a JSON exporter sidecar (e.g., `json_exporter`) configured to scrape each service's `/metrics` endpoint and map fields to Prometheus metrics.
+
+Minimum recommended alerts:
+
+| Alert | Source | Condition |
+| --- | --- | --- |
+| Service down | `/ready` HTTP status | Returns 503 for > 1 minute |
+| Audit chain tamper | Audit `/metrics` | `tamper_chain_breaks > 0` |
+| Audit DLQ growth | Audit `/metrics` | `dlq_total` increasing |
+| Gateway denials spike | Gateway `/metrics` | `denials_revoked` or `denials_jti_replay` > threshold |
+| STS audit drops | STS `/metrics` | `audit_dropped > 0` |
+| Outbox dead messages | Coordinator `/metrics` | `outbox.dead > 0` |
+
+Check stream consumer lag directly from Redis for deeper visibility:
+
+```bash
+# Audit ingestor lag
+redis-cli -a $REDIS_PASSWORD XINFO GROUPS caracal.audit.events
+
+# Revocation consumer lag
+redis-cli -a $REDIS_PASSWORD XINFO GROUPS caracal.sessions.revoke
+```

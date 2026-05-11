@@ -1,7 +1,29 @@
 ---
 title: Security
-description: Security posture, threat model, and disclosure process.
+description: Caracal's security posture — where authority is enforced, how trust is bounded, and what guarantees the system makes at runtime.
 pageType: landing
 ---
 
-Security posture, threat model, and disclosure process.
+Caracal is built around a small set of verifiable security guarantees. Every mandate is cryptographically signed and scope-narrowed to a single resource. Every token exchange is policy-evaluated at the STS before a mandate is issued. Every revocation propagates to all verifying services in under a second under normal operating conditions. No service extends implicit trust to another service's claims — every boundary is verified.
+
+## What Caracal enforces
+
+**Cryptographic mandate verification.** Every mandate is an ES256 JWT signed by the zone's ECDSA P-256 signing key. No mandate is accepted without a verified signature against the zone's JWKS. The STS is the only issuer; all verifying services (Gateway, Coordinator, resource servers) independently fetch and cache the JWKS.
+
+**Per-resource scope narrowing.** Ambient session tokens cannot be used directly at resources. The STS exchanges an ambient token for a per-resource mandate scoped to exactly the declared scopes of the resource. The mandate's `aud` claim is set to the resource identifier, not the issuer — preventing ambient tokens from being forwarded as resource credentials.
+
+**Policy-gated issuance.** Every token exchange evaluates the zone's active Rego policy bundle via OPA before issuing a mandate. If OPA is unavailable, the zone falls back to a deny-all policy. No mandate is issued without a `"complete"` evaluation result.
+
+**Sub-second revocation propagation.** When a session is revoked, the event is published to the `caracal.sessions.revoke` Redis stream. The Gateway, STS, and any resource server running `RedisRevocationConsumer` receive the event within one consumer poll cycle — typically under one second. The Gateway checks revocation on every inbound request and at every 4 KB boundary during streaming responses.
+
+**Delegation integrity.** Delegation edges are verified at token-exchange time against the live delegation graph. Scope, TTL, hop count, and path integrity are validated before a delegated mandate is issued. The delegation graph epoch is embedded in the JWT; resource servers can reject mandates issued against a stale graph.
+
+**Zone isolation.** All data is partitioned by `zone_id`. Composite `(zone_id, id)` unique constraints and foreign keys that include `zone_id` on both sides prevent cross-zone data access at the database layer. Zone-scoped admin tokens cannot access other zones.
+
+## Security pages
+
+| Page | Contents |
+| --- | --- |
+| [Threat Model](./threat-model/) | Trust boundaries, attack surface, specific threats and mitigations |
+| [Hardening Checklist](./hardening/) | Production configuration requirements before live traffic |
+| [Disclosure Policy](./disclosure/) | How to report a vulnerability |
