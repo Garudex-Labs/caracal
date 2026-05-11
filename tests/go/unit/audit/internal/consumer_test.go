@@ -100,7 +100,7 @@ func TestOCSFMapping(t *testing.T) {
 		PolicySetVersionID: "psv-1",
 		OccurredAt:         time.UnixMilli(1700000000000),
 	}
-	ocsf := ev.toOCSF("sha", "hmac", 7)
+	ocsf := toOCSF(ev, "sha", "hmac", 7)
 	if ocsf.ClassUID != 6003 {
 		t.Errorf("want class_uid 6003, got %d", ocsf.ClassUID)
 	}
@@ -114,7 +114,7 @@ func TestOCSFMapping(t *testing.T) {
 
 func TestOCSFMappingDeny(t *testing.T) {
 	ev := AuditEvent{Decision: "DENY"}
-	ocsf := ev.toOCSF("", "", 0)
+	ocsf := toOCSF(ev, "", "", 0)
 	if ocsf.SeverityID != 2 || ocsf.ActivityID != 2 {
 		t.Errorf("deny severity/activity wrong: %+v", ocsf)
 	}

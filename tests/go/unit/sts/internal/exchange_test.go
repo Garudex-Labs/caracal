@@ -317,7 +317,7 @@ func TestValidateSessionReferencesRequiresAgentSessionForDelegation(t *testing.T
 	srv := &Server{db: &stubDB{}}
 	_, err := srv.validateSessionReferences(context.Background(), "zone1", "app1", TokenExchangeRequest{
 		DelegationEdgeID: "edge1",
-	})
+	}, true)
 	if err == nil || err.Description != "delegation edge requires source agent session" {
 		t.Fatalf("want source agent session error, got %#v", err)
 	}
@@ -362,7 +362,7 @@ func TestValidateSessionReferencesAcceptsActiveGraphEdge(t *testing.T) {
 		AgentSessionID:   source.ID,
 		DelegationEdgeID: "edge1",
 		Scope:            "read",
-	})
+	}, true)
 	if err != nil || proof == nil || proof.edge.ID != "edge1" || proof.graphEpoch != 7 {
 		t.Fatalf("want active delegation proof, got proof=%#v err=%#v", proof, err)
 	}
@@ -407,7 +407,7 @@ func TestValidateSessionReferencesRejectsDelegationBudget(t *testing.T) {
 		AgentSessionID:   source.ID,
 		DelegationEdgeID: "edge1",
 		Scope:            "read write",
-	})
+	}, true)
 	if err == nil || err.Description != "requested scopes exceed delegation budget" {
 		t.Fatalf("want budget error, got %#v", err)
 	}
@@ -453,7 +453,7 @@ func TestValidateSessionReferencesRejectsDelegationTTLConstraint(t *testing.T) {
 		DelegationEdgeID: "edge1",
 		Scope:            "read",
 		TTLSeconds:       60,
-	})
+	}, true)
 	if err == nil || err.Description != "requested ttl exceeds delegation ttl" {
 		t.Fatalf("want ttl constraint error, got %#v", err)
 	}
@@ -497,7 +497,7 @@ func TestValidateSessionReferencesRejectsMalformedDelegationConstraints(t *testi
 		AgentSessionID:   source.ID,
 		DelegationEdgeID: "edge1",
 		Scope:            "read",
-	})
+	}, true)
 	if err == nil || err.Description != "delegation constraints invalid" {
 		t.Fatalf("want malformed constraint error, got %#v", err)
 	}
@@ -555,7 +555,8 @@ func TestExchangeRejectsResourceOutsideDelegationEdge(t *testing.T) {
 	}
 	srv := &Server{db: db}
 	_, _, code, apiErr := srv.exchange(context.Background(), TokenExchangeRequest{
-		ClientID:         "zone1:app1",
+		ZoneID:           "zone1",
+		ApplicationID:    "app1",
 		Resources:        []string{"resource://api/other"},
 		Scope:            "read",
 		AgentSessionID:   source.ID,
@@ -604,7 +605,7 @@ func TestValidateSessionReferencesRejectsInvalidDelegationPath(t *testing.T) {
 		AgentSessionID:   source.ID,
 		DelegationEdgeID: "edge1",
 		Scope:            "read",
-	})
+	}, true)
 	if err == nil || err.Description != "delegation path invalid" {
 		t.Fatalf("want invalid path error, got %#v", err)
 	}
@@ -652,7 +653,7 @@ func TestValidateSessionReferencesRejectsMaxHopOverflow(t *testing.T) {
 		AgentSessionID:   source.ID,
 		DelegationEdgeID: "edge1",
 		Scope:            "read",
-	})
+	}, true)
 	if err == nil || err.Description != "delegation path invalid" {
 		t.Fatalf("want max-hop path error, got %#v", err)
 	}
@@ -698,7 +699,7 @@ func TestValidateSessionReferencesAcceptsDeepDelegationPath(t *testing.T) {
 		AgentSessionID:   source.ID,
 		DelegationEdgeID: "edge1",
 		Scope:            "read",
-	})
+	}, true)
 	if err != nil || proof == nil || len(proof.path) != 3 || proof.graphEpoch != 12 {
 		t.Fatalf("want deep delegation proof, got proof=%#v err=%#v", proof, err)
 	}
