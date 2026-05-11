@@ -103,6 +103,11 @@ export function usage(line: string): never {
   process.exit(1)
 }
 
+export function showHelp(lines: readonly string[]): never {
+  process.stdout.write(lines.join('\n'))
+  process.exit(0)
+}
+
 export function unknownVerb(group: string, verb: string | undefined, help: () => void): never {
   if (verb === undefined || verb === 'help' || verb === '--help' || verb === '-h') {
     help()

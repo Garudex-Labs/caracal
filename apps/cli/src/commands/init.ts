@@ -8,6 +8,7 @@ import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { discoverAdminToken } from '@caracalai/core'
 import { AdminClient, AdminApiError, type LocalBootstrapResult } from '@caracalai/admin'
+import { showHelp } from './shared.ts'
 
 interface InitOptions {
   apiUrl: string
@@ -41,7 +42,7 @@ function nextArg(argv: string[], i: number, flag: string): string {
 }
 
 function initHelp(): never {
-  process.stdout.write(
+  return showHelp(
     [
       'Usage: caracal init [options]',
       '',
@@ -55,9 +56,8 @@ function initHelp(): never {
       '  --force                Rotate the client secret if the zone exists',
       '  --help, -h             Show this help',
       '',
-    ].join('\n'),
+    ],
   )
-  process.exit(0)
 }
 
 function parseFlags(argv: string[]): InitOptions {

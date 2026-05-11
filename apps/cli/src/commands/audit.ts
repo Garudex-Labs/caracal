@@ -14,6 +14,7 @@ import {
   printJSON,
   printTable,
   requireZone,
+  showHelp,
   unknownVerb,
 } from './shared.ts'
 
@@ -51,8 +52,8 @@ export async function auditCommand(argv: string[], cfg?: CliConfig): Promise<voi
   }
 }
 
-function auditHelp(): void {
-  process.stdout.write(
+function auditHelp(): never {
+  return showHelp(
     [
       'Usage: caracal audit tail [options]',
       '',
@@ -71,9 +72,8 @@ function auditHelp(): void {
       '',
       'See also: caracal explain <request_id>  — show full diagnostics for one request',
       '',
-    ].join('\n'),
+    ],
   )
-  process.exit(0)
 }
 
 export async function explainCommand(argv: string[], cfg?: CliConfig): Promise<void> {
