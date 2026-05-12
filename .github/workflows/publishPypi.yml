@@ -58,7 +58,7 @@ jobs:
             pypiName: caracalai-transport-mcp
           - name: fastmcp
             dir: packages/connectors/fastmcp/python
-            pypiName: caracalai-fastmcp
+            pypiName: caracalai-mcp-fastmcp
           - name: redis
             dir: packages/connectors/redis/python
             pypiName: caracalai-revocation-redis
