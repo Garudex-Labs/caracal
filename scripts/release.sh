@@ -53,7 +53,7 @@ while git rev-parse --quiet --verify "refs/tags/${prefix}${suffix}" >/dev/null; 
 done
 tag="${prefix}${suffix}"
 
-pending="$(find .changeset -maxdepth 1 -name '*.md' ! -name 'README.md' ! -name 'instructions.md' 2>/dev/null | wc -l | tr -d ' ')"
+pending="$(find .changeset -maxdepth 1 -name '*.md' ! -name 'README.md' 2>/dev/null | wc -l | tr -d ' ')"
 if [[ "$pending" == "0" && "$mode" != "dryrun" ]]; then
     echo "release: no pending changesets in .changeset/" >&2
     echo "release: run \`pnpm changeset\` on each PR that touches a published package" >&2
