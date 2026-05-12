@@ -12,4 +12,4 @@
 ## Forbidden
 - Must not embed secrets or tokens.
 - Must not duplicate logic that already exists as a `pnpm` workspace script.
-- Must not call services other than git, pnpm, node, and standard POSIX tools.
+- Must not call services other than git, pnpm, node, npm, python, twine, and standard POSIX tools.

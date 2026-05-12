@@ -1,7 +1,7 @@
 # Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 # Caracal, a product of Garudex Labs
 #
-# Release pipeline: builds CLI binaries, publishes npm/PyPI packages, pushes runtime images to GHCR, and creates the GitHub Release on CalVer tags.
+# Release pipeline: builds CLI binaries, pushes runtime images to GHCR, and creates the GitHub Release on CalVer tags. Npm and PyPI packages are published locally via scripts/publishNpm.sh and scripts/publishPypi.sh.
 
 name: release
 
@@ -278,182 +278,6 @@ jobs:
         with:
           subject-path: release-dist/caracal-*
 
-  npm:
-    name: Build and publish npm packages
-    needs: validate
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
-        with:
-          ref: ${{ inputs.ref || github.ref }}
-          fetch-depth: 0
-          persist-credentials: false
-
-      - uses: pnpm/action-setup@f40ffcd9367d9f12939873eb1018b921a783ffaa # v4
-        with:
-          version: ${{ env.PNPM_VERSION }}
-
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: pnpm
-          cache-dependency-path: pnpm-lock.yaml
-          registry-url: 'https://registry.npmjs.org'
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile --prefer-offline
-
-      - name: Build TypeScript packages
-        run: pnpm run build:typescript
-
-      - name: Publish packages
-        if: github.event_name == 'push' && inputs.dryRun != true
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: |
-          set -euo pipefail
-          echo "//registry.npmjs.org/:_authToken=${NPM_TOKEN}" > ~/.npmrc
-          npm whoami
-          for d in \
-            packages/core/ts \
-            packages/oauth/ts \
-            packages/admin/ts \
-            packages/identity/ts \
-            packages/revocation/ts \
-            packages/sdk/ts \
-            packages/transport/mcp/ts \
-            packages/transport/a2a/ts \
-            packages/connectors/express/ts \
-            packages/connectors/fastmcp/ts \
-            packages/connectors/postgres/ts \
-            packages/connectors/redis/ts
-          do
-            name=$(jq -r .name "$d/package.json")
-            ver=$(jq -r .version "$d/package.json")
-            if npm view "$name@$ver" version >/dev/null 2>&1; then
-              echo "skip $name@$ver (already published)"
-              continue
-            fi
-            echo "::group::publish $name@$ver"
-            ( cd "$d" && npm publish --access public )
-            echo "::endgroup::"
-          done
-
-      - name: Dry-run pack and publish
-        if: github.event_name != 'push' || inputs.dryRun == true
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: |
-          set -euo pipefail
-          mkdir -p /tmp/caracal-pack
-          pnpm changeset status --since=HEAD~1 || true
-          for d in \
-            packages/core/ts \
-            packages/oauth/ts \
-            packages/admin/ts \
-            packages/identity/ts \
-            packages/revocation/ts \
-            packages/sdk/ts \
-            packages/transport/mcp/ts \
-            packages/transport/a2a/ts \
-            packages/connectors/express/ts \
-            packages/connectors/fastmcp/ts \
-            packages/connectors/postgres/ts \
-            packages/connectors/redis/ts
-          do
-            pnpm --dir "$d" pack --pack-destination /tmp/caracal-pack
-            echo "::group::npm publish --dry-run for $d"
-            ( cd "$d" && npm publish --dry-run --access public )
-            echo "::endgroup::"
-          done
-          echo "Packed tarballs:"
-          ls -la /tmp/caracal-pack
-
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        if: github.event_name != 'push' || inputs.dryRun == true
-        with:
-          name: npm-tarballs
-          path: /tmp/caracal-pack/*.tgz
-          if-no-files-found: error
-          retention-days: 7
-
-  pypi:
-    name: Build and publish PyPI packages
-    needs: validate
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    permissions:
-      id-token: write
-    strategy:
-      fail-fast: false
-      matrix:
-        package:
-          - packages/core/python
-          - packages/identity/python
-          - packages/revocation/python
-          - packages/sdk/python
-          - packages/transport/mcp/python
-          - packages/connectors/fastmcp/python
-          - packages/connectors/redis/python
-    steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
-        with:
-          ref: ${{ inputs.ref || github.ref }}
-          persist-credentials: false
-
-      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
-        with:
-          python-version: ${{ env.PYTHON_VERSION }}
-
-      - name: Build sdist and wheel
-        working-directory: ${{ matrix.package }}
-        run: |
-          pip install build==1.2.2
-          python -m build
-
-      - name: Verify build artifacts
-        working-directory: ${{ matrix.package }}
-        run: |
-          set -euo pipefail
-          echo "Build artifacts:"
-          ls -la dist/
-          [ "$(ls dist/*.whl 2>/dev/null | wc -l)" -gt 0 ] || { echo "::error::No wheel found in dist/"; exit 1; }
-          [ "$(ls dist/*.tar.gz 2>/dev/null | wc -l)" -gt 0 ] || { echo "::error::No sdist found in dist/"; exit 1; }
-
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        with:
-          name: pypi-${{ strategy.job-index }}
-          path: ${{ matrix.package }}/dist/*
-          if-no-files-found: error
-          retention-days: 7
-
-      - uses: pypa/gh-action-pypi-publish@76f52bc884231f62b9a034ebfe128415bbaabdfc # v1
-        if: github.event_name == 'push' && inputs.dryRun != true
-        with:
-          packages-dir: ${{ matrix.package }}/dist
-          skip-existing: true
-          password: ${{ secrets.PYPI_API_TOKEN }}
-
-      - name: Dry-run publish to TestPyPI
-        if: github.event_name != 'push' || inputs.dryRun == true
-        working-directory: ${{ matrix.package }}
-        env:
-          TWINE_USERNAME: __token__
-          TWINE_PASSWORD: ${{ secrets.TEST_PYPI_API_TOKEN }}
-        run: |
-          set -euo pipefail
-          if [ -z "${TWINE_PASSWORD:-}" ]; then
-            echo "::warning::TEST_PYPI_API_TOKEN not set; running offline twine check only"
-            pip install twine
-            twine check dist/*
-            exit 0
-          fi
-          pip install twine
-          twine check dist/*
-          twine upload --repository-url https://test.pypi.org/legacy/ --skip-existing dist/*
-
   images:
     name: Build and push container images
     needs: validate
@@ -520,7 +344,7 @@ jobs:
 
   publish:
     name: Create GitHub Release
-    needs: [cli, npm, pypi, images]
+    needs: [cli, images]
     if: github.repository == 'Garudex-Labs/caracal' && github.event_name == 'push' && inputs.dryRun != true
     runs-on: ubuntu-latest
     timeout-minutes: 10
