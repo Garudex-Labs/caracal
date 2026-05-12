@@ -145,93 +145,56 @@ Output: `apps/{cli,tui}/dist/caracal[-tui]-<platform>[-<arch>][.exe]`. Generate 
 
 ## Releases
 
-Automated by [`.github/workflows/release.yml`](.github/workflows/release.yml), gated by [Changesets](https://github.com/changesets/changesets).
-
-### Versioning
-
-| Layer | Format | Owner |
-|---|---|---|
-| Repo tag, GitHub Release, container images, CLI binaries | CalVer `vYYYY.MM.DD` (suffix `.N` for same-day re-cuts) | release tag |
-| npm `@caracalai/*` | per-package semver | Changesets |
-| PyPI `caracalai-*` | per-package semver | hand-edited `pyproject.toml` |
-| Go modules | per-module semver tags | hand-applied when needed |
-
-The CalVer tag triggers the workflow but does not dictate package versions.
-
-### Per-package semver
-
-| Bump | When |
-|---|---|
-| Major | Breaking SDK / API contract, removed export, removed CLI flag |
-| Minor | Additive feature, new export, new CLI subcommand |
-| Patch | Bug fix, dependency bump, internal refactor |
-
-### Authoring a changeset
-
-```bash
-pnpm changeset
-```
-
-Pick affected packages and bump type. Commit the generated `.changeset/*.md` with the PR. Internal packages (`cli`, `tui`, `api`, `coordinator`) are ignored.
-
-### Cutting a release
-
-```bash
-./scripts/release.sh             # full release
-./scripts/release.sh --dry-run   # preview tag and version bumps; reverts cleanly
-```
-
-The script: verifies clean `main`, computes the next CalVer tag, runs `pnpm changeset version` (bumps versions, rewrites `workspace:*`), commits, tags, pushes.
-
-### Pre-publish dry run via CI
-
-```bash
-gh workflow run release.yml --field dryRun=true --field ref=main
-```
-
-Builds all artifacts, packs npm tarballs into `npm-tarballs`, builds (does not push) images, builds (does not publish) wheels, skips the GitHub Release.
+All release artifacts share one CalVer version: `vYYYY.MM.DD` (suffix `.N` for same-day re-cuts).
 
 ### Pipeline
 
-Triggers on `vYYYY.MM.DD[.N]`. After `validate` (full test suite):
+Pushing a CalVer tag triggers [`.github/workflows/release.yml`](.github/workflows/release.yml):
 
 | Job | Output |
 |---|---|
 | `cli` | 5 CLI + 5 TUI binaries, `SHA256SUMS`, SLSA provenance |
-| `npm` | 11 packages via `pnpm changeset publish` (idempotent, npm provenance) |
-| `pypi` | 6 wheels via OIDC trusted publishing (`skip-existing`) |
 | `images` | 5 multi-arch images on GHCR with provenance + SBOM, tagged `vYYYY.MM.DD[.N]`, `vYYYY.MM`, `latest` |
 | `publish` | GitHub Release with binaries, `SHA256SUMS`, `install.sh`, `install.ps1` |
+
+### Cutting a release
+
+```bash
+git tag v2026.05.12 && git push origin v2026.05.12
+```
+
+Only maintainers listed in `.github/MAINTAINERS` may push release tags.
+
+### npm and PyPI
+
+Packages are published locally with manually-entered tokens:
+
+```bash
+./scripts/publishNpm.sh
+./scripts/publishPypi.sh            # PyPI
+./scripts/publishPypi.sh --testpypi  # TestPyPI
+```
+
+Each script presents an interactive picker (up/down, space to toggle, `a` toggles all, enter confirms), prompts for the registry token, builds, and uploads each selected package, skipping versions already on the registry.
+
+Browse published versions:
+
+- npm: <https://www.npmjs.com/~caracal-run>
+- PyPI: <https://pypi.org/user/CaracalAI>
 
 ### Published artifacts
 
 ```
 npm:    @caracalai/{core,oauth,admin,identity,revocation,sdk,
                     transport-mcp,transport-a2a,
-                    mcp-express,mcp-fastmcp,tokenstate-postgres}
-pypi:   caracalai-{core,identity,revocation,sdk,transport-mcp,fastmcp}
+                    mcp-express,mcp-fastmcp,tokenstate-postgres,revocation-redis}
+pypi:   caracalai-{core,identity,revocation,sdk,transport-mcp,fastmcp,revocation-redis}
 ghcr:   ghcr.io/garudex-labs/caracal-{api,sts,gateway,audit,coordinator}
 ```
 
 ### Rollback
 
-Never delete a published tag. Roll forward.
-
-| Surface | Action |
-|---|---|
-| npm | `npm deprecate "@caracalai/<pkg>@<bad>" "use <next>"`, cut a patch |
-| PyPI | Yank on PyPI UI, cut a patch |
-| Images | Re-cut; floating tags (`latest`, `vYYYY.MM`) move; call out bad pins in notes |
-| GitHub Release | Mark pre-release or delete the Release object; cut a new CalVer |
-
-### Local verification
-
-```bash
-pnpm -w build && pnpm -w test
-pnpm changeset status
-./scripts/release.sh --dry-run
-pnpm -r --filter "@caracalai/*" pack --pack-destination /tmp/caracal-pack
-```
+Never delete a published tag. Roll forward by cutting a new CalVer tag. Floating image tags (`latest`, `vYYYY.MM`) move with the new cut.
 
 ## Security
 
