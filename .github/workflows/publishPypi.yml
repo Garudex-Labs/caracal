@@ -1,0 +1,102 @@
+# Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+# Caracal, a product of Garudex Labs
+#
+# PyPI publish via Trusted Publishing (OIDC). Bypasses IP-based upload rate limits by uploading from GitHub Actions with a short-lived OIDC token.
+
+name: publishPypi
+
+on:
+  workflow_dispatch:
+    inputs:
+      package:
+        description: 'Package to publish (all, or one of: core, identity, revocation, sdk, transport-mcp, fastmcp, redis)'
+        required: true
+        default: 'all'
+        type: choice
+        options:
+          - all
+          - core
+          - identity
+          - revocation
+          - sdk
+          - transport-mcp
+          - fastmcp
+          - redis
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    name: Publish ${{ matrix.name }}
+    if: github.repository == 'Garudex-Labs/caracal'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment:
+      name: pypi
+      url: https://pypi.org/project/${{ matrix.pypiName }}
+    permissions:
+      id-token: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: core
+            dir: packages/core/python
+            pypiName: caracalai-core
+          - name: identity
+            dir: packages/identity/python
+            pypiName: caracalai-identity
+          - name: revocation
+            dir: packages/revocation/python
+            pypiName: caracalai-revocation
+          - name: sdk
+            dir: packages/sdk/python
+            pypiName: caracalai-sdk
+          - name: transport-mcp
+            dir: packages/transport/mcp/python
+            pypiName: caracalai-transport-mcp
+          - name: fastmcp
+            dir: packages/connectors/fastmcp/python
+            pypiName: caracalai-fastmcp
+          - name: redis
+            dir: packages/connectors/redis/python
+            pypiName: caracalai-revocation-redis
+    steps:
+      - name: Skip if package filter excludes this entry
+        id: filter
+        run: |
+          set -euo pipefail
+          input='${{ inputs.package }}'
+          if [ "$input" = "all" ] || [ "$input" = "${{ matrix.name }}" ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=false" >> "$GITHUB_OUTPUT"
+            echo "Skipping ${{ matrix.name }} (selected: $input)"
+          fi
+
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        if: steps.filter.outputs.run == 'true'
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        if: steps.filter.outputs.run == 'true'
+        with:
+          python-version: '3.12'
+
+      - name: Build distribution
+        if: steps.filter.outputs.run == 'true'
+        working-directory: ${{ matrix.dir }}
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip build==1.2.2 twine==6.0.1
+          rm -rf dist build *.egg-info
+          python -m build
+          twine check dist/*
+
+      - uses: pypa/gh-action-pypi-publish@release/v1
+        if: steps.filter.outputs.run == 'true'
+        with:
+          packages-dir: ${{ matrix.dir }}/dist
+          skip-existing: true
