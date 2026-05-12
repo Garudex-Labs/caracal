@@ -269,7 +269,7 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
-      - uses: actions/attest-build-provenance@7668a9fa50f3da3d83fbb0a4c5fb4ac3fc6d1c2e # v2
+      - uses: actions/attest-build-provenance@96b4a1ef7235a096b17240c259729fdd70c83d45 # v2
         if: github.event_name == 'push'
         with:
           subject-path: release-dist/caracal-*
