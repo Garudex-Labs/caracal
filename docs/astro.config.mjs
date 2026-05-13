@@ -9,7 +9,7 @@ import { defineConfig } from 'astro/config'
 import starlight from '@astrojs/starlight'
 import sitemap from '@astrojs/sitemap'
 
-const site = 'https://docs.garudexlabs.com'
+const site = 'https://docs.caracal.run'
 const ogImage = '/img/caracal.png'
 const description =
   'Pre-execution authority enforcement for AI agents. Policies, mandates, and audit for production-grade autonomous systems.'

@@ -8,7 +8,7 @@
 import { getCollection } from 'astro:content'
 import concepts from '../data/concepts.json'
 
-const site = 'https://docs.garudexlabs.com'
+const site = 'https://docs.caracal.run'
 
 export async function GET() {
   const docs = await getCollection('docs')

@@ -69,7 +69,7 @@ jobs:
           set -euo pipefail
           test -f docs/dist/index.html
           test -f docs/dist/CNAME
-          grep -Fx 'docs.garudexlabs.com' docs/dist/CNAME
+          grep -Fx 'docs.caracal.run' docs/dist/CNAME
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa # v3
