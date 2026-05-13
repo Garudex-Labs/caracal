@@ -10,6 +10,8 @@ cd "$(dirname "$0")/.."
 
 # shellcheck source=lib/style.sh
 . "scripts/lib/style.sh"
+# shellcheck source=lib/select.sh
+. "scripts/lib/select.sh"
 
 repo="pypi"
 host="pypi.org"
@@ -37,62 +39,6 @@ packages=(
     packages/connectors/fastmcp/python
     packages/connectors/redis/python
 )
-
-pickItems() {
-    local items=("$@")
-    local n=${#items[@]}
-    local cursor=0 i
-    local selected=()
-    for ((i = 0; i < n; i++)); do selected[i]=0; done
-
-    printf '\nUse Up/Down to move, Space to toggle, "a" to toggle all, Enter to confirm, Esc to cancel.\n\n' >&2
-    tput civis 2>/dev/null || true
-    stty -echo
-
-    render() {
-        for ((i = 0; i < n; i++)); do
-            local mark=' '
-            [[ ${selected[i]} -eq 1 ]] && mark='x'
-            local pre='  '
-            [[ $i -eq $cursor ]] && pre='> '
-            printf '\r%s[%s] %s\033[K\n' "$pre" "$mark" "${items[i]}" >&2
-        done
-    }
-    render
-
-    while true; do
-        local key='' rest=''
-        if ! IFS= read -rsn1 key; then continue; fi
-        if [[ $key == $'\x1b' ]]; then
-            IFS= read -rsn2 -t 0.5 rest || rest=''
-            key="$key$rest"
-        fi
-        case "$key" in
-            $'\x1b[A') cursor=$(( (cursor - 1 + n) % n )) ;;
-            $'\x1b[B') cursor=$(( (cursor + 1) % n )) ;;
-            ' ') selected[cursor]=$((1 - selected[cursor])) ;;
-            a|A)
-                local any=0
-                for ((i = 0; i < n; i++)); do [[ ${selected[i]} -eq 0 ]] && any=1; done
-                for ((i = 0; i < n; i++)); do selected[i]=$any; done
-                ;;
-            '') break ;;
-            $'\x1b') for ((i = 0; i < n; i++)); do selected[i]=0; done; break ;;
-            *) continue ;;
-        esac
-        printf '\033[%dA' "$n" >&2
-        render
-    done
-
-    stty echo
-    tput cnorm 2>/dev/null || true
-
-    PICKED=()
-    for ((i = 0; i < n; i++)); do
-        [[ ${selected[i]} -eq 1 ]] && PICKED+=("${items[i]}")
-    done
-    return 0
-}
 
 pickItems "${packages[@]}"
 if [[ ${#PICKED[@]} -eq 0 ]]; then
