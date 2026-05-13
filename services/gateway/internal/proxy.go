@@ -19,6 +19,7 @@ import (
 	"time"
 
 	sharederr "github.com/garudex-labs/caracal/core/errors"
+	corests "github.com/garudex-labs/caracal/core/sts"
 	"github.com/rs/zerolog"
 )
 
@@ -239,7 +240,7 @@ func (p *proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 // provider_apikey the provider-native credential is substituted into the header the
 // upstream expects, and the Caracal JWT is exposed separately as X-Caracal-Identity so
 // Caracal-aware sidecars can still attribute the call.
-func buildUpstreamRequest(r *http.Request, upstreamURL *url.URL, caracalToken string, directive upstreamDirective, body io.ReadCloser, requestID string) (*http.Request, error) {
+func buildUpstreamRequest(r *http.Request, upstreamURL *url.URL, caracalToken string, directive corests.UpstreamDirective, body io.ReadCloser, requestID string) (*http.Request, error) {
 	joinedPath := joinURLPath(upstreamURL.Path, r.URL.Path)
 	mergedQuery, err := mergeQuery(upstreamURL.RawQuery, r.URL.RawQuery)
 	if err != nil {

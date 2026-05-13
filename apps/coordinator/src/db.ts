@@ -6,7 +6,7 @@
 import pg from 'pg'
 import { cfg } from './config.js'
 
-export function buildPool(): pg.Pool {
+function buildPool(): pg.Pool {
   const pool = new pg.Pool({
     connectionString: cfg.databaseUrl,
     max: cfg.dbPoolMax,

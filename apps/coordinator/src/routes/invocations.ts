@@ -3,11 +3,12 @@
 //
 // Durable agent invocation routes with idempotency, cancellation, and outbox events.
 
-import type { FastifyPluginAsync, FastifyRequest } from 'fastify'
+import type { FastifyInstance, FastifyPluginAsync, FastifyRequest } from 'fastify'
 import { z } from 'zod'
 import { v7 as uuidv7 } from 'uuid'
 import { enqueue, Topics, type Queryable } from '../outbox.js'
 import { ownsApplication, requireScope } from '../auth.js'
+import { cfg } from '../config.js'
 
 const RetryPolicy = z.object({
   max_attempts: z.number().int().min(1).max(10).default(3),
@@ -48,6 +49,9 @@ const INVOCATION_SELECT = `SELECT id, zone_id, service_id, source_session_id, ta
 export const invocationsRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.post('/zones/:zoneId/invocations', async (req, reply) => {
     const { zoneId } = req.params as { zoneId: string }
+    if (await rateLimited(fastify, req, zoneId)) {
+      return reply.code(429).send({ error: 'rate_limited' })
+    }
     const body = InvocationBody.parse(req.body)
     const client = await fastify.db.connect()
     try {
@@ -128,6 +132,9 @@ export const invocationsRoutes: FastifyPluginAsync = async (fastify) => {
 
   fastify.patch('/zones/:zoneId/invocations/:id/start', async (req, reply) => {
     const { zoneId, id } = req.params as { zoneId: string; id: string }
+    if (await rateLimited(fastify, req, zoneId)) {
+      return reply.code(429).send({ error: 'rate_limited' })
+    }
     const client = await fastify.db.connect()
     try {
       await client.query('BEGIN')
@@ -166,6 +173,9 @@ export const invocationsRoutes: FastifyPluginAsync = async (fastify) => {
 
   fastify.patch('/zones/:zoneId/invocations/:id/cancel', async (req, reply) => {
     const { zoneId, id } = req.params as { zoneId: string; id: string }
+    if (await rateLimited(fastify, req, zoneId)) {
+      return reply.code(429).send({ error: 'rate_limited' })
+    }
     const body = CancelBody.parse(req.body ?? {})
     const client = await fastify.db.connect()
     try {
@@ -206,6 +216,9 @@ export const invocationsRoutes: FastifyPluginAsync = async (fastify) => {
 
   fastify.patch('/zones/:zoneId/invocations/:id/complete', async (req, reply) => {
     const { zoneId, id } = req.params as { zoneId: string; id: string }
+    if (await rateLimited(fastify, req, zoneId)) {
+      return reply.code(429).send({ error: 'rate_limited' })
+    }
     const body = CompleteBody.parse(req.body)
     const client = await fastify.db.connect()
     try {
@@ -317,4 +330,14 @@ async function enqueueInvocationEvent(
     service_id: serviceId,
     invocation_id: invocationId,
   })
+}
+
+async function rateLimited(fastify: FastifyInstance, req: FastifyRequest, zoneId: string): Promise<boolean> {
+  if (cfg.invocationRateLimitPerMin <= 0) return false
+  const subject = req.caracalAuth?.clientId ?? req.ip
+  const minute = Math.floor(Date.now() / 60_000)
+  const key = `coordinator:invocation_rl:${zoneId}:${subject}:${minute}`
+  const count = await fastify.redis.incr(key)
+  if (count === 1) await fastify.redis.expire(key, 90)
+  return count > cfg.invocationRateLimitPerMin
 }
