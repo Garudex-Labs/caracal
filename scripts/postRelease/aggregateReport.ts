@@ -3,7 +3,7 @@
 //
 // Aggregates JSONL findings and the release manifest into a markdown post-release validation report.
 
-import { copyFileSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 
 type Finding = {
@@ -39,6 +39,10 @@ if (!findingsDir || !outPath || !release || !manifestPath) {
 }
 
 const manifest: Manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+if (manifest.release !== release) {
+  console.error(`manifest release ${manifest.release} does not match ${release}`);
+  process.exit(2);
+}
 const registry = manifest.registry ?? "ghcr.io/garudex-labs";
 const imagePrefix = manifest.imagePrefix ?? "caracal-";
 
@@ -54,12 +58,16 @@ const AREAS = [
   ["examples", "Docs & Examples"],
 ] as const;
 
+const collectFindingFiles = (dir: string): string[] =>
+  readdirSync(dir).flatMap((entry) => {
+    const path = join(dir, entry);
+    if (statSync(path).isDirectory()) return collectFindingFiles(path);
+    return entry.endsWith(".jsonl") ? [path] : [];
+  });
+
 const findings: Finding[] = [];
-const findingFiles: string[] = [];
-for (const f of readdirSync(findingsDir)) {
-  if (!f.endsWith(".jsonl")) continue;
-  findingFiles.push(f);
-  for (const line of readFileSync(join(findingsDir, f), "utf8").split("\n")) {
+for (const f of collectFindingFiles(findingsDir)) {
+  for (const line of readFileSync(f, "utf8").split("\n")) {
     if (!line.trim()) continue;
     findings.push(JSON.parse(line));
   }
@@ -168,13 +176,20 @@ ${topFixes || "_No failing findings._"}
 - [ ] Examples run against released packages
 `;
 
+const releaseDir = dirname(outPath);
+mkdirSync(releaseDir, { recursive: true });
 writeFileSync(outPath, md);
 
-const releaseDir = dirname(outPath);
 const persistedFindingsDir = join(releaseDir, "findings");
+rmSync(persistedFindingsDir, { recursive: true, force: true });
 mkdirSync(persistedFindingsDir, { recursive: true });
-for (const f of findingFiles) {
-  copyFileSync(join(findingsDir, f), join(persistedFindingsDir, f));
+for (const [area] of AREAS) {
+  const rows = findings.filter((r) => r.area === area);
+  if (rows.length === 0) continue;
+  writeFileSync(
+    join(persistedFindingsDir, `${area}.jsonl`),
+    `${rows.map((r) => JSON.stringify(r)).join("\n")}\n`,
+  );
 }
 
 console.log(`wrote ${outPath} (${findings.length} findings, score ${score}%)`);
