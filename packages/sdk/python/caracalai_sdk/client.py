@@ -10,7 +10,8 @@ from __future__ import annotations
 import os
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, AsyncGenerator, Callable, Mapping
+from typing import TYPE_CHECKING, Any
+from collections.abc import AsyncGenerator, Callable, Mapping
 from urllib.parse import urlparse, urlunparse
 
 import httpx
@@ -109,7 +110,7 @@ def _load_resource_bindings_file(path: str | None) -> list[ResourceBinding]:
         return []
     import json
 
-    with open(path, "r", encoding="utf-8") as fh:
+    with open(path, encoding="utf-8") as fh:
         data = json.load(fh)
     if isinstance(data, dict):
         items = data.items()
@@ -175,7 +176,7 @@ class Caracal:
         self._agent_end_hooks: list[LifecycleHook] = []
 
     @classmethod
-    def from_env(cls, env: Mapping[str, str] | None = None) -> "Caracal":
+    def from_env(cls, env: Mapping[str, str] | None = None) -> Caracal:
         """Build a Caracal client from environment variables.
 
         Two authentication shapes are supported:
@@ -265,7 +266,7 @@ class Caracal:
         resources: list[str] | list[ResourceBinding],
         gateway_url: str | None = None,
         scope: str = "agent:lifecycle",
-    ) -> "Caracal":
+    ) -> Caracal:
         """Build a Caracal client that exchanges an application client_secret
         for an STS access token and refreshes the token automatically.
 
@@ -304,7 +305,7 @@ class Caracal:
         )
 
     @classmethod
-    def from_config(cls, path: str | os.PathLike[str] | None = None) -> "Caracal":
+    def from_config(cls, path: str | os.PathLike[str] | None = None) -> Caracal:
         """Build a Caracal client from a `caracal.toml` produced by
         `caracal init`. The config supplies zone, application, STS URL,
         client_secret, and resource bindings; tokens are exchanged on demand."""

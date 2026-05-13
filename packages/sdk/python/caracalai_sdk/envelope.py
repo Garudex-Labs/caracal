@@ -14,7 +14,7 @@ from __future__ import annotations
 import re
 import secrets
 from dataclasses import dataclass
-from typing import Callable, Mapping
+from collections.abc import Callable, Mapping
 from urllib.parse import quote, unquote
 
 HEADER_AUTHORIZATION = "authorization"

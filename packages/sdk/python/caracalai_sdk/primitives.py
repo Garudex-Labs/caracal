@@ -9,7 +9,8 @@ from __future__ import annotations
 
 from contextlib import asynccontextmanager
 from dataclasses import replace
-from typing import Any, AsyncGenerator, Awaitable, Callable
+from typing import Any
+from collections.abc import AsyncGenerator, Awaitable, Callable
 
 from .context import CaracalContext, current, _ctx_var
 from .coordinator import (

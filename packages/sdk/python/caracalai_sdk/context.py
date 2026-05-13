@@ -9,13 +9,14 @@ from __future__ import annotations
 
 import contextvars
 from dataclasses import dataclass, replace
-from typing import Any, Awaitable, Callable, TypeVar
+from typing import Any, TypeVar
+from collections.abc import Awaitable, Callable
 
 from .envelope import Envelope
 
 T = TypeVar("T")
 
-_ctx_var: contextvars.ContextVar["CaracalContext"] = contextvars.ContextVar(
+_ctx_var: contextvars.ContextVar[CaracalContext] = contextvars.ContextVar(
     "caracal_context"
 )
 

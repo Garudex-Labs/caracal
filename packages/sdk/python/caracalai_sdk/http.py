@@ -7,7 +7,8 @@ Generic ASGI middleware that extracts the envelope and binds CaracalContext per 
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Awaitable, Callable
+from typing import TYPE_CHECKING, Any
+from collections.abc import Awaitable, Callable
 
 if TYPE_CHECKING:
     from .client import Caracal
