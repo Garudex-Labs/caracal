@@ -2,7 +2,7 @@
 Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 Caracal, a product of Garudex Labs
 
-Caracal singleton: initialized at FastAPI startup from CARACAL_* env vars and used by the swarm and provider transports.
+Lynx Capital's Caracal singleton: loads caracal.toml via the SDK and exposes a small accessor surface to the swarm.
 """
 from __future__ import annotations
 
@@ -19,7 +19,7 @@ _caracal: Caracal | None = None
 def init() -> Caracal:
     global _caracal
     if _caracal is None:
-        _caracal = Caracal.from_env()
+        _caracal = Caracal.from_config()
     return _caracal
 
 
@@ -44,7 +44,7 @@ async def enter(
 ) -> CaracalContext | None:
     if _caracal is None:
         return None
-    meta: dict[str, Any] = {"role": role}
+    meta: dict[str, Any] = {"role": role, "run_id": session_sid}
     if region:
         meta["region"] = region
     if scope:
@@ -53,7 +53,6 @@ async def enter(
         meta.update(extra)
     return await stack.enter_async_context(
         _caracal.spawn(
-            session_sid=session_sid,
             kind=kind,
             ttl_seconds=ttl_seconds,
             metadata=meta,

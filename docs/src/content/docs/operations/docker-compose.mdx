@@ -119,7 +119,7 @@ healthcheck: wget -qO- http://127.0.0.1:4000/ready || exit 1
 
 Runs two processes via `start.sh`: the Go relay binary (background) and the Node.js coordinator (foreground). The relay forwards lifecycle events to Redis streams. The coordinator manages agent sessions, delegation edges, and invocations.
 
-**Required:** `DATABASE_URL`, `REDIS_URL`, `STS_URL`, `ISSUER_URL`, `AGENT_COORDINATOR_AUDIENCE`, `AGENT_COORDINATOR_SCOPE`
+**Required:** `DATABASE_URL`, `REDIS_URL`, `STS_URL`, `ISSUER_URL`, `AGENT_COORDINATOR_SCOPE`
 
 ---
 

@@ -147,8 +147,7 @@ Services accept either `REDIS_URL` or the individual `REDIS_*` variables.
 | `DATABASE_URL` | — | **Required.** Postgres connection string |
 | `REDIS_URL` | — | **Required.** Redis connection string |
 | `STS_URL` | — | **Required.** STS base URL |
-| `ISSUER_URL` | — | **Required.** STS issuer URL (same as `ISSUER_URL` in STS) |
-| `AGENT_COORDINATOR_AUDIENCE` | — | **Required.** JWT audience the Coordinator accepts (e.g., `caracal.coordinator`) |
+| `ISSUER_URL` | — | **Required.** STS issuer URL (same as `ISSUER_URL` in STS). Also the required `aud` claim on bearer JWTs. |
 | `AGENT_COORDINATOR_SCOPE` | — | **Required.** Required scope for coordinator calls (e.g., `agent:lifecycle`) |
 | `PORT` | `4000` | Listen port |
 | `STREAMS_HMAC_KEY` | — | 32-byte hex-encoded key for signing outbox stream messages |
