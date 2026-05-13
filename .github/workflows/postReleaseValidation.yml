@@ -167,7 +167,7 @@ jobs:
       CARACAL_RELEASE: ${{ inputs.release }}
       FINDINGS_DIR: ${{ github.workspace }}/findings
       MANIFEST: ${{ github.workspace }}/caracal/releases/${{ inputs.release }}/manifest.json
-      REPORT_OUT: ${{ github.workspace }}/caracal/docs/src/content/docs/releases/${{ inputs.release }}-validation.md
+      REPORT_OUT: ${{ github.workspace }}/caracal/releases/${{ inputs.release }}/validation.md
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
@@ -180,4 +180,4 @@ jobs:
           title: "release-validation: ${{ inputs.release }} report"
           labels: release-validation
           commit-message: "release-validation: ${{ inputs.release }} report"
-          add-paths: caracal/docs/src/content/docs/releases/${{ inputs.release }}-validation.md
+          add-paths: caracal/releases/${{ inputs.release }}/validation.md
