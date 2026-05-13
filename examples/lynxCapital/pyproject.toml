@@ -24,7 +24,7 @@ dependencies = [
     "deepagents>=0.6",
     "httpx>=0.28",
     "grpcio>=1.80",
-    "protobuf>=7.34",
+    "protobuf>=6.33,<7",
     "python-dotenv>=1.2",
 ]
 

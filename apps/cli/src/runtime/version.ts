@@ -3,4 +3,4 @@
 //
 // CLI version constant; CI rewrites this from the release tag before bun --compile.
 
-export const CARACAL_VERSION = '0.1.0'
+export const CARACAL_VERSION = '2026.05.12'

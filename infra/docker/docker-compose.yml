@@ -26,6 +26,15 @@ x-appService: &appService
     - no-new-privileges:true
   cap_drop:
     - ALL
+  ulimits:
+    nofile:
+      soft: 65535
+      hard: 65535
+    nproc: 4096
+  sysctls:
+    net.ipv4.tcp_keepalive_time: 60
+    net.ipv4.tcp_keepalive_intvl: 10
+    net.ipv4.tcp_keepalive_probes: 6
   networks:
     - caracal
 
@@ -35,6 +44,7 @@ x-appResources: &appResources
       limits:
         cpus: "${CARACAL_APP_CPU_LIMIT:-1.0}"
         memory: "${CARACAL_APP_MEM_LIMIT:-512M}"
+        pids: 256
       reservations:
         memory: "${CARACAL_APP_MEM_RESERVE:-128M}"
 
@@ -200,7 +210,7 @@ services:
     volumes:
       - stsReplay:/var/lib/caracal
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8080/ready || exit 1"]
+      test: ["CMD", "/healthcheck"]
       interval: 5s
       timeout: 3s
       retries: 20
@@ -230,7 +240,7 @@ services:
     ports:
       - "127.0.0.1:3000:3000"
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000/ready || exit 1"]
+      test: ["CMD", "/healthcheck"]
       interval: 5s
       timeout: 3s
       retries: 20
@@ -262,7 +272,7 @@ services:
     ports:
       - "127.0.0.1:8081:8081"
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8081/ready || exit 1"]
+      test: ["CMD", "/healthcheck"]
       interval: 5s
       timeout: 3s
       retries: 20
@@ -290,7 +300,7 @@ services:
     ports:
       - "127.0.0.1:9090:9090"
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:9090/ready || exit 1"]
+      test: ["CMD", "/healthcheck"]
       interval: 5s
       timeout: 3s
       retries: 20
@@ -302,6 +312,9 @@ services:
       context: ../..
       dockerfile: apps/coordinator/Dockerfile
     image: caracal/coordinator:dev
+    read_only: true
+    tmpfs:
+      - /tmp
     depends_on:
       sts:
         condition: service_healthy
