@@ -9,9 +9,18 @@ import { v7 as uuidv7 } from 'uuid'
 import { buildPatchUpdate, patchColumn } from './patch.js'
 import { IdParams, parseParams } from './params.js'
 
-const ZoneBody = z.object({
+const ZoneCreateBody = z.object({
   org_id: z.string().min(1).default('default'),
   name: z.string().min(1),
+  slug: z.string().regex(/^[a-z0-9-]+$/).optional(),
+  dcr_enabled: z.boolean().optional(),
+  pkce_required: z.boolean().optional(),
+  login_flow: z.string().optional(),
+})
+
+const ZoneUpdateBody = z.object({
+  org_id: z.string().min(1).optional(),
+  name: z.string().min(1).optional(),
   slug: z.string().regex(/^[a-z0-9-]+$/).optional(),
   dcr_enabled: z.boolean().optional(),
   pkce_required: z.boolean().optional(),
@@ -32,7 +41,7 @@ export const zonesRoutes: FastifyPluginAsync = async (fastify) => {
   })
 
   fastify.post('/zones', async (req, reply) => {
-    const parsed = ZoneBody.safeParse(req.body)
+    const parsed = ZoneCreateBody.safeParse(req.body)
     if (!parsed.success) return reply.code(400).send({ error: 'invalid_zone' })
     const body = parsed.data
     const id = uuidv7()
@@ -68,7 +77,7 @@ export const zonesRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.patch('/zones/:id', async (req, reply) => {
     const params = parseParams(IdParams, req, reply)
     if (!params) return
-    const parsed = ZoneBody.partial().safeParse(req.body)
+    const parsed = ZoneUpdateBody.safeParse(req.body)
     if (!parsed.success) return reply.code(400).send({ error: 'invalid_zone' })
     const body = parsed.data
     const update = buildPatchUpdate([params.id], [

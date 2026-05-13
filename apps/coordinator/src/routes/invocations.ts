@@ -13,7 +13,7 @@ import { cfg } from '../config.js'
 const RetryPolicy = z.object({
   max_attempts: z.number().int().min(1).max(10).default(3),
   backoff_ms: z.number().int().min(0).max(300_000).default(1000),
-}).default({})
+}).default({ max_attempts: 3, backoff_ms: 1000 })
 
 const InvocationBody = z.object({
   service_id: z.string().min(1),

@@ -8,6 +8,11 @@ import type { Request, Response, NextFunction } from 'express'
 import { InMemoryRevocationStore } from '../../../../../packages/revocation/ts/src/inmem.js'
 import { caracalAuth } from '../../../../../packages/connectors/express/ts/src/middleware.js'
 
+vi.mock('@caracalai/transport-mcp', async () => ({
+  authenticate: vi.fn().mockResolvedValue({ ok: false, error: { code: 'invalid_token', description: 'Token validation failed' } }),
+  extractBearer: (h: string | undefined) => (h?.startsWith('Bearer ') ? h.slice(7).trim() : null),
+}))
+
 function makeMockRes(): Partial<Response> & { statusCode?: number; body?: unknown } {
   const res: Partial<Response> & { statusCode?: number; body?: unknown } = {}
   res.status = vi.fn().mockReturnValue(res) as unknown as Response['status']
@@ -42,10 +47,6 @@ describe('caracalAuth middleware', () => {
   })
 
   it('rejects invalid JWT', async () => {
-    vi.mock('@caracalai/transport-mcp', async () => ({
-      authenticate: vi.fn().mockResolvedValue({ ok: false, error: { code: 'invalid_token', description: 'Token validation failed' } }),
-      extractBearer: (h: string | undefined) => (h?.startsWith('Bearer ') ? h.slice(7).trim() : null),
-    }))
     const middleware = caracalAuth({ issuer: 'https://sts.zone1', audience: 'resource://api', revocations })
     const req = { headers: { authorization: 'Bearer invalid.jwt.token' } } as Request
     const res = makeMockRes()

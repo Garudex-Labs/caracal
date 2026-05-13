@@ -14,6 +14,11 @@ const TeamBody = z.object({
   members: z.array(z.object({ id: z.string(), role: z.string() })).default([]),
 })
 
+const TeamUpdateBody = z.object({
+  name: z.string().min(1).optional(),
+  members: z.array(z.object({ id: z.string(), role: z.string() })).optional(),
+})
+
 export const teamsRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.get('/zones/:zoneId/teams', async (req, reply) => {
     const params = parseParams(ZoneParams, req, reply)
@@ -55,7 +60,7 @@ export const teamsRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.patch('/zones/:zoneId/teams/:id', async (req, reply) => {
     const params = parseParams(ZoneIdParams, req, reply)
     if (!params) return
-    const body = TeamBody.partial().parse(req.body)
+    const body = TeamUpdateBody.parse(req.body)
     const update = buildPatchUpdate([params.id, params.zoneId], [
       patchColumn('name', body.name),
       patchColumn('members_json', body.members === undefined ? undefined : JSON.stringify(body.members)),
