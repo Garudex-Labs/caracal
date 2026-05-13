@@ -16,7 +16,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-fastmcp = ["fastmcp>=0.4.0"]
+fastmcp = ["fastmcp>=3.2.4"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["caracalai_mcp_fastmcp"]

@@ -167,7 +167,7 @@ if $run_py; then
     -e packages/transport/mcp/python \
     -e packages/connectors/fastmcp/python \
     -e packages/connectors/redis/python \
-    coverage==7.13.5 cryptography==48.0.0
+    coverage==7.14.0 cryptography==48.0.0
 
   step "py: coverage run"
   mkdir -p coverage/python
