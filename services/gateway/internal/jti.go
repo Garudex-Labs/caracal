@@ -68,7 +68,7 @@ func (t *jtiTracker) Check(ctx context.Context, jti string, exp time.Time, use, 
 	if created {
 		return true
 	}
-	id, _ := uuid.NewV7()
+	id := uuid.Must(uuid.NewV7())
 	meta, _ := json.Marshal(map[string]any{
 		"jti":        jti,
 		"resource":   resource,

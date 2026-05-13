@@ -82,11 +82,11 @@ func NewStore(redis KeyClient, opts ...Option) *Store {
 }
 
 // IsRevoked reports whether sid has an unexpired revocation key.
-func (s *Store) IsRevoked(sid string) bool {
+func (s *Store) IsRevoked(ctx context.Context, sid string) bool {
 	if sid == "" {
 		return false
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), s.timeout)
+	ctx, cancel := context.WithTimeout(ctx, s.timeout)
 	defer cancel()
 	_, err := s.redis.Get(ctx, s.key(sid)).Result()
 	if err == nil {
