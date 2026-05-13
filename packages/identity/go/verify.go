@@ -6,7 +6,6 @@
 package identity
 
 import (
-	"context"
 	"errors"
 	"fmt"
 
@@ -83,11 +82,11 @@ func readStringSlice(raw any) []string {
 }
 
 // Verify parses and validates a JWT, returning typed Claims on success.
-func Verify(ctx context.Context, tokenStr string, cfg Config) (Claims, error) {
+func Verify(tokenStr string, cfg Config) (Claims, error) {
 	mapClaims := jwt.MapClaims{}
 	_, err := jwt.ParseWithClaims(tokenStr, mapClaims, func(t *jwt.Token) (any, error) {
 		kid, _ := t.Header["kid"].(string)
-		keys, err := GetJWKS(ctx, cfg.Issuer)
+		keys, err := GetJWKS(cfg.Issuer)
 		if err != nil {
 			return nil, err
 		}

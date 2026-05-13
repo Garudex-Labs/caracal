@@ -35,7 +35,12 @@ var (
 )
 
 // GetJWKS returns the cached key set for issuer, fetching if missing or stale.
-func GetJWKS(ctx context.Context, issuer string) (map[string]*ecdsa.PublicKey, error) {
+func GetJWKS(issuer string) (map[string]*ecdsa.PublicKey, error) {
+	return GetJWKSContext(context.Background(), issuer)
+}
+
+// GetJWKSContext is GetJWKS with caller-supplied cancellation.
+func GetJWKSContext(ctx context.Context, issuer string) (map[string]*ecdsa.PublicKey, error) {
 	url := issuer + "/.well-known/jwks.json"
 
 	jwksMu.RLock()
