@@ -110,7 +110,16 @@ export async function buildApp({ cfg, db, redis, isDraining }: AppDeps) {
   }
 
   app.get('/health', async () => ({ ok: true }))
-  app.get('/ready', async (_req, reply) => {
+  app.get('/ready', async (req, reply) => {
+    if (cfg.readyRateLimitPerMin > 0) {
+      const minute = Math.floor(Date.now() / 60_000)
+      const key = `api:ready_rl:${req.ip}:${minute}`
+      const count = await redis.incr(key)
+      if (count === 1) await redis.expire(key, 90)
+      if (count > cfg.readyRateLimitPerMin) {
+        return reply.code(429).send({ error: 'rate_limited' })
+      }
+    }
     if (isDraining?.()) {
       reply.code(503)
       return { ok: false, draining: true }

@@ -90,7 +90,7 @@ describe("middleware + bindFromHeaders", () => {
 describe("caracal.transport", () => {
   it("auto-injects envelope headers on outbound calls", async () => {
     const calls: { url: string; headers: Headers }[] = [];
-    const fakeFetch = vi.fn(async (input: any, init: any) => {
+    const fakeFetch = vi.fn(async (input: RequestInfo | URL, init: RequestInit = {}) => {
       calls.push({ url: String(input), headers: new Headers(init.headers) });
       return new Response(null, { status: 204 });
     }) as unknown as typeof fetch;
@@ -103,7 +103,7 @@ describe("caracal.transport", () => {
 
   it("routes bound provider calls through the configured gateway", async () => {
     const calls: { url: string; headers: Headers }[] = [];
-    const fakeFetch = vi.fn(async (input: any, init: any) => {
+    const fakeFetch = vi.fn(async (input: RequestInfo | URL, init: RequestInit = {}) => {
       calls.push({ url: String(input), headers: new Headers(init.headers) });
       return new Response(null, { status: 204 });
     }) as unknown as typeof fetch;
@@ -126,7 +126,7 @@ describe("caracal.transport", () => {
 
   it("uses explicit resources for gateway calls without a matching binding", async () => {
     const calls: { url: string; headers: Headers }[] = [];
-    const fakeFetch = vi.fn(async (input: any, init: any) => {
+    const fakeFetch = vi.fn(async (input: RequestInfo | URL, init: RequestInit = {}) => {
       calls.push({ url: String(input), headers: new Headers(init.headers) });
       return new Response(null, { status: 204 });
     }) as unknown as typeof fetch;
@@ -148,7 +148,7 @@ describe("caracal.transport", () => {
 describe("agent lifecycle and delegation", () => {
   it("fires lifecycle hooks, binds context, delegates, and terminates non-service agents", async () => {
     const calls: { url: string; init: RequestInit }[] = [];
-    const fakeFetch = vi.fn(async (input: any, init: RequestInit = {}) => {
+    const fakeFetch = vi.fn(async (input: RequestInfo | URL, init: RequestInit = {}) => {
       calls.push({ url: String(input), init });
       if (init.method === "POST" && String(input).endsWith("/agents")) {
         return new Response(JSON.stringify({ id: "agent-1" }), { status: 200 });
@@ -204,7 +204,7 @@ describe("agent lifecycle and delegation", () => {
 
   it("derives a stable Idempotency-Key on spawn when session_sid or parent_id is present", async () => {
     const calls: { url: string; init: RequestInit }[] = [];
-    const fakeFetch = vi.fn(async (input: any, init: RequestInit = {}) => {
+    const fakeFetch = vi.fn(async (input: RequestInfo | URL, init: RequestInit = {}) => {
       calls.push({ url: String(input), init });
       if (init.method === "POST" && String(input).endsWith("/agents")) {
         return new Response(JSON.stringify({ id: "agent-1" }), { status: 200 });
@@ -245,6 +245,6 @@ describe("config resource sorting and token validation", () => {
       CARACAL_ZONE_ID: "z",
       CARACAL_APPLICATION_ID: "app",
       CARACAL_SUBJECT_TOKEN: token,
-    } as any)).toThrow(/expired/);
+    } as NodeJS.ProcessEnv)).toThrow(/expired/);
   });
 });

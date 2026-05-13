@@ -109,3 +109,28 @@ describe('POST /v1/verify', () => {
     expect(res.json()).toMatchObject({ valid: false })
   })
 })
+
+describe('rate limiting', () => {
+  it('returns 429 on /v1/begin when v1 rate limit is exceeded', async () => {
+    const app = Fastify({ logger: false })
+    app.decorate('db', {} as never)
+    app.decorate('redis', {
+      incr: vi.fn().mockResolvedValue(10_000),
+      expire: vi.fn().mockResolvedValue(1),
+    } as never)
+    app.addHook('preHandler', async (req) => {
+      ;(req as unknown as { caracalAuth: unknown }).caracalAuth = {
+        zoneId: 'z1', scopes: ['coordinator.admin'],
+        subject: 'test', clientId: 'app-1', sessionId: 'sid-test',
+      }
+    })
+    app.register(v1Routes)
+    await app.ready()
+    const res = await app.inject({
+      method: 'POST', url: '/v1/begin',
+      payload: { zone_id: 'z1', application_id: 'app-1', session_sid: 'sess-1' },
+    })
+    expect(res.statusCode).toBe(429)
+    expect(res.json()).toMatchObject({ error: 'rate_limited' })
+  })
+})

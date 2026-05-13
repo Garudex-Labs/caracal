@@ -143,7 +143,7 @@ func TestProxyStripsCaracalHeadersFromUpstreamRequest(t *testing.T) {
 
 	stsServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]interface{}{
+		json.NewEncoder(w).Encode(map[string]any{
 			"access_token":     "upstream-token",
 			"target_upstreams": map[string]string{"resource://api/v1": upstreamServer.URL},
 		})
@@ -179,7 +179,7 @@ func TestProxySetsAuthorizationToExchangedToken(t *testing.T) {
 
 	stsServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]interface{}{
+		json.NewEncoder(w).Encode(map[string]any{
 			"access_token":     "exchanged-123",
 			"target_upstreams": map[string]string{"resource://svc": upstreamServer.URL},
 		})
@@ -201,7 +201,7 @@ func TestProxySetsAuthorizationToExchangedToken(t *testing.T) {
 
 // validFutureJWT returns a minimal unsigned JWT with exp far in the future.
 func validFutureJWT() string {
-	return unsignedJWT(map[string]interface{}{
+	return unsignedJWT(map[string]any{
 		"exp": time.Now().Add(24 * time.Hour).Unix(),
 		"sub": "user-1",
 	})
