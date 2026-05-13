@@ -3,7 +3,13 @@
 #
 # Coordinator image; build context must be the caracal/ workspace root.
 
-FROM golang:1.26-alpine@sha256:f85330846cde1e57ca9ec309382da3b8e6ae3ab943d2739500e08c86393a21b1 AS go-builder
+# syntax=docker/dockerfile:1.7
+ARG GO_IMAGE=golang:1.26-alpine@sha256:f85330846cde1e57ca9ec309382da3b8e6ae3ab943d2739500e08c86393a21b1
+ARG NODE_IMAGE=node:24-alpine@sha256:d1b3b4da11eefd5941e7f0b9cf17783fc99d9c6fc34884a665f40a06dbdfc94f
+ARG PNPM_VERSION=11.0.9
+
+FROM ${GO_IMAGE} AS go-builder
+ENV CGO_ENABLED=0 GOOS=linux GOFLAGS=-mod=readonly
 WORKDIR /build
 COPY go.work go.work
 COPY packages/core/go/ packages/core/go/
@@ -19,16 +25,25 @@ COPY services/gateway/ services/gateway/
 COPY apps/coordinator/relay/ apps/coordinator/relay/
 COPY tests/go/ tests/go/
 WORKDIR /build/apps/coordinator/relay
-RUN go mod download && \
-    CGO_ENABLED=0 GOOS=linux go build -trimpath -o /relay ./cmd/relay
+RUN --mount=type=cache,target=/root/.cache/go-build,sharing=locked \
+    --mount=type=cache,target=/go/pkg/mod,sharing=locked \
+    go mod download && \
+    go build -trimpath -ldflags='-s -w' -o /relay ./cmd/relay
 
-FROM node:24-alpine@sha256:d1b3b4da11eefd5941e7f0b9cf17783fc99d9c6fc34884a665f40a06dbdfc94f AS node-builder
+FROM ${NODE_IMAGE} AS node-builder
+ARG PNPM_VERSION
+ENV PNPM_HOME=/pnpm \
+    PATH=/pnpm:$PATH \
+    CI=1
+RUN corepack enable && corepack prepare pnpm@${PNPM_VERSION} --activate
 WORKDIR /workspace
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY apps/coordinator/package.json apps/coordinator/package.json
 COPY packages/core/ts/package.json packages/core/ts/package.json
 COPY packages/identity/ts/package.json packages/identity/ts/package.json
-RUN npm install -g pnpm@11.0.9 && pnpm install --frozen-lockfile --ignore-scripts --filter @caracalai/coordinator...
+RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store,sharing=locked \
+    pnpm config set store-dir /pnpm/store && \
+    pnpm install --frozen-lockfile --ignore-scripts --filter @caracalai/coordinator...
 COPY packages/core/ts/tsconfig.json packages/core/ts/tsconfig.json
 COPY packages/core/ts/src packages/core/ts/src
 COPY packages/identity/ts/tsconfig.json packages/identity/ts/tsconfig.json
@@ -38,15 +53,21 @@ COPY apps/coordinator/src/ apps/coordinator/src/
 RUN pnpm --filter @caracalai/core build && \
     pnpm --filter @caracalai/identity build && \
     pnpm --filter @caracalai/coordinator build && \
-    pnpm --filter @caracalai/coordinator deploy --prod --legacy /out
+    pnpm --filter @caracalai/coordinator deploy --prod --legacy /out && \
+    find /out/node_modules -type d \( -name test -o -name tests -o -name __tests__ -o -name docs -o -name doc -o -name examples -o -name example \) -prune -exec rm -rf {} + 2>/dev/null || true && \
+    find /out/node_modules -type f \( -name '*.md' -o -name '*.markdown' -o -name '*.ts' -o -name '*.map' -o -name '*.flow' -o -name 'LICENSE*' -o -name 'CHANGELOG*' -o -name 'AUTHORS*' -o -name '.npmignore' -o -name '.eslintrc*' -o -name '.prettierrc*' \) -delete 2>/dev/null || true
 
-FROM node:24-alpine@sha256:d1b3b4da11eefd5941e7f0b9cf17783fc99d9c6fc34884a665f40a06dbdfc94f
+FROM ${NODE_IMAGE}
+ENV NODE_ENV=production \
+    NODE_OPTIONS=--enable-source-maps \
+    NPM_CONFIG_UPDATE_NOTIFIER=false \
+    PORT=4000
 WORKDIR /app
-COPY --from=go-builder /relay /relay
-COPY --from=node-builder /out ./
-COPY apps/coordinator/start.sh /start.sh
-RUN chmod +x /start.sh && chown -R node:node /app /relay /start.sh
+COPY --from=go-builder --chown=node:node /relay /relay
+COPY --from=node-builder --chown=node:node /out ./
+COPY --chown=node:node --chmod=0755 apps/coordinator/start.sh /start.sh
 USER node
 EXPOSE 4000
-HEALTHCHECK --interval=10s --timeout=3s --retries=3 CMD wget -qO- "http://127.0.0.1:${PORT:-4000}/ready" || exit 1
+HEALTHCHECK --interval=10s --timeout=3s --start-period=20s --retries=3 \
+    CMD wget -qO- "http://127.0.0.1:${PORT:-4000}/ready" || exit 1
 ENTRYPOINT ["/start.sh"]
