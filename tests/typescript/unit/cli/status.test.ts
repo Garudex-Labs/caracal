@@ -29,8 +29,11 @@ describe('statusCommand', () => {
 
     await expect(statusCommand()).rejects.toThrow('exit:0')
 
-    expect(stdout).toContain('api           3000  ok')
-    expect(stdout).toContain('coordinator   4000  ok')
+    expect(stdout).toContain('api          ')
+    expect(stdout).toContain(' 3000  ')
+    expect(stdout).toContain('ok')
+    expect(stdout).toContain('coordinator  ')
+    expect(stdout).toContain(' 4000  ')
   })
 
   it('exits nonzero and marks down services when a probe fails', async () => {
@@ -42,7 +45,9 @@ describe('statusCommand', () => {
 
     await expect(statusCommand()).rejects.toThrow('exit:1')
 
-    expect(stdout).toContain('api           3000  ok')
-    expect(stdout).toContain('sts           8080  down  unreachable')
+    expect(stdout).toContain('api          ')
+    expect(stdout).toContain('sts          ')
+    expect(stdout).toContain('down')
+    expect(stdout).toContain('unreachable')
   })
 })

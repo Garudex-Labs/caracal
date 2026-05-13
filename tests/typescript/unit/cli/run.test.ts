@@ -23,11 +23,17 @@ const cfg: CliConfig = {
 
 describe('runCommand', () => {
   let stderr = ''
+  let stdout = ''
 
   beforeEach(() => {
     stderr = ''
+    stdout = ''
     vi.spyOn(process.stderr, 'write').mockImplementation((chunk: string | Uint8Array) => {
       stderr += chunk.toString()
+      return true
+    })
+    vi.spyOn(process.stdout, 'write').mockImplementation((chunk: string | Uint8Array) => {
+      stdout += chunk.toString()
       return true
     })
     vi.spyOn(process, 'exit').mockImplementation((code?: string | number | null) => {
@@ -96,7 +102,7 @@ describe('runCommand', () => {
       optional_credentials: [{ env: 'OPTIONAL_TOKEN', resource: 'resource://optional', on_failure: 'warn' }],
     })).rejects.toThrow('exit:0')
 
-    expect(stderr).toContain('warn: optional credential skipped resource=resource://optional reason=optional denied')
+    expect(stdout).toContain('optional credential skipped resource=resource://optional reason=optional denied')
     expect(spawnMock).toHaveBeenCalledTimes(1)
   })
 })
