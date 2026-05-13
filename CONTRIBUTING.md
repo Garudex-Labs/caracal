@@ -181,7 +181,7 @@ Only maintainers listed in `.github/MAINTAINERS` may push release tags.
 
 ### Validating a release
 
-After the tag is published, the `Post-Release Validation` workflow runs automatically (or trigger manually with `gh workflow run postReleaseValidation.yml -f release=v2026.05.12`). It exercises registries, archives, installers, containers, and provenance against `releases/<tag>/manifest.json`, then opens a PR adding `releases/<tag>/validation.md` and `releases/<tag>/findings/*.jsonl`.
+After `release.yml` completes successfully for a release tag, the `Post-Release Validation` workflow runs automatically (or trigger manually with `gh workflow run postReleaseValidation.yml -f release=v2026.05.12`). It exercises registries, archives, installers, containers, and provenance against `releases/<tag>/manifest.json`, then opens a PR adding `releases/<tag>/validation.md` and `releases/<tag>/findings/*.jsonl`.
 
 Reproduce a single area locally:
 

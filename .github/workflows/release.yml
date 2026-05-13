@@ -23,6 +23,7 @@ on:
         default: true
 
 permissions:
+  actions: write
   contents: write
   packages: write
   id-token: write
@@ -338,3 +339,8 @@ jobs:
             dist/SHA256SUMS
             install.sh
             install.ps1
+
+      - name: Trigger post-release validation
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh workflow run postReleaseValidation.yml --ref "${{ github.event.repository.default_branch }}" -f release="${GITHUB_REF_NAME}"

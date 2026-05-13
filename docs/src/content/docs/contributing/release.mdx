@@ -155,7 +155,7 @@ Every release tag has a directory under `caracal/releases/<tag>/` that owns all 
 - `validation.md` — the aggregated post-release validation report.
 - `findings/*.jsonl` — raw per-area findings.
 
-The `.github/workflows/postReleaseValidation.yml` workflow triggers on release completion (or via `workflow_dispatch`) and opens a PR that adds `validation.md` and `findings/` to that directory.
+The `.github/workflows/postReleaseValidation.yml` workflow triggers after `release.yml` completes successfully for a release tag, or via `workflow_dispatch`, and opens a PR that adds `validation.md` and `findings/` to that directory.
 
 Run a single check locally:
 
