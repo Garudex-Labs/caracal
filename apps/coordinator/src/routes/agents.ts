@@ -96,7 +96,11 @@ export const agentsRoutes: FastifyPluginAsync = async (fastify) => {
       }
       if (!refs[0].session_exists) {
         await client.query('ROLLBACK')
-        return reply.code(404).send({ error: 'session_not_found' })
+        return reply.code(404).send({
+          error: 'session_not_found',
+          detail:
+            'session_sid must reference an STS sessions.id; for business correlation use metadata',
+        })
       }
       const { rows: cnt } = await client.query(
         `SELECT

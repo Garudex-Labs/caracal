@@ -132,7 +132,6 @@ jobs:
       REDIS_URL: redis://localhost:6379
       STS_URL: http://localhost:3001
       ISSUER_URL: http://localhost:4000
-      AGENT_COORDINATOR_AUDIENCE: caracal-coordinator
       AGENT_COORDINATOR_SCOPE: agent:coordinate
     steps:
       - name: Checkout

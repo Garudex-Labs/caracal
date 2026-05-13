@@ -94,7 +94,7 @@ export const localBootstrapRoutes: FastifyPluginAsync = async (fastify) => {
         application_id: APP_ID,
         app_client_secret: null,
         resource: RESOURCE_NAME,
-        scope: 'read',
+        scope: 'read agent:lifecycle',
         rotated: false,
         signing_key_resealed: signingKeyResealed,
       } satisfies BootstrapResult
@@ -126,8 +126,8 @@ export const localBootstrapRoutes: FastifyPluginAsync = async (fastify) => {
       )
       await client.query(
         `INSERT INTO resources (id, zone_id, name, identifier, prefix, scopes)
-         VALUES ($1, $2, 'Example Resource', $3, false, ARRAY['read'])
-         ON CONFLICT (zone_id, identifier) DO NOTHING`,
+         VALUES ($1, $2, 'Example Resource', $3, false, ARRAY['read','agent:lifecycle'])
+         ON CONFLICT (zone_id, identifier) DO UPDATE SET scopes = EXCLUDED.scopes`,
         [RESOURCE_ID, ZONE_ID, RESOURCE_NAME],
       )
       await client.query(
@@ -191,7 +191,7 @@ export const localBootstrapRoutes: FastifyPluginAsync = async (fastify) => {
       application_id: APP_ID,
       app_client_secret: clientSecret,
       resource: RESOURCE_NAME,
-      scope: 'read',
+      scope: 'read agent:lifecycle',
       rotated: zoneExists,
     } satisfies BootstrapResult)
   })
