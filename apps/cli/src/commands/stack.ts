@@ -6,7 +6,6 @@
 import { spawn } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { dirname, join } from 'node:path'
-import { fileURLToPath } from 'node:url'
 import { CARACAL_VERSION } from '../runtime/version.ts'
 import { installRuntimeAssets, runtimePaths, seedEnvFile } from '../runtime/install.ts'
 
@@ -44,18 +43,7 @@ function searchRepoRoot(start: string | undefined): string | undefined {
 }
 
 function findRepoRoot(): string | undefined {
-  const moduleDir = dirname(fileURLToPath(import.meta.url))
-  const candidates = [
-    process.env.CARACAL_REPO_ROOT,
-    process.env.INIT_CWD,
-    process.env.PWD,
-    process.cwd(),
-    moduleDir,
-  ]
-  for (const candidate of candidates) {
-    const repoRoot = searchRepoRoot(candidate)
-    if (repoRoot) return repoRoot
-  }
+  if (process.env.CARACAL_REPO_ROOT) return searchRepoRoot(process.env.CARACAL_REPO_ROOT)
   return undefined
 }
 

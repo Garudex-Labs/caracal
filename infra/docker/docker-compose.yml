@@ -5,43 +5,145 @@
 
 name: caracal
 
+x-logging: &defaultLogging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
+x-security: &defaultSecurity
+  security_opt:
+    - no-new-privileges:true
+  cap_drop:
+    - ALL
+
+x-appService: &appService
+  restart: unless-stopped
+  init: true
+  stop_grace_period: 20s
+  logging: *defaultLogging
+  security_opt:
+    - no-new-privileges:true
+  cap_drop:
+    - ALL
+  networks:
+    - caracal
+
+x-appResources: &appResources
+  deploy:
+    resources:
+      limits:
+        cpus: "${CARACAL_APP_CPU_LIMIT:-1.0}"
+        memory: "${CARACAL_APP_MEM_LIMIT:-512M}"
+      reservations:
+        memory: "${CARACAL_APP_MEM_RESERVE:-128M}"
+
+networks:
+  caracal:
+    driver: bridge
+    name: caracal
+    driver_opts:
+      com.docker.network.bridge.name: br-caracal
+
 services:
   postgres:
     build:
       context: ../postgres
     image: caracal/postgres:dev
     restart: unless-stopped
+    init: true
+    stop_grace_period: 30s
+    logging: *defaultLogging
+    <<: *defaultSecurity
+    networks:
+      - caracal
     environment:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: ${POSTGRES_DB}
+    command:
+      - "postgres"
+      - "-c"
+      - "shared_buffers=${POSTGRES_SHARED_BUFFERS:-256MB}"
+      - "-c"
+      - "effective_cache_size=${POSTGRES_EFFECTIVE_CACHE_SIZE:-768MB}"
+      - "-c"
+      - "work_mem=${POSTGRES_WORK_MEM:-8MB}"
+      - "-c"
+      - "maintenance_work_mem=${POSTGRES_MAINTENANCE_WORK_MEM:-64MB}"
+      - "-c"
+      - "max_connections=${POSTGRES_MAX_CONNECTIONS:-100}"
+      - "-c"
+      - "wal_compression=on"
+      - "-c"
+      - "synchronous_commit=on"
+      - "-c"
+      - "checkpoint_completion_target=0.9"
+      - "-c"
+      - "random_page_cost=1.1"
+      - "-c"
+      - "log_min_duration_statement=${POSTGRES_LOG_MIN_DURATION_MS:-500}"
+      - "-c"
+      - "log_connections=on"
+      - "-c"
+      - "log_disconnections=on"
+      - "-c"
+      - "log_lock_waits=on"
     ports:
       - "127.0.0.1:5432:5432"
     volumes:
       - postgresData:/var/lib/postgresql
+    tmpfs:
+      - /tmp
+      - /var/run/postgresql
+    shm_size: "256m"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB} -h 127.0.0.1"]
       interval: 5s
       timeout: 3s
       retries: 20
+      start_period: 15s
+    deploy:
+      resources:
+        limits:
+          cpus: "${CARACAL_DB_CPU_LIMIT:-2.0}"
+          memory: "${CARACAL_DB_MEM_LIMIT:-1G}"
+        reservations:
+          memory: "${CARACAL_DB_MEM_RESERVE:-256M}"
 
   redis:
     build:
       context: ../redis
     image: caracal/redis:dev
     restart: unless-stopped
-    command:
-      - "--requirepass"
-      - "${REDIS_PASSWORD}"
+    init: true
+    stop_grace_period: 20s
+    logging: *defaultLogging
+    <<: *defaultSecurity
+    networks:
+      - caracal
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+      REDIS_MAXMEMORY: ${REDIS_MAXMEMORY:-512mb}
     ports:
       - "127.0.0.1:6379:6379"
     volumes:
       - redisData:/data
+    tmpfs:
+      - /run/caracal
     healthcheck:
-      test: ["CMD-SHELL", "redis-cli -a ${REDIS_PASSWORD} --no-auth-warning PING | grep PONG"]
+      test: ["CMD-SHELL", "redis-cli -a \"$$REDIS_PASSWORD\" --no-auth-warning PING | grep -q PONG"]
       interval: 5s
       timeout: 3s
       retries: 20
+      start_period: 10s
+    deploy:
+      resources:
+        limits:
+          cpus: "${CARACAL_REDIS_CPU_LIMIT:-1.0}"
+          memory: "${CARACAL_REDIS_MEM_LIMIT:-768M}"
+        reservations:
+          memory: "${CARACAL_REDIS_MEM_RESERVE:-128M}"
 
   init:
     image: caracal/redis:dev
@@ -57,14 +159,21 @@ services:
     entrypoint: ["/bin/sh", "/caracal/provision-streams.sh"]
     volumes:
       - ../redis/provision-streams.sh:/caracal/provision-streams.sh:ro
+    networks:
+      - caracal
+    logging: *defaultLogging
+    <<: *defaultSecurity
     restart: "no"
 
   sts:
+    <<: [*appService, *appResources]
     build:
       context: ../..
       dockerfile: services/sts/Dockerfile
     image: caracal/sts:dev
-    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp
     depends_on:
       init:
         condition: service_completed_successfully
@@ -79,18 +188,24 @@ services:
       PORT: 8080
     ports:
       - "127.0.0.1:8080:8080"
+    volumes:
+      - stsReplay:/var/lib/caracal
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8080/ready || exit 1"]
       interval: 5s
       timeout: 3s
       retries: 20
+      start_period: 15s
 
   api:
+    <<: [*appService, *appResources]
     build:
       context: ../..
       dockerfile: apps/api/Dockerfile
     image: caracal/api:dev
-    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp
     depends_on:
       sts:
         condition: service_healthy
@@ -110,13 +225,17 @@ services:
       interval: 5s
       timeout: 3s
       retries: 20
+      start_period: 20s
 
   gateway:
+    <<: [*appService, *appResources]
     build:
       context: ../..
       dockerfile: services/gateway/Dockerfile
     image: caracal/gateway:dev
-    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp
     depends_on:
       sts:
         condition: service_healthy
@@ -138,13 +257,17 @@ services:
       interval: 5s
       timeout: 3s
       retries: 20
+      start_period: 15s
 
   audit:
+    <<: [*appService, *appResources]
     build:
       context: ../..
       dockerfile: services/audit/Dockerfile
     image: caracal/audit:dev
-    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp
     depends_on:
       init:
         condition: service_completed_successfully
@@ -162,13 +285,14 @@ services:
       interval: 5s
       timeout: 3s
       retries: 20
+      start_period: 15s
 
   coordinator:
+    <<: [*appService, *appResources]
     build:
       context: ../..
       dockerfile: apps/coordinator/Dockerfile
     image: caracal/coordinator:dev
-    restart: unless-stopped
     depends_on:
       sts:
         condition: service_healthy
@@ -188,7 +312,9 @@ services:
       interval: 5s
       timeout: 3s
       retries: 20
+      start_period: 20s
 
 volumes:
   postgresData:
   redisData:
+  stsReplay:
