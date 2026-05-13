@@ -4,7 +4,7 @@
 // V1 façade routes that expose begin/end/exchange/verify over flat HTTP for
 // language-neutral integration without an SDK.
 
-import type { FastifyPluginAsync, FastifyRequest } from 'fastify'
+import type { FastifyPluginAsync, FastifyRequest, FastifyReply, FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { verify, type JwtConfig } from '@caracalai/identity'
 import { cfg } from '../config.js'
@@ -55,8 +55,22 @@ function clientIp(req: FastifyRequest): string {
     || 'unknown'
 }
 
+async function v1RateLimit(fastify: FastifyInstance, req: FastifyRequest, reply: FastifyReply): Promise<boolean> {
+  if (cfg.v1RateLimitPerMin <= 0) return false
+  const minute = Math.floor(Date.now() / 60_000)
+  const key = `coordinator:v1_rl:${clientIp(req)}:${minute}`
+  const count = await fastify.redis.incr(key)
+  if (count === 1) await fastify.redis.expire(key, 90)
+  if (count > cfg.v1RateLimitPerMin) {
+    reply.code(429).send({ error: 'rate_limited' })
+    return true
+  }
+  return false
+}
+
 export const v1Routes: FastifyPluginAsync = async (fastify) => {
   fastify.post('/v1/begin', async (req, reply) => {
+    if (await v1RateLimit(fastify, req, reply)) return
     const body = BeginBody.parse(req.body)
     const res = await fastify.inject({
       method: 'POST',
@@ -74,6 +88,7 @@ export const v1Routes: FastifyPluginAsync = async (fastify) => {
   })
 
   fastify.post('/v1/end', async (req, reply) => {
+    if (await v1RateLimit(fastify, req, reply)) return
     const body = EndBody.parse(req.body)
     const reasonQs = body.reason ? `?reason=${encodeURIComponent(body.reason)}` : ''
     const res = await fastify.inject({
@@ -86,6 +101,7 @@ export const v1Routes: FastifyPluginAsync = async (fastify) => {
   })
 
   fastify.post('/v1/exchange', async (req, reply) => {
+    if (await v1RateLimit(fastify, req, reply)) return
     const body = ExchangeBody.parse(req.body)
     const { zone_id, ...payload } = body
     const res = await fastify.inject({

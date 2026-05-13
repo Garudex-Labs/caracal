@@ -16,7 +16,7 @@ func TestHandleRevocationMissingZoneID(t *testing.T) {
 	s := &Server{db: &stubDB{}}
 	err := s.handleRevocation(context.Background(), streamMessage{
 		ID:     "1-0",
-		Values: map[string]interface{}{"session_id": "sid"},
+		Values: map[string]any{"session_id": "sid"},
 	})
 	if err == nil {
 		t.Error("want error when zone_id is missing")
@@ -27,7 +27,7 @@ func TestHandleRevocationMissingSessionID(t *testing.T) {
 	s := &Server{db: &stubDB{}}
 	err := s.handleRevocation(context.Background(), streamMessage{
 		ID:     "2-0",
-		Values: map[string]interface{}{"zone_id": "z1", "session_id": ""},
+		Values: map[string]any{"zone_id": "z1", "session_id": ""},
 	})
 	if err == nil {
 		t.Error("want error when session_id is empty string")
@@ -39,7 +39,7 @@ func TestHandleRevocationCallsRevokeSession(t *testing.T) {
 	s := &Server{db: db}
 	err := s.handleRevocation(context.Background(), streamMessage{
 		ID:     "3-0",
-		Values: map[string]interface{}{"zone_id": "z1", "session_id": "sid-abc"},
+		Values: map[string]any{"zone_id": "z1", "session_id": "sid-abc"},
 	})
 	if err != nil {
 		t.Errorf("want nil, got %v", err)
@@ -51,7 +51,7 @@ func TestHandlePolicyInvalidationMissingZoneID(t *testing.T) {
 	s := &Server{db: &stubDB{}, opa: e}
 	err := s.handlePolicyInvalidation(context.Background(), streamMessage{
 		ID:     "4-0",
-		Values: map[string]interface{}{},
+		Values: map[string]any{},
 	})
 	if err == nil {
 		t.Error("want error when zone_id is missing")
@@ -63,7 +63,7 @@ func TestHandlePolicyInvalidationEmptyZoneID(t *testing.T) {
 	s := &Server{db: &stubDB{}, opa: e}
 	err := s.handlePolicyInvalidation(context.Background(), streamMessage{
 		ID:     "5-0",
-		Values: map[string]interface{}{"zone_id": ""},
+		Values: map[string]any{"zone_id": ""},
 	})
 	if err == nil {
 		t.Error("want error when zone_id is empty string")
@@ -93,7 +93,7 @@ result := {"decision": "allow", "evaluation_status": "complete", "determining_po
 	// The zone entry is replaced with a fallback (not removed), so it still exists.
 	err = s.handlePolicyInvalidation(context.Background(), streamMessage{
 		ID:     "6-0",
-		Values: map[string]interface{}{"zone_id": "z-reload"},
+		Values: map[string]any{"zone_id": "z-reload"},
 	})
 	if err != nil {
 		t.Errorf("handlePolicyInvalidation must not return error when reload falls back: %v", err)

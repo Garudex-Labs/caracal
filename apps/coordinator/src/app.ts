@@ -13,6 +13,7 @@ import { invocationsRoutes } from './routes/invocations.js'
 import { v1Routes } from './routes/v1.js'
 import { db } from './db.js'
 import { redis } from './redis.js'
+import { cfg } from './config.js'
 import { verifyBearer } from './auth.js'
 import { registerAdminAuditHook } from './admin-audit.js'
 import { ttlSweeperStats } from './jobs/ttl-sweeper.js'
@@ -31,6 +32,16 @@ export async function buildApp() {
   })
   app.decorate('db', db)
   app.decorate('redis', redis)
+  app.addHook('onRequest', async (req, reply) => {
+    if (cfg.coordinatorRateLimitPerMin <= 0) return
+    const minute = Math.floor(Date.now() / 60_000)
+    const key = `coordinator:global_rl:${req.ip}:${minute}`
+    const count = await redis.incr(key)
+    if (count === 1) await redis.expire(key, 90)
+    if (count > cfg.coordinatorRateLimitPerMin) {
+      return reply.code(429).send({ error: 'rate_limited' })
+    }
+  })
   app.addHook('preHandler', verifyBearer)
   registerAdminAuditHook(app, db)
   app.get('/health', async () => ({ ok: true }))

@@ -88,6 +88,7 @@ Services accept either `REDIS_URL` or the individual `REDIS_*` variables.
 | `CARACAL_OUTBOX_LOCK_SEC` | `30` | Advisory lock duration for outbox rows |
 | `CARACAL_OUTBOX_MAX_ATTEMPTS` | `100` | Max delivery attempts before a message is marked `dead` |
 | `CARACAL_OUTBOX_STREAM_MAXLEN` | `100000` | XADD MAXLEN for all outbox-published streams |
+| `READY_RATE_LIMIT_PER_MIN` | `120` | Rate limit for `/ready` health probe per source IP per minute (0 to disable) |
 
 ---
 
@@ -172,6 +173,8 @@ Services accept either `REDIS_URL` or the individual `REDIS_*` variables.
 | `SHUTDOWN_GRACE_MS` | `15000` | Graceful shutdown window |
 | `VERIFY_RATE_LIMIT_PER_MIN` | `60` | Token verify rate limit per client per minute (minimum 0) |
 | `INVOCATION_RATE_LIMIT_PER_MIN` | `120` | Invocation mutation rate limit per application per zone per minute (minimum 0) |
+| `V1_RATE_LIMIT_PER_MIN` | `300` | V1 façade (begin/end/exchange) rate limit per source IP per minute (0 to disable) |
+| `COORDINATOR_RATE_LIMIT_PER_MIN` | `600` | Global coordinator rate limit per source IP per minute (0 to disable) |
 | `RELAY_DEDUPE_WINDOW_SEC` | `3600` | Window for relay deduplication (Go relay) |
 | `JWKS_CACHE_MAX` | `256` | Maximum JWKS cache entries |
 | `LOG_LEVEL` | `info` | Log verbosity |
