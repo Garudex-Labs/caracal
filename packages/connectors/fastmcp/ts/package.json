@@ -39,6 +39,7 @@
     "prepublishOnly": "tsc"
   },
   "dependencies": {
+    "@caracalai/core": "workspace:*",
     "@caracalai/transport-mcp": "workspace:*"
   },
   "devDependencies": {

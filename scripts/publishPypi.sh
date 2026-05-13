@@ -119,7 +119,7 @@ cleanup() {
 trap cleanup EXIT
 
 python3 -m venv "$venv"
-"$venv/bin/pip" install --quiet build==1.2.2 twine==6.0.1
+"$venv/bin/pip" install --quiet build==1.5.0 twine==6.2.0
 
 export TWINE_USERNAME="__token__"
 export TWINE_PASSWORD="$PYPI_API_TOKEN"
