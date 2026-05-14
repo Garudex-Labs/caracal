@@ -59,7 +59,7 @@ services:
   postgres:
     build:
       context: ../postgres
-    image: caracal/postgres:dev
+    image: localhost/caracal-postgres:dev-${CARACAL_DEV_SHA:-local}
     restart: unless-stopped
     init: true
     stop_grace_period: 30s
@@ -133,7 +133,7 @@ services:
   redis:
     build:
       context: ../redis
-    image: caracal/redis:dev
+    image: localhost/caracal-redis:dev-${CARACAL_DEV_SHA:-local}
     restart: unless-stopped
     init: true
     stop_grace_period: 20s
@@ -165,7 +165,7 @@ services:
           memory: "${CARACAL_REDIS_MEM_RESERVE:-128M}"
 
   init:
-    image: caracal/redis:dev
+    image: localhost/caracal-redis:dev-${CARACAL_DEV_SHA:-local}
     depends_on:
       postgres:
         condition: service_healthy
@@ -189,7 +189,7 @@ services:
     build:
       context: ../..
       dockerfile: services/sts/Dockerfile
-    image: caracal/sts:dev
+    image: localhost/caracal-sts:dev-${CARACAL_DEV_SHA:-local}
     read_only: true
     tmpfs:
       - /tmp
@@ -197,6 +197,7 @@ services:
       init:
         condition: service_completed_successfully
     environment:
+      CARACAL_MODE: ${CARACAL_MODE:-dev}
       DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
       ZONE_KEK: ${ZONE_KEK}
@@ -221,7 +222,7 @@ services:
     build:
       context: ../..
       dockerfile: apps/api/Dockerfile
-    image: caracal/api:dev
+    image: localhost/caracal-api:dev-${CARACAL_DEV_SHA:-local}
     read_only: true
     tmpfs:
       - /tmp
@@ -229,6 +230,7 @@ services:
       sts:
         condition: service_healthy
     environment:
+      CARACAL_MODE: ${CARACAL_MODE:-dev}
       DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
       STS_URL: http://sts:8080
@@ -252,7 +254,7 @@ services:
     build:
       context: ../..
       dockerfile: services/gateway/Dockerfile
-    image: caracal/gateway:dev
+    image: localhost/caracal-gateway:dev-${CARACAL_DEV_SHA:-local}
     read_only: true
     tmpfs:
       - /tmp
@@ -262,6 +264,7 @@ services:
       api:
         condition: service_healthy
     environment:
+      CARACAL_MODE: ${CARACAL_MODE:-dev}
       CARACAL_ENV: ${CARACAL_ENV:-dev}
       DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
@@ -284,7 +287,7 @@ services:
     build:
       context: ../..
       dockerfile: services/audit/Dockerfile
-    image: caracal/audit:dev
+    image: localhost/caracal-audit:dev-${CARACAL_DEV_SHA:-local}
     read_only: true
     tmpfs:
       - /tmp
@@ -292,6 +295,7 @@ services:
       init:
         condition: service_completed_successfully
     environment:
+      CARACAL_MODE: ${CARACAL_MODE:-dev}
       DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
       AUDIT_HMAC_KEY: ${AUDIT_HMAC_KEY}
@@ -312,7 +316,7 @@ services:
     build:
       context: ../..
       dockerfile: apps/coordinator/Dockerfile
-    image: caracal/coordinator:dev
+    image: localhost/caracal-coordinator:dev-${CARACAL_DEV_SHA:-local}
     read_only: true
     tmpfs:
       - /tmp
@@ -320,6 +324,7 @@ services:
       sts:
         condition: service_healthy
     environment:
+      CARACAL_MODE: ${CARACAL_MODE:-dev}
       DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
       STS_URL: http://sts:8080

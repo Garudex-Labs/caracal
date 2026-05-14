@@ -10,6 +10,8 @@
 - Must use `depends_on: { service_healthy }` for ordering against postgres and redis.
 - Must run the `init` job exactly once per `up` to provision Redis streams.
 - Must source secrets from `.env` (dev only); production secrets must come from an external secret manager.
+- Must tag locally-built images as `localhost/caracal-{svc}:dev-${CARACAL_DEV_SHA}`; must not use floating `:dev` tags or `ghcr.io/...` references in the dev compose file.
+- Must propagate `CARACAL_MODE` to every app service so Go and Node services can enforce `AssertRuntimeSafe`.
 
 ## Forbidden
 - Must not import or reference `caracalEnterprise/`.

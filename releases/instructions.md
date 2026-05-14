@@ -17,4 +17,5 @@
 - Must not edit a published `manifest.json` after the release lands; cut a new tag instead.
 - Must not hand-edit `validation.md` or the `findings/` JSONL; rerun the workflow.
 - Must not omit artifacts that were published under the release tag.
+- Must not publish floating `latest` or `dryrun` container tags; only pinned CalVer tags (`v<calver>` and `v<MajorMinor>`) ship to GHCR.
 - Must not store secrets, signing keys, or narrative release notes here.
