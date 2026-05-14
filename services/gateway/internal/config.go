@@ -28,7 +28,7 @@ const (
 
 // Config holds gateway runtime configuration.
 type Config struct {
-	Env                   string
+	Mode                  string
 	Port                  string
 	LogLevel              string
 	STSURL                string
@@ -41,8 +41,6 @@ type Config struct {
 	MaxRequestBytes       int64
 	TLSCertFile           string
 	TLSKeyFile            string
-	InsecureHTTP          bool
-	InsecureSTS           bool
 	AllowPrivateUpstreams bool
 	UpstreamHostAllowlist []string
 	DatabaseURL           string
@@ -55,7 +53,7 @@ type Config struct {
 // It panics on missing required values or unsafe defaults.
 func loadConfig() Config {
 	cfg := Config{
-		Env:                   config.Getenv("CARACAL_ENV", "production"),
+		Mode:                  config.Mode(),
 		Port:                  config.Getenv("PORT", defaultPort),
 		LogLevel:              config.Getenv("LOG_LEVEL", "info"),
 		STSURL:                config.MustGetenv("STS_URL"),
@@ -68,8 +66,6 @@ func loadConfig() Config {
 		MaxRequestBytes:       int64Env("MAX_REQUEST_BYTES", defaultMaxRequestSize),
 		TLSCertFile:           config.Getenv("TLS_CERT_FILE", ""),
 		TLSKeyFile:            config.Getenv("TLS_KEY_FILE", ""),
-		InsecureHTTP:          boolEnv("INSECURE_HTTP", false),
-		InsecureSTS:           boolEnv("INSECURE_STS", false),
 		AllowPrivateUpstreams: boolEnv("ALLOW_PRIVATE_UPSTREAMS", false),
 		UpstreamHostAllowlist: splitCSV(config.Getenv("UPSTREAM_HOST_ALLOWLIST", "")),
 		DatabaseURL:           config.MustGetenv("DATABASE_URL"),
@@ -84,22 +80,15 @@ func loadConfig() Config {
 }
 
 func (c Config) validate() error {
-	switch c.Env {
-	case "production", "dev":
-	default:
-		return fmt.Errorf("CARACAL_ENV must be production or dev")
+	runtime := c.Mode == "runtime"
+	if runtime && c.RedisURL == "" {
+		return fmt.Errorf("REDIS_URL is required when CARACAL_MODE=runtime")
 	}
-	if c.Env == "production" && (c.InsecureHTTP || c.InsecureSTS) {
-		return fmt.Errorf("INSECURE_HTTP and INSECURE_STS are forbidden when CARACAL_ENV=production")
+	if runtime && c.JTIFailOpen {
+		return fmt.Errorf("JTI_FAIL_OPEN is forbidden when CARACAL_MODE=runtime")
 	}
-	if c.Env == "production" && c.RedisURL == "" {
-		return fmt.Errorf("REDIS_URL is required when CARACAL_ENV=production")
-	}
-	if c.Env == "production" && c.JTIFailOpen {
-		return fmt.Errorf("JTI_FAIL_OPEN is forbidden when CARACAL_ENV=production")
-	}
-	if c.Env == "production" && c.AllowPrivateUpstreams && len(c.UpstreamHostAllowlist) == 0 {
-		return fmt.Errorf("UPSTREAM_HOST_ALLOWLIST is required when ALLOW_PRIVATE_UPSTREAMS=true in production")
+	if runtime && c.AllowPrivateUpstreams && len(c.UpstreamHostAllowlist) == 0 {
+		return fmt.Errorf("UPSTREAM_HOST_ALLOWLIST is required when ALLOW_PRIVATE_UPSTREAMS=true under CARACAL_MODE=runtime")
 	}
 	u, err := url.Parse(c.STSURL)
 	if err != nil || u.Scheme == "" || u.Host == "" {
@@ -108,21 +97,17 @@ func (c Config) validate() error {
 	switch u.Scheme {
 	case "https":
 	case "http":
-		if !c.InsecureSTS {
-			return fmt.Errorf("STS_URL must use https; set INSECURE_STS=true to override")
+		if runtime && !isInternalHost(u.Hostname()) {
+			return fmt.Errorf("STS_URL must use https when CARACAL_MODE=runtime and target is not an internal host")
 		}
 	default:
 		return fmt.Errorf("STS_URL scheme must be http or https")
 	}
-	if c.TLSCertFile == "" && c.TLSKeyFile == "" {
-		if !c.InsecureHTTP {
-			return fmt.Errorf("TLS_CERT_FILE/TLS_KEY_FILE required; set INSECURE_HTTP=true to run plaintext")
-		}
-	} else if c.TLSCertFile == "" || c.TLSKeyFile == "" {
+	if c.TLSCertFile != "" && c.TLSKeyFile == "" || c.TLSCertFile == "" && c.TLSKeyFile != "" {
 		return fmt.Errorf("TLS_CERT_FILE and TLS_KEY_FILE must both be set")
 	}
-	if c.Env == "production" && c.StreamsHMACKey == "" {
-		return fmt.Errorf("STREAMS_HMAC_KEY is required when CARACAL_ENV=production")
+	if runtime && c.StreamsHMACKey == "" {
+		return fmt.Errorf("STREAMS_HMAC_KEY is required when CARACAL_MODE=runtime")
 	}
 	if c.Port != defaultPort {
 		return fmt.Errorf("PORT must be %s", defaultPort)
@@ -131,6 +116,20 @@ func (c Config) validate() error {
 		return fmt.Errorf("MAX_REQUEST_BYTES must be positive")
 	}
 	return nil
+}
+
+// isInternalHost reports whether host is a docker service name or loopback target
+// (single label, no dots; or localhost / 127.0.0.1 / ::1). Used to permit plaintext
+// STS_URL under CARACAL_MODE=runtime when calls stay inside the container network.
+func isInternalHost(host string) bool {
+	if host == "" {
+		return false
+	}
+	switch host {
+	case "localhost", "127.0.0.1", "::1":
+		return true
+	}
+	return !strings.Contains(host, ".")
 }
 
 // TLSEnabled reports whether HTTPS is configured.

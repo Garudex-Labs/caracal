@@ -10,94 +10,87 @@ import (
 	"testing"
 )
 
-func TestConfigValidateRejectsHTTPSTSWithoutOverride(t *testing.T) {
-	c := Config{Env: "dev", Port: "8081", STSURL: "http://sts.local", InsecureHTTP: true, MaxRequestBytes: 1}
+func TestConfigValidateRuntimeRejectsHTTPSTSWithPublicHost(t *testing.T) {
+	c := Config{Mode: "runtime", Port: "8081", STSURL: "http://sts.example.com", MaxRequestBytes: 1, RedisURL: "redis://redis", StreamsHMACKey: "k"}
 	if err := c.validate(); err == nil || !strings.Contains(err.Error(), "https") {
 		t.Errorf("expected https requirement, got %v", err)
 	}
 }
 
-func TestConfigValidateAcceptsInsecureSTSWhenAcked(t *testing.T) {
-	c := Config{Env: "dev", Port: "8081", STSURL: "http://sts.local", InsecureSTS: true, InsecureHTTP: true, MaxRequestBytes: 1}
+func TestConfigValidateRuntimeAcceptsInternalHTTPSTS(t *testing.T) {
+	c := Config{Mode: "runtime", Port: "8081", STSURL: "http://sts:8080", MaxRequestBytes: 1, RedisURL: "redis://redis", StreamsHMACKey: "k"}
 	if err := c.validate(); err != nil {
-		t.Errorf("acked override should pass, got %v", err)
+		t.Errorf("internal docker host should be allowed, got %v", err)
 	}
 }
 
-func TestConfigValidateRequiresTLSAck(t *testing.T) {
-	c := Config{Env: "production", Port: "8081", STSURL: "https://sts", MaxRequestBytes: 1, RedisURL: "redis://redis"}
-	if err := c.validate(); err == nil || !strings.Contains(err.Error(), "INSECURE_HTTP") {
-		t.Errorf("expected TLS ack requirement, got %v", err)
+func TestConfigValidateDevAcceptsAnyHTTPSTS(t *testing.T) {
+	c := Config{Mode: "dev", Port: "8081", STSURL: "http://sts.example.com", MaxRequestBytes: 1}
+	if err := c.validate(); err != nil {
+		t.Errorf("dev mode should accept any STS_URL, got %v", err)
+	}
+}
+
+func TestConfigValidateAllowsPlaintextListener(t *testing.T) {
+	c := Config{Mode: "runtime", Port: "8081", STSURL: "https://sts", MaxRequestBytes: 1, RedisURL: "redis://redis", StreamsHMACKey: "k"}
+	if err := c.validate(); err != nil {
+		t.Errorf("plaintext listener should be allowed when certs unset, got %v", err)
 	}
 }
 
 func TestConfigValidateTLSPair(t *testing.T) {
-	c := Config{Env: "production", Port: "8081", STSURL: "https://sts", TLSCertFile: "cert", MaxRequestBytes: 1, RedisURL: "redis://redis"}
+	c := Config{Mode: "runtime", Port: "8081", STSURL: "https://sts", TLSCertFile: "cert", MaxRequestBytes: 1, RedisURL: "redis://redis", StreamsHMACKey: "k"}
 	if err := c.validate(); err == nil {
 		t.Error("partial TLS config should fail")
 	}
 }
 
 func TestConfigValidateRejectsBadScheme(t *testing.T) {
-	c := Config{Env: "dev", Port: "8081", STSURL: "ftp://sts", InsecureHTTP: true, MaxRequestBytes: 1}
+	c := Config{Mode: "dev", Port: "8081", STSURL: "ftp://sts", MaxRequestBytes: 1}
 	if err := c.validate(); err == nil {
 		t.Error("non-http scheme should fail")
 	}
 }
 
 func TestConfigValidateMaxBytesPositive(t *testing.T) {
-	c := Config{Env: "dev", Port: "8081", STSURL: "https://sts", InsecureHTTP: true, MaxRequestBytes: 0}
+	c := Config{Mode: "dev", Port: "8081", STSURL: "https://sts", MaxRequestBytes: 0}
 	if err := c.validate(); err == nil {
 		t.Error("zero MaxRequestBytes should fail")
 	}
 }
 
 func TestConfigValidateRejectsNonStandardPort(t *testing.T) {
-	c := Config{Env: "dev", Port: "9090", STSURL: "https://sts", InsecureHTTP: true, MaxRequestBytes: 1}
+	c := Config{Mode: "dev", Port: "9090", STSURL: "https://sts", MaxRequestBytes: 1}
 	if err := c.validate(); err == nil || !strings.Contains(err.Error(), "8081") {
 		t.Errorf("expected port enforcement, got %v", err)
 	}
 }
 
-func TestConfigValidateProductionRejectsInsecure(t *testing.T) {
-	c := Config{Env: "production", Port: "8081", STSURL: "https://sts", TLSCertFile: "c", TLSKeyFile: "k", InsecureHTTP: true, MaxRequestBytes: 1, RedisURL: "redis://redis"}
-	if err := c.validate(); err == nil || !strings.Contains(err.Error(), "forbidden") {
-		t.Errorf("expected production reject, got %v", err)
-	}
-}
-
-func TestConfigValidateProductionRequiresRedis(t *testing.T) {
-	c := Config{Env: "production", Port: "8081", STSURL: "https://sts", TLSCertFile: "c", TLSKeyFile: "k", MaxRequestBytes: 1}
+func TestConfigValidateRuntimeRequiresRedis(t *testing.T) {
+	c := Config{Mode: "runtime", Port: "8081", STSURL: "https://sts", MaxRequestBytes: 1, StreamsHMACKey: "k"}
 	if err := c.validate(); err == nil || !strings.Contains(err.Error(), "REDIS_URL") {
 		t.Errorf("expected Redis requirement, got %v", err)
 	}
 }
 
-func TestConfigValidateProductionRequiresStreamHMAC(t *testing.T) {
-	c := Config{Env: "production", Port: "8081", STSURL: "https://sts", TLSCertFile: "c", TLSKeyFile: "k", MaxRequestBytes: 1, RedisURL: "redis://redis"}
+func TestConfigValidateRuntimeRequiresStreamHMAC(t *testing.T) {
+	c := Config{Mode: "runtime", Port: "8081", STSURL: "https://sts", MaxRequestBytes: 1, RedisURL: "redis://redis"}
 	if err := c.validate(); err == nil || !strings.Contains(err.Error(), "STREAMS_HMAC_KEY") {
 		t.Errorf("expected stream HMAC requirement, got %v", err)
 	}
 }
 
-func TestConfigValidateProductionRejectsJTIFailOpen(t *testing.T) {
-	c := Config{Env: "production", Port: "8081", STSURL: "https://sts", TLSCertFile: "c", TLSKeyFile: "k", MaxRequestBytes: 1, RedisURL: "redis://redis", JTIFailOpen: true}
+func TestConfigValidateRuntimeRejectsJTIFailOpen(t *testing.T) {
+	c := Config{Mode: "runtime", Port: "8081", STSURL: "https://sts", MaxRequestBytes: 1, RedisURL: "redis://redis", StreamsHMACKey: "k", JTIFailOpen: true}
 	if err := c.validate(); err == nil || !strings.Contains(err.Error(), "JTI_FAIL_OPEN") {
 		t.Errorf("expected JTI fail-open rejection, got %v", err)
 	}
 }
 
-func TestConfigValidateProductionPrivateUpstreamsRequireAllowlist(t *testing.T) {
-	c := Config{Env: "production", Port: "8081", STSURL: "https://sts", TLSCertFile: "c", TLSKeyFile: "k", MaxRequestBytes: 1, RedisURL: "redis://redis", AllowPrivateUpstreams: true}
+func TestConfigValidateRuntimePrivateUpstreamsRequireAllowlist(t *testing.T) {
+	c := Config{Mode: "runtime", Port: "8081", STSURL: "https://sts", MaxRequestBytes: 1, RedisURL: "redis://redis", StreamsHMACKey: "k", AllowPrivateUpstreams: true}
 	if err := c.validate(); err == nil || !strings.Contains(err.Error(), "UPSTREAM_HOST_ALLOWLIST") {
 		t.Errorf("expected private upstream allowlist requirement, got %v", err)
-	}
-}
-
-func TestConfigValidateRejectsUnknownEnv(t *testing.T) {
-	c := Config{Env: "staging", Port: "8081", STSURL: "https://sts", TLSCertFile: "c", TLSKeyFile: "k", MaxRequestBytes: 1}
-	if err := c.validate(); err == nil || !strings.Contains(err.Error(), "CARACAL_ENV") {
-		t.Errorf("expected env reject, got %v", err)
 	}
 }
 
@@ -110,6 +103,19 @@ func TestSplitCSV(t *testing.T) {
 	for i := range got {
 		if got[i] != want[i] {
 			t.Errorf("idx %d got %q want %q", i, got[i], want[i])
+		}
+	}
+}
+
+func TestIsInternalHost(t *testing.T) {
+	for _, h := range []string{"sts", "caracal-api", "localhost", "127.0.0.1", "::1"} {
+		if !isInternalHost(h) {
+			t.Errorf("%q should be internal", h)
+		}
+	}
+	for _, h := range []string{"sts.example.com", "example.com", ""} {
+		if isInternalHost(h) {
+			t.Errorf("%q should not be internal", h)
 		}
 	}
 }
