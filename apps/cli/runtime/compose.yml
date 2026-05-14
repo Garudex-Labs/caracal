@@ -23,41 +23,32 @@ services:
       retries: 20
 
   redis:
-    image: redis:8-alpine
-    command:
-      - "--requirepass"
-      - "${REDIS_PASSWORD}"
+    image: ${CARACAL_REGISTRY:-ghcr.io/garudex-labs/}caracal-redis:${CARACAL_VERSION}
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+      REDIS_MAXMEMORY: ${REDIS_MAXMEMORY:-512mb}
     ports:
       - "6379:6379"
     volumes:
       - redisData:/data
+      - type: tmpfs
+        target: /run/caracal
+        tmpfs:
+          mode: 1023
     healthcheck:
-      test: ["CMD-SHELL", "redis-cli -a ${REDIS_PASSWORD} --no-auth-warning PING | grep PONG"]
+      test: ["CMD-SHELL", "redis-cli -a \"$$REDIS_PASSWORD\" --no-auth-warning PING | grep -q PONG && test -f /run/caracal/provisioned"]
       interval: 5s
       timeout: 3s
       retries: 20
+      start_period: 10s
 
-  init:
-    image: redis:8-alpine
+  sts:
+    image: ${CARACAL_REGISTRY:-ghcr.io/garudex-labs/}caracal-sts:${CARACAL_VERSION}
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
-    environment:
-      REDIS_HOST: redis
-      REDIS_PORT: 6379
-      REDIS_PASSWORD: ${REDIS_PASSWORD}
-    entrypoint: ["/bin/sh", "/caracal/provision-streams.sh"]
-    volumes:
-      - ./provision-streams.sh:/caracal/provision-streams.sh:ro
-    restart: "no"
-
-  sts:
-    image: ${CARACAL_REGISTRY:-ghcr.io/garudex-labs/}caracal-sts:${CARACAL_VERSION}
-    depends_on:
-      init:
-        condition: service_completed_successfully
     environment:
       CARACAL_MODE: runtime
       DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
@@ -127,8 +118,10 @@ services:
   audit:
     image: ${CARACAL_REGISTRY:-ghcr.io/garudex-labs/}caracal-audit:${CARACAL_VERSION}
     depends_on:
-      init:
-        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     environment:
       CARACAL_MODE: runtime
       DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
@@ -164,11 +157,11 @@ services:
     ports:
       - "4000:4000"
     healthcheck:
-      test: ["CMD", "/healthcheck"]
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:4000/ready || exit 1"]
       interval: 5s
       timeout: 3s
       retries: 20
-      start_period: 15s
+      start_period: 20s
 
 volumes:
   postgresData:
