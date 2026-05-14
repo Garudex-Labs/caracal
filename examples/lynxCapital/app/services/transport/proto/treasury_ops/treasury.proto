@@ -9,14 +9,58 @@ service TreasuryOps {
   rpc TransferFunds      (TransferRequest)        returns (TransferResponse);
 }
 
-message CashPositionRequest  { string entity_id = 1; }
-message CashPositionResponse { string json = 1; }
+message CashPositionRequest {
+  string region = 1;
+}
+message CashPositionResponse {
+  string region    = 1;
+  double cash_usd  = 2;
+  double operating = 3;
+  double reserves  = 4;
+  string as_of     = 5;
+}
 
-message ForecastRequest  { string entity_id = 1; int32 horizon_days = 2; }
-message ForecastResponse { string json = 1; }
+message ForecastRequest {
+  string region       = 1;
+  int32  horizon_days = 2;
+}
+message ForecastResponse {
+  int32  horizon_days   = 1;
+  double outflow_usd    = 2;
+  double inflow_usd     = 3;
+  double net            = 4;
+  string shortfall_risk = 5;
+}
 
-message FxHedgeRequest  { string pair = 1; double notional = 2; string tenor = 3; }
-message FxHedgeResponse { string json = 1; }
+message FxHedgeRequest {
+  string from_currency = 1;
+  string to_currency   = 2;
+  double notional      = 3;
+  int32  tenor_days    = 4;
+}
+message FxHedgeResponse {
+  string hedge_id      = 1;
+  string from_currency = 2;
+  string to_currency   = 3;
+  double notional      = 4;
+  double forward_rate  = 5;
+  int32  tenor_days    = 6;
+  string status        = 7;
+  string error         = 8;
+}
 
-message TransferRequest  { string from_account = 1; string to_account = 2; double amount = 3; string currency = 4; string idempotency_key = 5; }
-message TransferResponse { string json = 1; }
+message TransferRequest {
+  string from_region      = 1;
+  string to_region        = 2;
+  double amount_usd       = 3;
+  string currency         = 4;
+  string idempotency_key  = 5;
+}
+message TransferResponse {
+  string transfer_id = 1;
+  string from_region = 2;
+  string to_region   = 3;
+  double amount_usd  = 4;
+  string status      = 5;
+  string value_date  = 6;
+}

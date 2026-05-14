@@ -88,18 +88,80 @@ def test_sdk_tax_withholding(rest_url):
 
 def test_grpc_treasury_unary(treasury_grpc):
     registry.reset()
-    r = registry.call("treasury-ops", "get_cash_position", {"region": "us"})
+    r = registry.call("treasury-ops", "get_cash_position", {"region": "US"})
     assert isinstance(r, dict)
-    assert any(k in r for k in ("total_usd", "by_account", "balance_usd", "cash_usd"))
+    assert r["region"] == "US"
+    assert isinstance(r["cash_usd"], float) and r["cash_usd"] > 0
+    assert isinstance(r["operating"], float)
+    assert isinstance(r["reserves"], float)
+    assert r["as_of"]
+
+
+def test_grpc_treasury_forecast(treasury_grpc):
+    registry.reset()
+    r = registry.call("treasury-ops", "forecast_liquidity",
+                      {"region": "US", "horizon_days": 30})
+    assert r["horizon_days"] == 30
+    assert isinstance(r["outflow_usd"], float)
+    assert isinstance(r["inflow_usd"], float)
+    assert isinstance(r["net"], float)
+    assert r["shortfall_risk"] in {"low", "medium", "high"}
+
+
+def test_grpc_treasury_hedge(treasury_grpc):
+    registry.reset()
+    r = registry.call("treasury-ops", "place_fx_hedge",
+                      {"from_currency": "USD", "to_currency": "EUR",
+                       "notional": 1_000_000.0, "tenor_days": 90})
+    assert r["hedge_id"] == "FXH-USDEUR-001"
+    assert r["from_currency"] == "USD"
+    assert r["to_currency"] == "EUR"
+    assert r["status"] == "filled"
+    assert isinstance(r["forward_rate"], float)
+
+
+def test_grpc_treasury_transfer(treasury_grpc):
+    registry.reset()
+    r = registry.call("treasury-ops", "transfer_funds",
+                      {"from_region": "US", "to_region": "DE",
+                       "amount_usd": 500_000.0, "currency": "USD",
+                       "idempotency_key": "k-1"})
+    assert r["transfer_id"] == "TR-USDE-001"
+    assert r["from_region"] == "US"
+    assert r["to_region"] == "DE"
+    assert r["status"] == "settled"
+    assert r["value_date"]
 
 
 def test_grpc_treasury_unauth(treasury_grpc, monkeypatch):
     monkeypatch.setenv("LYNX_TREASURY_KEY", "")
     registry.reset()
     with pytest.raises(Exception):
-        registry.call("treasury-ops", "get_cash_position", {"region": "us"})
+        registry.call("treasury-ops", "get_cash_position", {"region": "US"})
     monkeypatch.setenv("LYNX_TREASURY_KEY", "dev-treasury-ops-key")
     registry.reset()
+
+
+def test_grpc_compliance_stream(compliance_grpc):
+    from app.events.bus import bus
+    from app.services import streams
+
+    streams.start_streams()
+    try:
+        deltas: list = []
+        for _ in range(60):
+            deltas = [e for e in bus.history("streams") if e.kind == "compliance.delta"]
+            if deltas:
+                break
+            time.sleep(0.1)
+    finally:
+        streams.stop_streams()
+    assert deltas, "no compliance.delta event received"
+    d = deltas[0].payload
+    assert d["entity_id"].startswith("ENT-")
+    assert d["action"] in {"upsert", "remove"}
+    assert d["reason"]
+    assert d["cursor"] == "0"
 
 
 # ----- MCP ----------------------------------------------------------------

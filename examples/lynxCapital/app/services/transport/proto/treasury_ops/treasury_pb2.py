@@ -24,7 +24,7 @@ _sym_db = _symbol_database.Default()
 
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x0etreasury.proto\x12\rlynx.treasury\"(\n\x13\x43\x61shPositionRequest\x12\x11\n\tentity_id\x18\x01 \x01(\t\"$\n\x14\x43\x61shPositionResponse\x12\x0c\n\x04json\x18\x01 \x01(\t\":\n\x0f\x46orecastRequest\x12\x11\n\tentity_id\x18\x01 \x01(\t\x12\x14\n\x0chorizon_days\x18\x02 \x01(\x05\" \n\x10\x46orecastResponse\x12\x0c\n\x04json\x18\x01 \x01(\t\"?\n\x0e\x46xHedgeRequest\x12\x0c\n\x04pair\x18\x01 \x01(\t\x12\x10\n\x08notional\x18\x02 \x01(\x01\x12\r\n\x05tenor\x18\x03 \x01(\t\"\x1f\n\x0f\x46xHedgeResponse\x12\x0c\n\x04json\x18\x01 \x01(\t\"v\n\x0fTransferRequest\x12\x14\n\x0c\x66rom_account\x18\x01 \x01(\t\x12\x12\n\nto_account\x18\x02 \x01(\t\x12\x0e\n\x06\x61mount\x18\x03 \x01(\x01\x12\x10\n\x08\x63urrency\x18\x04 \x01(\t\x12\x17\n\x0fidempotency_key\x18\x05 \x01(\t\" \n\x10TransferResponse\x12\x0c\n\x04json\x18\x01 \x01(\t2\xe0\x02\n\x0bTreasuryOps\x12Z\n\x0fGetCashPosition\x12\".lynx.treasury.CashPositionRequest\x1a#.lynx.treasury.CashPositionResponse\x12T\n\x11\x46orecastLiquidity\x12\x1e.lynx.treasury.ForecastRequest\x1a\x1f.lynx.treasury.ForecastResponse\x12M\n\x0cPlaceFxHedge\x12\x1d.lynx.treasury.FxHedgeRequest\x1a\x1e.lynx.treasury.FxHedgeResponse\x12P\n\rTransferFunds\x12\x1e.lynx.treasury.TransferRequest\x1a\x1f.lynx.treasury.TransferResponseb\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x0etreasury.proto\x12\rlynx.treasury\"%\n\x13\x43\x61shPositionRequest\x12\x0e\n\x06region\x18\x01 \x01(\t\"l\n\x14\x43\x61shPositionResponse\x12\x0e\n\x06region\x18\x01 \x01(\t\x12\x10\n\x08\x63\x61sh_usd\x18\x02 \x01(\x01\x12\x11\n\toperating\x18\x03 \x01(\x01\x12\x10\n\x08reserves\x18\x04 \x01(\x01\x12\r\n\x05\x61s_of\x18\x05 \x01(\t\"7\n\x0f\x46orecastRequest\x12\x0e\n\x06region\x18\x01 \x01(\t\x12\x14\n\x0chorizon_days\x18\x02 \x01(\x05\"v\n\x10\x46orecastResponse\x12\x14\n\x0chorizon_days\x18\x01 \x01(\x05\x12\x13\n\x0boutflow_usd\x18\x02 \x01(\x01\x12\x12\n\ninflow_usd\x18\x03 \x01(\x01\x12\x0b\n\x03net\x18\x04 \x01(\x01\x12\x16\n\x0eshortfall_risk\x18\x05 \x01(\t\"b\n\x0e\x46xHedgeRequest\x12\x15\n\rfrom_currency\x18\x01 \x01(\t\x12\x13\n\x0bto_currency\x18\x02 \x01(\t\x12\x10\n\x08notional\x18\x03 \x01(\x01\x12\x12\n\ntenor_days\x18\x04 \x01(\x05\"\xaa\x01\n\x0f\x46xHedgeResponse\x12\x10\n\x08hedge_id\x18\x01 \x01(\t\x12\x15\n\rfrom_currency\x18\x02 \x01(\t\x12\x13\n\x0bto_currency\x18\x03 \x01(\t\x12\x10\n\x08notional\x18\x04 \x01(\x01\x12\x14\n\x0c\x66orward_rate\x18\x05 \x01(\x01\x12\x12\n\ntenor_days\x18\x06 \x01(\x05\x12\x0e\n\x06status\x18\x07 \x01(\t\x12\r\n\x05\x65rror\x18\x08 \x01(\t\"x\n\x0fTransferRequest\x12\x13\n\x0b\x66rom_region\x18\x01 \x01(\t\x12\x11\n\tto_region\x18\x02 \x01(\t\x12\x12\n\namount_usd\x18\x03 \x01(\x01\x12\x10\n\x08\x63urrency\x18\x04 \x01(\t\x12\x17\n\x0fidempotency_key\x18\x05 \x01(\t\"\x87\x01\n\x10TransferResponse\x12\x13\n\x0btransfer_id\x18\x01 \x01(\t\x12\x13\n\x0b\x66rom_region\x18\x02 \x01(\t\x12\x11\n\tto_region\x18\x03 \x01(\t\x12\x12\n\namount_usd\x18\x04 \x01(\x01\x12\x0e\n\x06status\x18\x05 \x01(\t\x12\x12\n\nvalue_date\x18\x06 \x01(\t2\xe0\x02\n\x0bTreasuryOps\x12Z\n\x0fGetCashPosition\x12\".lynx.treasury.CashPositionRequest\x1a#.lynx.treasury.CashPositionResponse\x12T\n\x11\x46orecastLiquidity\x12\x1e.lynx.treasury.ForecastRequest\x1a\x1f.lynx.treasury.ForecastResponse\x12M\n\x0cPlaceFxHedge\x12\x1d.lynx.treasury.FxHedgeRequest\x1a\x1e.lynx.treasury.FxHedgeResponse\x12P\n\rTransferFunds\x12\x1e.lynx.treasury.TransferRequest\x1a\x1f.lynx.treasury.TransferResponseb\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
@@ -32,21 +32,21 @@ _builder.BuildTopDescriptorsAndMessages(DESCRIPTOR, 'treasury_pb2', _globals)
 if not _descriptor._USE_C_DESCRIPTORS:
   DESCRIPTOR._loaded_options = None
   _globals['_CASHPOSITIONREQUEST']._serialized_start=33
-  _globals['_CASHPOSITIONREQUEST']._serialized_end=73
-  _globals['_CASHPOSITIONRESPONSE']._serialized_start=75
-  _globals['_CASHPOSITIONRESPONSE']._serialized_end=111
-  _globals['_FORECASTREQUEST']._serialized_start=113
-  _globals['_FORECASTREQUEST']._serialized_end=171
-  _globals['_FORECASTRESPONSE']._serialized_start=173
-  _globals['_FORECASTRESPONSE']._serialized_end=205
-  _globals['_FXHEDGEREQUEST']._serialized_start=207
-  _globals['_FXHEDGEREQUEST']._serialized_end=270
-  _globals['_FXHEDGERESPONSE']._serialized_start=272
-  _globals['_FXHEDGERESPONSE']._serialized_end=303
-  _globals['_TRANSFERREQUEST']._serialized_start=305
-  _globals['_TRANSFERREQUEST']._serialized_end=423
-  _globals['_TRANSFERRESPONSE']._serialized_start=425
-  _globals['_TRANSFERRESPONSE']._serialized_end=457
-  _globals['_TREASURYOPS']._serialized_start=460
-  _globals['_TREASURYOPS']._serialized_end=812
+  _globals['_CASHPOSITIONREQUEST']._serialized_end=70
+  _globals['_CASHPOSITIONRESPONSE']._serialized_start=72
+  _globals['_CASHPOSITIONRESPONSE']._serialized_end=180
+  _globals['_FORECASTREQUEST']._serialized_start=182
+  _globals['_FORECASTREQUEST']._serialized_end=237
+  _globals['_FORECASTRESPONSE']._serialized_start=239
+  _globals['_FORECASTRESPONSE']._serialized_end=357
+  _globals['_FXHEDGEREQUEST']._serialized_start=359
+  _globals['_FXHEDGEREQUEST']._serialized_end=457
+  _globals['_FXHEDGERESPONSE']._serialized_start=460
+  _globals['_FXHEDGERESPONSE']._serialized_end=630
+  _globals['_TRANSFERREQUEST']._serialized_start=632
+  _globals['_TRANSFERREQUEST']._serialized_end=752
+  _globals['_TRANSFERRESPONSE']._serialized_start=755
+  _globals['_TRANSFERRESPONSE']._serialized_end=890
+  _globals['_TREASURYOPS']._serialized_start=893
+  _globals['_TREASURYOPS']._serialized_end=1245
 # @@protoc_insertion_point(module_scope)

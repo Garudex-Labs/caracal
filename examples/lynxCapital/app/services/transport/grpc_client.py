@@ -6,7 +6,6 @@ gRPC unary and server-streaming clients with retry/breaker/auth metadata.
 """
 from __future__ import annotations
 
-import json
 import os
 from typing import Any, Iterator
 
@@ -91,8 +90,3 @@ class GrpcClient:
                 yield msg
         except grpc.RpcError as exc:
             raise GrpcError(exc.code(), exc.details() or "") from exc
-
-
-def parse_json_payload(message: Any) -> dict:
-    """Treasury proto wraps results in a single `json` string field."""
-    return json.loads(getattr(message, "json"))
