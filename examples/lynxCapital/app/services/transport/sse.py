@@ -15,6 +15,8 @@ from typing import Callable
 
 import httpx
 
+from app import caracal as caracal_module
+
 
 class SseConsumer:
     def __init__(
@@ -60,6 +62,8 @@ class SseConsumer:
             h[self._auth_header] = token
         if self._last_id is not None:
             h["Last-Event-ID"] = self._last_id
+        for k, v in caracal_module.headers().items():
+            h.setdefault(k, v)
         return h
 
     def _run(self) -> None:

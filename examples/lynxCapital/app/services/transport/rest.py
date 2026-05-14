@@ -71,7 +71,6 @@ class RestClient:
         *,
         timeout_s: float = 5.0,
         policy: RetryPolicy = RetryPolicy(),
-        transport: httpx.BaseTransport | None = None,
     ):
         self.provider = provider
         self._auth = auth
@@ -81,7 +80,6 @@ class RestClient:
         client_kwargs = dict(
             base_url=base_url,
             timeout=timeout_s,
-            transport=transport,
             headers={"User-Agent": f"lynxcapital/{provider}"},
         )
         self._http = caracal.sync_transport(**client_kwargs) if caracal else httpx.Client(**client_kwargs)
@@ -136,8 +134,6 @@ class RestClient:
         if not job_id:
             return ack
         deadline = time.monotonic() + deadline_s
-        fast = os.getenv("LYNX_MOCK_FAST") == "1"
-        interval = 0.02 if fast else poll_interval_s
         while True:
             status = self.call(RestEndpoint("GET", f"{poll_path}/{job_id}"), {})
             state = status.get("status")
@@ -147,4 +143,4 @@ class RestClient:
                 raise TransportError(500, status)
             if time.monotonic() > deadline:
                 raise TransportError(504, {"error": "job poll deadline exceeded", "job_id": job_id})
-            time.sleep(interval)
+            time.sleep(poll_interval_s)

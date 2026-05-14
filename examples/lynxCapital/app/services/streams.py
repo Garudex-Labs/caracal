@@ -34,7 +34,7 @@ def _run_compliance_stream() -> None:
     if os.getenv("LYNX_COMPLIANCE_GRPC") is None:
         return
     from app.services.transport.grpc_client import GrpcClient
-    from _mock.grpc.compliance_stream import compliance_pb2, compliance_pb2_grpc
+    from app.services.transport.proto.compliance_stream import compliance_pb2, compliance_pb2_grpc
 
     client = GrpcClient(
         provider="compliance-nexus",
