@@ -23,7 +23,7 @@ services:
       retries: 20
 
   redis:
-    image: ${CARACAL_REGISTRY:-ghcr.io/garudex-labs/}caracal-redis:${CARACAL_VERSION}
+    image: ${CARACAL_REGISTRY:-ghcr.io/garudex-labs/}caracal-redis:v${CARACAL_VERSION}
     environment:
       REDIS_PASSWORD: ${REDIS_PASSWORD}
       REDIS_MAXMEMORY: ${REDIS_MAXMEMORY:-512mb}
@@ -43,7 +43,7 @@ services:
       start_period: 10s
 
   sts:
-    image: ${CARACAL_REGISTRY:-ghcr.io/garudex-labs/}caracal-sts:${CARACAL_VERSION}
+    image: ${CARACAL_REGISTRY:-ghcr.io/garudex-labs/}caracal-sts:v${CARACAL_VERSION}
     depends_on:
       postgres:
         condition: service_healthy
@@ -69,7 +69,7 @@ services:
       start_period: 15s
 
   api:
-    image: ${CARACAL_REGISTRY:-ghcr.io/garudex-labs/}caracal-api:${CARACAL_VERSION}
+    image: ${CARACAL_REGISTRY:-ghcr.io/garudex-labs/}caracal-api:v${CARACAL_VERSION}
     depends_on:
       sts:
         condition: service_healthy
@@ -93,7 +93,7 @@ services:
       start_period: 20s
 
   gateway:
-    image: ${CARACAL_REGISTRY:-ghcr.io/garudex-labs/}caracal-gateway:${CARACAL_VERSION}
+    image: ${CARACAL_REGISTRY:-ghcr.io/garudex-labs/}caracal-gateway:v${CARACAL_VERSION}
     depends_on:
       sts:
         condition: service_healthy
@@ -116,7 +116,7 @@ services:
       start_period: 15s
 
   audit:
-    image: ${CARACAL_REGISTRY:-ghcr.io/garudex-labs/}caracal-audit:${CARACAL_VERSION}
+    image: ${CARACAL_REGISTRY:-ghcr.io/garudex-labs/}caracal-audit:v${CARACAL_VERSION}
     depends_on:
       postgres:
         condition: service_healthy
@@ -140,7 +140,7 @@ services:
       start_period: 15s
 
   coordinator:
-    image: ${CARACAL_REGISTRY:-ghcr.io/garudex-labs/}caracal-coordinator:${CARACAL_VERSION}
+    image: ${CARACAL_REGISTRY:-ghcr.io/garudex-labs/}caracal-coordinator:v${CARACAL_VERSION}
     depends_on:
       sts:
         condition: service_healthy
