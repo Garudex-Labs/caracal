@@ -29,7 +29,7 @@ function shortSha() {
 }
 
 const sha = shortSha()
-const services = ['sts', 'api', 'gateway', 'audit', 'coordinator']
+const services = ['redis', 'sts', 'api', 'gateway', 'audit', 'coordinator']
 process.stdout.write(`buildLocalImages: tagging localhost/caracal-<svc>:dev-${sha}\n`)
 
 const args = ['compose']

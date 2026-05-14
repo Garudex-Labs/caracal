@@ -22,7 +22,6 @@ function escape(value) {
 
 const compose = read('apps/cli/runtime/compose.yml')
 const envExample = read('apps/cli/runtime/.env.example')
-const provisionStreams = read('infra/redis/provision-streams.sh')
 
 const migrationsDir = resolve(repoRoot, 'infra/postgres/migrations')
 const migrations = readdirSync(migrationsDir)
@@ -39,8 +38,6 @@ lines.push('')
 lines.push('export const COMPOSE_YML = `' + escape(compose) + '`')
 lines.push('')
 lines.push('export const ENV_EXAMPLE = `' + escape(envExample) + '`')
-lines.push('')
-lines.push('export const PROVISION_STREAMS_SH = `' + escape(provisionStreams) + '`')
 lines.push('')
 lines.push('export const MIGRATIONS: { name: string; body: string }[] = [')
 for (const m of migrations) {

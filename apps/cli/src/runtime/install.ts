@@ -4,16 +4,15 @@
 // Runtime mode helpers: locate $CARACAL_HOME, install bundled assets, generate secrets.
 
 import { randomBytes } from 'node:crypto'
-import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { homedir, platform } from 'node:os'
 import { join } from 'node:path'
-import { COMPOSE_YML, ENV_EXAMPLE, PROVISION_STREAMS_SH } from '../runtime/embedded.ts'
+import { COMPOSE_YML, ENV_EXAMPLE } from '../runtime/embedded.ts'
 
 export interface RuntimePaths {
   home: string
   composeFile: string
   envFile: string
-  provisionScript: string
 }
 
 function defaultRuntimeHome(): string {
@@ -29,7 +28,6 @@ export function runtimePaths(home: string = defaultRuntimeHome()): RuntimePaths 
     home,
     composeFile: join(home, 'compose.yml'),
     envFile: join(home, '.env'),
-    provisionScript: join(home, 'provision-streams.sh'),
   }
 }
 
@@ -58,14 +56,6 @@ export function installRuntimeAssets(paths: RuntimePaths = runtimePaths()): { cr
   const existingCompose = existsSync(paths.composeFile) ? readFileSync(paths.composeFile, 'utf8') : null
   if (existingCompose !== COMPOSE_YML) {
     writeFileSync(paths.composeFile, COMPOSE_YML, { mode: 0o644 })
-    created = true
-  }
-  const existingProvision = existsSync(paths.provisionScript)
-    ? readFileSync(paths.provisionScript, 'utf8')
-    : null
-  if (existingProvision !== PROVISION_STREAMS_SH) {
-    writeFileSync(paths.provisionScript, PROVISION_STREAMS_SH, { mode: 0o644 })
-    chmodSync(paths.provisionScript, 0o755)
     created = true
   }
   if (!existsSync(paths.envFile)) {

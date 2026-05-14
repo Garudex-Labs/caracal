@@ -10,7 +10,7 @@ import { describe, expect, it } from 'vitest'
 import { installRuntimeAssets, runtimePaths } from '../../../../apps/cli/src/runtime/install.ts'
 
 describe('runtime installer', () => {
-  it('writes compose, env, and provision script with secrets and correct modes', () => {
+  it('writes compose and env with secrets and correct modes', () => {
     const home = mkdtempSync(join(tmpdir(), 'caracal-runtime-'))
     const paths = runtimePaths(home)
     const result = installRuntimeAssets(paths)
@@ -27,9 +27,6 @@ describe('runtime installer', () => {
 
     const envMode = statSync(paths.envFile).mode & 0o777
     expect(envMode).toBe(0o600)
-
-    const scriptMode = statSync(paths.provisionScript).mode & 0o777
-    expect(scriptMode).toBe(0o755)
   })
 
   it('is idempotent: existing files are preserved', () => {
