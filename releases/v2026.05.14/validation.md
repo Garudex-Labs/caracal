@@ -82,6 +82,8 @@ title: v2026.05.14 Release Validation Report
 
 ### Registry Metadata
 
+- **[info]** PASS — `caracalai-core` (registry/pypi/-): dry-run: would check https://pypi.org/pypi/caracalai-core/json for 0.1.1
+  - Repro: `curl -fsSL https://pypi.org/pypi/caracalai-core/json`
 - **[info]** PASS — `caracalai-identity` (registry/pypi/-): dry-run: would check https://pypi.org/pypi/caracalai-identity/json for 0.1.1
   - Repro: `curl -fsSL https://pypi.org/pypi/caracalai-identity/json`
 - **[info]** PASS — `caracalai-revocation` (registry/pypi/-): dry-run: would check https://pypi.org/pypi/caracalai-revocation/json for 0.1.1
@@ -90,39 +92,39 @@ title: v2026.05.14 Release Validation Report
   - Repro: `curl -fsSL https://pypi.org/pypi/caracalai-sdk/json`
 - **[info]** PASS — `caracalai-transport-mcp` (registry/pypi/-): dry-run: would check https://pypi.org/pypi/caracalai-transport-mcp/json for 0.1.1
   - Repro: `curl -fsSL https://pypi.org/pypi/caracalai-transport-mcp/json`
-- **[info]** PASS — `caracalai-revocation-redis` (registry/pypi/-): dry-run: would check https://pypi.org/pypi/caracalai-revocation-redis/json for 0.1.1
-  - Repro: `curl -fsSL https://pypi.org/pypi/caracalai-revocation-redis/json`
-- **[info]** PASS — `caracalai-core` (registry/pypi/-): dry-run: would check https://pypi.org/pypi/caracalai-core/json for 0.1.1
-  - Repro: `curl -fsSL https://pypi.org/pypi/caracalai-core/json`
 - **[info]** PASS — `caracalai-mcp-fastmcp` (registry/pypi/-): dry-run: would check https://pypi.org/pypi/caracalai-mcp-fastmcp/json for 0.1.1
   - Repro: `curl -fsSL https://pypi.org/pypi/caracalai-mcp-fastmcp/json`
-- **[info]** PASS — `@caracalai/transport-a2a` (registry/npm/-): dry-run: would check https://registry.npmjs.org/@caracalai/transport-a2a for 0.1.1
-  - Repro: `curl -fsSL https://registry.npmjs.org/@caracalai/transport-a2a`
+- **[info]** PASS — `caracalai-revocation-redis` (registry/pypi/-): dry-run: would check https://pypi.org/pypi/caracalai-revocation-redis/json for 0.1.1
+  - Repro: `curl -fsSL https://pypi.org/pypi/caracalai-revocation-redis/json`
 - **[info]** PASS — `@caracalai/core` (registry/npm/-): dry-run: would check https://registry.npmjs.org/@caracalai/core for 0.1.1
   - Repro: `curl -fsSL https://registry.npmjs.org/@caracalai/core`
-- **[info]** PASS — `@caracalai/revocation-redis` (registry/npm/-): dry-run: would check https://registry.npmjs.org/@caracalai/revocation-redis for 0.1.1
-  - Repro: `curl -fsSL https://registry.npmjs.org/@caracalai/revocation-redis`
-- **[info]** PASS — `@caracalai/identity` (registry/npm/-): dry-run: would check https://registry.npmjs.org/@caracalai/identity for 0.1.1
-  - Repro: `curl -fsSL https://registry.npmjs.org/@caracalai/identity`
-- **[info]** PASS — `@caracalai/admin` (registry/npm/-): dry-run: would check https://registry.npmjs.org/@caracalai/admin for 0.1.1
-  - Repro: `curl -fsSL https://registry.npmjs.org/@caracalai/admin`
-- **[info]** PASS — `@caracalai/transport-mcp` (registry/npm/-): dry-run: would check https://registry.npmjs.org/@caracalai/transport-mcp for 0.1.1
-  - Repro: `curl -fsSL https://registry.npmjs.org/@caracalai/transport-mcp`
 - **[info]** PASS — `@caracalai/sdk` (registry/npm/-): dry-run: would check https://registry.npmjs.org/@caracalai/sdk for 0.1.1
   - Repro: `curl -fsSL https://registry.npmjs.org/@caracalai/sdk`
-- **[info]** PASS — `@caracalai/mcp-express` (registry/npm/-): dry-run: would check https://registry.npmjs.org/@caracalai/mcp-express for 0.1.1
-  - Repro: `curl -fsSL https://registry.npmjs.org/@caracalai/mcp-express`
+- **[info]** PASS — `@caracalai/identity` (registry/npm/-): dry-run: would check https://registry.npmjs.org/@caracalai/identity for 0.1.1
+  - Repro: `curl -fsSL https://registry.npmjs.org/@caracalai/identity`
+- **[info]** PASS — `@caracalai/revocation` (registry/npm/-): dry-run: would check https://registry.npmjs.org/@caracalai/revocation for 0.1.1
+  - Repro: `curl -fsSL https://registry.npmjs.org/@caracalai/revocation`
 - **[info]** PASS — `@caracalai/oauth` (registry/npm/-): dry-run: would check https://registry.npmjs.org/@caracalai/oauth for 0.1.1
   - Repro: `curl -fsSL https://registry.npmjs.org/@caracalai/oauth`
+- **[info]** PASS — `@caracalai/admin` (registry/npm/-): dry-run: would check https://registry.npmjs.org/@caracalai/admin for 0.1.1
+  - Repro: `curl -fsSL https://registry.npmjs.org/@caracalai/admin`
+- **[info]** PASS — `@caracalai/transport-a2a` (registry/npm/-): dry-run: would check https://registry.npmjs.org/@caracalai/transport-a2a for 0.1.1
+  - Repro: `curl -fsSL https://registry.npmjs.org/@caracalai/transport-a2a`
+- **[info]** PASS — `@caracalai/transport-mcp` (registry/npm/-): dry-run: would check https://registry.npmjs.org/@caracalai/transport-mcp for 0.1.1
+  - Repro: `curl -fsSL https://registry.npmjs.org/@caracalai/transport-mcp`
+- **[info]** PASS — `@caracalai/mcp-express` (registry/npm/-): dry-run: would check https://registry.npmjs.org/@caracalai/mcp-express for 0.1.1
+  - Repro: `curl -fsSL https://registry.npmjs.org/@caracalai/mcp-express`
 - **[info]** PASS — `@caracalai/mcp-fastmcp` (registry/npm/-): dry-run: would check https://registry.npmjs.org/@caracalai/mcp-fastmcp for 0.1.1
   - Repro: `curl -fsSL https://registry.npmjs.org/@caracalai/mcp-fastmcp`
 - **[info]** PASS — `@caracalai/tokenstate-postgres` (registry/npm/-): dry-run: would check https://registry.npmjs.org/@caracalai/tokenstate-postgres for 0.1.1
   - Repro: `curl -fsSL https://registry.npmjs.org/@caracalai/tokenstate-postgres`
-- **[info]** PASS — `@caracalai/revocation` (registry/npm/-): dry-run: would check https://registry.npmjs.org/@caracalai/revocation for 0.1.1
-  - Repro: `curl -fsSL https://registry.npmjs.org/@caracalai/revocation`
+- **[info]** PASS — `@caracalai/revocation-redis` (registry/npm/-): dry-run: would check https://registry.npmjs.org/@caracalai/revocation-redis for 0.1.1
+  - Repro: `curl -fsSL https://registry.npmjs.org/@caracalai/revocation-redis`
 
 ### PyPI Install Matrix
 
+- **[info]** PASS — `caracalai-core` (linux-amd64/pip/py3.12): install + import ok @ 0.1.1
+  - Repro: `pip install caracalai-core==0.1.1`
 - **[info]** PASS — `caracalai-identity` (linux-amd64/pip/py3.12): install + import ok @ 0.1.1
   - Repro: `pip install caracalai-identity==0.1.1`
 - **[info]** PASS — `caracalai-revocation` (linux-amd64/pip/py3.12): install + import ok @ 0.1.1
@@ -131,39 +133,37 @@ title: v2026.05.14 Release Validation Report
   - Repro: `pip install caracalai-sdk==0.1.1`
 - **[info]** PASS — `caracalai-transport-mcp` (linux-amd64/pip/py3.12): install + import ok @ 0.1.1
   - Repro: `pip install caracalai-transport-mcp==0.1.1`
-- **[info]** PASS — `caracalai-revocation-redis` (linux-amd64/pip/py3.12): install + import ok @ 0.1.1
-  - Repro: `pip install caracalai-revocation-redis==0.1.1`
-- **[info]** PASS — `caracalai-core` (linux-amd64/pip/py3.12): install + import ok @ 0.1.1
-  - Repro: `pip install caracalai-core==0.1.1`
 - **[info]** PASS — `caracalai-mcp-fastmcp` (linux-amd64/pip/py3.12): install + import ok @ 0.1.1
   - Repro: `pip install caracalai-mcp-fastmcp==0.1.1`
+- **[info]** PASS — `caracalai-revocation-redis` (linux-amd64/pip/py3.12): install + import ok @ 0.1.1
+  - Repro: `pip install caracalai-revocation-redis==0.1.1`
 
 ### npm Install Matrix
 
-- **[info]** PASS — `@caracalai/transport-a2a` (linux-amd64/npm/node22): install + ESM import ok @ 0.1.1
-  - Repro: `npm add @caracalai/transport-a2a@0.1.1`
 - **[info]** PASS — `@caracalai/core` (linux-amd64/npm/node22): install + ESM import ok @ 0.1.1
   - Repro: `npm add @caracalai/core@0.1.1`
-- **[info]** PASS — `@caracalai/revocation-redis` (linux-amd64/npm/node22): install + ESM import ok @ 0.1.1
-  - Repro: `npm add @caracalai/revocation-redis@0.1.1`
-- **[info]** PASS — `@caracalai/identity` (linux-amd64/npm/node22): install + ESM import ok @ 0.1.1
-  - Repro: `npm add @caracalai/identity@0.1.1`
-- **[info]** PASS — `@caracalai/admin` (linux-amd64/npm/node22): install + ESM import ok @ 0.1.1
-  - Repro: `npm add @caracalai/admin@0.1.1`
-- **[info]** PASS — `@caracalai/transport-mcp` (linux-amd64/npm/node22): install + ESM import ok @ 0.1.1
-  - Repro: `npm add @caracalai/transport-mcp@0.1.1`
 - **[info]** PASS — `@caracalai/sdk` (linux-amd64/npm/node22): install + ESM import ok @ 0.1.1
   - Repro: `npm add @caracalai/sdk@0.1.1`
-- **[info]** PASS — `@caracalai/mcp-express` (linux-amd64/npm/node22): install + ESM import ok @ 0.1.1
-  - Repro: `npm add @caracalai/mcp-express@0.1.1`
+- **[info]** PASS — `@caracalai/identity` (linux-amd64/npm/node22): install + ESM import ok @ 0.1.1
+  - Repro: `npm add @caracalai/identity@0.1.1`
+- **[info]** PASS — `@caracalai/revocation` (linux-amd64/npm/node22): install + ESM import ok @ 0.1.1
+  - Repro: `npm add @caracalai/revocation@0.1.1`
 - **[info]** PASS — `@caracalai/oauth` (linux-amd64/npm/node22): install + ESM import ok @ 0.1.1
   - Repro: `npm add @caracalai/oauth@0.1.1`
+- **[info]** PASS — `@caracalai/admin` (linux-amd64/npm/node22): install + ESM import ok @ 0.1.1
+  - Repro: `npm add @caracalai/admin@0.1.1`
+- **[info]** PASS — `@caracalai/transport-a2a` (linux-amd64/npm/node22): install + ESM import ok @ 0.1.1
+  - Repro: `npm add @caracalai/transport-a2a@0.1.1`
+- **[info]** PASS — `@caracalai/transport-mcp` (linux-amd64/npm/node22): install + ESM import ok @ 0.1.1
+  - Repro: `npm add @caracalai/transport-mcp@0.1.1`
+- **[info]** PASS — `@caracalai/mcp-express` (linux-amd64/npm/node22): install + ESM import ok @ 0.1.1
+  - Repro: `npm add @caracalai/mcp-express@0.1.1`
 - **[info]** PASS — `@caracalai/mcp-fastmcp` (linux-amd64/npm/node22): install + ESM import ok @ 0.1.1
   - Repro: `npm add @caracalai/mcp-fastmcp@0.1.1`
 - **[info]** PASS — `@caracalai/tokenstate-postgres` (linux-amd64/npm/node22): install + ESM import ok @ 0.1.1
   - Repro: `npm add @caracalai/tokenstate-postgres@0.1.1`
-- **[info]** PASS — `@caracalai/revocation` (linux-amd64/npm/node22): install + ESM import ok @ 0.1.1
-  - Repro: `npm add @caracalai/revocation@0.1.1`
+- **[info]** PASS — `@caracalai/revocation-redis` (linux-amd64/npm/node22): install + ESM import ok @ 0.1.1
+  - Repro: `npm add @caracalai/revocation-redis@0.1.1`
 
 ### CLI Binaries
 
@@ -200,12 +200,12 @@ title: v2026.05.14 Release Validation Report
 
 ### Container Stack
 
-- **[info]** PASS — `ghcr.io/garudex-labs/caracal-audit:v2026.05.14` (linux-amd64/ghcr/docker): image pulled
-  - Repro: `docker pull ghcr.io/garudex-labs/caracal-audit:v2026.05.14`
-- **[info]** PASS — `ghcr.io/garudex-labs/caracal-coordinator:v2026.05.14` (linux-amd64/ghcr/docker): image pulled
-  - Repro: `docker pull ghcr.io/garudex-labs/caracal-coordinator:v2026.05.14`
 - **[info]** PASS — `ghcr.io/garudex-labs/caracal-api:v2026.05.14` (linux-amd64/ghcr/docker): image pulled
   - Repro: `docker pull ghcr.io/garudex-labs/caracal-api:v2026.05.14`
+- **[info]** PASS — `ghcr.io/garudex-labs/caracal-coordinator:v2026.05.14` (linux-amd64/ghcr/docker): image pulled
+  - Repro: `docker pull ghcr.io/garudex-labs/caracal-coordinator:v2026.05.14`
+- **[info]** PASS — `ghcr.io/garudex-labs/caracal-audit:v2026.05.14` (linux-amd64/ghcr/docker): image pulled
+  - Repro: `docker pull ghcr.io/garudex-labs/caracal-audit:v2026.05.14`
 - **[info]** PASS — `ghcr.io/garudex-labs/caracal-gateway:v2026.05.14` (linux-amd64/ghcr/docker): image pulled
   - Repro: `docker pull ghcr.io/garudex-labs/caracal-gateway:v2026.05.14`
 - **[info]** PASS — `ghcr.io/garudex-labs/caracal-sts:v2026.05.14` (linux-amd64/ghcr/docker): image pulled
@@ -235,12 +235,12 @@ title: v2026.05.14 Release Validation Report
   - Repro: `gh attestation verify caracal-cli-windows-amd64-v2026.05.14.zip --repo Garudex-Labs/caracal`
 - **[info]** PASS — `caracal-tui-windows-amd64-v2026.05.14.zip` (github/gh/-): attestation verified
   - Repro: `gh attestation verify caracal-tui-windows-amd64-v2026.05.14.zip --repo Garudex-Labs/caracal`
-- **[info]** PASS — `ghcr.io/garudex-labs/caracal-audit:v2026.05.14` (ghcr/cosign/-): dry-run: would cosign verify ghcr.io/garudex-labs/caracal-audit:v2026.05.14
-  - Repro: `cosign verify ghcr.io/garudex-labs/caracal-audit:v2026.05.14`
-- **[info]** PASS — `ghcr.io/garudex-labs/caracal-coordinator:v2026.05.14` (ghcr/cosign/-): dry-run: would cosign verify ghcr.io/garudex-labs/caracal-coordinator:v2026.05.14
-  - Repro: `cosign verify ghcr.io/garudex-labs/caracal-coordinator:v2026.05.14`
 - **[info]** PASS — `ghcr.io/garudex-labs/caracal-api:v2026.05.14` (ghcr/cosign/-): dry-run: would cosign verify ghcr.io/garudex-labs/caracal-api:v2026.05.14
   - Repro: `cosign verify ghcr.io/garudex-labs/caracal-api:v2026.05.14`
+- **[info]** PASS — `ghcr.io/garudex-labs/caracal-coordinator:v2026.05.14` (ghcr/cosign/-): dry-run: would cosign verify ghcr.io/garudex-labs/caracal-coordinator:v2026.05.14
+  - Repro: `cosign verify ghcr.io/garudex-labs/caracal-coordinator:v2026.05.14`
+- **[info]** PASS — `ghcr.io/garudex-labs/caracal-audit:v2026.05.14` (ghcr/cosign/-): dry-run: would cosign verify ghcr.io/garudex-labs/caracal-audit:v2026.05.14
+  - Repro: `cosign verify ghcr.io/garudex-labs/caracal-audit:v2026.05.14`
 - **[info]** PASS — `ghcr.io/garudex-labs/caracal-gateway:v2026.05.14` (ghcr/cosign/-): dry-run: would cosign verify ghcr.io/garudex-labs/caracal-gateway:v2026.05.14
   - Repro: `cosign verify ghcr.io/garudex-labs/caracal-gateway:v2026.05.14`
 - **[info]** PASS — `ghcr.io/garudex-labs/caracal-sts:v2026.05.14` (ghcr/cosign/-): dry-run: would cosign verify ghcr.io/garudex-labs/caracal-sts:v2026.05.14

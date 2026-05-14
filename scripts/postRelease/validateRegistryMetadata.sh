@@ -67,5 +67,5 @@ checkNpm() {
   logFinding "$AREA" "$pkg" "registry" "npm" "-" "$SEV_INFO" "$STATUS_PASS" "metadata ok @ $ver" "curl $url"
 }
 
-for p in "${!PYPI_VER[@]}"; do checkPyPi "$p" "${PYPI_VER[$p]}"; done
-for p in "${!NPM_VER[@]}"; do checkNpm "$p" "${NPM_VER[$p]}"; done
+for (( i = 0; i < ${#PYPI_NAMES[@]}; i++ )); do checkPyPi "${PYPI_NAMES[$i]}" "${PYPI_VERS[$i]}"; done
+for (( i = 0; i < ${#NPM_NAMES[@]}; i++ )); do checkNpm "${NPM_NAMES[$i]}" "${NPM_VERS[$i]}"; done

@@ -42,7 +42,12 @@ if [[ ! -f "$MANIFEST" ]]; then
   exit 2
 fi
 
-declare -A PYPI_VER NPM_VER CONTAINER_VER
+PYPI_NAMES=()
+PYPI_VERS=()
+NPM_NAMES=()
+NPM_VERS=()
+CONTAINER_NAMES=()
+CONTAINER_VERS=()
 CLI_VER=""
 TUI_VER=""
 
@@ -55,13 +60,38 @@ if m.get("release") != release:
 print(f'CLI_VER={shlex.quote(m["binaries"]["cli"])}')
 print(f'TUI_VER={shlex.quote(m["binaries"]["tui"])}')
 for k, v in m["containers"].items():
-    print(f'CONTAINER_VER[{shlex.quote(k)}]={shlex.quote(v)}')
+    print(f'CONTAINER_NAMES+=({shlex.quote(k)})')
+    print(f'CONTAINER_VERS+=({shlex.quote(v)})')
 for k, v in m["pypi"].items():
-    print(f'PYPI_VER[{shlex.quote(k)}]={shlex.quote(v)}')
+    print(f'PYPI_NAMES+=({shlex.quote(k)})')
+    print(f'PYPI_VERS+=({shlex.quote(v)})')
 for k, v in m["npm"].items():
-    print(f'NPM_VER[{shlex.quote(k)}]={shlex.quote(v)}')
+    print(f'NPM_NAMES+=({shlex.quote(k)})')
+    print(f'NPM_VERS+=({shlex.quote(v)})')
 PY
 )"
+
+manifestVersion() {
+  local group="$1" name="$2" i
+  case "$group" in
+    pypi)
+      for (( i = 0; i < ${#PYPI_NAMES[@]}; i++ )); do
+        [[ "${PYPI_NAMES[$i]}" == "$name" ]] && { printf '%s' "${PYPI_VERS[$i]}"; return 0; }
+      done
+      ;;
+    npm)
+      for (( i = 0; i < ${#NPM_NAMES[@]}; i++ )); do
+        [[ "${NPM_NAMES[$i]}" == "$name" ]] && { printf '%s' "${NPM_VERS[$i]}"; return 0; }
+      done
+      ;;
+    container)
+      for (( i = 0; i < ${#CONTAINER_NAMES[@]}; i++ )); do
+        [[ "${CONTAINER_NAMES[$i]}" == "$name" ]] && { printf '%s' "${CONTAINER_VERS[$i]}"; return 0; }
+      done
+      ;;
+  esac
+  return 1
+}
 
 logFinding() {
   local area="$1" artifact="$2" platform="$3" pm="$4" runtime="$5" severity="$6" status="$7" evidence="$8" repro="$9"

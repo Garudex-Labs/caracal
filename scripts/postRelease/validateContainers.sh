@@ -128,5 +128,5 @@ PY
   rm -rf "$dir"
 }
 
-for s in "${!CONTAINER_VER[@]}"; do validatePull "$s" "${CONTAINER_VER[$s]}"; done
+for (( i = 0; i < ${#CONTAINER_NAMES[@]}; i++ )); do validatePull "${CONTAINER_NAMES[$i]}" "${CONTAINER_VERS[$i]}"; done
 validateStack

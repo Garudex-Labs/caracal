@@ -13,14 +13,23 @@ readonly AREA="pypiInstall"
 readonly PM="${PM:-pip}"
 readonly PY="${PY:-3.12}"
 
-declare -A IMPORT_OF=(
-  [caracalai-core]=caracalai_core
-  [caracalai-identity]=caracalai_identity
-  [caracalai-revocation]=caracalai_revocation
-  [caracalai-sdk]=caracalai_sdk
-  [caracalai-transport-mcp]=caracalai_transport_mcp
-  [caracalai-mcp-fastmcp]=caracalai_mcp_fastmcp
-  [caracalai-revocation-redis]=caracalai_revocation_redis
+IMPORT_PKGS=(
+  caracalai-core
+  caracalai-identity
+  caracalai-revocation
+  caracalai-sdk
+  caracalai-transport-mcp
+  caracalai-mcp-fastmcp
+  caracalai-revocation-redis
+)
+IMPORT_MODS=(
+  caracalai_core
+  caracalai_identity
+  caracalai_revocation
+  caracalai_sdk
+  caracalai_transport_mcp
+  caracalai_mcp_fastmcp
+  caracalai_revocation_redis
 )
 
 runProbe() {
@@ -61,7 +70,7 @@ runProbe() {
 validateOne() {
   local pkg="$1" mod="$2"
   matchesOnly "$pkg" || return 0
-  local ver="${PYPI_VER[$pkg]:-}"
+  local ver; ver="$(manifestVersion pypi "$pkg" || true)"
   if [[ -z "$ver" ]]; then
     logFinding "$AREA" "$pkg" "manifest" "$PM" "py$PY" "$SEV_MAJOR" "$STATUS_FAIL" "no version pinned in manifest" "edit releases/$CARACAL_RELEASE/manifest.json"
     return 0
@@ -77,6 +86,6 @@ validateOne() {
   rm -rf "$dir"
 }
 
-for pkg in "${!IMPORT_OF[@]}"; do
-  validateOne "$pkg" "${IMPORT_OF[$pkg]}"
+for (( i = 0; i < ${#IMPORT_PKGS[@]}; i++ )); do
+  validateOne "${IMPORT_PKGS[$i]}" "${IMPORT_MODS[$i]}"
 done

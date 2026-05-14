@@ -29,7 +29,7 @@ runProbe() {
 validateOne() {
   local pkg="$1"
   matchesOnly "$pkg" || return 0
-  local ver="${NPM_VER[$pkg]:-}"
+  local ver; ver="$(manifestVersion npm "$pkg" || true)"
   if [[ -z "$ver" ]]; then
     logFinding "$AREA" "$pkg" "manifest" "$PM" "node$NODE_V" "$SEV_MAJOR" "$STATUS_FAIL" "no version pinned in manifest" "edit releases/$CARACAL_RELEASE/manifest.json"
     return 0
@@ -45,4 +45,4 @@ validateOne() {
   rm -rf "$dir"
 }
 
-for p in "${!NPM_VER[@]}"; do validateOne "$p"; done
+for (( i = 0; i < ${#NPM_NAMES[@]}; i++ )); do validateOne "${NPM_NAMES[$i]}"; done

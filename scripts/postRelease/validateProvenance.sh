@@ -62,4 +62,4 @@ for p in "${PLATS[@]}"; do
   verifyArchive "$(archiveFor cli "$p")"
   verifyArchive "$(archiveFor tui "$p")"
 done
-for s in "${!CONTAINER_VER[@]}"; do verifyImage "$s" "${CONTAINER_VER[$s]}"; done
+for (( i = 0; i < ${#CONTAINER_NAMES[@]}; i++ )); do verifyImage "${CONTAINER_NAMES[$i]}" "${CONTAINER_VERS[$i]}"; done
