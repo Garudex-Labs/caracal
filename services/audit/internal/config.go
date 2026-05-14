@@ -37,8 +37,8 @@ func loadConfig() Config {
 			panic("AUDIT_HMAC_KEY: must be at least 32 bytes")
 		}
 		key = k
-	} else if base.IsProduction() {
-		panic("AUDIT_HMAC_KEY: required in production")
+	} else if base.IsRuntime() {
+		panic("AUDIT_HMAC_KEY: required when CARACAL_MODE=runtime")
 	}
 	retention := config.PositiveIntEnv("AUDIT_RETENTION_DAYS", 365)
 	maxDeliv := config.PositiveInt64Env("AUDIT_MAX_DELIVERIES", 5)

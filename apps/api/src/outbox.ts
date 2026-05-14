@@ -5,16 +5,9 @@
 // a cooperative dispatcher that drains rows to Redis streams with backoff.
 
 import { v7 as uuidv7 } from 'uuid'
-import { STREAM_SIG_FIELD, loadStreamsHmacKey, signStream } from '@caracalai/core'
+import { STREAM_SIG_FIELD, isRuntime, loadStreamsHmacKey, signStream } from '@caracalai/core'
 import type { DB } from './db.js'
 import type { RedisClient } from './redis.js'
-
-function isProductionLike(): boolean {
-  const ce = (process.env.CARACAL_ENV ?? '').toLowerCase()
-  if (ce === 'production' || ce === 'prod' || ce === 'staging') return true
-  const ne = (process.env.NODE_ENV ?? '').toLowerCase()
-  return ne === 'production' || ne === 'staging'
-}
 
 type OutboxPayload = Record<string, string | number | boolean | null>
 
@@ -88,7 +81,7 @@ export class OutboxDispatcher {
 
   constructor(private readonly opts: DispatcherOptions) {
     this.streamHmacKey = loadStreamsHmacKey()
-    if (this.streamHmacKey === null && isProductionLike()) {
+    if (this.streamHmacKey === null && isRuntime()) {
       throw new Error('STREAMS_HMAC_KEY is required in production')
     }
   }

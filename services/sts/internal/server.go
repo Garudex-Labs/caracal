@@ -59,13 +59,13 @@ func New(ctx context.Context) (*Server, error) {
 	if err != nil {
 		return nil, fmt.Errorf("streams hmac key: %w", err)
 	}
-	if cfg.IsProduction() && len(streamKey) == 0 {
-		return nil, errors.New("STREAMS_HMAC_KEY is required in production")
+	if cfg.IsRuntime() && len(streamKey) == 0 {
+		return nil, errors.New("STREAMS_HMAC_KEY is required when CARACAL_MODE=runtime")
 	}
 	if len(streamKey) == 0 {
 		log.Warn().Msg("STREAMS_HMAC_KEY not set; stream messages will not be origin-verified")
 	}
-	rdb.SetStreamSigning(streamKey, cfg.IsProduction())
+	rdb.SetStreamSigning(streamKey, cfg.IsRuntime())
 
 	kek, err := resolveKEK(cfg.ZoneKEKProvider)
 	if err != nil {
@@ -76,7 +76,7 @@ func New(ctx context.Context) (*Server, error) {
 	opa := newOPAEngine(db, log)
 	opa.SetPollInterval(time.Duration(cfg.OPAPollSeconds) * time.Second)
 	metrics := &STSMetrics{}
-	buf, err := newAuditBuffer(rdb, log, cfg.IsProduction(), cfg.AuditReplayDir, metrics)
+	buf, err := newAuditBuffer(rdb, log, cfg.IsRuntime(), cfg.AuditReplayDir, metrics)
 	if err != nil {
 		return nil, fmt.Errorf("audit: %w", err)
 	}

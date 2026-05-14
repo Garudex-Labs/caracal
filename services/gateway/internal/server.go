@@ -59,7 +59,7 @@ func New(ctx context.Context) (*Server, error) {
 		if len(streamKey) == 0 {
 			log.Warn().Msg("STREAMS_HMAC_KEY not set; revocation stream messages will not be origin-verified")
 		}
-		rdb.SetStreamSigning(streamKey, cfg.Env == "production")
+		rdb.SetStreamSigning(streamKey, cfg.Mode == "runtime")
 		tracker = newJTITracker(rdb, log, cfg.JTIFailOpen)
 	} else {
 		log.Warn().Msg("REDIS_URL unset; jti replay detection and revocation propagation disabled")

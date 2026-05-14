@@ -14,7 +14,6 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"strings"
 	"testing"
 	"time"
@@ -246,27 +245,4 @@ func TestLoadZoneTransientPreservesCache(t *testing.T) {
 	if st == nil || st.manifestSHA != "previous" {
 		t.Fatalf("cached bundle must be preserved, got %+v", st)
 	}
-}
-
-func TestConfigEnvIsProduction(t *testing.T) {
-	// Sanity check: the production guard reads env strings exactly.
-	for _, env := range []string{"production", "prod", "staging"} {
-		os.Setenv("CARACAL_ENV", env)
-		if !envIsProduction(env) {
-			t.Errorf("%s must be production-like", env)
-		}
-	}
-	for _, env := range []string{"", "development", "dev", "test"} {
-		if envIsProduction(env) {
-			t.Errorf("%s must not be production-like", env)
-		}
-	}
-}
-
-func envIsProduction(s string) bool {
-	switch s {
-	case "production", "prod", "staging":
-		return true
-	}
-	return false
 }
