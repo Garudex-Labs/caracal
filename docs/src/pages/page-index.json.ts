@@ -7,7 +7,7 @@
 
 import { getCollection } from 'astro:content'
 
-const site = 'https://docs.garudexlabs.com'
+const site = 'https://docs.caracal.run'
 
 export async function GET() {
   const docs = await getCollection('docs')

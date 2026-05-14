@@ -7,7 +7,7 @@
 
 import { getCollection } from 'astro:content'
 
-const site = 'https://docs.garudexlabs.com'
+const site = 'https://docs.caracal.run'
 
 const sections: Record<string, string[]> = {
   'Getting Started': ['start/overview', 'start/concepts-primer', 'start/installation', 'start/quickstart'],

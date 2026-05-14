@@ -7,7 +7,7 @@
 
 import { getCollection } from 'astro:content'
 
-const site = 'https://docs.garudexlabs.com'
+const site = 'https://docs.caracal.run'
 
 // Dependency order: concepts requiring nothing first, then their dependents.
 const pageOrder = [
