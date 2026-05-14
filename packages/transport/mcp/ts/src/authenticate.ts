@@ -12,21 +12,12 @@ import {
   TokenInvalidError,
   ZoneInvalidError,
   verify,
+  type JwtConfig,
 } from '@caracalai/identity'
 import type { RevocationStore } from '@caracalai/revocation'
 import type { AuthResult } from './types.js'
 
-export interface AuthDeps {
-  issuer: string
-  audience: string
-  zoneId?: string
-  requiredScopes?: string[]
-  requireAgent?: boolean
-  requireDelegation?: boolean
-  requireChainContains?: string[]
-  maxHopCount?: number
-  revocations: RevocationStore
-}
+export type AuthDeps = JwtConfig & { revocations: RevocationStore }
 
 export function extractBearer(authHeader: string | undefined): string | null {
   if (!authHeader?.startsWith('Bearer ') || authHeader.length <= 7) return null
@@ -40,17 +31,9 @@ export async function authenticate(token: string, deps: AuthDeps): Promise<AuthR
   }
 
   try {
-    const claims = await verify(token, {
-      issuer: deps.issuer,
-      audience: deps.audience,
-      zoneId: deps.zoneId,
-      requiredScopes: deps.requiredScopes,
-      requireAgent: deps.requireAgent,
-      requireDelegation: deps.requireDelegation,
-      requireChainContains: deps.requireChainContains,
-      maxHopCount: deps.maxHopCount,
-    })
-    if (claims.sid && (await deps.revocations.isRevoked(claims.sid))) {
+    const { revocations, ...jwtConfig } = deps
+    const claims = await verify(token, jwtConfig)
+    if (claims.sid && (await revocations.isRevoked(claims.sid))) {
       return { ok: false, error: { code: 'session_revoked', description: 'Session revoked' } }
     }
     return { ok: true, principal: claims }

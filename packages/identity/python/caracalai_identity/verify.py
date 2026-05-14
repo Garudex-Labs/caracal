@@ -63,7 +63,7 @@ class HopCountExceededError(CaracalError):
         super().__init__(ErrorCode.HOP_COUNT_EXCEEDED, description)
 
 
-def _read_chain(raw: Any) -> list[ChainHop]:
+def _read_chain(raw: object) -> list[ChainHop]:
     if not isinstance(raw, list):
         return []
     out: list[ChainHop] = []

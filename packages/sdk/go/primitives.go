@@ -79,18 +79,18 @@ func Spawn(ctx context.Context, opts SpawnInput, fn func(context.Context) error)
 	if opts.OnAgentStart != nil {
 		if err := opts.OnAgentStart(child, c); err != nil {
 			if kind != KindService {
-				TerminateAgent(ctx, opts.Coordinator, opts.SubjectToken, opts.ZoneID, res.AgentSessionID)
+				return errors.Join(err, TerminateAgent(ctx, opts.Coordinator, opts.SubjectToken, opts.ZoneID, res.AgentSessionID))
 			}
 			return err
 		}
 	}
 	runErr := fn(child)
 	if opts.OnAgentEnd != nil {
-		_ = opts.OnAgentEnd(child, c)
+		runErr = errors.Join(runErr, opts.OnAgentEnd(child, c))
 	}
 
 	if kind != KindService {
-		TerminateAgent(ctx, opts.Coordinator, opts.SubjectToken, opts.ZoneID, res.AgentSessionID)
+		runErr = errors.Join(runErr, TerminateAgent(ctx, opts.Coordinator, opts.SubjectToken, opts.ZoneID, res.AgentSessionID))
 	}
 	return runErr
 }
@@ -193,7 +193,7 @@ func DelegateToSpawn(ctx context.Context, opts DelegateToSpawnInput, fn func(con
 	})
 	if err != nil {
 		if kind != KindService {
-			TerminateAgent(ctx, opts.Coordinator, opts.SubjectToken, opts.ZoneID, spawnRes.AgentSessionID)
+			return errors.Join(err, TerminateAgent(ctx, opts.Coordinator, opts.SubjectToken, opts.ZoneID, spawnRes.AgentSessionID))
 		}
 		return err
 	}
@@ -223,18 +223,18 @@ func DelegateToSpawn(ctx context.Context, opts DelegateToSpawnInput, fn func(con
 	if opts.OnAgentStart != nil {
 		if err := opts.OnAgentStart(child, c); err != nil {
 			if kind != KindService {
-				TerminateAgent(ctx, opts.Coordinator, opts.SubjectToken, opts.ZoneID, spawnRes.AgentSessionID)
+				return errors.Join(err, TerminateAgent(ctx, opts.Coordinator, opts.SubjectToken, opts.ZoneID, spawnRes.AgentSessionID))
 			}
 			return err
 		}
 	}
 	runErr := fn(child)
 	if opts.OnAgentEnd != nil {
-		_ = opts.OnAgentEnd(child, c)
+		runErr = errors.Join(runErr, opts.OnAgentEnd(child, c))
 	}
 
 	if kind != KindService {
-		TerminateAgent(ctx, opts.Coordinator, opts.SubjectToken, opts.ZoneID, spawnRes.AgentSessionID)
+		runErr = errors.Join(runErr, TerminateAgent(ctx, opts.Coordinator, opts.SubjectToken, opts.ZoneID, spawnRes.AgentSessionID))
 	}
 	return runErr
 }

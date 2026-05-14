@@ -5,6 +5,7 @@
 
 import { describe, it, expect, vi } from 'vitest'
 import Fastify from 'fastify'
+import type { DB } from '../../../../apps/api/src/db.js'
 import { registerAdminAuditHook } from '../../../../apps/api/src/admin-audit.js'
 
 function buildApp(captured: { sql: string; params?: unknown[] }[]) {
@@ -14,7 +15,7 @@ function buildApp(captured: { sql: string; params?: unknown[] }[]) {
       captured.push({ sql, params })
       return Promise.resolve({ rows: [], rowCount: 1 })
     }),
-  } as never
+  } as unknown as DB
   registerAdminAuditHook(app, { db })
   app.post('/v1/zones/:zoneId/policies/:id', async () => ({ ok: true }))
   app.get('/v1/zones/:zoneId/policies', async () => ({ ok: true }))

@@ -3,6 +3,7 @@
 //
 // Admin audit log: structured per-action records of every authenticated mutation.
 
+import { pathOnly } from '@caracalai/core'
 import { v7 as uuidv7 } from 'uuid'
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify'
 import type { DB } from './db.js'
@@ -53,8 +54,7 @@ function zoneFromUrl(url: string): string | null {
 }
 
 function entityFromUrl(url: string): { type: string | null; id: string | null } {
-  const stripped = url.split('?')[0]
-  const segments = stripped.split('/').filter(Boolean)
+  const segments = pathOnly(url).split('/').filter(Boolean)
   for (let i = segments.length - 2; i >= 0; i--) {
     const candidate = segments[i]
     const next = segments[i + 1]

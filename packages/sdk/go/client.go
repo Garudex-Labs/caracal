@@ -119,9 +119,7 @@ func validateSubjectToken(token string) error {
 	return nil
 }
 
-// Close releases any persistent transport state held by Caracal. Currently a
-// no-op placeholder for symmetry with Python and TS SDKs; safe to call from
-// shutdown handlers.
+// Close is currently a no-op.
 func (c *Caracal) Close() error {
 	return nil
 }

@@ -5,6 +5,9 @@
 
 import { describe, it, expect, vi } from 'vitest'
 import Fastify from 'fastify'
+import type { DB } from '../../../../../apps/api/src/db.js'
+import type { RedisClient } from '../../../../../apps/api/src/redis.js'
+import '../../../../../apps/api/src/fastify-augmentation.js'
 import { policiesRoutes } from '../../../../../apps/api/src/routes/policies.js'
 
 function buildApp() {
@@ -18,8 +21,8 @@ function buildApp() {
     }),
   }
   const redis = { xadd: vi.fn() }
-  app.decorate('db', db as any)
-  app.decorate('redis', redis as any)
+  app.decorate('db', db as unknown as DB)
+  app.decorate('redis', redis as unknown as RedisClient)
   app.addHook('preHandler', async (req) => {
     req.actor = { id: 'test-actor', name: 'test', scope: 'global', zoneId: null }
   })

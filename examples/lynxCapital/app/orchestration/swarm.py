@@ -798,8 +798,8 @@ def _build_fc_domain_tools(run_id, runner, fc, memory_store, plans, files, board
     @tool
     async def dispatch_region(region: str, focus: str = "") -> str:
         """Dispatch a Regional Orchestrator sub-agent. Returns IMMEDIATELY with
-        a job_id; the orchestrator runs in the background. You MUST follow up
-        with await_jobs([job_id, ...]) before relying on the result.
+        a job_id; the orchestrator runs in the background. Call await_jobs with
+        that job id (and any others you started this turn) before using outcomes.
         region must be one of: US, IN, DE, SG, BR."""
         r = region.upper().strip()
         if r not in REGION_IDS:
@@ -824,8 +824,8 @@ def _build_fc_domain_tools(run_id, runner, fc, memory_store, plans, files, board
     @tool
     async def dispatch_workflow(workflow_id: str, focus: str = "") -> str:
         """Dispatch a Workflow Orchestrator sub-agent. Returns IMMEDIATELY with
-        a job_id; the orchestrator runs in the background. You MUST follow up
-        with await_jobs([job_id, ...]) before relying on the result.
+        a job_id; the orchestrator runs in the background. Call await_jobs with
+        that job id (and any others you started this turn) before using outcomes.
         workflow_id must be one of: vendorLifecycle, treasury, close,
         compliance, receivables."""
         wf = workflow_map.get(workflow_id.strip())

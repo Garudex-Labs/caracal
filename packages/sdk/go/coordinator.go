@@ -148,8 +148,8 @@ func deriveIdempotencyKey(req SpawnRequest) string {
 }
 
 // TerminateAgent calls DELETE /zones/:zoneId/agents/:id.
-func TerminateAgent(ctx context.Context, client *CoordinatorClient, bearer, zoneID, agentSessionID string) {
-	_ = doJSON(ctx, client, "DELETE", fmt.Sprintf("/zones/%s/agents/%s", zoneID, agentSessionID), bearer, nil, nil, nil)
+func TerminateAgent(ctx context.Context, client *CoordinatorClient, bearer, zoneID, agentSessionID string) error {
+	return doJSON(ctx, client, "DELETE", fmt.Sprintf("/zones/%s/agents/%s", zoneID, agentSessionID), bearer, nil, nil, nil)
 }
 
 // CreateDelegation calls POST /zones/:zoneId/delegations.
@@ -205,7 +205,10 @@ func doJSON(ctx context.Context, client *CoordinatorClient, method, path, bearer
 	defer resp.Body.Close()
 
 	if resp.StatusCode >= 300 {
-		raw, _ := io.ReadAll(resp.Body)
+		raw, readErr := io.ReadAll(resp.Body)
+		if readErr != nil {
+			return fmt.Errorf("coordinator %s %s: %d (reading response body: %w)", method, path, resp.StatusCode, readErr)
+		}
 		return fmt.Errorf("coordinator %s %s: %d %s", method, path, resp.StatusCode, raw)
 	}
 

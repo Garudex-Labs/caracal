@@ -28,12 +28,7 @@ import { policyTemplatesRoutes } from './routes/policy-templates.js'
 import { zoneEventsRoutes } from './routes/zone-events.js'
 import { localBootstrapRoutes } from './routes/local-bootstrap.js'
 
-declare module 'fastify' {
-  interface FastifyInstance {
-    db: DB
-    redis: RedisClient
-  }
-}
+import './fastify-augmentation.js'
 
 export interface AppDeps {
   cfg: Config

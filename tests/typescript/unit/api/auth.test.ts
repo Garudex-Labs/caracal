@@ -6,6 +6,7 @@
 import { describe, it, expect, vi } from 'vitest'
 import { createHash } from 'node:crypto'
 import Fastify from 'fastify'
+import type { DB } from '../../../../apps/api/src/db.js'
 import { adminAuthPlugin, lookupAdminToken, seedBootstrapAdminToken } from '../../../../apps/api/src/auth.js'
 
 function digest(token: string): Buffer {
@@ -35,7 +36,7 @@ function makeDb(opts: { token?: string; scope?: 'global' | 'zone'; zoneId?: stri
     if (sql.startsWith('INSERT INTO admin_tokens')) return Promise.resolve({ rows: [], rowCount: 1 })
     return Promise.resolve({ rows: [], rowCount: 0 })
   })
-  return { query } as never
+  return { query } as unknown as DB
 }
 
 async function buildPluginApp(db: ReturnType<typeof makeDb>) {
@@ -116,7 +117,7 @@ describe('adminAuthPlugin', () => {
 
 describe('seedBootstrapAdminToken', () => {
   it('does nothing when env token is not set', async () => {
-    const db = { query: vi.fn() } as never
+    const db = { query: vi.fn() } as unknown as DB
     await seedBootstrapAdminToken(db, { envToken: null, log: () => {} })
     expect(db.query).not.toHaveBeenCalled()
   })
@@ -124,7 +125,7 @@ describe('seedBootstrapAdminToken', () => {
     const db = {
       query: vi.fn()
         .mockResolvedValueOnce({ rows: [{ id: 'existing' }] }),
-    } as never
+    } as unknown as DB
     await seedBootstrapAdminToken(db, { envToken: 'tok', log: () => {} })
     expect(db.query).toHaveBeenCalledTimes(1)
   })
@@ -136,7 +137,7 @@ describe('seedBootstrapAdminToken', () => {
         if (sql.includes('SELECT id FROM admin_tokens')) return Promise.resolve({ rows: [] })
         return Promise.resolve({ rows: [], rowCount: 1 })
       }),
-    } as never
+    } as unknown as DB
     await seedBootstrapAdminToken(db, { envToken: 'tok', log: () => {} })
     expect(inserts.some((s) => s.startsWith('INSERT INTO admin_tokens'))).toBe(true)
   })

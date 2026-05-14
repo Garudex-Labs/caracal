@@ -10,12 +10,14 @@ import ThemeSelect from './ThemeSelect.astro'
 
 const route = (Astro.locals as any)?.starlightRoute
 const isLanding = route?.entry?.data?.template === 'splash'
+// Always use /#… so section links work from any URL (404 uses splash template too;
+// relative #contact would stay on the broken path).
 const links = [
-  { label: 'Home', href: isLanding ? '#home' : '/#home' },
-  { label: 'About', href: isLanding ? '#about' : '/#about' },
-  { label: 'Community', href: isLanding ? '#community' : '/#community' },
-  { label: 'Contact', href: isLanding ? '#contact' : '/#contact' },
-  { label: 'Docs', href: '/start/overview/' },
+  { label: 'Home', href: '/#home' },
+  { label: 'About', href: '/#about' },
+  { label: 'Community', href: '/#community' },
+  { label: 'Contact', href: '/#contact' },
+  { label: 'Docs', href: '/get-started/' },
 ]
 ---
 

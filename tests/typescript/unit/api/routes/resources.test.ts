@@ -5,6 +5,9 @@
 
 import { describe, it, expect, vi } from 'vitest'
 import Fastify from 'fastify'
+import type { DB } from '../../../../../apps/api/src/db.js'
+import type { RedisClient } from '../../../../../apps/api/src/redis.js'
+import '../../../../../apps/api/src/fastify-augmentation.js'
 import { resourcesRoutes } from '../../../../../apps/api/src/routes/resources.js'
 
 function buildApp() {
@@ -13,8 +16,8 @@ function buildApp() {
     query: vi.fn(),
     connect: vi.fn(),
   }
-  app.decorate('db', db as never)
-  app.decorate('redis', { xadd: vi.fn() } as never)
+  app.decorate('db', db as unknown as DB)
+  app.decorate('redis', { xadd: vi.fn() } as unknown as RedisClient)
   app.register(resourcesRoutes, { prefix: '/v1' })
   return { app, db }
 }

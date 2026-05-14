@@ -3,6 +3,7 @@
 //
 // JWT bearer verification against STS JWKS endpoint.
 
+import { pathOnly } from '@caracalai/core'
 import { createRemoteJWKSet, decodeJwt, jwtVerify } from 'jose'
 import type { FastifyRequest, FastifyReply } from 'fastify'
 import { cfg } from './config.js'
@@ -73,11 +74,6 @@ function classifyError(err: unknown): string {
     case 'ERR_JWKS_TIMEOUT': return 'jwks_timeout'
     default: return typeof code === 'string' && code.startsWith('ERR_JOSE_') ? 'jose_error' : 'unknown_error'
   }
-}
-
-function pathOnly(url: string): string {
-  const q = url.indexOf('?')
-  return q === -1 ? url : url.slice(0, q)
 }
 
 export async function verifyBearer(req: FastifyRequest, reply: FastifyReply): Promise<void> {

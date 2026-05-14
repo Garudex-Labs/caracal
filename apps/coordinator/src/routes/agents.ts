@@ -74,7 +74,7 @@ export const agentsRoutes: FastifyPluginAsync = async (fastify) => {
         )
         if (existing[0]) {
           await client.query('ROLLBACK')
-          return reply.code(200).send(agentResponse(existing[0]))
+          return reply.code(200).send(existing[0])
         }
       }
       const { rows: refs } = await client.query(
@@ -172,7 +172,7 @@ export const agentsRoutes: FastifyPluginAsync = async (fastify) => {
         application_id: body.application_id,
       })
       await client.query('COMMIT')
-      return reply.code(201).send(agentResponse(rows[0]))
+      return reply.code(201).send(rows[0])
     } catch (err) {
       await client.query('ROLLBACK')
       throw err
@@ -379,15 +379,6 @@ export const agentsRoutes: FastifyPluginAsync = async (fastify) => {
       client.release()
     }
   })
-}
-
-function agentResponse(row: unknown): unknown {
-  if (!row || typeof row !== 'object') return row
-  const out = { ...(row as Record<string, unknown>) }
-  if (typeof out.id === 'string') {
-    out.agent_session_id = out.id
-  }
-  return out
 }
 
 interface TerminatedRow {

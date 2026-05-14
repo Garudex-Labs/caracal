@@ -79,7 +79,7 @@ async function call<T>(
     body: body ? JSON.stringify(body) : undefined,
   });
   if (!res.ok) {
-    const text = await res.text().catch(() => "");
+    const text = await res.text();
     throw new Error(`coordinator ${method} ${path} failed: ${res.status} ${text}`);
   }
   return (await res.json()) as T;
@@ -138,13 +138,17 @@ export async function terminateAgent(
   agentSessionId: string,
 ): Promise<void> {
   const fetchFn = client.fetchImpl ?? fetch;
-  await fetchFn(
+  const del = await fetchFn(
     `${client.baseUrl}/zones/${encodeURIComponent(zoneId)}/agents/${encodeURIComponent(agentSessionId)}`,
     {
       method: "DELETE",
       headers: { authorization: `Bearer ${bearer}` },
     },
-  ).catch(() => undefined);
+  );
+  if (!del.ok) {
+    const text = await del.text();
+    throw new Error(`coordinator DELETE /zones/${zoneId}/agents/${agentSessionId} failed: ${del.status} ${text}`);
+  }
 }
 
 export async function createDelegation(

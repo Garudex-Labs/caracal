@@ -268,12 +268,13 @@ type DelegationRequest struct {
 
 func CreateDelegation(ctx context.Context, client *CoordinatorClient, bearer string, req DelegationRequest) (DelegationResponse, error)
 
-func TerminateAgent(ctx context.Context, client *CoordinatorClient, bearer, zoneID, agentSessionID string)
+func TerminateAgent(ctx context.Context, client *CoordinatorClient, bearer, zoneID, agentSessionID string) error
 ```
 
 ## Error behavior
 
 - `Spawn` returns the Coordinator's error if session creation is rejected (limit exceeded, unreachable).
+- `TerminateAgent` returns Coordinator or transport errors when session teardown fails (parallel to the Python SDK).
 - `Delegate` returns an error if no session is bound in `ctx`, the Coordinator is unreachable, or the edge would create a cycle.
 - `Transport` passes `http.Client` errors through unchanged; header injection does not fail.
 - `FromEnv` returns an error if any required env var is missing.
