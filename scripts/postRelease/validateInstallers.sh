@@ -30,6 +30,10 @@ validateShell() {
 
 validatePwsh() {
   matchesOnly "install.ps1" || return 0
+  if [[ "$PLAT" != windows-* ]]; then
+    logFinding "$AREA" "install.ps1" "$PLAT" "pwsh" "-" "$SEV_INFO" "$STATUS_WARN" "PowerShell installer is only exercised on Windows runners" "pwsh -File install.ps1 -Version $CARACAL_RELEASE"
+    return 0
+  fi
   if [[ "${DRY_RUN:-0}" == "1" ]]; then
     logFinding "$AREA" "install.ps1" "$PLAT" "pwsh" "-" "$SEV_INFO" "$STATUS_PASS" "dry-run: would run pwsh install.ps1 -Version $CARACAL_RELEASE" "pwsh -File install.ps1 -Version $CARACAL_RELEASE"
     return 0

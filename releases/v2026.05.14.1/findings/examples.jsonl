@@ -1,0 +1,1 @@
+{"area":"examples","artifact":"lynxCapital","platform":"linux-amd64","pm":"pnpm","runtime":"-","severity":"info","status":"pass","evidence":"example install ok with manifest pins","repro":"pnpm install"}

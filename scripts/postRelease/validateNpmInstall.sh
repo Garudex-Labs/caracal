@@ -23,7 +23,11 @@ runProbe() {
     yarn)  ( cd "$dir" && runOrEcho yarn add --silent "$pkg@$ver" ) ;;
     *) echo "unknown PM=$PM" >&2; return 2 ;;
   esac
-  ( cd "$dir" && runOrEcho node --input-type=module -e "const m = await import('$pkg'); if (!m) process.exit(1);" )
+  if [[ "$PM" == "yarn" ]]; then
+    ( cd "$dir" && runOrEcho yarn node --input-type=module -e "const m = await import('$pkg'); if (!m) process.exit(1);" )
+  else
+    ( cd "$dir" && runOrEcho node --input-type=module -e "const m = await import('$pkg'); if (!m) process.exit(1);" )
+  fi
 }
 
 validateOne() {
