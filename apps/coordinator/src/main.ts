@@ -11,6 +11,9 @@ import { startTTLSweeper } from './jobs/ttl-sweeper.js'
 import { startDeadlineEnforcer } from './jobs/deadline-enforcer.js'
 import { startRetentionCleaner } from './jobs/retention-cleaner.js'
 import { cfg } from './config.js'
+import { assertRuntimeSafe } from '@caracalai/core'
+
+assertRuntimeSafe()
 
 const app = await buildApp()
 const redis = buildRedis()

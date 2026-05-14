@@ -1,6 +1,6 @@
 // Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 // Caracal, a product of Garudex Labs
 //
-// CLI version constant; CI rewrites this from the release tag before bun --compile.
+// Stable re-exports of stamped CLI identity from version.gen.ts.
 
-export const CARACAL_VERSION = '2026.05.12'
+export { CARACAL_VERSION, CARACAL_MODE } from './version.gen.ts'

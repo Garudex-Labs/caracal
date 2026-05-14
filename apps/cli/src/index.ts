@@ -22,6 +22,7 @@ import { auditCommand, explainCommand } from './commands/audit.ts'
 import { agentCommand, delegationCommand } from './commands/agent.ts'
 import { checkMcpGovernance } from './mcp.ts'
 import { style, printError } from './style.ts'
+import { CARACAL_MODE, CARACAL_VERSION } from './runtime/version.ts'
 import type { CliConfig } from './config.ts'
 
 function usage(out: NodeJS.WriteStream = process.stderr): void {
@@ -99,6 +100,12 @@ const [command, ...rest] = cliArgs
 
 if (!command || command === '--help' || command === '-h') {
   usage(process.stdout)
+  process.exit(0)
+}
+
+if (command === '--version' || command === '-v' || command === 'version') {
+  const tag = CARACAL_MODE === 'dev' ? `dev (sha ${process.env.CARACAL_DEV_SHA ?? 'unknown'})` : `runtime`
+  process.stdout.write(`caracal ${CARACAL_VERSION} [${tag}]\n`)
   process.exit(0)
 }
 

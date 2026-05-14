@@ -5,8 +5,8 @@
 
 import { spawn } from 'node:child_process'
 import { existsSync } from 'node:fs'
-import { dirname, join } from 'node:path'
-import { CARACAL_VERSION } from '../runtime/version.ts'
+import { join } from 'node:path'
+import { CARACAL_MODE, CARACAL_VERSION } from '../runtime/version.ts'
 import { installRuntimeAssets, runtimePaths, seedEnvFile } from '../runtime/install.ts'
 import { style, SYMBOL, printError, printInfo } from '../style.ts'
 
@@ -30,27 +30,6 @@ const SERVICE_PROBES: ServiceProbe[] = [
   { name: 'audit', url: 'http://localhost:9090/health', port: 9090 },
   { name: 'coordinator', url: 'http://localhost:4000/health', port: 4000 },
 ]
-
-function searchRepoRoot(start: string | undefined): string | undefined {
-  if (!start) return undefined
-  let dir = start
-  for (let depth = 0; depth < 10; depth++) {
-    if (existsSync(join(dir, 'infra', 'docker', 'docker-compose.yml'))) return dir
-    const parent = dirname(dir)
-    if (parent === dir) break
-    dir = parent
-  }
-  return undefined
-}
-
-function findRepoRoot(): string | undefined {
-  if (process.env.CARACAL_REPO_ROOT) return searchRepoRoot(process.env.CARACAL_REPO_ROOT)
-  return (
-    searchRepoRoot(process.env.INIT_CWD) ??
-    searchRepoRoot(process.env.PWD) ??
-    searchRepoRoot(process.cwd())
-  )
-}
 
 function devPaths(repoRoot: string): StackPaths {
   const composeFile = join(repoRoot, 'infra', 'docker', 'docker-compose.yml')
@@ -80,18 +59,47 @@ function runtimeStackPaths(): StackPaths {
   return { composeFile: paths.composeFile, envFile, cwd: paths.home, mode: 'runtime' }
 }
 
+function resolveMode(): 'dev' | 'runtime' {
+  const override = process.env.CARACAL_MODE
+  if (override === 'dev' || override === 'runtime') return override
+  if (override) {
+    printError(`CARACAL_MODE must be 'dev' or 'runtime' (got '${override}')`)
+    process.exit(1)
+  }
+  return CARACAL_MODE
+}
+
 export function resolvePaths(): StackPaths {
-  if (process.env.CARACAL_STACK_MODE === 'runtime') return runtimeStackPaths()
-  const repoRoot = findRepoRoot()
-  if (repoRoot) return devPaths(repoRoot)
+  const mode = resolveMode()
+  if (mode === 'dev') {
+    const repoRoot = process.env.CARACAL_REPO_ROOT
+    if (!repoRoot) {
+      printError(
+        'CARACAL_MODE=dev requires CARACAL_REPO_ROOT; invoke via `pnpm caracal` from inside the repo.',
+      )
+      process.exit(1)
+    }
+    return devPaths(repoRoot)
+  }
   return runtimeStackPaths()
+}
+
+function printBanner(paths: StackPaths): void {
+  const tag =
+    paths.mode === 'dev'
+      ? `dev (sha ${process.env.CARACAL_DEV_SHA ?? 'unknown'})`
+      : `runtime (v${CARACAL_VERSION})`
+  process.stdout.write(`${style.label('caracal mode:')} ${style.header(tag)}\n`)
 }
 
 function runCompose(args: string[], paths: StackPaths): Promise<number> {
   return new Promise((resolveExit) => {
-    const env: NodeJS.ProcessEnv = { ...process.env }
+    const env: NodeJS.ProcessEnv = { ...process.env, CARACAL_MODE: paths.mode }
     if (paths.mode === 'runtime' && !env.CARACAL_VERSION) {
       env.CARACAL_VERSION = CARACAL_VERSION.startsWith('v') ? CARACAL_VERSION : `v${CARACAL_VERSION}`
+    }
+    if (paths.mode === 'dev' && !env.CARACAL_DEV_SHA) {
+      env.CARACAL_DEV_SHA = 'nogit'
     }
     const proc = spawn(
       'docker',
@@ -129,6 +137,7 @@ async function probe(svc: ServiceProbe): Promise<{ ok: boolean; detail: string }
 
 export async function upCommand(argv: string[]): Promise<void> {
   const paths = resolvePaths()
+  printBanner(paths)
   const args = paths.mode === 'dev' ? ['up', '-d', '--build', ...argv] : ['up', '-d', ...argv]
   const code = await runCompose(args, paths)
   process.exit(code)
@@ -136,11 +145,14 @@ export async function upCommand(argv: string[]): Promise<void> {
 
 export async function downCommand(argv: string[]): Promise<void> {
   const paths = resolvePaths()
+  printBanner(paths)
   const code = await runCompose(['down', ...argv], paths)
   process.exit(code)
 }
 
 export async function statusCommand(): Promise<void> {
+  const paths = resolvePaths()
+  printBanner(paths)
   const results = await Promise.all(
     SERVICE_PROBES.map(async (svc) => ({ svc, ...(await probe(svc)) })),
   )
