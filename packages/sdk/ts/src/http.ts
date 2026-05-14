@@ -13,6 +13,8 @@ export interface IncomingLike {
   headers: Record<string, string | string[] | undefined>;
 }
 
+export type FastifyRequestLike = IncomingLike
+
 export type ConnectMiddleware = (
   req: IncomingLike,
   res: unknown,
@@ -29,12 +31,8 @@ export function caracalHttpMiddleware(caracal: Caracal): ConnectMiddleware {
   };
 }
 
-export interface FastifyRequestLike {
-  headers: Record<string, string | string[] | undefined>;
-}
-
 export function caracalFastifyHook(caracal: Caracal) {
-  return async (req: FastifyRequestLike) => {
+  return async (req: IncomingLike) => {
     await caracal.bindFromHeaders(req.headers, async () => undefined);
   };
 }

@@ -49,7 +49,9 @@ type Envelope struct {
 
 func newRandomHex(byteLen int) string {
 	b := make([]byte, byteLen)
-	_, _ = rand.Read(b)
+	if _, err := rand.Read(b); err != nil {
+		panic(err)
+	}
 	return hex.EncodeToString(b)
 }
 

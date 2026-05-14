@@ -131,7 +131,7 @@ export const delegationsRoutes: FastifyPluginAsync = async (fastify) => {
         epoch,
       })
       await client.query('COMMIT')
-      return reply.code(201).send(delegationResponse(rows[0]))
+      return reply.code(201).send(rows[0])
     } catch (err) {
       await client.query('ROLLBACK')
       throw err
@@ -274,15 +274,6 @@ function normalizedConstraints(
   }
   if (ttlSeconds !== undefined && out.ttl_seconds === undefined) {
     out.ttl_seconds = ttlSeconds
-  }
-  return out
-}
-
-function delegationResponse(row: unknown): unknown {
-  if (!row || typeof row !== 'object') return row
-  const out = { ...(row as Record<string, unknown>) }
-  if (typeof out.id === 'string') {
-    out.delegation_edge_id = out.id
   }
   return out
 }

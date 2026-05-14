@@ -179,7 +179,7 @@ describe('POST /v1/zones/:zoneId/delegations', () => {
     expect(JSON.parse(res.body)).toMatchObject({ error: 'delegation_scopes_exceed_resource' })
   })
 
-  it('accepts the SDK wire shape and returns the delegation_edge_id alias', async () => {
+  it('accepts the SDK wire shape and returns the edge row with id', async () => {
     const { app, db } = buildApp()
     const client = {
       query: vi.fn()
@@ -214,7 +214,7 @@ describe('POST /v1/zones/:zoneId/delegations', () => {
     })
 
     expect(res.statusCode).toBe(201)
-    expect(JSON.parse(res.body)).toMatchObject({ id: 'edge-sdk', delegation_edge_id: 'edge-sdk' })
+    expect(JSON.parse(res.body)).toMatchObject({ id: 'edge-sdk' })
     const insertCall = client.query.mock.calls.find((call) => String(call[0]).includes('INSERT INTO delegation_edges'))
     const values = insertCall?.[1] as unknown[]
     expect(values[8]).toMatchObject({ resources: ['calendar'], max_depth: 2, max_hops: 2, ttl_seconds: 30 })

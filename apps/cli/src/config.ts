@@ -3,7 +3,7 @@
 //
 // CLI exit codes and canonical caracal.toml config exports.
 
-export type { CliConfig, Credential, McpGovernance, OptionalCredential } from '@caracalai/core/cli'
+export type { CliConfig, Credential } from '@caracalai/core/cli'
 
 export const EXIT_CODES = {
   ok: 0,

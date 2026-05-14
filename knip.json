@@ -1,0 +1,14 @@
+{
+  "$schema": "https://unpkg.com/knip@6/schema.json",
+  "workspaces": {
+    ".": {
+      "entry": [
+        "tests/typescript/**/*.ts",
+        "tests/shared/**/*.ts"
+      ]
+    }
+  },
+  "ignoreFiles": ["docs/.docusaurus/**", "examples/**"],
+  "ignoreBinaries": ["build", "sync-embedded", "go", "python"],
+  "ignoreDependencies": ["@vitest/coverage-v8"]
+}

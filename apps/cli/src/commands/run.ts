@@ -22,7 +22,7 @@ async function waitForChallenge(zoneUrl: string, challengeId: string): Promise<b
         if (data.satisfied) return true
       }
     } catch {
-      // network hiccup — keep polling
+      // Ignore transient fetch failures while polling.
     }
     await new Promise((r) => setTimeout(r, STEP_UP_POLL_MS))
   }

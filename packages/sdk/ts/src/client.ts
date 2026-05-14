@@ -104,7 +104,7 @@ export class Caracal {
   }
 
   async close(): Promise<void> {
-    // Reserved for future transport state. Symmetric with Python/Go SDKs.
+    // No-op until transport resources need teardown.
   }
 
   spawn<T>(fn: () => Promise<T>, opts: SpawnOptions = {}): Promise<T> {
@@ -331,12 +331,7 @@ function parseResourceBindings(raw: string | undefined): ResourceBinding[] | und
   return out.length ? sortBindingsLongestFirst(out) : undefined;
 }
 
-/**
- * Sort resource bindings by upstream prefix length descending so the most
- * specific prefix wins during gateway routing. Returns a new array; stable
- * across equal lengths.
- */
-export function sortBindingsLongestFirst(bindings: ResourceBinding[]): ResourceBinding[] {
+function sortBindingsLongestFirst(bindings: ResourceBinding[]): ResourceBinding[] {
   return [...bindings].sort((a, b) => b.upstreamPrefix.length - a.upstreamPrefix.length);
 }
 

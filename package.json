@@ -17,11 +17,16 @@
     "test:typescript": "pnpm --dir apps/api test && pnpm --dir apps/coordinator test && pnpm --dir apps/cli test && pnpm --dir apps/tui test && pnpm --dir packages/core/ts test && pnpm --dir packages/identity/ts test && pnpm --dir packages/admin/ts test && pnpm --dir packages/sdk/ts test && pnpm --dir packages/transport/a2a/ts test && pnpm --dir packages/oauth/ts test && pnpm --dir packages/revocation/ts test && pnpm --dir packages/transport/mcp/ts test && pnpm --dir packages/connectors/express/ts test && pnpm --dir packages/connectors/fastmcp/ts test && pnpm --dir packages/connectors/postgres/ts test && pnpm --dir packages/connectors/redis/ts test",
     "changeset": "changeset",
     "version": "changeset version",
-    "release": "pnpm run build:typescript && changeset publish"
+    "release": "pnpm run build:typescript && changeset publish",
+    "knip": "node ./node_modules/knip/dist/cli.js"
   },
   "devDependencies": {
     "@changesets/cli": "^2.27.10",
     "@vitest/coverage-v8": "3.2.4",
-    "fastify": "^5.2.1"
+    "express": "^5.2.1",
+    "fastify": "^5.8.5",
+    "knip": "^6.13.1",
+    "pg": "^8.20.0",
+    "vitest": "^3.2.4"
   }
 }

@@ -4,13 +4,15 @@
 // API admin-token security tests for protected management routes.
 
 import { describe, it, expect } from 'vitest'
+import type { DB } from '../../../../apps/api/src/db.js'
+import type { RedisClient } from '../../../../apps/api/src/redis.js'
 import { buildApp } from '../../../../apps/api/src/app.js'
 import { apiAppDeps } from '../../../shared/test-utils/typescript/api-app.js'
 
 describe('API admin token enforcement', () => {
   it('allows health checks without admin credentials', async () => {
     const { cfg, db, redis } = apiAppDeps()
-    const app = await buildApp({ cfg, db: db as never, redis: redis as never })
+    const app = await buildApp({ cfg, db: db as unknown as DB, redis: redis as unknown as RedisClient })
 
     const res = await app.inject({ method: 'GET', url: '/health' })
 
@@ -21,7 +23,7 @@ describe('API admin token enforcement', () => {
 
   it('rejects protected management routes when no token is presented', async () => {
     const { cfg, db, redis } = apiAppDeps()
-    const app = await buildApp({ cfg, db: db as never, redis: redis as never })
+    const app = await buildApp({ cfg, db: db as unknown as DB, redis: redis as unknown as RedisClient })
 
     const res = await app.inject({ method: 'GET', url: '/v1/zones' })
 
@@ -32,7 +34,7 @@ describe('API admin token enforcement', () => {
 
   it('allows protected management routes with the exact bearer token', async () => {
     const { cfg, db, redis } = apiAppDeps()
-    const app = await buildApp({ cfg, db: db as never, redis: redis as never })
+    const app = await buildApp({ cfg, db: db as unknown as DB, redis: redis as unknown as RedisClient })
 
     const res = await app.inject({
       method: 'GET',

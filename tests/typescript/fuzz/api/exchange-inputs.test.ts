@@ -4,6 +4,8 @@
 // API fuzz-style property tests: random and adversarial inputs must not crash or leak.
 
 import { describe, it, expect } from 'vitest'
+import type { DB } from '../../../../apps/api/src/db.js'
+import type { RedisClient } from '../../../../apps/api/src/redis.js'
 import { buildApp } from '../../../../apps/api/src/app.js'
 import { apiAppDeps } from '../../../shared/test-utils/typescript/api-app.js'
 
@@ -41,7 +43,7 @@ const adversarialNameInputs = [
 describe('Zone creation with adversarial names', () => {
   it.each(adversarialNameInputs)('does not crash for name: %j', async (name) => {
     const { cfg, db, redis } = deps()
-    const app = await buildApp({ cfg, db: db as never, redis: redis as never })
+    const app = await buildApp({ cfg, db: db as unknown as DB, redis: redis as unknown as RedisClient })
     const res = await app.inject({
       method: 'POST',
       url: '/v1/zones',
@@ -56,7 +58,7 @@ describe('Zone creation with adversarial names', () => {
 describe('Zone creation with adversarial slugs', () => {
   it.each(adversarialSlugInputs)('does not crash for slug: %j', async (slug) => {
     const { cfg, db, redis } = deps()
-    const app = await buildApp({ cfg, db: db as never, redis: redis as never })
+    const app = await buildApp({ cfg, db: db as unknown as DB, redis: redis as unknown as RedisClient })
     const res = await app.inject({
       method: 'POST',
       url: '/v1/zones',
@@ -87,7 +89,7 @@ describe('GET requests with adversarial IDs', () => {
   for (const base of endpoints) {
     it.each(ids)(`GET ${base}%j does not crash`, async (id) => {
       const { cfg, db, redis } = deps()
-      const app = await buildApp({ cfg, db: db as never, redis: redis as never })
+      const app = await buildApp({ cfg, db: db as unknown as DB, redis: redis as unknown as RedisClient })
       const res = await app.inject({
         method: 'GET',
         url: base + encodeURIComponent(id),
@@ -103,7 +105,7 @@ describe('GET requests with adversarial IDs', () => {
 describe('POST with random content-type bodies', () => {
   it('returns 4xx for JSON with wrong content type', async () => {
     const { cfg, db, redis } = deps()
-    const app = await buildApp({ cfg, db: db as never, redis: redis as never })
+    const app = await buildApp({ cfg, db: db as unknown as DB, redis: redis as unknown as RedisClient })
     const res = await app.inject({
       method: 'POST',
       url: '/v1/zones',
@@ -119,7 +121,7 @@ describe('POST with random content-type bodies', () => {
 
   it('handles deeply nested JSON without stack overflow', async () => {
     const { cfg, db, redis } = deps()
-    const app = await buildApp({ cfg, db: db as never, redis: redis as never })
+    const app = await buildApp({ cfg, db: db as unknown as DB, redis: redis as unknown as RedisClient })
     let nested: Record<string, unknown> = { name: 'deep' }
     for (let i = 0; i < 100; i++) nested = { nested }
 

@@ -3,16 +3,12 @@
 //
 // Coordinator admin audit hook: records authenticated mutating calls to admin_audit_events.
 
+import { pathOnly } from '@caracalai/core'
 import { v7 as uuidv7 } from 'uuid'
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify'
 import type { Pool } from 'pg'
 
 const MUTATING_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE'])
-
-function pathOnly(url: string): string {
-  const q = url.indexOf('?')
-  return q === -1 ? url : url.slice(0, q)
-}
 
 function entityFromUrl(url: string): { type: string | null; id: string | null } {
   const segments = pathOnly(url).split('/').filter(Boolean)

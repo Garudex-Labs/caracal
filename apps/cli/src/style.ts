@@ -94,19 +94,6 @@ export function printStep(msg: string): void {
   write(process.stdout, 'progress', `${SYMBOL.step} ${msg}`)
 }
 
-export function printBullet(msg: string): void {
-  process.stdout.write(`  ${style.label(SYMBOL.bullet)} ${msg}\n`)
-}
-
 export function printHeader(msg: string): void {
   process.stdout.write(`\n${style.header(msg)}\n`)
-}
-
-export function printDebug(msg: string): void {
-  if (!envFlag('CARACAL_DEBUG')) return
-  process.stderr.write(`${style.debug(`[debug] ${msg}`)}\n`)
-}
-
-export function dim(s: string): string {
-  return style.label(s)
 }

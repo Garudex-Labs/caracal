@@ -32,8 +32,6 @@ function detail(title: string, load: () => Promise<unknown>): DetailView {
 
 function open(app: App, view: View): void { app.push(view) }
 
-// ── Zones ────────────────────────────────────────────────────────────────────
-
 export function zonesView(ctx: Ctx): View {
   return new ListView<Zone>({
     title: 'zones',
@@ -54,8 +52,6 @@ export function zonesView(ctx: Ctx): View {
   })
 }
 
-// ── Applications ─────────────────────────────────────────────────────────────
-
 export function applicationsView(ctx: Ctx): View {
   return new ListView<Application>({
     title: 'applications',
@@ -71,8 +67,6 @@ export function applicationsView(ctx: Ctx): View {
   })
 }
 
-// ── Resources ─────────────────────────────────────────────────────────────────
-
 export function resourcesView(ctx: Ctx): View {
   return new ListView<Resource>({
     title: 'resources',
@@ -86,8 +80,6 @@ export function resourcesView(ctx: Ctx): View {
     onEnter: (app, row) => open(app, detail(`resource / ${row.identifier}`, () => ctx.client.resources.get(ctx.zoneId, row.id))),
   })
 }
-
-// ── Providers ─────────────────────────────────────────────────────────────────
 
 export function providersView(ctx: Ctx): View {
   return new ListView<Provider>({
@@ -104,8 +96,6 @@ export function providersView(ctx: Ctx): View {
   })
 }
 
-// ── Policies ──────────────────────────────────────────────────────────────────
-
 export function policiesView(ctx: Ctx): View {
   return new ListView<Policy>({
     title: 'policies',
@@ -120,8 +110,6 @@ export function policiesView(ctx: Ctx): View {
   })
 }
 
-// ── Policy sets ───────────────────────────────────────────────────────────────
-
 export function policySetsView(ctx: Ctx): View {
   return new ListView<PolicySet>({
     title: 'policy-sets',
@@ -134,8 +122,6 @@ export function policySetsView(ctx: Ctx): View {
     onEnter: (app, row) => open(app, detail(`policy-set / ${row.name}`, () => ctx.client.policySets.get(ctx.zoneId, row.id))),
   })
 }
-
-// ── Grants ────────────────────────────────────────────────────────────────────
 
 export function grantsView(ctx: Ctx): View {
   return new ListView<Grant>({
@@ -152,8 +138,6 @@ export function grantsView(ctx: Ctx): View {
   })
 }
 
-// ── Sessions ──────────────────────────────────────────────────────────────────
-
 export function sessionsView(ctx: Ctx): View {
   return new ListView<Session>({
     title: 'sessions',
@@ -167,8 +151,6 @@ export function sessionsView(ctx: Ctx): View {
     load: () => ctx.client.sessions.list(ctx.zoneId),
   })
 }
-
-// ── Agents ────────────────────────────────────────────────────────────────────
 
 export function agentsView(ctx: Ctx): View {
   return new ListView<AgentSession>({
@@ -185,8 +167,6 @@ export function agentsView(ctx: Ctx): View {
     onEnter: (app, row) => open(app, detail(`agent / ${row.id}`, () => ctx.client.agents.get(ctx.zoneId, row.id))),
   })
 }
-
-// ── Audit tail ────────────────────────────────────────────────────────────────
 
 export function auditView(ctx: Ctx): View {
   return new AuditTailView(ctx.client, ctx.zoneId)

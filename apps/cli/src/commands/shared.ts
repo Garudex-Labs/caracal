@@ -14,8 +14,6 @@ import {
 import type { CliConfig } from '../config.ts'
 import { style, printError } from '../style.ts'
 
-export { discoverAdminToken }
-
 export interface AdminContext {
   client: AdminClient
   zoneId: string | undefined
