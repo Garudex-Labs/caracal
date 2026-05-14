@@ -1,2 +1,0 @@
-{"area":"installers","artifact":"install.sh","platform":"linux-amd64","pm":"shell","runtime":"-","severity":"info","status":"pass","evidence":"installer placed caracal on PATH","repro":"bash install.sh --version v2026.05.14"}
-{"area":"installers","artifact":"install.ps1","platform":"linux-amd64","pm":"pwsh","runtime":"-","severity":"info","status":"pass","evidence":"dry-run: would run pwsh install.ps1 -Version v2026.05.14","repro":"pwsh -File install.ps1 -Version v2026.05.14"}
