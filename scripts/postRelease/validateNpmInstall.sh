@@ -13,16 +13,20 @@ readonly AREA="npmInstall"
 readonly PM="${PM:-npm}"
 readonly NODE_V="${NODE_V:-22}"
 
-runProbe() {
-  local pkg="$1" ver="$2" dir="$3"
+prepareProject() {
+  local dir="$1"; shift
   ( cd "$dir" && runOrEcho npm init -y >/dev/null )
   runOrEcho node -e "const fs=require('fs');const p='$dir/package.json';const j=JSON.parse(fs.readFileSync(p));j.type='module';fs.writeFileSync(p,JSON.stringify(j,null,2));"
   case "$PM" in
-    npm)   ( cd "$dir" && runOrEcho npm install --silent "$pkg@$ver" ) ;;
-    pnpm)  ( cd "$dir" && runOrEcho pnpm add --silent "$pkg@$ver" ) ;;
-    yarn)  ( cd "$dir" && runOrEcho yarn add --silent "$pkg@$ver" ) ;;
+    npm)   ( cd "$dir" && export CI=1 && runOrEcho npm install --silent "$@" ) ;;
+    pnpm)  ( cd "$dir" && export CI=1 && runOrEcho pnpm add --silent "$@" ) ;;
+    yarn)  ( cd "$dir" && export CI=1 && runOrEcho yarn add --silent "$@" ) ;;
     *) echo "unknown PM=$PM" >&2; return 2 ;;
   esac
+}
+
+runProbe() {
+  local pkg="$1" dir="$2"
   if [[ "$PM" == "yarn" ]]; then
     ( cd "$dir" && runOrEcho yarn node --input-type=module -e "const m = await import('$pkg'); if (!m) process.exit(1);" )
   else
@@ -38,15 +42,36 @@ validateOne() {
     logFinding "$AREA" "$pkg" "manifest" "$PM" "node$NODE_V" "$SEV_MAJOR" "$STATUS_FAIL" "no version pinned in manifest" "edit releases/$CARACAL_RELEASE/manifest.json"
     return 0
   fi
-  local dir; dir="$(mktemp -d)"
   local plat; plat="$(hostPlatform)"
-  if runProbe "$pkg" "$ver" "$dir" 2>"$dir/err"; then
+  if [[ "$installOk" != "1" ]]; then
+    logFinding "$AREA" "$pkg" "$plat" "$PM" "node$NODE_V" "$SEV_BLOCKER" "$STATUS_FAIL" "$installEvidence" "$PM add $pkg@$ver"
+    return 0
+  fi
+  if runProbe "$pkg" "$dir" 2>"$dir/err"; then
     logFinding "$AREA" "$pkg" "$plat" "$PM" "node$NODE_V" "$SEV_INFO" "$STATUS_PASS" "install + ESM import ok @ $ver" "$PM add $pkg@$ver"
   else
     local evid; evid="$(head -c 400 "$dir/err" | tr '\n' ' ' || true)"
     logFinding "$AREA" "$pkg" "$plat" "$PM" "node$NODE_V" "$SEV_BLOCKER" "$STATUS_FAIL" "$evid" "$PM add $pkg@$ver"
   fi
-  rm -rf "$dir"
 }
 
+dir="$(mktemp -d)"
+installOk=0
+installEvidence=""
+specs=()
+for (( i = 0; i < ${#NPM_NAMES[@]}; i++ )); do
+  if matchesOnly "${NPM_NAMES[$i]}"; then
+    specs+=("${NPM_NAMES[$i]}@${NPM_VERS[$i]}")
+  fi
+done
+if (( ${#specs[@]} == 0 )); then
+  rm -rf "$dir"
+  exit 0
+fi
+if prepareProject "$dir" "${specs[@]}" 2>"$dir/install.err"; then
+  installOk=1
+else
+  installEvidence="$(head -c 400 "$dir/install.err" | tr '\n' ' ' || true)"
+fi
 for (( i = 0; i < ${#NPM_NAMES[@]}; i++ )); do validateOne "${NPM_NAMES[$i]}"; done
+rm -rf "$dir"
