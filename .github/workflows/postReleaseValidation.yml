@@ -295,13 +295,20 @@ jobs:
         continue-on-error: true
         run: bun scripts/postRelease/aggregateReport.ts
 
-      - uses: peter-evans/create-pull-request@v7
+      - id: report-pr
+        continue-on-error: true
+        uses: peter-evans/create-pull-request@v7
         with:
           branch: release-validation/${{ inputs.release }}
           title: 'release-validation: ${{ inputs.release }} report'
           labels: release-validation
           commit-message: 'release-validation: ${{ inputs.release }} report'
           add-paths: releases/${{ inputs.release }}/
+
+      - if: steps.report-pr.outcome == 'failure'
+        run: |
+          echo 'Report PR creation is unavailable to GitHub Actions in this repository.'
+          echo 'The release-validation branch was still updated when branch push permissions allowed it.'
 
       - if: steps.report.outcome == 'failure'
         run: |
