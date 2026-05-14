@@ -22,7 +22,7 @@ Every artifact is bound to one of two modes at build time.
 
 |                       | Dev                                                      | Runtime                                                     |
 | --------------------- | -------------------------------------------------------- | ----------------------------------------------------------- |
-| `caracal --version`   | `2026.05.12+dev.<sha> [dev (sha …)]`                     | `v2026.05.12 [runtime]` (CI) / `dev-<sha> [runtime]` (local)|
+| `caracal --version`   | `2026.05.14+dev.<sha> [dev (sha …)]`                     | `v2026.05.14 [runtime]` (CI) / `dev-<sha> [runtime]` (local)|
 | Container images      | `localhost/caracal-{svc}:dev-<sha>` (built locally)      | `ghcr.io/garudex-labs/caracal-{svc}:v<calver>` (CI) / `localhost/caracal-{svc}:dev-<sha>` (local) |
 | Compose file          | `infra/docker/docker-compose.yml`                        | embedded in CLI, installed to `~/.caracal/compose.yml`      |
 | `INSECURE_*` env vars | honored                                                  | refused; services panic on startup                          |
@@ -143,12 +143,12 @@ Pushing the tag triggers `.github/workflows/release.yml`, which produces:
 
 ### Post-release validation
 
-`postReleaseValidation.yml` runs automatically after `release.yml` succeeds (or trigger with `gh workflow run postReleaseValidation.yml -f release=v2026.05.12`). It exercises registries, archives, installers, containers, and provenance, then opens a PR with `releases/<tag>/validation.md`.
+`postReleaseValidation.yml` runs automatically after `release.yml` succeeds (or trigger with `gh workflow run postReleaseValidation.yml -f release=v2026.05.14`). It exercises registries, archives, installers, containers, and provenance, then opens a PR with `releases/<tag>/validation.md`.
 
 Reproduce one area locally:
 
 ```bash
-CARACAL_RELEASE=v2026.05.12 FINDINGS_DIR=/tmp/findings \
+CARACAL_RELEASE=v2026.05.14 FINDINGS_DIR=/tmp/findings \
   bash scripts/postRelease/validateRegistryMetadata.sh
 ```
 
