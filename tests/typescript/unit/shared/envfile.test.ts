@@ -39,6 +39,7 @@ describe('discoverAdminToken', () => {
     process.env = { ...saved }
     delete process.env.CARACAL_ADMIN_TOKEN
     delete process.env.CARACAL_ENV_FILE
+    delete process.env.CARACAL_REPO_ROOT
   })
 
   afterEach(() => {
@@ -57,24 +58,28 @@ describe('discoverAdminToken', () => {
     expect(discoverAdminToken()).toBe('runtime-token')
   })
 
-  it('prefers runtime-home over cwd .env', () => {
+  it('honours CARACAL_ENV_FILE before runtime home', () => {
     process.env.CARACAL_HOME = dir
     writeFileSync(join(dir, '.env'), 'CARACAL_ADMIN_TOKEN=runtime-token\n')
-    writeFileSync(join(cwd, '.env'), 'CARACAL_ADMIN_TOKEN=cwd-token\n')
-    expect(discoverAdminToken()).toBe('runtime-token')
+    const explicitFile = join(cwd, 'explicit.env')
+    writeFileSync(explicitFile, 'CARACAL_ADMIN_TOKEN=explicit-file-token\n')
+    process.env.CARACAL_ENV_FILE = explicitFile
+    expect(discoverAdminToken()).toBe('explicit-file-token')
   })
 
-  it('falls back to cwd/.env when runtime-home is empty', () => {
-    process.env.CARACAL_HOME = dir
-    writeFileSync(join(cwd, '.env'), 'CARACAL_ADMIN_TOKEN=cwd-token\n')
-    expect(discoverAdminToken()).toBe('cwd-token')
-  })
-
-  it('falls back to cwd/infra/docker/.env for source-tree dev', () => {
+  it('reads source-tree env only when CARACAL_REPO_ROOT is set', () => {
     process.env.CARACAL_HOME = dir
     mkdirSync(join(cwd, 'infra', 'docker'), { recursive: true })
-    writeFileSync(join(cwd, 'infra', 'docker', '.env'), 'CARACAL_ADMIN_TOKEN=infra-token\n')
-    expect(discoverAdminToken()).toBe('infra-token')
+    writeFileSync(join(cwd, 'infra', 'docker', '.env'), 'CARACAL_ADMIN_TOKEN=dev-token\n')
+    expect(discoverAdminToken()).toBeUndefined()
+    process.env.CARACAL_REPO_ROOT = cwd
+    expect(discoverAdminToken()).toBe('dev-token')
+  })
+
+  it('ignores cwd .env in installed mode', () => {
+    process.env.CARACAL_HOME = dir
+    writeFileSync(join(cwd, '.env'), 'CARACAL_ADMIN_TOKEN=cwd-token\n')
+    expect(discoverAdminToken()).toBeUndefined()
   })
 
   it('returns undefined when nothing matches', () => {

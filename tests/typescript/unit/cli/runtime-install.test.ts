@@ -18,7 +18,11 @@ describe('runtime installer', () => {
     expect(result.created).toBe(true)
 
     const compose = readFileSync(paths.composeFile, 'utf8')
-    expect(compose).toContain('caracal-api:${CARACAL_VERSION}')
+    expect(compose).toContain('caracal-api:v${CARACAL_VERSION}')
+    for (const port of ['5432', '6379', '8080', '3000', '8081', '9090', '4000']) {
+      expect(compose).toContain(`"127.0.0.1:${port}:${port}"`)
+      expect(compose).not.toMatch(new RegExp(`^\\s*-\\s*"${port}:${port}"`, 'm'))
+    }
 
     const env = readFileSync(paths.envFile, 'utf8')
     expect(env).toMatch(/POSTGRES_PASSWORD=[A-Za-z0-9_-]{20,}/)
