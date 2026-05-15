@@ -3,46 +3,21 @@
 //
 // View factories for every admin resource: lists with mutation actions plus details.
 
-import {
-  agentSuspend,
-  agentResume,
-  agentTerminate,
-  agentTree,
-  appCreate,
-  appDcr,
-  appDelete,
-  appPatch,
-  delegationRevoke,
-  grantCreate,
-  grantRevoke,
-  policyCreate,
-  policyDelete,
-  policyVersion,
-  policySetActivate,
-  policySetCreate,
-  policySetDelete,
-  policySetVersion,
-  providerCreate,
-  providerDelete,
-  providerPatch,
-  resourceCreate,
-  resourceDelete,
-  resourcePatch,
-  zoneCreate,
-  zoneDelete,
-  zonePatch,
-} from '@caracalai/engine'
 import type {
   AdminClient,
   AgentSession,
   Application,
+  ApplicationInput,
   Grant,
   Policy,
   PolicySet,
   Provider,
+  ProviderInput,
   Resource,
+  ResourceInput,
   Session,
   Zone,
+  ZoneInput,
 } from '@caracalai/admin'
 import { readFileSync } from 'node:fs'
 import type { App, View } from '../screen.ts'
@@ -112,16 +87,13 @@ export function zonesView(ctx: Ctx): View {
             { key: 'login_flow', label: 'login_flow', kind: 'text' },
           ],
           onSubmit: async (v, app) => {
-            await zoneCreate({
-              client: ctx.client,
-              input: {
-                name: v.name!,
-                slug: v.slug || undefined,
-                org_id: v.org_id || undefined,
-                dcr_enabled: bool(v.dcr_enabled),
-                pkce_required: bool(v.pkce_required),
-                login_flow: v.login_flow || undefined,
-              },
+            await ctx.client.zones.create({
+              name: v.name!,
+              slug: v.slug || undefined,
+              org_id: v.org_id || undefined,
+              dcr_enabled: bool(v.dcr_enabled),
+              pkce_required: bool(v.pkce_required),
+              login_flow: v.login_flow || undefined,
             })
             await popAndReload(app, list as unknown as ListView<unknown>)
           },
@@ -140,16 +112,12 @@ export function zonesView(ctx: Ctx): View {
               { key: 'login_flow', label: 'login_flow', kind: 'text', default: row.login_flow },
             ],
             onSubmit: async (v, app) => {
-              await zonePatch({
-                client: ctx.client,
-                id: row.id,
-                input: {
-                  name: v.name || undefined,
-                  slug: v.slug || undefined,
-                  dcr_enabled: bool(v.dcr_enabled),
-                  pkce_required: bool(v.pkce_required),
-                  login_flow: v.login_flow || undefined,
-                },
+              await ctx.client.zones.patch(row.id, {
+                name: v.name || undefined,
+                slug: v.slug || undefined,
+                dcr_enabled: bool(v.dcr_enabled),
+                pkce_required: bool(v.pkce_required),
+                login_flow: v.login_flow || undefined,
               })
               await popAndReload(app, list as unknown as ListView<unknown>)
             },
@@ -162,7 +130,7 @@ export function zonesView(ctx: Ctx): View {
           return new ConfirmView({
             message: `delete zone ${row.slug}?`,
             onConfirm: async (app) => {
-              await zoneDelete({ client: ctx.client, id: row.id })
+              await ctx.client.zones.delete(row.id)
               await popAndReload(app, list as unknown as ListView<unknown>)
             },
           })
@@ -198,17 +166,13 @@ export function applicationsView(ctx: Ctx): View {
             { key: 'consent', label: 'consent', kind: 'bool', default: 'false' },
           ],
           onSubmit: async (v, app) => {
-            await appCreate({
-              client: ctx.client,
-              zoneId: ctx.zoneId,
-              input: {
-                name: v.name!,
-                registration_method: (v.registration_method as 'managed' | 'dcr') ?? 'managed',
-                credential_type: (v.credential_type as 'token' | 'password' | 'public-key' | 'url' | 'public') || undefined,
-                client_secret: v.client_secret || undefined,
-                traits: v.traits ? splitList(v.traits) : undefined,
-                consent: bool(v.consent),
-              },
+            await ctx.client.applications.create(ctx.zoneId, {
+              name: v.name!,
+              registration_method: (v.registration_method as 'managed' | 'dcr') ?? 'managed',
+              credential_type: (v.credential_type as 'token' | 'password' | 'public-key' | 'url' | 'public') || undefined,
+              client_secret: v.client_secret || undefined,
+              traits: v.traits ? splitList(v.traits) : undefined,
+              consent: bool(v.consent),
             })
             await popAndReload(app, list as unknown as ListView<unknown>)
           },
@@ -227,18 +191,13 @@ export function applicationsView(ctx: Ctx): View {
               { key: 'consent', label: 'consent', kind: 'bool', default: String(row.consent === 'true') },
             ],
             onSubmit: async (v, app) => {
-              await appPatch({
-                client: ctx.client,
-                zoneId: ctx.zoneId,
-                id: row.id,
-                input: {
-                  name: v.name || undefined,
-                  credential_type: (v.credential_type as 'token' | 'password' | 'public-key' | 'url' | 'public') || undefined,
-                  client_secret: v.client_secret || undefined,
-                  traits: v.traits ? splitList(v.traits) : undefined,
-                  consent: bool(v.consent),
-                } as Partial<Parameters<typeof appPatch>[0]['input']>,
-              })
+              await ctx.client.applications.patch(ctx.zoneId, row.id, {
+                name: v.name || undefined,
+                credential_type: (v.credential_type as 'token' | 'password' | 'public-key' | 'url' | 'public') || undefined,
+                client_secret: v.client_secret || undefined,
+                traits: v.traits ? splitList(v.traits) : undefined,
+                consent: bool(v.consent),
+              } as Partial<ApplicationInput>)
               await popAndReload(app, list as unknown as ListView<unknown>)
             },
           })
@@ -250,7 +209,7 @@ export function applicationsView(ctx: Ctx): View {
           return new ConfirmView({
             message: `delete application ${row.name}?`,
             onConfirm: async (app) => {
-              await appDelete({ client: ctx.client, zoneId: ctx.zoneId, id: row.id })
+              await ctx.client.applications.delete(ctx.zoneId, row.id)
               await popAndReload(app, list as unknown as ListView<unknown>)
             },
           })
@@ -262,11 +221,7 @@ export function applicationsView(ctx: Ctx): View {
           return new ConfirmView({
             message: `dynamic-register ${row.name}?`,
             onConfirm: async (app) => {
-              await appDcr({
-                client: ctx.client,
-                zoneId: ctx.zoneId,
-                input: { name: row.name },
-              })
+              await ctx.client.applications.dcr(ctx.zoneId, { name: row.name })
               await popAndReload(app, list as unknown as ListView<unknown>)
             },
           })
@@ -301,17 +256,13 @@ export function resourcesView(ctx: Ctx): View {
             { key: 'credential_provider_id', label: 'provider', kind: 'text' },
           ],
           onSubmit: async (v, app) => {
-            await resourceCreate({
-              client: ctx.client,
-              zoneId: ctx.zoneId,
-              input: {
-                identifier: v.identifier!,
-                scopes: splitList(v.scopes ?? ''),
-                name: v.name || undefined,
-                upstream_url: v.upstream_url || undefined,
-                prefix: bool(v.prefix),
-                credential_provider_id: v.credential_provider_id || undefined,
-              },
+            await ctx.client.resources.create(ctx.zoneId, {
+              identifier: v.identifier!,
+              scopes: splitList(v.scopes ?? ''),
+              name: v.name || undefined,
+              upstream_url: v.upstream_url || undefined,
+              prefix: bool(v.prefix),
+              credential_provider_id: v.credential_provider_id || undefined,
             })
             await popAndReload(app, list as unknown as ListView<unknown>)
           },
@@ -330,18 +281,13 @@ export function resourcesView(ctx: Ctx): View {
               { key: 'scopes', label: 'scopes (csv)', kind: 'list', default: (row.scopes ?? []).join(',') },
             ],
             onSubmit: async (v, app) => {
-              await resourcePatch({
-                client: ctx.client,
-                zoneId: ctx.zoneId,
-                id: row.id,
-                input: {
-                  name: v.name || undefined,
-                  identifier: v.identifier || undefined,
-                  upstream_url: v.upstream_url || undefined,
-                  prefix: bool(v.prefix),
-                  scopes: v.scopes ? splitList(v.scopes) : undefined,
-                } as Partial<Parameters<typeof resourcePatch>[0]['input']>,
-              })
+              await ctx.client.resources.patch(ctx.zoneId, row.id, {
+                name: v.name || undefined,
+                identifier: v.identifier || undefined,
+                upstream_url: v.upstream_url || undefined,
+                prefix: bool(v.prefix),
+                scopes: v.scopes ? splitList(v.scopes) : undefined,
+              } as Partial<ResourceInput>)
               await popAndReload(app, list as unknown as ListView<unknown>)
             },
           })
@@ -353,7 +299,7 @@ export function resourcesView(ctx: Ctx): View {
           return new ConfirmView({
             message: `delete resource ${row.identifier}?`,
             onConfirm: async (app) => {
-              await resourceDelete({ client: ctx.client, zoneId: ctx.zoneId, id: row.id })
+              await ctx.client.resources.delete(ctx.zoneId, row.id)
               await popAndReload(app, list as unknown as ListView<unknown>)
             },
           })
@@ -388,16 +334,12 @@ export function providersView(ctx: Ctx): View {
             { key: 'owner_type', label: 'owner_type', kind: 'text' },
           ],
           onSubmit: async (v, app) => {
-            await providerCreate({
-              client: ctx.client,
-              zoneId: ctx.zoneId,
-              input: {
-                identifier: v.identifier!,
-                name: v.name || undefined,
-                kind: (v.kind as 'oauth2' | 'oidc' | 'apikey' | 'workload') || undefined,
-                config_json: v.config_json ? JSON.parse(v.config_json) : undefined,
-                owner_type: v.owner_type || undefined,
-              },
+            await ctx.client.providers.create(ctx.zoneId, {
+              identifier: v.identifier!,
+              name: v.name || undefined,
+              kind: (v.kind as 'oauth2' | 'oidc' | 'apikey' | 'workload') || undefined,
+              config_json: v.config_json ? JSON.parse(v.config_json) : undefined,
+              owner_type: v.owner_type || undefined,
             })
             await popAndReload(app, list as unknown as ListView<unknown>)
           },
@@ -416,18 +358,13 @@ export function providersView(ctx: Ctx): View {
               { key: 'owner_type', label: 'owner_type', kind: 'text', default: row.owner_type },
             ],
             onSubmit: async (v, app) => {
-              await providerPatch({
-                client: ctx.client,
-                zoneId: ctx.zoneId,
-                id: row.id,
-                input: {
-                  name: v.name || undefined,
-                  identifier: v.identifier || undefined,
-                  kind: (v.kind as 'oauth2' | 'oidc' | 'apikey' | 'workload') || undefined,
-                  config_json: v.config_json ? JSON.parse(v.config_json) : undefined,
-                  owner_type: v.owner_type || undefined,
-                },
-              })
+              await ctx.client.providers.patch(ctx.zoneId, row.id, {
+                name: v.name || undefined,
+                identifier: v.identifier || undefined,
+                kind: (v.kind as 'oauth2' | 'oidc' | 'apikey' | 'workload') || undefined,
+                config_json: v.config_json ? JSON.parse(v.config_json) : undefined,
+                owner_type: v.owner_type || undefined,
+              } as Partial<ProviderInput>)
               await popAndReload(app, list as unknown as ListView<unknown>)
             },
           })
@@ -439,7 +376,7 @@ export function providersView(ctx: Ctx): View {
           return new ConfirmView({
             message: `delete provider ${row.identifier}?`,
             onConfirm: async (app) => {
-              await providerDelete({ client: ctx.client, zoneId: ctx.zoneId, id: row.id })
+              await ctx.client.providers.delete(ctx.zoneId, row.id)
               await popAndReload(app, list as unknown as ListView<unknown>)
             },
           })
@@ -476,16 +413,12 @@ export function policiesView(ctx: Ctx): View {
           onSubmit: async (v, app) => {
             const content = readFileOrInline(v.file ?? '', v.content ?? '')
             if (!content) throw new Error('file or content required')
-            await policyCreate({
-              client: ctx.client,
-              zoneId: ctx.zoneId,
-              input: {
-                name: v.name!,
-                description: v.description || undefined,
-                owner_type: v.owner_type || undefined,
-                content,
-                schema_version: v.schema_version || undefined,
-              },
+            await ctx.client.policies.create(ctx.zoneId, {
+              name: v.name!,
+              description: v.description || undefined,
+              owner_type: v.owner_type || undefined,
+              content,
+              schema_version: v.schema_version || undefined,
             })
             await popAndReload(app, list as unknown as ListView<unknown>)
           },
@@ -504,13 +437,7 @@ export function policiesView(ctx: Ctx): View {
             onSubmit: async (v, app) => {
               const content = readFileOrInline(v.file ?? '', v.content ?? '')
               if (!content) throw new Error('file or content required')
-              await policyVersion({
-                client: ctx.client,
-                zoneId: ctx.zoneId,
-                id: row.id,
-                content,
-                schemaVersion: v.schema_version || undefined,
-              })
+              await ctx.client.policies.addVersion(ctx.zoneId, row.id, content, v.schema_version || undefined)
               await popAndReload(app, list as unknown as ListView<unknown>)
             },
           })
@@ -522,7 +449,7 @@ export function policiesView(ctx: Ctx): View {
           return new ConfirmView({
             message: `delete policy ${row.name}?`,
             onConfirm: async (app) => {
-              await policyDelete({ client: ctx.client, zoneId: ctx.zoneId, id: row.id })
+              await ctx.client.policies.delete(ctx.zoneId, row.id)
               await popAndReload(app, list as unknown as ListView<unknown>)
             },
           })
@@ -552,12 +479,7 @@ export function policySetsView(ctx: Ctx): View {
             { key: 'description', label: 'description', kind: 'text' },
           ],
           onSubmit: async (v, app) => {
-            await policySetCreate({
-              client: ctx.client,
-              zoneId: ctx.zoneId,
-              name: v.name!,
-              description: v.description || undefined,
-            })
+            await ctx.client.policySets.create(ctx.zoneId, v.name!, v.description || undefined)
             await popAndReload(app, list as unknown as ListView<unknown>)
           },
         }),
@@ -571,12 +493,8 @@ export function policySetsView(ctx: Ctx): View {
               { key: 'policy_versions', label: 'versions (csv)', kind: 'list', required: true },
             ],
             onSubmit: async (v, app) => {
-              await policySetVersion({
-                client: ctx.client,
-                zoneId: ctx.zoneId,
-                id: row.id,
-                policyVersionIds: splitList(v.policy_versions ?? ''),
-              })
+              const manifest = splitList(v.policy_versions ?? '').map((policy_version_id) => ({ policy_version_id }))
+              await ctx.client.policySets.addVersion(ctx.zoneId, row.id, manifest)
               await popAndReload(app, list as unknown as ListView<unknown>)
             },
           })
@@ -592,13 +510,7 @@ export function policySetsView(ctx: Ctx): View {
               { key: 'shadow_version_id', label: 'shadow_version_id', kind: 'text' },
             ],
             onSubmit: async (v, app) => {
-              await policySetActivate({
-                client: ctx.client,
-                zoneId: ctx.zoneId,
-                id: row.id,
-                versionId: v.version_id!,
-                shadowVersionId: v.shadow_version_id || undefined,
-              })
+              await ctx.client.policySets.activate(ctx.zoneId, row.id, v.version_id!, v.shadow_version_id || undefined)
               await popAndReload(app, list as unknown as ListView<unknown>)
             },
           })
@@ -610,7 +522,7 @@ export function policySetsView(ctx: Ctx): View {
           return new ConfirmView({
             message: `delete policy-set ${row.name}?`,
             onConfirm: async (app) => {
-              await policySetDelete({ client: ctx.client, zoneId: ctx.zoneId, id: row.id })
+              await ctx.client.policySets.delete(ctx.zoneId, row.id)
               await popAndReload(app, list as unknown as ListView<unknown>)
             },
           })
@@ -644,15 +556,11 @@ export function grantsView(ctx: Ctx): View {
             { key: 'scopes', label: 'scopes (csv)', kind: 'list', required: true },
           ],
           onSubmit: async (v, app) => {
-            await grantCreate({
-              client: ctx.client,
-              zoneId: ctx.zoneId,
-              input: {
-                application_id: v.application_id!,
-                user_id: v.user_id!,
-                resource_id: v.resource_id!,
-                scopes: splitList(v.scopes ?? ''),
-              },
+            await ctx.client.grants.create(ctx.zoneId, {
+              application_id: v.application_id!,
+              user_id: v.user_id!,
+              resource_id: v.resource_id!,
+              scopes: splitList(v.scopes ?? ''),
             })
             await popAndReload(app, list as unknown as ListView<unknown>)
           },
@@ -664,7 +572,7 @@ export function grantsView(ctx: Ctx): View {
           return new ConfirmView({
             message: `revoke grant ${row.id}?`,
             onConfirm: async (app) => {
-              await grantRevoke({ client: ctx.client, zoneId: ctx.zoneId, id: row.id })
+              await ctx.client.grants.revoke(ctx.zoneId, row.id)
               await popAndReload(app, list as unknown as ListView<unknown>)
             },
           })
@@ -693,7 +601,7 @@ export function sessionsView(ctx: Ctx): View {
           return new ConfirmView({
             message: `revoke delegation edge ${row.id}?`,
             onConfirm: async (app) => {
-              await delegationRevoke({ client: ctx.client, zoneId: ctx.zoneId, id: row.id })
+              await ctx.client.delegations.revoke(ctx.zoneId, row.id)
               await popAndReload(app, list as unknown as ListView<unknown>)
             },
           })
@@ -716,7 +624,7 @@ export function delegationsView(ctx: Ctx): View {
           return new ConfirmView({
             message: `revoke delegation ${row.id}?`,
             onConfirm: async (app) => {
-              await delegationRevoke({ client: ctx.client, zoneId: ctx.zoneId, id: row.id })
+              await ctx.client.delegations.revoke(ctx.zoneId, row.id)
               await popAndReload(app, list as unknown as ListView<unknown>)
             },
           })
@@ -747,7 +655,7 @@ export function agentsView(ctx: Ctx): View {
           return new ConfirmView({
             message: `suspend agent ${row.id}?`,
             onConfirm: async (app) => {
-              await agentSuspend({ client: ctx.client, zoneId: ctx.zoneId, id: row.id })
+              await ctx.client.agents.suspend(ctx.zoneId, row.id)
               await popAndReload(app, list as unknown as ListView<unknown>)
             },
           })
@@ -759,7 +667,7 @@ export function agentsView(ctx: Ctx): View {
           return new ConfirmView({
             message: `resume agent ${row.id}?`,
             onConfirm: async (app) => {
-              await agentResume({ client: ctx.client, zoneId: ctx.zoneId, id: row.id })
+              await ctx.client.agents.resume(ctx.zoneId, row.id)
               await popAndReload(app, list as unknown as ListView<unknown>)
             },
           })
@@ -771,7 +679,7 @@ export function agentsView(ctx: Ctx): View {
           return new ConfirmView({
             message: `terminate agent ${row.id}?`,
             onConfirm: async (app) => {
-              await agentTerminate({ client: ctx.client, zoneId: ctx.zoneId, id: row.id })
+              await ctx.client.agents.terminate(ctx.zoneId, row.id)
               await popAndReload(app, list as unknown as ListView<unknown>)
             },
           })
@@ -780,9 +688,7 @@ export function agentsView(ctx: Ctx): View {
       {
         key: 'T', label: 'tree', build: (row) => {
           if (!row) throw new Error('no row selected')
-          return detail(`agent-tree / ${row.id}`, () => agentTree({
-            client: ctx.client, zoneId: ctx.zoneId, id: row.id,
-          }))
+          return detail(`agent-tree / ${row.id}`, () => ctx.client.agents.children(ctx.zoneId, row.id))
         },
       },
     ],
@@ -793,3 +699,5 @@ export function agentsView(ctx: Ctx): View {
 export function auditView(ctx: Ctx): View {
   return new AuditTailView(ctx.client, ctx.zoneId)
 }
+
+export type { ZoneInput }
