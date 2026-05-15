@@ -1,37 +1,34 @@
 // Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 // Caracal, a product of Garudex Labs
 //
-// Shared helpers for admin-surface CLI subcommands: client bootstrap and IO.
+// CLI flag parsing, table/JSON printers, and exit-code handling for admin subcommands.
 
-import { readFileSync } from 'node:fs'
-import { AdminClient, AdminApiError } from '@caracalai/admin'
-import { discoverAdminToken, runtimeEnvFile } from '@caracalai/core'
+import { AdminApiError } from '@caracalai/admin'
 import {
-  DEFAULT_API_URL,
-  DEFAULT_COORDINATOR_URL,
-  resolveServiceUrl,
-} from '@caracalai/core/cli'
+  buildAdminClient as buildAdminClientCore,
+  readContent as readContentCore,
+  type AdminContext,
+} from '@caracalai/cli-core'
 import type { CliConfig } from '../config.ts'
 import { style, printError } from '../style.ts'
 
-export interface AdminContext {
-  client: AdminClient
-  zoneId: string | undefined
-}
+export type { AdminContext } from '@caracalai/cli-core'
 
 export function buildAdminClient(cfg?: CliConfig): AdminContext {
-  const adminToken = discoverAdminToken()
-  if (!adminToken) {
-    printError(`CARACAL_ADMIN_TOKEN not set; export it or run \`caracal up\` (writes ${runtimeEnvFile()})`)
+  try {
+    return buildAdminClientCore(cfg)
+  } catch (err) {
+    printError(err instanceof Error ? err.message : String(err))
     process.exit(1)
   }
-  const apiUrl = resolveServiceUrl('CARACAL_API_URL', DEFAULT_API_URL)
-  const coordinatorUrl = resolveServiceUrl('CARACAL_COORDINATOR_URL', DEFAULT_COORDINATOR_URL)
-  const coordinatorToken = process.env.CARACAL_COORDINATOR_TOKEN
-  const zoneId = process.env.CARACAL_ZONE_ID ?? cfg?.zone_id
-  return {
-    client: new AdminClient({ apiUrl, coordinatorUrl, adminToken, coordinatorToken }),
-    zoneId,
+}
+
+export function readContent(value: string | undefined): string {
+  try {
+    return readContentCore(value)
+  } catch (err) {
+    printError(err instanceof Error ? err.message : String(err))
+    process.exit(1)
   }
 }
 
@@ -163,15 +160,4 @@ function formatCell(value: unknown): string {
   if (Array.isArray(value)) return value.join(',')
   if (typeof value === 'object') return JSON.stringify(value)
   return String(value)
-}
-
-export function readContent(value: string | undefined): string {
-  if (!value) {
-    printError('missing content; use --file <path> or --content <inline>')
-    process.exit(1)
-  }
-  if (value.startsWith('@')) {
-    return readFileSync(value.slice(1), 'utf8')
-  }
-  return value
 }

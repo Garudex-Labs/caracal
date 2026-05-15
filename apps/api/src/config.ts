@@ -53,6 +53,9 @@ export interface Config {
     streamMaxLen: number
   }
   readyRateLimitPerMin: number
+  v1RateLimitPerMin: number
+  adminAuthFailLimitPerMin: number
+  lastUsedDebounceSec: number
   trustProxy: boolean
 }
 
@@ -129,6 +132,9 @@ export function loadConfig(): Config {
       streamMaxLen: parseIntEnv('OUTBOX_STREAM_MAXLEN', 100_000),
     },
     readyRateLimitPerMin: parseNonNegIntEnv('READY_RATE_LIMIT_PER_MIN', 120),
+    v1RateLimitPerMin: parseNonNegIntEnv('API_V1_RATE_LIMIT_PER_MIN', 600),
+    adminAuthFailLimitPerMin: parseNonNegIntEnv('ADMIN_AUTH_FAIL_LIMIT_PER_MIN', 60),
+    lastUsedDebounceSec: parseNonNegIntEnv('ADMIN_TOKEN_LAST_USED_DEBOUNCE_SEC', 60),
     trustProxy: parseBool(process.env.TRUST_PROXY, false),
   }
 }

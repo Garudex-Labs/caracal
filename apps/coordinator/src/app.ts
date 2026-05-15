@@ -4,6 +4,8 @@
 // Coordinator Fastify application factory.
 
 import Fastify from 'fastify'
+import { hostname } from 'node:os'
+import pino from 'pino'
 import type { Pool } from 'pg'
 import type { Redis as RedisClient } from 'ioredis'
 import { ZodError } from 'zod'
@@ -31,7 +33,18 @@ declare module 'fastify' {
 export async function buildApp() {
   const app = Fastify({
     logger: {
-      transport: { target: 'pino/file', options: { destination: '/dev/stderr' } },
+      level: process.env.LOG_LEVEL || 'info',
+      base: {
+        service: 'coordinator',
+        env: process.env.CARACAL_ENV || process.env.NODE_ENV || 'development',
+        version: process.env.CARACAL_VERSION || 'dev',
+        pid: process.pid,
+        hostname: hostname(),
+      },
+      messageKey: 'msg',
+      timestamp: pino.stdTimeFunctions.isoTime,
+      formatters: { level: (label) => ({ level: label }) },
+      serializers: { err: pino.stdSerializers.err, error: pino.stdSerializers.err },
       redact: { paths: buildPinoRedactPaths(), censor: '***' },
     },
     requestTimeout: cfg.requestTimeoutMs,
