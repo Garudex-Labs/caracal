@@ -42,7 +42,14 @@ export function stackUp(opts: StackComposeOpts): StackComposeHandle {
     cwd: opts.paths.cwd,
     onLine: opts.onLine,
   })
-  return { dispose: handle.dispose, exitCode: handle.exitCode }
+  const exitCode = handle.exitCode.then(async (code) => {
+    if (code !== 0) return code
+    // Remove exited one-shot containers (e.g. dbMigrate) so they don't linger.
+    const rm = runExec({ argv: composeArgv(opts.paths, ['rm', '-f']), env: opts.env, cwd: opts.paths.cwd })
+    await rm.exitCode
+    return code
+  })
+  return { dispose: handle.dispose, exitCode }
 }
 
 export function stackDown(opts: StackComposeOpts): StackComposeHandle {
