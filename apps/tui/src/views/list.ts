@@ -105,12 +105,13 @@ export class ListView<T> implements View {
   }
 
   async onKey(key: Key, ctx: ViewContext): Promise<void> {
+    const last = Math.max(0, this.rows.length - 1)
     if (key === 'up' || key === 'k') { this.cursor = Math.max(0, this.cursor - 1); return }
-    if (key === 'down' || key === 'j') { this.cursor = Math.min(this.rows.length - 1, this.cursor + 1); return }
+    if (key === 'down' || key === 'j') { this.cursor = Math.min(last, this.cursor + 1); return }
     if (key === 'pgup') { this.cursor = Math.max(0, this.cursor - 10); return }
-    if (key === 'pgdn') { this.cursor = Math.min(this.rows.length - 1, this.cursor + 10); return }
+    if (key === 'pgdn') { this.cursor = Math.min(last, this.cursor + 10); return }
     if (key === 'home' || key === 'g') { this.cursor = 0; return }
-    if (key === 'end' || key === 'G') { this.cursor = this.rows.length - 1; return }
+    if (key === 'end' || key === 'G') { this.cursor = last; return }
     if (key === 'r') return this.reload(ctx.app)
     if (key === 'left' || key === 'h' || key === 'esc') { ctx.app.pop(); return }
     if (key === 'enter') {

@@ -65,7 +65,7 @@ export class DetailView implements View {
   }
 
   async onKey(key: Key, ctx: ViewContext): Promise<void> {
-    const max = Math.max(0, this.body.length - ctx.size.rows + 1)
+    const max = Math.max(0, this.body.length - ctx.size.rows)
     if (key === 'up' || key === 'k') { this.offset = Math.max(0, this.offset - 1); return }
     if (key === 'down' || key === 'j') { this.offset = Math.min(max, this.offset + 1); return }
     if (key === 'pgup') { this.offset = Math.max(0, this.offset - 10); return }
