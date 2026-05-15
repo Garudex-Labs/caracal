@@ -4,7 +4,7 @@
 // Live audit tail view: polls the audit endpoint and streams new events.
 
 import type { AdminClient, AuditEvent } from '@caracalai/admin'
-import { ansi, pad, truncate } from '../ansi.ts'
+import { ansi, pad, sanitizeAnsi, truncate } from '../ansi.ts'
 import { explainError } from '../errors.ts'
 import type { Key } from '../keys.ts'
 import type { App, View, ViewContext } from '../screen.ts'
@@ -126,11 +126,11 @@ export class AuditTailView implements View {
     for (let i = this.offset; i < Math.min(this.events.length, this.offset + visible); i++) {
       const ev = this.events[i]!
       const cells = [
-        ev.occurred_at ?? '-',
-        ev.event_type ?? '-',
+        sanitizeAnsi(ev.occurred_at ?? '-'),
+        sanitizeAnsi(ev.event_type ?? '-'),
         colorDecision(ev.decision),
-        ev.evaluation_status ?? '-',
-        ev.request_id ?? '-',
+        sanitizeAnsi(ev.evaluation_status ?? '-'),
+        sanitizeAnsi(ev.request_id ?? '-'),
       ]
       const text = cells.map((c, idx) => pad(truncate(c, widths[idx]!), widths[idx]!)).join('  ')
       lines.push(i === this.cursor ? ansi.invert + ' ' + text + ' ' + ansi.reset : ' ' + text + ' ')
@@ -139,10 +139,11 @@ export class AuditTailView implements View {
   }
 
   async onKey(key: Key, ctx: ViewContext): Promise<void> {
+    const last = Math.max(0, this.events.length - 1)
     if (key === 'up' || key === 'k') { this.cursor = Math.max(0, this.cursor - 1); return }
-    if (key === 'down' || key === 'j') { this.cursor = Math.min(this.events.length - 1, this.cursor + 1); return }
+    if (key === 'down' || key === 'j') { this.cursor = Math.min(last, this.cursor + 1); return }
     if (key === 'pgup') { this.cursor = Math.max(0, this.cursor - 10); return }
-    if (key === 'pgdn') { this.cursor = Math.min(this.events.length - 1, this.cursor + 10); return }
+    if (key === 'pgdn') { this.cursor = Math.min(last, this.cursor + 10); return }
     if (key === 'p') { this.paused = !this.paused; ctx.app.setStatus(this.paused ? 'paused' : 'streaming'); return }
     if (key === 'd') {
       const order: typeof this.decision[] = ['all', 'allow', 'deny', 'partial']

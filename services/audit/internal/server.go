@@ -147,11 +147,13 @@ func (s *Server) handleReady(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
 	defer cancel()
 	if err := s.pg.Ping(ctx); err != nil {
-		http.Error(w, "pg unreachable: "+err.Error(), http.StatusServiceUnavailable)
+		s.log.Warn().Err(err).Msg("ready: pg unreachable")
+		http.Error(w, "service unavailable", http.StatusServiceUnavailable)
 		return
 	}
 	if err := s.redis.Ping(ctx).Err(); err != nil {
-		http.Error(w, "redis unreachable: "+err.Error(), http.StatusServiceUnavailable)
+		s.log.Warn().Err(err).Msg("ready: redis unreachable")
+		http.Error(w, "service unavailable", http.StatusServiceUnavailable)
 		return
 	}
 	w.WriteHeader(http.StatusOK)

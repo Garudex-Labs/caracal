@@ -50,9 +50,7 @@ function bearerOf(req: { headers: { authorization?: string } }): string {
 }
 
 function clientIp(req: FastifyRequest): string {
-  return (req.headers['x-forwarded-for'] as string | undefined)?.split(',')[0]?.trim()
-    || req.ip
-    || 'unknown'
+  return req.ip || 'unknown'
 }
 
 async function v1RateLimit(fastify: FastifyInstance, req: FastifyRequest, reply: FastifyReply): Promise<boolean> {
@@ -141,9 +139,8 @@ export const v1Routes: FastifyPluginAsync = async (fastify) => {
       const claims = await verify(raw, config)
       return { valid: true, claims }
     } catch (err) {
-      const name = err instanceof Error ? err.name : 'Error'
-      const message = err instanceof Error ? err.message : 'verify_failed'
-      return reply.code(401).send({ valid: false, error: name, message })
+      req.log.warn({ err }, 'token_verification_failed')
+      return reply.code(401).send({ valid: false, error: 'token_invalid' })
     }
   })
 }

@@ -30,12 +30,25 @@ export class App {
   private dirty = true
   private exiting = false
   private renderTimer: NodeJS.Timeout | undefined
+  private exitHandlerInstalled = false
   readonly bannerLeft: string
   private bannerRightFn: () => string
 
   constructor(bannerLeft: string, bannerRight: string | (() => string)) {
     this.bannerLeft = bannerLeft
     this.bannerRightFn = typeof bannerRight === 'function' ? bannerRight : () => bannerRight
+  }
+
+  // Synchronous best-effort terminal restoration registered on process 'exit'
+  // so the user is never stranded in raw mode + alt buffer if any path skips
+  // the async exit() (uncaught throws, top-level rejections, fatal sync code).
+  private installSynchronousExitGuard(): void {
+    if (this.exitHandlerInstalled) return
+    this.exitHandlerInstalled = true
+    process.once('exit', () => {
+      try { if (process.stdin.isTTY) process.stdin.setRawMode(false) } catch { /* ignore */ }
+      try { process.stdout.write(ansi.exitAlt + ansi.reset) } catch { /* ignore */ }
+    })
   }
 
   get bannerRight(): string { return this.bannerRightFn() }
@@ -158,6 +171,7 @@ export class App {
   }
 
   async run(initial: View): Promise<void> {
+    this.installSynchronousExitGuard()
     this.stack.push(initial)
     process.stdout.write(ansi.enterAlt + ansi.clear)
     if (process.stdin.isTTY) process.stdin.setRawMode(true)
@@ -173,6 +187,10 @@ export class App {
     process.on('SIGHUP', () => { void this.exit(0) })
     process.on('uncaughtException', (err) => {
       this.setStatus(`fatal: ${explain(err)}`, 'error')
+      void this.exit(1)
+    })
+    process.on('unhandledRejection', (reason) => {
+      this.setStatus(`fatal: ${explain(reason)}`, 'error')
       void this.exit(1)
     })
 
