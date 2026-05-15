@@ -122,12 +122,13 @@ Run from the repo root:
 
 ```bash
 pnpm --dir apps/cli build:release                          # stamp runtime + build local images + bun compile (all targets)
+pnpm --dir apps/tui build:release                          # stamp runtime + bun compile (all targets)
 BIN="$(pwd)/apps/cli/dist/caracal-<os>-<arch>"             # absolute path; survives cd
 "$BIN" --version                                           # → caracal dev-<sha> [runtime]
 (cd /tmp && "$BIN" up && "$BIN" status && "$BIN" down)
 ```
 
-The local `build:release` stamps the binary with `CARACAL_VERSION=dev-<sha>` and `CARACAL_REGISTRY=localhost/`, then runs `docker compose build` to produce `localhost/caracal-{svc}:dev-<sha>` for each service. The release-style binary resolves to those images — no GHCR pull, no auth, fully reproducible from your checkout.
+The local `build:release` stamps the binary with `CARACAL_VERSION=dev-<sha>` and `CARACAL_REGISTRY=localhost/`, then runs `docker compose build` to produce `localhost/caracal-{svc}:dev-<sha>` for each service. The release-style binary resolves to those images — no GHCR pull, no auth, fully reproducible from your checkout. The TUI variant stamps `CARACAL_TUI_VERSION` / `CARACAL_TUI_MODE=runtime` and shares the same engine-installed runtime assets.
 
 ### Cutting a release
 
