@@ -7,6 +7,8 @@ import Fastify from 'fastify'
 import swagger from '@fastify/swagger'
 import swaggerUI from '@fastify/swagger-ui'
 import { randomUUID } from 'node:crypto'
+import { hostname } from 'node:os'
+import pino from 'pino'
 import { ZodError } from 'zod'
 import type { Config } from './config.js'
 import type { DB } from './db.js'
@@ -43,6 +45,17 @@ export async function buildApp({ cfg, db, redis, isDraining }: AppDeps) {
   const app = Fastify({
     logger: {
       level: cfg.logLevel,
+      base: {
+        service: 'api',
+        env: process.env.CARACAL_ENV || process.env.NODE_ENV || 'development',
+        version: process.env.CARACAL_VERSION || 'dev',
+        pid: process.pid,
+        hostname: hostname(),
+      },
+      messageKey: 'msg',
+      timestamp: pino.stdTimeFunctions.isoTime,
+      formatters: { level: (label) => ({ level: label }) },
+      serializers: { err: pino.stdSerializers.err, error: pino.stdSerializers.err },
       redact: { paths: redactPaths, censor: '***' },
     },
     bodyLimit: cfg.bodyLimitBytes,
@@ -73,10 +86,33 @@ export async function buildApp({ cfg, db, redis, isDraining }: AppDeps) {
 
   app.addHook('onSend', async (req, reply, payload) => {
     reply.header('x-request-id', req.id)
+    if (req.url.startsWith('/v1/')) {
+      reply.header('x-content-type-options', 'nosniff')
+      reply.header('referrer-policy', 'no-referrer')
+      reply.header('cache-control', 'no-store')
+    }
     return payload
   })
 
-  await app.register(adminAuthPlugin, { db })
+  if (cfg.v1RateLimitPerMin > 0) {
+    app.addHook('onRequest', async (req, reply) => {
+      if (!req.url.startsWith('/v1/')) return
+      const minute = Math.floor(Date.now() / 60_000)
+      const key = `api:v1_rl:${req.ip}:${minute}`
+      const count = await redis.incr(key)
+      if (count === 1) await redis.expire(key, 90)
+      if (count > cfg.v1RateLimitPerMin) {
+        return reply.code(429).send({ error: 'rate_limited' })
+      }
+    })
+  }
+
+  await app.register(adminAuthPlugin, {
+    db,
+    redis,
+    authFailLimitPerMin: cfg.adminAuthFailLimitPerMin,
+    lastUsedDebounceSec: cfg.lastUsedDebounceSec,
+  })
   registerAdminAuditHook(app, { db })
 
   await app.register(swagger, {

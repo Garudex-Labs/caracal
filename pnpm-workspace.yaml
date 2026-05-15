@@ -10,6 +10,7 @@ packages:
   - 'packages/transport/a2a/ts'
   - 'packages/sdk/ts'
   - 'packages/admin/ts'
+  - 'packages/cli-core'
   - 'packages/connectors/express/ts'
   - 'packages/connectors/fastmcp/ts'
   - 'packages/connectors/postgres/ts'

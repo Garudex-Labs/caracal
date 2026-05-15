@@ -9,6 +9,7 @@ import { timingSafeEqual } from 'node:crypto'
 import { sha256 } from '@caracalai/core'
 import { v7 as uuidv7 } from 'uuid'
 import type { DB } from './db.js'
+import type { RedisClient } from './redis.js'
 
 type AdminScope = 'global' | 'zone'
 
@@ -75,6 +76,29 @@ async function touchLastUsed(db: DB, tokenId: string): Promise<void> {
   )
 }
 
+async function shouldTouchLastUsed(
+  redis: RedisClient | null,
+  tokenId: string,
+  debounceSec: number,
+): Promise<boolean> {
+  if (!redis || debounceSec <= 0) return true
+  const ok = await redis.set(`api:admin_token_touched:${tokenId}`, '1', 'EX', debounceSec, 'NX')
+  return ok === 'OK'
+}
+
+async function recordAuthFailure(
+  redis: RedisClient | null,
+  ip: string,
+  limitPerMin: number,
+): Promise<boolean> {
+  if (!redis || limitPerMin <= 0) return false
+  const minute = Math.floor(Date.now() / 60_000)
+  const key = `api:admin_auth_fail:${ip}:${minute}`
+  const count = await redis.incr(key)
+  if (count === 1) await redis.expire(key, 90)
+  return count > limitPerMin
+}
+
 interface SeedOptions {
   envToken: string | null
   log: (msg: string) => void
@@ -99,22 +123,34 @@ export async function seedBootstrapAdminToken(db: DB, opts: SeedOptions): Promis
 
 export interface AuthPluginOptions {
   db: DB
+  redis?: RedisClient
   protectedPrefix?: string
+  authFailLimitPerMin?: number
+  lastUsedDebounceSec?: number
 }
 
 const adminAuthImpl: FastifyPluginAsync<AuthPluginOptions> = async (fastify, opts) => {
   const prefix = opts.protectedPrefix ?? '/v1/'
+  const redis = opts.redis ?? null
+  const failLimit = opts.authFailLimitPerMin ?? 0
+  const debounceSec = opts.lastUsedDebounceSec ?? 0
 
   fastify.addHook('preHandler', async (req, reply) => {
     if (!req.url.startsWith(prefix)) return
 
     const bearer = extractBearer(req)
     if (!bearer) {
+      if (await recordAuthFailure(redis, req.ip, failLimit)) {
+        return reply.code(429).send({ error: 'rate_limited' })
+      }
       return reply.code(401).send({ error: 'invalid_admin_token' })
     }
 
     const actor = await lookupAdminToken(opts.db, bearer)
     if (!actor) {
+      if (await recordAuthFailure(redis, req.ip, failLimit)) {
+        return reply.code(429).send({ error: 'rate_limited' })
+      }
       return reply.code(401).send({ error: 'invalid_admin_token' })
     }
 
@@ -126,9 +162,11 @@ const adminAuthImpl: FastifyPluginAsync<AuthPluginOptions> = async (fastify, opt
     }
 
     req.actor = actor
-    touchLastUsed(opts.db, actor.id).catch((err) => {
-      req.log.warn({ err, tokenId: actor.id }, 'failed to update admin_tokens.last_used_at')
-    })
+    if (await shouldTouchLastUsed(redis, actor.id, debounceSec)) {
+      touchLastUsed(opts.db, actor.id).catch((err) => {
+        req.log.warn({ err, tokenId: actor.id }, 'failed to update admin_tokens.last_used_at')
+      })
+    }
   })
 }
 

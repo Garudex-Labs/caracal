@@ -87,6 +87,9 @@ importers:
       '@caracalai/admin':
         specifier: workspace:*
         version: link:../../packages/admin/ts
+      '@caracalai/cli-core':
+        specifier: workspace:*
+        version: link:../../packages/cli-core
       '@caracalai/core':
         specifier: workspace:*
         version: link:../../packages/core/ts
@@ -196,6 +199,25 @@ importers:
       vitest:
         specifier: ^4.1.6
         version: 4.1.6(@types/node@24.12.2)(@vitest/coverage-v8@4.1.6)(vite@7.3.3(@types/node@24.12.2)(jiti@2.7.0)(tsx@4.21.0)(yaml@2.9.0))
+
+  packages/cli-core:
+    dependencies:
+      '@caracalai/admin':
+        specifier: workspace:*
+        version: link:../admin/ts
+      '@caracalai/core':
+        specifier: workspace:*
+        version: link:../core/ts
+      '@caracalai/oauth':
+        specifier: workspace:*
+        version: link:../oauth/ts
+    devDependencies:
+      '@types/node':
+        specifier: ^24.12.2
+        version: 24.12.2
+      typescript:
+        specifier: ^6.0.3
+        version: 6.0.3
 
   packages/connectors/express/ts:
     dependencies:
@@ -4764,7 +4786,7 @@ snapshots:
   '@types/body-parser@1.19.6':
     dependencies:
       '@types/connect': 3.4.38
-      '@types/node': 24.12.4
+      '@types/node': 24.12.2
 
   '@types/chai@5.2.3':
     dependencies:
@@ -4773,7 +4795,7 @@ snapshots:
 
   '@types/connect@3.4.38':
     dependencies:
-      '@types/node': 24.12.4
+      '@types/node': 24.12.2
 
   '@types/debug@4.1.13':
     dependencies:
@@ -4791,7 +4813,7 @@ snapshots:
 
   '@types/express-serve-static-core@5.1.1':
     dependencies:
-      '@types/node': 24.12.4
+      '@types/node': 24.12.2
       '@types/qs': 6.15.0
       '@types/range-parser': 1.2.7
       '@types/send': 1.2.1
@@ -4844,16 +4866,16 @@ snapshots:
 
   '@types/sax@1.2.7':
     dependencies:
-      '@types/node': 24.12.4
+      '@types/node': 24.12.2
 
   '@types/send@1.2.1':
     dependencies:
-      '@types/node': 24.12.4
+      '@types/node': 24.12.2
 
   '@types/serve-static@2.2.0':
     dependencies:
       '@types/http-errors': 2.0.5
-      '@types/node': 24.12.4
+      '@types/node': 24.12.2
 
   '@types/unist@2.0.11': {}
 
@@ -7290,7 +7312,7 @@ snapshots:
 
   sitemap@9.0.1:
     dependencies:
-      '@types/node': 24.12.4
+      '@types/node': 24.12.2
       '@types/sax': 1.2.7
       arg: 5.0.2
       sax: 1.6.0
