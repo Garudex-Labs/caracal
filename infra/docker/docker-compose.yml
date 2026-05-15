@@ -138,7 +138,7 @@ services:
     ports:
       - "127.0.0.1:5432:5432"
     volumes:
-      - postgresData:/var/lib/postgresql/data
+      - postgresData:/var/lib/postgresql
     tmpfs:
       - /tmp:size=64m,mode=1777
       - /var/run/postgresql:size=16m,mode=0755

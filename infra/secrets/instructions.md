@@ -8,10 +8,7 @@
 - Must generate dev secrets via `pnpm secrets:init`; output lands in `files/`.
 - Must keep the `files/` directory gitignored at all times.
 - Must use cryptographically random hex strings for every key/password (Node's `crypto.randomBytes`).
-- Must use 0400 permissions on every generated secret file (POSIX only; Windows inherits NTFS ACLs).
-- Production deployments must source secrets from an external manager
-  (Vault, AWS Secrets Manager, GCP Secret Manager, or Kubernetes Secrets) and
-  mount them at the same paths the dev stack uses.
+- Must use 0444 permissions on every generated secret file (Compose v2 ignores `mode:` for file-based secrets — the file is bind-mounted with its host permissions; the parent `files/` directory is 0700, so reads stay scoped to the host owner). Production deployments must source secrets from an external manager instead.
 
 ## Forbidden
 - Must not commit the contents of `files/` to git.

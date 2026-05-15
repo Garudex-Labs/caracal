@@ -20,12 +20,13 @@ function writeOnce(name, bytes) {
   const path = resolve(dir, name)
   try {
     if (statSync(path).size > 0) {
+      if (isPosix) chmodSync(path, 0o444)
       console.log(`skip ${name} (exists)`)
       return
     }
   } catch {}
-  writeFileSync(path, randomBytes(bytes).toString('hex'), { mode: 0o400 })
-  if (isPosix) chmodSync(path, 0o400)
+  writeFileSync(path, randomBytes(bytes).toString('hex'), { mode: 0o444 })
+  if (isPosix) chmodSync(path, 0o444)
   console.log(`wrote ${name}`)
 }
 
