@@ -38,7 +38,7 @@ function usage(out: NodeJS.WriteStream = process.stderr): void {
       `  down [-v]                Stop the stack; ${L('-v')} also removes volumes`,
       `  status                   Probe /health on every service`,
       `  init [--force]           Provision the local zone and write caracal.toml`,
-      `  purge [targets...]       Centralized cleanup (stack, volumes, logs, config, runtime, cache, all)`,
+      `  purge [targets...]       Centralized cleanup (stack, volumes, logs, config, runtime, secrets, cache, all)`,
       '',
       H('Runtime:'),
       `  run [--] <cmd...>        Run a command with RESOURCE_TOKEN injected into env`,

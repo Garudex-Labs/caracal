@@ -30,7 +30,7 @@ import {
   printHeader,
 } from '../style.ts'
 
-type TargetId = 'stack' | 'volumes' | 'logs' | 'config' | 'runtime' | 'cache' | 'images' | 'binary'
+type TargetId = 'stack' | 'volumes' | 'logs' | 'config' | 'runtime' | 'secrets' | 'cache' | 'images' | 'binary'
 
 interface Target {
   id: TargetId
@@ -72,6 +72,7 @@ function purgeHelp(): never {
       '  logs        Truncate container log files via `compose down` + recreate',
       '  config      Remove caracal.toml (zone client secret and config)',
       '  runtime     Remove runtime assets at $CARACAL_HOME (.env, compose.yml)',
+      '  secrets     Remove dev .env and generated secret files (infra/docker/.env, infra/secrets/files/) — dev only',
       '  cache       Remove build artifacts: apps/*/dist, coverage/, node_modules/.cache (dev only)',
       '  images      Remove cached Caracal docker images (caracal/*, ghcr.io/garudex-labs/caracal-*)',
       '  binary      Uninstall caracal CLI binaries from $CARACAL_INSTALL_DIR (default ~/.local/bin)',
@@ -230,6 +231,20 @@ const TARGETS: Target[] = [
     },
   },
   {
+    id: 'secrets',
+    label: 'Remove dev .env and secret files (DESTRUCTIVE)',
+    describe: (ctx) =>
+      ctx.repoRoot
+        ? `${join(ctx.repoRoot, 'infra/docker/.env')}, ${join(ctx.repoRoot, 'infra/secrets/files')}`
+        : '(dev mode only)',
+    available: (ctx) => ctx.repoRoot !== undefined,
+    run: async (ctx) => {
+      if (!ctx.repoRoot) return
+      removePath(join(ctx.repoRoot, 'infra/docker/.env'), ctx, 'infra/docker/.env')
+      removePath(join(ctx.repoRoot, 'infra/secrets/files'), ctx, 'infra/secrets/files')
+    },
+  },
+  {
     id: 'cache',
     label: 'Remove build artifacts (dev only)',
     describe: (ctx) =>
@@ -332,7 +347,7 @@ async function selectInteractively(ctx: PurgeContext): Promise<Target[]> {
 }
 
 function isDestructive(t: Target): boolean {
-  return t.id === 'volumes' || t.id === 'runtime' || t.id === 'config' || t.id === 'images' || t.id === 'binary'
+  return t.id === 'volumes' || t.id === 'runtime' || t.id === 'secrets' || t.id === 'config' || t.id === 'images' || t.id === 'binary'
 }
 
 function expandAll(safe: boolean): Target[] {
