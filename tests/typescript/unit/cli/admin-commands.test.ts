@@ -129,6 +129,8 @@ describe('CLI commands (e2e against stubbed fetch)', () => {
     const cwd = process.cwd()
     process.chdir(mkdtempSync(join(tmpdir(), 'caracal-empty-cwd-')))
     delete process.env.CARACAL_ADMIN_TOKEN
+    delete process.env.CARACAL_ENV_FILE
+    process.env.CARACAL_HOME = mkdtempSync(join(tmpdir(), 'caracal-empty-home-'))
     try {
       await expect(auditCommand(['tail'])).rejects.toThrow(/__exit:1/)
       expect(stderr.mock.calls.map((c) => c[0]).join('')).toContain('CARACAL_ADMIN_TOKEN')
