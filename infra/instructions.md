@@ -6,9 +6,8 @@
 ## Required
 - Must name every subdirectory by a single infrastructure concern.
 - Permitted subdirectories: `docker`, `postgres`, `redis`, `healthcheck`,
-  `secrets`, `edge`, `backup`, `scripts`.
-- Must keep concern-specific assets in their own subdirectory (e.g. Caddy in
-  `edge`, pg_basebackup in `backup`).
+  `secrets`, `scripts`.
+- Must keep concern-specific assets in their own subdirectory.
 
 ## Forbidden
 - Must not contain service source code (Go or TypeScript).
