@@ -61,3 +61,26 @@ describe('api config loadEnvChain', () => {
     expect(process.env.API_TEST_VAR).toBeUndefined()
   })
 })
+
+describe('api config trustProxy', () => {
+  const REQ = {
+    POSTGRES_USER: 'u', POSTGRES_PASSWORD: 'p', POSTGRES_DB: 'd',
+    REDIS_PASSWORD: 'r',
+  }
+  beforeEach(() => { for (const [k, v] of Object.entries(REQ)) process.env[k] = v })
+  afterEach(() => {
+    for (const k of Object.keys(REQ)) delete process.env[k]
+    delete process.env.TRUST_PROXY
+  })
+
+  test('defaults to false when TRUST_PROXY unset', async () => {
+    const { loadConfig } = await import(CONFIG_PATH) as typeof import('../../../../apps/api/src/config')
+    expect(loadConfig().trustProxy).toBe(false)
+  })
+
+  test('parses TRUST_PROXY=true', async () => {
+    process.env.TRUST_PROXY = 'true'
+    const { loadConfig } = await import(CONFIG_PATH) as typeof import('../../../../apps/api/src/config')
+    expect(loadConfig().trustProxy).toBe(true)
+  })
+})

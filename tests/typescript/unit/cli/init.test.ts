@@ -114,4 +114,32 @@ describe('initCommand', () => {
 
     expect(stderr).toContain('re-run with --force')
   })
+
+  it('writes caracal.toml atomically without leaving .tmp siblings', async () => {
+    const configPath = join(dir, 'caracal.toml')
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        zone_id: 'zone1',
+        app_id: 'app1',
+        app_client_id: 'zone1:app1',
+        app_client_secret: 'secret-3',
+        resource: 'resource://example',
+        scope: 'read agent:lifecycle',
+        rotated: false,
+      }),
+    }))
+
+    await initCommand([
+      '--api-url', 'http://api.local',
+      '--zone-url', 'http://sts.local',
+      '--admin-token', 'admin-secret',
+      '--config', configPath,
+    ])
+
+    const { readdirSync } = await import('node:fs')
+    const siblings = readdirSync(dir)
+    expect(siblings).toContain('caracal.toml')
+    expect(siblings.filter((f: string) => f.startsWith('caracal.toml.tmp-'))).toEqual([])
+  })
 })

@@ -157,25 +157,30 @@ func (s *Server) handleReady(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
 	defer cancel()
 	if s.bindings == nil {
-		http.Error(w, "bindings unavailable", http.StatusServiceUnavailable)
+		s.log.Warn().Msg("ready: bindings unavailable")
+		http.Error(w, "service unavailable", http.StatusServiceUnavailable)
 		return
 	}
 	if err := s.bindings.Reload(ctx); err != nil {
-		http.Error(w, "postgres unreachable: "+err.Error(), http.StatusServiceUnavailable)
+		s.log.Warn().Err(err).Msg("ready: postgres unreachable")
+		http.Error(w, "service unavailable", http.StatusServiceUnavailable)
 		return
 	}
 	if s.redis != nil {
 		if err := s.redis.Ping(ctx); err != nil {
-			http.Error(w, "redis unreachable: "+err.Error(), http.StatusServiceUnavailable)
+			s.log.Warn().Err(err).Msg("ready: redis unreachable")
+			http.Error(w, "service unavailable", http.StatusServiceUnavailable)
 			return
 		}
 	}
 	if s.sts == nil {
-		http.Error(w, "sts unavailable", http.StatusServiceUnavailable)
+		s.log.Warn().Msg("ready: sts unavailable")
+		http.Error(w, "service unavailable", http.StatusServiceUnavailable)
 		return
 	}
 	if err := s.sts.Health(ctx); err != nil {
-		http.Error(w, "sts unreachable: "+err.Error(), http.StatusServiceUnavailable)
+		s.log.Warn().Err(err).Msg("ready: sts unreachable")
+		http.Error(w, "service unavailable", http.StatusServiceUnavailable)
 		return
 	}
 	w.WriteHeader(http.StatusOK)

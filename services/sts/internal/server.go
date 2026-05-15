@@ -206,19 +206,23 @@ func (s *Server) handleReady(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
 	defer cancel()
 	if err := s.db.Ping(ctx); err != nil {
-		http.Error(w, "postgres unreachable: "+err.Error(), http.StatusServiceUnavailable)
+		s.log.Warn().Err(err).Msg("ready: postgres unreachable")
+		http.Error(w, "service unavailable", http.StatusServiceUnavailable)
 		return
 	}
 	if s.redis == nil {
-		http.Error(w, "redis unavailable", http.StatusServiceUnavailable)
+		s.log.Warn().Msg("ready: redis unavailable")
+		http.Error(w, "service unavailable", http.StatusServiceUnavailable)
 		return
 	}
 	if err := s.redis.Ping(ctx); err != nil {
-		http.Error(w, "redis unreachable: "+err.Error(), http.StatusServiceUnavailable)
+		s.log.Warn().Err(err).Msg("ready: redis unreachable")
+		http.Error(w, "service unavailable", http.StatusServiceUnavailable)
 		return
 	}
 	if err := s.auditBuffer.Ready(); err != nil {
-		http.Error(w, "audit replay unavailable: "+err.Error(), http.StatusServiceUnavailable)
+		s.log.Warn().Err(err).Msg("ready: audit replay unavailable")
+		http.Error(w, "service unavailable", http.StatusServiceUnavailable)
 		return
 	}
 	w.WriteHeader(http.StatusOK)
