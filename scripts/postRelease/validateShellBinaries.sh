@@ -2,16 +2,16 @@
 # Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 # Caracal, a product of Garudex Labs
 #
-# Downloads CLI release archives, verifies SHA256, and runs --version on the host-platform binary.
+# Downloads shell release archives, verifies SHA256, and runs --version on the host-platform binary.
 
 set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=./lib/common.sh
 source "$HERE/lib/common.sh"
 
-readonly AREA="cliBinaries"
-readonly KIND="cli"
-readonly BIN="caracal-cli"
+readonly AREA="shellBinaries"
+readonly KIND="shell"
+readonly BIN="caracal"
 readonly BASE="https://github.com/$CARACAL_REPO/releases/download/$CARACAL_RELEASE"
 readonly EXPECT="$CLI_VER"
 readonly PLATS=(linux-amd64 linux-arm64 darwin-amd64 darwin-arm64 windows-amd64)
