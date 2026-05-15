@@ -3,11 +3,11 @@
 #
 # Tests for caracalai_core.audit client signing, persistence, drops, and replay.
 
-import json
+import shutil
+import tempfile
 import time
+import unittest
 from pathlib import Path
-
-import pytest
 
 from caracalai_core.audit import AuditClient, AuditEvent
 from caracalai_core.logging import create_logger
@@ -26,7 +26,7 @@ class FakeStreamer:
         return "1-0"
 
 
-def _event(id_="ev-1") -> AuditEvent:
+def _event(id_: str = "ev-1") -> AuditEvent:
     return AuditEvent(
         id=id_,
         zone_id="z1",
@@ -40,80 +40,77 @@ def _event(id_="ev-1") -> AuditEvent:
     )
 
 
-@pytest.fixture
-def replay_dir(tmp_path: Path) -> Path:
-    d = tmp_path / "replay"
-    d.mkdir()
-    return d
+class AuditClientTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.tmp = Path(tempfile.mkdtemp(prefix="caracal-audit-"))
+        self.replay_dir = self.tmp / "replay"
+        self.replay_dir.mkdir()
+        self.logger = create_logger("audit-test", "fatal")
 
+    def tearDown(self) -> None:
+        shutil.rmtree(self.tmp, ignore_errors=True)
 
-@pytest.fixture
-def logger():
-    return create_logger("audit-test", "fatal")
+    def test_requires_hmac_in_production(self):
+        with self.assertRaisesRegex(ValueError, "hmac_key is required"):
+            AuditClient(streamer=FakeStreamer(), replay_dir=self.replay_dir, logger=self.logger, production=True)
 
+    def test_rejects_short_hmac_key(self):
+        with self.assertRaisesRegex(ValueError, "at least 32 bytes"):
+            AuditClient(streamer=FakeStreamer(), replay_dir=self.replay_dir, logger=self.logger, hmac_key=b"short")
 
-def test_requires_hmac_in_production(replay_dir, logger):
-    with pytest.raises(ValueError, match="hmac_key is required"):
-        AuditClient(streamer=FakeStreamer(), replay_dir=replay_dir, logger=logger, production=True)
-
-
-def test_rejects_short_hmac_key(replay_dir, logger):
-    with pytest.raises(ValueError, match="at least 32 bytes"):
-        AuditClient(streamer=FakeStreamer(), replay_dir=replay_dir, logger=logger, hmac_key=b"short")
-
-
-def test_signs_events_when_key_present(replay_dir, logger):
-    s = FakeStreamer()
-    c = AuditClient(streamer=s, replay_dir=replay_dir, logger=logger, hmac_key=b"k" * 32, flush_ttl_ms=10)
-    c.start()
-    c.emit(_event())
-    time.sleep(0.05)
-    c.close()
-    assert len(s.calls) == 1
-    fields = s.calls[0][1]
-    assert "sig" in fields and len(fields["sig"]) == 64
-
-
-def test_persists_on_sink_failure(replay_dir, logger):
-    s = FakeStreamer()
-    s.fail_next = 100
-    c = AuditClient(streamer=s, replay_dir=replay_dir, logger=logger, flush_ttl_ms=10)
-    c.start()
-    c.emit(_event())
-    time.sleep(0.05)
-    c.close()
-    files = list(replay_dir.glob("*.ndjson"))
-    assert files, "expected at least one persisted file"
-
-
-def test_drops_on_overflow(replay_dir, logger):
-    s = FakeStreamer()
-    s.fail_next = 1_000_000
-    c = AuditClient(
-        streamer=s, replay_dir=replay_dir, logger=logger,
-        buffer_cap=2, flush_batch=1_000_000, flush_ttl_ms=1_000_000,
-    )
-    c.start()
-    for _ in range(10):
+    def test_signs_events_when_key_present(self):
+        s = FakeStreamer()
+        c = AuditClient(streamer=s, replay_dir=self.replay_dir, logger=self.logger, hmac_key=b"k" * 32, flush_ttl_ms=10)
+        c.start()
         c.emit(_event())
-    assert c.dropped() > 0
-    c.close()
+        time.sleep(0.05)
+        c.close()
+        self.assertEqual(len(s.calls), 1)
+        fields = s.calls[0][1]
+        self.assertIn("sig", fields)
+        self.assertEqual(len(fields["sig"]), 64)
+
+    def test_persists_on_sink_failure(self):
+        s = FakeStreamer()
+        s.fail_next = 100
+        c = AuditClient(streamer=s, replay_dir=self.replay_dir, logger=self.logger, flush_ttl_ms=10)
+        c.start()
+        c.emit(_event())
+        time.sleep(0.05)
+        c.close()
+        self.assertTrue(list(self.replay_dir.glob("*.ndjson")))
+
+    def test_drops_on_overflow(self):
+        s = FakeStreamer()
+        s.fail_next = 1_000_000
+        c = AuditClient(
+            streamer=s, replay_dir=self.replay_dir, logger=self.logger,
+            buffer_cap=2, flush_batch=1_000_000, flush_ttl_ms=1_000_000,
+        )
+        c.start()
+        for _ in range(10):
+            c.emit(_event())
+        self.assertGreater(c.dropped(), 0)
+        c.close()
+
+    def test_replays_persisted_on_start(self):
+        s1 = FakeStreamer()
+        s1.fail_next = 100
+        c1 = AuditClient(streamer=s1, replay_dir=self.replay_dir, logger=self.logger, flush_ttl_ms=10)
+        c1.start()
+        c1.emit(_event())
+        time.sleep(0.05)
+        c1.close()
+        self.assertEqual(len(list(self.replay_dir.glob("*.ndjson"))), 1)
+
+        s2 = FakeStreamer()
+        c2 = AuditClient(streamer=s2, replay_dir=self.replay_dir, logger=self.logger, flush_ttl_ms=10)
+        c2.start()
+        c2.close()
+        self.assertEqual(len(s2.calls), 1)
+        self.assertEqual(list(self.replay_dir.glob("*.ndjson")), [])
 
 
-def test_replays_persisted_on_start(replay_dir, logger):
-    s1 = FakeStreamer()
-    s1.fail_next = 100
-    c1 = AuditClient(streamer=s1, replay_dir=replay_dir, logger=logger, flush_ttl_ms=10)
-    c1.start()
-    c1.emit(_event())
-    time.sleep(0.05)
-    c1.close()
-    persisted = list(replay_dir.glob("*.ndjson"))
-    assert len(persisted) == 1
+if __name__ == "__main__":
+    unittest.main()
 
-    s2 = FakeStreamer()
-    c2 = AuditClient(streamer=s2, replay_dir=replay_dir, logger=logger, flush_ttl_ms=10)
-    c2.start()
-    c2.close()
-    assert len(s2.calls) == 1
-    assert not list(replay_dir.glob("*.ndjson"))

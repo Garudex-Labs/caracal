@@ -12,6 +12,7 @@ import { enqueueOutbox } from '../outbox.js'
 import { ZoneIdParams, ZoneParams, parseParams } from './params.js'
 import { zoneExists } from '../zone-guard.js'
 import { validateAuthzPolicy } from '../rego.js'
+import { appendKeysetCondition, parseListPagination, setNextLink } from './list-pagination.js'
 import { publicAppsReferencedByContents } from '../policy-invariants.js'
 
 const MANIFEST_MAX_ENTRIES = 256
@@ -37,14 +38,24 @@ export const policySetsRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.get('/zones/:zoneId/policy-sets', async (req, reply) => {
     const params = parseParams(ZoneParams, req, reply)
     if (!params) return
+    const page = parseListPagination(req, reply)
+    if (!page) return
+    const keyset = appendKeysetCondition(
+      { conds: ['ps.zone_id = $1', 'ps.archived_at IS NULL'], values: [params.zoneId] },
+      page,
+      'ps.created_at',
+      'ps.id',
+    )
     const { rows } = await fastify.db.query(
       `SELECT ps.id, ps.zone_id, ps.name, ps.description, ps.created_at,
               psb.active_version_id
        FROM policy_sets ps
        LEFT JOIN policy_set_bindings psb ON psb.policy_set_id = ps.id AND psb.zone_id = ps.zone_id
-       WHERE ps.zone_id = $1 AND ps.archived_at IS NULL ORDER BY ps.created_at DESC`,
-      [params.zoneId],
+       WHERE ${keyset.conds.join(' AND ')}
+       ORDER BY ps.created_at DESC, ps.id DESC LIMIT ${keyset.limitPlaceholder}`,
+      keyset.values,
     )
+    setNextLink(req, reply, rows, page.limit)
     return rows
   })
 

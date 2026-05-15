@@ -8,6 +8,7 @@ import { z } from 'zod'
 import { v7 as uuidv7 } from 'uuid'
 import { buildPatchUpdate, patchColumn } from './patch.js'
 import { ZoneIdParams, ZoneParams, parseParams } from './params.js'
+import { appendKeysetCondition, parseListPagination, setNextLink } from './list-pagination.js'
 
 const TeamBody = z.object({
   name: z.string().min(1),
@@ -23,11 +24,19 @@ export const teamsRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.get('/zones/:zoneId/teams', async (req, reply) => {
     const params = parseParams(ZoneParams, req, reply)
     if (!params) return
+    const page = parseListPagination(req, reply)
+    if (!page) return
+    const keyset = appendKeysetCondition(
+      { conds: ['zone_id = $1'], values: [params.zoneId] },
+      page,
+    )
     const { rows } = await fastify.db.query(
       `SELECT id, zone_id, name, members_json, created_at, updated_at
-       FROM teams WHERE zone_id = $1 ORDER BY name`,
-      [params.zoneId],
+       FROM teams WHERE ${keyset.conds.join(' AND ')}
+       ORDER BY created_at DESC, id DESC LIMIT ${keyset.limitPlaceholder}`,
+      keyset.values,
     )
+    setNextLink(req, reply, rows, page.limit)
     return rows
   })
 
