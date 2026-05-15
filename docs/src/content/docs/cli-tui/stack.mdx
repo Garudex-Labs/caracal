@@ -4,7 +4,7 @@ description: caracal up, down, status, and init — start, stop, probe, and prov
 pageType: reference
 ---
 
-Stack commands manage the local Caracal stack. They delegate to `docker compose` and do not require `CARACAL_ADMIN_TOKEN`. Run them from the directory that contains `infra/docker/docker-compose.yml`, or set `CARACAL_REPO_ROOT` to point there.
+Stack commands manage the local Caracal stack. They delegate to `docker compose` and do not require `CARACAL_ADMIN_TOKEN`. In runtime mode (installed binary), the compose file and env file are resolved automatically from the Caracal runtime home — no flags needed. In dev mode, run via `pnpm caracal` from inside the repo, which sets `CARACAL_REPO_ROOT` automatically.
 
 ---
 

@@ -24,7 +24,7 @@ Every artifact is bound to one of two modes at build time.
 | --------------------- | -------------------------------------------------------- | ----------------------------------------------------------- |
 | `caracal --version`   | `2026.05.14+dev.<sha> [dev (sha …)]`                     | `v2026.05.14 [runtime]` (CI) / `dev-<sha> [runtime]` (local)|
 | Container images      | `localhost/caracal-{svc}:dev-<sha>` (built locally)      | `ghcr.io/garudex-labs/caracal-{svc}:v<calver>` (CI) / `localhost/caracal-{svc}:dev-<sha>` (local) |
-| Compose file          | `infra/docker/docker-compose.yml`                        | embedded in CLI, installed to `~/.caracal/compose.yml`      |
+| Compose file          | `infra/docker/docker-compose.yml`                        | embedded in CLI, installed to the Caracal runtime home (`~/.local/share/caracal/` on Linux, `~/Library/Application Support/caracal/` on macOS) |
 | `INSECURE_*` env vars | honored                                                  | refused; services panic on startup                          |
 
 The base CalVer is centralized in `packages/engine/runtime/release.json` (consumed by `stampDev`). Release CI must pass `CARACAL_RELEASE_VERSION=v<calver>` explicitly; without it, `build:release` produces a developer-local binary that targets `localhost/caracal-<svc>:dev-<sha>` instead of pulling from GHCR.
@@ -70,7 +70,13 @@ pnpm --dir apps/cli typecheck
 Stack must be up and provisioned first.
 
 ```bash
+# bash / zsh (Linux, macOS):
 export CARACAL_ADMIN_TOKEN=$(grep ^CARACAL_ADMIN_TOKEN infra/docker/.env | cut -d= -f2)
+# PowerShell (Windows):
+$env:CARACAL_ADMIN_TOKEN = (Get-Content infra/docker/.env | Select-String '^CARACAL_ADMIN_TOKEN=').ToString().Split('=',2)[1]
+```
+
+```bash
 pnpm --filter @caracalai/tui dev
 ```
 

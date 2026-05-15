@@ -26,7 +26,7 @@ Most `caracal` commands communicate with the control-plane API. Set these enviro
 | `CARACAL_COORDINATOR_TOKEN` | — | JWT with scope `agent:lifecycle`. Required only for `agent` and `delegation` commands. |
 | `CARACAL_CONFIG` | Auto-resolved | Explicit path to `caracal.toml`. Overrides automatic discovery. |
 
-`CARACAL_ADMIN_TOKEN` is discovered in order: the environment variable → `infra/docker/.env` → `.env` in the current directory. The `caracal init` command writes `caracal.toml` with the local stack credentials after bootstrapping.
+`CARACAL_ADMIN_TOKEN` is discovered in order: the `CARACAL_ADMIN_TOKEN` environment variable → the path in `CARACAL_ENV_FILE` (if set) → the runtime home `.env` (auto-written by `caracal up`: `~/.local/share/caracal/.env` on Linux, `~/Library/Application Support/caracal/.env` on macOS) → `infra/docker/.env` relative to `CARACAL_REPO_ROOT` (dev mode only). In the typical installed flow, `caracal up` writes the token and `caracal init` discovers it automatically — no manual export required. The `caracal init` command writes `caracal.toml` with the local stack credentials after bootstrapping.
 
 In production (`NODE_ENV` is not `development`), `CARACAL_API_URL` and `CARACAL_COORDINATOR_URL` must be set explicitly. In development, localhost defaults are used.
 
