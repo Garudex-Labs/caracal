@@ -26,6 +26,9 @@ x-appService: &appService
     - no-new-privileges:true
   cap_drop:
     - ALL
+  read_only: true
+  tmpfs:
+    - /tmp:size=64m,mode=1777
   ulimits:
     nofile:
       soft: 65535
@@ -46,6 +49,7 @@ x-appResources: &appResources
         memory: "${CARACAL_APP_MEM_LIMIT:-512M}"
         pids: 256
       reservations:
+        cpus: "${CARACAL_APP_CPU_RESERVE:-0.1}"
         memory: "${CARACAL_APP_MEM_RESERVE:-128M}"
 
 networks:
@@ -111,13 +115,13 @@ services:
     ports:
       - "127.0.0.1:5432:5432"
     volumes:
-      - postgresData:/var/lib/postgresql
+      - postgresData:/var/lib/postgresql/data
     tmpfs:
-      - /tmp
-      - /var/run/postgresql
+      - /tmp:size=64m,mode=1777
+      - /var/run/postgresql:size=16m,mode=0755
     shm_size: "256m"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB} -h 127.0.0.1"]
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB -h /var/run/postgresql"]
       interval: 5s
       timeout: 3s
       retries: 20
@@ -166,20 +170,50 @@ services:
         reservations:
           memory: "${CARACAL_REDIS_MEM_RESERVE:-128M}"
 
+  dbMigrate:
+    image: localhost/caracal-postgres:dev-${CARACAL_DEV_SHA:-local}
+    build:
+      context: ../postgres
+    restart: "no"
+    init: true
+    logging: *defaultLogging
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+    networks:
+      - caracal
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      PGHOST: postgres
+      PGPORT: "5432"
+      PGUSER: ${POSTGRES_USER}
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+      PGDATABASE: ${POSTGRES_DB}
+      PGSSLMODE: disable
+    volumes:
+      - ../postgres/migrations:/migrations:ro
+      - ../postgres/scripts/migrate.sh:/usr/local/bin/caracal-migrate:ro
+    entrypoint: ["/bin/sh", "/usr/local/bin/caracal-migrate"]
+
   sts:
     <<: [*appService, *appResources]
     build:
       context: ../..
       dockerfile: services/sts/Dockerfile
     image: localhost/caracal-sts:dev-${CARACAL_DEV_SHA:-local}
-    read_only: true
-    tmpfs:
-      - /tmp
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
+      dbMigrate:
+        condition: service_completed_successfully
     environment:
       CARACAL_MODE: ${CARACAL_MODE:-dev}
       DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
@@ -188,7 +222,7 @@ services:
       AUDIT_HMAC_KEY: ${AUDIT_HMAC_KEY}
       STREAMS_HMAC_KEY: ${STREAMS_HMAC_KEY}
       ZONE_KEK_PROVIDER: local
-      ISSUER_URL: http://localhost:8080
+      ISSUER_URL: ${CARACAL_STS_ISSUER_URL:-http://sts:8080}
       PORT: 8080
     ports:
       - "127.0.0.1:8080:8080"
@@ -207,12 +241,11 @@ services:
       context: ../..
       dockerfile: apps/api/Dockerfile
     image: localhost/caracal-api:dev-${CARACAL_DEV_SHA:-local}
-    read_only: true
-    tmpfs:
-      - /tmp
     depends_on:
       sts:
         condition: service_healthy
+      dbMigrate:
+        condition: service_completed_successfully
     environment:
       CARACAL_MODE: ${CARACAL_MODE:-dev}
       DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
@@ -239,14 +272,13 @@ services:
       context: ../..
       dockerfile: services/gateway/Dockerfile
     image: localhost/caracal-gateway:dev-${CARACAL_DEV_SHA:-local}
-    read_only: true
-    tmpfs:
-      - /tmp
     depends_on:
       sts:
         condition: service_healthy
       api:
         condition: service_healthy
+      dbMigrate:
+        condition: service_completed_successfully
     environment:
       CARACAL_MODE: ${CARACAL_MODE:-dev}
       DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
@@ -269,14 +301,13 @@ services:
       context: ../..
       dockerfile: services/audit/Dockerfile
     image: localhost/caracal-audit:dev-${CARACAL_DEV_SHA:-local}
-    read_only: true
-    tmpfs:
-      - /tmp
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
+      dbMigrate:
+        condition: service_completed_successfully
     environment:
       CARACAL_MODE: ${CARACAL_MODE:-dev}
       DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
@@ -301,27 +332,25 @@ services:
       context: ../..
       dockerfile: apps/coordinator/Dockerfile
     image: localhost/caracal-coordinator:dev-${CARACAL_DEV_SHA:-local}
-    read_only: true
-    tmpfs:
-      - /tmp
     depends_on:
       sts:
         condition: service_healthy
+      dbMigrate:
+        condition: service_completed_successfully
     environment:
       CARACAL_MODE: ${CARACAL_MODE:-dev}
       DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
       STS_URL: http://sts:8080
-      ISSUER_URL: http://localhost:8080
+      ISSUER_URL: ${CARACAL_STS_ISSUER_URL:-http://sts:8080}
       STREAMS_HMAC_KEY: ${STREAMS_HMAC_KEY}
       AGENT_COORDINATOR_SCOPE: agent:lifecycle
       PORT: 4000
       HOST: 0.0.0.0
-
     ports:
       - "127.0.0.1:4000:4000"
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:4000/ready || exit 1"]
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:4000/ready >/dev/null || exit 1"]
       interval: 5s
       timeout: 3s
       retries: 20
