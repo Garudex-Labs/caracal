@@ -89,7 +89,9 @@ func New(ctx context.Context) (*Server, error) {
 // Run starts the HTTP(S) listener and blocks until ctx is cancelled.
 func (s *Server) Run(ctx context.Context) error {
 	go s.bindings.StartPolling(ctx)
-	startRevocationConsumer(ctx, s.redis, s.revocations, s.log)
+	if err := startRevocationConsumer(ctx, s.redis, s.revocations, s.log); err != nil {
+		return err
+	}
 	p := newProxy(s.sts, s.jwks, s.guard, s.log, s.cfg.MaxRequestBytes, s.cfg.UpstreamTimeout, s.bindings, s.tracker, s.revocations, s.metrics)
 
 	mux := http.NewServeMux()
@@ -107,6 +109,7 @@ func (s *Server) Run(ctx context.Context) error {
 		ReadTimeout:       s.cfg.ReadTimeout,
 		WriteTimeout:      s.cfg.WriteTimeout,
 		IdleTimeout:       s.cfg.IdleTimeout,
+		MaxHeaderBytes:    16 << 10,
 		ErrorLog:          nil,
 	}
 	if s.cfg.TLSEnabled() {

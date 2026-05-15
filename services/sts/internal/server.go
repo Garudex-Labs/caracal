@@ -111,11 +111,13 @@ func (s *Server) Run(ctx context.Context) error {
 	mux.HandleFunc("GET /metrics", s.handleMetrics)
 
 	srv := &http.Server{
-		Addr:         ":" + s.cfg.Port,
-		Handler:      mux,
-		ReadTimeout:  5 * time.Second,
-		WriteTimeout: 10 * time.Second,
-		IdleTimeout:  60 * time.Second,
+		Addr:              ":" + s.cfg.Port,
+		Handler:           mux,
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       5 * time.Second,
+		WriteTimeout:      10 * time.Second,
+		IdleTimeout:       60 * time.Second,
+		MaxHeaderBytes:    16 << 10,
 	}
 
 	errc := make(chan error, 1)

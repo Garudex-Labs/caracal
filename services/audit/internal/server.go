@@ -116,6 +116,7 @@ func (s *Server) Run(ctx context.Context) error {
 		ReadTimeout:       10 * time.Second,
 		WriteTimeout:      10 * time.Second,
 		IdleTimeout:       60 * time.Second,
+		MaxHeaderBytes:    16 << 10,
 	}
 	g.Go(func() error {
 		s.log.Info().Str("port", s.cfg.Port).Msg("listening")
