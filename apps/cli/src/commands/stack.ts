@@ -3,33 +3,18 @@
 //
 // `caracal up | down | status`: docker-compose lifecycle and health probes for the OSS stack.
 
-import { spawn } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
+import {
+  DEFAULT_SERVICE_PROBES,
+  stackDown,
+  stackStatus,
+  stackUp,
+  type StackPaths,
+} from '@caracalai/cli-core'
 import { CARACAL_MODE, CARACAL_REGISTRY, CARACAL_VERSION } from '../runtime/version.ts'
 import { installRuntimeAssets, runtimePaths, seedEnvFile } from '../runtime/install.ts'
 import { style, SYMBOL, printError, printInfo } from '../style.ts'
-
-interface StackPaths {
-  composeFile: string
-  envFile: string
-  cwd: string
-  mode: 'dev' | 'runtime'
-}
-
-interface ServiceProbe {
-  name: string
-  url: string
-  port: number
-}
-
-const SERVICE_PROBES: ServiceProbe[] = [
-  { name: 'api', url: 'http://localhost:3000/health', port: 3000 },
-  { name: 'sts', url: 'http://localhost:8080/health', port: 8080 },
-  { name: 'gateway', url: 'http://localhost:8081/health', port: 8081 },
-  { name: 'audit', url: 'http://localhost:9090/health', port: 9090 },
-  { name: 'coordinator', url: 'http://localhost:4000/health', port: 4000 },
-]
 
 function devPaths(repoRoot: string): StackPaths {
   const composeFile = join(repoRoot, 'infra', 'docker', 'docker-compose.yml')
@@ -92,93 +77,49 @@ function printBanner(paths: StackPaths): void {
   process.stdout.write(`${style.label('caracal mode:')} ${style.header(tag)}\n`)
 }
 
-function runCompose(args: string[], paths: StackPaths): Promise<number> {
-  return new Promise((resolveExit) => {
-    const env: NodeJS.ProcessEnv = { ...process.env, CARACAL_MODE: paths.mode }
-    if (paths.mode === 'runtime') {
-      if (!env.CARACAL_VERSION) env.CARACAL_VERSION = CARACAL_VERSION
-      if (!env.CARACAL_REGISTRY) env.CARACAL_REGISTRY = CARACAL_REGISTRY
-    }
-    if (paths.mode === 'dev' && !env.CARACAL_DEV_SHA) {
-      env.CARACAL_DEV_SHA = 'nogit'
-    }
-    const proc = spawn(
-      'docker',
-      ['compose', '--env-file', paths.envFile, '-f', paths.composeFile, ...args],
-      { stdio: 'inherit', cwd: paths.cwd, env },
-    )
-    // Forward Ctrl+C / TERM / HUP / QUIT so docker compose tears down its
-    // stack cleanly. Without this, the parent dies and compose is reparented
-    // to PID 1, leaving containers running.
-    const forward: NodeJS.Signals[] = ['SIGINT', 'SIGTERM', 'SIGHUP', 'SIGQUIT']
-    const handlers = forward.map((sig) => {
-      const h = (): void => { try { proc.kill(sig) } catch { /* already dead */ } }
-      process.on(sig, h)
-      return [sig, h] as const
-    })
-    proc.on('exit', (code, signal) => {
-      for (const [sig, h] of handlers) process.off(sig, h)
-      if (typeof code === 'number') return resolveExit(code)
-      if (signal) {
-        const map: Record<string, number> = { SIGINT: 2, SIGTERM: 15, SIGKILL: 9, SIGHUP: 1, SIGQUIT: 3 }
-        return resolveExit(128 + (map[signal] ?? 15))
-      }
-      resolveExit(1)
-    })
-    proc.on('error', (err) => {
-      for (const [sig, h] of handlers) process.off(sig, h)
-      printError(`failed to invoke docker compose: ${err.message}`)
-      resolveExit(127)
-    })
-  })
-}
-
-async function probe(svc: ServiceProbe): Promise<{ ok: boolean; detail: string }> {
-  const ctrl = new AbortController()
-  const timer = setTimeout(() => ctrl.abort(), 1500)
-  try {
-    const res = await fetch(svc.url, { signal: ctrl.signal })
-    return { ok: res.ok, detail: `${res.status}` }
-  } catch (err) {
-    const desc = err instanceof Error ? err.message : String(err)
-    return { ok: false, detail: desc.includes('aborted') ? 'timeout' : 'unreachable' }
-  } finally {
-    clearTimeout(timer)
+function composeEnv(paths: StackPaths): Record<string, string | undefined> {
+  const env: Record<string, string | undefined> = { CARACAL_MODE: paths.mode }
+  if (paths.mode === 'runtime') {
+    if (!process.env.CARACAL_VERSION) env.CARACAL_VERSION = CARACAL_VERSION
+    if (!process.env.CARACAL_REGISTRY) env.CARACAL_REGISTRY = CARACAL_REGISTRY
   }
+  if (paths.mode === 'dev' && !process.env.CARACAL_DEV_SHA) {
+    env.CARACAL_DEV_SHA = 'nogit'
+  }
+  return env
 }
 
 export async function upCommand(argv: string[]): Promise<void> {
   const paths = resolvePaths()
   printBanner(paths)
-  const args = paths.mode === 'dev' ? ['up', '-d', '--build', ...argv] : ['up', '-d', ...argv]
-  const code = await runCompose(args, paths)
+  const handle = stackUp({ paths, args: argv, env: composeEnv(paths) })
+  const code = await handle.exitCode
   process.exit(code)
 }
 
 export async function downCommand(argv: string[]): Promise<void> {
   const paths = resolvePaths()
   printBanner(paths)
-  const code = await runCompose(['down', ...argv], paths)
+  const handle = stackDown({ paths, args: argv, env: composeEnv(paths) })
+  const code = await handle.exitCode
   process.exit(code)
 }
 
 export async function statusCommand(): Promise<void> {
   const paths = resolvePaths()
   printBanner(paths)
-  const results = await Promise.all(
-    SERVICE_PROBES.map(async (svc) => ({ svc, ...(await probe(svc)) })),
-  )
-  const width = SERVICE_PROBES.reduce((m, s) => Math.max(m, s.name.length), 0)
+  const results = await stackStatus({ probes: DEFAULT_SERVICE_PROBES })
+  const width = DEFAULT_SERVICE_PROBES.reduce((m, s) => Math.max(m, s.name.length), 0)
   let allOk = true
   process.stdout.write(
     `${style.header('service'.padEnd(width))}  ${style.header('port ')}  ${style.header('status')}  ${style.header('detail')}\n`,
   )
-  for (const { svc, ok, detail } of results) {
-    if (!ok) allOk = false
-    const mark = ok ? style.success(SYMBOL.ok) : style.error(SYMBOL.fail)
-    const status = ok ? style.success('ok  ') : style.error('down')
+  for (const r of results) {
+    if (!r.ok) allOk = false
+    const mark = r.ok ? style.success(SYMBOL.ok) : style.error(SYMBOL.fail)
+    const status = r.ok ? style.success('ok  ') : style.error('down')
     process.stdout.write(
-      `${svc.name.padEnd(width)}  ${String(svc.port).padStart(5)}  ${mark} ${status}  ${style.label(detail)}\n`,
+      `${r.name.padEnd(width)}  ${String(r.port).padStart(5)}  ${mark} ${status}  ${style.label(r.detail)}\n`,
     )
   }
   process.exit(allOk ? 0 : 1)

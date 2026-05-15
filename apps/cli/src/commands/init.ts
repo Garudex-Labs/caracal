@@ -3,11 +3,12 @@
 //
 // `caracal init`: provisions the local zone via the API and writes caracal.toml.
 
-import { existsSync, mkdirSync, renameSync, writeFileSync } from 'node:fs'
+import { existsSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { dirname, join } from 'node:path'
+import { join } from 'node:path'
 import { discoverAdminToken, runtimeEnvFile } from '@caracalai/core'
-import { AdminClient, AdminApiError, type LocalBootstrapResult } from '@caracalai/admin'
+import { AdminApiError } from '@caracalai/admin'
+import { stackInit } from '@caracalai/cli-core'
 import { showHelp } from './shared.ts'
 import { style, printError, printInfo, printSuccess, printWarn } from '../style.ts'
 
@@ -99,68 +100,36 @@ function parseFlags(argv: string[]): InitOptions {
   return { apiUrl, zoneUrl, configPath, adminToken: token, force }
 }
 
-function renderToml(opts: { zoneUrl: string; zoneId: string; applicationId: string; clientSecret: string; resource: string }): string {
-  return [
-    `zone_url = "${opts.zoneUrl}"`,
-    `zone_id = "${opts.zoneId}"`,
-    `application_id = "${opts.applicationId}"`,
-    `app_client_secret = "${opts.clientSecret}"`,
-    '',
-    '[[credentials]]',
-    'env = "RESOURCE_TOKEN"',
-    `resource = "${opts.resource}"`,
-    '',
-    '[mcp_governance]',
-    'mode = "block"',
-    '',
-  ].join('\n')
-}
-
 export async function initCommand(argv: string[]): Promise<void> {
   const opts = parseFlags(argv)
 
-  const client = new AdminClient({ apiUrl: opts.apiUrl, adminToken: opts.adminToken })
-  let data: LocalBootstrapResult
   try {
-    data = await client.bootstrap(opts.force)
+    const outcome = await stackInit({
+      apiUrl: opts.apiUrl,
+      adminToken: opts.adminToken,
+      zoneUrl: opts.zoneUrl,
+      configPath: opts.configPath,
+      force: opts.force,
+    })
+    if (outcome.status === 'exists') {
+      printInfo(`Zone already provisioned; existing config at ${outcome.configPath} left in place. Re-run with --force to rotate the client secret.`)
+      return
+    }
+    printSuccess(`Wrote ${style.code(outcome.configPath)}`)
+    printWarn(
+      'Caracal enforces policy only on traffic that reaches the gateway or a Caracal connector.\n' +
+        '  Direct calls to the host or to provider APIs bypass Caracal. Firewall every path that is\n' +
+        '  not fronted by the gateway/connector in production.',
+    )
   } catch (err) {
     if (err instanceof AdminApiError) {
       printError(`bootstrap failed (${err.status}): ${err.code}`)
     } else {
       const desc = err instanceof Error ? err.message : String(err)
-      printError(`cannot reach Caracal API at ${opts.apiUrl}: ${desc}`)
+      printError(desc.startsWith('zone already provisioned')
+        ? desc
+        : `cannot reach Caracal API at ${opts.apiUrl}: ${desc}`)
     }
     process.exit(1)
   }
-
-  if (!data.app_client_secret) {
-    if (existsSync(opts.configPath)) {
-      printInfo(`Zone already provisioned; existing config at ${opts.configPath} left in place. Re-run with --force to rotate the client secret.`)
-      return
-    }
-    printError('zone already provisioned but no local config exists; re-run with --force to rotate the client secret.')
-    process.exit(1)
-  }
-
-  const toml = renderToml({
-    zoneUrl: opts.zoneUrl,
-    zoneId: data.zone_id,
-    applicationId: data.application_id,
-    clientSecret: data.app_client_secret,
-    resource: data.resource,
-  })
-
-  mkdirSync(dirname(opts.configPath), { recursive: true })
-  // Atomic write: a half-written caracal.toml from a crash mid-write is worse
-  // than no file (the secret it would have held is unrecoverable from the
-  // server's perspective once /bootstrap returned it).
-  const tmp = `${opts.configPath}.tmp-${process.pid}-${Date.now()}`
-  writeFileSync(tmp, toml, { mode: 0o600 })
-  renameSync(tmp, opts.configPath)
-  printSuccess(`Wrote ${style.code(opts.configPath)}`)
-  printWarn(
-    'Caracal enforces policy only on traffic that reaches the gateway or a Caracal connector.\n' +
-      '  Direct calls to the host or to provider APIs bypass Caracal. Firewall every path that is\n' +
-      '  not fronted by the gateway/connector in production.',
-  )
 }
