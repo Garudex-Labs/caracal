@@ -68,8 +68,8 @@ If you prefer to build from the repository:
 git clone https://github.com/Garudex-Labs/caracal.git
 cd caracal
 pnpm install
-cd apps/cli
-bun build --compile --target=bun-linux-x64 src/index.ts --outfile dist/caracal
+pnpm --filter @caracalai/cli build
+# Output: apps/cli/dist/caracal-cli-<os>-<arch>
 ```
 
 Building requires [Bun](https://bun.sh/) and pnpm 11.0.9.

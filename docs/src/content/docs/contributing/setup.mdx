@@ -144,7 +144,8 @@ cd services/audit && go build ./...
 
 ```sh
 pnpm --filter @caracalai/cli build
-bun build --compile --target=bun-linux-x64 apps/cli/src/index.ts --outfile dist/caracal
+pnpm --filter @caracalai/tui build
+# Binaries land in apps/cli/dist/caracal-cli-<os>-<arch> and apps/tui/dist/caracal-tui-<os>-<arch>
 ```
 
 ---

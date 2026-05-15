@@ -195,7 +195,7 @@ jobs:
             ext=''
             [ "$os" = windows ] && ext='.exe'
             case "$kind" in
-              cli) srcDir=apps/cli/dist; srcBase=caracal; binName=caracal ;;
+              cli) srcDir=apps/cli/dist; srcBase=caracal-cli; binName=caracal ;;
               tui) srcDir=apps/tui/dist; srcBase=caracal-tui; binName=caracal-tui ;;
             esac
             src="${srcDir}/${srcBase}-${os}-${bunArch}${ext}"
