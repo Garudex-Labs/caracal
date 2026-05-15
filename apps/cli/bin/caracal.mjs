@@ -4,7 +4,7 @@
 //
 // Caracal CLI launcher: defers to the TypeScript entry under Node 24 native type stripping.
 
-import('../src/index.ts').catch((err) => {
+import('../src/shell.ts').catch((err) => {
   process.stderr.write(`caracal: ${err?.message ?? err}\n`)
   process.exit(1)
 })
