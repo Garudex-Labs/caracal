@@ -3,14 +3,21 @@
 //
 // `caracal purge`: centralized cleanup for selectable targets across dev and runtime installs.
 
-import { spawn, spawnSync } from 'node:child_process'
-import { existsSync, rmSync, statSync } from 'node:fs'
+import { existsSync } from 'node:fs'
 import { homedir } from 'node:os'
+import { spawnSync } from 'node:child_process'
 import { createInterface } from 'node:readline'
 import { join } from 'node:path'
 import { resolveCliConfigPath } from '@caracalai/core/cli'
+import {
+  caracalBinaries as caracalBinariesCore,
+  composeRun,
+  listCaracalImages,
+  removeFsPath,
+  removeImages,
+} from '@caracalai/engine'
 import { CARACAL_REGISTRY, CARACAL_VERSION } from '../runtime/version.ts'
-import { runtimePaths } from '../runtime/install.ts'
+import { runtimePaths } from '@caracalai/engine'
 import { resolvePaths } from './stack.ts'
 import { showHelp } from './shared.ts'
 import {
@@ -109,59 +116,31 @@ function buildContext(dryRun: boolean): PurgeContext {
   }
 }
 
-function runCompose(args: string[], ctx: PurgeContext, stack?: ComposeStack): Promise<number> {
+async function runCompose(args: string[], ctx: PurgeContext, stack?: ComposeStack): Promise<number> {
   const s = stack ?? ctx.stacks[0]!
-  return new Promise((resolveExit) => {
-    if (ctx.dryRun) {
-      process.stdout.write(`  ${style.label('[dry-run]')} docker compose ${style.code(`-f ${s.composeFile} ${args.join(' ')}`)}\n`)
-      return resolveExit(0)
-    }
-    const env: NodeJS.ProcessEnv = { ...process.env }
-    if (!env.CARACAL_VERSION) env.CARACAL_VERSION = CARACAL_VERSION
-    if (!env.CARACAL_REGISTRY) env.CARACAL_REGISTRY = CARACAL_REGISTRY
-    const proc = spawn(
-      'docker',
-      ['compose', '--env-file', s.envFile, '-f', s.composeFile, ...args],
-      { stdio: 'inherit', cwd: s.cwd, env },
-    )
-    proc.on('exit', (code) => resolveExit(typeof code === 'number' ? code : 1))
-    proc.on('error', (err) => {
-      process.stderr.write(`  ${style.error(SYMBOL.fail)} docker compose failed: ${err.message}\n`)
-      resolveExit(127)
-    })
+  if (ctx.dryRun) {
+    process.stdout.write(`  ${style.label('[dry-run]')} docker compose ${style.code(`-f ${s.composeFile} ${args.join(' ')}`)}\n`)
+    return 0
+  }
+  const env: Record<string, string | undefined> = {}
+  if (!process.env.CARACAL_VERSION) env.CARACAL_VERSION = CARACAL_VERSION
+  if (!process.env.CARACAL_REGISTRY) env.CARACAL_REGISTRY = CARACAL_REGISTRY
+  const handle = composeRun({
+    paths: { composeFile: s.composeFile, envFile: s.envFile, cwd: s.cwd, mode: ctx.mode },
+    args,
+    env,
   })
+  return handle.exitCode
 }
 
-function listCaracalImages(): string[] {
-  const out = spawnSync('docker', ['images', '--format', '{{.Repository}}:{{.Tag}}'], { encoding: 'utf8' })
-  if (out.status !== 0 || typeof out.stdout !== 'string') return []
-  return out.stdout
-    .split('\n')
-    .map((s) => s.trim())
-    .filter(
-      (s) =>
-        s.length > 0 &&
-        (s.startsWith('caracal/') ||
-          s.startsWith('localhost/caracal-') ||
-          s.startsWith('ghcr.io/garudex-labs/caracal-')),
-    )
-}
-
-function removeImages(images: string[], ctx: PurgeContext): Promise<number> {
-  return new Promise((resolveExit) => {
-    if (ctx.dryRun) {
-      for (const img of images) {
-        process.stdout.write(`  ${style.label('[dry-run]')} docker image rm ${style.code(img)}\n`)
-      }
-      return resolveExit(0)
+async function removeImagesStep(images: string[], ctx: PurgeContext): Promise<number> {
+  if (ctx.dryRun) {
+    for (const img of images) {
+      process.stdout.write(`  ${style.label('[dry-run]')} docker image rm ${style.code(img)}\n`)
     }
-    const proc = spawn('docker', ['image', 'rm', '-f', ...images], { stdio: 'inherit' })
-    proc.on('exit', (code) => resolveExit(typeof code === 'number' ? code : 1))
-    proc.on('error', (err) => {
-      process.stderr.write(`  ${style.error(SYMBOL.fail)} docker image rm failed: ${err.message}\n`)
-      resolveExit(127)
-    })
-  })
+    return 0
+  }
+  return removeImages(images)
 }
 
 async function runComposeAll(args: string[], ctx: PurgeContext): Promise<void> {
@@ -183,9 +162,19 @@ function removePath(path: string, ctx: PurgeContext, label: string): void {
     process.stdout.write(`  ${style.label('[dry-run]')} remove ${style.code(label)}: ${path}\n`)
     return
   }
-  const isDir = statSync(path).isDirectory()
-  rmSync(path, { recursive: isDir, force: true })
+  removeFsPath(path)
   process.stdout.write(`  ${style.success(SYMBOL.ok)} removed ${style.code(label)}: ${path}\n`)
+}
+
+function caracalBinariesPaths(): string[] {
+  const installDir = process.env.CARACAL_INSTALL_DIR ?? join(homedir(), '.local', 'bin')
+  const extra: string[] = []
+  const pnpmGlobal = spawnSync('pnpm', ['bin', '-g'], { encoding: 'utf8' })
+  if (pnpmGlobal.status === 0 && typeof pnpmGlobal.stdout === 'string') {
+    const dir = pnpmGlobal.stdout.trim()
+    if (dir) extra.push(dir)
+  }
+  return caracalBinariesCore(installDir, extra)
 }
 
 const TARGETS: Target[] = [
@@ -271,7 +260,7 @@ const TARGETS: Target[] = [
   {
     id: 'images',
     label: 'Remove Caracal docker images (DESTRUCTIVE)',
-    describe: (ctx) => {
+    describe: () => {
       const imgs = listCaracalImages()
       if (imgs.length === 0) return '(no caracal images cached)'
       return `${imgs.length} image(s): ${imgs.slice(0, 3).join(', ')}${imgs.length > 3 ? ', …' : ''}`
@@ -283,43 +272,26 @@ const TARGETS: Target[] = [
         process.stdout.write(`  ${style.label('(skip) images: none cached')}\n`)
         return
       }
-      const code = await removeImages(imgs, ctx)
+      const code = await removeImagesStep(imgs, ctx)
       if (code !== 0) throw new Error(`docker image rm exited ${code}`)
     },
   },
   {
     id: 'binary',
     label: 'Uninstall caracal CLI binaries (DESTRUCTIVE)',
-    describe: (ctx) => {
-      const found = caracalBinaries()
+    describe: () => {
+      const found = caracalBinariesPaths()
       if (found.length === 0) return '(no caracal binaries on $PATH)'
       return found.join(', ')
     },
-    available: () => caracalBinaries().length > 0,
+    available: () => caracalBinariesPaths().length > 0,
     run: async (ctx) => {
-      for (const bin of caracalBinaries()) {
+      for (const bin of caracalBinariesPaths()) {
         removePath(bin, ctx, `bin/${bin.split('/').pop()}`)
       }
     },
   },
 ]
-
-function caracalBinaries(): string[] {
-  const dirs = new Set<string>([process.env.CARACAL_INSTALL_DIR ?? join(homedir(), '.local', 'bin')])
-  const pnpmGlobal = spawnSync('pnpm', ['bin', '-g'], { encoding: 'utf8' })
-  if (pnpmGlobal.status === 0 && typeof pnpmGlobal.stdout === 'string') {
-    const dir = pnpmGlobal.stdout.trim()
-    if (dir) dirs.add(dir)
-  }
-  const found: string[] = []
-  for (const dir of dirs) {
-    for (const name of ['caracal', 'caracal-tui']) {
-      const p = join(dir, name)
-      if (existsSync(p)) found.push(p)
-    }
-  }
-  return found
-}
 
 function targetById(id: string): Target | undefined {
   return TARGETS.find((t) => t.id === id)
