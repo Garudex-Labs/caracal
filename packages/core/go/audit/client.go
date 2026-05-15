@@ -64,10 +64,41 @@ type ClientConfig struct {
 // Client buffers audit events, signs and emits them to a Redis stream, and
 // persists unflushed batches to disk so events survive process restarts.
 type Client struct {
-	cfg     ClientConfig
-	stream  Streamer
-	ch      chan Event
-	dropped atomic.Uint64
+	cfg        ClientConfig
+	stream     Streamer
+	ch         chan Event
+	dropped    atomic.Uint64
+	emitted    atomic.Uint64
+	persisted  atomic.Uint64
+	drained    atomic.Uint64
+	sinkErrors atomic.Uint64
+}
+
+// Metrics captures a stable snapshot of audit client counters.
+type Metrics struct {
+	Emitted    uint64 `json:"emitted"`
+	Dropped    uint64 `json:"dropped"`
+	Persisted  uint64 `json:"persisted"`
+	Drained    uint64 `json:"drained"`
+	SinkErrors uint64 `json:"sink_errors"`
+	QueueDepth uint64 `json:"queue_depth"`
+	QueueCap   uint64 `json:"queue_cap"`
+}
+
+// Snapshot returns a stable view of all observability counters.
+func (c *Client) Snapshot() Metrics {
+	if c == nil {
+		return Metrics{}
+	}
+	return Metrics{
+		Emitted:    c.emitted.Load(),
+		Dropped:    c.dropped.Load(),
+		Persisted:  c.persisted.Load(),
+		Drained:    c.drained.Load(),
+		SinkErrors: c.sinkErrors.Load(),
+		QueueDepth: uint64(len(c.ch)),
+		QueueCap:   uint64(cap(c.ch)),
+	}
 }
 
 // NewClient validates configuration and prepares the on-disk replay directory.
@@ -115,6 +146,7 @@ func (c *Client) Emit(ev Event) {
 	}
 	select {
 	case c.ch <- ev:
+		c.emitted.Add(1)
 	default:
 		dropped := c.dropped.Add(1)
 		if c.cfg.Metrics.OnDropped != nil {
@@ -242,6 +274,7 @@ func (c *Client) persistBatch(batch []Event) {
 	if c.cfg.Metrics.OnReplayPersisted != nil {
 		c.cfg.Metrics.OnReplayPersisted(uint64(len(batch)))
 	}
+	c.persisted.Add(uint64(len(batch)))
 	c.cfg.Logger.Warn().Str("path", path).Int("count", len(batch)).Msg("audit batch persisted to disk for later replay")
 }
 
@@ -271,6 +304,7 @@ func (c *Client) replayFile(ctx context.Context, path string) error {
 	if c.cfg.Metrics.OnReplayDrained != nil && replayed > 0 {
 		c.cfg.Metrics.OnReplayDrained(replayed)
 	}
+	c.drained.Add(replayed)
 	c.cfg.Logger.Info().Str("path", path).Uint64("count", replayed).Msg("audit replay file drained")
 	return nil
 }
@@ -285,6 +319,7 @@ func (c *Client) run(ctx context.Context) {
 		for _, ev := range batch {
 			if err := c.xadd(ctx, ev); err != nil {
 				c.cfg.Logger.Error().Err(err).Str("id", ev.ID).Msg("xadd audit event")
+				c.sinkErrors.Add(1)
 				if c.cfg.Metrics.OnSinkError != nil {
 					c.cfg.Metrics.OnSinkError()
 				}

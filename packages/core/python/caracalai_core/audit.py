@@ -71,6 +71,8 @@ class AuditClient:
         production: bool = False,
         on_dropped: Callable[[int], None] | None = None,
         on_sink_error: Callable[[], None] | None = None,
+        on_replay_persisted: Callable[[int], None] | None = None,
+        on_replay_drained: Callable[[int], None] | None = None,
     ) -> None:
         if streamer is None:
             raise ValueError("audit: streamer is required")
@@ -88,9 +90,15 @@ class AuditClient:
         self._stream = stream
         self._on_dropped = on_dropped
         self._on_sink_error = on_sink_error
+        self._on_replay_persisted = on_replay_persisted
+        self._on_replay_drained = on_replay_drained
         self._buffer: deque[AuditEvent] = deque()
         self._lock = threading.Lock()
+        self._emitted = 0
         self._dropped = 0
+        self._persisted = 0
+        self._drained = 0
+        self._sink_errors = 0
         self._closed = False
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
@@ -114,9 +122,24 @@ class AuditClient:
                     self._logger.warn("audit buffer full", dropped=self._dropped)
                 return
             self._buffer.append(event)
+            self._emitted += 1
 
     def dropped(self) -> int:
         return self._dropped
+
+    def snapshot(self) -> dict[str, int]:
+        """Stable snapshot of audit metrics for /metrics exposure."""
+        with self._lock:
+            depth = len(self._buffer)
+        return {
+            "emitted": self._emitted,
+            "dropped": self._dropped,
+            "persisted": self._persisted,
+            "drained": self._drained,
+            "sink_errors": self._sink_errors,
+            "queue_depth": depth,
+            "queue_cap": self._buffer_cap,
+        }
 
     def close(self) -> None:
         if self._closed:
@@ -155,6 +178,7 @@ class AuditClient:
                 self._xadd(ev)
             except Exception as exc:  # noqa: BLE001 - sink is opaque
                 self._logger.error("xadd audit event", id=ev.id, err=str(exc))
+                self._sink_errors += 1
                 if self._on_sink_error:
                     self._on_sink_error()
                 failed.append(ev)
@@ -187,6 +211,9 @@ class AuditClient:
                 fh.write(body)
             os.chmod(tmp, 0o600)
             os.replace(tmp, path)
+            self._persisted += len(items)
+            if self._on_replay_persisted:
+                self._on_replay_persisted(len(items))
             self._logger.warn("audit batch persisted to disk for later replay", path=str(path), count=len(items))
         except OSError as exc:
             self._logger.error("audit replay file write", path=str(path), err=str(exc))
@@ -195,6 +222,7 @@ class AuditClient:
         if not self._replay_dir.exists():
             return
         for path in sorted(self._replay_dir.glob("*.ndjson")):
+            replayed = 0
             try:
                 with open(path, "r", encoding="utf-8") as fh:
                     for line in fh:
@@ -218,8 +246,12 @@ class AuditClient:
                             metadata_json=raw.get("metadata_json"),
                         )
                         self._xadd(ev)
+                        replayed += 1
                 path.unlink()
-                self._logger.info("audit replay file drained", path=str(path))
+                self._drained += replayed
+                if self._on_replay_drained and replayed > 0:
+                    self._on_replay_drained(replayed)
+                self._logger.info("audit replay file drained", path=str(path), count=replayed)
             except Exception as exc:  # noqa: BLE001
                 self._logger.error("audit replay file failed; will retry on next start", path=str(path), err=str(exc))
 

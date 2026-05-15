@@ -10,5 +10,6 @@ export * from './envfile.js';
 export * from './errors.js';
 export * from './logging.js';
 export * from './audit.js';
+export * from './metrics.js';
 export * from './scope.js';
 export * from './url.js';

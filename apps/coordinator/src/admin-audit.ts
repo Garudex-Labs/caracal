@@ -32,7 +32,7 @@ function zoneFromParams(req: FastifyRequest, url: string): string | null {
 export function registerAdminAuditHook(app: FastifyInstance, db: Pool): void {
   app.addHook('onResponse', async (req: FastifyRequest, reply: FastifyReply) => {
     const path = pathOnly(req.url)
-    if (path === '/health' || path === '/ready' || path === '/metrics') return
+    if (path === '/health' || path === '/ready' || path === '/metrics' || path === '/stats') return
     const success = reply.statusCode < 400
     const mutating = MUTATING_METHODS.has(req.method)
     if (!mutating && success) return

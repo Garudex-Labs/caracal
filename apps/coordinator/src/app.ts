@@ -9,6 +9,7 @@ import pino from 'pino'
 import type { Pool } from 'pg'
 import type { Redis as RedisClient } from 'ioredis'
 import { ZodError } from 'zod'
+import { getTraceContext, parseTraceparent, bindTrace, renderObservabilityMetrics, devLogMetrics } from '@caracalai/core'
 import { agentsRoutes } from './routes/agents.js'
 import { agentServicesRoutes } from './routes/agent-services.js'
 import { delegationsRoutes } from './routes/delegations.js'
@@ -46,6 +47,13 @@ export async function buildApp() {
       formatters: { level: (label) => ({ level: label }) },
       serializers: { err: pino.stdSerializers.err, error: pino.stdSerializers.err },
       redact: { paths: buildPinoRedactPaths(), censor: '***' },
+      mixin: () => {
+        const tc = getTraceContext()
+        const out: Record<string, unknown> = {}
+        if (tc?.traceId) out.trace_id = tc.traceId
+        if (tc?.spanId) out.span_id = tc.spanId
+        return out
+      },
     },
     requestTimeout: cfg.requestTimeoutMs,
     trustProxy: cfg.trustProxy,
@@ -66,6 +74,10 @@ export async function buildApp() {
       .send({ error: 'internal_error' })
   })
   app.addHook('onRequest', async (req, reply) => {
+    const h = req.headers['traceparent']
+    const value = Array.isArray(h) ? h[0] : h
+    const tc = parseTraceparent(value)
+    bindTrace({ traceId: tc.traceId, spanId: tc.spanId || req.id })
     if (cfg.coordinatorRateLimitPerMin <= 0) return
     const minute = Math.floor(Date.now() / 60_000)
     const key = `coordinator:global_rl:${req.ip}:${minute}`
@@ -90,7 +102,34 @@ export async function buildApp() {
       return { ok: false, error: 'dependency_check_failed' }
     }
   })
-  app.get('/metrics', async () => {
+  app.get('/metrics', async (_req, reply) => {
+    const { rows: invocations } = await app.db.query(
+      `SELECT status, COUNT(*) AS n FROM agent_invocations GROUP BY status`,
+    )
+    const { rows: outbox } = await app.db.query(
+      `SELECT status, COUNT(*) AS n FROM caracal_outbox WHERE producer = 'coordinator' GROUP BY status`,
+    )
+    const lines: string[] = []
+    lines.push('# HELP caracal_invocations_total Coordinator invocations by status')
+    lines.push('# TYPE caracal_invocations_total counter')
+    for (const row of invocations as Array<{ status: string; n: string }>) {
+      lines.push(`caracal_invocations_total{status="${row.status}"} ${Number(row.n)}`)
+    }
+    lines.push('# HELP caracal_outbox_total Coordinator outbox rows by status')
+    lines.push('# TYPE caracal_outbox_total gauge')
+    for (const row of outbox as Array<{ status: string; n: string }>) {
+      lines.push(`caracal_outbox_total{status="${row.status}"} ${Number(row.n)}`)
+    }
+    lines.push('# HELP caracal_ttl_sweeper_runs_total Ttl sweeper iterations')
+    lines.push('# TYPE caracal_ttl_sweeper_runs_total counter')
+    lines.push(`caracal_ttl_sweeper_runs_total ${ttlSweeperStats.runs ?? 0}`)
+    lines.push('# HELP caracal_retention_cleaner_runs_total Retention cleaner iterations')
+    lines.push('# TYPE caracal_retention_cleaner_runs_total counter')
+    lines.push(`caracal_retention_cleaner_runs_total ${retentionCleanerStats.runs ?? 0}`)
+    reply.type('text/plain; version=0.0.4')
+    return lines.join('\n') + '\n' + renderObservabilityMetrics()
+  })
+  app.get('/stats', async () => {
     const { rows: invocations } = await app.db.query(
       `SELECT status, COUNT(*) AS n FROM agent_invocations GROUP BY status`,
     )
@@ -102,6 +141,7 @@ export async function buildApp() {
       outbox: Object.fromEntries(outbox.map((row: { status: string; n: string }) => [row.status, Number(row.n)])),
       ttl_sweeper: { ...ttlSweeperStats },
       retention_cleaner: { ...retentionCleanerStats },
+      log: devLogMetrics(),
     }
   })
   await app.register(agentsRoutes)

@@ -59,6 +59,16 @@ export interface AuditClientOptions {
   metrics?: AuditMetricsHook;
 }
 
+export interface AuditMetrics {
+  emitted: number;
+  dropped: number;
+  persisted: number;
+  drained: number;
+  sink_errors: number;
+  queue_depth: number;
+  queue_cap: number;
+}
+
 export class AuditClient {
   private readonly streamer: AuditStreamer;
   private readonly logger: Logger;
@@ -70,7 +80,11 @@ export class AuditClient {
   private readonly stream: string;
   private readonly metrics: AuditMetricsHook;
   private readonly buffer: AuditEvent[] = [];
+  private emittedTotal = 0;
   private droppedTotal = 0;
+  private persistedTotal = 0;
+  private drainedTotal = 0;
+  private sinkErrorsTotal = 0;
   private timer: NodeJS.Timeout | null = null;
   private closed = false;
   private flushing: Promise<void> = Promise.resolve();
@@ -119,6 +133,7 @@ export class AuditClient {
       return;
     }
     this.buffer.push(event);
+    this.emittedTotal++;
     if (this.buffer.length >= this.flushBatch) {
       void this.flush();
     }
@@ -126,6 +141,18 @@ export class AuditClient {
 
   dropped(): number {
     return this.droppedTotal;
+  }
+
+  snapshot(): AuditMetrics {
+    return {
+      emitted: this.emittedTotal,
+      dropped: this.droppedTotal,
+      persisted: this.persistedTotal,
+      drained: this.drainedTotal,
+      sink_errors: this.sinkErrorsTotal,
+      queue_depth: this.buffer.length,
+      queue_cap: this.bufferCap,
+    };
   }
 
   async close(): Promise<void> {
@@ -149,6 +176,7 @@ export class AuditClient {
           await this.xadd(ev);
         } catch (err) {
           this.logger.error('xadd audit event', { id: ev.id, err: err instanceof Error ? err.message : String(err) });
+          this.sinkErrorsTotal++;
           this.metrics.onSinkError?.();
           failed.push(ev);
         }
@@ -178,6 +206,7 @@ export class AuditClient {
     try {
       const body = batch.map((e) => JSON.stringify(e)).join('\n') + '\n';
       await fs.writeFile(path, body, { mode: 0o600 });
+      this.persistedTotal += batch.length;
       this.metrics.onReplayPersisted?.(batch.length);
       this.logger.warn('audit batch persisted to disk for later replay', { path, count: batch.length });
     } catch (err) {
@@ -205,6 +234,7 @@ export class AuditClient {
           await this.xadd(ev);
           drained++;
         }
+        this.drainedTotal += drained;
         this.metrics.onReplayDrained?.(drained);
         await fs.unlink(path);
         this.logger.info('audit replay file drained', { path, count: drained });
@@ -217,4 +247,24 @@ export class AuditClient {
 
 export function defaultReplayDir(service: string): string {
   return join(tmpdir(), 'caracal-audit-replay', service);
+}
+
+/**
+ * Install SIGTERM/SIGINT handlers that flush the audit client before exit.
+ * Returns a stop function that removes the handlers (useful for tests).
+ */
+export function installShutdownHandler(client: AuditClient, timeoutMs = 2000): () => void {
+  const handler = () => {
+    const t = setTimeout(() => process.exit(1), timeoutMs).unref();
+    client.close().finally(() => {
+      clearTimeout(t);
+      process.exit(0);
+    });
+  };
+  process.on('SIGTERM', handler);
+  process.on('SIGINT', handler);
+  return () => {
+    process.off('SIGTERM', handler);
+    process.off('SIGINT', handler);
+  };
 }

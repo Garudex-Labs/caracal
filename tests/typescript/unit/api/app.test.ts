@@ -115,3 +115,16 @@ describe('security response headers', () => {
     await app.close()
   })
 })
+
+describe('/metrics endpoint', () => {
+  it('returns Prometheus text exposition with observability counters', async () => {
+    const cfg = makeCfg()
+    const app = await buildApp({ cfg, db: makeDb(), redis: makeRedis() })
+    const res = await app.inject({ method: 'GET', url: '/metrics' })
+    expect(res.statusCode).toBe(200)
+    expect(res.headers['content-type']).toMatch(/text\/plain/)
+    expect(res.body).toContain('caracal_log_emitted_total')
+    expect(res.body).toContain('# TYPE caracal_log_emitted_total counter')
+    await app.close()
+  })
+})

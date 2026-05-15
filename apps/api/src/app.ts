@@ -15,7 +15,7 @@ import type { DB } from './db.js'
 import type { RedisClient } from './redis.js'
 import { adminAuthPlugin } from './auth.js'
 import { registerAdminAuditHook } from './admin-audit.js'
-import { assertRuntimeSafe, caracalMode, isRuntime, SECRET_KEYS } from '@caracalai/core'
+import { assertRuntimeSafe, caracalMode, isRuntime, SECRET_KEYS, getTraceContext, parseTraceparent, bindTrace, renderObservabilityMetrics } from '@caracalai/core'
 import { zonesRoutes } from './routes/zones.js'
 import { applicationsRoutes } from './routes/applications.js'
 import { resourcesRoutes } from './routes/resources.js'
@@ -57,6 +57,13 @@ export async function buildApp({ cfg, db, redis, isDraining }: AppDeps) {
       formatters: { level: (label) => ({ level: label }) },
       serializers: { err: pino.stdSerializers.err, error: pino.stdSerializers.err },
       redact: { paths: redactPaths, censor: '***' },
+      mixin: () => {
+        const tc = getTraceContext()
+        const out: Record<string, unknown> = {}
+        if (tc?.traceId) out.trace_id = tc.traceId
+        if (tc?.spanId) out.span_id = tc.spanId
+        return out
+      },
     },
     bodyLimit: cfg.bodyLimitBytes,
     requestTimeout: cfg.requestTimeoutMs,
@@ -72,6 +79,13 @@ export async function buildApp({ cfg, db, redis, isDraining }: AppDeps) {
 
   app.decorate('db', db)
   app.decorate('redis', redis)
+
+  app.addHook('onRequest', async (req) => {
+    const h = req.headers['traceparent']
+    const value = Array.isArray(h) ? h[0] : h
+    const tc = parseTraceparent(value)
+    bindTrace({ traceId: tc.traceId, spanId: tc.spanId || req.id })
+  })
 
   app.setErrorHandler((err, req, reply) => {
     if (err instanceof ZodError) {
@@ -147,6 +161,10 @@ export async function buildApp({ cfg, db, redis, isDraining }: AppDeps) {
   }
 
   app.get('/health', async () => ({ ok: true }))
+  app.get('/metrics', async (_req, reply) => {
+    reply.type('text/plain; version=0.0.4')
+    return renderObservabilityMetrics()
+  })
   app.get('/ready', async (req, reply) => {
     if (cfg.readyRateLimitPerMin > 0) {
       const minute = Math.floor(Date.now() / 60_000)

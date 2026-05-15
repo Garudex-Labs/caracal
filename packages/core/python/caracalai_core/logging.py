@@ -6,17 +6,19 @@
 from __future__ import annotations
 
 import atexit
+import contextvars
 import json
 import logging
 import logging.handlers
 import os
 import queue
 import re
+import signal
 import socket
 import sys
 import time
 import traceback
-from typing import Any, Mapping
+from typing import Any, Callable, Mapping
 
 SECRET_KEYS: tuple[str, ...] = (
     "password",
@@ -48,6 +50,18 @@ _LEVELS = {"debug": 10, "info": 20, "warn": 30, "warning": 30, "error": 40, "fat
 
 _BEARER_RE = re.compile(r"bearer\s+[A-Za-z0-9._\-+/=]{8,}", re.IGNORECASE)
 _JWT_RE = re.compile(r"eyJ[A-Za-z0-9_\-]{8,}\.[A-Za-z0-9_\-]{8,}\.[A-Za-z0-9_\-]{8,}")
+_AWS_AKIA_RE = re.compile(r"AKIA[0-9A-Z]{16}")
+_AWS_ASIA_RE = re.compile(r"ASIA[0-9A-Z]{16}")
+_GCP_KEY_RE = re.compile(r"AIza[0-9A-Za-z_\-]{35}")
+_GITHUB_PAT_RE = re.compile(r"gh[pousr]_[A-Za-z0-9]{36,255}")
+_SLACK_TOKEN_RE = re.compile(r"xox[abprs]-[A-Za-z0-9\-]{10,}")
+_PEM_BLOCK_RE = re.compile(
+    r"-----BEGIN [A-Z ]+PRIVATE KEY-----.*?-----END [A-Z ]+PRIVATE KEY-----",
+    re.DOTALL,
+)
+
+MAX_FIELD_BYTES = int(os.environ.get("CARACAL_LOG_MAX_FIELD_BYTES", "8192"))
+_DEBUG_SAMPLE_N = max(1, int(os.environ.get("CARACAL_LOG_SAMPLE_DEBUG", "1")))
 
 
 def is_secret_key(key: str) -> bool:
@@ -58,12 +72,24 @@ def is_secret_key(key: str) -> bool:
 
 
 def redact_string(s: str) -> str:
-    """Scrub Bearer tokens and JWT-shaped substrings; cheap when no match."""
+    """Scrub bearer tokens, JWTs, and common cloud-secret patterns."""
     if len(s) < 16:
         return s
+    s = _PEM_BLOCK_RE.sub(REDACT_VALUE, s)
     s = _BEARER_RE.sub(f"Bearer {REDACT_VALUE}", s)
     s = _JWT_RE.sub(REDACT_VALUE, s)
+    s = _AWS_AKIA_RE.sub(REDACT_VALUE, s)
+    s = _AWS_ASIA_RE.sub(REDACT_VALUE, s)
+    s = _GCP_KEY_RE.sub(REDACT_VALUE, s)
+    s = _GITHUB_PAT_RE.sub(REDACT_VALUE, s)
+    s = _SLACK_TOKEN_RE.sub(REDACT_VALUE, s)
     return s
+
+
+def truncate_string(s: str) -> str:
+    if MAX_FIELD_BYTES <= 0 or len(s) <= MAX_FIELD_BYTES:
+        return s
+    return s[:MAX_FIELD_BYTES] + "…[truncated]"
 
 
 def _serialize_exception(exc: BaseException) -> dict[str, Any]:
@@ -81,13 +107,48 @@ def redact(value: Any) -> Any:
     if isinstance(value, BaseException):
         return _serialize_exception(value)
     if isinstance(value, str):
-        return redact_string(value)
+        return truncate_string(redact_string(value))
     if isinstance(value, Mapping):
         return {k: (REDACT_VALUE if is_secret_key(str(k)) else redact(v)) for k, v in value.items()}
     if isinstance(value, (list, tuple)):
         seq = [redact(v) for v in value]
         return seq if isinstance(value, list) else tuple(seq)
     return value
+
+
+_trace_ctx: contextvars.ContextVar[dict[str, str] | None] = contextvars.ContextVar(
+    "caracal_trace", default=None
+)
+
+
+def bind_trace(trace_id: str | None = None, span_id: str | None = None) -> contextvars.Token:
+    """Bind trace identifiers to the current async/sync context; returns a token
+    that can be passed to reset_trace to restore the previous value."""
+    payload: dict[str, str] = {}
+    if trace_id:
+        payload["trace_id"] = trace_id
+    if span_id:
+        payload["span_id"] = span_id
+    return _trace_ctx.set(payload or None)
+
+
+def reset_trace(token: contextvars.Token) -> None:
+    _trace_ctx.reset(token)
+
+
+def current_trace() -> dict[str, str]:
+    cur = _trace_ctx.get()
+    return dict(cur) if cur else {}
+
+
+def parse_traceparent(header: str | None) -> dict[str, str]:
+    """Decode a W3C traceparent header into trace_id/span_id keys; empty on parse failure."""
+    if not header:
+        return {}
+    parts = header.split("-")
+    if len(parts) < 4 or len(parts[1]) != 32 or len(parts[2]) != 16:
+        return {}
+    return {"trace_id": parts[1], "span_id": parts[2]}
 
 
 def _process_base_fields(service: str) -> dict[str, Any]:
@@ -136,6 +197,9 @@ _log_queue: "queue.Queue[logging.LogRecord]" = queue.Queue(maxsize=_QUEUE_MAXSIZ
 _listener: logging.handlers.QueueListener | None = None
 _listener_started = False
 _dropped = 0
+_emitted = 0
+_sampled = 0
+_debug_counter = 0
 
 
 def _ensure_listener() -> None:
@@ -192,9 +256,10 @@ class _NonBlockingQueueHandler(logging.Handler):
     """Pushes records onto the shared queue without blocking; drops when full."""
 
     def emit(self, record: logging.LogRecord) -> None:
-        global _dropped
+        global _dropped, _emitted
         try:
             _log_queue.put_nowait(record)
+            _emitted += 1
         except queue.Full:
             _dropped += 1
 
@@ -236,8 +301,14 @@ class DevLogger:
         return child
 
     def _emit(self, level: int, msg: str, fields: Mapping[str, Any] | None) -> None:
+        global _debug_counter, _sampled
         if not self._logger.isEnabledFor(level):
             return
+        if level == logging.DEBUG and _DEBUG_SAMPLE_N > 1:
+            _debug_counter += 1
+            if _debug_counter % _DEBUG_SAMPLE_N != 0:
+                _sampled += 1
+                return
         exc_info = None
         if fields:
             err = fields.get("err") or fields.get("error") or fields.get("exception")
@@ -245,7 +316,9 @@ class DevLogger:
                 exc_info = (type(err), err, err.__traceback__)
         record = self._logger.makeRecord(self._logger.name, level, "", 0, msg, (), exc_info)
         record._caracal_base = self._base  # type: ignore[attr-defined]
-        record._caracal_bound = self._bound  # type: ignore[attr-defined]
+        merged_bound = dict(self._bound)
+        merged_bound.update(current_trace())
+        record._caracal_bound = merged_bound  # type: ignore[attr-defined]
         record._caracal_extra = dict(fields) if fields else None  # type: ignore[attr-defined]
         self._logger.handle(record)
 
@@ -265,6 +338,33 @@ def shutdown_logging() -> None:
 def dropped_log_records() -> int:
     """Number of log records dropped because the background queue was full."""
     return _dropped
+
+
+def dev_log_metrics() -> dict[str, int]:
+    """Snapshot of dev-log counters for /metrics exposure."""
+    return {
+        "emitted": _emitted,
+        "dropped": _dropped,
+        "sampled": _sampled,
+        "queue_depth": _log_queue.qsize(),
+        "queue_cap": _QUEUE_MAXSIZE,
+    }
+
+
+def install_shutdown_handler(extra: Callable[[], None] | None = None, timeout: float = 2.0) -> None:
+    """Wire SIGTERM/SIGINT to flush dev logs (and optionally invoke `extra`,
+    typically AuditClient.close) before the process exits."""
+
+    def _handler(signum: int, _frame: Any) -> None:
+        try:
+            if extra is not None:
+                extra()
+        finally:
+            shutdown_logging()
+            raise SystemExit(128 + signum)
+
+    signal.signal(signal.SIGTERM, _handler)
+    signal.signal(signal.SIGINT, _handler)
 
 
 def create_logger(service: str, level: str | int | None = None) -> DevLogger:
