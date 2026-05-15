@@ -3,7 +3,7 @@
 //
 // `caracal run <cmd...>`: injects ambient 60-min tokens into child process env.
 
-import { spawn } from 'node:child_process'
+import { runExec } from '@caracalai/cli-core'
 import { OAuthClient, InteractionRequiredError } from '@caracalai/oauth'
 import type { CliConfig, Credential } from '../config.ts'
 import { printError, printWarn } from '../style.ts'
@@ -69,7 +69,7 @@ export async function runCommand(argv: string[], cfg: CliConfig): Promise<void> 
   }
 
   const client = new OAuthClient(cfg.zone_url, cfg.zone_id, cfg.application_id)
-  const env: Record<string, string> = { ...(process.env as Record<string, string>) }
+  const env: Record<string, string> = {}
 
   for (const cred of cfg.credentials ?? []) {
     try {
@@ -89,19 +89,7 @@ export async function runCommand(argv: string[], cfg: CliConfig): Promise<void> 
     }
   }
 
-  const [cmd, ...args] = commandArgs
-  const proc = spawn(cmd!, args, { env, stdio: 'inherit' })
-
-  const code: number = await new Promise((resolve) => {
-    proc.on('exit', (c, signal) => {
-      if (typeof c === 'number') return resolve(c)
-      if (signal) {
-        const map: Record<string, number> = { SIGINT: 2, SIGTERM: 15, SIGKILL: 9, SIGHUP: 1, SIGQUIT: 3 }
-        return resolve(128 + (map[signal] ?? 15))
-      }
-      resolve(1)
-    })
-    proc.on('error', () => resolve(127))
-  })
+  const handle = runExec({ argv: commandArgs, env, forwardSignals: false })
+  const code = await handle.exitCode
   process.exit(code)
 }

@@ -3,6 +3,7 @@
 //
 // `caracal session …` admin subcommands (read-only; revocation is a side effect of grant.revoke).
 
+import { sessionList } from '@caracalai/cli-core'
 import type { CliConfig } from '../config.ts'
 import {
   buildAdminClient,
@@ -29,10 +30,14 @@ export async function sessionCommand(argv: string[], cfg?: CliConfig): Promise<v
     switch (verb) {
       case 'list': {
         const zoneId = requireZone(ctx, flags)
-        const rows = await client.sessions.list(zoneId, {
-          status: flagString(flags, 'status') as 'active' | 'revoked' | 'expired' | undefined,
-          subject_id: flagString(flags, 'subject'),
-          limit: flagInt(flags, 'limit'),
+        const rows = await sessionList({
+          client,
+          zoneId,
+          query: {
+            status: flagString(flags, 'status') as 'active' | 'revoked' | 'expired' | undefined,
+            subject_id: flagString(flags, 'subject'),
+            limit: flagInt(flags, 'limit'),
+          },
         })
         if (json) return printJSON(rows)
         return printTable(rows, ['id', 'session_type', 'subject_id', 'status', 'expires_at', 'authenticated_at'])

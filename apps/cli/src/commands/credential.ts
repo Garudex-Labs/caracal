@@ -3,7 +3,7 @@
 //
 // `caracal credential read <resource>`: prints a one-shot 15-min token to stdout.
 
-import { OAuthClient } from '@caracalai/oauth'
+import { credentialRead } from '@caracalai/cli-core'
 import type { CliConfig } from '../config.ts'
 import { printError } from '../style.ts'
 
@@ -12,11 +12,9 @@ export async function credentialReadCommand(resource: string, cfg: CliConfig): P
     printError('Usage: caracal credential read <resource>')
     process.exit(1)
   }
-
-  const client = new OAuthClient(cfg.zone_url, cfg.zone_id, cfg.application_id)
   try {
-    const token = await client.exchange('', resource, { clientSecret: cfg.app_client_secret, ttlSeconds: 900 })
-    process.stdout.write(token.accessToken + '\n')
+    const token = await credentialRead({ cfg, resource })
+    process.stdout.write(token + '\n')
   } catch (err) {
     const desc = err instanceof Error ? err.message : String(err)
     process.stderr.write(JSON.stringify({ resource, reason: desc }) + '\n')
