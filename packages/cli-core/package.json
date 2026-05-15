@@ -1,0 +1,39 @@
+{
+  "name": "@caracalai/cli-core",
+  "version": "0.1.2",
+  "private": true,
+  "description": "Shared verb bodies for the Caracal CLI and TUI.",
+  "license": "Apache-2.0",
+  "homepage": "https://github.com/Garudex-Labs/caracal",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Garudex-Labs/caracal.git",
+    "directory": "packages/cli-core"
+  },
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "files": [
+    "dist",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@caracalai/admin": "workspace:*",
+    "@caracalai/core": "workspace:*",
+    "@caracalai/oauth": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^24.12.2",
+    "typescript": "^6.0.3"
+  }
+}

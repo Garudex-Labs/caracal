@@ -59,6 +59,9 @@ importers:
       pg:
         specifier: ^8.14.1
         version: 8.20.0
+      pino:
+        specifier: ^10.3.1
+        version: 10.3.1
       uuid:
         specifier: ^14.0.0
         version: 14.0.0
@@ -130,6 +133,9 @@ importers:
       pg:
         specifier: ^8.14.1
         version: 8.20.0
+      pino:
+        specifier: ^10.3.1
+        version: 10.3.1
       uuid:
         specifier: ^14.0.0
         version: 14.0.0
