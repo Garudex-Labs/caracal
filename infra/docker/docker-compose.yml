@@ -73,6 +73,10 @@ secrets:
     file: ../secrets/files/auditHmacKey
   streamsHmacKey:
     file: ../secrets/files/streamsHmacKey
+  databaseUrl:
+    file: ../secrets/files/databaseUrl
+  redisUrl:
+    file: ../secrets/files/redisUrl
 
 services:
   postgres:
@@ -243,13 +247,24 @@ services:
         condition: service_healthy
       dbMigrate:
         condition: service_completed_successfully
+    secrets:
+      - source: databaseUrl
+        target: databaseUrl
+      - source: redisUrl
+        target: redisUrl
+      - source: zoneKek
+        target: zoneKek
+      - source: auditHmacKey
+        target: auditHmacKey
+      - source: streamsHmacKey
+        target: streamsHmacKey
     environment:
       CARACAL_MODE: ${CARACAL_MODE:-dev}
-      DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
-      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
-      ZONE_KEK: ${ZONE_KEK}
-      AUDIT_HMAC_KEY: ${AUDIT_HMAC_KEY}
-      STREAMS_HMAC_KEY: ${STREAMS_HMAC_KEY}
+      DATABASE_URL_FILE: /run/secrets/databaseUrl
+      REDIS_URL_FILE: /run/secrets/redisUrl
+      ZONE_KEK_FILE: /run/secrets/zoneKek
+      AUDIT_HMAC_KEY_FILE: /run/secrets/auditHmacKey
+      STREAMS_HMAC_KEY_FILE: /run/secrets/streamsHmacKey
       ZONE_KEK_PROVIDER: local
       ISSUER_URL: ${CARACAL_STS_ISSUER_URL:-http://sts:8080}
       OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
@@ -281,14 +296,25 @@ services:
         condition: service_completed_successfully
     networks:
       - caracalData
+    secrets:
+      - source: databaseUrl
+        target: databaseUrl
+      - source: redisUrl
+        target: redisUrl
+      - source: zoneKek
+        target: zoneKek
+      - source: streamsHmacKey
+        target: streamsHmacKey
+      - source: caracalAdminToken
+        target: caracalAdminToken
     environment:
       CARACAL_MODE: ${CARACAL_MODE:-dev}
-      DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
-      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
+      DATABASE_URL_FILE: /run/secrets/databaseUrl
+      REDIS_URL_FILE: /run/secrets/redisUrl
       STS_URL: http://sts:8080
-      ZONE_KEK: ${ZONE_KEK}
-      STREAMS_HMAC_KEY: ${STREAMS_HMAC_KEY}
-      CARACAL_ADMIN_TOKEN: ${CARACAL_ADMIN_TOKEN}
+      ZONE_KEK_FILE: /run/secrets/zoneKek
+      STREAMS_HMAC_KEY_FILE: /run/secrets/streamsHmacKey
+      CARACAL_ADMIN_TOKEN_FILE: /run/secrets/caracalAdminToken
       OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
       OTEL_EXPORTER_OTLP_PROTOCOL: http/protobuf
       OTEL_SERVICE_NAME: caracal-api
@@ -322,12 +348,19 @@ services:
         condition: service_completed_successfully
     networks:
       - caracalData
+    secrets:
+      - source: databaseUrl
+        target: databaseUrl
+      - source: redisUrl
+        target: redisUrl
+      - source: streamsHmacKey
+        target: streamsHmacKey
     environment:
       CARACAL_MODE: ${CARACAL_MODE:-dev}
-      DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
-      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
+      DATABASE_URL_FILE: /run/secrets/databaseUrl
+      REDIS_URL_FILE: /run/secrets/redisUrl
       STS_URL: http://sts:8080
-      STREAMS_HMAC_KEY: ${STREAMS_HMAC_KEY}
+      STREAMS_HMAC_KEY_FILE: /run/secrets/streamsHmacKey
       OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
       OTEL_EXPORTER_OTLP_PROTOCOL: http/protobuf
       OTEL_SERVICE_NAME: caracal-gateway
@@ -358,11 +391,18 @@ services:
         condition: service_healthy
       dbMigrate:
         condition: service_completed_successfully
+    secrets:
+      - source: databaseUrl
+        target: databaseUrl
+      - source: redisUrl
+        target: redisUrl
+      - source: auditHmacKey
+        target: auditHmacKey
     environment:
       CARACAL_MODE: ${CARACAL_MODE:-dev}
-      DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
-      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
-      AUDIT_HMAC_KEY: ${AUDIT_HMAC_KEY}
+      DATABASE_URL_FILE: /run/secrets/databaseUrl
+      REDIS_URL_FILE: /run/secrets/redisUrl
+      AUDIT_HMAC_KEY_FILE: /run/secrets/auditHmacKey
       AUDIT_EXPORT_S3_ENDPOINT: ${AUDIT_EXPORT_S3_ENDPOINT:-}
       AUDIT_EXPORT_S3_BUCKET: ${AUDIT_EXPORT_S3_BUCKET:-}
       AUDIT_EXPORT_S3_REGION: ${AUDIT_EXPORT_S3_REGION:-us-east-1}
@@ -391,13 +431,20 @@ services:
         condition: service_healthy
       dbMigrate:
         condition: service_completed_successfully
+    secrets:
+      - source: databaseUrl
+        target: databaseUrl
+      - source: redisUrl
+        target: redisUrl
+      - source: streamsHmacKey
+        target: streamsHmacKey
     environment:
       CARACAL_MODE: ${CARACAL_MODE:-dev}
-      DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
-      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
+      DATABASE_URL_FILE: /run/secrets/databaseUrl
+      REDIS_URL_FILE: /run/secrets/redisUrl
       STS_URL: http://sts:8080
       ISSUER_URL: ${CARACAL_STS_ISSUER_URL:-http://sts:8080}
-      STREAMS_HMAC_KEY: ${STREAMS_HMAC_KEY}
+      STREAMS_HMAC_KEY_FILE: /run/secrets/streamsHmacKey
       AGENT_COORDINATOR_SCOPE: agent:lifecycle
       OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
       OTEL_EXPORTER_OTLP_PROTOCOL: http/protobuf
@@ -435,6 +482,8 @@ services:
       CARACAL_CONTROL_ENABLED: ${CARACAL_CONTROL_ENABLED:-true}
       CONTROL_ADDR: ":8087"
       STS_JWKS_URL: http://sts:8080/.well-known/jwks.json
+      STS_ISSUER_URL: ${CARACAL_STS_ISSUER_URL:-http://sts:8080}
+      CONTROL_AUDIENCE: ${CARACAL_CONTROL_AUDIENCE:-control}
       OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
       OTEL_EXPORTER_OTLP_PROTOCOL: http/protobuf
       OTEL_SERVICE_NAME: caracal-control

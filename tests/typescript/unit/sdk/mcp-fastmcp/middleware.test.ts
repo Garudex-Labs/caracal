@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 // Caracal, a product of Garudex Labs
 //
-// FastMCP authentication adaptor unit tests.
+// FastMCP authentication adapter unit tests.
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {

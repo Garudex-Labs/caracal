@@ -1,7 +1,7 @@
 # Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 # Caracal, a product of Garudex Labs
 #
-# CaracalAuth FastMCP adaptor unit tests.
+# CaracalAuth FastMCP adapter unit tests.
 
 from __future__ import annotations
 
