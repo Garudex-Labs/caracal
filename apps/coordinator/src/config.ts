@@ -17,7 +17,7 @@ function buildCfg() {
   const issuerUrl = mustGetenv('ISSUER_URL')
   return {
     port: intEnv('PORT', 4000),
-    host: getenv('HOST', '127.0.0.1'),
+    host: getenv('HOST', process.env.CARACAL_MODE === 'runtime' ? '0.0.0.0' : '127.0.0.1'),
     databaseUrl: mustGetenv('DATABASE_URL'),
     redisUrl: mustGetenv('REDIS_URL'),
     stsUrl: mustGetenv('STS_URL'),

@@ -11,57 +11,58 @@ import { startTTLSweeper } from './jobs/ttl-sweeper.js'
 import { startDeadlineEnforcer } from './jobs/deadline-enforcer.js'
 import { startRetentionCleaner } from './jobs/retention-cleaner.js'
 import { cfg } from './config.js'
-import { assertRuntimeSafe } from '@caracalai/core'
+import { ShutdownRegistry } from './lifecycle.js'
+import { assertRuntimeSafe, createLogger } from '@caracalai/core'
 
 assertRuntimeSafe()
 
-const db = buildDB(cfg)
-const redis = buildRedis(cfg)
-const app = await buildApp({ cfg, db, redis })
-const log = app.log
+const bootstrapLog = createLogger('coordinator-bootstrap', (cfg.logLevel ?? 'info') as 'debug' | 'info' | 'warn' | 'error' | 'fatal')
+const log = (level: 'info' | 'warn' | 'error', msg: string, meta?: Record<string, unknown>): void => {
+  bootstrapLog[level](msg, meta)
+}
 
 process.on('unhandledRejection', (reason) => {
-  log.fatal({ reason: reason instanceof Error ? reason.stack ?? reason.message : String(reason) }, 'unhandledRejection')
+  log('error', 'unhandledRejection', { reason: reason instanceof Error ? reason.stack ?? reason.message : String(reason) })
   process.exit(1)
 })
 process.on('uncaughtException', (err) => {
-  log.fatal({ stack: err.stack ?? err.message }, 'uncaughtException')
+  log('error', 'uncaughtException', { stack: err.stack ?? err.message })
   process.exit(1)
 })
-const outbox = startOutboxPublisher(db, redis, { log })
-const ttl = startTTLSweeper(db, { log })
-const deadline = startDeadlineEnforcer(db, { log })
-const retention = startRetentionCleaner(db, { log })
 
-let shuttingDown = false
-async function shutdown(signal: string): Promise<void> {
-  if (shuttingDown) return
-  shuttingDown = true
-  app.log.info({ signal }, 'shutdown_begin')
-  const grace = setTimeout(() => {
-    app.log.error('shutdown_timeout_force_exit')
-    process.exit(1)
-  }, cfg.shutdownGraceMs)
-  grace.unref()
-  try {
-    await app.close()
-    await Promise.all([outbox.stop(), ttl.stop(), deadline.stop(), retention.stop()])
-    await db.end()
-    await closeRedis(redis)
-    app.log.info('shutdown_complete')
-    process.exit(0)
-  } catch (err) {
-    app.log.error({ err }, 'shutdown_failed')
-    process.exit(1)
-  }
-}
+const db = buildDB(cfg)
+const redis = buildRedis(cfg)
 
-process.on('SIGTERM', () => { void shutdown('SIGTERM') })
-process.on('SIGINT', () => { void shutdown('SIGINT') })
+const shutdown = new ShutdownRegistry({
+  timeoutMs: cfg.shutdownGraceMs,
+  log,
+})
+shutdown.register('redis', () => closeRedis(redis))
+shutdown.register('postgres', () => db.end())
 
 try {
-  await app.listen({ port: cfg.port, host: cfg.host })
+  const app = await buildApp({ cfg, db, redis })
+
+  const outbox = startOutboxPublisher(db, redis, { log: app.log })
+  const ttl = startTTLSweeper(db, { log: app.log })
+  const deadline = startDeadlineEnforcer(db, { log: app.log })
+  const retention = startRetentionCleaner(db, { log: app.log })
+
+  shutdown.register('retention-cleaner', () => retention.stop())
+  shutdown.register('deadline-enforcer', () => deadline.stop())
+  shutdown.register('ttl-sweeper', () => ttl.stop())
+  shutdown.register('outbox-publisher', () => outbox.stop())
+  shutdown.register('fastify', () => app.close())
+  shutdown.install()
+
+  try {
+    await app.listen({ port: cfg.port, host: cfg.host })
+  } catch (err) {
+    app.log.error(err)
+    await shutdown.fire('listen-failed')
+  }
 } catch (err) {
-  app.log.error(err)
-  process.exit(1)
+  const reason = err instanceof Error ? err.message : String(err)
+  log('error', `startup failed: ${reason}`)
+  await shutdown.fire('startup-failed')
 }
