@@ -4,7 +4,7 @@
 // `caracal zone …` admin subcommands.
 
 import type { CliConfig } from '../config.ts'
-import { printSuccess } from '../style.ts'
+import { printSuccess, printInfo } from '../style.ts'
 import {
   buildAdminClient,
   fail,
@@ -26,6 +26,17 @@ export async function zoneCommand(argv: string[], cfg?: CliConfig): Promise<void
 
   try {
     switch (verb) {
+      case 'use': {
+        const id = positional[0]
+        if (id) {
+          process.env.CARACAL_ZONE_ID = id
+          printInfo(`zone → ${id}`)
+        } else {
+          delete process.env.CARACAL_ZONE_ID
+          printInfo('zone cleared')
+        }
+        return
+      }
       case 'list': {
         const rows = await client.zones.list()
         if (json) return printJSON(rows)
@@ -51,14 +62,18 @@ export async function zoneCommand(argv: string[], cfg?: CliConfig): Promise<void
       case 'patch': {
         const id = positional[0]
         if (!id) return usage('zone patch <id> [--name …] [--slug …] [--dcr=true|false] …')
-        return printJSON(await client.zones.patch(id, {
+        const patch = {
           name: flagString(flags, 'name'),
           slug: flagString(flags, 'slug'),
           org_id: flagString(flags, 'org'),
           dcr_enabled: flags['dcr'] === undefined ? undefined : flagBool(flags, 'dcr'),
           pkce_required: flags['pkce'] === undefined ? undefined : flagBool(flags, 'pkce'),
           login_flow: flagString(flags, 'login-flow'),
-        }))
+        }
+        if (Object.values(patch).every((v) => v === undefined)) {
+          return usage('zone patch <id> [--name …] [--slug …] [--org …] [--dcr=true|false] [--pkce=true|false] [--login-flow …]  (at least one field required)')
+        }
+        return printJSON(await client.zones.patch(id, patch))
       }
       case 'delete': {
         const id = positional[0]
@@ -85,6 +100,7 @@ function help(): never {
       'Usage: caracal zone <verb> [options]',
       '',
       'Verbs:',
+      '  use [id]                Set (or clear) the default zone for this session',
       '  list                    List all zones',
       '  get <id>                Fetch a zone by ID as JSON',
       '  create                  Create a new zone',

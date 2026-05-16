@@ -2,7 +2,7 @@
   "name": "@caracalai/tui",
   "version": "0.1.2",
   "private": true,
-  "description": "Caracal terminal UI: inspect and manage the OSS agent identity stack interactively.",
+  "description": "Caracal terminal UI: inspect and manage identity resources interactively.",
   "license": "Apache-2.0",
   "type": "module",
   "bin": {

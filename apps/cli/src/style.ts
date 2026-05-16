@@ -19,11 +19,11 @@ const SGR = {
   diffAdd: '\x1b[32m',
   diffRemove: '\x1b[31m',
   debug: '\x1b[2;3m',
-  accent: '\x1b[1;96m',
+  accent: '\x1b[1;35m',
   dim: '\x1b[2m',
   match: '\x1b[1;4;36m',
   kbd: '\x1b[7m',
-  selected: '\x1b[1;7;96m',
+  selected: '\x1b[1;7;35m',
 } as const
 
 type Tone = keyof typeof SGR
