@@ -22,8 +22,7 @@ const (
 )
 
 // jtiTracker records the first use of every token's JTI and rejects subsequent
-// presentations of the same JTI within the token's TTL. A nil tracker is a no-op
-// so deployments without REDIS_URL still serve traffic but lose replay protection.
+// presentations of the same JTI within the token's TTL.
 type jtiTracker struct {
 	redis    *RedisClient
 	log      zerolog.Logger
@@ -32,13 +31,13 @@ type jtiTracker struct {
 
 func newJTITracker(redis *RedisClient, log zerolog.Logger, failOpen bool) *jtiTracker {
 	if redis == nil {
-		return nil
+		panic("jti tracker requires redis")
 	}
 	return &jtiTracker{redis: redis, log: log, failOpen: failOpen}
 }
 
 // Check records the JTI as seen with TTL = time-until-exp. Returns true when the
-// caller may proceed (first use, ambient session token, or tracker disabled).
+// caller may proceed (first use or ambient session token).
 // Returns false on a confirmed replay of a per-call token, after emitting a
 // replay_detected audit event. Errors talking to Redis are governed by failOpen:
 // when false (production default) the request is rejected so a flaky Redis cannot
@@ -50,7 +49,7 @@ func newJTITracker(redis *RedisClient, log zerolog.Logger, failOpen bool) *jtiTr
 // per request and must never be re-presented; replay protection only fires for
 // those.
 func (t *jtiTracker) Check(ctx context.Context, jti string, exp time.Time, use, requestID, resource, clientID, subjectFP string) bool {
-	if t == nil || jti == "" {
+	if jti == "" {
 		return true
 	}
 	if use == "ambient" {

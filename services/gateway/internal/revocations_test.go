@@ -175,9 +175,9 @@ func (e *ensureGroupFailRedis) EnsureGroup(_ context.Context, _, _ string) error
 	return e.err
 }
 
-func TestStartRevocationConsumerNilRedisIsNoOp(t *testing.T) {
-	if err := startRevocationConsumer(context.Background(), nil, newRevocationStore(zerolog.Nop()), zerolog.Nop()); err != nil {
-		t.Fatalf("expected nil error for nil redis, got %v", err)
+func TestStartRevocationConsumerNilRedisFailsStartup(t *testing.T) {
+	if err := startRevocationConsumer(context.Background(), nil, newRevocationStore(zerolog.Nop()), zerolog.Nop()); err == nil {
+		t.Fatalf("expected nil redis to fail startup")
 	}
 }
 

@@ -102,28 +102,15 @@ func Getenv(key, fallback string) string {
 	return fallback
 }
 
-// PositiveIntEnv returns a positive integer env var or fallback when unset or invalid.
-func PositiveIntEnv(key string, fallback int) int {
-	raw := os.Getenv(key)
-	if raw == "" {
+// IntEnv returns a positive integer env var or fallback when unset. Panics on invalid input.
+func IntEnv(key string, fallback int) int {
+	v := os.Getenv(key)
+	if v == "" {
 		return fallback
 	}
-	n, err := strconv.Atoi(raw)
+	n, err := strconv.Atoi(v)
 	if err != nil || n <= 0 {
-		return fallback
-	}
-	return n
-}
-
-// PositiveInt64Env returns a positive int64 env var or fallback when unset or invalid.
-func PositiveInt64Env(key string, fallback int64) int64 {
-	raw := os.Getenv(key)
-	if raw == "" {
-		return fallback
-	}
-	n, err := strconv.ParseInt(raw, 10, 64)
-	if err != nil || n <= 0 {
-		return fallback
+		panic(fmt.Sprintf("invalid integer for %s: %q", key, v))
 	}
 	return n
 }
@@ -143,7 +130,6 @@ func DurationEnv(key string, fallback time.Duration) time.Duration {
 }
 
 // Int64Env returns a positive int64 env var or fallback when unset. Panics on invalid input.
-// Use PositiveInt64Env when you prefer a silent fallback over a startup failure.
 func Int64Env(key string, fallback int64) int64 {
 	v := os.Getenv(key)
 	if v == "" {

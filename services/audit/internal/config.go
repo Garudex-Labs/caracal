@@ -40,10 +40,10 @@ func loadConfig() Config {
 	} else if base.IsRuntime() {
 		panic("AUDIT_HMAC_KEY: required when CARACAL_MODE=runtime")
 	}
-	retention := config.PositiveIntEnv("AUDIT_RETENTION_DAYS", 365)
-	maxDeliv := config.PositiveInt64Env("AUDIT_MAX_DELIVERIES", 8)
-	idleSecs := config.PositiveInt64Env("AUDIT_CLAIM_IDLE_SECS", 30)
-	rolling := config.PositiveIntEnv("AUDIT_TAMPER_ROLLING_HOURS", 4)
+	retention := config.IntEnv("AUDIT_RETENTION_DAYS", 365)
+	maxDeliv := config.Int64Env("AUDIT_MAX_DELIVERIES", 8)
+	idleSecs := config.Int64Env("AUDIT_CLAIM_IDLE_SECS", 30)
+	rolling := config.IntEnv("AUDIT_TAMPER_ROLLING_HOURS", 4)
 	return Config{
 		Base:               base,
 		S3Endpoint:         config.Getenv("AUDIT_EXPORT_S3_ENDPOINT", ""),
