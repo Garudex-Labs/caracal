@@ -6,6 +6,7 @@
 package identity
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 
@@ -46,6 +47,9 @@ func (e *ChainMismatchError) Error() string {
 }
 
 func readChain(raw any) []ChainHop {
+	if raw == nil {
+		return nil
+	}
 	list, ok := raw.([]any)
 	if !ok {
 		return nil
@@ -68,6 +72,9 @@ func readChain(raw any) []ChainHop {
 }
 
 func readStringSlice(raw any) []string {
+	if raw == nil {
+		return nil
+	}
 	list, ok := raw.([]any)
 	if !ok {
 		return nil
@@ -79,6 +86,61 @@ func readStringSlice(raw any) []string {
 		}
 	}
 	return out
+}
+
+func requiredString(claims jwt.MapClaims, name string) (string, bool) {
+	value, ok := claims[name].(string)
+	return value, ok && value != ""
+}
+
+func optionalString(claims jwt.MapClaims, name string) (string, bool) {
+	value, ok := claims[name]
+	if !ok || value == nil || value == "" {
+		return "", true
+	}
+	typed, ok := value.(string)
+	return typed, ok
+}
+
+func requiredNumeric(claims jwt.MapClaims, name string) bool {
+	switch v := claims[name].(type) {
+	case float64:
+		return v >= 0
+	case int64:
+		return v >= 0
+	case json.Number:
+		_, err := v.Int64()
+		return err == nil
+	default:
+		return false
+	}
+}
+
+func optionalInt(claims jwt.MapClaims, name string) (int, bool) {
+	value, ok := claims[name]
+	if !ok || value == nil {
+		return 0, true
+	}
+	switch v := value.(type) {
+	case float64:
+		if v < 0 || v != float64(int(v)) {
+			return 0, false
+		}
+		return int(v), true
+	case int64:
+		if v < 0 {
+			return 0, false
+		}
+		return int(v), true
+	case json.Number:
+		n, err := v.Int64()
+		if err != nil || n < 0 {
+			return 0, false
+		}
+		return int(n), true
+	default:
+		return 0, false
+	}
 }
 
 // Verify parses and validates a JWT, returning typed Claims on success.
@@ -94,15 +156,41 @@ func Verify(tokenStr string, cfg Config) (Claims, error) {
 			return k, nil
 		}
 		return nil, jwt.ErrTokenSignatureInvalid
-	}, jwt.WithIssuer(cfg.Issuer), jwt.WithAudience(cfg.Audience), jwt.WithValidMethods([]string{jwt.SigningMethodES256.Alg()}))
+	}, jwt.WithIssuer(cfg.Issuer), jwt.WithAudience(cfg.Audience), jwt.WithExpirationRequired(), jwt.WithIssuedAt(), jwt.WithValidMethods([]string{jwt.SigningMethodES256.Alg()}))
 	if err != nil {
 		return Claims{}, ErrTokenInvalid
 	}
 
-	scope, _ := mapClaims["scope"].(string)
+	if !requiredNumeric(mapClaims, "iat") {
+		return Claims{}, ErrTokenInvalid
+	}
+	scope, ok := optionalString(mapClaims, "scope")
+	if !ok {
+		return Claims{}, ErrTokenInvalid
+	}
 	zoneID, _ := mapClaims["zone_id"].(string)
 	if zoneID == "" || (cfg.ZoneID != "" && zoneID != cfg.ZoneID) {
 		return Claims{}, ErrZoneInvalid
+	}
+	jti, ok := requiredString(mapClaims, "jti")
+	if !ok {
+		return Claims{}, ErrTokenInvalid
+	}
+	sub, ok := requiredString(mapClaims, "sub")
+	if !ok {
+		return Claims{}, ErrTokenInvalid
+	}
+	sid, ok := requiredString(mapClaims, "sid")
+	if !ok {
+		return Claims{}, ErrTokenInvalid
+	}
+	clientID, ok := requiredString(mapClaims, "client_id")
+	if !ok {
+		return Claims{}, ErrTokenInvalid
+	}
+	use, ok := requiredString(mapClaims, "use")
+	if !ok || (cfg.RequiredUse != "" && use != cfg.RequiredUse) {
+		return Claims{}, ErrTokenInvalid
 	}
 	for _, required := range cfg.RequiredScopes {
 		if !HasScope(scope, required) {
@@ -110,29 +198,33 @@ func Verify(tokenStr string, cfg Config) (Claims, error) {
 		}
 	}
 
-	sub, _ := mapClaims["sub"].(string)
-	sid, _ := mapClaims["sid"].(string)
-	clientID, _ := mapClaims["client_id"].(string)
-	agentSessionID, _ := mapClaims["agent_session_id"].(string)
-	delegationEdgeID, _ := mapClaims["delegation_edge_id"].(string)
-	sourceSessionID, _ := mapClaims["source_session_id"].(string)
-	targetSessionID, _ := mapClaims["target_session_id"].(string)
+	agentSessionID, ok := optionalString(mapClaims, "agent_session_id")
+	if !ok {
+		return Claims{}, ErrTokenInvalid
+	}
+	delegationEdgeID, ok := optionalString(mapClaims, "delegation_edge_id")
+	if !ok {
+		return Claims{}, ErrTokenInvalid
+	}
+	sourceSessionID, ok := optionalString(mapClaims, "source_session_id")
+	if !ok {
+		return Claims{}, ErrTokenInvalid
+	}
+	targetSessionID, ok := optionalString(mapClaims, "target_session_id")
+	if !ok {
+		return Claims{}, ErrTokenInvalid
+	}
 	chain := readChain(mapClaims["delegation_chain"])
 	path := readStringSlice(mapClaims["delegation_path"])
 
-	var graphEpoch int64
-	switch v := mapClaims["delegation_graph_epoch"].(type) {
-	case float64:
-		graphEpoch = int64(v)
-	case int64:
-		graphEpoch = v
+	graphEpochValue, ok := optionalInt(mapClaims, "delegation_graph_epoch")
+	if !ok {
+		return Claims{}, ErrTokenInvalid
 	}
-	var hopCount int
-	switch v := mapClaims["hop_count"].(type) {
-	case float64:
-		hopCount = int(v)
-	case int64:
-		hopCount = int(v)
+	graphEpoch := int64(graphEpochValue)
+	hopCount, ok := optionalInt(mapClaims, "hop_count")
+	if !ok {
+		return Claims{}, ErrTokenInvalid
 	}
 
 	if cfg.RequireAgent && agentSessionID == "" {
@@ -166,6 +258,8 @@ func Verify(tokenStr string, cfg Config) (Claims, error) {
 		ZoneID:           zoneID,
 		ClientID:         clientID,
 		Sid:              sid,
+		Use:              use,
+		JTI:              jti,
 		Scope:            scope,
 		AgentSessionID:   agentSessionID,
 		DelegationEdgeID: delegationEdgeID,

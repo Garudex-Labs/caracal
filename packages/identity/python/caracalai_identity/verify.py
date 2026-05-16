@@ -63,22 +63,61 @@ class HopCountExceededError(CaracalError):
 
 
 def _read_chain(raw: object) -> list[ChainHop]:
-    if not isinstance(raw, list):
+    if raw is None:
         return []
+    if not isinstance(raw, list):
+        raise TokenInvalidError("Token claim delegation_chain must be an array")
     out: list[ChainHop] = []
     for item in raw:
         if not isinstance(item, dict):
-            continue
-        application_id = item.get("application_id")
-        if not isinstance(application_id, str) or not application_id:
-            continue
+            raise TokenInvalidError("Token claim delegation_chain must contain objects")
+        application_id = _required_str(item, "application_id")
         out.append(
             ChainHop(
                 application_id=application_id,
-                agent_session_id=item.get("agent_session_id"),
-                delegation_edge_id=item.get("delegation_edge_id"),
+                agent_session_id=_optional_str(item, "agent_session_id"),
+                delegation_edge_id=_optional_str(item, "delegation_edge_id"),
             )
         )
+    return out
+
+
+def _required_str(values: dict[str, object], name: str) -> str:
+    value = values.get(name)
+    if not isinstance(value, str) or not value:
+        raise TokenInvalidError(f"Token claim {name} is required")
+    return value
+
+
+def _optional_str(values: dict[str, object], name: str) -> str | None:
+    value = values.get(name)
+    if value is None or value == "":
+        return None
+    if not isinstance(value, str):
+        raise TokenInvalidError(f"Token claim {name} must be a string")
+    return value
+
+
+def _optional_int(values: dict[str, object], name: str) -> int | None:
+    value = values.get(name)
+    if value is None:
+        return None
+    if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+        raise TokenInvalidError(f"Token claim {name} must be a non-negative integer")
+    return value
+
+
+def _string_list(values: dict[str, object], name: str) -> list[str]:
+    value = values.get(name)
+    if value is None:
+        return []
+    if not isinstance(value, list):
+        raise TokenInvalidError(f"Token claim {name} must be a string array")
+    out: list[str] = []
+    for item in value:
+        if not isinstance(item, str) or not item:
+            raise TokenInvalidError(f"Token claim {name} must be a string array")
+        out.append(item)
     return out
 
 
@@ -88,6 +127,7 @@ async def verify_token(
     audience: str,
     required_scopes: list[str] | None = None,
     expected_zone_id: str | None = None,
+    required_use: str | None = None,
 ) -> dict[str, JsonValue]:
     keys = await _cache.get_keys(issuer)
 
@@ -115,6 +155,7 @@ async def verify_token(
                 algorithms=["ES256"],
                 audience=audience,
                 issuer=issuer,
+                options={"require": ["exp", "iat", "jti", "sub", "sid", "client_id", "use"]},
             )
             break
         except Exception as e:
@@ -123,9 +164,19 @@ async def verify_token(
     if decoded is None:
         raise TokenInvalidError(f"Token validation failed: {last_err}") from last_err
 
-    scope: str = decoded.get("scope", "")
-    zone_id: str | None = decoded.get("zone_id")
-    if not zone_id or (expected_zone_id and zone_id != expected_zone_id):
+    _required_str(decoded, "jti")
+    _required_str(decoded, "sub")
+    _required_str(decoded, "sid")
+    _required_str(decoded, "client_id")
+    token_use = _required_str(decoded, "use")
+    if required_use is not None and token_use != required_use:
+        raise TokenInvalidError("Token use validation failed")
+
+    scope = decoded.get("scope", "")
+    if not isinstance(scope, str):
+        raise TokenInvalidError("Token claim scope must be a string")
+    zone_id = decoded.get("zone_id")
+    if not isinstance(zone_id, str) or not zone_id or (expected_zone_id and zone_id != expected_zone_id):
         raise ZoneInvalidError("Token zone validation failed")
     for required in required_scopes or []:
         if not has_scope(scope, required):
@@ -141,10 +192,11 @@ async def verify_config(token: str, config: JwtConfig) -> Claims:
         audience=config.audience,
         required_scopes=config.required_scopes,
         expected_zone_id=config.expected_zone_id,
+        required_use=config.required_use,
     )
 
-    agent_session_id = decoded.get("agent_session_id")
-    delegation_edge_id = decoded.get("delegation_edge_id")
+    agent_session_id = _optional_str(decoded, "agent_session_id")
+    delegation_edge_id = _optional_str(decoded, "delegation_edge_id")
     delegation_chain = _read_chain(decoded.get("delegation_chain"))
 
     if config.require_agent and not agent_session_id:
@@ -156,36 +208,36 @@ async def verify_config(token: str, config: JwtConfig) -> Claims:
         if not present:
             raise ChainMismatchError(expected)
 
-    hop_count = decoded.get("hop_count")
+    hop_count = _optional_int(decoded, "hop_count")
     max_hops = (
         config.max_hop_count
         if config.max_hop_count is not None and config.max_hop_count > 0
         else DEFAULT_MAX_HOP_COUNT
     )
-    observed = hop_count if isinstance(hop_count, int) else 0
+    observed = hop_count if hop_count is not None else 0
     if observed > max_hops:
         raise HopCountExceededError("Hop count exceeded")
 
-    delegation_path = decoded.get("delegation_path") or []
-    if not isinstance(delegation_path, list):
-        delegation_path = []
-
-    graph_epoch = decoded.get("delegation_graph_epoch")
+    delegation_path = _string_list(decoded, "delegation_path")
+    graph_epoch = _optional_int(decoded, "delegation_graph_epoch")
+    scope = _required_str(decoded, "scope") if "scope" in decoded else ""
 
     return Claims(
-        sub=decoded.get("sub", ""),
-        zone_id=decoded.get("zone_id", ""),
-        client_id=decoded.get("client_id", ""),
-        sid=decoded.get("sid", ""),
-        scope=decoded.get("scope", ""),
+        sub=_required_str(decoded, "sub"),
+        zone_id=_required_str(decoded, "zone_id"),
+        client_id=_required_str(decoded, "client_id"),
+        sid=_required_str(decoded, "sid"),
+        use=_required_str(decoded, "use"),
+        jti=_required_str(decoded, "jti"),
+        scope=scope,
         agent_session_id=agent_session_id,
         delegation_edge_id=delegation_edge_id,
-        source_session_id=decoded.get("source_session_id"),
-        target_session_id=decoded.get("target_session_id"),
-        delegation_path=[v for v in delegation_path if isinstance(v, str)],
+        source_session_id=_optional_str(decoded, "source_session_id"),
+        target_session_id=_optional_str(decoded, "target_session_id"),
+        delegation_path=delegation_path,
         delegation_chain=delegation_chain,
-        graph_epoch=graph_epoch if isinstance(graph_epoch, int) else None,
-        hop_count=decoded.get("hop_count") if isinstance(decoded.get("hop_count"), int) else None,
+        graph_epoch=graph_epoch,
+        hop_count=hop_count,
     )
 
 
