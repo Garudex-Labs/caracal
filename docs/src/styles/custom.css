@@ -1628,7 +1628,7 @@ footer .meta a {
   color: var(--caracal-link);
 }
 
-/* Inline placeholder callout (used on stub pages) */
+/* Introductory blockquotes align with the page rhythm. */
 .sl-markdown-content blockquote:first-child {
   margin-block: 1rem 1.5rem;
 }

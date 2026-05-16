@@ -190,7 +190,7 @@ func (c *Client) Ready() error {
 }
 
 // Start launches the background flush loop. Caller must invoke ReplayPending
-// before Start so that previously persisted events drain ahead of new traffic.
+// before Start so persisted events drain ahead of live traffic.
 func (c *Client) Start(ctx context.Context) {
 	go c.run(ctx)
 }

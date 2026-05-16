@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 // Caracal, a product of Garudex Labs
 //
-// Retention cleaner: expires old delegation edges and prunes terminal coordinator rows.
+// Retention cleaner: expires stale delegation edges and prunes terminal coordinator rows.
 
 import type { Pool } from 'pg'
 import { cfg } from '../config.js'

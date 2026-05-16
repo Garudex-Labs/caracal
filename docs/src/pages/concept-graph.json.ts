@@ -27,7 +27,6 @@ export async function GET() {
       }
     })
 
-  // Build edges from frontmatter `requires` fields
   const edges: Array<{ source: string; target: string; type: string }> = []
   for (const node of nodes) {
     for (const req of node.requires) {
