@@ -8,16 +8,14 @@ import { z } from 'zod'
 import { ZoneParams, parseParams } from './params.js'
 import { redactSensitive } from '../redact.js'
 
-const Cursor = z.object({ ts: z.string(), id: z.string() })
+const Cursor = z.object({ ts: z.string().min(1), id: z.string().min(1) })
 
-function decodeCursor(raw: string | undefined): { ts: string; id: string } | null {
-  if (!raw) return null
+function decodeCursor(raw: string): { ts: string; id: string } | null {
   try {
     const json = Buffer.from(raw, 'base64url').toString('utf8')
     const parsed = Cursor.safeParse(JSON.parse(json))
     return parsed.success ? parsed.data : null
   } catch {
-    // Malformed cursors restart pagination from the first page.
     return null
   }
 }
@@ -61,7 +59,8 @@ export const zoneEventsRoutes: FastifyPluginAsync = async (fastify) => {
     if (q.decision) { values.push(q.decision); conds.push(`decision = $${values.length}`) }
     if (q.event_type) { values.push(q.event_type); conds.push(`event_type = $${values.length}`) }
 
-    const cursor = decodeCursor(q.cursor)
+    const cursor = q.cursor ? decodeCursor(q.cursor) : null
+    if (q.cursor && !cursor) return reply.code(400).send({ error: 'invalid_cursor' })
     if (cursor) {
       values.push(cursor.ts)
       values.push(cursor.id)
@@ -116,7 +115,8 @@ export const zoneEventsRoutes: FastifyPluginAsync = async (fastify) => {
     if (q.status) { values.push(q.status); conds.push(`status = $${values.length}`) }
     if (q.subject_id) { values.push(q.subject_id); conds.push(`subject_id = $${values.length}`) }
 
-    const cursor = decodeCursor(q.cursor)
+    const cursor = q.cursor ? decodeCursor(q.cursor) : null
+    if (q.cursor && !cursor) return reply.code(400).send({ error: 'invalid_cursor' })
     if (cursor) {
       values.push(cursor.ts)
       values.push(cursor.id)

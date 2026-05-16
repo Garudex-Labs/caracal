@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 // Caracal, a product of Garudex Labs
 //
-// Caracal TUI entry point: bootstraps the AdminClient and launches the menu.
+// Caracal TUI entry point bootstraps the AdminClient and launches the menu.
 
 import '@caracalai/engine/scrubCwdEnv'
 import { readFileSync } from 'node:fs'
@@ -21,7 +21,7 @@ import { MenuView } from './views/menu.ts'
 function loadConfig(): CliConfig | undefined {
   const path = resolveCliConfigPath()
   if (!path) return undefined
-  try { return parse(readFileSync(path, 'utf8')) as unknown as CliConfig } catch { return undefined }
+  return parse(readFileSync(path, 'utf8')) as unknown as CliConfig
 }
 
 function printHelp(): void {
@@ -68,9 +68,9 @@ function main(): void {
     process.stderr.write('caracal-tui: stdin is not a TTY — run from an interactive terminal.\n')
     process.exit(1)
   }
-  const cfg = loadConfig()
   let adminCtx: import('@caracalai/engine').AdminContext
   try {
+    const cfg = loadConfig()
     adminCtx = buildAdminClient(cfg)
   } catch (err) {
     process.stderr.write(`caracal-tui: ${err instanceof Error ? err.message : String(err)}\n`)

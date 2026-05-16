@@ -346,9 +346,6 @@ def reset() -> None:
             inner = getattr(c, "client", None)
             close = getattr(inner, "close", None) or getattr(c, "close", None)
             if callable(close):
-                try:
-                    close()
-                except Exception:
-                    pass
+                close()
         _CLIENT_CACHE.clear()
     reset_breakers()
