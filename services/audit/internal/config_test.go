@@ -17,16 +17,13 @@ func TestLoadConfigRequiresHMACInRuntime(t *testing.T) {
 	t.Setenv("CARACAL_MODE", "runtime")
 	t.Setenv("AUDIT_HMAC_KEY", "")
 
-	defer func() {
-		r := recover()
-		if r == nil {
-			t.Fatal("runtime config must require AUDIT_HMAC_KEY")
-		}
-		if !strings.Contains(r.(string), "AUDIT_HMAC_KEY") {
-			t.Fatalf("panic must name AUDIT_HMAC_KEY, got %v", r)
-		}
-	}()
-	_ = loadConfig()
+	_, err := loadConfig()
+	if err == nil {
+		t.Fatal("runtime config must require AUDIT_HMAC_KEY")
+	}
+	if !strings.Contains(err.Error(), "AUDIT_HMAC_KEY") {
+		t.Fatalf("error must name AUDIT_HMAC_KEY, got %v", err)
+	}
 }
 
 func TestLoadConfigAllowsUnsignedDevAudit(t *testing.T) {
@@ -36,7 +33,10 @@ func TestLoadConfigAllowsUnsignedDevAudit(t *testing.T) {
 	t.Setenv("CARACAL_MODE", "dev")
 	t.Setenv("AUDIT_HMAC_KEY", "")
 
-	cfg := loadConfig()
+	cfg, err := loadConfig()
+	if err != nil {
+		t.Fatalf("dev mode loadConfig failed: %v", err)
+	}
 	if len(cfg.AuditHMACKey) != 0 {
 		t.Fatal("dev config must allow unsigned audit mode")
 	}

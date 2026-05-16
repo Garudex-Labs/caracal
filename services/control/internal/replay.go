@@ -16,6 +16,7 @@ import (
 // Replay is the contract every control replica shares to block repeated JTIs within a token's lifetime.
 type Replay interface {
 	Mark(jti string, exp time.Time) bool
+	Ping(ctx context.Context) error
 }
 
 type ReplayCache struct {
@@ -94,3 +95,9 @@ func (r *RedisReplay) Mark(jti string, exp time.Time) bool {
 	}
 	return ok
 }
+
+func (r *RedisReplay) Ping(ctx context.Context) error {
+	return r.client.Ping(ctx).Err()
+}
+
+func (c *ReplayCache) Ping(_ context.Context) error { return nil }
