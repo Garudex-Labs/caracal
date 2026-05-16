@@ -42,25 +42,27 @@ func InvokeHandler(auth *Authenticator, disp *Dispatcher, sink EventSink, rate *
 			exp = claims.ExpiresAt.Time
 		}
 		if !replay.Mark(claims.ID, exp) {
-			sink.Emit(AuditEvent{At: time.Now().UTC(), Subject: claims.Subject, JTI: claims.ID, Decision: "deny", Reason: "replay", RequestID: reqID})
+			sink.Emit(AuditEvent{At: time.Now().UTC(), ZoneID: claims.ZoneID, ClientID: claims.ClientID, Subject: claims.Subject, JTI: claims.ID, Decision: "deny", Reason: "replay", RequestID: reqID})
 			writeJSON(w, http.StatusUnauthorized, Response{Error: "token replay"})
 			return
 		}
 		if !rate.Allow(claims.Subject) {
-			sink.Emit(AuditEvent{At: time.Now().UTC(), Subject: claims.Subject, JTI: claims.ID, Decision: "deny", Reason: "rate limited", RequestID: reqID})
+			sink.Emit(AuditEvent{At: time.Now().UTC(), ZoneID: claims.ZoneID, ClientID: claims.ClientID, Subject: claims.Subject, JTI: claims.ID, Decision: "deny", Reason: "rate limited", RequestID: reqID})
 			writeJSON(w, http.StatusTooManyRequests, Response{Error: "rate limited"})
 			return
 		}
 		r.Body = http.MaxBytesReader(w, r.Body, maxBodyBytes)
 		var req Request
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			sink.Emit(AuditEvent{At: time.Now().UTC(), Subject: claims.Subject, JTI: claims.ID, Decision: "deny", Reason: "invalid json", RequestID: reqID})
+			sink.Emit(AuditEvent{At: time.Now().UTC(), ZoneID: claims.ZoneID, ClientID: claims.ClientID, Subject: claims.Subject, JTI: claims.ID, Decision: "deny", Reason: "invalid json", RequestID: reqID})
 			writeJSON(w, http.StatusBadRequest, Response{Error: "invalid json"})
 			return
 		}
 		result, err := disp.Dispatch(ctx, req)
 		event := AuditEvent{
 			At:        time.Now().UTC(),
+			ZoneID:    claims.ZoneID,
+			ClientID:  claims.ClientID,
 			Subject:   claims.Subject,
 			JTI:       claims.ID,
 			Command:   req.Command,

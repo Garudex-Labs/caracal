@@ -36,7 +36,9 @@ type Authenticator struct {
 
 type Claims struct {
 	jwt.RegisteredClaims
-	Scope string `json:"scope"`
+	Scope    string `json:"scope"`
+	ZoneID   string `json:"zone_id"`
+	ClientID string `json:"client_id"`
 }
 
 func NewAuthenticator(ctx context.Context) (*Authenticator, error) {
