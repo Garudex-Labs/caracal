@@ -66,7 +66,7 @@ spawn<T>(fn: () => Promise<T>, opts?: SpawnOptions): Promise<T>
 interface SpawnOptions {
   kind?: AgentKind;             // 'service' | 'instance' | 'ephemeral'
   ttlSeconds?: number;
-  sessionSid?: string;          // Explicit SID; generated if omitted
+  subjectSessionId?: string;    // Explicit subject session ID; inferred if omitted
   parentId?: string;            // Parent agent session ID for nested spawns
   metadata?: Record<string, unknown>;
   traceId?: string;

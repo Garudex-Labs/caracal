@@ -76,7 +76,7 @@ When an agent presents a `delegation_edge_id` in a token exchange request, the S
 6. Passes the delegation edge metadata to OPA in `input.delegation_edge`, including the full path and constraints.
 7. Embeds the delegation chain in the issued mandate:
    - `delegation_edge_id`: the ID of this edge
-   - `delegation_chain`: ordered array of `{applicationId, agentSessionId, delegationEdgeId}` for every hop
+   - `delegation_chain`: ordered array of `{application_id, agent_session_id, delegation_edge_id}` for every hop
    - `hop_count`: depth of the chain
    - `graph_epoch`: version of the delegation graph at issuance, enabling downstream detection of stale chains
 
@@ -111,9 +111,9 @@ Every mandate issued to a delegated agent carries the full lineage:
   "delegation_edge_id": "edge-B-to-C",
   "hop_count": 2,
   "delegation_chain": [
-    { "applicationId": "app-A", "agentSessionId": "session-A" },
-    { "applicationId": "app-B", "agentSessionId": "session-B", "delegationEdgeId": "edge-A-to-B" },
-    { "applicationId": "app-C", "agentSessionId": "session-C", "delegationEdgeId": "edge-B-to-C" }
+    { "application_id": "app-A", "agent_session_id": "session-A" },
+    { "application_id": "app-B", "agent_session_id": "session-B", "delegation_edge_id": "edge-A-to-B" },
+    { "application_id": "app-C", "agent_session_id": "session-C", "delegation_edge_id": "edge-B-to-C" }
   ]
 }
 ```

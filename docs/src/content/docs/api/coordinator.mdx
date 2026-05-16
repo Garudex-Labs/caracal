@@ -46,7 +46,7 @@ Spawn a new agent session. Equivalent to `POST /v1/begin`.
 | Field | Type | Required | Default |
 | --- | --- | --- | --- |
 | `application_id` | string | Yes | — |
-| `session_sid` | string | No | STS session `sid` from the bearer token |
+| `subject_session_id` | string | No | STS session ID from the bearer token |
 | `parent_id` | string \| null | No | `null` (root agent) |
 | `kind` | `"service" \| "instance" \| "ephemeral"` | No | — |
 | `capabilities` | string[] | No | `[]` |
@@ -62,17 +62,17 @@ Spawn a new agent session. Equivalent to `POST /v1/begin`.
 | Max agents per zone | 50 |
 | Max agents per application | 200 |
 
-**Validation:** `session_sid` must reference an active session. If `parent_id` is set, the parent must be active and the caller must own the parent's application or hold `coordinator.spawn_under:{parentAppId}`.
+**Validation:** `subject_session_id` must reference an active session. If `parent_id` is set, the parent must be active and the caller must own the parent's application or hold `coordinator.spawn_under:{parentAppId}`.
 
 **Response 201:**
 
 ```json
 {
-  "id": "agent-session-id",
+  "agent_session_id": "agent-session-id",
   "zone_id": "zone1",
   "application_id": "app1",
   "parent_id": null,
-  "session_sid": "sts-session-sid",
+  "subject_session_id": "sts-session-id",
   "status": "active",
   "depth": 0,
   "spawned_at": "2026-05-11T20:00:00Z",
@@ -80,15 +80,15 @@ Spawn a new agent session. Equivalent to `POST /v1/begin`.
 }
 ```
 
-**Idempotency:** If `Idempotency-Key` is provided, returns the existing agent session if one already matches `(zone, application_id, session_sid, parent_id)`.
+**Idempotency:** If `Idempotency-Key` is provided, returns the existing agent session if one already matches `(zone, application_id, subject_session_id, parent_id)`.
 
 **Errors:**
 
 | Code | Status | Condition |
 | --- | --- | --- |
-| `session_sid_required` | 400 | No resolvable session SID |
+| `subject_session_id_required` | 400 | No resolvable subject session ID |
 | `application_not_found` | 404 | `application_id` does not exist |
-| `session_not_found` | 404 | `session_sid` does not reference an active session |
+| `session_not_found` | 404 | `subject_session_id` does not reference an active session |
 | `parent_not_found` | 404 | `parent_id` does not exist |
 | `application_ownership_required` | 403 | Caller does not own `application_id` and lacks spawn scope |
 | `agent_zone_limit_exceeded` | 429 | 50-agent zone limit reached |
@@ -131,7 +131,7 @@ Resume a suspended agent and its descendants.
 
 ### `DELETE /v1/zones/{zoneId}/agents/{id}`
 
-Terminate the agent and its entire subtree (all children, grandchildren, and so on). Cascades revocation to all delegation edges whose source or target is in the subtree. Enqueues session revocation events for each terminated session.
+Terminate the agent and its entire subtree (all children, grandchildren, and so on). Cascades revocation to all delegation edges whose source or target is in the subtree and enqueues agent lifecycle events for each terminated session.
 
 **Query parameters:** `reason` (string, 1–256 characters; default `"requested"`)
 
@@ -288,7 +288,7 @@ Alias for `DELETE /v1/zones/{zoneId}/agents/{id}`.
 | Field | Type | Required |
 | --- | --- | --- |
 | `zone_id` | string | Yes |
-| `session_id` | string | Yes | Agent session ID to terminate |
+| `agent_session_id` | string | Yes | Agent session ID to terminate |
 | `reason` | string | No |
 
 **Response 204.**

@@ -17,7 +17,7 @@ Agent sessions are stored in the `agent_sessions` table with these fields:
 | `zone_id` | Zone this session belongs to |
 | `application_id` | Application that opened the session |
 | `parent_id` | ID of the parent session (null for root sessions) |
-| `session_sid` | Stable identifier for the session's associated credential set |
+| `subject_session_id` | Stable identifier for the session's associated credential set |
 | `status` | `active`, `suspended`, or `terminated` |
 | `depth` | Depth in the session tree (0 = root) |
 | `child_count` | Number of currently active direct children |
@@ -55,7 +55,7 @@ The SDK opens a session by calling `POST /v1/begin` on the Coordinator with:
 {
   "zone_id": "...",
   "application_id": "...",
-  "session_sid": "...",
+  "subject_session_id": "...",
   "parent_id": null,
   "capabilities": [],
   "ttl_seconds": null
@@ -71,7 +71,7 @@ The SDK closes a session by calling `POST /v1/end` on the Coordinator:
 ```json
 {
   "zone_id": "...",
-  "session_id": "..."
+  "agent_session_id": "..."
 }
 ```
 

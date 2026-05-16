@@ -46,7 +46,7 @@ A mandate carries the following claims in addition to standard JWT registered cl
 | `source_session_id` | string | Originating session ID in a delegation chain |
 | `target_session_id` | string | Receiving session ID in a delegation chain |
 | `delegation_path` | string[] | Ordered list of session IDs in the delegation chain |
-| `delegation_chain` | object[] | Full chain of `{applicationId, agentSessionId, delegationEdgeId}` hops |
+| `delegation_chain` | object[] | Full chain of `{application_id, agent_session_id, delegation_edge_id}` hops |
 | `hop_count` | number | Number of delegation hops from root |
 | `graph_epoch` | number | Epoch of the delegation graph at issuance |
 

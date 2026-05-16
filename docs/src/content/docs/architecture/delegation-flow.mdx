@@ -17,7 +17,7 @@ The SDK calls `/v1/begin` with:
 {
   "zone_id": "...",
   "application_id": "...",
-  "session_sid": "...",
+  "subject_session_id": "...",
   "parent_id": null,
   "capabilities": [],
   "ttl_seconds": null
@@ -28,7 +28,7 @@ The Coordinator inserts an `agent_sessions` row. The row's `depth` is computed f
 
 **Closing a session (`POST /v1/end`):**
 
-Termination cascades. The Coordinator runs a recursive CTE that walks the subtree rooted at the terminated session, marks all descendants as `terminated`, and enqueues a revocation event for every affected `session_sid` through the outbox.
+Termination cascades. The Coordinator runs a recursive CTE that walks the subtree rooted at the terminated session, marks all descendants as `terminated`, and enqueues lifecycle events through the outbox.
 
 **Session states:** `active → suspended ↔ active → terminated`. Suspension affects the entire subtree. Termination is irreversible.
 
@@ -124,7 +124,7 @@ WHERE delegation_edges.id = affected.id
 RETURNING id, target_session_id
 ```
 
-For each affected `target_session_id`, the Coordinator calls `terminateSubtree()` and enqueues a revocation event per `session_sid` to the outbox. Those events flow to the `caracal.sessions.revoke` stream.
+For each affected `target_session_id`, the Coordinator calls `terminateSubtree()` and enqueues lifecycle events for the terminated agent sessions.
 
 **Effect of revocation:**
 - The **STS** marks the session ID as revoked in DB state. Subsequent exchange requests for that session fail before OPA is evaluated.

@@ -220,7 +220,7 @@ When OPA allows a resource, the STS issues an ES256-signed JWT with this complet
 | `source_session_id` | string | Delegation source session (when present) |
 | `target_session_id` | string | Delegation target session (when present) |
 | `delegation_path` | []string | Ordered edge IDs in delegation chain |
-| `delegation_chain` | []object | Hops: `{applicationId, agentSessionId, delegationEdgeId}` |
+| `delegation_chain` | []object | Hops: `{application_id, agent_session_id, delegation_edge_id}` |
 | `hop_count` | int | Length of delegation chain |
 | `delegation_graph_epoch` | int64 | Graph version at issuance |
 

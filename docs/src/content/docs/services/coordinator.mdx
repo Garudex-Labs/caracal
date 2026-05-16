@@ -112,7 +112,7 @@ Delegation edges carry optional `constraints_json` (e.g., resource restrictions,
 
 The Coordinator owns four tables:
 
-**`agent_sessions`** — `id`, `zone_id`, `application_id`, `session_sid` (parent user session), `parent_id` (self-referential FK), `status` (`active`|`suspended`|`terminated`), `depth`, `capabilities` (array), `ttl_seconds`, `spawned_at`, `suspended_at`, `terminated_at`, timestamps. Indexed on `(zone_id, application_id)` and `(zone_id, status)`.
+**`agent_sessions`** — `id`, `zone_id`, `application_id`, `subject_session_id` (parent user session), `parent_id` (self-referential FK), `status` (`active`|`suspended`|`terminated`), `depth`, `capabilities` (array), `ttl_seconds`, `spawned_at`, `suspended_at`, `terminated_at`, timestamps. Indexed on `(zone_id, application_id)` and `(zone_id, status)`.
 
 **`agent_services`** — `id`, `zone_id`, `application_id`, `endpoint_url`, `protocol_versions` (array), `framework_name`, `framework_version`, `capabilities` (array), `health`, `metadata_json` (JSONB), `last_heartbeat_at`, timestamps. Unique constraint on `(zone_id, application_id, endpoint_url)`.
 
