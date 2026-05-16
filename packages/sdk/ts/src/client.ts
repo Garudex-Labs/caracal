@@ -22,6 +22,7 @@ import {
   type DelegateToSpawnInput,
 } from "./primitives.js";
 import { AgentKind, type DelegationConstraints } from "./coordinator.js";
+import type { JsonObject } from "./json.js";
 
 export interface ResourceBinding {
   resourceId: string;
@@ -43,7 +44,7 @@ export interface SpawnOptions {
   kind?: AgentKind;
   ttlSeconds?: number;
   parentId?: string;
-  metadata?: Record<string, unknown>;
+  metadata?: JsonObject;
   traceId?: string;
 }
 
@@ -61,7 +62,7 @@ export interface DelegateToSpawnOptions {
   delegationTtlSeconds?: number;
   kind?: AgentKind;
   ttlSeconds?: number;
-  metadata?: Record<string, unknown>;
+  metadata?: JsonObject;
   traceId?: string;
 }
 

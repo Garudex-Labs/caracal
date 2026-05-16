@@ -14,6 +14,7 @@ import {
   AgentKind,
   DelegationConstraints,
 } from "./coordinator.js";
+import type { JsonObject } from "./json.js";
 
 export interface SpawnInput {
   coordinator: CoordinatorClient;
@@ -24,7 +25,7 @@ export interface SpawnInput {
   parentId?: string;
   kind?: AgentKind;
   ttlSeconds?: number;
-  metadata?: Record<string, unknown>;
+  metadata?: JsonObject;
   traceId?: string;
   onAgentStart?: (ctx: CaracalContext) => void | Promise<void>;
   onAgentEnd?: (ctx: CaracalContext) => void | Promise<void>;
@@ -113,7 +114,7 @@ export interface DelegateToSpawnInput {
   sessionSid?: string;
   kind?: AgentKind;
   ttlSeconds?: number;
-  metadata?: Record<string, unknown>;
+  metadata?: JsonObject;
   traceId?: string;
   onAgentStart?: (ctx: CaracalContext) => void | Promise<void>;
   onAgentEnd?: (ctx: CaracalContext) => void | Promise<void>;

@@ -9,7 +9,6 @@ from __future__ import annotations
 
 from contextlib import asynccontextmanager
 from dataclasses import replace
-from typing import Any
 from collections.abc import AsyncGenerator, Awaitable, Callable
 
 from .context import CaracalContext, current, _ctx_var
@@ -23,6 +22,7 @@ from .coordinator import (
     spawn_agent,
     terminate_agent,
 )
+from .json_types import JsonObject
 
 
 LifecycleHook = Callable[[CaracalContext], Awaitable[None]]
@@ -39,7 +39,7 @@ async def spawn(
     parent_ctx: CaracalContext | None = None,
     kind: AgentKind = AgentKind.INSTANCE,
     ttl_seconds: int | None = None,
-    metadata: dict[str, Any] | None = None,
+    metadata: JsonObject | None = None,
     trace_id: str | None = None,
     on_agent_start: LifecycleHook | None = None,
     on_agent_end: LifecycleHook | None = None,
@@ -148,7 +148,7 @@ async def delegate_to_spawn(
     delegation_ttl_seconds: int | None = None,
     kind: AgentKind = AgentKind.INSTANCE,
     ttl_seconds: int | None = None,
-    metadata: dict[str, Any] | None = None,
+    metadata: JsonObject | None = None,
     trace_id: str | None = None,
     on_agent_start: LifecycleHook | None = None,
     on_agent_end: LifecycleHook | None = None,
