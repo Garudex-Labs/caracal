@@ -5,6 +5,7 @@
 
 import { spawn, type ChildProcess, type StdioOptions } from 'node:child_process'
 import { createInterface } from 'node:readline'
+import { scrubTokens } from '@caracalai/core/crash'
 import { InteractionRequiredError, OAuthClient } from '@caracalai/oauth'
 import type { CliConfig, Credential } from '@caracalai/core/cli'
 
@@ -19,6 +20,15 @@ const SIGNAL_EXIT_MAP: Record<string, number> = {
 const STEP_UP_POLL_MS = 2000
 const STEP_UP_TIMEOUT_MS = 300_000
 const TOKEN_TTL_SECONDS = 3600
+const ENV_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/
+const BLOCKED_CREDENTIAL_ENV = new Set([
+  'NODE_OPTIONS',
+  'BUN_OPTIONS',
+  'LD_PRELOAD',
+  'LD_LIBRARY_PATH',
+  'DYLD_INSERT_LIBRARIES',
+  'DYLD_LIBRARY_PATH',
+])
 
 export type RunLineSink = (line: string, stream: 'stdout' | 'stderr') => void
 
@@ -94,16 +104,25 @@ async function exchangeWithStepUp(client: OAuthClient, cfg: CliConfig, resource:
 }
 
 function credentialFailureLine(cred: Credential, err: unknown): string {
-  const reason = err instanceof Error ? err.message : String(err)
+  const reason = scrubTokens(err instanceof Error ? err.message : String(err))
   const requestId = err instanceof InteractionRequiredError ? err.challengeId : undefined
   return JSON.stringify({ resource: cred.resource, reason, requestId })
+}
+
+function validateCredentialEnv(cred: Credential, used: Set<string>): void {
+  if (!ENV_NAME.test(cred.env)) throw new Error(`invalid_credential_env:${cred.env}`)
+  if (BLOCKED_CREDENTIAL_ENV.has(cred.env)) throw new Error(`blocked_credential_env:${cred.env}`)
+  if (used.has(cred.env)) throw new Error(`duplicate_credential_env:${cred.env}`)
+  used.add(cred.env)
 }
 
 export async function buildRunEnv(cfg: CliConfig, opts: BuildRunEnvOptions = {}): Promise<Record<string, string>> {
   const client = new OAuthClient(cfg.zone_url, cfg.zone_id, cfg.application_id)
   const env: Record<string, string> = {}
+  const usedEnv = new Set<string>()
 
   for (const cred of cfg.credentials ?? []) {
+    validateCredentialEnv(cred, usedEnv)
     try {
       env[cred.env] = await exchangeWithStepUp(client, cfg, cred.resource, opts.onLine)
     } catch (err) {
@@ -113,10 +132,15 @@ export async function buildRunEnv(cfg: CliConfig, opts: BuildRunEnvOptions = {})
   }
 
   for (const cred of cfg.optional_credentials ?? []) {
+    validateCredentialEnv(cred, usedEnv)
     try {
       env[cred.env] = await exchangeWithStepUp(client, cfg, cred.resource, opts.onLine)
     } catch (err) {
-      const reason = err instanceof Error ? err.message : String(err)
+      if (cred.on_failure === 'error') {
+        opts.onLine?.(credentialFailureLine(cred, err), 'stderr')
+        throw err
+      }
+      const reason = scrubTokens(err instanceof Error ? err.message : String(err))
       opts.onLine?.(`optional credential skipped resource=${cred.resource} reason=${reason}`, 'stdout')
     }
   }

@@ -44,14 +44,19 @@ function bytesEqual(a: Buffer, b: Buffer): boolean {
 
 function extractBearer(req: FastifyRequest): string | null {
   const auth = req.headers.authorization
-  if (!auth || !auth.startsWith(BEARER_PREFIX)) return null
+  if (typeof auth !== 'string' || !auth.startsWith(BEARER_PREFIX)) return null
   const token = auth.slice(BEARER_PREFIX.length).trim()
   return token.length > 0 && token.length <= MAX_ADMIN_BEARER_BYTES ? token : null
 }
 
 function zoneFromUrl(url: string): string | null {
   const match = url.match(/^\/v1\/zones\/([^/?]+)/)
-  return match ? decodeURIComponent(match[1]) : null
+  if (!match) return null
+  try {
+    return decodeURIComponent(match[1])
+  } catch {
+    return null
+  }
 }
 
 export async function lookupAdminToken(db: DB, plaintext: string): Promise<Actor | null> {

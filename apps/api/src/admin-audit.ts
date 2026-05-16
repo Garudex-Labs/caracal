@@ -11,7 +11,12 @@ import type { Actor } from './auth.js'
 
 function zoneFromUrl(url: string): string | null {
   const match = url.match(/^\/v1\/zones\/([^/?]+)/)
-  return match ? decodeURIComponent(match[1]) : null
+  if (!match) return null
+  try {
+    return decodeURIComponent(match[1])
+  } catch {
+    return null
+  }
 }
 
 function entityFromUrl(url: string): { type: string | null; id: string | null } {
