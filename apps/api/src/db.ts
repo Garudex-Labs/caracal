@@ -6,6 +6,11 @@
 import pg from 'pg'
 
 export type DB = pg.Pool
+export type QueryParam = string | number | boolean | null | string[]
+
+export interface Queryable {
+  query: <T = unknown>(text: string, params?: QueryParam[]) => Promise<{ rows: T[] }>
+}
 
 export interface DBOptions {
   connectionString: string

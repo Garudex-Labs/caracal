@@ -3,11 +3,7 @@
 //
 // Cross-route invariants binding application credential type to active policy references.
 
-type QueryParam = string | number | boolean | null | string[]
-
-export interface InvariantDB {
-  query: <T = unknown>(text: string, params?: QueryParam[]) => Promise<{ rows: T[] }>
-}
+import type { Queryable } from './db.js'
 
 // publicAppsReferencedByContents returns the ids of zone applications whose
 // credential_type is 'public' and whose id appears verbatim in any of the
@@ -15,7 +11,7 @@ export interface InvariantDB {
 // who can reach Gateway with that client_id steals every right the policy
 // grants to it; activation must refuse.
 export async function publicAppsReferencedByContents(
-  db: InvariantDB,
+  db: Queryable,
   zoneId: string,
   contents: string[],
 ): Promise<string[]> {
@@ -43,7 +39,7 @@ export async function publicAppsReferencedByContents(
 // Used to refuse marking an app public when a live policy already grants it
 // privilege under a confidential identity.
 export async function activePolicyReferencesApp(
-  db: InvariantDB,
+  db: Queryable,
   zoneId: string,
   appId: string,
 ): Promise<boolean> {

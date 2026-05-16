@@ -7,8 +7,9 @@ import { join } from 'node:path'
 import { bootstrapSecrets, devBootstrapPaths } from './secrets.js'
 import { installRuntimeAssets, runtimePaths } from './runtime.js'
 import type { StackPaths } from './stack.js'
+import type { CaracalMode } from '@caracalai/core'
 
-export type StackMode = 'dev' | 'runtime'
+export type StackMode = CaracalMode
 
 export interface ResolveStackPathsOptions {
   mode?: StackMode

@@ -14,6 +14,7 @@ import { zoneExists } from '../zone-guard.js'
 import { validateAuthzPolicy } from '../rego.js'
 import { appendKeysetCondition, parseListPagination, setNextLink } from './list-pagination.js'
 import { publicAppsReferencedByContents } from '../policy-invariants.js'
+import type { Queryable } from '../db.js'
 
 const MANIFEST_MAX_ENTRIES = 256
 
@@ -269,16 +270,10 @@ export const policySetsRoutes: FastifyPluginAsync = async (fastify) => {
   })
 }
 
-type QueryParam = string | number | boolean | null | string[]
-
 interface PolicyVersionRow {
   id: string
   content: string
   zone_id: string
-}
-
-type Queryable = {
-  query: <T = PolicyVersionRow>(text: string, params?: QueryParam[]) => Promise<{ rows: T[] }>
 }
 
 type PolicyManifest = Array<{ policy_version_id?: string }>
