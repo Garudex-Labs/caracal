@@ -9,7 +9,8 @@ export type CommandGroup =
   | 'runtime'
   | 'admin'
   | 'observability'
-  | 'multiagent';
+  | 'multiagent'
+  | 'control';
 
 export interface CommandDescriptor {
   readonly name: string;
@@ -53,6 +54,8 @@ export const CLI_COMMANDS: readonly CommandDescriptor[] = Object.freeze([
 
   { name: 'agent', group: 'multiagent', summary: 'list|get|tree|suspend|resume|terminate', subcommands: ['list', 'get', 'tree', 'children', 'suspend', 'resume', 'terminate'], requiresZone: true },
   { name: 'delegation', group: 'multiagent', summary: 'inbound|outbound|traverse|revoke', subcommands: ['inbound', 'outbound', 'traverse', 'revoke'], requiresZone: true },
+
+  { name: 'control', group: 'control', summary: 'token|revoke (issue or revoke an agent control token)', subcommands: ['token', 'revoke'] },
 
   { name: 'completion', group: 'shell', summary: 'Emit shell completion script (bash|zsh|fish|powershell)', subcommands: ['bash', 'zsh', 'fish', 'powershell'], hidden: true },
 ]);
