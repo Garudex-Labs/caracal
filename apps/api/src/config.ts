@@ -59,24 +59,6 @@ export interface Config {
   enableDocs: boolean
 }
 
-function buildDatabaseUrl(): string {
-  if (process.env.DATABASE_URL) return process.env.DATABASE_URL
-  const user = encodeURIComponent(mustGetenv('POSTGRES_USER'))
-  const password = encodeURIComponent(mustGetenv('POSTGRES_PASSWORD'))
-  const host = getenv('POSTGRES_HOST', 'localhost')
-  const port = getenv('POSTGRES_PORT', '5432')
-  const db = mustGetenv('POSTGRES_DB')
-  return `postgres://${user}:${password}@${host}:${port}/${db}`
-}
-
-function buildRedisUrl(): string {
-  if (process.env.REDIS_URL) return process.env.REDIS_URL
-  const password = encodeURIComponent(mustGetenv('REDIS_PASSWORD'))
-  const host = getenv('REDIS_HOST', 'localhost')
-  const port = getenv('REDIS_PORT', '6379')
-  return `redis://:${password}@${host}:${port}`
-}
-
 function deriveWorkerId(): string {
   return process.env.WORKER_ID
     ?? `${process.env.HOSTNAME ?? 'api'}:${process.pid}`
@@ -86,8 +68,8 @@ export function loadConfig(): Config {
   return {
     port: intEnv('PORT', 3000, 1),
     host: getenv('HOST', '127.0.0.1'),
-    databaseUrl: buildDatabaseUrl(),
-    redisUrl: buildRedisUrl(),
+    databaseUrl: mustGetenv('DATABASE_URL'),
+    redisUrl: mustGetenv('REDIS_URL'),
     logLevel: getenv('LOG_LEVEL', 'info'),
     bootstrapAdminToken: process.env.CARACAL_ADMIN_TOKEN ?? null,
     shutdownGraceMs: intEnv('SHUTDOWN_GRACE_MS', 15_000, 1),

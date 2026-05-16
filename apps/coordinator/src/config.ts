@@ -52,11 +52,4 @@ function buildCfg() {
 
 export type Cfg = ReturnType<typeof buildCfg>
 
-let _cfg: Cfg | undefined
-
-export const cfg: Cfg = new Proxy({} as Cfg, {
-  get<K extends keyof Cfg>(_: Cfg, key: K): Cfg[K] {
-    _cfg ??= buildCfg()
-    return _cfg[key]
-  },
-})
+export const cfg: Cfg = buildCfg()

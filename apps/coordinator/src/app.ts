@@ -15,9 +15,7 @@ import { agentServicesRoutes } from './routes/agent-services.js'
 import { delegationsRoutes } from './routes/delegations.js'
 import { invocationsRoutes } from './routes/invocations.js'
 import { v1Routes } from './routes/v1.js'
-import { db } from './db.js'
-import { redis } from './redis.js'
-import { cfg } from './config.js'
+import type { Cfg } from './config.js'
 import { verifyBearer } from './auth.js'
 import { registerAdminAuditHook } from './admin-audit.js'
 import { ttlSweeperStats } from './jobs/ttl-sweeper.js'
@@ -30,7 +28,13 @@ declare module 'fastify' {
   }
 }
 
-export async function buildApp() {
+export interface CoordinatorDeps {
+  cfg: Cfg
+  db: Pool
+  redis: RedisClient
+}
+
+export async function buildApp({ cfg, db, redis }: CoordinatorDeps) {
   const app = Fastify({
     logger: {
       level: process.env.LOG_LEVEL || 'info',
