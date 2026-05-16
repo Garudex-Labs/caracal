@@ -3,6 +3,8 @@
 //
 // Shared error codes and types for TypeScript services.
 
+import type { JsonObject } from './json.js';
+
 export type WellKnownErrorCode =
   | 'access_denied'
   | 'invalid_token'
@@ -29,14 +31,14 @@ export type ErrorCode = WellKnownErrorCode | (string & {});
 
 export interface CaracalErrorOptions {
   requestId?: string;
-  details?: Record<string, unknown>;
+  details?: JsonObject;
   cause?: unknown;
 }
 
 export class CaracalError extends Error {
   readonly code: ErrorCode;
   readonly requestId?: string;
-  readonly details?: Record<string, unknown>;
+  readonly details?: JsonObject;
 
   constructor(code: ErrorCode, message: string, opts: CaracalErrorOptions | string = {}) {
     const options: CaracalErrorOptions = typeof opts === 'string' ? { requestId: opts } : opts;

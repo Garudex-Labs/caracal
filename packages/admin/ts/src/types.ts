@@ -3,6 +3,8 @@
 //
 // Public type definitions for the Caracal admin SDK.
 
+import type { JsonObject, JsonValue } from '@caracalai/core'
+
 export interface Zone {
   id: string
   org_id: string
@@ -87,7 +89,7 @@ export interface Provider {
   kind: ProviderKind | null
   owner_type: string
   client_id: string | null
-  config_json: Record<string, unknown>
+  config_json: JsonObject
   created_at: string
   updated_at: string
 }
@@ -98,7 +100,7 @@ export interface ProviderInput {
   kind?: ProviderKind
   owner_type?: string
   client_id?: string
-  config_json?: Record<string, unknown>
+  config_json?: JsonObject
 }
 
 export interface Policy {
@@ -183,7 +185,7 @@ export interface AuditEvent {
   request_id: string | null
   decision: string | null
   evaluation_status: string | null
-  metadata_json: Record<string, unknown> | null
+  metadata_json: JsonObject | null
   occurred_at: string
   ingested_at: string
 }
@@ -192,8 +194,8 @@ export interface AuditDetail extends AuditEvent {
   policy_set_id: string | null
   policy_set_version_id: string | null
   manifest_sha: string | null
-  determining_policies_json: unknown[] | null
-  diagnostics_json: unknown[] | null
+  determining_policies_json: JsonValue[] | null
+  diagnostics_json: JsonValue[] | null
 }
 
 export interface AuditQuery {
@@ -232,7 +234,7 @@ export interface DelegationEdge {
   receiver_application_id: string
   resource_id: string | null
   scopes: string[]
-  constraints_json: Record<string, unknown>
+  constraints_json: JsonObject
   status: string
   expires_at: string
   edge_version: number

@@ -8,6 +8,7 @@ import { promises as fs } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import type { Logger } from './logging.js';
+import type { JsonValue } from './json.js';
 
 export const AUDIT_STREAM = 'caracal.audit.events';
 
@@ -25,9 +26,9 @@ export interface AuditEvent {
   policy_set_version_id?: string;
   manifest_sha?: string;
   evaluation_status: string;
-  determining_policies_json: unknown;
-  diagnostics_json: unknown;
-  metadata_json?: unknown;
+  determining_policies_json: JsonValue;
+  diagnostics_json: JsonValue;
+  metadata_json?: JsonValue;
   occurred_at: string; // RFC3339
 }
 
@@ -36,7 +37,7 @@ export interface AuditEvent {
  * that exposes XADD with a flat field/value list.
  */
 export interface AuditStreamer {
-  xadd(stream: string, ...args: string[]): Promise<unknown>;
+  xadd(stream: string, ...args: string[]): Promise<string>;
 }
 
 export interface AuditMetricsHook {

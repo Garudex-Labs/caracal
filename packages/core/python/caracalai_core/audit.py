@@ -17,8 +17,9 @@ import uuid
 from collections import deque
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Any, Callable, Iterable, Protocol
+from typing import Callable, Iterable, Protocol
 
+from .json_types import JsonValue
 from .logging import DevLogger, create_logger
 
 AUDIT_STREAM = "caracal.audit.events"
@@ -36,22 +37,22 @@ class AuditEvent:
     request_id: str
     decision: str
     evaluation_status: str
-    determining_policies_json: Any = field(default_factory=list)
-    diagnostics_json: Any = field(default_factory=dict)
+    determining_policies_json: JsonValue = field(default_factory=list)
+    diagnostics_json: JsonValue = field(default_factory=dict)
     occurred_at: str = ""
     policy_set_id: str | None = None
     policy_set_version_id: str | None = None
     manifest_sha: str | None = None
-    metadata_json: Any | None = None
+    metadata_json: JsonValue | None = None
 
-    def to_wire(self) -> dict[str, Any]:
+    def to_wire(self) -> dict[str, JsonValue]:
         d = asdict(self)
         return {k: v for k, v in d.items() if v is not None}
 
 
 class AuditStreamer(Protocol):
     """Minimal Redis-stream interface; pass redis-py or any compatible client."""
-    def xadd(self, stream: str, fields: dict[str, str]) -> Any: ...
+    def xadd(self, stream: str, fields: dict[str, str]) -> object: ...
 
 
 class AuditClient:
