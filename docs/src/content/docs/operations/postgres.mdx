@@ -4,15 +4,15 @@ description: Schema overview, migrations, database roles, pool sizing, partition
 pageType: config
 ---
 
-All five Caracal services store durable state in a single Postgres database, each under a dedicated role with minimum necessary permissions. The database uses table partitioning for the audit log, immutability triggers for policy versions, advisory locks for distributed coordination, and row-level security on zone tables.
+All five core Caracal services store durable state in a single Postgres database, each under a dedicated role with minimum necessary permissions. The database uses table partitioning for the audit log, immutability triggers for policy versions, advisory locks for distributed coordination, and row-level security on zone tables.
 
 ## Migrations
 
-Migrations are at `infra/postgres/migrations/` and numbered `0001` through `0017`. The API service runs all pending migrations on startup using `runMigrations()`. Migration execution is idempotent — re-running the API against an up-to-date schema is safe.
+Migrations are at `infra/postgres/migrations/` and numbered `0001` through `0019`. The API service runs all pending migrations on startup using `runMigrations()`. Migration execution is idempotent — re-running the API against an up-to-date schema is safe.
 
 Migrations run in sequence. Do not skip or reorder them. To apply migrations in a context without running the full API, use the API container with a flag or invoke the migration runner directly from the codebase.
 
-Current migration range: `0001_init` → `0017_agent_sessions_updated_at`.
+Current migration range: `0001_init` → `0019_providers_provider_kind`.
 
 ---
 
@@ -74,7 +74,7 @@ Stores encrypted credential material (tokens, passwords). Ciphertext encrypted w
 
 ## Connection pool sizing
 
-All TypeScript services (API, Coordinator) manage a `pg.Pool` or pgx pool. Default pool size is 20 connections per service replica. Adjust `DB_POOL_MAX` based on `max_connections` in your Postgres instance.
+The API and Coordinator manage `pg.Pool` instances. The Go services open pgx-backed connections or pools appropriate to their service. Default TypeScript pool size is 20 connections per service replica. Adjust `DB_POOL_MAX` based on `max_connections` in your Postgres instance.
 
 Rule of thumb: `(replicas × pool_max) + overhead < max_connections`. With 3 replicas of API (pool 20), 2 of Coordinator (pool 20), and STS + Gateway + Audit connecting without pools, target at least `100–120` Postgres connections.
 

@@ -90,7 +90,7 @@ The Gateway records specific denial reasons in its metrics. These are not return
 ### TypeScript
 
 ```typescript
-import { CaracalError } from '@caracal/core';
+import { CaracalError } from '@caracalai/core';
 
 try {
   await client.spawn(/* ... */);
@@ -118,7 +118,7 @@ except CaracalError as e:
 ### Go
 
 ```go
-import "github.com/garudex/caracal/packages/core/go/errors"
+import "github.com/garudex-labs/caracal/core/errors"
 
 result, err := client.Spawn(ctx, opts)
 if err != nil {

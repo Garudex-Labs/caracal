@@ -190,8 +190,8 @@ mode = "block"                # "block" or "log"
 ### TypeScript
 
 ```typescript
-import { Caracal } from '@caracal/sdk';
-import { CoordinatorClient } from '@caracal/sdk';
+import { Caracal } from '@caracalai/sdk';
+import { CoordinatorClient } from '@caracalai/sdk';
 
 const client = new Caracal({
   coordinator: new CoordinatorClient({ baseUrl: 'http://localhost:4000' }),
@@ -258,7 +258,7 @@ client = Caracal(CaracalConfig(
 
 ```go
 import (
-    sdk "github.com/garudex/caracal/packages/sdk/go"
+    sdk "github.com/garudex-labs/caracal/sdk"
 )
 
 client := &sdk.Caracal{

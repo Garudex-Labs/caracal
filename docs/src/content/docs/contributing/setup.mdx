@@ -13,9 +13,9 @@ This page covers what you need installed and how to bring up a local Caracal sta
 | Tool | Version | Used for |
 | --- | --- | --- |
 | Node.js | 24+ | TypeScript services and packages |
-| pnpm | 11.0.9+ | TypeScript dependency management |
+| pnpm | 11.1.1 | TypeScript dependency management |
 | Go | 1.26+ | Go services and packages |
-| Python | 3.11+ | Python SDK packages |
+| Python | 3.14+ | Python SDK packages |
 | Bun | 1.x | CLI/TUI binary compilation |
 | Docker Desktop | latest stable | Local service stack |
 
@@ -34,7 +34,7 @@ go work sync   # sync workspace module graph
 Each Python package has its own virtual environment. Create it before working on that package:
 
 ```sh
-cd packages/caracalai-python
+cd packages/sdk/python
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -e ".[dev]"
@@ -85,7 +85,7 @@ Do not commit `infra/docker/.env` or `infra/secrets/files/` — both are in `.gi
 caracal up
 ```
 
-This runs `docker compose up -d` using the compose file in `infra/docker/`. It starts seven services: API (3000), STS (8080), Gateway (8081), Coordinator (4000), Audit (9090), plus PostgreSQL and Redis.
+This runs `docker compose up -d` using the compose file in `infra/docker/`. It starts five core application services: API (3000), STS (8080), Gateway (8081), Coordinator (4000), Audit (9090), plus PostgreSQL, Redis, and one-shot initialization containers.
 
 After the stack is up, provision a zone and application against the running control-plane API:
 
@@ -104,7 +104,7 @@ Verify the stack is healthy:
 caracal status
 ```
 
-All seven services should show `healthy`.
+The five application services plus PostgreSQL and Redis should show `ok`.
 
 ---
 

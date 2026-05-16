@@ -4,11 +4,11 @@ description: The reference docker-compose.yml — service definitions, startup o
 pageType: config
 ---
 
-The Docker Compose stack at `infra/docker/docker-compose.yml` is the reference deployment for all five Caracal services plus their infrastructure dependencies. It is the canonical local development environment and the blueprint for adapting to Kubernetes, ECS, or other orchestrators.
+The Docker Compose stack at `infra/docker/docker-compose.yml` is the reference deployment for all five core Caracal services plus their infrastructure dependencies. It is the canonical local development environment and the blueprint for adapting to Kubernetes, ECS, or other orchestrators.
 
 ## Services and startup order
 
-The stack defines eight containers. Health-based dependencies enforce this startup sequence:
+The stack defines the core application containers, infrastructure containers, and one-shot initialization containers. Health-based dependencies enforce this startup sequence:
 
 ```
 postgres ─────┐
@@ -147,7 +147,7 @@ pnpm secrets:init
 pnpm caracal status
 ```
 
-All services should show `healthy`. The `init` container shows `Exited (0)`.
+The five application services plus PostgreSQL and Redis should show `ok`. One-shot initialization containers show `Exited (0)`.
 
 **3. Provision a zone and application:**
 

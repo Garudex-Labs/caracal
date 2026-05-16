@@ -23,9 +23,9 @@ The TypeScript SDK, connectors (Express, net/http JS), and CLI all require Node.
 
 | Component | Minimum version | Notes |
 | --- | --- | --- |
-| Python | 3.11 | Required by all Python packages (`requires-python = ">=3.11"`) |
+| Python | 3.14 | Required by all Python packages (`requires-python = ">=3.14"`) |
 
-The Python SDK, FastMCP connector, Redis connector, and the LynxCapital example all require Python 3.11 or later. Python 3.10 and earlier are not supported.
+The Python SDK, FastMCP connector, Redis connector, and the LynxCapital example all require Python 3.14 or later. Earlier Python releases are not supported.
 
 ### Go
 
@@ -70,10 +70,10 @@ All packages in the Caracal repository are released together and must be used at
 
 | Package | Import path |
 | --- | --- |
-| Core | `@caracal/core` |
-| SDK | `@caracal/sdk` |
-| Express connector | `@caracal/connector-express` |
-| Redis connector | `@caracal/connector-redis` |
+| Core | `@caracalai/core` |
+| SDK | `@caracalai/sdk` |
+| Express connector | `@caracalai/mcp-express` |
+| Redis connector | `@caracalai/revocation-redis` |
 
 ### Python packages
 
@@ -81,17 +81,17 @@ All packages in the Caracal repository are released together and must be used at
 | --- | --- |
 | Core | `caracalai_core` |
 | SDK | `caracalai_sdk` |
-| FastMCP connector | `caracalai_connector_fastmcp` |
-| Redis connector | `caracalai_connector_redis` |
+| FastMCP connector | `caracalai_mcp_fastmcp` |
+| Redis connector | `caracalai_revocation_redis` |
 
 ### Go modules
 
 | Module | Import path |
 | --- | --- |
-| Core | `github.com/garudex/caracal/packages/core/go` |
-| SDK | `github.com/garudex/caracal/packages/sdk/go` |
-| net/http connector | `github.com/garudex/caracal/packages/connectors/nethttp/go` |
-| Redis connector | `github.com/garudex/caracal/packages/connectors/redis/go` |
+| Core | `github.com/garudex-labs/caracal/core` |
+| SDK | `github.com/garudex-labs/caracal/sdk` |
+| net/http connector | `github.com/garudex-labs/caracal/connectors/nethttp` |
+| Redis connector | `github.com/garudex-labs/caracal/connectors/redis` |
 
 ---
 

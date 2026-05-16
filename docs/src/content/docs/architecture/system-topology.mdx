@@ -1,10 +1,10 @@
 ---
 title: System Topology
-description: The five services, two apps, shared Postgres and Redis backbone, startup dependency ordering, and the connection matrix between components.
+description: The five core services, optional control surface, shared Postgres and Redis backbone, startup dependency ordering, and the connection matrix between components.
 pageType: architecture
 ---
 
-Caracal runs as seven containers: five application services, one Postgres instance, and one Redis instance. An eighth init container runs once at startup to provision Redis streams and then exits. All ports are bound to localhost in development; production deployments place services behind network policies appropriate to the deployment target.
+Caracal runs five core application services plus Postgres and Redis. One-shot initialization containers provision Redis streams and credentials, then exit. The Coordinator container also starts its Go relay sidecar. All ports are bound to localhost in development; production deployments place services behind network policies appropriate to the deployment target.
 
 ## Services
 

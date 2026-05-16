@@ -1,10 +1,10 @@
 ---
 title: Services
-description: The five Caracal services — their responsibilities, default ports, shared infrastructure, and communication topology.
+description: The five core Caracal services, optional control surface, sidecars, default ports, shared infrastructure, and communication topology.
 pageType: landing
 ---
 
-Caracal is composed of five services. Two are written in Go (`sts`, `gateway`); three are written in TypeScript (`api`, `coordinator`, `audit`). All five share a PostgreSQL database and a Redis instance but own distinct schema responsibilities and domain boundaries.
+Caracal is composed of five core application services. Three are written in Go (`sts`, `gateway`, `audit`); two are written in TypeScript (`api`, `coordinator`). The stack also includes a coordinator relay sidecar and an optional control API surface. All core services share a PostgreSQL database and a Redis instance but own distinct schema responsibilities and domain boundaries.
 
 ---
 
@@ -17,6 +17,13 @@ Caracal is composed of five services. Two are written in Go (`sts`, `gateway`); 
 | [Gateway](./gateway/) | Go (`net/http`) | 8081 | Data | Reverse-proxies MCP requests; exchanges a fresh mandate on every request |
 | [Coordinator](./coordinator/) | TypeScript (Fastify) | 4000 | Data | Manages agent lifecycle, invocations, and the delegation graph |
 | [Audit](./audit/) | Go (`net/http`) | 9090 | Data | Consumes the audit stream and persists events with chain HMAC integrity |
+
+Optional runtime components:
+
+| Component | Language | Port | Role |
+| --- | --- | --- | --- |
+| Control API | TypeScript | 8087 | Programmatic CLI/TUI command invocation; disabled unless the control profile is enabled |
+| Coordinator relay | Go | none | Sidecar process that forwards coordinator lifecycle events |
 
 ---
 
