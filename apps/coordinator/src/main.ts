@@ -4,7 +4,7 @@
 // Coordinator service entry point with graceful shutdown.
 
 import { buildApp } from './app.js'
-import { db } from './db.js'
+import { buildDB } from './db.js'
 import { buildRedis, closeRedis } from './redis.js'
 import { startOutboxPublisher } from './jobs/outbox-publisher.js'
 import { startTTLSweeper } from './jobs/ttl-sweeper.js'
@@ -15,8 +15,9 @@ import { assertRuntimeSafe } from '@caracalai/core'
 
 assertRuntimeSafe()
 
-const app = await buildApp()
-const redis = buildRedis()
+const db = buildDB(cfg)
+const redis = buildRedis(cfg)
+const app = await buildApp({ cfg, db, redis })
 const log = app.log
 
 process.on('unhandledRejection', (reason) => {
@@ -46,7 +47,7 @@ async function shutdown(signal: string): Promise<void> {
     await app.close()
     await Promise.all([outbox.stop(), ttl.stop(), deadline.stop(), retention.stop()])
     await db.end()
-    await closeRedis()
+    await closeRedis(redis)
     app.log.info('shutdown_complete')
     process.exit(0)
   } catch (err) {

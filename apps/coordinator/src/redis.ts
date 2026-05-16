@@ -4,32 +4,20 @@
 // Redis client lifecycle for the coordinator outbox publisher.
 
 import { Redis } from 'ioredis'
-import { cfg } from './config.js'
+import { cfg, type Cfg } from './config.js'
 
-let client: Redis | undefined
-
-export function buildRedis(): Redis {
-  client ??= new Redis(cfg.redisUrl, {
+export function buildRedis(config: Cfg = cfg): Redis {
+  return new Redis(config.redisUrl, {
     maxRetriesPerRequest: 3,
     enableReadyCheck: true,
     lazyConnect: false,
   })
-  return client
 }
 
-export async function closeRedis(): Promise<void> {
-  if (!client) return
+export async function closeRedis(client: Redis): Promise<void> {
   try {
     await client.quit()
   } catch {
     client.disconnect()
-  } finally {
-    client = undefined
   }
 }
-
-export const redis = new Proxy({} as Redis, {
-  get(_target, prop) {
-    return Reflect.get(buildRedis(), prop)
-  },
-})

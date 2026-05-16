@@ -4,17 +4,15 @@
 // PostgreSQL pool factory for the coordinator.
 
 import pg from 'pg'
-import { cfg } from './config.js'
+import { cfg, type Cfg } from './config.js'
 
-function buildPool(): pg.Pool {
+export function buildDB(config: Cfg = cfg): pg.Pool {
   const pool = new pg.Pool({
-    connectionString: cfg.databaseUrl,
-    max: cfg.dbPoolMax,
-    idleTimeoutMillis: cfg.dbIdleTimeoutMs,
-    connectionTimeoutMillis: cfg.dbConnectionTimeoutMs,
-    statement_timeout: cfg.dbStatementTimeoutMs,
+    connectionString: config.databaseUrl,
+    max: config.dbPoolMax,
+    idleTimeoutMillis: config.dbIdleTimeoutMs,
+    connectionTimeoutMillis: config.dbConnectionTimeoutMs,
+    statement_timeout: config.dbStatementTimeoutMs,
   })
   return pool
 }
-
-export const db = buildPool()
