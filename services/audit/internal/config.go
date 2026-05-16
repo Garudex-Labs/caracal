@@ -13,6 +13,8 @@ import (
 	"github.com/garudex-labs/caracal/core/config"
 )
 
+const auditPort = "9090"
+
 type Config struct {
 	config.Base
 	S3Endpoint         string
@@ -31,6 +33,9 @@ func loadConfig() (Config, error) {
 	hexKey := config.Getenv("AUDIT_HMAC_KEY", "")
 	var key []byte
 	base := config.Load()
+	if base.Port != auditPort {
+		return Config{}, fmt.Errorf("PORT must be %s for audit", auditPort)
+	}
 	if hexKey != "" {
 		k, err := hex.DecodeString(hexKey)
 		if err != nil {

@@ -48,7 +48,7 @@ type Consumer struct {
 }
 
 func newConsumer(db *PGWriter, r *redis.Client, log zerolog.Logger, cfg Config) *Consumer {
-	c := &Consumer{
+	return &Consumer{
 		db:           db,
 		redis:        r,
 		log:          log,
@@ -57,17 +57,38 @@ func newConsumer(db *PGWriter, r *redis.Client, log zerolog.Logger, cfg Config) 
 		maxDeliv:     cfg.MaxDeliveries,
 		claimIdle:    time.Duration(cfg.ClaimIdleSecs) * time.Second,
 	}
-	c.healthy.Store(true)
-	return c
 }
 
 func (c *Consumer) Run(ctx context.Context) {
-	if err := ensureGroup(ctx, c.redis, auditStream, consumerGroup); err != nil {
-		c.log.Error().Err(err).Msg("ensure consumer group")
-	}
-
-	if err := c.drainPEL(ctx); err != nil && !errors.Is(err, context.Canceled) {
-		c.log.Error().Err(err).Msg("drain PEL on startup")
+	for {
+		if ctx.Err() != nil {
+			return
+		}
+		if err := ensureGroup(ctx, c.redis, auditStream, consumerGroup); err != nil {
+			c.healthy.Store(false)
+			c.log.Error().Err(err).Msg("ensure consumer group")
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(consumeBackoff):
+			}
+			continue
+		}
+		if err := c.drainPEL(ctx); err != nil {
+			if errors.Is(err, context.Canceled) {
+				return
+			}
+			c.healthy.Store(false)
+			c.log.Error().Err(err).Msg("drain PEL on startup")
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(consumeBackoff):
+			}
+			continue
+		}
+		c.healthy.Store(true)
+		break
 	}
 
 	go c.reapLoop(ctx)
@@ -186,13 +207,18 @@ func (c *Consumer) reapOnce(ctx context.Context) {
 			return
 		}
 		c.retriesTotal.Add(int64(len(claimed)))
-		pending, _ := c.redis.XPendingExt(ctx, &redis.XPendingExtArgs{
+		pending, err := c.redis.XPendingExt(ctx, &redis.XPendingExtArgs{
 			Stream: auditStream,
 			Group:  consumerGroup,
 			Start:  claimed[0].ID,
 			End:    claimed[len(claimed)-1].ID,
 			Count:  int64(len(claimed)),
 		}).Result()
+		if err != nil {
+			c.healthy.Store(false)
+			c.log.Error().Err(err).Msg("xpendingext")
+			return
+		}
 		delivByID := map[string]int64{}
 		for _, p := range pending {
 			delivByID[p.ID] = p.RetryCount
