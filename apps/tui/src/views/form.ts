@@ -10,7 +10,7 @@ import { scrubTokens } from '../errors.ts'
 import type { Key } from '../keys.ts'
 import type { App, View, ViewContext } from '../screen.ts'
 
-export type FieldKind = 'text' | 'multiline' | 'secret' | 'bool' | 'list' | 'file' | 'select'
+type FieldKind = 'text' | 'multiline' | 'secret' | 'bool' | 'list' | 'file' | 'select'
 
 export interface Field {
   key: string
@@ -309,7 +309,7 @@ interface DirEntry {
   isDir: boolean
 }
 
-export class FilePickerView implements View {
+class FilePickerView implements View {
   readonly title = 'pick file'
   readonly isTextEntry = true
   private readonly rootCwd: string

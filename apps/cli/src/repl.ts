@@ -48,7 +48,7 @@ const BUILTINS = [
   { value: 'quit', summary: 'Exit shell' },
 ] as const
 
-export const REPL_EXIT_SIGNAL: unique symbol = Symbol.for('caracal.replExit')
+const REPL_EXIT_SIGNAL: unique symbol = Symbol.for('caracal.replExit')
 
 class ReplExit extends Error {
   readonly code: number;

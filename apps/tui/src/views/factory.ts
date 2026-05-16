@@ -21,7 +21,6 @@ import type {
   DelegationEdge,
   TraverseNode,
   Zone,
-  ZoneInput,
 } from '@caracalai/admin'
 import { readFileSync } from 'node:fs'
 import type { App, View } from '../screen.ts'
@@ -852,5 +851,3 @@ export function auditView(ctx: Ctx): View {
     },
   })
 }
-
-export type { ZoneInput }

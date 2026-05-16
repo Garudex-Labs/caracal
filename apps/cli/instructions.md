@@ -16,7 +16,7 @@
 - Must, in dev mode, require `CARACAL_REPO_ROOT` and resolve compose from `${CARACAL_REPO_ROOT}/infra/docker/docker-compose.yml`; must never pull `ghcr.io/...` images in dev mode.
 - Must, in runtime mode, auto-provision `compose.yml` and `.env` (mode 0600) into `$CARACAL_HOME` (default: macOS `~/Library/Application Support/caracal`, otherwise `$XDG_DATA_HOME/caracal` or `~/.local/share/caracal`) using assets bundled at build time, seeding `POSTGRES_PASSWORD`, `REDIS_PASSWORD`, and `CARACAL_ADMIN_TOKEN` with cryptographically random values.
 - Must, in runtime mode, pin container image tags to the CLI's `CARACAL_VERSION` constant (overridable by `CARACAL_VERSION` env) and pull from `ghcr.io/garudex-labs/caracal-{api,sts,gateway,audit,coordinator}`.
-- Must regenerate `src/runtime/embedded.ts` via `scripts/build-embedded.mjs` before every binary build; the file is generated and gitignored.
+- Must use `@caracalai/engine` for runtime asset provisioning in release binaries.
 - Must resolve `caracal.toml` in this order: `$CARACAL_CONFIG`, `./caracal.toml` (cwd / `$PWD` / `$INIT_CWD`), then `$XDG_CONFIG_HOME/caracal/caracal.toml` (defaulting to `~/.config/caracal/caracal.toml`).
 - Must persist `zone_id` into `caracal.toml` so admin commands resolve the default zone without flags.
 - Must accept `--zone <id>` on every admin command and fall back to `zone_id` from `caracal.toml` or `CARACAL_ZONE_ID`.
