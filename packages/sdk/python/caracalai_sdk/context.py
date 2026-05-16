@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import contextvars
 from dataclasses import dataclass, replace
-from typing import Any, TypeVar
+from typing import NotRequired, TypeVar, TypedDict, Unpack
 from collections.abc import Awaitable, Callable
 
 from .envelope import Envelope
@@ -34,6 +34,18 @@ class CaracalContext:
     hop: int = 0
 
 
+class CaracalContextPatch(TypedDict):
+    subject_token: NotRequired[str]
+    zone_id: NotRequired[str]
+    client_id: NotRequired[str]
+    agent_session_id: NotRequired[str | None]
+    delegation_edge_id: NotRequired[str | None]
+    parent_edge_id: NotRequired[str | None]
+    session_id: NotRequired[str | None]
+    trace_id: NotRequired[str | None]
+    hop: NotRequired[int]
+
+
 def current() -> CaracalContext | None:
     return _ctx_var.get(None)
 
@@ -54,7 +66,7 @@ async def abind(ctx: CaracalContext, coro: Awaitable[T]) -> T:
         _ctx_var.reset(token)
 
 
-def with_overrides(**patch: Any) -> CaracalContext:
+def with_overrides(**patch: Unpack[CaracalContextPatch]) -> CaracalContext:
     base = current()
     if base is None:
         raise RuntimeError("with_overrides requires an existing Caracal context")

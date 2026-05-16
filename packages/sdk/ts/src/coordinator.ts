@@ -6,6 +6,7 @@
  */
 
 import { createHash } from "node:crypto";
+import type { JsonObject } from "./json.js";
 
 export interface CoordinatorClient {
   baseUrl: string;
@@ -34,7 +35,7 @@ export interface SpawnRequest {
   parentId?: string;
   kind?: AgentKind;
   ttlSeconds?: number;
-  metadata?: Record<string, unknown>;
+  metadata?: JsonObject;
   idempotencyKey?: string;
 }
 

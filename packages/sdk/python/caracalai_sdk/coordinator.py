@@ -9,9 +9,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import StrEnum
-from typing import Any
 
 import httpx
+
+from .json_types import JsonObject, JsonValue
 
 
 class AgentKind(StrEnum):
@@ -46,8 +47,8 @@ class DelegationConstraints:
     max_depth: int | None = None
     expires_at: str | None = None
 
-    def to_wire(self) -> dict[str, Any]:
-        out: dict[str, Any] = {}
+    def to_wire(self) -> JsonObject:
+        out: JsonObject = {}
         if self.resources is not None:
             out["resources"] = self.resources
         if self.actions is not None:
@@ -67,7 +68,7 @@ class SpawnRequest:
     parent_id: str | None = None
     kind: AgentKind = AgentKind.INSTANCE
     ttl_seconds: int | None = None
-    metadata: dict[str, Any] | None = None
+    metadata: JsonObject | None = None
     idempotency_key: str | None = None
 
 
@@ -96,7 +97,7 @@ class DelegationResponse:
 
 
 async def spawn_agent(client: CoordinatorClient, bearer: str, req: SpawnRequest) -> SpawnResponse:
-    body: dict[str, Any] = {
+    body: dict[str, JsonValue] = {
         "application_id": req.application_id,
         "kind": str(req.kind),
     }
@@ -157,7 +158,7 @@ async def terminate_agent(
 async def create_delegation(
     client: CoordinatorClient, bearer: str, req: DelegationRequest
 ) -> DelegationResponse:
-    body: dict[str, Any] = {
+    body: dict[str, JsonValue] = {
         "issuer_application_id": req.issuer_application_id,
         "source_session_id": req.source_session_id,
         "target_session_id": req.target_session_id,

@@ -26,6 +26,7 @@ from .context import (
 from .auth import ClientSecretExchanger, TokenSource, _decode_jwt_exp
 from .coordinator import AgentKind, CoordinatorClient, DelegationConstraints
 from .envelope import decode_envelope, to_headers
+from .json_types import JsonObject
 from .primitives import LifecycleHook, delegate, delegate_to_spawn, spawn
 
 if TYPE_CHECKING:
@@ -118,7 +119,7 @@ def _load_resource_bindings_file(path: str | None) -> list[ResourceBinding]:
 _BINDING_FIELDS = frozenset({"resource_id", "upstream_prefix"})
 
 
-def _validate_resource_bindings(data: Any, *, source: str) -> list[ResourceBinding]:
+def _validate_resource_bindings(data: object, *, source: str) -> list[ResourceBinding]:
     """Strictly validate resource binding data loaded from JSON/TOML.
 
     Accepts either a flat ``{resource_id: upstream_prefix}`` dict or a list
@@ -175,7 +176,7 @@ def _validate_resource_bindings(data: Any, *, source: str) -> list[ResourceBindi
 
 
 def _resolve_bindings(
-    cfg_credentials: list[Any] | None,
+    cfg_credentials: list[object] | None,
     env: Mapping[str, str],
     *,
     cfg_source: str,
@@ -472,7 +473,7 @@ class Caracal:
         ttl_seconds: int | None = None,
         parent_id: str | None = None,
         parent_ctx: CaracalContext | None = None,
-        metadata: dict[str, Any] | None = None,
+        metadata: JsonObject | None = None,
         trace_id: str | None = None,
     ) -> AsyncGenerator[CaracalContext, None]:
         on_start: LifecycleHook | None = (
@@ -527,7 +528,7 @@ class Caracal:
         delegation_ttl_seconds: int | None = None,
         kind: AgentKind | None = None,
         ttl_seconds: int | None = None,
-        metadata: dict[str, Any] | None = None,
+        metadata: JsonObject | None = None,
         trace_id: str | None = None,
     ) -> AsyncGenerator[CaracalContext, None]:
         on_start: LifecycleHook | None = (
