@@ -10,6 +10,8 @@ import (
 	"testing"
 )
 
+var gatewayAuditKey = make([]byte, 32)
+
 func TestConfigValidateRuntimeRejectsHTTPSTSWithPublicHost(t *testing.T) {
 	c := Config{Mode: "runtime", Port: "8081", STSURL: "http://sts.example.com", MaxRequestBytes: 1, RedisURL: "redis://redis", StreamsHMACKey: "k"}
 	if err := c.validate(); err == nil || !strings.Contains(err.Error(), "https") {
@@ -18,7 +20,7 @@ func TestConfigValidateRuntimeRejectsHTTPSTSWithPublicHost(t *testing.T) {
 }
 
 func TestConfigValidateRuntimeAcceptsInternalHTTPSTS(t *testing.T) {
-	c := Config{Mode: "runtime", Port: "8081", STSURL: "http://sts:8080", MaxRequestBytes: 1, RedisURL: "redis://redis", StreamsHMACKey: "k"}
+	c := Config{Mode: "runtime", Port: "8081", STSURL: "http://sts:8080", MaxRequestBytes: 1, RedisURL: "redis://redis", StreamsHMACKey: "k", AuditHMACKey: gatewayAuditKey}
 	if err := c.validate(); err != nil {
 		t.Errorf("internal docker host should be allowed, got %v", err)
 	}
@@ -32,7 +34,7 @@ func TestConfigValidateDevAcceptsAnyHTTPSTS(t *testing.T) {
 }
 
 func TestConfigValidateAllowsPlaintextListener(t *testing.T) {
-	c := Config{Mode: "runtime", Port: "8081", STSURL: "https://sts", MaxRequestBytes: 1, RedisURL: "redis://redis", StreamsHMACKey: "k"}
+	c := Config{Mode: "runtime", Port: "8081", STSURL: "https://sts", MaxRequestBytes: 1, RedisURL: "redis://redis", StreamsHMACKey: "k", AuditHMACKey: gatewayAuditKey}
 	if err := c.validate(); err != nil {
 		t.Errorf("plaintext listener should be allowed when certs unset, got %v", err)
 	}
@@ -88,6 +90,13 @@ func TestConfigValidateRuntimeRequiresStreamHMAC(t *testing.T) {
 	c := Config{Mode: "runtime", Port: "8081", STSURL: "https://sts", MaxRequestBytes: 1, RedisURL: "redis://redis"}
 	if err := c.validate(); err == nil || !strings.Contains(err.Error(), "STREAMS_HMAC_KEY") {
 		t.Errorf("expected stream HMAC requirement, got %v", err)
+	}
+}
+
+func TestConfigValidateRuntimeRequiresAuditHMAC(t *testing.T) {
+	c := Config{Mode: "runtime", Port: "8081", STSURL: "https://sts", MaxRequestBytes: 1, RedisURL: "redis://redis", StreamsHMACKey: "k"}
+	if err := c.validate(); err == nil || !strings.Contains(err.Error(), "AUDIT_HMAC_KEY") {
+		t.Errorf("expected audit HMAC requirement, got %v", err)
 	}
 }
 

@@ -6,6 +6,7 @@
 package internal
 
 import (
+	"os"
 	"testing"
 	"time"
 
@@ -26,30 +27,41 @@ func TestAuditBufferEmitNonBlocking(t *testing.T) {
 	}
 }
 
-func TestAuditBufferDropsWhenFull(t *testing.T) {
+func TestAuditBufferPersistsWhenFull(t *testing.T) {
+	dir := t.TempDir()
 	buf := &AuditBuffer{
-		ch:  make(chan AuditEvent, 1),
-		log: zerolog.Nop(),
+		ch:        make(chan AuditEvent, 1),
+		log:       zerolog.Nop(),
+		replayDir: dir,
 	}
 	buf.Emit(AuditEvent{ID: "ev-1"})
 	buf.Emit(AuditEvent{ID: "ev-2"})
 
-	if buf.Dropped() != 1 {
-		t.Errorf("want 1 dropped, got %d", buf.Dropped())
+	if buf.Dropped() != 0 {
+		t.Errorf("want zero dropped, got %d", buf.Dropped())
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("want one replay file, got %d", len(entries))
 	}
 }
 
-func TestAuditBufferDroppedCounterAccumulates(t *testing.T) {
+func TestAuditBufferOverflowDoesNotIncrementDroppedCounter(t *testing.T) {
+	dir := t.TempDir()
 	buf := &AuditBuffer{
-		ch:  make(chan AuditEvent, 0),
-		log: zerolog.Nop(),
+		ch:        make(chan AuditEvent),
+		log:       zerolog.Nop(),
+		replayDir: dir,
 	}
 	for i := range 5 {
 		_ = i
 		buf.Emit(AuditEvent{ID: "ev"})
 	}
-	if buf.Dropped() != 5 {
-		t.Errorf("want 5 dropped, got %d", buf.Dropped())
+	if buf.Dropped() != 0 {
+		t.Errorf("want zero dropped, got %d", buf.Dropped())
 	}
 }
 
