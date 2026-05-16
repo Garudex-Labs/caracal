@@ -6,6 +6,7 @@
 package internal
 
 import (
+	"encoding/hex"
 	"fmt"
 	"net/url"
 	"os"
@@ -47,13 +48,14 @@ type Config struct {
 	DatabaseURL           string
 	RedisURL              string
 	StreamsHMACKey        string
+	AuditHMACKey          []byte
 	JTIFailOpen           bool
 }
 
 // loadConfig reads configuration from environment variables and returns an
 // error if any required value is missing or invalid.
 func loadConfig() (Config, error) {
-	config.ResolveFileSecrets("DATABASE_URL", "REDIS_URL", "STREAMS_HMAC_KEY")
+	config.ResolveFileSecrets("DATABASE_URL", "REDIS_URL", "STREAMS_HMAC_KEY", "AUDIT_HMAC_KEY")
 	if missing := config.MissingRequired("STS_URL", "DATABASE_URL", "REDIS_URL", "STREAMS_HMAC_KEY"); len(missing) > 0 {
 		return Config{}, fmt.Errorf("required env vars missing: %s", strings.Join(missing, ", "))
 	}
@@ -77,6 +79,13 @@ func loadConfig() (Config, error) {
 		RedisURL:              os.Getenv("REDIS_URL"),
 		StreamsHMACKey:        os.Getenv("STREAMS_HMAC_KEY"),
 		JTIFailOpen:           config.BoolEnv("JTI_FAIL_OPEN", false),
+	}
+	if raw := os.Getenv("AUDIT_HMAC_KEY"); raw != "" {
+		key, err := hex.DecodeString(raw)
+		if err != nil || len(key) < 32 {
+			return Config{}, fmt.Errorf("gateway config: AUDIT_HMAC_KEY must be hex-encoded with at least 32 bytes")
+		}
+		cfg.AuditHMACKey = key
 	}
 	if err := cfg.validate(); err != nil {
 		return Config{}, fmt.Errorf("gateway config: %w", err)
@@ -113,6 +122,9 @@ func (c Config) validate() error {
 	}
 	if c.StreamsHMACKey == "" {
 		return fmt.Errorf("STREAMS_HMAC_KEY is required")
+	}
+	if runtime && len(c.AuditHMACKey) == 0 {
+		return fmt.Errorf("AUDIT_HMAC_KEY is required when CARACAL_MODE=runtime")
 	}
 	port, err := strconv.Atoi(c.Port)
 	if err != nil || port < 1 || port > 65535 {

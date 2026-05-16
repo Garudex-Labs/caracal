@@ -7,12 +7,16 @@ package internal
 
 import (
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"strings"
 	"time"
 
+	"github.com/garudex-labs/caracal/core/audit"
 	"github.com/google/uuid"
 	"github.com/rs/zerolog"
 )
@@ -28,13 +32,14 @@ type jtiTracker struct {
 	redis    *RedisClient
 	log      zerolog.Logger
 	failOpen bool
+	auditKey []byte
 }
 
-func newJTITracker(redis *RedisClient, log zerolog.Logger, failOpen bool) (*jtiTracker, error) {
+func newJTITracker(redis *RedisClient, log zerolog.Logger, failOpen bool, auditKey []byte) (*jtiTracker, error) {
 	if redis == nil {
 		return nil, errors.New("jti tracker requires redis")
 	}
-	return &jtiTracker{redis: redis, log: log, failOpen: failOpen}, nil
+	return &jtiTracker{redis: redis, log: log, failOpen: failOpen, auditKey: auditKey}, nil
 }
 
 // Check records the JTI as seen with TTL = time-until-exp. Returns true when the
@@ -49,7 +54,7 @@ func newJTITracker(redis *RedisClient, log zerolog.Logger, failOpen bool) (*jtiT
 // the SDK presents to the gateway across many calls. Per-call tokens are minted
 // per request and must never be re-presented; replay protection only fires for
 // those.
-func (t *jtiTracker) Check(ctx context.Context, jti string, exp time.Time, use, requestID, resource, clientID, subjectFP string) bool {
+func (t *jtiTracker) Check(ctx context.Context, jti string, exp time.Time, use, requestID, resource, zoneID, clientID, subjectFP string) bool {
 	if jti == "" {
 		return true
 	}
@@ -80,18 +85,7 @@ func (t *jtiTracker) Check(ctx context.Context, jti string, exp time.Time, use, 
 		"subject_fp": subjectFP,
 		"request_id": requestID,
 	})
-	values := map[string]any{
-		"id": id.String(),
-		"data": string(mustMarshal(map[string]any{
-			"id":                id.String(),
-			"event_type":        "replay_detected",
-			"request_id":        requestID,
-			"decision":          "deny",
-			"evaluation_status": "anomaly",
-			"metadata_json":     json.RawMessage(meta),
-			"occurred_at":       time.Now().UTC().Format(time.RFC3339Nano),
-		})),
-	}
+	values := buildReplayAudit(id.String(), zoneID, requestID, meta, time.Now().UTC(), t.auditKey)
 	if err := t.redis.XAdd(ctx, auditStream, values); err != nil {
 		t.log.Error().Err(err).Str("jti", jti).Msg("replay_detected audit emit failed")
 	}
@@ -99,9 +93,30 @@ func (t *jtiTracker) Check(ctx context.Context, jti string, exp time.Time, use, 
 	return false
 }
 
-func mustMarshal(v any) []byte {
-	b, _ := json.Marshal(v)
-	return b
+func buildReplayAudit(id, zoneID, requestID string, meta json.RawMessage, occurredAt time.Time, key []byte) map[string]any {
+	event := audit.Event{
+		ID:                      id,
+		ZoneID:                  zoneID,
+		EventType:               "replay_detected",
+		RequestID:               requestID,
+		Decision:                "deny",
+		EvaluationStatus:        "anomaly",
+		DeterminingPoliciesJSON: json.RawMessage(`[]`),
+		DiagnosticsJSON:         json.RawMessage(`[]`),
+		MetadataJSON:            meta,
+		OccurredAt:              occurredAt,
+	}
+	data, _ := json.Marshal(event)
+	values := map[string]any{
+		"id":   id,
+		"data": string(data),
+	}
+	if len(key) > 0 {
+		mac := hmac.New(sha256.New, key)
+		mac.Write(data)
+		values["sig"] = hex.EncodeToString(mac.Sum(nil))
+	}
+	return values
 }
 
 // jwtJTI extracts the jti claim from a JWT without verifying its signature. Used in

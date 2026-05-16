@@ -49,7 +49,7 @@ type tokenVerifier interface {
 }
 
 type replayTracker interface {
-	Check(ctx context.Context, jti string, exp time.Time, use, requestID, resource, clientID, subjectFP string) bool
+	Check(ctx context.Context, jti string, exp time.Time, use, requestID, resource, zoneID, clientID, subjectFP string) bool
 }
 
 type revocationChecker interface {
@@ -175,7 +175,7 @@ func (p *proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if !p.tracker.Check(r.Context(), jwtJTI(bearer), exp, jwtUse(bearer), requestID, resource, bind.ApplicationID, tokenFingerprint(bearer)) {
+	if !p.tracker.Check(r.Context(), jwtJTI(bearer), exp, jwtUse(bearer), requestID, resource, bind.ZoneID, bind.ApplicationID, tokenFingerprint(bearer)) {
 		writeErr(w, requestID, http.StatusUnauthorized, sharederr.InvalidToken, "token replay detected")
 		p.metrics.RequestsDenied.Add(1)
 		p.metrics.DenialsJTIReplay.Add(1)
