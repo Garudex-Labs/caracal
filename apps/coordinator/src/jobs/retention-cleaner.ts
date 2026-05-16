@@ -5,6 +5,8 @@
 
 import type { Pool } from 'pg'
 import { cfg } from '../config.js'
+import { bumpDelegationEpoch } from '../delegationEpochs.js'
+import { Topics, enqueueMany, type OutboxItem } from '../outbox.js'
 import { type JobHandle, type JobLogger, makeIntervalJob } from './job.js'
 
 const CLEANUP_LOCK = 'coordinator:retention_cleanup'
@@ -13,6 +15,13 @@ interface RetentionCleanupResult {
   expiredEdges: number
   deletedEdges: number
   deletedOutbox: number
+}
+
+interface ExpiredEdge {
+  id: string
+  zone_id: string
+  source_session_id: string
+  target_session_id: string
 }
 
 export const retentionCleanerStats = {
@@ -42,11 +51,47 @@ export async function runRetentionCleanup(db: Pool): Promise<RetentionCleanupRes
       return emptyResult()
     }
 
-    const { rowCount: expiredEdges } = await client.query(
-      `UPDATE delegation_edges
+    const { rows: expiredRows } = await client.query<ExpiredEdge>(
+      `WITH expired AS (
+         SELECT id
+         FROM delegation_edges
+         WHERE status = 'active' AND expires_at < now()
+         ORDER BY expires_at
+         LIMIT $1
+         FOR UPDATE SKIP LOCKED
+       )
+       UPDATE delegation_edges d
        SET status = 'expired', updated_at = now()
-       WHERE status = 'active' AND expires_at < now()`,
+       FROM expired
+       WHERE d.id = expired.id
+       RETURNING d.id, d.zone_id, d.source_session_id, d.target_session_id`,
+      [cfg.retentionCleanupBatchSize],
     )
+    const outboxItems: OutboxItem[] = []
+    const expiredByZone = new Map<string, ExpiredEdge[]>()
+    for (const row of expiredRows) {
+      const zoneRows = expiredByZone.get(row.zone_id)
+      if (zoneRows) {
+        zoneRows.push(row)
+      } else {
+        expiredByZone.set(row.zone_id, [row])
+      }
+    }
+    for (const [zoneId, rows] of expiredByZone) {
+      const epoch = await bumpDelegationEpoch(client, zoneId)
+      outboxItems.push({
+        topic: Topics.DelegationsInvalidate,
+        dedupeKey: `edge_expire:${zoneId}:${epoch}`,
+        payload: {
+          event: 'edge_expire',
+          zone_id: zoneId,
+          affected_edges: rows.length,
+          edge_ids: rows.map((row) => row.id),
+          epoch,
+        },
+      })
+    }
+    await enqueueMany(client, outboxItems)
     const { rowCount: deletedEdges } = await client.query(
       `WITH old_edges AS (
          SELECT id
@@ -81,7 +126,7 @@ export async function runRetentionCleanup(db: Pool): Promise<RetentionCleanupRes
     )
     await client.query('COMMIT')
     return {
-      expiredEdges: expiredEdges ?? 0,
+      expiredEdges: expiredRows.length,
       deletedEdges: deletedEdges ?? 0,
       deletedOutbox: deletedOutbox ?? 0,
     }

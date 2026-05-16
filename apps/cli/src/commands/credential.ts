@@ -4,6 +4,7 @@
 // `caracal credential read <resource>`: prints a one-shot 15-min token to stdout.
 
 import { credentialRead } from '@caracalai/engine'
+import { scrubTokens } from '@caracalai/core/crash'
 import type { CliConfig } from '../config.ts'
 import { printError } from '../style.ts'
 
@@ -16,7 +17,7 @@ export async function credentialReadCommand(resource: string, cfg: CliConfig): P
     const token = await credentialRead({ cfg, resource })
     process.stdout.write(token + '\n')
   } catch (err) {
-    const desc = err instanceof Error ? err.message : String(err)
+    const desc = scrubTokens(err instanceof Error ? err.message : String(err))
     process.stderr.write(JSON.stringify({ resource, reason: desc }) + '\n')
     process.exit(1)
   }

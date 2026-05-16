@@ -4,6 +4,7 @@
 // CLI flag parsing, table/JSON printers, and exit-code handling for admin subcommands.
 
 import { AdminApiError } from '@caracalai/admin'
+import { scrubTokens } from '@caracalai/core/crash'
 import {
   buildAdminClient as buildAdminClientCore,
   readContent as readContentCore,
@@ -120,9 +121,9 @@ export function fail(err: unknown): never {
   if (err instanceof AdminApiError) {
     printError(`${err.code} (HTTP ${err.status})`)
     if (err.body && typeof err.body === 'object') {
-      process.stderr.write(JSON.stringify(err.body, null, 2) + '\n')
+      process.stderr.write(scrubTokens(JSON.stringify(err.body, null, 2)) + '\n')
     } else if (err.body) {
-      process.stderr.write(String(err.body) + '\n')
+      process.stderr.write(scrubTokens(String(err.body)) + '\n')
     }
   } else {
     printError(err instanceof Error ? err.message : String(err))

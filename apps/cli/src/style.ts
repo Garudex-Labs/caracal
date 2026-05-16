@@ -3,6 +3,8 @@
 //
 // Central terminal style system: semantic colors, symbols, and writers shared across every Caracal CLI command.
 
+import { scrubTokens } from '@caracalai/core/crash'
+
 const RESET = '\x1b[0m'
 
 const SGR = {
@@ -91,7 +93,7 @@ export function printSuccess(msg: string): void {
 }
 
 export function printError(msg: string): void {
-  write(process.stderr, 'error', `${SYMBOL.fail} ${msg}`)
+  write(process.stderr, 'error', `${SYMBOL.fail} ${scrubTokens(msg)}`)
 }
 
 export function printWarn(msg: string): void {
