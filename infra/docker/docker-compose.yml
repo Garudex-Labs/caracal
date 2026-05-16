@@ -404,6 +404,36 @@ services:
       retries: 20
       start_period: 20s
 
+  control:
+    <<: [*appService, *appResources]
+    profiles: ["agent"]
+    build:
+      context: ../..
+      dockerfile: services/control/Dockerfile
+    image: localhost/caracal-control:dev-${CARACAL_DEV_SHA:-local}
+    depends_on:
+      sts:
+        condition: service_healthy
+    networks:
+      - caracalData
+    environment:
+      CARACAL_MODE: ${CARACAL_MODE:-dev}
+      CONTROL_MODE: ${CONTROL_MODE:-on}
+      CONTROL_ADDR: ":8087"
+      STS_JWKS_URL: http://sts:8080/.well-known/jwks.json
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+      OTEL_EXPORTER_OTLP_PROTOCOL: http/protobuf
+      OTEL_SERVICE_NAME: caracal-control
+      OTEL_RESOURCE_ATTRIBUTES: service.namespace=caracal,deployment.environment=${CARACAL_MODE:-dev}
+    ports:
+      - "127.0.0.1:8087:8087"
+    healthcheck:
+      test: ["CMD", "/healthcheck"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 10s
+
 volumes:
   postgresData:
   redisData:

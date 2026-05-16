@@ -19,6 +19,11 @@ const SGR = {
   diffAdd: '\x1b[32m',
   diffRemove: '\x1b[31m',
   debug: '\x1b[2;3m',
+  accent: '\x1b[1;96m',
+  dim: '\x1b[2m',
+  match: '\x1b[1;4;36m',
+  kbd: '\x1b[7m',
+  selected: '\x1b[1;7;96m',
 } as const
 
 type Tone = keyof typeof SGR
@@ -68,6 +73,23 @@ export const style = {
   diffAdd: (s: string) => paint(process.stdout, 'diffAdd', s),
   diffRemove: (s: string) => paint(process.stdout, 'diffRemove', s),
   debug: (s: string) => paint(process.stdout, 'debug', s),
+  accent: (s: string) => paint(process.stdout, 'accent', s),
+  dim: (s: string) => paint(process.stdout, 'dim', s),
+  match: (s: string) => paint(process.stdout, 'match', s),
+  kbd: (s: string) => paint(process.stdout, 'kbd', s),
+  selected: (s: string) => paint(process.stdout, 'selected', s),
+}
+
+export function colorOn(stream: NodeJS.WriteStream = process.stdout): boolean {
+  return colorEnabled(stream)
+}
+
+export function highlightMatch(value: string, start: number, length: number): string {
+  if (length <= 0) return value
+  const before = value.slice(0, start)
+  const mid = value.slice(start, start + length)
+  const after = value.slice(start + length)
+  return before + style.match(mid) + after
 }
 
 function write(stream: NodeJS.WriteStream, tone: Tone, line: string): void {
