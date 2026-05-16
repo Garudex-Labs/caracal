@@ -22,7 +22,7 @@ import {
   resolveServiceUrl,
   type CliConfig,
 } from '@caracalai/core/cli'
-import { ansi } from '../ansi.ts'
+import { pad, truncate, ui } from '../ansi.ts'
 import { explainError } from '../errors.ts'
 import type { Key } from '../keys.ts'
 import type { App, View, ViewContext } from '../screen.ts'
@@ -47,6 +47,8 @@ import { StreamView } from './stream.ts'
 interface Entry {
   key: string
   label: string
+  group: string
+  description: string
   needsZone: boolean
   open: (ctx: Ctx, app: App) => View
 }
@@ -91,21 +93,21 @@ function parseEnv(list: string): Record<string, string> {
 }
 
 const ENTRIES: Entry[] = [
-  { key: '1', label: 'zone',         needsZone: false, open: zonesView },
-  { key: '2', label: 'app',          needsZone: true,  open: applicationsView },
-  { key: '3', label: 'resource',     needsZone: true,  open: resourcesView },
-  { key: '4', label: 'provider',     needsZone: true,  open: providersView },
-  { key: '5', label: 'policy',       needsZone: true,  open: policiesView },
-  { key: '6', label: 'policy-set',   needsZone: true,  open: policySetsView },
-  { key: '7', label: 'grant',        needsZone: true,  open: grantsView },
-  { key: '8', label: 'session',      needsZone: true,  open: sessionsView },
-  { key: '9', label: 'audit',        needsZone: true,  open: auditView },
-  { key: '0', label: 'agent',        needsZone: true,  open: agentsView },
-  { key: 'g', label: 'delegation',   needsZone: true,  open: delegationsView },
-  { key: 'x', label: 'explain',      needsZone: true,  open: auditExplainEntry },
-  { key: 'c', label: 'credential',   needsZone: false, open: credentialEntry },
-  { key: 'u', label: 'run',          needsZone: false, open: runEntry },
-  { key: 't', label: 'control',      needsZone: true,  open: controlEntry },
+  { key: '1', label: 'zone',       group: 'admin', description: 'Manage zones', needsZone: false, open: zonesView },
+  { key: '2', label: 'app',        group: 'admin', description: 'Manage applications', needsZone: true, open: applicationsView },
+  { key: '3', label: 'resource',   group: 'admin', description: 'Manage protected resources', needsZone: true, open: resourcesView },
+  { key: '4', label: 'provider',   group: 'admin', description: 'Manage identity providers', needsZone: true, open: providersView },
+  { key: '5', label: 'policy',     group: 'admin', description: 'Manage policies', needsZone: true, open: policiesView },
+  { key: '6', label: 'policy-set', group: 'admin', description: 'Manage policy sets', needsZone: true, open: policySetsView },
+  { key: '7', label: 'grant',      group: 'admin', description: 'Manage grants', needsZone: true, open: grantsView },
+  { key: '8', label: 'session',    group: 'admin', description: 'List sessions', needsZone: true, open: sessionsView },
+  { key: '9', label: 'audit',      group: 'observability', description: 'Search audit events', needsZone: true, open: auditView },
+  { key: 'x', label: 'explain',    group: 'observability', description: 'Explain an audit request', needsZone: true, open: auditExplainEntry },
+  { key: '0', label: 'agent',      group: 'multiagent', description: 'Manage agent sessions', needsZone: true, open: agentsView },
+  { key: 'g', label: 'delegation', group: 'multiagent', description: 'Manage delegation edges', needsZone: true, open: delegationsView },
+  { key: 'c', label: 'credential', group: 'runtime', description: 'Read a resource credential', needsZone: false, open: credentialEntry },
+  { key: 'u', label: 'run',        group: 'runtime', description: 'Run a command with RESOURCE_TOKEN', needsZone: false, open: runEntry },
+  { key: 't', label: 'control',    group: 'admin', description: 'Manage control API credentials', needsZone: true, open: controlEntry },
 ]
 
 function auditExplainEntry(ctx: Ctx): View {
@@ -201,13 +203,11 @@ class ControlMenuView implements View {
   hints(): string[] { return ['↑/↓:select', 'enter:open', 'esc:back'] }
 
   render(_ctx: ViewContext): string[] {
-    const lines: string[] = ['', ' ' + ansi.bold + 'Control API keys' + ansi.reset, '']
+    const lines: string[] = ['', ' ' + ui.title('Control API keys'), ' ' + ui.muted('Manage control API credentials for the selected zone.'), '']
     for (let i = 0; i < this.items.length; i++) {
       const it = this.items[i]!
-      const text = `[${it.key}] ${it.label}`
-      const prefix = i === this.cursor ? ansi.invert + ' ' : '  '
-      const suffix = i === this.cursor ? ' ' + ansi.reset : ''
-      lines.push(prefix + text + suffix)
+      const mark = i === this.cursor ? ui.accent('>') : ' '
+      lines.push(` ${mark} ${ui.key(it.key)} ${it.label}`)
     }
     return lines
   }
@@ -347,18 +347,23 @@ export class MenuView implements View {
   render(_ctx: ViewContext): string[] {
     const lines: string[] = []
     lines.push('')
-    lines.push(' ' + ansi.bold + 'Caracal' + ansi.reset + ansi.dim + '  Inspect and manage identity resources interactively.' + ansi.reset)
+    lines.push(' ' + ui.title('Caracal') + '  ' + ui.muted('Inspect and manage identity resources.'))
+    const zone = this.zoneId ? ui.success(this.zoneId) : ui.warn('no zone selected')
+    lines.push(' ' + ui.muted('zone') + '  ' + zone)
+    lines.push(' ' + ui.muted('Use arrow keys or hotkeys. Press z to choose a zone.'))
     lines.push('')
-    const zone = this.zoneId ? ansi.fg(76) + this.zoneId + ansi.reset : ansi.fg(214) + '(no zone selected)' + ansi.reset
-    lines.push(' zone: ' + zone)
-    lines.push('')
+    let group = ''
     for (let i = 0; i < ENTRIES.length; i++) {
       const e = ENTRIES[i]!
+      if (e.group !== group) {
+        group = e.group
+        lines.push(' ' + ui.accent(group))
+      }
       const disabled = e.needsZone && !this.zoneId
-      const label = `[${e.key}] ${e.label}` + (disabled ? ansi.dim + '  (zone required)' + ansi.reset : '')
-      const prefix = i === this.cursor ? ansi.invert + ' ' : '  '
-      const suffix = i === this.cursor ? ' ' + ansi.reset : ''
-      lines.push(prefix + label + suffix)
+      const mark = i === this.cursor ? ui.accent('>') : ' '
+      const label = pad(e.label, 12)
+      const disabledText = disabled ? '  ' + ui.warn('zone required') : ''
+      lines.push(` ${mark} ${ui.key(e.key)} ${label} ${ui.muted(e.description)}${disabledText}`)
     }
     lines.push('')
     return lines
@@ -413,14 +418,15 @@ class ZonePickerView implements View {
   hints(): string[] { return ['↑/↓:move', 'enter:select', 'esc:back'] }
 
   render(ctx: ViewContext): string[] {
-    const lines: string[] = ['', ' Pick a zone to administer:']
+    const lines: string[] = ['', ' ' + ui.title('Pick a zone to administer'), '']
     const visible = Math.max(1, ctx.size.rows - 2)
     if (this.cursor < this.offset) this.offset = this.cursor
     if (this.cursor >= this.offset + visible) this.offset = this.cursor - visible + 1
     for (let i = this.offset; i < Math.min(this.zones.length, this.offset + visible); i++) {
       const z = this.zones[i]!
-      const text = `${z.slug.padEnd(20)} ${z.id}  ${z.name ?? ''}`
-      lines.push(i === this.cursor ? ansi.invert + ' ' + text + ' ' + ansi.reset : ' ' + text)
+      const mark = i === this.cursor ? ui.accent('>') : ' '
+      const text = `${pad(z.slug, 20)} ${ui.muted(z.id)}  ${truncate(z.name ?? '', Math.max(10, ctx.size.cols - 60))}`
+      lines.push(` ${mark} ${text}`)
     }
     return lines
   }

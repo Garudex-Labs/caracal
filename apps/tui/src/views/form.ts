@@ -5,7 +5,7 @@
 
 import { readdirSync, statSync } from 'node:fs'
 import { isAbsolute, join, resolve } from 'node:path'
-import { ansi, pad, sanitizeAnsi, truncate } from '../ansi.ts'
+import { ansi, pad, sanitizeAnsi, truncate, ui } from '../ansi.ts'
 import { scrubTokens } from '../errors.ts'
 import type { Key } from '../keys.ts'
 import type { App, View, ViewContext } from '../screen.ts'
@@ -83,8 +83,8 @@ export class FormView implements View {
 
   render(ctx: ViewContext): string[] {
     const lines: string[] = ['']
-    lines.push(' ' + ansi.bold + this.title + ansi.reset)
-    lines.push(ansi.dim + ' Type or paste into fields. Required fields are marked *.' + ansi.reset)
+    lines.push(' ' + ui.title(this.title))
+    lines.push(' ' + ui.muted('Type or paste into fields. Required fields are marked *.'))
     lines.push('')
     for (let i = 0; i < this.fields.length; i++) {
       const f = this.fields[i]!
@@ -92,33 +92,33 @@ export class FormView implements View {
       const display = this.displayValue(f)
       const label = pad(f.required ? `${f.label} *` : f.label, 18)
       const cursorMark = focused ? (this.multilineMode ? '* ' : '> ') : '  '
-      const text = ` ${cursorMark}${label}${display}`
-      const styled = focused
-        ? ansi.invert + truncate(text, ctx.size.cols) + ansi.reset
-        : truncate(text, ctx.size.cols)
+      const text = focused
+        ? ` ${ui.accent(cursorMark)}${ui.muted(label)}${display}`
+        : ` ${cursorMark}${ui.muted(label)}${display}`
+      const styled = truncate(text, ctx.size.cols)
       lines.push(styled)
-      if (f.hint && focused) lines.push(ansi.dim + '   hint: ' + f.hint + ansi.reset)
+      if (f.hint && focused) lines.push('   ' + ui.muted('hint: ' + f.hint))
     }
     lines.push('')
     const submitMark = this.focus === this.fields.length ? ansi.invert : ''
     const reset = this.focus === this.fields.length ? ansi.reset : ''
     lines.push(' ' + submitMark + ` [${this.submitLabel}] ` + reset)
-    if (this.submitting) lines.push(ansi.dim + ' submitting…' + ansi.reset)
+    if (this.submitting) lines.push(' ' + ui.muted('submitting...'))
     return lines
   }
 
   private displayValue(f: Field): string {
     const raw = this.values[f.key] ?? ''
     if (f.kind === 'bool') return raw === 'true' ? '[x]' : '[ ]'
-    if (f.kind === 'select') return `[ ${sanitizeAnsi(raw || '<choose>')} ]`
+    if (f.kind === 'select') return ui.input(`[ ${sanitizeAnsi(raw || '<choose>')} ]`)
     if (f.kind === 'secret') {
       const shown = this.revealed.has(f.key) ? sanitizeAnsi(raw) : raw.length === 0 ? '' : '••••'
-      return `[ ${shown || `<${f.label}>`} ]`
+      return ui.input(`[ ${shown || `<${f.label}>`} ]`)
     }
     const shown = f.kind === 'multiline'
       ? sanitizeAnsi(raw.replace(/\n/g, ' ⏎ '))
       : sanitizeAnsi(raw)
-    return `[ ${shown || `<${f.label}>`} ]`
+    return ui.input(`[ ${shown || `<${f.label}>`} ]`)
   }
 
   async onKey(key: Key, ctx: ViewContext): Promise<void> {
@@ -278,8 +278,8 @@ export class ConfirmView implements View {
   dispose(): void { /* no resources to release */ }
 
   render(_ctx: ViewContext): string[] {
-    const tail = this.busy ? ansi.dim + ' …working' + ansi.reset : ''
-    return ['', ' ' + this.message + ' [y/N]' + tail, '']
+    const tail = this.busy ? ' ' + ui.muted('working...') : ''
+    return ['', ' ' + ui.warn('Confirm') + '  ' + this.message, ' ' + ui.key('y') + ui.muted(':yes  ') + ui.key('n') + ui.muted('/esc:no') + tail, '']
   }
 
   async onKey(key: Key, ctx: ViewContext): Promise<void> {
@@ -352,19 +352,20 @@ export class FilePickerView implements View {
 
   render(ctx: ViewContext): string[] {
     const lines: string[] = []
-    lines.push(' ' + ansi.dim + this.dir + ansi.reset)
+    lines.push(' ' + ui.title('File picker'))
+    lines.push(' ' + ui.muted(this.dir))
     if (this.absolutePrompt !== undefined) {
-      lines.push(' :' + sanitizeAnsi(this.absolutePrompt))
+      lines.push(' ' + ui.key(':') + ' ' + ui.input(`[ ${sanitizeAnsi(this.absolutePrompt) || '<absolute path>'} ]`))
       return lines
     }
-    if (this.error) { lines.push(ansi.fg(196) + ' error: ' + this.error + ansi.reset); return lines }
-    const visible = Math.max(1, ctx.size.rows - 2)
+    if (this.error) { lines.push(ui.error(' error: ') + this.error); return lines }
+    const visible = Math.max(1, ctx.size.rows - 3)
     if (this.cursor < this.offset) this.offset = this.cursor
     if (this.cursor >= this.offset + visible) this.offset = this.cursor - visible + 1
     for (let i = this.offset; i < Math.min(this.entries.length, this.offset + visible); i++) {
       const e = this.entries[i]!
       const text = (e.isDir ? '📁 ' : '   ') + sanitizeAnsi(e.name) + (e.isDir ? '/' : '')
-      lines.push(i === this.cursor ? ansi.invert + ' ' + text + ' ' + ansi.reset : ' ' + text)
+      lines.push(i === this.cursor ? ui.selected(' ' + text + ' ') : ' ' + text)
     }
     return lines
   }
@@ -384,8 +385,9 @@ export class FilePickerView implements View {
         return
       }
       if (key === 'backspace') { this.absolutePrompt = this.absolutePrompt.slice(0, -1); return }
-      if (typeof key === 'string' && key.length === 1 && key >= ' ') {
-        this.absolutePrompt += key
+      const text = textInput(key, false)
+      if (text !== undefined) {
+        this.absolutePrompt += text
       }
       return
     }

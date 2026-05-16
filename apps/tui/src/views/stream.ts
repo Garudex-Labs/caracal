@@ -3,7 +3,7 @@
 //
 // StreamView: scrollable view backed by a child-process stdout/stderr line ring buffer.
 
-import { ansi, sanitizeAnsi } from '../ansi.ts'
+import { sanitizeAnsi, ui } from '../ansi.ts'
 import type { Key } from '../keys.ts'
 import type { App, View, ViewContext } from '../screen.ts'
 
@@ -89,12 +89,12 @@ export class StreamView implements View {
   render(ctx: ViewContext): string[] {
     const lines: string[] = []
     const status = this.starting
-      ? ansi.dim + ' starting…' + ansi.reset
+      ? ui.muted('starting...')
       : this.startError
-        ? ansi.fg(196) + ' spawn error: ' + this.startError + ansi.reset
+        ? ui.error('spawn error: ') + this.startError
         : this.exitStatus === undefined
-          ? ansi.dim + ` running (${this.buf.length} lines)` + ansi.reset
-          : (this.exitStatus === 0 ? ansi.fg(76) : ansi.fg(196)) + ` exited(${this.exitStatus})` + ansi.reset
+          ? ui.info(`running (${this.buf.length} lines)`)
+          : (this.exitStatus === 0 ? ui.success : ui.error)(`exited(${this.exitStatus})`)
     lines.push(' ' + status)
     const visible = Math.max(1, ctx.size.rows - 1)
     const start = Math.max(0, Math.min(this.buf.length, this.offset + 1) - visible)

@@ -3,7 +3,7 @@
 //
 // Generic scrollable list view with column rendering and selection.
 
-import { ansi, pad, truncate } from '../ansi.ts'
+import { ansi, pad, truncate, ui } from '../ansi.ts'
 import { explainError } from '../errors.ts'
 import type { Key } from '../keys.ts'
 import type { App, View, ViewContext } from '../screen.ts'
@@ -85,9 +85,9 @@ export class ListView<T> implements View {
 
   render(ctx: ViewContext): string[] {
     const lines: string[] = []
-    if (this.loading) { lines.push(ansi.dim + ' loading…' + ansi.reset); return lines }
-    if (this.error) { lines.push(ansi.fg(196) + ' error: ' + this.error + ansi.reset); return lines }
-    if (this.rows.length === 0) { lines.push(ansi.dim + ' (no rows)' + ansi.reset); return lines }
+    if (this.loading) { lines.push(ui.muted(' loading...')); return lines }
+    if (this.error) { lines.push(ui.error(' error: ' + this.error)); return lines }
+    if (this.rows.length === 0) { lines.push(ui.muted(' No records found.')); return lines }
     const widths = this.computeWidths(ctx.size.cols)
     lines.push(this.headerRow(widths))
     const visible = Math.max(1, ctx.size.rows - 1)
@@ -98,7 +98,8 @@ export class ListView<T> implements View {
       const text = this.columns
         .map((c, idx) => pad(truncate(c.value(row), widths[idx]!), widths[idx]!))
         .join('  ')
-      lines.push(i === this.cursor ? ansi.invert + ' ' + text + ' ' + ansi.reset : ' ' + text + ' ')
+      const line = ' ' + text + ' '
+      lines.push(i === this.cursor ? ui.selected(line) : line)
     }
     return lines
   }
@@ -114,7 +115,7 @@ export class ListView<T> implements View {
 
   private headerRow(widths: number[]): string {
     const text = this.columns.map((c, i) => pad(c.header, widths[i]!)).join('  ')
-    return ansi.bold + ' ' + text + ansi.reset
+    return ui.muted(' ' + ansi.bold + text + ansi.reset)
   }
 
   async onKey(key: Key, ctx: ViewContext): Promise<void> {

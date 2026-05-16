@@ -40,19 +40,21 @@ describe('complete', () => {
     const r = complete(registry, 'aud', 3, ctx)
     const aud = r.suggestions.find((s) => s.value === 'audit')
     expect(aud?.disabled).toBe(true)
-    expect(aud?.disabledReason).toBe('requires zone')
+    expect(aud?.disabledReason).toBe('select zone (--zone or zone_id)')
   })
   it('switches to subcommands after the first token + space', () => {
     const r = complete(registry, 'zone ', 5, ctx)
-    expect(r.suggestions.map((s) => s.value)).toEqual(['list', 'get', 'create', 'patch', 'delete'])
+    expect(r.suggestions.map((s) => s.value)).toEqual(['use', 'list', 'get', 'create', 'patch', 'delete'])
   })
   it('filters subcommands by prefix', () => {
     const r = complete(registry, 'zone cr', 7, ctx)
     expect(r.suggestions.map((s) => s.value)).toEqual(['create'])
   })
-  it('returns nothing when command has no subcommands', () => {
+  it('returns flag completions when command has no subcommands', () => {
     const r = complete(registry, 'run ', 4, ctx)
-    expect(r.suggestions).toEqual([])
+    const names = r.suggestions.map((s) => s.value)
+    expect(names).toContain('--json')
+    expect(names).toContain('--help')
   })
   it('rejects hidden commands from completion entirely', () => {
     const r = complete(registry, 'comp', 4, ctx)
