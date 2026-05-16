@@ -79,6 +79,17 @@ export const DEFAULT_SERVICE_PROBES: ServiceProbe[] = [
   { name: 'coordinator', url: 'http://localhost:4000/health', port: 4000 },
 ]
 
+// Returns probes for the active deployment surface. Includes the optional control
+// service only when CONTROL_MODE=on so default `up`/`status` flows stay unchanged.
+export function defaultServiceProbes(): ServiceProbe[] {
+  const probes = [...DEFAULT_SERVICE_PROBES]
+  if (process.env.CONTROL_MODE === 'on') {
+    const port = Number(process.env.CONTROL_PORT ?? 8087)
+    probes.push({ name: 'control', url: `http://localhost:${port}/health`, port })
+  }
+  return probes
+}
+
 async function probeOne(svc: ServiceProbe, timeoutMs: number): Promise<ProbeResult> {
   const ctrl = new AbortController()
   const timer = setTimeout(() => ctrl.abort(), timeoutMs)
@@ -99,7 +110,7 @@ export interface StackStatusOpts {
 }
 
 export function stackStatus(opts: StackStatusOpts = {}): Promise<ProbeResult[]> {
-  const probes = opts.probes ?? DEFAULT_SERVICE_PROBES
+  const probes = opts.probes ?? defaultServiceProbes()
   const timeoutMs = opts.timeoutMs ?? 1500
   return Promise.all(probes.map((s) => probeOne(s, timeoutMs)))
 }

@@ -5,6 +5,7 @@
 
 export * from './shared.js'
 export * from './coordinator.js'
+export * from './control.js'
 export * from './credential.js'
 export * from './stack.js'
 export * from './stackPaths.js'

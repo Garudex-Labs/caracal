@@ -31,6 +31,24 @@ export interface FormOpts {
   onCancel?: (app: App) => void
 }
 
+const BRACKETED_PASTE_PATTERN = /\u001b\[(?:200|201)~/g
+const ANSI_SEQUENCE_PATTERN = /\u001b\[[0-9;?]*[A-Za-z~]/g
+const NAMED_KEYS = new Set([
+  'up',
+  'down',
+  'left',
+  'right',
+  'enter',
+  'esc',
+  'tab',
+  'backspace',
+  'pgup',
+  'pgdn',
+  'home',
+  'end',
+  'ctrl-c',
+])
+
 export class FormView implements View {
   readonly title: string
   readonly isTextEntry = true
@@ -66,12 +84,13 @@ export class FormView implements View {
   render(ctx: ViewContext): string[] {
     const lines: string[] = ['']
     lines.push(' ' + ansi.bold + this.title + ansi.reset)
+    lines.push(ansi.dim + ' Type or paste into fields. Required fields are marked *.' + ansi.reset)
     lines.push('')
     for (let i = 0; i < this.fields.length; i++) {
       const f = this.fields[i]!
       const focused = i === this.focus
       const display = this.displayValue(f)
-      const label = pad(f.label, 18)
+      const label = pad(f.required ? `${f.label} *` : f.label, 18)
       const cursorMark = focused ? (this.multilineMode ? '* ' : '> ') : '  '
       const text = ` ${cursorMark}${label}${display}`
       const styled = focused
@@ -91,12 +110,15 @@ export class FormView implements View {
   private displayValue(f: Field): string {
     const raw = this.values[f.key] ?? ''
     if (f.kind === 'bool') return raw === 'true' ? '[x]' : '[ ]'
+    if (f.kind === 'select') return `[ ${sanitizeAnsi(raw || '<choose>')} ]`
     if (f.kind === 'secret') {
-      if (this.revealed.has(f.key)) return raw
-      return raw.length === 0 ? '' : '••••'
+      const shown = this.revealed.has(f.key) ? sanitizeAnsi(raw) : raw.length === 0 ? '' : '••••'
+      return `[ ${shown || `<${f.label}>`} ]`
     }
-    if (f.kind === 'multiline') return sanitizeAnsi(raw.replace(/\n/g, ' ⏎ '))
-    return sanitizeAnsi(raw)
+    const shown = f.kind === 'multiline'
+      ? sanitizeAnsi(raw.replace(/\n/g, ' ⏎ '))
+      : sanitizeAnsi(raw)
+    return `[ ${shown || `<${f.label}>`} ]`
   }
 
   async onKey(key: Key, ctx: ViewContext): Promise<void> {
@@ -109,8 +131,9 @@ export class FormView implements View {
         this.values[f.key] = (this.values[f.key] ?? '').slice(0, -1)
         return
       }
-      if (typeof key === 'string' && key.length === 1 && key >= ' ') {
-        this.values[f.key] = (this.values[f.key] ?? '') + key
+      const text = textInput(key, true)
+      if (text !== undefined) {
+        this.values[f.key] = (this.values[f.key] ?? '') + text
       }
       return
     }
@@ -165,9 +188,10 @@ export class FormView implements View {
     }
     if (!f) return
     if (f.kind === 'multiline') {
-      if (typeof key === 'string' && key.length === 1 && key >= ' ') {
+      const text = textInput(key, true)
+      if (text !== undefined) {
         this.multilineMode = true
-        this.values[f.key] = (this.values[f.key] ?? '') + key
+        this.values[f.key] = (this.values[f.key] ?? '') + text
       } else if (key === 'backspace') {
         this.values[f.key] = (this.values[f.key] ?? '').slice(0, -1)
       }
@@ -177,12 +201,9 @@ export class FormView implements View {
       this.values[f.key] = (this.values[f.key] ?? '').slice(0, -1)
       return
     }
-    if (typeof key === 'string' && key.length === 1 && key >= ' ' && key !== ' ') {
-      this.values[f.key] = (this.values[f.key] ?? '') + key
-      return
-    }
-    if (key === 'space' && f.kind !== 'bool') {
-      this.values[f.key] = (this.values[f.key] ?? '') + ' '
+    const text = textInput(key, false)
+    if (text !== undefined) {
+      this.values[f.key] = (this.values[f.key] ?? '') + text
     }
   }
 
@@ -218,6 +239,18 @@ export class FormView implements View {
       app.invalidate()
     }
   }
+}
+
+function textInput(key: Key, multiline: boolean): string | undefined {
+  if (key === 'space') return ' '
+  if (typeof key !== 'string' || NAMED_KEYS.has(key)) return undefined
+  let text = key
+    .replace(BRACKETED_PASTE_PATTERN, '')
+    .replace(ANSI_SEQUENCE_PATTERN, '')
+  text = multiline
+    ? text.replace(/\r\n/g, '\n').replace(/\r/g, '\n').replace(/[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/g, '')
+    : text.replace(/[\u0000-\u001f\u007f-\u009f]/g, '')
+  return text.length > 0 ? text : undefined
 }
 
 export interface ConfirmOpts {
