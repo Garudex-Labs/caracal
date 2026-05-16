@@ -8,7 +8,6 @@ package internal
 import (
 	"context"
 	"crypto/ecdsa"
-	"crypto/elliptic"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
@@ -21,6 +20,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/garudex-labs/caracal/identity"
 	"github.com/rs/zerolog"
 )
 
@@ -30,18 +30,8 @@ const (
 	jwksBodyLimit    = 256 * 1024
 )
 
-// jwksKey mirrors a single entry in an STS JWKS document.
-type jwksKey struct {
-	Kty string `json:"kty"`
-	Crv string `json:"crv"`
-	Kid string `json:"kid"`
-	Alg string `json:"alg"`
-	X   string `json:"x"`
-	Y   string `json:"y"`
-}
-
 type jwksDoc struct {
-	Keys []jwksKey `json:"keys"`
+	Keys []json.RawMessage `json:"keys"`
 }
 
 type zoneKeys struct {
@@ -200,24 +190,18 @@ func (c *jwksCache) fetch(ctx context.Context, zoneID string) (map[string]*ecdsa
 		return nil, fmt.Errorf("jwks decode: %w", err)
 	}
 	out := make(map[string]*ecdsa.PublicKey, len(doc.Keys))
-	for _, k := range doc.Keys {
-		if k.Kty != "EC" || k.Crv != "P-256" || k.Alg != "ES256" || k.Kid == "" {
+	for _, raw := range doc.Keys {
+		var alg struct {
+			Alg string `json:"alg"`
+		}
+		if err := json.Unmarshal(raw, &alg); err != nil || alg.Alg != "ES256" {
 			continue
 		}
-		x, err := base64.RawURLEncoding.DecodeString(k.X)
+		pub, kid, err := identity.ParseECJWK(raw)
 		if err != nil {
 			continue
 		}
-		y, err := base64.RawURLEncoding.DecodeString(k.Y)
-		if err != nil {
-			continue
-		}
-		pub := &ecdsa.PublicKey{
-			Curve: elliptic.P256(),
-			X:     new(big.Int).SetBytes(x),
-			Y:     new(big.Int).SetBytes(y),
-		}
-		out[k.Kid] = pub
+		out[kid] = pub
 	}
 	if len(out) == 0 {
 		return nil, errors.New("jwks: no usable keys")

@@ -8,7 +8,6 @@ package internal
 import (
 	"fmt"
 	"net/url"
-	"strconv"
 	"strings"
 	"time"
 
@@ -57,21 +56,21 @@ func loadConfig() Config {
 		Port:                  config.Getenv("PORT", defaultPort),
 		LogLevel:              config.Getenv("LOG_LEVEL", "info"),
 		STSURL:                config.MustGetenv("STS_URL"),
-		STSTimeout:            durationEnv("STS_TIMEOUT", defaultSTSTimeout),
-		UpstreamTimeout:       durationEnv("UPSTREAM_TIMEOUT", defaultUpstreamTO),
-		ReadHeaderTimeout:     durationEnv("READ_HEADER_TIMEOUT", defaultReadHeader),
-		ReadTimeout:           durationEnv("READ_TIMEOUT", defaultReadTimeout),
-		WriteTimeout:          durationEnv("WRITE_TIMEOUT", defaultWriteTimeout),
-		IdleTimeout:           durationEnv("IDLE_TIMEOUT", defaultIdleTimeout),
-		MaxRequestBytes:       int64Env("MAX_REQUEST_BYTES", defaultMaxRequestSize),
+		STSTimeout:            config.DurationEnv("STS_TIMEOUT", defaultSTSTimeout),
+		UpstreamTimeout:       config.DurationEnv("UPSTREAM_TIMEOUT", defaultUpstreamTO),
+		ReadHeaderTimeout:     config.DurationEnv("READ_HEADER_TIMEOUT", defaultReadHeader),
+		ReadTimeout:           config.DurationEnv("READ_TIMEOUT", defaultReadTimeout),
+		WriteTimeout:          config.DurationEnv("WRITE_TIMEOUT", defaultWriteTimeout),
+		IdleTimeout:           config.DurationEnv("IDLE_TIMEOUT", defaultIdleTimeout),
+		MaxRequestBytes:       config.Int64Env("MAX_REQUEST_BYTES", defaultMaxRequestSize),
 		TLSCertFile:           config.Getenv("TLS_CERT_FILE", ""),
 		TLSKeyFile:            config.Getenv("TLS_KEY_FILE", ""),
-		AllowPrivateUpstreams: boolEnv("ALLOW_PRIVATE_UPSTREAMS", false),
-		UpstreamHostAllowlist: splitCSV(config.Getenv("UPSTREAM_HOST_ALLOWLIST", "")),
+		AllowPrivateUpstreams: config.BoolEnv("ALLOW_PRIVATE_UPSTREAMS", false),
+		UpstreamHostAllowlist: config.CSVEnv("UPSTREAM_HOST_ALLOWLIST"),
 		DatabaseURL:           config.MustGetenv("DATABASE_URL"),
 		RedisURL:              config.Getenv("REDIS_URL", ""),
 		StreamsHMACKey:        config.Getenv("STREAMS_HMAC_KEY", ""),
-		JTIFailOpen:           boolEnv("JTI_FAIL_OPEN", false),
+		JTIFailOpen:           config.BoolEnv("JTI_FAIL_OPEN", false),
 	}
 	if err := cfg.validate(); err != nil {
 		panic("gateway config: " + err.Error())
@@ -134,53 +133,3 @@ func isInternalHost(host string) bool {
 
 // TLSEnabled reports whether HTTPS is configured.
 func (c Config) TLSEnabled() bool { return c.TLSCertFile != "" && c.TLSKeyFile != "" }
-
-func splitCSV(s string) []string {
-	if s == "" {
-		return nil
-	}
-	parts := strings.Split(s, ",")
-	out := make([]string, 0, len(parts))
-	for _, p := range parts {
-		if v := strings.TrimSpace(p); v != "" {
-			out = append(out, strings.ToLower(v))
-		}
-	}
-	return out
-}
-
-func durationEnv(key string, fallback time.Duration) time.Duration {
-	v := config.Getenv(key, "")
-	if v == "" {
-		return fallback
-	}
-	d, err := time.ParseDuration(v)
-	if err != nil || d <= 0 {
-		panic(fmt.Sprintf("invalid duration for %s: %q", key, v))
-	}
-	return d
-}
-
-func int64Env(key string, fallback int64) int64 {
-	v := config.Getenv(key, "")
-	if v == "" {
-		return fallback
-	}
-	n, err := strconv.ParseInt(v, 10, 64)
-	if err != nil || n <= 0 {
-		panic(fmt.Sprintf("invalid integer for %s: %q", key, v))
-	}
-	return n
-}
-
-func boolEnv(key string, fallback bool) bool {
-	v := config.Getenv(key, "")
-	if v == "" {
-		return fallback
-	}
-	b, err := strconv.ParseBool(v)
-	if err != nil {
-		panic(fmt.Sprintf("invalid boolean for %s: %q", key, v))
-	}
-	return b
-}

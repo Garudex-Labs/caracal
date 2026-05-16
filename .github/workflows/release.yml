@@ -297,21 +297,34 @@ jobs:
           - name: api
             context: .
             dockerfile: apps/api/Dockerfile
+            build_args: ""
           - name: sts
             context: .
-            dockerfile: services/sts/Dockerfile
+            dockerfile: infra/docker/Dockerfile.go-service
+            build_args: |
+              SERVICE=sts
+              PORT=8080
+              STATE_DIRS=audit-replay
           - name: gateway
             context: .
-            dockerfile: services/gateway/Dockerfile
+            dockerfile: infra/docker/Dockerfile.go-service
+            build_args: |
+              SERVICE=gateway
+              PORT=8081
           - name: audit
             context: .
-            dockerfile: services/audit/Dockerfile
+            dockerfile: infra/docker/Dockerfile.go-service
+            build_args: |
+              SERVICE=audit
+              PORT=9090
           - name: coordinator
             context: .
             dockerfile: apps/coordinator/Dockerfile
+            build_args: ""
           - name: redis
             context: infra/redis
             dockerfile: infra/redis/Dockerfile
+            build_args: ""
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -342,6 +355,7 @@ jobs:
         with:
           context: ${{ matrix.context }}
           file: ${{ matrix.dockerfile }}
+          build-args: ${{ matrix.build_args }}
           platforms: linux/amd64,linux/arm64
           push: ${{ github.event_name == 'push' }}
           tags: ${{ steps.meta.outputs.tags }}

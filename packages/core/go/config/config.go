@@ -6,9 +6,11 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // Base holds env-driven configuration common to every Go service.
@@ -124,4 +126,66 @@ func PositiveInt64Env(key string, fallback int64) int64 {
 		return fallback
 	}
 	return n
+}
+
+// DurationEnv returns a positive duration env var or fallback when unset. Panics on invalid input
+// so misconfiguration is caught at startup rather than silently downgrading to the default.
+func DurationEnv(key string, fallback time.Duration) time.Duration {
+	v := os.Getenv(key)
+	if v == "" {
+		return fallback
+	}
+	d, err := time.ParseDuration(v)
+	if err != nil || d <= 0 {
+		panic(fmt.Sprintf("invalid duration for %s: %q", key, v))
+	}
+	return d
+}
+
+// Int64Env returns a positive int64 env var or fallback when unset. Panics on invalid input.
+// Use PositiveInt64Env when you prefer a silent fallback over a startup failure.
+func Int64Env(key string, fallback int64) int64 {
+	v := os.Getenv(key)
+	if v == "" {
+		return fallback
+	}
+	n, err := strconv.ParseInt(v, 10, 64)
+	if err != nil || n <= 0 {
+		panic(fmt.Sprintf("invalid integer for %s: %q", key, v))
+	}
+	return n
+}
+
+// BoolEnv returns the boolean value of key or fallback when unset. Panics on invalid input.
+func BoolEnv(key string, fallback bool) bool {
+	v := os.Getenv(key)
+	if v == "" {
+		return fallback
+	}
+	b, err := strconv.ParseBool(v)
+	if err != nil {
+		panic(fmt.Sprintf("invalid boolean for %s: %q", key, v))
+	}
+	return b
+}
+
+// SplitCSV trims, lowercases, and drops empty entries from a comma-separated list.
+// Empty input returns nil.
+func SplitCSV(s string) []string {
+	if s == "" {
+		return nil
+	}
+	parts := strings.Split(s, ",")
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		if v := strings.TrimSpace(p); v != "" {
+			out = append(out, strings.ToLower(v))
+		}
+	}
+	return out
+}
+
+// CSVEnv reads key as a comma-separated list, normalized via SplitCSV.
+func CSVEnv(key string) []string {
+	return SplitCSV(os.Getenv(key))
 }

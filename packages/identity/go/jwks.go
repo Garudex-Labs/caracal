@@ -72,7 +72,7 @@ func GetJWKSContext(ctx context.Context, issuer string) (map[string]*ecdsa.Publi
 
 	keys := make(map[string]*ecdsa.PublicKey, len(body.Keys))
 	for _, raw := range body.Keys {
-		key, kid, err := parseJWK(raw)
+		key, kid, err := ParseECJWK(raw)
 		if err != nil {
 			continue
 		}
@@ -92,7 +92,10 @@ func ResetJWKSCache() {
 	jwksMu.Unlock()
 }
 
-func parseJWK(raw json.RawMessage) (*ecdsa.PublicKey, string, error) {
+// ParseECJWK decodes a single EC P-256 JWK (RFC 7517) and returns the public key together
+// with its key id. Returns an error when the key type, curve, or kid is missing/unsupported,
+// or when the X/Y coordinates fail base64url decoding.
+func ParseECJWK(raw json.RawMessage) (*ecdsa.PublicKey, string, error) {
 	var key struct {
 		Kty string `json:"kty"`
 		Crv string `json:"crv"`

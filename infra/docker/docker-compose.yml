@@ -230,7 +230,11 @@ services:
     <<: [*appService, *appResources]
     build:
       context: ../..
-      dockerfile: services/sts/Dockerfile
+      dockerfile: infra/docker/Dockerfile.go-service
+      args:
+        SERVICE: sts
+        PORT: "8080"
+        STATE_DIRS: "audit-replay"
     image: localhost/caracal-sts:dev-${CARACAL_DEV_SHA:-local}
     depends_on:
       postgres:
@@ -304,7 +308,10 @@ services:
     <<: [*appService, *appResources]
     build:
       context: ../..
-      dockerfile: services/gateway/Dockerfile
+      dockerfile: infra/docker/Dockerfile.go-service
+      args:
+        SERVICE: gateway
+        PORT: "8081"
     image: localhost/caracal-gateway:dev-${CARACAL_DEV_SHA:-local}
     depends_on:
       sts:
@@ -339,7 +346,10 @@ services:
     <<: [*appService, *appResources]
     build:
       context: ../..
-      dockerfile: services/audit/Dockerfile
+      dockerfile: infra/docker/Dockerfile.go-service
+      args:
+        SERVICE: audit
+        PORT: "9090"
     image: localhost/caracal-audit:dev-${CARACAL_DEV_SHA:-local}
     depends_on:
       postgres:
@@ -409,7 +419,11 @@ services:
     profiles: ["control"]
     build:
       context: ../..
-      dockerfile: services/control/Dockerfile
+      dockerfile: infra/docker/Dockerfile.go-service
+      args:
+        SERVICE: control
+        PORT: "8087"
+        HEALTH_PATH: "/health"
     image: localhost/caracal-control:dev-${CARACAL_DEV_SHA:-local}
     depends_on:
       sts:

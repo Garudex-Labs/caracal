@@ -94,19 +94,6 @@ func TestConfigValidateRuntimePrivateUpstreamsRequireAllowlist(t *testing.T) {
 	}
 }
 
-func TestSplitCSV(t *testing.T) {
-	got := splitCSV("a, B ,c,, d ")
-	want := []string{"a", "b", "c", "d"}
-	if len(got) != len(want) {
-		t.Fatalf("len mismatch: got %v", got)
-	}
-	for i := range got {
-		if got[i] != want[i] {
-			t.Errorf("idx %d got %q want %q", i, got[i], want[i])
-		}
-	}
-}
-
 func TestIsInternalHost(t *testing.T) {
 	for _, h := range []string{"sts", "caracal-api", "localhost", "127.0.0.1", "::1"} {
 		if !isInternalHost(h) {

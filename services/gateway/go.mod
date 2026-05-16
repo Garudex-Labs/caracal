@@ -4,6 +4,7 @@ go 1.26
 
 require (
 	github.com/garudex-labs/caracal/core v0.0.0
+	github.com/garudex-labs/caracal/identity v0.0.0
 	github.com/google/uuid v1.6.0
 	github.com/jackc/pgx/v5 v5.9.2
 	github.com/redis/go-redis/v9 v9.19.0
@@ -27,3 +28,5 @@ require (
 )
 
 replace github.com/garudex-labs/caracal/core => ../../packages/core/go
+
+replace github.com/garudex-labs/caracal/identity => ../../packages/identity/go

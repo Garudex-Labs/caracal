@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/garudex-labs/caracal/core/scope"
+	"github.com/garudex-labs/caracal/identity"
 	"github.com/golang-jwt/jwt/v5"
 )
 
@@ -116,7 +117,7 @@ func (a *Authenticator) refresh(ctx context.Context) error {
 		return err
 	}
 	for _, raw := range jwks.Keys {
-		key, kid, err := parseECPublicKey(raw)
+		key, kid, err := identity.ParseECJWK(raw)
 		if err != nil {
 			continue
 		}
