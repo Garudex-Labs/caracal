@@ -37,6 +37,7 @@ type Server struct {
 	auditBuffer    *AuditBuffer
 	metrics        *STSMetrics
 	stepUpThrottle *stepUpThrottle
+	consumersReady chan struct{}
 	log            zerolog.Logger
 }
 
@@ -93,6 +94,7 @@ func New(ctx context.Context) (*Server, error) {
 		auditBuffer:    buf,
 		metrics:        metrics,
 		stepUpThrottle: newStepUpThrottle(),
+		consumersReady: make(chan struct{}),
 		log:            log,
 	}, nil
 }
@@ -225,6 +227,13 @@ func (s *Server) handleReady(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := s.auditBuffer.Ready(); err != nil {
 		s.log.Warn().Err(err).Msg("ready: audit replay unavailable")
+		http.Error(w, "service unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	select {
+	case <-s.consumersReady:
+	default:
+		s.log.Warn().Msg("ready: stream consumers not ready")
 		http.Error(w, "service unavailable", http.StatusServiceUnavailable)
 		return
 	}

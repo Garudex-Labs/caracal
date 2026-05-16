@@ -312,6 +312,9 @@ func (e *OPAEngine) loadZone(ctx context.Context, zoneID string) error {
 	if err != nil {
 		return err
 	}
+	if len(versions) != len(manifest) {
+		return fmt.Errorf("policy bundle incomplete for zone %s: manifest requires %d versions, got %d", zoneID, len(manifest), len(versions))
+	}
 
 	modules := make([]func(*rego.Rego), 0, len(versions)+2)
 	for _, v := range versions {

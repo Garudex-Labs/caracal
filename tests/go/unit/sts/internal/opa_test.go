@@ -7,6 +7,7 @@ package internal
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 
 	"github.com/open-policy-agent/opa/rego"
@@ -139,5 +140,37 @@ result := {"decision": "allow", "evaluation_status": "complete", "determining_po
 	e.mu.RUnlock()
 	if state.manifestSHA != sha {
 		t.Errorf("want sha %s, got %s", sha, state.manifestSHA)
+	}
+}
+
+// partialVersionDB returns a binding and version whose manifest lists two
+// policy_version_ids, but GetPolicyVersionsByIDs only returns one row —
+// simulating a partial DB result.
+type partialVersionDB struct {
+	stubDB
+}
+
+func (d *partialVersionDB) GetActivePolicySetBinding(_ context.Context, _ string) (*PolicySetBinding, error) {
+	vid := "psv-1"
+	return &PolicySetBinding{ZoneID: "z-partial", PolicySetID: "ps-1", ActiveVersionID: &vid}, nil
+}
+
+func (d *partialVersionDB) GetPolicySetVersion(_ context.Context, _ string) (*PolicySetVersion, error) {
+	manifest, _ := json.Marshal([]map[string]string{
+		{"policy_version_id": "pv-1"},
+		{"policy_version_id": "pv-2"},
+	})
+	return &PolicySetVersion{ID: "psv-1", ManifestJSON: manifest, ManifestSHA256: "new-sha"}, nil
+}
+
+func (d *partialVersionDB) GetPolicyVersionsByIDs(_ context.Context, _ []string) ([]PolicyVersion, error) {
+	return []PolicyVersion{{ID: "pv-1", Content: `package caracal.authz`}}, nil
+}
+
+func TestOPALoadZoneRejectsPartialBundle(t *testing.T) {
+	e := newOPAEngine(&partialVersionDB{})
+	err := e.loadZone(context.Background(), "z-partial")
+	if err == nil {
+		t.Fatal("want error when manifest version count mismatches DB result")
 	}
 }

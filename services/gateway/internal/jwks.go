@@ -16,6 +16,7 @@ import (
 	"io"
 	"math/big"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -168,8 +169,8 @@ func (c *jwksCache) refresh(ctx context.Context, zoneID string, forceMiss bool) 
 }
 
 func (c *jwksCache) fetch(ctx context.Context, zoneID string) (map[string]*ecdsa.PublicKey, error) {
-	url := c.stsURL + "/.well-known/jwks.json?zone_id=" + zoneID
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	rawURL := c.stsURL + "/.well-known/jwks.json?" + url.Values{"zone_id": {zoneID}}.Encode()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
 	if err != nil {
 		return nil, err
 	}

@@ -25,18 +25,33 @@ const (
 	maxFailures  = 5
 )
 
-// startConsumers creates consumer groups and starts background reader goroutines.
+// startConsumers retries consumer group creation with 1s backoff until all three
+// groups are ready, then launches the consumer goroutines and signals readiness.
 func (s *Server) startConsumers(ctx context.Context) {
-	if err := s.redis.EnsureGroup(ctx, streamRevoke, groupRevoke); err != nil {
-		s.log.Error().Err(err).Str("stream", streamRevoke).Msg("consumer group ensure failed")
-		return
+	streams := []struct{ name, group string }{
+		{streamRevoke, groupRevoke},
+		{streamPolicy, groupPolicy},
+		{streamKeys, groupKeys},
 	}
-	if err := s.redis.EnsureGroup(ctx, streamPolicy, groupPolicy); err != nil {
-		s.log.Error().Err(err).Str("stream", streamPolicy).Msg("consumer group ensure failed")
-		return
+	for ctx.Err() == nil {
+		ready := true
+		for _, sg := range streams {
+			if err := s.redis.EnsureGroup(ctx, sg.name, sg.group); err != nil {
+				s.log.Error().Err(err).Str("stream", sg.name).Msg("consumer group ensure failed; will retry")
+				ready = false
+				break
+			}
+		}
+		if ready {
+			break
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(time.Second):
+		}
 	}
-	if err := s.redis.EnsureGroup(ctx, streamKeys, groupKeys); err != nil {
-		s.log.Error().Err(err).Str("stream", streamKeys).Msg("consumer group ensure failed")
+	if ctx.Err() != nil {
 		return
 	}
 
@@ -44,6 +59,7 @@ func (s *Server) startConsumers(ctx context.Context) {
 	go s.consumeRevocations(ctx, baseConsumer+"-revocations")
 	go s.consumePolicyInvalidations(ctx, baseConsumer+"-policy")
 	go s.consumeKeyInvalidations(ctx, baseConsumer+"-keys")
+	close(s.consumersReady)
 }
 
 func (s *Server) consumeRevocations(ctx context.Context, consumer string) {
