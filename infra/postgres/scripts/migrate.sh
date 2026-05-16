@@ -15,6 +15,13 @@ fi
 migrations_dir="${MIGRATIONS_DIR:-/migrations}"
 lock_key="${MIGRATION_ADVISORY_LOCK_KEY:-4732518903281471}"
 
+case "${lock_key}" in
+    *[!0-9-]*|'')
+        echo "migrate: MIGRATION_ADVISORY_LOCK_KEY must be a signed integer" >&2
+        exit 1
+        ;;
+esac
+
 psql -v ON_ERROR_STOP=1 -c "
   CREATE TABLE IF NOT EXISTS schema_migrations (
     version    TEXT PRIMARY KEY,
@@ -24,16 +31,29 @@ psql -v ON_ERROR_STOP=1 -c "
 
 for path in $(ls "${migrations_dir}"/*.up.sql 2>/dev/null | sort); do
     version=$(basename "${path}" .up.sql)
-    already=$(psql -tAXc "SELECT 1 FROM schema_migrations WHERE version='${version}' LIMIT 1")
+    case "${version}" in
+        [0-9][0-9][0-9][0-9]_*) : ;;
+        *)
+            echo "migrate: rejecting unexpected filename: ${version}" >&2
+            exit 1
+            ;;
+    esac
+    case "${version}" in
+        *[!A-Za-z0-9_]*)
+            echo "migrate: rejecting unsafe characters in version: ${version}" >&2
+            exit 1
+            ;;
+    esac
+    already=$(psql -tAXc "SELECT 1 FROM schema_migrations WHERE version = :'ver' LIMIT 1" -v ver="${version}")
     if [ "${already}" = "1" ]; then
         continue
     fi
     echo "applying ${version}"
     psql -v ON_ERROR_STOP=1 --single-transaction \
+        -v ver="${version}" \
         -c "SELECT pg_advisory_xact_lock(${lock_key});" \
-        -c "DO \$\$ BEGIN IF EXISTS (SELECT 1 FROM schema_migrations WHERE version='${version}') THEN RAISE NOTICE 'skip ${version}'; END IF; END \$\$;" \
         -f "${path}" \
-        -c "INSERT INTO schema_migrations(version) VALUES ('${version}') ON CONFLICT DO NOTHING;"
+        -c "INSERT INTO schema_migrations(version) VALUES (:'ver') ON CONFLICT DO NOTHING;"
 done
 
 echo "migrations up to date"
