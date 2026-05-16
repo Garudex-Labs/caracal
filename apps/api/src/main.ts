@@ -9,7 +9,6 @@ import { newDB } from './db.js'
 import { newRedis } from './redis.js'
 import { startDCRGC } from './jobs/dcr-gc.js'
 import { startSessionsReaper } from './jobs/sessions-reaper.js'
-import { runMigrations } from './migrate.js'
 import { ShutdownRegistry } from './lifecycle.js'
 import { OutboxDispatcher } from './outbox.js'
 import { seedBootstrapAdminToken } from './auth.js'
@@ -53,7 +52,6 @@ shutdown.register('postgres', () => db.end())
 
 try {
   await redis.ping()
-  await runMigrations(db, (msg) => log('info', msg))
   await seedBootstrapAdminToken(db, {
     envToken: cfg.bootstrapAdminToken,
     log: (msg) => log('info', msg),

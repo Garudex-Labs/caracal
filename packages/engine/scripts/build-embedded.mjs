@@ -4,8 +4,8 @@
 //
 // Generates packages/engine/src/embedded.ts with all runtime assets bundled into the binary.
 
-import { readdirSync, readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs'
-import { dirname, join, resolve } from 'node:path'
+import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs'
+import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const here = dirname(fileURLToPath(import.meta.url))
@@ -23,12 +23,6 @@ function escape(value) {
 const compose = read('packages/engine/runtime/compose.yml')
 const envExample = read('packages/engine/runtime/.env.example')
 
-const migrationsDir = resolve(repoRoot, 'infra/postgres/migrations')
-const migrations = readdirSync(migrationsDir)
-  .filter((f) => f.endsWith('.up.sql'))
-  .sort()
-  .map((name) => ({ name, body: readFileSync(join(migrationsDir, name), 'utf8') }))
-
 const lines = []
 lines.push('// Copyright (C) 2026 Garudex Labs.  All Rights Reserved.')
 lines.push('// Caracal, a product of Garudex Labs')
@@ -38,12 +32,6 @@ lines.push('')
 lines.push('export const COMPOSE_YML = `' + escape(compose) + '`')
 lines.push('')
 lines.push('export const ENV_EXAMPLE = `' + escape(envExample) + '`')
-lines.push('')
-lines.push('export const MIGRATIONS: { name: string; body: string }[] = [')
-for (const m of migrations) {
-  lines.push(`  { name: '${m.name}', body: \`${escape(m.body)}\` },`)
-}
-lines.push(']')
 lines.push('')
 
 const outDir = resolve(coreRoot, 'src')
