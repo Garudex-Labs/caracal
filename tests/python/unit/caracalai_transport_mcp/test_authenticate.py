@@ -72,7 +72,7 @@ class TransportMcpAuthenticateTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result.error.code if result.error else None, "session_revoked")
 
     async def test_requires_delegation_chain_membership(self) -> None:
-        token, jwk = mint_es256_token(claims={"delegation_chain": [{"app": "app-child"}]})
+        token, jwk = mint_es256_token(claims={"delegation_chain": [{"application_id": "app-child"}]})
         self.cache.keys = [jwk]
 
         result = await authenticate(

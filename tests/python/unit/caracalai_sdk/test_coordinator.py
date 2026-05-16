@@ -31,23 +31,13 @@ def _client(handler) -> CoordinatorClient:
 class SpawnAgentTests(unittest.IsolatedAsyncioTestCase):
     async def test_returns_agent_session_id_from_response(self) -> None:
         async def handler(req: httpx.Request) -> httpx.Response:
-            return httpx.Response(200, json={"agent_session_id": "agent-1", "id": "agent-1"})
+            return httpx.Response(200, json={"agent_session_id": "agent-1"})
 
         res = await spawn_agent(
             _client(handler), "tok",
             SpawnRequest(zone_id="z", application_id="app"),
         )
         self.assertEqual(res.agent_session_id, "agent-1")
-
-    async def test_falls_back_to_id_when_agent_session_id_absent(self) -> None:
-        async def handler(req: httpx.Request) -> httpx.Response:
-            return httpx.Response(200, json={"id": "agent-fallback"})
-
-        res = await spawn_agent(
-            _client(handler), "tok",
-            SpawnRequest(zone_id="z", application_id="app"),
-        )
-        self.assertEqual(res.agent_session_id, "agent-fallback")
 
     async def test_raises_on_http_error(self) -> None:
         async def handler(req: httpx.Request) -> httpx.Response:
@@ -82,7 +72,7 @@ class SpawnAgentTests(unittest.IsolatedAsyncioTestCase):
             SpawnRequest(
                 zone_id="z",
                 application_id="app",
-                session_sid="sid-1",
+                subject_session_id="sid-1",
                 parent_id="parent-1",
                 kind=AgentKind.EPHEMERAL,
                 ttl_seconds=60,
@@ -90,7 +80,7 @@ class SpawnAgentTests(unittest.IsolatedAsyncioTestCase):
             ),
         )
         body = captured[0]
-        self.assertEqual(body["session_sid"], "sid-1")
+        self.assertEqual(body["subject_session_id"], "sid-1")
         self.assertEqual(body["parent_id"], "parent-1")
         self.assertEqual(body["kind"], "ephemeral")
         self.assertEqual(body["ttl_seconds"], 60)
@@ -108,7 +98,7 @@ class SpawnAgentTests(unittest.IsolatedAsyncioTestCase):
             SpawnRequest(
                 zone_id="z",
                 application_id="app",
-                session_sid="sid-1",
+                subject_session_id="sid-1",
                 parent_id="parent-1",
             ),
         )
@@ -128,7 +118,7 @@ class SpawnAgentTests(unittest.IsolatedAsyncioTestCase):
             SpawnRequest(
                 zone_id="z",
                 application_id="app",
-                session_sid="sid-1",
+                subject_session_id="sid-1",
                 idempotency_key="user-supplied-key",
             ),
         )
@@ -178,7 +168,7 @@ class TerminateAgentTests(unittest.IsolatedAsyncioTestCase):
 class CreateDelegationTests(unittest.IsolatedAsyncioTestCase):
     async def test_returns_delegation_edge_id(self) -> None:
         async def handler(req: httpx.Request) -> httpx.Response:
-            return httpx.Response(200, json={"delegation_edge_id": "edge-1", "id": "edge-1"})
+            return httpx.Response(200, json={"delegation_edge_id": "edge-1"})
 
         res = await create_delegation(
             _client(handler), "tok",
@@ -192,23 +182,6 @@ class CreateDelegationTests(unittest.IsolatedAsyncioTestCase):
             ),
         )
         self.assertEqual(res.delegation_edge_id, "edge-1")
-
-    async def test_falls_back_to_id_when_delegation_edge_id_absent(self) -> None:
-        async def handler(req: httpx.Request) -> httpx.Response:
-            return httpx.Response(200, json={"id": "edge-fallback"})
-
-        res = await create_delegation(
-            _client(handler), "tok",
-            DelegationRequest(
-                zone_id="z",
-                issuer_application_id="app",
-                source_session_id="agent-1",
-                target_session_id="agent-2",
-                receiver_application_id="app-2",
-                scopes=["tool:call"],
-            ),
-        )
-        self.assertEqual(res.delegation_edge_id, "edge-fallback")
 
     async def test_raises_on_http_error(self) -> None:
         async def handler(req: httpx.Request) -> httpx.Response:

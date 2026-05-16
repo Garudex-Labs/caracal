@@ -22,10 +22,10 @@ describe('GET /v1/zones/:zoneId/providers/:id', () => {
       'z1',
     ])
   })
-})
+}
 
 describe('POST /v1/zones/:zoneId/providers', () => {
-  it('stores provider kind inside config_json', async () => {
+  it('stores provider kind in provider_kind', async () => {
     const { app, db } = buildRouteApp(providersRoutes)
     db.query
       .mockResolvedValueOnce({ rows: [{ '?column?': 1 }] })
@@ -43,7 +43,8 @@ describe('POST /v1/zones/:zoneId/providers', () => {
     const values = db.query.mock.calls[1][1] as unknown[]
     expect(res.statusCode).toBe(201)
     expect(JSON.parse(res.body)).toMatchObject({ id: 'provider-1', kind: 'oidc' })
-    expect(JSON.parse(values[6] as string)).toEqual({ issuer: 'https://issuer.example', kind: 'oidc' })
+    expect(values[6]).toBe('oidc')
+    expect(JSON.parse(values[7] as string)).toEqual({ issuer: 'https://issuer.example' })
   })
 })
 
@@ -76,6 +77,7 @@ describe('PATCH /v1/zones/:zoneId/providers/:id', () => {
     expect(res.statusCode).toBe(200)
     expect(JSON.parse(res.body)).toMatchObject({ id: 'provider-1', kind: 'workload' })
     expect(values.slice(0, 2)).toEqual(['provider-1', 'z1'])
-    expect(JSON.parse(values[2] as string)).toEqual({ audience: 'resource://api', kind: 'workload' })
+    expect(values).toContain('workload')
+    expect(JSON.parse(values[3] as string)).toEqual({ audience: 'resource://api' })
   })
 })

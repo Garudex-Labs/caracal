@@ -101,7 +101,7 @@ class VerifyConfigTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(claims.delegation_edge_id, "edge-1")
 
     async def test_raises_chain_mismatch_when_app_absent(self) -> None:
-        chain = [{"app": "app-child"}]
+        chain = [{"application_id": "app-child"}]
         with self.assertRaises(ChainMismatchError) as cm:
             await self._verify(
                 {"delegation_chain": chain},
@@ -110,7 +110,7 @@ class VerifyConfigTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(cm.exception.missing_application_id, "app-parent")
 
     async def test_accepts_chain_when_app_present(self) -> None:
-        chain = [{"app": "app-parent", "session": "s1", "edge": "e1"}]
+        chain = [{"application_id": "app-parent", "agent_session_id": "s1", "delegation_edge_id": "e1"}]
         claims = await self._verify(
             {"delegation_chain": chain},
             require_chain_contains=["app-parent"],
@@ -119,12 +119,12 @@ class VerifyConfigTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(claims.delegation_chain[0].agent_session_id, "s1")
         self.assertEqual(claims.delegation_chain[0].delegation_edge_id, "e1")
 
-    async def test_rejects_long_form_chain_keys(self) -> None:
-        chain = [{"application_id": "app-legacy", "agent_session_id": "s2", "delegation_edge_id": "e2"}]
+    async def test_rejects_compact_chain_keys(self) -> None:
+        chain = [{"app": "app-child", "session": "s2", "edge": "e2"}]
         with self.assertRaises(ChainMismatchError):
             await self._verify(
                 {"delegation_chain": chain},
-                require_chain_contains=["app-legacy"],
+                require_chain_contains=["app-child"],
             )
 
     async def test_extracts_delegation_path(self) -> None:

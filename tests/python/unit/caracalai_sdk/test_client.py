@@ -176,9 +176,9 @@ class LifecycleTests(unittest.IsolatedAsyncioTestCase):
         async def handler(request):
             requests.append(request)
             if request.method == "POST" and str(request.url).endswith("/agents"):
-                return httpx.Response(200, json={"id": "agent-1"})
+                return httpx.Response(200, json={"agent_session_id": "agent-1"})
             if request.method == "POST" and str(request.url).endswith("/delegations"):
-                return httpx.Response(200, json={"id": "edge-1"})
+                return httpx.Response(200, json={"delegation_edge_id": "edge-1"})
             if request.method == "DELETE":
                 return httpx.Response(204)
             return httpx.Response(404)

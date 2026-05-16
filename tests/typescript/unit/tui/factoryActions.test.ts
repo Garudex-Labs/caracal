@@ -257,7 +257,7 @@ describe('agents actions', () => {
     for (const [key, fn] of cases) {
       const { client, ctx } = newCtx()
       const list = agentsView(ctx as unknown as Parameters<typeof agentsView>[0]) as ListView<unknown>
-      setRows(list, [{ id: 'ag1', application_id: 'a', parent_id: null, status: 'active', depth: 0, spawned_at: 'now' }])
+      setRows(list, [{ agent_session_id: 'ag1', application_id: 'a', parent_id: null, status: 'active', depth: 0, spawned_at: 'now' }])
       const app = fakeApp()
       const pushed = await pressKey(list, key, app) as ConfirmView
       expect(pushed).toBeInstanceOf(ConfirmView)
@@ -269,7 +269,7 @@ describe('agents actions', () => {
   it('T opens DetailView calling agents.children', async () => {
     const { ctx } = newCtx()
     const list = agentsView(ctx as unknown as Parameters<typeof agentsView>[0]) as ListView<unknown>
-    setRows(list, [{ id: 'ag1', application_id: 'a', parent_id: null, status: 'active', depth: 0, spawned_at: 'now' }])
+    setRows(list, [{ agent_session_id: 'ag1', application_id: 'a', parent_id: null, status: 'active', depth: 0, spawned_at: 'now' }])
     const pushed = await pressKey(list, 'T', fakeApp()) as { title: string }
     expect(pushed.title).toContain('agent-tree')
   })
