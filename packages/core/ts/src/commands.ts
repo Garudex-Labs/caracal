@@ -25,7 +25,7 @@ export interface CommandDescriptor {
   readonly requiresZone?: boolean;
   readonly hidden?: boolean;
   /** Flags keyed by subcommand name; use '' for commands with no subcommands. */
-  readonly flags?: Readonly<Record<string, readonly FlagDescriptor[]>>;
+  readonly flags?: { readonly [k: string]: readonly FlagDescriptor[] };
 }
 
 export const SHELL_COMMANDS: readonly CommandDescriptor[] = Object.freeze([

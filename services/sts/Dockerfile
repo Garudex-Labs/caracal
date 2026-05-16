@@ -20,6 +20,7 @@ COPY packages/connectors/redis/go/ packages/connectors/redis/go/
 COPY packages/sdk/go/ packages/sdk/go/
 COPY services/audit/ services/audit/
 COPY services/gateway/ services/gateway/
+COPY services/control/ services/control/
 COPY apps/coordinator/relay/ apps/coordinator/relay/
 COPY services/sts/ services/sts/
 COPY tests/go/ tests/go/
