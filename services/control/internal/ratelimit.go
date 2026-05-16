@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 // Caracal, a product of Garudex Labs
 //
-// Per-subject token-bucket limiter for the agent invoke endpoint.
+// Per-subject token-bucket limiter for the control invoke endpoint.
 
 package internal
 

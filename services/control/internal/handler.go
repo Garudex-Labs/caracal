@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 // Caracal, a product of Garudex Labs
 //
-// /v1/agent/invoke handler: parses JSON, authenticates the bearer, rate-limits, dispatches, and audits.
+// /v1/control/invoke handler: parses JSON, authenticates the bearer, rate-limits, dispatches, and audits.
 
 package internal
 

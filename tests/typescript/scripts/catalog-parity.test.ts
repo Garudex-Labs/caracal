@@ -12,15 +12,16 @@ interface GoEntry { name: string; subs: string[]; hidden: boolean }
 
 function parseGoCatalog(src: string): GoEntry[] {
   const out: GoEntry[] = []
-  const block = src.match(/var CLI = \[\]Descriptor\{([\s\S]*?)\n\}/)
-  if (!block) throw new Error('Go catalog block not found')
-  const body = block[1]!
-  const entryRe = /\{Name:\s*"([^"]+)"[^}]*?(?:Subcommands:\s*\[\]string\{([^}]*)\})?[^}]*?(?:Hidden:\s*(true|false))?[^}]*?\}/g
-  let m: RegExpExecArray | null
-  while ((m = entryRe.exec(body))) {
-    const subsRaw = m[2] ?? ''
-    const subs = subsRaw.match(/"([^"]+)"/g)?.map((s) => s.slice(1, -1)) ?? []
-    out.push({ name: m[1]!, subs, hidden: m[3] === 'true' })
+  const lines = src.split('\n')
+  for (const line of lines) {
+    const t = line.trim()
+    if (!t.startsWith('{Name:')) continue
+    const name = /Name:\s*"([^"]+)"/.exec(t)?.[1]
+    if (!name) continue
+    const subsBlock = /Subcommands:\s*\[\]string\{([^}]*)\}/.exec(t)?.[1] ?? ''
+    const subs = subsBlock.match(/"([^"]+)"/g)?.map((s) => s.slice(1, -1)) ?? []
+    const hidden = /Hidden:\s*true/.test(t)
+    out.push({ name, subs, hidden })
   }
   return out
 }

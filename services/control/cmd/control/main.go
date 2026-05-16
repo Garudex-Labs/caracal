@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 // Caracal, a product of Garudex Labs
 //
-// Control service entry point: launches the agent-control HTTP surface only when CONTROL_MODE=on.
+// Control service entry point: launches the external control HTTP surface only when CONTROL_MODE=on.
 
 package main
 
