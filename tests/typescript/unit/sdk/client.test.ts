@@ -91,7 +91,7 @@ describe("middleware + bindFromHeaders", () => {
       mw(
         {
           headers: {
-            [HeaderAuthorization]: "Bearer inbound",
+            [HeaderAuthorization]: "Bearer    inbound   ",
             [HeaderTraceparent]:
               "00-0123456789abcdef0123456789abcdef-aabbccddeeff0011-01",
             [HeaderBaggage]: `${BaggageAgentSession}=sess1,${BaggageHop}=2`,

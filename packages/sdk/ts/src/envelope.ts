@@ -107,8 +107,14 @@ export function fromHeaders(headers: Record<string, string | string[] | undefine
 
 export function decodeEnvelope(get: HeaderGetter): Envelope {
   const auth = get(HeaderAuthorization);
-  const subjectToken =
-    auth && /^Bearer\s+/i.test(auth) ? auth.replace(/^Bearer\s+/i, "").trim() : undefined;
+  let subjectToken: string | undefined;
+  if (auth && auth.slice(0, 6).toLowerCase() === "bearer") {
+    const value = auth.slice(6);
+    if (value.length !== value.trimStart().length) {
+      const token = value.trim();
+      subjectToken = token === "" ? undefined : token;
+    }
+  }
   const tp = get(HeaderTraceparent);
   const traceId = tp ? parseTraceparent(tp)?.traceId : undefined;
   const bag = parseBaggage(get(HeaderBaggage));

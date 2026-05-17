@@ -10,7 +10,13 @@ import { caracalAuth } from '../../../../../packages/connectors/express/ts/src/m
 
 vi.mock('@caracalai/transport-mcp', async () => ({
   authenticate: vi.fn().mockResolvedValue({ ok: false, error: { code: 'invalid_token', description: 'Token validation failed' } }),
-  extractBearer: (h: string | undefined) => h?.match(/^Bearer\s+(.+)$/i)?.[1].trim() ?? null,
+  extractBearer: (h: string | undefined) => {
+    if (h === undefined || h.slice(0, 6).toLowerCase() !== 'bearer') return null
+    const value = h.slice(6)
+    if (value.length === value.trimStart().length) return null
+    const token = value.trim()
+    return token === '' ? null : token
+  },
 }))
 
 function makeMockRes(): Partial<Response> & { statusCode?: number; body?: unknown } {

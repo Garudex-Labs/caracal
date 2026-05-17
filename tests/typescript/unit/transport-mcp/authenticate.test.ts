@@ -73,8 +73,14 @@ describe('transport-mcp authentication', () => {
     expect(extractBearer('Bearer token-1')).toBe('token-1')
     expect(extractBearer('bearer token-1')).toBe('token-1')
     expect(extractBearer('BEARER token-1')).toBe('token-1')
+    expect(extractBearer(`Bearer\t token-1  `)).toBe('token-1')
     expect(extractBearer('Bearer   ')).toBeNull()
     expect(extractBearer(undefined)).toBeNull()
+  })
+
+  it('extracts bearer tokens from long whitespace headers in linear time', () => {
+    expect(extractBearer(`Bearer ${' '.repeat(100_000)}token-1`)).toBe('token-1')
+    expect(extractBearer(`Bearer ${' '.repeat(100_000)}`)).toBeNull()
   })
 
   it('rejects missing tokens without verification', async () => {
