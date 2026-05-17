@@ -16,7 +16,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/garudex-labs/caracal/core/audit"
+	"github.com/garudex-labs/caracal/packages/core/go/audit"
 	"github.com/google/uuid"
 	"github.com/rs/zerolog"
 )

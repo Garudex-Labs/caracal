@@ -10,7 +10,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/garudex-labs/caracal/core/crypto"
+	"github.com/garudex-labs/caracal/packages/core/go/crypto"
 	"github.com/redis/go-redis/v9"
 )
 

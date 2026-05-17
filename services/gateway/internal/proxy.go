@@ -18,8 +18,8 @@ import (
 	"strings"
 	"time"
 
-	sharederr "github.com/garudex-labs/caracal/core/errors"
-	corests "github.com/garudex-labs/caracal/core/sts"
+	sharederr "github.com/garudex-labs/caracal/packages/core/go/errors"
+	corests "github.com/garudex-labs/caracal/packages/core/go/sts"
 	"github.com/rs/zerolog"
 )
 

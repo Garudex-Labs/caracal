@@ -20,7 +20,7 @@ import (
 
 	"github.com/rs/zerolog"
 
-	corests "github.com/garudex-labs/caracal/core/sts"
+	corests "github.com/garudex-labs/caracal/packages/core/go/sts"
 )
 
 type allowVerifier struct{}

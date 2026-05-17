@@ -21,7 +21,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/garudex-labs/caracal/identity"
+	"github.com/garudex-labs/caracal/packages/identity/go"
 	"github.com/rs/zerolog"
 )
 
