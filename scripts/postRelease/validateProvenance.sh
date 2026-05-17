@@ -60,6 +60,7 @@ verifyImage() {
 }
 
 for p in "${PLATS[@]}"; do
+  verifyArchive "$(archiveFor shell "$p")"
   verifyArchive "$(archiveFor cli "$p")"
   verifyArchive "$(archiveFor tui "$p")"
 done

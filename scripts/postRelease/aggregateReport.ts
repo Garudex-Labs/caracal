@@ -50,6 +50,7 @@ const AREAS = [
   ["registryMetadata", "Registry Metadata"],
   ["pypiInstall", "PyPI Install Matrix"],
   ["npmInstall", "npm Install Matrix"],
+  ["shellBinaries", "Shell Binaries"],
   ["cliBinaries", "CLI Binaries"],
   ["tuiBinaries", "TUI Binaries"],
   ["installers", "Installers"],
