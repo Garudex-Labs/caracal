@@ -71,7 +71,8 @@ describe('transport-mcp authentication', () => {
 
   it('extracts bearer tokens', () => {
     expect(extractBearer('Bearer token-1')).toBe('token-1')
-    expect(extractBearer('bearer token-1')).toBeNull()
+    expect(extractBearer('bearer token-1')).toBe('token-1')
+    expect(extractBearer('BEARER token-1')).toBe('token-1')
     expect(extractBearer('Bearer   ')).toBeNull()
     expect(extractBearer(undefined)).toBeNull()
   })

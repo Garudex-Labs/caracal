@@ -45,9 +45,14 @@ describe("Caracal.fromEnv", () => {
 });
 
 describe("Caracal.headers", () => {
-  it("emits W3C envelope when no context bound", () => {
+  it("refuses root headers without explicit opt-in", () => {
     const c = new Caracal(dummyConfig);
-    const h = c.headers();
+    expect(() => c.headers()).toThrow(/allowRoot/);
+  });
+
+  it("emits W3C envelope when root use is explicit", () => {
+    const c = new Caracal(dummyConfig);
+    const h = c.headers({ allowRoot: true });
     expect(h[HeaderAuthorization]).toBe("Bearer tok");
     expect(parseTraceparent(h[HeaderTraceparent]!)).toBeTruthy();
     expect(parseBaggage(h[HeaderBaggage])[BaggageHop]).toBe("0");
@@ -85,9 +90,19 @@ describe("middleware + bindFromHeaders", () => {
     });
     expect(seen).toBe("inbound|sess1|2");
   });
+
+  it("rejects inbound requests without a bearer token by default", async () => {
+    const c = new Caracal(dummyConfig);
+    await expect(c.bindFromHeaders({}, async () => undefined)).rejects.toThrow(/missing a bearer token/);
+  });
 });
 
 describe("caracal.transport", () => {
+  it("refuses root transport without explicit opt-in", async () => {
+    const c = new Caracal(dummyConfig);
+    await expect(c.transport()("http://api/x")).rejects.toThrow(/allowRoot/);
+  });
+
   it("auto-injects envelope headers on outbound calls", async () => {
     const calls: { url: string; headers: Headers }[] = [];
     const fakeFetch = vi.fn(async (input: RequestInfo | URL, init: RequestInit = {}) => {
@@ -95,7 +110,7 @@ describe("caracal.transport", () => {
       return new Response(null, { status: 204 });
     }) as unknown as typeof fetch;
     const c = new Caracal({ ...dummyConfig, coordinator: { baseUrl: "http://c", fetchImpl: fakeFetch } });
-    await c.transport()("http://api/x");
+    await c.transport({ allowRoot: true })("http://api/x");
     expect(calls).toHaveLength(1);
     expect(calls[0].headers.get(HeaderAuthorization)).toBe("Bearer tok");
     expect(parseTraceparent(calls[0].headers.get(HeaderTraceparent)!)).toBeTruthy();
@@ -114,7 +129,7 @@ describe("caracal.transport", () => {
       resources: [{ resourceId: "calendar", upstreamPrefix: "https://api.example.com/v1" }],
     });
 
-    await c.transport()("https://api.example.com/v1/events?limit=10", {
+    await c.transport({ allowRoot: true })("https://api.example.com/v1/events?limit=10", {
       headers: { "x-existing": "1" },
     });
 
@@ -136,7 +151,7 @@ describe("caracal.transport", () => {
       gatewayUrl: "https://gateway.example.com/proxy",
     });
 
-    await c.transport()("https://unbound.example.com/data", {
+    await c.transport({ allowRoot: true })("https://unbound.example.com/data", {
       headers: { "X-Caracal-Resource": "manual-resource" },
     });
 
@@ -246,5 +261,15 @@ describe("config resource sorting and token validation", () => {
       CARACAL_APPLICATION_ID: "app",
       CARACAL_SUBJECT_TOKEN: token,
     } as NodeJS.ProcessEnv)).toThrow(/expired/);
+  });
+
+  it("rejects malformed CARACAL_RESOURCES at startup", () => {
+    expect(() => Caracal.fromEnv({
+      CARACAL_COORDINATOR_URL: "http://coord",
+      CARACAL_ZONE_ID: "z",
+      CARACAL_APPLICATION_ID: "app",
+      CARACAL_SUBJECT_TOKEN: "tok",
+      CARACAL_RESOURCES: "broken,calendar=not-a-url",
+    } as NodeJS.ProcessEnv)).toThrow(/invalid CARACAL_RESOURCES/);
   });
 });

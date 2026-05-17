@@ -5,6 +5,7 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { a2aCall } from '../../../../packages/transport/a2a/ts/src/a2a.js'
+import { bind } from '../../../../packages/sdk/ts/src/advanced.js'
 
 describe('a2aCall', () => {
   beforeEach(() => {
@@ -27,13 +28,14 @@ describe('a2aCall', () => {
         }
       }
       const headers = opts.headers as Record<string, string>
-      captured.auth = headers['Authorization']
+      expect(headers['Authorization']).toBeUndefined()
+      captured.auth = headers.authorization
       captured.zoneId = headers['X-Caracal-Zone-Id']
       captured.applicationId = headers['X-Caracal-Application-Id']
       captured.body = JSON.parse(String(opts.body)) as Record<string, unknown>
       return {
         ok: true,
-        json: async () => ({ id: 'resp-1', result: 'ok' }),
+        json: async () => ({ requestId: 'req-1', result: 'ok' }),
       }
     })
     vi.stubGlobal('fetch', fetchMock)
@@ -79,7 +81,7 @@ describe('a2aCall', () => {
   it('returns the response body', async () => {
     vi.stubGlobal('fetch', vi.fn()
       .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ access_token: 'agent-token', expires_in: 900 }) })
-      .mockResolvedValueOnce({ ok: true, json: async () => ({ id: 'resp-2', result: { data: 42 } }) }))
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ requestId: 'req-3', result: { data: 42 } }) }))
 
     const res = await a2aCall(
       { agentUrl: 'http://agent-b:4001', method: 'query', params: { x: 1 }, requestId: 'req-3' },
@@ -88,14 +90,58 @@ describe('a2aCall', () => {
       'app2',
       { stsUrl: 'http://sts:8080' },
     )
-    expect(res).toEqual({ id: 'resp-2', result: { data: 42 } })
+    expect(res).toEqual({ requestId: 'req-3', result: { data: 42 } })
+  })
+
+  it('rejects mismatched response ids', async () => {
+    vi.stubGlobal('fetch', vi.fn()
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ access_token: 'agent-token', expires_in: 900 }) })
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ requestId: 'other', result: 'ok' }) }))
+
+    await expect(a2aCall(
+      { agentUrl: 'http://agent-b:4001', method: 'query', params: {}, requestId: 'req-3' },
+      'tok',
+      'zone1',
+      'app2',
+      { stsUrl: 'http://sts:8080' },
+    )).rejects.toThrow(/requestId mismatch/)
+  })
+
+  it('uses the exchanged token even when caller context is bound', async () => {
+    const captured: Record<string, string> = {}
+    vi.stubGlobal('fetch', vi.fn()
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ access_token: 'agent-token', expires_in: 900 }) })
+      .mockImplementationOnce(async (_url: string, opts: RequestInit) => {
+        Object.assign(captured, opts.headers as Record<string, string>)
+        return { ok: true, status: 200, json: async () => ({ requestId: 'req-ctx', result: 'ok' }) }
+      }))
+
+    await bind({
+      subjectToken: 'caller-token',
+      zoneId: 'zone1',
+      clientId: 'app2',
+      agentSessionId: 'agent-src',
+      delegationEdgeId: 'edge-src',
+      hop: 2,
+    }, async () => {
+      await a2aCall(
+        { agentUrl: 'http://agent-b:4001', method: 'query', params: {}, requestId: 'req-ctx' },
+        'caller-token',
+        'zone1',
+        'app2',
+        { stsUrl: 'http://sts:8080' },
+      )
+    })
+
+    expect(captured.authorization).toBe('Bearer agent-token')
+    expect(captured.Authorization).toBeUndefined()
   })
 
   it('retries transient A2A responses with bounded backoff', async () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ access_token: 'agent-token', expires_in: 900 }) })
       .mockResolvedValueOnce({ ok: false, status: 503 })
-      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ id: 'resp-3', result: 'ok' }) })
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ requestId: 'req-4', result: 'ok' }) })
     vi.stubGlobal('fetch', fetchMock)
     vi.spyOn(Math, 'random').mockReturnValue(0)
 
@@ -106,7 +152,7 @@ describe('a2aCall', () => {
       'app2',
       { stsUrl: 'http://sts:8080', retries: 1, retryBaseMs: 1 },
     )
-    expect(res).toEqual({ id: 'resp-3', result: 'ok' })
+    expect(res).toEqual({ requestId: 'req-4', result: 'ok' })
     expect(fetchMock).toHaveBeenCalledTimes(3)
   })
 })
