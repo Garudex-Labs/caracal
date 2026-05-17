@@ -5,7 +5,7 @@
 
 package identity
 
-import "github.com/garudex-labs/caracal/core/scope"
+import "github.com/garudex-labs/caracal/packages/core/go/scope"
 
 // HasScope reports whether scope grants target. Empty target never matches.
 func HasScope(scopeStr, target string) bool {

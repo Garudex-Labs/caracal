@@ -53,7 +53,7 @@ export class OAuthClient {
 
   async exchange(
     subjectToken: string,
-    resource: string,
+    resource: string | string[],
     opts: ExchangeOptions = {},
   ): Promise<TokenExchangeResponse> {
     const timeoutMs = opts.timeoutMs ?? 30_000
@@ -97,8 +97,8 @@ export class OAuthClient {
     ].join('::')
   }
 
-  private cacheResource(resource: string, opts: ExchangeOptions): string {
-    return [resource, this.normalizedScopes(opts.scopes), opts.ttlSeconds?.toString() ?? ''].join('::')
+  private cacheResource(resource: string | string[], opts: ExchangeOptions): string {
+    return [resourceList(resource).join(' '), this.normalizedScopes(opts.scopes), opts.ttlSeconds?.toString() ?? ''].join('::')
   }
 
   private normalizedScopes(scopes?: string[]): string {
@@ -115,19 +115,21 @@ export class OAuthClient {
 
   private async doExchange(
     subjectToken: string,
-    resource: string,
+    resource: string | string[],
     opts: ExchangeOptions,
     isRetry: boolean,
     deadlineMs = Date.now() + (opts.timeoutMs ?? 30_000),
   ): Promise<TokenExchangeResponse> {
     const body = new URLSearchParams({
       grant_type: 'urn:ietf:params:oauth:grant-type:token-exchange',
-      subject_token: subjectToken,
-      subject_token_type: 'urn:ietf:params:oauth:token-type:access_token',
-      resource,
       zone_id: this.zoneId,
       application_id: this.applicationId,
     })
+    if (subjectToken) {
+      body.set('subject_token', subjectToken)
+      body.set('subject_token_type', 'urn:ietf:params:oauth:token-type:access_token')
+    }
+    for (const value of resourceList(resource)) body.append('resource', value)
     if (opts.clientSecret) body.set('client_secret', opts.clientSecret)
     if (opts.clientAssertion) body.set('client_assertion', opts.clientAssertion)
     if (opts.clientAssertionType) body.set('client_assertion_type', opts.clientAssertionType)
@@ -185,7 +187,7 @@ export class OAuthClient {
         throw new InteractionRequiredError(
           err['error_description'] ?? 'Step-up required',
           err['challenge_id'] ?? '',
-          resource,
+          resourceList(resource)[0],
           err['acr_values'],
         )
       }
@@ -254,4 +256,8 @@ function isJsonResponse(res: Response): boolean {
 function hashSecret(value: string | undefined): string {
   if (!value) return ''
   return createHash('sha256').update(value).digest('hex')
+}
+
+function resourceList(resource: string | string[]): string[] {
+  return (Array.isArray(resource) ? resource : [resource]).map(value => value.trim()).filter(Boolean)
 }

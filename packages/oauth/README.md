@@ -13,7 +13,7 @@ Token cache keys include the STS identity, hashed subject token, actor token, se
 | Language | Path | Package |
 | --- | --- | --- |
 | TypeScript | `packages/oauth/ts` | `@caracalai/oauth` |
-| Go | `packages/oauth/go` | `github.com/garudex-labs/caracal/oauth` |
+| Go | `packages/oauth/go` | `github.com/garudex-labs/caracal/packages/oauth/go` |
 | Python | `packages/oauth/python` | `caracalai-oauth` |
 
 ## Boundaries

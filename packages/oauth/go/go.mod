@@ -3,7 +3,7 @@
 //
 // Go module definition for the OAuth token exchange package.
 
-module github.com/garudex-labs/caracal/oauth
+module github.com/garudex-labs/caracal/packages/oauth/go
 
 go 1.26
 

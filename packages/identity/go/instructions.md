@@ -1,7 +1,7 @@
 # identity/go
 
 ## Scope
-- Covers only the `github.com/garudex-labs/caracal/identity` Go module under `packages/identity/go/`.
+- Covers only the `github.com/garudex-labs/caracal/packages/identity/go` Go module under `packages/identity/go/`.
 
 ## Required
 - Must implement JWT verification, JWKS fetch and cache, scope evaluation, and typed claim shapes only.

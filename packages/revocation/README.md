@@ -13,7 +13,7 @@ The in-memory store is process-local and suited for tests, local development, an
 | Language | Path | Package |
 | --- | --- | --- |
 | TypeScript | `packages/revocation/ts` | `@caracalai/revocation` |
-| Go | `packages/revocation/go` | `github.com/garudex-labs/caracal/revocation` |
+| Go | `packages/revocation/go` | `github.com/garudex-labs/caracal/packages/revocation/go` |
 | Python | `packages/revocation/python` | `caracalai-revocation` |
 
 ## Boundaries
