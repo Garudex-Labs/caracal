@@ -13,7 +13,7 @@ import (
 	"strings"
 	"testing"
 
-	sdk "github.com/garudex-labs/caracal/sdk"
+	sdk "github.com/garudex-labs/caracal/packages/sdk/go"
 )
 
 func makeCoordinatorServer(t *testing.T) (*httptest.Server, *[]string) {

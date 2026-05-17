@@ -39,6 +39,9 @@
   "publishConfig": {
     "access": "public"
   },
+  "dependencies": {
+    "@caracalai/oauth": "0.1.2"
+  },
   "scripts": {
     "build": "tsc",
     "typecheck": "tsc --noEmit",
