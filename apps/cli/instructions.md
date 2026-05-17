@@ -1,35 +1,28 @@
-# cli
+# apps/cli
 
 ## Scope
-- Covers only the `caracal` CLI under `caracal/apps/cli/`.
+- Covers the `@caracalai/cli` command-line app under `apps/cli/`.
+
+## Architecture Design
+- `bin/` owns executable entrypoints.
+- `src/commands/` owns argument parsing, command dispatch, output formatting, and exit-code mapping.
+- `@caracalai/engine` owns stack, runtime, run, credential, control, and process behavior.
+- `@caracalai/admin` owns admin and coordinator HTTP calls.
 
 ## Required
-- Must run on Node 24+ via `bin/caracal.mjs`; release artifacts are produced via `bun build --compile` for linux/darwin/windows × x64/arm64.
-- Must support the stack commands: `caracal up [services...]`, `caracal down [flags...]`, `caracal status`.
-- Must support the runtime commands: `caracal run <cmd...>` (ambient 60-min token injection) and `caracal credential read <resource>` (one-shot 15-min token).
-- Must support the admin commands wrapping the `/v1/*` API via `@caracalai/admin`: `zone`, `app`, `resource`, `provider`, `policy`, `policy-set`, `grant`, `session`.
-- Must support the observability commands: `audit tail` (with `--since`, `--until`, `--decision`, `--request-id`, `--event-type`, `--limit`) and `explain <request_id>` (audit row plus determining policies plus diagnostics).
-- Must support the multi-agent commands wrapping the agent coordinator API: `agent <list|get|tree|suspend|resume|terminate>` and `delegation <inbound|outbound|traverse|revoke>`.
-- Must require `CARACAL_ADMIN_TOKEN` for all admin and observability commands; must require `CARACAL_COORDINATOR_TOKEN` (JWT with `agent:lifecycle` scope) for agent and delegation commands; must surface a clear error when missing.
-- Must select stack mode from the baked `CARACAL_MODE` constant in `src/runtime/version.gen.ts` (set to `dev` by `scripts/stampDev.mjs` for repo-workspace runs and `runtime` by `scripts/stampRelease.mjs` for release binaries); the only override is an explicit `CARACAL_MODE` env var.
-- Must print a mode banner on `up` and `status`: `mode: dev (sha <shortSha>)` or `mode: runtime (v<calver>)`.
-- Must, in dev mode, require `CARACAL_REPO_ROOT` and resolve compose from `${CARACAL_REPO_ROOT}/infra/docker/docker-compose.yml`; must never pull `ghcr.io/...` images in dev mode.
-- Must, in runtime mode, auto-provision `compose.yml` and `.env` (mode 0600) into `$CARACAL_HOME` (default: macOS `~/Library/Application Support/caracal`, otherwise `$XDG_DATA_HOME/caracal` or `~/.local/share/caracal`) using assets bundled at build time, seeding `POSTGRES_PASSWORD`, `REDIS_PASSWORD`, and `CARACAL_ADMIN_TOKEN` with cryptographically random values.
-- Must, in runtime mode, pin container image tags to the CLI's `CARACAL_VERSION` constant (overridable by `CARACAL_VERSION` env) and pull from `ghcr.io/garudex-labs/caracal-{api,sts,gateway,audit,coordinator}`.
-- Must use `@caracalai/engine` for runtime asset provisioning in release binaries.
-- Must resolve `caracal.toml` in this order: `$CARACAL_CONFIG`, `./caracal.toml` (cwd / `$PWD` / `$INIT_CWD`), then `$XDG_CONFIG_HOME/caracal/caracal.toml` (defaulting to `~/.config/caracal/caracal.toml`).
-- Must persist `zone_id` into `caracal.toml` so admin commands resolve the default zone without flags.
-- Must accept `--zone <id>` on every admin command and fall back to `zone_id` from `caracal.toml` or `CARACAL_ZONE_ID`.
-- Must support `--json` on every read command to emit raw JSON instead of a table.
-- Must read zone config from `caracal.toml`; the operator authors this file with the ids/secret returned by `caracal zone create` and `caracal app create`. The CLI must never auto-write credentials to disk.
-- Must reap injected env vars when the child process exits.
-- Must support `continue_on_failure` opt-in and optional resources with `on_failure = "warn"`.
-- Must implement MCP shadow governance: exit 1 on unauthorized MCP servers unless `mcp_governance = "log"`.
-- Must talk to the admin API and coordinator only through `@caracalai/admin`; must not issue raw `fetch` calls to admin endpoints from CLI command modules.
-- Must call `@caracalai/engine` for verb bodies; CLI handlers must only parse flags, format output, and set exit codes.
+- Must run on Node 24+ and keep release binaries produced by the existing Bun compile scripts.
+- Must keep CLI handlers thin: parse flags, call package APIs, format output, and set exit codes.
+- Must resolve stack mode through stamped version constants with explicit environment override only.
+- Must keep `caracal.toml` resolution consistent with TUI and engine behavior.
+- Must require the correct admin, coordinator, or control token before privileged commands.
+- Must scrub tokens, credentials, and sensitive environment values from errors and streamed output.
 
 ## Forbidden
-- Must not import from `caracalEnterprise/`.
-- Must not write credentials, tokens, or refresh tokens to disk.
-- Must not depend on a Bun runtime at execution time; child-process spawning must use `node:child_process`.
-- Must not duplicate admin route paths or schemas inside the CLI; the `@caracalai/admin` SDK is the single source.
+- Must not write credentials, access tokens, refresh tokens, or client secrets to disk.
+- Must not call admin or coordinator endpoints with ad hoc `fetch` from command modules.
+- Must not depend on a Bun runtime after compilation.
+- Must not spawn user input through a shell.
+
+## Validation
+- Validate with `pnpm --dir apps/cli typecheck` and `pnpm --dir apps/cli test` when CLI code changes.
+

@@ -1,20 +1,26 @@
-# api
+# apps/api
 
 ## Scope
-- Covers the control-plane API service under caracal/apps/api/ only.
+- Covers the `@caracalai/api` Fastify control-plane service under `apps/api/`.
+
+## Architecture Design
+- Routes under `src/routes/` own zone, application, resource, provider, policy, grant, session, invitation, team, and step-up APIs.
+- `src/db.ts`, `src/outbox.ts`, `src/redis.ts`, and `src/admin-audit.ts` own persistence, stream publishing, and admin audit integration.
+- The service listens on port 3000 in Compose and depends on PostgreSQL, Redis, STS, and migrations.
 
 ## Required
-- Must use TypeScript on Node 24 with Fastify 5.
-- Must listen on port 3000 only.
-- Must read and follow caracal/plan/api/plan.md before any change; check off tasks as completed.
-- Must publish to caracal.policy.invalidate on policy set version activation.
-- Must publish to caracal.sessions.revoke on grant revocation.
-- Must validate all request inputs with Zod schemas before touching the database.
-- Must use pg Pool for all database access; never expose raw connection strings in responses.
+- Must run on Node 24+ with Fastify 5, Zod validation, `pg`, `ioredis`, and `@caracalai/core`.
+- Must validate request input before database or Redis access.
+- Must publish policy, session, key, and lifecycle invalidation events through the outbox or owning stream helper.
+- Must redact secrets and never return plaintext key material.
+- Must keep admin audit persistence through `@caracalai/admin-audit`.
 
 ## Forbidden
-- Must not import from caracalEnterprise/.
-- Must not return plaintext secrets, credentials, or key material in any response.
-- Must not accept Cedar policies; only Rego content.
-- Must not add endpoints not listed in plan.md.
-- Must not duplicate config, error handling, or logging patterns already in caracal/shared/ts/.
+- Must not accept Cedar policies or add a second policy language.
+- Must not expose raw database URLs, Redis URLs, passwords, tokens, or decrypted secrets.
+- Must not bypass request auth, zone guards, or input schemas in route handlers.
+- Must not import from sibling apps or `caracalEnterprise/`.
+
+## Validation
+- Validate with `pnpm --dir apps/api build` and `pnpm --dir apps/api test` when API code changes.
+
