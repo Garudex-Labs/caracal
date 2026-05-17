@@ -95,17 +95,17 @@ def with_retry(
     fn: Callable[[int], T],
     *,
     policy: RetryPolicy,
-    is_retryable: Callable[[BaseException], bool],
+    is_retryable: Callable[[Exception], bool],
     breaker_obj: CircuitBreaker | None = None,
 ) -> T:
     """Run `fn(attempt)` with retries on transient errors; honors the breaker."""
-    last: BaseException | None = None
+    last: Exception | None = None
     for attempt in range(1, policy.max_attempts + 1):
         if breaker_obj is not None:
             breaker_obj.before(provider)
         try:
             result = fn(attempt)
-        except BaseException as exc:
+        except Exception as exc:
             last = exc
             retryable = is_retryable(exc)
             if breaker_obj is not None and retryable:

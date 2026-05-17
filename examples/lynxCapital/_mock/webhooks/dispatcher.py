@@ -9,12 +9,15 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+import logging
 import os
 import threading
 import time
 from uuid import uuid4
 
 import httpx
+
+log = logging.getLogger("lynx.mock.webhooks")
 
 
 def _callback_url(provider: str) -> str | None:
@@ -63,7 +66,7 @@ def deliver(provider: str, event_type: str, data: dict, *, delay_s: float = 0.0)
         try:
             with httpx.Client(timeout=5.0) as c:
                 c.post(url, content=body, headers=headers)
-        except Exception:
-            pass
+        except httpx.HTTPError as exc:
+            log.warning("failed to deliver %s webhook to %s: %s", provider, url, exc)
 
     threading.Thread(target=_send, daemon=True).start()

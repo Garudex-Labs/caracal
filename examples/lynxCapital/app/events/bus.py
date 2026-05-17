@@ -17,6 +17,7 @@ class EventBus:
         self._history: dict[str, list[Event]] = defaultdict(list)
         self._run_queues: dict[str, list[asyncio.Queue]] = defaultdict(list)
         self._global_queues: list[asyncio.Queue] = []
+        self._dropped_events = 0
 
     def publish(self, event: Event) -> None:
         self._history[event.run_id].append(event)
@@ -24,18 +25,21 @@ class EventBus:
             try:
                 q.put_nowait(event)
             except asyncio.QueueFull:
-                pass
+                self._dropped_events += 1
         for q in list(self._global_queues):
             try:
                 q.put_nowait(event)
             except asyncio.QueueFull:
-                pass
+                self._dropped_events += 1
 
     def history(self, run_id: str) -> list[Event]:
         return list(self._history[run_id])
 
     def runs(self) -> list[str]:
         return list(self._history.keys())
+
+    def dropped_events(self) -> int:
+        return self._dropped_events
 
     def subscribe(self, run_id: str) -> asyncio.Queue:
         q: asyncio.Queue = asyncio.Queue(maxsize=2000)

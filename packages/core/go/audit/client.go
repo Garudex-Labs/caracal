@@ -254,7 +254,14 @@ func (c *Client) persistBatch(batch []Event) {
 		c.cfg.Logger.Error().Err(err).Str("path", path).Msg("audit replay file open")
 		return
 	}
-	defer f.Close()
+	closed := false
+	defer func() {
+		if !closed {
+			if err := f.Close(); err != nil {
+				c.cfg.Logger.Error().Err(err).Str("path", path).Msg("audit replay file close")
+			}
+		}
+	}()
 	w := bufio.NewWriter(f)
 	for _, ev := range batch {
 		data, err := json.Marshal(ev)
@@ -271,6 +278,12 @@ func (c *Client) persistBatch(batch []Event) {
 		c.cfg.Logger.Error().Err(err).Msg("audit replay file flush")
 		return
 	}
+	if err := f.Close(); err != nil {
+		closed = true
+		c.cfg.Logger.Error().Err(err).Str("path", path).Msg("audit replay file close")
+		return
+	}
+	closed = true
 	if c.cfg.Metrics.OnReplayPersisted != nil {
 		c.cfg.Metrics.OnReplayPersisted(uint64(len(batch)))
 	}

@@ -7,6 +7,7 @@ Session-level conversation and run history retained across multiple runs.
 from __future__ import annotations
 
 import json
+import logging
 import os
 import time
 from dataclasses import dataclass, field
@@ -16,6 +17,7 @@ from typing import Literal
 
 MAX_TURNS = 20   # user + assistant pairs kept
 MAX_RUNS = 10    # run records kept
+log = logging.getLogger("lynx.session_memory")
 
 
 @dataclass
@@ -176,8 +178,8 @@ class SessionMemory:
             tmp = self._path.with_suffix(self._path.suffix + ".tmp")
             tmp.write_text(json.dumps(payload), encoding="utf-8")
             os.replace(tmp, self._path)
-        except OSError:
-            pass
+        except OSError as exc:
+            log.warning("failed to persist session memory to %s: %s", self._path, exc)
 
 
 session_memory = SessionMemory(os.environ.get("LYNX_SESSION_PATH") or None)
