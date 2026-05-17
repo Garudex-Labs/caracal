@@ -5,18 +5,13 @@
 // Writes apps/cli/src/runtime/version.gen.ts with the runtime CLI identity; CI sets CARACAL_RELEASE_VERSION for GHCR builds, otherwise stamps a developer-local release pointing at localhost dev images.
 
 import { execSync } from 'node:child_process'
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { mkdirSync, writeFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const cliRoot = resolve(here, '..')
 const repoRoot = resolve(cliRoot, '..', '..')
-
-function baseVersion() {
-  const raw = readFileSync(resolve(repoRoot, 'packages/engine/runtime/release.json'), 'utf8')
-  return JSON.parse(raw).version
-}
 
 function shortSha() {
   if (process.env.CARACAL_DEV_SHA) return process.env.CARACAL_DEV_SHA

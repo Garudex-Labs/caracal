@@ -16,9 +16,11 @@ from .types import TokenExchangeResponse
 
 
 class TokenCache(Protocol):
-    def get(self, subject_token: str, resource: str) -> TokenExchangeResponse | None: ...
+    def get(self, subject_token: str, resource: str) -> TokenExchangeResponse | None:
+        pass
 
-    def set(self, subject_token: str, resource: str, token: TokenExchangeResponse) -> None: ...
+    def set(self, subject_token: str, resource: str, token: TokenExchangeResponse) -> None:
+        pass
 
 
 class InMemoryTokenCache:
@@ -50,4 +52,3 @@ class InMemoryTokenCache:
 
 def _cache_key(subject_token: str, resource: str) -> str:
     return sha256(f"{subject_token}\0{resource}".encode()).hexdigest()
-

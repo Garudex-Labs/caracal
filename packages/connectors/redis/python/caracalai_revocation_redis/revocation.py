@@ -18,8 +18,11 @@ STREAM_SIG_FIELD = "_sig"
 
 
 class RedisClient(Protocol):
-    def get(self, key: str) -> object | None: ...
-    def set(self, key: str, value: str, px: int) -> object: ...
+    def get(self, key: str) -> object | None:
+        pass
+
+    def set(self, key: str, value: str, px: int) -> object:
+        pass
 
 
 StreamValues = Mapping[object, object] | Sequence[object]
@@ -28,10 +31,17 @@ StreamBatch = list[tuple[object, list[StreamMessage]]]
 
 
 class RedisStreamClient(RedisClient, Protocol):
-    def xgroup_create(self, *args: object, **kwargs: object) -> object: ...
-    def xautoclaim(self, *args: object, **kwargs: object) -> object: ...
-    def xreadgroup(self, *args: object, **kwargs: object) -> StreamBatch | None: ...
-    def xack(self, stream: str, group: str, message_id: str) -> object: ...
+    def xgroup_create(self, *args: object, **kwargs: object) -> object:
+        pass
+
+    def xautoclaim(self, *args: object, **kwargs: object) -> object:
+        pass
+
+    def xreadgroup(self, *args: object, **kwargs: object) -> StreamBatch | None:
+        pass
+
+    def xack(self, stream: str, group: str, message_id: str) -> object:
+        pass
 
 
 class RedisRevocationStore:

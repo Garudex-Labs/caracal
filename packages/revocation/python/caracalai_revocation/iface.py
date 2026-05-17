@@ -9,5 +9,8 @@ from typing import Protocol
 
 
 class RevocationStore(Protocol):
-    def is_revoked(self, sid: str) -> bool: ...
-    def mark_revoked(self, sid: str, ttl_ms: int | None = None) -> None: ...
+    def is_revoked(self, sid: str) -> bool:
+        pass
+
+    def mark_revoked(self, sid: str, ttl_ms: int | None = None) -> None:
+        pass

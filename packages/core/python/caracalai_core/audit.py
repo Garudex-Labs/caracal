@@ -52,7 +52,9 @@ class AuditEvent:
 
 class AuditStreamer(Protocol):
     """Minimal Redis-stream interface; pass redis-py or any compatible client."""
-    def xadd(self, stream: str, fields: dict[str, str]) -> object: ...
+
+    def xadd(self, stream: str, fields: dict[str, str]) -> object:
+        pass
 
 
 class AuditClient:
