@@ -37,7 +37,7 @@
     "build:cli:darwin-arm64": "bun build --compile --target=bun-darwin-arm64 src/cli.ts --outfile dist/caracal-cli-darwin-arm64",
     "build:cli:windows-x64": "bun build --compile --target=bun-windows-x64 src/cli.ts --outfile dist/caracal-cli-windows-x64.exe",
     "compile:all": "bun run build:shell:linux-x64 && bun run build:shell:linux-arm64 && bun run build:shell:darwin-x64 && bun run build:shell:darwin-arm64 && bun run build:shell:windows-x64 && bun run build:cli:linux-x64 && bun run build:cli:linux-arm64 && bun run build:cli:darwin-x64 && bun run build:cli:darwin-arm64 && bun run build:cli:windows-x64",
-    "prebuild": "node scripts/stampDev.mjs && pnpm --filter @caracalai/engine build",
+    "prebuild": "node scripts/stampDev.mjs",
     "build": "bun run compile:all",
     "build:release": "node scripts/stampRelease.mjs && pnpm --filter @caracalai/engine build && node scripts/buildLocalImages.mjs && bun run compile:all",
     "dev": "node bin/caracal.mjs",
