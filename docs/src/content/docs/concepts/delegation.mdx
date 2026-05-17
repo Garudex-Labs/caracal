@@ -80,6 +80,12 @@ When an agent presents a `delegation_edge_id` in a token exchange request, the S
    - `hop_count`: depth of the chain
    - `graph_epoch`: version of the delegation graph at issuance, enabling downstream detection of stale chains
 
+## Scope resolution and identity binding
+
+Delegation edges carry provider-agnostic authority. The edge stores scope strings and an optional resource ID (for example, `resource://payments`). The mandate is the signed capability: the STS issues a Caracal JWT with the OAuth-style `scope` claim plus `target` resource identifiers and returns an `upstreams` map resolved from the zone's resource definitions. Rotating providers or upstream URLs does not require reissuing the delegation edge.
+
+Delegation identity is bound to agent sessions, not to a runtime key. The edge is keyed to `source_session_id` and `target_session_id`, and the STS only honors the edge when the requesting session ID matches the stored `target_session_id`. If an agent rotates its local credentials but keeps the same Coordinator session, the edge remains valid. If the session is closed and reopened (new session ID), a new delegation edge is required.
+
 ## Cascade revocation
 
 Revoking a delegation edge revokes the entire subtree rooted at that edge. The Coordinator uses a recursive CTE to find all downstream edges and sessions:
@@ -99,6 +105,7 @@ For each revoked session, the Coordinator enqueues a revocation event through th
 - The **Gateway** checks the revocation cache on every request and at every 4 KB chunk boundary during streaming. If a session is revoked mid-stream, the Gateway closes the upstream connection and sets a `X-Caracal-Revoked` response trailer.
 
 Revocation propagates in near real-time via the Redis stream. The Gateway's revocation cache holds entries for 24 hours after revocation — sufficient to cover any in-flight per-call token's 15-minute TTL.
+Downstream delegations are therefore valid only while their upstream edge and session remain active. When a parent edge is revoked, all descendant edges are revoked and their sessions terminated, so mandates tied to those sessions are rejected even if their TTL has not expired.
 
 ## The delegation chain in mandates
 
