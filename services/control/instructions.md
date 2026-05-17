@@ -1,7 +1,7 @@
 - Covers only the Go control service under `caracal/services/control/`.
 - `cmd/control/main.go` must refuse to start unless `CARACAL_CONTROL_ENABLED=true`.
 - `internal/handler.go` must expose only `POST /v1/control/invoke` plus `/health` and `/ready`.
-- Every accepted request must validate `command` and `subcommand` against `github.com/garudex-labs/caracal/core/commands` before any upstream call.
+- Every accepted request must validate `command` and `subcommand` against `github.com/garudex-labs/caracal/packages/core/go/commands` before any upstream call.
 - Every accepted and rejected request must produce one audit event of type `control.invoke` on `caracal.audit.events`.
 - Bearer tokens must be ES256 JWTs verified against the STS JWKS and must carry the `control:invoke` scope.
 - Must not shell out, fork, or exec any process.

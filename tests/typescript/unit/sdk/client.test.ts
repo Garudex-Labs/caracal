@@ -42,6 +42,29 @@ describe("Caracal.fromEnv", () => {
     expect(c.config.zoneId).toBe("z1");
     expect(c.config.subjectToken).toBe("t1");
   });
+
+  it("constructs a client-secret token source from env", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ access_token: "fresh-root", expires_in: 900 }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const c = Caracal.fromEnv({
+      CARACAL_COORDINATOR_URL: "http://coord",
+      CARACAL_ZONE_ID: "z",
+      CARACAL_APPLICATION_ID: "app",
+      CARACAL_APP_CLIENT_SECRET: "secret",
+      CARACAL_STS_URL: "http://sts",
+      CARACAL_RESOURCES: "calendar=https://api.example.com/v1,billing=https://billing.example.com",
+    } as NodeJS.ProcessEnv);
+
+    const headers = await c.headersAsync({ allowRoot: true });
+    expect(headers[HeaderAuthorization]).toBe("Bearer fresh-root");
+    const body = fetchMock.mock.calls[0][1].body as URLSearchParams;
+    expect(body.get("client_secret")).toBe("secret");
+    expect(body.getAll("resource")).toEqual(["calendar", "billing"]);
+  });
 });
 
 describe("Caracal.headers", () => {

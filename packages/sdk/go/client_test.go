@@ -41,6 +41,46 @@ func TestFromEnvOK(t *testing.T) {
 	}
 }
 
+func TestFromEnvClientSecretTokenSource(t *testing.T) {
+	var gotResources []string
+	var gotSecret string
+	sts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := r.ParseForm(); err != nil {
+			t.Fatal(err)
+		}
+		gotResources = r.Form["resource"]
+		gotSecret = r.Form.Get("client_secret")
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"access_token":"fresh-root","token_type":"Bearer","expires_in":3600}`))
+	}))
+	defer sts.Close()
+
+	t.Setenv("CARACAL_COORDINATOR_URL", "http://coord")
+	t.Setenv("CARACAL_ZONE_ID", "z")
+	t.Setenv("CARACAL_APPLICATION_ID", "app")
+	t.Setenv("CARACAL_APP_CLIENT_SECRET", "secret")
+	t.Setenv("CARACAL_STS_URL", sts.URL)
+	t.Setenv("CARACAL_RESOURCES", "calendar=https://api.example.com/v1,billing=https://billing.example.com")
+
+	c, err := sdk.FromEnv()
+	if err != nil {
+		t.Fatal(err)
+	}
+	h, err := c.Headers(context.Background(), sdk.RootOptions{AllowRoot: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if h.Get(sdk.HeaderAuthorization) != "Bearer fresh-root" {
+		t.Fatalf("unexpected authorization: %s", h.Get(sdk.HeaderAuthorization))
+	}
+	if gotSecret != "secret" {
+		t.Fatalf("expected client secret, got %q", gotSecret)
+	}
+	if len(gotResources) != 2 || gotResources[0] != "calendar" || gotResources[1] != "billing" {
+		t.Fatalf("unexpected resources: %#v", gotResources)
+	}
+}
+
 func TestHeadersRequiresRootOptIn(t *testing.T) {
 	c := &sdk.Caracal{SubjectToken: "tok"}
 	if _, err := c.Headers(context.Background()); err == nil {

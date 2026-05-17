@@ -9,8 +9,8 @@ import (
 	"errors"
 	"strings"
 
-	"github.com/garudex-labs/caracal/identity"
-	"github.com/garudex-labs/caracal/revocation"
+	"github.com/garudex-labs/caracal/packages/identity/go"
+	"github.com/garudex-labs/caracal/packages/revocation/go"
 )
 
 // Options configures the MCP authentication pipeline.
