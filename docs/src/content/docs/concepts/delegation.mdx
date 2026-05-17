@@ -82,9 +82,18 @@ When an agent presents a `delegation_edge_id` in a token exchange request, the S
 
 ## Scope resolution and identity binding
 
-Delegation edges carry provider-agnostic authority. The edge stores scope strings and an optional resource ID (for example, `resource://payments`). The mandate is the signed capability: the STS issues a Caracal JWT with the OAuth-style `scope` claim plus `target` resource identifiers and returns an `upstreams` map resolved from the zone's resource definitions. Rotating providers or upstream URLs does not require reissuing the delegation edge.
+Delegation edges carry provider-agnostic authority:
 
-Delegation identity is bound to agent sessions, not to a runtime key. The edge is keyed to `source_session_id` and `target_session_id`, and the STS only honors the edge when the requesting session ID matches the stored `target_session_id`. If an agent rotates its local credentials but keeps the same Coordinator session, the edge remains valid. If the session is closed and reopened (new session ID), a new delegation edge is required.
+- The edge stores scope strings and an optional resource ID (for example, `resource://payments`).
+- The mandate is the signed capability. The STS issues a Caracal JWT with the OAuth-style `scope` claim plus `target` resource identifiers, and it returns an `upstreams` map resolved from the zone's resource definitions.
+- Rotating providers or upstream URLs does not require reissuing the delegation edge.
+
+Delegation identity is bound to agent sessions, not to a runtime key:
+
+- The edge is keyed to `source_session_id` and `target_session_id`.
+- The STS only honors the edge when the requesting session ID matches the stored `target_session_id`.
+- If an agent rotates its local credentials but keeps the same Coordinator session, the edge remains valid.
+- If the session is closed and reopened (new session ID), a new delegation edge is required.
 
 ## Cascade revocation
 
