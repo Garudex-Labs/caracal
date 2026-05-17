@@ -17,9 +17,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/garudex-labs/caracal/identity"
-	"github.com/garudex-labs/caracal/revocation"
-	transportmcp "github.com/garudex-labs/caracal/transport-mcp"
+	"github.com/garudex-labs/caracal/packages/identity/go"
+	"github.com/garudex-labs/caracal/packages/revocation/go"
+	transportmcp "github.com/garudex-labs/caracal/packages/transport/mcp/go"
 	"github.com/golang-jwt/jwt/v5"
 )
 

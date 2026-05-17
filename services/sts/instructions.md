@@ -9,7 +9,7 @@
 - Must read and follow caracal/plan/sts/plan.md before any change; check off tasks as completed.
 - Must emit audit events to the caracal.audit.events Redis stream via AuditBuffer.
 - Must DENY on partial OPA evaluation result (EvaluationStatus == "partial").
-- Must use github.com/garudex-labs/caracal/core/* for config, errors, crypto, and logging.
+- Must use github.com/garudex-labs/caracal/packages/core/go/* for config, errors, crypto, and logging.
 - Must sign JWTs with ES256 using the zone's signing key decrypted via ChaCha20-Poly1305.
 - Must server-verify any caller-asserted agent_session_id against agent_sessions and bind it to the calling application before issuing a token.
 

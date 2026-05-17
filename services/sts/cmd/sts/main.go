@@ -11,8 +11,8 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/garudex-labs/caracal/core/config"
-	"github.com/garudex-labs/caracal/core/logging"
+	"github.com/garudex-labs/caracal/packages/core/go/config"
+	"github.com/garudex-labs/caracal/packages/core/go/logging"
 	"github.com/garudex-labs/caracal/sts/internal"
 )
 

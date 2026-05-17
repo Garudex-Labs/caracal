@@ -10,7 +10,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/garudex-labs/caracal/core/config"
+	"github.com/garudex-labs/caracal/packages/core/go/config"
 )
 
 const stsPort = "8080"
