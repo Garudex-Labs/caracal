@@ -8,6 +8,7 @@ Caracal drop-in client tests for env loading, header projection, and ASGI middle
 import base64
 import json
 import unittest
+from typing import Any
 
 import httpx
 
@@ -271,7 +272,7 @@ class AsgiMiddlewareTests(unittest.IsolatedAsyncioTestCase):
             ],
         }
 
-        async def receive() -> dict[str, str]:
+        async def receive() -> dict[str, Any]:
             return {"type": "http.request"}
 
         async def send(_msg) -> None:
@@ -291,7 +292,7 @@ class AsgiMiddlewareTests(unittest.IsolatedAsyncioTestCase):
         mw = CaracalASGIMiddleware(app, c)
         scope = {"type": "http", "headers": []}
 
-        async def receive() -> dict[str, str]:
+        async def receive() -> dict[str, Any]:
             return {"type": "http.request"}
 
         async def send(msg) -> None:

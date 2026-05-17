@@ -50,6 +50,27 @@ describe('scrubCwdEnv', () => {
     expect(env.CARACAL_API_URL).toBeUndefined()
   })
 
+  test('handles unquoted values with trailing whitespace', () => {
+    writeFileSync(join(dir, '.env'), 'CARACAL_API_URL=https://api   \n')
+    env.CARACAL_API_URL = 'https://api'
+    scrubCwdEnv(dir, env)
+    expect(env.CARACAL_API_URL).toBeUndefined()
+  })
+
+  test('handles one-character quoted values', () => {
+    writeFileSync(join(dir, '.env'), 'CARACAL_ZONE_ID="z"\n')
+    env.CARACAL_ZONE_ID = 'z'
+    scrubCwdEnv(dir, env)
+    expect(env.CARACAL_ZONE_ID).toBeUndefined()
+  })
+
+  test('handles one-character literal quote values', () => {
+    writeFileSync(join(dir, '.env'), 'CARACAL_LITERAL_QUOTE="\n')
+    env.CARACAL_LITERAL_QUOTE = '"'
+    scrubCwdEnv(dir, env)
+    expect(env.CARACAL_LITERAL_QUOTE).toBeUndefined()
+  })
+
   test('handles single-quoted values', () => {
     writeFileSync(join(dir, '.env'), "CARACAL_API_URL='https://api'\n")
     env.CARACAL_API_URL = 'https://api'

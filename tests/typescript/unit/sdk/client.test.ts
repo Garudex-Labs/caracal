@@ -254,10 +254,18 @@ describe("agent lifecycle and delegation", () => {
       coordinator: { baseUrl: "https://coordinator.example.com", fetchImpl: fakeFetch },
     });
     await c.spawn(async () => { return; }, { subjectSessionId: "sid-1", parentId: "parent-1" });
-    const headers = new Headers(calls[0].init.headers as HeadersInit);
-    const key = headers.get("idempotency-key");
-    expect(key).toBeTruthy();
-    expect(key!.length).toBe(64);
+    await c.spawn(async () => { return; }, { subjectSessionId: "sid-1", parentId: "parent-1" });
+    const agentPosts = calls.filter(
+      (call) => call.init.method === "POST" && call.url.endsWith("/agents"),
+    );
+    expect(agentPosts.length).toBeGreaterThanOrEqual(2);
+    const key1 = new Headers(agentPosts[0].init.headers as HeadersInit).get("idempotency-key");
+    const key2 = new Headers(agentPosts[1].init.headers as HeadersInit).get("idempotency-key");
+    expect(key1).toBeTruthy();
+    expect(key2).toBeTruthy();
+    expect(key1!.length).toBe(64);
+    expect(key2!.length).toBe(64);
+    expect(key1).toBe(key2);
   });
 });
 

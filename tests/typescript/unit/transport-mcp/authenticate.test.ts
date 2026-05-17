@@ -3,7 +3,7 @@
 //
 // Transport MCP authentication unit tests.
 
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { authenticate, extractBearer } from '../../../../packages/transport/mcp/ts/src/authenticate.js'
 
 const revocations = {
@@ -12,6 +12,25 @@ const revocations = {
 }
 
 let issuerId = 0
+const jwksByIssuer = new Map<string, JsonWebKey>()
+
+beforeEach(() => {
+  vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+    const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url
+    const issuer = url.replace(/\/\.well-known\/jwks\.json$/, '')
+    const jwk = jwksByIssuer.get(issuer)
+    if (!jwk) {
+      return new Response(JSON.stringify({ keys: [] }), {
+        status: 404,
+        headers: { 'content-type': 'application/json' },
+      })
+    }
+    return new Response(JSON.stringify({ keys: [jwk] }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    })
+  }))
+})
 
 async function mintToken(
   claims: Record<string, unknown> = {},
@@ -26,10 +45,7 @@ async function mintToken(
   )
   const jwk = await crypto.subtle.exportKey('jwk', key.publicKey)
   Object.assign(jwk, { kid: 'kid-1', alg: 'ES256', use: 'sig' })
-  vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ keys: [jwk] }), {
-    status: 200,
-    headers: { 'content-type': 'application/json' },
-  })))
+  jwksByIssuer.set(issuer, jwk)
   const header = base64url(JSON.stringify({ alg: 'ES256', kid: 'kid-1', typ: 'JWT' }))
   const payload = base64url(JSON.stringify({
     iss: issuer,
@@ -66,6 +82,7 @@ describe('transport-mcp authentication', () => {
   afterEach(() => {
     revocations.isRevoked.mockReset()
     revocations.markRevoked.mockReset()
+    jwksByIssuer.clear()
     vi.unstubAllGlobals()
   })
 
@@ -133,6 +150,23 @@ describe('transport-mcp authentication', () => {
     expect(revocations.isRevoked).toHaveBeenCalledWith('sid-1')
   })
 
+  it('authenticates tokens from multiple issuers minted in one test', async () => {
+    const first = await mintToken({ sid: 'sid-1' })
+    const second = await mintToken({ sid: 'sid-2' })
+    revocations.isRevoked.mockResolvedValue(false)
+
+    await expect(authenticate(first.token, {
+      issuer: first.issuer,
+      audience: first.audience,
+      revocations,
+    })).resolves.toMatchObject({ ok: true, principal: { sid: 'sid-1' } })
+    await expect(authenticate(second.token, {
+      issuer: second.issuer,
+      audience: second.audience,
+      revocations,
+    })).resolves.toMatchObject({ ok: true, principal: { sid: 'sid-2' } })
+  })
+
   it('rejects revoked sessions after successful verification', async () => {
     const { token, issuer, audience } = await mintToken()
     revocations.isRevoked.mockResolvedValue(true)
@@ -148,13 +182,13 @@ describe('transport-mcp authentication', () => {
   })
 
   it.each([
-    [{ requiredScopes: ['admin:call'] }, {}, 'insufficient_scope', 'Missing scope: admin:call'],
-    [{ requireAgent: true }, {}, 'agent_required', 'Agent identity required'],
-    [{ requireDelegation: true }, {}, 'delegation_required', 'Delegation required'],
-    [{ requireChainContains: ['app-parent'] }, { delegation_chain: [{ application_id: 'app-child' }] }, 'chain_mismatch', 'Delegation chain missing application: app-parent'],
-    [{ maxHopCount: 1 }, { hop_count: 2 }, 'hop_count_exceeded', 'Hop count exceeded'],
-    [{ zoneId: 'zone-2' }, {}, 'invalid_zone', 'Token zone validation failed'],
-  ])('maps identity verification failure to %s', async (deps, claims, code, description) => {
+    ['missing required scope', { requiredScopes: ['admin:call'] }, {}, 'insufficient_scope', 'Missing scope: admin:call'],
+    ['agent identity required', { requireAgent: true }, {}, 'agent_required', 'Agent identity required'],
+    ['delegation required', { requireDelegation: true }, {}, 'delegation_required', 'Delegation required'],
+    ['delegation chain mismatch', { requireChainContains: ['app-parent'] }, { delegation_chain: [{ application_id: 'app-child' }] }, 'chain_mismatch', 'Delegation chain missing application: app-parent'],
+    ['hop count exceeded', { maxHopCount: 1 }, { hop_count: 2 }, 'hop_count_exceeded', 'Hop count exceeded'],
+    ['invalid zone', { zoneId: 'zone-2' }, {}, 'invalid_zone', 'Token zone validation failed'],
+  ])('maps identity verification failure: %s', async (_label, deps, claims, code, description) => {
     const { token, issuer, audience } = await mintToken(claims)
 
     await expect(authenticate(token, {

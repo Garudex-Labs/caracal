@@ -13,7 +13,7 @@ func (c *Caracal) Middleware(next http.Handler, opts ...RootOptions) http.Handle
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		ctx, err := c.BindFromRequest(r.Context(), r, opts...)
 		if err != nil {
-			http.Error(w, "missing bearer token", http.StatusUnauthorized)
+			http.Error(w, "invalid or missing authorization", http.StatusUnauthorized)
 			return
 		}
 		next.ServeHTTP(w, r.WithContext(ctx))

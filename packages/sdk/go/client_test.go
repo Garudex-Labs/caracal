@@ -109,6 +109,9 @@ func TestMiddlewareRejectsMissingBearer(t *testing.T) {
 	if rec.Code != http.StatusUnauthorized {
 		t.Fatalf("expected 401, got %d", rec.Code)
 	}
+	if strings.TrimSpace(rec.Body.String()) != "invalid or missing authorization" {
+		t.Fatalf("unexpected response body: %q", rec.Body.String())
+	}
 }
 
 func TestMiddlewareBindsContext(t *testing.T) {
