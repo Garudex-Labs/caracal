@@ -2,7 +2,7 @@
 # Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 # Caracal, a product of Garudex Labs
 #
-# Exercises install.sh and install.ps1 against the release tag and verifies the resulting binary version.
+# Exercises CLI and TUI installers against the release tag and verifies the resulting binary versions.
 
 set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -13,43 +13,85 @@ readonly AREA="installers"
 readonly REPO_ROOT="$(cd "$HERE/../.." && pwd)"
 readonly PLAT="$(hostPlatform)"
 
-validateShell() {
-  matchesOnly "install.sh" || return 0
+validateShellCli() {
+  matchesOnly "install-cli.sh" || return 0
   local dir; dir="$(mktemp -d)"
-  if CARACAL_INSTALL_DIR="$dir/bin" runOrEcho bash "$REPO_ROOT/install.sh" --version "$CARACAL_RELEASE" >"$dir/out" 2>&1; then
-    if [[ "$DRY_RUN" == "1" ]] || "$dir/bin/caracal" --version 2>/dev/null | grep -q "$CLI_VER"; then
-      logFinding "$AREA" "install.sh" "$PLAT" "shell" "-" "$SEV_INFO" "$STATUS_PASS" "installer placed caracal on PATH" "bash install.sh --version $CARACAL_RELEASE"
+  if CARACAL_INSTALL_DIR="$dir/bin" runOrEcho bash "$REPO_ROOT/install-cli.sh" --version "$CARACAL_RELEASE" >"$dir/out" 2>&1; then
+    if [[ "$DRY_RUN" == "1" ]]; then
+      logFinding "$AREA" "install-cli.sh" "$PLAT" "shell" "-" "$SEV_INFO" "$STATUS_PASS" "dry-run: would run bash install-cli.sh --version $CARACAL_RELEASE" "bash install-cli.sh --version $CARACAL_RELEASE"
     else
-      logFinding "$AREA" "install.sh" "$PLAT" "shell" "-" "$SEV_MAJOR" "$STATUS_FAIL" "installed binary --version did not match $CLI_VER" "bash install.sh --version $CARACAL_RELEASE"
+      local cliBin="$dir/bin/caracal-cli" evidence="installer placed caracal and caracal-cli on PATH"
+      if [[ ! -x "$cliBin" ]]; then
+        cliBin="$dir/bin/caracal"
+        evidence="installer placed caracal on PATH"
+      fi
+      if "$cliBin" --version 2>/dev/null | grep -q "$CLI_VER"; then
+        logFinding "$AREA" "install-cli.sh" "$PLAT" "shell" "-" "$SEV_INFO" "$STATUS_PASS" "$evidence" "bash install-cli.sh --version $CARACAL_RELEASE"
+      else
+        logFinding "$AREA" "install-cli.sh" "$PLAT" "shell" "-" "$SEV_MAJOR" "$STATUS_FAIL" "installed binary --version did not match $CLI_VER" "bash install-cli.sh --version $CARACAL_RELEASE"
+      fi
     fi
   else
-    logFinding "$AREA" "install.sh" "$PLAT" "shell" "-" "$SEV_BLOCKER" "$STATUS_FAIL" "$(head -c 400 "$dir/out")" "bash install.sh --version $CARACAL_RELEASE"
+    logFinding "$AREA" "install-cli.sh" "$PLAT" "shell" "-" "$SEV_BLOCKER" "$STATUS_FAIL" "$(head -c 400 "$dir/out")" "bash install-cli.sh --version $CARACAL_RELEASE"
   fi
   rm -rf "$dir"
 }
 
-validatePwsh() {
-  matchesOnly "install.ps1" || return 0
+validateShellTui() {
+  matchesOnly "install-tui.sh" || return 0
+  local dir; dir="$(mktemp -d)"
+  if CARACAL_INSTALL_DIR="$dir/bin" runOrEcho bash "$REPO_ROOT/install-tui.sh" --version "$CARACAL_RELEASE" >"$dir/out" 2>&1; then
+    if [[ "$DRY_RUN" == "1" ]]; then
+      logFinding "$AREA" "install-tui.sh" "$PLAT" "shell" "-" "$SEV_INFO" "$STATUS_PASS" "dry-run: would run bash install-tui.sh --version $CARACAL_RELEASE" "bash install-tui.sh --version $CARACAL_RELEASE"
+    else
+      local evidence="installer placed caracal-tui on PATH"
+      [[ -x "$dir/bin/caracal" ]] && evidence="installer placed caracal and caracal-tui on PATH"
+      if "$dir/bin/caracal-tui" --version 2>/dev/null | grep -q "$TUI_VER"; then
+        logFinding "$AREA" "install-tui.sh" "$PLAT" "shell" "-" "$SEV_INFO" "$STATUS_PASS" "$evidence" "bash install-tui.sh --version $CARACAL_RELEASE"
+      else
+        logFinding "$AREA" "install-tui.sh" "$PLAT" "shell" "-" "$SEV_MAJOR" "$STATUS_FAIL" "installed binary --version did not match $TUI_VER" "bash install-tui.sh --version $CARACAL_RELEASE"
+      fi
+    fi
+  else
+    logFinding "$AREA" "install-tui.sh" "$PLAT" "shell" "-" "$SEV_BLOCKER" "$STATUS_FAIL" "$(head -c 400 "$dir/out")" "bash install-tui.sh --version $CARACAL_RELEASE"
+  fi
+  rm -rf "$dir"
+}
+
+validatePwshInstaller() {
+  local script="$1" bin="$2" version="$3"
+  matchesOnly "$script" || return 0
   if [[ "$PLAT" != windows-* ]]; then
-    logFinding "$AREA" "install.ps1" "$PLAT" "pwsh" "-" "$SEV_INFO" "$STATUS_WARN" "PowerShell installer is only exercised on Windows runners" "pwsh -File install.ps1 -Version $CARACAL_RELEASE"
+    logFinding "$AREA" "$script" "$PLAT" "pwsh" "-" "$SEV_INFO" "$STATUS_WARN" "PowerShell installer is only exercised on Windows runners" "pwsh -File $script -Version $CARACAL_RELEASE"
     return 0
   fi
   if [[ "${DRY_RUN:-0}" == "1" ]]; then
-    logFinding "$AREA" "install.ps1" "$PLAT" "pwsh" "-" "$SEV_INFO" "$STATUS_PASS" "dry-run: would run pwsh install.ps1 -Version $CARACAL_RELEASE" "pwsh -File install.ps1 -Version $CARACAL_RELEASE"
+    logFinding "$AREA" "$script" "$PLAT" "pwsh" "-" "$SEV_INFO" "$STATUS_PASS" "dry-run: would run pwsh $script -Version $CARACAL_RELEASE" "pwsh -File $script -Version $CARACAL_RELEASE"
     return 0
   fi
   if ! command -v pwsh >/dev/null 2>&1; then
-    logFinding "$AREA" "install.ps1" "$PLAT" "pwsh" "-" "$SEV_INFO" "$STATUS_WARN" "pwsh not available on this runner" "pwsh -File install.ps1 -Version $CARACAL_RELEASE"
+    logFinding "$AREA" "$script" "$PLAT" "pwsh" "-" "$SEV_INFO" "$STATUS_WARN" "pwsh not available on this runner" "pwsh -File $script -Version $CARACAL_RELEASE"
     return 0
   fi
   local dir; dir="$(mktemp -d)"
-  if runOrEcho pwsh -NoProfile -File "$REPO_ROOT/install.ps1" -Version "$CARACAL_RELEASE" -InstallDir "$dir/bin" >"$dir/out" 2>&1; then
-    logFinding "$AREA" "install.ps1" "$PLAT" "pwsh" "-" "$SEV_INFO" "$STATUS_PASS" "PowerShell installer completed" "pwsh -File install.ps1 -Version $CARACAL_RELEASE"
+  if runOrEcho pwsh -NoProfile -File "$REPO_ROOT/$script" -Version "$CARACAL_RELEASE" -InstallDir "$dir/bin" >"$dir/out" 2>&1; then
+    local binPath="$dir/bin/$bin.exe" evidence="PowerShell installer placed $bin on PATH"
+    if [[ "$script" == "install-cli.ps1" && ! -x "$binPath" ]]; then
+      binPath="$dir/bin/caracal.exe"
+      evidence="PowerShell installer placed caracal on PATH"
+    fi
+    if "$binPath" --version 2>/dev/null | grep -q "$version"; then
+      logFinding "$AREA" "$script" "$PLAT" "pwsh" "-" "$SEV_INFO" "$STATUS_PASS" "$evidence" "pwsh -File $script -Version $CARACAL_RELEASE"
+    else
+      logFinding "$AREA" "$script" "$PLAT" "pwsh" "-" "$SEV_MAJOR" "$STATUS_FAIL" "installed binary --version did not match $version" "pwsh -File $script -Version $CARACAL_RELEASE"
+    fi
   else
-    logFinding "$AREA" "install.ps1" "$PLAT" "pwsh" "-" "$SEV_BLOCKER" "$STATUS_FAIL" "$(head -c 400 "$dir/out")" "pwsh -File install.ps1 -Version $CARACAL_RELEASE"
+    logFinding "$AREA" "$script" "$PLAT" "pwsh" "-" "$SEV_BLOCKER" "$STATUS_FAIL" "$(head -c 400 "$dir/out")" "pwsh -File $script -Version $CARACAL_RELEASE"
   fi
   rm -rf "$dir"
 }
 
-validateShell
-validatePwsh
+validateShellCli
+validateShellTui
+validatePwshInstaller "install-cli.ps1" "caracal-cli" "$CLI_VER"
+validatePwshInstaller "install-tui.ps1" "caracal-tui" "$TUI_VER"

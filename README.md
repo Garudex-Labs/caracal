@@ -72,20 +72,20 @@ More coming soon
 
 ### Install
 
-The CLI (`caracal`) is installed by default. The TUI (`caracal-tui`) is optional — pass `--tui` (Unix) or `-Tui` (PowerShell) to add it.
+The CLI and TUI use separate installers. Run both commands to install both tools, or run only the TUI installer when you want `caracal-tui` without `caracal-cli`.
 
-> Pin a version: `--version vYYYY.MM.DD` (or `CARACAL_VERSION=vYYYY.MM.DD` env var on Unix).  
-> Change install directory: `--install-dir /path` (or `CARACAL_INSTALL_DIR=/path` env var on Unix).
+> Pin a version: `--version vYYYY.MM.DD` on Unix or `-Version vYYYY.MM.DD` in PowerShell.  
+> Change install directory: `--install-dir /path` on Unix or `-InstallDir C:\path` in PowerShell.
 
 <details>
 <summary><strong>Linux</strong> (amd64 / arm64)</summary>
 
 ```bash
-# CLI only (default)
-curl -fsSL https://raw.githubusercontent.com/Garudex-Labs/caracal/main/install.sh | sh
+# CLI
+curl -fsSL https://raw.githubusercontent.com/Garudex-Labs/caracal/main/install-cli.sh | sh
 
-# CLI + TUI
-curl -fsSL https://raw.githubusercontent.com/Garudex-Labs/caracal/main/install.sh | sh -s -- --tui
+# TUI
+curl -fsSL https://raw.githubusercontent.com/Garudex-Labs/caracal/main/install-tui.sh | sh
 ```
 
 Installs to `~/.local/bin`. Override with `--install-dir /usr/local/bin` (may need `sudo`).
@@ -96,11 +96,11 @@ Installs to `~/.local/bin`. Override with `--install-dir /usr/local/bin` (may ne
 <summary><strong>macOS</strong> (Intel / Apple Silicon)</summary>
 
 ```bash
-# CLI only (default)
-curl -fsSL https://raw.githubusercontent.com/Garudex-Labs/caracal/main/install.sh | sh
+# CLI
+curl -fsSL https://raw.githubusercontent.com/Garudex-Labs/caracal/main/install-cli.sh | sh
 
-# CLI + TUI
-curl -fsSL https://raw.githubusercontent.com/Garudex-Labs/caracal/main/install.sh | sh -s -- --tui
+# TUI
+curl -fsSL https://raw.githubusercontent.com/Garudex-Labs/caracal/main/install-tui.sh | sh
 ```
 
 If Gatekeeper blocks the binary: `xattr -d com.apple.quarantine ~/.local/bin/caracal`.
@@ -111,12 +111,11 @@ If Gatekeeper blocks the binary: `xattr -d com.apple.quarantine ~/.local/bin/car
 <summary><strong>Windows</strong> (amd64) PowerShell</summary>
 
 ```powershell
-# CLI only (default)
-iwr -useb https://raw.githubusercontent.com/Garudex-Labs/caracal/main/install.ps1 | iex
+# CLI
+iwr -useb https://raw.githubusercontent.com/Garudex-Labs/caracal/main/install-cli.ps1 | iex
 
-# CLI + TUI
-$installer = (iwr -useb https://raw.githubusercontent.com/Garudex-Labs/caracal/main/install.ps1).Content
-& ([scriptblock]::Create($installer)) -Tui
+# TUI
+iwr -useb https://raw.githubusercontent.com/Garudex-Labs/caracal/main/install-tui.ps1 | iex
 ```
 
 Installs to `%LOCALAPPDATA%\Programs\caracal`. Requires Docker Desktop with WSL2.
@@ -130,14 +129,19 @@ Download from the [latest release](https://github.com/Garudex-Labs/caracal/relea
 
 Archive names (replace `vYYYY.MM.DD` with the release tag):
 
+- `caracal-shell-linux-amd64-vYYYY.MM.DD.tar.gz`
+- `caracal-shell-linux-arm64-vYYYY.MM.DD.tar.gz`
+- `caracal-shell-darwin-amd64-vYYYY.MM.DD.tar.gz`
+- `caracal-shell-darwin-arm64-vYYYY.MM.DD.tar.gz`
+- `caracal-shell-windows-amd64-vYYYY.MM.DD.zip`
 - `caracal-cli-linux-amd64-vYYYY.MM.DD.tar.gz`
 - `caracal-cli-linux-arm64-vYYYY.MM.DD.tar.gz`
 - `caracal-cli-darwin-amd64-vYYYY.MM.DD.tar.gz`
 - `caracal-cli-darwin-arm64-vYYYY.MM.DD.tar.gz`
 - `caracal-cli-windows-amd64-vYYYY.MM.DD.zip`
-- `caracal-tui-...` (same five targets, optional)
+- `caracal-tui-...` (same five targets)
 
-Each archive contains a single executable (`caracal` or `caracal-tui`, with `.exe` on Windows).
+Each archive contains a single executable (`caracal`, `caracal-cli`, or `caracal-tui`, with `.exe` on Windows).
 
 </details>
 

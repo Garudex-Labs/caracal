@@ -398,9 +398,12 @@ jobs:
       - name: Verify installer scripts
         run: |
           set -euo pipefail
-          test -f install.sh
-          test -f install.ps1
-          test -x install.sh || chmod +x install.sh
+          test -f install-cli.sh
+          test -f install-tui.sh
+          test -f install-cli.ps1
+          test -f install-tui.ps1
+          test -x install-cli.sh || chmod +x install-cli.sh
+          test -x install-tui.sh || chmod +x install-tui.sh
 
       - name: Verify release assets
         run: |
@@ -444,8 +447,10 @@ jobs:
             dist/caracal-cli-*
             dist/caracal-tui-*
             dist/SHA256SUMS
-            install.sh
-            install.ps1
+            install-cli.sh
+            install-tui.sh
+            install-cli.ps1
+            install-tui.ps1
 
       - name: Trigger post-release validation
         continue-on-error: true

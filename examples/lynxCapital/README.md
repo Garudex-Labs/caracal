@@ -59,8 +59,9 @@ stack the same way any end user would — **do not build from the caracal
 source tree**:
 
 ```bash
-# Install the CLI once (no sudo, lands in ~/.local/bin)
-curl -fsSL https://raw.githubusercontent.com/Garudex-Labs/caracal/main/install.sh | sh
+# Install the CLI and TUI once (no sudo, lands in ~/.local/bin)
+curl -fsSL https://raw.githubusercontent.com/Garudex-Labs/caracal/main/install-cli.sh | sh
+curl -fsSL https://raw.githubusercontent.com/Garudex-Labs/caracal/main/install-tui.sh | sh
 
 # Bring up the OSS stack (coordinator, gateway, STS, postgres, redis, ...)
 caracal up

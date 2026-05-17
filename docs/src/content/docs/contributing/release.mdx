@@ -45,40 +45,39 @@ Only maintainers push release tags. Do not push CalVer tags from feature branche
 
 ---
 
-## CLI and TUI binaries
+## Shell, CLI, and TUI binaries
 
-The CLI (`caracal`) and the optional TUI (`caracal-tui`) are compiled to self-contained binaries using `bun --compile`. Ten archives are produced per release (five targets × two tools), each containing one executable:
+The shell (`caracal`), CLI command binary (`caracal-cli`), and TUI (`caracal-tui`) are compiled to self-contained binaries using `bun --compile`. Fifteen archives are produced per release (five targets × three binaries), each containing one executable:
 
-| Target | CLI archive | TUI archive |
-| --- | --- | --- |
-| `linux-amd64` | `caracal-cli-linux-amd64-vYYYY.MM.DD.tar.gz` | `caracal-tui-linux-amd64-vYYYY.MM.DD.tar.gz` |
-| `linux-arm64` | `caracal-cli-linux-arm64-vYYYY.MM.DD.tar.gz` | `caracal-tui-linux-arm64-vYYYY.MM.DD.tar.gz` |
-| `darwin-amd64` | `caracal-cli-darwin-amd64-vYYYY.MM.DD.tar.gz` | `caracal-tui-darwin-amd64-vYYYY.MM.DD.tar.gz` |
-| `darwin-arm64` | `caracal-cli-darwin-arm64-vYYYY.MM.DD.tar.gz` | `caracal-tui-darwin-arm64-vYYYY.MM.DD.tar.gz` |
-| `windows-amd64` | `caracal-cli-windows-amd64-vYYYY.MM.DD.zip` | `caracal-tui-windows-amd64-vYYYY.MM.DD.zip` |
+| Target | Shell archive | CLI archive | TUI archive |
+| --- | --- | --- | --- |
+| `linux-amd64` | `caracal-shell-linux-amd64-vYYYY.MM.DD.tar.gz` | `caracal-cli-linux-amd64-vYYYY.MM.DD.tar.gz` | `caracal-tui-linux-amd64-vYYYY.MM.DD.tar.gz` |
+| `linux-arm64` | `caracal-shell-linux-arm64-vYYYY.MM.DD.tar.gz` | `caracal-cli-linux-arm64-vYYYY.MM.DD.tar.gz` | `caracal-tui-linux-arm64-vYYYY.MM.DD.tar.gz` |
+| `darwin-amd64` | `caracal-shell-darwin-amd64-vYYYY.MM.DD.tar.gz` | `caracal-cli-darwin-amd64-vYYYY.MM.DD.tar.gz` | `caracal-tui-darwin-amd64-vYYYY.MM.DD.tar.gz` |
+| `darwin-arm64` | `caracal-shell-darwin-arm64-vYYYY.MM.DD.tar.gz` | `caracal-cli-darwin-arm64-vYYYY.MM.DD.tar.gz` | `caracal-tui-darwin-arm64-vYYYY.MM.DD.tar.gz` |
+| `windows-amd64` | `caracal-shell-windows-amd64-vYYYY.MM.DD.zip` | `caracal-cli-windows-amd64-vYYYY.MM.DD.zip` | `caracal-tui-windows-amd64-vYYYY.MM.DD.zip` |
 
 Archives are attached to the GitHub Release with a `SHA256SUMS` file and SLSA provenance attestations.
 
 ### Install
 
-The CLI is the default install target. The TUI is opt-in:
+The CLI and TUI have separate install targets:
 
 ```sh
-# Linux/macOS — CLI only (default)
-curl -fsSL https://raw.githubusercontent.com/Garudex-Labs/caracal/main/install.sh | sh
+# Linux/macOS — CLI
+curl -fsSL https://raw.githubusercontent.com/Garudex-Labs/caracal/main/install-cli.sh | sh
 
-# Linux/macOS — CLI + TUI
-curl -fsSL https://raw.githubusercontent.com/Garudex-Labs/caracal/main/install.sh | sh -s -- --tui
+# Linux/macOS — TUI
+curl -fsSL https://raw.githubusercontent.com/Garudex-Labs/caracal/main/install-tui.sh | sh
 
-# Windows — CLI only
-iwr -useb https://raw.githubusercontent.com/Garudex-Labs/caracal/main/install.ps1 | iex
+# Windows — CLI
+iwr -useb https://raw.githubusercontent.com/Garudex-Labs/caracal/main/install-cli.ps1 | iex
 
-# Windows — CLI + TUI
-$installer = (iwr -useb https://raw.githubusercontent.com/Garudex-Labs/caracal/main/install.ps1).Content
-& ([scriptblock]::Create($installer)) -Tui
+# Windows — TUI
+iwr -useb https://raw.githubusercontent.com/Garudex-Labs/caracal/main/install-tui.ps1 | iex
 ```
 
-The installers detect OS and architecture, resolve the latest release tag from the GitHub API (or accept `--version`/`-Version`), download the matching archive, verify it against `SHA256SUMS`, extract it, and place the binary on `PATH`.
+The installers detect OS and architecture, resolve the latest release tag from the GitHub API (or accept `--version`/`-Version`), download the matching shell and selected tool archives, verify them against `SHA256SUMS`, extract them, and place the binaries on `PATH`.
 
 ### Upgrade
 
@@ -86,7 +85,7 @@ Re-run the same install command. The installer overwrites the binary in place wi
 
 ### Uninstall
 
-Linux/macOS: `rm ~/.local/bin/caracal` (and `~/.local/bin/caracal-tui` if installed).
+Linux/macOS: remove the installed binaries from `~/.local/bin` (`caracal`, plus `caracal-cli` or `caracal-tui`).
 
 Windows: delete `%LOCALAPPDATA%\Programs\caracal` and remove the user PATH entry.
 

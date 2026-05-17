@@ -10,11 +10,11 @@ import { delimiter, dirname, join } from 'node:path'
 import { printError, printInfo } from '../style.ts'
 
 const EXT = process.platform === 'win32' ? '.exe' : ''
-const INSTALL_URL = 'https://github.com/Garudex-Labs/caracal/releases/latest/download/install.sh'
+const CLI_INSTALL_URL = 'https://github.com/Garudex-Labs/caracal/releases/latest/download/install-cli.sh'
+const TUI_INSTALL_URL = 'https://github.com/Garudex-Labs/caracal/releases/latest/download/install-tui.sh'
 const INSTALL_HINTS = {
-  cli: `Install the CLI:  curl -fsSL ${INSTALL_URL} | sh`,
-  tui: `Add the TUI:      curl -fsSL ${INSTALL_URL} | sh -s -- --tui`,
-  tuiOnly: `Or TUI only:      curl -fsSL ${INSTALL_URL} | sh -s -- --tui-only`,
+  cli: `Install the CLI:  curl -fsSL ${CLI_INSTALL_URL} | sh`,
+  tui: `Install the TUI:  curl -fsSL ${TUI_INSTALL_URL} | sh`,
 } as const
 
 const WORKSPACE_SHIMS: Record<string, string> = {
@@ -98,9 +98,9 @@ export function execSibling(binName: string, argv: string[], hints: MissingHints
 }
 
 export function cliDispatch(argv: string[]): never {
-  execSibling('caracal-cli', argv, { installLine: INSTALL_HINTS.cli, altLine: INSTALL_HINTS.tuiOnly })
+  execSibling('caracal-cli', argv, { installLine: INSTALL_HINTS.cli })
 }
 
 export function tuiDispatch(argv: string[]): never {
-  execSibling('caracal-tui', argv, { installLine: INSTALL_HINTS.tui, altLine: INSTALL_HINTS.tuiOnly })
+  execSibling('caracal-tui', argv, { installLine: INSTALL_HINTS.tui })
 }

@@ -1,21 +1,16 @@
 # Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 # Caracal, a product of Garudex Labs
 #
-# One-shot Windows installer that downloads, verifies, and extracts Caracal release archives. The thin `caracal` shell is always installed; -Tui adds the TUI alongside the CLI, -TuiOnly installs shell+TUI without the CLI.
+# Standalone Windows CLI installer that downloads, verifies, and extracts Caracal release archives.
 
 [CmdletBinding()]
 param(
     [string]$Version = $env:CARACAL_VERSION,
-    [string]$InstallDir = $env:CARACAL_INSTALL_DIR,
-    [switch]$Tui,
-    [switch]$TuiOnly
+    [string]$InstallDir = $env:CARACAL_INSTALL_DIR
 )
 
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
-
-if ($TuiOnly) { $Tui = $true }
-$withCli = -not $TuiOnly
 
 $repo = 'Garudex-Labs/caracal'
 if ([string]::IsNullOrEmpty($Version)) { $Version = 'latest' }
@@ -69,10 +64,20 @@ try {
         Write-Host "caracal-install: installed $dest"
     }
 
+    function Test-Archive([string]$Kind) {
+        $archive = "caracal-$Kind-windows-$arch-$tag.zip"
+        return $sums.ContainsKey($archive)
+    }
+
     New-Item -ItemType Directory -Force -Path $InstallDir | Out-Null
-    Install-Archive -Kind 'shell' -BinName 'caracal'
-    if ($withCli) { Install-Archive -Kind 'cli' -BinName 'caracal-cli' }
-    if ($Tui) { Install-Archive -Kind 'tui' -BinName 'caracal-tui' }
+    $installedCli = 'caracal-cli'
+    if (Test-Archive -Kind 'shell') {
+        Install-Archive -Kind 'shell' -BinName 'caracal'
+        Install-Archive -Kind 'cli' -BinName 'caracal-cli'
+    } else {
+        $installedCli = 'caracal'
+        Install-Archive -Kind 'cli' -BinName 'caracal'
+    }
 } finally {
     Remove-Item -Recurse -Force $tmp.FullName -ErrorAction SilentlyContinue
 }
@@ -88,18 +93,13 @@ Write-Host '  caracal up         # start stack (Docker Desktop required)'
 Write-Host '  caracal status     # probe service health'
 Write-Host '  caracal down       # stop stack'
 Write-Host '  caracal purge      # centralized cleanup'
-if ($withCli) {
+if ($installedCli -eq 'caracal-cli') {
     Write-Host '  caracal cli zone create --name <n>   # provision a zone'
     Write-Host '  caracal cli app create --name <n>    # provision an application'
     Write-Host '  caracal cli run -- cmd               # smoke test ambient tokens'
+    Write-Host "caracal-install: to uninstall, remove caracal.exe and caracal-cli.exe from $InstallDir and the user PATH entry."
+} else {
+    Write-Host '  caracal init       # provision local zone'
+    Write-Host '  caracal run -- cmd # smoke test ambient tokens'
+    Write-Host "caracal-install: to uninstall, remove caracal.exe from $InstallDir and the user PATH entry."
 }
-if ($Tui) {
-    Write-Host '  caracal tui        # launch the interactive TUI'
-}
-if (-not $withCli -and $Tui) {
-    Write-Host 'caracal-install: CLI not installed (re-run without -TuiOnly to add it)'
-}
-if ($withCli -and -not $Tui) {
-    Write-Host 'caracal-install: TUI not installed (re-run with -Tui to add it, or -TuiOnly for TUI alone)'
-}
-Write-Host "caracal-install: to uninstall, remove the installed binaries from $InstallDir and the user PATH entry."

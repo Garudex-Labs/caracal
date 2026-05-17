@@ -6,22 +6,26 @@ pageType: workflow
 
 This page covers installing the `caracal` CLI, the `caracal-tui` terminal UI, and the SDK packages for TypeScript, Python, and Go.
 
-## Install the CLI and TUI
+## Install the CLI or TUI
 
-The CLI and TUI are distributed as self-contained binaries for Linux, macOS, and Windows. No runtime is required.
+The CLI and TUI are distributed as separate self-contained binaries for Linux, macOS, and Windows. No runtime is required. Run both installers to install both tools, or run only the TUI installer when you want `caracal-tui` without `caracal-cli`.
 
 ### Linux and macOS
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/Garudex-Labs/caracal/main/install.sh | sh
+# CLI
+curl -fsSL https://raw.githubusercontent.com/Garudex-Labs/caracal/main/install-cli.sh | sh
+
+# TUI
+curl -fsSL https://raw.githubusercontent.com/Garudex-Labs/caracal/main/install-tui.sh | sh
 ```
 
-The script:
+Each script:
 
 1. Detects your OS and CPU architecture.
-2. Downloads the matching `caracal` and `caracal-tui` binaries from the latest GitHub release.
+2. Downloads the matching `caracal` shell plus either `caracal-cli` or `caracal-tui` from the latest GitHub release.
 3. Verifies each binary against the published `SHA256SUMS` file.
-4. Installs both binaries to `~/.local/bin` by default.
+4. Installs binaries to `~/.local/bin` by default.
 
 Supported platforms:
 
@@ -37,7 +41,6 @@ Supported platforms:
 | -------- | ------- | ----------- |
 | `CARACAL_VERSION` | `latest` | Specific release tag to download, e.g. `v2026.05.01` |
 | `CARACAL_INSTALL_DIR` | `~/.local/bin` | Directory to install binaries into |
-| `CARACAL_SKIP_TUI` | unset | Set to `1` to skip downloading the TUI binary |
 
 After installation, ensure `~/.local/bin` is on your `PATH`:
 
@@ -45,17 +48,22 @@ After installation, ensure `~/.local/bin` is on your `PATH`:
 export PATH="$HOME/.local/bin:$PATH"
 ```
 
-Verify the install:
+Verify the binaries you installed:
 
 ```sh
 caracal --version
-caracal-tui --version
+caracal-cli --version   # CLI installer
+caracal-tui --version   # TUI installer
 ```
 
 ### Windows
 
 ```powershell
-irm https://raw.githubusercontent.com/Garudex-Labs/caracal/main/install.ps1 | iex
+# CLI
+irm https://raw.githubusercontent.com/Garudex-Labs/caracal/main/install-cli.ps1 | iex
+
+# TUI
+irm https://raw.githubusercontent.com/Garudex-Labs/caracal/main/install-tui.ps1 | iex
 ```
 
 Binaries are placed in `%LOCALAPPDATA%\Programs\caracal` by default. Set `$env:CARACAL_INSTALL_DIR` to override. Only `x64` is available on Windows.
