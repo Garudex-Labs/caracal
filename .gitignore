@@ -20,6 +20,7 @@ coverage.xml
 .env
 .env.*
 !.env.example
+infra/docker/local.env
 .direnv/
 .envrc
 
