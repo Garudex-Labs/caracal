@@ -11,7 +11,7 @@ export interface StackPaths {
   composeFile: string
   envFile: string
   cwd: string
-  mode: 'dev' | 'runtime'
+  mode: 'dev' | 'rc' | 'stable'
 }
 
 export interface StackComposeOpts {

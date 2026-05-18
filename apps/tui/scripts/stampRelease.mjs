@@ -5,7 +5,7 @@
 // Writes apps/tui/src/version.gen.ts with the runtime TUI identity; CI sets CARACAL_RELEASE_VERSION.
 
 import { execSync } from 'node:child_process'
-import { writeFileSync } from 'node:fs'
+import { readFileSync, writeFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -22,11 +22,16 @@ function shortSha() {
   }
 }
 
+function baseVersion() {
+  const raw = readFileSync(resolve(repoRoot, 'packages/engine/runtime/release.json'), 'utf8')
+  return JSON.parse(raw).version
+}
+
 const ciRelease = process.env.CARACAL_RELEASE_VERSION
 const sha = shortSha()
-const version = ciRelease ?? `dev-${sha}`
+const version = ciRelease ?? `${baseVersion()}-dev.sha${sha}`
 
-if (ciRelease && /\+dev\.|-dev\./.test(ciRelease)) {
+if (ciRelease && /(^|[+-])dev\./.test(ciRelease)) {
   process.stderr.write(`stampRelease: refusing dev-suffixed CARACAL_RELEASE_VERSION '${ciRelease}'\n`)
   process.exit(1)
 }

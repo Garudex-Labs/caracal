@@ -29,7 +29,7 @@ function shortSha() {
 
 const sha = shortSha()
 const releaseVersion = process.env.CARACAL_RELEASE_VERSION
-const version = releaseVersion ?? `${baseVersion()}+dev.${sha}`
+const version = releaseVersion ?? `${baseVersion()}-dev.sha${sha}`
 const mode = releaseVersion ? 'runtime' : 'dev'
 
 const body =
