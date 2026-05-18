@@ -2,7 +2,7 @@
 # Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 # Caracal, a product of Garudex Labs
 #
-# Publishes selected caracalai-* packages from a local machine to PyPI (default) or TestPyPI (--testpypi), prompting for the API token and skipping versions already on the registry.
+# Publishes selected caracalai-* packages to PyPI or TestPyPI, allowing rc versions and refusing dev versions.
 
 set -euo pipefail
 
@@ -77,7 +77,7 @@ for d in "${packages[@]}"; do
     name="$(awk -F'"' '/^name = /{print $2; exit}' "$d/pyproject.toml")"
     ver="$(awk -F'"' '/^version = /{print $2; exit}' "$d/pyproject.toml")"
 
-    if [[ "$ver" == *"+dev."* || "$ver" == *"-dev."* ]]; then
+    if [[ "$ver" == *"dev.sha"* || "$ver" == *"dev."* ]]; then
         say_error "refusing to publish dev-stamped version: ${name}==${ver}"
         exit 1
     fi

@@ -2,7 +2,7 @@
 # Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 # Caracal, a product of Garudex Labs
 #
-# Cuts a Caracal release: applies pending changesets, computes the next CalVer tag (vYYYY.MM.DD with .N suffix on same-day re-cuts), tags HEAD, and pushes branch + tag.
+# Cuts a stable Caracal release: applies pending changesets, computes the next CalVer tag (vYYYY.MM.DD with .N suffix on same-day re-cuts), tags HEAD, and pushes branch + tag.
 
 set -euo pipefail
 
@@ -23,6 +23,7 @@ Usage: scripts/release.sh [--dry-run]
 
 Tag format: vYYYY.MM.DD (with .N suffix on additional cuts the same day).
 Per-package versions follow semver and are bumped by Changesets.
+Use scripts/rc.sh for release candidates.
 EOF
             exit 0
             ;;
@@ -127,6 +128,7 @@ const pypi = Object.fromEntries(
 );
 const manifest = {
   release,
+  channel: "stable",
   publishedAt,
   binaries: { cli: version, tui: version },
   containers: Object.fromEntries(containers.map((name) => [name, version])),
