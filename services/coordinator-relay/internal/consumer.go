@@ -75,9 +75,9 @@ func loadConfig() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
-	requireSig := config.Mode() == "runtime"
+	requireSig := config.Mode() != "dev"
 	if requireSig && len(streamHMACKey) == 0 {
-		return Config{}, errors.New("STREAMS_HMAC_KEY is required when CARACAL_MODE=runtime")
+		return Config{}, errors.New("STREAMS_HMAC_KEY is required when CARACAL_MODE=rc or CARACAL_MODE=stable")
 	}
 	dedupeSec, err := positiveSeconds("RELAY_DEDUPE_WINDOW_SEC", 3600)
 	if err != nil {

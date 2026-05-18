@@ -99,10 +99,10 @@ func (c Config) validate() error {
 		return fmt.Errorf("REDIS_URL is required")
 	}
 	if runtime && c.JTIFailOpen {
-		return fmt.Errorf("JTI_FAIL_OPEN is forbidden when CARACAL_MODE=runtime")
+		return fmt.Errorf("JTI_FAIL_OPEN is forbidden when CARACAL_MODE=rc or CARACAL_MODE=stable")
 	}
 	if runtime && c.AllowPrivateUpstreams && len(c.UpstreamHostAllowlist) == 0 {
-		return fmt.Errorf("UPSTREAM_HOST_ALLOWLIST is required when ALLOW_PRIVATE_UPSTREAMS=true under CARACAL_MODE=runtime")
+		return fmt.Errorf("UPSTREAM_HOST_ALLOWLIST is required when ALLOW_PRIVATE_UPSTREAMS=true under CARACAL_MODE=rc or CARACAL_MODE=stable")
 	}
 	u, err := url.Parse(c.STSURL)
 	if err != nil || u.Scheme == "" || u.Host == "" {
@@ -112,7 +112,7 @@ func (c Config) validate() error {
 	case "https":
 	case "http":
 		if runtime && !isInternalHost(u.Hostname()) {
-			return fmt.Errorf("STS_URL must use https when CARACAL_MODE=runtime and target is not an internal host")
+			return fmt.Errorf("STS_URL must use https when CARACAL_MODE=rc or CARACAL_MODE=stable and target is not an internal host")
 		}
 	default:
 		return fmt.Errorf("STS_URL scheme must be http or https")
@@ -124,7 +124,7 @@ func (c Config) validate() error {
 		return fmt.Errorf("STREAMS_HMAC_KEY is required")
 	}
 	if runtime && len(c.AuditHMACKey) == 0 {
-		return fmt.Errorf("AUDIT_HMAC_KEY is required when CARACAL_MODE=runtime")
+		return fmt.Errorf("AUDIT_HMAC_KEY is required when CARACAL_MODE=rc or CARACAL_MODE=stable")
 	}
 	port, err := strconv.Atoi(c.Port)
 	if err != nil || port < 1 || port > 65535 {
@@ -141,7 +141,7 @@ func (c Config) validate() error {
 
 // isInternalHost reports whether host is a docker service name or loopback target
 // (single label, no dots; or localhost / 127.0.0.1 / ::1). Used to permit plaintext
-// STS_URL under CARACAL_MODE=runtime when calls stay inside the container network.
+// STS_URL under rc or stable mode when calls stay inside the container network.
 func isInternalHost(host string) bool {
 	if host == "" {
 		return false
