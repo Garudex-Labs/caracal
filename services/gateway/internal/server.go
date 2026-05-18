@@ -55,7 +55,7 @@ func New(ctx context.Context) (*Server, error) {
 	if err != nil {
 		return nil, fmt.Errorf("streams hmac key: %w", err)
 	}
-	rdb.SetStreamSigning(streamKey, cfg.Mode == "runtime")
+	rdb.SetStreamSigning(streamKey, cfg.Mode != "dev")
 	tracker, err := newJTITracker(rdb, log, cfg.JTIFailOpen, cfg.AuditHMACKey)
 	if err != nil {
 		return nil, err

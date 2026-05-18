@@ -38,14 +38,14 @@ describe('resolvePaths', () => {
     expect(paths.composeFile).toBe(join(repoRoot, 'infra', 'docker', 'docker-compose.yml'))
   })
 
-  it('uses runtime mode when CARACAL_MODE=runtime', () => {
+  it('uses stable mode when CARACAL_MODE=stable', () => {
     const home = mkdtempSync(join(tmpdir(), 'caracal-home-'))
-    vi.stubEnv('CARACAL_MODE', 'runtime')
+    vi.stubEnv('CARACAL_MODE', 'stable')
     vi.stubEnv('CARACAL_HOME', home)
 
     const paths = resolvePaths()
 
-    expect(paths.mode).toBe('runtime')
+    expect(paths.mode).toBe('stable')
     expect(paths.cwd).toBe(home)
     expect(paths.composeFile).toBe(join(home, 'compose.yml'))
   })
