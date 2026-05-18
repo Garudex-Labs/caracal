@@ -65,24 +65,24 @@ func ResolveFileSecrets(keys ...string) {
 	}
 }
 
-// Mode returns the explicit Caracal deployment mode (dev or runtime). Defaults to runtime
-// when unset so production safety wins on misconfiguration.
+// Mode returns the explicit Caracal deployment mode (dev, rc, or stable). Defaults to
+// stable when unset so safety wins on misconfiguration.
 func Mode() string {
 	m := strings.ToLower(strings.TrimSpace(os.Getenv("CARACAL_MODE")))
 	switch m {
-	case "dev", "runtime":
+	case "dev", "rc", "stable":
 		return m
 	case "":
-		return "runtime"
+		return "stable"
 	default:
-		panic("CARACAL_MODE must be 'dev' or 'runtime' (got '" + m + "')")
+		panic("CARACAL_MODE must be 'dev', 'rc', or 'stable' (got '" + m + "')")
 	}
 }
 
-// AssertRuntimeSafe panics if any developer-only escape hatch is set while CARACAL_MODE=runtime.
+// AssertPublishedSafe panics if any developer-only escape hatch is set outside dev.
 // Call early in service startup; cheap and idempotent.
-func AssertRuntimeSafe() {
-	if Mode() != "runtime" {
+func AssertPublishedSafe() {
+	if Mode() == "dev" {
 		return
 	}
 	forbidden := []string{"INSECURE_STS", "INSECURE_HTTP"}
@@ -93,7 +93,7 @@ func AssertRuntimeSafe() {
 		}
 	}
 	if len(set) > 0 {
-		panic("CARACAL_MODE=runtime forbids: " + strings.Join(set, ", "))
+		panic("CARACAL_MODE=rc or CARACAL_MODE=stable forbids: " + strings.Join(set, ", "))
 	}
 }
 
@@ -109,8 +109,8 @@ func MissingRequired(keys ...string) []string {
 	return missing
 }
 
-// IsRuntime reports whether the service runs under CARACAL_MODE=runtime.
-func (b Base) IsRuntime() bool { return b.Mode == "runtime" }
+// IsPublished reports whether the service runs outside dev.
+func (b Base) IsPublished() bool { return b.Mode != "dev" }
 
 // MustGetenv returns the value of key or panics if it is unset or empty.
 func MustGetenv(key string) string {
