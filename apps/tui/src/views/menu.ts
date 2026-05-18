@@ -110,8 +110,7 @@ const BASE_ENTRIES: Entry[] = [
 ]
 
 function menuEntries(): Entry[] {
-  if (process.env.CARACAL_CONTROL_ENABLED === 'true') return BASE_ENTRIES
-  return BASE_ENTRIES.filter((entry) => entry.label !== 'control')
+  return BASE_ENTRIES
 }
 
 function auditExplainEntry(ctx: Ctx): View {
