@@ -39,6 +39,8 @@ COPY packages/oauth/ts/src packages/oauth/ts/src
 COPY packages/engine/tsconfig.json packages/engine/tsconfig.json
 COPY packages/engine/src packages/engine/src
 COPY packages/engine/scripts packages/engine/scripts
+COPY packages/engine/runtime packages/engine/runtime
+COPY infra/docker/runtime-compose.yml infra/docker/runtime-compose.yml
 COPY apps/control/tsconfig.json apps/control/tsconfig.json
 COPY apps/control/src apps/control/src
 RUN set -e; \

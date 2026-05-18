@@ -477,6 +477,9 @@ services:
         condition: service_healthy
       dbMigrate:
         condition: service_completed_successfully
+    secrets:
+      - source: redisUrl
+        target: redisUrl
     environment:
       CARACAL_MODE: ${CARACAL_MODE:-dev}
       CARACAL_CONTROL_ENABLED: "true"
@@ -485,7 +488,7 @@ services:
       CONTROL_AUDIENCE: ${CONTROL_AUDIENCE:-caracal-control}
       CONTROL_PORT: "8087"
       CONTROL_HOST: "0.0.0.0"
-      CONTROL_REDIS_URL: redis://redis:6379/0
+      CONTROL_REDIS_URL_FILE: /run/secrets/redisUrl
       CARACAL_API_URL: http://api:3000
       CONTROL_API_TOKEN: ${CARACAL_ADMIN_TOKEN:-}
       AUDIT_HMAC_KEY: ${AUDIT_HMAC_KEY:-}
