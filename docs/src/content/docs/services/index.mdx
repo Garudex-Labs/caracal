@@ -4,7 +4,7 @@ description: The five core Caracal services, optional control surface, sidecars,
 pageType: landing
 ---
 
-Caracal is composed of five core application services. Three are written in Go (`sts`, `gateway`, `audit`); two are written in TypeScript (`api`, `coordinator`). The stack also includes a coordinator relay sidecar and an optional control API surface. All core services share a PostgreSQL database and a Redis instance but own distinct schema responsibilities and domain boundaries.
+Caracal is composed of five core application services. Three are written in Go (`sts`, `gateway`, `audit`); two are written in TypeScript (`api`, `coordinator`). The stack also includes a coordinator relay sidecar and an optional TypeScript [Control](./control/) automation surface that wraps the shared `@caracalai/engine` dispatch. All core services share a PostgreSQL database and a Redis instance but own distinct schema responsibilities and domain boundaries.
 
 ---
 
@@ -22,7 +22,7 @@ Optional runtime components:
 
 | Component | Language | Port | Role |
 | --- | --- | --- | --- |
-| Control API | TypeScript | 8087 | Programmatic CLI/TUI command invocation; disabled unless the control profile is enabled |
+| [Control](./control/) | TypeScript (Fastify) | 8087 | Automation surface that wraps the shared engine dispatch with JWT auth, JTI replay, per-resource scopes, rate limit, and audit. Default OFF. |
 | Coordinator relay | Go | none | Sidecar process that forwards coordinator lifecycle events |
 
 ---

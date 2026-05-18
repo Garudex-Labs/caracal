@@ -200,10 +200,17 @@ The control service is disabled by default. In Docker Compose it is available on
 
 | Variable | Default | Description |
 | --- | --- | --- |
-| `CARACAL_CONTROL_ENABLED` | — | Must be `true`; otherwise the service logs that it is disabled and exits |
-| `CONTROL_ADDR` | `:8087` | Listen address |
-| `STS_JWKS_URL` | — | **Required.** STS JWKS URL used to verify bearer tokens |
+| `CARACAL_CONTROL_ENABLED` | — | Must be `true`; otherwise the service logs that it is disabled and exits before reading any other variable |
+| `CONTROL_PORT` | `8087` | Listen port |
+| `CONTROL_HOST` | `127.0.0.1` (dev), `0.0.0.0` (rc/stable) | Listen address |
+| `STS_JWKS_URL` | — | **Required.** STS JWKS URL used to verify bearer tokens (`?zone_id=…` is appended per token) |
 | `STS_ISSUER_URL` | — | **Required.** Expected issuer for control bearer tokens |
 | `CONTROL_AUDIENCE` | — | **Required.** Expected audience for control bearer tokens |
-| `CONTROL_REDIS_URL` | — | Replay cache and audit sink Redis URL. Required when `CARACAL_MODE=rc` or `CARACAL_MODE=stable`; optional in dev mode. |
-| `AUDIT_HMAC_KEY` | — | Required for control audit events when `CARACAL_MODE=rc` or `CARACAL_MODE=stable` |
+| `CARACAL_API_URL` | — | **Required.** Admin API base URL the engine dispatches to (e.g. `http://api:3000`) |
+| `CONTROL_API_TOKEN` | — | **Required.** Admin token used by the engine when calling the API |
+| `CONTROL_REDIS_URL` | — | Replay cache and audit sink Redis URL. Required when `CARACAL_MODE=rc` or `CARACAL_MODE=stable`; optional in dev mode |
+| `AUDIT_HMAC_KEY` | — | Hex-encoded ≥32-byte key for HMAC-SHA256 signing of audit rows. Required when `CARACAL_MODE=rc` or `CARACAL_MODE=stable` |
+| `CONTROL_RATE_CAPACITY` | `60` | Per-subject token-bucket capacity |
+| `CONTROL_RATE_WINDOW_SEC` | `60` | Per-subject token-bucket refill window |
+| `CONTROL_REPLAY_TTL_SEC` | `3600` | Maximum JTI replay retention; bounded further by the token's `exp` |
+| `LOG_LEVEL` | `info` | Fastify logger level |

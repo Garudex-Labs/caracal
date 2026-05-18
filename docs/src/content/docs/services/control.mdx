@@ -1,0 +1,226 @@
+---
+title: Control Service
+description: Default-off automation surface that wraps the shared engine dispatch with JWT auth, JTI replay, per-subject rate limiting, per-resource scopes, and audit emission.
+pageType: reference
+---
+
+The Control service is the only network-reachable entry point for management automation. It is a small TypeScript service (`apps/control`) that wraps the same `@caracalai/engine` dispatch the CLI and TUI run in-process. Every surface — human (CLI/TUI) and machine (Control / SDK) — funnels through one function, so behaviour, validation, audit records, and scope enforcement cannot drift between them.
+
+The service is **disabled by default**. It starts only when `CARACAL_CONTROL_ENABLED=true` is set on its process, and in Docker Compose it is only built under the `control` profile.
+
+---
+
+## Architecture at a glance
+
+```
+                packages/engine  (TypeScript — single source of truth)
+                ├── command catalog            ◄── one definition
+                ├── dispatch(req, principal, ctx)  ◄── one entry point
+                ├── handlers → AdminClient (HTTP → apps/api)
+                └── shared types / errors / scope names
+
+         ┌──────────────────┬──────────────────┬───────────────────┐
+         │                  │                  │                   │
+     apps/cli           apps/tui           apps/control        SDK / curl
+     (Bun binary,       (Bun binary,       (Node service,       (calls Control's
+      human)             human-only,        default OFF)         HTTP contract)
+     in-process         TTY-isolated,
+     engine call        in-process call    JWT + JTI replay
+                                           + rate limit
+                                           + per-resource scope
+                                           + audit emit
+                                           → engine.dispatch
+```
+
+Three rules make this work:
+
+1. **One engine.** `packages/engine` is the only place where commands, descriptors, validation, and the dispatcher live. There is no Go catalog, no parity test, no second copy.
+2. **Surfaces are adapters.** CLI and TUI hand the engine a `local` principal and execute in-process. Control hands the engine a `remote` principal derived from a verified JWT and runs the same code path on a different process.
+3. **Hidden commands are remote-blocked.** Descriptors marked `hidden: true` (credential read, runtime asset provisioning, the `control` and `completion` helpers themselves) are rejected before the scope check when the principal is `remote`.
+
+---
+
+## Principals
+
+```ts
+interface Principal {
+  kind: 'local' | 'remote'
+  subject: string
+  zoneId?: string
+  clientId?: string
+  scopes: readonly string[]
+}
+```
+
+- **Local** — CLI and TUI. `assertScope` returns immediately; hidden commands are reachable. There is no network boundary, so authorisation is the OS's responsibility (file permissions on credentials, the operator's shell).
+- **Remote** — Control. Built from the JWT claims (`sub`, `zone_id`, `client_id`, `scope`). The dispatcher enforces (a) the command is not hidden and (b) the principal's scope list contains `scopeName(descriptor, subcommand)`. No blanket scope exists — every call needs the exact per-resource scope.
+
+---
+
+## Request flow
+
+`POST /v1/control/invoke`
+
+```json
+{
+  "command":    "zone",
+  "subcommand": "list",
+  "flags":      { "limit": 25 }
+}
+```
+
+| Step | Component | Failure response |
+| --- | --- | --- |
+| 1. Assign `x-request-id` (16 random bytes) | `handler.ts` | — |
+| 2. Verify bearer token: ES256 + issuer + audience + `exp`/`iat` + required claims | `auth.ts` | `401 unauthorized` |
+| 3. Fetch JWKS for `zone_id` (refresh-on-miss, 30 s floor) | `auth.ts` | `401 unauthorized` |
+| 4. Mark JTI in replay cache (fail-closed on Redis error) | `replay.ts` | `401 token replay` |
+| 5. Allow per-subject token bucket | `ratelimit.ts` | `429 rate limited` |
+| 6. Parse JSON body (≤ 64 KB) and build remote `Principal` | `handler.ts` | `400 invalid request` |
+| 7. `engine.dispatch(req, principal, ctx)` | `packages/engine` | `403 / 400 / 501` |
+| 8. Emit audit row to `caracal.audit.events` (allow or deny) | `audit.ts` | logged only |
+| 9. Return `{ ok: true, result }` | `handler.ts` | — |
+
+Audit is emitted on **every** terminal state (auth failure, replay, rate limit, dispatch denied, dispatch invalid, dispatch unsupported, allow). The audit row carries `request_id`, `decision`, `subject`, `jti`, `command`, `subcommand`, and `reason`, and — when `AUDIT_HMAC_KEY` is set — an HMAC-SHA256 signature over the canonical JSON payload.
+
+Errors map as:
+
+| Source | HTTP |
+| --- | --- |
+| `AuthError` (any) | 401 |
+| `DispatchError { code: 'denied' }` (hidden command, missing scope, unknown command) | 403 |
+| `DispatchError { code: 'invalid' }` (bad flags, missing required flag) | 400 |
+| `DispatchError { code: 'unsupported' }` (subcommand not implemented) | 501 |
+| Anything else (admin API failure, network) | 502 |
+
+---
+
+## Security model
+
+**Transport.** Bind to `127.0.0.1` in dev; `0.0.0.0` only in `rc`/`stable` modes, behind a terminating proxy.
+
+**Authentication.** Bearer JWTs minted by the in-cluster STS. The verifier enforces:
+
+- `alg: ES256` (only). RS256/HS256 tokens are rejected.
+- `iss` matches `STS_ISSUER_URL`.
+- `aud` matches `CONTROL_AUDIENCE`.
+- `exp` and `iat` are present and `exp` is in the future.
+- `zone_id`, `jti`, `sub` are present.
+
+JWKS lookups are scoped per zone (`${STS_JWKS_URL}?zone_id=<id>`). A key miss triggers a single refresh (rate-limited to once per 30 s) before the request is rejected.
+
+**Authorisation.** Per-resource scopes are derived from the engine catalog by `scopeName(descriptor, subcommand)`. The naming pattern is `control:<command>:<verb>` where verb is one of `read`, `write`, `delete`. Examples:
+
+| Command | Sub | Required scope |
+| --- | --- | --- |
+| `zone` | `list` | `control:zone:read` |
+| `zone` | `create` | `control:zone:write` |
+| `zone` | `delete` | `control:zone:delete` |
+| `policy-set` | `activate` | `control:policy-set:write` |
+
+There is no `control:invoke` blanket scope. A token that needs both reads and writes must carry both scopes.
+
+**Replay defence.** Every accepted `jti` is recorded in Redis (`caracal:control:jti:<jti>`) using `SET NX PX`. TTL is `min(CONTROL_REPLAY_TTL_SEC * 1000, exp_ms - now_ms)`. Memory replay is permitted only in `dev` mode; `rc`/`stable` refuse to start without `CONTROL_REDIS_URL`. Redis errors fail closed — a replay-check failure rejects the request.
+
+**Rate limiting.** Per-subject token bucket: `CONTROL_RATE_CAPACITY` tokens refilled over `CONTROL_RATE_WINDOW_SEC`. Buckets evict at 10× the window. Capped at 10 000 distinct subjects to bound memory. Empty subjects are rejected.
+
+**Audit integrity.** Rows are XADD'd to `caracal.audit.events` with `MAXLEN ~ 100000`. When `AUDIT_HMAC_KEY` is set, an HMAC-SHA256 `sig` field accompanies the canonical payload so the audit consumer can detect tampering.
+
+**Hidden surface.** The dispatcher consults `descriptor.hidden` before the scope check. A remote caller cannot reach `control`, `completion`, or any descriptor that is not registered in `HANDLERS` (currently: `credential` and `run` are not handler-backed and are therefore unreachable from Control by construction).
+
+**Body size.** Bodies are capped at 64 KB at the Fastify level. Flag validation in the engine caps flag count (32), key length (64), string length (4 096), and array length (64).
+
+---
+
+## CLI / TUI relationship
+
+The CLI and TUI consume the same `@caracalai/engine` package the Control service does:
+
+- CLI commands resolve descriptors from the engine catalog and call the engine's helpers (admin client, control-key CRUD, etc.) directly. No HTTP hop, no JWT, no replay cache.
+- TUI views call the same helpers from menu actions.
+
+The Control service does not call the CLI binary or shell out. It calls `engine.dispatch` exactly the way CLI/TUI do — with a different `Principal`.
+
+**TUI isolation.** The TUI is a human-only surface. `apps/tui/src/index.ts` refuses to start unless:
+
+- `process.stdin.isTTY` and `process.stdout.isTTY` are both true,
+- `process.send` is undefined (no IPC channel from a parent),
+- `process.env.CI` is unset (or not `true`),
+- `process.env.TERM` is set and not `dumb`.
+
+Piping stdin to the TUI, running it under `CI=true`, or spawning it via `child_process.fork` exits non-zero with an isolation error. Automation must use the Control API (or the SDK built on top of it). There is no `--script` or `--input-file` flag.
+
+**TUI control section.** The control-management menu entry is always visible — managing control credentials goes through the Admin API, not the Control service, so an operator never needs the Control service running locally to administer it.
+
+---
+
+## Configuration
+
+See [Environment variables → Optional Control service](../operations/env-vars/#optional-control-service) for the complete list.
+
+Critical defaults:
+
+| Variable | Dev | rc / stable |
+| --- | --- | --- |
+| `CARACAL_CONTROL_ENABLED` | unset → service exits | must be `true` |
+| `CONTROL_HOST` | `127.0.0.1` | `0.0.0.0` |
+| `CONTROL_REDIS_URL` | optional (falls back to in-memory) | **required** |
+| `AUDIT_HMAC_KEY` | optional | **required**, ≥ 32 bytes hex |
+| Replay cache | in-memory, single-replica | Redis, multi-replica safe |
+| Audit sink | log only | Redis stream |
+
+The service refuses to start if any required variable is missing for the active mode; misconfigured `rc`/`stable` deployments fail fast rather than silently degrading.
+
+---
+
+## Operations
+
+**Health.** `GET /health` always returns `200`. Use for liveness probes.
+
+**Readiness.** `GET /ready` pings the replay backing store. Returns `200` when reachable, `503` when not. Use for readiness probes.
+
+**Shutdown.** SIGTERM/SIGINT trigger a graceful Fastify close and Redis quit. Unhandled rejections and uncaught exceptions exit the process — restart policies belong to the orchestrator.
+
+**Logging.** Pino-style line-delimited JSON via `@caracalai/core` logger. Token bodies, HMAC keys, and admin tokens are never logged.
+
+**Scaling.** The Control service is stateless. Run as many replicas as you need behind a load balancer; the replay cache must be Redis-backed (`rc`/`stable` enforces this).
+
+---
+
+## Wire example
+
+```bash
+# 1. Mint a token. The OAuth client must carry the `control:zone:read` scope.
+TOKEN=$(curl -sX POST "$STS/oauth/2/token" \
+  -u "$CLIENT_ID:$CLIENT_SECRET" \
+  -d "grant_type=client_credentials&scope=control:zone:read" \
+  | jq -r .access_token)
+
+# 2. Invoke.
+curl -sH "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"command":"zone","subcommand":"list"}' \
+  http://localhost:8087/v1/control/invoke
+```
+
+Responses:
+
+```json
+{ "ok": true, "result": [ { "id": "z1", "name": "Production", ... } ] }
+```
+
+```json
+{ "error": "denied" }           // missing scope or hidden command
+{ "error": "invalid request" }  // bad flags / unknown subcommand
+{ "error": "token replay" }     // jti seen within TTL
+{ "error": "rate limited" }     // bucket exhausted
+{ "error": "upstream error" }   // admin API unreachable
+```
+
+Every response carries an `x-request-id` header; the same id appears in the audit row.
+
+---
+
+## What this replaces
+
+A previous Go implementation under `services/control` ran its own dispatcher and held a Go copy of the command catalog kept in sync via a parity test. That arrangement guaranteed drift between the CLI/TUI execution path (TS engine) and the Control execution path (Go dispatcher). The TypeScript service collapses both into one engine, deletes the Go catalog, and removes the parity test. The HTTP contract (`POST /v1/control/invoke`, port `8087`, JWT auth, JTI replay, per-resource scopes, audit) is unchanged — only the implementation language and the dispatch path are.
