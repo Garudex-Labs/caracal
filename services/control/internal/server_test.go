@@ -12,13 +12,13 @@ import (
 	"github.com/rs/zerolog"
 )
 
-func TestBuildReplayRequiresRedisInRuntime(t *testing.T) {
-	t.Setenv("CARACAL_MODE", "runtime")
+func TestBuildReplayRequiresRedisInStable(t *testing.T) {
+	t.Setenv("CARACAL_MODE", "stable")
 	t.Setenv("CONTROL_REDIS_URL", "")
 
 	_, err := buildReplay(zerolog.Nop())
 	if err == nil || !strings.Contains(err.Error(), "CONTROL_REDIS_URL") {
-		t.Fatalf("runtime replay must require Redis, got %v", err)
+		t.Fatalf("stable replay must require Redis, got %v", err)
 	}
 }
 

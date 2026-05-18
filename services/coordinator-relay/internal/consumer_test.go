@@ -38,7 +38,7 @@ func TestLoadConfigResolvesStreamHMACKeyFile(t *testing.T) {
 		t.Fatalf("write key file: %v", err)
 	}
 
-	t.Setenv("CARACAL_MODE", "runtime")
+	t.Setenv("CARACAL_MODE", "stable")
 	t.Setenv("REDIS_URL", "redis://localhost:6379/0")
 	t.Setenv("STREAMS_HMAC_KEY", "")
 	t.Setenv("STREAMS_HMAC_KEY_FILE", path)
@@ -48,7 +48,7 @@ func TestLoadConfigResolvesStreamHMACKeyFile(t *testing.T) {
 		t.Fatalf("loadConfig should resolve STREAMS_HMAC_KEY_FILE: %v", err)
 	}
 	if !cfg.RequireSig || len(cfg.StreamHMACKey) != 32 {
-		t.Fatalf("runtime relay must require and load a 32-byte stream key, got require=%v len=%d", cfg.RequireSig, len(cfg.StreamHMACKey))
+		t.Fatalf("stable relay must require and load a 32-byte stream key, got require=%v len=%d", cfg.RequireSig, len(cfg.StreamHMACKey))
 	}
 }
 

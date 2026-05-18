@@ -10,16 +10,16 @@ import (
 	"testing"
 )
 
-func TestLoadConfigRequiresHMACInRuntime(t *testing.T) {
+func TestLoadConfigRequiresHMACInStable(t *testing.T) {
 	t.Setenv("PORT", "9090")
 	t.Setenv("DATABASE_URL", "postgres://example")
 	t.Setenv("REDIS_URL", "redis://example")
-	t.Setenv("CARACAL_MODE", "runtime")
+	t.Setenv("CARACAL_MODE", "stable")
 	t.Setenv("AUDIT_HMAC_KEY", "")
 
 	_, err := loadConfig()
 	if err == nil {
-		t.Fatal("runtime config must require AUDIT_HMAC_KEY")
+		t.Fatal("stable config must require AUDIT_HMAC_KEY")
 	}
 	if !strings.Contains(err.Error(), "AUDIT_HMAC_KEY") {
 		t.Fatalf("error must name AUDIT_HMAC_KEY, got %v", err)
