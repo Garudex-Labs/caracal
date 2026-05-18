@@ -466,13 +466,14 @@ services:
     profiles: [control]
     build:
       context: ../..
-      dockerfile: infra/docker/Dockerfile.go-service
-      args:
-        SERVICE: control
-        PORT: "8087"
+      dockerfile: apps/control/Dockerfile
     image: localhost/caracal-control:${CARACAL_DEV_VERSION:-${CARACAL_BASE_VERSION:-2026.05.14}-dev.sha${CARACAL_DEV_SHA:-local}}
     depends_on:
       sts:
+        condition: service_healthy
+      api:
+        condition: service_healthy
+      redis:
         condition: service_healthy
       dbMigrate:
         condition: service_completed_successfully
@@ -482,7 +483,13 @@ services:
       STS_JWKS_URL: ${CARACAL_STS_ISSUER_URL:-http://sts:8080}/.well-known/jwks.json
       STS_ISSUER_URL: ${CARACAL_STS_ISSUER_URL:-http://sts:8080}
       CONTROL_AUDIENCE: ${CONTROL_AUDIENCE:-caracal-control}
-      CONTROL_ADDR: ":8087"
+      CONTROL_PORT: "8087"
+      CONTROL_HOST: "0.0.0.0"
+      CONTROL_REDIS_URL: redis://redis:6379/0
+      CARACAL_API_URL: http://api:3000
+      CONTROL_API_TOKEN: ${CARACAL_ADMIN_TOKEN:-}
+      AUDIT_HMAC_KEY: ${AUDIT_HMAC_KEY:-}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
       OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
       OTEL_EXPORTER_OTLP_PROTOCOL: http/protobuf
       OTEL_SERVICE_NAME: caracal-control

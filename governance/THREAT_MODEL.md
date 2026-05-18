@@ -13,7 +13,7 @@ In scope:
 - `services/sts`: OAuth 2.0 token exchange, ES256 signing, JWKS, policy evaluation, step-up, replay, revocation, and audit emission.
 - `services/gateway`: reverse proxy that exchanges inbound credentials with STS, validates bindings, enforces replay/revocation checks, and forwards authorized requests.
 - `services/audit`: Redis Streams consumer, append-only PostgreSQL audit ledger, tamper checks, retention, and Parquet export.
-- `services/control`: optional control invocation endpoint gated by explicit enablement, ES256 bearer auth, command allowlists, replay checks, rate limits, and audit.
+- `apps/control`: optional control invocation endpoint gated by explicit enablement, ES256 bearer auth, per-resource scope checks against the engine catalog, JTI replay, rate limits, and audit.
 - `services/coordinator-relay`: Redis Streams lifecycle relay with signature verification and dedupe.
 - `packages/*`: shared identity, OAuth, revocation, transport, connector, SDK, admin, and core libraries.
 - `infra/docker`: local-dev and runtime Compose stacks, secrets, hardened containers, PostgreSQL, Redis, migrations, and health checks.
@@ -85,7 +85,7 @@ Out of scope: enterprise-only code, customer deployments outside the provided de
 | T6 | Keep `audit_events` append-only; sign audit chain entries with HMAC when configured; acknowledge streams only after insert, duplicate handling, or DLQ routing; run tamper sweeps and retention/export jobs under leader locks. | Audit service and producers | Audit maintainers |
 | T7 | Require stream HMAC keys in rc and stable; verify producer signatures where configured; dedupe stream messages; leave transient failures in the pending-entry list for reclaim. | Redis Streams producers and consumers | Stream producer/consumer maintainers |
 | T8 | Preserve bounded request bodies, timeouts, rate limits, health/readiness checks, resource limits, restart policies, and localhost-only port bindings; fail readiness when PostgreSQL, Redis, STS, or required upstreams are unavailable. | Compose, service servers, config | Infra and service maintainers |
-| T9 | Keep control disabled unless `CARACAL_CONTROL_ENABLED=true`; allow only `POST /v1/control/invoke`; require `control:invoke`; validate commands against the canonical catalog; audit accepted and rejected requests; never shell out. | Control service and command catalog | Control maintainers |
+| T9 | Keep control disabled unless `CARACAL_CONTROL_ENABLED=true`; allow only `POST /v1/control/invoke`; require the per-resource `control:<command>:<verb>` scope derived from the engine catalog; validate commands through `engine.dispatch`; audit accepted and rejected requests; never shell out. | Control service (`apps/control`) and engine catalog (`packages/engine`) | Control maintainers |
 | T10 | Keep lockfiles and module sums reviewed; publish versioned images and archives only from trusted release paths; verify installers, Dockerfiles, and generated artifacts do not embed secrets or uncontrolled network fetches. | Release tooling and dependencies | Release maintainers |
 | T11 | Update this model, service instructions, tests, and governance when boundaries change; reject OSS changes that depend on enterprise-only code or undocumented controls. | Architecture and governance | Reviewing maintainers |
 
