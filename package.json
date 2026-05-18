@@ -26,7 +26,7 @@
     "test:typescript": "pnpm --dir apps/api test && pnpm --dir apps/coordinator test && pnpm --dir apps/cli test && pnpm --dir apps/tui test && pnpm --dir packages/core/ts test && pnpm --dir packages/identity/ts test && pnpm --dir packages/admin/ts test && pnpm --dir packages/sdk/ts test && pnpm --dir packages/transport/a2a/ts test && pnpm --dir packages/oauth/ts test && pnpm --dir packages/revocation/ts test && pnpm --dir packages/transport/mcp/ts test && pnpm --dir packages/connectors/express/ts test && pnpm --dir packages/connectors/fastmcp/ts test && pnpm --dir packages/connectors/postgres/ts test && pnpm --dir packages/connectors/redis/ts test",
     "changeset": "changeset",
     "version": "changeset version",
-    "release:prerelease": "scripts/prerelease.sh",
+    "prerelease:stage": "scripts/prerelease.sh",
     "release": "pnpm run build:typescript && changeset publish",
     "knip": "node ./node_modules/knip/dist/cli.js"
   },

@@ -30,6 +30,10 @@ if (ciRelease && /\+dev\.|-dev\./.test(ciRelease)) {
   process.stderr.write(`stampRelease: refusing dev-suffixed CARACAL_RELEASE_VERSION '${ciRelease}'\n`)
   process.exit(1)
 }
+if (ciRelease && /-rc\.sha/.test(ciRelease) && process.env.CARACAL_PRERELEASE !== '1') {
+  process.stderr.write(`stampRelease: refusing rc CARACAL_RELEASE_VERSION '${ciRelease}' without CARACAL_PRERELEASE=1\n`)
+  process.exit(1)
+}
 
 const body =
   `// Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
