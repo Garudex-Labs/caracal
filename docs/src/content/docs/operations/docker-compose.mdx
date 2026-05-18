@@ -135,7 +135,7 @@ environment:
 The control service is disabled by default. Start it explicitly with Docker Compose's `control` profile after setting its authentication variables:
 
 ```bash
-docker compose --env-file infra/docker/.env -f infra/docker/docker-compose.yml --profile control up --build control
+docker compose --env-file infra/docker/dev.env --env-file infra/docker/local.env -f infra/docker/docker-compose.yml --profile control up --build control
 ```
 
 **Required when enabled:** `CARACAL_CONTROL_ENABLED=true`, `STS_JWKS_URL`, `STS_ISSUER_URL`, `CONTROL_AUDIENCE`, `CARACAL_API_URL`, `CONTROL_API_TOKEN`.
@@ -152,9 +152,9 @@ When `CARACAL_MODE=rc` or `CARACAL_MODE=stable`, the control service additionall
 pnpm caracal up
 ```
 
-The first `caracal up` automatically creates `infra/docker/.env` from `infra/docker/.env.example`, generates per-secret files in `infra/secrets/files/` (gitignored, `0444`) that the compose stack mounts as Docker secrets, and syncs the same values into `.env` so env-interpolated services and secret-mounted services agree on every credential.
+The first `caracal up` generates per-secret files in `infra/secrets/files/` (gitignored, `0444`) that the compose stack mounts as Docker secrets. Services consume secrets exclusively through the `*_FILE` convention; no secret values are written into any `.env`. `infra/docker/dev.env` is committed and rendered from `packages/engine/src/envSchema.ts` — do not edit it by hand.
 
-Edit `infra/docker/.env` only to override optional knobs (resource limits, S3 export, etc.). Required credentials are managed automatically and re-synced on every run.
+To override defaults, copy `infra/docker/local.env.example` to `infra/docker/local.env` (gitignored) and edit it. Compose loads `dev.env` first then `local.env`, so local entries win.
 
 To provision credentials without starting the stack:
 

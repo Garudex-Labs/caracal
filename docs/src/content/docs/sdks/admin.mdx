@@ -39,7 +39,7 @@ interface AdminClientOptions {
 import { discoverAdminToken } from '@caracalai/core';
 
 const token = discoverAdminToken();
-// Checks in order: explicit param → CARACAL_ADMIN_TOKEN env → infra/docker/.env → .env
+// Checks: explicit → CARACAL_ADMIN_TOKEN → CARACAL_ADMIN_TOKEN_FILE → $CARACAL_HOME/secrets/caracalAdminToken → $CARACAL_REPO_ROOT/infra/secrets/files/caracalAdminToken
 ```
 
 ### Retry behavior

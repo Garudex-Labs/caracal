@@ -201,7 +201,8 @@ client := &sdk.Caracal{
 | Variable | Description |
 | --- | --- |
 | `CARACAL_CONFIG` | Override `caracal.toml` discovery |
-| `CARACAL_ENV_FILE` | Override `.env` file loaded by CLI stack commands |
+| `CARACAL_HOME` | Installed runtime home (overrides, compose, secrets) |
+| `CARACAL_ADMIN_TOKEN_FILE` | Explicit path to a file containing the admin token |
 | `CARACAL_MODE` | Stack mode: `dev`, `rc`, or `stable` |
 | `CARACAL_API_URL` | Control-plane API base URL; default `http://localhost:3000` |
 | `CARACAL_COORDINATOR_URL` | Coordinator base URL; default `http://localhost:4000` |

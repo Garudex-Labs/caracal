@@ -61,11 +61,12 @@ No manual `.env` editing is required.
 
 The bootstrap (shared by dev, rc, and stable):
 
-1. Creates `infra/docker/.env` from `infra/docker/.env.example` if missing.
-2. Generates random secret files in `infra/secrets/files/` (gitignored, `0444`) for Postgres, Redis, the admin token, zone KEK, and HMAC keys.
-3. Writes the same values into `infra/docker/.env` so env-interpolated services and secret-mounted services agree on every credential.
+1. Generates random secret files in `infra/secrets/files/` (gitignored, `0444`) for Postgres, Redis, the admin token, zone KEK, and HMAC keys.
+2. Services consume those secrets exclusively through the `*_FILE` convention — no secret values are written to any `.env` file.
 
-Idempotent and safe to re-run — existing secret files are reused and re-synced into `.env`.
+`infra/docker/dev.env` is committed and rendered from `packages/engine/src/envSchema.ts`; do not edit it by hand. To override defaults, copy `infra/docker/local.env.example` to `infra/docker/local.env` (gitignored) and edit it. Compose loads `dev.env` first then `local.env`, so local entries win.
+
+Idempotent and safe to re-run — existing secret files are reused.
 
 If you want to provision credentials without starting the stack, run:
 
@@ -73,9 +74,9 @@ If you want to provision credentials without starting the stack, run:
 pnpm secrets:init
 ```
 
-Optional knobs (resource limits, S3 export, etc.) are documented inline in `infra/docker/.env.example` and can be edited freely.
+After changing the schema, regenerate `dev.env` with `node packages/engine/scripts/render-dev-env.mjs`. CI runs the same script with `--check` to fail on drift.
 
-Do not commit `infra/docker/.env` or `infra/secrets/files/` — both are in `.gitignore`.
+Do not commit `infra/docker/local.env` or `infra/secrets/files/` — both are in `.gitignore`.
 
 ---
 
@@ -94,7 +95,7 @@ caracal zone create --name dev
 caracal app create --zone <zone-id> --name dev-app
 ```
 
-`caracal app create` prints the client secret on creation — save it into `caracal.toml` along with the zone ID and STS URL. The CLI discovers `CARACAL_ADMIN_TOKEN` from `infra/docker/.env` via `CARACAL_REPO_ROOT`; pass `--admin-token` or export `CARACAL_ADMIN_TOKEN` to override.
+`caracal app create` prints the client secret on creation — save it into `caracal.toml` along with the zone ID and STS URL. The CLI discovers `CARACAL_ADMIN_TOKEN` from `infra/secrets/files/caracalAdminToken` (dev, via `CARACAL_REPO_ROOT`) or `$CARACAL_HOME/secrets/caracalAdminToken` (installed); pass `--admin-token` or export `CARACAL_ADMIN_TOKEN` to override.
 
 See [Configuration File](../cli-tui/config-file/) for the full `caracal.toml` schema.
 
