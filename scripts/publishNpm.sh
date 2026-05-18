@@ -70,8 +70,8 @@ say_header "publishNpm: publishing"
 for d in "${packages[@]}"; do
     name="$(jq -r .name "$d/package.json")"
     ver="$(jq -r .version "$d/package.json")"
-    if [[ "$ver" == *"-dev."* || "$ver" == *"+dev."* ]]; then
-        say_error "refusing to publish dev-stamped version: ${name}@${ver}"
+    if [[ "$ver" == *"-dev."* || "$ver" == *"+dev."* || "$ver" == *"-rc.sha"* ]]; then
+        say_error "refusing to publish dev/prerelease version: ${name}@${ver}"
         exit 1
     fi
     if npm view "${name}@${ver}" version >/dev/null 2>&1; then
