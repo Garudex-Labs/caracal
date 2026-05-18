@@ -178,7 +178,7 @@ Increase the number of replicas to reduce consumer lag. Each additional replica 
 | `PORT` | `9090` | HTTP listen port |
 | `DATABASE_URL` | — | PostgreSQL connection string |
 | `REDIS_URL` | — | Redis connection string |
-| `AUDIT_HMAC_KEY` | `""` | Hex key for event chain HMAC; required when `CARACAL_MODE=runtime` |
+| `AUDIT_HMAC_KEY` | `""` | Hex key for event chain HMAC; required when `CARACAL_MODE=rc` or `CARACAL_MODE=stable` |
 | `AUDIT_EXPORT_S3_ENDPOINT` | `""` | S3-compatible endpoint (empty = export disabled) |
 | `AUDIT_EXPORT_S3_BUCKET` | `""` | S3 bucket name |
 | `AUDIT_EXPORT_S3_REGION` | `us-east-1` | S3 region |

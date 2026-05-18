@@ -22,7 +22,7 @@
 
 |                       | Dev                                                      | RC                                                          | Stable                                                     |
 | --------------------- | -------------------------------------------------------- | ----------------------------------------------------------- | ---------------------------------------------------------- |
-| Purpose               | Local source-linked development                          | Production-like release-candidate validation                | Official production release                                |
+| Purpose               | Development builds                                      | rc builds                                                   | Released production versions                               |
 | Version               | `2026.05.14-dev.sha<sha>`                                | `2026.05.14-rc.sha<sha>` / `1.4.2-rc.1`                    | `2026.05.14` / `1.4.2`                                    |
 | Container images      | `localhost/caracal-{svc}:2026.05.14-dev.sha<sha>`        | `ghcr.io/garudex-labs/caracal-{svc}:v2026.05.14-rc.sha<sha>` | `ghcr.io/garudex-labs/caracal-{svc}:v2026.05.14`        |
 
@@ -122,26 +122,26 @@ scripts/testCi.sh --smoke | --go | --py | --ts
 
 Release artifacts share one CalVer: `vYYYY.MM.DD` (suffix `.N` for same-day re-cuts). Only maintainers listed in `.github/MAINTAINERS` may cut releases.
 
-### Build developer-local artifacts
+### Create dev builds
 
-Use dev builds only for source-linked local testing:
+Use dev builds only for development:
 
 ```bash
-pnpm --dir apps/cli build:release                          # stamp runtime + build local images + bun compile (all targets)
-pnpm --dir apps/tui build:release                          # stamp runtime + bun compile (all targets)
+pnpm --dir apps/cli build:release                          # stamp dev + build local images + bun compile (all targets)
+pnpm --dir apps/tui build:release                          # stamp dev + bun compile (all targets)
 BIN="$(pwd)/apps/cli/dist/caracal-cli-<os>-<arch>"         # absolute path; survives cd
 TUI="$(pwd)/apps/tui/dist/caracal-tui-<os>-<arch>"         # TUI binary; same OS/arch matrix
-pnpm caracal down                                          # Stop dev to test runtime
-"$BIN" --version                                           # → caracal 2026.05.14-dev.sha<sha> [runtime]
-"$TUI" --version                                           # → caracal-tui 2026.05.14-dev.sha<sha> [runtime]
+pnpm caracal down                                          # Stop dev before testing
+"$BIN" --version                                           # → caracal 2026.05.14-dev.sha<sha> [dev (sha <sha>)]
+"$TUI" --version                                           # → caracal-tui 2026.05.14-dev.sha<sha> [dev (sha <sha>)]
 (cd /tmp && "$BIN" up && "$BIN" status && "$TUI" && "$BIN" down)
 ```
 
 The local `build:release` stamps the binary with `CARACAL_VERSION=<base>-dev.sha<sha>` and `CARACAL_REGISTRY=localhost/`, then runs `docker compose build` to produce matching `localhost/caracal-{svc}:<base>-dev.sha<sha>` images. This path is not for downstream third-party consumption.
 
-### Prepare an rc
+### Create and publish rc
 
-Use rc builds when a downstream project must consume Caracal exactly like a third-party dependency while validating a candidate release:
+Use rc when a downstream project must consume Caracal exactly like a third-party dependency before stable:
 
 ```bash
 scripts/rc.sh prepare                         # write manifest and stamp package metadata to rc versions
@@ -152,7 +152,7 @@ git push origin HEAD && git push origin vYYYY.MM.DD-rc.sha<sha>
 
 Use `scripts/rc.sh version` only to preview a manifest without stamping package metadata; clean that preview with `scripts/rc.sh clean --manifest <manifest-path>`.
 
-Pushing an rc tag runs `.github/workflows/release.yml`, publishes OCI images to GHCR, and creates a GitHub Release marked as **prerelease**. npm packages publish with the `rc` dist-tag through `scripts/publishNpm.sh`; PyPI packages publish with PEP 440 rc versions through `scripts/publishPypi.sh`.
+Pushing an rc tag runs `.github/workflows/release.yml`, publishes OCI images to GHCR, and creates a GitHub Release for rc. npm packages publish with the `rc` dist-tag through `scripts/publishNpm.sh`; PyPI packages publish with PEP 440 rc versions through `scripts/publishPypi.sh`.
 
 Switch a downstream repo to an rc without exposing this source tree:
 
@@ -165,11 +165,13 @@ scripts/rc.sh revert --consumer /path/to/downstream
 
 The selector refreshes recognized lockfiles (`pnpm-lock.yaml`, `package-lock.json`, `uv.lock`, or `poetry.lock`) against the selected registry/index endpoints. Use `--skip-lock-refresh` only when the consumer repo intentionally manages lock refresh in its own CI job. The selector saves the previous downstream state in `.caracalRcState.json` so `revert` can restore official dependency versions and endpoint configuration.
 
-### Cutting a release
+Switch a downstream repo back to stable by reverting the rc selection and installing the stable package versions from the standard registry/index endpoints.
+
+### Create and publish stable
 
 ```bash
-scripts/release.sh               # applies changesets, computes CalVer, tags, pushes
-scripts/release.sh --dry-run     # preview without tagging
+scripts/release.sh               # applies changesets, computes CalVer, tags, pushes stable
+scripts/release.sh --dry-run     # preview stable without tagging
 ```
 
 Pushing the tag triggers `.github/workflows/release.yml`

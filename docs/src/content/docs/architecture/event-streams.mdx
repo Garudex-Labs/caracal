@@ -93,7 +93,7 @@ sig    = HMAC-SHA256(key, input)
 field  = "_sig" → hex(sig)   [written into the stream message]
 ```
 
-The `_sig` field is excluded from its own signature. Consumers verify the signature before acting on any message. Services that run with `CARACAL_MODE=runtime` require `STREAMS_HMAC_KEY` on stream paths they publish or verify; Gateway requires it at startup. Development-mode publishers and consumers may run without a stream key and log that origin verification is disabled.
+The `_sig` field is excluded from its own signature. Consumers verify the signature before acting on any message. Services that run with `CARACAL_MODE=rc` or `CARACAL_MODE=stable` require `STREAMS_HMAC_KEY` on stream paths they publish or verify; Gateway requires it at startup. dev publishers and consumers may run without a stream key and log that origin verification is disabled.
 
 This protects against an attacker with Redis write access injecting forged revocations, forged policy invalidations, or spoofed audit events.
 
