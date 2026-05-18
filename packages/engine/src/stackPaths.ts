@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 // Caracal, a product of Garudex Labs
 //
-// Resolves StackPaths for dev and runtime modes, installing and seeding assets as needed.
+// Resolves StackPaths for dev, rc, and stable modes.
 
 import { join } from 'node:path'
 import { bootstrapSecrets, devBootstrapPaths } from './secrets.js'
@@ -20,16 +20,16 @@ export interface ResolveStackPathsOptions {
 export function resolveStackPaths(opts: ResolveStackPathsOptions = {}): StackPaths {
   const mode = opts.mode ?? defaultMode()
   if (mode === 'dev') return devPaths(opts)
-  return runtimeStackPaths(opts)
+  return installedPaths(opts, mode)
 }
 
 function defaultMode(): StackMode {
   const override = process.env.CARACAL_MODE
-  if (override === 'dev' || override === 'runtime') return override
+  if (override === 'dev' || override === 'rc' || override === 'stable') return override
   if (override) {
-    throw new Error(`CARACAL_MODE must be 'dev' or 'runtime' (got '${override}')`)
+    throw new Error(`CARACAL_MODE must be 'dev', 'rc', or 'stable' (got '${override}')`)
   }
-  return process.env.CARACAL_REPO_ROOT ? 'dev' : 'runtime'
+  return process.env.CARACAL_REPO_ROOT ? 'dev' : 'stable'
 }
 
 function devPaths(opts: ResolveStackPathsOptions): StackPaths {
@@ -50,11 +50,11 @@ function devPaths(opts: ResolveStackPathsOptions): StackPaths {
   return { composeFile, envFile, cwd: repoRoot, mode: 'dev' }
 }
 
-function runtimeStackPaths(opts: ResolveStackPathsOptions): StackPaths {
+function installedPaths(opts: ResolveStackPathsOptions, mode: Exclude<StackMode, 'dev'>): StackPaths {
   const paths = runtimePaths()
   const report = installRuntimeAssets(paths)
   if (report.created) opts.onInfo?.(`provisioned runtime assets at ${paths.home}`)
   const composeFile = process.env.CARACAL_COMPOSE_FILE ?? paths.composeFile
   const envFile = process.env.CARACAL_ENV_FILE ?? paths.envFile
-  return { composeFile, envFile, cwd: paths.home, mode: 'runtime' }
+  return { composeFile, envFile, cwd: paths.home, mode }
 }

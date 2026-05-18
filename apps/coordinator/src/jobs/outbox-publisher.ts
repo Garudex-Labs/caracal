@@ -5,13 +5,13 @@
 
 import type { Pool } from 'pg'
 import type { Redis } from 'ioredis'
-import { STREAM_SIG_FIELD, isRuntime, loadStreamsHmacKey, signStream } from '@caracalai/core'
+import { STREAM_SIG_FIELD, isPublished, loadStreamsHmacKey, signStream } from '@caracalai/core'
 import { type JobHandle, type JobLogger, makeIntervalJob } from './job.js'
 import { cfg } from '../config.js'
 
 const streamHmacKey = loadStreamsHmacKey()
-if (streamHmacKey === null && isRuntime()) {
-  throw new Error('STREAMS_HMAC_KEY is required when CARACAL_MODE=runtime')
+if (streamHmacKey === null && isPublished()) {
+  throw new Error('STREAMS_HMAC_KEY is required when CARACAL_MODE=rc or CARACAL_MODE=stable')
 }
 
 interface OutboxRow {

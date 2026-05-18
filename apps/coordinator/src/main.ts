@@ -12,9 +12,9 @@ import { startDeadlineEnforcer } from './jobs/deadline-enforcer.js'
 import { startRetentionCleaner } from './jobs/retention-cleaner.js'
 import { cfg } from './config.js'
 import { ShutdownRegistry } from './lifecycle.js'
-import { assertRuntimeSafe, createLogger } from '@caracalai/core'
+import { assertPublishedSafe, createLogger } from '@caracalai/core'
 
-assertRuntimeSafe()
+assertPublishedSafe()
 
 const bootstrapLog = createLogger('coordinator-bootstrap', (cfg.logLevel ?? 'info') as 'debug' | 'info' | 'warn' | 'error' | 'fatal')
 const log = (level: 'info' | 'warn' | 'error', msg: string, meta?: Record<string, unknown>): void => {
