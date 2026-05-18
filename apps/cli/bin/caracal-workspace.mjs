@@ -32,16 +32,17 @@ if (!root) {
 
 process.env.CARACAL_REPO_ROOT = root
 
-const engineDist = join(root, 'packages/engine/dist/index.js')
-if (!existsSync(engineDist)) {
-  process.stderr.write('caracal: building @caracalai/engine (first run)…\n')
+const tsBuilds = [
+  'packages/core/ts/dist/index.js',
+  'packages/admin/ts/dist/index.js',
+  'packages/engine/dist/index.js',
+]
+if (tsBuilds.some((path) => !existsSync(join(root, path)))) {
+  process.stderr.write('caracal: building TypeScript workspace packages (first run)…\n')
   try {
-    execFileSync('pnpm', ['--filter', '@caracalai/engine', 'build'], {
-      cwd: root,
-      stdio: 'inherit',
-    })
+    execFileSync('pnpm', ['run', 'build:typescript'], { cwd: root, stdio: 'inherit' })
   } catch (err) {
-    process.stderr.write(`caracal: failed to build engine: ${err?.message ?? err}\n`)
+    process.stderr.write(`caracal: failed to build TypeScript workspace packages: ${err?.message ?? err}\n`)
     process.exit(1)
   }
 }
