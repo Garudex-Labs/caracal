@@ -139,7 +139,7 @@ docker compose --profile control up
 
 **Required when enabled:** `CARACAL_CONTROL_ENABLED=true`, `STS_JWKS_URL`, `STS_ISSUER_URL`, `CONTROL_AUDIENCE`
 
-When `CARACAL_MODE=runtime`, the control service also requires `CONTROL_REDIS_URL`, `AUDIT_HMAC_KEY`, and at least one registered upstream implementation. The current reference compose profile is intended for development validation of the surface, not as a complete production control-plane deployment.
+When `CARACAL_MODE=rc` or `CARACAL_MODE=stable`, the control service also requires `CONTROL_REDIS_URL`, `AUDIT_HMAC_KEY`, and at least one registered upstream implementation. The current reference compose profile is intended for development validation of the surface, not as a complete production control-plane deployment.
 
 ---
 
@@ -218,7 +218,7 @@ All bindings use `127.0.0.1` only. In production, services communicate over a pr
 - Replace named volumes with persistent external volumes.
 - Run multiple replicas of stateless services (STS, API, Gateway, Coordinator) behind a load balancer.
 - Supply secrets from a vault or secrets manager; do not use `.env` files.
-- Set `CARACAL_MODE=runtime`.
+- Set `CARACAL_MODE=stable`.
 - Keep `INSECURE_HTTP=false` and `INSECURE_STS=false`.
 - Provide `TLS_CERT_FILE` and `TLS_KEY_FILE` for the Gateway, or terminate TLS at a trusted ingress before traffic reaches it.
 - Set `STREAMS_HMAC_KEY` on all services that publish or consume signed Redis streams.

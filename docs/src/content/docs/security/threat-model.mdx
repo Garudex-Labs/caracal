@@ -231,7 +231,7 @@ The API accepts admin tokens stored as SHA-256 hashes. Its attack surface is:
 
 **Threat:** An attacker intercepts traffic between the Gateway and STS, or between the Coordinator and STS, to capture or modify tokens.
 
-**Mitigation:** Runtime deployments should keep service-to-service traffic on private networks and use TLS or platform mTLS where required. The Gateway rejects `INSECURE_STS=true` when `CARACAL_MODE=runtime`; its `STS_URL` must be absolute, and HTTP is allowed only for internal hosts such as Docker service names, localhost, or loopback. When the Gateway serves HTTPS directly, TLS minimum version is 1.2 via `tls.Config`. Operators are responsible for valid TLS certificates or trusted ingress-level TLS termination.
+**Mitigation:** rc and stable deployments should keep service-to-service traffic on private networks and use TLS or platform mTLS where required. The Gateway rejects `INSECURE_STS=true` when `CARACAL_MODE=rc` or `CARACAL_MODE=stable`; its `STS_URL` must be absolute, and HTTP is allowed only for internal hosts such as Docker service names, localhost, or loopback. When the Gateway serves HTTPS directly, TLS minimum version is 1.2 via `tls.Config`. Operators are responsible for valid TLS certificates or trusted ingress-level TLS termination.
 
 ---
 

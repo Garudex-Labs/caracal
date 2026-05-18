@@ -59,7 +59,7 @@ pnpm install
 Credentials are bootstrapped automatically the first time you run `caracal up`.
 No manual `.env` editing is required.
 
-The bootstrap (shared between dev and runtime modes):
+The bootstrap (shared by dev, rc, and stable):
 
 1. Creates `infra/docker/.env` from `infra/docker/.env.example` if missing.
 2. Generates random secret files in `infra/secrets/files/` (gitignored, `0444`) for Postgres, Redis, the admin token, zone KEK, and HMAC keys.
