@@ -49,14 +49,16 @@ Publish packages after `prepare`:
 ./scripts/publishPypi.sh      # rc versions use PEP 440 rc metadata
 ```
 
-Switch a downstream project to the rc:
+Switch a downstream project between rc and stable by changing only the Caracal versions it already consumes:
 
 ```sh
-scripts/rc.sh select --manifest releases/vYYYY.MM.DD-rc.sha<gitsha>/manifest.json --consumer /path/to/downstream
-scripts/rc.sh revert --consumer /path/to/downstream
+npm install @caracalai/sdk@1.4.2-rc.sha<gitsha>   # rc
+npm install @caracalai/sdk@1.4.2                  # stable
+uv add caracalai-sdk==1.4.2rc0+sha<gitsha>        # rc
+uv add caracalai-sdk==1.4.2                       # stable
 ```
 
-`select` updates package manifests, compose image references, `.npmrc`, and `caracal.rc.env` using only artifact destinations and exact rc versions. It refreshes recognized lockfiles (`pnpm-lock.yaml`, `package-lock.json`, `uv.lock`, or `poetry.lock`) against the selected registry/index endpoints; pass `--skip-lock-refresh` only when the consumer repo intentionally refreshes locks in a separate CI job. `revert` restores the files saved by `select`.
+For containers, change only `ghcr.io/garudex-labs/caracal-{svc}:v<version>`. For binaries, install the desired `--version`. Consumers must not add Caracal source paths, editable installs, Docker build contexts from this checkout, or extra env files.
 
 ---
 
@@ -137,8 +139,8 @@ Seven container images are published to GitHub Container Registry on every relea
 | `ghcr.io/garudex-labs/caracal-gateway` | Gateway |
 | `ghcr.io/garudex-labs/caracal-coordinator` | Coordinator |
 | `ghcr.io/garudex-labs/caracal-audit` | Audit service |
-| `ghcr.io/garudex-labs/caracal-postgres` | PostgreSQL runtime image |
-| `ghcr.io/garudex-labs/caracal-redis` | Redis runtime image |
+| `ghcr.io/garudex-labs/caracal-postgres` | PostgreSQL image |
+| `ghcr.io/garudex-labs/caracal-redis` | Redis image |
 
 All images are multi-arch (`linux/amd64`, `linux/arm64`) and are tagged with the CalVer version, the `vYYYY.MM` series, and `latest`.
 

@@ -91,7 +91,7 @@ Agent credentials → STS → ambient mandate (60 min)
                               └─ present to Gateway → upstream
 ```
 
-The ambient token is the long-lived session credential. It is exchanged at session start and stored in the agent's runtime environment (injected by `caracal run` as `CARACAL_SUBJECT_TOKEN`). The SDK exchanges this ambient token for per-call tokens as needed for each outbound call.
+The ambient token is the long-lived session credential. It is exchanged at session start and stored in the agent's execution environment (injected by `caracal run` as `CARACAL_SUBJECT_TOKEN`). The SDK exchanges this ambient token for per-call tokens as needed for each outbound call.
 
 ## Token response shape
 
