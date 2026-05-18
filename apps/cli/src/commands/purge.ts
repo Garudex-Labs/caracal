@@ -48,7 +48,7 @@ interface ComposeStack {
 }
 
 interface PurgeContext {
-  mode: 'dev' | 'runtime'
+  mode: 'dev' | 'rc' | 'stable'
   composeFile: string
   envFile: string
   cwd: string

@@ -17,7 +17,7 @@ import (
 )
 
 func main() {
-	config.AssertRuntimeSafe()
+	config.AssertPublishedSafe()
 	log := logging.New("control")
 
 	enabled := os.Getenv("CARACAL_CONTROL_ENABLED")
