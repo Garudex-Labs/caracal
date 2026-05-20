@@ -71,22 +71,37 @@ CLI and TUI are exact alternatives over the same engine.
 
 The control service is an OAuth-protected HTTP API hosted by the engine for any external client (script, AI agent, workflow, or another instance of CLI/TUI) that needs to drive Caracal programmatically. It is off by default.
 
+The control service reads its admin token from `infra/secrets/files/caracalAdminToken`, which is generated on the first `pnpm caracal up` or `pnpm secrets:init`. Run one of those before starting the control surface.
+
 ```bash
-docker compose --env-file infra/docker/dev.env -f infra/docker/docker-compose.yml --profile control up --build control   # start the surface
+docker compose --env-file infra/docker/dev.env -f infra/docker/docker-compose.yml --profile control up --build control
 ```
 
 If you created `infra/docker/local.env` for operator overrides, pass it after `dev.env` so local entries win.
 
-Clients authenticate with a standard OAuth2 client-credentials flow against STS.
+Clients authenticate by exchanging the zone application credentials for a token whose resource matches the control audience (`caracal-control` by default).
 
 ```bash
-# mint a token (any OAuth2 client; CLI/TUI use their caracal.toml app creds)
-curl -sX POST "$ZONE_URL/oauth/2/token" \
-  -u "$APP_CLIENT_ID:$APP_CLIENT_SECRET" \
-  -d "grant_type=client_credentials&scope=control:zone:read" | jq -r .access_token
+# set these from caracal.toml; local dev defaults STS to http://localhost:8080
+ZONE_URL=${ZONE_URL:-http://localhost:8080}
+: "${ZONE_ID:?set ZONE_ID from caracal.toml zone_id}"
+: "${APP_CLIENT_ID:?set APP_CLIENT_ID from caracal.toml application_id}"
+: "${APP_CLIENT_SECRET:?set APP_CLIENT_SECRET from caracal.toml app_client_secret}"
+
+# mint a token (use the zone/application values from caracal.toml)
+TOKEN=$(curl -fsS -X POST "${ZONE_URL%/}/oauth/2/token" \
+  -d "grant_type=urn:ietf:params:oauth:grant-type:token-exchange" \
+  -d "zone_id=$ZONE_ID" \
+  -d "application_id=$APP_CLIENT_ID" \
+  -d "client_secret=$APP_CLIENT_SECRET" \
+  -d "resource=caracal-control" \
+  -d "scope=control:zone:read" \
+  | jq -er .access_token)
+: "${TOKEN:?token mint failed}"
 
 # invoke
 curl -sH "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
   -d '{"command":"zone","subcommand":"list"}' \
   http://localhost:8087/v1/control/invoke
 ```

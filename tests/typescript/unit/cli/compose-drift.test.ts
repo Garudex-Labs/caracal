@@ -55,6 +55,13 @@ describe('docker-compose default substitutions', () => {
     expect(yaml).toContain('localhost/caracal-api:')
     expect(yaml).not.toContain('ghcr.io/garudex-labs/}caracal-api')
   })
+
+  it('dev control service consumes the admin token as a file-backed secret', () => {
+    const yaml = readFileSync(resolve(repoRoot, 'infra', 'docker', 'docker-compose.yml'), 'utf8')
+    expect(yaml).toContain('source: caracalAdminToken')
+    expect(yaml).toContain('CONTROL_API_TOKEN_FILE: /run/secrets/caracalAdminToken')
+    expect(yaml).not.toContain('CONTROL_API_TOKEN: ${CARACAL_ADMIN_TOKEN:-}')
+  })
 })
 
 describe('runtime-compose default substitutions', () => {
