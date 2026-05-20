@@ -41,7 +41,7 @@ Termination cascades. The Coordinator runs a recursive CTE that walks the subtre
 | Max active sessions per zone per application | 50 |
 | Max active sessions per application across zones | 200 |
 
-**Agent kinds:** `service`, `instance`, `ephemeral`. These are metadata on the spawn request. The Coordinator treats all three identically — kind is available to policies via `actor_claims` and to the TUI for display.
+**Agent kinds:** `service`, `instance`, `ephemeral`. These are session classes. `service` sessions must keep a heartbeat lease current or the Coordinator suspends the session and revokes its authority. `instance` and `ephemeral` sessions rely on TTL plus explicit suspend/terminate. The kind is available to policy input and audit metadata.
 
 ---
 
@@ -127,8 +127,8 @@ RETURNING id, target_session_id
 For each affected `target_session_id`, the Coordinator calls `terminateSubtree()` and enqueues lifecycle events for the terminated agent sessions.
 
 **Effect of revocation:**
-- The **STS** marks the session ID as revoked in DB state. Subsequent exchange requests for that session fail before OPA is evaluated.
-- The **Gateway** checks `revocationStore.IsRevoked(sid)` on every request and at every 4 KB chunk boundary during streaming. If the session is revoked mid-stream, the Gateway closes the upstream connection and sets an `X-Caracal-Revoked` response trailer. Revocation entries are retained for 24 hours — long enough to outlast any per-call token's 15-minute TTL.
+- The **STS** marks the session ID and descendant STS sessions as revoked in DB state. Subsequent exchange requests for that authority root fail before OPA is evaluated.
+- The **Gateway** checks the mandate's `sid`, `root_sid`, `agent_session_id`, and `delegation_edge_id` on every request and at every 4 KB chunk boundary during streaming. If authority is revoked mid-stream, the Gateway closes the upstream connection and sets an `X-Caracal-Revoked` response trailer. Revocation entries are retained for 24 hours — long enough to outlast any per-call token's 15-minute TTL.
 
 ---
 

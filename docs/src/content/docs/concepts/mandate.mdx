@@ -41,6 +41,7 @@ A mandate carries the following claims in addition to standard JWT registered cl
 | `scope` | string | Space-separated OAuth scopes granted |
 | `target` | string[] | Resource identifiers this token covers (per-call only) |
 | `sid` | string | Session ID binding the token to a specific agent session |
+| `root_sid` | string | Root authority session ID inherited by derived per-call mandates |
 | `agent_session_id` | string | Coordinator session ID |
 | `delegation_edge_id` | string | ID of the delegation edge, if delegated |
 | `source_session_id` | string | Originating session ID in a delegation chain |
@@ -51,6 +52,8 @@ A mandate carries the following claims in addition to standard JWT registered cl
 | `graph_epoch` | number | Epoch of the delegation graph at issuance |
 
 The `target` claim on per-call tokens is what prevents scope creep: the Gateway verifies that the resource being accessed appears in `target`, and rejects tokens that cover a different resource even if they have matching scopes.
+
+The `root_sid` claim keeps the authority graph simple: ambient mandates set `root_sid` to their own `sid`, and per-call mandates inherit the same value. Revoking the root authority session lets the Gateway reject every derived mandate even when each per-call token has its own `sid`.
 
 ## Signing and verification
 
@@ -103,7 +106,7 @@ Agent credentials → STS → ambient mandate (60 min)
                               └─ present to Gateway → upstream
 ```
 
-The ambient token is the session credential. It is exchanged at session start and stored in the agent's execution environment (injected by `caracal run` as `CARACAL_SUBJECT_TOKEN`). The SDK exchanges this ambient token for per-call tokens as needed for outbound calls. Delegated per-call mandates are capped by the shortest effective authority bound: STS TTL limit, delegation edge expiry, and any typed `ttl_seconds` constraint on the edge.
+The ambient token is the session credential. It is exchanged at session start and stored in the agent's execution environment (injected by `caracal run` as `CARACAL_SUBJECT_TOKEN`). The SDK exchanges this ambient token for per-call tokens as needed for outbound calls. Per-call STS sessions are linked to their parent session, and mandates carry `root_sid` for deterministic descendant revocation. Delegated per-call mandates are capped by the shortest effective authority bound: STS TTL limit, delegation edge expiry, and any typed `ttl_seconds` constraint on the edge.
 
 ## Token response shape
 

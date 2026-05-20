@@ -117,18 +117,20 @@ The `siem-export` consumer group allows an external SIEM to consume the same str
 
 ## Revocation stream detail
 
-The `caracal.sessions.revoke` stream carries session termination events:
+The `caracal.sessions.revoke` stream carries session, agent-session, and delegation revocation events:
 
 ```
 Fields:
-  zone_id    → zone identifier
-  session_id → session SID (the 'sid' claim in mandates)
-  _sig       → HMAC-SHA256 signature
+  zone_id             → zone identifier
+  session_id          → STS session SID; also the root authority for derived mandates
+  agent_session_id    → Coordinator agent session ID, when applicable
+  delegation_edge_id  → Delegation edge ID, when applicable
+  _sig                → HMAC-SHA256 signature
 ```
 
-**STS consumer (`sts-revocation`):** On each message, calls `db.RevokeSession(ctx, zoneID, sessionID)` to mark the session as revoked in Postgres. Subsequent exchange requests for that `agent_session_id` load the revoked status from DB and fail before OPA evaluation.
+**STS consumer (`sts-revocation`):** On each message with `session_id`, calls `db.RevokeSession(ctx, zoneID, sessionID)` to mark that STS session and its descendant STS sessions revoked in Postgres. Subsequent exchange requests for that authority root load the revoked status from DB and fail before OPA evaluation.
 
-**Gateway consumer (`gateway-revocation`):** Updates an in-memory `revocationStore`. On every inbound request the Gateway calls `revocationStore.IsRevoked(sid)` using the `sid` claim from the mandate. If revoked, the request is rejected with HTTP 401. During active streaming responses, the Gateway checks at every 4 KB chunk boundary and truncates the stream if revocation is detected. Revocation entries are retained for 24 hours and garbage-collected on a 30-minute cycle.
+**Gateway consumer (`gateway-revocation`):** Updates an in-memory `revocationStore`. On every inbound request the Gateway checks `sid`, `root_sid`, `agent_session_id`, and `delegation_edge_id` from the mandate. If any anchor is revoked, the request is rejected with HTTP 401. During active streaming responses, the Gateway checks at every 4 KB chunk boundary and truncates the stream if revocation is detected. Revocation entries are retained for 24 hours and garbage-collected on a 30-minute cycle.
 
 ---
 

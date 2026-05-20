@@ -6,6 +6,16 @@ pageType: workflow
 
 Resources are the protected targets in a zone. Each resource has a string identifier, a list of scopes, an optional upstream URL for Gateway routing, and an optional credential provider for downstream authentication. Providers describe the credential source the Gateway may use when an authenticated, user-bound provider grant exists.
 
+Conceptually, a resource plus its provider configuration forms a connector. Operators should reason about connectors with five explicit choices:
+
+| Connector field | Current source of truth |
+| --- | --- |
+| Protocol | The upstream URL and integration surface, such as REST, MCP-over-HTTP, gRPC-over-HTTP, webhook, or a direct verifier |
+| Auth mode | `caracal_jwt` when no provider is attached; brokered OAuth/OIDC/API-key when a supported provider grant is attached |
+| Gateway mode | Gateway proxy when `upstream_url` and `gateway_application_id` are set; direct verifier otherwise |
+| Identity forwarding | Off by default; enabled only by provider config `forward_caracal_identity: true` for trusted sidecars or controlled MCP servers |
+| Audit mode | Gateway-proxied connectors record authorization and execution outcome; direct connectors must emit their own result audit if they need action-proof records |
+
 ## Prerequisites
 
 - `CARACAL_ADMIN_TOKEN` set.

@@ -21,6 +21,7 @@ The Coordinator owns:
 - **Invocation persistence** — durable, idempotent RPC records with status tracking (`pending` → `running` → `succeeded`|`failed`|`timed_out`).
 - **Deadline enforcement** — cancels invocations that exceed their `timeout_ms`.
 - **TTL enforcement** — terminates agent sessions whose `ttl_seconds` has elapsed.
+- **Service lease enforcement** — suspends `service` agent sessions that miss their heartbeat deadline and publishes revocation events.
 - **Delegation graph** — creates and revokes directed authority edges between agent sessions.
 - **Retention** — deletes old delegation edges and outbox rows beyond the configured retention window.
 
@@ -55,8 +56,8 @@ All routes are zone-scoped: `/zones/:zoneId/...`
 | `POST` | `/zones/:zoneId/agents` | Spawn an agent session |
 | `GET` | `/zones/:zoneId/agents` | List agent sessions (cursor pagination) |
 | `GET` | `/zones/:zoneId/agents/:id` | Fetch one agent session |
-| `POST` | `/zones/:zoneId/agents/:id/suspend` | Suspend an agent |
-| `POST` | `/zones/:zoneId/agents/:id/resume` | Resume a suspended agent |
+| `PATCH` | `/zones/:zoneId/agents/:id/suspend` | Suspend an agent |
+| `PATCH` | `/zones/:zoneId/agents/:id/resume` | Resume a suspended agent |
 | `DELETE` | `/zones/:zoneId/agents/:id` | Cascade-terminate an agent |
 
 **Spawn constraints** — enforced under a distributed lock on `coordinator:agent_spawn:{zoneId}`:
@@ -74,14 +75,15 @@ Spawn is idempotent — pass an `Idempotency-Key` header to guarantee at-most-on
 
 **Cascade termination** — `DELETE` terminates the target agent and all its descendants recursively. A termination event is published to the outbox for each terminated session.
 
+**Service session lease** — `kind=service` creates a heartbeat deadline. `POST /zones/:zoneId/agents/:id/heartbeat` renews the lease; if the deadline is missed, the service lease sweeper suspends the session subtree and emits revocation events.
+
 ### Agent services
 
 | Method | Path | Description |
 | --- | --- | --- |
-| `POST` | `/zones/:zoneId/agents/:agentId/services` | Register a service endpoint |
-| `GET` | `/zones/:zoneId/agents/:agentId/services` | List services for an agent |
-| `PATCH` | `/zones/:zoneId/agents/:agentId/services/:serviceId` | Update service metadata or health |
-| `POST` | `/zones/:zoneId/agents/:agentId/services/:serviceId/heartbeat` | Record a heartbeat |
+| `POST` | `/zones/:zoneId/agent-services` | Register a service endpoint |
+| `GET` | `/zones/:zoneId/agent-services` | List service endpoints |
+| `POST` | `/zones/:zoneId/agents/:id/heartbeat` | Record an agent heartbeat and optional service health |
 
 Service health values: `starting`, `healthy`, `degraded`, `unhealthy`.
 
@@ -114,7 +116,7 @@ Delegation edges carry typed `constraints_json` (resource labels, scope-count bu
 
 The Coordinator owns four tables:
 
-**`agent_sessions`** — `id`, `zone_id`, `application_id`, `subject_session_id` (parent user session), `parent_id` (self-referential FK), `agent_kind` (`service`|`instance`|`ephemeral`), `capabilities` (array), `status` (`active`|`suspended`|`terminated`), `depth`, `ttl_seconds`, `spawned_at`, `suspended_at`, `terminated_at`, timestamps. Indexed on `(zone_id, application_id)` and `(zone_id, status)`.
+**`agent_sessions`** — `id`, `zone_id`, `application_id`, `subject_session_id` (authority root session), `parent_id` (self-referential FK), `agent_kind` (`service`|`instance`|`ephemeral`), `capabilities` (array), `status` (`active`|`suspended`|`terminated`), `depth`, `ttl_seconds`, `last_heartbeat_at`, `heartbeat_deadline_at`, `spawned_at`, `terminated_at`, timestamps. Indexed on `(zone_id, application_id)`, `(zone_id, status)`, and active service heartbeat deadlines.
 
 **`agent_services`** — `id`, `zone_id`, `application_id`, `endpoint_url`, `protocol_versions` (array), `framework_name`, `framework_version`, `capabilities` (array), `health`, `metadata_json` (JSONB), `last_heartbeat_at`, timestamps. Unique constraint on `(zone_id, application_id, endpoint_url)`.
 
@@ -126,11 +128,13 @@ The Coordinator owns four tables:
 
 ## Background workers
 
-The Coordinator runs four background workers alongside the HTTP server:
+The Coordinator runs five background workers alongside the HTTP server:
 
 **OutboxPublisher** — polls the `caracal_outbox` table every `OUTBOX_INTERVAL_MS` (default 1000 ms), publishes ready rows to Redis streams, retries with exponential backoff up to `OUTBOX_MAX_ATTEMPTS`.
 
 **TTL Sweeper** — runs every `TTL_SWEEP_INTERVAL_MS` (default 60 s). Queries `agent_sessions` for active sessions whose `spawned_at + ttl_seconds` has elapsed and terminates them.
+
+**Service Lease Sweeper** — runs every `SERVICE_LEASE_SWEEP_INTERVAL_MS` (default 30 s). Suspends active `service` sessions whose `heartbeat_deadline_at` has elapsed and emits revocation events for the session subtree.
 
 **Deadline Enforcer** — runs every `DEADLINE_SWEEP_INTERVAL_MS` (default 5 s). Queries `agent_invocations` for `running` invocations past `deadline_at` and marks them `timed_out`.
 
@@ -144,7 +148,7 @@ The Coordinator runs four background workers alongside the HTTP server:
 
 | Stream | Event |
 | --- | --- |
-| `caracal.sessions.revoke` | Agent session terminated |
+| `caracal.sessions.revoke` | Agent session suspended, terminated, or delegation-revoked |
 | `caracal.policy.invalidate` | Delegation policy change |
 
 **Distributed lock:**
@@ -160,10 +164,11 @@ The Coordinator runs four background workers alongside the HTTP server:
 3. Connect to Redis.
 4. Start OutboxPublisher.
 5. Start TTL Sweeper.
-6. Start Deadline Enforcer.
-7. Start Retention Cleaner.
-8. Register signal handlers (SIGTERM, SIGINT).
-9. Listen on `0.0.0.0:4000`.
+6. Start Service Lease Sweeper.
+7. Start Deadline Enforcer.
+8. Start Retention Cleaner.
+9. Register signal handlers (SIGTERM, SIGINT).
+10. Listen on `0.0.0.0:4000`.
 
 The Coordinator does not run database migrations. All schema changes are managed by the Control-Plane API.
 
@@ -194,6 +199,8 @@ Invocation idempotency is enforced at the database level via a unique constraint
 | `OUTBOX_BATCH_SIZE` | `50` | Events per outbox dispatch batch |
 | `OUTBOX_MAX_ATTEMPTS` | `10` | Max outbox retry attempts |
 | `TTL_SWEEP_INTERVAL_MS` | `60000` | Agent TTL enforcement interval |
+| `SERVICE_LEASE_SWEEP_INTERVAL_MS` | `30000` | Service heartbeat lease enforcement interval |
+| `SERVICE_AGENT_LEASE_SECONDS` | `120` | Heartbeat lease duration for `service` agent sessions |
 | `DEADLINE_SWEEP_INTERVAL_MS` | `5000` | Invocation deadline enforcement interval |
 | `RETENTION_CLEANUP_INTERVAL_MS` | `900000` | Retention cleanup interval |
 | `DELEGATION_RETENTION_DAYS` | `90` | Delegation edge retention period |

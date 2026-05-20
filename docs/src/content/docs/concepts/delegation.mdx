@@ -95,8 +95,8 @@ Edge A→B revoked
 
 For each revoked session, the Coordinator enqueues a revocation event through the outbox pattern to the `caracal.sessions.revoke` Redis stream. The STS and Gateway subscribe to this stream and propagate the revocation:
 
-- The **STS** marks the session ID as revoked in its revocation cache, rejecting any future token exchanges for that session.
-- The **Gateway** checks the revocation cache on every request and at every 4 KB chunk boundary during streaming. If a session is revoked mid-stream, the Gateway closes the upstream connection and sets a `X-Caracal-Revoked` response trailer.
+- The **STS** marks the session ID and descendant STS sessions as revoked, rejecting any future token exchanges for that authority root.
+- The **Gateway** checks the mandate `sid`, `root_sid`, `agent_session_id`, and `delegation_edge_id` on every request and at every 4 KB chunk boundary during streaming. If authority is revoked mid-stream, the Gateway closes the upstream connection and sets a `X-Caracal-Revoked` response trailer.
 
 Revocation propagates in near real-time via the Redis stream. The Gateway's revocation cache holds entries for 24 hours after revocation — sufficient to cover any in-flight per-call token's 15-minute TTL.
 
@@ -104,7 +104,7 @@ The revocation event includes both identifiers when available:
 
 | Field | Why it is included |
 | ----- | ------------------ |
-| `session_id` | STS `sessions.id`; lets STS mark the credential session revoked and reject future exchanges |
+| `session_id` | STS `sessions.id`; lets STS mark the credential session and descendants revoked and lets Gateway reject derived mandates by `root_sid` |
 | `agent_session_id` | Coordinator `agent_sessions.id`; lets Gateway reject already-issued mandates by agent authority record |
 | `delegation_edge_id` | Revoked edge identifier; lets Gateway reject already-issued delegated mandates even if an agent-session event is delayed |
 

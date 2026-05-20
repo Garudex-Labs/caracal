@@ -37,10 +37,10 @@ Every request processed by the Gateway follows this path:
 2. **Resolve binding** — reads the token `zone_id` claim and `X-Caracal-Resource`, then loads the `(zone_id, resource_identifier)` Gateway binding.
 3. **Verify JWT** — fetches the zone's JWKS from the STS and verifies the ES256 signature. Returns 401 on failure.
 4. **Check JTI** — checks Redis to determine whether the JWT's `jti` claim has already been seen. Returns 401 if a per-call token is replayed.
-5. **Check revocation** — checks subject and agent session revocation. Returns 401 if either is revoked.
+5. **Check revocation** — checks the token `sid`, `root_sid`, `agent_session_id`, and `delegation_edge_id`. Returns 401 if any authority anchor is revoked.
 6. **Exchange mandate** — calls `POST {STS_URL}/oauth/2/token` with the caller's token as `subject_token`, the target resource as `resource`, and an internal Gateway HMAC assertion. Returns 401 or 403 if the STS denies.
 7. **Forward request** — sends the original request to the upstream URL, replacing the `Authorization` header with the STS mandate or provider-native credential chosen by STS. Adds `X-Request-Id` and trace headers. Provider-native mode does not forward Caracal identity unless provider config explicitly opts in.
-8. **Audit and stream response** — emits a safe audit event, then copies the upstream response body back to the client.
+8. **Audit and stream response** — emits a safe action audit event with request, upstream status, result class, response byte count, latency, and revocation interruption state, then copies the upstream response body back to the client.
 
 If the upstream returns an error, the Gateway returns 502 (unreachable) or 504 (timeout).
 
@@ -88,9 +88,9 @@ The Gateway records each JWT's `jti` claim in Redis with a TTL matching the toke
 
 ## Revocation sync
 
-The Gateway subscribes to the `caracal.sessions.revoke` Redis stream using a consumer group. When a session is revoked (by the API), the stream carries the session ID. The Gateway adds it to an in-process revocation set checked on every request.
+The Gateway subscribes to the `caracal.sessions.revoke` Redis stream using a consumer group. Revocation events can carry an STS session ID, agent session ID, or delegation edge ID. The Gateway adds each identifier to an in-process revocation set checked on every request.
 
-Revocation propagates from the API → Redis stream → Gateway's in-process set in under 5 seconds under normal conditions. Tokens issued before revocation that have not been used are rejected on the next request.
+Revocation propagates from the API → Redis stream → Gateway's in-process set in under 5 seconds under normal conditions. Tokens issued before revocation that have not been used are rejected on the next request when their current `sid`, inherited `root_sid`, `agent_session_id`, or `delegation_edge_id` matches revocation state.
 
 ---
 
