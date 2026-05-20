@@ -54,6 +54,7 @@ const (
 
 // OPAInput is the canonical input shape for every policy evaluation.
 type OPAInput struct {
+	SchemaVersion  string             `json:"schema_version"`
 	Principal      OPAPrincipal       `json:"principal"`
 	Resource       OPAResource        `json:"resource"`
 	Action         OPAAction          `json:"action"`

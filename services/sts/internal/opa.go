@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -21,6 +22,7 @@ import (
 )
 
 const defaultPGPollInterval = 60 * time.Second
+const opaInputSchemaVersion = "2026-05-20"
 
 // forbiddenBuiltins names Rego built-ins that policies must not use because they
 // reach the network, the host clock, or the OPA runtime — any of which would
@@ -120,6 +122,9 @@ func (e *OPAEngine) Evaluate(ctx context.Context, input OPAInput) (*OPAResult, e
 	started := time.Now()
 	e.metrics.EvalTotal.Add(1)
 	defer func() { e.metrics.EvalNanos.Add(uint64(time.Since(started).Nanoseconds())) }()
+	if input.SchemaVersion == "" {
+		input.SchemaVersion = opaInputSchemaVersion
+	}
 	e.mu.RLock()
 	state, ok := e.zones[input.Principal.ZoneID]
 	e.mu.RUnlock()
@@ -154,7 +159,23 @@ func (e *OPAEngine) Evaluate(ctx context.Context, input OPAInput) (*OPAResult, e
 		e.metrics.EvalErrors.Add(1)
 		return nil, fmt.Errorf("unmarshal opa result: %w", err)
 	}
+	if err := validateOPAResult(result); err != nil {
+		e.metrics.EvalErrors.Add(1)
+		return nil, err
+	}
 	return &result, nil
+}
+
+func validateOPAResult(result OPAResult) error {
+	switch strings.TrimSpace(result.Decision) {
+	case "allow", "deny":
+	default:
+		return fmt.Errorf("opa result decision must be allow or deny")
+	}
+	if strings.TrimSpace(result.EvaluationStatus) == "" {
+		return fmt.Errorf("opa result evaluation_status is required")
+	}
+	return nil
 }
 
 // ZoneBundleInfo identifies the policy_set version backing a zone's compiled bundle so

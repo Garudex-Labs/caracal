@@ -34,10 +34,11 @@ const (
 )
 
 type delegationProof struct {
-	edge       *DelegationEdge
-	path       []string
-	chain      []ChainHop
-	graphEpoch int64
+	edge        *DelegationEdge
+	constraints delegationConstraints
+	path        []string
+	chain       []ChainHop
+	graphEpoch  int64
 }
 
 type delegationConstraints struct {
@@ -277,6 +278,7 @@ func (s *Server) exchange(ctx context.Context, req TokenExchangeRequest, request
 		}
 
 		opaInput := OPAInput{
+			SchemaVersion: opaInputSchemaVersion,
 			Principal: OPAPrincipal{
 				Type:           "Application",
 				ID:             app.ID,
@@ -370,6 +372,9 @@ func (s *Server) exchange(ctx context.Context, req TokenExchangeRequest, request
 	ttl, ttlErr := tokenTTL(req.TTLSeconds, req.SubjectToken == "")
 	if ttlErr != nil {
 		return nil, nil, http.StatusBadRequest, sharederr.New(sharederr.InvalidToken, ttlErr.Error())
+	}
+	if ttl, ttlErr = effectiveTokenTTL(ttl, delegation, now); ttlErr != nil {
+		return nil, nil, http.StatusForbidden, sharederr.New(sharederr.AccessDenied, ttlErr.Error())
 	}
 	subjectID := app.ID
 	sessionType := "application"
@@ -869,11 +874,7 @@ func (s *Server) validateSessionReferences(ctx context.Context, zoneID, appID st
 		return nil, nil, sharederr.New(sharederr.AccessDenied, "requested scopes exceed delegation budget")
 	}
 	if constraints.TTLSeconds > 0 {
-		requestedTTL := req.TTLSeconds
-		if requestedTTL == 0 {
-			requestedTTL = int(ttlPerCallSDK.Seconds())
-		}
-		if requestedTTL > constraints.TTLSeconds {
+		if req.TTLSeconds > constraints.TTLSeconds {
 			return nil, nil, sharederr.New(sharederr.AccessDenied, "requested ttl exceeds delegation ttl")
 		}
 	}
@@ -898,7 +899,7 @@ func (s *Server) validateSessionReferences(ctx context.Context, zoneID, appID st
 	if chainErr != nil {
 		return nil, nil, chainErr
 	}
-	return &delegationProof{edge: edge, path: path, chain: chain, graphEpoch: graphEpoch}, target, nil
+	return &delegationProof{edge: edge, constraints: constraints, path: path, chain: chain, graphEpoch: graphEpoch}, target, nil
 }
 
 // buildDelegationChain resolves each edge id along the path to a chain hop the
@@ -957,6 +958,29 @@ func parseDelegationConstraints(raw json.RawMessage) (delegationConstraints, err
 		return constraints, err
 	}
 	return constraints, nil
+}
+
+func effectiveTokenTTL(ttl time.Duration, proof *delegationProof, now time.Time) (time.Duration, error) {
+	if proof == nil || proof.edge == nil {
+		return ttl, nil
+	}
+	edgeTTL := proof.edge.ExpiresAt.Sub(now)
+	if edgeTTL <= 0 {
+		return 0, fmt.Errorf("delegation edge inactive or expired")
+	}
+	if edgeTTL < ttl {
+		ttl = edgeTTL
+	}
+	if proof.constraints.TTLSeconds > 0 {
+		constraintTTL := time.Duration(proof.constraints.TTLSeconds) * time.Second
+		if constraintTTL < ttl {
+			ttl = constraintTTL
+		}
+	}
+	if ttl <= 0 {
+		return 0, fmt.Errorf("effective delegation ttl expired")
+	}
+	return ttl, nil
 }
 
 func containsString(values []string, wanted string) bool {
