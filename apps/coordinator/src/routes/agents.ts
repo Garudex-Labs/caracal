@@ -18,13 +18,20 @@ const MAX_PER_APP = 200
 const DEFAULT_TTL = 3600
 const LIST_DEFAULT_LIMIT = 100
 const LIST_MAX_LIMIT = 500
+export const MAX_AGENT_CAPABILITIES = 32
+export const MAX_AGENT_CAPABILITY_LENGTH = 64
+
+export const AgentKind = z.enum(['service', 'instance', 'ephemeral'])
+export const AgentCapabilities = z.array(
+  z.string().trim().min(1).max(MAX_AGENT_CAPABILITY_LENGTH),
+).max(MAX_AGENT_CAPABILITIES).default([])
 
 const SpawnBody = z.object({
   application_id: z.string().min(1),
   subject_session_id: z.string().min(1).optional(),
   parent_id: z.string().nullable().default(null),
-  kind: z.enum(['service', 'instance', 'ephemeral']).default('ephemeral'),
-  capabilities: z.array(z.string()).default([]),
+  kind: AgentKind.default('ephemeral'),
+  capabilities: AgentCapabilities,
   ttl_seconds: z.number().int().min(1).max(86400).default(DEFAULT_TTL),
   metadata: z.record(z.string(), z.unknown()).default({}),
 })

@@ -13,6 +13,13 @@ function buildApp() {
   const db = { query: vi.fn(), connect: vi.fn() }
   app.decorate('db', db as never)
   app.decorate('redis', {} as never)
+  app.setErrorHandler((err, _req, reply) => {
+    if (err && typeof err === 'object' && 'issues' in err) {
+      reply.code(400).send({ error: 'invalid_body' })
+      return
+    }
+    reply.send(err)
+  })
   app.addHook('preHandler', async (req) => {
     const body = (req.body ?? {}) as Record<string, unknown>
     const clientId = (body.application_id as string)
@@ -190,6 +197,32 @@ describe('POST /v1/zones/:zoneId/agents — spawn', () => {
     expect(JSON.parse(res.body)).toMatchObject({ agent_session_id: 'agent-sdk' })
     const refsCall = client.query.mock.calls.find((call) => String(call[0]).includes('session_exists'))
     expect(refsCall?.[1]).toEqual(['z1', 'app-1', 'sid-test'])
+  })
+
+  it('rejects oversized capability metadata before spawning', async () => {
+    const { app, db } = buildApp()
+    await app.ready()
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/zones/z1/agents',
+      payload: { application_id: 'app-1', subject_session_id: 'sid-1', capabilities: Array.from({ length: 33 }, (_, i) => `cap${i}`) },
+    })
+    expect(res.statusCode).toBe(400)
+    expect(JSON.parse(res.body)).toMatchObject({ error: 'invalid_body' })
+    expect(db.connect).not.toHaveBeenCalled()
+  })
+
+  it('rejects overlong capability values before spawning', async () => {
+    const { app, db } = buildApp()
+    await app.ready()
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/zones/z1/agents',
+      payload: { application_id: 'app-1', subject_session_id: 'sid-1', capabilities: ['x'.repeat(65)] },
+    })
+    expect(res.statusCode).toBe(400)
+    expect(JSON.parse(res.body)).toMatchObject({ error: 'invalid_body' })
+    expect(db.connect).not.toHaveBeenCalled()
   })
 })
 

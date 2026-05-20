@@ -8,14 +8,15 @@ import type { FastifyPluginAsync, FastifyRequest, FastifyReply, FastifyInstance 
 import { z } from 'zod'
 import { verify, type JwtConfig } from '@caracalai/identity'
 import { cfg } from '../config.js'
+import { AgentCapabilities, AgentKind } from './agents.js'
 
 const BeginBody = z.object({
   zone_id: z.string().min(1),
   application_id: z.string().min(1),
   subject_session_id: z.string().min(1),
   parent_id: z.string().nullable().default(null),
-  kind: z.enum(['service', 'instance', 'ephemeral']).default('ephemeral'),
-  capabilities: z.array(z.string()).default([]),
+  kind: AgentKind.default('ephemeral'),
+  capabilities: AgentCapabilities,
   ttl_seconds: z.number().int().min(1).max(86400).optional(),
 })
 
