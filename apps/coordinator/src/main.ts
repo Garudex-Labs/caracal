@@ -11,7 +11,7 @@ import { startTTLSweeper } from './jobs/ttl-sweeper.js'
 import { startDeadlineEnforcer } from './jobs/deadline-enforcer.js'
 import { startRetentionCleaner } from './jobs/retention-cleaner.js'
 import { cfg } from './config.js'
-import { assertPublishedSafe, createLogger, ShutdownRegistry } from '@caracalai/core'
+import { assertPublishedSafe, createLogger, ShutdownRegistry, withTimeout } from '@caracalai/core'
 
 assertPublishedSafe()
 
@@ -38,12 +38,13 @@ const shutdown = new ShutdownRegistry({
 })
 shutdown.register('redis', () => closeRedis(redis))
 shutdown.register('postgres', () => db.end())
+shutdown.install()
 
 try {
-  await redis.ping()
-  await db.query('SELECT 1')
+  await withTimeout(redis.ping(), cfg.shutdownGraceMs, 'startup redis ping timed out')
+  await withTimeout(db.query('SELECT 1'), cfg.shutdownGraceMs, 'startup postgres ping timed out')
 
-  const app = await buildApp({ cfg, db, redis })
+  const app = await buildApp({ cfg, db, redis, isDraining: () => shutdown.draining })
 
   const outbox = startOutboxPublisher(db, redis, { log: app.log })
   const ttl = startTTLSweeper(db, { log: app.log })
@@ -55,7 +56,6 @@ try {
   shutdown.register('ttl-sweeper', () => ttl.stop())
   shutdown.register('outbox-publisher', () => outbox.stop())
   shutdown.register('fastify', () => app.close())
-  shutdown.install()
 
   try {
     await app.listen({ port: cfg.port, host: cfg.host })

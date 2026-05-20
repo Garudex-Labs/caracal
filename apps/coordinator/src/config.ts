@@ -46,6 +46,7 @@ function buildCfg() {
     invocationRateLimitPerMin: intEnv('INVOCATION_RATE_LIMIT_PER_MIN', 120, 0),
     v1RateLimitPerMin: intEnv('V1_RATE_LIMIT_PER_MIN', 300, 0),
     coordinatorRateLimitPerMin: intEnv('COORDINATOR_RATE_LIMIT_PER_MIN', 600, 0),
+    readyRateLimitPerMin: intEnv('READY_RATE_LIMIT_PER_MIN', 120, 0),
     dedupeWindowSec: intEnv('RELAY_DEDUPE_WINDOW_SEC', 3600),
     logLevel: getenv('LOG_LEVEL', 'info'),
     trustProxy: boolEnv('TRUST_PROXY', false),
