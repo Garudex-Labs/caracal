@@ -4,7 +4,7 @@ description: Bring up Postgres, Redis, STS, API, Gateway, Audit, and Coordinator
 pageType: workflow
 ---
 
-This quickstart brings up the full Caracal OSS stack on your local machine using Docker, verifies all services are healthy, and creates a local zone ready for integration.
+This quickstart brings up the full Caracal OSS stack, verifies service health, and prepares the default Gateway-first flow: a zone, an agent app, a tool/provider resource, and a policy template.
 
 :::note[Contributors]
 This page covers the **installed binary** workflow. If you are building Caracal from source, follow [Local Setup](../contributing/setup/) instead.
@@ -18,9 +18,9 @@ The stack consists of seven services:
 | ------- | ---- | ------- |
 | PostgreSQL | 5432 | Persistent state (zones, policies, sessions, audit events) |
 | Redis | 6379 | Event streams, revocation signals, JTI replay tracking |
-| STS | 8080 | Token exchange with OPA policy evaluation |
+| STS | 8080 | Public token exchange with OPA policy evaluation |
 | API | 3000 | Control-plane REST — zones, policies, resources, grants |
-| Gateway | 8081 | MCP reverse proxy with mandate verification |
+| Gateway | 8081 | Default tool/provider execution plane |
 | Audit | 9090 | Audit event consumer and ledger writer |
 | Coordinator | 4000 | Agent session lifecycle and delegation graph |
 
@@ -83,19 +83,52 @@ If a service is not healthy within two minutes, check its logs:
 docker logs caracal-sts-1 --tail 50
 ```
 
-## Step 4: Provision a zone and application
+## Step 4: Provision the golden path
 
-The stack starts with an empty database. Create a zone, register an application, and capture the generated client secret. The admin token is read from `$CARACAL_HOME/secrets/caracalAdminToken` automatically — no manual export is needed.
+The stack starts with an empty database. Create the product objects needed for a Gateway-routed agent call. The admin token is read from `$CARACAL_HOME/secrets/caracalAdminToken` automatically — no manual export is needed.
 
 ```sh
 caracal zone create --name local
 # → captures the new zone id, e.g. zone_abc123
 
-caracal app create --zone zone_abc123 --name local-app
-# → prints the application id and the client secret (shown only on creation)
+LOCAL_AGENT_SECRET="$(openssl rand -hex 32)"
+caracal app create \
+  --zone zone_abc123 \
+  --name local-agent \
+  --credential-type password \
+  --client-secret "$LOCAL_AGENT_SECRET"
+# → captures the agent application id, e.g. app_def456
+
+caracal resource create \
+  --zone zone_abc123 \
+  --identifier "resource://local-tool" \
+  --scopes "tool:read,tool:write" \
+  --name "Local Tool" \
+  --upstream-url "http://host.docker.internal:8090" \
+  --gateway-application-id app_def456
+# → creates the tool/provider resource and its Gateway provider route
+
+caracal policy template list
+caracal policy template use baseline-scopes --zone zone_abc123 --name "Local Gateway Policy"
+# → creates a policy from the baseline scopes template
 ```
 
-Register a resource the application will exchange tokens for, and activate a policy that permits the exchange. See [Define Resources and Providers](../../guides/resources-providers/) and [Author a Rego Policy](../../guides/author-policy/) for the full schema.
+Create a policy set, add the created policy version, activate it, then grant the agent app the resource scopes:
+
+```sh
+caracal policy-set create --zone zone_abc123 --name "Local Policies"
+caracal policy-set version pset_abc123 --zone zone_abc123 --policy-versions pver_abc123
+caracal policy-set activate pset_abc123 --zone zone_abc123 --version psetver_abc123
+
+caracal grant create \
+  --zone zone_abc123 \
+  --app app_def456 \
+  --user local-user \
+  --resource res_abc123 \
+  --scopes tool:read,tool:write
+```
+
+The `--gateway-application-id` value is the same-zone service identity Gateway uses for the internal STS exchange. In production, use a dedicated Gateway application identity; for local smoke tests, reusing the local agent app is acceptable.
 
 Author `caracal.toml` in your project directory with the values from the previous step:
 
@@ -104,11 +137,11 @@ zone_url = "http://localhost:8080"
 zone_id  = "zone_abc123"
 
 application_id     = "app_def456"
-app_client_secret  = "<client secret from caracal app create>"
+app_client_secret  = "<value of LOCAL_AGENT_SECRET>"
 
 [[credentials]]
 env      = "RESOURCE_TOKEN"
-resource = "resource://my-api"
+resource = "resource://local-tool"
 
 [mcp_governance]
 mode = "block"
@@ -120,15 +153,15 @@ Set the file mode to `0600` — it contains your application's client secret.
 chmod 600 caracal.toml
 ```
 
-## Step 5: Verify the token exchange
+## Step 5: Verify scoped access
 
-With the stack and `caracal.toml` in place, request a token for the registered resource:
+With the stack and `caracal.toml` in place, request a short-lived access token for the registered resource:
 
 ```sh
 caracal credential read resource://my-api
 ```
 
-If successful, a JWT is printed to stdout. This is a mandate — an ES256-signed token issued by the STS after the active policy permitted the exchange.
+If successful, a signed Caracal access token is printed to stdout. This proves the public STS allowed the agent app to access the resource; provider-native credentials are not returned to the CLI.
 
 Decode it to inspect the claims:
 
@@ -137,6 +170,8 @@ caracal credential read resource://my-api | cut -d. -f2 | base64 -d | jq .
 ```
 
 You should see claims including `zone_id`, `scope`, `target`, and an expiry (`exp`) 15 minutes from now.
+
+To test the full product path, run a local HTTP service on port `8090`, then call it through the Gateway from an SDK integration or a process launched by `caracal run`. The Gateway verifies the Caracal token, resolves the provider route, forwards the upstream call, and records action-result audit.
 
 ## Stopping the stack
 
@@ -151,7 +186,7 @@ This stops and removes containers but preserves the named volumes (`postgresData
 At this point you have:
 
 - A fully operational seven-service Caracal stack
-- A zone with a registered application, resource, and active policy
+- A zone with an agent app, tool/provider resource, active policy template, grant, and Gateway provider route
 - A `caracal.toml` that the CLI and SDKs can read for configuration
 
 Continue to [First Integration](./first-integration/) to wire an application to Caracal using the SDK.

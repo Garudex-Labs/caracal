@@ -4,26 +4,38 @@ description: Orient yourself before you install or integrate.
 pageType: landing
 ---
 
-This page tells you who Caracal is for, what background you need, and where to start depending on your role.
+This page tells you who Caracal is for, the default path to value, and where to start depending on your role.
 
 ## Who this is for
 
-Caracal is built for teams that run AI agents, autonomous workflows, or multi-service integrations that need auditable, policy-controlled access to tools, APIs, or data. It is a good fit if you need to answer questions like:
+Caracal is built for teams that run AI agents, autonomous workflows, or multi-service integrations that need scoped, revocable, auditable access to tools, APIs, SaaS providers, or data. It is a good fit if you need to answer questions like:
 
 - Which agent was allowed to call this API, and under what policy?
 - If an agent misbehaves, can I revoke its access without restarting anything?
 - Can I delegate narrow authority from one agent to a child without copying credentials?
 - How do I enforce that no agent acts outside its declared scope before it acts?
 
-Caracal is not an LLM framework, a prompt router, or an agent scheduler. It is an authorization control plane that sits between agent code and the tools or APIs those agents call.
+Caracal is not an LLM framework, a prompt router, or an agent scheduler. It is the access boundary between agent code and the tools or APIs those agents call.
+
+## The golden path
+
+The simplest safe path is:
+
+```text
+agent app → Caracal SDK → Gateway → tool/provider
+                 │          │
+                 └─ audit + revocation + scoped access
+```
+
+In that path, agent code receives short-lived Caracal access tokens, not provider secrets. The Gateway verifies the token, checks revocation, brokers the provider credential only inside the trusted boundary, forwards the request, and records the action outcome.
 
 ## What background helps
 
-You do not need to understand all of Caracal upfront. But the following background makes the concepts land faster:
+You do not need to understand all of Caracal upfront. The following background helps, but the onboarding path avoids requiring you to reason about every internal object:
 
-- Familiarity with OAuth 2.0 token exchange (RFC 8693) — Caracal uses this at its core
-- Basic understanding of JWTs — mandates are JWTs signed with ES256
-- A general sense of what a reverse proxy does — the Gateway is one
+- A general sense of what a reverse proxy does — the Gateway is the default execution plane
+- Basic understanding of scoped access tokens — Caracal issues short-lived signed tokens
+- Familiarity with policy-as-code if you plan to customize policy templates
 - Comfort with Docker Compose for running the local stack
 
 The [Key Ideas at a Glance](./key-ideas/) page covers the domain model in one concise reference if you want a conceptual map before diving in.
@@ -34,7 +46,7 @@ The [Key Ideas at a Glance](./key-ideas/) page covers the domain model in one co
 : Start with [Installation](./installation/) → [Quickstart](./quickstart/). Skip the conceptual pages for now and come back to [Concepts](/concepts/) once the stack is running.
 
 **I want to integrate my application with the SDK**
-: Read [What Caracal Does](./what-caracal-does/) to understand the enforcement model, then jump to [First Integration](./first-integration/) and the relevant [SDK page](/sdks/).
+: Read [What Caracal Does](./what-caracal-does/) to understand the Gateway path, then jump to [First Integration](./first-integration/) and the relevant [SDK page](/sdks/).
 
 **I want to write authorization policies**
 : Read [What Caracal Does](./what-caracal-does/), then [Policy](/concepts/policy/) in Concepts, then [Author a Rego Policy](/guides/author-policy/) in Guides.
@@ -47,4 +59,4 @@ The [Key Ideas at a Glance](./key-ideas/) page covers the domain model in one co
 
 ## Terminology note
 
-The word **mandate** refers to the short-lived JWT that Caracal issues to an agent. It is the output of a successful OPA policy evaluation at the STS. You will see it used throughout the docs wherever other systems might say "access token."
+Onboarding docs use product terms first: **agent run**, **tool/provider resource**, **provider route**, **delegated permission**, and **short-lived access token**. Reference docs use the precise internal terms, such as mandate, STS session, delegation edge, caveat, and Gateway binding.

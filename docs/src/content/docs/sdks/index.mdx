@@ -4,7 +4,9 @@ description: Package reference for the TypeScript, Python, and Go SDKs and all c
 pageType: landing
 ---
 
-Caracal publishes a layered set of packages across TypeScript, Python, and Go. The SDK packages handle session lifecycle and context propagation. The companion packages handle token exchange, identity verification, revocation, and administration. The connector packages adapt Caracal to specific server frameworks.
+Caracal publishes a layered set of packages across TypeScript, Python, and Go. The main SDK packages are the default way to run agents through Caracal and call the Gateway with scoped access. Companion packages handle token exchange, identity verification, revocation, and administration. Connector packages adapt Caracal to direct-verifier and adapter paths when the Gateway is not the right boundary.
+
+Start with an SDK plus the Gateway. Install identity, revocation, transport, or connector packages directly only when you are protecting a service you own or building a certified adapter for a provider protocol the Gateway cannot proxy.
 
 ## Package map
 
@@ -53,7 +55,7 @@ Caracal publishes a layered set of packages across TypeScript, Python, and Go. T
 
 ## Shared concepts
 
-**Context propagation** — The SDK packages bind agent session and delegation edge identity to the execution context (AsyncLocalStorage in TypeScript, context vars in Python, `context.Context` in Go). All outbound calls within that context automatically carry the correct `Authorization`, `traceparent`, and `baggage` headers.
+**Context propagation** — The SDK packages bind agent run and delegated-permission identity to the execution context (AsyncLocalStorage in TypeScript, context vars in Python, `context.Context` in Go). Gateway-bound outbound calls within that context automatically carry the correct `Authorization`, `traceparent`, and `baggage` headers.
 
 **Package layering** — The main SDKs own agent lifecycle and context propagation. TypeScript and Go use their OAuth packages for client-secret token exchange; Python implements its SDK token-source flow in `caracalai-sdk` and depends on `caracalai-identity`. Install companion packages directly when building a server that verifies mandates, a custom STS exchange client, or a control-plane tool.
 

@@ -332,6 +332,26 @@ result := {"decision": "allow", "evaluation_status": "complete", "determining_po
 
 ---
 
+### `caracal policy template`
+
+Use built-in policy templates as the default starting point.
+
+```bash
+caracal policy template list
+caracal policy template get baseline-scopes
+caracal policy template use baseline-scopes --name "Gateway Scope Policy"
+```
+
+| Form | Description |
+| --- | --- |
+| `template list` | Lists built-in templates such as `baseline-scopes`, delegation constraints, and step-up triggers |
+| `template get <id>` | Prints the Rego content for inspection or editing |
+| `template use <id>` | Creates a policy in the selected zone from the template |
+
+`template use` accepts `--name`, `--description`, `--owner-type`, `--zone`, and `--json`.
+
+---
+
 ### `caracal policy version <id>`
 
 Add a new Rego version to an existing policy.

@@ -4,7 +4,9 @@ description: How Caracal's services, data stores, event streams, and cryptograph
 pageType: landing
 ---
 
-Caracal is a distributed authorization system built around a single enforcement principle: no agent executes a privileged action unless the STS has evaluated it against the active policy and signed a mandate authorizing exactly that action, for exactly that resource, at exactly that moment.
+Caracal is a distributed authorization system built around one product promise: run agents through Caracal, give them scoped access to tools and providers, and get enforceable audit and revocation without exposing provider secrets.
+
+The architecture optimizes for the Gateway-first path. Public STS issues Caracal access tokens; the internal broker path resolves provider-native credentials only for service-authenticated Gateway or certified adapters; the Gateway verifies, brokers, forwards, and audits action execution.
 
 The system is composed of five runtime services, two shared data stores, nine Redis event streams, and a set of per-zone cryptographic keys. Each page in this section explains one structural dimension of the system.
 
@@ -22,11 +24,15 @@ The system is composed of five runtime services, two shared data stores, nine Re
 
 ## Design principles
 
-**Pre-execution enforcement.** The STS evaluates OPA and signs a mandate before the agent's action reaches any upstream resource. The Gateway enforces this at the boundary: a request without a valid mandate cannot reach the upstream. There is no post-hoc audit-only mode.
+**Gateway-first enforcement.** New integrations should send tool/provider calls through the Gateway. Public STS evaluates OPA and signs a scoped Caracal access token before the agent's action reaches any upstream resource. The Gateway enforces this at the boundary: a request without a valid token cannot reach the upstream. There is no post-hoc audit-only mode.
+
+**Credential brokering is internal.** Agent-facing STS exchange never returns provider-native credentials. Provider OAuth tokens, API keys, and future workload credentials are resolved only through internal service-authenticated broker paths for Gateway or certified adapters.
 
 **One policy evaluation per resource.** OPA is called once per requested resource, not once per exchange. A request for three resources produces three independent evaluations and three independent audit events. This makes per-resource denial granular and its audit trail unambiguous.
 
 **Append-only tamper-evident audit.** Every OPA evaluation — allow or deny — is recorded in an HMAC-chained append-only Postgres table via a Redis stream. Neither the STS nor the Audit service can UPDATE or DELETE audit rows; the Postgres role for the Audit service has INSERT and SELECT permissions only.
+
+**Action-result audit.** Gateway-proxied calls emit execution audit with request ID, resource, upstream host, auth mode, status, latency, result class, response byte count, and revocation interruption state. Direct verifiers and adapters must emit equivalent result audit if they are used as production execution boundaries.
 
 **Zone isolation.** Every tenant-level object (application, resource, policy, session, signing key) belongs to exactly one zone. Zone signing keys are derived per-zone and are never shared. A token issued in zone A cannot be verified in zone B.
 
