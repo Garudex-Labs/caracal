@@ -1,22 +1,22 @@
 ---
 title: First Integration
-description: Wire an application to Caracal and obtain a mandate from the SDK.
+description: Run an agent through Caracal and call a tool/provider through the Gateway.
 pageType: workflow
 ---
 
-This page walks through integrating an application with Caracal using the TypeScript, Python, or Go SDK. By the end you will have an agent that opens a session, obtains a mandate, and calls a resource through the Gateway.
+This page walks through integrating an agent with Caracal using the TypeScript, Python, or Go SDK. By the end you will have an agent run that calls a tool/provider resource through the Gateway and leaves both authorization and action-result audit behind.
 
 The instructions assume you have a running stack and a `caracal.toml` from the [Quickstart](./quickstart/).
 
 ## How the SDK works
 
-The SDK wraps the token exchange and agent lifecycle behind three primitives:
+The SDK wraps token exchange and agent lifecycle behind three primitives:
 
-- **`spawn()`** opens an agent session with the Coordinator, obtains an ambient mandate from the STS, and runs your code inside that session context.
+- **`spawn()`** opens an agent run, gets a short-lived Caracal access token, and runs your code inside that identity context.
 - **`headers()`** returns the HTTP headers that propagate the agent's identity to downstream services (Authorization, traceparent, baggage).
-- **`transport()`** wraps `fetch` (TS/Python) or `*http.Client` (Go) to automatically inject those headers on every outbound request.
+- **`transport()`** wraps `fetch` (TS/Python) or `*http.Client` (Go) to inject those headers on Gateway-bound outbound requests.
 
-When `spawn()` exits — normally or on error — the session is terminated in the Coordinator and the ambient mandate can no longer be used.
+When `spawn()` exits — normally or on error — the agent run is terminated in the Coordinator and active authority for that run is revoked.
 
 ## Configuration
 
@@ -27,9 +27,9 @@ All three SDKs read the same base configuration from environment variables:
 | `CARACAL_COORDINATOR_URL` | Stack | URL of the Coordinator service |
 | `CARACAL_ZONE_ID` | `caracal.toml` | Zone the application belongs to |
 | `CARACAL_APPLICATION_ID` | `caracal.toml` | Application ID in that zone |
-| `CARACAL_SUBJECT_TOKEN` | Obtained at runtime | Ambient mandate for this agent when using static-token startup |
+| `CARACAL_SUBJECT_TOKEN` | Obtained at runtime | Short-lived authority for this agent run when using static-token startup |
 
-The subject token is not a static secret — it is an ambient mandate obtained by exchanging the application's client credentials with the STS. The SDK's `fromEnv()` factory handles this transparently when used with `caracal run`. For long-running services, TypeScript, Python, and Go can also read `CARACAL_APP_CLIENT_SECRET` plus `CARACAL_STS_URL` and refresh the application subject token on demand.
+The subject token is not a static secret. It is short-lived Caracal authority obtained by exchanging the application's client credentials with the STS. The SDK's `fromEnv()` factory handles this transparently when used with `caracal run`. For long-running services, TypeScript, Python, and Go can also read `CARACAL_APP_CLIENT_SECRET` plus `CARACAL_STS_URL` and refresh application authority on demand.
 
 Two additional optional variables:
 
@@ -51,7 +51,7 @@ caracal run -- python agent.py
 caracal run -- ./my-go-agent
 ```
 
-Inside the launched process, `CARACAL_SUBJECT_TOKEN` is set to a 60-minute ambient mandate and the resource tokens declared in `caracal.toml` are set under their configured env var names (e.g. `RESOURCE_TOKEN`).
+Inside the launched process, `CARACAL_SUBJECT_TOKEN` is set to short-lived agent authority and the resource tokens declared in `caracal.toml` are set under their configured env var names (e.g. `RESOURCE_TOKEN`).
 
 ## TypeScript
 
@@ -61,7 +61,7 @@ Install the SDK:
 npm install @caracalai/sdk
 ```
 
-Minimal example — spawn an agent and call a resource through the Gateway:
+Minimal example — spawn an agent run and call a resource through the Gateway:
 
 ```typescript
 import { Caracal, AgentKind } from "@caracalai/sdk";
@@ -72,7 +72,7 @@ await caracal.spawn(async () => {
   const ctx = caracal.current();
   console.log("Agent session:", ctx?.agentSessionId);
 
-  // All fetch calls through transport() carry the mandate headers.
+  // All calls through transport() carry the Caracal access headers.
   const client = caracal.transport();
   const response = await client("https://gateway.example.com/my-resource/endpoint", {
     method: "POST",
@@ -111,7 +111,7 @@ app.post("/tool", (req, res) => {
 });
 ```
 
-The middleware extracts the agent's mandate from the `Authorization` header and W3C baggage, then binds the `CaracalContext` to the request. Use the MCP Express connector only when you are protecting an MCP server and need JWT verification plus scope checks at the transport boundary.
+The middleware extracts the agent's Caracal token from the `Authorization` header and W3C baggage, then binds the `CaracalContext` to the request. Use this direct-verifier path only for services you own and can operate with the same revocation and audit contract as the Gateway.
 
 ## Python
 
@@ -133,7 +133,7 @@ async def main():
     async with caracal.spawn(kind=AgentKind.EPHEMERAL) as ctx:
         print("Agent session:", ctx.agent_session_id)
 
-        # transport() returns an httpx.AsyncClient pre-configured with mandate headers.
+        # transport() returns an httpx.AsyncClient pre-configured with Caracal access headers.
         async with caracal.transport() as client:
             response = await client.post(
                 "https://gateway.example.com/my-resource/endpoint",
@@ -168,7 +168,7 @@ async def tool():
     return {"ok": True}
 ```
 
-The ASGI middleware extracts the agent's mandate from inbound request headers and binds the `CaracalContext` to the request scope.
+The ASGI middleware extracts the agent's Caracal token from inbound request headers and binds the `CaracalContext` to the request scope.
 
 ## Go
 
@@ -202,7 +202,7 @@ func main() {
         cc, _ := c.Current(ctx)
         fmt.Println("Agent session:", cc.AgentSessionID)
 
-        // Transport injects mandate headers on every request.
+        // Transport injects Caracal access headers on every request.
         client := c.Transport(nil)
         resp, err := client.Post(
             "https://gateway.example.com/my-resource/endpoint",
@@ -248,7 +248,7 @@ http.ListenAndServe(":8090", c.Middleware(mux))
 
 ## Delegation example
 
-An agent can delegate a subset of its authority to a child agent. The parent creates a delegation edge with the Coordinator, and the child receives its own mandate scoped to whatever the edge permits.
+An agent can grant narrower delegated permission to another agent. The parent/source creates the permission, the child/target receives it, and only the receiver can use it.
 
 ```typescript
 // TypeScript example
@@ -270,11 +270,15 @@ await caracal.spawn(async () => {
 });
 ```
 
-Revoking the delegation edge from the CLI or admin SDK terminates the child session and all of its descendants immediately.
+Revoking the delegated permission from the CLI or admin SDK terminates the child agent run and all descendants immediately.
 
 ## What happens if the policy denies the exchange
 
-If the OPA policy denies the token exchange, the STS returns HTTP 403 and the SDK throws an error. No mandate is issued. The denial is recorded in the audit ledger with the determining policies and diagnostics that caused it. Use `caracal audit tail` or `caracal explain` to inspect the decision.
+If policy denies access, the STS returns HTTP 403 and the SDK throws an error. No Caracal access token is issued. The denial is recorded in the audit ledger with the determining policies and diagnostics that caused it. Use `caracal audit tail` or `caracal explain` to inspect the decision.
+
+## Prefer Gateway before direct verification
+
+The Gateway path is the product default because it keeps provider secrets out of agent code, centralizes revocation, and records action-result audit. Use SDK middleware or connector packages as direct verifiers only when the resource is yours and can enforce signature checks, replay protection, revocation, and result audit itself. Use certified adapters for provider SDKs or protocols the Gateway cannot proxy.
 
 ## Next step
 

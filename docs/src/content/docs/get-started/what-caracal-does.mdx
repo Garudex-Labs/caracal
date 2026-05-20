@@ -1,89 +1,97 @@
 ---
 title: What Caracal Does
-description: Pre-execution authority enforcement for AI agents and automation.
+description: Gateway-first access control, credential brokering, audit, and revocation for AI agents.
 pageType: concept
 ---
 
-Caracal enforces authorization before an agent acts, not after. This page explains how that enforcement works, what it produces, and how it differs from conventional middleware approaches.
+Caracal lets you run agents with scoped access to tools and providers without putting provider secrets in agent code. This page explains the default product path and where the advanced paths fit.
 
 ## The core problem
 
 AI agents and autonomous workflows need access to tools, APIs, and data. Giving them long-lived credentials causes two problems: you cannot know what the agent will do with them before it acts, and you cannot revoke access granularly once something goes wrong.
 
-Caracal addresses both problems by issuing a **mandate** — a short-lived, scoped JWT — only after an OPA policy evaluation determines the requested access is allowed. The agent receives a credential only if the policy explicitly permits it, and that credential expires in minutes, not days.
+Caracal addresses both problems by giving the agent a short-lived, scoped Caracal access token only after policy allows the requested action. The token expires quickly, can be revoked by multiple authority anchors, and never contains provider-native credentials.
+
+## The golden path
+
+The default path is:
+
+```text
+agent app
+  → Caracal SDK opens an agent run
+  → agent calls the Gateway
+  → public STS issues only Caracal access tokens
+  → internal broker resolves provider credentials for the Gateway
+  → Gateway forwards the upstream call
+  → audit records the decision and action result
+```
+
+This is the path new integrations should use. It gives the strongest default security boundary: agents never see provider OAuth tokens or API keys, the Gateway checks revocation before and during requests, and every proxied action has an execution audit event.
 
 ## The enforcement point
 
-The **Security Token Service (STS)** is the enforcement hub. Every agent that wants to call a tool or API must first exchange credentials with the STS for a mandate. The STS does this before issuing any token:
+The public STS issues short-lived Caracal access tokens. It does not return provider-native credentials to agent-facing callers. Before signing a token, it:
 
-1. Receives an exchange request carrying the agent's application credentials and a list of resources it wants to access.
-2. Loads the active policy set for the zone the agent belongs to.
-3. Calls OPA with a structured input containing the principal, resource, action, session state, and delegation chain.
-4. Only if OPA returns `decision = "allow"` with `evaluation_status = "complete"` does the STS sign and return a mandate.
-5. Emits an audit event for every resource evaluation, whether allowed or denied.
+1. Receives an exchange request carrying the agent identity and requested tool/provider resource.
+2. Loads the active policy set for the zone.
+3. Evaluates OPA with the agent, resource, requested scopes, session state, delegation state, and trace context.
+4. Signs a token only when policy returns `decision = "allow"` and `evaluation_status = "complete"`.
+5. Emits an authorization audit event for every resource decision.
 
 If no policy set is active in the zone, the STS installs a deny-all fallback — no agent can exchange credentials until a policy is activated. There is no default-allow state.
 
-## What a mandate carries
-
-A mandate is an ES256-signed JWT. The claims it carries go beyond standard OAuth tokens:
-
-| Claim | Purpose |
-| ----- | ------- |
-| `sub` | Application identity of the agent |
-| `zone_id` | Zone this token is bound to |
-| `scope` | OAuth scopes the agent was granted |
-| `target` | Array of resource identifiers the token is valid for |
-| `sid` | Session ID binding the token to a specific agent session |
-| `agent_session_id` | ID of the agent session in the Coordinator |
-| `delegation_edge_id` | ID of the delegation edge, if this agent was delegated to |
-| `delegation_chain` | Full chain of sessions from root to this agent |
-| `hop_count` | Number of delegation hops |
-| `exp` | Expiry (15 minutes for per-call tokens, 60 minutes for ambient tokens) |
-| `jti` | Unique token ID for replay protection |
-
-Two token types exist:
-
-- **Ambient tokens** (`use = "ambient"`) are issued when an agent starts a session. They carry the agent's identity and can be re-presented to the STS to exchange for narrower per-call tokens bound to a specific resource. TTL: 60 minutes.
-- **Per-call tokens** (`use = "per_call"`) are the tokens an agent presents to the Gateway or a resource. They are scoped to specific resources and cannot be re-used as a subject token for further exchange. TTL: 15 minutes.
-
 ## The Gateway
 
-When an agent calls an MCP tool or upstream API, the request passes through the **Gateway**. The Gateway:
+When an agent calls a tool, MCP server, REST API, or provider endpoint through the Gateway, the Gateway:
 
-1. Validates the mandate's signature against the zone's JWKS endpoint.
-2. Checks the JTI for replay (each JTI is accepted only once).
-3. Confirms the resource being accessed matches a binding registered for that upstream.
-4. Optionally substitutes a provider OAuth token or API key for the upstream call — the agent never holds those credentials directly.
+1. Verifies the Caracal token signature against the zone key.
+2. Checks replay and revocation anchors.
+3. Resolves the provider route for the requested resource.
+4. Calls the internal broker path when provider credentials are needed.
+5. Substitutes the provider OAuth token or API key only on the upstream request.
+6. Emits an action execution audit event with status, latency, result class, auth mode, and revocation interruption state.
 
-The agent presents its mandate; the Gateway handles the actual credential presented to the upstream. This is credential brokering: agents hold short-lived mandates, not provider secrets.
+The agent presents a Caracal access token; the Gateway handles the credential the upstream expects.
 
 ## Delegation
 
-An agent can delegate a subset of its authority to another agent by creating a **delegation edge** in the Coordinator. Delegation is:
+An agent can grant a narrower delegated permission to another agent. The invariant is:
 
-- **Graph-tracked**: edges are stored and traversed in the database; cycle detection prevents loops
-- **Caveat-constrained**: edges carry TTL, hop count, budget, and scope limits
-- **Cascading on revocation**: revoking an edge terminates all downstream edges and agent sessions in a single operation
+```text
+source = delegator
+target = receiver
+receiver uses the delegated permission
+```
 
-When a delegated agent exchanges for a mandate, the STS validates the full delegation chain and embeds it in the JWT. A resource can inspect the chain to understand the full lineage of the agent that called it.
+Parenthood alone does not grant access. Each delegated permission narrows authority through explicit scope, resource, TTL, hop, and policy constraints. The source cannot use the receiver's delegated permission, unrelated agents cannot use it, and revocation terminates downstream authority.
 
 ## The audit ledger
 
-Every token exchange and OPA decision produces an `AuditEvent` emitted to a Redis stream (`caracal.audit.events`). The Audit service consumes this stream and writes events to a PostgreSQL append-only table. Events include:
+Every authorization decision produces an append-only audit event. Gateway-proxied calls also produce action execution audit events. Together they answer:
 
-- The OPA decision (`allow` or `deny`)
-- The evaluation status and determining policies
-- The OPA diagnostic output
-- The policy set version and manifest SHA that produced the decision
-- A chain HMAC over consecutive events, enabling tampering detection
+- Was the call allowed or denied?
+- Which policy and template version determined the outcome?
+- Which agent run and delegated permission were involved?
+- Which provider route and auth mode were used?
+- Did the upstream call succeed, fail, or stop because revocation arrived?
 
-Nothing is ever updated or deleted in the audit table. Querying the audit trail is available through the TUI and CLI (`audit tail`, `explain`).
+Nothing is ever updated or deleted in the audit table. Query the trail through the TUI and CLI (`audit tail`, `explain`).
 
 ## What this is not
 
-Caracal does not replace your LLM framework, agent scheduler, or prompt router. It sits alongside those systems as an authorization layer. An agent calls Caracal's SDK to get a mandate, and then uses that mandate when calling tools through the Gateway or directly to resources that verify it. Caracal does not inspect or filter the content of tool calls — it enforces whether the call is permitted to happen at all.
+Caracal does not replace your LLM framework, agent scheduler, or prompt router. It sits alongside those systems as the access-control and audit boundary. Caracal does not inspect or filter tool-call content; it enforces whether the call may happen, which credential is used, how it is audited, and how quickly it can be revoked.
+
+## Advanced paths
+
+Use these only when the Gateway path does not fit:
+
+| Path | When to use |
+| --- | --- |
+| Direct verification | You own the resource and can verify Caracal tokens, replay, and revocation in that service. |
+| External MCP adapter | The MCP server cannot be modified but can sit behind a trusted adapter. |
+| Custom gRPC adapter | The provider uses a protocol the Gateway cannot proxy safely. |
+| Provider SDK wrapper | A provider SDK hides transport and needs a certified wrapper to preserve Caracal headers, revocation, and action audit. |
 
 ## Next step
 
-Read [Installation](./installation/) to install the CLI and bring up the stack, or skip to [Key Ideas at a Glance](./key-ideas/) for a condensed reference of the full model.
+Read [Installation](./installation/) to install the CLI and bring up the stack, or skip to [Key Ideas at a Glance](./key-ideas/) for the simplified mental model.

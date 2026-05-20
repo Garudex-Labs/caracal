@@ -4,20 +4,30 @@ description: Install Caracal, run the stack, and ship your first integration.
 pageType: landing
 ---
 
-Caracal is a self-hosted authorization and delegation system for AI agents and autonomous workflows. It enforces policy before an agent acts — not after — by issuing short-lived, cryptographically signed mandates only when an OPA evaluation permits the exchange.
+Caracal is a self-hosted execution boundary for AI agents. Run agents through Caracal, give them scoped access to tools and providers, and get enforceable audit and revocation without exposing provider secrets to agent code.
 
-Follow these pages in order to go from zero to a running stack with a working integration.
+The default product path is intentionally narrow:
+
+1. Create a zone.
+2. Register an agent app.
+3. Register a tool or provider resource with an upstream URL.
+4. Choose a policy template.
+5. Run the agent through the SDK or `caracal run`.
+6. Send tool/provider calls through the Gateway.
+7. Inspect audit records for both the authorization decision and the action result.
+
+Direct verification, custom gRPC adapters, external MCP adapters, and provider SDK wrappers are advanced paths. Start with the Gateway path unless you have a transport the Gateway cannot proxy.
 
 ## In this section
 
 | Page | What you will do |
 | ---- | ---------------- |
-| [Welcome](./welcome/) | Understand who this is for and how to navigate the docs |
-| [What Caracal Does](./what-caracal-does/) | Learn the core enforcement model before touching code |
+| [Welcome](./welcome/) | Understand the product promise and where to start |
+| [What Caracal Does](./what-caracal-does/) | Learn the Gateway-first enforcement model before touching code |
 | [Installation](./installation/) | Install the CLI, TUI, and SDK packages |
 | [Quickstart](./quickstart/) | Bring up all seven services with a single command |
-| [First Integration](./first-integration/) | Wire an application to Caracal and obtain a mandate |
-| [Key Ideas at a Glance](./key-ideas/) | Review the core mental model in one concise reference |
+| [First Integration](./first-integration/) | Run an agent and call a provider through the Gateway |
+| [Key Ideas at a Glance](./key-ideas/) | Review the simplified mental model and terminology |
 
 ## Prerequisites
 

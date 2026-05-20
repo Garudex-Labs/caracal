@@ -1,188 +1,129 @@
 ---
 title: Key Ideas at a Glance
-description: A one-page tour of mandates, policies, delegations, and the audit ledger.
+description: A one-page product model for running agents through Caracal with scoped provider access, audit, and revocation.
 pageType: concept
 ---
 
-This page condenses the core Caracal concepts into a quick reference. Read it as a map before diving into the detailed concept pages, or use it to orient yourself after the quickstart.
+This page is the product mental model. It deliberately uses the terms operators and application developers need first, then maps them to the precise reference terms used deeper in the docs.
 
-## The operator model
+## The core promise
 
-Most users should not operate Caracal by thinking about every internal object. The practical workflow is:
+Run agents through Caracal, give them scoped access to tools and providers, and get enforceable audit and revocation without exposing provider secrets.
 
-1. Register the agent application that will act.
-2. Register the resources, tools, or providers the agent may use.
-3. Attach a policy that says when access is allowed.
-4. Run the agent through Caracal's SDK, CLI, Gateway, or connector.
-5. Inspect the audit trail to see what was allowed, denied, proxied, or revoked.
+That promise becomes one default workflow:
 
-The lower-level concepts on this page explain how Caracal keeps that workflow safe. Zones isolate tenants, applications identify workloads, resources describe targets, mandates carry short-lived authority, delegation links agent sessions, and audit records what happened. End users should usually see those as configuration and observability details, not as separate operational steps.
+1. Create a **zone** for the environment or tenant.
+2. Register an **agent app**.
+3. Register a **tool/provider resource** with scopes and an upstream URL.
+4. Choose a **policy template** and activate it.
+5. Run the agent through the SDK or `caracal run`.
+6. Send tool/provider calls through the **Gateway**.
+7. Use audit to see the authorization decision and the upstream action result.
 
-## The seven core concepts
+Everything else is an advanced path.
+
+## User-facing vocabulary
+
+| User-facing term | Precise reference term | What it means |
+| --- | --- | --- |
+| Authority session | STS session / subject session | The root authority an agent run exchanges from. |
+| Agent run | Agent session | The Coordinator-tracked execution of one agent instance. |
+| Short-lived access token | Mandate | The signed Caracal token used for Gateway or direct-resource access. |
+| Tool/provider resource | Resource identifier | The target an agent requests access to. |
+| Provider route | Gateway binding | The Gateway routing entry created from a resource with an upstream URL. |
+| Delegated permission | Delegation edge | A narrower permission from one agent run to another. |
+| Restriction | Caveat / constraint | Scope, TTL, hop, budget, or policy condition attached to delegated permission. |
+
+Use the left column when explaining Caracal to most users. Use the right column when reading API, architecture, or policy reference pages.
+
+## What each product object does
 
 ### Zone
 
-A zone is the top-level tenancy boundary. It owns:
-- Its own ES256 signing key (encrypted at rest with `ZONE_KEK`)
-- All applications, resources, providers, and policies within it
-- One active policy set at any time
-- A scoped audit ledger
+A zone is the isolation boundary. It owns agent apps, resources, providers, policies, signing keys, and audit data. A token issued in one zone is not valid in another.
 
-Zones are independent. A mandate issued by one zone cannot be verified in another.
+### Agent app
 
-### Application
+An agent app identifies the workload that will act. The app can start agent runs, request scoped access, and appear in audit records. The app secret authenticates the agent to Caracal; it is not a provider credential.
 
-An application is a Caracal-registered client — a service, agent process, or automation that exchanges credentials for mandates. Applications belong to one zone and carry a `credential_type` (typically `token` or `password`) and a client secret.
+### Tool/provider resource
 
-### Resource
+A resource describes something an agent may call: an MCP server, REST API, SaaS provider, database-facing service, webhook, queue, or internal tool. A resource declares:
 
-A resource is anything an agent wants to access — an API endpoint, an MCP tool, a data store. Each resource has:
-- An `identifier` string (used in policy and grant definitions)
-- A list of `scopes` that gate access
-- An optional `upstream_url` (used by the Gateway for proxying)
-- An optional `credential_provider_id` (if the Gateway should substitute a provider token)
+- the scopes an agent can request;
+- the upstream URL when the Gateway should proxy the call;
+- the optional provider credential source the Gateway may broker.
 
-### Policy
+When a resource has an upstream URL and Gateway app identity, Caracal creates or updates the provider route automatically. Users should not manage the internal routing table directly.
 
-A policy is a versioned Rego document with the entry point `data.caracal.authz.result`. At token-exchange time, the STS evaluates the active policy set and passes a structured input:
+### Policy template
 
-```json
-{
-  "schema_version": "2026-05-20",
-  "principal": { "type": "application", "id": "...", "zone_id": "...", "agent_session_id": "..." },
-  "resource": { "type": "resource", "id": "...", "identifier": "...", "scopes": ["..."] },
-  "action": { "id": "TokenExchange" },
-  "session": { "id": "..." },
-  "delegation_edge": { "id": "...", "constraints": { ... } },
-  "context": { "actor_claims": { ... }, "challenge_resolved": false }
-}
+A policy template is the starting point for authorization. It decides whether the agent app, requested scopes, resource, agent run state, and delegated permission are allowed. New users should start with `baseline-scopes`, then add resource, delegation, or step-up templates as the integration matures.
+
+Policies fail closed. If there is no active policy set, access is denied.
+
+### Gateway
+
+The Gateway is the default execution plane. It verifies Caracal access tokens, checks replay and revocation, resolves the provider route, brokers provider credentials inside the trusted boundary, forwards the upstream request, and emits action-result audit.
+
+Agents should call providers through the Gateway unless they are using a certified direct verifier or adapter.
+
+## Token and credential boundaries
+
+There are three important credentials:
+
+| Credential | Who should hold it | Purpose |
+| --- | --- | --- |
+| Agent app secret | Agent runtime or deployment secret store | Authenticates the app to Caracal. |
+| Caracal access token | Agent runtime | Short-lived scoped proof that Caracal allowed the action. |
+| Provider-native credential | Gateway or certified adapter only | Authenticates to the upstream provider. |
+
+The public STS returns only Caracal access tokens. Provider-native credentials are resolved through the internal broker path for Gateway or certified adapters.
+
+## Delegation in one rule
+
+Delegation has one invariant:
+
+```text
+source = delegator
+target = receiver
+receiver uses the delegated permission
 ```
 
-The policy must return:
+The source cannot use the receiver's delegated permission. Parenthood does not automatically grant access. Every delegated permission narrows authority through explicit resource, scope, TTL, hop, budget, and policy restrictions.
 
-```json
-{
-  "decision": "allow",
-  "evaluation_status": "complete",
-  "determining_policies": ["..."],
-  "diagnostics": {}
-}
-```
+## Revocation in one rule
 
-`decision` must be `"allow"` and `evaluation_status` must be `"complete"` for the mandate to be issued. Any other result is a deny.
+A Caracal access token is invalid when any of its authority anchors is revoked:
 
-The following Rego builtins are blocked: `http.send`, `net.*`, `opa.runtime`, `rand.intn`, `time.now_ns`.
+- root authority session;
+- agent run;
+- delegated permission;
+- grant;
+- zone or application emergency disablement;
+- emergency key rotation.
 
-### Mandate
+Gateway and direct verifiers use the same contract: check the token signature, replay state, expiry, and revocation anchors before accepting the request. Gateway also re-checks revocation while streaming responses.
 
-A mandate is an ES256-signed JWT issued by the STS after a policy allows the exchange. Two variants exist:
+## Audit in one rule
 
-| Type | TTL | Use |
-| ---- | --- | --- |
-| Ambient | 60 min | Re-presented to STS to obtain per-call tokens; carries agent identity |
-| Per-call | 15 min | Presented to Gateway or resources; scoped to specific targets |
+Authorization audit answers **why access was allowed or denied**. Action execution audit answers **what happened when the Gateway or adapter made the upstream call**.
 
-Per-call tokens carry a `target` claim (the specific resources they cover), preventing scope creep across resources.
+Together, audit should let an operator answer:
 
-JTI replay protection: each issued token ID is recorded in Redis. The Gateway rejects any per-call token whose JTI has been seen before.
+- Which agent run made the request?
+- Which resource and scopes were requested?
+- Which policy allowed or denied it?
+- Which provider route and auth mode were used?
+- Did the upstream call succeed, fail, or stop because revocation arrived?
 
-Gateway-proxied resources use an exchange-per-request flow: the Gateway verifies the inbound mandate, exchanges it with STS for the bound resource, substitutes any brokered provider credential, forwards the upstream request, and audits the execution result. SDKs may cache STS exchange results for the same session, resource, delegation, and scope context, but the Gateway still enforces replay and revocation at request time.
+## Integration paths
 
-### Delegation
+| Path | Product status | Use it when |
+| --- | --- | --- |
+| Gateway proxy | Default | The tool/provider is HTTP, MCP-over-HTTP, REST, or another Gateway-routable upstream. |
+| Direct verifier | Advanced | You own the service and can enforce Caracal verification, replay, revocation, and result audit there. |
+| Adapter | Advanced | The provider uses gRPC, external MCP, queues, webhooks, or a custom transport. |
+| Provider SDK wrapper | Advanced | A provider SDK hides transport and needs a certified wrapper to preserve Caracal enforcement. |
 
-Delegation is a directed edge in the Coordinator's agent graph:
-
-```
-Application A (session S1) → delegates to → Application B (session S2)
-```
-
-Properties:
-- **Cycle detection**: the Coordinator rejects any delegation that would create a cycle
-- **Depth limit**: max 10 hops per chain; max 10 direct children per session; max 50 sessions per zone per app
-- **Constraints**: `ttl_seconds`, `max_hops`, `budget` (max scopes), `policy_approved` flag
-- **Resource restriction**: a delegation can be restricted to a single resource ID
-- **Cascade revocation**: revoking edge S1→S2 terminates S2 and all descendants of S2 recursively
-
-When a delegated agent requests a mandate, the STS embeds the full delegation path in the JWT (`delegation_chain` claim). Resources that need to audit the agent lineage can inspect this chain.
-
-### Audit Ledger
-
-Every token exchange and OPA evaluation produces an `AuditEvent` with:
-- `decision` (`allow` or `deny`)
-- `evaluation_status` and `determining_policies`
-- `diagnostics` from OPA
-- `policy_set_version_id` and `manifest_sha` (exactly which policy version decided)
-- A chain HMAC-SHA256 over consecutive events, enabling tamper detection
-
-Events flow: STS → Redis stream (`caracal.audit.events`) → Audit service → PostgreSQL append-only table.
-
-Gateway-proxied external calls also emit action audit events after STS authorization. Those events record whether request construction failed, upstream transport failed, or the upstream returned a status code; they do not store provider credentials or response bodies.
-
-Nothing in the audit table is ever updated or deleted. Use `caracal audit tail` (live stream) or `caracal explain <request-id>` (full decision trace for a specific exchange) to query it.
-
----
-
-## The enforcement flow in one diagram
-
-```
-Agent process
-  │
-  ▼ (1) Exchange app credentials
-STS (http://localhost:8080)
-  │ (2) Load active policy set for zone
-  │ (3) OPA evaluation per resource
-  │     → allow: issue mandate
-  │     → deny: 403 + audit event
-  │
-  ▼ (4) Agent holds mandate (15-min per-call JWT)
-Gateway (http://localhost:8081)
-  │ (5) Validate mandate signature (JWKS from STS)
-  │ (6) Check JTI replay cache
-  │ (7) Substitute provider credential if configured
-  │
-  ▼ (8) Forward to upstream resource
-```
-
----
-
-## The admin provisioning sequence
-
-Before an agent can get a mandate, these objects must exist in the control-plane API:
-
-```
-Zone → Application → Resource → Policy → Policy Set → activate → Grant
-```
-
-Provision them using the CLI admin commands (`caracal zone create`, `caracal app create`, `caracal resource create`, `caracal policy create`, `caracal policy-set activate`, `caracal grant create`) or the `@caracalai/admin` SDK. The same flow applies in development and production.
-
----
-
-## Key environment variables
-
-| Variable | Used by | Required |
-| -------- | ------- | -------- |
-| `CARACAL_ADMIN_TOKEN` | CLI, admin SDK | Admin operations only |
-| `CARACAL_COORDINATOR_URL` | All SDKs | Yes |
-| `CARACAL_ZONE_ID` | All SDKs | Yes |
-| `CARACAL_APPLICATION_ID` | All SDKs | Yes |
-| `CARACAL_SUBJECT_TOKEN` | All SDKs | Yes (injected by `caracal run`) |
-| `CARACAL_GATEWAY_URL` | All SDKs | When routing through Gateway |
-| `ZONE_KEK` | STS, API | Required at startup |
-| `AUDIT_HMAC_KEY` | STS, Audit | Required at startup |
-| `STREAMS_HMAC_KEY` | API, Gateway, Coordinator | Required at startup |
-
----
-
-## Key ports (local stack)
-
-| Service | Port | Protocol |
-| ------- | ---- | -------- |
-| API | 3000 | HTTP |
-| STS | 8080 | HTTP |
-| Gateway | 8081 | HTTP |
-| Audit | 9090 | HTTP |
-| Coordinator | 4000 | HTTP |
-| PostgreSQL | 5432 | TCP |
-| Redis | 6379 | TCP |
-
-Use `CARACAL_MODE=stable` for stable deployments, `CARACAL_MODE=rc` for rc deployments, and `CARACAL_MODE=dev` for development. rc and stable reject developer-only escape hatches such as insecure STS or Gateway flags; configure Gateway TLS directly with certificate files or terminate TLS at a trusted ingress.
+Start with the Gateway proxy. Move to direct verification or adapters only when the provider protocol requires it.

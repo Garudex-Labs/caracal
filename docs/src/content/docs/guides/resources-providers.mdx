@@ -6,6 +6,8 @@ pageType: workflow
 
 Resources are the protected targets in a zone. Each resource has a string identifier, a list of scopes, an optional upstream URL for Gateway routing, and an optional credential provider for downstream authentication. Providers describe the credential source the Gateway may use when an authenticated, user-bound provider grant exists.
 
+The default product path is a Gateway provider route: register the resource with an upstream URL, attach a provider when the upstream needs OAuth or API-key authentication, and let the Gateway enforce Caracal access before it brokers the provider call. Direct verification and adapters are advanced paths.
+
 Conceptually, a resource plus its provider configuration forms a connector. Operators should reason about connectors with five explicit choices:
 
 | Connector field | Current source of truth |
@@ -15,6 +17,23 @@ Conceptually, a resource plus its provider configuration forms a connector. Oper
 | Gateway mode | Gateway proxy when `upstream_url` and `gateway_application_id` are set; direct verifier otherwise |
 | Identity forwarding | Off by default; enabled only by provider config `forward_caracal_identity: true` for trusted sidecars or controlled MCP servers |
 | Audit mode | Gateway-proxied connectors record authorization and execution outcome; direct connectors must emit their own result audit if they need action-proof records |
+
+## Connector support matrix
+
+Use this matrix to set expectations before registering a provider or integration:
+
+| Protocol/provider style | Product status | Credential handling | Recommended path |
+| --- | --- | --- | --- |
+| HTTP REST / JSON API | Gateway-supported | Caracal token to Gateway; optional brokered OAuth/OIDC/API key upstream | Register a resource with `upstream_url` and call through Gateway |
+| MCP over HTTP you control | Gateway-supported | Caracal token to Gateway; optional `X-Caracal-Identity` only when explicitly enabled | Register as a Gateway resource |
+| Express, FastMCP, Go `net/http` services you own | Direct-verifier-supported | Service verifies Caracal token and consumes revocation stream | Use connector middleware only when Gateway proxying is not the right boundary |
+| OAuth2/OIDC provider credentials | Gateway-supported | Provider token remains inside Gateway/broker path | Attach provider and user-bound provider grant |
+| API-key provider credentials | Gateway-supported | API key remains inside Gateway/broker path and is substituted into the configured header | Attach `apikey` provider with `header_name` or `auth_header` |
+| Third-party provider SDKs that hide transport | Adapter-required | Provider SDK must not receive Caracal internals or expose provider secrets to agents | Use a certified wrapper or route traffic through Gateway if possible |
+| gRPC, queues, webhooks, external MCP servers you cannot modify | Adapter-required | Adapter enforces Caracal verification, revocation, trace, and result audit | Build or certify an adapter before production use |
+| Workload identity federation | Unsupported for runtime substitution in OSS | Registration metadata only | Do not rely on automatic Gateway credential minting yet |
+
+Do not document or operate an integration as Gateway-supported unless it has end-to-end registration, credential brokering, revocation, and action-result audit coverage.
 
 ## Prerequisites
 
@@ -30,7 +49,7 @@ caracal resource create \
   --name "Inventory Service"
 ```
 
-The `--identifier` value is the string that appears in the `aud` and `target` claims of issued mandates. Agents request access to this exact identifier.
+The `--identifier` value is the tool/provider resource name agents request access to. It appears in issued token claims and policy input.
 
 To include an upstream URL for Gateway routing:
 
@@ -43,13 +62,13 @@ caracal resource create \
   --gateway-application-id "app-gateway"
 ```
 
-The Gateway uses the upstream URL to forward requests after verifying the mandate. `gateway_application_id` is required with `upstream_url`; it names the same-zone application identity the Gateway uses for its internal STS exchange. Without an upstream URL, the resource can still be used for mandate issuance but the Gateway has no destination to route to.
+The Gateway uses the upstream URL to forward requests after verifying the Caracal access token. `gateway_application_id` is required with `upstream_url`; it names the same-zone application identity the Gateway uses for its internal STS exchange. Creating or patching this resource automatically creates or updates the Gateway provider route. Without an upstream URL, the resource can still be used for token issuance but the Gateway has no destination to route to.
 
 ### Resource options
 
 | Flag | Description |
 | ---- | ----------- |
-| `--identifier` | Required. The resource identifier string (e.g., `resource://payments`) |
+| `--identifier` | Required. The tool/provider resource string (e.g., `resource://payments`) |
 | `--scopes` | Required. Comma-separated list of valid scope strings |
 | `--name` | Human-readable display name |
 | `--upstream-url` | URL the Gateway forwards matching requests to |
@@ -88,7 +107,7 @@ Providers define credential metadata for upstream authentication. Registration s
 
 If no active provider grant exists for the configured resource/provider pair, STS denies the Gateway exchange instead of falling back to a different provider or exposing provider credentials to the caller. Malformed provider config is rejected; API-key providers must declare the exact upstream header before STS returns a brokered directive.
 
-By default, provider-native forwarding does **not** send the Caracal mandate to the upstream. Add `"forward_caracal_identity": true` only for upstreams you control, such as an internal sidecar or controlled MCP server that intentionally verifies `X-Caracal-Identity`. Leave it unset for third-party SaaS providers.
+By default, provider-native forwarding does **not** send the Caracal access token to the upstream. Add `"forward_caracal_identity": true` only for upstreams you control, such as an internal sidecar or controlled MCP server that intentionally verifies `X-Caracal-Identity`. Leave it unset for third-party SaaS providers.
 
 ### API key provider
 
