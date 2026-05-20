@@ -1,5 +1,6 @@
 {
   "release": "v2026.05.12",
+  "mode": "stable",
   "publishedAt": "2026-05-12",
   "binaries": {
     "cli": "2026.05.12",

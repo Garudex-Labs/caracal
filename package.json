@@ -34,6 +34,7 @@
   "devDependencies": {
     "@caracalai/admin": "workspace:*",
     "@changesets/cli": "^2.27.10",
+    "@fastify/rate-limit": "^10.3.0",
     "@vitest/coverage-v8": "4.1.6",
     "express": "^5.2.1",
     "fastify": "^5.8.5",
