@@ -4,7 +4,7 @@
 // Unit tests for the syntactic Rego validator.
 
 import { describe, it, expect } from 'vitest'
-import { parseRego, validatePolicySource, validateAuthzPolicy } from '../../../../apps/api/src/rego.js'
+import { analyzeAuthzPolicy, parseRego, validatePolicySource, validateAuthzPolicy } from '../../../../apps/api/src/rego.js'
 
 describe('parseRego', () => {
   it('extracts package and rule names', () => {
@@ -38,6 +38,7 @@ describe('parseRego', () => {
 
   it('rejects forbidden built-ins', () => {
     expect(parseRego('package p\nresult := http.send({})').error).toBe('forbidden_builtin:http.send')
+    expect(parseRego('package p\nresult := net.cidr_merge(["10.0.0.0/24"])').error).toBe('forbidden_builtin:net.cidr_merge')
     expect(parseRego('package p\nresult := data.http.send').error).toBeNull()
   })
 })
@@ -59,5 +60,12 @@ describe('validateAuthzPolicy', () => {
 
   it('passes valid policy', () => {
     expect(validateAuthzPolicy('package caracal.authz\nresult := { "allow": true }')).toBeNull()
+  })
+})
+
+describe('analyzeAuthzPolicy', () => {
+  it('warns for broad policies without requested scope checks', () => {
+    const warnings = analyzeAuthzPolicy('package caracal.authz\ndefault result := { "decision": "allow", "evaluation_status": "complete", "determining_policies": [], "diagnostics": [] }')
+    expect(warnings).toEqual(expect.arrayContaining(['default_result_allows_access', 'missing_requested_scope_check']))
   })
 })

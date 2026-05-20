@@ -5,6 +5,7 @@
 
 import { describe, it, expect } from 'vitest'
 import { policyTemplatesRoutes } from '../../../../apps/api/src/routes/policy-templates.js'
+import { validateAuthzPolicy } from '../../../../apps/api/src/rego.js'
 import { buildRouteApp } from '../../../shared/test-utils/typescript/fastify.js'
 
 describe('policy template Rego contracts', () => {
@@ -18,6 +19,7 @@ describe('policy template Rego contracts', () => {
     expect(templates.length).toBeGreaterThan(0)
     for (const template of templates) {
       expect(template.content).toContain('package caracal.authz')
+      expect(validateAuthzPolicy(template.content)).toBeNull()
       expect(template.content).toMatch(/result\s*:=\s*\{/)
       expect(template.content).toContain('"decision"')
       expect(template.content).toContain('"evaluation_status"')

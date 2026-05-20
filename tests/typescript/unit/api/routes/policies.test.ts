@@ -30,7 +30,14 @@ function buildApp() {
   return { app, db, clientQuery, redis }
 }
 
-const validRego = `package caracal.authz\ndefault allow = false`
+const validRego = `package caracal.authz
+import rego.v1
+
+default result := {"decision": "deny", "evaluation_status": "complete", "determining_policies": [], "diagnostics": []}
+
+result := {"decision": "allow", "evaluation_status": "complete", "determining_policies": [{"policy": "test"}], "diagnostics": []} if {
+  "read" in input.context.requested_scopes
+}`
 
 describe('POST /v1/zones/:zoneId/policies', () => {
   it('rejects missing package declaration', async () => {
@@ -46,6 +53,19 @@ describe('POST /v1/zones/:zoneId/policies', () => {
     expect(JSON.parse(res.body)).toMatchObject({ error: 'invalid_rego' })
   })
 
+  it('rejects policy without required authz result rule', async () => {
+    const { app, db } = buildApp()
+    db.query.mockResolvedValueOnce({ rows: [{ '?column?': 1 }] })
+    await app.ready()
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/zones/z1/policies',
+      payload: { name: 'p1', content: 'package caracal.authz\ndefault allow = false' },
+    })
+    expect(res.statusCode).toBe(422)
+    expect(JSON.parse(res.body)).toMatchObject({ detail: 'must_define_result_rule' })
+  })
+
   it('accepts valid Rego with package declaration', async () => {
     const { app, db } = buildApp()
     db.query.mockResolvedValue({ rows: [{ '?column?': 1 }] })
@@ -56,6 +76,25 @@ describe('POST /v1/zones/:zoneId/policies', () => {
       payload: { name: 'p1', content: validRego },
     })
     expect(res.statusCode).toBe(201)
+  })
+})
+
+describe('POST /v1/policies/validate', () => {
+  it('returns warnings for accepted but risky policy shape', async () => {
+    const { app } = buildApp()
+    await app.ready()
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/policies/validate',
+      payload: {
+        content: 'package caracal.authz\ndefault result := { "decision": "allow", "evaluation_status": "complete", "determining_policies": [], "diagnostics": [] }',
+      },
+    })
+    expect(res.statusCode).toBe(200)
+    expect(JSON.parse(res.body)).toMatchObject({
+      valid: true,
+      warnings: expect.arrayContaining(['default_result_allows_access', 'missing_requested_scope_check']),
+    })
   })
 })
 

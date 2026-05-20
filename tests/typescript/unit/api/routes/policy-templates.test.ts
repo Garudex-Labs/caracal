@@ -28,5 +28,8 @@ describe('GET /v1/policy-templates', () => {
       'baseline-rate-limits',
     ]))
     expect(new Set(templates.map((template) => template.id)).size).toBe(templates.length)
+    const delegationConstraints = templates.find((template) => template.id === 'baseline-delegation-constraints')
+    expect(delegationConstraints?.content).toContain('input.context.agent_session_id == edge.target_session_id')
+    expect(delegationConstraints?.content).not.toContain('input.context.agent_session_id == edge.source_session_id')
   })
 })
