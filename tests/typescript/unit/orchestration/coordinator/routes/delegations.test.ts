@@ -73,6 +73,51 @@ describe('POST /v1/zones/:zoneId/delegations', () => {
     expect(JSON.parse(res.body)).toMatchObject({ error: 'self_delegation_denied' })
   })
 
+  it('rejects unknown delegation constraints before opening a transaction', async () => {
+    const { app, db } = buildApp()
+
+    await app.ready()
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/zones/z1/delegations',
+      payload: { ...delegationBody, constraints: { arbitrary: true } },
+    })
+
+    expect(res.statusCode).toBe(400)
+    expect(JSON.parse(res.body)).toMatchObject({ error: 'invalid_delegation_constraint' })
+    expect(db.connect).not.toHaveBeenCalled()
+  })
+
+  it('rejects delegation max_hops above supported graph depth', async () => {
+    const { app, db } = buildApp()
+
+    await app.ready()
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/zones/z1/delegations',
+      payload: { ...delegationBody, constraints: { max_hops: 11 } },
+    })
+
+    expect(res.statusCode).toBe(400)
+    expect(JSON.parse(res.body)).toMatchObject({ error: 'invalid_max_hops' })
+    expect(db.connect).not.toHaveBeenCalled()
+  })
+
+  it('rejects conflicting max_depth and max_hops constraints', async () => {
+    const { app, db } = buildApp()
+
+    await app.ready()
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/zones/z1/delegations',
+      payload: { ...delegationBody, constraints: { max_depth: 2, max_hops: 3 } },
+    })
+
+    expect(res.statusCode).toBe(400)
+    expect(JSON.parse(res.body)).toMatchObject({ error: 'invalid_max_hops' })
+    expect(db.connect).not.toHaveBeenCalled()
+  })
+
   it('rejects unconstrained cycles', async () => {
     const { app, db } = buildApp()
     const client = {

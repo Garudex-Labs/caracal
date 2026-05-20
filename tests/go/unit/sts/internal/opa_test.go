@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 // Caracal, a product of Garudex Labs
 //
-// OPA engine unit tests: deny-all fallback, allow policy, partial status pass-through.
+// OPA engine unit tests: deny-all fallback, allow policy, and result validation.
 
 package internal
 
@@ -90,10 +90,10 @@ result := {"decision": "deny", "evaluation_status": "complete", "determining_pol
 	}
 }
 
-func TestOPAPartialStatusPassthrough(t *testing.T) {
+func TestOPANonCompleteStatusPassthrough(t *testing.T) {
 	partialRego := `
 package caracal.authz
-result := {"decision": "partial", "evaluation_status": "partial", "determining_policies": [], "diagnostics": []}
+result := {"decision": "deny", "evaluation_status": "partial", "determining_policies": [], "diagnostics": []}
 `
 	e := newOPAEngine(nil)
 	pq, err := rego.New(
@@ -114,9 +114,58 @@ result := {"decision": "partial", "evaluation_status": "partial", "determining_p
 	if err != nil {
 		t.Fatal(err)
 	}
-	// partial status is passed through; exchange handler enforces DENY
 	if res.EvaluationStatus != "partial" {
 		t.Errorf("want partial, got %s", res.EvaluationStatus)
+	}
+}
+
+func TestOPAMissingStatusRejected(t *testing.T) {
+	regoSource := `
+package caracal.authz
+result := {"decision": "deny", "determining_policies": [], "diagnostics": []}
+`
+	e := newOPAEngine(nil)
+	pq, err := rego.New(
+		rego.Module("missing-status.rego", regoSource),
+		rego.Query("result = data.caracal.authz.result"),
+	).PrepareForEval(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	e.mu.Lock()
+	e.zones["z1"] = &opaZoneState{query: &pq}
+	e.mu.Unlock()
+
+	if _, err := e.Evaluate(context.Background(), OPAInput{
+		Principal: OPAPrincipal{ZoneID: "z1"},
+		Action:    OPAAction{ID: "TokenExchange"},
+	}); err == nil {
+		t.Fatal("missing evaluation_status must be rejected")
+	}
+}
+
+func TestOPAInvalidDecisionRejected(t *testing.T) {
+	regoSource := `
+package caracal.authz
+result := {"decision": "maybe", "evaluation_status": "complete", "determining_policies": [], "diagnostics": []}
+`
+	e := newOPAEngine(nil)
+	pq, err := rego.New(
+		rego.Module("invalid.rego", regoSource),
+		rego.Query("result = data.caracal.authz.result"),
+	).PrepareForEval(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	e.mu.Lock()
+	e.zones["z1"] = &opaZoneState{query: &pq}
+	e.mu.Unlock()
+
+	if _, err := e.Evaluate(context.Background(), OPAInput{
+		Principal: OPAPrincipal{ZoneID: "z1"},
+		Action:    OPAAction{ID: "TokenExchange"},
+	}); err == nil {
+		t.Fatal("invalid policy decision must be rejected")
 	}
 }
 

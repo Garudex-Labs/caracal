@@ -531,7 +531,7 @@ func TestExchangePartialDeny(t *testing.T) {
 
 	partialPolicy := `
 package caracal.authz
-result := {"decision": "partial", "evaluation_status": "partial", "determining_policies": [], "diagnostics": []}
+result := {"decision": "deny", "evaluation_status": "partial", "determining_policies": [], "diagnostics": []}
 `
 	opaEngine := newOPAEngine(nil)
 	pq, err := rego.New(
@@ -644,6 +644,33 @@ func TestAgentSessionMetadataIsPolicyAndAuditInput(t *testing.T) {
 	gotCaps, ok := meta["agent_capabilities"].([]string)
 	if !ok || len(gotCaps) != 2 || gotCaps[1] != "code" {
 		t.Fatalf("audit metadata missing capabilities: %#v", meta)
+	}
+}
+
+func TestEffectiveTokenTTLCapsAtDelegationExpiry(t *testing.T) {
+	now := time.Now()
+	ttl, err := effectiveTokenTTL(10*time.Minute, &delegationProof{
+		edge: &DelegationEdge{ExpiresAt: now.Add(30 * time.Second)},
+	}, now)
+	if err != nil {
+		t.Fatalf("effective ttl should cap: %v", err)
+	}
+	if ttl > 31*time.Second {
+		t.Fatalf("ttl not capped by delegation expiry: %s", ttl)
+	}
+}
+
+func TestEffectiveTokenTTLCapsAtDelegationConstraint(t *testing.T) {
+	now := time.Now()
+	ttl, err := effectiveTokenTTL(10*time.Minute, &delegationProof{
+		edge:        &DelegationEdge{ExpiresAt: now.Add(time.Hour)},
+		constraints: delegationConstraints{TTLSeconds: 45},
+	}, now)
+	if err != nil {
+		t.Fatalf("effective ttl should cap: %v", err)
+	}
+	if ttl != 45*time.Second {
+		t.Fatalf("ttl = %s, want 45s", ttl)
 	}
 }
 
@@ -778,6 +805,16 @@ func TestValidateSessionReferencesRejectsDelegationTTLConstraint(t *testing.T) {
 	}, true)
 	if err == nil || err.Description != "requested ttl exceeds delegation ttl" {
 		t.Fatalf("want ttl constraint error, got %#v", err)
+	}
+
+	db.agentIndex = 0
+	proof, _, err := srv.validateSessionReferences(context.Background(), "zone1", "app2", TokenExchangeRequest{
+		AgentSessionID:   target.ID,
+		DelegationEdgeID: "edge1",
+		Scope:            "read",
+	}, true)
+	if err != nil || proof == nil || proof.constraints.TTLSeconds != 30 {
+		t.Fatalf("default ttl should be capped at issuance instead of rejected, proof=%#v err=%#v", proof, err)
 	}
 }
 

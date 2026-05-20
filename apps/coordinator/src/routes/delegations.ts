@@ -16,6 +16,7 @@ import { ZoneIdParams, ZoneParams, ZoneSessionParams, parseParams } from './para
 
 const LIST_DEFAULT_LIMIT = 100
 const LIST_MAX_LIMIT = 500
+const CONSTRAINT_KEYS = new Set(['resources', 'max_depth', 'max_hops', 'ttl_seconds', 'budget', 'policy_approved', 'expires_at'])
 
 const DelegationBody = z.object({
   source_session_id: z.string().min(1),
@@ -42,6 +43,10 @@ export const delegationsRoutes: FastifyPluginAsync = async (fastify) => {
     const { zoneId } = params
     const body = DelegationBody.parse(req.body)
     const constraints = normalizedConstraints(body.constraints_json, body.constraints, body.ttl_seconds)
+    const constraintError = validateConstraints(constraints)
+    if (constraintError) {
+      return reply.code(400).send({ error: constraintError })
+    }
     const expiresAt = body.expires_at
       ?? (typeof constraints.expires_at === 'string' ? constraints.expires_at : undefined)
       ?? (body.ttl_seconds ? new Date(Date.now() + body.ttl_seconds * 1000).toISOString() : undefined)
@@ -63,10 +68,6 @@ export const delegationsRoutes: FastifyPluginAsync = async (fastify) => {
     }
     if (new Date(expiresAt).getTime() <= Date.now()) {
       return reply.code(400).send({ error: 'delegation_expired' })
-    }
-    const maxHops = constraints.max_hops
-    if (maxHops !== undefined && (typeof maxHops !== 'number' || maxHops <= 0)) {
-      return reply.code(400).send({ error: 'invalid_max_hops' })
     }
     const client = await fastify.db.connect()
     try {
@@ -288,6 +289,41 @@ function normalizedConstraints(
     out.ttl_seconds = ttlSeconds
   }
   return out
+}
+
+function validateConstraints(constraints: Record<string, unknown>): string | null {
+  for (const key of Object.keys(constraints)) {
+    if (!CONSTRAINT_KEYS.has(key)) return 'invalid_delegation_constraint'
+  }
+  if (constraints.resources !== undefined
+    && (!Array.isArray(constraints.resources) || !constraints.resources.every((v) => typeof v === 'string' && v.length > 0))) {
+    return 'invalid_delegation_resources'
+  }
+  for (const key of ['max_depth', 'max_hops', 'ttl_seconds', 'budget'] as const) {
+    const value = constraints[key]
+    if (value !== undefined && (typeof value !== 'number' || !Number.isInteger(value) || value <= 0)) {
+      return `invalid_${key}`
+    }
+  }
+  const maxHops = constraints.max_hops
+  if (typeof maxHops === 'number' && maxHops > MAX_DEPTH) {
+    return 'invalid_max_hops'
+  }
+  const maxDepth = constraints.max_depth
+  if (typeof maxDepth === 'number' && maxDepth > MAX_DEPTH) {
+    return 'invalid_max_depth'
+  }
+  if (typeof maxHops === 'number' && typeof maxDepth === 'number' && maxHops !== maxDepth) {
+    return 'invalid_max_hops'
+  }
+  if (constraints.policy_approved !== undefined && typeof constraints.policy_approved !== 'boolean') {
+    return 'invalid_policy_approved'
+  }
+  const expiresAt = constraints.expires_at
+  if (expiresAt !== undefined && (typeof expiresAt !== 'string' || Number.isNaN(Date.parse(expiresAt)))) {
+    return 'invalid_expires_at'
+  }
+  return null
 }
 
 const EDGE_LIST_FIELDS = {
