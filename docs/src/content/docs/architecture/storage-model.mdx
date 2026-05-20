@@ -32,7 +32,7 @@ All persistent state in Caracal lives in a single Postgres database. Thirty tabl
 | Table | Purpose |
 | ----- | ------- |
 | `sessions` | User and application sessions. Tracks subject, status, expiry, and claims snapshot. |
-| `agent_sessions` | Agent execution sessions. Tracks depth in tree, child count, capabilities, TTL, and status. |
+| `agent_sessions` | Agent execution sessions. Tracks agent kind, depth in tree, child count, capabilities, TTL, and status. |
 | `agent_topology` | Parent-child relationships for the agent tree. Enforces MAX_CHILDREN. |
 | `delegation_edges` | Directed authority transfers. Tracks status, scope, constraints, expiry, and edge version. |
 | `delegation_graph_epochs` | Monotonic epoch counter per zone. Incremented on every edge create or revoke. |

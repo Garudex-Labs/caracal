@@ -167,7 +167,7 @@ All `resource` commands are zone-scoped.
 caracal resource list
 ```
 
-**Table columns:** `id`, `identifier`, `name`, `upstream_url`, `scopes`, `credential_provider_id`
+**Table columns:** `id`, `identifier`, `name`, `upstream_url`, `gateway_application_id`, `scopes`, `credential_provider_id`
 
 ---
 
@@ -186,7 +186,8 @@ caracal resource create \
   --identifier "resource://payments-api" \
   --scopes "transfer:read,transfer:write" \
   --name "Payments API" \
-  --upstream-url "http://payments.internal"
+  --upstream-url "http://payments.internal" \
+  --gateway-application-id app_gateway
 ```
 
 | Flag | Type | Default | Description |
@@ -195,6 +196,7 @@ caracal resource create \
 | `--scopes <a,b>` | string | required | Comma-separated scope list |
 | `--name <n>` | string | — | Display name |
 | `--upstream-url <url>` | string | — | Backend URL for gateway proxying |
+| `--gateway-application-id <id>` | string | required with `--upstream-url` | Gateway application identity for STS exchange |
 | `--prefix` | boolean | `false` | Match identifier as a prefix |
 | `--provider <id>` | string | — | Credential provider ID |
 

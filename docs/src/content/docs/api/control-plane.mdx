@@ -246,7 +246,7 @@ Response 204 on delete.
 
 ## Providers — `/v1/zones/{zoneId}/providers`
 
-Providers supply upstream credentials when `auth_mode` is `provider_oauth` or `provider_apikey`. The `config_json` and `secret_config` fields in the request body are merged — fields matching `/secret|password|token|api[_-]?key|private[_-]?key|credential|passphrase/i` are extracted and encrypted under the zone's DEK before storage. Decrypted secrets are never returned in responses; only `secret_config_keys` (an array of key names) indicates which secrets are stored.
+Providers define upstream credential metadata used by STS/Gateway brokered forwarding. OAuth2/OIDC provider grants are forwarded as bearer-style credentials and may be refreshed from `token_endpoint`; API-key grants are forwarded using `header_name` or `auth_header`; workload providers are metadata-only in the current OSS runtime. The `config_json` and `secret_config` fields in the request body are merged — fields matching `/secret|password|token|api[_-]?key|private[_-]?key|credential|passphrase/i` are extracted and encrypted under the zone's DEK before storage. Decrypted secrets are never returned in responses; only `secret_config_keys` indicates which secrets are stored.
 
 ### `GET /v1/zones/{zoneId}/providers`
 
@@ -261,7 +261,7 @@ Providers supply upstream credentials when `auth_mode` is `provider_oauth` or `p
     "identifier": "github",
     "kind": "oauth2",
     "owner_type": "customer",
-    "config_json": { "token_url": "https://github.com/login/oauth/access_token" },
+    "config_json": { "token_endpoint": "https://github.com/login/oauth/access_token" },
     "secret_config_keys": ["client_secret"],
     "created_at": "2026-01-01T00:00:00Z",
     "updated_at": "2026-01-01T00:00:00Z"

@@ -57,7 +57,9 @@ The STS populates `input` on every evaluation:
     "id": "app-abc123",
     "zone_id": "my-zone",
     "credential_type": "token",
-    "agent_session_id": "sess-xyz"
+    "agent_session_id": "agent-sess-xyz",
+    "agent_kind": "ephemeral",
+    "capabilities": ["browser", "code"]
   },
   "resource": {
     "type": "resource",
@@ -101,7 +103,7 @@ The STS populates `input` on every evaluation:
 }
 ```
 
-`delegation_edge` is present only when the exchange involves a delegation edge. `context.actor_claims` carries custom claims injected by the credential provider (e.g., from an OIDC userinfo endpoint).
+`principal.agent_kind` and `principal.capabilities` are present when the exchange asserts an active Coordinator agent session. `delegation_edge` is present only when the exchange involves a delegation edge. `context.actor_claims` carries custom claims injected by the credential provider (e.g., from an OIDC userinfo endpoint).
 
 ## Forbidden builtins
 

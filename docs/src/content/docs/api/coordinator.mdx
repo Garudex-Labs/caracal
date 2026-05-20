@@ -48,7 +48,7 @@ Spawn a new agent session. Equivalent to `POST /v1/begin`.
 | `application_id` | string | Yes | — |
 | `subject_session_id` | string | No | STS session ID from the bearer token |
 | `parent_id` | string \| null | No | `null` (root agent) |
-| `kind` | `"service" \| "instance" \| "ephemeral"` | No | — |
+| `kind` | `"service" \| "instance" \| "ephemeral"` | No | `"ephemeral"` |
 | `capabilities` | string[] | No | `[]` |
 | `ttl_seconds` | integer | No | `3600` | 1–86400 |
 | `metadata` | object | No | `{}` |
@@ -73,6 +73,8 @@ Spawn a new agent session. Equivalent to `POST /v1/begin`.
   "application_id": "app1",
   "parent_id": null,
   "subject_session_id": "sts-session-id",
+  "kind": "ephemeral",
+  "capabilities": ["browser", "code"],
   "status": "active",
   "depth": 0,
   "spawned_at": "2026-05-11T20:00:00Z",
