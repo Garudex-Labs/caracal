@@ -174,11 +174,15 @@ Create a delegation edge from a source agent session to a target agent session. 
 
 | Field | Type | Description |
 | --- | --- | --- |
-| `ttl_seconds` | integer | Maximum lifetime of tokens issued under this edge |
-| `max_hops` | integer | Maximum delegation chain depth; default 1 |
+| `ttl_seconds` | integer | Maximum lifetime of tokens issued under this edge; issued mandates are capped by this value |
+| `max_hops` | integer | Maximum delegation chain depth, 1–10; default 1 |
+| `max_depth` | integer | Compatibility alias for `max_hops`, 1–10 |
 | `budget` | integer | Maximum scope count per token exchange |
+| `resources` | string[] | Optional resource labels for policy and audit metadata |
+| `policy_approved` | boolean | Optional policy marker consumed by STS policy logic |
+| `expires_at` | ISO 8601 datetime | Optional constraint-side expiry used only when top-level `expires_at` is not provided |
 
-**Validation:** `source_session_id ≠ target_session_id`. The issuer application must own the source session; the receiver application must own the target session. If `resource_id` is set, the requested `scopes` must be a subset of the resource's declared scopes. The edge must not create a cycle in the delegation graph (checked via recursive CTE before insertion).
+**Validation:** `source_session_id ≠ target_session_id`. The issuer application must own the source session; the receiver application must own the target session. If `resource_id` is set, the requested `scopes` must be a subset of the resource's declared scopes. Constraint keys are closed and typed; unknown keys are rejected. The edge must not create a cycle in the delegation graph (checked via recursive CTE before insertion).
 
 **Response 201:**
 
@@ -208,7 +212,10 @@ Create a delegation edge from a source agent session to a target agent session. 
 | `self_delegation_denied` | 400 | Source and target are the same session |
 | `delegation_expiry_required` | 400 | Neither `expires_at` nor `ttl_seconds` provided |
 | `delegation_expired` | 400 | `expires_at` is in the past |
-| `invalid_max_hops` | 400 | `max_hops` is less than 1 |
+| `invalid_delegation_constraint` | 400 | `constraints_json` or `constraints` contains an unknown key |
+| `invalid_max_hops` | 400 | `max_hops` is outside the supported 1–10 range |
+| `invalid_max_depth` | 400 | `max_depth` is outside the supported 1–10 range |
+| `invalid_delegation_resources` | 400 | `resources` is not an array of non-empty strings |
 | `issuer_ownership_required` | 403 | Caller does not own the issuer application |
 | `resource_ownership_required` | 403 | Resource not accessible to issuer application |
 | `delegation_scopes_exceed_resource` | 403 | Requested scopes exceed resource's scopes |

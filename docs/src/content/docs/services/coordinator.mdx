@@ -106,7 +106,7 @@ Invocations are idempotent on `(zone_id, service_id, idempotency_key)`. A duplic
 | `GET` | `/zones/:zoneId/delegations` | List delegation edges |
 | `DELETE` | `/zones/:zoneId/delegations/:edgeId` | Revoke a delegation edge |
 
-Delegation edges carry optional `constraints_json` (e.g., resource restrictions, scope limits, expiry). Revocation is propagated via the outbox.
+Delegation edges carry typed `constraints_json` (resource labels, scope-count budget, `ttl_seconds`, `max_hops`/`max_depth`, approval marker, and constraint-side expiry). Unknown constraint keys are rejected so delegation behavior stays auditable and policy inputs remain predictable. Revocation is propagated via the outbox.
 
 ---
 

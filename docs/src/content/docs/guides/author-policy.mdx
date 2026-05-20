@@ -52,6 +52,7 @@ The STS populates `input` on every evaluation:
 
 ```json
 {
+  "schema_version": "2026-05-20",
   "principal": {
     "type": "application",
     "id": "app-abc123",
@@ -103,7 +104,7 @@ The STS populates `input` on every evaluation:
 }
 ```
 
-`principal.agent_kind` and `principal.capabilities` are present when the exchange asserts an active Coordinator agent session. `delegation_edge` is present only when the exchange involves a delegation edge. `context.actor_claims` carries custom claims injected by the credential provider (e.g., from an OIDC userinfo endpoint).
+`schema_version` identifies the STS policy input contract. Policies should check it explicitly if they depend on fields introduced after their original authoring. `principal.agent_kind` and `principal.capabilities` are present when the exchange asserts an active Coordinator agent session. `delegation_edge` is present only when the exchange involves a delegation edge. `context.actor_claims` carries custom claims injected by the credential provider (e.g., from an OIDC userinfo endpoint).
 
 ## Forbidden builtins
 

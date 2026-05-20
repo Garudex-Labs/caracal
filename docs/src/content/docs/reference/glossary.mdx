@@ -184,7 +184,7 @@ Configured in `caracal.toml` under `mcp_governance.mode`.
 
 Open Policy Agent. Caracal uses OPA to evaluate authorization policy at mandate issuance time. The STS submits an `OPAInput` and expects an `OPAResult` with `evaluation_status: "complete"`. If `evaluation_status` is not `"complete"`, the STS rejects the exchange with `policy_eval_failed`.
 
-OPA input fields: `principal`, `resource`, `action`, `session`, `delegation_edge`, `context`.
+OPA input fields: `schema_version`, `principal`, `resource`, `action`, `session`, `delegation_edge`, `context`.
 OPA output fields: `decision`, `evaluation_status`, `determining_policies`, `diagnostics`.
 
 ---
