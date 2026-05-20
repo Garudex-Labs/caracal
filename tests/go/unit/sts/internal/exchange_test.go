@@ -447,6 +447,66 @@ func TestBuildUpstreamDirectiveSupportsAPIKeyProviderShape(t *testing.T) {
 	}
 }
 
+func TestBuildUpstreamDirectiveRejectsAPIKeyWithoutHeader(t *testing.T) {
+	providerID := "provider1"
+	upstreamURL := "https://upstream.example"
+	resource := &Resource{
+		ID:                   "res1",
+		Identifier:           "resource://api",
+		UpstreamURL:          &upstreamURL,
+		CredentialProviderID: &providerID,
+	}
+	zek := []byte("12345678901234567890123456789012")
+	token, err := sealZEK(zek, []byte("api-key-value"))
+	if err != nil {
+		t.Fatalf("seal provider token: %v", err)
+	}
+	srv := &Server{
+		db: &stubDB{
+			grant: &DelegatedGrant{ProviderID: &providerID, AccessTokenCt: token},
+			provider: &ProviderConfig{
+				ID:           providerID,
+				ProviderKind: strPtr("apikey"),
+				ConfigJSON:   []byte(`{}`),
+			},
+		},
+		keys: &KeyCache{zek: zek},
+	}
+	if _, err := srv.buildUpstreamDirective(context.Background(), "zone1", map[string]any{"sub": "user1"}, resource, true); err == nil {
+		t.Fatal("apikey provider directive must require an explicit auth header")
+	}
+}
+
+func TestBuildUpstreamDirectiveRejectsMalformedProviderConfig(t *testing.T) {
+	providerID := "provider1"
+	upstreamURL := "https://upstream.example"
+	resource := &Resource{
+		ID:                   "res1",
+		Identifier:           "resource://api",
+		UpstreamURL:          &upstreamURL,
+		CredentialProviderID: &providerID,
+	}
+	zek := []byte("12345678901234567890123456789012")
+	token, err := sealZEK(zek, []byte("provider-access-token"))
+	if err != nil {
+		t.Fatalf("seal provider token: %v", err)
+	}
+	srv := &Server{
+		db: &stubDB{
+			grant: &DelegatedGrant{ProviderID: &providerID, AccessTokenCt: token},
+			provider: &ProviderConfig{
+				ID:           providerID,
+				ProviderKind: strPtr("oauth2"),
+				ConfigJSON:   []byte(`{bad json`),
+			},
+		},
+		keys: &KeyCache{zek: zek},
+	}
+	if _, err := srv.buildUpstreamDirective(context.Background(), "zone1", map[string]any{"sub": "user1"}, resource, true); err == nil {
+		t.Fatal("provider directive must reject malformed provider config")
+	}
+}
+
 // TestExchangePartialDeny verifies that partial OPA evaluation status causes HTTP 403.
 // This is the hard invariant: a partial result must never produce a token.
 func TestExchangePartialDeny(t *testing.T) {

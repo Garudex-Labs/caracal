@@ -369,6 +369,8 @@ func buildUpstreamRequest(r *http.Request, upstreamURL *url.URL, caracalToken st
 	if authHeader == "" {
 		authHeader = "Authorization"
 	}
+	req.Header.Del("Authorization")
+	req.Header.Del(authHeader)
 	switch directive.AuthMode {
 	case "provider_oauth", "provider_apikey":
 		scheme := directive.AuthScheme

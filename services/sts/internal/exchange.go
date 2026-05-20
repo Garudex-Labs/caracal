@@ -495,33 +495,66 @@ func (s *Server) buildUpstreamDirective(ctx context.Context, zoneID string, subj
 }
 
 func applyProviderDirective(provider *ProviderConfig, directive *UpstreamDirective) error {
-	var cfg struct {
-		AuthHeader string `json:"auth_header"`
-		HeaderName string `json:"header_name"`
-		AuthScheme string `json:"auth_scheme"`
+	cfg, err := providerDirectiveConfig(provider.ConfigJSON)
+	if err != nil {
+		return err
 	}
-	_ = json.Unmarshal(provider.ConfigJSON, &cfg)
 	switch derefStr(provider.ProviderKind) {
 	case "apikey":
-		directive.AuthMode = UpstreamAuthProviderAPIKey
-		directive.AuthScheme = cfg.AuthScheme
-		if cfg.AuthHeader != "" {
-			directive.AuthHeader = cfg.AuthHeader
-		} else if cfg.HeaderName != "" {
-			directive.AuthHeader = cfg.HeaderName
+		header := strings.TrimSpace(cfg.AuthHeader)
+		if header == "" {
+			header = strings.TrimSpace(cfg.HeaderName)
 		}
+		if !validProviderHeaderName(header) {
+			return fmt.Errorf("provider api key header invalid")
+		}
+		directive.AuthMode = UpstreamAuthProviderAPIKey
+		directive.AuthHeader = header
+		directive.AuthScheme = strings.TrimSpace(cfg.AuthScheme)
 	case "", "oauth2", "oidc":
 		directive.AuthMode = UpstreamAuthProviderOAuth
-		if cfg.AuthHeader != "" {
-			directive.AuthHeader = cfg.AuthHeader
+		if header := strings.TrimSpace(cfg.AuthHeader); header != "" {
+			if !validProviderHeaderName(header) {
+				return fmt.Errorf("provider auth header invalid")
+			}
+			directive.AuthHeader = header
 		}
-		if cfg.AuthScheme != "" {
-			directive.AuthScheme = cfg.AuthScheme
+		if scheme := strings.TrimSpace(cfg.AuthScheme); scheme != "" {
+			directive.AuthScheme = scheme
 		}
 	default:
 		return fmt.Errorf("provider kind unsupported")
 	}
 	return nil
+}
+
+type providerForwardingConfig struct {
+	AuthHeader string `json:"auth_header"`
+	HeaderName string `json:"header_name"`
+	AuthScheme string `json:"auth_scheme"`
+}
+
+func providerDirectiveConfig(raw json.RawMessage) (providerForwardingConfig, error) {
+	var cfg providerForwardingConfig
+	if len(raw) == 0 {
+		return cfg, nil
+	}
+	if err := json.Unmarshal(raw, &cfg); err != nil {
+		return cfg, fmt.Errorf("provider config invalid")
+	}
+	return cfg, nil
+}
+
+func validProviderHeaderName(name string) bool {
+	if name == "" {
+		return false
+	}
+	for _, r := range name {
+		if r > 127 || !strings.ContainsRune("!#$%&'*+-.^_`|~0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz", r) {
+			return false
+		}
+	}
+	return true
 }
 
 func (s *Server) authenticateApp(ctx context.Context, req TokenExchangeRequest) (*Application, string, error) {

@@ -306,6 +306,57 @@ func TestProxyHappyPathForwardsAndStripsHeaders(t *testing.T) {
 	}
 }
 
+func TestProxyProviderAPIKeyDoesNotLeakInboundAuthorization(t *testing.T) {
+	var seen *http.Request
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		seen = r.Clone(context.Background())
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer upstream.Close()
+
+	sts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = r.ParseForm()
+		resource := r.Form.Get("resource")
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(stsResponseFixture{
+			AccessToken: "caracal-identity-token",
+			ExpiresIn:   300,
+			Upstreams: map[string]corests.UpstreamDirective{resource: {
+				URL:           upstream.URL,
+				AuthMode:      "provider_apikey",
+				AuthHeader:    "X-Api-Key",
+				ProviderToken: "provider-secret",
+			}},
+		})
+	}))
+	defer sts.Close()
+	p := newProxyForTest(t, sts, true)
+
+	tok := makeJWT(t, time.Hour)
+	hdr := http.Header{
+		"Authorization":      {"Bearer " + tok},
+		"X-Api-Key":          {"caller-supplied"},
+		"X-Caracal-Resource": {"r1"},
+	}
+	resp := doProxiedRequest(t, p, "GET", "/x", nil, hdr)
+	if resp.StatusCode != http.StatusNoContent {
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("expected 204, got %d: %s", resp.StatusCode, body)
+	}
+	if seen == nil {
+		t.Fatal("upstream never received request")
+	}
+	if got := seen.Header.Get("Authorization"); got != "" {
+		t.Fatalf("inbound Authorization leaked upstream: %q", got)
+	}
+	if got := seen.Header.Get("X-Api-Key"); got != "provider-secret" {
+		t.Fatalf("provider API key header = %q", got)
+	}
+	if got := seen.Header.Get("X-Caracal-Identity"); got != "caracal-identity-token" {
+		t.Fatalf("Caracal identity header = %q", got)
+	}
+}
+
 func TestProxySTSExchangedExactlyOncePerRequest(t *testing.T) {
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusUnauthorized)
