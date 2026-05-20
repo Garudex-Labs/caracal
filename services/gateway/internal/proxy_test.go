@@ -50,8 +50,9 @@ func makeJWT(t *testing.T, offset time.Duration) string {
 	t.Helper()
 	header := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"none","typ":"JWT"}`))
 	payload, _ := json.Marshal(struct {
-		Exp int64 `json:"exp"`
-	}{Exp: time.Now().Add(offset).Unix()})
+		Exp    int64  `json:"exp"`
+		ZoneID string `json:"zone_id"`
+	}{Exp: time.Now().Add(offset).Unix(), ZoneID: "z"})
 	body := base64.RawURLEncoding.EncodeToString(payload)
 	return header + "." + body + ".sig"
 }
@@ -89,7 +90,10 @@ func newProxyForTest(_ *testing.T, sts *httptest.Server, allowPrivate bool) *pro
 // across proxy tests. The empty pool is safe because tests never trigger Reload.
 func testBindings() *bindingStore {
 	s := &bindingStore{log: zerolog.Nop(), pollInterval: defaultBindingPollInterval}
-	m := map[string]binding{"r": {ZoneID: "z", ApplicationID: "a"}, "r1": {ZoneID: "z", ApplicationID: "a"}}
+	m := map[string]binding{
+		bindingKey("z", "r"):  {ZoneID: "z", ApplicationID: "a"},
+		bindingKey("z", "r1"): {ZoneID: "z", ApplicationID: "a"},
+	}
 	s.cache.Store(&m)
 	return s
 }

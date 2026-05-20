@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 // Caracal, a product of Garudex Labs
 //
-// Postgres-backed cache of resource→(zone_id, application_id) bindings; periodic poll keeps it fresh.
+// Postgres-backed cache of zone/resource→application bindings; periodic poll keeps it fresh.
 
 package internal
 
@@ -24,7 +24,7 @@ type binding struct {
 	ApplicationID string
 }
 
-// bindingStore caches resource→(zone_id, application_id) rows from
+// bindingStore caches zone/resource→application rows from
 // gateway_resource_bindings and refreshes them on the configured cadence.
 // Lookups are wait-free against the cached snapshot, so a slow Postgres does
 // not block the proxy hot path.
@@ -43,10 +43,10 @@ func newBindingStore(pool *pgxpool.Pool, log zerolog.Logger) *bindingStore {
 	return s
 }
 
-// Get returns the binding for resource, or zero binding with ok=false if none exists.
-func (s *bindingStore) Get(resource string) (binding, bool) {
+// Get returns the binding for zone/resource, or zero binding with ok=false if none exists.
+func (s *bindingStore) Get(zoneID, resource string) (binding, bool) {
 	m := *s.cache.Load()
-	b, ok := m[resource]
+	b, ok := m[bindingKey(zoneID, resource)]
 	return b, ok
 }
 
@@ -72,13 +72,17 @@ func (s *bindingStore) Reload(ctx context.Context) error {
 		if err := rows.Scan(&resource, &b.ZoneID, &b.ApplicationID); err != nil {
 			return err
 		}
-		out[resource] = b
+		out[bindingKey(b.ZoneID, resource)] = b
 	}
 	if err := rows.Err(); err != nil {
 		return err
 	}
 	s.cache.Store(&out)
 	return nil
+}
+
+func bindingKey(zoneID, resource string) string {
+	return zoneID + "\x00" + resource
 }
 
 // StartPolling refreshes the cache on every tick until ctx is cancelled. Each failure

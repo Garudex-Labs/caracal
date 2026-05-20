@@ -149,7 +149,15 @@ func (p *proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		logger.Info().Int("status", http.StatusBadRequest).Msg("denied: missing routing headers")
 		return
 	}
-	bind, ok := p.bindings.Get(resource)
+	zoneID := jwtZoneID(bearer)
+	if zoneID == "" {
+		writeErr(w, requestID, http.StatusUnauthorized, sharederr.InvalidToken, "missing token zone")
+		p.metrics.RequestsDenied.Add(1)
+		p.metrics.DenialsBadRouting.Add(1)
+		logger.Info().Int("status", http.StatusUnauthorized).Msg("denied: bearer missing zone")
+		return
+	}
+	bind, ok := p.bindings.Get(zoneID, resource)
 	if !ok {
 		writeErr(w, requestID, http.StatusForbidden, sharederr.AccessDenied, "resource not configured")
 		p.metrics.RequestsDenied.Add(1)
@@ -442,6 +450,24 @@ func jwtExp(token string) (time.Time, bool) {
 		return time.Time{}, false
 	}
 	return time.Unix(claims.Exp, 0), true
+}
+
+func jwtZoneID(token string) string {
+	parts := strings.Split(token, ".")
+	if len(parts) != 3 {
+		return ""
+	}
+	payload, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil {
+		return ""
+	}
+	var claims struct {
+		ZoneID string `json:"zone_id"`
+	}
+	if err := json.Unmarshal(payload, &claims); err != nil {
+		return ""
+	}
+	return claims.ZoneID
 }
 
 func extractBearer(h string) string {
