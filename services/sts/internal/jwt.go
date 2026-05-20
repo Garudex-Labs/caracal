@@ -113,6 +113,7 @@ type Claims struct {
 	ClientID         string     `json:"client_id"`
 	Scope            string     `json:"scope,omitempty"`
 	SID              string     `json:"sid"`
+	RootSID          string     `json:"root_sid"`
 	Use              string     `json:"use"`
 	SubType          string     `json:"sub_type"`
 	Target           []string   `json:"target,omitempty"`
@@ -134,6 +135,7 @@ type IssueParams struct {
 	SubType          string
 	Use              string
 	SID              string
+	RootSID          string
 	Scopes           string
 	Resources        []string
 	TTL              time.Duration
@@ -188,6 +190,7 @@ func issueToken(ctx context.Context, params IssueParams, keys *KeyCache, issuerU
 		ClientID:         params.AppID,
 		Scope:            params.Scopes,
 		SID:              params.SID,
+		RootSID:          params.RootSID,
 		Use:              use,
 		SubType:          subType,
 		Target:           params.Resources,

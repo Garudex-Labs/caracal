@@ -226,6 +226,7 @@ type Session struct {
 	ZoneID          string
 	SessionType     string
 	SubjectID       *string
+	ParentID        *string
 	Status          string
 	ExpiresAt       time.Time
 	AuthenticatedAt time.Time
@@ -292,9 +293,9 @@ func (d *DB) GetDelegationEdge(ctx context.Context, id string) (*DelegationEdge,
 func (d *DB) GetSession(ctx context.Context, sid string) (*Session, error) {
 	var s Session
 	err := d.pool.QueryRow(ctx,
-		`SELECT id, zone_id, session_type, subject_id, status, expires_at, authenticated_at
+		`SELECT id, zone_id, session_type, subject_id, parent_id, status, expires_at, authenticated_at
 		 FROM sessions WHERE id = $1`, sid,
-	).Scan(&s.ID, &s.ZoneID, &s.SessionType, &s.SubjectID, &s.Status, &s.ExpiresAt, &s.AuthenticatedAt)
+	).Scan(&s.ID, &s.ZoneID, &s.SessionType, &s.SubjectID, &s.ParentID, &s.Status, &s.ExpiresAt, &s.AuthenticatedAt)
 	if err != nil {
 		return nil, err
 	}
@@ -353,15 +354,24 @@ func (d *DB) GetDelegationGraphEpoch(ctx context.Context, zoneID string) (int64,
 func (d *DB) InsertSession(ctx context.Context, s *Session) error {
 	_, err := d.pool.Exec(ctx,
 		`INSERT INTO sessions (id, zone_id, session_type, subject_id, parent_id, status, expires_at, authenticated_at)
-		 VALUES ($1, $2, $3, $4, NULL, 'active', $5, $6)`,
-		s.ID, s.ZoneID, s.SessionType, s.SubjectID, s.ExpiresAt, s.AuthenticatedAt,
+		 VALUES ($1, $2, $3, $4, $5, 'active', $6, $7)`,
+		s.ID, s.ZoneID, s.SessionType, s.SubjectID, s.ParentID, s.ExpiresAt, s.AuthenticatedAt,
 	)
 	return err
 }
 
 func (d *DB) RevokeSession(ctx context.Context, zoneID, sid string) error {
 	_, err := d.pool.Exec(ctx,
-		`UPDATE sessions SET status = 'revoked' WHERE id = $1 AND zone_id = $2`, sid, zoneID,
+		`WITH RECURSIVE revoked_tree AS (
+		   SELECT id FROM sessions WHERE id = $1 AND zone_id = $2
+		   UNION ALL
+		   SELECT s.id FROM sessions s
+		   JOIN revoked_tree r ON s.parent_id = r.id
+		   WHERE s.zone_id = $2
+		 )
+		 UPDATE sessions SET status = 'revoked'
+		 WHERE zone_id = $2 AND id IN (SELECT id FROM revoked_tree)`,
+		sid, zoneID,
 	)
 	return err
 }

@@ -266,6 +266,24 @@ func jwtDelegationEdgeID(token string) string {
 	return claims.DelegationEdgeID
 }
 
+func jwtRootSID(token string) string {
+	parts := strings.Split(token, ".")
+	if len(parts) != 3 {
+		return ""
+	}
+	payload, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil {
+		return ""
+	}
+	var claims struct {
+		RootSID string `json:"root_sid"`
+	}
+	if err := json.Unmarshal(payload, &claims); err != nil {
+		return ""
+	}
+	return claims.RootSID
+}
+
 func trackRevocationFailure(ctx context.Context, redis revocationRedis, msg redis.XMessage, cause error, log zerolog.Logger) {
 	key := "stream-failure:" + streamRevoke + ":" + msg.ID
 	attempts, err := redis.IncrWithExpiry(ctx, key, failureTTL)
