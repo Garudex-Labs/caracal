@@ -25,23 +25,23 @@ type TokenResponse = corests.TokenResponse
 
 // TokenExchangeRequest is the parsed body of POST /oauth/2/token (application/x-www-form-urlencoded).
 type TokenExchangeRequest struct {
-	GrantType           string
-	SubjectToken        string
-	SubjectTokenType    string
-	ActorToken          string
-	Resources           []string // one or more resource identifiers; repeated param supported
-	Scope               string
-	ZoneID              string
-	ApplicationID       string
-	ClientSecret        string
-	ClientAssertion     string
-	ClientAssertionType string
-	ChallengeID         string // identifier of a previously issued step-up challenge
-	ChallengeResponse   string // single-use secret presented to consume the challenge
-	SessionID           string
-	AgentSessionID      string
-	DelegationEdgeID    string
-	TTLSeconds          int
+	GrantType            string
+	SubjectToken         string
+	SubjectTokenType     string
+	ActorToken           string
+	Resources            []string // one or more resource identifiers; repeated param supported
+	Scope                string
+	ZoneID               string
+	ApplicationID        string
+	ClientSecret         string
+	ClientAssertion      string
+	ClientAssertionType  string
+	ChallengeID          string // identifier of a previously issued step-up challenge
+	ChallengeResponse    string // single-use secret presented to consume the challenge
+	SessionID            string
+	AgentSessionID       string
+	DelegationEdgeID     string
+	TTLSeconds           int
 	GatewayAuthenticated bool
 }
 

@@ -28,8 +28,8 @@ const (
 	// initiating long streams must treat ttlPerCallSDK as the contract upper
 	// bound: streams running past it should expect upstream-side disconnect
 	// or a fresh exchange and reconnect orchestrated by the SDK.
-	ttlPerCallSDK = 15 * time.Minute
-	ttlAmbient    = 60 * time.Minute
+	ttlPerCallSDK       = 15 * time.Minute
+	ttlAmbient          = 60 * time.Minute
 	gatewayExchangeSkew = 60 * time.Second
 )
 
@@ -80,23 +80,23 @@ func (s *Server) handleTokenExchange(w http.ResponseWriter, r *http.Request) {
 	}
 
 	req := TokenExchangeRequest{
-		GrantType:           r.FormValue("grant_type"),
-		SubjectToken:        r.FormValue("subject_token"),
-		SubjectTokenType:    r.FormValue("subject_token_type"),
-		ActorToken:          r.FormValue("actor_token"),
-		Resources:           r.Form["resource"],
-		Scope:               r.FormValue("scope"),
-		ZoneID:              r.FormValue("zone_id"),
-		ApplicationID:       r.FormValue("application_id"),
-		ClientSecret:        r.FormValue("client_secret"),
-		ClientAssertion:     r.FormValue("client_assertion"),
-		ClientAssertionType: r.FormValue("client_assertion_type"),
-		ChallengeID:         r.FormValue("challenge_id"),
-		ChallengeResponse:   r.FormValue("challenge_response"),
-		SessionID:           r.FormValue("session_id"),
-		AgentSessionID:      r.FormValue("agent_session_id"),
-		DelegationEdgeID:    r.FormValue("delegation_edge_id"),
-		TTLSeconds:          ttlSeconds,
+		GrantType:            r.FormValue("grant_type"),
+		SubjectToken:         r.FormValue("subject_token"),
+		SubjectTokenType:     r.FormValue("subject_token_type"),
+		ActorToken:           r.FormValue("actor_token"),
+		Resources:            r.Form["resource"],
+		Scope:                r.FormValue("scope"),
+		ZoneID:               r.FormValue("zone_id"),
+		ApplicationID:        r.FormValue("application_id"),
+		ClientSecret:         r.FormValue("client_secret"),
+		ClientAssertion:      r.FormValue("client_assertion"),
+		ClientAssertionType:  r.FormValue("client_assertion_type"),
+		ChallengeID:          r.FormValue("challenge_id"),
+		ChallengeResponse:    r.FormValue("challenge_response"),
+		SessionID:            r.FormValue("session_id"),
+		AgentSessionID:       r.FormValue("agent_session_id"),
+		DelegationEdgeID:     r.FormValue("delegation_edge_id"),
+		TTLSeconds:           ttlSeconds,
 		GatewayAuthenticated: gatewayAuthenticated,
 	}
 

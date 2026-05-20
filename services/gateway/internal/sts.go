@@ -106,7 +106,7 @@ func (c *stsClient) Exchange(ctx context.Context, subjectToken string, bind bind
 	if requestID != "" {
 		req.Header.Set("X-Request-Id", requestID)
 	}
-	if c.exchangeHMACKey != nil {
+	if len(c.exchangeHMACKey) > 0 {
 		timestamp := time.Now().UTC()
 		req.Header.Set(corests.GatewayTimestampHeader, fmt.Sprintf("%d", timestamp.Unix()))
 		req.Header.Set(corests.GatewayRequestHeader, requestID)
