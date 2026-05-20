@@ -507,6 +507,7 @@ func applyProviderDirective(provider *ProviderConfig, directive *UpstreamDirecti
 	if err != nil {
 		return err
 	}
+	directive.ForwardCaracalIdentity = cfg.ForwardCaracalIdentity
 	switch derefStr(provider.ProviderKind) {
 	case "apikey":
 		header := strings.TrimSpace(cfg.AuthHeader)
@@ -537,9 +538,10 @@ func applyProviderDirective(provider *ProviderConfig, directive *UpstreamDirecti
 }
 
 type providerForwardingConfig struct {
-	AuthHeader string `json:"auth_header"`
-	HeaderName string `json:"header_name"`
-	AuthScheme string `json:"auth_scheme"`
+	AuthHeader             string `json:"auth_header"`
+	HeaderName             string `json:"header_name"`
+	AuthScheme             string `json:"auth_scheme"`
+	ForwardCaracalIdentity bool   `json:"forward_caracal_identity"`
 }
 
 func providerDirectiveConfig(raw json.RawMessage) (providerForwardingConfig, error) {

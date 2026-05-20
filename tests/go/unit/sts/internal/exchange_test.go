@@ -447,6 +447,40 @@ func TestBuildUpstreamDirectiveSupportsAPIKeyProviderShape(t *testing.T) {
 	}
 }
 
+func TestBuildUpstreamDirectiveReadsIdentityForwardingOptIn(t *testing.T) {
+	providerID := "provider1"
+	upstreamURL := "https://upstream.example"
+	resource := &Resource{
+		ID:                   "res1",
+		Identifier:           "resource://api",
+		UpstreamURL:          &upstreamURL,
+		CredentialProviderID: &providerID,
+	}
+	zek := []byte("12345678901234567890123456789012")
+	token, err := sealZEK(zek, []byte("api-key-value"))
+	if err != nil {
+		t.Fatalf("seal provider token: %v", err)
+	}
+	srv := &Server{
+		db: &stubDB{
+			grant: &DelegatedGrant{ProviderID: &providerID, AccessTokenCt: token},
+			provider: &ProviderConfig{
+				ID:           providerID,
+				ProviderKind: strPtr("apikey"),
+				ConfigJSON:   []byte(`{"header_name":"X-Api-Key","forward_caracal_identity":true}`),
+			},
+		},
+		keys: &KeyCache{zek: zek},
+	}
+	directive, err := srv.buildUpstreamDirective(context.Background(), "zone1", map[string]any{"sub": "user1"}, resource, true)
+	if err != nil {
+		t.Fatalf("gateway directive should support identity forwarding opt-in: %v", err)
+	}
+	if !directive.ForwardCaracalIdentity {
+		t.Fatalf("identity forwarding opt-in not propagated: %#v", directive)
+	}
+}
+
 func TestBuildUpstreamDirectiveRejectsAPIKeyWithoutHeader(t *testing.T) {
 	providerID := "provider1"
 	upstreamURL := "https://upstream.example"
@@ -733,6 +767,118 @@ func TestValidateSessionReferencesRejectsSourceUsingDelegationEdge(t *testing.T)
 	}, true)
 	if err == nil || err.Description != "delegation edge target mismatch" {
 		t.Fatalf("source agent must not consume target delegation edge, got %#v", err)
+	}
+}
+
+func TestValidateSessionReferencesRejectsUnrelatedAppUsingDelegationEdge(t *testing.T) {
+	now := time.Now()
+	source := &AgentSession{
+		ID:            "agent-src",
+		ZoneID:        "zone1",
+		ApplicationID: "app1",
+		Status:        "active",
+		SpawnedAt:     now.Add(-time.Minute),
+		TTLSeconds:    600,
+	}
+	target := &AgentSession{
+		ID:            "agent-dst",
+		ZoneID:        "zone1",
+		ApplicationID: "app2",
+		Status:        "active",
+		SpawnedAt:     now.Add(-time.Minute),
+		TTLSeconds:    600,
+	}
+	db := &stubDB{
+		agentSessions: []*AgentSession{source, target},
+		edge: &DelegationEdge{
+			ID:              "edge1",
+			ZoneID:          "zone1",
+			SourceSessionID: source.ID,
+			TargetSessionID: target.ID,
+			IssuerAppID:     source.ApplicationID,
+			ReceiverAppID:   target.ApplicationID,
+			Scopes:          []string{"read"},
+			Status:          "active",
+			ExpiresAt:       now.Add(time.Minute),
+		},
+	}
+	srv := &Server{db: db}
+	_, _, err := srv.validateSessionReferences(context.Background(), "zone1", "app3", TokenExchangeRequest{
+		AgentSessionID:   target.ID,
+		DelegationEdgeID: "edge1",
+		Scope:            "read",
+	}, true)
+	if err == nil || err.Description != "delegation target inactive or unauthorized" {
+		t.Fatalf("unrelated app must not consume target delegation edge, got %#v", err)
+	}
+}
+
+func TestValidateSessionReferencesRejectsExpiredDelegationEdge(t *testing.T) {
+	now := time.Now()
+	db := &stubDB{
+		edge: &DelegationEdge{
+			ID:              "edge1",
+			ZoneID:          "zone1",
+			SourceSessionID: "agent-src",
+			TargetSessionID: "agent-dst",
+			IssuerAppID:     "app1",
+			ReceiverAppID:   "app2",
+			Scopes:          []string{"read"},
+			Status:          "active",
+			ExpiresAt:       now.Add(-time.Second),
+		},
+	}
+	srv := &Server{db: db}
+	_, _, err := srv.validateSessionReferences(context.Background(), "zone1", "app2", TokenExchangeRequest{
+		AgentSessionID:   "agent-dst",
+		DelegationEdgeID: "edge1",
+		Scope:            "read",
+	}, true)
+	if err == nil || err.Description != "delegation edge inactive or expired" {
+		t.Fatalf("expired edge must fail, got %#v", err)
+	}
+}
+
+func TestValidateSessionReferencesRejectsScopeOutsideDelegationEdge(t *testing.T) {
+	now := time.Now()
+	source := &AgentSession{
+		ID:            "agent-src",
+		ZoneID:        "zone1",
+		ApplicationID: "app1",
+		Status:        "active",
+		SpawnedAt:     now.Add(-time.Minute),
+		TTLSeconds:    600,
+	}
+	target := &AgentSession{
+		ID:            "agent-dst",
+		ZoneID:        "zone1",
+		ApplicationID: "app2",
+		Status:        "active",
+		SpawnedAt:     now.Add(-time.Minute),
+		TTLSeconds:    600,
+	}
+	db := &stubDB{
+		agentSessions: []*AgentSession{source, target},
+		edge: &DelegationEdge{
+			ID:              "edge1",
+			ZoneID:          "zone1",
+			SourceSessionID: source.ID,
+			TargetSessionID: target.ID,
+			IssuerAppID:     source.ApplicationID,
+			ReceiverAppID:   target.ApplicationID,
+			Scopes:          []string{"read"},
+			Status:          "active",
+			ExpiresAt:       now.Add(time.Minute),
+		},
+	}
+	srv := &Server{db: db}
+	_, _, err := srv.validateSessionReferences(context.Background(), "zone1", "app2", TokenExchangeRequest{
+		AgentSessionID:   target.ID,
+		DelegationEdgeID: "edge1",
+		Scope:            "write",
+	}, true)
+	if err == nil || err.Description != "requested scopes exceed delegation scopes" {
+		t.Fatalf("scope outside delegation must fail, got %#v", err)
 	}
 }
 
