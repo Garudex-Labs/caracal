@@ -5,7 +5,7 @@
  * Wire envelope using W3C Trace Context (traceparent) and W3C Baggage.
  *
  * Subject token rides in Authorization. Caracal-specific cross-cutting fields
- * (agent_session, delegation_edge, parent_edge, hop) ride in Baggage under the
+ * (session, agent_session, delegation_edge, parent_edge, hop) ride in Baggage under the
  * caracal.* namespace. Trace identifiers ride in traceparent so any
  * OpenTelemetry-aware client/server propagates them transparently.
  */
@@ -17,6 +17,7 @@ export const HeaderBaggage = "baggage";
 export const BaggageAgentSession = "caracal.agent_session";
 export const BaggageDelegationEdge = "caracal.delegation_edge";
 export const BaggageParentEdge = "caracal.parent_edge";
+export const BaggageSession = "caracal.session";
 export const BaggageHop = "caracal.hop";
 
 export const MaxHop = 32;
@@ -26,6 +27,7 @@ export interface Envelope {
   agentSessionId?: string;
   delegationEdgeId?: string;
   parentEdgeId?: string;
+  sessionId?: string;
   traceId?: string;
   hop: number;
 }
@@ -125,6 +127,7 @@ export function decodeEnvelope(get: HeaderGetter): Envelope {
     agentSessionId: bag[BaggageAgentSession] || undefined,
     delegationEdgeId: bag[BaggageDelegationEdge] || undefined,
     parentEdgeId: bag[BaggageParentEdge] || undefined,
+    sessionId: bag[BaggageSession] || undefined,
     traceId,
     hop,
   };
@@ -138,6 +141,7 @@ export function encodeEnvelope(env: Envelope, set: HeaderSetter): void {
     [BaggageAgentSession]: env.agentSessionId,
     [BaggageDelegationEdge]: env.delegationEdgeId,
     [BaggageParentEdge]: env.parentEdgeId,
+    [BaggageSession]: env.sessionId,
     [BaggageHop]: String(env.hop),
   });
   if (baggage) set(HeaderBaggage, baggage);

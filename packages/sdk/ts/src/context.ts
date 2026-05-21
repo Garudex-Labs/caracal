@@ -20,10 +20,27 @@ export interface CaracalContext {
   hop: number;
 }
 
+export interface AuthoritySummary {
+  zoneId: string;
+  applicationId: string;
+  authoritySessionId?: string;
+  agentRunId?: string;
+  delegatedPermissionId?: string;
+  parentDelegatedPermissionId?: string;
+  traceId?: string;
+  hop: number;
+  chain: string[];
+}
+
 const storage = new AsyncLocalStorage<CaracalContext>();
 
 export function current(): CaracalContext | undefined {
   return storage.getStore();
+}
+
+export function captureContext(): CaracalContext | undefined {
+  const ctx = current();
+  return ctx ? { ...ctx } : undefined;
 }
 
 export function bind<T>(ctx: CaracalContext, fn: () => T | Promise<T>): T | Promise<T> {
@@ -45,6 +62,7 @@ export function toEnvelope(ctx: CaracalContext): Envelope {
     agentSessionId: ctx.agentSessionId,
     delegationEdgeId: ctx.delegationEdgeId,
     parentEdgeId: ctx.parentEdgeId,
+    sessionId: ctx.sessionId,
     traceId: ctx.traceId,
     hop: ctx.hop,
   };
@@ -59,7 +77,28 @@ export function fromEnvelope(env: Envelope, base: { zoneId: string; clientId: st
     agentSessionId: env.agentSessionId,
     delegationEdgeId: env.delegationEdgeId,
     parentEdgeId: env.parentEdgeId,
+    sessionId: env.sessionId,
     traceId: env.traceId,
     hop: env.hop,
+  };
+}
+
+export function describeAuthority(ctx: CaracalContext | undefined = current()): AuthoritySummary | undefined {
+  if (!ctx) return undefined;
+  const chain: string[] = [];
+  if (ctx.sessionId) chain.push(`authority:${ctx.sessionId}`);
+  if (ctx.agentSessionId) chain.push(`agent-run:${ctx.agentSessionId}`);
+  if (ctx.parentEdgeId) chain.push(`parent-delegated-permission:${ctx.parentEdgeId}`);
+  if (ctx.delegationEdgeId) chain.push(`delegated-permission:${ctx.delegationEdgeId}`);
+  return {
+    zoneId: ctx.zoneId,
+    applicationId: ctx.clientId,
+    authoritySessionId: ctx.sessionId,
+    agentRunId: ctx.agentSessionId,
+    delegatedPermissionId: ctx.delegationEdgeId,
+    parentDelegatedPermissionId: ctx.parentEdgeId,
+    traceId: ctx.traceId,
+    hop: ctx.hop,
+    chain,
   };
 }
