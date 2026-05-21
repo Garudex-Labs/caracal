@@ -98,7 +98,7 @@ For each revoked session, the Coordinator enqueues a revocation event through th
 - The **STS** marks the session ID and descendant STS sessions as revoked, rejecting any future token exchanges for that authority root.
 - The **Gateway** checks the mandate `sid`, `root_sid`, `agent_session_id`, and `delegation_edge_id` on every request and at every 4 KB chunk boundary during streaming. If authority is revoked mid-stream, the Gateway closes the upstream connection and sets a `X-Caracal-Revoked` response trailer.
 
-Revocation propagates in near real-time via the Redis stream. The Gateway's revocation cache holds entries for 24 hours after revocation — sufficient to cover any in-flight per-call token's 15-minute TTL.
+Revocation propagates in near real-time via the Redis stream. The Gateway's revocation cache holds entries for 24 hours after revocation — sufficient to cover any in-flight resource mandate's 15-minute TTL.
 
 The revocation event includes both identifiers when available:
 

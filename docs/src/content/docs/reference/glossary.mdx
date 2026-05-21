@@ -158,7 +158,7 @@ An administrative binding that permits a principal to use a subset of a resource
 
 ## Hop count
 
-`hop_count` — The number of delegation steps between the root session and the current session. Carried in the JWT claims. Compared against `max_hops` caveats during chain validation. A mandate rejected for `hop_count_exceeded` means the delegation chain has exceeded its allowed depth.
+`hop_count` — The number of delegation steps between the root session and the current session. Carried in the JWT claims. Compared against `max_hops` constraints during chain validation. A mandate rejected for `hop_count_exceeded` means the delegation chain has exceeded its allowed depth.
 
 ---
 
@@ -243,9 +243,9 @@ A string that identifies a permission within a zone. Scopes are attached to dele
 
 ---
 
-## Session
+## Execution session
 
-A stateful identity context. Sessions come in three sub-types:
+A stateful authority context controlled by a registered principal. Execution sessions come in three sub-types:
 - **User sessions**: Created when a user authenticates. `sub_type: "user"`.
 - **Application sessions**: Created when an application authenticates with a client credential. `sub_type: "application"`.
 - **Agent sessions**: Created by the Coordinator for AI agents. `sub_type: "agent"`. Carries `agent_session_id`.
@@ -266,9 +266,9 @@ An `interaction_required` error response from the STS or Gateway indicating that
 
 ---
 
-## Subject token
+## `subject_token`
 
-A token representing the identity that an agent session is acting on behalf of. The subject token is passed to the Caracal SDK client when constructing an agent session and is carried in the `sub` claim of the resulting mandate.
+The RFC 8693 wire parameter that carries a Caracal session mandate during STS exchange. It is not a separate Caracal abstraction; conceptually, callers present a session mandate and receive a narrowed resource mandate.
 
 ---
 

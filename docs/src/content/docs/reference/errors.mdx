@@ -31,7 +31,7 @@ Returned by the Gateway and STS when mandate validation fails. Always accompanie
 | `agent_required` | 403 | The resource requires an agent session but the mandate is a user or application session | Use an agent session mandate for this operation |
 | `delegation_required` | 403 | The resource requires a delegated mandate but no delegation chain is present | Obtain a mandate through the delegation flow before calling this resource |
 | `chain_mismatch` | 403 | The delegation chain in the JWT is inconsistent with the delegation graph | Re-obtain the mandate; the graph may have changed since the mandate was issued |
-| `hop_count_exceeded` | 403 | The delegation chain has more hops than the `max_hops` caveat allows | Reduce delegation depth; check `max_hops` constraints on parent delegation edges |
+| `hop_count_exceeded` | 403 | The delegation chain has more hops than the `max_hops` constraint allows | Reduce delegation depth; check `max_hops` constraints on parent delegation edges |
 
 ---
 

@@ -48,7 +48,7 @@ interface Claims {
   clientId: string;                     // Application ID
   sid: string;                          // Session ID (revocation key)
   rootSid?: string;                     // Authority root, if present
-  use: string;                          // Token use, such as 'per_call'
+  use: string;                          // Mandate use: 'session' or 'resource'
   jti: string;                          // Token ID
   issuedAt: number;                     // NumericDate from 'iat'
   expiresAt: number;                    // NumericDate from 'exp'

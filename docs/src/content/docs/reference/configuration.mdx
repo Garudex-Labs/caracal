@@ -103,8 +103,8 @@ The TypeScript, Python, and Go SDKs support two authentication modes:
 
 | Mode | Required variables | Use |
 | --- | --- | --- |
-| Static subject token | `CARACAL_COORDINATOR_URL`, `CARACAL_ZONE_ID`, `CARACAL_APPLICATION_ID`, `CARACAL_SUBJECT_TOKEN` | Use when another trusted component already issued the ambient subject token |
-| Client secret | `CARACAL_COORDINATOR_URL`, `CARACAL_ZONE_ID`, `CARACAL_APPLICATION_ID`, `CARACAL_APP_CLIENT_SECRET`, `CARACAL_STS_URL`, plus resources | Use when the SDK should exchange the application secret for a subject token and refresh it automatically |
+| Static session mandate | `CARACAL_COORDINATOR_URL`, `CARACAL_ZONE_ID`, `CARACAL_APPLICATION_ID`, `CARACAL_SUBJECT_TOKEN` | Use when another trusted component already issued the session mandate |
+| Client secret | `CARACAL_COORDINATOR_URL`, `CARACAL_ZONE_ID`, `CARACAL_APPLICATION_ID`, `CARACAL_APP_CLIENT_SECRET`, `CARACAL_STS_URL`, plus resources | Use when the SDK should exchange the application secret for a session mandate and refresh it automatically |
 
 Client-secret mode needs at least one resource. Supply resources with `CARACAL_APP_RESOURCES`, `CARACAL_RESOURCES`, or `CARACAL_RESOURCES_FILE` depending on SDK support.
 
@@ -113,7 +113,7 @@ Client-secret mode needs at least one resource. Supply resources with `CARACAL_A
 | `CARACAL_COORDINATOR_URL` | Coordinator base URL, for example `http://localhost:4000` |
 | `CARACAL_ZONE_ID` | Zone identifier |
 | `CARACAL_APPLICATION_ID` | Registered application identifier |
-| `CARACAL_SUBJECT_TOKEN` | Ambient bearer token for static-token mode |
+| `CARACAL_SUBJECT_TOKEN` | Session mandate for static-token mode |
 | `CARACAL_APP_CLIENT_SECRET` | Application secret for client-secret mode |
 | `CARACAL_STS_URL` | STS base URL for client-secret mode |
 | `CARACAL_APP_RESOURCES` | Comma-separated resource IDs used as STS audiences |
@@ -210,7 +210,7 @@ client := &sdk.Caracal{
 | `CARACAL_ADMIN_TOKEN` | Bearer token for admin API routes |
 | `CARACAL_ZONE_ID` | Default zone ID for admin commands |
 | `CARACAL_APPLICATION_ID` | Application ID for SDK initialization |
-| `CARACAL_SUBJECT_TOKEN` | Subject token for SDK initialization |
+| `CARACAL_SUBJECT_TOKEN` | Session mandate for SDK initialization |
 | `CARACAL_GATEWAY_URL` | Gateway URL for resource routing |
 | `CARACAL_RESOURCES` | Comma-separated resource bindings |
 | `XDG_CONFIG_HOME` | Base directory for `caracal.toml` discovery |
