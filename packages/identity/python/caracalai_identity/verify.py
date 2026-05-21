@@ -12,7 +12,16 @@ from caracalai_core import CaracalError, ErrorCode, JsonValue
 
 from .jwks import JwksCache
 from .scope import has_scope
-from .types import DEFAULT_MAX_HOP_COUNT, MANDATE_USE_RESOURCE, MANDATE_USE_SESSION, ChainHop, Claims, JwtConfig
+from .types import (
+    DEFAULT_MAX_HOP_COUNT,
+    MANDATE_USE_RESOURCE,
+    MANDATE_USE_SESSION,
+    SUBJECT_TYPE_APPLICATION,
+    SUBJECT_TYPE_USER,
+    ChainHop,
+    Claims,
+    JwtConfig,
+)
 
 _cache = JwksCache()
 
@@ -162,7 +171,7 @@ async def verify_token(
                 algorithms=["ES256"],
                 audience=audience,
                 issuer=issuer,
-                options={"require": ["exp", "iat", "jti", "sub", "sid", "client_id", "use"]},
+                options={"require": ["exp", "iat", "jti", "sub", "sid", "root_sid", "client_id", "use", "sub_type"]},
             )
             break
         except Exception as e:
@@ -174,12 +183,16 @@ async def verify_token(
     _required_str(decoded, "jti")
     _required_str(decoded, "sub")
     _required_str(decoded, "sid")
+    _required_str(decoded, "root_sid")
     _required_str(decoded, "client_id")
     token_use = _required_str(decoded, "use")
     if token_use not in {MANDATE_USE_SESSION, MANDATE_USE_RESOURCE}:
         raise TokenInvalidError("Token use validation failed")
     if required_use is not None and token_use != required_use:
         raise TokenInvalidError("Token use validation failed")
+    sub_type = _required_str(decoded, "sub_type")
+    if sub_type not in {SUBJECT_TYPE_USER, SUBJECT_TYPE_APPLICATION}:
+        raise TokenInvalidError("Token subject type validation failed")
 
     scope = decoded.get("scope", "")
     if not isinstance(scope, str):
@@ -240,8 +253,9 @@ async def verify_config(token: str, config: JwtConfig) -> Claims:
         zone_id=_required_str(decoded, "zone_id"),
         client_id=_required_str(decoded, "client_id"),
         sid=_required_str(decoded, "sid"),
-        root_sid=_optional_str(decoded, "root_sid"),
+        root_sid=_required_str(decoded, "root_sid"),
         use=_required_str(decoded, "use"),
+        sub_type=_required_str(decoded, "sub_type"),
         jti=_required_str(decoded, "jti"),
         issued_at=_required_int(decoded, "iat"),
         expires_at=_required_int(decoded, "exp"),

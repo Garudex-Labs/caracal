@@ -15,6 +15,8 @@ from dataclasses import dataclass, field
 DEFAULT_MAX_HOP_COUNT = 10
 MANDATE_USE_SESSION = "session"
 MANDATE_USE_RESOURCE = "resource"
+SUBJECT_TYPE_USER = "user"
+SUBJECT_TYPE_APPLICATION = "application"
 
 
 @dataclass
@@ -44,13 +46,14 @@ class Claims:
     zone_id: str
     client_id: str
     sid: str
+    root_sid: str
     use: str
+    sub_type: str
     jti: str
     scope: str
     issued_at: int
     expires_at: int
     target_resources: list[str] = field(default_factory=list)
-    root_sid: str | None = None
     agent_session_id: str | None = None
     delegation_edge_id: str | None = None
     source_session_id: str | None = None
