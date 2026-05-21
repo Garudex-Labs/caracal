@@ -81,6 +81,7 @@ func paddedCoord(v *big.Int) []byte {
 func TestVerifyAcceptsValidTokenAndExtractsClaims(t *testing.T) {
 	token, issuer, closeServer := mintToken(t, jwt.MapClaims{
 		"sid":                    "sid-1",
+		"root_sid":               "root-1",
 		"client_id":              "app-1",
 		"agent_session_id":       "agent-1",
 		"delegation_edge_id":     "edge-1",
@@ -99,6 +100,9 @@ func TestVerifyAcceptsValidTokenAndExtractsClaims(t *testing.T) {
 	}
 	if claims.Sub != "user-1" || claims.ZoneID != "zone-1" || claims.ClientID != "app-1" || claims.Sid != "sid-1" {
 		t.Fatalf("wrong basic claims: %+v", claims)
+	}
+	if claims.RootSid != "root-1" || claims.IssuedAt == 0 || claims.ExpiresAt <= claims.IssuedAt {
+		t.Fatalf("wrong authority timing claims: %+v", claims)
 	}
 	if claims.AgentSessionID != "agent-1" || claims.DelegationEdgeID != "edge-1" {
 		t.Fatalf("wrong identity claims: %+v", claims)

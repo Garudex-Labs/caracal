@@ -57,8 +57,9 @@ interface A2AOptions {
   clientAssertionType?: string;       // e.g., 'urn:ietf:params:oauth:client-assertion-type:jwt-bearer'
   ttlSeconds?: number;                // Mandate TTL hint passed to STS
   timeoutMs?: number;                 // Per-attempt timeout in milliseconds; default: 30_000
-  retries?: number;                   // Retry count on transient errors; default: 2 (3 total attempts)
+  retries?: number;                   // Retry count for recoverable transport failures; default: 2
   retryBaseMs?: number;               // Backoff base in milliseconds; default: 250
+  retryTransientStatuses?: boolean;   // Retry 408, 425, 429, and 5xx responses; default: false
   fetchImpl?: FetchLike;              // Custom fetch; defaults to global fetch
 }
 ```
@@ -90,6 +91,7 @@ Posts to `{req.agentUrl}/a2a` as JSON with the following headers:
 | --- | --- |
 | `Content-Type` | `application/json` |
 | `Authorization` | `Bearer {accessToken}` |
+| `X-Caracal-Retry-Attempt` | Retry attempt number (`1`, `2`, ...), omitted on the first attempt |
 | `X-Caracal-Zone-Id` | `{zoneId}` |
 | `X-Caracal-Application-Id` | `{applicationId}` |
 | `X-Caracal-Agent-Session-Id` | `{req.agentSessionId}` (if set) |
@@ -105,13 +107,13 @@ The JSON body contains `{ method, params, requestId, metadata }` fields from the
 
 | Condition | Behavior |
 | --- | --- |
-| HTTP 408, 425, 429, 5xx | Retry after backoff |
+| HTTP 408, 425, 429, 5xx | Throw by default; retry after backoff only when `retryTransientStatuses` is `true` |
 | Network error / timeout | Retry after backoff |
 | HTTP 4xx (other) | Throw immediately, no retry |
 
 Backoff formula per attempt: `min(retryBaseMs × 2^attempt, 5000) / 2 + random(base / 2)` ms. With defaults (`retryBaseMs=250`, `retries=2`), the maximum total wait across two retries is approximately 4.25 seconds before the third and final attempt.
 
-`timeoutMs` applies per attempt via `AbortController`. An attempt that exceeds the timeout counts as a transient error and is retried.
+`timeoutMs` applies per attempt via `AbortController`. An attempt that exceeds the timeout counts as a recoverable transport failure and is retried. Retried target-agent requests include `X-Caracal-Retry-Attempt` so receivers can enforce idempotency, reject unsafe replays, or annotate execution audit records.
 
 ---
 

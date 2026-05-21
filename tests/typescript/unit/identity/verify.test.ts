@@ -42,9 +42,10 @@ async function mintToken(
     aud: 'resource://api',
     sub: 'user-1',
     zone_id: 'zone-1',
-    client_id: 'app-1',
-    sid: 'sid-1',
-    use: 'per_call',
+      client_id: 'app-1',
+      sid: 'sid-1',
+      root_sid: 'root-1',
+      use: 'per_call',
     jti: 'jti-1',
     scope: scopes,
     iat: now,
@@ -86,6 +87,9 @@ describe('verify', () => {
     expect(claims.zoneId).toBe('zone-1')
     expect(claims.clientId).toBe('app-1')
     expect(claims.sid).toBe('sid-1')
+    expect(claims.rootSid).toBe('root-1')
+    expect(claims.issuedAt).toBeGreaterThan(0)
+    expect(claims.expiresAt).toBeGreaterThan(claims.issuedAt)
     expect(claims.agentSessionId).toBe('agent-1')
     expect(claims.delegationEdgeId).toBe('edge-1')
     expect(claims.sourceSessionId).toBe('src-1')

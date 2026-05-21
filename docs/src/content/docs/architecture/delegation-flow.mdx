@@ -230,7 +230,7 @@ The delegation edge remains active after `delegate()` completes. It expires at i
 
 **MCP transport:** Wraps MCP tool calls. On each call it performs a per-call token exchange with the STS (exchanging the ambient mandate for a resource-specific per-call mandate) before forwarding to the MCP server.
 
-**A2A transport:** Used for agent-to-agent HTTP calls. Before sending to the target agent's endpoint, it exchanges the ambient mandate for a per-call mandate scoped to the target, injects W3C headers from the current context, and retries transient failures with exponential backoff (2 retries, 30-second default timeout).
+**A2A transport:** Used for agent-to-agent HTTP calls. Before sending to the target agent's endpoint, it exchanges the ambient mandate for a per-call mandate scoped to the target and injects W3C headers from the current context. Network failures and timeouts are retried with explicit retry-attempt headers; HTTP transient status retries are opt-in so non-idempotent agent actions are not silently replayed.
 
 ---
 
