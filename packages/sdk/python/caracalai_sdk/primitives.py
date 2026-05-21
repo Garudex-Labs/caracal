@@ -46,7 +46,7 @@ async def spawn(
 ) -> AsyncGenerator[CaracalContext, None]:
     """Spawn a child agent session and bind it to the current task.
 
-    ``parent_ctx`` overrides the ambient :func:`current` lookup; pass it
+    ``parent_ctx`` overrides the bound :func:`current` lookup; pass it
     explicitly when the orchestrator owns the parent context but the
     spawn runs on a different task (asyncio TaskGroup, thread pool,
     framework worker) where the parent's contextvar is not visible.
@@ -164,7 +164,7 @@ async def delegate_to_spawn(
     hand the resulting context off to a background task without racing
     the parent's lifecycle.
 
-    ``parent_ctx`` overrides the ambient :func:`current` lookup; pass it
+    ``parent_ctx`` overrides the bound :func:`current` lookup; pass it
     explicitly from background tasks or worker pools that do not inherit
     the orchestrator's contextvar.
     """

@@ -2,7 +2,7 @@
 Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 Caracal, a product of Garudex Labs
 
-Advanced surface: low-level primitives, codec, ambient context plumbing, and the raw coordinator client.
+Advanced surface: low-level primitives, codec, bound context plumbing, and the raw coordinator client.
 """
 
 from .envelope import (
