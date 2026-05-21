@@ -4,9 +4,11 @@ description: Package reference for the TypeScript, Python, and Go SDKs and all c
 pageType: landing
 ---
 
-Caracal publishes a layered set of packages across TypeScript, Python, and Go. The main SDK packages are the default way to run agents through Caracal and call the Gateway with scoped access. Companion packages handle token exchange, identity verification, revocation, and administration. Connector packages adapt Caracal to direct-verifier and adapter paths when the Gateway is not the right boundary.
+Caracal publishes a layered set of packages across TypeScript, Python, and Go. The main SDK packages are the default way to run agents through Caracal and call the Gateway with scoped access. Companion packages handle token exchange, identity verification, revocation, and administration. Connector packages adapt Caracal to connector-verified services and enforcement adapters when the Gateway is not the right boundary.
 
-Start with an SDK plus the Gateway. Install identity, revocation, transport, or connector packages directly only when you are protecting a service you own or building a certified adapter for a provider protocol the Gateway cannot proxy.
+Start with an SDK plus the Gateway. Install identity, revocation, transport, or connector packages directly only when you are protecting a service you own or building an adapter for a provider protocol the Gateway cannot proxy.
+
+The SDK layer is not a provider-wrapper strategy. Its job is to preserve authority context — agent app, agent run, mandate, resource, delegated permission, policy decision, and audit correlation — across the places where application code naturally crosses process, task, or protocol boundaries.
 
 ## Package map
 
@@ -14,9 +16,9 @@ Start with an SDK plus the Gateway. Install identity, revocation, transport, or 
 
 | Package | Language | Install | Purpose |
 | ------- | -------- | ------- | ------- |
-| [`@caracalai/sdk`](./typescript/) | TypeScript | `npm install @caracalai/sdk` | Agent sessions, delegation, outbound transport, ASGI/express middleware |
-| [`caracalai-sdk`](./python/) | Python | `pip install caracalai-sdk` | Agent sessions, delegation, outbound transport, ASGI middleware |
-| [`github.com/garudex-labs/caracal/packages/sdk/go`](./go/) | Go | `go get github.com/garudex-labs/caracal/packages/sdk/go` | Agent sessions, delegation, outbound transport, net/http middleware |
+| [`@caracalai/sdk`](./typescript/) | TypeScript | `npm install @caracalai/sdk` | Agent sessions, delegation, Gateway-bound outbound calls, context propagation |
+| [`caracalai-sdk`](./python/) | Python | `pip install caracalai-sdk` | Agent sessions, delegation, Gateway-bound outbound calls, context propagation |
+| [`github.com/garudex-labs/caracal/packages/sdk/go`](./go/) | Go | `go get github.com/garudex-labs/caracal/packages/sdk/go` | Agent sessions, delegation, Gateway-bound outbound calls, context propagation |
 
 ### Shared packages
 
@@ -39,7 +41,7 @@ Start with an SDK plus the Gateway. Install identity, revocation, transport, or 
 | ------- | -------- | ------- | ------- |
 | [`@caracalai/transport-mcp`](./transport-mcp/) | TypeScript | `npm install @caracalai/transport-mcp` | MCP server-side mandate verification |
 | [`caracalai-transport-mcp`](./transport-mcp/) | Python | `pip install caracalai-transport-mcp` | Same as above |
-| [`@caracalai/transport-a2a`](./transport-a2a/) | TypeScript | `npm install @caracalai/transport-a2a` | Agent-to-agent HTTP calls with automatic token exchange |
+| [`@caracalai/transport-a2a`](./transport-a2a/) | TypeScript | `npm install @caracalai/transport-a2a` | HTTP agent-to-agent calls that preserve Caracal authority context |
 
 ### Connectors
 
@@ -55,8 +57,10 @@ Start with an SDK plus the Gateway. Install identity, revocation, transport, or 
 
 ## Shared concepts
 
-**Context propagation** — The SDK packages bind authority session, agent run, delegated-permission identity, trace ID, and hop to the execution context (AsyncLocalStorage in TypeScript, context vars in Python, `context.Context` in Go). Gateway-bound outbound calls within that context automatically carry the correct `Authorization`, `traceparent`, and `baggage` headers. Use the SDK capture helpers when crossing task, thread, goroutine, queue, or provider-adapter boundaries, and use the authority-summary helpers for redacted diagnostics.
+**Context propagation** — The SDK packages bind agent app, agent run, delegated-permission identity, trace ID, and hop to the execution context (AsyncLocalStorage in TypeScript, context vars in Python, `context.Context` in Go). Gateway-bound outbound calls within that context automatically carry the correct `Authorization`, `traceparent`, and `baggage` headers. Use the SDK capture helpers when crossing task, thread, goroutine, queue, or provider-adapter boundaries, and use the authority-summary helpers for redacted diagnostics.
 
 **Package layering** — The main SDKs own agent lifecycle and context propagation. TypeScript and Go use their OAuth packages for client-secret token exchange; Python implements its SDK token-source flow in `caracalai-sdk` and depends on `caracalai-identity`. Install companion packages directly when building a server that verifies mandates, a custom STS exchange client, or a control-plane tool.
+
+**Protocol boundaries** — Gateway-mediated HTTP, REST, and MCP-over-HTTP are the default execution path. Connector-verified services and enforcement adapters are supported patterns that must implement verification, replay, revocation, and result audit themselves. Application-managed external provider calls can carry Caracal context for attribution, but they are not Caracal-enforced provider calls unless the application performs equivalent checks.
 
 **Environment variables** — All SDK clients read `CARACAL_COORDINATOR_URL`, `CARACAL_ZONE_ID`, `CARACAL_APPLICATION_ID`, and `CARACAL_SUBJECT_TOKEN` via their `fromEnv()` / `from_env()` / `FromEnv()` constructors.

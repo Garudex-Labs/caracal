@@ -171,6 +171,28 @@ Increase the number of replicas to reduce consumer lag. Each additional replica 
 
 ---
 
+## Operational visibility
+
+The Audit service exposes `/metrics` as JSON for operator probes. Important fields:
+
+| Metric | Meaning |
+| --- | --- |
+| `consumer_lag` | Number of pending entries in the audit consumer group |
+| `consumer_pel_oldest_secs` | Age of the oldest unacknowledged pending entry |
+| `dlq_total` | Cumulative events moved to the DLQ |
+| `dlq_size` | Current Redis DLQ stream length |
+| `dlq_oldest_age_secs` | Age of the oldest DLQ entry |
+| `tamper_mismatch_total` | Content hash mismatches found by tamper sweeps |
+| `tamper_chain_breaks` | Broken hash-chain links found by tamper sweeps |
+| `tamper_hmac_failures` | Chain HMAC verification failures |
+| `tamper_last_sweep_unix` | Last rolling tamper sweep timestamp |
+| `tamper_last_full_unix` | Last full retention-window tamper sweep timestamp |
+| `export_errors_total` | S3/Parquet export failures |
+
+The `/ready` endpoint returns JSON. On failure it includes a stable `reason` such as `consumer_unhealthy`, `postgres_unreachable`, or `redis_unreachable` so readiness alerts are actionable instead of generic 503s.
+
+---
+
 ## Configuration
 
 | Variable | Default | Description |

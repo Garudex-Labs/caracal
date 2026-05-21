@@ -4,11 +4,11 @@ description: A one-page product model for running agents through Caracal with sc
 pageType: concept
 ---
 
-This page is the product mental model. It deliberately uses the terms operators and application developers need first, then maps them to the precise reference terms used deeper in the docs.
+This page is the product mental model. Learn the small vocabulary here first; the precise reference terms appear only when they matter for APIs, policy, or operations.
 
 ## The core promise
 
-Run agents through Caracal, give them scoped access to tools and providers, and get enforceable audit and revocation without exposing provider secrets.
+Run agents through Caracal, issue only the authority they need, and get enforceable audit and revocation without exposing provider secrets.
 
 That promise becomes one default workflow:
 
@@ -20,21 +20,51 @@ That promise becomes one default workflow:
 6. Send tool/provider calls through the **Gateway**.
 7. Use audit to see the authorization decision and the upstream action result.
 
-Everything else is an advanced path.
+Everything else should fit one of the provider flow patterns below.
 
-## User-facing vocabulary
+## Learn five names first
+
+Most users can understand Caracal through five product terms:
+
+| Term | Meaning |
+| --- | --- |
+| Agent app | The registered workload that asks Caracal for authority. |
+| Agent run | One execution of that workload, tracked for revocation and audit. |
+| Mandate | The short-lived signed authority Caracal issues after policy allows access. |
+| Resource | The tool, service, API, provider, or data target being accessed. |
+| Delegated permission | A narrower authority path from one agent run to another. |
+
+Everything else supports those terms. For example, an **Application** is the stored form of an agent app, a **Principal** is the actor named in policy, and an **Agent session** is the Coordinator record for an agent run. You do not need to lead with those names when onboarding a new team.
+
+## Reference primitives
+
+Caracal is an authority plane, not a universal integration framework. Under the product vocabulary, the durable reference model is intentionally small:
+
+| Primitive | Product meaning |
+| --- | --- |
+| Principal | The application or workload named in policy. |
+| Execution session | The STS and Coordinator state that anchors an agent run. |
+| Mandate | The short-lived signed credential issued after policy allows an exchange. |
+| Resource | A stable authority target with scopes and optional Gateway routing metadata. |
+| Delegation edge | A typed, auditable narrowing of authority from one execution session to another. |
+| Policy decision | The OPA result that allows or denies issuance for one resource. |
+| Audit event | The durable record of why authority was issued, denied, used, or revoked. |
+
+Provider routes, SDK helpers, connectors, and adapters exist to preserve these primitives at real execution boundaries. They are not the product center.
+
+## Vocabulary map
 
 | User-facing term | Precise reference term | What it means |
 | --- | --- | --- |
-| Authority session | STS session / subject session | The root authority an agent run exchanges from. |
-| Agent run | Agent session | The Coordinator-tracked execution of one agent instance. |
-| Short-lived access token | Mandate | The signed Caracal token used for Gateway or direct-resource access. |
+| Agent app | Application / principal | The workload identity users register and grant access to. |
+| Agent run | Execution session / agent session | The Coordinator-tracked execution of one agent instance. |
+| Mandate | Caracal access token | The signed credential used for Gateway or direct-resource access. |
 | Tool/provider resource | Resource identifier | The target an agent requests access to. |
 | Provider route | Gateway binding | The Gateway routing entry created from a resource with an upstream URL. |
 | Delegated permission | Delegation edge | A narrower permission from one agent run to another. |
-| Restriction | Caveat / constraint | Scope, TTL, hop, budget, or policy condition attached to delegated permission. |
+| Restriction | Caveat / constraint | A scope, TTL, hop, budget, resource, or policy limit attached to delegated permission. |
 
-Use the left column when explaining Caracal to most users. Use the right column when reading API, architecture, or policy reference pages.
+Use the left column in onboarding, product docs, and operator workflows. Use the right column in API payloads, policy input, claims, database rows, and deep architecture pages.
 
 ## What each product object does
 
@@ -48,7 +78,7 @@ An agent app identifies the workload that will act. The app can start agent runs
 
 ### Tool/provider resource
 
-A resource describes something an agent may call: an MCP server, REST API, SaaS provider, database-facing service, webhook, queue, or internal tool. A resource declares:
+A resource describes a stable authority target. In the default path that target is Gateway-routable HTTP, REST, or MCP-over-HTTP. Other transports can still be represented as resources, but only when a connector-verified service or adapter enforces the same signature, replay, revocation, and audit contract. A resource declares:
 
 - the scopes an agent can request;
 - the upstream URL when the Gateway should proxy the call;
@@ -68,11 +98,11 @@ Policies fail closed. If there is no active policy set, access is denied.
 
 The Gateway is the default execution plane. It verifies Caracal access tokens, checks replay and revocation, resolves the provider route, brokers provider credentials inside the trusted boundary, forwards the upstream request, and emits action-result audit.
 
-Agents should call providers through the Gateway unless they are using a certified direct verifier or adapter.
+Agents should call providers through the Gateway unless they are using a connector-verified service or an adapter that satisfies the same enforcement contract.
 
 ### Execution context
 
-Every SDK carries the same authority context: application, authority session, agent run, delegated permission, trace ID, and hop. TypeScript uses `AsyncLocalStorage`, Python uses `contextvars`, and Go uses explicit `context.Context`. At task, thread, goroutine, queue, or adapter boundaries, capture and re-bind that context rather than reconstructing it from logs or provider state.
+Every SDK carries the same authority context: agent app, agent run, mandate, delegated permission, trace ID, and hop. TypeScript uses `AsyncLocalStorage`, Python uses `contextvars`, and Go uses explicit `context.Context`. At task, thread, goroutine, queue, or adapter boundaries, capture and re-bind that context rather than reconstructing it from logs or provider state.
 
 ## Token and credential boundaries
 
@@ -82,9 +112,9 @@ There are three important credentials:
 | --- | --- | --- |
 | Agent app secret | Agent runtime or deployment secret store | Authenticates the app to Caracal. |
 | Caracal access token | Agent runtime | Short-lived scoped proof that Caracal allowed the action. |
-| Provider-native credential | Gateway or certified adapter only | Authenticates to the upstream provider. |
+| Provider-native credential | Gateway or contract-complete adapter only | Authenticates to the upstream provider. |
 
-The public STS returns only Caracal access tokens. Provider-native credentials are resolved through the internal broker path for Gateway or certified adapters.
+The public STS returns only Caracal access tokens. Provider-native credentials are resolved through the internal broker path for Gateway or adapters that satisfy the full enforcement contract.
 
 ## Delegation in one rule
 
@@ -102,14 +132,14 @@ The source cannot use the receiver's delegated permission. Parenthood does not a
 
 A Caracal access token is invalid when any of its authority anchors is revoked:
 
-- root authority session;
+- root execution session;
 - agent run;
 - delegated permission;
 - grant;
 - zone or application emergency disablement;
 - emergency key rotation.
 
-Gateway and direct verifiers use the same contract: check the token signature, replay state, expiry, and revocation anchors before accepting the request. Gateway also re-checks revocation while streaming responses.
+Gateway and connector-verified services use the same contract: check the token signature, replay state, expiry, and revocation anchors before accepting the request. Gateway also re-checks revocation while streaming responses.
 
 ## Audit in one rule
 
@@ -118,7 +148,7 @@ Authorization audit answers **why access was allowed or denied**. Action executi
 Together, audit should let an operator answer:
 
 - Which agent run made the request?
-- Which authority session and delegated permission were in the chain?
+- Which agent run and delegated permission were in the chain?
 - Which resource and scopes were requested?
 - Which policy allowed or denied it?
 - Which provider route and auth mode were used?
@@ -128,9 +158,9 @@ Together, audit should let an operator answer:
 
 | Path | Product status | Use it when |
 | --- | --- | --- |
-| Gateway proxy | Default | The tool/provider is HTTP, MCP-over-HTTP, REST, or another Gateway-routable upstream. |
-| Direct verifier | Advanced | You own the service and can enforce Caracal verification, replay, revocation, and result audit there. |
-| Adapter | Advanced | The provider uses gRPC, external MCP, queues, webhooks, or a custom transport. |
-| Provider SDK wrapper | Advanced | A provider SDK hides transport and needs a certified wrapper to preserve Caracal enforcement. |
+| Gateway-mediated HTTP | Implemented default | The tool/provider is HTTP, REST, MCP-over-HTTP, or another Gateway-routable upstream. |
+| Connector-verified service/tool | Supported pattern | You own the service or tool and can verify mandates, replay, revocation, and result audit there. |
+| Application-managed external provider call | Supported attribution pattern | Your application must call a provider directly; attach the Caracal mandate for traceability, but do not treat Caracal as the enforcement boundary for that provider call. |
+| Native broker plugins | Future direction | Provider credential brokering moves behind a runtime plugin contract instead of custom adapter code. |
 
-Start with the Gateway proxy. Move to direct verification or adapters only when the provider protocol requires it.
+Start with Gateway-mediated HTTP. Move to connector verification only when you own the resource boundary. Use application-managed external calls when you need attribution but cannot put Caracal in the provider enforcement path. Treat native broker plugins as future direction, not current runtime behavior.

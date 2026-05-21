@@ -5,9 +5,39 @@ pageType: landing
 keywords: [overview, concepts, mental model]
 ---
 
-Caracal is built around a small set of concepts that compose cleanly. Understanding them in order gives you a working mental model of the whole system before touching any code.
+Caracal is built around a small set of authority-plane concepts that compose cleanly. Start with the product vocabulary, then use the reference names only when you need to read claims, policy input, API payloads, or storage diagrams.
 
-The simplest product model is: register the agent app, register the resources or providers it may use, attach policy, run the agent through Caracal, and inspect the audit trail. The individual concepts below are the internal trust machinery behind that workflow.
+The simplest product model is: register an **agent app**, register the **resources** it may use, attach **policy**, run the agent through Caracal, and inspect the **audit trail**.
+
+## Product vocabulary
+
+Use these names first:
+
+| Product term | Reference terms behind it |
+| --- | --- |
+| Agent app | Application, principal |
+| Agent run | Execution session, agent session, session ID |
+| Mandate | Caracal access token, ambient mandate, per-call mandate |
+| Resource | Resource identifier, provider route, Gateway binding |
+| Delegated permission | Delegation edge, caveat, constraint |
+
+The reference terms are still precise and useful, but they should not be the first thing a new operator has to memorize.
+
+## Core primitive set
+
+Keep the model small. Caracal's long-term reusable layer is:
+
+| Primitive | Why it exists |
+| --- | --- |
+| Principal | Names the workload asking to act. |
+| Execution session | Binds that workload to runtime state and revocation anchors. |
+| Mandate | Carries the exact authority the STS issued after policy evaluation. |
+| Resource | Names the target and scope vocabulary policy can reason about. |
+| Delegation edge | Narrows authority from one execution session to another. |
+| Policy decision | Determines whether a mandate may be issued for one resource. |
+| Audit event | Preserves the evidence needed to explain and reconstruct authority. |
+
+Everything else — Gateway routes, provider configs, SDK context helpers, connectors, and adapters — supports these primitives. If an abstraction cannot preserve them clearly, it should stay out of the core model.
 
 ## Reading order
 
@@ -32,7 +62,7 @@ The concepts below build on each other. Read the [Authority Model](./authority-m
 The docs use these terms with strict meaning throughout:
 
 - **Mandate** — the JWT issued by the STS. Other systems call this an "access token." Caracal calls it a mandate because it is explicitly authorized by policy before issuance.
-- **Principal** — the actor making a request. In practice, always an Application.
+- **Principal** — the actor named in policy. In current product flows, this is the registered application behind an agent app.
 - **Zone** — the tenancy boundary. Never synonymous with "environment" or "region."
 - **Policy** — a Rego document registered in Caracal. Not to be confused with IAM policies from other systems.
-- **Session** — either an STS credential session (`sid`) or a Coordinator agent session (`agent_session_id`); pages call out which one they mean when the distinction matters.
+- **Session** — the runtime state behind an agent run. Deep reference pages distinguish STS session IDs from Coordinator agent session IDs only when that distinction matters.
