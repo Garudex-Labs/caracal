@@ -10,6 +10,8 @@
 export const DEFAULT_MAX_HOP_COUNT = 10
 export const MANDATE_USE_SESSION = 'session'
 export const MANDATE_USE_RESOURCE = 'resource'
+export const SUBJECT_TYPE_USER = 'user'
+export const SUBJECT_TYPE_APPLICATION = 'application'
 
 export interface JwtConfig {
   issuer: string
@@ -35,8 +37,9 @@ export interface Claims {
   zoneId: string
   clientId: string
   sid: string
-  rootSid?: string
+  rootSid: string
   use: string
+  subType: string
   jti: string
   issuedAt: number
   expiresAt: number

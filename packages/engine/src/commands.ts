@@ -62,6 +62,13 @@ export const SHELL_COMMANDS: readonly CommandDescriptor[] = Object.freeze([
     summary: 'Clean stack artifacts and local state',
     subcommands: ['stack', 'volumes', 'logs', 'config', 'runtime', 'secrets', 'cache', 'all'],
   },
+  {
+    name: 'protect',
+    group: 'admin',
+    summary: 'Provision a Gateway-first local protected resource',
+    subcommands: ['http'],
+  },
+  { name: 'doctor', group: 'admin', summary: 'Check local control-plane readiness' },
   { name: 'cli', group: 'shell', summary: 'Open the Caracal command shell' },
   { name: 'tui', group: 'shell', summary: 'Launch the Caracal TUI' },
 ]);
@@ -69,6 +76,37 @@ export const SHELL_COMMANDS: readonly CommandDescriptor[] = Object.freeze([
 export const CLI_COMMANDS: readonly CommandDescriptor[] = Object.freeze([
   { name: 'run', group: 'runtime', summary: 'Run a command with RESOURCE_TOKEN', requiresConfig: true },
   { name: 'credential', group: 'runtime', summary: 'Read a resource credential', subcommands: ['read'], requiresConfig: true },
+  { name: 'doctor', group: 'admin', summary: 'Check local control-plane readiness' },
+  {
+    name: 'manifest',
+    group: 'admin',
+    summary: 'Validate interoperability extension manifests',
+    subcommands: ['validate'],
+    flags: {
+      validate: [
+        { name: '--file', summary: 'Manifest JSON file' },
+        { name: '--kind', summary: 'Manifest kind override' },
+        { name: '--json', summary: 'Emit machine-readable result' },
+      ],
+    },
+    scopes: { validate: 'read' },
+  },
+  {
+    name: 'protect',
+    group: 'admin',
+    summary: 'Provision a Gateway-first local protected resource',
+    subcommands: ['http'],
+    flags: {
+      http: [
+        { name: '--identifier', summary: 'Resource identifier URI' },
+        { name: '--upstream-url', summary: 'HTTP upstream URL' },
+        { name: '--scopes', summary: 'Comma-separated scopes' },
+        { name: '--user', summary: 'Subject/user ID for the initial grant' },
+        { name: '--zone-url', summary: 'STS base URL for generated config' },
+        { name: '--write-config', summary: 'Write generated caracal.toml' },
+      ],
+    },
+  },
 
   {
     name: 'zone', group: 'admin', summary: 'Manage zones',
@@ -161,7 +199,7 @@ export const CLI_COMMANDS: readonly CommandDescriptor[] = Object.freeze([
 
   {
     name: 'policy', group: 'admin', summary: 'Manage policies',
-    subcommands: ['list', 'get', 'create', 'template', 'version', 'delete'], requiresZone: true,
+    subcommands: ['list', 'get', 'create', 'validate', 'sample-input', 'template', 'version', 'delete'], requiresZone: true,
     flags: {
       create: [
         { name: '--name', summary: 'Policy name' },
@@ -171,6 +209,18 @@ export const CLI_COMMANDS: readonly CommandDescriptor[] = Object.freeze([
         { name: '--schema-version', summary: 'Policy schema version' },
         { name: '--owner-type', summary: 'Owner type' },
         { name: '--shadow', summary: 'Shadow policy mode' },
+      ],
+      validate: [
+        { name: '--file', summary: 'Read Rego from file' },
+        { name: '--content', summary: 'Inline Rego content' },
+        { name: '--schema-version', summary: 'Policy schema version' },
+      ],
+      'sample-input': [
+        { name: '--resource', summary: 'Resource identifier' },
+        { name: '--scopes', summary: 'Comma-separated scopes' },
+        { name: '--principal', summary: 'Principal/user ID' },
+        { name: '--zone', summary: 'Zone ID' },
+        { name: '--session', summary: 'Session ID' },
       ],
       version: [
         { name: '--version', summary: 'Version label' },
