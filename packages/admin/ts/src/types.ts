@@ -257,3 +257,10 @@ export interface TraverseNode {
   target_session_id: string
   depth: number
 }
+
+export interface DelegationImpact {
+  edge_id: string
+  affected_edges: TraverseNode[]
+  affected_agents: string[]
+  affected_subject_sessions: string[]
+}

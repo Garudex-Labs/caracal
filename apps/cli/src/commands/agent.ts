@@ -107,6 +107,12 @@ export async function delegationCommand(argv: string[], cfg?: CliConfig): Promis
 
   try {
     switch (verb) {
+      case 'active': {
+        const zoneId = requireZone(ctx, flags)
+        const result = await client.delegations.active(zoneId)
+        if (json) return printJSON(result)
+        return printTable(result.items, ['id', 'source_session_id', 'target_session_id', 'resource_id', 'status', 'expires_at'])
+      }
       case 'inbound': {
         const zoneId = requireZone(ctx, flags)
         const sessionId = positional[0]
@@ -130,6 +136,12 @@ export async function delegationCommand(argv: string[], cfg?: CliConfig): Promis
         const rows = await client.delegations.traverse(zoneId, id)
         if (json) return printJSON(rows)
         return printTable(rows, ['depth', 'id', 'source_session_id', 'target_session_id'])
+      }
+      case 'impact': {
+        const zoneId = requireZone(ctx, flags)
+        const id = positional[0]
+        if (!id) return usage('delegation impact <edge-id> [--zone …]')
+        return printJSON(await client.delegations.impact(zoneId, id))
       }
       case 'revoke': {
         const zoneId = requireZone(ctx, flags)
@@ -178,9 +190,11 @@ function delegationHelp(): never {
       'Requires: CARACAL_COORDINATOR_TOKEN (JWT with scope agent:lifecycle)',
       '',
       'Verbs:',
+      '  active                  Show active delegation edges in the zone',
       '  inbound <session-id>    Show delegation edges arriving at a session',
       '  outbound <session-id>   Show delegation edges originating from a session',
       '  traverse <edge-id>      Walk the full delegation chain for an edge',
+      '  impact <edge-id>        Show revocation blast radius for an edge',
       '  revoke <edge-id>        Revoke a delegation edge and affected sessions',
       '',
       'Flags:',

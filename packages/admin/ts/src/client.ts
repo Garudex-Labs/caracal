@@ -14,6 +14,7 @@ import type {
   AuditQuery,
   DCRInput,
   DelegationEdge,
+  DelegationImpact,
   Grant,
   GrantInput,
   Policy,
@@ -308,12 +309,16 @@ export class AdminClient {
 
   // Delegations (coordinator)
   delegations = {
+    active: (zoneId: string) =>
+      this.request<{ items: DelegationEdge[]; next_cursor: string | null }>(`/zones/${zoneId}/delegations/active`, { base: 'coordinator' }),
     inbound: (zoneId: string, sessionId: string) =>
       this.request<DelegationEdge[]>(`/zones/${zoneId}/delegations/inbound/${sessionId}`, { base: 'coordinator' }),
     outbound: (zoneId: string, sessionId: string) =>
       this.request<DelegationEdge[]>(`/zones/${zoneId}/delegations/outbound/${sessionId}`, { base: 'coordinator' }),
     traverse: (zoneId: string, id: string) =>
       this.request<TraverseNode[]>(`/zones/${zoneId}/delegations/${id}/traverse`, { base: 'coordinator' }),
+    impact: (zoneId: string, id: string) =>
+      this.request<DelegationImpact>(`/zones/${zoneId}/delegations/${id}/impact`, { base: 'coordinator' }),
     revoke: (zoneId: string, id: string) =>
       this.request<{ revoked_edges: number; affected_sessions: number }>(
         `/zones/${zoneId}/delegations/${id}/revoke`,
