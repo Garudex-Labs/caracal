@@ -7,6 +7,7 @@ package sdk_test
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	sdk "github.com/garudex-labs/caracal/packages/sdk/go"
@@ -19,6 +20,7 @@ func TestBindCurrentRoundTrip(t *testing.T) {
 		ClientID:         "app1",
 		AgentSessionID:   "sess",
 		DelegationEdgeID: "edge",
+		SessionID:        "sid",
 		Hop:              2,
 	}
 	ctx := sdk.Bind(context.Background(), c)
@@ -59,6 +61,7 @@ func TestFromEnvelopeFullFields(t *testing.T) {
 		AgentSessionID:   "sess",
 		DelegationEdgeID: "edge",
 		ParentEdgeID:     "parent",
+		SessionID:        "sid",
 		TraceID:          "0123456789abcdef0123456789abcdef",
 		Hop:              4,
 	}
@@ -74,6 +77,9 @@ func TestFromEnvelopeFullFields(t *testing.T) {
 	}
 	if c.AgentSessionID != "sess" {
 		t.Errorf("AgentSessionID: %q", c.AgentSessionID)
+	}
+	if c.SessionID != "sid" {
+		t.Errorf("SessionID: %q", c.SessionID)
 	}
 	if c.Hop != 4 {
 		t.Errorf("Hop: %d", c.Hop)
@@ -93,6 +99,7 @@ func TestToEnvelopeRoundTrip(t *testing.T) {
 		AgentSessionID:   "sess",
 		DelegationEdgeID: "edge",
 		ParentEdgeID:     "parent",
+		SessionID:        "sid",
 		TraceID:          "0123456789abcdef0123456789abcdef",
 		Hop:              2,
 	}
@@ -106,6 +113,9 @@ func TestToEnvelopeRoundTrip(t *testing.T) {
 	if env.TraceID != c.TraceID {
 		t.Errorf("TraceID: %q vs %q", env.TraceID, c.TraceID)
 	}
+	if env.SessionID != c.SessionID {
+		t.Errorf("SessionID: %q vs %q", env.SessionID, c.SessionID)
+	}
 	if env.Hop != c.Hop {
 		t.Errorf("Hop: %d vs %d", env.Hop, c.Hop)
 	}
@@ -118,6 +128,7 @@ func TestToEnvelopeFromEnvelopeRoundTrip(t *testing.T) {
 		ClientID:         "app",
 		AgentSessionID:   "sess",
 		DelegationEdgeID: "edge",
+		SessionID:        "sid",
 		Hop:              1,
 	}
 	env := sdk.ToEnvelope(orig)
@@ -130,5 +141,32 @@ func TestToEnvelopeFromEnvelopeRoundTrip(t *testing.T) {
 	}
 	if restored.AgentSessionID != orig.AgentSessionID {
 		t.Errorf("AgentSessionID mismatch")
+	}
+	if restored.SessionID != orig.SessionID {
+		t.Errorf("SessionID mismatch")
+	}
+}
+
+func TestDescribeAuthorityRedactsSubjectToken(t *testing.T) {
+	ctx := sdk.Bind(context.Background(), sdk.CaracalContext{
+		SubjectToken:     "tok",
+		ZoneID:           "z",
+		ClientID:         "app",
+		SessionID:        "sid",
+		AgentSessionID:   "agent",
+		DelegationEdgeID: "edge",
+		Hop:              2,
+	})
+	summary, ok := sdk.DescribeAuthority(ctx)
+	if !ok {
+		t.Fatal("DescribeAuthority must return a summary for a bound context")
+	}
+	if summary.ApplicationID != "app" || summary.AuthoritySessionID != "sid" || summary.AgentRunID != "agent" {
+		t.Fatalf("unexpected summary: %#v", summary)
+	}
+	got := strings.Join(summary.Chain, ">")
+	want := "authority:sid>agent-run:agent>delegated-permission:edge"
+	if got != want {
+		t.Fatalf("chain = %q, want %q", got, want)
 	}
 }

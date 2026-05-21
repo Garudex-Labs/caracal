@@ -344,7 +344,13 @@ func (s *Server) exchange(ctx context.Context, req TokenExchangeRequest, request
 		}
 
 		if auditErr := s.emitAuditEventWithBundle(requestID, zoneID, result.Decision, result.EvaluationStatus, result,
-			mergeAuditMeta(mergeAuditMeta(map[string]any{"resource": resource.Identifier}, agentAuditMeta(agentSession)), delegationMeta), bundle); auditErr != nil {
+			mergeAuditMeta(mergeAuditMeta(map[string]any{
+				"resource":           resource.Identifier,
+				"requested_scopes":   scopes,
+				"session_id":         req.SessionID,
+				"agent_session_id":   req.AgentSessionID,
+				"delegation_edge_id": req.DelegationEdgeID,
+			}, agentAuditMeta(agentSession)), delegationMeta), bundle); auditErr != nil {
 			return nil, nil, http.StatusInternalServerError, auditErr
 		}
 
@@ -519,6 +525,8 @@ func (s *Server) buildUpstreamDirective(ctx context.Context, zoneID string, subj
 		return directive, err
 	}
 	directive.ProviderToken = string(at)
+	directive.ProviderID = provider.ID
+	directive.GrantID = grant.ID
 	if grant.ExpiresAt != nil {
 		directive.ExpiresAt = grant.ExpiresAt.Unix()
 	}

@@ -89,6 +89,7 @@ func TestDecodeEncodeEnvelopeRoundTrip(t *testing.T) {
 		AgentSessionID:   "sess1",
 		DelegationEdgeID: "edge1",
 		ParentEdgeID:     "parent1",
+		SessionID:        "sid1",
 		TraceID:          "0123456789abcdef0123456789abcdef",
 		Hop:              3,
 	}
@@ -105,6 +106,9 @@ func TestDecodeEncodeEnvelopeRoundTrip(t *testing.T) {
 	}
 	if out.DelegationEdgeID != env.DelegationEdgeID {
 		t.Errorf("DelegationEdgeID mismatch")
+	}
+	if out.SessionID != env.SessionID {
+		t.Errorf("SessionID mismatch")
 	}
 	if out.TraceID != env.TraceID {
 		t.Errorf("TraceID mismatch: %q vs %q", out.TraceID, env.TraceID)
@@ -197,6 +201,7 @@ func TestToMapFromMapRoundTrip(t *testing.T) {
 		SubjectToken:     "tok",
 		AgentSessionID:   "sess",
 		DelegationEdgeID: "edge",
+		SessionID:        "sid",
 		TraceID:          "0123456789abcdef0123456789abcdef",
 		Hop:              1,
 	}
@@ -208,6 +213,9 @@ func TestToMapFromMapRoundTrip(t *testing.T) {
 	}
 	if out.AgentSessionID != env.AgentSessionID {
 		t.Errorf("AgentSessionID mismatch")
+	}
+	if out.SessionID != env.SessionID {
+		t.Errorf("SessionID mismatch")
 	}
 	if out.TraceID != env.TraceID {
 		t.Errorf("TraceID mismatch")
