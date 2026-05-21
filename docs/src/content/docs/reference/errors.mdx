@@ -71,17 +71,17 @@ Returned by the Coordinator with HTTP 429 when any agent session limit is exceed
 
 The Gateway records specific denial reasons in its metrics. These are not returned to clients directly (clients receive an auth error code instead), but they appear in `GET /metrics`:
 
-| Metric field | Trigger |
+| Metric | Trigger |
 | --- | --- |
-| `denials_missing_auth` | No `Authorization` header |
-| `denials_bad_bearer` | Bearer token malformed |
-| `denials_expiring` | Mandate TTL expired |
-| `denials_bad_routing` | No matching binding for the request path |
-| `denials_path_traversal` | Path traversal detected in the request URI |
-| `denials_signature` | JWT signature verification failed |
-| `denials_jti_replay` | JTI already seen — replay attempt or clock skew |
-| `denials_revoked` | Session revoked |
-| `denials_binding` | Scope or resource binding does not match |
+| `caracal_gateway_denials_missing_auth_total` | No `Authorization` header |
+| `caracal_gateway_denials_bad_bearer_total` | Bearer token malformed |
+| `caracal_gateway_denials_expiring_total` | Mandate TTL expired |
+| `caracal_gateway_denials_bad_routing_total` | No matching binding for the request path |
+| `caracal_gateway_denials_path_traversal_total` | Path traversal detected in the request URI |
+| `caracal_gateway_denials_signature_total` | JWT signature verification failed |
+| `caracal_gateway_denials_jti_replay_total` | JTI already seen — replay attempt or clock skew |
+| `caracal_gateway_denials_revoked_total` | Session revoked |
+| `caracal_gateway_denials_binding_total` | Scope or resource binding does not match |
 
 ---
 

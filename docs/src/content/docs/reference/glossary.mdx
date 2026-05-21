@@ -65,7 +65,7 @@ A tamper-evident linked structure over all audit events in a zone. Each event ca
 - `chain_hmac`: HMAC-SHA256 over this event linked to its predecessor, keyed by `AUDIT_HMAC_KEY`.
 - `chain_seq`: Monotonic per-zone sequence number.
 
-Any deletion, reordering, or modification of an event is detectable by the Audit service's tamper sweeper. A break in `chain_seq` continuity is a `tamper_chain_breaks` event; a mismatch in a hash or HMAC is a `tamper_mismatch_total` event.
+Any deletion, reordering, or modification of an event is detectable by the Audit service's tamper sweeper. A break in `chain_seq` continuity increments `caracal_audit_tamper_chain_breaks_total`; a mismatch in a hash or HMAC increments `caracal_audit_tamper_mismatch_total`.
 
 ---
 

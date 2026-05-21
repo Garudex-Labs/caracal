@@ -110,7 +110,7 @@ During the grace period, this returns `2`. After 24 hours, the old key ages out 
 
 **3. Monitor for validation errors:**
 
-Watch STS metrics for `jwks_invalid_keys` — a non-zero value indicates a key is present in the JWKS but fails validation, which should not happen during normal rotation.
+Watch STS metrics for `caracal_sts_jwks_invalid_keys_total` — a non-zero value indicates a key is present in the JWKS but fails validation, which should not happen during normal rotation.
 
 **4. After the grace period:**
 

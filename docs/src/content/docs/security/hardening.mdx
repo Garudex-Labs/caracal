@@ -214,10 +214,10 @@ The audit service verifies the HMAC chain on startup and hourly. Chain breaks pr
 ### Denial rate anomalies
 
 The Gateway exposes per-denial-type counters at `GET /metrics`. Alert on sudden increases in:
-- `denials_signature` — possible key rotation issue or token forgery attempt.
-- `denials_jti_replay` — possible token replay attack.
-- `denials_revoked` — unusually high revocation activity.
-- `sts_exchange_errors` — STS availability or policy evaluation issues.
+- `caracal_gateway_denials_signature_total` — possible key rotation issue or token forgery attempt.
+- `caracal_gateway_denials_jti_replay_total` — possible token replay attack.
+- `caracal_gateway_denials_revoked_total` — unusually high revocation activity.
+- `caracal_gateway_sts_exchange_errors_total` — STS availability or policy evaluation issues.
 
 ### Dead-letter queues
 

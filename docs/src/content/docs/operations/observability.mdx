@@ -4,17 +4,17 @@ description: Health, readiness, and metrics endpoints across all five services �
 pageType: config
 ---
 
-Every Caracal service exposes three HTTP endpoints for operational visibility: `/health` for liveness, `/ready` for readiness, and `/metrics` for service-specific counters.
+Every Caracal service exposes three HTTP endpoints for operational visibility: `/health` for liveness, `/ready` for readiness, and `/metrics` for Prometheus-compatible service metrics. Go services also expose `/metrics.json` as a compatibility/debug snapshot for operators that still depend on the previous JSON shape.
 
 ## Endpoint summary
 
 | Service | Port | `/health` | `/ready` | `/metrics` |
 | --- | --- | --- | --- | --- |
-| STS | 8080 | 200 | 200 / 503 | 200 JSON |
-| API | 3000 | 200 | 200 / 503 | — |
-| Gateway | 8081 | 200 | 200 / 503 | 200 JSON |
-| Coordinator | 4000 | 200 | 200 / 503 | 200 JSON |
-| Audit | 9090 | 200 / 503 | 200 / 503 | 200 JSON |
+| STS | 8080 | 200 | 200 / 503 | 200 Prometheus text |
+| API | 3000 | 200 | 200 / 503 | 200 Prometheus text |
+| Gateway | 8081 | 200 | 200 / 503 | 200 Prometheus text |
+| Coordinator | 4000 | 200 | 200 / 503 | 200 Prometheus text |
+| Audit | 9090 | 200 / 503 | 200 / 503 | 200 Prometheus text |
 
 `/health` is a liveness check — use it to determine if the process is alive and should continue receiving traffic. `/ready` is a readiness check — use it to gate traffic until dependencies are available.
 
@@ -40,35 +40,38 @@ Checks: Postgres `Ping()`, Redis connectivity, audit replay buffer readiness.
 
 ### `GET /metrics`
 
-HTTP 200, JSON:
+HTTP 200, Prometheus text:
 
-```json
-{
-  "sts": {
-    "graph_traversals": 0,
-    "graph_traversal_errors": 0,
-    "audit_dropped": 0,
-    "audit_replay_pending": 0,
-    "audit_replay_replayed": 0,
-    "audit_sink_errors": 0,
-    "jwks_invalid_keys": 0
-  },
-  "opa": { ... },
-  "audit_dropped": 0
-}
+```text
+caracal_sts_graph_traversals_total 0
+caracal_sts_graph_traversal_errors_total 0
+caracal_sts_audit_dropped_total 0
+caracal_sts_audit_replay_pending 0
+caracal_sts_audit_replay_replayed_total 0
+caracal_sts_audit_sink_errors_total 0
+caracal_sts_jwks_invalid_keys_total 0
+caracal_sts_opa_eval_total 0
+caracal_sts_opa_eval_errors_total 0
+caracal_sts_opa_eval_duration_seconds_total 0
+caracal_sts_opa_compile_total 0
+caracal_sts_opa_compile_errors_total 0
+caracal_sts_opa_compile_duration_seconds_total 0
+caracal_sts_opa_max_policy_age_seconds 0
+caracal_sts_opa_poll_interval_seconds 60
 ```
 
 | Metric | Meaning |
 | --- | --- |
-| `graph_traversals` | Delegation chain traversals performed |
-| `graph_traversal_errors` | Failed traversals (alert if non-zero) |
-| `audit_dropped` | Audit events dropped due to sink errors — these are not persisted |
-| `audit_replay_pending` | Events in the replay buffer awaiting re-delivery |
-| `audit_replay_replayed` | Events successfully re-delivered from the replay buffer |
-| `audit_sink_errors` | Errors publishing to the audit stream |
-| `jwks_invalid_keys` | Keys in the JWKS document that fail validation (alert if non-zero) |
+| `caracal_sts_graph_traversals_total` | Delegation chain traversals performed |
+| `caracal_sts_graph_traversal_errors_total` | Failed traversals (alert if non-zero) |
+| `caracal_sts_audit_dropped_total` | Audit events dropped due to sink errors — these are not persisted |
+| `caracal_sts_audit_replay_pending` | Events in the replay buffer awaiting re-delivery |
+| `caracal_sts_audit_replay_replayed_total` | Events successfully re-delivered from the replay buffer |
+| `caracal_sts_audit_sink_errors_total` | Errors publishing to the audit stream |
+| `caracal_sts_jwks_invalid_keys_total` | Keys in the JWKS document that fail validation (alert if non-zero) |
+| `caracal_sts_opa_*` | OPA evaluation/compile counters and policy bundle age gauges |
 
-`audit_dropped` and `audit_sink_errors` indicate that audit events are being silently lost. Investigate Redis availability and outbox lag.
+`caracal_sts_audit_dropped_total` and `caracal_sts_audit_sink_errors_total` indicate that audit events are being lost or buffered for replay. Investigate Redis availability and outbox lag.
 
 ---
 
@@ -100,7 +103,9 @@ On failure:
 
 Checks: draining flag (set during graceful shutdown), Postgres `SELECT 1`, Redis `PING`.
 
-The API exposes no `/metrics` endpoint directly. Monitor it via the Postgres pool state (connection counts) and Redis stream consumer lag.
+### `GET /metrics`
+
+HTTP 200, Prometheus text. The API exports shared log counters through `caracal_log_*` metrics. Future request and admin audit counters should be added here rather than as JSON-only endpoints.
 
 ---
 
@@ -116,37 +121,27 @@ HTTP 200 or 503. Checks: bindings reload health, Postgres connectivity, Redis co
 
 ### `GET /metrics`
 
-HTTP 200, JSON:
+HTTP 200, Prometheus text:
 
-```json
-{
-  "requests_total": 0,
-  "requests_allowed": 0,
-  "requests_denied": 0,
-  "denials_missing_auth": 0,
-  "denials_bad_bearer": 0,
-  "denials_expiring": 0,
-  "denials_bad_routing": 0,
-  "denials_path_traversal": 0,
-  "denials_signature": 0,
-  "denials_jti_replay": 0,
-  "denials_revoked": 0,
-  "denials_binding": 0,
-  "sts_exchange_errors": 0,
-  "upstream_errors": 0,
-  "bindings_loaded": 0,
-  "revocations_active": 0
-}
+```text
+caracal_gateway_requests_total 0
+caracal_gateway_requests_allowed_total 0
+caracal_gateway_requests_denied_total 0
+caracal_gateway_denials_revoked_total 0
+caracal_gateway_sts_exchange_errors_total 0
+caracal_gateway_upstream_errors_total 0
+caracal_gateway_bindings_loaded 0
+caracal_gateway_revocations_active 0
 ```
 
 | Metric | Alert condition |
 | --- | --- |
-| `denials_revoked` | Non-zero: sessions being revoked are reaching the Gateway |
-| `denials_jti_replay` | Non-zero: possible replay attack or clock skew |
-| `sts_exchange_errors` | Elevated: STS unreachable or overloaded |
-| `upstream_errors` | Elevated: upstream services degraded |
-| `denials_path_traversal` | Non-zero: investigate request source |
-| `revocations_active` | Should track known revoked sessions; sudden spike indicates batch revocation |
+| `caracal_gateway_denials_revoked_total` | Non-zero: sessions being revoked are reaching the Gateway |
+| `caracal_gateway_denials_jti_replay_total` | Non-zero: possible replay attack or clock skew |
+| `caracal_gateway_sts_exchange_errors_total` | Elevated: STS unreachable or overloaded |
+| `caracal_gateway_upstream_errors_total` | Elevated: upstream services degraded |
+| `caracal_gateway_denials_path_traversal_total` | Non-zero: investigate request source |
+| `caracal_gateway_revocations_active` | Should track known revoked sessions; sudden spike indicates batch revocation |
 
 ---
 
@@ -179,28 +174,17 @@ Checks: Postgres `SELECT 1`, Redis `PING`.
 
 ### `GET /metrics`
 
-HTTP 200, JSON (structure approximate):
+HTTP 200, Prometheus text:
 
-```json
-{
-  "invocations": {
-    "pending": 0,
-    "running": 0,
-    "succeeded": 0,
-    "failed": 0,
-    "dead": 0
-  },
-  "outbox": {
-    "pending": 0,
-    "published": 0,
-    "dead": 0
-  },
-  "ttl_sweeper": { ... },
-  "retention_cleaner": { ... }
-}
+```text
+caracal_invocations_total{status="running"} 0
+caracal_outbox_total{status="pending"} 0
+caracal_ttl_sweeper_runs_total 0
+caracal_service_lease_sweeper_runs_total 0
+caracal_retention_cleaner_runs_total 0
 ```
 
-`outbox.dead` non-zero means the Coordinator has outbox rows that exceeded `OUTBOX_MAX_ATTEMPTS`. These events (lifecycle, delegation, revocation) will not be delivered. Investigate Redis availability.
+`caracal_outbox_total{status="dead"}` non-zero means the Coordinator has outbox rows that exceeded `OUTBOX_MAX_ATTEMPTS`. These events (lifecycle, delegation, revocation) will not be delivered. Investigate Redis availability. Use `GET /stats` for a JSON operational snapshot.
 
 ---
 
@@ -216,62 +200,64 @@ HTTP 200 or 503. Checks: Postgres `Ping()`, Redis `Ping()`.
 
 ### `GET /metrics`
 
-HTTP 200, JSON (all fields are numeric unless noted):
+HTTP 200, Prometheus text:
 
-```json
-{
-  "inserts_total": 0,
-  "export_events_total": 0,
-  "export_errors_total": 0,
-  "export_duration_ms": 0,
-  "consumer_lag": 0,
-  "consumer_pel_oldest_secs": 0,
-  "parse_errors_total": 0,
-  "dlq_total": 0,
-  "retries_total": 0,
-  "hmac_failures_total": 0,
-  "tamper_replay_total": 0,
-  "tamper_checked_total": 0,
-  "tamper_mismatch_total": 0,
-  "tamper_chain_breaks": 0,
-  "tamper_hmac_failures": 0,
-  "tamper_last_sweep_unix": 0,
-  "tamper_last_full_unix": 0,
-  "retention_created_total": 0,
-  "retention_dropped_total": 0,
-  "is_export_leader": false,
-  "is_retention_leader": false
-}
+```text
+caracal_audit_inserts_total 0
+caracal_audit_export_events_total 0
+caracal_audit_export_errors_total 0
+caracal_audit_export_duration_seconds 0
+caracal_audit_consumer_lag 0
+caracal_audit_dlq_total 0
+caracal_audit_tamper_mismatch_total 0
+caracal_audit_tamper_chain_breaks_total 0
+caracal_audit_is_export_leader 1
+caracal_audit_is_retention_leader 1
 ```
 
 | Metric | Alert condition |
 | --- | --- |
-| `consumer_lag` | Growing: Audit is falling behind the event stream |
-| `consumer_pel_oldest_secs` | Large value: messages stuck in PEL, check consumer health |
-| `dlq_total` | Any increment: events exceeding max deliveries |
-| `hmac_failures_total` | Any increment: stream message signature verification failures |
-| `tamper_mismatch_total` | Any increment: audit chain integrity violation detected |
-| `tamper_chain_breaks` | Any increment: serious tamper event — escalate immediately |
-| `export_errors_total` | Sustained non-zero: S3 export failing, events not archived |
-| `is_export_leader` | Should be `true` on exactly one Audit replica |
-| `is_retention_leader` | Should be `true` on exactly one Audit replica |
+| `caracal_audit_consumer_lag` | Growing: Audit is falling behind the event stream |
+| `caracal_audit_consumer_pel_oldest_seconds` | Large value: messages stuck in PEL, check consumer health |
+| `caracal_audit_dlq_total` | Any increment: events exceeding max deliveries |
+| `caracal_audit_hmac_failures_total` | Any increment: stream message signature verification failures |
+| `caracal_audit_tamper_mismatch_total` | Any increment: audit chain integrity violation detected |
+| `caracal_audit_tamper_chain_breaks_total` | Any increment: serious tamper event — escalate immediately |
+| `caracal_audit_export_errors_total` | Sustained non-zero: S3 export failing, events not archived |
+| `caracal_audit_is_export_leader` | Should be `1` on exactly one Audit replica |
+| `caracal_audit_is_retention_leader` | Should be `1` on exactly one Audit replica |
 
 ---
 
 ## Monitoring setup
 
-The metrics endpoints return JSON, not Prometheus exposition format. To feed them into Prometheus, use a JSON exporter sidecar (e.g., `json_exporter`) configured to scrape each service's `/metrics` endpoint and map fields to Prometheus metrics.
+### OpenTelemetry traces
+
+Every runtime service honors the Compose-provided OpenTelemetry variables:
+
+| Variable | Supported value |
+| --- | --- |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | OTLP HTTP collector endpoint, for example `http://otel-collector:4318` |
+| `OTEL_EXPORTER_OTLP_PROTOCOL` | `http/protobuf` |
+| `OTEL_SERVICE_NAME` | Service-specific name such as `caracal-sts` or `caracal-api` |
+| `OTEL_RESOURCE_ATTRIBUTES` | Comma-separated resource attributes such as `service.namespace=caracal,deployment.environment=stable` |
+
+When `OTEL_EXPORTER_OTLP_ENDPOINT` is unset, services still accept and propagate W3C trace context but do not export spans. When it is set, STS, Gateway, Audit, API, Coordinator, and the optional Control service export HTTP server spans through OTLP and continue to include trace IDs in structured logs.
+
+Use an OpenTelemetry Collector when possible: receive OTLP traces from the services and scrape `/metrics` with the collector's Prometheus receiver so traces and metrics flow through the same observability pipeline.
+
+The `/metrics` endpoints return Prometheus exposition format directly. Scrape the service ports with Prometheus or any OpenTelemetry Collector Prometheus receiver. Use `/metrics.json` only for compatibility scripts and one-off debugging on Go services.
 
 Minimum recommended alerts:
 
 | Alert | Source | Condition |
 | --- | --- | --- |
 | Service down | `/ready` HTTP status | Returns 503 for > 1 minute |
-| Audit chain tamper | Audit `/metrics` | `tamper_chain_breaks > 0` |
-| Audit DLQ growth | Audit `/metrics` | `dlq_total` increasing |
-| Gateway denials spike | Gateway `/metrics` | `denials_revoked` or `denials_jti_replay` > threshold |
-| STS audit drops | STS `/metrics` | `audit_dropped > 0` |
-| Outbox dead messages | Coordinator `/metrics` | `outbox.dead > 0` |
+| Audit chain tamper | Audit `/metrics` | `caracal_audit_tamper_chain_breaks_total > 0` |
+| Audit DLQ growth | Audit `/metrics` | `caracal_audit_dlq_total` increasing |
+| Gateway denials spike | Gateway `/metrics` | `caracal_gateway_denials_revoked_total` or `caracal_gateway_denials_jti_replay_total` > threshold |
+| STS audit drops | STS `/metrics` | `caracal_sts_audit_dropped_total > 0` |
+| Outbox dead messages | Coordinator `/metrics` | `caracal_outbox_total{status="dead"} > 0` |
 
 Check stream consumer lag directly from Redis for deeper visibility:
 
