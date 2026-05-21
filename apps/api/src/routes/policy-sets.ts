@@ -11,7 +11,7 @@ import { STREAM_POLICY_INVALIDATE } from '../redis.js'
 import { enqueueOutbox } from '../outbox.js'
 import { ZoneIdParams, ZoneParams, parseParams } from './params.js'
 import { zoneExists } from '../zone-guard.js'
-import { validateAuthzPolicy } from '../rego.js'
+import { OPA_INPUT_SCHEMA_VERSION, validateAuthzPolicy, validatePolicySchemaVersion } from '../rego.js'
 import { appendKeysetCondition, parseListPagination, setNextLink } from './list-pagination.js'
 import { publicAppsReferencedByContents } from '../policy-invariants.js'
 import type { Queryable } from '../db.js'
@@ -25,12 +25,16 @@ const PolicySetBody = z.object({
 
 const PolicySetVersionBody = z.object({
   manifest: z.array(z.object({ policy_version_id: z.string().min(1) })).min(1).max(MANIFEST_MAX_ENTRIES),
-  schema_version: z.string().default('2026-03-16'),
+  schema_version: z.string().default(OPA_INPUT_SCHEMA_VERSION),
 })
 
 const ActivateBody = z.object({
   version_id: z.string().min(1),
   shadow_version_id: z.string().min(1).optional(),
+})
+const SimulateBody = z.object({
+  version_id: z.string().min(1),
+  input: z.record(z.string(), z.unknown()).optional(),
 })
 
 const VersionParams = z.object({ zoneId: z.string().regex(/^[A-Za-z0-9_.\-:]{1,128}$/), id: z.string().regex(/^[A-Za-z0-9_.\-:]{1,128}$/), versionId: z.string().regex(/^[A-Za-z0-9_.\-:]{1,128}$/) })
@@ -112,6 +116,8 @@ export const policySetsRoutes: FastifyPluginAsync = async (fastify) => {
     const params = parseParams(ZoneIdParams, req, reply)
     if (!params) return
     const body = PolicySetVersionBody.parse(req.body)
+    const schemaErr = validatePolicySchemaVersion(body.schema_version)
+    if (schemaErr) return reply.code(422).send({ error: 'invalid_schema_version', detail: schemaErr })
 
     const { rows: psRows } = await fastify.db.query(
       `SELECT id FROM policy_sets WHERE id = $1 AND zone_id = $2 AND archived_at IS NULL`,
@@ -119,7 +125,7 @@ export const policySetsRoutes: FastifyPluginAsync = async (fastify) => {
     )
     if (!psRows[0]) return reply.code(404).send({ error: 'policy_set_not_found' })
 
-    const contractErr = await policySetContractError(fastify.db, params.zoneId, body.manifest)
+    const contractErr = await policySetContractError(fastify.db, params.zoneId, body.manifest, body.schema_version)
     if (contractErr) return reply.code(422).send({ error: 'invalid_policy_contract', detail: contractErr })
 
     const client = await fastify.db.connect()
@@ -172,27 +178,27 @@ export const policySetsRoutes: FastifyPluginAsync = async (fastify) => {
     if (!params) return
     const body = ActivateBody.parse(req.body)
 
-    const { rows: vRows } = await fastify.db.query<{ id: string; manifest_json: PolicyManifest }>(
-      `SELECT psv.id, psv.manifest_json
+    const { rows: vRows } = await fastify.db.query<{ id: string; manifest_json: PolicyManifest; schema_version: string }>(
+      `SELECT psv.id, psv.manifest_json, psv.schema_version
        FROM policy_set_versions psv
        JOIN policy_sets ps ON ps.id = psv.policy_set_id
        WHERE psv.id = $1 AND psv.policy_set_id = $2 AND ps.zone_id = $3 AND ps.archived_at IS NULL`,
       [body.version_id, params.id, params.zoneId],
     )
     if (!vRows[0]) return reply.code(404).send({ error: 'version_not_found' })
-    const contractErr = await policySetContractError(fastify.db, params.zoneId, vRows[0].manifest_json)
+    const contractErr = await policySetContractError(fastify.db, params.zoneId, vRows[0].manifest_json, vRows[0].schema_version)
     if (contractErr) return reply.code(422).send({ error: 'invalid_policy_contract', detail: contractErr })
 
     if (body.shadow_version_id) {
-      const { rows: shadowRows } = await fastify.db.query<{ id: string; manifest_json: PolicyManifest }>(
-        `SELECT psv.id, psv.manifest_json
+      const { rows: shadowRows } = await fastify.db.query<{ id: string; manifest_json: PolicyManifest; schema_version: string }>(
+        `SELECT psv.id, psv.manifest_json, psv.schema_version
          FROM policy_set_versions psv
          JOIN policy_sets ps ON ps.id = psv.policy_set_id
          WHERE psv.id = $1 AND psv.policy_set_id = $2 AND ps.zone_id = $3 AND ps.archived_at IS NULL`,
         [body.shadow_version_id, params.id, params.zoneId],
       )
       if (!shadowRows[0]) return reply.code(404).send({ error: 'shadow_version_not_found' })
-      const shadowErr = await policySetContractError(fastify.db, params.zoneId, shadowRows[0].manifest_json)
+      const shadowErr = await policySetContractError(fastify.db, params.zoneId, shadowRows[0].manifest_json, shadowRows[0].schema_version)
       if (shadowErr) return reply.code(422).send({ error: 'invalid_shadow_policy_contract', detail: shadowErr })
     }
 
@@ -257,6 +263,38 @@ export const policySetsRoutes: FastifyPluginAsync = async (fastify) => {
     })
   })
 
+  fastify.post('/zones/:zoneId/policy-sets/:id/simulate', async (req, reply) => {
+    const params = parseParams(ZoneIdParams, req, reply)
+    if (!params) return
+    const body = SimulateBody.parse(req.body)
+    const { rows } = await fastify.db.query<{ id: string; manifest_json: PolicyManifest; manifest_sha256: string; schema_version: string }>(
+      `SELECT psv.id, psv.manifest_json, psv.manifest_sha256, psv.schema_version
+       FROM policy_set_versions psv
+       JOIN policy_sets ps ON ps.id = psv.policy_set_id
+       WHERE psv.id = $1 AND psv.policy_set_id = $2 AND ps.zone_id = $3 AND ps.archived_at IS NULL`,
+      [body.version_id, params.id, params.zoneId],
+    )
+    if (!rows[0]) return reply.code(404).send({ error: 'version_not_found' })
+    const contractErr = await policySetContractError(fastify.db, params.zoneId, rows[0].manifest_json, rows[0].schema_version)
+    if (contractErr) return reply.code(422).send({ error: 'invalid_policy_contract', detail: contractErr })
+    const inputWarnings = validateSimulationInput(body.input, params.zoneId)
+    return {
+      dry_run: true,
+      would_activate: inputWarnings.length === 0,
+      policy_set_id: params.id,
+      version_id: rows[0].id,
+      schema_version: rows[0].schema_version,
+      input_schema_version: OPA_INPUT_SCHEMA_VERSION,
+      manifest_sha256: rows[0].manifest_sha256,
+      policies: collectManifestIds(rows[0].manifest_json),
+      warnings: inputWarnings,
+      explanation: {
+        evaluation: 'not_executed',
+        reason: 'simulation validates rollout contract and input shape without mutating active policy bindings',
+      },
+    }
+  })
+
   fastify.delete('/zones/:zoneId/policy-sets/:id', async (req, reply) => {
     const params = parseParams(ZoneIdParams, req, reply)
     if (!params) return
@@ -274,6 +312,7 @@ interface PolicyVersionRow {
   id: string
   content: string
   zone_id: string
+  schema_version: string
 }
 
 type PolicyManifest = Array<{ policy_version_id?: string }>
@@ -294,7 +333,10 @@ async function policySetContractError(
   db: Queryable,
   zoneId: string,
   manifestJSON: string | PolicyManifest,
+  schemaVersion: string,
 ): Promise<string | null> {
+  const schemaErr = validatePolicySchemaVersion(schemaVersion)
+  if (schemaErr) return schemaErr
   const manifest = Array.isArray(manifestJSON) ? manifestJSON : parseManifest(manifestJSON)
   const rawIds = collectManifestIds(manifest)
   if (rawIds.length === 0) return 'policy set manifest must reference at least one policy version'
@@ -306,7 +348,7 @@ async function policySetContractError(
     return 'policy set manifest contains duplicate policy_version_id entries'
   }
   const { rows } = await db.query<PolicyVersionRow>(
-    `SELECT pv.id, pv.content, p.zone_id
+    `SELECT pv.id, pv.content, pv.schema_version, p.zone_id
      FROM policy_versions pv
      JOIN policies p ON p.id = pv.policy_id
      WHERE pv.id = ANY($1::text[])`,
@@ -317,6 +359,11 @@ async function policySetContractError(
     if (row.zone_id !== zoneId) {
       return `policy version ${row.id} belongs to a different zone`
     }
+    if (row.schema_version !== schemaVersion) {
+      return `policy version ${row.id} schema ${row.schema_version} does not match policy set schema ${schemaVersion}`
+    }
+    const versionErr = validatePolicySchemaVersion(row.schema_version)
+    if (versionErr) return `policy version ${row.id} failed schema validation: ${versionErr}`
     const err = validateAuthzPolicy(String(row.content))
     if (err === 'must_use_package_caracal_authz') {
       return `policy version ${row.id} must use package caracal.authz`
@@ -337,4 +384,18 @@ async function policySetContractError(
     return `policy references public application(s): ${publicHits.join(', ')}`
   }
   return null
+}
+
+function validateSimulationInput(input: Record<string, unknown> | undefined, zoneId: string): string[] {
+  if (!input) return []
+  const warnings: string[] = []
+  if (input.schema_version !== undefined && input.schema_version !== OPA_INPUT_SCHEMA_VERSION) {
+    warnings.push(`input_schema_mismatch:${String(input.schema_version)}`)
+  }
+  const principal = input.principal as Record<string, unknown> | undefined
+  if (!principal || principal.zone_id !== zoneId) warnings.push('principal_zone_mismatch')
+  if (!input.resource || typeof input.resource !== 'object') warnings.push('missing_resource')
+  if (!input.action || typeof input.action !== 'object') warnings.push('missing_action')
+  if (!input.context || typeof input.context !== 'object') warnings.push('missing_context')
+  return warnings
 }

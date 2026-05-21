@@ -103,6 +103,37 @@ export const zoneEventsRoutes: FastifyPluginAsync = async (fastify) => {
     return rows.map((r) => ({ ...r, metadata_json: redactSensitive(r.metadata_json) }))
   })
 
+  fastify.get('/zones/:zoneId/audit/by-request/:requestId/explain', async (req, reply) => {
+    const params = parseParams(ZoneRequestParams, req, reply)
+    if (!params) return
+    const { rows } = await fastify.db.query(
+      `SELECT id, zone_id, event_type, request_id, decision, policy_set_id,
+              policy_set_version_id, manifest_sha, evaluation_status,
+              determining_policies_json, diagnostics_json, metadata_json,
+              occurred_at, ingested_at
+       FROM audit_events
+       WHERE zone_id = $1 AND request_id = $2
+       ORDER BY occurred_at ASC`,
+      [params.zoneId, params.requestId],
+    )
+    if (rows.length === 0) return reply.code(404).send({ error: 'request_not_found' })
+    const events = rows.map((r) => ({ ...r, metadata_json: redactSensitive(r.metadata_json) }))
+    return {
+      request_id: params.requestId,
+      zone_id: params.zoneId,
+      final_decision: events.some((event) => event.decision === 'deny') ? 'deny' : events.at(-1)?.decision ?? 'unknown',
+      denied: events.filter((event) => event.decision === 'deny').map((event) => ({
+        event_id: event.id,
+        event_type: event.event_type,
+        evaluation_status: event.evaluation_status,
+        determining_policies: event.determining_policies_json ?? [],
+        diagnostics: event.diagnostics_json ?? [],
+        metadata: event.metadata_json ?? {},
+      })),
+      events,
+    }
+  })
+
   fastify.get('/zones/:zoneId/sessions', async (req, reply) => {
     const params = parseParams(ZoneParams, req, reply)
     if (!params) return

@@ -20,6 +20,7 @@ import type {
   Policy,
   PolicyInput,
   PolicySet,
+  PolicySetSimulation,
   PolicySetVersion,
   PolicyTemplate,
   PolicyVersion,
@@ -253,10 +254,15 @@ export class AdminClient {
         method: 'POST',
         body: { name, description },
       }),
-    addVersion: (zoneId: string, id: string, manifest: { policy_version_id: string }[]) =>
+    addVersion: (zoneId: string, id: string, manifest: { policy_version_id: string }[], schemaVersion?: string) =>
       this.request<PolicySetVersion>(`/v1/zones/${zoneId}/policy-sets/${id}/versions`, {
         method: 'POST',
-        body: { manifest },
+        body: { manifest, schema_version: schemaVersion },
+      }),
+    simulate: (zoneId: string, id: string, versionId: string, input?: Record<string, unknown>) =>
+      this.request<PolicySetSimulation>(`/v1/zones/${zoneId}/policy-sets/${id}/simulate`, {
+        method: 'POST',
+        body: { version_id: versionId, input },
       }),
     activate: (zoneId: string, id: string, versionId: string, shadowVersionId?: string) =>
       this.request<{ activated: boolean; version_id: string; shadow_version_id: string | null }>(

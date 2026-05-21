@@ -19,10 +19,11 @@ export interface AdminAuditRecord {
   entityType: string | null
   entityId: string | null
   statusCode: number
+  payloadJson?: Record<string, unknown> | null
 }
 
 export interface Queryable {
-  query(sql: string, params: (string | number | null)[]): Promise<unknown>
+  query(sql: string, params: (string | number | Record<string, unknown> | null)[]): Promise<unknown>
 }
 
 export async function insertAdminAuditRecord(db: Queryable, rec: AdminAuditRecord): Promise<void> {
@@ -44,7 +45,7 @@ export async function insertAdminAuditRecord(db: Queryable, rec: AdminAuditRecor
       rec.entityType,
       rec.entityId,
       rec.statusCode,
-      null,
+      rec.payloadJson ?? null,
     ],
   )
 }
