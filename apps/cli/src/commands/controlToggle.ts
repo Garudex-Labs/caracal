@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 // Caracal, a product of Garudex Labs
 //
-// `caracal control mount|enable|disable|unmount|status`: manages the engine-owned Control automation service.
+// `caracal-cli control mount|enable|disable|unmount|status`: manages the engine-owned Control automation service.
 
 import {
   applyControlLifecycleAction,
@@ -12,14 +12,14 @@ import {
 } from '@caracalai/engine'
 import type { CliConfig } from '../config.ts'
 import { printError, printInfo, printStep, printSuccess, style } from '../style.ts'
-import { buildAdminClient, fail, printJSON, showHelp } from './shared.ts'
+import { printJSON, showHelp } from './shared.ts'
 import { composeEnv, resolvePaths } from './stack.ts'
 
 const LIFECYCLE_ACTIONS = new Set<ControlLifecycleAction>(['mount', 'enable', 'disable', 'unmount'])
 
 function controlHelp(): never {
   return showHelp([
-    'Usage: caracal control <mount|enable|disable|unmount|status|key|rotate|revoke> [--json]',
+    'Usage: caracal-cli control <mount|enable|disable|unmount|status|key|rotate|revoke> [--json]',
     '',
     'Manages the optional Control automation API through the engine.',
     'The endpoint is exposed only while enabled.',
@@ -85,22 +85,12 @@ function formatEndpoint(enabled: boolean, invokeUrl: string): string {
   return enabled ? style.code(invokeUrl) : `${style.label('not exposed')} ${style.code(invokeUrl)}`
 }
 
-async function authorizeControlLifecycle(cfg?: CliConfig): Promise<void> {
-  const ctx = buildAdminClient(cfg)
-  await ctx.client.zones.list()
-}
-
 export async function controlToggleCommand(argv: string[], cfg?: CliConfig): Promise<void> {
   const [sub, ...rest] = argv
   if (!sub || sub === '--help' || sub === '-h') controlHelp()
   const { json } = parseToggleFlags(rest)
   if (LIFECYCLE_ACTIONS.has(sub as ControlLifecycleAction)) {
     const action = sub as ControlLifecycleAction
-    try {
-      await authorizeControlLifecycle(cfg)
-    } catch (err) {
-      fail(err)
-    }
     const paths = resolvePaths()
     if (!json) printStep(`control ${action}: applying managed lifecycle action`)
     const result = await applyControlLifecycleAction({
@@ -114,16 +104,11 @@ export async function controlToggleCommand(argv: string[], cfg?: CliConfig): Pro
     return
   }
   if (sub === 'status') {
-    try {
-      await authorizeControlLifecycle(cfg)
-    } catch (err) {
-      fail(err)
-    }
     const status = await controlServiceStatus()
     if (json) return printJSON(status)
     printControlStatus(status)
     return
   }
-  printError(`unknown subcommand "${sub}"; run \`caracal control --help\``)
+  printError(`unknown subcommand "${sub}"; run \`caracal-cli control --help\``)
   process.exit(1)
 }

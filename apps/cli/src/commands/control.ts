@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 // Caracal, a product of Garudex Labs
 //
-// `caracal control …` admin subcommands for managing control API credentials.
+// `caracal-cli control …` admin subcommands for managing control API credentials.
 
 import {
   controlKeyCreate,
@@ -11,7 +11,7 @@ import {
   controlKeyRotate,
 } from '@caracalai/engine'
 import type { CliConfig } from '../config.ts'
-import { printSuccess } from '../style.ts'
+import { printError, printSuccess } from '../style.ts'
 import { controlToggleCommand } from './controlToggle.ts'
 import {
   buildAdminClient,
@@ -28,6 +28,10 @@ import {
 } from './shared.ts'
 
 export async function controlCommand(argv: string[], cfg?: CliConfig): Promise<void> {
+  if (process.env.CARACAL_INVOKED_AS === 'caracal cli') {
+    printError('Control management is available only from caracal-cli or the TUI Control menu.')
+    process.exit(1)
+  }
   const [verb, sub, ...rest] = argv
   if (verb === 'mount' || verb === 'enable' || verb === 'disable' || verb === 'unmount' || verb === 'status') {
     return controlToggleCommand(argv, cfg)
@@ -119,7 +123,7 @@ export async function controlCommand(argv: string[], cfg?: CliConfig): Promise<v
 function help(): never {
   return showHelp(
     [
-      'Usage: caracal control <verb> [...]',
+      'Usage: caracal-cli control <verb> [...]',
       '',
       'Verbs:',
       '  mount                      Prepare Control without exposing the endpoint',
