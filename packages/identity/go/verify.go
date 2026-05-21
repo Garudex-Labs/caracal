@@ -207,7 +207,7 @@ func Verify(tokenStr string, cfg Config) (Claims, error) {
 		return Claims{}, ErrTokenInvalid
 	}
 	use, ok := requiredString(mapClaims, "use")
-	if !ok || (cfg.RequiredUse != "" && use != cfg.RequiredUse) {
+	if !ok || (use != MandateUseSession && use != MandateUseResource) || (cfg.RequiredUse != "" && use != cfg.RequiredUse) {
 		return Claims{}, ErrTokenInvalid
 	}
 	issuedAt, ok := requiredInt64(mapClaims, "iat")

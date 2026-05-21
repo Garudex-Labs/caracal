@@ -10,6 +10,11 @@ package identity
 // would have been blocked at spawn time cannot pass a permissive resource server.
 const DefaultMaxHopCount = 10
 
+const (
+	MandateUseSession  = "session"
+	MandateUseResource = "resource"
+)
+
 // Config configures JWT verification.
 type Config struct {
 	Issuer               string
