@@ -87,6 +87,7 @@ func TestVerifyAcceptsValidTokenAndExtractsClaims(t *testing.T) {
 		"delegation_edge_id":     "edge-1",
 		"source_session_id":      "src-1",
 		"target_session_id":      "tgt-1",
+		"target":                 []string{"resource://api"},
 		"delegation_path":        []string{"edge-0", "edge-1"},
 		"delegation_chain":       []map[string]any{{"application_id": "app-parent", "agent_session_id": "s1", "delegation_edge_id": "e1"}},
 		"hop_count":              float64(2),
@@ -109,6 +110,9 @@ func TestVerifyAcceptsValidTokenAndExtractsClaims(t *testing.T) {
 	}
 	if claims.SourceSessionID != "src-1" || claims.TargetSessionID != "tgt-1" {
 		t.Fatalf("wrong session claims: %+v", claims)
+	}
+	if len(claims.TargetResources) != 1 || claims.TargetResources[0] != "resource://api" {
+		t.Fatalf("wrong target resources: %+v", claims.TargetResources)
 	}
 	if claims.HopCount != 2 || claims.GraphEpoch != 7 {
 		t.Fatalf("wrong numeric claims: %+v", claims)
@@ -191,6 +195,16 @@ func TestVerifyRejectsMissingRequiredScope(t *testing.T) {
 	}
 	if scopeErr.Scope != "admin" {
 		t.Fatalf("wrong missing scope: %q", scopeErr.Scope)
+	}
+}
+
+func TestVerifyRejectsMissingRequiredTarget(t *testing.T) {
+	token, issuer, closeServer := mintToken(t, jwt.MapClaims{"target": []string{"resource://tools/files"}})
+	defer closeServer()
+
+	_, err := identity.Verify(token, identity.Config{Issuer: issuer, Audience: "resource://api", RequiredTargets: []string{"resource://tools/calendar"}})
+	if err != identity.ErrTokenInvalid {
+		t.Fatalf("expected ErrTokenInvalid, got %v", err)
 	}
 }
 

@@ -80,7 +80,7 @@ class VerifyConfigTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_returns_claims_for_valid_token(self) -> None:
         claims = await self._verify(
-            {"sid": "sid-1", "client_id": "app-1"},
+            {"sid": "sid-1", "client_id": "app-1", "target": ["resource://api"]},
             expected_zone_id="zone1",
         )
         self.assertEqual(claims.sub, "user1")
@@ -88,6 +88,7 @@ class VerifyConfigTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(claims.client_id, "app-1")
         self.assertEqual(claims.sid, "sid-1")
         self.assertGreater(claims.expires_at, claims.issued_at)
+        self.assertEqual(claims.target_resources, ["resource://api"])
 
     async def test_raises_agent_required_when_absent(self) -> None:
         with self.assertRaises(AgentIdentityRequiredError):
@@ -161,6 +162,13 @@ class VerifyConfigTests(unittest.IsolatedAsyncioTestCase):
     async def test_raises_hop_count_exceeded(self) -> None:
         with self.assertRaises(HopCountExceededError):
             await self._verify({"hop_count": 5}, max_hop_count=1)
+
+    async def test_raises_for_missing_target_resource(self) -> None:
+        with self.assertRaises(TokenInvalidError):
+            await self._verify(
+                {"target": ["resource://tools/files"]},
+                required_targets=["resource://tools/calendar"],
+            )
 
     async def test_ignores_legacy_graph_epoch(self) -> None:
         claims = await self._verify({"graph_epoch": 99})

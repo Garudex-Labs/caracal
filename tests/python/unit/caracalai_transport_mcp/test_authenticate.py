@@ -142,6 +142,37 @@ class TransportMcpAuthenticateTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(result.error.code if result.error else None, "insufficient_scope")
 
+    async def test_rejects_missing_target_resource(self) -> None:
+        token, jwk = mint_es256_token(claims={"target": ["resource://tools/files"]})
+        self.cache.keys = [jwk]
+
+        result = await authenticate(
+            token,
+            "https://sts.example.com",
+            "resource://api",
+            ["read"],
+            "zone1",
+            InMemoryRevocationStore(),
+            required_targets=["resource://tools/calendar"],
+        )
+
+        self.assertEqual(result.error.code if result.error else None, "invalid_token")
+
+    async def test_rejects_ambient_token_by_default(self) -> None:
+        token, jwk = mint_es256_token(claims={"use": "ambient"})
+        self.cache.keys = [jwk]
+
+        result = await authenticate(
+            token,
+            "https://sts.example.com",
+            "resource://api",
+            ["read"],
+            "zone1",
+            InMemoryRevocationStore(),
+        )
+
+        self.assertEqual(result.error.code if result.error else None, "invalid_token")
+
     async def test_rejects_agent_required(self) -> None:
         token, jwk = mint_es256_token()
         self.cache.keys = [jwk]
