@@ -27,7 +27,7 @@ def mint_es256_token(
         "sub": "user1",
         "client_id": "app1",
         "sid": "sid1",
-        "use": "per_call",
+        "use": "resource",
         "jti": "jti1",
         "scope": " ".join(scopes),
         "iat": now,

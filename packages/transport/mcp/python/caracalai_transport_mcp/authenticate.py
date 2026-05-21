@@ -45,7 +45,7 @@ async def authenticate(
     require_chain_contains: list[str] | None = None,
     max_hop_count: int | None = None,
     required_targets: list[str] | None = None,
-    required_use: str | None = "per_call",
+    required_use: str | None = "resource",
 ) -> AuthResult:
     if not token:
         return AuthResult(None, AuthError("missing_token", "Missing bearer token"))

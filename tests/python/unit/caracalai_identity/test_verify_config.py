@@ -39,7 +39,7 @@ def _mint_no_kid_token() -> tuple[str, dict]:
         "sub": "user1",
         "client_id": "app1",
         "sid": "sid1",
-        "use": "per_call",
+        "use": "resource",
         "jti": "jti1",
         "zone_id": "zone1",
         "scope": "read",
@@ -153,7 +153,7 @@ class VerifyConfigTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_raises_for_wrong_token_use(self) -> None:
         with self.assertRaises(TokenInvalidError):
-            await self._verify({"use": "ambient"}, required_use="per_call")
+            await self._verify({"use": "session"}, required_use="resource")
 
     async def test_raises_for_malformed_agent_claim(self) -> None:
         with self.assertRaises(TokenInvalidError):
@@ -206,7 +206,7 @@ class VerifyChainContainsTests(unittest.TestCase):
             zone_id="z",
             client_id=client_id,
             sid="s",
-            use="per_call",
+            use="resource",
             jti="j",
             scope="read",
             issued_at=1,

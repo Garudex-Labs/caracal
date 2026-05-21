@@ -158,8 +158,8 @@ class TransportMcpAuthenticateTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(result.error.code if result.error else None, "invalid_token")
 
-    async def test_rejects_ambient_token_by_default(self) -> None:
-        token, jwk = mint_es256_token(claims={"use": "ambient"})
+    async def test_rejects_session_mandate_by_default(self) -> None:
+        token, jwk = mint_es256_token(claims={"use": "session"})
         self.cache.keys = [jwk]
 
         result = await authenticate(
