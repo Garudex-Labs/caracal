@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -28,9 +29,11 @@ const (
 	// initiating long streams must treat ttlPerCallSDK as the contract upper
 	// bound: streams running past it should expect upstream-side disconnect
 	// or a fresh exchange and reconnect orchestrated by the SDK.
-	ttlPerCallSDK       = 15 * time.Minute
-	ttlAmbient          = 60 * time.Minute
-	gatewayExchangeSkew = 60 * time.Second
+	ttlPerCallSDK          = 15 * time.Minute
+	ttlAmbient             = 60 * time.Minute
+	gatewayExchangeSkew    = 60 * time.Second
+	controlInvokeTrait     = "control:invoke"
+	defaultControlAudience = "caracal-control"
 )
 
 type delegationProof struct {
@@ -244,6 +247,22 @@ func (s *Server) exchange(ctx context.Context, req TokenExchangeRequest, request
 				map[string]any{"resource": resource.Identifier}); auditErr != nil {
 				return nil, nil, http.StatusInternalServerError, auditErr
 			}
+			continue
+		}
+
+		if isControlKeyExchange(app, req, resource, scopes) {
+			result := &OPAResult{
+				Decision:            "allow",
+				DeterminingPolicies: []map[string]any{{"policy": "control-key"}},
+				EvaluationStatus:    "complete",
+				Diagnostics:         []map[string]any{},
+			}
+			if auditErr := s.emitAuditEvent(requestID, zoneID, result.Decision, result.EvaluationStatus, result,
+				map[string]any{"resource": resource.Identifier}); auditErr != nil {
+				return nil, nil, http.StatusInternalServerError, auditErr
+			}
+			grantedResources = append(grantedResources, resource.Identifier)
+			grantedResourceRows[resource.Identifier] = resource
 			continue
 		}
 
@@ -678,6 +697,40 @@ func rootSessionID(claims map[string]any, sid string, use string) string {
 		return parent
 	}
 	return sid
+}
+
+func controlAudience() string {
+	if value := strings.TrimSpace(os.Getenv("CONTROL_AUDIENCE")); value != "" {
+		return value
+	}
+	return defaultControlAudience
+}
+
+func hasApplicationTrait(app *Application, trait string) bool {
+	for _, current := range app.Traits {
+		if current == trait {
+			return true
+		}
+	}
+	return false
+}
+
+func isControlKeyExchange(app *Application, req TokenExchangeRequest, resource *Resource, scopes []string) bool {
+	if resource.Identifier != controlAudience() || !hasApplicationTrait(app, controlInvokeTrait) {
+		return false
+	}
+	if req.SubjectToken != "" || req.ActorToken != "" || req.SessionID != "" || req.AgentSessionID != "" || req.DelegationEdgeID != "" {
+		return false
+	}
+	if len(scopes) == 0 {
+		return false
+	}
+	for _, scope := range scopes {
+		if !strings.HasPrefix(scope, "control:") {
+			return false
+		}
+	}
+	return true
 }
 
 func (s *Server) emitAuditEvent(requestID, zoneID, decision, status string, result *OPAResult, meta map[string]any) *sharederr.CaracalError {

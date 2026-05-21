@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -62,6 +63,7 @@ type DBQuerier interface {
 	InsertStepUpChallenge(ctx context.Context, c *StepUpChallengePG) error
 	SatisfyStepUpChallenge(ctx context.Context, id string) error
 	ConsumeStepUpChallenge(ctx context.Context, p ConsumeStepUpParams) error
+	EnsureZoneSigningKeySecret(ctx context.Context, zoneID string, ciphertext, nonce []byte) (*SecretRow, error)
 	GetZoneSigningKeySecret(ctx context.Context, zoneID string) (*SecretRow, error)
 	GetZoneSigningKeySecrets(ctx context.Context, zoneID string) ([]SecretRow, error)
 	GetActivePolicySetBinding(ctx context.Context, zoneID string) (*PolicySetBinding, error)
@@ -98,14 +100,15 @@ type Application struct {
 	RegistrationMethod string
 	CredentialType     *string
 	ClientSecretHash   *string
+	Traits             []string
 }
 
 func (d *DB) GetApplicationByID(ctx context.Context, id, zoneID string) (*Application, error) {
 	var a Application
 	err := d.pool.QueryRow(ctx,
-		`SELECT id, zone_id, name, registration_method, credential_type, client_secret_hash
+		`SELECT id, zone_id, name, registration_method, credential_type, client_secret_hash, traits
 		 FROM applications WHERE id = $1 AND zone_id = $2`, id, zoneID,
-	).Scan(&a.ID, &a.ZoneID, &a.Name, &a.RegistrationMethod, &a.CredentialType, &a.ClientSecretHash)
+	).Scan(&a.ID, &a.ZoneID, &a.Name, &a.RegistrationMethod, &a.CredentialType, &a.ClientSecretHash, &a.Traits)
 	if err != nil {
 		return nil, err
 	}
@@ -483,6 +486,38 @@ func (d *DB) GetZoneSigningKeySecret(ctx context.Context, zoneID string) (*Secre
 		 WHERE zone_id = $1 AND name = 'zone_signing_key' ORDER BY version DESC LIMIT 1`, zoneID,
 	).Scan(&s.ID, &s.Ciphertext, &s.Nonce, &s.DEKID)
 	if err != nil {
+		return nil, err
+	}
+	return &s, nil
+}
+
+func (d *DB) EnsureZoneSigningKeySecret(ctx context.Context, zoneID string, ciphertext, nonce []byte) (*SecretRow, error) {
+	current, err := d.GetZoneSigningKeySecret(ctx, zoneID)
+	if err == nil {
+		return current, nil
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return nil, err
+	}
+	id, err := uuid.NewV7()
+	if err != nil {
+		return nil, err
+	}
+	var s SecretRow
+	err = d.pool.QueryRow(ctx,
+		`WITH next AS (
+		   SELECT COALESCE(MAX(version), 0) + 1 AS version
+		   FROM secrets WHERE zone_id = $1 AND entity_id = $1 AND name = 'zone_signing_key'
+		 )
+		 INSERT INTO secrets (id, zone_id, entity_id, name, type, ciphertext, nonce, dek_id, version)
+		 SELECT $2, $1, $1, 'zone_signing_key', 'token', $3, $4, 'zoneKek', next.version FROM next
+		 RETURNING id, ciphertext, nonce, dek_id`,
+		zoneID, id.String(), ciphertext, nonce,
+	).Scan(&s.ID, &s.Ciphertext, &s.Nonce, &s.DEKID)
+	if err != nil {
+		if current, getErr := d.GetZoneSigningKeySecret(ctx, zoneID); getErr == nil {
+			return current, nil
+		}
 		return nil, err
 	}
 	return &s, nil

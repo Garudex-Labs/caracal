@@ -8,8 +8,11 @@ package internal
 import (
 	"context"
 	"crypto/ecdsa"
+	"crypto/x509"
 	"encoding/base64"
 	"encoding/json"
+	"encoding/pem"
+	"errors"
 	"fmt"
 	"math/big"
 	"sync"
@@ -18,6 +21,7 @@ import (
 	sharedcrypto "github.com/garudex-labs/caracal/packages/core/go/crypto"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 )
 
 const dekCacheTTL = 15 * time.Minute
@@ -50,7 +54,12 @@ func (k *KeyCache) getKeyAndKid(ctx context.Context, zoneID string) (*ecdsa.Priv
 
 	secret, err := k.db.GetZoneSigningKeySecret(ctx, zoneID)
 	if err != nil {
-		return nil, "", fmt.Errorf("load signing key for zone %s: %w", zoneID, err)
+		if errors.Is(err, pgx.ErrNoRows) {
+			secret, err = k.generateZoneSigningKey(ctx, zoneID)
+		}
+		if err != nil {
+			return nil, "", fmt.Errorf("load signing key for zone %s: %w", zoneID, err)
+		}
 	}
 
 	keyBytes, err := sharedcrypto.Open(k.zek, secret.Nonce, secret.Ciphertext)
@@ -67,6 +76,26 @@ func (k *KeyCache) getKeyAndKid(ctx context.Context, zoneID string) (*ecdsa.Priv
 	k.entries[zoneID] = &zoneCacheEntry{key: priv, kid: secret.ID, expiresAt: time.Now().Add(dekCacheTTL)}
 	k.mu.Unlock()
 	return priv, secret.ID, nil
+}
+
+func (k *KeyCache) generateZoneSigningKey(ctx context.Context, zoneID string) (*SecretRow, error) {
+	priv, err := sharedcrypto.GenerateP256Key()
+	if err != nil {
+		return nil, fmt.Errorf("generate signing key: %w", err)
+	}
+	der, err := x509.MarshalECPrivateKey(priv)
+	if err != nil {
+		return nil, fmt.Errorf("marshal signing key: %w", err)
+	}
+	keyBytes := pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: der})
+	if len(keyBytes) == 0 {
+		return nil, fmt.Errorf("encode signing key")
+	}
+	ciphertext, nonce, err := sharedcrypto.Seal(k.zek, keyBytes)
+	if err != nil {
+		return nil, fmt.Errorf("seal signing key: %w", err)
+	}
+	return k.db.EnsureZoneSigningKeySecret(ctx, zoneID, ciphertext, nonce)
 }
 
 func (k *KeyCache) getPublicKeyAndKid(ctx context.Context, zoneID string) (*ecdsa.PublicKey, string, error) {
