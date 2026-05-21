@@ -1,33 +1,33 @@
 ---
 title: Mandate
-description: The short-lived, ES256-signed JWT that carries scoped authority for a single agent action.
+description: The short-lived, ES256-signed JWT that carries session or resource authority.
 pageType: concept
-keywords: [mandate, JWT, ES256, ambient token, per-call token, JTI, replay, token exchange]
+keywords: [mandate, JWT, ES256, session mandate, resource mandate, JTI, replay, token exchange]
 ---
 
-A mandate is the credential Caracal issues to an agent after a policy allows the token exchange. It is an ES256-signed JWT that asserts exactly what the agent is permitted to do, for how long, and in which zone. This page describes its structure, the two token types, and how replay protection works.
+A mandate is the credential Caracal issues after policy allows an exchange. It is an ES256-signed JWT that asserts who may act, which zone it belongs to, what resource authority it carries, and which revocation anchors can cut it off.
 
-## Two token types
+## Two mandate uses
 
-Every mandate carries a `use` claim that distinguishes its purpose:
+Every mandate carries a `use` claim. There are exactly two valid values:
 
-### Ambient token (`use = "ambient"`)
+### Session mandate (`use = "session"`)
 
-An ambient token is issued at the start of an agent session when no `subject_token` is presented in the exchange. It represents the agent's identity and acts as a re-presentable credential for narrowing into per-call tokens.
+A session mandate is issued at the start of an execution session when no prior mandate is presented to the STS. It is exchange-only authority: it proves the registered principal controls the execution session and may ask the STS for narrower resource mandates.
 
 - **TTL**: 60 minutes
-- **Purpose**: proves who the agent is; presented back to the STS to obtain per-call tokens bound to specific resources
-- **Re-use**: can be presented as `subject_token` in subsequent exchanges to derive per-call tokens; cannot be presented to the Gateway directly as an authorization credential
+- **Purpose**: anchors an execution session and its revocation lineage
+- **Re-use**: can be presented to STS as the RFC 8693 `subject_token`; cannot be accepted by Gateway or production resources as an execution credential
 
-### Per-call token (`use = "per_call"`)
+### Resource mandate (`use = "resource"`)
 
-A per-call token is issued when an ambient token is presented as the `subject_token`. It is scoped to a specific set of resources and presented to the Gateway or a resource directly.
+A resource mandate is issued when a session mandate is presented to the STS. It is narrowed to a concrete resource set, scope set, session state, delegation edge, and policy decision.
 
 - **TTL**: 15 minutes
-- **Purpose**: authorizes one Gateway-proxied request, or a direct connector call when that connector owns replay and revocation checks
-- **Re-use**: cannot be presented as `subject_token` for further exchange — this prevents subject confusion across the ambient/per-call boundary (RFC 8693 §2.1 mitigation)
+- **Purpose**: authorizes Gateway-mediated HTTP or connector-verified execution
+- **Re-use**: cannot be presented as `subject_token` for further exchange, which prevents a resource-scoped credential from being used to mint authority for another resource
 
-The distinction exists because the STS needs to know whether a token is being used to identify an agent (ambient) or to authorize a specific action (per-call). Mixing the two roles leads to confusion about delegation scope.
+The distinction is mechanical: session mandates can only be exchanged at STS, and resource mandates can only be enforced at Gateway or connectors. Mixing those roles is a security error.
 
 ## JWT claims
 
@@ -35,25 +35,25 @@ A mandate carries the following claims in addition to standard JWT registered cl
 
 | Claim | Type | Description |
 | ----- | ---- | ----------- |
-| `use` | string | `"ambient"` or `"per_call"` |
+| `use` | string | `"session"` or `"resource"` |
 | `zone_id` | string | Zone this token is bound to |
 | `client_id` | string | Application ID of the issuing principal |
 | `scope` | string | Space-separated OAuth scopes granted |
-| `target` | string[] | Resource identifiers this token covers (per-call only) |
-| `sid` | string | Session ID binding the token to a specific agent session |
-| `root_sid` | string | Root authority session ID inherited by derived per-call mandates |
-| `agent_session_id` | string | Coordinator session ID |
+| `target` | string[] | Resource identifiers this token covers; required for resource mandates |
+| `sid` | string | STS execution session ID for this mandate |
+| `root_sid` | string | Root execution session ID inherited by derived resource mandates |
+| `agent_session_id` | string | Coordinator agent session ID |
 | `delegation_edge_id` | string | ID of the delegation edge, if delegated |
-| `source_session_id` | string | Originating session ID in a delegation chain |
-| `target_session_id` | string | Receiving session ID in a delegation chain |
-| `delegation_path` | string[] | Ordered list of session IDs in the delegation chain |
+| `source_session_id` | string | Source agent session ID in a delegation edge |
+| `target_session_id` | string | Target agent session ID in a delegation edge |
+| `delegation_path` | string[] | Ordered list of delegation path IDs |
 | `delegation_chain` | object[] | Full chain of `{application_id, agent_session_id, delegation_edge_id}` hops |
 | `hop_count` | number | Number of delegation hops from root |
-| `graph_epoch` | number | Epoch of the delegation graph at issuance |
+| `delegation_graph_epoch` | number | Epoch of the delegation graph at issuance |
 
-The `target` claim on per-call tokens is what prevents scope creep: the Gateway verifies that the resource being accessed appears in `target`, and rejects tokens that cover a different resource even if they have matching scopes.
+The `target` claim on resource mandates prevents scope creep: the Gateway verifies that the resource being accessed appears in `target`, and rejects mandates that cover a different resource even if they have matching scopes.
 
-The `root_sid` claim keeps the authority graph simple: ambient mandates set `root_sid` to their own `sid`, and per-call mandates inherit the same value. Revoking the root authority session lets the Gateway reject every derived mandate even when each per-call token has its own `sid`.
+The `root_sid` claim keeps the authority graph simple: session mandates set `root_sid` to their own `sid`, and resource mandates inherit the same value. Revoking the root execution session lets Gateway and connectors reject every derived mandate even when each resource mandate has its own `sid`.
 
 ## Signing and verification
 
@@ -73,23 +73,23 @@ JWKS responses are cached in-process. The Gateway caches per zone and refreshes 
 
 ## JTI replay protection
 
-Each mandate carries a unique `jti` (JWT ID). Per-call tokens are subject to replay protection:
+Each mandate carries a unique `jti` (JWT ID). Resource mandates are subject to replay protection:
 
 1. On issuance, the STS writes `audit:jti:{jti}` to Redis using `SETNX` with TTL equal to the token lifetime.
 2. If `SETNX` fails, the JTI already exists — the STS rejects the exchange and emits a `jti_collision` audit event. Under normal operation this never occurs; it indicates clock skew or a UUID generation fault.
-3. The Gateway maintains a parallel check using `seen:jti:{jti}` in Redis, also with `SETNX`. The first request carrying a per-call token succeeds; any subsequent request with the same JTI is rejected with HTTP 401.
+3. The Gateway maintains a parallel check using `seen:jti:{jti}` in Redis, also with `SETNX`. The first request carrying a resource mandate succeeds; any subsequent request with the same JTI is rejected with HTTP 401.
 
-Ambient tokens bypass Gateway JTI replay checks because they are intended to be re-presented to the STS multiple times.
+Session mandates are not Gateway execution credentials. They are reusable only as STS exchange input.
 
 ## Exchange, caching, and replay
 
-The term "per-call" describes the authority boundary, not a guarantee that every SDK method invocation always calls STS. The safe behavior depends on where enforcement happens:
+The term "resource" describes the authority boundary, not a guarantee that every SDK method invocation always calls STS. The safe behavior depends on where enforcement happens:
 
 | Path | Exchange behavior | Replay behavior |
 | ---- | ----------------- | --------------- |
-| Gateway-proxied HTTP | Gateway performs an STS exchange for each inbound request and forwards only after replay and revocation checks pass | Gateway rejects a repeated per-call JTI before the upstream sees it |
-| SDK-managed direct call | SDK may cache a token for the same subject session, agent session, delegation edge, resource, and scope context until the token expires | The connector or resource-side verifier must enforce replay/revocation if the Gateway is not in the path |
-| Ambient-to-STS exchange | SDK re-presents the ambient token to STS to mint narrower per-call authority | Ambient tokens are not accepted by Gateway as upstream authorization |
+| Gateway-mediated HTTP | Gateway performs an STS exchange for each inbound request and forwards only after replay and revocation checks pass | Gateway rejects a repeated resource mandate JTI before the upstream sees it |
+| Connector-verified call | SDK may cache a token for the same execution session, agent session, delegation edge, resource, and scope context until the token expires | The connector or resource-side verifier must enforce replay/revocation if Gateway is not in the path |
+| Session-to-resource exchange | SDK re-presents the session mandate to STS to mint narrower resource authority | Session mandates are not accepted by Gateway as upstream authorization |
 
 This is why provider and tool integrations are safest when routed through the Gateway: Caracal owns credential brokering, replay detection, revocation checks, and action audit in one enforcement point.
 
@@ -109,17 +109,17 @@ Authority must stay valid for the whole execution, not only at issuance.
 ## Mandate lifetime and the exchange chain
 
 ```
-Agent credentials → STS → ambient mandate (60 min)
+Agent credentials → STS → session mandate (60 min)
                               │
                               └─ re-present as subject_token
                               │
                               ▼
-                           STS → per-call mandate (15 min) covering [resource://payments]
+                           STS → resource mandate (15 min) covering [resource://payments]
                               │
                               └─ present to Gateway → upstream
 ```
 
-The ambient token is the session credential. It is exchanged at session start and stored in the agent's execution environment (injected by `caracal run` as `CARACAL_SUBJECT_TOKEN`). The SDK exchanges this ambient token for per-call tokens as needed for outbound calls. Per-call STS sessions are linked to their parent session, and mandates carry `root_sid` for deterministic descendant revocation. Delegated per-call mandates are capped by the shortest effective authority bound: STS TTL limit, delegation edge expiry, and any typed `ttl_seconds` constraint on the edge.
+The session mandate is the exchange credential. It is minted at session start and stored in the agent's execution environment (injected by `caracal run` as `CARACAL_SUBJECT_TOKEN` for RFC 8693 compatibility). The SDK exchanges this session mandate for resource mandates as needed for outbound calls. Resource mandate STS sessions are linked to their parent session, and mandates carry `root_sid` for deterministic descendant revocation. Delegated resource mandates are capped by the shortest effective authority bound: STS TTL limit, delegation edge expiry, and any typed `ttl_seconds` constraint on the edge.
 
 ## Token response shape
 
@@ -127,7 +127,7 @@ The STS token exchange response:
 
 ```json
 {
-  "access_token": "<per-call JWT>",
+  "access_token": "<resource mandate JWT>",
   "token_type": "Bearer",
   "expires_in": 900,
   "scope": "read",
@@ -146,7 +146,7 @@ The STS token exchange response:
 
 ## What a mandate is not
 
-A mandate is not a session cookie, an API key, or a long-lived secret. It expires within minutes, is bound to a specific zone, and (for per-call tokens) can be used exactly once via the Gateway. An agent that loses its mandate requests a new one only if its STS session, agent session, delegation edge, and policy still allow it.
+A mandate is not a session cookie, an API key, or a long-lived secret. It expires within minutes, is bound to a specific zone, and resource mandates can be used exactly once via the Gateway. An agent that loses its mandate requests a new one only if its execution session, agent session, delegation edge, and policy still allow it.
 
 ## Next steps
 

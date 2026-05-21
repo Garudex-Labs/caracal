@@ -13,10 +13,10 @@ If you are learning Caracal, start with the product terms used in getting-starte
 | Product term | Reference terms you may see in APIs and claims |
 | --- | --- |
 | Agent app | Application, principal |
-| Agent run | Execution session, agent session, session ID |
-| Mandate | Caracal access token, ambient mandate, per-call mandate |
+| Agent run | Execution session, agent session, STS session ID |
+| Mandate | Caracal access token, session mandate, resource mandate |
 | Resource | Resource identifier, provider route, Gateway binding |
-| Delegated permission | Delegation edge, caveat, constraint |
+| Delegated permission | Delegation edge, typed constraint |
 
 The reference names exist so policy, audit, and service internals can be precise. They are not separate concepts a new user needs to learn all at once.
 
@@ -47,13 +47,13 @@ Exceeding any limit returns a 429 response with an `agent_*_limit_exceeded` erro
 
 ---
 
-## Ambient mandate
+## Session mandate
 
-A JWT with `"use": "ambient"` and a 60-minute TTL. Ambient mandates represent re-presentable session authority — they are issued for an execution session and presented back to the STS to derive narrower per-call mandates.
+A JWT with `"use": "session"` and a 60-minute TTL. Session mandates represent re-presentable execution-session authority — they are issued for an execution session and presented back to the STS to derive narrower resource mandates.
 
-Ambient mandates are not accepted by the Gateway as upstream authorization credentials. They should not be accepted by production resources directly because they are not scoped to a specific resource or operation.
+Session mandates are not accepted by the Gateway as upstream authorization credentials. They should not be accepted by production resources directly because they are not scoped to a specific resource or operation.
 
-Contrast with [Per-call mandate](#per-call-mandate).
+Contrast with [Resource mandate](#resource-mandate).
 
 ---
 
@@ -84,14 +84,15 @@ Baggage is forwarded by the Gateway alongside the `traceparent` header for distr
 
 ---
 
-## Caveat
+## Constraint
 
-A constraint embedded in a delegation edge that further restricts the authority delegated to a child agent. Caveats narrow scope; they cannot expand it. Fields:
+A typed restriction embedded in a delegation edge that further restricts the authority delegated to a child agent. Constraints narrow scope; they cannot expand it. Fields:
 
 | Field | Type | Purpose |
 | --- | --- | --- |
 | `ttl_seconds` | integer | Reduces the child session's TTL |
 | `max_hops` | integer | Limits further delegation depth |
+| `resources` | string[] | Limits delegation to explicit resource identifiers |
 | `budget` | integer | Caps the number of scopes the child may hold |
 | `policy_approved` | boolean | Marks the edge as policy-reviewed |
 
@@ -117,7 +118,7 @@ Data Encryption Key. In Caracal's key management model, each zone's ECDSA P-256 
 
 ## Delegation edge
 
-A record in the `delegation_edges` table representing one typed narrowing of authority from a source agent session to a target agent session. The edge carries source and target sessions, issuer and receiver applications, optional resource binding, scopes, expiry, and [caveats](#caveat). Delegation edges are immutable once created except for lifecycle status.
+A record in the `delegation_edges` table representing one typed narrowing of authority from a source agent session to a target agent session. The edge carries source and target sessions, issuer and receiver applications, optional resource binding, scopes, expiry, and [constraints](#constraint). Delegation edges are immutable once created except for lifecycle status.
 
 In a JWT, the current delegation edge is identified by `delegation_edge_id`. The full chain is carried in `delegation_chain` as an ordered array of `ChainHop` records.
 
@@ -177,7 +178,7 @@ Key Encryption Key (`ZONE_KEK`). A 32-byte hex-encoded secret held in the enviro
 
 ## Mandate
 
-The general term for a JWT issued by the STS that grants a principal authority to perform operations. Mandates come in two forms: [per-call](#per-call-mandate) (15-minute TTL, `"use": "per_call"`) and [ambient](#ambient-mandate) (60-minute TTL, `"use": "ambient"`). Both are signed with the zone's ECDSA P-256 key and carry the full delegation chain.
+The general term for a JWT issued by the STS that grants a principal authority. Mandates come in two forms: [resource](#resource-mandate) (15-minute TTL, `"use": "resource"`) and [session](#session-mandate) (60-minute TTL, `"use": "session"`). Both are signed with the zone's ECDSA P-256 key and carry the relevant session and delegation anchors.
 
 ---
 
@@ -212,11 +213,11 @@ Coordinator outbox: 1000ms poll, batch size 50, max 10 delivery attempts.
 
 ---
 
-## Per-call mandate
+## Resource mandate
 
-A JWT with `"use": "per_call"` and a 15-minute TTL. Per-call mandates are scoped to specific target resources and scopes. They are the preferred form for Gateway-mediated and connector-verified operations because they are short-lived, resource-bound, and rejected as `subject_token` inputs for further exchange.
+A JWT with `"use": "resource"` and a 15-minute TTL. Resource mandates are scoped to specific target resources and scopes. They are the only mandate form accepted for Gateway-mediated and connector-verified operations because they are short-lived, resource-bound, and rejected as `subject_token` inputs for further exchange.
 
-Contrast with [Ambient mandate](#ambient-mandate).
+Contrast with [Session mandate](#session-mandate).
 
 ---
 

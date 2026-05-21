@@ -195,7 +195,7 @@ func signedToken(t *testing.T, privateKey *ecdsa.PrivateKey, issuer, audience st
 		"sub":       "user1",
 		"sid":       "sid1",
 		"client_id": "app1",
-		"use":       "per_call",
+		"use":       "resource",
 	}
 	for key, value := range claims {
 		mapClaims[key] = value

@@ -72,7 +72,7 @@ func Authenticate(token string, opts Options) (identity.Claims, *AuthError) {
 	}
 	requiredUse := opts.RequiredUse
 	if requiredUse == "" {
-		requiredUse = "per_call"
+		requiredUse = identity.MandateUseResource
 	}
 	cfg := identity.Config{
 		Issuer:               opts.Issuer,
