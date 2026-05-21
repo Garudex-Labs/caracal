@@ -56,4 +56,21 @@ describe('statusCommand', () => {
     expect(stdout).toContain('down')
     expect(stdout).toContain('unreachable')
   })
+
+  it('probes readiness when requested', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200 })
+    vi.stubGlobal('fetch', fetchMock)
+
+    await expect(statusCommand(['--ready', '--json'])).rejects.toThrow('exit:0')
+
+    expect(fetchMock.mock.calls.map((call) => call[0])).toEqual([
+      'http://localhost:3000/ready',
+      'http://localhost:8080/ready',
+      'http://localhost:8081/ready',
+      'http://localhost:9090/ready',
+      'http://localhost:4000/ready',
+    ])
+    const body = JSON.parse(stdout)
+    expect(body.mode).toBe('ready')
+  })
 })

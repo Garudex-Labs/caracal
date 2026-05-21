@@ -240,6 +240,7 @@ export default defineConfig({
           items: [
             { label: 'Overview', link: '/operations/' },
             { label: 'Deployment with Docker Compose', link: '/operations/docker-compose/' },
+            { label: 'Kubernetes with Helm', link: '/operations/kubernetes-helm/' },
             { label: 'Environment Variables', link: '/operations/env-vars/' },
             { label: 'Cloud-Native Deployment Profiles', link: '/operations/cloud-native-profiles/' },
             { label: 'PostgreSQL', link: '/operations/postgres/' },
@@ -247,6 +248,7 @@ export default defineConfig({
             { label: 'TLS and Production Hardening', link: '/operations/tls-hardening/' },
             { label: 'Key Management and Rotation', link: '/operations/key-management/' },
             { label: 'Observability and Health', link: '/operations/observability/' },
+            { label: 'Failure Modes and Recovery', link: '/operations/failure-modes/' },
             { label: 'Backup and Retention', link: '/operations/backup-retention/' },
             { label: 'Incident Response', link: '/operations/incident-response/' },
           ],

@@ -10,7 +10,7 @@ import { join } from 'node:path'
 import { auditCommand, explainCommand } from '../../../../apps/cli/src/commands/audit.ts'
 import { zoneCommand } from '../../../../apps/cli/src/commands/zone.ts'
 import { agentCommand, delegationCommand } from '../../../../apps/cli/src/commands/agent.ts'
-import { policyCommand } from '../../../../apps/cli/src/commands/policy.ts'
+import { policyCommand, policySetCommand } from '../../../../apps/cli/src/commands/policy.ts'
 import { doctorCommand } from '../../../../apps/cli/src/commands/doctor.ts'
 import { manifestCommand } from '../../../../apps/cli/src/commands/manifest.ts'
 import { protectCommand } from '../../../../apps/cli/src/commands/protect.ts'
@@ -360,6 +360,64 @@ describe('CLI commands (e2e against stubbed fetch)', () => {
     expect(out).toContain('api health')
     expect(out).toContain('admin auth')
     expect(out).toContain('audit query')
+  })
+
+  it('doctor extended reports service readiness and metrics', async () => {
+    process.env.CARACAL_STS_URL = 'http://sts'
+    process.env.CARACAL_GATEWAY_URL = 'http://gateway'
+    process.env.CARACAL_AUDIT_URL = 'http://audit'
+    stubFetch((url) => {
+      if (url === 'http://api/health') return { ok: true }
+      if (url === 'http://api/v1/zones') return [{ id: 'z1', name: 'Local', slug: 'local' }]
+      if (url === 'http://api/v1/zones/z1') return { id: 'z1', name: 'Local', slug: 'local' }
+      if (url === 'http://api/v1/zones/z1/resources') return [{ id: 'res-1' }]
+      if (url === 'http://api/v1/zones/z1/policy-sets') return [{ id: 'pset-1', active_version_id: 'psver-1' }]
+      if (url === 'http://api/v1/zones/z1/grants') return [{ id: 'grant-1' }]
+      if (url === 'http://api/v1/zones/z1/audit?limit=1') return []
+      if (url.endsWith('/ready')) return { ready: true }
+      if (url === 'http://sts/metrics.json') return { opa: { compile_errors: 0, eval_errors: 0, max_policy_age_seconds: 1 } }
+      if (url === 'http://gateway/metrics.json') return { bindings_loaded: 3, revocations_active: 1, requests_denied: 2 }
+      if (url === 'http://audit/metrics.json') return { consumer_lag: 0, dlq_size: 0, tamper_mismatch_total: 0 }
+      if (url === 'http://coordinator/stats') return { outbox: { pending: 0, dead: 0 }, invocations: { running: 0 } }
+      throw new Error(`unexpected request ${url}`)
+    })
+
+    await doctorCommand(['--zone', 'z1', '--extended'])
+
+    const out = stdout.mock.calls.map((c) => c[0]).join('')
+    expect(out).toContain('sts readiness')
+    expect(out).toContain('opa compile_errors=0')
+    expect(out).toContain('gateway metrics')
+    expect(out).toContain('audit metrics')
+    expect(out).toContain('coordinator metrics')
+  })
+
+  it('policy-set simulate posts version and input fixture', async () => {
+    stubFetch((url, init) => {
+      expect(url).toBe('http://api/v1/zones/z1/policy-sets/pset-1/simulate')
+      expect(init.method).toBe('POST')
+      expect(JSON.parse(String(init.body))).toEqual({
+        version_id: 'psver-1',
+        input: { schema_version: '2026-05-20', principal: { zone_id: 'z1' } },
+      })
+      return {
+        dry_run: true,
+        would_activate: true,
+        policy_set_id: 'pset-1',
+        version_id: 'psver-1',
+        schema_version: '2026-05-20',
+        input_schema_version: '2026-05-20',
+        manifest_sha256: 'sha',
+        policies: ['pver-1'],
+        warnings: [],
+        explanation: { evaluation: 'not_executed', reason: 'contract validated' },
+      }
+    })
+
+    await policySetCommand(['simulate', 'pset-1', '--version', 'psver-1', '--input', '{"schema_version":"2026-05-20","principal":{"zone_id":"z1"}}'])
+
+    const out = JSON.parse(stdout.mock.calls.map((c) => c[0]).join(''))
+    expect(out).toMatchObject({ dry_run: true, policy_set_id: 'pset-1', warnings: [] })
   })
 
   it('audit command exits 1 when CARACAL_ADMIN_TOKEN is missing', async () => {
