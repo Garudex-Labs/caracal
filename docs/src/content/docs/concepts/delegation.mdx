@@ -25,7 +25,7 @@ A delegation edge connects two agent sessions:
 | `receiver_application_id` | The application that owns the target session |
 | `resource_id` | Optional; if set, B's authority is restricted to this single resource |
 | `scopes` | The scopes B may request |
-| `constraints_json` | Caveats on the delegation (see [Caveats and Constraints](./caveat/)) |
+| `constraints_json` | Typed constraints on the delegation (see [Typed Delegation Constraints](./caveat/)) |
 | `status` | `"active"` or `"revoked"` |
 | `expires_at` | When the edge expires |
 
@@ -72,7 +72,7 @@ When an agent presents a `delegation_edge_id` in a token exchange request, the S
 2. Validates the edge's `target_session_id` matches the requesting session.
 3. Computes the full delegation path using a recursive CTE, tracing back to the root session.
 4. Checks that the requested scopes are a subset of the edge's `scopes`.
-5. Validates caveats: TTL, hop count, and budget (see [Caveats and Constraints](./caveat/)).
+5. Validates typed constraints: TTL, hop count, and budget (see [Typed Delegation Constraints](./caveat/)).
 6. Passes the delegation edge metadata to OPA in `input.delegation_edge`, including the full path and constraints.
 7. Embeds the delegation chain in the issued mandate:
    - `delegation_edge_id`: the ID of this edge
@@ -132,6 +132,6 @@ Resources and policies can inspect `delegation_chain` to verify the authority pr
 
 ## Next steps
 
-- [Caveats and Constraints](./caveat/) — the constraints that can be attached to a delegation edge
+- [Typed Delegation Constraints](./caveat/) — the constraints that can be attached to a delegation edge
 - [Sessions and Revocation](./sessions-revocation/) — the session lifecycle and revocation event stream
 - [Authority Model](./authority-model/) — how delegation edges are validated by the STS at exchange time

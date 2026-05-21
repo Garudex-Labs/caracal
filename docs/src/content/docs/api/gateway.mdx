@@ -30,7 +30,7 @@ Fetches the zone's JWKS from `{STS_URL}/.well-known/jwks.json?zone_id=<zone>`. V
 
 ### 5. JTI replay detection
 
-Checks whether the token's `jti` claim has been seen. Tokens with `"use": "ambient"` are reusable; tokens with `"use": "per_call"` are single-use. Single-use JTIs are stored in Redis with a TTL equal to the token's remaining lifetime. Returns `401 InvalidToken` if a per-call token is replayed.
+Checks whether the token's `jti` claim has been seen. Tokens with `"use": "session"` are reusable; tokens with `"use": "resource"` are single-use. Single-use JTIs are stored in Redis with a TTL equal to the token's remaining lifetime. Returns `401 InvalidToken` if a resource mandate is replayed.
 
 ### 6. Authority revocation check
 
@@ -42,7 +42,7 @@ Extracts the `sid`, `agent_session_id`, and `delegation_edge_id` claims and chec
 
 | Header | Required | Description |
 | --- | --- | --- |
-| `Authorization` | Yes | `Bearer <ambient-token>` |
+| `Authorization` | Yes | `Bearer <session-mandate>` |
 | `X-Caracal-Resource` | Yes | Resource identifier used to look up the upstream binding |
 
 **Forbidden:** Clients must not send `X-Caracal-Client-ID`. The Gateway strips it and returns `400 InvalidToken` if present.
@@ -53,7 +53,7 @@ The `X-Request-Id` header is preserved if valid (alphanumeric, dots, hyphens, co
 
 ## Token exchange with the STS
 
-After authentication, the Gateway exchanges the caller's ambient token for a per-resource mandate by calling the STS.
+After authentication, the Gateway exchanges the caller's session mandate for a resource mandate by calling the STS.
 
 **Request:**
 
@@ -62,7 +62,7 @@ POST {STS_URL}/oauth/2/token
 Content-Type: application/x-www-form-urlencoded
 
 grant_type=urn:ietf:params:oauth:grant-type:token-exchange
-subject_token=<ambient-bearer>
+subject_token=<session-bearer>
 subject_token_type=urn:ietf:params:oauth:token-type:access_token
 zone_id=<verified-zone>
 application_id=<app-from-binding>
@@ -137,7 +137,7 @@ Audit metadata deliberately excludes authorization headers, provider tokens, req
 | Malformed JWT | 401 | `{"error": "InvalidToken"}` |
 | Token expires within 35 s | 401 | `{"error": "CredentialExpired"}` |
 | JWT signature invalid | 401 | `{"error": "InvalidToken"}` |
-| JTI replay (per-call token reused) | 401 | `{"error": "InvalidToken"}` |
+| JTI replay (resource mandate reused) | 401 | `{"error": "InvalidToken"}` |
 | Session revoked | 401 | `{"error": "InvalidToken"}` |
 | `X-Caracal-Client-ID` present | 400 | `{"error": "InvalidToken"}` |
 | Missing `X-Caracal-Resource` | 400 | `{"error": "InvalidToken"}` |

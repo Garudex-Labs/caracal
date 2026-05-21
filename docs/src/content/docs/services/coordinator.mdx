@@ -38,7 +38,7 @@ Authorization: Bearer <STS-issued JWT>
 ```
 
 The token must carry:
-- `aud` matching `ISSUER_URL` (the STS issues ambient tokens with this audience; the Coordinator verifies against the same value).
+- `aud` matching `ISSUER_URL` (the STS issues session mandates with this audience; the Coordinator verifies against the same value).
 - `scope` containing `AGENT_COORDINATOR_SCOPE` (typically `agent:lifecycle`).
 
 The Coordinator verifies tokens using JWKS fetched from `{ISSUER_URL}/.well-known/jwks.json` (LRU cache, max 256 entries).

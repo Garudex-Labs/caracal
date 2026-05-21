@@ -19,7 +19,7 @@ Use these names first:
 | Agent run | Execution session, agent session, session ID |
 | Mandate | Caracal access token, session mandate, resource mandate |
 | Resource | Resource identifier, provider route, Gateway binding |
-| Delegated permission | Delegation edge, caveat, constraint |
+| Delegated permission | Delegation edge, typed constraint |
 
 The reference terms are still precise and useful, but they should not be the first thing a new operator has to memorize.
 
@@ -52,7 +52,7 @@ The concepts below build on each other. Read the [Authority Model](./authority-m
 | [Zone](./zone/) | The tenancy boundary that owns keys, policies, and resources |
 | [Resource and Grant](./resource-grant/) | What agents can access and who is permitted to access it |
 | [Delegation Graph](./delegation/) | How authority passes from one agent to another |
-| [Caveats and Constraints](./caveat/) | Limits attached to delegation edges |
+| [Typed Delegation Constraints](./caveat/) | Limits attached to delegation edges |
 | [Sessions and Revocation](./sessions-revocation/) | Agent session lifecycle and how authority is withdrawn |
 | [Audit Ledger](./audit-ledger/) | The tamper-evident record of every decision |
 | [Step-Up Challenge](./step-up/) | How policies require elevated proof before granting access |
