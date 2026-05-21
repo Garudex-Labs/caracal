@@ -1,6 +1,6 @@
 ---
 title: Gateway
-description: Go reverse proxy that verifies inbound mandates, exchanges a fresh per-call token on every request, enforces SSRF allowlists, and tracks JTI replay.
+description: Go reverse proxy that verifies inbound mandates, exchanges a fresh resource mandate on every request, enforces SSRF allowlists, and tracks JTI replay.
 pageType: architecture
 ---
 
@@ -36,7 +36,7 @@ Every request processed by the Gateway follows this path:
 1. **Extract bearer** — reads `Authorization: Bearer <token>` from the request. Returns 401 if absent or malformed.
 2. **Resolve binding** — reads the token `zone_id` claim and `X-Caracal-Resource`, then loads the `(zone_id, resource_identifier)` Gateway binding.
 3. **Verify JWT** — fetches the zone's JWKS from the STS and verifies the ES256 signature. Returns 401 on failure.
-4. **Check JTI** — checks Redis to determine whether the JWT's `jti` claim has already been seen. Returns 401 if a per-call token is replayed.
+4. **Check JTI** — checks Redis to determine whether the JWT's `jti` claim has already been seen. Returns 401 if a resource mandate is replayed.
 5. **Check revocation** — checks the token `sid`, `root_sid`, `agent_session_id`, and `delegation_edge_id`. Returns 401 if any authority anchor is revoked.
 6. **Exchange mandate** — calls `POST {STS_URL}/oauth/2/token` with the caller's token as `subject_token`, the target resource as `resource`, and an internal Gateway HMAC assertion. Returns 401 or 403 if the STS denies.
 7. **Forward request** — sends the original request to the upstream URL, replacing the `Authorization` header with the STS mandate or provider-native credential chosen by STS. Adds `X-Request-Id` and trace headers. Provider-native mode does not forward Caracal identity unless provider config explicitly opts in.

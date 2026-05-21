@@ -67,7 +67,7 @@ The Coordinator receives:
 - `issuer_application_id`, `receiver_application_id` — who owns each end
 - `scopes` — what B may request
 - `resource_id` — optional; restricts B's authority to this single resource
-- `constraints_json` — caveats (ttl_seconds, max_hops, budget, policy_approved)
+- `constraints_json` — typed constraints (ttl_seconds, max_hops, budget, policy_approved)
 - `expires_at` — when the edge itself expires
 
 **Edge creation sequence:**
@@ -139,7 +139,7 @@ For each affected `target_session_id`, the Coordinator calls `terminateSubtree()
 
 **Effect of revocation:**
 - The **STS** marks the session ID and descendant STS sessions as revoked in DB state. Subsequent exchange requests for that authority root fail before OPA is evaluated.
-- The **Gateway** checks the mandate's `sid`, `root_sid`, `agent_session_id`, and `delegation_edge_id` on every request and at every 4 KB chunk boundary during streaming. If authority is revoked mid-stream, the Gateway closes the upstream connection and sets an `X-Caracal-Revoked` response trailer. Revocation entries are retained for 24 hours — long enough to outlast any per-call token's 15-minute TTL.
+- The **Gateway** checks the mandate's `sid`, `root_sid`, `agent_session_id`, and `delegation_edge_id` on every request and at every 4 KB chunk boundary during streaming. If authority is revoked mid-stream, the Gateway closes the upstream connection and sets an `X-Caracal-Revoked` response trailer. Revocation entries are retained for 24 hours — long enough to outlast any resource mandate's 15-minute TTL.
 
 ---
 
@@ -228,9 +228,9 @@ The delegation edge remains active after `delegate()` completes. It expires at i
 
 ### MCP and A2A transports
 
-**MCP transport:** Wraps MCP tool calls. On each call it performs a per-call token exchange with the STS (exchanging the ambient mandate for a resource-specific per-call mandate) before forwarding to the MCP server.
+**MCP transport:** Wraps MCP tool calls. On each call it performs a resource mandate exchange with the STS (exchanging the session mandate for a resource-specific resource mandate) before forwarding to the MCP server.
 
-**A2A transport:** Used for agent-to-agent HTTP calls. Before sending to the target agent's endpoint, it exchanges the ambient mandate for a per-call mandate scoped to the target and injects W3C headers from the current context. Network failures and timeouts are retried with explicit retry-attempt headers; HTTP transient status retries are opt-in so non-idempotent agent actions are not silently replayed.
+**A2A transport:** Used for agent-to-agent HTTP calls. Before sending to the target agent's endpoint, it exchanges the session mandate for a resource mandate scoped to the target and injects W3C headers from the current context. Network failures and timeouts are retried with explicit retry-attempt headers; HTTP transient status retries are opt-in so non-idempotent agent actions are not silently replayed.
 
 ---
 

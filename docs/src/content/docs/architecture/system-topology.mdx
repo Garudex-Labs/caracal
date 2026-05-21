@@ -43,7 +43,7 @@ The STS is the sole issuer of mandates. It receives RFC 8693 token exchange requ
 | Port | 8081 |
 | Image | `caracal/gateway:dev` |
 
-The Gateway is the ingress point for agent calls to Gateway-routable resources. On each inbound request it exchanges the agent's session-scoped mandate with the STS for a per-call mandate, verifies the response, checks the JTI replay cache, and forwards the request to the upstream with the appropriate authorization header. The upstream never sees the session-scoped mandate.
+The Gateway is the ingress point for agent calls to Gateway-routable resources. On each inbound request it exchanges the agent's session-scoped mandate with the STS for a resource mandate, verifies the response, checks the JTI replay cache, and forwards the request to the upstream with the appropriate authorization header. The upstream never sees the session-scoped mandate.
 
 **Endpoints:**
 
@@ -54,7 +54,7 @@ The Gateway is the ingress point for agent calls to Gateway-routable resources. 
 | `GET /metrics` | JSON metrics |
 | `/*` | Reverse proxy handler |
 
-**Connections:** Postgres (SELECT: zones, resources, providers, gateway_resource_bindings), Redis (JTI deduplication, stream signature verification, `caracal.sessions.revoke` via `gateway-revocation`), STS (JWKS fetch, per-call token exchange).
+**Connections:** Postgres (SELECT: zones, resources, providers, gateway_resource_bindings), Redis (JTI deduplication, stream signature verification, `caracal.sessions.revoke` via `gateway-revocation`), STS (JWKS fetch, resource mandate exchange).
 
 ---
 

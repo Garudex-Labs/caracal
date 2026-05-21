@@ -18,7 +18,7 @@ The endpoint follows RFC 8693 (OAuth 2.0 Token Exchange). The maximum request bo
 | Parameter | Description |
 | --------- | ----------- |
 | `grant_type` | RFC 8693 grant type |
-| `subject_token` | Ambient mandate JWT (the caller's proof of identity) |
+| `subject_token` | Session mandate JWT (the caller's proof of identity) |
 | `subject_token_type` | Token type URI |
 | `actor_token` | Optional second principal (for on-behalf-of flows) |
 | `resource` | One or more resource identifiers (repeated parameter) |
@@ -52,12 +52,12 @@ The STS executes validations in strict order. Any failure stops processing with 
 
 [3]  Validate subject_token (if present)
        → ES256 signature, issuer == IssuerURL
-       → audience == IssuerURL (rejects per-call tokens as subject)
+       → audience == IssuerURL (rejects resource mandates as subject)
        → zone_id claim matches request zone_id
-       → use claim == "ambient" (RFC 8693 subject-confusion mitigation)
+       → use claim == "session" (RFC 8693 subject-confusion mitigation)
        → HTTP 401 on failure
 
-[4]  Validate subject token session
+[4]  Validate session mandate session
        → DB lookup by session ID in token claims
        → session must be active, not expired, zone must match
        → subject in token must match session's subject
@@ -81,7 +81,7 @@ The STS executes validations in strict order. Any failure stops processing with 
 
 [9]  Validate delegation references (if delegation_edge_id present)
        → edge active, not expired, target session matches caller
-       → full delegation path validated (max hops, scope containment, TTL caveat)
+       → full delegation path validated (max hops, scope containment, TTL constraint)
        → HTTP 403 on failure
 ```
 
@@ -132,8 +132,8 @@ After the loop:
        → HTTP 403 if nothing was allowed
 
 [12] Validate ttl_seconds (if present)
-       → ambient tokens: max 3600 seconds (60 minutes)
-       → per-call tokens: max 900 seconds (15 minutes)
+       → session mandates: max 3600 seconds (60 minutes)
+       → resource mandates: max 900 seconds (15 minutes)
        → HTTP 400 on invalid value
 ```
 
@@ -204,7 +204,7 @@ When OPA allows a resource, the STS issues an ES256-signed JWT with this complet
 | ----- | ---- | ------- |
 | `iss` | string | Issuer URL (`ISSUER_URL` env var) |
 | `sub` | string | Subject (user ID or application ID) |
-| `aud` | []string | Issuer URL for ambient; resource identifiers for per-call |
+| `aud` | []string | Issuer URL for session; resource identifiers for resource |
 | `exp` | int64 | Expiration (NumericDate) |
 | `iat` | int64 | Issued at (NumericDate) |
 | `jti` | string | JWT ID (UUIDv7) |
@@ -212,7 +212,7 @@ When OPA allows a resource, the STS issues an ES256-signed JWT with this complet
 | `client_id` | string | Authenticated application ID |
 | `scope` | string | Space-delimited granted scopes |
 | `sid` | string | Session ID |
-| `use` | string | `"ambient"` or `"per_call"` |
+| `use` | string | `"session"` or `"resource"` |
 | `sub_type` | string | `"user"` or `"application"` |
 | `target` | []string | Granted resource identifiers |
 | `agent_session_id` | string | Agent session ID (when present) |
