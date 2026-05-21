@@ -100,6 +100,7 @@ type DelegateInput struct {
 	Coordinator      *CoordinatorClient
 	ToAgentSessionID string
 	ToApplicationID  string
+	ResourceID       string
 	Scopes           []string
 	Constraints      *DelegationConstraints
 	TTLSeconds       int
@@ -119,6 +120,7 @@ func Delegate(ctx context.Context, opts DelegateInput, fn func(context.Context) 
 		SourceSessionID:       c.AgentSessionID,
 		TargetSessionID:       opts.ToAgentSessionID,
 		ReceiverApplicationID: opts.ToApplicationID,
+		ResourceID:            opts.ResourceID,
 		Scopes:                opts.Scopes,
 		Constraints:           opts.Constraints,
 		TTLSeconds:            opts.TTLSeconds,
@@ -142,6 +144,7 @@ type DelegateToSpawnInput struct {
 	ZoneID               string
 	ApplicationID        string
 	SubjectToken         string
+	ResourceID           string
 	Scopes               []string
 	Constraints          *DelegationConstraints
 	DelegationTTLSeconds int
@@ -187,6 +190,7 @@ func DelegateToSpawn(ctx context.Context, opts DelegateToSpawnInput, fn func(con
 		SourceSessionID:       parent.AgentSessionID,
 		TargetSessionID:       spawnRes.AgentSessionID,
 		ReceiverApplicationID: opts.ApplicationID,
+		ResourceID:            opts.ResourceID,
 		Scopes:                opts.Scopes,
 		Constraints:           opts.Constraints,
 		TTLSeconds:            opts.DelegationTTLSeconds,
