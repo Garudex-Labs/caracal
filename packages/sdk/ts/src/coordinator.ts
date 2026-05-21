@@ -23,9 +23,13 @@ export type AgentKind = typeof AgentKind[keyof typeof AgentKind];
 
 export interface DelegationConstraints {
   resources?: string[];
-  actions?: string[];
   maxDepth?: number;
+  maxHops?: number;
+  ttlSeconds?: number;
+  budget?: number;
+  policyApproved?: boolean;
   expiresAt?: string;
+  broadReason?: string;
 }
 
 export interface SpawnRequest {
@@ -49,6 +53,7 @@ export interface DelegationRequest {
   sourceSessionId: string;
   targetSessionId: string;
   receiverApplicationId: string;
+  resourceId?: string;
   scopes: string[];
   constraints?: DelegationConstraints;
   ttlSeconds?: number;
@@ -157,9 +162,13 @@ export async function createDelegation(
   const constraints = req.constraints
     ? {
         resources: req.constraints.resources,
-        actions: req.constraints.actions,
         max_depth: req.constraints.maxDepth,
+        max_hops: req.constraints.maxHops,
+        ttl_seconds: req.constraints.ttlSeconds,
+        budget: req.constraints.budget,
+        policy_approved: req.constraints.policyApproved,
         expires_at: req.constraints.expiresAt,
+        broad_reason: req.constraints.broadReason,
       }
     : undefined;
   return call<DelegationResponse>(client, "POST", `/zones/${encodeURIComponent(req.zoneId)}/delegations`, bearer, {
@@ -167,6 +176,7 @@ export async function createDelegation(
     source_session_id: req.sourceSessionId,
     target_session_id: req.targetSessionId,
     receiver_application_id: req.receiverApplicationId,
+    resource_id: req.resourceId ?? null,
     scopes: req.scopes,
     constraints,
     ttl_seconds: req.ttlSeconds,

@@ -650,9 +650,11 @@ class DelegationMenuView implements View {
   readonly title = 'delegations'
   private cursor = 0
   private readonly items = [
+    { key: 'a', label: 'active', build: () => delegationActiveView(this.ctx) },
     { key: 'i', label: 'inbound', build: () => this.edgeForm('inbound') },
     { key: 'o', label: 'outbound', build: () => this.edgeForm('outbound') },
     { key: 't', label: 'traverse', build: () => this.traverseForm() },
+    { key: 'b', label: 'blast radius', build: () => this.impactForm() },
     { key: 'r', label: 'revoke', build: () => this.revokeForm() },
   ]
 
@@ -701,6 +703,18 @@ class DelegationMenuView implements View {
     })
   }
 
+  private impactForm(): View {
+    return new FormView({
+      title: 'delegation impact',
+      fields: [{ key: 'edge_id', label: 'edge_id', kind: 'text', required: true }],
+      onSubmit: async (v, app) => {
+        const result = await this.ctx.client.delegations.impact(this.ctx.zoneId, v.edge_id!)
+        app.pop()
+        app.push(detail(`delegation impact / ${v.edge_id}`, async () => result))
+      },
+    })
+  }
+
   private revokeForm(): View {
     return new FormView({
       title: 'delegation revoke',
@@ -712,6 +726,21 @@ class DelegationMenuView implements View {
       },
     })
   }
+}
+
+function delegationActiveView(ctx: Ctx): ListView<DelegationEdge> {
+  return new ListView<DelegationEdge>({
+    title: 'delegations / active',
+    columns: [
+      { header: 'source', width: 36, value: (r) => r.source_session_id },
+      { header: 'target', width: 36, value: (r) => r.target_session_id },
+      { header: 'resource', width: 24, value: (r) => r.resource_id ?? '-' },
+      { header: 'status', width: 10, value: (r) => r.status },
+      { header: 'id', value: (r) => r.id },
+    ],
+    load: async () => (await ctx.client.delegations.active(ctx.zoneId)).items,
+    onEnter: (app, row) => open(app, detail(`delegation / ${row.id}`, async () => row)),
+  })
 }
 
 function delegationEdgesView(ctx: Ctx, kind: 'inbound' | 'outbound', sessionId: string): ListView<DelegationEdge> {
