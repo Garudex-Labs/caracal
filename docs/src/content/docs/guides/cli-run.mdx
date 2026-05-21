@@ -1,10 +1,10 @@
 ---
 title: Run an Agent with caracal run
-description: Use the caracal run CLI command to inject a short-lived per-resource token into a subprocess without writing any SDK code.
+description: Use the caracal run CLI command to inject a short-lived resource mandate into a subprocess without writing any SDK code.
 pageType: workflow
 ---
 
-`caracal run` exchanges the current application's ambient mandate for a per-resource per-call token, injects it into the subprocess environment as `RESOURCE_TOKEN`, and runs the specified command. The subprocess receives a valid 60-minute mandate without needing to implement the token exchange itself. If the exchange triggers a step-up challenge, `caracal run` polls until the challenge is satisfied or times out.
+`caracal run` exchanges the current application's session mandate for a resource mandate, injects it into the subprocess environment as `RESOURCE_TOKEN`, and runs the specified command. The subprocess receives a valid 15-minute resource mandate without needing to implement the token exchange itself. If the exchange triggers a step-up challenge, `caracal run` polls until the challenge is satisfied or times out.
 
 ## Prerequisites
 
@@ -27,7 +27,7 @@ The double dash (`--`) separates `caracal run` options from the subprocess comma
 | `CARACAL_ZONE_ID` | Zone to authenticate against |
 | `CARACAL_APPLICATION_ID` | The application performing the exchange |
 | `CARACAL_CLIENT_SECRET` | Application credential |
-| `CARACAL_RESOURCE` | Resource identifier to request a token for (e.g., `resource://payments`) |
+| `CARACAL_RESOURCE` | Resource identifier to request a mandate for (e.g., `resource://payments`) |
 
 Set them in your shell or `.env`:
 
@@ -58,7 +58,7 @@ response = httpx.get('http://inventory:8080/items',
                      headers={'Authorization': f'Bearer {token}'})
 ```
 
-The injected token is a per-call mandate — an ES256-signed JWT with a 60-minute TTL scoped to the specified resource. It is not the ambient mandate.
+The injected token is a resource mandate — an ES256-signed JWT with a 60-minute TTL scoped to the specified resource. It is not the session mandate.
 
 ## Request specific scopes
 

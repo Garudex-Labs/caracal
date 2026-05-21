@@ -54,7 +54,7 @@ Inject it via a secrets manager (HashiCorp Vault, AWS Secrets Manager, GCP Secre
 
 ### Zone signing key rotation
 
-Zone signing keys are rotated by the Control-Plane API. The JWKS endpoint returns the two most recent keys; all verifying services pick up the new key within the 5-minute JWKS cache TTL. Rotation does not invalidate outstanding ambient tokens — existing mandates remain valid until their TTL expires.
+Zone signing keys are rotated by the Control-Plane API. The JWKS endpoint returns the two most recent keys; all verifying services pick up the new key within the 5-minute JWKS cache TTL. Rotation does not invalidate outstanding session mandates — existing mandates remain valid until their TTL expires.
 
 **Rotation procedure:**
 1. Call `POST /v1/zones/{zoneId}/keys/rotate`.
@@ -91,12 +91,12 @@ HMAC-chains audit events in the `audit_events` table. Required if you rely on th
 ### Redis is required in production
 
 Redis provides:
-- JTI replay detection (per-call token single-use enforcement)
+- JTI replay detection (resource mandate single-use enforcement)
 - Session revocation stream (sub-second propagation to Gateway and STS)
 - STS rate limiting for token exchange
 - Coordinator outbox dispatch
 
-Without Redis, or with `JTI_FAIL_OPEN=true`, per-call token replay protection is disabled. This allows an attacker who captures a per-call mandate to reuse it any number of times until it expires.
+Without Redis, or with `JTI_FAIL_OPEN=true`, resource mandate replay protection is disabled. This allows an attacker who captures a resource mandate to reuse it any number of times until it expires.
 
 | Variable | Required value | Consequence if wrong |
 | --- | --- | --- |

@@ -10,7 +10,7 @@ Caracal is built around a small set of verifiable security guarantees. Every man
 
 **Cryptographic mandate verification.** Every mandate is an ES256 JWT signed by the zone's ECDSA P-256 signing key. No mandate is accepted without a verified signature against the zone's JWKS. The STS is the only issuer; all verifying services (Gateway, Coordinator, resource servers) independently fetch and cache the JWKS.
 
-**Per-resource scope narrowing.** Ambient session tokens cannot be used directly at resources. The STS exchanges an ambient token for a per-resource mandate scoped to exactly the declared scopes of the resource. The mandate's `aud` claim is set to the resource identifier, not the issuer — preventing ambient tokens from being forwarded as resource credentials.
+**Resource scope narrowing.** Session mandates cannot be used directly at resources. The STS exchanges a session mandate for a resource mandate scoped to exactly the declared scopes of the resource. The mandate's `aud` claim is set to the resource identifier, not the issuer — preventing session mandates from being forwarded as resource credentials.
 
 **Policy-gated issuance.** Every token exchange evaluates the zone's active Rego policy bundle via OPA before issuing a mandate. If OPA is unavailable, the zone falls back to a deny-all policy. No mandate is issued without a `"complete"` evaluation result.
 

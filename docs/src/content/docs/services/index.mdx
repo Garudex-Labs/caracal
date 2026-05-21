@@ -89,17 +89,17 @@ The API and Coordinator publish to Redis through a transactional outbox — even
 ## Request flows
 
 **Token exchange (SDK or agent calling STS):**
-1. SDK presents an ambient token to `POST /oauth/2/token` on the STS.
+1. SDK presents a session mandate to `POST /oauth/2/token` on the STS.
 2. STS fetches the zone's application and resource records from PostgreSQL.
 3. STS evaluates the zone's compiled OPA policy.
-4. If allowed, STS signs a per-call JWT (ES256) with the zone's private key.
+4. If allowed, STS signs a resource mandate (ES256 JWT) with the zone's private key.
 5. STS publishes an audit event to `caracal.audit.events`.
-6. SDK presents the per-call JWT to the target MCP resource.
+6. SDK presents the resource mandate to the target MCP resource.
 
 **Gateway-proxied request:**
 1. Client sends an MCP request to Gateway with a bearer token in `Authorization`.
 2. Gateway verifies the JWT signature using the zone's JWKS (cached from STS).
-3. Gateway calls `POST /oauth/2/token` on STS to exchange a fresh per-call mandate.
+3. Gateway calls `POST /oauth/2/token` on STS to exchange a fresh resource mandate.
 4. Gateway forwards the request to the upstream resource with the new mandate.
 5. Gateway streams the upstream response back to the client.
 

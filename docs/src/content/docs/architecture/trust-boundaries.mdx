@@ -19,7 +19,7 @@ A trust boundary in Caracal is the edge where one component must verify claims m
 └───────────────────────┬─────────────────────────────┘
                         │ Postgres (policy, grants, keys)
 ┌───────────────────────▼─────────────────────────────┐
-│  TRUST BOUNDARY: Client credentials + subject token │
+│  TRUST BOUNDARY: Client credentials + session mandate │
 │                                                     │
 │  STS                                                │
 │  • Holds ZONE_KEK → decrypts zone private keys      │
@@ -66,7 +66,7 @@ The API stores zone signing keys encrypted — it does not hold decrypted privat
 The STS is the highest-privilege runtime component. It holds `ZONE_KEK` (to decrypt zone signing keys) and `AUDIT_HMAC_KEY`. It is the only component that can issue new mandates.
 
 **Blast radius containment:**
-- The STS trusts only ES256-signed subject tokens with `use = "ambient"` — unsigned input cannot produce a mandate
+- The STS trusts only ES256-signed session mandates with `use = "session"` — unsigned input cannot produce a mandate
 - `client_secret` or a valid `client_assertion` is required; unauthenticated calls are rejected before any database lookup
 - OPA evaluation cannot be bypassed — the exchange handler is a sequential pipeline with no code path that issues a mandate without calling `OPAEngine.Evaluate`
 - The JTI SETNX check means a stolen mandate cannot be replayed; each JTI is single-use per its TTL
@@ -158,9 +158,9 @@ This prevents an attacker who can register arbitrary upstream URLs (via a compro
 
 ## Session revocation timing
 
-Revocation propagates from the Coordinator through the Redis stream to the STS and Gateway consumers in near real time. However, a per-call token already issued before revocation completes will have a valid signature and unexpired `exp` for up to 15 minutes. During that window:
+Revocation propagates from the Coordinator through the Redis stream to the STS and Gateway consumers in near real time. However, a resource mandate already issued before revocation completes will have a valid signature and unexpired `exp` for up to 15 minutes. During that window:
 
 - The **Gateway** checks the `sid` claim against its revocation store on every request. Because the Gateway consumes the revocation stream, it typically blocks the revoked session within seconds.
 - An **upstream** that does not subscribe to the revocation stream will accept the mandate until it expires.
 
-The 15-minute per-call TTL is the intentional upper bound on revocation lag. Ambient tokens (60-minute TTL) cannot be presented directly to upstreams — they must be exchanged for a per-call token at the STS, where the session status is checked before issuance.
+The 15-minute resource TTL is the intentional upper bound on revocation lag. Session mandates (60-minute TTL) cannot be presented directly to upstreams — they must be exchanged for a resource mandate at the STS, where the session status is checked before issuance.
