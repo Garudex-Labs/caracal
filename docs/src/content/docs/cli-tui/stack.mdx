@@ -37,37 +37,39 @@ caracal down -v    # stop containers and remove volumes (destroys all persisted 
 
 ## `caracal status`
 
-Probe all five services and report their health.
+Probe all five services and report their liveness or readiness.
 
 ```bash
 caracal status
+caracal status --ready
+caracal status --ready --json
 ```
 
-Sends `GET /health` to each service in parallel with a 1500 ms timeout:
+By default, sends `GET /health` to each service in parallel with a 1500 ms timeout. Use `--ready` to send `GET /ready`, which checks dependencies and service-specific readiness such as policy consumers, Gateway bindings, audit replay, Postgres, and Redis.
 
-| Service | Default port | URL probed |
-| --- | --- | --- |
-| `api` | 3000 | `http://localhost:3000/health` |
-| `sts` | 8080 | `http://localhost:8080/health` |
-| `gateway` | 8081 | `http://localhost:8081/health` |
-| `audit` | 9090 | `http://localhost:9090/health` |
-| `coordinator` | 4000 | `http://localhost:4000/health` |
+| Service | Default port | Health URL | Readiness URL |
+| --- | --- | --- | --- |
+| `api` | 3000 | `/health` | `/ready` |
+| `sts` | 8080 | `/health` | `/ready` |
+| `gateway` | 8081 | `/health` | `/ready` |
+| `audit` | 9090 | `/health` | `/ready` |
+| `coordinator` | 4000 | `/health` | `/ready` |
 
 Example output:
 
 ```
-api            3000  ok      200
-sts            8080  ok      200
-gateway        8081  down    timeout
-audit          9090  ok      200
-coordinator    4000  ok      200
+api            3000  health  ok      200
+sts            8080  health  ok      200
+gateway        8081  health  down    timeout
+audit          9090  health  ok      200
+coordinator    4000  health  ok      200
 ```
 
-Exit code is `0` if all services respond, `1` if any is down or unreachable. Use this in scripts to wait for stack readiness:
+Exit code is `0` if all probes respond successfully, `1` if any is down or unreachable. Use readiness mode in scripts that need dependency-aware startup:
 
 ```bash
 caracal up
-until caracal status; do sleep 1; done
+until caracal status --ready; do sleep 1; done
 ```
 
 ---

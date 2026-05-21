@@ -124,6 +124,14 @@ caracal policy validate --file policy.rego --schema-version 2026-05-20
 
 Use `POST /v1/zones/{zone_id}/policy-sets/{policy_set_id}/simulate` before activation to dry-run the rollout contract. The simulation endpoint validates the policy set version, schema compatibility, manifest integrity, and optional OPA input shape without mutating active bindings. It does not replace STS runtime evaluation; it is a deployment safety check for operators.
 
+The CLI exposes the same check:
+
+```sh
+caracal policy-set simulate <policy-set-id> \
+  --version <policy-set-version-id> \
+  --input-file input.json
+```
+
 ## Forbidden builtins
 
 The following OPA builtins are blocked and cause an evaluation error if used:

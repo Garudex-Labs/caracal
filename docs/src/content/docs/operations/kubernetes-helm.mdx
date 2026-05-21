@@ -1,0 +1,122 @@
+---
+title: Kubernetes with Helm
+description: Deploy Caracal with the reference Helm chart for enterprise evaluation, managed data stores, probes, autoscaling, and operator-owned secrets.
+pageType: config
+---
+
+The Helm chart in `infra/helm/caracal` is the reference Kubernetes evaluation path for the open-source stack. It keeps the local default simple (`caracal up`) while giving platform teams a GitOps-friendly shape for clusters, managed Postgres, managed Redis, external secret operators, Prometheus, and ingress.
+
+**Maturity label:** implemented reference deployment. The chart is intended for enterprise evaluation and platform adaptation. Production teams should still review resource sizing, NetworkPolicy, ingress, secret management, and backup settings against their own standards before standardizing on it.
+
+## What the chart deploys
+
+| Component | Kubernetes object | Default exposure |
+| --- | --- | --- |
+| STS | Deployment, Service, HPA, PDB | Internal Service |
+| API | Deployment, Service, HPA, PDB | Internal Service; optional operator ingress |
+| Gateway | Deployment, Service, HPA, PDB | Internal Service; optional protected ingress |
+| Audit | Deployment, Service, HPA, PDB | Internal Service |
+| Coordinator | Deployment, Service, HPA, PDB | Internal Service |
+| Control | Optional Deployment and Service | Disabled by default |
+| Migrations | Helm pre-install/pre-upgrade Job | Internal only |
+| Monitoring | Optional ServiceMonitor | Prometheus Operator installations |
+| Alerting | Optional PrometheusRule | Prometheus Operator installations |
+| Network controls | NetworkPolicy | Enabled by default |
+
+Postgres and Redis are not installed by the chart. Use managed services, platform-owned StatefulSets, or an existing database/Redis operator. This keeps Caracal portable and avoids forcing a database ownership model onto enterprise teams.
+
+## Secret model
+
+By default, the chart expects an existing Kubernetes Secret named `caracal-runtime`:
+
+```yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: caracal-runtime
+type: Opaque
+stringData:
+  databaseUrl: postgres://caracal:REDACTED@postgres.example.com:5432/caracal?sslmode=require
+  redisUrl: redis://:REDACTED@redis.example.com:6379/0
+  postgresPassword: REDACTED
+  redisPassword: REDACTED
+  caracalAdminToken: REDACTED
+  zoneKek: REDACTED
+  auditHmacKey: REDACTED
+  streamsHmacKey: REDACTED
+  gatewayStsHmacKey: REDACTED
+```
+
+Each service mounts the Secret at `/run/secrets` and uses the existing `*_FILE` environment variables. This matches the Compose runtime and works with External Secrets Operator, Sealed Secrets, SOPS, Vault CSI, cloud secret managers, or a platform-controlled Secret pipeline.
+
+For disposable evaluations only, set `secrets.create=true` and provide `secrets.plaintext.*` values. Do not commit plaintext secret values to Git.
+
+## Install path
+
+Create or sync the runtime Secret, then install:
+
+```bash
+helm upgrade --install caracal ./infra/helm/caracal \
+  --namespace caracal \
+  --create-namespace \
+  --set global.tag=0.1.2 \
+  --set secrets.runtimeSecretName=caracal-runtime
+```
+
+Check rollout:
+
+```bash
+kubectl -n caracal rollout status deploy/caracal-caracal-sts
+kubectl -n caracal rollout status deploy/caracal-caracal-gateway
+kubectl -n caracal get pods,svc,hpa,pdb
+```
+
+If you use the release name `caracal`, objects are named `caracal-caracal-*` by Helm's default fullname convention. Override with `fullnameOverride` only if your GitOps naming policy requires it.
+
+## Values to review first
+
+| Value | Why it matters |
+| --- | --- |
+| `global.registry`, `global.tag` | Pins the image source and release version |
+| `secrets.runtimeSecretName` | Integrates with your secret-management system |
+| `secrets.database.*` | Lets the migration Job connect to managed Postgres |
+| `services.*.replicas` | Sets baseline availability per component |
+| `services.*.resources` | Controls scheduling and capacity planning |
+| `services.*.hpa` | Enables CPU-based autoscaling for evaluation |
+| `networkPolicy.enabled` | Adds namespace-level ingress/egress guardrails |
+| `serviceMonitor.enabled` | Publishes scrape targets for Prometheus Operator |
+| `alertRules.enabled` | Publishes baseline Prometheus alerts mapped to failure-mode recovery |
+| `ingress.gateway.*` | Exposes only the Gateway to protected clients |
+| `ingress.api.*` | Optional operator-only API ingress |
+
+Keep the Gateway as the default external entry point. Expose the API only to operators through your existing private ingress, VPN, identity-aware proxy, or bastion model.
+
+## Probes and metrics
+
+Every Caracal service uses:
+
+| Probe | Path | Meaning |
+| --- | --- | --- |
+| Liveness | `/health` | Process is running |
+| Readiness | `/ready` | Dependencies and service-specific replay/binding state are usable |
+| Metrics | `/metrics` | Prometheus metrics |
+
+The Go services also expose `/metrics.json` for operator diagnostics. Treat Prometheus `/metrics` as the monitoring surface and JSON metrics as CLI/doctor/debug support.
+
+## Operational boundaries
+
+This chart deliberately preserves the core Caracal security model:
+
+1. Agents and clients call protected resources through Gateway by default.
+2. Gateway exchanges authority through STS and emits action audit.
+3. STS evaluates the active policy set and fails closed when policy cannot produce a complete decision.
+4. API remains an operator/control-plane surface, not a public application endpoint.
+5. Provider credentials remain behind Gateway or verified adapter boundaries.
+
+## What is not bundled
+
+The chart does not install Postgres, Redis, cert-manager, external-dns, service mesh, External Secrets Operator, an OpenTelemetry Collector, or Grafana dashboards. Those are platform-owned dependencies in most enterprises. Use your existing implementations and wire Caracal through standard Services, Secrets, NetworkPolicies, and scrape targets.
+
+See [Cloud-Native Deployment Profiles](./cloud-native-profiles/) for shared Gateway, sidecar, verified adapter, and SPIFFE/mTLS guidance.
+
+See [Failure Modes and Recovery](./failure-modes/) for the alert-to-runbook matrix behind the optional Prometheus rules.

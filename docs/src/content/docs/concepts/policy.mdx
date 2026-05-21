@@ -20,8 +20,7 @@ Every Caracal-compatible Rego policy must produce a result at `data.caracal.auth
 ```text
 package caracal.authz
 
-import future.keywords.if
-import future.keywords.in
+import rego.v1
 
 default result := {
   "decision": "deny",
@@ -33,7 +32,7 @@ default result := {
 result := {
   "decision": "allow",
   "evaluation_status": "complete",
-  "determining_policies": ["my-policy"],
+  "determining_policies": [{"policy": "my-policy"}],
   "diagnostics": [],
 } if {
   input.principal.type == "application"
@@ -57,6 +56,7 @@ The full input available to every policy:
 
 ```json
 {
+  "schema_version": "2026-05-20",
   "principal": {
     "type": "application",
     "id": "<application_id>",
@@ -70,9 +70,7 @@ The full input available to every policy:
     "identifier": "resource://payments",
     "scopes": ["transfer", "read"]
   },
-  "action": {
-    "id": "TokenExchange"
-  },
+  "action": { "id": "token_exchange" },
   "session": {
     "id": "<session_id>"
   },
@@ -106,7 +104,7 @@ The full input available to every policy:
 }
 ```
 
-`delegation_edge` is present only when the exchange carries a delegation edge ID. `session` is present only when a session ID is provided.
+`schema_version` identifies the STS policy input contract. The current contract is `2026-05-20`. `delegation_edge` is present only when the exchange carries a delegation edge ID. `session` is present only when a session ID is provided.
 
 ## Blocked builtins
 
@@ -130,10 +128,10 @@ Creating a policy version:
 
 ```
 POST /zones/{zoneId}/policies/{policyId}/versions
-{ "content": "package caracal.authz\n...", "schema_version": "2026-03-16" }
+{ "content": "package caracal.authz\n...", "schema_version": "2026-05-20" }
 ```
 
-The `schema_version` field (`"2026-03-16"`) identifies the input schema this policy was written for.
+The `schema_version` field (`"2026-05-20"`) identifies the input schema this policy was written for.
 
 ## Policy sets and manifests
 
@@ -174,7 +172,7 @@ A policy can signal that it requires elevated authentication before allowing exc
 result := {
   "decision": "deny",
   "evaluation_status": "complete",
-  "determining_policies": ["payment-policy"],
+  "determining_policies": [{"policy": "payment-policy"}],
   "diagnostics": [{"step_up_required": "mfa"}],
 } if {
   input.resource.identifier == "resource://high-value-payments"
