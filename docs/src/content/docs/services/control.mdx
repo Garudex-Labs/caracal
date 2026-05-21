@@ -161,21 +161,21 @@ Piping stdin to the TUI, running it under `CI=true`, or spawning it via `child_p
 
 Control is optimized for intermittent use with two lifecycle levels:
 
-- **Enable / disable** is the fast logical switch. Enable starts the endpoint for authenticated automation. Disable stops the endpoint but keeps the mounted runtime prepared for quick re-enable.
-- **Mount / unmount** is the long-term resource switch. Mount prepares the optional runtime without exposing the endpoint. Unmount removes the Control container and clears lifecycle state when Control will not be used for a while.
+- **Mount / unmount** is the long-term resource switch. Mount loads the optional Control runtime and starts it with the endpoint gate closed. Unmount removes the Control container and clears lifecycle state when Control will not be used for a while.
+- **Enable / disable** is the fast logical switch. Enable opens the local endpoint gate for authenticated automation. Disable closes that gate without stopping the Control runtime, container, or supporting stack.
 
 The base API, STS, Gateway, Audit, Coordinator, Redis, and Postgres services continue to be managed normally by the stack. Control uses those existing services and does not create a dedicated persistent volume.
 
 | Interface | Action | Result |
 | --- | --- | --- |
-| CLI | Interactive `control mount` | Prepares the Control runtime without exposing the endpoint |
-| CLI | Interactive `control enable` | Starts the mounted endpoint for authenticated automation |
-| CLI | Interactive `control disable` | Stops the endpoint and retains the mounted runtime for fast re-enable |
+| CLI | Interactive `control mount` | Loads the Control runtime with the endpoint gate closed |
+| CLI | Interactive `control enable` | Opens the endpoint gate for authenticated automation |
+| CLI | Interactive `control disable` | Closes the endpoint gate while leaving the runtime loaded |
 | CLI | Interactive `control unmount` | Removes the Control runtime and clears lifecycle state |
 | CLI | Interactive `control status` | Shows mounted state, enabled state, endpoint, health, lifecycle, and optimization details |
 | TUI | Control → mount / enable / disable / unmount / status | Performs the same lifecycle actions through stable structured views |
 
-`caracal up` includes the Control runtime only when the endpoint is enabled. A mounted-but-disabled runtime stays prepared without exposing the endpoint. Disabled or unmounted users do not need to know or operate Docker profiles directly.
+`caracal up` includes the Control runtime only when the engine-managed Control state requires it. A mounted-but-disabled runtime stays loaded and returns a disabled response on invoke/readiness while the gate is closed. Disabled or unmounted users do not need to know or operate Docker profiles directly.
 
 ---
 
@@ -200,13 +200,13 @@ The service refuses to start if any required variable is missing for the active 
 
 ## Operations
 
-**Mount.** Use the authenticated interactive CLI lifecycle flow or TUI → Control → mount. The engine prepares the optional runtime and records mounted state without exposing the endpoint.
+**Mount.** Use the authenticated interactive CLI lifecycle flow or TUI → Control → mount. The engine loads the optional runtime, records mounted state, and starts Control with the endpoint gate closed.
 
-**Enable.** Use the authenticated interactive CLI lifecycle flow or TUI → Control → enable. The engine starts the mounted endpoint and records enabled state under the Caracal runtime home.
+**Enable.** Use the authenticated interactive CLI lifecycle flow or TUI → Control → enable. The engine opens the local gate file for the mounted runtime and records enabled state under the Caracal runtime home.
 
 **Status.** Use the authenticated interactive CLI lifecycle flow or TUI → Control → status. The result includes endpoint URL, health, lifecycle, and cleanup state. Automation should query the Control API after an operator enables it.
 
-**Disable.** Use the authenticated interactive CLI lifecycle flow or TUI → Control → disable. The engine stops the endpoint while retaining the mounted runtime for fast re-enable.
+**Disable.** Use the authenticated interactive CLI lifecycle flow or TUI → Control → disable. The engine closes the local gate file while keeping the mounted Control runtime loaded for fast re-enable.
 
 **Unmount.** Use the authenticated interactive CLI lifecycle flow or TUI → Control → unmount. The engine removes the Control container and clears persisted lifecycle state so future stack starts do not include Control.
 

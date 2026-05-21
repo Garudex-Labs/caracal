@@ -201,6 +201,8 @@ The control service is unmounted by default and managed through the authenticate
 | Variable | Default | Description |
 | --- | --- | --- |
 | `CARACAL_CONTROL_ENABLED` | managed by the runtime | Must be `true` inside the Control service; the CLI/TUI lifecycle sets this through the managed runtime definition |
+| `CONTROL_GATE_FILE` | `/run/caracal-control/enabled` | Local gate file checked by the Control service before readiness and invoke requests |
+| `CARACAL_CONTROL_STATE_DIR` | managed by the runtime | Host directory mounted read-only into the Control container so CLI/TUI can open or close the endpoint gate |
 | `CONTROL_PORT` | `8087` | Listen port |
 | `CONTROL_HOST` | `127.0.0.1` (dev), `0.0.0.0` (rc/stable) | Listen address |
 | `STS_JWKS_URL` | — | **Required.** STS JWKS URL used to verify bearer tokens (`?zone_id=…` is appended per token) |
