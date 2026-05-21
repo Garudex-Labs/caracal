@@ -1,0 +1,146 @@
+{{/*
+Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+Caracal, a product of Garudex Labs
+
+Deployment templates for Caracal control-plane services.
+*/}}
+
+{{- define "caracal.deployment" -}}
+{{- $root := index . "root" -}}
+{{- $name := index . "name" -}}
+{{- $service := index $root.Values.services $name -}}
+{{- if $service.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "caracal.fullname" $root }}-{{ $name }}
+  labels:
+    {{- include "caracal.labels" $root | nindent 4 }}
+    app.kubernetes.io/component: {{ $name }}
+spec:
+  replicas: {{ $service.replicas }}
+  selector:
+    matchLabels:
+      {{- include "caracal.selectorLabels" $root | nindent 6 }}
+      app.kubernetes.io/component: {{ $name }}
+  template:
+    metadata:
+      labels:
+        {{- include "caracal.selectorLabels" $root | nindent 8 }}
+        app.kubernetes.io/component: {{ $name }}
+        {{- with $root.Values.global.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      annotations:
+        {{- with $root.Values.global.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      serviceAccountName: {{ include "caracal.serviceAccountName" $root }}
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: {{ $name }}
+          image: {{ include "caracal.image" (dict "root" $root "image" $service.image) }}
+          imagePullPolicy: {{ $root.Values.global.imagePullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ $service.port }}
+          env:
+            - name: CARACAL_MODE
+              value: {{ $root.Values.global.mode | quote }}
+            - name: PORT
+              value: {{ $service.port | quote }}
+            - name: HOST
+              value: "0.0.0.0"
+            - name: LOG_LEVEL
+              value: {{ $root.Values.global.logLevel | quote }}
+            - name: DATABASE_URL_FILE
+              value: /run/secrets/databaseUrl
+            - name: REDIS_URL_FILE
+              value: /run/secrets/redisUrl
+            - name: ZONE_KEK_FILE
+              value: /run/secrets/zoneKek
+            - name: ZONE_KEK_PROVIDER
+              value: local
+            - name: AUDIT_HMAC_KEY_FILE
+              value: /run/secrets/auditHmacKey
+            - name: STREAMS_HMAC_KEY_FILE
+              value: /run/secrets/streamsHmacKey
+            - name: GATEWAY_STS_HMAC_KEY_FILE
+              value: /run/secrets/gatewayStsHmacKey
+            - name: CARACAL_ADMIN_TOKEN_FILE
+              value: /run/secrets/caracalAdminToken
+            - name: STS_URL
+              value: http://{{ include "caracal.fullname" $root }}-sts:{{ $root.Values.services.sts.port }}
+            - name: ISSUER_URL
+              value: {{ default (printf "http://%s-sts:%v" (include "caracal.fullname" $root) $root.Values.services.sts.port) $root.Values.services.sts.issuerUrl | quote }}
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: {{ $root.Values.global.otelExporterOtlpEndpoint | quote }}
+            - name: OTEL_EXPORTER_OTLP_PROTOCOL
+              value: http/protobuf
+            - name: OTEL_SERVICE_NAME
+              value: caracal-{{ $name }}
+            - name: OTEL_RESOURCE_ATTRIBUTES
+              value: service.namespace=caracal,deployment.environment={{ $root.Values.global.mode }}
+            {{- if eq $name "control" }}
+            - name: CARACAL_CONTROL_ENABLED
+              value: "true"
+            - name: CONTROL_REDIS_URL_FILE
+              value: /run/secrets/redisUrl
+            - name: CONTROL_API_TOKEN_FILE
+              value: /run/secrets/caracalAdminToken
+            - name: CONTROL_HOST
+              value: "0.0.0.0"
+            - name: CONTROL_PORT
+              value: {{ $service.port | quote }}
+            - name: CARACAL_API_URL
+              value: http://{{ include "caracal.fullname" $root }}-api:{{ $root.Values.services.api.port }}
+            {{- end }}
+          volumeMounts:
+            - name: runtime-secrets
+              mountPath: /run/secrets
+              readOnly: true
+            {{- if or (eq $name "sts") (eq $name "gateway") }}
+            - name: replay
+              mountPath: /var/lib/caracal
+            {{- end }}
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          resources:
+            {{- toYaml $service.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+      volumes:
+        - name: runtime-secrets
+          {{ include "caracal.secretVolume" $root | nindent 10 }}
+        {{- if or (eq $name "sts") (eq $name "gateway") }}
+        - name: replay
+          emptyDir: {}
+        {{- end }}
+---
+{{- end }}
+{{- end -}}
+
+{{ include "caracal.deployment" (dict "root" . "name" "sts") }}
+{{ include "caracal.deployment" (dict "root" . "name" "api") }}
+{{ include "caracal.deployment" (dict "root" . "name" "gateway") }}
+{{ include "caracal.deployment" (dict "root" . "name" "audit") }}
+{{ include "caracal.deployment" (dict "root" . "name" "coordinator") }}
+{{ include "caracal.deployment" (dict "root" . "name" "control") }}

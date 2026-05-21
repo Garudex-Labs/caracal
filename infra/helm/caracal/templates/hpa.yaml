@@ -1,0 +1,33 @@
+{{/*
+Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+Caracal, a product of Garudex Labs
+
+HorizontalPodAutoscaler templates for scalable Caracal services.
+*/}}
+
+{{- range $name, $service := .Values.services }}
+{{- if and $service.enabled $service.hpa.enabled }}
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ include "caracal.fullname" $ }}-{{ $name }}
+  labels:
+    {{- include "caracal.labels" $ | nindent 4 }}
+    app.kubernetes.io/component: {{ $name }}
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ include "caracal.fullname" $ }}-{{ $name }}
+  minReplicas: {{ $service.hpa.minReplicas }}
+  maxReplicas: {{ $service.hpa.maxReplicas }}
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: {{ $service.hpa.targetCPUUtilizationPercentage }}
+---
+{{- end }}
+{{- end }}

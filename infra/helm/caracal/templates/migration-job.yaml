@@ -1,0 +1,66 @@
+{{/*
+Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+Caracal, a product of Garudex Labs
+
+Schema migration job template for Caracal PostgreSQL.
+*/}}
+
+{{- if .Values.migrations.enabled }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "caracal.fullname" . }}-migrate
+  labels:
+    {{- include "caracal.labels" . | nindent 4 }}
+    app.kubernetes.io/component: migrate
+  annotations:
+    "helm.sh/hook": pre-install,pre-upgrade
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: {{ .Values.migrations.backoffLimit }}
+  template:
+    metadata:
+      labels:
+        {{- include "caracal.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: migrate
+    spec:
+      restartPolicy: OnFailure
+      serviceAccountName: {{ include "caracal.serviceAccountName" . }}
+      containers:
+        - name: migrate
+          image: {{ include "caracal.image" (dict "root" . "image" "caracal-postgres") }}
+          imagePullPolicy: {{ .Values.global.imagePullPolicy }}
+          command:
+            - /bin/sh
+            - /usr/local/bin/caracal-migrate
+          env:
+            - name: PGHOST
+              value: {{ .Values.secrets.database.host | quote }}
+            - name: PGPORT
+              value: {{ .Values.secrets.database.port | quote }}
+            - name: PGUSER
+              value: {{ .Values.secrets.database.user | quote }}
+            - name: PGDATABASE
+              value: {{ .Values.secrets.database.name | quote }}
+            - name: PGPASSWORD_FILE
+              value: /run/secrets/{{ .Values.secrets.database.passwordKey }}
+            - name: PGSSLMODE
+              value: {{ .Values.secrets.database.sslMode | quote }}
+          volumeMounts:
+            - name: runtime-secrets
+              mountPath: /run/secrets
+              readOnly: true
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+      volumes:
+        - name: runtime-secrets
+          secret:
+            secretName: {{ include "caracal.runtimeSecretName" . }}
+            items:
+              - key: {{ .Values.secrets.database.passwordKey }}
+                path: {{ .Values.secrets.database.passwordKey }}
+{{- end }}

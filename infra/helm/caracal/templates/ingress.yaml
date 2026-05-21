@@ -1,0 +1,51 @@
+{{/*
+Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+Caracal, a product of Garudex Labs
+
+Ingress templates for optional Caracal external endpoints.
+*/}}
+
+{{- define "caracal.ingress" -}}
+{{- $root := index . "root" -}}
+{{- $name := index . "name" -}}
+{{- $ingress := index $root.Values.ingress $name -}}
+{{- $service := index $root.Values.services $name -}}
+{{- if and $service.enabled $ingress.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "caracal.fullname" $root }}-{{ $name }}
+  labels:
+    {{- include "caracal.labels" $root | nindent 4 }}
+    app.kubernetes.io/component: {{ $name }}
+  annotations:
+    {{- with $ingress.annotations }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  {{- if $ingress.className }}
+  ingressClassName: {{ $ingress.className | quote }}
+  {{- end }}
+  {{- if $ingress.tlsSecretName }}
+  tls:
+    - hosts:
+        - {{ $ingress.host | quote }}
+      secretName: {{ $ingress.tlsSecretName | quote }}
+  {{- end }}
+  rules:
+    - host: {{ $ingress.host | quote }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "caracal.fullname" $root }}-{{ $name }}
+                port:
+                  name: http
+---
+{{- end }}
+{{- end -}}
+
+{{ include "caracal.ingress" (dict "root" . "name" "gateway") }}
+{{ include "caracal.ingress" (dict "root" . "name" "api") }}

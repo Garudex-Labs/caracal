@@ -1,0 +1,38 @@
+{{/*
+Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+Caracal, a product of Garudex Labs
+
+Service templates for Caracal HTTP endpoints.
+*/}}
+
+{{- define "caracal.service" -}}
+{{- $root := index . "root" -}}
+{{- $name := index . "name" -}}
+{{- $service := index $root.Values.services $name -}}
+{{- if $service.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "caracal.fullname" $root }}-{{ $name }}
+  labels:
+    {{- include "caracal.labels" $root | nindent 4 }}
+    app.kubernetes.io/component: {{ $name }}
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: {{ $service.port }}
+      targetPort: http
+  selector:
+    {{- include "caracal.selectorLabels" $root | nindent 4 }}
+    app.kubernetes.io/component: {{ $name }}
+---
+{{- end }}
+{{- end -}}
+
+{{ include "caracal.service" (dict "root" . "name" "sts") }}
+{{ include "caracal.service" (dict "root" . "name" "api") }}
+{{ include "caracal.service" (dict "root" . "name" "gateway") }}
+{{ include "caracal.service" (dict "root" . "name" "audit") }}
+{{ include "caracal.service" (dict "root" . "name" "coordinator") }}
+{{ include "caracal.service" (dict "root" . "name" "control") }}
