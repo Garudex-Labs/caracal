@@ -15,11 +15,13 @@ import {
   controlKeyRevoke,
   controlKeyRotate,
   controlServiceStatus,
+  readControlState,
   credentialRead,
   resolveStackPaths,
   runExec,
   type ControlLifecycleAction,
   type ControlLifecycleResult,
+  type ControlRuntimeState,
   type ControlServiceStatus,
   type StackMode,
   type StackPaths,
@@ -215,15 +217,18 @@ class ControlMenuView implements View {
   readonly title = 'control'
   private cursor = 0
   private readonly ctx: Ctx
-  private readonly items: { key: string; label: string; build: () => View }[]
 
   constructor(ctx: Ctx) {
     this.ctx = ctx
-    this.items = [
-      { key: 'm', label: 'mount runtime', build: () => this.lifecycleConfirm('mount') },
-      { key: 'e', label: 'enable endpoint', build: () => this.lifecycleConfirm('enable') },
-      { key: 'd', label: 'disable endpoint', build: () => this.lifecycleConfirm('disable') },
-      { key: 'u', label: 'unmount runtime', build: () => this.lifecycleConfirm('unmount') },
+  }
+
+  private items(): { key: string; label: string; build: () => View }[] {
+    const state = this.controlState()
+    const mounted = state?.mounted === true
+    const enabled = state?.enabled === true
+    return [
+      { key: 'm', label: mounted ? 'unmount runtime' : 'mount runtime', build: () => this.lifecycleConfirm(mounted ? 'unmount' : 'mount') },
+      { key: 'e', label: enabled ? 'disable endpoint' : 'enable endpoint', build: () => this.lifecycleConfirm(enabled ? 'disable' : 'enable') },
       { key: 's', label: 'management status', build: () => this.statusView() },
       { key: 'l', label: 'list keys',  build: () => this.listView() },
       { key: 'g', label: 'get key', build: () => this.getForm() },
@@ -233,17 +238,27 @@ class ControlMenuView implements View {
     ]
   }
 
+  private controlState(): ControlRuntimeState | undefined {
+    try {
+      return readControlState()
+    } catch {
+      return undefined
+    }
+  }
+
   hints(): string[] { return ['↑/↓:select', 'enter:open', 'esc:back'] }
 
   render(_ctx: ViewContext): string[] {
     const lines: string[] = [
       '',
       ' ' + ui.title('Control API'),
-      ' ' + ui.muted('Enable the managed endpoint, inspect lifecycle status, and manage credentials.'),
+      ' ' + ui.muted('Toggle runtime mount state, toggle endpoint exposure, and manage credentials.'),
       '',
     ]
-    for (let i = 0; i < this.items.length; i++) {
-      const it = this.items[i]!
+    const items = this.items()
+    if (this.cursor >= items.length) this.cursor = Math.max(0, items.length - 1)
+    for (let i = 0; i < items.length; i++) {
+      const it = items[i]!
       const mark = i === this.cursor ? ui.accent('>') : ' '
       lines.push(` ${mark} ${ui.key(it.key)} ${it.label}`)
     }
@@ -251,12 +266,13 @@ class ControlMenuView implements View {
   }
 
   async onKey(key: Key, ctx: ViewContext): Promise<void> {
+    const items = this.items()
     if (key === 'up') { this.cursor = Math.max(0, this.cursor - 1); return }
-    if (key === 'down' || key === 'j') { this.cursor = Math.min(this.items.length - 1, this.cursor + 1); return }
+    if (key === 'down' || key === 'j') { this.cursor = Math.min(items.length - 1, this.cursor + 1); return }
     if (key === 'left' || key === 'esc') { ctx.app.pop(); return }
-    const direct = this.items.findIndex((it) => it.key === key)
-    if (direct >= 0) { ctx.app.push(this.items[direct]!.build()); return }
-    if (key === 'enter') { ctx.app.push(this.items[this.cursor]!.build()) }
+    const direct = items.findIndex((it) => it.key === key)
+    if (direct >= 0) { ctx.app.push(items[direct]!.build()); return }
+    if (key === 'enter') { ctx.app.push(items[this.cursor]!.build()) }
   }
 
   private listView(): View {
@@ -494,17 +510,27 @@ class ControlLifecycleView implements View {
 
   render(_ctx: ViewContext): string[] {
     if (this.loading) {
+      const progress = this.action === 'enable'
+        ? 'opening endpoint gate'
+        : this.action === 'disable'
+          ? 'blocking endpoint gate'
+          : this.action === 'unmount'
+            ? 'removing managed runtime'
+            : 'preparing managed runtime'
       return [
         '',
         ' ' + ui.title(`Control ${this.action}`),
         ' ' + ui.muted('Applying lifecycle action...'),
         '',
-        ` ${ui.muted('status')} ${ui.info('preparing managed runtime')}`,
+        ` ${ui.muted('status')} ${ui.info(progress)}`,
       ]
     }
     if (this.error) return ['', ' ' + ui.error('error: ') + this.error]
     if (!this.result) return ['', ' ' + ui.warn('Control action did not produce a result')]
-    return renderControlStatus(this.result, `${this.lineCount} runtime line${this.lineCount === 1 ? '' : 's'} captured`)
+    const eventSummary = (this.action === 'mount' || this.action === 'unmount') && this.lineCount > 0
+      ? `${this.lineCount} runtime line${this.lineCount === 1 ? '' : 's'} captured`
+      : undefined
+    return renderControlStatus(this.result, eventSummary)
   }
 
   onKey(key: Key, ctx: ViewContext): void {

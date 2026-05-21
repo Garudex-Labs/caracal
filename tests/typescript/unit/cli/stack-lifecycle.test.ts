@@ -395,7 +395,20 @@ describe('stack compose helpers', () => {
   it('applies control lifecycle actions only through managed compose environment', async () => {
     const stable = paths('stable', [])
     readControlStateMock
-      .mockReturnValueOnce(undefined)
+      .mockReturnValueOnce({
+        mounted: true,
+        enabled: false,
+        managedBy: 'engine',
+        updatedAt: '2026-05-21T00:00:00.000Z',
+        service: 'control',
+        profile: 'control',
+        port: 8087,
+        endpoint: 'http://localhost:8087',
+        healthUrl: 'http://localhost:8087/health',
+        readyUrl: 'http://localhost:8087/ready',
+        invokeUrl: 'http://localhost:8087/v1/control/invoke',
+        bind: '127.0.0.1',
+      })
       .mockReturnValueOnce({
         mounted: true,
         enabled: true,
@@ -457,8 +470,7 @@ describe('stack compose helpers', () => {
       join(dir, 'stable.yml'),
       '--profile',
       'control',
-      'up',
-      '-d',
+      'start',
       'control',
     ])
     expect(typeof calls[0].onLine).toBe('function')
@@ -478,6 +490,22 @@ describe('stack compose helpers', () => {
 
   it('mounts and unmounts control runtime as long-term lifecycle actions', async () => {
     const stable = paths('stable', [])
+    readControlStateMock
+      .mockReturnValueOnce(undefined)
+      .mockReturnValueOnce({
+        mounted: true,
+        enabled: false,
+        managedBy: 'engine',
+        updatedAt: '2026-05-21T00:00:00.000Z',
+        service: 'control',
+        profile: 'control',
+        port: 8087,
+        endpoint: 'http://localhost:8087',
+        healthUrl: 'http://localhost:8087/health',
+        readyUrl: 'http://localhost:8087/ready',
+        invokeUrl: 'http://localhost:8087/v1/control/invoke',
+        bind: '127.0.0.1',
+      })
 
     await expect(applyControlLifecycleAction({
       paths: stable,
@@ -533,5 +561,38 @@ describe('stack compose helpers', () => {
       'control',
     ])
     expect(typeof calls[1].onLine).toBe('function')
+  })
+
+  it('does not remount control when runtime is already mounted', async () => {
+    const stable = paths('stable', [])
+    readControlStateMock.mockReturnValue({
+      mounted: true,
+      enabled: false,
+      managedBy: 'engine',
+      updatedAt: '2026-05-21T00:00:00.000Z',
+      service: 'control',
+      profile: 'control',
+      port: 8087,
+      endpoint: 'http://localhost:8087',
+      healthUrl: 'http://localhost:8087/health',
+      readyUrl: 'http://localhost:8087/ready',
+      invokeUrl: 'http://localhost:8087/v1/control/invoke',
+      bind: '127.0.0.1',
+    })
+
+    await expect(applyControlLifecycleAction({
+      paths: stable,
+      action: 'mount',
+      env: { CARACAL_MODE: 'stable' },
+    })).resolves.toMatchObject({
+      action: 'mount',
+      state: 'disabled',
+      service: 'prepared',
+      mounted: true,
+      enabled: false,
+    })
+
+    expect(calls).toEqual([])
+    expect(setControlMountedMock).not.toHaveBeenCalled()
   })
 })

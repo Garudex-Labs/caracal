@@ -208,9 +208,9 @@ export interface ControlLifecycleResult {
   summary: string
 }
 
-function controlActionArgs(mode: StackPaths['mode'], action: ControlLifecycleAction): string[] | undefined {
+function controlActionArgs(mode: StackPaths['mode'], action: ControlLifecycleAction, mounted: boolean): string[] | undefined {
   if (action === 'mount') return ['up', '--no-start', ...(mode === 'dev' ? ['--build'] : []), 'control']
-  if (action === 'enable') return ['up', '-d', ...(mode === 'dev' ? ['--build'] : []), 'control']
+  if (action === 'enable') return mounted ? ['start', 'control'] : ['up', '-d', ...(mode === 'dev' ? ['--build'] : []), 'control']
   if (action === 'disable') return ['stop', 'control']
   if (action === 'unmount') return ['rm', '-sf', 'control']
   return undefined
@@ -269,10 +269,22 @@ export async function applyControlLifecycleAction(opts: ControlLifecycleOpts): P
   authorizeControlManagementAccess()
   const settings = controlRuntimeSettings()
   const current = readControlState()
+  if (opts.action === 'mount' && current) {
+    return controlResult(opts.action, current.enabled ? 'enabled' : 'disabled', current.enabled ? 'running' : 'prepared', current)
+  }
+  if (opts.action === 'enable' && current?.enabled === true) {
+    return controlResult(opts.action, 'enabled', 'running', current)
+  }
+  if (opts.action === 'disable' && current?.enabled === false) {
+    return controlResult(opts.action, 'disabled', 'prepared', current)
+  }
+  if (opts.action === 'unmount' && !current) {
+    return controlResult(opts.action, 'unmounted', 'unmounted', settings)
+  }
   if (opts.action === 'disable' && !current) {
     return controlResult(opts.action, 'unmounted', 'unmounted', settings)
   }
-  const args = controlActionArgs(opts.paths.mode, opts.action)
+  const args = controlActionArgs(opts.paths.mode, opts.action, current?.mounted === true)
   if (!args) throw new Error(`unsupported control lifecycle action: ${opts.action}`)
   const sink = opts.onLine ?? (() => {})
   if (opts.action !== 'disable' || current) {
