@@ -16,7 +16,7 @@ sys.path.append(str(Path(__file__).parents[3] / "shared" / "test-utils" / "pytho
 from caracal_test_tokens import mint_es256_token
 from caracalai_identity import verify
 from caracalai_revocation import InMemoryRevocationStore
-from caracalai_transport_mcp import authenticate, extract_bearer
+from caracalai_transport_mcp import authenticate, check_active_authority, extract_bearer
 
 
 class StubCache:
@@ -71,6 +71,45 @@ class TransportMcpAuthenticateTests(unittest.IsolatedAsyncioTestCase):
         )
 
         self.assertEqual(result.error.code if result.error else None, "session_revoked")
+
+    async def test_rejects_revoked_authority_anchor_after_verification(self) -> None:
+        token, jwk = mint_es256_token(
+            claims={
+                "sid": "sid-1",
+                "root_sid": "root-1",
+                "agent_session_id": "agent-1",
+                "delegation_edge_id": "edge-1",
+            }
+        )
+        self.cache.keys = [jwk]
+        revocations = InMemoryRevocationStore()
+        revocations.mark_revoked("root-1")
+
+        result = await authenticate(
+            token,
+            "https://sts.example.com",
+            "resource://api",
+            [],
+            "zone1",
+            revocations,
+        )
+
+        self.assertEqual(result.error.code if result.error else None, "session_revoked")
+
+    async def test_active_execution_check_rejects_expired_claims(self) -> None:
+        token, jwk = mint_es256_token(claims={"sid": "sid-1"})
+        self.cache.keys = [jwk]
+        result = await authenticate(
+            token,
+            "https://sts.example.com",
+            "resource://api",
+            [],
+            "zone1",
+            InMemoryRevocationStore(),
+        )
+        assert result.principal is not None
+        error = check_active_authority(result.principal, InMemoryRevocationStore(), now_seconds=result.principal.expires_at + 1)
+        self.assertEqual(error.code if error else None, "invalid_token")
 
     async def test_requires_delegation_chain_membership(self) -> None:
         token, jwk = mint_es256_token(claims={"delegation_chain": [{"application_id": "app-child"}]})

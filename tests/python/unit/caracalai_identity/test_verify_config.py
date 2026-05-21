@@ -87,6 +87,7 @@ class VerifyConfigTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(claims.zone_id, "zone1")
         self.assertEqual(claims.client_id, "app-1")
         self.assertEqual(claims.sid, "sid-1")
+        self.assertGreater(claims.expires_at, claims.issued_at)
 
     async def test_raises_agent_required_when_absent(self) -> None:
         with self.assertRaises(AgentIdentityRequiredError):
@@ -200,6 +201,8 @@ class VerifyChainContainsTests(unittest.TestCase):
             use="per_call",
             jti="j",
             scope="read",
+            issued_at=1,
+            expires_at=2,
             delegation_chain=chain or [],
         )
 

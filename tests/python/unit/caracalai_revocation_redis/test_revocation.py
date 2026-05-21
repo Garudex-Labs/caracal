@@ -66,11 +66,18 @@ class RedisRevocationStoreTests(unittest.TestCase):
 
 
 class RedisRevocationConsumerTests(unittest.TestCase):
-    def test_marks_signed_stream_message_and_acks(self) -> None:
+    def test_marks_signed_stream_message_authority_anchors_and_acks(self) -> None:
         redis = FakeRedis()
         store = RedisRevocationStore(redis)
         key = bytes([7]) * 32
-        values = {"zone_id": "zone1", "session_id": "sid-1", "reason": "grant_revoked"}
+        values = {
+            "zone_id": "zone1",
+            "session_id": "sid-1",
+            "root_sid": "root-1",
+            "agent_session_id": "agent-1",
+            "delegation_edge_id": "edge-1",
+            "reason": "grant_revoked",
+        }
         sig = sign_stream(key, REVOCATION_STREAM, values)
         redis.stream = [
             (
@@ -81,6 +88,9 @@ class RedisRevocationConsumerTests(unittest.TestCase):
                         {
                             "zone_id": "zone1",
                             "session_id": "sid-1",
+                            "root_sid": "root-1",
+                            "agent_session_id": "agent-1",
+                            "delegation_edge_id": "edge-1",
                             "reason": "grant_revoked",
                             STREAM_SIG_FIELD: sig,
                         },
@@ -93,6 +103,9 @@ class RedisRevocationConsumerTests(unittest.TestCase):
 
         self.assertEqual(consumer.poll_once(), 1)
         self.assertTrue(store.is_revoked("sid-1"))
+        self.assertTrue(store.is_revoked("root-1"))
+        self.assertTrue(store.is_revoked("agent-1"))
+        self.assertTrue(store.is_revoked("edge-1"))
         self.assertEqual(redis.acked, ["1-0"])
 
     def test_acks_invalid_signature_without_marking_session(self) -> None:
