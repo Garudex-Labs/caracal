@@ -157,6 +157,22 @@ export interface PolicySetVersion {
   created_at: string
 }
 
+export interface PolicySetSimulation {
+  dry_run: boolean
+  would_activate: boolean
+  policy_set_id: string
+  version_id: string
+  schema_version: string
+  input_schema_version: string
+  manifest_sha256: string
+  policies: string[]
+  warnings: string[]
+  explanation: {
+    evaluation: string
+    reason: string
+  }
+}
+
 export interface Grant {
   id: string
   zone_id: string

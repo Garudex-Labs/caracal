@@ -9,7 +9,7 @@ import { sha256Hex } from '@caracalai/core'
 import { v7 as uuidv7 } from 'uuid'
 import { ZoneIdParams, ZoneParams, parseParams } from './params.js'
 import { zoneExists } from '../zone-guard.js'
-import { analyzeAuthzPolicy, validateAuthzPolicy } from '../rego.js'
+import { OPA_INPUT_SCHEMA_VERSION, analyzeAuthzPolicy, validateAuthzPolicy, validatePolicySchemaVersion } from '../rego.js'
 import { appendKeysetCondition, parseListPagination, setNextLink } from './list-pagination.js'
 
 const PolicyBody = z.object({
@@ -17,16 +17,17 @@ const PolicyBody = z.object({
   description: z.string().optional(),
   owner_type: z.string().optional(),
   content: z.string().min(1),
-  schema_version: z.string().default('2026-03-16'),
+  schema_version: z.string().default(OPA_INPUT_SCHEMA_VERSION),
 })
 
 const VersionBody = z.object({
   content: z.string().min(1),
-  schema_version: z.string().default('2026-03-16'),
+  schema_version: z.string().default(OPA_INPUT_SCHEMA_VERSION),
 })
 
 const ValidateBody = z.object({
   content: z.string().min(1),
+  schema_version: z.string().default(OPA_INPUT_SCHEMA_VERSION),
 })
 
 function validateRego(content: string): string | null {
@@ -36,9 +37,22 @@ function validateRego(content: string): string | null {
 export const policiesRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.post('/policies/validate', async (req, reply) => {
     const body = ValidateBody.parse(req.body)
+    const schemaErr = validatePolicySchemaVersion(body.schema_version)
+    if (schemaErr) return reply.code(422).send({ valid: false, error: 'invalid_schema_version', detail: schemaErr })
     const regoErr = validateRego(body.content)
     if (regoErr) return reply.code(422).send({ valid: false, error: 'invalid_rego', detail: regoErr })
-    return { valid: true, warnings: analyzeAuthzPolicy(body.content) }
+    return {
+      valid: true,
+      schema_version: body.schema_version,
+      input_schema_version: OPA_INPUT_SCHEMA_VERSION,
+      output_contract: {
+        package: 'caracal.authz',
+        rule: 'result',
+        decision: ['allow', 'deny'],
+        evaluation_status: ['complete'],
+      },
+      warnings: analyzeAuthzPolicy(body.content),
+    }
   })
 
   fastify.get('/zones/:zoneId/policies', async (req, reply) => {
@@ -83,6 +97,8 @@ export const policiesRoutes: FastifyPluginAsync = async (fastify) => {
       return reply.code(404).send({ error: 'zone_not_found' })
     }
     const body = PolicyBody.parse(req.body)
+    const schemaErr = validatePolicySchemaVersion(body.schema_version)
+    if (schemaErr) return reply.code(422).send({ error: 'invalid_schema_version', detail: schemaErr })
     const regoErr = validateRego(body.content)
     if (regoErr) return reply.code(422).send({ error: 'invalid_rego', detail: regoErr })
     const policyId = uuidv7()
@@ -118,6 +134,8 @@ export const policiesRoutes: FastifyPluginAsync = async (fastify) => {
     const params = parseParams(ZoneIdParams, req, reply)
     if (!params) return
     const body = VersionBody.parse(req.body)
+    const schemaErr = validatePolicySchemaVersion(body.schema_version)
+    if (schemaErr) return reply.code(422).send({ error: 'invalid_schema_version', detail: schemaErr })
     const regoErr = validateRego(body.content)
     if (regoErr) return reply.code(422).send({ error: 'invalid_rego', detail: regoErr })
 

@@ -19,6 +19,8 @@ const FORBIDDEN_BUILTINS = [
   'time.now_ns',
 ] as const
 const REGEX_META = /[\\^$.*+?()[\]{}|]/g
+export const OPA_INPUT_SCHEMA_VERSION = '2026-05-20'
+export const POLICY_SCHEMA_VERSIONS = new Set(['2026-03-16', OPA_INPUT_SCHEMA_VERSION])
 
 interface Stripped {
   source: string
@@ -120,6 +122,13 @@ export function validateAuthzPolicy(content: string): string | null {
   if (check.error) return check.error
   if (check.packageName !== 'caracal.authz') return 'must_use_package_caracal_authz'
   if (!check.rules.has('result')) return 'must_define_result_rule'
+  return null
+}
+
+export function validatePolicySchemaVersion(schemaVersion: string): string | null {
+  if (!POLICY_SCHEMA_VERSIONS.has(schemaVersion)) {
+    return `unsupported_schema_version:${schemaVersion}`
+  }
   return null
 }
 

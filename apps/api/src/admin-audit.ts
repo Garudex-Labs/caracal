@@ -60,6 +60,11 @@ export function registerAdminAuditHook(app: FastifyInstance, opts: AuditPluginOp
         entityType: entity.type,
         entityId: entity.id,
         statusCode: reply.statusCode,
+        payloadJson: {
+          rls_bypass: true,
+          rls_mode: 'control_plane_wildcard',
+          rls_zone_guc: '*',
+        },
       })
     } catch (err) {
       req.log.warn({ err, requestId: req.id }, 'failed to record admin audit event')
