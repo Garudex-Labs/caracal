@@ -6,7 +6,7 @@ pageType: reference
 
 The Control service is the only network-reachable entry point for management automation. It is a small TypeScript service (`apps/control`) that wraps the same `@caracalai/engine` dispatch the CLI and TUI run in-process. Every surface — human (CLI/TUI) and machine (Control / SDK) — funnels through one function, so behaviour, validation, audit records, and scope enforcement cannot drift between them.
 
-The service is **disabled by default**. It starts only when `CARACAL_CONTROL_ENABLED=true` is set on its process, and in Docker Compose it is only built under the `control` profile.
+The service is **unmounted by default** and managed through the CLI or TUI. Operators can mount it for long-term availability, enable the endpoint only when automation is needed, disable it for fast logical off, and unmount it when the service will not be used for a while. The engine persists structured lifecycle state and exposes the localhost management endpoint only while Control is enabled.
 
 ---
 
@@ -35,7 +35,7 @@ The service is **disabled by default**. It starts only when `CARACAL_CONTROL_ENA
 Three rules make this work:
 
 1. **One engine.** `packages/engine` is the only place where commands, descriptors, validation, and the dispatcher live. There is no Go catalog, no parity test, no second copy.
-2. **Surfaces are adapters.** CLI and TUI hand the engine a `local` principal and execute in-process. Control hands the engine a `remote` principal derived from a verified JWT and runs the same code path on a different process.
+2. **Surfaces are adapters.** CLI and TUI hand the engine a `local` principal and execute in-process. Control hands the engine a `remote` principal derived from a verified JWT and runs the same code path on a managed service process.
 3. **Hidden commands are remote-blocked.** Descriptors marked `hidden: true` (credential read, runtime asset provisioning, the `control` and `completion` helpers themselves) are rejected before the scope check when the principal is `remote`.
 
 ---
@@ -136,8 +136,9 @@ There is no `control:invoke` blanket scope. A token that needs both reads and wr
 
 The CLI and TUI consume the same `@caracalai/engine` package the Control service does:
 
-- CLI commands resolve descriptors from the engine catalog and call the engine's helpers (admin client, control-key CRUD, etc.) directly. No HTTP hop, no JWT, no replay cache.
+- CLI commands resolve descriptors from the engine catalog and call the engine's helpers directly.
 - TUI views call the same helpers from menu actions.
+- `caracal control mount|enable|disable|unmount|status` and the TUI Control menu all use the same engine lifecycle helpers, so mounted state, enablement state, endpoint health, and cleanup behavior stay synchronized.
 
 The Control service does not call the CLI binary or shell out. It calls `engine.dispatch` exactly the way CLI/TUI do — with a different `Principal`.
 
@@ -150,7 +151,29 @@ The Control service does not call the CLI binary or shell out. It calls `engine.
 
 Piping stdin to the TUI, running it under `CI=true`, or spawning it via `child_process.fork` exits non-zero with an isolation error. Automation must use the Control API (or the SDK built on top of it). There is no `--script` or `--input-file` flag.
 
-**TUI control section.** The control-management menu entry is always visible — managing control credentials goes through the Admin API, not the Control service, so an operator never needs the Control service running locally to administer it.
+**TUI control section.** The control-management menu entry is always visible. Operators can mount the runtime, enable or disable the endpoint, inspect lifecycle status, unmount long-term runtime components, and manage Control credentials without leaving the TUI.
+
+---
+
+## Management lifecycle
+
+Control is optimized for intermittent use with two lifecycle levels:
+
+- **Enable / disable** is the fast logical switch. Enable starts the endpoint for authenticated automation. Disable stops the endpoint but keeps the mounted runtime prepared for quick re-enable.
+- **Mount / unmount** is the long-term resource switch. Mount prepares the optional runtime without exposing the endpoint. Unmount removes the Control container and clears lifecycle state when Control will not be used for a while.
+
+The base API, STS, Gateway, Audit, Coordinator, Redis, and Postgres services continue to be managed normally by the stack. Control uses those existing services and does not create a dedicated persistent volume.
+
+| Interface | Action | Result |
+| --- | --- | --- |
+| CLI | `caracal control mount` | Prepares the Control runtime without exposing the endpoint |
+| CLI | `caracal control enable` | Starts the mounted endpoint for authenticated automation |
+| CLI | `caracal control disable` | Stops the endpoint and retains the mounted runtime for fast re-enable |
+| CLI | `caracal control unmount` | Removes the Control runtime and clears lifecycle state |
+| CLI | `caracal control status` | Shows mounted state, enabled state, endpoint, health, lifecycle, and optimization details |
+| TUI | Control → mount / enable / disable / unmount / status | Performs the same lifecycle actions through stable structured views |
+
+`caracal up` includes the Control runtime only when the endpoint is enabled. A mounted-but-disabled runtime stays prepared without exposing the endpoint. Disabled or unmounted users do not need to know or operate Docker profiles directly.
 
 ---
 
@@ -162,8 +185,8 @@ Critical defaults:
 
 | Variable | Dev | rc / stable |
 | --- | --- | --- |
-| `CARACAL_CONTROL_ENABLED` | unset → service exits | must be `true` |
-| `CONTROL_HOST` | `127.0.0.1` | `0.0.0.0` |
+| Control enablement | CLI/TUI managed | CLI/TUI managed |
+| Endpoint binding | `127.0.0.1:8087` | `127.0.0.1:8087` in the bundled stack; publish through a trusted reverse proxy for remote access |
 | `CONTROL_REDIS_URL` | optional (falls back to in-memory) | **required** |
 | `AUDIT_HMAC_KEY` | optional | **required**, ≥ 32 bytes hex |
 | Replay cache | in-memory, single-replica | Redis, multi-replica safe |
@@ -174,6 +197,16 @@ The service refuses to start if any required variable is missing for the active 
 ---
 
 ## Operations
+
+**Mount.** Use `caracal control mount` or TUI → Control → mount. The engine prepares the optional runtime and records mounted state without exposing the endpoint.
+
+**Enable.** Use `caracal control enable` or TUI → Control → enable. The engine starts the mounted endpoint and records enabled state under the Caracal runtime home.
+
+**Status.** Use `caracal control status` or TUI → Control → status. The result includes endpoint URL, health, lifecycle, and cleanup state. Add `--json` in CLI automation for a structured status object.
+
+**Disable.** Use `caracal control disable` or TUI → Control → disable. The engine stops the endpoint while retaining the mounted runtime for fast re-enable.
+
+**Unmount.** Use `caracal control unmount` or TUI → Control → unmount. The engine removes the Control container and clears persisted lifecycle state so future stack starts do not include Control.
 
 **Health.** `GET /health` always returns `200`. Use for liveness probes.
 
@@ -230,9 +263,3 @@ Responses:
 ```
 
 Every response carries an `x-request-id` header; the same id appears in the audit row.
-
----
-
-## What this replaces
-
-A previous Go implementation under `services/control` ran its own dispatcher and held a Go copy of the command catalog kept in sync via a parity test. That arrangement guaranteed drift between the CLI/TUI execution path (TS engine) and the Control execution path (Go dispatcher). The TypeScript service collapses both into one engine, deletes the Go catalog, and removes the parity test. The HTTP contract (`POST /v1/control/invoke`, port `8087`, JWT auth, JTI replay, per-resource scopes, audit) is unchanged — only the implementation language and the dispatch path are.

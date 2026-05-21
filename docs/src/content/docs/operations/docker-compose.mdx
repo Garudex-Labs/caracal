@@ -132,15 +132,19 @@ environment:
   CONTROL_HOST: "0.0.0.0"
 ```
 
-The control service is disabled by default. Start it explicitly with Docker Compose's `control` profile after setting its authentication variables:
+The control service is unmounted by default and managed through the engine. Use CLI or TUI controls instead of operating the Compose profile directly:
 
 ```bash
-docker compose --env-file infra/docker/dev.env -f infra/docker/docker-compose.yml --profile control up --build control
+caracal control mount
+caracal control enable
+caracal control status
+caracal control disable
+caracal control unmount
 ```
 
-If `infra/docker/local.env` exists, pass it after `dev.env` so local operator overrides win.
+The TUI exposes the same flow under **Control**. Use `mount` to prepare Control without exposing the endpoint, `enable` and `disable` for fast logical on-off control, and `unmount` to remove the optional runtime for long-term idle state. The engine persists lifecycle state and includes the optional profile only when the endpoint should run.
 
-**Required when enabled:** `CARACAL_CONTROL_ENABLED=true`, `STS_JWKS_URL`, `STS_ISSUER_URL`, `CONTROL_AUDIENCE`, `CARACAL_API_URL`, `CONTROL_API_TOKEN`.
+**Required inside the managed service:** `CARACAL_CONTROL_ENABLED=true`, `STS_JWKS_URL`, `STS_ISSUER_URL`, `CONTROL_AUDIENCE`, `CARACAL_API_URL`, `CONTROL_API_TOKEN`.
 
 When `CARACAL_MODE=rc` or `CARACAL_MODE=stable`, the control service additionally requires `CONTROL_REDIS_URL` (single-replica memory replay is rejected) and `AUDIT_HMAC_KEY` (audit rows must be signed). The image is built from `apps/control/Dockerfile`; the container runs the TypeScript service that wraps the shared `@caracalai/engine` dispatch.
 
@@ -210,7 +214,7 @@ In production, replace these with external volumes backed by persistent block st
 | Gateway | `127.0.0.1:8081` | Upstream proxy (public-facing in prod) |
 | Coordinator | `127.0.0.1:4000` | Agent lifecycle; delegation graph |
 | Audit | `127.0.0.1:9090` | Audit query and export status |
-| Control | `127.0.0.1:8087` | Optional control profile |
+| Control | `127.0.0.1:8087` | Optional engine-managed endpoint |
 
 All bindings use `127.0.0.1` only. In production, services communicate over a private internal network and only the Gateway is exposed to external traffic.
 
