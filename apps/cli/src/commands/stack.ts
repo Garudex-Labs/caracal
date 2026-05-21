@@ -42,7 +42,7 @@ function printBanner(paths: StackPaths): void {
   process.stdout.write(`${style.label('caracal mode:')} ${style.header(tag)}\n`)
 }
 
-function composeEnv(paths: StackPaths): Record<string, string | undefined> {
+export function composeEnv(paths: StackPaths): Record<string, string | undefined> {
   // Build-time pins are authoritative in rc/stable. They are forwarded so compose
   // substitution sees the same values the loader enforces; the schema's pinned
   // check then rejects any conflicting override file or process.env entry.

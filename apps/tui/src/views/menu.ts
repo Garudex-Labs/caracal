@@ -5,6 +5,7 @@
 
 import type { AdminClient, Zone } from '@caracalai/admin'
 import {
+  applyControlLifecycleAction,
   buildRunEnv,
   checkMcpGovernance,
   controlKeyCreate,
@@ -12,11 +13,15 @@ import {
   controlKeyList,
   controlKeyRevoke,
   controlKeyRotate,
-  controlStateFile,
+  controlServiceStatus,
   credentialRead,
-  isControlEnabled,
+  resolveStackPaths,
   runExec,
-  setControlEnabled,
+  type ControlLifecycleAction,
+  type ControlLifecycleResult,
+  type ControlServiceStatus,
+  type StackMode,
+  type StackPaths,
 } from '@caracalai/engine'
 import { readFileSync } from 'node:fs'
 import { parse } from 'smol-toml'
@@ -29,7 +34,7 @@ import { explainError, maskSecretField } from '../errors.ts'
 import type { Key } from '../keys.ts'
 import type { App, View, ViewContext } from '../screen.ts'
 import { DetailView } from './detail.ts'
-import { FormView } from './form.ts'
+import { ConfirmView, FormView } from './form.ts'
 import {
   agentsView,
   applicationsView,
@@ -45,6 +50,7 @@ import {
   type Ctx,
 } from './factory.ts'
 import { StreamView } from './stream.ts'
+import { CARACAL_TUI_MODE, CARACAL_TUI_SHA, CARACAL_TUI_VERSION } from '../version.gen.ts'
 
 interface Entry {
   key: string
@@ -59,6 +65,25 @@ function loadCliConfig(): CliConfig | undefined {
   const path = resolveCliConfigPath()
   if (!path) return undefined
   return parse(readFileSync(path, 'utf8')) as unknown as CliConfig
+}
+
+function resolveControlStackMode(): StackMode {
+  const override = process.env.CARACAL_MODE
+  if (override === 'dev' || override === 'rc' || override === 'stable') return override
+  if (override) throw new Error(`CARACAL_MODE must be 'dev', 'rc', or 'stable' (got '${override}')`)
+  return CARACAL_TUI_MODE
+}
+
+function controlComposeEnv(paths: StackPaths): Record<string, string | undefined> {
+  const env: Record<string, string | undefined> = { CARACAL_MODE: paths.mode }
+  if (paths.mode !== 'dev') {
+    env.CARACAL_VERSION = CARACAL_TUI_VERSION
+    env.CARACAL_REGISTRY = process.env.CARACAL_REGISTRY
+  } else {
+    env.CARACAL_DEV_SHA = CARACAL_TUI_SHA
+    env.CARACAL_DEV_VERSION = CARACAL_TUI_VERSION
+  }
+  return env
 }
 
 function tokenizeArgv(input: string): string[] {
@@ -194,9 +219,11 @@ class ControlMenuView implements View {
   constructor(ctx: Ctx) {
     this.ctx = ctx
     this.items = [
-      { key: 'e', label: 'enable service', build: () => this.toggleView(true) },
-      { key: 'd', label: 'disable service', build: () => this.toggleView(false) },
-      { key: 's', label: 'service status', build: () => this.statusView() },
+      { key: 'm', label: 'mount runtime', build: () => this.lifecycleView('mount') },
+      { key: 'e', label: 'enable endpoint', build: () => this.lifecycleView('enable') },
+      { key: 'd', label: 'disable endpoint', build: () => this.lifecycleView('disable') },
+      { key: 'u', label: 'unmount runtime', build: () => this.unmountConfirm() },
+      { key: 's', label: 'management status', build: () => this.statusView() },
       { key: 'l', label: 'list keys',  build: () => this.listView() },
       { key: 'g', label: 'get key', build: () => this.getForm() },
       { key: 'c', label: 'create key', build: () => this.createForm() },
@@ -208,7 +235,12 @@ class ControlMenuView implements View {
   hints(): string[] { return ['↑/↓:select', 'enter:open', 'esc:back'] }
 
   render(_ctx: ViewContext): string[] {
-    const lines: string[] = ['', ' ' + ui.title('Control API keys'), ' ' + ui.muted('Manage control API credentials for the selected zone.'), '']
+    const lines: string[] = [
+      '',
+      ' ' + ui.title('Control API'),
+      ' ' + ui.muted('Enable the managed endpoint, inspect lifecycle status, and manage credentials.'),
+      '',
+    ]
     for (let i = 0; i < this.items.length; i++) {
       const it = this.items[i]!
       const mark = i === this.cursor ? ui.accent('>') : ' '
@@ -233,27 +265,35 @@ class ControlMenuView implements View {
     })
   }
 
-  private toggleView(enable: boolean): View {
-    return new DetailView({
-      title: `control / ${enable ? 'enable' : 'disable'}`,
-      load: async () => {
-        setControlEnabled(enable)
-        return {
-          state: isControlEnabled() ? 'enabled' : 'disabled',
-          marker: controlStateFile(),
-          note: 'Run `caracal up` to apply.',
-        }
+  private lifecycleView(action: ControlLifecycleAction): View {
+    return new ControlLifecycleView({
+      title: `control / ${action}`,
+      action,
+      run: async (onLine) => {
+        await this.ctx.client.zones.list()
+        const paths = resolveStackPaths({ mode: resolveControlStackMode() })
+        return applyControlLifecycleAction({ paths, action, env: controlComposeEnv(paths), onLine })
       },
     })
   }
 
   private statusView(): View {
-    return new DetailView({
+    return new ControlStatusView({
       title: 'control / status',
-      load: async () => ({
-        state: isControlEnabled() ? 'enabled' : 'disabled',
-        marker: controlStateFile(),
-      }),
+      load: async () => {
+        await this.ctx.client.zones.list()
+        return controlServiceStatus()
+      },
+    })
+  }
+
+  private unmountConfirm(): View {
+    return new ConfirmView({
+      message: 'Unmount Control runtime and remove its local container?',
+      onConfirm: async (app) => {
+        app.pop()
+        app.push(this.lifecycleView('unmount'))
+      },
     })
   }
 
@@ -264,11 +304,13 @@ class ControlMenuView implements View {
       fields: [
         { key: 'name', label: 'name', kind: 'text', required: true },
         { key: 'client_secret', label: 'client_secret', kind: 'secret' },
+        { key: 'audience', label: 'audience', kind: 'text', hint: 'default: caracal-control' },
       ],
       onSubmit: async (v, app) => {
         const result = await controlKeyCreate(client, zoneId, {
           name: v.name!,
           clientSecret: v.client_secret || undefined,
+          audience: v.audience || undefined,
         })
         app.pop()
         app.push(new DetailView({
@@ -278,6 +320,8 @@ class ControlMenuView implements View {
             name: result.application.name,
             client_id: result.application.id,
             client_secret: result.clientSecret,
+            resource: result.resource.identifier,
+            scopes: result.resource.scopes,
             traits: result.application.traits,
             note: 'store client_secret now — it cannot be retrieved later',
           }),
@@ -335,6 +379,168 @@ class ControlMenuView implements View {
       },
     })
   }
+}
+
+interface ControlStatusViewOptions {
+  title: string
+  load: () => Promise<ControlServiceStatus>
+}
+
+class ControlStatusView implements View {
+  readonly title: string
+  private readonly loadStatus: () => Promise<ControlServiceStatus>
+  private status: ControlServiceStatus | undefined
+  private loading = true
+  private error: string | undefined
+  private app: App | undefined
+  private aborted = false
+
+  constructor(opts: ControlStatusViewOptions) {
+    this.title = opts.title
+    this.loadStatus = opts.load
+  }
+
+  hints(): string[] { return ['r:reload', 'esc:back'] }
+
+  async init(app: App): Promise<void> {
+    this.app = app
+    await this.reload()
+  }
+
+  dispose(): void { this.aborted = true }
+
+  private async reload(): Promise<void> {
+    this.loading = true
+    this.error = undefined
+    this.app?.invalidate()
+    try {
+      const status = await this.loadStatus()
+      if (this.aborted) return
+      this.status = status
+    } catch (err) {
+      if (this.aborted) return
+      this.error = explainError(err)
+    } finally {
+      if (!this.aborted) {
+        this.loading = false
+        this.app?.invalidate()
+      }
+    }
+  }
+
+  render(_ctx: ViewContext): string[] {
+    if (this.loading) return ['', ' ' + ui.muted('Loading Control status...')]
+    if (this.error) return ['', ' ' + ui.error('error: ') + this.error]
+    if (!this.status) return ['', ' ' + ui.warn('Control status unavailable')]
+    return renderControlStatus(this.status, undefined)
+  }
+
+  async onKey(key: Key, ctx: ViewContext): Promise<void> {
+    if (key === 'r') return this.reload()
+    if (key === 'left' || key === 'esc') ctx.app.pop()
+  }
+}
+
+interface ControlLifecycleViewOptions {
+  title: string
+  action: ControlLifecycleAction
+  run: (onLine: (line: string, stream: 'stdout' | 'stderr') => void) => Promise<ControlLifecycleResult>
+}
+
+class ControlLifecycleView implements View {
+  readonly title: string
+  private readonly action: ControlLifecycleAction
+  private readonly runAction: ControlLifecycleViewOptions['run']
+  private result: ControlLifecycleResult | undefined
+  private loading = true
+  private error: string | undefined
+  private lineCount = 0
+  private app: App | undefined
+  private aborted = false
+
+  constructor(opts: ControlLifecycleViewOptions) {
+    this.title = opts.title
+    this.action = opts.action
+    this.runAction = opts.run
+  }
+
+  hints(): string[] { return ['esc:back'] }
+
+  async init(app: App): Promise<void> {
+    this.app = app
+    app.setStatus(`control ${this.action}: working...`)
+    app.invalidate()
+    try {
+      const result = await this.runAction(() => {
+        this.lineCount++
+      })
+      if (this.aborted) return
+      this.result = result
+      app.setStatus(result.summary)
+    } catch (err) {
+      if (this.aborted) return
+      this.error = explainError(err)
+      app.setStatus(`control ${this.action}: ${this.error}`, 'error')
+    } finally {
+      if (!this.aborted) {
+        this.loading = false
+        app.invalidate()
+      }
+    }
+  }
+
+  dispose(): void { this.aborted = true }
+
+  render(_ctx: ViewContext): string[] {
+    if (this.loading) {
+      return [
+        '',
+        ' ' + ui.title(`Control ${this.action}`),
+        ' ' + ui.muted('Applying lifecycle action...'),
+        '',
+        ` ${ui.muted('progress')} ${ui.info('runtime output captured, interface remains stable')}`,
+      ]
+    }
+    if (this.error) return ['', ' ' + ui.error('error: ') + this.error]
+    if (!this.result) return ['', ' ' + ui.warn('Control action did not produce a result')]
+    return renderControlStatus(this.result, `${this.lineCount} runtime line${this.lineCount === 1 ? '' : 's'} captured`)
+  }
+
+  onKey(key: Key, ctx: ViewContext): void {
+    if (key === 'left' || key === 'esc') ctx.app.pop()
+  }
+}
+
+function controlStateText(state: ControlServiceStatus['state']): string {
+  if (state === 'enabled') return ui.success(state)
+  if (state === 'disabled') return ui.warn(state)
+  return ui.muted(state)
+}
+
+function controlServiceText(service: ControlServiceStatus['service'] | ControlLifecycleResult['service']): string {
+  if (service === 'ok' || service === 'running' || service === 'prepared') return ui.success(service)
+  if (service === 'down') return ui.error(service)
+  return ui.muted(service)
+}
+
+function renderControlStatus(
+  status: ControlServiceStatus | ControlLifecycleResult,
+  eventSummary: string | undefined,
+): string[] {
+  const lines = ['', ' ' + ui.title('Control API management'), '']
+  lines.push(` ${ui.muted('state')}      ${controlStateText(status.state)}`)
+  lines.push(` ${ui.muted('runtime')}    ${controlServiceText(status.service)}`)
+  lines.push(` ${ui.muted('mounted')}    ${status.mounted ? ui.success('yes') : ui.muted('no')}`)
+  lines.push(` ${ui.muted('enabled')}    ${status.enabled ? ui.success('yes') : ui.muted('no')}`)
+  const endpoint = status.enabled ? ui.input(status.invokeUrl) : ui.muted(`not exposed (${status.invokeUrl})`)
+  lines.push(` ${ui.muted('endpoint')}   ${endpoint}`)
+  lines.push(` ${ui.muted('lifecycle')}  ${status.lifecycle}`)
+  lines.push(` ${ui.muted('optimize')}   ${status.optimization}`)
+  if ('detail' in status) lines.push(` ${ui.muted('health')}     ${status.detail}`)
+  if (eventSummary) lines.push(` ${ui.muted('events')}     ${eventSummary}`)
+  lines.push(` ${ui.muted('state file')} ${status.marker}`)
+  lines.push('')
+  return lines
 }
 
 export class MenuView implements View {
