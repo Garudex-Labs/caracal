@@ -107,6 +107,13 @@ def _optional_int(values: dict[str, object], name: str) -> int | None:
     return value
 
 
+def _required_int(values: dict[str, object], name: str) -> int:
+    value = _optional_int(values, name)
+    if value is None:
+        raise TokenInvalidError(f"Token claim {name} is required")
+    return value
+
+
 def _string_list(values: dict[str, object], name: str) -> list[str]:
     value = values.get(name)
     if value is None:
@@ -227,8 +234,11 @@ async def verify_config(token: str, config: JwtConfig) -> Claims:
         zone_id=_required_str(decoded, "zone_id"),
         client_id=_required_str(decoded, "client_id"),
         sid=_required_str(decoded, "sid"),
+        root_sid=_optional_str(decoded, "root_sid"),
         use=_required_str(decoded, "use"),
         jti=_required_str(decoded, "jti"),
+        issued_at=_required_int(decoded, "iat"),
+        expires_at=_required_int(decoded, "exp"),
         scope=scope,
         agent_session_id=agent_session_id,
         delegation_edge_id=delegation_edge_id,

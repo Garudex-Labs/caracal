@@ -89,6 +89,12 @@ function optionalInteger(payload: Record<string, unknown>, name: string): number
   return value
 }
 
+function requiredInteger(payload: Record<string, unknown>, name: string): number {
+  const value = optionalInteger(payload, name)
+  if (value === undefined) throw new TokenInvalidError(`Token claim ${name} is required`)
+  return value
+}
+
 function readStringList(raw: unknown, name: string): string[] | undefined {
   if (raw === undefined || raw === null) return undefined
   if (!Array.isArray(raw)) throw new TokenInvalidError(`Token claim ${name} must be a string array`)
@@ -135,9 +141,13 @@ export async function verify(token: string, config: JwtConfig): Promise<Claims> 
   const sub = requiredString(payload, 'sub')
   const clientId = requiredString(payload, 'client_id')
   const sid = requiredString(payload, 'sid')
+  const rootSid = optionalString(payload, 'root_sid')
   const use = requiredString(payload, 'use')
+  const issuedAt = requiredInteger(payload, 'iat')
+  const expiresAt = requiredInteger(payload, 'exp')
   const scope = (payload['scope'] as string | undefined) ?? ''
   if (typeof scope !== 'string') throw new TokenInvalidError('Token claim scope must be a string')
+  const targetResources = readStringList(payload['target'], 'target')
   const rawZoneId = payload['zone_id']
   if (typeof rawZoneId !== 'string' || rawZoneId === '' || (config.zoneId && rawZoneId !== config.zoneId)) {
     throw new ZoneInvalidError()
@@ -147,6 +157,11 @@ export async function verify(token: string, config: JwtConfig): Promise<Claims> 
   for (const required of config.requiredScopes ?? []) {
     if (!hasScope(scope, required)) {
       throw new ScopeInsufficientError(required)
+    }
+  }
+  for (const target of config.requiredTargets ?? []) {
+    if (!targetResources?.includes(target)) {
+      throw new TokenInvalidError('Token target resource validation failed')
     }
   }
 
@@ -181,9 +196,13 @@ export async function verify(token: string, config: JwtConfig): Promise<Claims> 
     zoneId,
     clientId,
     sid,
+    rootSid,
     use,
     jti,
+    issuedAt,
+    expiresAt,
     scope,
+    targetResources,
     agentSessionId,
     delegationEdgeId,
     sourceSessionId,

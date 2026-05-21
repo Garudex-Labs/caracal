@@ -143,6 +143,20 @@ func optionalInt(claims jwt.MapClaims, name string) (int, bool) {
 	}
 }
 
+func requiredInt64(claims jwt.MapClaims, name string) (int64, bool) {
+	value, ok := optionalInt(claims, name)
+	if !ok {
+		return 0, false
+	}
+	if value == 0 {
+		_, present := claims[name]
+		if !present {
+			return 0, false
+		}
+	}
+	return int64(value), true
+}
+
 // Verify parses and validates a JWT, returning typed Claims on success.
 func Verify(tokenStr string, cfg Config) (Claims, error) {
 	mapClaims := jwt.MapClaims{}
@@ -184,12 +198,24 @@ func Verify(tokenStr string, cfg Config) (Claims, error) {
 	if !ok {
 		return Claims{}, ErrTokenInvalid
 	}
+	rootSid, ok := optionalString(mapClaims, "root_sid")
+	if !ok {
+		return Claims{}, ErrTokenInvalid
+	}
 	clientID, ok := requiredString(mapClaims, "client_id")
 	if !ok {
 		return Claims{}, ErrTokenInvalid
 	}
 	use, ok := requiredString(mapClaims, "use")
 	if !ok || (cfg.RequiredUse != "" && use != cfg.RequiredUse) {
+		return Claims{}, ErrTokenInvalid
+	}
+	issuedAt, ok := requiredInt64(mapClaims, "iat")
+	if !ok {
+		return Claims{}, ErrTokenInvalid
+	}
+	expiresAt, ok := requiredInt64(mapClaims, "exp")
+	if !ok {
 		return Claims{}, ErrTokenInvalid
 	}
 	for _, required := range cfg.RequiredScopes {
@@ -258,8 +284,11 @@ func Verify(tokenStr string, cfg Config) (Claims, error) {
 		ZoneID:           zoneID,
 		ClientID:         clientID,
 		Sid:              sid,
+		RootSid:          rootSid,
 		Use:              use,
 		JTI:              jti,
+		IssuedAt:         issuedAt,
+		ExpiresAt:        expiresAt,
 		Scope:            scope,
 		AgentSessionID:   agentSessionID,
 		DelegationEdgeID: delegationEdgeID,
