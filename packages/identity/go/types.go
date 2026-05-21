@@ -15,6 +15,11 @@ const (
 	MandateUseResource = "resource"
 )
 
+const (
+	SubjectTypeUser        = "user"
+	SubjectTypeApplication = "application"
+)
+
 // Config configures JWT verification.
 type Config struct {
 	Issuer               string
@@ -44,6 +49,7 @@ type Claims struct {
 	Sid              string
 	RootSid          string
 	Use              string
+	SubType          string
 	JTI              string
 	IssuedAt         int64
 	ExpiresAt        int64

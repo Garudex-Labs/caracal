@@ -39,7 +39,9 @@ def _mint_no_kid_token() -> tuple[str, dict]:
         "sub": "user1",
         "client_id": "app1",
         "sid": "sid1",
+        "root_sid": "root1",
         "use": "resource",
+        "sub_type": "user",
         "jti": "jti1",
         "zone_id": "zone1",
         "scope": "read",
@@ -87,6 +89,8 @@ class VerifyConfigTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(claims.zone_id, "zone1")
         self.assertEqual(claims.client_id, "app-1")
         self.assertEqual(claims.sid, "sid-1")
+        self.assertEqual(claims.root_sid, "root1")
+        self.assertEqual(claims.sub_type, "user")
         self.assertGreater(claims.expires_at, claims.issued_at)
         self.assertEqual(claims.target_resources, ["resource://api"])
 
@@ -206,7 +210,9 @@ class VerifyChainContainsTests(unittest.TestCase):
             zone_id="z",
             client_id=client_id,
             sid="s",
+            root_sid="r",
             use="resource",
+            sub_type="user",
             jti="j",
             scope="read",
             issued_at=1,
