@@ -382,14 +382,14 @@ Add a new Rego version to an existing policy.
 
 ```bash
 caracal policy version pol_mno345 --file policy-v2.rego
-caracal policy version pol_mno345 --file policy-v2.rego --schema-version 2026-03-16
+caracal policy version pol_mno345 --file policy-v2.rego --schema-version 2026-05-20
 ```
 
 | Flag | Type | Default | Description |
 | --- | --- | --- | --- |
 | `--file <path>` | string | required† | Path to Rego file |
 | `--content <rego>` | string | required† | Inline Rego source |
-| `--schema-version <v>` | string | `2026-03-16` | Policy schema version |
+| `--schema-version <v>` | string | `2026-05-20` | Policy schema version |
 
 †Either `--file` or `--content` is required.
 
@@ -464,14 +464,38 @@ Promote a version to active. Token exchanges immediately begin evaluating it.
 ```bash
 caracal policy-set activate pset_pqr678 --version psetv_jkl012
 
-# Shadow mode: evaluate new version in parallel but use the active version's decision
+# Shadow version is stored in the binding metadata for rollout planning.
 caracal policy-set activate pset_pqr678 --version psetv_mno345 --shadow psetv_jkl012
 ```
 
 | Flag | Type | Default | Description |
 | --- | --- | --- | --- |
 | `--version <vid>` | string | required | Policy-set version ID to activate |
-| `--shadow <vid>` | string | — | Version to run in shadow (evaluation-only) mode |
+| `--shadow <vid>` | string | — | Version to store as shadow binding metadata |
+
+---
+
+### `caracal policy-set simulate <id>`
+
+Validate a policy-set version and an optional input fixture without changing active bindings.
+
+```bash
+caracal policy-set simulate pset_pqr678 \
+  --version psetv_jkl012 \
+  --input-file input.json
+
+caracal policy-set simulate pset_pqr678 \
+  --version psetv_jkl012 \
+  --input '{"schema_version":"2026-05-20","principal":{"zone_id":"zone_abc123"}}'
+```
+
+The simulation endpoint validates rollout contract, schema compatibility, manifest integrity, public-application invariants, and optional input shape. It does not execute STS OPA evaluation.
+
+| Flag | Type | Default | Description |
+| --- | --- | --- | --- |
+| `--version <vid>` | string | required | Policy-set version ID to simulate |
+| `--input <json>` | JSON object | — | Inline OPA input fixture |
+| `--input-file <path>` | file path | — | OPA input fixture file |
 
 ---
 

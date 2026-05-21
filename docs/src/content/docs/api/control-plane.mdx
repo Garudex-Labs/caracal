@@ -331,7 +331,7 @@ Creates the policy and its first version simultaneously.
 | `content` | string | Yes | Rego source; validated before storage |
 | `description` | string | No | — |
 | `owner_type` | string | No | `"customer"` |
-| `schema_version` | string | No | `"2026-03-16"` |
+| `schema_version` | string | No | `"2026-05-20"` |
 
 **Rego validation:** Content must declare `package caracal.authz` and emit `data.caracal.authz.result`. Invalid Rego returns `422 invalid_rego`.
 
@@ -351,7 +351,7 @@ Creates the policy and its first version simultaneously.
     "policy_id": "policy-uuid",
     "version": 1,
     "content_sha256": "<hex>",
-    "schema_version": "2026-03-16",
+    "schema_version": "2026-05-20",
     "created_at": "2026-01-01T00:00:00Z"
   }
 }
@@ -370,7 +370,7 @@ Add a new immutable version. Version numbers auto-increment (1, 2, 3…).
 | Field | Type | Required |
 | --- | --- | --- |
 | `content` | string | Yes | New Rego source |
-| `schema_version` | string | No | Default `"2026-03-16"` |
+| `schema_version` | string | No | Default `"2026-05-20"` |
 
 **Response 201:** PolicyVersion object.
 
@@ -382,7 +382,7 @@ Archives the policy. **Response 204.**
 
 ## Policy Sets — `/v1/zones/{zoneId}/policy-sets`
 
-A policy set bundles one or more policy versions into a versioned manifest that can be atomically activated. Only one version is active at a time per zone. An optional shadow version runs in observe-only mode for canary evaluation.
+A policy set bundles one or more policy versions into a versioned manifest that can be atomically activated. Only one version is active at a time per zone. `shadow_version_id` is persisted as rollout metadata; the current OSS runtime does not execute shadow policy decisions.
 
 ### `POST /v1/zones/{zoneId}/policy-sets`
 
@@ -405,7 +405,7 @@ Create a version from a manifest of policy version IDs.
     { "policy_version_id": "version-uuid-1" },
     { "policy_version_id": "version-uuid-2" }
   ],
-  "schema_version": "2026-03-16"
+  "schema_version": "2026-05-20"
 }
 ```
 
@@ -419,7 +419,7 @@ Create a version from a manifest of policy version IDs.
   "policy_set_id": "pset-uuid",
   "version": 1,
   "manifest_sha256": "<hex>",
-  "schema_version": "2026-03-16",
+  "schema_version": "2026-05-20",
   "created_at": "2026-01-01T00:00:00Z"
 }
 ```
@@ -428,7 +428,7 @@ Create a version from a manifest of policy version IDs.
 
 ### `POST /v1/zones/{zoneId}/policy-sets/{id}/activate`
 
-Atomically activate a version, optionally with a shadow version for canary evaluation.
+Atomically activate a version, optionally storing a shadow version ID for rollout tracking.
 
 **Request body:**
 
@@ -449,6 +449,19 @@ Atomically activate a version, optionally with a shadow version for canary evalu
 ```
 
 Activation enqueues a `caracal.policy.invalidate` stream message via the outbox, which causes the STS to reload its policy bundle within seconds.
+
+### `POST /v1/zones/{zoneId}/policy-sets/{id}/simulate`
+
+Validate a policy-set version and optional OPA input fixture without mutating active bindings.
+
+**Request body:**
+
+| Field | Type | Required |
+| --- | --- | --- |
+| `version_id` | UUID | Yes |
+| `input` | object | No |
+
+The simulation checks policy-set contract, schema compatibility, manifest integrity, and optional input shape. It does not execute STS OPA evaluation.
 
 **Errors:**
 

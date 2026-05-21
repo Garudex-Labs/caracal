@@ -1,0 +1,40 @@
+---
+title: Failure Modes and Recovery
+description: Operator-focused detection, blast radius, safe recovery, and verification steps for core Caracal production failure modes.
+pageType: reference
+---
+
+This matrix gives operators a direct path from symptom to safe recovery. It complements [Incident Response](./incident-response/) and maps to `caracal status --ready`, `caracal doctor --extended`, service `/ready`, Prometheus `/metrics`, and the optional Helm `PrometheusRule` resources.
+
+**Maturity label:** implemented operator guidance. Some recoveries still depend on the platform team's Postgres, Redis, backup, ingress, and secret-management tooling.
+
+| Failure mode | Detect with | Blast radius | Safe recovery | Verify |
+| --- | --- | --- | --- | --- |
+| STS unavailable | `caracal status --ready`, Gateway 502/504, STS `/ready` | New token exchanges fail; existing upstream calls may fail at Gateway exchange | Restore STS replicas, check Postgres/Redis reachability, confirm STS audit replay is ready | `caracal doctor --extended`; STS `/ready` 200; Gateway STS exchange errors stop increasing |
+| OPA compile failure | `caracal_sts_opa_compile_errors_total`, STS logs, policy activation history | Affected policy loads fail closed or keep last valid bundle depending on load path | Roll back to the last known-good policy-set version; validate policy source; reactivate | `policy-set simulate`; STS compile errors stop increasing; denied requests match expected policy |
+| No active policy set | STS deny audit, policy-set list shows no `active_version_id` | Token exchanges for that zone deny by design | Activate a validated baseline policy set | `caracal policy-set list`; successful allow/deny fixture exchanges |
+| Gateway binding missing | `caracal_gateway_denials_binding_total`, Gateway 403 | Protected route denies before upstream dispatch | Create or correct resource binding and Gateway application; reload Gateway if required | Gateway `/ready`; denial counter stops increasing for expected route |
+| Redis memory full or unavailable | Redis alerts, service `/ready` failures, stream publish errors | Revocation, audit, outbox, and policy invalidation may lag or fail | Increase Redis memory, remove pressure safely, restore connectivity; do not flush streams unless restoring from an approved backup plan | API/STS/Gateway/Audit `/ready`; stream lag returns to normal |
+| Audit DLQ growth | `caracal_audit_dlq_size`, `caracal_audit_dlq_oldest_age_seconds` | Audit evidence delayed; events in DLQ require triage before replay | Inspect DLQ reason, fix producer HMAC/schema/storage issue, replay through approved tooling | DLQ size returns to zero; audit inserts increase; tamper metrics stay flat |
+| Audit tamper evidence | `caracal_audit_tamper_*` metrics | Security incident for audit integrity scope | Preserve evidence, freeze destructive retention, investigate database/object-store access, rotate affected keys if needed | Tamper sweep clean after containment; incident record links preserved evidence |
+| Revocation lag | Gateway accepts revoked sessions or revocation counters lag | Revoked authority may remain usable briefly | Check Redis streams, Gateway revocation cache, Coordinator/API outbox, and Gateway readiness | Revoked session denied at Gateway; revocation counters and stream lag stabilize |
+| Postgres connection exhaustion | API/STS/Audit/Coordinator `/ready` failures, database pool alerts | Control-plane reads/writes and exchanges degrade or fail | Scale database capacity, reduce replicas/pool sizes, resolve slow queries, restart wedged clients if needed | `/ready` returns 200; connection count below threshold; request latency recovers |
+| Key or secret rotation error | JWKS failures, HMAC failures, startup failures, provider credential errors | Token verification, audit signing, provider brokering, or encryption can fail | Roll back or complete rotation using the documented key-management sequence; never overwrite unknown keys without backup | JWKS valid; services ready; HMAC failure counters stop increasing |
+
+## Diagnostic ladder
+
+1. Run `caracal status --ready` for local or evaluation stacks.
+2. Run `caracal doctor --extended --json` and keep the JSON output with the incident record.
+3. Check Prometheus alerts and service `/metrics` for the component listed in the matrix.
+4. Use `caracal audit tail --request-id <id>` and `caracal explain <request-id>` for request-specific denials.
+5. Apply the smallest safe recovery, then verify through readiness, metrics, and one known allow/deny request.
+
+## Unsafe actions
+
+Avoid these actions during recovery unless an incident commander explicitly approves them:
+
+- Flushing Redis streams or databases without a replay/backup plan.
+- Replacing `ZONE_KEK`, audit HMAC, stream HMAC, or Gateway↔STS HMAC keys without coordinated rotation.
+- Exposing STS or API publicly to bypass a Gateway outage.
+- Activating unvalidated policies to restore traffic quickly.
+- Disabling audit emission or revocation checks to reduce load.

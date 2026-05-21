@@ -187,7 +187,7 @@ interface ProviderInput {
 
 ## Policy methods — `client.policies`
 
-Policies are immutable after creation. New Rego source is added as a new version. The schema version defaults to `'2026-03-16'`.
+Policies are immutable after creation. New Rego source is added as a new version. The schema version defaults to `'2026-05-20'`.
 
 ```typescript
 client.policies.list(zoneId: string): Promise<Policy[]>
@@ -201,7 +201,7 @@ interface PolicyInput {
   content: string;          // Rego source
   description?: string;
   owner_type?: string;
-  schema_version?: string;  // default: '2026-03-16'
+  schema_version?: string;  // default: '2026-05-20'
 }
 
 interface Policy {
@@ -237,6 +237,12 @@ client.policySets.addVersion(
   id: string,
   manifest: Array<{ policy_version_id: string }>
 ): Promise<PolicySetVersion>
+client.policySets.simulate(
+  zoneId: string,
+  id: string,
+  versionId: string,
+  input?: Record<string, unknown>
+): Promise<PolicySetSimulation>
 client.policySets.activate(
   zoneId: string,
   id: string,
