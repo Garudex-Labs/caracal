@@ -57,10 +57,14 @@ type SpawnResponse struct {
 
 // DelegationConstraints narrows a delegation edge.
 type DelegationConstraints struct {
-	Resources []string
-	Actions   []string
-	MaxDepth  int
-	ExpiresAt string
+	Resources      []string
+	MaxDepth       int
+	MaxHops        int
+	TTLSeconds     int
+	Budget         int
+	PolicyApproved bool
+	ExpiresAt      string
+	BroadReason    string
 }
 
 func (d *DelegationConstraints) toWire() map[string]any {
@@ -68,14 +72,26 @@ func (d *DelegationConstraints) toWire() map[string]any {
 	if d.Resources != nil {
 		out["resources"] = d.Resources
 	}
-	if d.Actions != nil {
-		out["actions"] = d.Actions
-	}
 	if d.MaxDepth > 0 {
 		out["max_depth"] = d.MaxDepth
 	}
+	if d.MaxHops > 0 {
+		out["max_hops"] = d.MaxHops
+	}
+	if d.TTLSeconds > 0 {
+		out["ttl_seconds"] = d.TTLSeconds
+	}
+	if d.Budget > 0 {
+		out["budget"] = d.Budget
+	}
+	if d.PolicyApproved {
+		out["policy_approved"] = d.PolicyApproved
+	}
 	if d.ExpiresAt != "" {
 		out["expires_at"] = d.ExpiresAt
+	}
+	if d.BroadReason != "" {
+		out["broad_reason"] = d.BroadReason
 	}
 	return out
 }
@@ -87,6 +103,7 @@ type DelegationRequest struct {
 	SourceSessionID       string
 	TargetSessionID       string
 	ReceiverApplicationID string
+	ResourceID            string
 	Scopes                []string
 	Constraints           *DelegationConstraints
 	TTLSeconds            int
@@ -155,6 +172,9 @@ func CreateDelegation(ctx context.Context, client *CoordinatorClient, bearer str
 		"target_session_id":       req.TargetSessionID,
 		"receiver_application_id": req.ReceiverApplicationID,
 		"scopes":                  req.Scopes,
+	}
+	if req.ResourceID != "" {
+		body["resource_id"] = req.ResourceID
 	}
 	if req.Constraints != nil {
 		body["constraints"] = req.Constraints.toWire()

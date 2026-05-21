@@ -56,12 +56,14 @@ export interface SpawnOptions {
 export interface DelegateOptions {
   to: string;
   toApplicationId: string;
+  resourceId?: string;
   scopes: string[];
   constraints?: DelegationConstraints;
   ttlSeconds?: number;
 }
 
 export interface DelegateToSpawnOptions {
+  resourceId?: string;
   scopes: string[];
   constraints?: DelegationConstraints;
   delegationTtlSeconds?: number;
@@ -186,6 +188,7 @@ export class Caracal {
       coordinator: this.config.coordinator,
       toAgentSessionId: opts.to,
       toApplicationId: opts.toApplicationId,
+      resourceId: opts.resourceId,
       scopes: opts.scopes,
       constraints: opts.constraints,
       ttlSeconds: opts.ttlSeconds,
@@ -199,6 +202,7 @@ export class Caracal {
       zoneId: this.config.zoneId,
       applicationId: this.config.applicationId,
       subjectToken: await this.rootToken(),
+      resourceId: opts.resourceId,
       scopes: opts.scopes,
       constraints: opts.constraints,
       delegationTtlSeconds: opts.delegationTtlSeconds,

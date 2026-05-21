@@ -44,6 +44,8 @@ async def authenticate(
     require_delegation: bool = False,
     require_chain_contains: list[str] | None = None,
     max_hop_count: int | None = None,
+    required_targets: list[str] | None = None,
+    required_use: str | None = "per_call",
 ) -> AuthResult:
     if not token:
         return AuthResult(None, AuthError("missing_token", "Missing bearer token"))
@@ -53,6 +55,8 @@ async def authenticate(
         audience=audience,
         expected_zone_id=expected_zone_id,
         required_scopes=required_scopes or [],
+        required_targets=required_targets or [],
+        required_use=required_use,
         require_agent=require_agent,
         require_delegation=require_delegation,
         require_chain_contains=require_chain_contains or [],
