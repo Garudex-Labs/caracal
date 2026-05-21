@@ -270,7 +270,6 @@ class ControlMenuView implements View {
       title: `control / ${action}`,
       action,
       run: async (onLine) => {
-        await this.ctx.client.zones.list()
         const paths = resolveStackPaths({ mode: resolveControlStackMode() })
         return applyControlLifecycleAction({ paths, action, env: controlComposeEnv(paths), onLine })
       },
@@ -280,10 +279,7 @@ class ControlMenuView implements View {
   private statusView(): View {
     return new ControlStatusView({
       title: 'control / status',
-      load: async () => {
-        await this.ctx.client.zones.list()
-        return controlServiceStatus()
-      },
+      load: () => controlServiceStatus(),
     })
   }
 
@@ -498,7 +494,7 @@ class ControlLifecycleView implements View {
         ' ' + ui.title(`Control ${this.action}`),
         ' ' + ui.muted('Applying lifecycle action...'),
         '',
-        ` ${ui.muted('progress')} ${ui.info('runtime output captured, interface remains stable')}`,
+        ` ${ui.muted('status')} ${ui.info('preparing managed runtime')}`,
       ]
     }
     if (this.error) return ['', ' ' + ui.error('error: ') + this.error]

@@ -39,7 +39,6 @@ vi.mock('../../../../packages/engine/src/controlState.js', () => ({
 
 import {
   applyControlLifecycleAction,
-  applyControlServiceState,
   composeRun,
   controlServiceStatus,
   defaultServiceProbes,
@@ -220,6 +219,21 @@ describe('stack lifecycle compose commands', () => {
       'control',
       'down',
     ])
+    expect(calls[0].env).toEqual({ CARACAL_MODE: 'stable', CARACAL_ENGINE_CONTROL_ENABLED: 'true' })
+  })
+
+  it('rejects direct Control service targets from stack commands', () => {
+    expect(() => stackUp({
+      paths: paths('stable', []),
+      args: ['control'],
+      env: { CARACAL_MODE: 'stable' },
+    })).toThrow(/managed only through caracal-cli control/)
+
+    expect(() => stackDown({
+      paths: paths('stable', []),
+      args: ['--profile', 'api,control'],
+      env: { CARACAL_MODE: 'stable' },
+    })).toThrow(/managed only through caracal-cli control/)
   })
 
   it('filters absent env files through the filesystem boundary', () => {
@@ -271,6 +285,7 @@ describe('stack compose helpers', () => {
       'control',
       'ps',
     ])
+    expect(calls[0].env).toEqual({ CARACAL_MODE: 'stable', CARACAL_ENGINE_CONTROL_ENABLED: 'true' })
     expect(calls[1].argv).toEqual([
       'docker',
       'compose',
@@ -300,6 +315,23 @@ describe('stack compose helpers', () => {
     })
     const enabled = defaultServiceProbes('/tmp/home')
     expect(enabled.some((p) => p.name === 'control' && p.port === 9100)).toBe(true)
+
+    readControlStateMock.mockReturnValueOnce({
+      mounted: true,
+      enabled: false,
+      managedBy: 'engine',
+      updatedAt: '2026-05-21T00:00:00.000Z',
+      service: 'control',
+      profile: 'control',
+      port: 9100,
+      endpoint: 'http://localhost:9100',
+      healthUrl: 'http://localhost:9100/health',
+      readyUrl: 'http://localhost:9100/ready',
+      invokeUrl: 'http://localhost:9100/v1/control/invoke',
+      bind: '127.0.0.1',
+    })
+    const mountedDisabled = defaultServiceProbes('/tmp/home')
+    expect(mountedDisabled.some((p) => p.name === 'control')).toBe(false)
 
     readControlStateMock.mockReturnValueOnce(undefined)
     const disabled = defaultServiceProbes('/tmp/home')
@@ -356,7 +388,7 @@ describe('stack compose helpers', () => {
     }
   })
 
-  it('applies control service state immediately through compose', async () => {
+  it('applies control lifecycle actions only through managed compose environment', async () => {
     const stable = paths('stable', [])
     readControlStateMock
       .mockReturnValueOnce(undefined)
@@ -375,9 +407,9 @@ describe('stack compose helpers', () => {
         bind: '127.0.0.1',
       })
 
-    await expect(applyControlServiceState({
+    await expect(applyControlLifecycleAction({
       paths: stable,
-      enabled: true,
+      action: 'enable',
       env: { CARACAL_MODE: 'stable' },
     })).resolves.toMatchObject({
       action: 'enable',
@@ -393,9 +425,9 @@ describe('stack compose helpers', () => {
       optimization: 'uses the existing stack services; no dedicated persistent volume is created',
     })
 
-    await expect(applyControlServiceState({
+    await expect(applyControlLifecycleAction({
       paths: stable,
-      enabled: false,
+      action: 'disable',
       env: { CARACAL_MODE: 'stable' },
     })).resolves.toMatchObject({
       action: 'disable',
@@ -413,6 +445,7 @@ describe('stack compose helpers', () => {
 
     expect(setControlEnabledMock).toHaveBeenNthCalledWith(1, true)
     expect(setControlEnabledMock).toHaveBeenNthCalledWith(2, false)
+    expect(calls[0].env).toEqual({ CARACAL_MODE: 'stable', CARACAL_ENGINE_CONTROL_ENABLED: 'true' })
     expect(calls[0].argv).toEqual([
       'docker',
       'compose',
@@ -425,6 +458,7 @@ describe('stack compose helpers', () => {
       'control',
     ])
     expect(typeof calls[0].onLine).toBe('function')
+    expect(calls[1].env).toEqual({ CARACAL_MODE: 'stable', CARACAL_ENGINE_CONTROL_ENABLED: 'true' })
     expect(calls[1].argv).toEqual([
       'docker',
       'compose',
@@ -469,6 +503,7 @@ describe('stack compose helpers', () => {
 
     expect(setControlMountedMock).toHaveBeenNthCalledWith(1, true, false)
     expect(setControlMountedMock).toHaveBeenNthCalledWith(2, false, false)
+    expect(calls[0].env).toEqual({ CARACAL_MODE: 'stable', CARACAL_ENGINE_CONTROL_ENABLED: 'true' })
     expect(calls[0].argv).toEqual([
       'docker',
       'compose',
@@ -481,6 +516,7 @@ describe('stack compose helpers', () => {
       'control',
     ])
     expect(typeof calls[0].onLine).toBe('function')
+    expect(calls[1].env).toEqual({ CARACAL_MODE: 'stable', CARACAL_ENGINE_CONTROL_ENABLED: 'true' })
     expect(calls[1].argv).toEqual([
       'docker',
       'compose',

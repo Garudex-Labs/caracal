@@ -59,4 +59,9 @@ describe('completionCommand', () => {
     completionCommand(['bash', 'caracal-cli'])
     expect(cap.out()).toMatch(/\bcompletion\b/)
   })
+
+  it('keeps Control management off the thin shell command list', () => {
+    expect(SHELL_COMMANDS.some((c) => c.name === 'control')).toBe(false)
+    expect(CLI_COMMANDS.some((c) => c.name === 'control')).toBe(true)
+  })
 })
