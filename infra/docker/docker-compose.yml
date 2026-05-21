@@ -502,6 +502,7 @@ services:
     environment:
       CARACAL_MODE: ${CARACAL_MODE:-dev}
       CARACAL_CONTROL_ENABLED: "${CARACAL_ENGINE_CONTROL_ENABLED:-false}"
+      CONTROL_GATE_FILE: /run/caracal-control/enabled
       STS_JWKS_URL: ${CARACAL_STS_ISSUER_URL:-http://sts:8080}/.well-known/jwks.json
       STS_ISSUER_URL: ${CARACAL_STS_ISSUER_URL:-http://sts:8080}
       CONTROL_AUDIENCE: ${CONTROL_AUDIENCE:-caracal-control}
@@ -518,6 +519,8 @@ services:
       OTEL_RESOURCE_ATTRIBUTES: service.namespace=caracal,deployment.environment=${CARACAL_MODE:-dev}
     ports:
       - "127.0.0.1:8087:8087"
+    volumes:
+      - "${CARACAL_CONTROL_STATE_DIR:-./control}:/run/caracal-control:ro"
     healthcheck:
       test: ["CMD", "/healthcheck"]
       interval: 5s

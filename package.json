@@ -16,6 +16,7 @@
   "scripts": {
     "caracal": "node apps/cli/bin/caracal-workspace.mjs",
     "caracal-tui": "node apps/tui/bin/caracal-tui-workspace.mjs",
+    "control:smoke": "node scripts/control-api-smoke.mjs",
     "secrets:init": "node infra/secrets/secretInit.mjs",
     "build:typescript": "pnpm --dir packages/core/ts build && pnpm --dir packages/oauth/ts build && pnpm --dir packages/admin/ts build && pnpm --dir packages/adminAudit/ts build && pnpm --dir packages/engine build && pnpm --dir packages/sdk/ts build && pnpm --dir packages/transport/a2a/ts build && pnpm --dir packages/identity/ts build && pnpm --dir packages/revocation/ts build && pnpm --dir packages/transport/mcp/ts build && pnpm --dir packages/connectors/express/ts build && pnpm --dir packages/connectors/fastmcp/ts build && pnpm --dir packages/connectors/postgres/ts build && pnpm --dir packages/connectors/redis/ts build && pnpm --dir apps/api build && pnpm --dir apps/coordinator build && pnpm --dir apps/control build",
     "lint": "pnpm -r --if-present lint",

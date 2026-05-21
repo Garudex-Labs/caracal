@@ -75,31 +75,10 @@ The control service reads its admin token from `infra/secrets/files/caracalAdmin
 
 If you created `infra/docker/local.env` for operator overrides, pass it after `dev.env` so local entries win.
 
-Clients authenticate by exchanging the zone application credentials for a token whose resource matches the control audience (`caracal-control` by default).
+Clients authenticate by exchanging the Control key credentials for a token whose resource matches the control audience (`caracal-control` by default). Create the key from TUI → Control → create key, then run the smoke test and paste the zone id, client id, and client secret when prompted.
 
 ```bash
-# set these from caracal.toml; local dev defaults STS to http://localhost:8080
-ZONE_URL=${ZONE_URL:-http://localhost:8080}
-: "${ZONE_ID:?set ZONE_ID from caracal.toml zone_id}"
-: "${APP_CLIENT_ID:?set APP_CLIENT_ID from caracal.toml application_id}"
-: "${APP_CLIENT_SECRET:?set APP_CLIENT_SECRET from caracal.toml app_client_secret}"
-
-# mint a token (use the zone/application values from caracal.toml)
-TOKEN=$(curl -fsS -X POST "${ZONE_URL%/}/oauth/2/token" \
-  -d "grant_type=urn:ietf:params:oauth:grant-type:token-exchange" \
-  -d "zone_id=$ZONE_ID" \
-  -d "application_id=$APP_CLIENT_ID" \
-  -d "client_secret=$APP_CLIENT_SECRET" \
-  -d "resource=caracal-control" \
-  -d "scope=control:zone:read" \
-  | jq -er .access_token)
-: "${TOKEN:?token mint failed}"
-
-# invoke
-curl -sH "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"command":"zone","subcommand":"list"}' \
-  http://localhost:8087/v1/control/invoke
+pnpm control:smoke
 ```
 
 ## Tests

@@ -5,7 +5,7 @@
 // Workspace entry: locates the repo root, stamps a dev CLI identity, then delegates to the workspace CLI.
 
 import { execFileSync } from 'child_process'
-import { existsSync } from 'fs'
+import { existsSync, readdirSync, statSync } from 'fs'
 import { dirname, join } from 'path'
 
 function findRepoRoot(start) {
@@ -32,15 +32,38 @@ if (!root) {
 
 process.env.CARACAL_REPO_ROOT = root
 
+function newestMtime(path) {
+  const stat = statSync(path)
+  if (!stat.isDirectory()) return stat.mtimeMs
+  return readdirSync(path, { withFileTypes: true }).reduce((newest, entry) => {
+    if (entry.name === 'dist' || entry.name === 'node_modules') return newest
+    return Math.max(newest, newestMtime(join(path, entry.name)))
+  }, stat.mtimeMs)
+}
+
+function sourceIsNewer(source, output) {
+  const sourcePath = join(root, source)
+  const outputPath = join(root, output)
+  if (!existsSync(sourcePath) || !existsSync(outputPath)) return false
+  return newestMtime(sourcePath) > statSync(outputPath).mtimeMs
+}
+
 const tsBuilds = [
   'packages/core/ts/dist/index.js',
   'packages/oauth/ts/dist/index.js',
   'packages/admin/ts/dist/index.js',
   'packages/engine/dist/index.js',
   'packages/engine/dist/controlAccess.js',
+  'packages/engine/dist/controlState.js',
+  'packages/engine/dist/stack.js',
 ]
-if (tsBuilds.some((path) => !existsSync(join(root, path)))) {
-  process.stderr.write('caracal: building TypeScript workspace packages (first run)…\n')
+const staleBuilds = [
+  ['packages/engine/src', 'packages/engine/dist/index.js'],
+  ['packages/engine/src', 'packages/engine/dist/controlState.js'],
+  ['packages/engine/src', 'packages/engine/dist/stack.js'],
+]
+if (tsBuilds.some((path) => !existsSync(join(root, path))) || staleBuilds.some(([source, output]) => sourceIsNewer(source, output))) {
+  process.stderr.write('caracal: building TypeScript workspace packages…\n')
   try {
     execFileSync('pnpm', ['run', 'build:typescript'], { cwd: root, stdio: 'inherit' })
   } catch (err) {
