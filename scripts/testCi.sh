@@ -184,7 +184,7 @@ if $run_docs; then
   pnpm --dir docs build
   test -f docs/dist/index.html
   test -f docs/dist/CNAME
-  grep -Fx 'docs.garudexlabs.com' docs/dist/CNAME
+  grep -Fx 'docs.caracal.run' docs/dist/CNAME
 fi
 
 echo
