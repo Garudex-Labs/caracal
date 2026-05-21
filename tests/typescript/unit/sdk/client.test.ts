@@ -15,7 +15,9 @@ import {
   HeaderTraceparent,
   HeaderBaggage,
   BaggageAgentSession,
+  BaggageSession,
   BaggageHop,
+  describeAuthority,
   parseBaggage,
   parseTraceparent,
 } from "../../../../packages/sdk/ts/src/advanced.js";
@@ -94,7 +96,7 @@ describe("middleware + bindFromHeaders", () => {
             [HeaderAuthorization]: "Bearer    inbound   ",
             [HeaderTraceparent]:
               "00-0123456789abcdef0123456789abcdef-aabbccddeeff0011-01",
-            [HeaderBaggage]: `${BaggageAgentSession}=sess1,${BaggageHop}=2`,
+            [HeaderBaggage]: `${BaggageAgentSession}=sess1,${BaggageSession}=sid1,${BaggageHop}=2`,
           },
         },
         {},
@@ -103,7 +105,7 @@ describe("middleware + bindFromHeaders", () => {
           try {
             const ctx = c.current();
             if (!ctx) throw new Error("no context bound");
-            seen = `${ctx.subjectToken}|${ctx.agentSessionId}|${ctx.hop}`;
+            seen = `${ctx.subjectToken}|${ctx.agentSessionId}|${ctx.sessionId}|${ctx.hop}`;
             resolve();
           } catch (e) {
             reject(e);
@@ -111,7 +113,21 @@ describe("middleware + bindFromHeaders", () => {
         },
       );
     });
-    expect(seen).toBe("inbound|sess1|2");
+    expect(seen).toBe("inbound|sess1|sid1|2");
+  });
+
+  it("describes authority without exposing the subject token", async () => {
+    const c = new Caracal(dummyConfig);
+    let summary = "";
+    await c.bindFromHeaders({
+      [HeaderAuthorization]: "Bearer inbound",
+      [HeaderBaggage]: `${BaggageSession}=sid1,${BaggageAgentSession}=agent1,${BaggageHop}=1`,
+    }, async () => {
+      const authority = describeAuthority();
+      summary = `${authority?.applicationId}|${authority?.authoritySessionId}|${authority?.agentRunId}|${authority?.chain.join(">")}`;
+      expect(JSON.stringify(authority)).not.toContain("inbound");
+    });
+    expect(summary).toBe("app|sid1|agent1|authority:sid1>agent-run:agent1");
   });
 
   it("rejects inbound requests without a bearer token by default", async () => {

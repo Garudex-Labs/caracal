@@ -89,13 +89,27 @@ describe('CLI commands (e2e against stubbed fetch)', () => {
         manifest_sha: 'sha-3',
         determining_policies_json: [{ policy_id: 'p1', effect: 'deny' }],
         diagnostics_json: [{ rule: 'mfa_required' }],
-        metadata_json: { user_agent: 'curl' },
+        metadata_json: {
+          user_agent: 'curl',
+          application_id: 'app-1',
+          session_id: 'sid-1',
+          agent_session_id: 'agent-1',
+          delegation_edge_id: 'edge-1',
+          resource: 'resource://calendar',
+          requested_scopes: ['calendar:read'],
+          provider_id: 'provider-1',
+          grant_id: 'grant-1',
+          auth_mode: 'provider_oauth',
+        },
       }]
     })
     await explainCommand(['req-7'])
     const out = stdout.mock.calls.map((c) => c[0]).join('')
     expect(out).toContain('determining_policies')
     expect(out).toContain('mfa_required')
+    expect(out).toContain('authority:')
+    expect(out).toContain('authority_session      sid-1')
+    expect(out).toContain('provider               provider-1 grant=grant-1 auth=provider_oauth')
     expect(out).toContain('user_agent')
   })
 
