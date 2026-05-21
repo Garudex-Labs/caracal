@@ -11,8 +11,8 @@ describe('POST /v1/zones/:zoneId/policy-sets/:id/activate', () => {
   it('rejects policies that do not emit result', async () => {
     const { app, db } = buildRouteApp(policySetsRoutes)
     db.query
-      .mockResolvedValueOnce({ rows: [{ id: 'psv-1', manifest_json: [{ policy_version_id: 'pv-1' }] }] })
-      .mockResolvedValueOnce({ rows: [{ id: 'pv-1', content: 'package caracal.authz\ndefault allow = false', zone_id: 'z1' }] })
+      .mockResolvedValueOnce({ rows: [{ id: 'psv-1', manifest_json: [{ policy_version_id: 'pv-1' }], schema_version: '2026-05-20' }] })
+      .mockResolvedValueOnce({ rows: [{ id: 'pv-1', content: 'package caracal.authz\ndefault allow = false', zone_id: 'z1', schema_version: '2026-05-20' }] })
 
     await app.ready()
     const res = await app.inject({
@@ -28,8 +28,8 @@ describe('POST /v1/zones/:zoneId/policy-sets/:id/activate', () => {
   it('rejects manifests that reference policies in another zone', async () => {
     const { app, db } = buildRouteApp(policySetsRoutes)
     db.query
-      .mockResolvedValueOnce({ rows: [{ id: 'psv-1', manifest_json: [{ policy_version_id: 'pv-1' }] }] })
-      .mockResolvedValueOnce({ rows: [{ id: 'pv-1', content: 'package caracal.authz\nresult := {}', zone_id: 'z2' }] })
+      .mockResolvedValueOnce({ rows: [{ id: 'psv-1', manifest_json: [{ policy_version_id: 'pv-1' }], schema_version: '2026-05-20' }] })
+      .mockResolvedValueOnce({ rows: [{ id: 'pv-1', content: 'package caracal.authz\nresult := {}', zone_id: 'z2', schema_version: '2026-05-20' }] })
 
     await app.ready()
     const res = await app.inject({
@@ -47,8 +47,8 @@ describe('POST /v1/zones/:zoneId/policy-sets/:id/activate', () => {
     const manifest = [{ policy_version_id: 'pv-1' }]
     const content = 'package caracal.authz\nresult := {"allow": true}'
     db.query
-      .mockResolvedValueOnce({ rows: [{ id: 'psv-1', manifest_json: manifest }] })
-      .mockResolvedValueOnce({ rows: [{ id: 'pv-1', content, zone_id: 'z1' }] })
+      .mockResolvedValueOnce({ rows: [{ id: 'psv-1', manifest_json: manifest, schema_version: '2026-05-20' }] })
+      .mockResolvedValueOnce({ rows: [{ id: 'pv-1', content, zone_id: 'z1', schema_version: '2026-05-20' }] })
       .mockResolvedValueOnce({ rows: [] })
 
     const client = { query: vi.fn(), release: vi.fn() }
@@ -74,5 +74,58 @@ describe('POST /v1/zones/:zoneId/policy-sets/:id/activate', () => {
     expect(sqls.at(-1)).toBe('COMMIT')
     expect(sqls.some((sql) => sql.includes('INSERT INTO event_outbox'))).toBe(true)
     expect(client.release).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('POST /v1/zones/:zoneId/policy-sets/:id/simulate', () => {
+  it('validates rollout contract without mutating bindings', async () => {
+    const { app, db } = buildRouteApp(policySetsRoutes)
+    const manifest = [{ policy_version_id: 'pv-1' }]
+    db.query
+      .mockResolvedValueOnce({ rows: [{ id: 'psv-1', manifest_json: manifest, manifest_sha256: 'sha-1', schema_version: '2026-05-20' }] })
+      .mockResolvedValueOnce({ rows: [{ id: 'pv-1', content: 'package caracal.authz\nresult := {"decision": "deny", "evaluation_status": "complete", "determining_policies": [], "diagnostics": []}', zone_id: 'z1', schema_version: '2026-05-20' }] })
+      .mockResolvedValueOnce({ rows: [] })
+
+    await app.ready()
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/zones/z1/policy-sets/ps-1/simulate',
+      payload: {
+        version_id: 'psv-1',
+        input: {
+          schema_version: '2026-05-20',
+          principal: { zone_id: 'z1' },
+          resource: { identifier: 'resource://calendar' },
+          action: { id: 'token_exchange' },
+          context: {},
+        },
+      },
+    })
+
+    expect(res.statusCode).toBe(200)
+    expect(JSON.parse(res.body)).toMatchObject({
+      dry_run: true,
+      would_activate: true,
+      version_id: 'psv-1',
+      input_schema_version: '2026-05-20',
+    })
+    expect(db.connect).not.toHaveBeenCalled()
+  })
+
+  it('rejects schema-mismatched policy versions', async () => {
+    const { app, db } = buildRouteApp(policySetsRoutes)
+    db.query
+      .mockResolvedValueOnce({ rows: [{ id: 'psv-1', manifest_json: [{ policy_version_id: 'pv-1' }], manifest_sha256: 'sha-1', schema_version: '2026-05-20' }] })
+      .mockResolvedValueOnce({ rows: [{ id: 'pv-1', content: 'package caracal.authz\nresult := {}', zone_id: 'z1', schema_version: '2026-03-16' }] })
+
+    await app.ready()
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/zones/z1/policy-sets/ps-1/simulate',
+      payload: { version_id: 'psv-1' },
+    })
+
+    expect(res.statusCode).toBe(422)
+    expect(JSON.parse(res.body).detail).toContain('does not match policy set schema')
   })
 })

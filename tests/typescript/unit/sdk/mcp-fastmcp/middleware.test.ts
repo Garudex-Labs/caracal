@@ -38,7 +38,7 @@ async function mintToken(claims: Record<string, unknown> = {}): Promise<{ token:
     zone_id: 'zone-1',
     client_id: 'app-1',
     sid: 'sid-1',
-    use: 'per_call',
+      use: 'resource',
     jti: 'jti-1',
     scope: 'tool:call',
     iat: Math.floor(Date.now() / 1000),

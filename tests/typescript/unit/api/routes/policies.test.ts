@@ -93,8 +93,23 @@ describe('POST /v1/policies/validate', () => {
     expect(res.statusCode).toBe(200)
     expect(JSON.parse(res.body)).toMatchObject({
       valid: true,
+      schema_version: '2026-05-20',
+      input_schema_version: '2026-05-20',
+      output_contract: { evaluation_status: ['complete'] },
       warnings: expect.arrayContaining(['default_result_allows_access', 'missing_requested_scope_check']),
     })
+  })
+
+  it('rejects unsupported schema versions', async () => {
+    const { app } = buildApp()
+    await app.ready()
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/policies/validate',
+      payload: { content: validRego, schema_version: '2099-01-01' },
+    })
+    expect(res.statusCode).toBe(422)
+    expect(JSON.parse(res.body)).toMatchObject({ error: 'invalid_schema_version' })
   })
 })
 

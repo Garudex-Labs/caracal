@@ -35,6 +35,11 @@ describe('admin audit hook', () => {
     expect(params[8]).toBe('z1')
     expect(params[9]).toBe('policies')
     expect(params[10]).toBe('p1')
+    expect(params[12]).toMatchObject({
+      rls_bypass: true,
+      rls_mode: 'control_plane_wildcard',
+      rls_zone_guc: '*',
+    })
   })
 
   it('does not record GET requests', async () => {
