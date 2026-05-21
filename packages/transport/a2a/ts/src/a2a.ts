@@ -37,6 +37,7 @@ export async function a2aCall(
     agentSessionId: ctx?.agentSessionId ?? req.agentSessionId,
     delegationEdgeId: ctx?.delegationEdgeId ?? req.delegationEdgeId,
     parentEdgeId: ctx?.parentEdgeId,
+    sessionId: ctx?.sessionId ?? req.sessionId,
     traceId: ctx?.traceId,
     hop: ctx?.hop ?? 0,
   }
@@ -92,8 +93,12 @@ async function fetchWithRetry(
     const controller = new AbortController()
     const timeout = setTimeout(() => controller.abort(), timeoutMs)
     try {
-      last = await fetchImpl(url, { ...init, signal: controller.signal })
-      if (!isTransientStatus(last.status) || attempt === retries) return last
+      last = await fetchImpl(url, {
+        ...init,
+        headers: { ...init.headers, 'X-Caracal-Retry-Attempt': String(attempt) },
+        signal: controller.signal,
+      })
+      if (!isRetryableResponse(last.status, opts) || attempt === retries) return last
     } catch (err) {
       lastErr = err
       if (attempt === retries) throw err
@@ -108,6 +113,10 @@ async function fetchWithRetry(
 
 function isTransientStatus(status: number): boolean {
   return status === 408 || status === 425 || status === 429 || (status >= 500 && status < 600)
+}
+
+function isRetryableResponse(status: number, opts: A2AOptions): boolean {
+  return opts.retryTransientStatuses === true && isTransientStatus(status)
 }
 
 function jitteredBackoff(baseMs: number, attempt: number): number {

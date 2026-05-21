@@ -49,6 +49,7 @@ func TestAuthenticateAcceptsVerifiedTokenAndChecksRevocation(t *testing.T) {
 	token, issuer, closeServer := mintToken(t, jwt.MapClaims{
 		"scope":                  "mcp:call",
 		"sid":                    "sid-1",
+		"root_sid":               "root-1",
 		"agent_session_id":       "agent-1",
 		"delegation_edge_id":     "edge-1",
 		"delegation_chain":       []map[string]any{{"application_id": "app-parent"}},
@@ -76,7 +77,7 @@ func TestAuthenticateAcceptsVerifiedTokenAndChecksRevocation(t *testing.T) {
 	if authErr != nil {
 		t.Fatalf("unexpected auth error: %#v", authErr)
 	}
-	if claims.Sub != "user-1" || claims.AgentSessionID != "agent-1" || claims.DelegationEdgeID != "edge-1" || claims.HopCount != 2 {
+	if claims.Sub != "user-1" || claims.RootSid != "root-1" || claims.AgentSessionID != "agent-1" || claims.DelegationEdgeID != "edge-1" || claims.HopCount != 2 {
 		t.Fatalf("unexpected claims: %#v", claims)
 	}
 }
@@ -96,6 +97,47 @@ func TestAuthenticateRejectsRevokedSession(t *testing.T) {
 	})
 	if authErr == nil || authErr.Code != transportmcp.ErrSessionRevoked {
 		t.Fatalf("expected session_revoked, got %#v", authErr)
+	}
+}
+
+func TestAuthenticateRejectsRevokedAuthorityAnchors(t *testing.T) {
+	tests := []struct {
+		name    string
+		claims  jwt.MapClaims
+		revoked string
+	}{
+		{name: "root", claims: jwt.MapClaims{"root_sid": "root-1"}, revoked: "root-1"},
+		{name: "agent", claims: jwt.MapClaims{"agent_session_id": "agent-1"}, revoked: "agent-1"},
+		{name: "delegation", claims: jwt.MapClaims{"delegation_edge_id": "edge-1"}, revoked: "edge-1"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			token, issuer, closeServer := mintToken(t, tt.claims)
+			defer closeServer()
+			store := revocation.NewInMemoryStore(time.Hour)
+			if err := store.MarkRevoked(tt.revoked, time.Hour); err != nil {
+				t.Fatalf("mark revoked: %v", err)
+			}
+			_, authErr := transportmcp.Authenticate(token, transportmcp.Options{
+				Issuer:      issuer,
+				Audience:    "resource://api",
+				Revocations: store,
+			})
+			if authErr == nil || authErr.Code != transportmcp.ErrSessionRevoked {
+				t.Fatalf("expected session_revoked, got %#v", authErr)
+			}
+		})
+	}
+}
+
+func TestCheckActiveAuthorityRejectsExpiredExecution(t *testing.T) {
+	store := revocation.NewInMemoryStore(time.Hour)
+	authErr := transportmcp.CheckActiveAuthority(identity.Claims{
+		Sid:       "sid-1",
+		ExpiresAt: time.Now().Add(-time.Second).Unix(),
+	}, store, time.Now())
+	if authErr == nil || authErr.Code != transportmcp.ErrInvalidToken {
+		t.Fatalf("expected invalid_token, got %#v", authErr)
 	}
 }
 

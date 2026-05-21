@@ -5,7 +5,7 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { a2aCall } from '../../../../packages/transport/a2a/ts/src/a2a.js'
-import { bind } from '../../../../packages/sdk/ts/src/advanced.js'
+import { bind, parseBaggage } from '../../../../packages/sdk/ts/src/advanced.js'
 
 describe('a2aCall', () => {
   beforeEach(() => {
@@ -13,7 +13,7 @@ describe('a2aCall', () => {
   })
 
   it('exchanges the subject token and sends a resource token', async () => {
-    const captured: { auth?: string; zoneId?: string; applicationId?: string; body?: Record<string, unknown> } = {}
+    const captured: { auth?: string; baggage?: string; zoneId?: string; applicationId?: string; body?: Record<string, unknown> } = {}
     const fetchMock = vi.fn().mockImplementation(async (url: string, opts: RequestInit) => {
       if (url === 'http://sts:8080/oauth/2/token') {
         const body = opts.body as URLSearchParams
@@ -30,6 +30,7 @@ describe('a2aCall', () => {
       const headers = opts.headers as Record<string, string>
       expect(headers['Authorization']).toBeUndefined()
       captured.auth = headers.authorization
+      captured.baggage = headers.baggage
       captured.zoneId = headers['X-Caracal-Zone-Id']
       captured.applicationId = headers['X-Caracal-Application-Id']
       captured.body = JSON.parse(String(opts.body)) as Record<string, unknown>
@@ -48,6 +49,7 @@ describe('a2aCall', () => {
         requestId: 'req-1',
         agentSessionId: 'agent-src',
         delegationEdgeId: 'edge-1',
+        sessionId: 'sid-src',
       },
       'subject-tok',
       'zone1',
@@ -56,6 +58,7 @@ describe('a2aCall', () => {
     )
 
     expect(captured.auth).toBe('Bearer agent-token')
+    expect(parseBaggage(captured.baggage)['caracal.session']).toBe('sid-src')
     expect(captured.zoneId).toBe('zone1')
     expect(captured.applicationId).toBe('app1')
     expect(captured.body).toMatchObject({ agentSessionId: 'agent-src', delegationEdgeId: 'edge-1' })
@@ -137,7 +140,23 @@ describe('a2aCall', () => {
     expect(captured.Authorization).toBeUndefined()
   })
 
-  it('retries transient A2A responses with bounded backoff', async () => {
+  it('does not retry transient A2A responses unless status retry is enabled', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ access_token: 'agent-token', expires_in: 900 }) })
+      .mockResolvedValueOnce({ ok: false, status: 503 })
+    vi.stubGlobal('fetch', fetchMock)
+
+    await expect(a2aCall(
+      { agentUrl: 'http://agent-b:4001', method: 'query', params: {}, requestId: 'req-4' },
+      'tok',
+      'zone1',
+      'app2',
+      { stsUrl: 'http://sts:8080', retries: 1, retryBaseMs: 1 },
+    )).rejects.toThrow('A2A call failed: 503')
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+
+  it('retries opted-in transient A2A responses with bounded backoff', async () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ access_token: 'agent-token', expires_in: 900 }) })
       .mockResolvedValueOnce({ ok: false, status: 503 })
@@ -150,9 +169,10 @@ describe('a2aCall', () => {
       'tok',
       'zone1',
       'app2',
-      { stsUrl: 'http://sts:8080', retries: 1, retryBaseMs: 1 },
+      { stsUrl: 'http://sts:8080', retries: 1, retryBaseMs: 1, retryTransientStatuses: true },
     )
     expect(res).toEqual({ requestId: 'req-4', result: 'ok' })
     expect(fetchMock).toHaveBeenCalledTimes(3)
+    expect((fetchMock.mock.calls[2][1].headers as Record<string, string>)['X-Caracal-Retry-Attempt']).toBe('1')
   })
 })

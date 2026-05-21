@@ -66,13 +66,28 @@ describe('RedisRevocationStore', () => {
 })
 
 describe('RedisRevocationConsumer', () => {
-  it('marks signed stream messages and acks them', async () => {
+  it('marks signed stream messages and all authority anchors', async () => {
     const redis = new FakeRedis()
     const store = new RedisRevocationStore(redis)
     const key = Buffer.alloc(32, 7)
-    const values = { zone_id: 'zone1', session_id: 'sid-1', reason: 'grant_revoked' }
+    const values = {
+      zone_id: 'zone1',
+      session_id: 'sid-1',
+      root_sid: 'root-1',
+      agent_session_id: 'agent-1',
+      delegation_edge_id: 'edge-1',
+      reason: 'grant_revoked',
+    }
     const sig = signStream(key, REVOCATION_STREAM, values)
-    redis.stream = [[REVOCATION_STREAM, [['1-0', ['zone_id', 'zone1', 'session_id', 'sid-1', 'reason', 'grant_revoked', STREAM_SIG_FIELD, sig]]]]]
+    redis.stream = [[REVOCATION_STREAM, [['1-0', [
+      'zone_id', 'zone1',
+      'session_id', 'sid-1',
+      'root_sid', 'root-1',
+      'agent_session_id', 'agent-1',
+      'delegation_edge_id', 'edge-1',
+      'reason', 'grant_revoked',
+      STREAM_SIG_FIELD, sig,
+    ]]]]]
 
     const consumer = new RedisRevocationConsumer(redis, store, {
       consumer: 'resource-1',
@@ -82,6 +97,9 @@ describe('RedisRevocationConsumer', () => {
 
     expect(await consumer.pollOnce()).toBe(1)
     expect(await store.isRevoked('sid-1')).toBe(true)
+    expect(await store.isRevoked('root-1')).toBe(true)
+    expect(await store.isRevoked('agent-1')).toBe(true)
+    expect(await store.isRevoked('edge-1')).toBe(true)
     expect(redis.acked).toEqual(['1-0'])
   })
 
