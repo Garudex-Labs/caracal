@@ -14,6 +14,7 @@
 - Must publish policy, session, key, and lifecycle invalidation events through the outbox or owning stream helper.
 - Must redact secrets and never return plaintext key material.
 - Must keep admin audit persistence through `@caracalai/admin-audit`.
+- Must filter every per-zone query by an explicit `zone_id` value in route handlers. The `src/db.ts` pool sets `caracal.zone_id='*'` on every connection, which authorizes cross-zone access and bypasses RLS row filtering; zone scoping is enforced in application code, not by the database.
 
 ## Forbidden
 - Must not accept Cedar policies or add a second policy language.
