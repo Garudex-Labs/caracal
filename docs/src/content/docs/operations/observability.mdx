@@ -12,6 +12,8 @@ Use the endpoints in this order during triage:
 2. `caracal doctor --extended --json` to collect service readiness and operator metric summaries.
 3. Service `/metrics` or `/metrics.json` for the component-specific counter or backlog.
 4. `caracal audit tail --request-id <id>` and `caracal explain <request_id>` when a user-facing request was denied or partially evaluated.
+5. `caracal explain <request_id> --flow` when the authority path spans delegation, Gateway routing, or provider brokering.
+6. `caracal credential inspect <jwt>` when the token claims need to be compared with the audit event.
 
 ## Endpoint summary
 

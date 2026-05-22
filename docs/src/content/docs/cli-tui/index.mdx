@@ -49,9 +49,9 @@ These flags are accepted by all commands:
 | Section | Commands | Purpose |
 | --- | --- | --- |
 | [Stack](./stack/) | `up`, `down`, `status` | Start, stop, and probe the local stack |
-| [Runtime](./runtime/) | `run`, `credential read` | Inject mandates into subprocesses and print tokens |
+| [Runtime](./runtime/) | `run`, `credential read`, `credential inspect` | Inject mandates into subprocesses, print tokens, and inspect token claims |
 | [Admin](./admin/) | `zone`, `app`, `resource`, `provider`, `policy`, `policy-set`, `grant`, `session` | Manage all control-plane entities |
-| [Observability](./observability/) | `audit tail`, `explain` | Tail the audit stream and inspect policy decisions |
+| [Observability](./observability/) | `audit tail`, `explain`, `credential inspect` | Tail the audit stream, inspect policy decisions, render authority flow, and decode token claims |
 | [Agents and Delegation](./agents/) | `agent`, `delegation` | Inspect and control agent sessions and delegation edges |
 | [Configuration File](./config-file/) | `caracal.toml` | Config layout, lookup order, credential injection |
 | [TUI Walkthrough](./tui/) | `caracal-tui` | Interactive terminal browser for all admin entities |

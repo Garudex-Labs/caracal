@@ -27,7 +27,9 @@ This matrix gives operators a direct path from symptom to safe recovery. It comp
 2. Run `caracal doctor --extended --json` and keep the JSON output with the incident record.
 3. Check Prometheus alerts and service `/metrics` for the component listed in the matrix.
 4. Use `caracal audit tail --request-id <id>` and `caracal explain <request-id>` for request-specific denials.
-5. Apply the smallest safe recovery, then verify through readiness, metrics, and one known allow/deny request.
+5. Use `caracal explain <request-id> --flow` when delegation, Gateway routing, or provider brokering makes the authority path hard to see.
+6. Use `caracal credential inspect <jwt>` to compare token `zone_id`, `target`, `scope`, session, delegation, expiry, key ID, and JTI with the audit event.
+7. Apply the smallest safe recovery, then verify through readiness, metrics, and one known allow/deny request.
 
 ## Unsafe actions
 

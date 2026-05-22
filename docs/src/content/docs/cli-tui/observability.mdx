@@ -1,10 +1,10 @@
 ---
 title: Observability Commands
-description: caracal audit tail and caracal explain — query the audit stream and inspect policy decisions from the terminal.
+description: caracal audit tail, caracal explain, and credential inspection — query decisions, render authority flow, and inspect tokens from the terminal.
 pageType: reference
 ---
 
-Observability commands read the audit ledger. They require `CARACAL_ADMIN_TOKEN` and a zone ID. No mutation is possible through these commands.
+Observability commands read the audit ledger or decode local token material for inspection. `audit tail` and `explain` require `CARACAL_ADMIN_TOKEN` and a zone ID. `credential inspect` runs offline and does not mutate state.
 
 ---
 
@@ -70,6 +70,7 @@ Show the policy evaluation diagnostics and redacted authority chain for a single
 ```bash
 caracal explain req_def456
 caracal explain req_def456 --json
+caracal explain req_def456 --flow
 ```
 
 **Arguments:**
@@ -78,7 +79,7 @@ caracal explain req_def456 --json
 | --- | --- |
 | `<request_id>` | Request ID from an audit event. Use `caracal audit tail` to find it. |
 
-**Flags:** `--zone <id>`, `--json`
+**Flags:** `--zone <id>`, `--json`, `--format mermaid`, `--flow`
 
 **Plain-text output:**
 
@@ -149,5 +150,40 @@ With `--json`, the command emits the raw array of `AuditDetail` objects:
 3. Run `caracal explain <request_id>` to see the authority session, agent run, delegated permission, resource, provider mode, and policy result.
 4. Inspect `diagnostics_json` for the specific rule and message.
 5. Update the Rego policy or fix the grant and re-test.
+
+### Mermaid flow output
+
+Use `--flow` or `--format mermaid` when a request spans an agent run, delegated permission, provider route, and audit event:
+
+```bash
+caracal explain req_def456 --flow > req_def456.mmd
+```
+
+The graph includes the agent app, authority session, agent run, delegated permission when present, policy decision, resource, provider/grant metadata, policy-set version, and audit event. It is designed for incident tickets and runbooks; it does not include provider secrets, request bodies, or response bodies.
+
+---
+
+## `caracal credential inspect`
+
+Decode a JWT locally without calling STS, API, or Gateway.
+
+```bash
+caracal credential inspect "$RESOURCE_TOKEN"
+caracal credential inspect --file token.jwt
+printf '%s' "$RESOURCE_TOKEN" | caracal credential inspect -
+caracal credential inspect "$RESOURCE_TOKEN" --json
+```
+
+The command reports `verification=not_verified` because it only decodes the JWT header and claims. Use it during triage to compare token claims with audit metadata and Gateway failures.
+
+**Key fields:**
+
+| Field | Use |
+| --- | --- |
+| `issuer`, `subject`, `zone` | Confirm the token came from the expected zone and app. |
+| `session`, `agent_run`, `delegated_permission` | Match the authority anchors shown by `caracal explain`. |
+| `resource`, `scopes` | Confirm the mandate covers the intended Gateway route and action. |
+| `expires_at`, `seconds_until_expiry` | Identify expired or not-yet-valid tokens without decoding by hand. |
+| `algorithm`, `key_id`, `token_id` | Match signature key and replay ID during Gateway/JWKS triage. |
 
 For live streaming of audit events as they arrive, use the [TUI](./tui/), which polls the audit endpoint every 2 seconds and applies color coding to decisions.

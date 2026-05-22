@@ -1,10 +1,10 @@
 ---
 title: Runtime Commands
-description: caracal run and credential read — inject resource mandates into subprocesses and print mandates for manual use.
+description: caracal run, credential read, and credential inspect — inject resource mandates, print mandates, and decode token claims for manual use.
 pageType: reference
 ---
 
-Runtime commands bind Caracal mandates to processes. They require `caracal.toml` and perform OAuth 2.0 token exchange directly with the STS. No `CARACAL_ADMIN_TOKEN` is needed — they use the application credentials from `caracal.toml`.
+Runtime commands bind Caracal mandates to processes. `caracal run` and `caracal credential read` require `caracal.toml` and perform OAuth 2.0 token exchange directly with the STS. `caracal credential inspect` is offline and does not require `caracal.toml` or `CARACAL_ADMIN_TOKEN`.
 
 ---
 
@@ -154,3 +154,27 @@ TOKEN=$(caracal credential read resource://my-api)
 ```
 
 Use `caracal run` when you need automatic step-up polling.
+
+---
+
+## `caracal credential inspect`
+
+Decode a JWT locally without verifying its signature.
+
+```bash
+caracal credential inspect <jwt>
+caracal credential inspect --file token.jwt
+printf '%s' "$RESOURCE_TOKEN" | caracal credential inspect -
+caracal credential inspect <jwt> --json
+```
+
+Use this during operator triage when you need to compare a token with Gateway errors or audit metadata. The command prints `verification=not_verified` by design; it is an inspection aid, not a trust decision.
+
+| Field | Description |
+| --- | --- |
+| `status` | `active`, `expired`, `not_yet_valid`, or `missing_expiry` based on local time and token time claims |
+| `issuer`, `subject`, `zone` | Issuer, application/workload subject, and zone ID |
+| `session`, `agent_run`, `delegated_permission` | Authority anchors that should match audit metadata |
+| `resource`, `scopes` | Target resources and granted scopes |
+| `expires_at`, `seconds_until_expiry` | Expiry in operator-friendly form |
+| `algorithm`, `key_id`, `token_id` | Header algorithm, signing key ID, and JTI/replay identifier |
