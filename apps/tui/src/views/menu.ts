@@ -226,6 +226,7 @@ function controlPermissionPicker(): Field['pick'] {
       { header: 'scope', value: (row) => row.scope },
     ],
     (row) => row.scope,
+    (row) => row.scope,
     appendCsv,
   )
 }

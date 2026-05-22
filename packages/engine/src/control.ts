@@ -140,10 +140,10 @@ export async function controlKeyCreate(
   zoneId: string,
   input: ControlKeyCreateInput,
 ): Promise<ControlKeyCreateResult> {
-  const resource = await ensureControlResource(client, zoneId, input.audience)
   const allowedScopes = resolveAllowedScopes(input)
   const maxTtlSeconds = validateMaxTtl(input.maxTtlSeconds)
   const expiresAt = validateExpiresAt(input.expiresAt)
+  const resource = await ensureControlResource(client, zoneId, input.audience)
   const clientSecret = generateClientSecret()
   const application = await client.applications.create(zoneId, {
     name: input.name,
