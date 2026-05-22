@@ -141,12 +141,27 @@ function remediationHint(status: number): string | undefined {
   return undefined
 }
 
+function extractRequestId(body: unknown): string | undefined {
+  if (!body || typeof body !== 'object') return undefined
+  const b = body as Record<string, unknown>
+  for (const key of ['requestId', 'request_id']) {
+    const v = b[key]
+    if (typeof v === 'string' && v.length > 0) return v
+  }
+  return undefined
+}
+
 export function fail(err: unknown): never {
   if (isReplExit(err)) throw err
   if (err instanceof AdminApiError) {
     printError(`${err.code} (HTTP ${err.status})`)
     const hint = remediationHint(err.status)
     if (hint) process.stderr.write(`  → ${hint}\n`)
+    const requestId = extractRequestId(err.body)
+    if (requestId) {
+      process.stderr.write(`  → request_id: ${requestId}\n`)
+      process.stderr.write(`  → caracal debug request ${requestId}\n`)
+    }
     if (err.body && typeof err.body === 'object') {
       process.stderr.write(scrubTokens(JSON.stringify(err.body, null, 2)) + '\n')
     } else if (err.body) {

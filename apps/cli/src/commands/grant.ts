@@ -56,7 +56,12 @@ export async function grantCommand(argv: string[], cfg?: CliConfig): Promise<voi
       case 'delete': {
         const zoneId = requireZone(ctx, flags)
         const id = positional[0]
-        if (!id) return usage('grant revoke <id> [--zone …]')
+        if (!id) return usage('grant revoke <id> [--zone …] [--dry-run]')
+        if (flagBool(flags, 'dry-run')) {
+          const g = await client.grants.get(zoneId, id)
+          printSuccess(`[dry-run] would revoke grant ${id} (app=${g.application_id} user=${g.user_id} resource=${g.resource_id} scopes=${(g.scopes ?? []).join(',')})`)
+          return
+        }
         await client.grants.revoke(zoneId, id)
         printSuccess(`revoked ${id}`)
         return
@@ -87,6 +92,7 @@ function help(): never {
       '    --resource <id>         Resource ID (required)',
       '    --scopes a,b            Comma-separated scopes (required)',
       '  revoke <id>             Revoke a grant (alias: delete)',
+      '    --dry-run               Show what would be revoked without doing it',
       '',
       'Flags:',
       '  --zone <id>             Zone selector (or CARACAL_ZONE_ID)',

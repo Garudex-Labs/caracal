@@ -77,7 +77,12 @@ export async function zoneCommand(argv: string[], cfg?: CliConfig): Promise<void
       }
       case 'delete': {
         const id = positional[0]
-        if (!id) return usage('zone delete <id>')
+        if (!id) return usage('zone delete <id> [--dry-run]')
+        if (flagBool(flags, 'dry-run')) {
+          const z = await client.zones.get(id)
+          printInfo(`[dry-run] would delete zone ${id} (${z.name ?? '-'}) and all its resources`)
+          return
+        }
         await client.zones.delete(id)
         printSuccess(`deleted ${id}`)
         return
@@ -114,6 +119,7 @@ function help(): never {
       '    --name, --slug, --org, --login-flow',
       '    --dcr=true|false, --pkce=true|false',
       '  delete <id>             Permanently delete a zone and all its resources',
+      '    --dry-run               Show what would be deleted without doing it',
       '',
       'Flags:',
       '  --json                  Emit raw JSON instead of a table',

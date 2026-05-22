@@ -13,6 +13,7 @@ interface STSErrorResponse {
   error_description?: string
   challenge_id?: string
   acr_values?: string
+  requestId?: string
 }
 
 interface STSSuccessResponse {
@@ -26,6 +27,11 @@ const SECRET_CACHE_KEY = randomBytes(32)
 function parseSTSErrorResponse(body: string): STSErrorResponse {
   if (body === '') return {}
   return JSON.parse(body) as STSErrorResponse
+}
+
+function formatSTSError(status: number, err: STSErrorResponse): string {
+  const base = err.error_description ?? `STS error ${status}`
+  return err.requestId ? `${base} (request_id=${err.requestId})` : base
 }
 
 async function readSTSErrorResponse(res: Response): Promise<STSErrorResponse> {
@@ -196,7 +202,7 @@ export class OAuthClient {
       if (res.status === 401 && !isRetry) {
         return this.doExchange(subjectToken, resource, { ...opts, retries: 0 }, true, deadlineMs)
       }
-      throw new Error(err['error_description'] ?? `STS error ${res.status}`)
+      throw new Error(formatSTSError(res.status, err))
     }
 
     if (!isJsonResponse(res)) {
