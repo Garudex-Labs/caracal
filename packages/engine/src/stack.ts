@@ -53,13 +53,13 @@ function assertNoControlStackTarget(args: readonly string[]): void {
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index]
     if (arg === 'control') {
-      throw new Error('Control runtime is managed only through caracal-terminal control or the Terminal Control menu.')
+      throw new Error('Control runtime is managed only through the terminal management interface Control menu.')
     }
     if (arg === '--profile' && controlProfileValue(args[index + 1])) {
-      throw new Error('Control runtime is managed only through caracal-terminal control or the Terminal Control menu.')
+      throw new Error('Control runtime is managed only through the terminal management interface Control menu.')
     }
     if (arg?.startsWith('--profile=') && controlProfileValue(arg.slice('--profile='.length))) {
-      throw new Error('Control runtime is managed only through caracal-terminal control or the Terminal Control menu.')
+      throw new Error('Control runtime is managed only through the terminal management interface Control menu.')
     }
   }
 }

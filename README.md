@@ -74,7 +74,7 @@ More coming soon
 
 ### Install
 
-The runtime shell and terminal use separate installers. Run both commands to install both tools, or run only the Terminal installer when you want `caracal-terminal` without `caracal-terminal`.
+The installer provides the thin `caracal` runtime shell and the `caracal-terminal` management interface.
 
 > Pin a version: `--version vYYYY.MM.DD` on Unix or `-Version vYYYY.MM.DD` in PowerShell.  
 > Change install directory: `--install-dir /path` on Unix or `-InstallDir C:\path` in PowerShell.
@@ -83,10 +83,7 @@ The runtime shell and terminal use separate installers. Run both commands to ins
 <summary><strong>Linux</strong> (amd64 / arm64)</summary>
 
 ```bash
-# terminal interface
-curl -fsSL https://raw.githubusercontent.com/Garudex-Labs/caracal/main/install-terminal.sh | sh
-
-# Terminal
+# terminal management interface
 curl -fsSL https://raw.githubusercontent.com/Garudex-Labs/caracal/main/install-terminal.sh | sh
 ```
 
@@ -98,10 +95,7 @@ Installs to `~/.local/bin`. Override with `--install-dir /usr/local/bin` (may ne
 <summary><strong>macOS</strong> (Intel / Apple Silicon)</summary>
 
 ```bash
-# terminal interface
-curl -fsSL https://raw.githubusercontent.com/Garudex-Labs/caracal/main/install-terminal.sh | sh
-
-# Terminal
+# terminal management interface
 curl -fsSL https://raw.githubusercontent.com/Garudex-Labs/caracal/main/install-terminal.sh | sh
 ```
 
@@ -113,10 +107,7 @@ If Gatekeeper blocks the binary: `xattr -d com.apple.quarantine ~/.local/bin/car
 <summary><strong>Windows</strong> (amd64) PowerShell</summary>
 
 ```powershell
-# terminal interface
-iwr -useb https://raw.githubusercontent.com/Garudex-Labs/caracal/main/install-terminal.ps1 | iex
-
-# Terminal
+# terminal management interface
 iwr -useb https://raw.githubusercontent.com/Garudex-Labs/caracal/main/install-terminal.ps1 | iex
 ```
 
@@ -158,7 +149,7 @@ caracal down                          # stop; add -v to remove volumes
 caracal purge                         # interactive cleanup (containers, volumes, config, runtime, caches)
 ```
 
-> The installer pins the terminal interface to one release. `caracal up` pulls matching container images from `ghcr.io/garudex-labs/caracal-*:<tag>`. Override per invocation with `CARACAL_VERSION=vYYYY.MM.DD caracal up` to run an older or newer release stack from the same terminal interface.
+> The installer pins the runtime shell and terminal management interface to one release. `caracal up` pulls matching container images from `ghcr.io/garudex-labs/caracal-*:<tag>`. Override per invocation with `CARACAL_VERSION=vYYYY.MM.DD caracal up` to run an older or newer release stack from the same installation.
 
 ### Run workloads with scoped tokens
 
@@ -184,9 +175,9 @@ helm upgrade --install caracal ./infra/helm/caracal \
 The chart is a reference deployment for enterprise evaluation, production adaptation, and GitOps ownership, not a replacement for `caracal up`. See [Kubernetes with Helm](docs/src/content/docs/operations/kubernetes-helm.mdx) for the required runtime Secret and operational boundaries.
 
 <details>
-<summary><strong>terminal interface</strong></summary>
+<summary><strong>terminal management interface</strong></summary>
 
-Management commands require `CARACAL_ADMIN_TOKEN`. Use `--zone <id>` or set `zone_id` in `caracal.toml` to target a zone. `caracal run` is not part of `caracal-terminal`; run workloads through the top-level `caracal run -- <command>` path.
+Management workflows require `CARACAL_ADMIN_TOKEN`. Use the zone picker or set `zone_id` in `caracal.toml` to target a zone. `caracal run` is not part of `caracal-terminal`; run workloads through the top-level `caracal run -- <command>` path.
 
 | Variable | Default | Notes |
 |---|---|---|
@@ -199,14 +190,14 @@ Management commands require `CARACAL_ADMIN_TOKEN`. Use `--zone <id>` or set `zon
 </details>
 
 <details>
-<summary><strong>Terminal</strong></summary>
+<summary><strong>Launch</strong></summary>
 
 ```bash
 export CARACAL_ADMIN_TOKEN=<your-admin-token>   # printed by the installer; or read from $CARACAL_HOME/secrets/caracalAdminToken
 caracal-terminal
 ```
 
-Uses the same management environment variables as the terminal interface. `CARACAL_COORDINATOR_TOKEN` is only needed for the agents view. The Terminal does not run workloads; launch token-injected processes with `caracal run -- <command>`.
+Uses the same management environment variables as the runtime engine. `CARACAL_COORDINATOR_TOKEN` is only needed for the agents view. The terminal management interface does not run workloads; launch token-injected processes with `caracal run -- <command>`.
 
 | Key | Action |
 |---|---|

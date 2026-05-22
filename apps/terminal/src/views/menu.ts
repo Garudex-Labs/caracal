@@ -781,7 +781,7 @@ export class MenuView implements View {
   private async promptZone(app: App): Promise<void> {
     try {
       const zones = await this.client.zones.list()
-      if (zones.length === 0) { app.setStatus('no zones — open Zones (n) to create one, or run `caracal zone create --name <n>`', 'error'); return }
+      if (zones.length === 0) { app.setStatus('no zones — open Zones (n) to create one', 'error'); return }
       app.push(new ZonePickerView(zones, (id, slug) => this.setZone(id, slug, app)))
     } catch (err) {
       app.setStatus(`zone list: ${explainError(err)}`, 'error')

@@ -2,8 +2,7 @@
 Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 Caracal, a product of Garudex Labs
 
-Service registry: declarative provider table that dispatches each
-(service_id, action, payload) tuple to its real protocol-specific client.
+Service registry for protocol-specific provider clients.
 """
 from __future__ import annotations
 
