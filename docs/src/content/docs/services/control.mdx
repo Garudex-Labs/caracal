@@ -4,7 +4,7 @@ description: Default-off automation surface that wraps the shared engine dispatc
 pageType: reference
 ---
 
-The Control service is the only network-reachable entry point for management automation. It is a small TypeScript service (`apps/control`) that wraps the same `@caracalai/engine` dispatch the runtime shell and terminal run in-process. Every surface — human (runtime/terminal) and machine (Control / SDK) — funnels through one function, so behaviour, validation, audit records, and scope enforcement cannot drift between them.
+The Control service is the only network-reachable entry point for management automation. It is a small TypeScript service (`apps/control`) that wraps the same `@caracalai/engine` dispatch the Runtime and Terminal run in-process. Every surface — human (runtime/terminal) and machine (Control / SDK) — funnels through one function, so behaviour, validation, audit records, and scope enforcement cannot drift between them.
 
 The service is **unmounted by default** and managed through the runtime shell or terminal. Operators can mount it for long-term availability, enable the endpoint only when automation is needed, disable it for fast logical off, and unmount it when the service will not be used for a while. The engine persists structured lifecycle state and exposes the localhost management endpoint only while Control is enabled.
 
@@ -35,7 +35,7 @@ The service is **unmounted by default** and managed through the runtime shell or
 Three rules make this work:
 
 1. **One engine.** `packages/engine` is the only place where commands, descriptors, validation, and the dispatcher live. There is no Go catalog, no parity test, no second copy.
-2. **Surfaces are adapters.** runtime shell and terminal hand the engine a `local` principal and execute in-process. Control hands the engine a `remote` principal derived from a verified JWT and runs the same code path on a managed service process.
+2. **Surfaces are adapters.** Runtime and Terminal hand the engine a `local` principal and execute in-process. Control hands the engine a `remote` principal derived from a verified JWT and runs the same code path on a managed service process.
 3. **Hidden commands are remote-blocked.** Descriptors marked `hidden: true` (credential read, runtime asset provisioning, the `control` and `completion` helpers themselves) are rejected before the scope check when the principal is `remote`.
 
 ---
@@ -52,7 +52,7 @@ interface Principal {
 }
 ```
 
-- **Local** — runtime shell and terminal. `assertScope` returns immediately; hidden commands are reachable. There is no network boundary, so authorisation is the OS's responsibility (file permissions on credentials, the operator's shell).
+- **Local** — Runtime and Terminal. `assertScope` returns immediately; hidden commands are reachable. There is no network boundary, so authorisation is the OS's responsibility (file permissions on credentials, the operator's shell).
 - **Remote** — Control. Built from the JWT claims (`sub`, `zone_id`, `client_id`, `scope`). The dispatcher enforces (a) the command is not hidden and (b) the principal's scope list contains `scopeName(descriptor, subcommand)`. No blanket scope exists — every call needs the exact per-resource scope.
 
 ---
@@ -134,7 +134,7 @@ There is no `control:invoke` blanket scope. A token that needs both reads and wr
 
 ## Runtime / terminal relationship
 
-The runtime shell and terminal consume the same `@caracalai/engine` package the Control service does:
+The Runtime and Terminal consume the same `@caracalai/engine` package the Control service does:
 
 - terminal interface commands resolve descriptors from the engine catalog and call the engine's helpers directly.
 - Terminal views call the same helpers from menu actions.

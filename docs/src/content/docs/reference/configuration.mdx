@@ -9,7 +9,7 @@ Caracal has three configuration surfaces:
 | Surface | Owner | Use |
 | --- | --- | --- |
 | Service environment variables | [Environment Variables](../operations/env-vars/) | Runtime configuration for STS, API, Gateway, Coordinator, Audit, infrastructure, and optional services |
-| `caracal.toml` | runtime shell and terminal | Local client identity, STS token-exchange target, subprocess token injection, and governance mode |
+| `caracal.toml` | Runtime and Terminal | Local client identity, STS token-exchange target, subprocess token injection, and governance mode |
 | SDK constructors and environment variables | SDK packages | Application integration, context propagation, and client-secret token refresh |
 
 Use [Environment Variables](../operations/env-vars/) as the source of truth for service startup requirements and defaults. This page keeps the client-facing configuration schemas together so terminal interface, Terminal, SDK, and agent integrations can use one reference without duplicating service tables.
@@ -49,7 +49,7 @@ The reference compose stack binds every port to `127.0.0.1`. Production deployme
 
 ## `caracal.toml`
 
-`caracal.toml` is the client-side configuration file used by the runtime shell and terminal. It is discovered in this order:
+`caracal.toml` is the client-side configuration file used by the Runtime and Terminal. It is discovered in this order:
 
 1. `CARACAL_CONFIG`, when set
 2. `./caracal.toml` in the current working directory
