@@ -9,11 +9,14 @@ import type {
   Application,
   ApplicationInput,
   AuditQuery,
+  CredentialType,
   Grant,
   Policy,
+  PolicyVersion,
   PolicySet,
   Provider,
   ProviderInput,
+  ProviderKind,
   Resource,
   ResourceInput,
   Session,
@@ -22,13 +25,15 @@ import type {
   TraverseNode,
   Zone,
 } from '@caracalai/admin'
+import type { JsonObject } from '@caracalai/core'
 import { readFileSync } from 'node:fs'
 import type { App, View } from '../screen.ts'
 import { maskSecretField } from '../errors.ts'
 import { AuditTailView } from './audit.ts'
 import { DetailView } from './detail.ts'
-import { ConfirmView, FormView } from './form.ts'
+import { ConfirmView, FormView, type Field } from './form.ts'
 import { ListView } from './list.ts'
+import { appendCsv, pickFromList } from './picker.ts'
 
 export interface Ctx {
   client: AdminClient
@@ -51,15 +56,23 @@ function bool(v: string | undefined): boolean | undefined {
   return v === 'true'
 }
 
+const CREDENTIAL_TYPES: CredentialType[] = ['public', 'token', 'password', 'public-key', 'url']
+const PROVIDER_KINDS: ProviderKind[] = ['oauth2', 'oidc', 'apikey', 'workload']
+
 function readFileOrInline(filePath: string, inline: string): string {
   if (filePath && filePath.length > 0) return readFileSync(filePath, 'utf8')
   return inline
 }
 
-function parseJsonObject(input: string): Record<string, unknown> {
+function parseJsonObject(input: string): JsonObject {
   const parsed = JSON.parse(input) as unknown
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('input must be a JSON object')
-  return parsed as Record<string, unknown>
+  return parsed as JsonObject
+}
+
+function providerConfig(filePath: string, inline: string): JsonObject | undefined {
+  const content = readFileOrInline(filePath, inline)
+  return content.trim().length > 0 ? parseJsonObject(content) : undefined
 }
 
 function int(v: string | undefined): number | undefined {
@@ -72,6 +85,109 @@ function int(v: string | undefined): number | undefined {
 async function popAndReload(app: App, list: ListView<unknown>): Promise<void> {
   app.pop()
   await list.reload()
+}
+
+function applicationPicker(ctx: Ctx): Field['pick'] {
+  return pickFromList<Application>(
+    'pick application',
+    () => ctx.client.applications.list(ctx.zoneId),
+    [
+      { header: 'name', width: 24, value: (row) => row.name },
+      { header: 'credential', width: 12, value: (row) => row.credential_type },
+      { header: 'id', value: (row) => row.id },
+    ],
+    (row) => row.id,
+    (row) => row.name,
+  )
+}
+
+function resourcePicker(ctx: Ctx): Field['pick'] {
+  return pickFromList<Resource>(
+    'pick resource',
+    () => ctx.client.resources.list(ctx.zoneId),
+    [
+      { header: 'identifier', width: 30, value: (row) => row.identifier },
+      { header: 'scopes', width: 28, value: (row) => (row.scopes ?? []).join(',') || '-' },
+      { header: 'id', value: (row) => row.id },
+    ],
+    (row) => row.id,
+    (row) => row.identifier,
+  )
+}
+
+export function resourceIdentifierPicker(ctx: Ctx): Field['pick'] {
+  return pickFromList<Resource>(
+    'pick resource',
+    () => ctx.client.resources.list(ctx.zoneId),
+    [
+      { header: 'identifier', width: 30, value: (row) => row.identifier },
+      { header: 'name', width: 20, value: (row) => row.name ?? '-' },
+      { header: 'scopes', value: (row) => (row.scopes ?? []).join(',') || '-' },
+    ],
+    (row) => row.identifier,
+    (row) => row.identifier,
+  )
+}
+
+function providerPicker(ctx: Ctx): Field['pick'] {
+  return pickFromList<Provider>(
+    'pick provider',
+    () => ctx.client.providers.list(ctx.zoneId),
+    [
+      { header: 'identifier', width: 24, value: (row) => row.identifier },
+      { header: 'kind', width: 10, value: (row) => row.kind ?? '-' },
+      { header: 'id', value: (row) => row.id },
+    ],
+    (row) => row.id,
+    (row) => row.identifier,
+  )
+}
+
+function sessionPicker(ctx: Ctx): Field['pick'] {
+  return pickFromList<Session>(
+    'pick active session',
+    () => ctx.client.sessions.list(ctx.zoneId, { status: 'active', limit: 100 }),
+    [
+      { header: 'subject', width: 30, value: (row) => row.subject_id },
+      { header: 'type', width: 10, value: (row) => row.session_type },
+      { header: 'id', value: (row) => row.id },
+    ],
+    (row) => row.id,
+    (row) => row.subject_id,
+  )
+}
+
+function delegationPicker(ctx: Ctx): Field['pick'] {
+  return pickFromList<DelegationEdge>(
+    'pick delegation',
+    async () => (await ctx.client.delegations.active(ctx.zoneId)).items,
+    [
+      { header: 'source', width: 28, value: (row) => row.source_session_id },
+      { header: 'target', width: 28, value: (row) => row.target_session_id },
+      { header: 'id', value: (row) => row.id },
+    ],
+    (row) => row.id,
+    (row) => row.id,
+  )
+}
+
+function policyVersionPicker(ctx: Ctx): Field['pick'] {
+  return pickFromList<PolicyVersion & { policy_name: string }>(
+    'pick policy version',
+    async () => {
+      const policies = await ctx.client.policies.list(ctx.zoneId)
+      const details = await Promise.all(policies.map((policy) => ctx.client.policies.get(ctx.zoneId, policy.id)))
+      return details.flatMap((policy) => (policy.versions ?? []).map((version) => ({ ...version, policy_name: policy.name })))
+    },
+    [
+      { header: 'policy', width: 24, value: (row) => row.policy_name },
+      { header: 'version', width: 8, value: (row) => String(row.version) },
+      { header: 'id', value: (row) => row.id },
+    ],
+    (row) => row.id,
+    (row) => `${row.policy_name} v${row.version}`,
+    appendCsv,
+  )
 }
 
 export function zonesView(ctx: Ctx): View {
@@ -97,20 +213,10 @@ export function zonesView(ctx: Ctx): View {
           title: 'create zone',
           fields: [
             { key: 'name', label: 'name', kind: 'text', required: true },
-            { key: 'slug', label: 'slug', kind: 'text' },
-            { key: 'org_id', label: 'org_id', kind: 'text' },
-            { key: 'dcr_enabled', label: 'dcr', kind: 'bool', default: 'false' },
-            { key: 'pkce_required', label: 'pkce', kind: 'bool', default: 'true' },
-            { key: 'login_flow', label: 'login_flow', kind: 'text' },
           ],
           onSubmit: async (v, app) => {
             await ctx.client.zones.create({
               name: v.name!,
-              slug: v.slug || undefined,
-              org_id: v.org_id || undefined,
-              dcr_enabled: bool(v.dcr_enabled),
-              pkce_required: bool(v.pkce_required),
-              login_flow: v.login_flow || undefined,
             })
             await popAndReload(app, list as unknown as ListView<unknown>)
           },
@@ -124,9 +230,9 @@ export function zonesView(ctx: Ctx): View {
             fields: [
               { key: 'name', label: 'name', kind: 'text', default: row.name },
               { key: 'slug', label: 'slug', kind: 'text', default: row.slug },
-              { key: 'dcr_enabled', label: 'dcr', kind: 'bool', default: String(row.dcr_enabled) },
-              { key: 'pkce_required', label: 'pkce', kind: 'bool', default: String(row.pkce_required) },
-              { key: 'login_flow', label: 'login_flow', kind: 'text', default: row.login_flow },
+              { key: 'dcr_enabled', label: 'dynamic clients', kind: 'bool', default: String(row.dcr_enabled) },
+              { key: 'pkce_required', label: 'require PKCE', kind: 'bool', default: String(row.pkce_required) },
+              { key: 'login_flow', label: 'login flow', kind: 'text', default: row.login_flow },
             ],
             onSubmit: async (v, app) => {
               await ctx.client.zones.patch(row.id, {
@@ -176,19 +282,14 @@ export function applicationsView(ctx: Ctx): View {
           title: 'create application',
           fields: [
             { key: 'name', label: 'name', kind: 'text', required: true },
-            { key: 'registration_method', label: 'method', kind: 'select', options: ['managed', 'dcr'], default: 'managed' },
-            { key: 'credential_type', label: 'credential_type', kind: 'select', options: ['token', 'password', 'public-key', 'url', 'public'], default: 'token' },
-            { key: 'client_secret', label: 'client_secret', kind: 'secret' },
-            { key: 'traits', label: 'traits (csv)', kind: 'list' },
-            { key: 'consent', label: 'consent', kind: 'bool', default: 'false' },
+            { key: 'credential_type', label: 'credential', kind: 'select', options: CREDENTIAL_TYPES, default: 'public' },
+            { key: 'consent', label: 'require consent', kind: 'bool', default: 'false' },
           ],
           onSubmit: async (v, app) => {
             await ctx.client.applications.create(ctx.zoneId, {
               name: v.name!,
-              registration_method: (v.registration_method as 'managed' | 'dcr') ?? 'managed',
-              credential_type: (v.credential_type as 'token' | 'password' | 'public-key' | 'url' | 'public') || undefined,
-              client_secret: v.client_secret || undefined,
-              traits: v.traits ? splitList(v.traits) : undefined,
+              registration_method: 'managed',
+              credential_type: (v.credential_type as CredentialType) || undefined,
               consent: bool(v.consent),
             })
             await popAndReload(app, list as unknown as ListView<unknown>)
@@ -202,16 +303,14 @@ export function applicationsView(ctx: Ctx): View {
             title: `edit ${row.name}`,
             fields: [
               { key: 'name', label: 'name', kind: 'text', default: row.name },
-              { key: 'credential_type', label: 'credential_type', kind: 'select', options: ['token', 'password', 'public-key', 'url', 'public'], default: row.credential_type },
-              { key: 'client_secret', label: 'client_secret', kind: 'secret' },
-              { key: 'traits', label: 'traits (csv)', kind: 'list', default: (row.traits ?? []).join(',') },
-              { key: 'consent', label: 'consent', kind: 'bool', default: String(row.consent === 'true') },
+              { key: 'credential_type', label: 'credential', kind: 'select', options: CREDENTIAL_TYPES, default: row.credential_type },
+              { key: 'traits', label: 'traits', kind: 'list', default: (row.traits ?? []).join(','), hint: 'comma-separated' },
+              { key: 'consent', label: 'require consent', kind: 'bool', default: String(row.consent === 'required') },
             ],
             onSubmit: async (v, app) => {
               await ctx.client.applications.patch(ctx.zoneId, row.id, {
                 name: v.name || undefined,
-                credential_type: (v.credential_type as 'token' | 'password' | 'public-key' | 'url' | 'public') || undefined,
-                client_secret: v.client_secret || undefined,
+                credential_type: (v.credential_type as CredentialType) || undefined,
                 traits: v.traits ? splitList(v.traits) : undefined,
                 consent: bool(v.consent),
               } as Partial<ApplicationInput>)
@@ -238,16 +337,14 @@ export function applicationsView(ctx: Ctx): View {
             title: 'dynamic client registration',
             fields: [
               { key: 'name', label: 'name', kind: 'text', required: true, default: row?.name ?? '' },
-              { key: 'credential_type', label: 'credential_type', kind: 'select', options: ['token', 'password', 'public-key', 'url', 'public'], default: row?.credential_type ?? 'token' },
-              { key: 'client_secret', label: 'client_secret', kind: 'secret' },
-              { key: 'traits', label: 'traits (csv)', kind: 'list', default: (row?.traits ?? []).join(',') },
-              { key: 'expires_in', label: 'expires_in', kind: 'text', validate: (v) => v && !Number.isFinite(Number.parseInt(v, 10)) ? 'expires_in must be an integer' : undefined },
+              { key: 'credential_type', label: 'credential', kind: 'select', options: CREDENTIAL_TYPES, default: row?.credential_type ?? 'public' },
+              { key: 'traits', label: 'traits', kind: 'list', default: (row?.traits ?? []).join(','), hint: 'comma-separated' },
+              { key: 'expires_in', label: 'expires in', kind: 'text', validate: (v) => v && !Number.isFinite(Number.parseInt(v, 10)) ? 'expires in must be an integer' : undefined },
             ],
             onSubmit: async (v, app) => {
               await ctx.client.applications.dcr(ctx.zoneId, {
                 name: v.name!,
                 credential_type: (v.credential_type as ApplicationInput['credential_type']) || undefined,
-                client_secret: v.client_secret || undefined,
                 traits: v.traits ? splitList(v.traits) : undefined,
                 expires_in: int(v.expires_in),
               })
@@ -278,12 +375,12 @@ export function resourcesView(ctx: Ctx): View {
           title: 'create resource',
           fields: [
             { key: 'identifier', label: 'identifier', kind: 'text', required: true },
-            { key: 'scopes', label: 'scopes (csv)', kind: 'list', required: true },
+            { key: 'scopes', label: 'scopes', kind: 'list', required: true, hint: 'comma-separated, e.g. read,write' },
             { key: 'name', label: 'name', kind: 'text' },
-            { key: 'upstream_url', label: 'upstream_url', kind: 'text' },
-            { key: 'gateway_application_id', label: 'gateway_application_id', kind: 'text' },
-            { key: 'prefix', label: 'prefix', kind: 'bool', default: 'false' },
-            { key: 'credential_provider_id', label: 'provider', kind: 'text' },
+            { key: 'upstream_url', label: 'upstream URL', kind: 'text' },
+            { key: 'gateway_application_id', label: 'gateway app', kind: 'text', pick: applicationPicker(ctx) },
+            { key: 'prefix', label: 'prefix match', kind: 'bool', default: 'false' },
+            { key: 'credential_provider_id', label: 'provider', kind: 'text', pick: providerPicker(ctx) },
           ],
           onSubmit: async (v, app) => {
             await ctx.client.resources.create(ctx.zoneId, {
@@ -307,11 +404,11 @@ export function resourcesView(ctx: Ctx): View {
             fields: [
               { key: 'name', label: 'name', kind: 'text', default: row.name ?? '' },
               { key: 'identifier', label: 'identifier', kind: 'text', default: row.identifier },
-              { key: 'upstream_url', label: 'upstream_url', kind: 'text', default: row.upstream_url ?? '' },
-              { key: 'gateway_application_id', label: 'gateway_application_id', kind: 'text', default: row.gateway_application_id ?? '' },
-              { key: 'credential_provider_id', label: 'provider', kind: 'text', default: row.credential_provider_id ?? '' },
-              { key: 'prefix', label: 'prefix', kind: 'bool', default: String(row.prefix) },
-              { key: 'scopes', label: 'scopes (csv)', kind: 'list', default: (row.scopes ?? []).join(',') },
+              { key: 'upstream_url', label: 'upstream URL', kind: 'text', default: row.upstream_url ?? '' },
+              { key: 'gateway_application_id', label: 'gateway app', kind: 'text', default: row.gateway_application_id ?? '', pick: applicationPicker(ctx) },
+              { key: 'credential_provider_id', label: 'provider', kind: 'text', default: row.credential_provider_id ?? '', pick: providerPicker(ctx) },
+              { key: 'prefix', label: 'prefix match', kind: 'bool', default: String(row.prefix) },
+              { key: 'scopes', label: 'scopes', kind: 'list', default: (row.scopes ?? []).join(','), hint: 'comma-separated' },
             ],
             onSubmit: async (v, app) => {
               await ctx.client.resources.patch(ctx.zoneId, row.id, {
@@ -364,19 +461,18 @@ export function providersView(ctx: Ctx): View {
           fields: [
             { key: 'identifier', label: 'identifier', kind: 'text', required: true },
             { key: 'name', label: 'name', kind: 'text' },
-            { key: 'kind', label: 'kind', kind: 'select', options: ['oauth2', 'oidc', 'apikey', 'workload'], default: 'oauth2' },
-            { key: 'client_id', label: 'client_id', kind: 'text' },
-            { key: 'config_json', label: 'config_json', kind: 'multiline' },
-            { key: 'owner_type', label: 'owner_type', kind: 'text' },
+            { key: 'kind', label: 'kind', kind: 'select', options: PROVIDER_KINDS, default: 'oauth2' },
+            { key: 'client_id', label: 'client ID', kind: 'text' },
+            { key: 'config_file', label: 'config file', kind: 'file' },
+            { key: 'config_json', label: 'inline config', kind: 'multiline', hint: 'JSON object; secrets are sealed and hidden on read' },
           ],
           onSubmit: async (v, app) => {
             await ctx.client.providers.create(ctx.zoneId, {
               identifier: v.identifier!,
               name: v.name || undefined,
-              kind: (v.kind as 'oauth2' | 'oidc' | 'apikey' | 'workload') || undefined,
+              kind: (v.kind as ProviderKind) || undefined,
               client_id: v.client_id || undefined,
-              config_json: v.config_json ? JSON.parse(v.config_json) : undefined,
-              owner_type: v.owner_type || undefined,
+              config_json: providerConfig(v.config_file ?? '', v.config_json ?? ''),
             })
             await popAndReload(app, list as unknown as ListView<unknown>)
           },
@@ -390,19 +486,18 @@ export function providersView(ctx: Ctx): View {
             fields: [
               { key: 'name', label: 'name', kind: 'text', default: row.name },
               { key: 'identifier', label: 'identifier', kind: 'text', default: row.identifier },
-              { key: 'kind', label: 'kind', kind: 'select', options: ['oauth2', 'oidc', 'apikey', 'workload'], default: row.kind ?? 'oauth2' },
-              { key: 'client_id', label: 'client_id', kind: 'text', default: row.client_id ?? '' },
-              { key: 'config_json', label: 'config_json', kind: 'multiline', default: JSON.stringify(row.config_json ?? {}) },
-              { key: 'owner_type', label: 'owner_type', kind: 'text', default: row.owner_type },
+              { key: 'kind', label: 'kind', kind: 'select', options: PROVIDER_KINDS, default: row.kind ?? 'oauth2' },
+              { key: 'client_id', label: 'client ID', kind: 'text', default: row.client_id ?? '' },
+              { key: 'config_file', label: 'merge config file', kind: 'file' },
+              { key: 'config_json', label: 'merge inline config', kind: 'multiline', hint: 'leave blank to keep existing config' },
             ],
             onSubmit: async (v, app) => {
               await ctx.client.providers.patch(ctx.zoneId, row.id, {
                 name: v.name || undefined,
                 identifier: v.identifier || undefined,
-                kind: (v.kind as 'oauth2' | 'oidc' | 'apikey' | 'workload') || undefined,
+                kind: (v.kind as ProviderKind) || undefined,
                 client_id: v.client_id || undefined,
-                config_json: v.config_json ? JSON.parse(v.config_json) : undefined,
-                owner_type: v.owner_type || undefined,
+                config_json: providerConfig(v.config_file ?? '', v.config_json ?? ''),
               } as Partial<ProviderInput>)
               await popAndReload(app, list as unknown as ListView<unknown>)
             },
@@ -444,10 +539,8 @@ export function policiesView(ctx: Ctx): View {
           fields: [
             { key: 'name', label: 'name', kind: 'text', required: true },
             { key: 'description', label: 'description', kind: 'text' },
-            { key: 'owner_type', label: 'owner_type', kind: 'text' },
             { key: 'file', label: 'file (ctrl-o)', kind: 'file' },
             { key: 'content', label: 'content', kind: 'multiline' },
-            { key: 'schema_version', label: 'schema_version', kind: 'text' },
           ],
           onSubmit: async (v, app) => {
             const content = readFileOrInline(v.file ?? '', v.content ?? '')
@@ -455,9 +548,7 @@ export function policiesView(ctx: Ctx): View {
             await ctx.client.policies.create(ctx.zoneId, {
               name: v.name!,
               description: v.description || undefined,
-              owner_type: v.owner_type || undefined,
               content,
-              schema_version: v.schema_version || undefined,
             })
             await popAndReload(app, list as unknown as ListView<unknown>)
           },
@@ -469,12 +560,11 @@ export function policiesView(ctx: Ctx): View {
           fields: [
             { key: 'file', label: 'file (ctrl-o)', kind: 'file' },
             { key: 'content', label: 'content', kind: 'multiline' },
-            { key: 'schema_version', label: 'schema_version', kind: 'text' },
           ],
           onSubmit: async (v, app) => {
             const content = readFileOrInline(v.file ?? '', v.content ?? '')
             if (!content) throw new Error('file or content required')
-            const result = await ctx.client.policies.validate(content, v.schema_version || undefined)
+            const result = await ctx.client.policies.validate(content)
             app.pop()
             app.push(detail('policy validate', async () => result))
           },
@@ -488,12 +578,11 @@ export function policiesView(ctx: Ctx): View {
             fields: [
               { key: 'file', label: 'file (ctrl-o)', kind: 'file' },
               { key: 'content', label: 'content', kind: 'multiline' },
-              { key: 'schema_version', label: 'schema_version', kind: 'text' },
             ],
             onSubmit: async (v, app) => {
               const content = readFileOrInline(v.file ?? '', v.content ?? '')
               if (!content) throw new Error('file or content required')
-              await ctx.client.policies.addVersion(ctx.zoneId, row.id, content, v.schema_version || undefined)
+              await ctx.client.policies.addVersion(ctx.zoneId, row.id, content)
               await popAndReload(app, list as unknown as ListView<unknown>)
             },
           })
@@ -546,7 +635,7 @@ export function policySetsView(ctx: Ctx): View {
           return new FormView({
             title: `version ${row.name}`,
             fields: [
-              { key: 'policy_versions', label: 'versions (csv)', kind: 'list', required: true },
+              { key: 'policy_versions', label: 'policy versions', kind: 'list', required: true, pick: policyVersionPicker(ctx), hint: 'ctrl-p adds versions' },
             ],
             onSubmit: async (v, app) => {
               const manifest = splitList(v.policy_versions ?? '').map((policy_version_id) => ({ policy_version_id }))
@@ -562,8 +651,8 @@ export function policySetsView(ctx: Ctx): View {
           return new FormView({
             title: `activate ${row.name}`,
             fields: [
-              { key: 'version_id', label: 'version_id', kind: 'text', required: true },
-              { key: 'shadow_version_id', label: 'shadow_version_id', kind: 'text' },
+              { key: 'version_id', label: 'version', kind: 'text', required: true },
+              { key: 'shadow_version_id', label: 'shadow version', kind: 'text' },
             ],
             onSubmit: async (v, app) => {
               await ctx.client.policySets.activate(ctx.zoneId, row.id, v.version_id!, v.shadow_version_id || undefined)
@@ -578,9 +667,9 @@ export function policySetsView(ctx: Ctx): View {
           return new FormView({
             title: `simulate ${row.name}`,
             fields: [
-              { key: 'version_id', label: 'version_id', kind: 'text', required: true },
-              { key: 'input', label: 'input', kind: 'multiline' },
-              { key: 'input_file', label: 'input_file', kind: 'file' },
+              { key: 'version_id', label: 'version', kind: 'text', required: true, default: row.active_version_id ?? '' },
+              { key: 'input_file', label: 'input file', kind: 'file' },
+              { key: 'input', label: 'inline input', kind: 'multiline', hint: 'JSON object; leave blank for rollout-only simulation' },
             ],
             onSubmit: async (v, app) => {
               const inputValue = readFileOrInline(v.input_file ?? '', v.input ?? '')
@@ -630,10 +719,10 @@ export function grantsView(ctx: Ctx): View {
         key: 'n', label: 'new', build: () => new FormView({
           title: 'create grant',
           fields: [
-            { key: 'application_id', label: 'app', kind: 'text', required: true },
-            { key: 'user_id', label: 'user', kind: 'text', required: true },
-            { key: 'resource_id', label: 'resource', kind: 'text', required: true },
-            { key: 'scopes', label: 'scopes (csv)', kind: 'list', required: true },
+            { key: 'application_id', label: 'application', kind: 'text', required: true, pick: applicationPicker(ctx) },
+            { key: 'user_id', label: 'subject', kind: 'text', required: true },
+            { key: 'resource_id', label: 'resource', kind: 'text', required: true, pick: resourcePicker(ctx) },
+            { key: 'scopes', label: 'scopes', kind: 'list', required: true, hint: 'comma-separated subset of resource scopes' },
           ],
           onSubmit: async (v, app) => {
             await ctx.client.grants.create(ctx.zoneId, {
@@ -740,7 +829,7 @@ class DelegationMenuView implements View {
   private edgeForm(kind: 'inbound' | 'outbound'): View {
     return new FormView({
       title: `delegation ${kind}`,
-      fields: [{ key: 'session_id', label: 'session_id', kind: 'text', required: true }],
+      fields: [{ key: 'session_id', label: 'session', kind: 'text', required: true, pick: sessionPicker(this.ctx) }],
       onSubmit: async (v, app) => {
         app.pop()
         app.push(delegationEdgesView(this.ctx, kind, v.session_id!))
@@ -751,7 +840,7 @@ class DelegationMenuView implements View {
   private traverseForm(): View {
     return new FormView({
       title: 'delegation traverse',
-      fields: [{ key: 'edge_id', label: 'edge_id', kind: 'text', required: true }],
+      fields: [{ key: 'edge_id', label: 'delegation', kind: 'text', required: true, pick: delegationPicker(this.ctx) }],
       onSubmit: async (v, app) => {
         app.pop()
         app.push(delegationTraverseView(this.ctx, v.edge_id!))
@@ -762,7 +851,7 @@ class DelegationMenuView implements View {
   private revokeForm(): View {
     return new FormView({
       title: 'delegation revoke',
-      fields: [{ key: 'edge_id', label: 'edge_id', kind: 'text', required: true }],
+      fields: [{ key: 'edge_id', label: 'delegation', kind: 'text', required: true, pick: delegationPicker(this.ctx) }],
       onSubmit: async (v, app) => {
         const result = await this.ctx.client.delegations.revoke(this.ctx.zoneId, v.edge_id!)
         app.pop()
@@ -909,8 +998,8 @@ export function auditView(ctx: Ctx): View {
       { key: 'decision', label: 'decision', kind: 'select', options: ['', 'allow', 'deny', 'partial'] },
       { key: 'since', label: 'since', kind: 'text' },
       { key: 'until', label: 'until', kind: 'text' },
-      { key: 'request_id', label: 'request_id', kind: 'text' },
-      { key: 'event_type', label: 'event_type', kind: 'text' },
+      { key: 'request_id', label: 'request ID', kind: 'text' },
+      { key: 'event_type', label: 'event type', kind: 'text' },
       { key: 'limit', label: 'limit', kind: 'text', default: '100', validate: (v) => v ? (Number.isFinite(Number.parseInt(v, 10)) ? undefined : 'limit must be an integer') : undefined },
     ],
     onSubmit: async (v, app) => {

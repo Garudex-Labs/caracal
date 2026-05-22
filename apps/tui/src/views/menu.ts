@@ -22,6 +22,7 @@ import {
   runExec,
   type ControlLifecycleAction,
   type ControlLifecycleResult,
+  type ControlKeyRecord,
   type ControlServiceStatus,
   type StackMode,
   type StackPaths,
@@ -37,7 +38,8 @@ import { explainError, maskSecretField } from '../errors.ts'
 import type { Key } from '../keys.ts'
 import type { App, View, ViewContext } from '../screen.ts'
 import { DetailView } from './detail.ts'
-import { ConfirmView, FormView } from './form.ts'
+import { ConfirmView, FormView, type Field } from './form.ts'
+import { pickFromList } from './picker.ts'
 import {
   agentsView,
   applicationsView,
@@ -48,6 +50,7 @@ import {
   policySetsView,
   providersView,
   resourcesView,
+  resourceIdentifierPicker,
   sessionsView,
   zonesView,
   type Ctx,
@@ -148,7 +151,7 @@ function menuEntries(): Entry[] {
 function auditExplainEntry(ctx: Ctx): View {
   return new FormView({
     title: 'audit explain',
-    fields: [{ key: 'request_id', label: 'request_id', kind: 'text', required: true }],
+    fields: [{ key: 'request_id', label: 'request ID', kind: 'text', required: true }],
     onSubmit: async (v, app) => {
       app.pop()
       app.push(new DetailView({
@@ -163,7 +166,7 @@ function doctorEntry(ctx: Ctx): View {
   return new FormView({
     title: 'doctor',
     fields: [
-      { key: 'zone_id', label: 'zone_id', kind: 'text', default: ctx.zoneId, hint: 'blank checks all visible zones' },
+      { key: 'zone_id', label: 'zone', kind: 'text', default: ctx.zoneId, hint: 'blank checks all visible zones', pick: zoneFieldPicker(ctx.client) },
     ],
     onSubmit: async (v, app) => {
       const zoneId = v.zone_id || undefined
@@ -194,17 +197,50 @@ function doctorEntry(ctx: Ctx): View {
   })
 }
 
-function credentialEntry(): View {
-  return new CredentialMenuView()
+function zoneFieldPicker(client: AdminClient): Field['pick'] {
+  return pickFromList<Zone>(
+    'pick zone',
+    () => client.zones.list(),
+    [
+      { header: 'slug', width: 20, value: (row) => row.slug },
+      { header: 'name', width: 24, value: (row) => row.name },
+      { header: 'id', value: (row) => row.id },
+    ],
+    (row) => row.id,
+    (row) => row.slug,
+  )
+}
+
+function controlKeyPicker(client: AdminClient, zoneId: string): Field['pick'] {
+  return pickFromList<ControlKeyRecord>(
+    'pick control key',
+    () => controlKeyList(client, zoneId),
+    [
+      { header: 'name', width: 24, value: (row) => row.name },
+      { header: 'credential', width: 12, value: (row) => row.credential_type },
+      { header: 'client_id', value: (row) => row.client_id },
+    ],
+    (row) => row.client_id,
+    (row) => row.name,
+  )
+}
+
+function credentialEntry(ctx: Ctx): View {
+  return new CredentialMenuView(ctx)
 }
 
 class CredentialMenuView implements View {
   readonly title = 'credential'
   private cursor = 0
+  private readonly ctx: Ctx
   private readonly items = [
     { key: 'r', label: 'read', build: () => this.readForm() },
     { key: 'i', label: 'inspect', build: () => this.inspectForm() },
   ]
+
+  constructor(ctx: Ctx) {
+    this.ctx = ctx
+  }
 
   hints(): string[] { return ['↑/↓:select', 'enter:open', 'esc:back'] }
 
@@ -231,7 +267,7 @@ class CredentialMenuView implements View {
     return new FormView({
       title: 'credential read',
       fields: [
-        { key: 'resource', label: 'resource', kind: 'text', required: true },
+        { key: 'resource', label: 'resource', kind: 'text', required: true, pick: resourceIdentifierPicker(this.ctx) },
       ],
       onSubmit: async (v, app) => {
         const cfg = loadCliConfig()
@@ -429,12 +465,10 @@ class ControlMenuView implements View {
       title: 'control key create',
       fields: [
         { key: 'name', label: 'name', kind: 'text', required: true },
-        { key: 'audience', label: 'audience', kind: 'text', hint: 'default: caracal-control' },
       ],
       onSubmit: async (v, app) => {
         const result = await controlKeyCreate(client, zoneId, {
           name: v.name!,
-          audience: v.audience || undefined,
         })
         app.pop()
         app.push(new DetailView({
@@ -458,7 +492,7 @@ class ControlMenuView implements View {
     const { client, zoneId } = this.ctx
     return new FormView({
       title: 'control key get',
-      fields: [{ key: 'id', label: 'client_id', kind: 'text', required: true }],
+      fields: [{ key: 'id', label: 'control key', kind: 'text', required: true, pick: controlKeyPicker(client, zoneId) }],
       onSubmit: async (v, app) => {
         app.pop()
         app.push(new DetailView({
@@ -474,7 +508,7 @@ class ControlMenuView implements View {
     const { client, zoneId } = this.ctx
     return new FormView({
       title: 'control key rotate',
-      fields: [{ key: 'id', label: 'client_id', kind: 'text', required: true }],
+      fields: [{ key: 'id', label: 'control key', kind: 'text', required: true, pick: controlKeyPicker(client, zoneId) }],
       onSubmit: async (v, app) => {
         const result = await controlKeyRotate(client, zoneId, v.id!)
         app.pop()
@@ -495,7 +529,7 @@ class ControlMenuView implements View {
     const { client, zoneId } = this.ctx
     return new FormView({
       title: 'control key revoke',
-      fields: [{ key: 'id', label: 'client_id', kind: 'text', required: true }],
+      fields: [{ key: 'id', label: 'control key', kind: 'text', required: true, pick: controlKeyPicker(client, zoneId) }],
       onSubmit: async (v, app) => {
         await controlKeyRevoke(client, zoneId, v.id!)
         app.pop()

@@ -21,6 +21,7 @@ export interface Field {
   options?: string[]
   validate?: (v: string) => string | undefined
   hint?: string
+  pick?: (app: App, setValue: (value: string) => void, currentValue: string) => void | Promise<void>
 }
 
 export interface FormOpts {
@@ -74,7 +75,9 @@ export class FormView implements View {
 
   hints(): string[] {
     if (this.multilineMode) return ['esc:done', 'enter:newline']
-    return ['tab/j/k:next', 'enter:advance/submit', 'esc:cancel', 'ctrl-o:file', 'ctrl-r:reveal']
+    const base = ['tab/j/k:next', 'enter:advance/submit', 'esc:cancel', 'ctrl-o:file', 'ctrl-r:reveal']
+    if (this.fields[this.focus]?.pick) base.push('ctrl-p:pick')
+    return base
   }
 
   dispose(): void { this.abort.abort() }
@@ -97,7 +100,10 @@ export class FormView implements View {
         : ` ${cursorMark}${ui.muted(label)}${display}`
       const styled = truncate(text, ctx.size.cols)
       lines.push(styled)
-      if (f.hint && focused) lines.push('   ' + ui.muted('hint: ' + f.hint))
+      if (focused) {
+        const hints = [f.hint, f.pick ? 'ctrl-p opens a picker' : undefined].filter((hint): hint is string => Boolean(hint))
+        if (hints.length > 0) lines.push('   ' + ui.muted('hint: ' + hints.join(' · ')))
+      }
     }
     lines.push('')
     const submitMark = this.focus === this.fields.length ? ansi.invert : ''
@@ -154,6 +160,14 @@ export class FormView implements View {
         ctx.app.push(new FilePickerView(process.cwd(), (path) => {
           this.values[f.key] = path
         }))
+      }
+      return
+    }
+    if (key === '\u0010') {
+      if (f?.pick) {
+        await f.pick(ctx.app, (value) => {
+          this.values[f.key] = value
+        }, this.values[f.key] ?? '')
       }
       return
     }
