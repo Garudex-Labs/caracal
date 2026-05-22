@@ -73,12 +73,6 @@ export const SHELL_COMMANDS: readonly CommandDescriptor[] = Object.freeze([
     subcommands: ['stack', 'volumes', 'logs', 'config', 'runtime', 'secrets', 'cache', 'all'],
   },
   {
-    name: 'protect',
-    group: 'admin',
-    summary: 'Provision a Gateway-first local protected resource',
-    subcommands: ['http'],
-  },
-  {
     name: 'doctor',
     group: 'admin',
     summary: 'Check local control-plane readiness',
@@ -123,23 +117,6 @@ export const CLI_COMMANDS: readonly CommandDescriptor[] = Object.freeze([
     },
     scopes: { validate: 'read' },
   },
-  {
-    name: 'protect',
-    group: 'admin',
-    summary: 'Provision a Gateway-first local protected resource',
-    subcommands: ['http'],
-    flags: {
-      http: [
-        { name: '--identifier', summary: 'Resource identifier URI' },
-        { name: '--upstream-url', summary: 'HTTP upstream URL' },
-        { name: '--scopes', summary: 'Comma-separated scopes' },
-        { name: '--user', summary: 'Subject/user ID for the initial grant' },
-        { name: '--zone-url', summary: 'STS base URL for generated config' },
-        { name: '--write-config', summary: 'Write generated caracal.toml' },
-      ],
-    },
-  },
-
   {
     name: 'zone', group: 'admin', summary: 'Manage zones',
     subcommands: ['use', 'list', 'get', 'create', 'patch', 'delete'],

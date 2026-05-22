@@ -14,7 +14,6 @@ import { agentCommand, delegationCommand } from '../../../../apps/cli/src/comman
 import { policyCommand, policySetCommand } from '../../../../apps/cli/src/commands/policy.ts'
 import { doctorCommand } from '../../../../apps/cli/src/commands/doctor.ts'
 import { manifestCommand } from '../../../../apps/cli/src/commands/manifest.ts'
-import { protectCommand } from '../../../../apps/cli/src/commands/protect.ts'
 
 const ORIG_ENV = { ...process.env }
 
@@ -348,88 +347,6 @@ describe('CLI commands (e2e against stubbed fetch)', () => {
     expect(stdout.mock.calls.map((c) => c[0]).join('')).toContain('policy-1')
   })
 
-  it('protect provisions the Gateway-first local path', async () => {
-    const calls: string[] = []
-    stubFetch((url, init) => {
-      calls.push(`${init.method ?? 'GET'} ${url}`)
-      const body = init.body ? JSON.parse(String(init.body)) : undefined
-      if (url === 'http://api/v1/zones/z1') {
-        return { id: 'z1', name: 'Local', slug: 'local' }
-      }
-      if (url === 'http://api/v1/zones/z1/applications' && (init.method ?? 'GET') === 'GET') {
-        return []
-      }
-      if (url === 'http://api/v1/zones/z1/applications' && init.method === 'POST') {
-        expect(body).toMatchObject({ name: 'local-gateway-app', registration_method: 'managed', credential_type: 'token', traits: ['gateway'] })
-        expect(body.client_secret).toMatch(/^cs_/)
-        return { id: 'app-1', name: body.name, registration_method: 'managed', credential_type: 'token', traits: ['gateway'], consent: 'false', created_at: 't' }
-      }
-      if (url === 'http://api/v1/zones/z1/resources' && (init.method ?? 'GET') === 'GET') {
-        return []
-      }
-      if (url === 'http://api/v1/zones/z1/resources' && init.method === 'POST') {
-        expect(body).toMatchObject({ identifier: 'resource://local-tool', upstream_url: 'http://host.docker.internal:8090', gateway_application_id: 'app-1', scopes: ['tool:read'] })
-        return { id: 'res-1', zone_id: 'z1', name: body.name, identifier: body.identifier, upstream_url: body.upstream_url, gateway_application_id: body.gateway_application_id, prefix: false, scopes: body.scopes, credential_provider_id: null, created_at: 't', updated_at: 't' }
-      }
-      if (url === 'http://api/v1/zones/z1/policies' && (init.method ?? 'GET') === 'GET') {
-        return []
-      }
-      if (url === 'http://api/v1/zones/z1/policies' && init.method === 'POST') {
-        expect(body).toMatchObject({ name: 'Local Gateway Scope Policy', schema_version: '2026-05-20' })
-        expect(body.content).toContain('every scope in input.context.requested_scopes')
-        return { id: 'pol-1', zone_id: 'z1', name: body.name, description: body.description, owner_type: 'customer', created_by: 'admin', created_at: 't', version: { id: 'pver-1', policy_id: 'pol-1', version: 1, content_sha256: 'sha', schema_version: '2026-05-20', created_at: 't' } }
-      }
-      if (url === 'http://api/v1/zones/z1/policy-sets' && (init.method ?? 'GET') === 'GET') {
-        return []
-      }
-      if (url === 'http://api/v1/zones/z1/policy-sets' && init.method === 'POST') {
-        return { id: 'pset-1', zone_id: 'z1', name: body.name, description: body.description, active_version_id: null, created_at: 't' }
-      }
-      if (url === 'http://api/v1/zones/z1/policy-sets/pset-1/versions') {
-        expect(body).toEqual({ manifest: [{ policy_version_id: 'pver-1' }], schema_version: '2026-05-20' })
-        return { id: 'psver-1', policy_set_id: 'pset-1', version: 1, manifest_sha256: 'sha', schema_version: '2026-05-20', created_at: 't' }
-      }
-      if (url === 'http://api/v1/zones/z1/policy-sets/pset-1/activate') {
-        expect(body).toEqual({ version_id: 'psver-1' })
-        return { activated: true, version_id: 'psver-1', shadow_version_id: null }
-      }
-      if (url === 'http://api/v1/zones/z1/grants' && (init.method ?? 'GET') === 'GET') {
-        return []
-      }
-      if (url === 'http://api/v1/zones/z1/grants' && init.method === 'POST') {
-        expect(body).toEqual({ application_id: 'app-1', user_id: 'local-user', resource_id: 'res-1', scopes: ['tool:read'] })
-        return { id: 'grant-1', zone_id: 'z1', application_id: 'app-1', user_id: 'local-user', resource_id: 'res-1', scopes: ['tool:read'], status: 'active', created_at: 't' }
-      }
-      throw new Error(`unexpected request ${init.method ?? 'GET'} ${url}`)
-    })
-
-    const dir = mkdtempSync(join(tmpdir(), 'caracal-protect-'))
-    tempDirs.push(dir)
-    const configPath = join(dir, 'caracal.toml')
-    await protectCommand(['http', '--zone', 'z1', '--identifier', 'resource://local-tool', '--upstream-url', 'http://host.docker.internal:8090', '--scopes', 'tool:read', '--user', 'local-user', '--write-config', configPath])
-
-    expect(calls).toEqual([
-      'GET http://api/v1/zones/z1',
-      'GET http://api/v1/zones/z1/applications',
-      'POST http://api/v1/zones/z1/applications',
-      'GET http://api/v1/zones/z1/resources',
-      'POST http://api/v1/zones/z1/resources',
-      'GET http://api/v1/zones/z1/policies',
-      'POST http://api/v1/zones/z1/policies',
-      'GET http://api/v1/zones/z1/policy-sets',
-      'POST http://api/v1/zones/z1/policy-sets',
-      'POST http://api/v1/zones/z1/policy-sets/pset-1/versions',
-      'POST http://api/v1/zones/z1/policy-sets/pset-1/activate',
-      'GET http://api/v1/zones/z1/grants',
-      'POST http://api/v1/zones/z1/grants',
-    ])
-    const out = stdout.mock.calls.map((c) => c[0]).join('')
-    expect(out).toContain('protected resource')
-    expect(out).toContain('zone_url = "http://sts"')
-    expect(out).toContain('application_id = "app-1"')
-    expect(out).toContain('resource = "resource://local-tool"')
-  })
-
   it('doctor reports control-plane readiness checks', async () => {
     stubFetch((url) => {
       if (url === 'http://api/health') return { ok: true }
@@ -448,6 +365,117 @@ describe('CLI commands (e2e against stubbed fetch)', () => {
     expect(out).toContain('api health')
     expect(out).toContain('admin auth')
     expect(out).toContain('audit query')
+  })
+
+  it('doctor exits successfully when only warnings are present', async () => {
+    delete process.env.CARACAL_ZONE_ID
+    stubFetch((url) => {
+      if (url === 'http://api/health') return { ok: true }
+      if (url === 'http://api/v1/zones') return [{ id: 'z1', name: 'Local', slug: 'local' }]
+      throw new Error(`unexpected request ${url}`)
+    })
+
+    await doctorCommand([])
+
+    const out = stdout.mock.calls.map((c) => c[0]).join('')
+    expect(out).toContain('zone')
+    expect(out).toContain('warn')
+    expect(exit).not.toHaveBeenCalled()
+  })
+
+  it('doctor --ready treats warnings as not ready', async () => {
+    delete process.env.CARACAL_ZONE_ID
+    stubFetch((url) => {
+      if (url === 'http://api/health') return { ok: true }
+      if (url === 'http://api/v1/zones') return [{ id: 'z1', name: 'Local', slug: 'local' }]
+      throw new Error(`unexpected request ${url}`)
+    })
+
+    await expect(doctorCommand(['--ready', '--json'])).rejects.toThrow('__exit:1')
+
+    const body = JSON.parse(stdout.mock.calls.map((c) => c[0]).join(''))
+    expect(body.ready).toBe(false)
+    expect(body.checks).toContainEqual({
+      check: 'zone',
+      status: 'warn',
+      detail: 'no zone selected; pass --zone or set CARACAL_ZONE_ID',
+    })
+  })
+
+  it('doctor exits nonzero when a check fails', async () => {
+    delete process.env.CARACAL_ZONE_ID
+    vi.stubGlobal('fetch', vi.fn().mockImplementation(async (url: string) => {
+      if (url === 'http://api/health') {
+        return {
+          ok: false,
+          status: 503,
+          text: async () => JSON.stringify({ reason: 'booting' }),
+        }
+      }
+      if (url === 'http://api/v1/zones') {
+        return {
+          ok: true,
+          status: 200,
+          text: async () => JSON.stringify([{ id: 'z1', name: 'Local', slug: 'local' }]),
+          json: async () => [{ id: 'z1', name: 'Local', slug: 'local' }],
+        }
+      }
+      throw new Error(`unexpected request ${url}`)
+    }))
+
+    await expect(doctorCommand([])).rejects.toThrow('__exit:1')
+
+    const out = stdout.mock.calls.map((c) => c[0]).join('')
+    expect(out).toContain('api health')
+    expect(out).toContain('fail')
+    expect(out).toContain('HTTP 503 booting')
+  })
+
+  it('doctor skips zone-scoped checks when the selected zone is missing', async () => {
+    const fetchMock = vi.fn().mockImplementation(async (url: string) => {
+      if (url === 'http://api/health') {
+        return {
+          ok: true,
+          status: 200,
+          text: async () => JSON.stringify({ ok: true }),
+          json: async () => ({ ok: true }),
+        }
+      }
+      if (url === 'http://api/v1/zones') {
+        return {
+          ok: true,
+          status: 200,
+          text: async () => JSON.stringify([{ id: 'z1', name: 'Local', slug: 'local' }]),
+          json: async () => [{ id: 'z1', name: 'Local', slug: 'local' }],
+        }
+      }
+      if (url === 'http://api/v1/zones/lfdt') {
+        return {
+          ok: false,
+          status: 404,
+          text: async () => JSON.stringify({ error: 'zone_not_found' }),
+          json: async () => ({ error: 'zone_not_found' }),
+        }
+      }
+      throw new Error(`unexpected request ${url}`)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    await expect(doctorCommand(['--zone', 'lfdt'])).rejects.toThrow('__exit:1')
+
+    expect(fetchMock.mock.calls.map((call) => call[0])).toEqual([
+      'http://api/health',
+      'http://api/v1/zones',
+      'http://api/v1/zones/lfdt',
+    ])
+    const out = stdout.mock.calls.map((c) => c[0]).join('')
+    expect(out).toContain('zone')
+    expect(out).toContain('fail')
+    expect(out).toContain('zone_not_found (HTTP 404)')
+    expect(out).not.toContain('resources')
+    expect(out).not.toContain('policy sets')
+    expect(out).not.toContain('grants')
+    expect(out).not.toContain('audit query')
   })
 
   it('doctor extended reports service readiness and metrics', async () => {
