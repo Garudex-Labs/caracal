@@ -163,12 +163,12 @@ Do not create a permissive `allow { true }` policy as a placeholder. Use a real 
 
 ### Admin token entropy and scope
 
-Admin tokens are stored as SHA-256 hashes. SHA-256 is fast to compute, so token entropy is the primary defense against brute force.
+Admin tokens use a SHA-256 lookup fingerprint and an Argon2id verifier hash in the `admin_tokens` table. Token entropy remains required because bearer tokens grant direct administrative access when presented.
 
 - Generate admin tokens using at least 32 bytes of random data (`openssl rand -base64 32`).
 - Issue zone-scoped tokens (associated with a specific `zone_id`) rather than global tokens where possible. Zone-scoped tokens cannot access other zones.
 - Rotate tokens immediately if suspected compromised.
-- Rate-limit the admin token endpoint at the network layer — the application layer does not apply per-IP rate limits to admin routes.
+- Keep `ADMIN_AUTH_FAIL_LIMIT_PER_MIN` enabled and add a network-layer rate limit at the ingress or API gateway.
 
 ### Bootstrap token
 

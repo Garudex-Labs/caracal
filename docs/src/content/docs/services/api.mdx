@@ -41,7 +41,7 @@ All `/v1/*` routes require a bearer token in the `Authorization` header:
 Authorization: Bearer <admin-token>
 ```
 
-The token is SHA-256 hashed and looked up in the `admin_tokens` table. Comparison is timing-safe. Token scope (`global` or `zone`) is checked against the route's zone context.
+The token is looked up by a SHA-256 fingerprint in the `admin_tokens` table and verified with Argon2id before the request is accepted. Token scope (`global` or `zone`) is checked against the route's zone context.
 
 ---
 
@@ -99,7 +99,7 @@ Policies are validated for Rego syntax on write. Policy versions are immutable �
 
 ## Database schema
 
-The API runs all Postgres migrations on startup, serialized with an advisory lock so concurrent replicas do not conflict. Key tables:
+Schema migrations run before the API starts through the Compose `dbMigrate` service or the Helm migration Job. Key tables:
 
 **`zones`** — `id`, `org_id`, `name`, `slug` (unique), `dek_ciphertext` (encrypted zone DEK), `kek_arn`, `dcr_enabled`, `pkce_required`, `login_flow`, timestamps.
 
@@ -138,20 +138,19 @@ Redis streams published:
 
 1. Parse configuration from environment.
 2. Connect to PostgreSQL; open connection pool (max 20 connections by default).
-3. Run Postgres migrations under advisory lock.
-4. Seed `CARACAL_ADMIN_TOKEN` into `admin_tokens` if the env var is set.
-5. Register Fastify plugins (schema validation, logging, auth hook, admin audit hook).
-6. Register all route plugins.
-7. Start OutboxDispatcher background loop.
-8. Start DCR GC timer (removes expired DCR applications).
-9. Start session reaper timer (removes expired session records).
-10. Listen on `0.0.0.0:3000`.
+3. Seed `CARACAL_ADMIN_TOKEN` into `admin_tokens` if the env var is set.
+4. Register Fastify plugins (schema validation, logging, auth hook, admin audit hook).
+5. Register all route plugins.
+6. Start OutboxDispatcher background loop.
+7. Start DCR GC timer (removes expired DCR applications).
+8. Start session reaper timer (removes expired session records).
+9. Listen on `0.0.0.0:3000`.
 
 ---
 
 ## Scaling
 
-The API is fully stateless. All state is in PostgreSQL and Redis. Run any number of replicas. Migrations are serialized by advisory lock — the first replica to start acquires the lock, runs migrations, releases it; others wait and proceed.
+The API is fully stateless. All state is in PostgreSQL and Redis. Run any number of replicas after the migration job has completed.
 
 ---
 

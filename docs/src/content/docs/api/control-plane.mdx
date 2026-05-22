@@ -14,7 +14,7 @@ All `/v1/*` endpoints require a bearer token:
 Authorization: Bearer <admin-token>
 ```
 
-Tokens are stored as SHA-256 hashes in the `admin_tokens` table. Each token carries a scope:
+Tokens are stored with a SHA-256 lookup fingerprint and an Argon2id verifier hash in the `admin_tokens` table. Each token carries a scope:
 
 - **`global`** — access to all zones and zone-independent endpoints.
 - **`zone`** — access restricted to routes matching the token's zone ID.
@@ -23,7 +23,7 @@ Tokens are stored as SHA-256 hashes in the `admin_tokens` table. Each token carr
 
 | Code | Status | Condition |
 | --- | --- | --- |
-| `invalid_admin_token` | 401 | Token missing, malformed, or hash does not match |
+| `invalid_admin_token` | 401 | Token missing, malformed, unknown, or verifier hash does not match |
 | `admin_token_zone_mismatch` | 403 | Zone-scoped token used on a different zone's routes |
 
 Every request generates a unique request ID (UUIDv7) if `X-Request-Id` is not provided. The ID is echoed in the `X-Request-Id` response header and recorded in the audit log.

@@ -10,7 +10,7 @@ Caracal exposes four HTTP services, each with a distinct purpose and authenticat
 
 | Service | Default port | Purpose | Auth method |
 | --- | --- | --- | --- |
-| [Control-Plane API](./control-plane/) | 3000 | Manage zones, applications, resources, policies, grants, and sessions | Admin bearer token (SHA-256 hashed, stored in `admin_tokens`) |
+| [Control-Plane API](./control-plane/) | 3000 | Manage zones, applications, resources, policies, grants, and sessions | Admin bearer token (Argon2id verified, stored in `admin_tokens`) |
 | [STS](./sts/) | 8080 | Issue mandates via RFC 8693 token exchange | Client secret or client assertion per request |
 | [Coordinator](./coordinator/) | 4000 | Manage agent sessions and delegation edges | STS-issued JWT with coordinator scopes |
 | [Gateway](./gateway/) | 8081 | Authenticate and proxy inbound MCP calls to upstream services | Session bearer token issued by STS |
