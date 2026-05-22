@@ -61,3 +61,23 @@ export function discoverAdminToken(explicit?: string): string | undefined {
   }
   return undefined;
 }
+
+export function discoverCoordinatorToken(explicit?: string): string | undefined {
+  if (explicit) return explicit;
+  if (process.env.CARACAL_COORDINATOR_TOKEN) return process.env.CARACAL_COORDINATOR_TOKEN;
+  if (process.env.CARACAL_COORDINATOR_TOKEN_FILE) {
+    const value = readSecretFile(process.env.CARACAL_COORDINATOR_TOKEN_FILE);
+    if (value) return value;
+  }
+  const installed = readSecretFile(join(installedHome(), 'secrets', 'caracalCoordinatorToken'));
+  if (installed) return installed;
+  if (process.env.CARACAL_REPO_ROOT) {
+    const dev = readSecretFile(join(process.env.CARACAL_REPO_ROOT, 'infra', 'secrets', 'files', 'caracalCoordinatorToken'));
+    if (dev) return dev;
+  }
+  if (process.env.CARACAL_ENV_FILE) {
+    const env = readEnvFile(process.env.CARACAL_ENV_FILE);
+    if (env.CARACAL_COORDINATOR_TOKEN) return env.CARACAL_COORDINATOR_TOKEN;
+  }
+  return undefined;
+}
