@@ -1,7 +1,7 @@
 # Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 # Caracal, a product of Garudex Labs
 #
-# Standalone Windows Terminal installer that downloads, verifies, and extracts Caracal release archives.
+# Standalone Windows terminal installer that downloads, verifies, and extracts Caracal release archives.
 
 [CmdletBinding()]
 param(
@@ -92,10 +92,9 @@ if (-not ($userPath -split ';' | Where-Object { $_ -ieq $InstallDir })) {
 
 Write-Host 'caracal-install: done. Next steps:'
 if ($installedShell) {
-    Write-Host '  caracal terminal        # launch the interactive Terminal through the shell'
+    Write-Host '  caracal terminal        # launch the terminal management interface through the shell'
 }
-Write-Host '  caracal-terminal        # launch the interactive Terminal directly'
-Write-Host 'caracal-install: CLI not installed; install it with install-cli.ps1 when needed'
+Write-Host '  caracal-terminal        # launch the terminal management interface directly'
 if ($installedShell) {
     Write-Host "caracal-install: to uninstall, remove caracal.exe and caracal-terminal.exe from $InstallDir and the user PATH entry."
 } else {

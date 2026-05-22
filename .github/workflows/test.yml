@@ -211,7 +211,7 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile --prefer-offline
 
-      - name: Generate CLI embedded assets
+      - name: Generate runtime embedded assets
         run: pnpm --dir apps/runtime sync-embedded
 
       - name: Build TypeScript packages
@@ -248,7 +248,7 @@ jobs:
             tests/typescript/fuzz/api \
             tests/typescript/integration/api
           run_pkg apps/coordinator coordinator tests/typescript/unit/orchestration/coordinator
-          run_pkg apps/runtime cli tests/typescript/unit/runtime
+          run_pkg apps/runtime runtime tests/typescript/unit/runtime
           run_pkg apps/terminal terminal tests/typescript/unit/terminal
           run_pkg packages/core/ts core tests/typescript/unit/shared
           run_pkg packages/admin/ts admin tests/typescript/unit/admin

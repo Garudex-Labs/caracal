@@ -13,7 +13,7 @@ readonly AREA="terminalBinaries"
 readonly KIND="terminal"
 readonly BIN="caracal-terminal"
 readonly BASE="https://github.com/$CARACAL_REPO/releases/download/$CARACAL_RELEASE"
-readonly EXPECT="$Terminal_VER"
+readonly EXPECT="$TERMINAL_VER"
 readonly PLATS=(linux-amd64 linux-arm64 darwin-amd64 darwin-arm64 windows-amd64)
 
 validatePlat() {

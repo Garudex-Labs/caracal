@@ -17,12 +17,12 @@ err() {
 
 usage() {
     cat <<EOF
-caracal-install: download the Caracal Terminal binaries from GitHub Releases.
+caracal-install: download the Caracal terminal binaries from GitHub Releases.
 
 Usage:
   install-terminal.sh [--version vYYYY.MM.DD[.N]] [--install-dir PATH]
 
-Installs the thin 'caracal' shell and the 'caracal-terminal' terminal UI binary.
+Installs the thin 'caracal' shell and the 'caracal-terminal' terminal management binary.
 
 Environment overrides:
   CARACAL_VERSION       same as --version
@@ -175,9 +175,8 @@ checkShadow caracal-terminal
 printf 'caracal-install: done. Next steps:\n'
 printf '  installed release %s (mode: stable)\n' "${tag}"
 printf '  hash -r            # refresh your shell command cache\n'
-[ "${installedShell}" = "1" ] && printf '  caracal terminal        # launch the interactive Terminal through the shell\n'
-printf '  caracal-terminal        # launch the interactive Terminal directly\n'
-printf 'caracal-install: CLI not installed; install it with install-cli.sh when needed\n'
+[ "${installedShell}" = "1" ] && printf '  caracal terminal        # launch the terminal management interface through the shell\n'
+printf '  caracal-terminal        # launch the terminal management interface directly\n'
 printf 'caracal-install: to uninstall, remove'
 [ "${installedShell}" = "1" ] && printf ' %s/caracal' "${INSTALL_DIR}"
 printf ' %s/caracal-terminal\n' "${INSTALL_DIR}"

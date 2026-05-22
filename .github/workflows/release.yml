@@ -1,12 +1,12 @@
 # Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 # Caracal, a product of Garudex Labs
 #
-# Release pipeline: builds CLI binaries, pushes images to GHCR, and creates stable or rc GitHub Releases. npm and PyPI packages are published via scripts/publishNpm.sh and scripts/publishPypi.sh.
+# Release pipeline: builds runtime and terminal binaries, pushes images to GHCR, and creates stable or rc GitHub Releases. npm and PyPI packages are published via scripts/publishNpm.sh and scripts/publishPypi.sh.
 #
 # Triggers:
 # - Tag push vYYYY.MM.DD[.N]: stable release (binaries → GitHub Release, images → GHCR, attestations), then best-effort postReleaseValidation.
 # - Tag push vYYYY.MM.DD[.N]-rc.*: rc (same artifact destinations, GitHub Release marked as rc).
-# - workflow_dispatch: build-only validation (CLI artifact upload; images built with buildx — no GHCR push). No GitHub Release.
+# - workflow_dispatch: build-only validation (binary artifact upload; images built with buildx — no GHCR push). No GitHub Release.
 #   Use ref to checkout a branch or tag; leave empty to use the caller's default ref.
 # - dryRun is informational for dispatch only (publishing is already gated on tag push).
 
@@ -103,8 +103,8 @@ jobs:
           }
           NODE
 
-  cli:
-    name: Build CLI and Terminal binaries
+  binaries:
+    name: Build runtime and terminal binaries
     needs: check-maintainer
     if: github.repository == 'Garudex-Labs/caracal'
     runs-on: ubuntu-latest
@@ -158,7 +158,7 @@ jobs:
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
           echo "Resolved version: ${VERSION}"
 
-      - name: Stamp CLI version
+      - name: Stamp runtime version
         env:
           CARACAL_RELEASE_VERSION: ${{ steps.ver.outputs.version }}
         run: |
@@ -166,9 +166,9 @@ jobs:
           node apps/runtime/scripts/stampRelease.mjs
           jq --arg v "${CARACAL_RELEASE_VERSION}" '.version = $v' apps/runtime/package.json > apps/runtime/package.json.tmp
           mv apps/runtime/package.json.tmp apps/runtime/package.json
-          echo "Stamped version ${CARACAL_RELEASE_VERSION} into CLI"
+          echo "Stamped version ${CARACAL_RELEASE_VERSION} into runtime"
 
-      - name: Build CLI binaries
+      - name: Build runtime binaries
         env:
           CARACAL_RELEASE_VERSION: ${{ steps.ver.outputs.version }}
         run: pnpm --dir apps/runtime build
@@ -195,7 +195,7 @@ jobs:
           set -euo pipefail
           mkdir -p release-dist
           tag="v${VERSION}"
-          targets='shell:linux:amd64:x64 shell:linux:arm64:arm64 shell:darwin:amd64:x64 shell:darwin:arm64:arm64 shell:windows:amd64:x64 cli:linux:amd64:x64 cli:linux:arm64:arm64 cli:darwin:amd64:x64 cli:darwin:arm64:arm64 cli:windows:amd64:x64 terminal:linux:amd64:x64 terminal:linux:arm64:arm64 terminal:darwin:amd64:x64 terminal:darwin:arm64:arm64 terminal:windows:amd64:x64'
+          targets='shell:linux:amd64:x64 shell:linux:arm64:arm64 shell:darwin:amd64:x64 shell:darwin:arm64:arm64 shell:windows:amd64:x64 terminal:linux:amd64:x64 terminal:linux:arm64:arm64 terminal:darwin:amd64:x64 terminal:darwin:arm64:arm64 terminal:windows:amd64:x64'
           for entry in $targets; do
             IFS=: read -r kind os arch bunArch <<EOF
           ${entry}
@@ -204,7 +204,6 @@ jobs:
             [ "$os" = windows ] && ext='.exe'
             case "$kind" in
               shell) srcDir=apps/runtime/dist; srcBase=caracal; binName=caracal ;;
-              cli) srcDir=apps/runtime/dist; srcBase=caracal-terminal; binName=caracal-terminal ;;
               terminal) srcDir=apps/terminal/dist; srcBase=caracal-terminal; binName=caracal-terminal ;;
             esac
             src="${srcDir}/${srcBase}-${os}-${bunArch}${ext}"
@@ -238,9 +237,6 @@ jobs:
 
           tar -xzf "release-dist/caracal-terminal-linux-amd64-${tag}.tar.gz" -C "$work"
           "${work}/caracal-terminal" --help
-          echo "CLI smoke test passed"
-
-          tar -xzf "release-dist/caracal-terminal-linux-amd64-${tag}.tar.gz" -C "$work"
           terminal_exit=0
           "${work}/caracal-terminal" 2>/tmp/terminal-stderr || terminal_exit=$?
           terminal_msg="$(cat /tmp/terminal-stderr)"
@@ -252,7 +248,7 @@ jobs:
         working-directory: release-dist
         run: |
           set -euo pipefail
-          sha256sum caracal-shell-*.tar.gz caracal-shell-*.zip caracal-terminal-*.tar.gz caracal-terminal-*.zip caracal-terminal-*.tar.gz caracal-terminal-*.zip > SHA256SUMS
+          sha256sum caracal-shell-*.tar.gz caracal-shell-*.zip caracal-terminal-*.tar.gz caracal-terminal-*.zip > SHA256SUMS
           echo "Generated SHA256SUMS:"
           cat SHA256SUMS
 
@@ -270,7 +266,7 @@ jobs:
       - name: Job summary
         run: |
           {
-            echo "## CLI / Terminal release build"
+            echo "## Runtime / terminal release build"
             echo ""
             echo "| | |"
             echo "|--|--|"
@@ -385,8 +381,8 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-  cliImage:
-    name: Build and push CLI container image
+  runtimeImage:
+    name: Build and push runtime container image
     needs: check-maintainer
     if: github.repository == 'Garudex-Labs/caracal'
     runs-on: ubuntu-latest
@@ -430,12 +426,12 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           provenance: false
           sbom: false
-          cache-from: type=gha,scope=cli-image
-          cache-to: type=gha,mode=max,scope=cli-image
+          cache-from: type=gha,scope=runtime-image
+          cache-to: type=gha,mode=max,scope=runtime-image
 
   publish:
     name: Create GitHub Release
-    needs: [cli, images, cliImage]
+    needs: [binaries, images, runtimeImage]
     if: github.repository == 'Garudex-Labs/caracal' && github.event_name == 'push'
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -456,11 +452,8 @@ jobs:
       - name: Verify installer scripts
         run: |
           set -euo pipefail
-          test -f install-cli.sh
           test -f install-terminal.sh
-          test -f install-cli.ps1
           test -f install-terminal.ps1
-          test -x install-cli.sh || chmod +x install-cli.sh
           test -x install-terminal.sh || chmod +x install-terminal.sh
 
       - name: Verify release assets
@@ -475,11 +468,6 @@ jobs:
             "dist/caracal-shell-darwin-amd64-${tag}.tar.gz" \
             "dist/caracal-shell-darwin-arm64-${tag}.tar.gz" \
             "dist/caracal-shell-windows-amd64-${tag}.zip" \
-            "dist/caracal-terminal-linux-amd64-${tag}.tar.gz" \
-            "dist/caracal-terminal-linux-arm64-${tag}.tar.gz" \
-            "dist/caracal-terminal-darwin-amd64-${tag}.tar.gz" \
-            "dist/caracal-terminal-darwin-arm64-${tag}.tar.gz" \
-            "dist/caracal-terminal-windows-amd64-${tag}.zip" \
             "dist/caracal-terminal-linux-amd64-${tag}.tar.gz" \
             "dist/caracal-terminal-linux-arm64-${tag}.tar.gz" \
             "dist/caracal-terminal-darwin-amd64-${tag}.tar.gz" \
@@ -504,11 +492,8 @@ jobs:
           files: |
             dist/caracal-shell-*
             dist/caracal-terminal-*
-            dist/caracal-terminal-*
             dist/SHA256SUMS
-            install-cli.sh
             install-terminal.sh
-            install-cli.ps1
             install-terminal.ps1
 
       - name: Trigger post-release validation
