@@ -99,7 +99,7 @@ Per-zone writes are serialized with `pg_advisory_xact_lock` to maintain chain or
 
 ## Querying the audit ledger
 
-The CLI and Terminal provide two views:
+The runtime shell and terminal provide two views:
 
 **Live tail** (`caracal audit tail`): streams events from the Redis stream in near real-time. Filter by decision (`allow` / `deny`), pause and resume the stream.
 

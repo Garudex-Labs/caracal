@@ -178,7 +178,7 @@ Each service waits for a `healthy` signal from its dependencies before starting.
 | **API**         | ✓ | ✓ | — | — | — | — | — |
 | **Audit**       | ✓ | ✓ | — | — | — | — | — |
 | **Coordinator** | ✓ | ✓ | ✓ | — | — | — | — |
-| **CLI/SDK**     | — | — | ✓ | ✓ | ✓ | — | ✓ |
+| **terminal interface/SDK**     | — | — | ✓ | ✓ | ✓ | — | ✓ |
 
 No service makes direct HTTP calls to another service except where the matrix shows ✓. The Gateway calls STS for every inbound request. The Coordinator calls STS only for bearer verification. The API publishes to Redis streams via the outbox; it does not call any other service directly.
 

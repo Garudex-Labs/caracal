@@ -16,7 +16,7 @@ This page covers what you need installed and how to bring up a local Caracal sta
 | pnpm | 11.1.1 | TypeScript dependency management |
 | Go | 1.26+ | Go services and packages |
 | Python | 3.14+ | Python SDK packages |
-| Bun | 1.x | CLI/Terminal binary compilation |
+| Bun | 1.x | runtime/terminal binary compilation |
 | Docker Desktop | latest stable | Local service stack |
 
 Install each from its official source. The repository does not manage toolchain versions through scripts — use your system package manager or version manager.
@@ -95,7 +95,7 @@ caracal zone create --name dev
 caracal app create --zone <zone-id> --name dev-app
 ```
 
-`caracal app create` prints the client secret on creation — save it into `caracal.toml` along with the zone ID and STS URL. The CLI discovers `CARACAL_ADMIN_TOKEN` from `infra/secrets/files/caracalAdminToken` (dev, via `CARACAL_REPO_ROOT`) or `$CARACAL_HOME/secrets/caracalAdminToken` (installed); pass `--admin-token` or export `CARACAL_ADMIN_TOKEN` to override.
+`caracal app create` prints the client secret on creation — save it into `caracal.toml` along with the zone ID and STS URL. The terminal interface discovers `CARACAL_ADMIN_TOKEN` from `infra/secrets/files/caracalAdminToken` (dev, via `CARACAL_REPO_ROOT`) or `$CARACAL_HOME/secrets/caracalAdminToken` (installed); pass `--admin-token` or export `CARACAL_ADMIN_TOKEN` to override.
 
 See [Configuration File](../runtime-terminal/config-file/) for the full `caracal.toml` schema.
 
@@ -145,7 +145,7 @@ cd services/gateway && go build ./...
 cd services/audit && go build ./...
 ```
 
-**CLI/Terminal binaries:**
+**runtime/terminal binaries:**
 
 ```sh
 pnpm --filter @caracalai/runtime build

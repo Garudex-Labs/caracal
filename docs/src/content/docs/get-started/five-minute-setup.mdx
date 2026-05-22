@@ -10,7 +10,7 @@ If a step fails, stop at that step and use the troubleshooting section before co
 
 ## Prerequisites
 
-- Caracal CLI installed — see [Installation](./installation/).
+- Caracal terminal interface installed — see [Installation](./installation/).
 - Docker 24+ with the Compose v2 plugin.
 - `jq` and `openssl` available in your shell.
 - Outbound HTTPS access to `https://httpbin.org`.
@@ -33,13 +33,13 @@ The command must exit `0`. If it does not, run `caracal doctor --json` and addre
 ## 2. Protect one HTTP resource
 
 ```bash
-APP_CLIENT_SECRET="cs_$(openssl rand -hex 32)"
+APP_terminal interfaceENT_SECRET="cs_$(openssl rand -hex 32)"
 ZONE_ID="$(caracal zone create --name "Local Development" --slug local-development | jq -r '.id')"
 APP_ID="$(caracal app create \
   --zone "$ZONE_ID" \
   --name local-gateway-app \
   --credential-type token \
-  --client-secret "$APP_CLIENT_SECRET" \
+  --client-secret "$APP_terminal interfaceENT_SECRET" \
   --traits gateway | jq -r '.id')"
 RESOURCE_ID="$(caracal resource create \
   --zone "$ZONE_ID" \
@@ -90,7 +90,7 @@ zone_url = "http://localhost:8080"
 zone_id = "$ZONE_ID"
 
 application_id = "$APP_ID"
-app_client_secret = "$APP_CLIENT_SECRET"
+app_client_secret = "$APP_terminal interfaceENT_SECRET"
 
 [[credentials]]
 env = "RESOURCE_TOKEN"

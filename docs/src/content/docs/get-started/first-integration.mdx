@@ -35,8 +35,8 @@ Client-secret mode requires these variables:
 
 | Variable | Description |
 | -------- | ----------- |
-| `CARACAL_APP_CLIENT_SECRET` | Application client secret for SDK-managed token refresh |
-| `CARACAL_STS_URL` | STS base URL required with `CARACAL_APP_CLIENT_SECRET` |
+| `CARACAL_APP_terminal interfaceENT_SECRET` | Application client secret for SDK-managed token refresh |
+| `CARACAL_STS_URL` | STS base URL required with `CARACAL_APP_terminal interfaceENT_SECRET` |
 | `CARACAL_APP_RESOURCES` | Comma-separated resource IDs for token exchange when `CARACAL_RESOURCES` is not set |
 | `CARACAL_RESOURCES` | Comma-separated `resourceId=https://upstream/prefix` pairs |
 | `CARACAL_GATEWAY_URL` | URL of the Gateway when SDK transport should route matching upstream calls through it |
@@ -87,7 +87,7 @@ await caracal.spawn(async () => {
 }, { kind: AgentKind.Ephemeral });
 ```
 
-`Caracal.fromEnv()` requires the base Coordinator, zone, and application variables plus either `CARACAL_SUBJECT_TOKEN` or `CARACAL_APP_CLIENT_SECRET` with `CARACAL_STS_URL`. Use client-secret mode for long-running local services that should refresh authority automatically.
+`Caracal.fromEnv()` requires the base Coordinator, zone, and application variables plus either `CARACAL_SUBJECT_TOKEN` or `CARACAL_APP_terminal interfaceENT_SECRET` with `CARACAL_STS_URL`. Use client-secret mode for long-running local services that should refresh authority automatically.
 
 ### Express middleware
 
@@ -272,7 +272,7 @@ await caracal.spawn(async () => {
 });
 ```
 
-Revoking the delegated permission from the CLI or admin SDK terminates the child agent run and all descendants immediately.
+Revoking the delegated permission from the terminal interface or admin SDK terminates the child agent run and all descendants immediately.
 
 ## What happens if the policy denies the exchange
 

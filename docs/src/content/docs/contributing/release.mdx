@@ -74,7 +74,7 @@ git push origin v2026.05.12
 This triggers `release.yml` in GitHub Actions. The stable pipeline:
 
 1. Verifies the pushing actor is listed in `.github/MAINTAINERS`.
-2. Builds CLI/Terminal binaries and container images in parallel.
+2. Builds runtime/terminal binaries and container images in parallel.
 3. Pushes images to GHCR with SLSA provenance and SBOM.
 4. Creates a GitHub Release with generated release notes, binaries, checksums, and provenance attestations.
 
@@ -82,11 +82,11 @@ Only maintainers push stable tags. Do not push CalVer tags from feature branches
 
 ---
 
-## Shell, CLI, and Terminal binaries
+## Shell, terminal interface, and Terminal binaries
 
-The shell (`caracal`), CLI command binary (`caracal-terminal`), and Terminal (`caracal-terminal`) are compiled to self-contained binaries using `bun --compile`. Fifteen archives are produced per release (five targets × three binaries), each containing one executable:
+The shell (`caracal`), terminal interface command binary (`caracal-terminal`), and Terminal (`caracal-terminal`) are compiled to self-contained binaries using `bun --compile`. Fifteen archives are produced per release (five targets × three binaries), each containing one executable:
 
-| Target | Shell archive | CLI archive | Terminal archive |
+| Target | Shell archive | terminal interface archive | Terminal archive |
 | --- | --- | --- | --- |
 | `linux-amd64` | `caracal-shell-linux-amd64-vYYYY.MM.DD.tar.gz` | `caracal-terminal-linux-amd64-vYYYY.MM.DD.tar.gz` | `caracal-terminal-linux-amd64-vYYYY.MM.DD.tar.gz` |
 | `linux-arm64` | `caracal-shell-linux-arm64-vYYYY.MM.DD.tar.gz` | `caracal-terminal-linux-arm64-vYYYY.MM.DD.tar.gz` | `caracal-terminal-linux-arm64-vYYYY.MM.DD.tar.gz` |
@@ -98,17 +98,17 @@ Archives are attached to the GitHub Release with a `SHA256SUMS` file and SLSA pr
 
 ### Install
 
-The CLI and Terminal have separate install targets:
+The runtime shell and terminal have separate install targets:
 
 ```sh
-# Linux/macOS — CLI
-curl -fsSL https://raw.githubusercontent.com/Garudex-Labs/caracal/main/install-cli.sh | sh
+# Linux/macOS — terminal interface
+curl -fsSL https://raw.githubusercontent.com/Garudex-Labs/caracal/main/install-terminal.sh | sh
 
 # Linux/macOS — Terminal
 curl -fsSL https://raw.githubusercontent.com/Garudex-Labs/caracal/main/install-terminal.sh | sh
 
-# Windows — CLI
-iwr -useb https://raw.githubusercontent.com/Garudex-Labs/caracal/main/install-cli.ps1 | iex
+# Windows — terminal interface
+iwr -useb https://raw.githubusercontent.com/Garudex-Labs/caracal/main/install-terminal.ps1 | iex
 
 # Windows — Terminal
 iwr -useb https://raw.githubusercontent.com/Garudex-Labs/caracal/main/install-terminal.ps1 | iex

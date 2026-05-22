@@ -1,20 +1,20 @@
 ---
 title: Installation
-description: Install the CLI, run the OSS stack with Docker, or pull SDK packages.
+description: Install the terminal interface, run the OSS stack with Docker, or pull SDK packages.
 pageType: workflow
 ---
 
-This page covers installing the `caracal` CLI, the `caracal-terminal` terminal UI, and the SDK packages for TypeScript, Python, and Go.
+This page covers installing the `caracal` terminal interface, the `caracal-terminal` terminal UI, and the SDK packages for TypeScript, Python, and Go.
 
-## Install the CLI or Terminal
+## Install the runtime shell or terminal
 
-The CLI and Terminal are distributed as separate self-contained binaries for Linux, macOS, and Windows. No runtime is required. Run both installers to install both tools, or run only the Terminal installer when you want `caracal-terminal` without `caracal-terminal`.
+The runtime shell and terminal are distributed as separate self-contained binaries for Linux, macOS, and Windows. No runtime is required. Run both installers to install both tools, or run only the Terminal installer when you want `caracal-terminal` without `caracal-terminal`.
 
 ### Linux and macOS
 
 ```sh
-# CLI
-curl -fsSL https://raw.githubusercontent.com/Garudex-Labs/caracal/main/install-cli.sh | sh
+# terminal interface
+curl -fsSL https://raw.githubusercontent.com/Garudex-Labs/caracal/main/install-terminal.sh | sh
 
 # Terminal
 curl -fsSL https://raw.githubusercontent.com/Garudex-Labs/caracal/main/install-terminal.sh | sh
@@ -52,15 +52,15 @@ Verify the binaries you installed:
 
 ```sh
 caracal --version
-caracal-terminal --version   # CLI installer
+caracal-terminal --version   # terminal interface installer
 caracal-terminal --version   # Terminal installer
 ```
 
 ### Windows
 
 ```powershell
-# CLI
-irm https://raw.githubusercontent.com/Garudex-Labs/caracal/main/install-cli.ps1 | iex
+# terminal interface
+irm https://raw.githubusercontent.com/Garudex-Labs/caracal/main/install-terminal.ps1 | iex
 
 # Terminal
 irm https://raw.githubusercontent.com/Garudex-Labs/caracal/main/install-terminal.ps1 | iex
@@ -155,4 +155,4 @@ The stack uses PostgreSQL 18 and Redis 7. Both are included as pre-built images 
 
 ## Next step
 
-Once the CLI is installed, go to [Quickstart](./quickstart/) to bring up the full stack.
+Once the terminal interface is installed, go to [Quickstart](./quickstart/) to bring up the full stack.
