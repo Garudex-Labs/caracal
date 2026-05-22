@@ -30,7 +30,9 @@ import {
 import { readFileSync } from 'node:fs'
 import { parse } from 'smol-toml'
 import {
+  DEFAULT_ZONE_URL,
   resolveCliConfigPath,
+  resolveServiceUrl,
   type CliConfig,
 } from '@caracalai/engine/cli'
 import { pad, truncate, ui } from '../ansi.ts'
@@ -47,6 +49,7 @@ import {
   auditView,
   delegationsView,
   grantsView,
+  applicationPicker,
   policiesView,
   policySetsView,
   providersView,
@@ -72,6 +75,18 @@ function loadCliConfig(): CliConfig | undefined {
   const path = resolveCliConfigPath()
   if (!path) return undefined
   return parse(readFileSync(path, 'utf8')) as unknown as CliConfig
+}
+
+function credentialConfig(ctx: Ctx, cfg: CliConfig | undefined, values: Record<string, string>): CliConfig {
+  if (cfg) return cfg
+  const applicationId = values.application_id
+  if (!applicationId) throw new Error('application is required when caracal.toml is not configured')
+  return {
+    zone_url: process.env.CARACAL_STS_URL ?? resolveServiceUrl('CARACAL_ZONE_URL', DEFAULT_ZONE_URL),
+    zone_id: ctx.zoneId,
+    application_id: applicationId,
+    app_client_secret: values.app_client_secret ?? '',
+  }
 }
 
 function resolveControlStackMode(): StackMode {
@@ -234,15 +249,21 @@ class CredentialMenuView implements View {
   }
 
   private readForm(): View {
+    const cfg = loadCliConfig()
+    const fields: Field[] = [
+      { key: 'resource', label: 'resource', kind: 'text', required: true, pick: resourceIdentifierPicker(this.ctx) },
+    ]
+    if (!cfg) {
+      fields.push(
+        { key: 'application_id', label: 'application', kind: 'text', required: true, pick: applicationPicker(this.ctx) },
+        { key: 'app_client_secret', label: 'client secret', kind: 'secret', hint: 'required for confidential apps; leave blank for public apps' },
+      )
+    }
     return new FormView({
       title: 'credential read',
-      fields: [
-        { key: 'resource', label: 'resource', kind: 'text', required: true, pick: resourceIdentifierPicker(this.ctx) },
-      ],
+      fields,
       onSubmit: async (v, app) => {
-        const cfg = loadCliConfig()
-        if (!cfg) throw new Error('caracal.toml not found')
-        const token = await credentialRead({ cfg, resource: v.resource! })
+        const token = await credentialRead({ cfg: credentialConfig(this.ctx, cfg, v), resource: v.resource! })
         app.pop()
         app.push(new DetailView({
           title: `credential / ${v.resource}`,

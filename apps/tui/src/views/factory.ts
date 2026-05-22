@@ -87,7 +87,7 @@ async function popAndReload(app: App, list: ListView<unknown>): Promise<void> {
   await list.reload()
 }
 
-function applicationPicker(ctx: Ctx): Field['pick'] {
+export function applicationPicker(ctx: Ctx): Field['pick'] {
   return pickFromList<Application>(
     'pick application',
     () => ctx.client.applications.list(ctx.zoneId),

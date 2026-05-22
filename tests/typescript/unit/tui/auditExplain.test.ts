@@ -3,13 +3,18 @@
 //
 // audit-explain form submits the request_id and pushes a populated DetailView.
 
-import { describe, it, expect, vi } from 'vitest'
+import { afterEach, describe, it, expect, vi } from 'vitest'
 
 import { MenuView } from '../../../../apps/tui/src/views/menu.ts'
 import { FormView } from '../../../../apps/tui/src/views/form.ts'
 import { DetailView } from '../../../../apps/tui/src/views/detail.ts'
 import type { App } from '../../../../apps/tui/src/screen.ts'
 import type { AdminClient } from '@caracalai/admin'
+
+afterEach(() => {
+  vi.unstubAllEnvs()
+  vi.unstubAllGlobals()
+})
 
 function fakeApp(): App {
   const pushed: unknown[] = []
@@ -136,6 +141,50 @@ describe('audit explain entry', () => {
     const form = pushed[pushed.length - 1] as FormView
 
     expect(typeof (form as unknown as { fields: { pick?: unknown }[] }).fields[0]?.pick).toBe('function')
+  })
+
+  it('reads credentials without requiring caracal.toml by using selected application fields', async () => {
+    vi.stubEnv('CARACAL_ZONE_URL', 'https://sts.example.com')
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({
+      access_token: 'token-value',
+      token_type: 'Bearer',
+      expires_in: 900,
+    }), { status: 200, headers: { 'content-type': 'application/json' } }))
+    vi.stubGlobal('fetch', fetchMock)
+    const client = {
+      audit: { byRequest: vi.fn() },
+      resources: { list: vi.fn(async () => []) },
+      applications: { list: vi.fn(async () => []) },
+    } as unknown as AdminClient
+    const menu = new MenuView(client, 'z1')
+    const app = fakeApp()
+
+    await menu.onKey('c', { app, size: { rows: 25, cols: 80 }, status: '' })
+    const pushed = (app as unknown as { _pushed: unknown[] })._pushed
+    const credential = pushed[pushed.length - 1] as { onKey: MenuView['onKey'] }
+    await credential.onKey('r', { app, size: { rows: 25, cols: 80 }, status: '' })
+    const form = pushed[pushed.length - 1] as FormView
+    const fields = (form as unknown as { fields: { key: string; pick?: unknown }[] }).fields
+    expect(fields.map((field) => field.key)).toEqual(['resource', 'application_id', 'app_client_secret'])
+    expect(typeof fields[1]?.pick).toBe('function')
+
+    ;(form as unknown as { values: Record<string, string> }).values = {
+      resource: 'resource://api',
+      application_id: 'app-1',
+      app_client_secret: 'secret',
+    }
+    ;(form as unknown as { focus: number }).focus = 3
+    await form.onKey('enter', { app, size: { rows: 25, cols: 80 }, status: '' })
+
+    expect(fetchMock).toHaveBeenCalledWith('https://sts.example.com/oauth/2/token', expect.objectContaining({
+      method: 'POST',
+    }))
+    const detail = pushed[pushed.length - 1] as DetailView
+    expect(detail).toBeInstanceOf(DetailView)
+    await detail.init(app)
+    const body = detail.render({ app, size: { rows: 25, cols: 80 }, status: '' }).join('\n')
+    expect(body).toContain('resource://api')
+    expect(body).toContain('••••')
   })
 
   it('opens credential inspect and decodes local JWT claims', async () => {
