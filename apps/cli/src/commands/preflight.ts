@@ -3,9 +3,11 @@
 //
 // Local config preflight checks: env vars, key material, TLS files, and Postgres/Redis reachability.
 
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { connect } from 'node:net'
 import { X509Certificate } from 'node:crypto'
+import { join } from 'node:path'
+import { installedHome } from '@caracalai/core'
 
 export interface PreflightCheck {
   check: string
@@ -16,17 +18,100 @@ export interface PreflightCheck {
 const KEY_MIN_BYTES = 32
 const TLS_EXPIRY_WARN_DAYS = 30
 const TCP_TIMEOUT_MS = 5000
+const SECRET_FILES: Record<string, string> = {
+  ZONE_KEK: 'zoneKek',
+  AUDIT_HMAC_KEY: 'auditHmacKey',
+  STREAMS_HMAC_KEY: 'streamsHmacKey',
+  GATEWAY_STS_HMAC_KEY: 'gatewayStsHmacKey',
+  POSTGRES_PASSWORD: 'postgresPassword',
+  REDIS_PASSWORD: 'redisPassword',
+  CARACAL_COORDINATOR_TOKEN: 'caracalCoordinatorToken',
+  DATABASE_URL: 'databaseUrl',
+  REDIS_URL: 'redisUrl',
+}
 
-function fileBacked(name: string): string | undefined {
-  const direct = process.env[name]
-  if (direct) return direct
-  const filePath = process.env[`${name}_FILE`]
-  if (!filePath) return undefined
-  try {
-    return readFileSync(filePath, 'utf8').trim()
-  } catch (err) {
-    throw new Error(`${name}_FILE unreadable: ${(err as Error).message}`)
+interface ResolvedValue {
+  value: string
+  source: 'env' | 'file' | 'managed'
+}
+
+function readSecret(path: string): string | undefined {
+  if (!existsSync(path)) return undefined
+  const value = readFileSync(path, 'utf8').trim()
+  return value.length > 0 ? value : undefined
+}
+
+function secretDirs(): string[] {
+  const dirs = [
+    process.env.CARACAL_SECRETS_DIR,
+    process.env.CARACAL_REPO_ROOT ? join(process.env.CARACAL_REPO_ROOT, 'infra', 'secrets', 'files') : undefined,
+    join(installedHome(), 'secrets'),
+  ].filter((dir): dir is string => Boolean(dir))
+  return [...new Set(dirs)]
+}
+
+function managedSecret(name: string): ResolvedValue | undefined {
+  const fileName = SECRET_FILES[name]
+  if (!fileName) return undefined
+  for (const dir of secretDirs()) {
+    const value = readSecret(join(dir, fileName))
+    if (value) return { value, source: 'managed' }
   }
+  return undefined
+}
+
+function fileBacked(name: string): ResolvedValue | undefined {
+  const direct = process.env[name]
+  if (direct) return { value: direct, source: 'env' }
+  const filePath = process.env[`${name}_FILE`]
+  if (filePath) {
+    try {
+      const value = readSecret(filePath)
+      if (!value) throw new Error('empty secret file')
+      return { value, source: 'file' }
+    } catch (err) {
+      throw new Error(`${name}_FILE unreadable: ${(err as Error).message}`)
+    }
+  }
+  return managedSecret(name)
+}
+
+function localPostgresUrl(): ResolvedValue | undefined {
+  const explicit = fileBacked('DATABASE_URL')
+  if (explicit && explicit.source !== 'managed') return explicit
+  if (explicit) {
+    const url = new URL(explicit.value)
+    url.hostname = '127.0.0.1'
+    return { value: url.toString(), source: 'managed' }
+  }
+  const password = fileBacked('POSTGRES_PASSWORD') ?? managedSecret('POSTGRES_PASSWORD')
+  if (!password) return undefined
+  const user = process.env.POSTGRES_USER ?? 'caracal'
+  const db = process.env.POSTGRES_DB ?? 'caracal'
+  const url = new URL('postgres://127.0.0.1:5432')
+  url.username = user
+  url.password = password.value
+  url.pathname = `/${db}`
+  return { value: url.toString(), source: 'managed' }
+}
+
+function localRedisUrl(): ResolvedValue | undefined {
+  const explicit = fileBacked('REDIS_URL')
+  if (explicit && explicit.source !== 'managed') return explicit
+  if (explicit) {
+    const url = new URL(explicit.value)
+    url.hostname = '127.0.0.1'
+    return { value: url.toString(), source: 'managed' }
+  }
+  const password = fileBacked('REDIS_PASSWORD') ?? managedSecret('REDIS_PASSWORD')
+  if (!password) return undefined
+  const url = new URL('redis://127.0.0.1:6379')
+  url.password = password.value
+  return { value: url.toString(), source: 'managed' }
+}
+
+function sourceSuffix(value: ResolvedValue): string {
+  return value.source === 'managed' ? ' (auto-discovered)' : ''
 }
 
 function decodeKey(raw: string): Buffer {
@@ -52,7 +137,7 @@ function checkMode(): PreflightCheck {
 }
 
 function checkKey(name: string, expectedBytes: number, exact: boolean): PreflightCheck {
-  let raw: string | undefined
+  let raw: ResolvedValue | undefined
   try {
     raw = fileBacked(name)
   } catch (err) {
@@ -61,7 +146,7 @@ function checkKey(name: string, expectedBytes: number, exact: boolean): Prefligh
   if (!raw) return { check: name, status: 'fail', detail: 'not set' }
   let key: Buffer
   try {
-    key = decodeKey(raw)
+    key = decodeKey(raw.value)
   } catch (err) {
     return { check: name, status: 'fail', detail: `decode failed: ${(err as Error).message}` }
   }
@@ -71,13 +156,17 @@ function checkKey(name: string, expectedBytes: number, exact: boolean): Prefligh
   if (!exact && key.length < expectedBytes) {
     return { check: name, status: 'fail', detail: `expected at least ${expectedBytes} bytes, got ${key.length}` }
   }
-  return { check: name, status: 'ok', detail: `${key.length} bytes` }
+  return { check: name, status: 'ok', detail: `${key.length} bytes${sourceSuffix(raw)}` }
 }
 
 function checkTLS(): PreflightCheck[] {
+  const mode = process.env.CARACAL_MODE ?? 'dev'
   const cert = process.env.TLS_CERT_FILE
   const key = process.env.TLS_KEY_FILE
-  if (!cert && !key) return [{ check: 'TLS files', status: 'warn', detail: 'not configured (gateway will refuse to start in stable mode)' }]
+  if (!cert && !key) {
+    if (mode === 'dev') return [{ check: 'TLS files', status: 'ok', detail: 'not required in dev mode' }]
+    return [{ check: 'TLS files', status: 'warn', detail: 'not configured; terminate TLS at the edge or set TLS_CERT_FILE/TLS_KEY_FILE' }]
+  }
   if (!cert || !key) return [{ check: 'TLS files', status: 'fail', detail: 'TLS_CERT_FILE and TLS_KEY_FILE must both be set' }]
   let pem: string
   try {
@@ -103,10 +192,11 @@ function checkTLS(): PreflightCheck[] {
   return [{ check: 'TLS cert', status: 'ok', detail: `${x509.subject}; ${daysLeft} day(s) until expiry` }]
 }
 
-async function tcpProbe(name: string, host: string, port: number, hello?: { send: Buffer; expectPrefix: Buffer }): Promise<PreflightCheck> {
+async function tcpProbe(name: string, host: string, port: number, hello?: { send: Buffer; expectPrefix?: Buffer; expectContains?: Buffer }): Promise<PreflightCheck> {
   return new Promise((resolve) => {
     const socket = connect({ host, port, timeout: TCP_TIMEOUT_MS })
     let settled = false
+    let received = Buffer.alloc(0)
     const finish = (result: PreflightCheck) => {
       if (settled) return
       settled = true
@@ -121,19 +211,27 @@ async function tcpProbe(name: string, host: string, port: number, hello?: { send
     })
     socket.on('data', (chunk) => {
       if (!hello) return
-      if (chunk.subarray(0, hello.expectPrefix.length).equals(hello.expectPrefix)) {
+      received = Buffer.concat([received, chunk])
+      const matchedPrefix = hello.expectPrefix && received.subarray(0, hello.expectPrefix.length).equals(hello.expectPrefix)
+      const matchedContent = hello.expectContains && received.includes(hello.expectContains)
+      if (matchedPrefix || matchedContent) {
         finish({ check: name, status: 'ok', detail: `${host}:${port} responded` })
       } else {
-        finish({ check: name, status: 'fail', detail: `${host}:${port} unexpected response: ${chunk.toString('utf8').slice(0, 60)}` })
+        const text = received.toString('utf8')
+        if (text.startsWith('-')) finish({ check: name, status: 'fail', detail: `${host}:${port} unexpected response: ${text.slice(0, 60)}` })
       }
     })
   })
 }
 
+function redisCommand(parts: string[]): string {
+  return `*${parts.length}\r\n${parts.map((part) => `$${Buffer.byteLength(part)}\r\n${part}\r\n`).join('')}`
+}
+
 async function checkPostgres(): Promise<PreflightCheck> {
-  let raw: string | undefined
+  let raw: ResolvedValue | undefined
   try {
-    raw = fileBacked('DATABASE_URL')
+    raw = localPostgresUrl()
   } catch (err) {
     return { check: 'Postgres', status: 'fail', detail: (err as Error).message }
   }
@@ -141,36 +239,44 @@ async function checkPostgres(): Promise<PreflightCheck> {
   let host: string
   let port: number
   try {
-    const u = new URL(raw)
+    const u = new URL(raw.value)
     host = u.hostname
     port = u.port ? Number(u.port) : 5432
   } catch (err) {
     return { check: 'Postgres', status: 'fail', detail: `parse DATABASE_URL: ${(err as Error).message}` }
   }
-  return tcpProbe('Postgres', host, port)
+  const result = await tcpProbe('Postgres', host, port)
+  return result.status === 'ok' ? { ...result, detail: `${result.detail}${sourceSuffix(raw)}` } : result
 }
 
 async function checkRedis(): Promise<PreflightCheck> {
-  let raw: string | undefined
+  let raw: ResolvedValue | undefined
   try {
-    raw = fileBacked('REDIS_URL')
+    raw = localRedisUrl()
   } catch (err) {
     return { check: 'Redis', status: 'fail', detail: (err as Error).message }
   }
   if (!raw) return { check: 'Redis', status: 'fail', detail: 'REDIS_URL not set' }
   let host: string
   let port: number
+  let username: string | undefined
+  let password: string | undefined
   try {
-    const u = new URL(raw)
+    const u = new URL(raw.value)
     host = u.hostname
     port = u.port ? Number(u.port) : 6379
+    username = u.username ? decodeURIComponent(u.username) : undefined
+    password = u.password ? decodeURIComponent(u.password) : undefined
   } catch (err) {
     return { check: 'Redis', status: 'fail', detail: `parse REDIS_URL: ${(err as Error).message}` }
   }
-  return tcpProbe('Redis', host, port, {
-    send: Buffer.from('*1\r\n$4\r\nPING\r\n'),
-    expectPrefix: Buffer.from('+PONG'),
+  const auth = password ? redisCommand(username ? ['AUTH', username, password] : ['AUTH', password]) : ''
+  const result = await tcpProbe('Redis', host, port, {
+    send: Buffer.from(`${auth}${redisCommand(['PING'])}`),
+    expectPrefix: password ? undefined : Buffer.from('+PONG'),
+    expectContains: password ? Buffer.from('+PONG') : undefined,
   })
+  return result.status === 'ok' ? { ...result, detail: `${result.detail}${sourceSuffix(raw)}` } : result
 }
 
 export async function runPreflightChecks(): Promise<PreflightCheck[]> {

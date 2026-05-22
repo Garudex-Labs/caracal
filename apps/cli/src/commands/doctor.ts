@@ -8,6 +8,7 @@ import type { Zone } from '@caracalai/admin'
 import { buildAdminClient as buildAdminClientCore, type AdminContext } from '@caracalai/engine'
 import { scrubTokens } from '@caracalai/engine/crash'
 import { DEFAULT_API_URL, DEFAULT_COORDINATOR_URL, DEFAULT_ZONE_URL, resolveServiceUrl } from '@caracalai/engine/cli'
+import { discoverCoordinatorToken } from '@caracalai/core'
 import {
   fail,
   flagBool,
@@ -23,6 +24,7 @@ type DoctorStatus = 'ok' | 'warn' | 'fail'
 type DoctorMode = 'system' | 'preflight'
 type DoctorSection = 'health' | 'readiness' | 'zones' | 'preflight'
 type ZoneScope = 'all' | 'selected' | 'none'
+type ProbeHeaders = Record<string, string>
 
 interface DoctorCheck {
   section: DoctorSection
@@ -160,16 +162,16 @@ async function runCheck(
   }
 }
 
-async function fetchOk(url: string): Promise<string> {
+async function fetchOk(url: string, headers?: ProbeHeaders): Promise<string> {
   const target = normalizeHttpUrl(url, 'doctor probe')
-  const res = await fetch(target, { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS), redirect: 'error' })
+  const res = await fetch(target, { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS), redirect: 'error', headers })
   if (!res.ok) throw new Error(`HTTP ${res.status}${await failureReason(res)}`)
   return target
 }
 
-async function fetchJSON(url: string): Promise<unknown> {
+async function fetchJSON(url: string, headers?: ProbeHeaders): Promise<unknown> {
   const target = normalizeHttpUrl(url, 'doctor probe')
-  const res = await fetch(target, { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS), redirect: 'error' })
+  const res = await fetch(target, { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS), redirect: 'error', headers })
   if (!res.ok) throw new Error(`HTTP ${res.status}${await failureReason(res)}`)
   return await res.json()
 }
@@ -213,6 +215,43 @@ function serviceTarget(
   }
 }
 
+function coordinatorTokenHeaders(): ProbeHeaders | undefined {
+  const token = discoverCoordinatorToken()
+  return token ? { Authorization: `Bearer ${token}` } : undefined
+}
+
+async function runCoordinatorMetrics(checks: DoctorCheck[], target: ServiceTarget): Promise<void> {
+  const headers = coordinatorTokenHeaders()
+  try {
+    const body = await fetchJSON(`${target.baseUrl}${target.metricsPath}`, headers)
+    addCheck(checks, {
+      section: 'readiness',
+      check: 'coordinator metrics',
+      status: 'ok',
+      detail: target.summarizeMetrics ? target.summarizeMetrics(body) : 'queryable',
+    })
+  } catch (err) {
+    const detail = message(err)
+    if (!headers && /^HTTP 401\b/.test(detail)) {
+      addCheck(checks, {
+        section: 'readiness',
+        check: 'coordinator metrics',
+        status: 'warn',
+        detail: 'protected; managed coordinator token not found',
+        advice: 'Run `caracal up` to generate and mount the coordinator operator token.',
+      })
+      return
+    }
+    addCheck(checks, {
+      section: 'readiness',
+      check: 'coordinator metrics',
+      status: 'fail',
+      detail,
+      advice: 'Confirm coordinator exposes authenticated operator metrics on /stats.',
+    })
+  }
+}
+
 async function runServiceChecks(checks: DoctorCheck[], apiUrl: string): Promise<void> {
   const targets = [
     { name: 'api', baseUrl: apiUrl },
@@ -230,6 +269,10 @@ async function runServiceChecks(checks: DoctorCheck[], apiUrl: string): Promise<
       `Inspect ${target.name} logs and confirm the service is bound to ${target.baseUrl}.`,
     )
     if (target.metricsPath) {
+      if (target.name === 'coordinator') {
+        await runCoordinatorMetrics(checks, target)
+        continue
+      }
       await runCheck(checks, 'readiness', `${target.name} metrics`, async () => {
         const body = await fetchJSON(`${target.baseUrl}${target.metricsPath}`)
         return target.summarizeMetrics ? target.summarizeMetrics(body) : 'queryable'
@@ -269,8 +312,8 @@ function summary(checks: DoctorCheck[]): DoctorSummary {
   }
 }
 
-function isReady(checks: DoctorCheck[]): boolean {
-  return checks.length > 0 && checks.every((c) => c.status === 'ok')
+function isReady(checks: DoctorCheck[], strict = false): boolean {
+  return checks.length > 0 && (strict ? checks.every((c) => c.status === 'ok') : !hasFailed(checks))
 }
 
 function hasFailed(checks: DoctorCheck[]): boolean {
@@ -278,7 +321,7 @@ function hasFailed(checks: DoctorCheck[]): boolean {
 }
 
 function shouldFail(checks: DoctorCheck[], strict: boolean): boolean {
-  return hasFailed(checks) || (strict && !isReady(checks))
+  return !isReady(checks, strict)
 }
 
 function statusText(status: DoctorStatus): string {
@@ -339,7 +382,7 @@ function report(mode: DoctorMode, strict: boolean, context: DoctorContext, check
   return {
     command: 'doctor',
     mode,
-    ready: isReady(checks),
+    ready: isReady(checks, strict),
     strict,
     context,
     summary: summary(checks),
