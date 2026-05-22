@@ -137,6 +137,24 @@ describe('FormView list field', () => {
   })
 })
 
+describe('FormView picker fields', () => {
+  it('opens focused field picker with ctrl-p and lets it set the value', async () => {
+    const pick = vi.fn((_app: App, setValue: (value: string) => void) => {
+      setValue('picked-id')
+    })
+    const view = new FormView({
+      title: 't',
+      fields: [{ key: 'application_id', label: 'application', kind: 'text', pick }],
+      onSubmit: async () => {},
+    })
+    const app = fakeApp()
+    await view.onKey('\u0010', { app, size: { rows: 10, cols: 80 }, status: '' })
+    expect(pick).toHaveBeenCalled()
+    expect(view.values_().application_id).toBe('picked-id')
+    expect(view.hints()).toContain('ctrl-p:pick')
+  })
+})
+
 describe('FormView esc cancels', () => {
   it('pops the app and calls onCancel', async () => {
     const cancel = vi.fn()

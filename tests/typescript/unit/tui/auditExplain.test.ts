@@ -111,6 +111,7 @@ describe('audit explain entry', () => {
     const control = pushed[pushed.length - 1] as { onKey: MenuView['onKey'] }
     await control.onKey('g', { app, size: { rows: 25, cols: 80 }, status: '' })
     const form = pushed[pushed.length - 1] as FormView
+    expect(typeof (form as unknown as { fields: { pick?: unknown }[] }).fields[0]?.pick).toBe('function')
     ;(form as unknown as { values: Record<string, string> }).values = { id: 'app-1' }
     ;(form as unknown as { focus: number }).focus = 1
     await form.onKey('enter', { app, size: { rows: 25, cols: 80 }, status: '' })
@@ -118,6 +119,23 @@ describe('audit explain entry', () => {
     expect(detail).toBeInstanceOf(DetailView)
     await detail.init(app)
     expect(get).toHaveBeenCalledWith('z1', 'app-1')
+  })
+
+  it('opens credential read with a resource picker', async () => {
+    const client = {
+      audit: { byRequest: vi.fn() },
+      resources: { list: vi.fn(async () => []) },
+    } as unknown as AdminClient
+    const menu = new MenuView(client, 'z1')
+    const app = fakeApp()
+
+    await menu.onKey('c', { app, size: { rows: 25, cols: 80 }, status: '' })
+    const pushed = (app as unknown as { _pushed: unknown[] })._pushed
+    const credential = pushed[pushed.length - 1] as { onKey: MenuView['onKey'] }
+    await credential.onKey('r', { app, size: { rows: 25, cols: 80 }, status: '' })
+    const form = pushed[pushed.length - 1] as FormView
+
+    expect(typeof (form as unknown as { fields: { pick?: unknown }[] }).fields[0]?.pick).toBe('function')
   })
 
   it('opens credential inspect and decodes local JWT claims', async () => {
