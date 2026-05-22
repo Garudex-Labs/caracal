@@ -2,7 +2,7 @@
 // Caracal, a product of Garudex Labs
 //
 // Deadline enforcer: transitions invocations past deadline to failed (retryable)
-// or timed_out (terminal) based on remaining attempts.
+// or timed_out based on remaining attempts.
 
 import type { Pool } from 'pg'
 import { cfg } from '../config.js'

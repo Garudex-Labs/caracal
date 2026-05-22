@@ -76,7 +76,7 @@ function purgeHelp(): never {
       '  secrets     Remove dev .env and generated secret files (infra/docker/.env, infra/secrets/files/) — dev only',
       '  cache       Remove build artifacts: apps/*/dist, coverage/, node_modules/.cache (dev only)',
       '  images      Remove cached Caracal docker images (caracal/*, ghcr.io/garudex-labs/caracal-*)',
-      '  binary      Uninstall Caracal runtime and terminal binaries from $CARACAL_INSTALL_DIR (default ~/.local/bin)',
+      '  binary      Uninstall Caracal runtime and Console binaries from $CARACAL_INSTALL_DIR (default ~/.local/bin)',
       '  all         Purge every applicable target (destructive — wipes volumes, runtime, config, images, binary)',
       '',
       'Options:',

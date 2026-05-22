@@ -8,12 +8,12 @@
 - `src/server.ts` registers `/health`, `/ready`, and `/v1/control/invoke`.
 - `src/auth.ts` verifies ES256 STS-issued JWTs against zone-scoped JWKS and enforces per-resource scopes.
 - `src/replay.ts`, `src/ratelimit.ts`, `src/audit.ts` provide JTI replay, per-subject token-bucket limiting, and audit emission.
-- `src/handler.ts` calls `engine.dispatch` with a `remote` principal so terminal management and Control share one execution path.
+- `src/handler.ts` calls `engine.dispatch` with a `remote` principal so Console and Control share one execution path.
 - Listens on port 8087.
 
 ## Required
 - Must run on Node 24+ with Fastify 5, `jose`, `ioredis`, and the workspace `@caracalai/engine`.
-- Must default off and only start when the terminal-managed engine lifecycle injects `CARACAL_CONTROL_ENABLED=true`.
+- Must default off and only start when the Console-managed engine lifecycle injects `CARACAL_CONTROL_ENABLED=true`.
 - Must require `CONTROL_REDIS_URL` and `AUDIT_HMAC_KEY` when `CARACAL_MODE` is `rc` or `stable`.
 - Must enforce ES256 + issuer + audience + expiry on every request and derive scopes from the catalog.
 - Must fail closed on Redis errors for replay checks.

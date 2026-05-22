@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 // Caracal, a product of Garudex Labs
 //
-// Reusable list-backed picker helpers for Terminal form fields.
+// Reusable list-backed picker helpers for Console form fields.
 
 import type { App } from '../screen.ts'
 import type { Field } from './form.ts'

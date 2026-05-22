@@ -12,7 +12,7 @@
 - Must run on Node 24+ and keep release binaries produced by the existing Bun compile scripts.
 - Must keep runtime handlers thin: parse flags, call package APIs, format output, and set exit codes.
 - Must resolve stack mode through stamped version constants with explicit environment override only.
-- Must keep `caracal.toml` resolution consistent with Terminal and engine behavior.
+- Must keep `caracal.toml` resolution consistent with Console and engine behavior.
 - Must scrub tokens, credentials, and sensitive environment values from errors and streamed output.
 
 ## Forbidden
