@@ -8,6 +8,7 @@ import { readFileSync } from 'node:fs'
 import { parse } from 'smol-toml'
 import {
   buildAdminClient,
+  formatVersionOutput,
 } from '@caracalai/engine'
 import {
   resolveCliConfigPath,
@@ -61,7 +62,6 @@ function main(): void {
   }
   if (command === '--version' || command === '-v' || command === 'version') {
     const bin = process.env.CARACAL_INVOKED_AS ?? 'caracal-tui'
-    const tag = CARACAL_TUI_MODE === 'dev' ? `dev (sha ${CARACAL_TUI_SHA})` : CARACAL_TUI_MODE
     if (process.argv.includes('--json')) {
       process.stdout.write(JSON.stringify({
         binary: bin,
@@ -70,7 +70,12 @@ function main(): void {
         sha: CARACAL_TUI_SHA,
       }) + '\n')
     } else {
-      process.stdout.write(`${bin} ${CARACAL_TUI_VERSION} [${tag}]\n`)
+      process.stdout.write(formatVersionOutput({
+        binary: bin,
+        version: CARACAL_TUI_VERSION,
+        mode: CARACAL_TUI_MODE,
+        sha: CARACAL_TUI_SHA,
+      }))
     }
     return
   }
