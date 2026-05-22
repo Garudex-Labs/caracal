@@ -37,7 +37,7 @@ export const ui = {
 
 const ANSI_PATTERN = /\u001b\[[0-9;?]*[A-Za-z]/g
 // C0 (excluding TAB/LF) and DEL plus C1 control bytes; ESC drives every
-// terminal escape sequence so stripping it neuters the entire family.
+// Console escape sequence so stripping it neuters the entire family.
 const CONTROL_PATTERN = /[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/g
 
 export function visibleLength(s: string): number {

@@ -40,7 +40,7 @@ export class App {
     this.bannerRightFn = typeof bannerRight === 'function' ? bannerRight : () => bannerRight
   }
 
-  // Synchronous best-effort terminal restoration registered on process 'exit'
+  // Synchronous best-effort Console restoration registered on process 'exit'
   // so the user is never stranded in raw mode + alt buffer if any path skips
   // the async exit() (uncaught throws, top-level rejections, fatal sync code).
   private installSynchronousExitGuard(): void {

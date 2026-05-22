@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 // Caracal, a product of Garudex Labs
 //
-// Central terminal style system: semantic colors, symbols, and writers shared across runtime commands.
+// Central Console style system: semantic colors, symbols, and writers shared across runtime commands.
 
 import { scrubTokens } from '@caracalai/engine/crash'
 

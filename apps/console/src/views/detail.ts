@@ -102,7 +102,7 @@ export class DetailView implements View {
 type DetailMask = (value: unknown, path: string[]) => string | undefined
 
 const LABEL_WIDTH = 22
-const ACRONYMS = new Set(['api', 'dcr', 'id', 'json', 'jwt', 'mcp', 'oidc', 'oauth', 'pkce', 'terminal', 'url'])
+const ACRONYMS = new Set(['api', 'dcr', 'id', 'json', 'jwt', 'mcp', 'oidc', 'oauth', 'pkce', 'url'])
 const GOOD_VALUES = new Set([
   'active', 'allow', 'allowed', 'enabled', 'healthy', 'managed', 'mounted', 'ok', 'passed', 'ready', 'running', 'success',
   'succeeded', 'valid',

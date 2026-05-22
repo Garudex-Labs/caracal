@@ -84,7 +84,7 @@ function main(): void {
   if (reason) {
     process.stderr.write(
       `caracal-console: ${reason}\n` +
-      'Terminal accepts input only from a controlling console. Use the Control API or SDK for automation.\n',
+      'Console requires an interactive TTY. Use the Control API or SDK for automation.\n',
     )
     process.exit(1)
   }

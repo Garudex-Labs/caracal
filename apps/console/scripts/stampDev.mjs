@@ -10,8 +10,8 @@ import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const here = dirname(fileURLToPath(import.meta.url))
-const terminalRoot = resolve(here, '..')
-const repoRoot = resolve(terminalRoot, '..', '..')
+const consoleRoot = resolve(here, '..')
+const repoRoot = resolve(consoleRoot, '..', '..')
 
 function baseVersion() {
   const raw = readFileSync(resolve(repoRoot, 'packages/engine/runtime/release.json'), 'utf8')
@@ -43,5 +43,5 @@ export const CARACAL_CONSOLE_MODE: 'dev' | 'rc' | 'stable' = '${mode}'
 export const CARACAL_CONSOLE_SHA = '${sha}'
 `
 
-writeFileSync(resolve(terminalRoot, 'src/version.gen.ts'), body, 'utf8')
+writeFileSync(resolve(consoleRoot, 'src/version.gen.ts'), body, 'utf8')
 process.stdout.write(`${releaseVersion ?? sha}\n`)

@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 // Caracal, a product of Garudex Labs
 //
-// Workspace entry: locates the repo root, stamps a dev Console identity, then delegates to the workspace Terminal.
+// Workspace entry: locates the repo root, stamps a dev Console identity, then delegates to the workspace Console.
 
 import { execFileSync } from 'child_process'
 import { existsSync, readdirSync, statSync } from 'fs'
@@ -24,7 +24,7 @@ const root = findRepoRoot(start)
 if (!root) {
   process.stderr.write(
     'caracal-console: this binary is the pnpm workspace shim and only runs inside the Caracal monorepo.\n' +
-      'If you installed the released Terminal, remove the pnpm symlink so the installed binary wins:\n' +
+      'If you installed the released Console, remove the pnpm symlink so the installed binary wins:\n' +
       '  pnpm rm -g caracal-console   # or: rm "$(pnpm bin -g)/caracal-console"\n',
   )
   process.exit(1)
