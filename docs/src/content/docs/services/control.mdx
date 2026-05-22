@@ -4,9 +4,9 @@ description: Default-off automation surface that wraps the shared engine dispatc
 pageType: reference
 ---
 
-The Control service is the only network-reachable entry point for management automation. It is a small TypeScript service (`apps/control`) that wraps the same `@caracalai/engine` dispatch the CLI and TUI run in-process. Every surface — human (CLI/TUI) and machine (Control / SDK) — funnels through one function, so behaviour, validation, audit records, and scope enforcement cannot drift between them.
+The Control service is the only network-reachable entry point for management automation. It is a small TypeScript service (`apps/control`) that wraps the same `@caracalai/engine` dispatch the CLI and Terminal run in-process. Every surface — human (CLI/Terminal) and machine (Control / SDK) — funnels through one function, so behaviour, validation, audit records, and scope enforcement cannot drift between them.
 
-The service is **unmounted by default** and managed through the CLI or TUI. Operators can mount it for long-term availability, enable the endpoint only when automation is needed, disable it for fast logical off, and unmount it when the service will not be used for a while. The engine persists structured lifecycle state and exposes the localhost management endpoint only while Control is enabled.
+The service is **unmounted by default** and managed through the CLI or Terminal. Operators can mount it for long-term availability, enable the endpoint only when automation is needed, disable it for fast logical off, and unmount it when the service will not be used for a while. The engine persists structured lifecycle state and exposes the localhost management endpoint only while Control is enabled.
 
 ---
 
@@ -21,7 +21,7 @@ The service is **unmounted by default** and managed through the CLI or TUI. Oper
 
          ┌──────────────────┬──────────────────┬───────────────────┐
          │                  │                  │                   │
-     apps/cli           apps/tui           apps/control        SDK / curl
+     apps/runtime           apps/terminal           apps/control        SDK / curl
      (Bun binary,       (Bun binary,       (Node service,       (calls Control's
       human)             human-only,        default OFF)         HTTP contract)
      in-process         TTY-isolated,
@@ -35,7 +35,7 @@ The service is **unmounted by default** and managed through the CLI or TUI. Oper
 Three rules make this work:
 
 1. **One engine.** `packages/engine` is the only place where commands, descriptors, validation, and the dispatcher live. There is no Go catalog, no parity test, no second copy.
-2. **Surfaces are adapters.** CLI and TUI hand the engine a `local` principal and execute in-process. Control hands the engine a `remote` principal derived from a verified JWT and runs the same code path on a managed service process.
+2. **Surfaces are adapters.** CLI and Terminal hand the engine a `local` principal and execute in-process. Control hands the engine a `remote` principal derived from a verified JWT and runs the same code path on a managed service process.
 3. **Hidden commands are remote-blocked.** Descriptors marked `hidden: true` (credential read, runtime asset provisioning, the `control` and `completion` helpers themselves) are rejected before the scope check when the principal is `remote`.
 
 ---
@@ -52,7 +52,7 @@ interface Principal {
 }
 ```
 
-- **Local** — CLI and TUI. `assertScope` returns immediately; hidden commands are reachable. There is no network boundary, so authorisation is the OS's responsibility (file permissions on credentials, the operator's shell).
+- **Local** — CLI and Terminal. `assertScope` returns immediately; hidden commands are reachable. There is no network boundary, so authorisation is the OS's responsibility (file permissions on credentials, the operator's shell).
 - **Remote** — Control. Built from the JWT claims (`sub`, `zone_id`, `client_id`, `scope`). The dispatcher enforces (a) the command is not hidden and (b) the principal's scope list contains `scopeName(descriptor, subcommand)`. No blanket scope exists — every call needs the exact per-resource scope.
 
 ---
@@ -132,28 +132,28 @@ There is no `control:invoke` blanket scope. A token that needs both reads and wr
 
 ---
 
-## CLI / TUI relationship
+## CLI / Terminal relationship
 
-The CLI and TUI consume the same `@caracalai/engine` package the Control service does:
+The CLI and Terminal consume the same `@caracalai/engine` package the Control service does:
 
 - CLI commands resolve descriptors from the engine catalog and call the engine's helpers directly.
-- TUI views call the same helpers from menu actions.
-- The authenticated interactive `caracal-cli control ...` lifecycle flow and the TUI Control menu use the same engine lifecycle helpers, so mounted state, enablement state, endpoint health, and cleanup behavior stay synchronized.
+- Terminal views call the same helpers from menu actions.
+- The authenticated interactive `caracal-terminal control ...` lifecycle flow and the Terminal Control menu use the same engine lifecycle helpers, so mounted state, enablement state, endpoint health, and cleanup behavior stay synchronized.
 
-The Control service does not call the CLI binary or shell out. It calls `engine.dispatch` exactly the way CLI/TUI do — with a different `Principal`.
+The Control service does not call the CLI binary or shell out. It calls `engine.dispatch` exactly the way CLI/Terminal do — with a different `Principal`.
 
-**TUI isolation.** The TUI is a human-only surface. `apps/tui/src/index.ts` refuses to start unless:
+**Terminal isolation.** The Terminal is a human-only surface. `apps/terminal/src/index.ts` refuses to start unless:
 
 - `process.stdin.isTTY` and `process.stdout.isTTY` are both true,
 - `process.send` is undefined (no IPC channel from a parent),
 - `process.env.CI` is unset (or not `true`),
 - `process.env.TERM` is set and not `dumb`.
 
-Piping stdin to the TUI, running it under `CI=true`, or spawning it via `child_process.fork` exits non-zero with an isolation error. Automation must use the Control API (or the SDK built on top of it). There is no `--script` or `--input-file` flag.
+Piping stdin to the Terminal, running it under `CI=true`, or spawning it via `child_process.fork` exits non-zero with an isolation error. Automation must use the Control API (or the SDK built on top of it). There is no `--script` or `--input-file` flag.
 
-**Control management access.** Lifecycle actions are accepted only from a controlling terminal with the local managed admin secret. CLI lifecycle changes require explicit typed confirmation, and TUI lifecycle changes require confirmation in the Control menu. Thin scripts, direct Docker profile use, and non-interactive process execution are not valid Control management paths.
+**Control management access.** Lifecycle actions are accepted only from a controlling terminal with the local managed admin secret. CLI lifecycle changes require explicit typed confirmation, and Terminal lifecycle changes require confirmation in the Control menu. Thin scripts, direct Docker profile use, and non-interactive process execution are not valid Control management paths.
 
-**TUI control section.** The control-management menu entry is always visible. Operators can mount the runtime, enable or disable the endpoint, inspect lifecycle status, unmount long-term runtime components, and manage Control credentials without leaving the TUI.
+**Terminal control section.** The control-management menu entry is always visible. Operators can mount the runtime, enable or disable the endpoint, inspect lifecycle status, unmount long-term runtime components, and manage Control credentials without leaving the Terminal.
 
 ---
 
@@ -173,7 +173,7 @@ The base API, STS, Gateway, Audit, Coordinator, Redis, and Postgres services con
 | CLI | Interactive `control disable` | Closes the endpoint gate while leaving the runtime loaded |
 | CLI | Interactive `control unmount` | Removes the Control runtime and clears lifecycle state |
 | CLI | Interactive `control status` | Shows mounted state, enabled state, endpoint, health, lifecycle, and optimization details |
-| TUI | Control → mount / enable / disable / unmount / status | Performs the same lifecycle actions through stable structured views |
+| Terminal | Control → mount / enable / disable / unmount / status | Performs the same lifecycle actions through stable structured views |
 
 `caracal up` includes the Control runtime only when the engine-managed Control state requires it. A mounted-but-disabled runtime stays loaded and returns a disabled response on invoke/readiness while the gate is closed. Disabled or unmounted users do not need to know or operate Docker profiles directly.
 
@@ -187,7 +187,7 @@ Critical defaults:
 
 | Variable | Dev | rc / stable |
 | --- | --- | --- |
-| Control enablement | CLI/TUI managed | CLI/TUI managed |
+| Control enablement | CLI/Terminal managed | CLI/Terminal managed |
 | Endpoint binding | `127.0.0.1:8087` | `127.0.0.1:8087` in the bundled stack; publish through a trusted reverse proxy for remote access |
 | `CONTROL_REDIS_URL` | optional (falls back to in-memory) | **required** |
 | `AUDIT_HMAC_KEY` | optional | **required**, ≥ 32 bytes hex |
@@ -200,15 +200,15 @@ The service refuses to start if any required variable is missing for the active 
 
 ## Operations
 
-**Mount.** Use the authenticated interactive CLI lifecycle flow or TUI → Control → mount. The engine loads the optional runtime, records mounted state, and starts Control with the endpoint gate closed.
+**Mount.** Use the authenticated interactive CLI lifecycle flow or Terminal → Control → mount. The engine loads the optional runtime, records mounted state, and starts Control with the endpoint gate closed.
 
-**Enable.** Use the authenticated interactive CLI lifecycle flow or TUI → Control → enable. The engine opens the local gate file for the mounted runtime and records enabled state under the Caracal runtime home.
+**Enable.** Use the authenticated interactive CLI lifecycle flow or Terminal → Control → enable. The engine opens the local gate file for the mounted runtime and records enabled state under the Caracal runtime home.
 
-**Status.** Use the authenticated interactive CLI lifecycle flow or TUI → Control → status. The result includes endpoint URL, health, lifecycle, and cleanup state. Automation should query the Control API after an operator enables it.
+**Status.** Use the authenticated interactive CLI lifecycle flow or Terminal → Control → status. The result includes endpoint URL, health, lifecycle, and cleanup state. Automation should query the Control API after an operator enables it.
 
-**Disable.** Use the authenticated interactive CLI lifecycle flow or TUI → Control → disable. The engine closes the local gate file while keeping the mounted Control runtime loaded for fast re-enable.
+**Disable.** Use the authenticated interactive CLI lifecycle flow or Terminal → Control → disable. The engine closes the local gate file while keeping the mounted Control runtime loaded for fast re-enable.
 
-**Unmount.** Use the authenticated interactive CLI lifecycle flow or TUI → Control → unmount. The engine removes the Control container and clears persisted lifecycle state so future stack starts do not include Control.
+**Unmount.** Use the authenticated interactive CLI lifecycle flow or Terminal → Control → unmount. The engine removes the Control container and clears persisted lifecycle state so future stack starts do not include Control.
 
 **Health.** `GET /health` always returns `200`. Use for liveness probes.
 

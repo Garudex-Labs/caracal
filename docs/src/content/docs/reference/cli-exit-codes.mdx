@@ -1,6 +1,6 @@
 ---
 title: CLI Exit Codes
-description: Exit statuses returned by `caracal`, `caracal-cli`, and `caracal-tui` for scripts and orchestrator probes.
+description: Exit statuses returned by `caracal`, `caracal-terminal`, and `caracal-terminal` for scripts and orchestrator probes.
 pageType: reference
 ---
 
@@ -12,7 +12,7 @@ Caracal CLI commands use a small exit-status surface: success is `0`, command or
 | --- | --- |
 | `0` | Success. The operation completed, a help/version request was printed, or every health probe passed. |
 | `1` | Command failure. This includes usage errors, missing configuration, failed authentication, failed authorization, not-found objects, validation errors, conflicts, rate limits, service errors, and failed health probes. |
-| `127` | `caracal cli` or `caracal tui` could not find the sibling binary, or `caracal run` could not spawn the requested subprocess. |
+| `127` | `caracal terminal` or `caracal terminal` could not find the sibling binary, or `caracal run` could not spawn the requested subprocess. |
 | `<child code>` | `caracal run`, `caracal up`, `caracal down`, and sibling dispatch return the child process or Docker Compose status after the subprocess starts. |
 | `128 + N` | A dispatched sibling process ended because of signal `N`. |
 

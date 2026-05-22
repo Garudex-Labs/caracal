@@ -4,11 +4,11 @@ description: Install the CLI, run the OSS stack with Docker, or pull SDK package
 pageType: workflow
 ---
 
-This page covers installing the `caracal` CLI, the `caracal-tui` terminal UI, and the SDK packages for TypeScript, Python, and Go.
+This page covers installing the `caracal` CLI, the `caracal-terminal` terminal UI, and the SDK packages for TypeScript, Python, and Go.
 
-## Install the CLI or TUI
+## Install the CLI or Terminal
 
-The CLI and TUI are distributed as separate self-contained binaries for Linux, macOS, and Windows. No runtime is required. Run both installers to install both tools, or run only the TUI installer when you want `caracal-tui` without `caracal-cli`.
+The CLI and Terminal are distributed as separate self-contained binaries for Linux, macOS, and Windows. No runtime is required. Run both installers to install both tools, or run only the Terminal installer when you want `caracal-terminal` without `caracal-terminal`.
 
 ### Linux and macOS
 
@@ -16,14 +16,14 @@ The CLI and TUI are distributed as separate self-contained binaries for Linux, m
 # CLI
 curl -fsSL https://raw.githubusercontent.com/Garudex-Labs/caracal/main/install-cli.sh | sh
 
-# TUI
-curl -fsSL https://raw.githubusercontent.com/Garudex-Labs/caracal/main/install-tui.sh | sh
+# Terminal
+curl -fsSL https://raw.githubusercontent.com/Garudex-Labs/caracal/main/install-terminal.sh | sh
 ```
 
 Each script:
 
 1. Detects your OS and CPU architecture.
-2. Downloads the matching `caracal` shell plus either `caracal-cli` or `caracal-tui` from the latest GitHub release.
+2. Downloads the matching `caracal` shell plus either `caracal-terminal` or `caracal-terminal` from the latest GitHub release.
 3. Verifies each binary against the published `SHA256SUMS` file.
 4. Installs binaries to `~/.local/bin` by default.
 
@@ -52,8 +52,8 @@ Verify the binaries you installed:
 
 ```sh
 caracal --version
-caracal-cli --version   # CLI installer
-caracal-tui --version   # TUI installer
+caracal-terminal --version   # CLI installer
+caracal-terminal --version   # Terminal installer
 ```
 
 ### Windows
@@ -62,8 +62,8 @@ caracal-tui --version   # TUI installer
 # CLI
 irm https://raw.githubusercontent.com/Garudex-Labs/caracal/main/install-cli.ps1 | iex
 
-# TUI
-irm https://raw.githubusercontent.com/Garudex-Labs/caracal/main/install-tui.ps1 | iex
+# Terminal
+irm https://raw.githubusercontent.com/Garudex-Labs/caracal/main/install-terminal.ps1 | iex
 ```
 
 Binaries are placed in `%LOCALAPPDATA%\Programs\caracal` by default. Set `$env:CARACAL_INSTALL_DIR` to override. Only `x64` is available on Windows.
@@ -76,8 +76,8 @@ If you prefer to build from the repository:
 git clone https://github.com/Garudex-Labs/caracal.git
 cd caracal
 pnpm install
-pnpm --filter @caracalai/cli build
-# Output: apps/cli/dist/caracal-cli-<os>-<arch>
+pnpm --filter @caracalai/runtime build
+# Output: apps/runtime/dist/caracal-terminal-<os>-<arch>
 ```
 
 Building requires [Bun](https://bun.sh/) and pnpm 11.1.1.

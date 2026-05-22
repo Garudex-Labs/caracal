@@ -34,7 +34,7 @@ async def start(body: StartRequest, background: BackgroundTasks) -> StartRespons
     if not caracal_module.ready():
         raise HTTPException(
             status_code=503,
-            detail="Caracal is not configured. Open /setup and create caracal.toml from the TUI values first.",
+            detail="Caracal is not configured. Open /setup and create caracal.toml from the Terminal values first.",
         )
     run_id = str(uuid4())
     background.add_task(run_swarm, run_id, body.prompt)

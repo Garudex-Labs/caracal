@@ -9,10 +9,10 @@ Caracal has three configuration surfaces:
 | Surface | Owner | Use |
 | --- | --- | --- |
 | Service environment variables | [Environment Variables](../operations/env-vars/) | Runtime configuration for STS, API, Gateway, Coordinator, Audit, infrastructure, and optional services |
-| `caracal.toml` | CLI and TUI | Local client identity, STS token-exchange target, subprocess token injection, and governance mode |
+| `caracal.toml` | CLI and Terminal | Local client identity, STS token-exchange target, subprocess token injection, and governance mode |
 | SDK constructors and environment variables | SDK packages | Application integration, context propagation, and client-secret token refresh |
 
-Use [Environment Variables](../operations/env-vars/) as the source of truth for service startup requirements and defaults. This page keeps the client-facing configuration schemas together so CLI, TUI, SDK, and agent integrations can use one reference without duplicating service tables.
+Use [Environment Variables](../operations/env-vars/) as the source of truth for service startup requirements and defaults. This page keeps the client-facing configuration schemas together so CLI, Terminal, SDK, and agent integrations can use one reference without duplicating service tables.
 
 ---
 
@@ -39,7 +39,7 @@ Read the canonical service table in [Environment Variables](../operations/env-va
 | Gateway | `127.0.0.1:8081` | Reverse proxy for protected resources |
 | Coordinator | `127.0.0.1:4000` | Agent lifecycle, invocations, and delegation graph |
 | Audit | `127.0.0.1:9090` | Audit ingestion status, query, and export status |
-| Control | `127.0.0.1:8087` | Optional automation endpoint enabled only through `caracal-cli control` or the TUI Control menu |
+| Control | `127.0.0.1:8087` | Optional automation endpoint enabled only through `caracal-terminal control` or the Terminal Control menu |
 | PostgreSQL | `127.0.0.1:5432` | Database access from local tools |
 | Redis | `127.0.0.1:6379` | Redis CLI debugging |
 
@@ -49,7 +49,7 @@ The reference compose stack binds every port to `127.0.0.1`. Production deployme
 
 ## `caracal.toml`
 
-`caracal.toml` is the client-side configuration file used by the CLI and TUI. It is discovered in this order:
+`caracal.toml` is the client-side configuration file used by the CLI and Terminal. It is discovered in this order:
 
 1. `CARACAL_CONFIG`, when set
 2. `./caracal.toml` in the current working directory

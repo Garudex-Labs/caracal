@@ -150,9 +150,9 @@ volumes:
   - "${CARACAL_CONTROL_STATE_DIR:-./control}:/run/caracal-control:ro"
 ```
 
-The control service is unmounted by default and managed through the engine. Use the authenticated interactive CLI Control flow or the TUI Control menu instead of operating the Compose profile, thin scripts, or Node entrypoints directly.
+The control service is unmounted by default and managed through the engine. Use the authenticated interactive CLI Control flow or the Terminal Control menu instead of operating the Compose profile, thin scripts, or Node entrypoints directly.
 
-The TUI exposes the same flow under **Control**. Use `mount` to load Control with the endpoint gate closed, `enable` and `disable` for fast gate-only access control, and `unmount` to remove the optional runtime for long-term idle state. The engine persists lifecycle state and owns the local gate file mounted into the Control container.
+The Terminal exposes the same flow under **Control**. Use `mount` to load Control with the endpoint gate closed, `enable` and `disable` for fast gate-only access control, and `unmount` to remove the optional runtime for long-term idle state. The engine persists lifecycle state and owns the local gate file mounted into the Control container.
 
 **Required inside the managed service:** `CARACAL_CONTROL_ENABLED=true`, `CONTROL_GATE_FILE`, `STS_JWKS_URL`, `STS_ISSUER_URL`, `CONTROL_AUDIENCE`, `CARACAL_API_URL`, `CONTROL_API_TOKEN`.
 `CARACAL_CONTROL_ENABLED` and `CARACAL_CONTROL_STATE_DIR` are injected by the engine lifecycle path; do not set them directly or start the profile manually.
