@@ -5,14 +5,20 @@
 
 import { CLI_COMMANDS, SHELL_COMMANDS, type CommandDescriptor } from '@caracalai/engine/commands'
 import { printError } from '../style.ts'
+import { availableInterfaceCommands } from './dispatch.ts'
 
 type Shell = 'bash' | 'zsh' | 'fish' | 'powershell'
 type Target = 'caracal' | 'caracal-cli'
 const SHELLS: readonly Shell[] = ['bash', 'zsh', 'fish', 'powershell']
 const TARGETS: readonly Target[] = ['caracal', 'caracal-cli']
-const TABLES: Record<Target, readonly CommandDescriptor[]> = {
-  caracal: SHELL_COMMANDS,
-  'caracal-cli': CLI_COMMANDS,
+function shellCommandTable(): readonly CommandDescriptor[] {
+  const available = new Set(['up', 'down', 'status', 'purge', ...availableInterfaceCommands()])
+  return SHELL_COMMANDS.filter((command) => available.has(command.name))
+}
+
+function tableFor(bin: Target): readonly CommandDescriptor[] {
+  if (bin === 'caracal') return shellCommandTable()
+  return CLI_COMMANDS
 }
 
 function topAndSubs(table: readonly CommandDescriptor[]) {
@@ -103,7 +109,7 @@ ${subEntries}
 }
 
 function emit(bin: Target, shell: Shell): string {
-  const { top, subs } = topAndSubs(TABLES[bin])
+  const { top, subs } = topAndSubs(tableFor(bin))
   switch (shell) {
     case 'bash': return bashScript(bin, top, subs)
     case 'zsh': return zshScript(bin, top, subs)

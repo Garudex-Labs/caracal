@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 // Caracal, a product of Garudex Labs
 //
-// PATH-based locator and executor for sibling Caracal binaries so the shell can dispatch to caracal-cli and caracal-tui without statically linking them.
+// PATH-based locator and executor for optional sibling Caracal interface binaries.
 
 import { spawnSync } from 'node:child_process'
 import { existsSync, statSync } from 'node:fs'
@@ -27,6 +27,17 @@ const KNOWN_SIBLINGS = Object.freeze(Object.keys(WORKSPACE_SHIMS))
 const INVOKED_AS: Record<string, string> = {
   'caracal-cli': 'caracal cli',
   'caracal-tui': 'caracal tui',
+}
+
+const SHELL_COMMANDS_BY_SIBLING: Record<string, string> = {
+  'caracal-cli': 'cli',
+  'caracal-tui': 'tui',
+}
+
+function assertKnownSibling(binName: string): void {
+  if (!KNOWN_SIBLINGS.includes(binName)) {
+    throw new Error(`execSibling: refusing to dispatch to non-whitelisted binary '${binName}'`)
+  }
 }
 
 function workspaceShim(binName: string): { cmd: string; argvPrefix: string[] } | undefined {
@@ -60,15 +71,26 @@ function locate(binName: string): string | undefined {
   return undefined
 }
 
+export function siblingAvailable(binName: string): boolean {
+  assertKnownSibling(binName)
+  if (workspaceShim(binName)) return true
+  if (process.env.CARACAL_REPO_ROOT) return false
+  return locate(binName) !== undefined
+}
+
+export function availableInterfaceCommands(): string[] {
+  return KNOWN_SIBLINGS
+    .filter((binName) => siblingAvailable(binName))
+    .map((binName) => SHELL_COMMANDS_BY_SIBLING[binName]!)
+}
+
 interface MissingHints {
   readonly installLine: string
   readonly altLine?: string
 }
 
 export function execSibling(binName: string, argv: string[], hints: MissingHints): never {
-  if (!KNOWN_SIBLINGS.includes(binName)) {
-    throw new Error(`execSibling: refusing to dispatch to non-whitelisted binary '${binName}'`)
-  }
+  assertKnownSibling(binName)
   const shim = workspaceShim(binName)
   if (!shim && process.env.CARACAL_REPO_ROOT) {
     printError(`workspace shim for '${binName}' is missing under CARACAL_REPO_ROOT.`)
