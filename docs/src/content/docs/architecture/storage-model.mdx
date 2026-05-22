@@ -180,7 +180,7 @@ The Gateway is read-only. It fetches resource bindings to resolve upstream URLs 
 | `receiver_application_id` | TEXT | Application owning the target session |
 | `resource_id` | TEXT (nullable) | If set, restricts authority to this resource |
 | `scopes` | TEXT[] | Scopes the target may request |
-| `constraints_json` | JSONB | Caveats (ttl_seconds, max_hops, budget, policy_approved) |
+| `constraints_json` | JSONB | Typed constraints (ttl_seconds, max_hops, budget, policy_approved) |
 | `status` | TEXT | `"active"`, `"revoked"`, or `"expired"` |
 | `expires_at` | TIMESTAMPTZ | Edge expiry |
 | `edge_version` | INT | Incremented on every status change |
