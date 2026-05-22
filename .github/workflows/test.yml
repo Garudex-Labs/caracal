@@ -249,7 +249,7 @@ jobs:
             tests/typescript/integration/api
           run_pkg apps/coordinator coordinator tests/typescript/unit/orchestration/coordinator
           run_pkg apps/runtime runtime tests/typescript/unit/runtime
-          run_pkg apps/console terminal tests/typescript/unit/console
+          run_pkg apps/console Console tests/typescript/unit/console
           run_pkg packages/core/ts core tests/typescript/unit/shared
           run_pkg packages/admin/ts admin tests/typescript/unit/admin
           run_pkg packages/sdk/ts sdk tests/typescript/unit/sdk/client.test.ts

@@ -31,7 +31,7 @@
 
 The default product path is intentionally small: register an **agent app**, run an **agent run**, request a short-lived **mandate**, call a **resource** through the **Gateway**, and inspect the resulting **audit** trail. The STS evaluates policy and issues Caracal access tokens, the Gateway enforces token validity and provider routing, the Coordinator tracks runtime and delegation state, and Audit records why access was allowed or denied and what happened upstream.
 
-Platform teams can evaluate Caracal locally with `caracal up` and check dependency-aware runtime readiness with `caracal status --ready`. Product management stays in optional interfaces: use `caracal terminal` or `caracal-console` for diagnostics, policy dry-runs, token inspection, audit search, and request explanation. Workload execution is separate: use top-level `caracal run -- <command>` when you want to launch a process with scoped resource tokens from `caracal.toml`.
+Platform teams can evaluate Caracal locally with `caracal up` and check dependency-aware runtime readiness with `caracal status --ready`. Product management stays in optional interfaces: use `caracal console` or `caracal-console` for diagnostics, policy dry-runs, token inspection, audit search, and request explanation. Workload execution is separate: use top-level `caracal run -- <command>` when you want to launch a process with scoped resource tokens from `caracal.toml`.
 
 -----
 
@@ -142,7 +142,7 @@ Each archive contains a single executable (`caracal`, `caracal-console`, or `car
 
 ```bash
 caracal up                            # start all services via Docker
-caracal terminal config init               # provision a zone/app and write ~/.config/caracal/caracal.toml
+caracal console config init               # provision a zone/app and write ~/.config/caracal/caracal.toml
 caracal status                        # probe all services
 caracal status --ready                # dependency-aware readiness probe
 caracal down                          # stop; add -v to remove volumes
@@ -159,7 +159,7 @@ caracal purge                         # interactive cleanup (containers, volumes
 caracal run -- node worker.js
 ```
 
-Use `caracal terminal` or `caracal-console` for management and inspection. Use `caracal run` only for launching a local workload that needs scoped, short-lived Caracal resource tokens.
+Use `caracal console` or `caracal-console` for management and inspection. Use `caracal run` only for launching a local workload that needs scoped, short-lived Caracal resource tokens.
 
 ### Enterprise evaluation
 

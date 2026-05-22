@@ -1,7 +1,7 @@
 # Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 # Caracal, a product of Garudex Labs
 #
-# Standalone Windows terminal installer that downloads, verifies, and extracts Caracal release archives.
+# Standalone Windows Console installer that downloads, verifies, and extracts Caracal release archives.
 
 [CmdletBinding()]
 param(
@@ -79,7 +79,7 @@ try {
         $installedShell = $true
         Install-Archive -Kind 'shell' -BinName 'caracal'
     }
-    Install-Archive -Kind 'terminal' -BinName 'caracal-console'
+    Install-Archive -Kind 'console' -BinName 'caracal-console'
 } finally {
     Remove-Item -Recurse -Force $tmp.FullName -ErrorAction SilentlyContinue
 }
@@ -92,7 +92,7 @@ if (-not ($userPath -split ';' | Where-Object { $_ -ieq $InstallDir })) {
 
 Write-Host 'caracal-install: done. Next steps:'
 if ($installedShell) {
-    Write-Host '  caracal terminal        # launch the Console through the shell'
+    Write-Host '  caracal console        # launch the Console through the shell'
 }
 Write-Host '  caracal-console        # launch the Console directly'
 if ($installedShell) {

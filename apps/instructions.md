@@ -7,7 +7,7 @@
 - `api/` is the Fastify control-plane API.
 - `coordinator/` is the Fastify agent lifecycle and delegation coordinator.
 - `runtime/` is the top-level runtime shell.
-- `terminal/` is the Console.
+- `console/` is the Console.
 - Shared execution and API logic belongs in `packages/engine` and `packages/admin`, not in app siblings.
 
 ## Required

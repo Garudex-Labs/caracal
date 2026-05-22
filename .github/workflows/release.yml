@@ -1,7 +1,7 @@
 # Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 # Caracal, a product of Garudex Labs
 #
-# Release pipeline: builds runtime and terminal binaries, pushes images to GHCR, and creates stable or rc GitHub Releases. npm and PyPI packages are published via scripts/publishNpm.sh and scripts/publishPypi.sh.
+# Release pipeline: builds runtime and Console binaries, pushes images to GHCR, and creates stable or rc GitHub Releases. npm and PyPI packages are published via scripts/publishNpm.sh and scripts/publishPypi.sh.
 #
 # Triggers:
 # - Tag push vYYYY.MM.DD[.N]: stable release (binaries → GitHub Release, images → GHCR, attestations), then best-effort postReleaseValidation.
@@ -104,7 +104,7 @@ jobs:
           NODE
 
   binaries:
-    name: Build runtime and terminal binaries
+    name: Build runtime and Console binaries
     needs: check-maintainer
     if: github.repository == 'Garudex-Labs/caracal'
     runs-on: ubuntu-latest
@@ -181,7 +181,7 @@ jobs:
           node apps/console/scripts/stampRelease.mjs
           jq --arg v "${CARACAL_RELEASE_VERSION}" '.version = $v' apps/console/package.json > apps/console/package.json.tmp
           mv apps/console/package.json.tmp apps/console/package.json
-          echo "Stamped version ${CARACAL_RELEASE_VERSION} into Terminal"
+          echo "Stamped version ${CARACAL_RELEASE_VERSION} into Console"
 
       - name: Build Console binaries
         env:
@@ -195,7 +195,7 @@ jobs:
           set -euo pipefail
           mkdir -p release-dist
           tag="v${VERSION}"
-          targets='shell:linux:amd64:x64 shell:linux:arm64:arm64 shell:darwin:amd64:x64 shell:darwin:arm64:arm64 shell:windows:amd64:x64 terminal:linux:amd64:x64 terminal:linux:arm64:arm64 terminal:darwin:amd64:x64 terminal:darwin:arm64:arm64 terminal:windows:amd64:x64'
+          targets='shell:linux:amd64:x64 shell:linux:arm64:arm64 shell:darwin:amd64:x64 shell:darwin:arm64:arm64 shell:windows:amd64:x64 console:linux:amd64:x64 console:linux:arm64:arm64 console:darwin:amd64:x64 console:darwin:arm64:arm64 console:windows:amd64:x64'
           for entry in $targets; do
             IFS=: read -r kind os arch bunArch <<EOF
           ${entry}
@@ -204,7 +204,7 @@ jobs:
             [ "$os" = windows ] && ext='.exe'
             case "$kind" in
               shell) srcDir=apps/runtime/dist; srcBase=caracal; binName=caracal ;;
-              terminal) srcDir=apps/console/dist; srcBase=caracal-console; binName=caracal-console ;;
+              console) srcDir=apps/console/dist; srcBase=caracal-console; binName=caracal-console ;;
             esac
             src="${srcDir}/${srcBase}-${os}-${bunArch}${ext}"
             [ -f "$src" ] || { echo "::error::missing source binary: ${src}"; exit 1; }
@@ -237,12 +237,12 @@ jobs:
 
           tar -xzf "release-dist/caracal-console-linux-amd64-${tag}.tar.gz" -C "$work"
           "${work}/caracal-console" --help
-          terminal_exit=0
-          "${work}/caracal-console" 2>/tmp/console-stderr || terminal_exit=$?
-          terminal_msg="$(cat /tmp/console-stderr)"
-          [ "${terminal_exit}" = "1" ] || { echo "::error::Terminal exited with code ${terminal_exit} (expected 1)"; exit 1; }
-          echo "${terminal_msg}" | grep -q "not a TTY" || { echo "::error::Terminal missing expected no-TTY message; got: ${terminal_msg}"; exit 1; }
-          echo "Terminal smoke test passed"
+          console_exit=0
+          "${work}/caracal-console" 2>/tmp/console-stderr || console_exit=$?
+          console_msg="$(cat /tmp/console-stderr)"
+          [ "${console_exit}" = "1" ] || { echo "::error::Console exited with code ${console_exit} (expected 1)"; exit 1; }
+          echo "${console_msg}" | grep -q "not a TTY" || { echo "::error::Console missing expected no-TTY message; got: ${console_msg}"; exit 1; }
+          echo "Console smoke test passed"
 
       - name: Generate checksums
         working-directory: release-dist
@@ -266,7 +266,7 @@ jobs:
       - name: Job summary
         run: |
           {
-            echo "## Runtime / terminal release build"
+            echo "## Runtime / Console release build"
             echo ""
             echo "| | |"
             echo "|--|--|"

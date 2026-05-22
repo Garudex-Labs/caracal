@@ -55,14 +55,14 @@ pnpm unlink --global caracal  # Remove global symlink
 #### Console
 
 ```bash
-pnpm caracal terminal
+pnpm caracal console
 ```
 
 The runtime shell keeps lifecycle and workload execution commands. Human-facing product management belongs in the Console.
 
 #### Standalone execution
 
-`pnpm caracal run -- <command>` is separate from runtime and terminal management. It reads `caracal.toml`, exchanges the configured application credentials with STS, injects only the configured scoped resource-token environment variables into the child process, and executes without a shell. Keep this path for workload execution and automation that needs `RESOURCE_TOKEN`; do not expose it through the Console.
+`pnpm caracal run -- <command>` is separate from runtime and Console. It reads `caracal.toml`, exchanges the configured application credentials with STS, injects only the configured scoped resource-token environment variables into the child process, and executes without a shell. Keep this path for workload execution and automation that needs `RESOURCE_TOKEN`; do not expose it through the Console.
 
 ```bash
 pnpm caracal run -- node examples/agent.js
@@ -99,8 +99,8 @@ scripts/testCi.sh --smoke | --go | --py | --ts
 3. Run a quick local sanity check:
   - `pnpm caracal up`
   - `pnpm caracal status`
-  - `pnpm caracal terminal`
-  - `pnpm caracal terminal`
+  - `pnpm caracal console`
+  - `pnpm caracal console`
 4. Ensure tests pass:
   - `pnpm test`
   - `scripts/testCi.sh --smoke` (post-commit parity)
@@ -119,11 +119,11 @@ Use dev builds only for development:
 pnpm --dir apps/runtime build:release                          # stamp dev + build local images + bun compile (all targets)
 pnpm --dir apps/console build:release                          # stamp dev + bun compile (all targets)
 BIN="$(pwd)/apps/runtime/dist/caracal-console-<os>-<arch>"         # absolute path; survives cd
-TERMINAL="$(pwd)/apps/console/dist/caracal-console-<os>-<arch>"         # terminal management binary; same OS/arch matrix
+CONSOLE="$(pwd)/apps/console/dist/caracal-console-<os>-<arch>"         # Console binary; same OS/arch matrix
 pnpm caracal down                                          # Stop dev before testing
 "$BIN" --version                                           # → caracal 2026.05.14-dev.sha<sha> [dev (sha <sha>)]
-"$TERMINAL" --version                                           # → caracal-console 2026.05.14-dev.sha<sha> [dev (sha <sha>)]
-(cd /tmp && "$BIN" up && "$BIN" status && "$TERMINAL" && "$BIN" down)
+"$CONSOLE" --version                                           # → caracal-console 2026.05.14-dev.sha<sha> [dev (sha <sha>)]
+(cd /tmp && "$BIN" up && "$BIN" status && "$CONSOLE" && "$BIN" down)
 ```
 
 The local `build:release` stamps the binary with `CARACAL_VERSION=<base>-dev.sha<sha>` and `CARACAL_REGISTRY=localhost/`, then runs `docker compose build` to produce matching `localhost/caracal-{svc}:<base>-dev.sha<sha>` images. This path is not for downstream third-party consumption.

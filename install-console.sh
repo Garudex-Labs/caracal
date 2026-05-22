@@ -17,12 +17,12 @@ err() {
 
 usage() {
     cat <<EOF
-caracal-install: download the Caracal terminal binaries from GitHub Releases.
+caracal-install: download the Caracal Console binaries from GitHub Releases.
 
 Usage:
   install-console.sh [--version vYYYY.MM.DD[.N]] [--install-dir PATH]
 
-Installs the thin 'caracal' shell and the 'caracal-console' terminal management binary.
+Installs the thin 'caracal' shell and the 'caracal-console' Console binary.
 
 Environment overrides:
   CARACAL_VERSION       same as --version
@@ -143,7 +143,7 @@ if hasArchive shell; then
     installedShell=1
     installArchive shell caracal
 fi
-installArchive terminal caracal-console
+installArchive console caracal-console
 
 case ":${PATH}:" in
     *":${INSTALL_DIR}:"*) ;;
@@ -175,7 +175,7 @@ checkShadow caracal-console
 printf 'caracal-install: done. Next steps:\n'
 printf '  installed release %s (mode: stable)\n' "${tag}"
 printf '  hash -r            # refresh your shell command cache\n'
-[ "${installedShell}" = "1" ] && printf '  caracal terminal        # launch the Console through the shell\n'
+[ "${installedShell}" = "1" ] && printf '  caracal console        # launch the Console through the shell\n'
 printf '  caracal-console        # launch the Console directly\n'
 printf 'caracal-install: to uninstall, remove'
 [ "${installedShell}" = "1" ] && printf ' %s/caracal' "${INSTALL_DIR}"
