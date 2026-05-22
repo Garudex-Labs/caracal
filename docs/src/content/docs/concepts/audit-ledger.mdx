@@ -101,9 +101,9 @@ Per-zone writes are serialized with `pg_advisory_xact_lock` to maintain chain or
 
 The Runtime and Terminal provide two views:
 
-**Live tail** (`caracal audit tail`): streams events from the Redis stream in near real-time. Filter by decision (`allow` / `deny`), pause and resume the stream.
+**Live tail** (the terminal management interface Audit view): streams events from the Redis stream in near real-time. Filter by decision (`allow` / `deny`), pause and resume the stream.
 
-**Request trace** (`caracal explain <request-id>`): retrieves all audit events for a specific `request_id`, showing the full OPA evaluation — which resources were requested, which were allowed, which were denied, and which policy versions determined each decision.
+**Request trace** (the terminal management interface audit detail view): retrieves all audit events for a specific `request_id`, showing the full OPA evaluation — which resources were requested, which were allowed, which were denied, and which policy versions determined each decision.
 
 The admin SDK exposes the same queries via `adminClient.audit.list(zoneId, query)` and `adminClient.audit.byRequest(zoneId, requestId)`.
 

@@ -10,7 +10,7 @@ If a step fails, stop at that step and use the troubleshooting section before co
 
 ## Prerequisites
 
-- Caracal terminal interface installed — see [Installation](./installation/).
+- Caracal terminal management interface installed — see [Installation](./installation/).
 - Docker 24+ with the Compose v2 plugin.
 - `jq` and `openssl` available in your shell.
 - Outbound HTTPS access to `https://httpbin.org`.
@@ -28,20 +28,20 @@ Verification:
 caracal status --ready
 ```
 
-The command must exit `0`. If it does not, run `caracal doctor --json` and address the first failing dependency before continuing.
+The command must exit `0`. If it does not, run the terminal management interface Doctor view and address the first failing dependency before continuing.
 
 ## 2. Protect one HTTP resource
 
 ```bash
 APP_CLIENT_SECRET="cs_$(openssl rand -hex 32)"
-ZONE_ID="$(caracal zone create --name "Local Development" --slug local-development | jq -r '.id')"
-APP_ID="$(caracal app create \
+Open the terminal management interface and follow the matching view.
+Open the terminal management interface and follow the matching view.
   --zone "$ZONE_ID" \
   --name local-gateway-app \
   --credential-type token \
   --client-secret "$APP_CLIENT_SECRET" \
   --traits gateway | jq -r '.id')"
-RESOURCE_ID="$(caracal resource create \
+Open the terminal management interface and follow the matching view.
   --zone "$ZONE_ID" \
   --identifier "resource://demo-api" \
   --name "Demo API" \
@@ -68,21 +68,21 @@ allow if {
 }
 REGO
 
-POLICY_VERSION_ID="$(caracal policy create \
+Open the terminal management interface and follow the matching view.
   --zone "$ZONE_ID" \
   --name "Gateway Scope Policy" \
   --description "Allows requested scopes registered on the target resource." \
   --file gateway-scope.rego \
   --schema-version 2026-05-20 | jq -r '.version.id')"
-POLICY_SET_ID="$(caracal policy-set create \
+Open the terminal management interface and follow the matching view.
   --zone "$ZONE_ID" \
   --name "Gateway Policies" \
   --description "Local Gateway policy set" | jq -r '.id')"
-POLICY_SET_VERSION_ID="$(caracal policy-set version "$POLICY_SET_ID" \
+Open the terminal management interface and follow the matching view.
   --zone "$ZONE_ID" \
   --policy-versions "$POLICY_VERSION_ID" | jq -r '.id')"
-caracal policy-set activate "$POLICY_SET_ID" --zone "$ZONE_ID" --version "$POLICY_SET_VERSION_ID" >/dev/null
-caracal grant create --zone "$ZONE_ID" --app "$APP_ID" --user local-user --resource "$RESOURCE_ID" --scopes "demo:read" >/dev/null
+Open the terminal management interface and follow the matching view.
+Open the terminal management interface and follow the matching view.
 rm gateway-scope.rego
 
 cat > caracal.toml <<EOF
@@ -109,8 +109,8 @@ The `app_client_secret` in `caracal.toml` should be handled as an application se
 Verification:
 
 ```bash
-caracal policy-set list
-caracal resource list
+Open the terminal management interface and follow the matching view.
+Open the terminal management interface and follow the matching view.
 ```
 
 Both must return at least one row. The policy set should be active, and the resource row should include `resource://demo-api`.
@@ -118,7 +118,7 @@ Both must return at least one row. The policy set should be active, and the reso
 ## 3. Verify token injection
 
 ```bash
-caracal run -- sh -c 'printf "%s" "$RESOURCE_TOKEN" | caracal credential inspect -'
+Open the terminal management interface and follow the matching view.
 ```
 
 `caracal run` reads `caracal.toml`, exchanges the application client secret at the STS, and injects the returned bearer into the child process as `RESOURCE_TOKEN`.
@@ -139,13 +139,13 @@ Verification: the response headers include `HTTP/1.1 200 OK` or `HTTP/2 200`, an
 ## 5. Confirm the audit trail
 
 ```bash
-caracal audit tail --limit 5
+the terminal management interface Audit view
 ```
 
 The latest rows should include an `allow` decision for `resource://demo-api` and a Gateway action event. Pick the `request_id` for the Gateway call and run:
 
 ```bash
-caracal explain <request_id>
+the terminal management interface audit detail view
 ```
 
 The explanation reproduces the policy decision, the determining policies, and the upstream call result.
@@ -175,7 +175,7 @@ The Gateway cache does not have a binding for `resource://demo-api`.
 
 1. Confirm the resource exists:
    ```bash
-   caracal resource list
+Open the terminal management interface and follow the matching view.
    ```
 2. Confirm readiness before retrying:
    ```bash

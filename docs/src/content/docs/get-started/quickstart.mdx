@@ -38,7 +38,7 @@ The stack consists of five Caracal services plus Postgres and Redis:
 
 All ports are bound to `127.0.0.1` only. They are not exposed on external interfaces. The service split exists to preserve security boundaries; the local operating model is still one stack.
 
-## Step 1: Install the terminal interface
+## Step 1: Install the terminal management interface
 
 Install `caracal` and `caracal-terminal` via the [Installation](./installation/) page, then verify:
 
@@ -107,14 +107,14 @@ The copy-paste flow below uses `jq` to capture IDs from JSON output and `openssl
 
 ```sh
 APP_CLIENT_SECRET="cs_$(openssl rand -hex 32)"
-ZONE_ID="$(caracal zone create --name "Local Development" --slug local-development | jq -r '.id')"
-APP_ID="$(caracal app create \
+Open the terminal management interface and follow the matching view.
+Open the terminal management interface and follow the matching view.
   --zone "$ZONE_ID" \
   --name local-gateway-app \
   --credential-type token \
   --client-secret "$APP_CLIENT_SECRET" \
   --traits gateway | jq -r '.id')"
-RESOURCE_ID="$(caracal resource create \
+Open the terminal management interface and follow the matching view.
   --zone "$ZONE_ID" \
   --identifier "resource://local-tool" \
   --name "Local Tool" \
@@ -141,21 +141,21 @@ allow if {
 }
 REGO
 
-POLICY_VERSION_ID="$(caracal policy create \
+Open the terminal management interface and follow the matching view.
   --zone "$ZONE_ID" \
   --name "Gateway Scope Policy" \
   --description "Allows requested scopes registered on the target resource." \
   --file gateway-scope.rego \
   --schema-version 2026-05-20 | jq -r '.version.id')"
-POLICY_SET_ID="$(caracal policy-set create \
+Open the terminal management interface and follow the matching view.
   --zone "$ZONE_ID" \
   --name "Gateway Policies" \
   --description "Local Gateway policy set" | jq -r '.id')"
-POLICY_SET_VERSION_ID="$(caracal policy-set version "$POLICY_SET_ID" \
+Open the terminal management interface and follow the matching view.
   --zone "$ZONE_ID" \
   --policy-versions "$POLICY_VERSION_ID" | jq -r '.id')"
-caracal policy-set activate "$POLICY_SET_ID" --zone "$ZONE_ID" --version "$POLICY_SET_VERSION_ID" >/dev/null
-caracal grant create --zone "$ZONE_ID" --app "$APP_ID" --user local-user --resource "$RESOURCE_ID" --scopes "demo:read" >/dev/null
+Open the terminal management interface and follow the matching view.
+Open the terminal management interface and follow the matching view.
 rm gateway-scope.rego
 ```
 
@@ -201,7 +201,7 @@ The Gateway application identity is same-zone service identity used for internal
 Run the readiness doctor if the credential step below fails:
 
 ```sh
-caracal doctor
+the terminal management interface
 ```
 
 It checks API reachability, admin authentication, selected zone, resource registration, active policy sets, grants, audit queryability, service readiness, and operator metrics. Use `--json` when you want to attach the output to an incident record or CI gate.
@@ -211,15 +211,15 @@ It checks API reachability, admin authentication, selected zone, resource regist
 With the stack and `caracal.toml` in place, request a short-lived access token for the registered resource:
 
 ```sh
-caracal credential read resource://local-tool
+Open the terminal management interface and follow the matching view.
 ```
 
-If successful, a signed Caracal access token is printed to stdout. This proves the public STS allowed the agent app to access the resource; provider-native credentials are not returned to the terminal interface.
+If successful, a signed Caracal access token is printed to stdout. This proves the public STS allowed the agent app to access the resource; provider-native credentials are not returned to the terminal management interface.
 
 Inspect it to review the claims:
 
 ```sh
-caracal credential read resource://local-tool | caracal credential inspect -
+Open the terminal management interface and follow the matching view.
 ```
 
 You should see `verification=not_verified` because this command decodes locally instead of validating the signature. The claims should include `zone_id`, `scopes`, `resource`, and an expiry 15 minutes from now.
@@ -249,6 +249,6 @@ At this point you have:
 
 - A fully operational local Caracal authority plane
 - A zone with an agent app, tool/provider resource, active policy set, grant, and Gateway provider route
-- A `caracal.toml` that the terminal interface and SDKs can read for configuration
+- A `caracal.toml` that the terminal management interface and SDKs can read for configuration
 
 Continue to [First Integration](./first-integration/) to wire an application to Caracal using the SDK.

@@ -272,11 +272,11 @@ await caracal.spawn(async () => {
 });
 ```
 
-Revoking the delegated permission from the terminal interface or admin SDK terminates the child agent run and all descendants immediately.
+Revoking the delegated permission from the terminal management interface or admin SDK terminates the child agent run and all descendants immediately.
 
 ## What happens if the policy denies the exchange
 
-If policy denies access, the STS returns HTTP 403 and the SDK throws an error. No Caracal access token is issued. The denial is recorded in the audit ledger with the determining policies and diagnostics that caused it. Use `caracal audit tail` or `caracal explain` to inspect the decision.
+If policy denies access, the STS returns HTTP 403 and the SDK throws an error. No Caracal access token is issued. The denial is recorded in the audit ledger with the determining policies and diagnostics that caused it. Use the terminal management interface Audit view or `the terminal management interface` to inspect the decision.
 
 ## Prefer Gateway before direct verification
 

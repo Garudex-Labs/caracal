@@ -82,11 +82,11 @@ Only maintainers push stable tags. Do not push CalVer tags from feature branches
 
 ---
 
-## Shell, terminal interface, and Terminal binaries
+## Shell, terminal management interface, and Terminal binaries
 
-The shell (`caracal`), terminal interface command binary (`caracal-terminal`), and Terminal (`caracal-terminal`) are compiled to self-contained binaries using `bun --compile`. Fifteen archives are produced per release (five targets × three binaries), each containing one executable:
+The shell (`caracal`), terminal management interface command binary (`caracal-terminal`), and Terminal (`caracal-terminal`) are compiled to self-contained binaries using `bun --compile`. Fifteen archives are produced per release (five targets × three binaries), each containing one executable:
 
-| Target | Shell archive | terminal interface archive | Terminal archive |
+| Target | Shell archive | terminal management interface archive | Terminal archive |
 | --- | --- | --- | --- |
 | `linux-amd64` | `caracal-shell-linux-amd64-vYYYY.MM.DD.tar.gz` | `caracal-terminal-linux-amd64-vYYYY.MM.DD.tar.gz` | `caracal-terminal-linux-amd64-vYYYY.MM.DD.tar.gz` |
 | `linux-arm64` | `caracal-shell-linux-arm64-vYYYY.MM.DD.tar.gz` | `caracal-terminal-linux-arm64-vYYYY.MM.DD.tar.gz` | `caracal-terminal-linux-arm64-vYYYY.MM.DD.tar.gz` |
@@ -101,13 +101,13 @@ Archives are attached to the GitHub Release with a `SHA256SUMS` file and SLSA pr
 The Runtime and Terminal have separate install targets:
 
 ```sh
-# Linux/macOS — terminal interface
+# Linux/macOS — terminal management interface
 curl -fsSL https://raw.githubusercontent.com/Garudex-Labs/caracal/main/install-terminal.sh | sh
 
 # Linux/macOS — Terminal
 curl -fsSL https://raw.githubusercontent.com/Garudex-Labs/caracal/main/install-terminal.sh | sh
 
-# Windows — terminal interface
+# Windows — terminal management interface
 iwr -useb https://raw.githubusercontent.com/Garudex-Labs/caracal/main/install-terminal.ps1 | iex
 
 # Windows — Terminal

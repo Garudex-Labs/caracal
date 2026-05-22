@@ -1,10 +1,10 @@
 ---
 title: Installation
-description: Install the terminal interface, run the OSS stack with Docker, or pull SDK packages.
+description: Install the terminal management interface, run the OSS stack with Docker, or pull SDK packages.
 pageType: workflow
 ---
 
-This page covers installing the `caracal` terminal interface, the `caracal-terminal` terminal UI, and the SDK packages for TypeScript, Python, and Go.
+This page covers installing the `caracal` terminal management interface, the `caracal-terminal` terminal UI, and the SDK packages for TypeScript, Python, and Go.
 
 ## Install the runtime shell or terminal
 
@@ -13,7 +13,7 @@ The Runtime and Terminal are distributed as separate self-contained binaries for
 ### Linux and macOS
 
 ```sh
-# terminal interface
+# terminal management interface
 curl -fsSL https://raw.githubusercontent.com/Garudex-Labs/caracal/main/install-terminal.sh | sh
 
 # Terminal
@@ -52,14 +52,14 @@ Verify the binaries you installed:
 
 ```sh
 caracal --version
-caracal-terminal --version   # terminal interface installer
+caracal-terminal --version   # terminal management interface installer
 caracal-terminal --version   # Terminal installer
 ```
 
 ### Windows
 
 ```powershell
-# terminal interface
+# terminal management interface
 irm https://raw.githubusercontent.com/Garudex-Labs/caracal/main/install-terminal.ps1 | iex
 
 # Terminal
@@ -155,4 +155,4 @@ The stack uses PostgreSQL 18 and Redis 7. Both are included as pre-built images 
 
 ## Next step
 
-Once the terminal interface is installed, go to [Quickstart](./quickstart/) to bring up the full stack.
+Once the terminal management interface is installed, go to [Quickstart](./quickstart/) to bring up the full stack.

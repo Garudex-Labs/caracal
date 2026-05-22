@@ -91,11 +91,11 @@ This runs `docker compose up -d` using the compose file in `infra/docker/`. It s
 After the stack is up, provision a zone and application against the running control-plane API:
 
 ```sh
-caracal zone create --name dev
-caracal app create --zone <zone-id> --name dev-app
+Open the terminal management interface and follow the matching view.
+Open the terminal management interface and follow the matching view.
 ```
 
-`caracal app create` prints the client secret on creation — save it into `caracal.toml` along with the zone ID and STS URL. The terminal interface discovers `CARACAL_ADMIN_TOKEN` from `infra/secrets/files/caracalAdminToken` (dev, via `CARACAL_REPO_ROOT`) or `$CARACAL_HOME/secrets/caracalAdminToken` (installed); pass `--admin-token` or export `CARACAL_ADMIN_TOKEN` to override.
+Open the terminal management interface and follow the matching view.
 
 See [Configuration File](../runtime-terminal/config-file/) for the full `caracal.toml` schema.
 

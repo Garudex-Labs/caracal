@@ -1,6 +1,6 @@
 ---
 title: Activate a Policy Set
-description: Create a Rego policy, version it, bundle it into a policy set, and promote the version to active using the Caracal terminal interface.
+description: Create a Rego policy, version it, bundle it into a policy set, and promote the version to active using the Caracal terminal management interface.
 pageType: workflow
 ---
 
@@ -15,7 +15,7 @@ A policy set is a named collection of policy versions. Exactly one policy set ca
 ## Step 1 — Create the policy
 
 ```bash
-caracal policy create \
+Open the terminal management interface and follow the matching view.
   --name "access-control" \
   --file ./policy.rego
 ```
@@ -31,7 +31,7 @@ ID: pol-abc123
 A newly created policy has one version created automatically from the `--file` content. List it:
 
 ```bash
-caracal policy get pol-abc123
+Open the terminal management interface and follow the matching view.
 ```
 
 Note the version ID (e.g., `pv-def456`).
@@ -41,7 +41,7 @@ Note the version ID (e.g., `pv-def456`).
 When you update the Rego source, create a new immutable version:
 
 ```bash
-caracal policy version pol-abc123 --file ./policy-v2.rego
+Open the terminal management interface and follow the matching view.
 ```
 
 Each version is identified by a SHA-256 content hash. Creating the same file twice returns the existing version ID.
@@ -49,7 +49,7 @@ Each version is identified by a SHA-256 content hash. Creating the same file twi
 ## Step 4 — Create a policy set
 
 ```bash
-caracal policy-set create --name "production"
+Open the terminal management interface and follow the matching view.
 ```
 
 Save the policy set ID:
@@ -63,7 +63,7 @@ ID: ps-ghi789
 A policy-set version is an immutable snapshot of one or more policy version IDs:
 
 ```bash
-caracal policy-set version ps-ghi789 \
+Open the terminal management interface and follow the matching view.
   --policy-versions pv-def456
 ```
 
@@ -76,14 +76,14 @@ ID: psv-jkl012
 To bundle multiple policies together (evaluated in order, first non-deny wins):
 
 ```bash
-caracal policy-set version ps-ghi789 \
+Open the terminal management interface and follow the matching view.
   --policy-versions pv-def456,pv-mno345
 ```
 
 ## Step 6 — Activate the policy-set version
 
 ```bash
-caracal policy-set activate ps-ghi789 --version psv-jkl012
+Open the terminal management interface and follow the matching view.
 ```
 
 The STS receives the invalidation event via the `caracal.policy.invalidate` Redis stream and reloads the OPA bundle. Subsequent token exchanges use the new policy within seconds. Token exchanges already in flight complete against the previous policy.
@@ -91,7 +91,7 @@ The STS receives the invalidation event via the `caracal.policy.invalidate` Redi
 Verify the active version:
 
 ```bash
-caracal policy-set get ps-ghi789 --json
+Open the terminal management interface and follow the matching view.
 ```
 
 ## Rolling back
@@ -100,10 +100,10 @@ Activation is a forward-only pointer. To roll back, activate an earlier policy-s
 
 ```bash
 # List available versions
-caracal policy-set get ps-ghi789 --json
+Open the terminal management interface and follow the matching view.
 
 # Activate the previous version
-caracal policy-set activate ps-ghi789 --version psv-previous
+Open the terminal management interface and follow the matching view.
 ```
 
 ## Shadow activation
@@ -111,7 +111,7 @@ caracal policy-set activate ps-ghi789 --version psv-previous
 Shadow mode evaluates a candidate policy set alongside the active set without enforcing its decision. Use it to validate a new policy against live traffic before promoting it:
 
 ```bash
-caracal policy-set activate ps-ghi789 --version psv-jkl012 --shadow psv-candidate
+Open the terminal management interface and follow the matching view.
 ```
 
 Shadow evaluations appear in the audit log with `evaluation_status: "shadow"`. They do not affect access control.
@@ -120,22 +120,22 @@ Shadow evaluations appear in the audit log with `evaluation_status: "shadow"`. T
 
 ```bash
 # 1. Create policy
-caracal policy create --name "payments-policy" --file ./payments.rego
+Open the terminal management interface and follow the matching view.
 # → ID: pol-abc123, version ID: pv-def456
 
 # 2. Create policy set
-caracal policy-set create --name "production"
+Open the terminal management interface and follow the matching view.
 # → ID: ps-ghi789
 
 # 3. Bundle into policy-set version
-caracal policy-set version ps-ghi789 --policy-versions pv-def456
+Open the terminal management interface and follow the matching view.
 # → ID: psv-jkl012
 
 # 4. Activate
-caracal policy-set activate ps-ghi789 --version psv-jkl012
+Open the terminal management interface and follow the matching view.
 
 # 5. Verify
-caracal policy-set get ps-ghi789 --json
+Open the terminal management interface and follow the matching view.
 ```
 
 ## Checking which policy drove a decision
@@ -143,13 +143,13 @@ caracal policy-set get ps-ghi789 --json
 After activation, run a token exchange and then inspect the audit event:
 
 ```bash
-caracal audit tail --limit 5 --json | jq '.determining_policies'
+the terminal management interface Audit view
 ```
 
 Or use the explain command for a specific request:
 
 ```bash
-caracal explain <request_id>
+the terminal management interface audit detail view
 ```
 
 This shows the exact policy version and rule that drove the allow or deny decision.
