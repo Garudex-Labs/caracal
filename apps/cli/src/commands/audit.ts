@@ -125,7 +125,7 @@ export async function explainCommand(argv: string[], cfg?: CliConfig): Promise<v
   }
 }
 
-function printAuthorityFlow(rows: AuditDetail[]): void {
+export function printAuthorityFlow(rows: AuditDetail[]): void {
   const lines = ['flowchart LR']
   if (rows.length === 0) {
     lines.push('  empty["No audit events found"]')

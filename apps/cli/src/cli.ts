@@ -15,6 +15,7 @@ import { grantCommand } from './commands/grant.ts'
 import { policyCommand, policySetCommand } from './commands/policy.ts'
 import { sessionCommand } from './commands/session.ts'
 import { auditCommand, explainCommand } from './commands/audit.ts'
+import { debugCommand } from './commands/debug.ts'
 import { agentCommand, delegationCommand } from './commands/agent.ts'
 import { completionCommand } from './commands/completion.ts'
 import { controlCommand } from './commands/control.ts'
@@ -45,6 +46,7 @@ const executors: Record<string, Executor> = {
   session: (argv, cfg) => sessionCommand([...argv], cfg),
   audit: (argv, cfg) => auditCommand([...argv], cfg),
   explain: (argv, cfg) => explainCommand([...argv], cfg),
+  debug: (argv, cfg) => debugCommand([...argv], cfg),
   agent: (argv, cfg) => agentCommand([...argv], cfg),
   delegation: (argv, cfg) => delegationCommand([...argv], cfg),
   control: (argv, cfg) => controlCommand([...argv], cfg),
