@@ -4,8 +4,13 @@
 // Unit tests for the completion script generator: covers both binaries, every shell, and rejects bad input.
 
 import { describe, it, expect, vi, afterEach } from 'vitest'
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { completionCommand } from '../../../../apps/cli/src/commands/completion.ts'
 import { CLI_COMMANDS, SHELL_COMMANDS } from '../../../../packages/engine/src/commands.ts'
+
+const originalEnv = { ...process.env }
 
 function capture(): { out: () => string; restore: () => void } {
   const chunks: string[] = []
@@ -13,7 +18,25 @@ function capture(): { out: () => string; restore: () => void } {
   return { out: () => chunks.join(''), restore: () => spy.mockRestore() }
 }
 
-afterEach(() => { vi.restoreAllMocks() })
+afterEach(() => {
+  vi.restoreAllMocks()
+  process.env = { ...originalEnv }
+})
+
+function setWorkspaceInterfaces(interfaces: Array<'cli' | 'tui'>): void {
+  const root = mkdtempSync(join(tmpdir(), 'caracal-completion-root-'))
+  if (interfaces.includes('cli')) {
+    const cli = join(root, 'apps', 'cli', 'bin')
+    mkdirSync(cli, { recursive: true })
+    writeFileSync(join(cli, 'caracal-cli.mjs'), '')
+  }
+  if (interfaces.includes('tui')) {
+    const tui = join(root, 'apps', 'tui', 'bin')
+    mkdirSync(tui, { recursive: true })
+    writeFileSync(join(tui, 'caracal-tui.mjs'), '')
+  }
+  process.env.CARACAL_REPO_ROOT = root
+}
 
 describe('completionCommand', () => {
   it('rejects an unknown shell', () => {
@@ -39,12 +62,23 @@ describe('completionCommand', () => {
     })
 
     it(`emits caracal (shell) completion for ${shell} listing every shell command`, () => {
+      setWorkspaceInterfaces(['cli', 'tui'])
       const cap = capture()
       completionCommand([shell, 'caracal'])
       const out = cap.out()
       for (const c of SHELL_COMMANDS) expect(out).toContain(c.name)
     })
   }
+
+  it('hides unavailable optional interface launchers from caracal completion', () => {
+    setWorkspaceInterfaces(['cli'])
+    const cap = capture()
+    completionCommand(['bash', 'caracal'])
+    const out = cap.out()
+    expect(out).toContain('cli')
+    expect(out).not.toMatch(/\btui\b/)
+    expect(out).not.toMatch(/\bdoctor\b/)
+  })
 
   it('defaults to both binaries when no target is provided', () => {
     const cap = capture()

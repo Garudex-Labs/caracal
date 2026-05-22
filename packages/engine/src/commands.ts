@@ -73,19 +73,6 @@ export const SHELL_COMMANDS: readonly CommandDescriptor[] = Object.freeze([
     summary: 'Clean stack artifacts and local state',
     subcommands: ['stack', 'volumes', 'logs', 'config', 'runtime', 'secrets', 'cache', 'all'],
   },
-  {
-    name: 'doctor',
-    group: 'admin',
-    summary: 'Run operator diagnostics for the local control plane',
-    flags: {
-      '': [
-        { name: '--preflight', summary: 'Run local deployment preflight checks only' },
-        { name: '--ready', summary: 'Treat warnings as not ready for automation gates' },
-        { name: '--zone', summary: 'Inspect one zone instead of every visible zone' },
-        { name: '--json', summary: 'Emit structured machine-readable diagnostics' },
-      ],
-    },
-  },
   { name: 'cli', group: 'shell', summary: 'Open the Caracal command shell' },
   { name: 'tui', group: 'shell', summary: 'Launch the Caracal TUI' },
 ]);

@@ -4,9 +4,17 @@
 // Unit tests for the sibling-binary executor used to dispatch `caracal cli` / `caracal tui` to their installed binaries.
 
 import { describe, it, expect, vi, afterEach } from 'vitest'
-import { execSibling } from '../../../../apps/cli/src/commands/dispatch.ts'
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { availableInterfaceCommands, execSibling } from '../../../../apps/cli/src/commands/dispatch.ts'
 
-afterEach(() => { vi.restoreAllMocks() })
+const originalEnv = { ...process.env }
+
+afterEach(() => {
+  vi.restoreAllMocks()
+  process.env = { ...originalEnv }
+})
 
 describe('execSibling', () => {
   it('exits 127 with a hint when a known sibling binary is not installed', () => {
@@ -31,5 +39,20 @@ describe('execSibling', () => {
   it('refuses to dispatch to a non-whitelisted binary name', () => {
     expect(() => execSibling('../../evil', [], { installLine: 'x' })).toThrow(/non-whitelisted/)
     expect(() => execSibling('caracal-nonexistent', [], { installLine: 'x' })).toThrow(/non-whitelisted/)
+  })
+
+  it('reports only interface commands with an available workspace shim', () => {
+    const root = mkdtempSync(join(tmpdir(), 'caracal-root-'))
+    const cli = join(root, 'apps', 'cli', 'bin')
+    const tui = join(root, 'apps', 'tui', 'bin')
+    mkdirSync(cli, { recursive: true })
+    mkdirSync(tui, { recursive: true })
+    writeFileSync(join(cli, 'caracal-cli.mjs'), '')
+    process.env.CARACAL_REPO_ROOT = root
+
+    expect(availableInterfaceCommands()).toEqual(['cli'])
+
+    writeFileSync(join(tui, 'caracal-tui.mjs'), '')
+    expect(availableInterfaceCommands()).toEqual(['cli', 'tui'])
   })
 })
