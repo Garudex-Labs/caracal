@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/garudex-labs/caracal/packages/core/go/config"
 	"github.com/garudex-labs/caracal/packages/core/go/crypto"
 	"github.com/redis/go-redis/v9"
 )
@@ -20,11 +21,26 @@ type RedisClient struct {
 	requireSigs bool
 }
 
+const (
+	redisDefaultDialTimeout  = 5 * time.Second
+	redisDefaultReadTimeout  = 3 * time.Second
+	redisDefaultWriteTimeout = 3 * time.Second
+	redisDefaultPoolSize     = 20
+	redisDefaultMinIdleConns = 2
+	redisDefaultPoolTimeout  = 4 * time.Second
+)
+
 func newRedis(dsn string) (*RedisClient, error) {
 	opts, err := redis.ParseURL(dsn)
 	if err != nil {
 		return nil, err
 	}
+	opts.DialTimeout = config.DurationEnv("REDIS_DIAL_TIMEOUT", redisDefaultDialTimeout)
+	opts.ReadTimeout = config.DurationEnv("REDIS_READ_TIMEOUT", redisDefaultReadTimeout)
+	opts.WriteTimeout = config.DurationEnv("REDIS_WRITE_TIMEOUT", redisDefaultWriteTimeout)
+	opts.PoolSize = config.IntEnv("REDIS_POOL_SIZE", redisDefaultPoolSize)
+	opts.MinIdleConns = config.IntEnv("REDIS_MIN_IDLE_CONNS", redisDefaultMinIdleConns)
+	opts.PoolTimeout = config.DurationEnv("REDIS_POOL_TIMEOUT", redisDefaultPoolTimeout)
 	return &RedisClient{c: redis.NewClient(opts)}, nil
 }
 

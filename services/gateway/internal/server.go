@@ -42,6 +42,7 @@ type Server struct {
 	audit       *audit.Client
 	revocations *revocationStore
 	metrics     *GatewayMetrics
+	pool        *pgxpool.Pool
 }
 
 // New constructs a Server from environment configuration.
@@ -64,7 +65,7 @@ func New(ctx context.Context) (*Server, error) {
 	if err != nil {
 		return nil, err
 	}
-	pool, err := pgxpool.New(ctx, cfg.DatabaseURL)
+	pool, err := newPool(ctx, cfg.DatabaseURL)
 	if err != nil {
 		return nil, err
 	}
@@ -97,6 +98,7 @@ func New(ctx context.Context) (*Server, error) {
 		audit:       auditClient,
 		revocations: revocations,
 		metrics:     &GatewayMetrics{},
+		pool:        pool,
 	}, nil
 }
 
@@ -221,8 +223,7 @@ func writeReadyFailure(w http.ResponseWriter, reason string) {
 func (s *Server) handleMetrics(w http.ResponseWriter, _ *http.Request) {
 	s.refreshMetricGauges()
 	snap := s.metrics.Snapshot()
-	w.Header().Set("Content-Type", coremetrics.ContentType)
-	_, _ = w.Write([]byte(coremetrics.Render([]coremetrics.Sample{
+	samples := []coremetrics.Sample{
 		{Name: "caracal_gateway_requests_total", Help: "Gateway requests received", Type: coremetrics.Counter, Value: float64(snap.RequestsTotal)},
 		{Name: "caracal_gateway_requests_allowed_total", Help: "Gateway requests allowed upstream", Type: coremetrics.Counter, Value: float64(snap.RequestsAllowed)},
 		{Name: "caracal_gateway_requests_denied_total", Help: "Gateway requests denied before upstream dispatch", Type: coremetrics.Counter, Value: float64(snap.RequestsDenied)},
@@ -239,7 +240,22 @@ func (s *Server) handleMetrics(w http.ResponseWriter, _ *http.Request) {
 		{Name: "caracal_gateway_upstream_errors_total", Help: "Gateway upstream request failures", Type: coremetrics.Counter, Value: float64(snap.UpstreamErrors)},
 		{Name: "caracal_gateway_bindings_loaded", Help: "Gateway resource bindings loaded in memory", Type: coremetrics.Gauge, Value: float64(snap.BindingsLoaded)},
 		{Name: "caracal_gateway_revocations_active", Help: "Gateway revocation anchors loaded in memory", Type: coremetrics.Gauge, Value: float64(snap.RevocationsActive)},
-	})))
+	}
+	if s.pool != nil {
+		stat := s.pool.Stat()
+		total := stat.MaxConns()
+		var ratio float64
+		if total > 0 {
+			ratio = float64(stat.AcquiredConns()) / float64(total)
+		}
+		samples = append(samples,
+			coremetrics.Sample{Name: "caracal_db_pool_in_use_ratio", Help: "Fraction of the Postgres pool currently in use", Type: coremetrics.Gauge, Value: ratio},
+			coremetrics.Sample{Name: "caracal_db_pool_max_conns", Help: "Configured maximum Postgres pool size", Type: coremetrics.Gauge, Value: float64(total)},
+			coremetrics.Sample{Name: "caracal_db_pool_acquired_conns", Help: "Postgres pool connections currently checked out", Type: coremetrics.Gauge, Value: float64(stat.AcquiredConns())},
+		)
+	}
+	w.Header().Set("Content-Type", coremetrics.ContentType)
+	_, _ = w.Write([]byte(coremetrics.Render(samples)))
 }
 
 func (s *Server) handleMetricsJSON(w http.ResponseWriter, _ *http.Request) {
