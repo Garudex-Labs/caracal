@@ -22,7 +22,7 @@ If delegation is involved, a delegated permission sits between the source run an
 | --- | --- | --- |
 | Is the stack ready? | `caracal status --ready` | Which service is not ready and the structured reason. |
 | Are dependencies and metrics healthy? | `caracal doctor --extended --json` | API auth, zone selection, resources, policy sets, grants, audit queryability, readiness, and metric summaries. |
-| What happened to one request? | `caracal explain <request_id>` | Decision, policy version, diagnostics, metadata, authority session, agent run, delegated permission, resource, scopes, provider, and grant. |
+| What happened to one request? | `caracal debug request <request_id>` | Final decision, denied events, structured failure reasons, policy version, diagnostics, metadata, and latest event. |
 | Can I visualize the authority path? | `caracal explain <request_id> --flow` | Mermaid flowchart for agent app, session, run, delegation, policy decision, resource, provider, and audit event. |
 | What does this token claim? | `caracal credential inspect <jwt>` | Unverified local decode of issuer, subject, zone, session, resource, scopes, expiry, algorithm, key ID, and JTI. |
 | Would this policy version activate safely? | `caracal policy-set simulate <set> --version <version> --input-file input.json` | Dry-run policy-set validation and optional runtime OPA decision without mutating the active set. |
@@ -35,11 +35,13 @@ If delegation is involved, a delegated permission sits between the source run an
 caracal audit tail --decision deny --limit 50
 ```
 
-2. Explain the decision:
+2. Trace the decision:
 
 ```bash
-caracal explain req_abc123
+caracal debug request req_abc123
 ```
+
+Use `--json` when attaching the full decision trace to an incident or automation workflow. The trace includes the request ID, zone, final decision, denied events, diagnostics, redacted metadata, and the audit events that support the answer.
 
 3. Render the flow when the path is not obvious:
 
@@ -78,8 +80,8 @@ Policy simulation is the dry-run path for policy rollouts. It validates the vers
 | Component | Owns | Start with | If unhealthy |
 | --- | --- | --- | --- |
 | API | Zones, apps, resources, providers, grants, policy objects, admin audit | `caracal doctor --extended`, API `/ready` | Check Postgres reachability, Redis reachability, admin token, zone selector, and validation body. |
-| STS | Token exchange, OPA evaluation, mandate signing, authorization audit | `caracal explain <request_id>`, STS `/ready`, `caracal_sts_opa_*` metrics | Check active policy set, policy compile errors, runtime OPA diagnostics, signing key/JWKS validity, Redis replay state, and audit replay health. |
-| Gateway | Token verification, replay/revocation checks, route lookup, provider brokering, action-result audit | Gateway `/ready`, `caracal_gateway_*` metrics, `caracal explain <request_id>` | Check resource upstream URL, Gateway application ID, provider grant, `target` claim, replay counters, revocation cache, STS reachability, and upstream errors. |
+| STS | Token exchange, OPA evaluation, mandate signing, authorization audit | `caracal debug request <request_id>`, STS `/ready`, `caracal_sts_opa_*` metrics | Check active policy set, policy compile errors, runtime OPA diagnostics, signing key/JWKS validity, Redis replay state, and audit replay health. |
+| Gateway | Token verification, replay/revocation checks, route lookup, provider brokering, action-result audit | Gateway `/ready`, `caracal_gateway_*` metrics, `caracal debug request <request_id>` | Check resource upstream URL, Gateway application ID, provider grant, `target` claim, replay counters, revocation cache, STS reachability, and upstream errors. |
 | Coordinator | Agent runs, lifecycle state, delegation graph, outbox events | Coordinator `/ready`, `GET /stats`, `caracal agent get`, `caracal delegation traverse` | Check Postgres, Redis, outbox dead/pending counts, session TTL, delegation source/target, and graph epoch. |
 | Audit | Event ingestion, tamper evidence, export, retention | `caracal audit tail`, Audit `/ready`, `caracal_audit_*` metrics | Check stream lag, DLQ size, HMAC failures, tamper counters, Postgres reachability, Redis pending entries, and object-store export errors. |
 | Redis | Streams, revocation propagation, replay state, invalidation | Service readiness, Redis `XINFO GROUPS` | Restore connectivity and memory headroom; do not flush streams without an approved replay or backup plan. |
@@ -106,7 +108,7 @@ Use this checklist to prove where authority stopped:
 | Agent app exists | `caracal app get <id>` or `application_id` in audit metadata |
 | Agent run exists and is active | `caracal agent get <agent_session_id>` or Coordinator stats |
 | Delegated permission is usable by the receiver | `caracal delegation traverse <agent_session_id>` and matching `delegation_edge_id` |
-| Policy allowed the resource | `caracal explain <request_id>` shows `decision=allow`, `evaluation_status=complete`, and determining policies |
+| Policy allowed the resource | `caracal debug request <request_id>` shows the final decision, denied events if any, latest event status, and determining policies in JSON output |
 | Mandate matches the intended resource | `caracal credential inspect` shows expected `target`, `scope`, `zone_id`, and expiry |
 | Gateway can route the resource | Resource has `upstream_url` and `gateway_application_id`; Gateway `/ready` is 200 |
 | Provider credential stayed inside Gateway | Audit metadata shows provider and grant identifiers; token inspection does not show provider-native credentials |

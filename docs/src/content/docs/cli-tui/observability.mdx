@@ -1,10 +1,46 @@
 ---
 title: Observability Commands
-description: caracal audit tail, caracal explain, and credential inspection — query decisions, render authority flow, and inspect tokens from the terminal.
+description: caracal audit tail, caracal debug request, caracal explain, and credential inspection — query decisions, render authority flow, and inspect tokens from the terminal.
 pageType: reference
 ---
 
-Observability commands read the audit ledger or decode local token material for inspection. `audit tail` and `explain` require `CARACAL_ADMIN_TOKEN` and a zone ID. `credential inspect` runs offline and does not mutate state.
+Observability commands read the audit ledger or decode local token material for inspection. `audit tail`, `debug request`, and `explain` require `CARACAL_ADMIN_TOKEN` and a zone ID. `credential inspect` runs offline and does not mutate state.
+
+---
+
+## `caracal debug request <request_id>`
+
+Show one request as an operator decision trace.
+
+```bash
+caracal debug request req_def456
+caracal debug request req_def456 --json
+caracal debug request req_def456 --flow
+```
+
+Use this first when an operator needs the shortest answer to why a request succeeded or failed. The command calls the request explanation endpoint and summarizes the final decision, denied events, structured failure reasons, latest audit event, and supporting policy version.
+
+**Flags:** `--zone <id>`, `--json`, `--flow`
+
+**Plain-text output:**
+
+```text
+request_id     req_def456
+zone_id        zone_prod
+final_decision deny
+events         1
+denied_events  1
+failure_reasons:
+  token_exchange status=complete event=audit_xyz
+    rule=scope_guard message=required scope 'transfer:write' not present
+latest_event:
+  event_type    token_exchange
+  decision      deny
+  status        complete
+  policy_set    pset_pqr678 version=psetv_jkl012 sha=sha256:abc123...
+```
+
+With `--json`, the command emits a `DecisionTrace` object containing the request ID, zone, final decision, denied event summaries, diagnostics, redacted metadata, and all audit events behind the trace. With `--flow`, it renders the same Mermaid authority graph as `caracal explain <request_id> --flow`.
 
 ---
 
