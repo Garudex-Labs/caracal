@@ -44,7 +44,7 @@ function loadConfig(required: boolean): CliConfig | undefined {
   const path = resolveCliConfigPath()
   if (!path) {
     if (!required) return undefined
-    throw new LoadConfigError('caracal.toml not found; create a zone (`caracal-cli zone create --name <n>`), an application (`caracal-cli app create --name <n>`), then author caracal.toml with the returned ids and client secret.')
+    throw new LoadConfigError('caracal.toml not found; run `caracal cli config init` to create a zone, create a confidential runner app, and write the config, or pass CARACAL_CONFIG to an existing file.')
   }
   try {
     return parse(readFileSync(path, 'utf8')) as unknown as CliConfig

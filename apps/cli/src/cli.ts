@@ -6,6 +6,7 @@
 import '@caracalai/engine/scrubCwdEnv'
 import { installCrashHandlers } from './crash.ts'
 import { credentialCommand } from './commands/credential.ts'
+import { configCommand } from './commands/config.ts'
 import { zoneCommand } from './commands/zone.ts'
 import { appCommand } from './commands/app.ts'
 import { resourceCommand } from './commands/resource.ts'
@@ -27,6 +28,7 @@ import { dispatch, loadCliConfig, type DispatchOptions } from './dispatcher.ts'
 import { startRepl } from './repl.ts'
 
 const executors: Record<string, Executor> = {
+  config: (argv, cfg) => configCommand([...argv], cfg),
   credential: (argv, cfg) => credentialCommand([...argv], cfg),
   zone: (argv, cfg) => zoneCommand([...argv], cfg),
   app: (argv, cfg) => appCommand([...argv], cfg),

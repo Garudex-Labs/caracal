@@ -151,9 +151,7 @@ Each archive contains a single executable (`caracal`, `caracal-cli`, or `caracal
 
 ```bash
 caracal up                            # start all services via Docker
-caracal cli zone create --name dev    # provision a zone (returns id)
-caracal cli app create --name runner  # provision an application (returns client_secret)
-# write ~/.config/caracal/caracal.toml with zone_id, application_id, app_client_secret, zone_url
+caracal cli config init               # provision a zone/app and write ~/.config/caracal/caracal.toml
 caracal status                        # probe all services
 caracal status --ready                # dependency-aware readiness probe
 caracal down                          # stop; add -v to remove volumes
