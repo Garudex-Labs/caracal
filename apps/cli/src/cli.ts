@@ -6,7 +6,7 @@
 import '@caracalai/engine/scrubCwdEnv'
 import { installCrashHandlers } from './crash.ts'
 import { runCommand } from './commands/run.ts'
-import { credentialReadCommand } from './commands/credential.ts'
+import { credentialCommand } from './commands/credential.ts'
 import { zoneCommand } from './commands/zone.ts'
 import { appCommand } from './commands/app.ts'
 import { resourceCommand } from './commands/resource.ts'
@@ -22,7 +22,6 @@ import { doctorCommand } from './commands/doctor.ts'
 import { manifestCommand } from './commands/manifest.ts'
 import { protectCommand } from './commands/protect.ts'
 import { checkMcpGovernance } from './mcp.ts'
-import { printError } from './style.ts'
 import { CARACAL_MODE, CARACAL_SHA, CARACAL_VERSION } from './runtime/version.gen.ts'
 import { CLI_COMMANDS } from '@caracalai/engine/commands'
 import { buildRegistry, type Executor } from './registry.ts'
@@ -35,13 +34,7 @@ const executors: Record<string, Executor> = {
     if (cmdArgs.length > 0) checkMcpGovernance(cmdArgs, cfg!)
     return runCommand([...argv], cfg!)
   },
-  credential: (argv, cfg) => {
-    if (argv[0] !== 'read') {
-      printError(`unknown subcommand for 'credential': expected 'read'`)
-      process.exit(1)
-    }
-    return credentialReadCommand(argv[1] ?? '', cfg!)
-  },
+  credential: (argv, cfg) => credentialCommand([...argv], cfg),
   zone: (argv, cfg) => zoneCommand([...argv], cfg),
   app: (argv, cfg) => appCommand([...argv], cfg),
   resource: (argv, cfg) => resourceCommand([...argv], cfg),

@@ -33,7 +33,7 @@ export interface CommandDescriptor {
 }
 
 const READ_VERBS = new Set([
-  'list', 'get', 'tree', 'children', 'tail', 'inbound', 'outbound', 'traverse', 'read', 'use', 'simulate',
+  'list', 'get', 'tree', 'children', 'tail', 'inbound', 'outbound', 'traverse', 'read', 'inspect', 'use', 'simulate',
 ]);
 
 const DELETE_VERBS = new Set(['delete', 'terminate', 'revoke', 'purge']);
@@ -95,7 +95,19 @@ export const SHELL_COMMANDS: readonly CommandDescriptor[] = Object.freeze([
 
 export const CLI_COMMANDS: readonly CommandDescriptor[] = Object.freeze([
   { name: 'run', group: 'runtime', summary: 'Run a command with RESOURCE_TOKEN', requiresConfig: true },
-  { name: 'credential', group: 'runtime', summary: 'Read a resource credential', subcommands: ['read'], requiresConfig: true },
+  {
+    name: 'credential',
+    group: 'runtime',
+    summary: 'Read or inspect a resource credential',
+    subcommands: ['read', 'inspect'],
+    flags: {
+      inspect: [
+        { name: '--token', summary: 'JWT to inspect' },
+        { name: '--file', summary: 'Read JWT from file' },
+        { name: '--json', summary: 'Emit decoded header, claims, and summary' },
+      ],
+    },
+  },
   { name: 'doctor', group: 'admin', summary: 'Check local control-plane readiness' },
   {
     name: 'manifest',
@@ -305,7 +317,18 @@ export const CLI_COMMANDS: readonly CommandDescriptor[] = Object.freeze([
     },
   },
 
-  { name: 'explain', group: 'observability', summary: 'Explain an audit request', requiresZone: true },
+  {
+    name: 'explain',
+    group: 'observability',
+    summary: 'Explain an audit request',
+    requiresZone: true,
+    flags: {
+      '': [
+        { name: '--format', summary: 'Output format: text or mermaid' },
+        { name: '--flow', summary: 'Render the authority path as Mermaid' },
+      ],
+    },
+  },
 
   { name: 'agent', group: 'multiagent', summary: 'Manage agent sessions', subcommands: ['list', 'get', 'tree', 'children', 'suspend', 'resume', 'terminate'], requiresZone: true },
   { name: 'delegation', group: 'multiagent', summary: 'Manage delegation edges', subcommands: ['inbound', 'outbound', 'traverse', 'revoke'], requiresZone: true },
