@@ -114,7 +114,7 @@ The Gateway tracks JWT IDs (`jti` claims) in Redis to prevent replay of intercep
 | `STS_TIMEOUT` | `5s` | Timeout for STS token exchange calls |
 | `UPSTREAM_TIMEOUT` | `30s` | Timeout for proxied upstream requests |
 | `READ_HEADER_TIMEOUT` | `5s` | Time allowed to read request headers |
-| `READ_TIMEOUT` | `30s` | Time allowed to read the full request |
+| `READ_TIMEOUT` | `45s` | Time allowed to read the full request; must exceed `STS_TIMEOUT + UPSTREAM_TIMEOUT` |
 | `WRITE_TIMEOUT` | `60s` | Time allowed to write the response |
 | `IDLE_TIMEOUT` | `120s` | Keep-alive idle timeout |
 

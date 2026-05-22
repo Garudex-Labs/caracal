@@ -23,8 +23,8 @@ Each guide covers one end-to-end workflow. Start from the guide that matches you
 | [Issue Grants and Invitations](./grants-invitations/) | Bind applications and users to resource scopes; invite new zone members |
 | [Implement Multi-Agent Delegation](./delegation/) | Spawn child agents, attach typed constraints, read the delegation graph, and trigger cascade revocation |
 | [Tail and Query the Audit Stream](./audit-stream/) | Stream live decisions from the CLI and inspect full diagnostics per request |
-| [Run an Agent with `caracal run`](./cli-run/) | Inject a short-lived resource mandate into a subprocess without writing SDK code |
-| [Step-Up Re-Authentication](./step-up/) | Handle `interaction_required` from the STS and complete the challenge flow from agent code |
+| [Run an Agent with `caracal run`](./cli-run/) | Inject configured scoped tokens into a subprocess without writing SDK code |
+| [Step-Up Re-Authentication](./step-up/) | Handle `interaction_required`, satisfy the challenge, and retry token exchange through the STS |
 
 ## Prerequisites shared across all guides
 

@@ -9,7 +9,7 @@ Caracal has three configuration surfaces:
 | Surface | Owner | Use |
 | --- | --- | --- |
 | Service environment variables | [Environment Variables](../operations/env-vars/) | Runtime configuration for STS, API, Gateway, Coordinator, Audit, infrastructure, and optional services |
-| `caracal.toml` | CLI and TUI | Local client identity, API targets, credential forwarding, and governance mode |
+| `caracal.toml` | CLI and TUI | Local client identity, STS token-exchange target, subprocess token injection, and governance mode |
 | SDK constructors and environment variables | SDK packages | Application integration, context propagation, and client-secret token refresh |
 
 Use [Environment Variables](../operations/env-vars/) as the source of truth for service startup requirements and defaults. This page keeps the client-facing configuration schemas together so CLI, TUI, SDK, and agent integrations can use one reference without duplicating service tables.
@@ -22,11 +22,11 @@ All services are configured through environment variables. Required variables fa
 
 Read the canonical service table in [Environment Variables](../operations/env-vars/). It is grouped by service and covers:
 
-- Shared secrets: `ZONE_KEK`, `AUDIT_HMAC_KEY`, `STREAMS_HMAC_KEY`
+- Shared secrets: `ZONE_KEK`, `AUDIT_HMAC_KEY`, `STREAMS_HMAC_KEY`, `GATEWAY_STS_HMAC_KEY`
 - Infrastructure: Postgres and Redis
 - Core services: STS, API, Gateway, Audit, Coordinator
 - Optional control service
-- Mode: `CARACAL_MODE=dev` for development, `CARACAL_MODE=rc` for rc, `CARACAL_MODE=stable` for stable
+- Mode: `CARACAL_MODE=dev` for development, `CARACAL_MODE=rc` for release candidates, `CARACAL_MODE=stable` for stable releases
 
 ---
 
@@ -58,19 +58,19 @@ The reference compose stack binds every port to `127.0.0.1`. Production deployme
 ### Schema
 
 ```toml
-zone_url          = "http://localhost:3000"
+zone_url          = "http://localhost:8080"
 zone_id           = "zone-abc123"
 application_id    = "app-xyz456"
 app_client_secret = "secret-..."
 continue_on_failure = false
 
 [[credentials]]
-env      = "DATABASE_URL"
-resource = "postgres"
+env      = "RESOURCE_TOKEN"
+resource = "resource://inventory"
 
 [[optional_credentials]]
-env        = "SLACK_TOKEN"
-resource   = "slack"
+env        = "ANALYTICS_TOKEN"
+resource   = "resource://analytics"
 on_failure = "warn"
 
 [mcp_governance]
@@ -81,19 +81,19 @@ mode = "block"
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `zone_url` | string | Yes | Control-plane API base URL used by CLI admin commands |
+| `zone_url` | string | Yes | STS base URL used by `caracal run` and `caracal credential read` for `/oauth/2/token` exchange |
 | `zone_id` | string | Yes | Zone this client operates in |
 | `application_id` | string | Yes | Registered application identity |
 | `app_client_secret` | string | Yes | Application secret used for STS token exchange |
-| `continue_on_failure` | boolean | No | Continue after non-fatal command failures; default `false` |
-| `credentials` | array | No | Required external credentials forwarded to named resources |
-| `credentials[].env` | string | Yes, inside each item | Environment variable containing the credential value |
-| `credentials[].resource` | string | Yes, inside each item | Resource identifier associated with the credential |
-| `optional_credentials` | array | No | External credentials that may be absent |
-| `optional_credentials[].env` | string | Yes, inside each item | Environment variable containing the credential value |
-| `optional_credentials[].resource` | string | Yes, inside each item | Resource identifier associated with the credential |
-| `optional_credentials[].on_failure` | `"warn" \| "error"` | Yes, inside each item | Whether absence should warn or fail |
-| `mcp_governance.mode` | `"block" \| "log"` | No | Whether unauthorized MCP tool calls are blocked or only recorded |
+| `continue_on_failure` | boolean | No | Allow `caracal run` to continue after a required credential exchange fails; default `false` |
+| `credentials` | array | No | Required scoped tokens for `caracal run` to inject before spawning the subprocess |
+| `credentials[].env` | string | Yes, inside each item | Environment variable name to set in the subprocess |
+| `credentials[].resource` | string | Yes, inside each item | Resource identifier to request from STS |
+| `optional_credentials` | array | No | Scoped tokens that may fail without blocking subprocess startup |
+| `optional_credentials[].env` | string | Yes, inside each item | Environment variable name to set in the subprocess when exchange succeeds |
+| `optional_credentials[].resource` | string | Yes, inside each item | Resource identifier to request from STS |
+| `optional_credentials[].on_failure` | `"warn" \| "error"` | Yes, inside each item | Whether exchange failure should warn and continue or fail startup |
+| `mcp_governance.mode` | `"block" \| "log"` | No | Whether MCP server subprocesses are blocked or only reported |
 
 ---
 

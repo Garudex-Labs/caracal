@@ -44,7 +44,7 @@ Each service writes to Postgres under a dedicated role with minimum necessary pe
 
 ## Prerequisites
 
-Before deploying, generate the three HMAC/encryption secrets the stack requires:
+Before deploying services with environment variables or your own secret manager, generate the three HMAC/encryption secrets the stack requires:
 
 ```bash
 openssl rand -hex 32   # ZONE_KEK
@@ -52,4 +52,4 @@ openssl rand -hex 32   # AUDIT_HMAC_KEY
 openssl rand -hex 32   # STREAMS_HMAC_KEY
 ```
 
-These must be set in the environment before any service starts. Changing them after initial deployment requires a key rotation procedure — see [Key Management and Rotation](./key-management/).
+These must be set in the environment before any manually deployed service starts. The installed local stack created by `caracal up` generates file-backed secrets automatically under `$CARACAL_HOME/secrets/`. Changing production secret values after initial deployment requires a key rotation procedure — see [Key Management and Rotation](./key-management/).

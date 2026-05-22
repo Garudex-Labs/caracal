@@ -27,8 +27,8 @@ Use the local stack for development and evaluation:
 caracal up
 caracal protect http \
   --identifier resource://local-tool \
-  --upstream-url http://host.docker.internal:8787 \
-  --scopes tool:read \
+  --upstream-url https://httpbin.org \
+  --scopes demo:read \
   --user local-user \
   --write-config caracal.toml
 caracal doctor
@@ -43,6 +43,8 @@ Local profile requirements:
 | Metrics | Scrape service `/metrics` endpoints directly or through a local OpenTelemetry Collector |
 | Traces | Set `OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318` to export spans |
 | Network | Bind service ports to localhost; do not expose the stack directly to the public internet |
+
+The local example uses a public HTTPS upstream because the Gateway blocks private and loopback upstreams by default. If you need to proxy to a local tool during development, enable private upstreams intentionally and set a narrow host allowlist. See [TLS and Production Hardening](./tls-hardening/#ssrf-defenses).
 
 Local HMAC authentication is intentionally not a workload identity standard. Production deployments should move service-to-service identity to platform TLS, mesh mTLS, or SPIFFE/SPIRE as those bindings are enabled.
 

@@ -1,67 +1,85 @@
 ---
 title: Step-Up Re-Authentication
-description: Handle interaction_required from the STS and complete the step-up challenge flow from agent code using the OAuth client or SDK.
+description: Handle interaction_required from the STS, satisfy the challenge through the control-plane API, and retry token exchange with the challenge proof.
 pageType: workflow
 ---
 
-When the active policy returns `{"step_up_required": "mfa"}` (or `"human_approval"` or `"software_attestation"`) in its `diagnostics`, the STS creates a step-up challenge and returns an `interaction_required` error response to the token exchange call. The agent must catch this error, wait for an external party to satisfy the challenge, then retry the exchange with the challenge secret.
+When the active policy returns `{"step_up_required": "mfa"}` (or `"human_approval"` or `"software_attestation"`) in its `diagnostics`, the STS creates a step-up challenge and returns an `interaction_required` error response to the token exchange call. The client must keep the returned challenge proof, wait for an external party to satisfy the challenge, then retry the same exchange with `challenge_id` and `challenge_response`.
 
 ## Prerequisites
 
-- The agent is using the OAuth client (`@caracalai/oauth` or `caracalai_sdk`) to perform exchanges.
+- The caller can make direct `application/x-www-form-urlencoded` requests to the STS token endpoint.
 - The active policy includes a step-up trigger rule (see [Author a Rego Policy](./author-policy/)).
-- An external system is capable of satisfying challenges via the Coordinator API.
+- An external system is capable of satisfying challenges via the control-plane API.
 
 ## What the STS returns on step-up
 
-When a policy denies with `step_up_required` in diagnostics, the STS responds with HTTP 400:
+When a policy denies with `step_up_required` in diagnostics, the STS responds with HTTP 401:
 
 ```json
 {
   "error": "interaction_required",
   "error_description": "Step-up challenge required",
   "challenge_id": "chall-abc123",
-  "challenge_type": "mfa"
+  "challenge_type": "mfa",
+  "challenge_secret": "<base64url 32-byte secret>",
+  "challenge_expires_at": "2026-05-22T12:50:00Z",
+  "requestId": "req-def456"
 }
 ```
 
-The SDK packages surface this as a typed exception.
+The `challenge_secret` is returned only in this response. Store it only long enough to complete the retry. The STS stores only a SHA-256 hash of the secret and requires the original value as `challenge_response` on the follow-up token exchange.
 
-## TypeScript: catch and handle `InteractionRequiredError`
+## Satisfy a challenge
+
+The external system — MFA provider, approval portal, or attestation service — calls the control-plane satisfaction endpoint with the approving subject:
+
+```bash
+curl -X POST \
+  "$CARACAL_API_URL/v1/zones/$CARACAL_ZONE_ID/step-up-challenges/$CHALLENGE_ID/satisfy" \
+  -H "Authorization: Bearer $CARACAL_ADMIN_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"approver_subject_id":"user_approver_123"}'
+```
+
+The endpoint returns 200 with `id`, `satisfied_at`, and `approver_subject_id`. It returns 400 for an invalid body and 409 when the challenge cannot be satisfied because it is expired, already satisfied, or the approver is the same subject that triggered the challenge.
+
+## Retry the exchange
+
+After satisfaction, retry the same STS exchange and add `challenge_id` and `challenge_response`. The response secret is the challenge response value:
+
+```bash
+curl -X POST "$CARACAL_STS_URL/oauth/2/token" \
+  -H "Content-Type: application/x-www-form-urlencoded" \
+  --data-urlencode "grant_type=urn:ietf:params:oauth:grant-type:token-exchange" \
+  --data-urlencode "zone_id=$CARACAL_ZONE_ID" \
+  --data-urlencode "application_id=$CARACAL_APPLICATION_ID" \
+  --data-urlencode "client_secret=$CARACAL_APP_CLIENT_SECRET" \
+  --data-urlencode "subject_token=$SUBJECT_TOKEN" \
+  --data-urlencode "subject_token_type=urn:ietf:params:oauth:token-type:access_token" \
+  --data-urlencode "resource=resource://payments" \
+  --data-urlencode "challenge_id=$CHALLENGE_ID" \
+  --data-urlencode "challenge_response=$CHALLENGE_SECRET"
+```
+
+The STS consumes the challenge atomically. A second retry with the same `challenge_response`, a retry for a different resource set, an expired challenge, or a retry before satisfaction returns 401.
+
+## SDK behavior
+
+The OAuth packages surface `interaction_required` as a typed exception, but the current TypeScript, Python, and Go clients expose only the challenge ID and do not accept `challenge_response` in exchange options. For flows that must complete challenge consumption, perform both the initial challenge-producing exchange and the retry directly against the STS token endpoint so the caller can retain `challenge_secret`.
+
+### TypeScript
 
 ```typescript
-import { OAuthClient, InteractionRequiredError, InMemoryTokenCache } from '@caracalai/oauth';
+import { OAuthClient, InteractionRequiredError } from '@caracalai/oauth';
 
-const oauth = new OAuthClient(
-  process.env.CARACAL_STS_URL!,
-  process.env.CARACAL_ZONE_ID!,
-  process.env.CARACAL_APPLICATION_ID!,
-  new InMemoryTokenCache(),
-);
+const oauth = new OAuthClient(stsUrl, zoneId, applicationId);
 
-async function exchangeWithStepUp(
-  subjectToken: string,
-  resource: string,
-  clientSecret: string,
-): Promise<string> {
-  try {
-    const result = await oauth.exchange(subjectToken, resource, { clientSecret });
-    return result.accessToken;
-  } catch (err) {
-    if (err instanceof InteractionRequiredError) {
-      console.log(`Step-up required. Challenge: ${err.challengeId} (${err.code})`);
-
-      // Wait for external satisfaction, then retry with the secret
-      const secret = await waitForChallengeSatisfaction(err.challengeId);
-
-      const result = await oauth.exchange(subjectToken, resource, {
-        clientSecret,
-        // Pass the challenge secret on retry — the field name depends on the STS grant type
-        // The challenge secret is returned to the user by the satisfaction system
-      });
-      return result.accessToken;
-    }
-    throw err;
+try {
+  await oauth.exchange(subjectToken, 'resource://payments', { clientSecret });
+} catch (err) {
+  if (err instanceof InteractionRequiredError) {
+    console.log(`Satisfy challenge ${err.challengeId}, then retry through the STS token endpoint.`);
   }
 }
 ```
@@ -73,83 +91,45 @@ async function exchangeWithStepUp(
 | `code` | `'interaction_required'` | Always this value |
 | `challengeId` | `string` | Challenge ID to pass to the satisfaction API |
 | `resource` | `string \| undefined` | Resource the challenge is for |
+| `acrValues` | `string \| undefined` | Authentication context requirement, when present |
 
-## Python: catch and handle the step-up error
-
-The Python SDK raises an equivalent exception from the `caracalai_oauth` module:
+### Python
 
 ```python
-from caracalai_oauth import OAuthClient, InteractionRequiredError, InMemoryTokenCache
-import asyncio
+from caracalai_oauth import InteractionRequiredError
 
-oauth = OAuthClient(
-    sts_url=os.environ['CARACAL_STS_URL'],
-    zone_id=os.environ['CARACAL_ZONE_ID'],
-    application_id=os.environ['CARACAL_APPLICATION_ID'],
-    cache=InMemoryTokenCache(),
-)
-
-async def exchange_with_step_up(
-    subject_token: str,
-    resource: str,
-    client_secret: str,
-) -> str:
-    try:
-        result = await oauth.exchange(subject_token, resource, client_secret=client_secret)
-        return result.access_token
-    except InteractionRequiredError as err:
-        print(f'Step-up required. Challenge: {err.challenge_id}')
-
-        # Poll until satisfied
-        secret = await poll_until_satisfied(err.challenge_id)
-
-        # Retry with challenge secret
-        result = await oauth.exchange(
-            subject_token,
-            resource,
-            client_secret=client_secret,
-            # challenge_secret=secret  if the STS accepts it via this parameter
-        )
-        return result.access_token
+try:
+    await oauth.exchange(subject_token, 'resource://payments', opts)
+except InteractionRequiredError as err:
+    print(f'Satisfy challenge {err.challenge_id}, then retry through the STS token endpoint.')
 ```
-
-## Satisfying a challenge
-
-The external system — MFA provider, approval portal, or attestation service — calls the Coordinator satisfaction endpoint:
-
-```bash
-curl -X POST \
-  "http://coordinator:4000/v1/zones/{zoneId}/step-up-challenges/{challengeId}/satisfy" \
-  -H "Authorization: Bearer $ADMIN_OR_EXTERNAL_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{}'
-```
-
-The satisfaction endpoint returns 200 on success, 404 if the challenge has expired or was already consumed, and 409 if already satisfied.
 
 ## Polling pattern
 
-Between catching the error and retrying the exchange, the agent needs to know when the challenge is satisfied. Two patterns work:
+Between receiving the challenge and retrying the exchange, the caller needs to know when the challenge is satisfied. Two patterns work:
 
 ### Webhook or event notification (preferred)
 
-Your satisfaction portal notifies the agent via a callback URL when the user completes the MFA flow. The agent resumes the exchange immediately.
+Your satisfaction portal notifies the caller via a callback URL when the user completes the MFA flow. The caller resumes the exchange immediately.
 
 ### Polling loop
 
-If a callback is not feasible, poll the challenge status:
+If a callback is not feasible, poll the STS challenge status endpoint:
 
 **TypeScript:**
 ```typescript
 async function waitForChallengeSatisfaction(
   challengeId: string,
+  stsUrl: string,
   maxWaitMs = 300_000,
   pollIntervalMs = 2_000,
 ): Promise<void> {
   const deadline = Date.now() + maxWaitMs;
   while (Date.now() < deadline) {
-    const status = await fetchChallengeStatus(challengeId);
-    if (status.satisfied_at) return;
+    const res = await fetch(`${stsUrl}/step-up/${challengeId}`);
+    if (res.status === 404) throw new Error(`Step-up challenge ${challengeId} was not found`);
+    const status = await res.json() as { satisfied?: boolean };
+    if (status.satisfied) return;
     await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
   }
   throw new Error(`Step-up challenge ${challengeId} not satisfied within ${maxWaitMs}ms`);
@@ -163,13 +143,18 @@ import time
 
 async def wait_for_challenge(
     challenge_id: str,
+    sts_url: str,
+    http_client,
     max_wait_s: int = 300,
     poll_interval_s: float = 2.0,
 ) -> None:
     deadline = time.monotonic() + max_wait_s
     while time.monotonic() < deadline:
-        status = await fetch_challenge_status(challenge_id)
-        if status.get('satisfied_at'):
+        response = await http_client.get(f'{sts_url}/step-up/{challenge_id}')
+        if response.status_code == 404:
+            raise RuntimeError(f'Step-up challenge {challenge_id} was not found')
+        status = response.json()
+        if status.get('satisfied'):
             return
         await asyncio.sleep(poll_interval_s)
     raise TimeoutError(f'Challenge {challenge_id} not satisfied within {max_wait_s}s')

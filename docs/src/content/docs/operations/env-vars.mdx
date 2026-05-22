@@ -8,13 +8,16 @@ Every Caracal service is configured entirely through environment variables. This
 
 ## Shared secrets
 
-These three secrets must be generated before the stack starts. Generate each with `openssl rand -hex 32`.
+Manual environment-driven deployments must provide the shared secrets required by the services they run before startup. Generate each with `openssl rand -hex 32`.
+
+The installed local stack created by `caracal up` generates file-backed equivalents under `$CARACAL_HOME/secrets/` and passes them to services through the matching `*_FILE` variables.
 
 | Variable | Services that use it | Description |
 | --- | --- | --- |
 | `ZONE_KEK` | STS, API | 32-byte hex-encoded key encryption key. Encrypts zone signing key material at rest. Must not be all zeros. |
 | `AUDIT_HMAC_KEY` | STS, Audit, Gateway, Control | 32-byte hex-encoded key for audit event chain HMAC. Required when `CARACAL_MODE=rc` or `CARACAL_MODE=stable` on services that verify or emit protected audit events. |
 | `STREAMS_HMAC_KEY` | STS, API, Gateway, Coordinator, coordinator relay | 32-byte hex-encoded key for signing or verifying Redis stream messages. Required by Gateway; required by STS, API, Coordinator, and relay when `CARACAL_MODE=rc` or `CARACAL_MODE=stable`. |
+| `GATEWAY_STS_HMAC_KEY` | STS, Gateway, API | 32-byte hex-encoded key for signed internal Gateway/API calls to STS. Required by STS and Gateway when `CARACAL_MODE=rc` or `CARACAL_MODE=stable`; optional on API for signed policy simulation. |
 
 ---
 
@@ -59,10 +62,11 @@ Application services read `REDIS_URL`. Redis provisioning scripts use `REDIS_HOS
 | `ZONE_KEK` | — | **Required.** 32-byte hex-encoded KEK |
 | `AUDIT_HMAC_KEY` | — | Required when `CARACAL_MODE=rc` or `CARACAL_MODE=stable`. 32-byte hex-encoded HMAC key |
 | `ISSUER_URL` | — | **Required.** Absolute URL of the STS (e.g., `http://localhost:8080`). Written into JWT `iss` claim. |
-| `PORT` | `8080` | Listen port. Must be `8080`. |
+| `PORT` | — | **Required.** Listen port. Must be `8080`. |
 | `ZONE_KEK_PROVIDER` | `local` | KEK provider. Currently only `local` is supported. |
 | `STREAMS_HMAC_KEY` | — | Required when `CARACAL_MODE=rc` or `CARACAL_MODE=stable`. 32-byte hex-encoded key for signing Redis stream messages |
-| `MAX_GRANT_TTL_SECONDS` | `3600` | Maximum token lifetime in seconds |
+| `GATEWAY_STS_HMAC_KEY` | — | Required when `CARACAL_MODE=rc` or `CARACAL_MODE=stable`. 32-byte hex-encoded key for verifying signed internal Gateway/API calls |
+| `MAX_GRANT_TTL_SECONDS` | `3600` | Maximum persisted provider-grant token lifetime in seconds |
 | `OPA_POLL_SECONDS` | `60` | Interval (seconds) between OPA policy bundle polls |
 | `LOG_LEVEL` | `info` | Log verbosity (`debug`, `info`, `warn`, `error`) |
 
@@ -81,6 +85,7 @@ Application services read `REDIS_URL`. Redis provisioning scripts use `REDIS_HOS
 | `HOST` | `0.0.0.0` in rc or stable, `127.0.0.1` otherwise | Listen host |
 | `WORKER_ID` | Derived from hostname and process ID | Outbox worker identifier |
 | `STREAMS_HMAC_KEY` | — | Required when `CARACAL_MODE=rc` or `CARACAL_MODE=stable`. 32-byte hex-encoded key for signing outbox stream messages |
+| `GATEWAY_STS_HMAC_KEY` | — | Optional. Enables signed STS policy simulation calls; must be 32-byte hex when set. |
 | `LOG_LEVEL` | `info` | Log verbosity |
 | `SHUTDOWN_GRACE_MS` | `15000` | Graceful shutdown window in milliseconds |
 | `API_BODY_LIMIT_BYTES` | `1048576` | Request body size limit (1 MB) |
@@ -116,14 +121,15 @@ Application services read `REDIS_URL`. Redis provisioning scripts use `REDIS_HOS
 | `CARACAL_MODE` | `stable` | `dev`, `rc`, or `stable`; controls safety checks |
 | `STREAMS_HMAC_KEY` | — | **Required.** 32-byte hex-encoded key for verifying stream signatures |
 | `AUDIT_HMAC_KEY` | — | Required when `CARACAL_MODE=rc` or `CARACAL_MODE=stable` |
-| `PORT` | — | **Must be `8081`.** Enforced at startup; any other value panics. |
+| `GATEWAY_STS_HMAC_KEY` | — | Required when `CARACAL_MODE=rc` or `CARACAL_MODE=stable`. 32-byte hex-encoded key for signing Gateway-to-STS exchanges. |
+| `PORT` | `8081` | Must be `8081`. Enforced at startup; any other value panics. |
 | `ALLOW_PRIVATE_UPSTREAMS` | `false` | Allow proxying to private/loopback upstream URLs |
 | `UPSTREAM_HOST_ALLOWLIST` | — | Comma-separated upstream host allowlist. Required when `CARACAL_MODE=rc` or `CARACAL_MODE=stable` and `ALLOW_PRIVATE_UPSTREAMS=true`. |
 | `JTI_FAIL_OPEN` | `false` | Skip JTI replay check on Redis error. Forbidden when `CARACAL_MODE=rc` or `CARACAL_MODE=stable`. |
 | `STS_TIMEOUT` | `5s` | STS request timeout (duration format, e.g., `5s`, `500ms`) |
 | `UPSTREAM_TIMEOUT` | `30s` | Upstream proxy timeout |
 | `READ_HEADER_TIMEOUT` | `5s` | HTTP read header timeout |
-| `READ_TIMEOUT` | `30s` | HTTP read timeout |
+| `READ_TIMEOUT` | `45s` | HTTP read timeout. Must exceed `STS_TIMEOUT + UPSTREAM_TIMEOUT`. |
 | `WRITE_TIMEOUT` | `60s` | HTTP write timeout |
 | `IDLE_TIMEOUT` | `120s` | HTTP keep-alive idle timeout |
 | `MAX_REQUEST_BYTES` | `10485760` | Maximum request body size (10 MB) |
@@ -175,6 +181,8 @@ Application services read `REDIS_URL`. Redis provisioning scripts use `REDIS_HOS
 | `STREAMS_MAXLEN` | `100000` | XADD MAXLEN for coordinator-published streams |
 | **Background jobs** | | |
 | `TTL_SWEEP_INTERVAL_MS` | `60000` | Interval between agent session TTL sweeps |
+| `SERVICE_LEASE_SWEEP_INTERVAL_MS` | `30000` | Interval between service-agent heartbeat lease sweeps |
+| `SERVICE_AGENT_LEASE_SECONDS` | `120` | Service-agent heartbeat lease length |
 | `DEADLINE_SWEEP_INTERVAL_MS` | `5000` | Interval between invocation deadline enforcement sweeps |
 | `SWEEPER_BATCH_SIZE` | `500` | Rows processed per sweep batch |
 | `RETENTION_CLEANUP_INTERVAL_MS` | `900000` | Interval between delegation/outbox retention cleanup runs (15 min) |
@@ -187,6 +195,7 @@ Application services read `REDIS_URL`. Redis provisioning scripts use `REDIS_HOS
 | `INVOCATION_RATE_LIMIT_PER_MIN` | `120` | Invocation mutation rate limit per application per zone per minute (minimum 0) |
 | `V1_RATE_LIMIT_PER_MIN` | `300` | V1 façade (begin/end/exchange) rate limit per source IP per minute (0 to disable) |
 | `COORDINATOR_RATE_LIMIT_PER_MIN` | `600` | Global coordinator rate limit per source IP per minute (0 to disable) |
+| `READY_RATE_LIMIT_PER_MIN` | `120` | Coordinator readiness probe rate limit per source IP per minute (0 to disable) |
 | `RELAY_DEDUPE_WINDOW_SEC` | `3600` | Window for relay deduplication (Go relay) |
 | `JWKS_CACHE_MAX` | `256` | Maximum JWKS cache entries |
 | `TRUST_PROXY` | `false` | Trust proxy headers for client IP detection |
