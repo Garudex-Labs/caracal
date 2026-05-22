@@ -45,8 +45,10 @@ describe('audit explain entry', () => {
     expect(detail).toBeInstanceOf(DetailView)
     await detail.init(app)
     const body = detail.render({ app, size: { rows: 20, cols: 80 }, status: '' }).join('\n')
-    expect(body).toContain('"req-42"')
-    expect(body).toContain('"allow"')
+    expect(body).toContain('Request ID')
+    expect(body).toContain('req-42')
+    expect(body).toContain('Decision')
+    expect(body).toContain('allow')
     expect(byRequest).toHaveBeenCalledWith('z1', 'req-42')
   })
 
@@ -138,8 +140,8 @@ describe('audit explain entry', () => {
     expect(detail).toBeInstanceOf(DetailView)
     await detail.init(app)
     const body = detail.render({ app, size: { rows: 25, cols: 80 }, status: '' }).join('\n')
-    expect(body).toContain('"user-1"')
-    expect(body).toContain('"k1"')
+    expect(body).toContain('user-1')
+    expect(body).toContain('k1')
   })
 
 })

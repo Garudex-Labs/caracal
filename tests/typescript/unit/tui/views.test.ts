@@ -137,14 +137,43 @@ describe('ListView', () => {
 })
 
 describe('DetailView', () => {
-  it('renders pretty JSON', async () => {
+  it('renders structured detail fields', async () => {
     const app = fakeApp()
-    const view = new DetailView({ title: 'x', load: async () => ({ name: 'demo', count: 3 }) })
+    const view = new DetailView({ title: 'x', load: async () => ({ name: 'demo', count: 3, status: 'active' }) })
     await view.init(app)
     const lines = view.render({ app, size: { rows: 10, cols: 80 }, status: '' })
     const joined = lines.join('\n')
-    expect(joined).toContain('"name"')
-    expect(joined).toContain('"demo"')
+    expect(joined).toContain('Overview')
+    expect(joined).toContain('Name')
+    expect(joined).toContain('demo')
+    expect(joined).toContain('Count')
+    expect(joined).toContain('Status')
+    expect(joined).not.toContain('"name"')
+    expect(joined).not.toContain('{')
+  })
+
+  it('groups nested detail data without JSON punctuation', async () => {
+    const app = fakeApp()
+    const view = new DetailView({
+      title: 'x',
+      load: async () => ({
+        request_id: 'req-1',
+        scopes: ['read', 'write'],
+        claims: { subject_id: 'user-1', valid: true },
+        attempts: [{ decision: 'deny', evaluation_status: 'blocked' }],
+      }),
+    })
+    await view.init(app)
+    const joined = view.render({ app, size: { rows: 30, cols: 100 }, status: '' }).join('\n')
+    expect(joined).toContain('Request ID')
+    expect(joined).toContain('Scopes (2)')
+    expect(joined).toContain('Claims')
+    expect(joined).toContain('Subject ID')
+    expect(joined).toContain('Attempts (1)')
+    expect(joined).toContain('#1')
+    expect(joined).toContain('Decision')
+    expect(joined).not.toContain('"subject_id"')
+    expect(joined).not.toContain('"read"')
   })
 
   it('scrolls with j and k', async () => {
@@ -155,12 +184,12 @@ describe('DetailView', () => {
     await view.onKey('j', { app, size: { rows: 5, cols: 80 }, status: '' })
     await view.onKey('j', { app, size: { rows: 5, cols: 80 }, status: '' })
     const lines = view.render({ app, size: { rows: 5, cols: 80 }, status: '' })
-    expect(lines[0]).toContain('"k1"')
+    expect(lines[0]).toContain('K0')
   })
 
   it('caps scroll offset so the last line stays visible (no off-by-one past end)', async () => {
     const app = fakeApp()
-    const data = Array.from({ length: 100 }, (_, i) => `line-${i}`)
+    const data = Object.fromEntries(Array.from({ length: 100 }, (_, i) => [`field_${i}`, `line-${i}`]))
     const view = new DetailView({ title: 'x', load: async () => data })
     await view.init(app)
     const ctx = { app, size: { rows: 25, cols: 80 }, status: '' }
