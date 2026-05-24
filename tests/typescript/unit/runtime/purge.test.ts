@@ -18,6 +18,13 @@ const engineMocks = vi.hoisted(() => ({
   caracalBinaries: vi.fn((): string[] => []),
 }))
 
+const spawnSyncMock = vi.hoisted(() => vi.fn())
+
+vi.mock('node:child_process', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('node:child_process')>()),
+  spawnSync: spawnSyncMock,
+}))
+
 vi.mock('@caracalai/engine', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@caracalai/engine')>()
   return { ...actual, ...engineMocks }
@@ -48,6 +55,7 @@ describe('purgeCommand', () => {
   let exit: ReturnType<typeof vi.spyOn>
 
   beforeEach(() => {
+    vi.clearAllMocks()
     repoRoot = mkdtempSync(join(tmpdir(), 'caracal-purge-repo-'))
     runtimeHome = mkdtempSync(join(tmpdir(), 'caracal-purge-runtime-'))
     mkdirSync(join(repoRoot, 'infra', 'docker'), { recursive: true })
@@ -66,6 +74,11 @@ describe('purgeCommand', () => {
       }
     })
     engineMocks.composeRun.mockImplementation(() => ({ dispose: vi.fn(), exitCode: Promise.resolve(0) }))
+    spawnSyncMock.mockImplementation((cmd: string, args: string[]) => {
+      if (cmd === 'docker' && args[0] === 'compose') return { status: 0 }
+      if (cmd === 'pnpm') return { status: 0, stdout: '' }
+      return { status: 0, stdout: '' }
+    })
     stdout = vi.spyOn(process.stdout, 'write').mockImplementation(() => true)
     stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true)
     exit = vi.spyOn(process, 'exit').mockImplementation(((code?: number) => {
@@ -101,5 +114,48 @@ describe('purgeCommand', () => {
     expect(stdout.mock.calls.map((c) => c[0]).join('')).toContain('Purge complete.')
     expect(stderr).not.toHaveBeenCalled()
     expect(exit).not.toHaveBeenCalled()
+  })
+
+  it('reports missing docker executable when compose cannot start', async () => {
+    engineMocks.composeRun.mockImplementationOnce(() => ({ dispose: vi.fn(), exitCode: Promise.resolve(127) }))
+
+    await expect(purgeCommand(['stack', '--yes'])).rejects.toThrow('exit:1')
+
+    expect(stderr.mock.calls.map((c) => c[0]).join('')).toContain(
+      'stack failed: docker executable not found on PATH while running compose down --remove-orphans for dev stack',
+    )
+  })
+
+  it('skips compose targets from full purge when Docker Compose is unavailable', async () => {
+    spawnSyncMock.mockImplementation((cmd: string, args: string[]) => {
+      if (cmd === 'docker' && args[0] === 'compose') return { status: 127 }
+      if (cmd === 'pnpm') return { status: 0, stdout: '' }
+      return { status: 0, stdout: '' }
+    })
+
+    await purgeCommand(['all', '--yes'])
+
+    const output = stdout.mock.calls.map((c) => c[0]).join('')
+    expect(output).toContain('Docker Compose unavailable; skipping stack, volumes, and logs.')
+    expect(output).not.toContain('Stop & remove containers')
+    expect(engineMocks.installRuntimeAssets).not.toHaveBeenCalled()
+    expect(engineMocks.composeRun).not.toHaveBeenCalled()
+    expect(stderr).not.toHaveBeenCalled()
+    expect(exit).not.toHaveBeenCalled()
+  })
+
+  it('fails explicit compose targets when Docker Compose is unavailable', async () => {
+    spawnSyncMock.mockImplementation((cmd: string, args: string[]) => {
+      if (cmd === 'docker' && args[0] === 'compose') return { status: 127 }
+      if (cmd === 'pnpm') return { status: 0, stdout: '' }
+      return { status: 0, stdout: '' }
+    })
+
+    await expect(purgeCommand(['stack', '--yes'])).rejects.toThrow('exit:1')
+
+    expect(stderr.mock.calls.map((c) => c[0]).join('')).toContain(
+      'stack unavailable: docker compose is not available; install Docker with the Compose plugin or add docker to PATH',
+    )
+    expect(engineMocks.composeRun).not.toHaveBeenCalled()
   })
 })

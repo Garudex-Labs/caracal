@@ -214,6 +214,11 @@ function exitFromSignal(signal: NodeJS.Signals | null): number {
   return 128 + (SIGNAL_EXIT_MAP[signal] ?? 15)
 }
 
+function spawnErrorLine(cmd: string, err: Error): string {
+  const code = 'code' in err && typeof err.code === 'string' ? ` (${err.code})` : ''
+  return `failed to start ${cmd}: ${err.message}${code}`
+}
+
 export function runExec(opts: RunExecOpts): RunExecHandle {
   validateArgv(opts.argv)
   const [cmd, ...args] = opts.argv
@@ -260,8 +265,11 @@ export function runExec(opts: RunExecOpts): RunExecHandle {
       if (typeof code === 'number') return resolve(code)
       resolve(exitFromSignal(signal))
     })
-    child.on('error', () => {
+    child.on('error', (err) => {
       for (const [sig, h] of signalHandlers) process.off(sig, h)
+      const msg = spawnErrorLine(cmd!, err)
+      if (opts.onLine) opts.onLine(msg, 'stderr')
+      else process.stderr.write(`${msg}\n`)
       resolve(127)
     })
   })

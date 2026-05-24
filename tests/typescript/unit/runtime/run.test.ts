@@ -102,6 +102,22 @@ describe('runCommand', () => {
     expect(spawnMock).toHaveBeenCalledWith('node', ['tool.js'], expect.objectContaining({ stdio: 'inherit' }))
   })
 
+  it('reports child process spawn errors before returning command-not-found', async () => {
+    spawnMock.mockImplementationOnce((_cmd: string, _args: string[], _opts: unknown) => ({
+      on: (event: string, handler: (err?: Error) => void) => {
+        if (event === 'error') {
+          const err = Object.assign(new Error('spawn docker ENOENT'), { code: 'ENOENT' })
+          queueMicrotask(() => handler(err))
+        }
+        return undefined
+      },
+    }))
+
+    await expect(runCommand(['docker', 'compose', 'down'], { ...cfg, credentials: [] })).rejects.toThrow('exit:127')
+
+    expect(stderr).toContain('failed to start docker: spawn docker ENOENT (ENOENT)')
+  })
+
   it('warns for optional credential failures and still runs child command', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
       ok: false,

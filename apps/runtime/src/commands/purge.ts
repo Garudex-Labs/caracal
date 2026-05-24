@@ -57,6 +57,7 @@ interface PurgeContext {
   configPath: string | undefined
   runtimeHome: string
   repoRoot: string | undefined
+  composeAvailable: boolean
   dryRun: boolean
 }
 
@@ -114,8 +115,14 @@ function buildContext(dryRun: boolean): PurgeContext {
     configPath,
     runtimeHome: runtime.home,
     repoRoot,
+    composeAvailable: dryRun || dockerComposeAvailable(),
     dryRun,
   }
+}
+
+function dockerComposeAvailable(): boolean {
+  const check = spawnSync('docker', ['compose', 'version'], { stdio: 'ignore' })
+  return check.status === 0
 }
 
 async function runCompose(args: string[], ctx: PurgeContext, stack?: ComposeStack): Promise<number> {
@@ -151,6 +158,9 @@ async function runComposeAll(args: string[], ctx: PurgeContext): Promise<void> {
       process.stdout.write(`  ${style.label(`[${stack.label}]`)} ${stack.composeFile}\n`)
     }
     const code = await runCompose(args, ctx, stack)
+    if (code === 127) {
+      throw new Error(`docker executable not found on PATH while running compose ${args.join(' ')} for ${stack.label} stack`)
+    }
     if (code !== 0) throw new Error(`compose ${args.join(' ')} exited ${code} for ${stack.label} stack`)
   }
 }
@@ -187,7 +197,7 @@ const TARGETS: Target[] = [
       ctx.stacks.length > 1
         ? `compose down --remove-orphans across ${ctx.stacks.length} projects (${ctx.stacks.map((s) => s.label).join(', ')})`
         : `compose down --remove-orphans (${ctx.stacks[0]!.label} stack)`,
-    available: () => true,
+    available: (ctx) => ctx.composeAvailable,
     run: async (ctx) => {
       await runComposeAll(['down', '--remove-orphans'], ctx)
     },
@@ -199,7 +209,7 @@ const TARGETS: Target[] = [
       ctx.stacks.length > 1
         ? `compose down -v --remove-orphans across ${ctx.stacks.length} projects — wipes all Caracal data`
         : 'compose down -v --remove-orphans — wipes Postgres and Redis volumes',
-    available: () => true,
+    available: (ctx) => ctx.composeAvailable,
     run: async (ctx) => {
       await runComposeAll(['down', '-v', '--remove-orphans'], ctx)
     },
@@ -208,7 +218,7 @@ const TARGETS: Target[] = [
     id: 'logs',
     label: 'Truncate container logs',
     describe: () => 'compose down (without -v) drops log files; restart with `caracal up`',
-    available: () => true,
+    available: (ctx) => ctx.composeAvailable,
     run: async (ctx) => {
       await runComposeAll(['down', '--remove-orphans'], ctx)
     },
@@ -312,6 +322,14 @@ function targetById(id: string): Target | undefined {
   return TARGETS.find((t) => t.id === id)
 }
 
+function requiresCompose(t: Target): boolean {
+  return t.id === 'stack' || t.id === 'volumes' || t.id === 'logs'
+}
+
+function composeUnavailableReason(): string {
+  return 'docker compose is not available; install Docker with the Compose plugin or add docker to PATH'
+}
+
 function prompt(question: string): Promise<string> {
   const rl = createInterface({ input: process.stdin, output: process.stdout })
   return new Promise((resolveAnswer) => {
@@ -330,6 +348,9 @@ function prompt(question: string): Promise<string> {
 async function selectInteractively(ctx: PurgeContext): Promise<Target[]> {
   const usable = TARGETS.filter((t) => t.available(ctx))
   printHeader('Select purge targets')
+  if (!ctx.composeAvailable) {
+    printWarn(`Docker Compose unavailable; stack, volumes, and logs are hidden. ${composeUnavailableReason()}.`)
+  }
   process.stdout.write(style.label('Enter comma-separated numbers, "all" for full reset, "safe" to skip destructive, or "q" to quit.\n'))
   usable.forEach((t, i) => {
     const destructive = isDestructive(t)
@@ -391,6 +412,9 @@ export async function purgeCommand(argv: string[]): Promise<void> {
     }
   } else if (requested.includes('all')) {
     targets = expandAll(safe).filter((t) => t.available(ctx))
+    if (!ctx.composeAvailable) {
+      printWarn(`Docker Compose unavailable; skipping stack, volumes, and logs. ${composeUnavailableReason()}.`)
+    }
   } else {
     targets = []
     for (const name of requested) {
@@ -399,7 +423,10 @@ export async function purgeCommand(argv: string[]): Promise<void> {
         printError(`unknown target "${name}"; run \`caracal purge --help\``)
         process.exit(1)
       }
-      if (!t.available(ctx)) {
+      if (!t.available(ctx) && requiresCompose(t)) {
+        printError(`${t.id} unavailable: ${composeUnavailableReason()}`)
+        process.exit(1)
+      } else if (!t.available(ctx)) {
         process.stdout.write(`  ${style.label(`(skip) ${t.id}: not applicable in ${ctx.mode} mode`)}\n`)
         continue
       }
