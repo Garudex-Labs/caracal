@@ -2,7 +2,7 @@
 # Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 # Caracal, a product of Garudex Labs
 #
-# Publishes selected @caracalai/* npm packages to npm, using the rc dist-tag for rc and latest for stable.
+# Publishes modified @caracalai/* npm packages to npm, using the rc dist-tag for rc and latest for stable.
 
 set -euo pipefail
 
@@ -13,30 +13,57 @@ cd "$(dirname "$0")/.."
 # shellcheck source=lib/select.sh
 . "scripts/lib/select.sh"
 
-# Keep this list and .changeset/config.json `ignore` in sync: every workspace
-# npm package versioned by changesets must appear here, and every package in
-# `ignore` must NOT appear here. CI does not currently enforce this coupling.
-packages=(
-    packages/core/ts
-    packages/oauth/ts
-    packages/admin/ts
-    packages/identity/ts
-    packages/revocation/ts
-    packages/sdk/ts
-    packages/transport/mcp/ts
-    packages/transport/a2a/ts
-    packages/connectors/express/ts
-    packages/connectors/fastmcp/ts
-    packages/connectors/postgres/ts
-    packages/connectors/redis/ts
-)
+mode="changed"
+base_ref=""
+head_ref="HEAD"
+select=0
 
-pickItems "${packages[@]}"
-if [[ ${#PICKED[@]} -eq 0 ]]; then
+usage() {
+    cat <<EOF
+Usage: scripts/publishNpm.sh [--all] [--select] [--base REF] [--head REF]
+
+  --all       Include every publishable npm package.
+  --select    Interactively narrow the detected package list.
+  --base REF  Diff base ref. Defaults to the latest reachable release tag before --head.
+  --head REF  Diff head ref. Defaults to HEAD.
+              Use --all for an intentional full-package publish.
+EOF
+}
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --all) mode="all"; shift ;;
+        --select) select=1; shift ;;
+        --base) [[ $# -ge 2 ]] || { say_error "publishNpm: --base requires a ref"; exit 2; }; base_ref="$2"; shift 2 ;;
+        --head) [[ $# -ge 2 ]] || { say_error "publishNpm: --head requires a ref"; exit 2; }; head_ref="$2"; shift 2 ;;
+        -h|--help) usage; exit 0 ;;
+        *) say_error "publishNpm: unknown arg: $1"; usage; exit 2 ;;
+    esac
+done
+
+detect_args=(--ecosystem npm --format paths --head "$head_ref")
+if [[ "$mode" == "all" ]]; then
+    detect_args+=(--all)
+elif [[ -n "$base_ref" ]]; then
+    detect_args+=(--base "$base_ref")
+fi
+
+mapfile -t packages < <(node scripts/detectChangedPackages.mjs "${detect_args[@]}")
+
+if [[ ${#packages[@]} -eq 0 ]]; then
     say_warn "publishNpm: no packages selected; nothing to do"
     exit 0
 fi
-packages=("${PICKED[@]}")
+
+if [[ "$select" == "1" ]]; then
+    pickItems "${packages[@]}"
+    if [[ ${#PICKED[@]} -eq 0 ]]; then
+        say_warn "publishNpm: no packages selected; nothing to do"
+        exit 0
+    fi
+    packages=("${PICKED[@]}")
+fi
+
 say_info "publishNpm: ${#packages[@]} package(s) selected"
 
 if [[ -z "${NPM_TOKEN:-}" ]]; then

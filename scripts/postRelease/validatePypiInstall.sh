@@ -15,6 +15,7 @@ readonly PY="${PY:-3.12}"
 
 IMPORT_PKGS=(
   caracalai-core
+  caracalai-oauth
   caracalai-identity
   caracalai-revocation
   caracalai-sdk
@@ -24,6 +25,7 @@ IMPORT_PKGS=(
 )
 IMPORT_MODS=(
   caracalai_core
+  caracalai_oauth
   caracalai_identity
   caracalai_revocation
   caracalai_sdk

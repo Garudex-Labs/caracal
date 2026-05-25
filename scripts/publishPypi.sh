@@ -2,7 +2,7 @@
 # Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 # Caracal, a product of Garudex Labs
 #
-# Publishes selected caracalai-* packages to PyPI or TestPyPI, allowing rc versions and refusing dev versions.
+# Publishes modified caracalai-* packages to PyPI or TestPyPI, allowing rc versions and refusing dev versions.
 
 set -euo pipefail
 
@@ -15,37 +15,58 @@ cd "$(dirname "$0")/.."
 
 repo="pypi"
 host="pypi.org"
-for arg in "$@"; do
-    case "$arg" in
-        --testpypi) repo="testpypi"; host="test.pypi.org" ;;
+mode="changed"
+base_ref=""
+head_ref="HEAD"
+select=0
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --testpypi) repo="testpypi"; host="test.pypi.org"; shift ;;
+        --all) mode="all"; shift ;;
+        --select) select=1; shift ;;
+        --base) [[ $# -ge 2 ]] || { say_error "publishPypi: --base requires a ref"; exit 2; }; base_ref="$2"; shift 2 ;;
+        --head) [[ $# -ge 2 ]] || { say_error "publishPypi: --head requires a ref"; exit 2; }; head_ref="$2"; shift 2 ;;
         -h|--help)
             cat <<EOF
-Usage: scripts/publishPypi.sh [--testpypi]
+Usage: scripts/publishPypi.sh [--testpypi] [--all] [--select] [--base REF] [--head REF]
 
   --testpypi   Upload to TestPyPI (https://test.pypi.org) instead of PyPI.
+  --all        Include every publishable PyPI package.
+  --select     Interactively narrow the detected package list.
+  --base REF   Diff base ref. Defaults to the latest reachable release tag before --head.
+  --head REF   Diff head ref. Defaults to HEAD.
+               Use --all for an intentional full-package publish.
 EOF
             exit 0
             ;;
-        *) say_error "publishPypi: unknown arg: $arg"; exit 2 ;;
+        *) say_error "publishPypi: unknown arg: $1"; exit 2 ;;
     esac
 done
 
-packages=(
-    packages/core/python
-    packages/identity/python
-    packages/revocation/python
-    packages/sdk/python
-    packages/transport/mcp/python
-    packages/connectors/fastmcp/python
-    packages/connectors/redis/python
-)
+detect_args=(--ecosystem pypi --format paths --head "$head_ref")
+if [[ "$mode" == "all" ]]; then
+    detect_args+=(--all)
+elif [[ -n "$base_ref" ]]; then
+    detect_args+=(--base "$base_ref")
+fi
 
-pickItems "${packages[@]}"
-if [[ ${#PICKED[@]} -eq 0 ]]; then
+mapfile -t packages < <(node scripts/detectChangedPackages.mjs "${detect_args[@]}")
+
+if [[ ${#packages[@]} -eq 0 ]]; then
     say_warn "publishPypi: no packages selected; nothing to do"
     exit 0
 fi
-packages=("${PICKED[@]}")
+
+if [[ "$select" == "1" ]]; then
+    pickItems "${packages[@]}"
+    if [[ ${#PICKED[@]} -eq 0 ]]; then
+        say_warn "publishPypi: no packages selected; nothing to do"
+        exit 0
+    fi
+    packages=("${PICKED[@]}")
+fi
+
 say_info "publishPypi: ${#packages[@]} package(s) selected"
 
 if [[ -z "${PYPI_API_TOKEN:-}" ]]; then
