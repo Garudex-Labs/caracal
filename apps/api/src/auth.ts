@@ -52,14 +52,23 @@ function extractBearer(req: FastifyRequest): string | null {
   return token.length > 0 && token.length <= MAX_ADMIN_BEARER_BYTES ? token : null
 }
 
-function zoneFromUrl(url: string): string | null {
+function zoneFromUrl(url: string): string {
   const match = url.match(/^\/v1\/zones\/([^/?]+)/)
-  if (!match) return null
+  if (!match) return INVALID_ZONE_ID
   try {
     return decodeURIComponent(match[1])
   } catch {
     return INVALID_ZONE_ID
   }
+}
+
+function isGlobalReadPath(method: string, url: string): boolean {
+  const path = url.split('?')[0]
+  if (path === '/v1/policies/validate') return method === 'POST'
+  if (path === '/v1/policy-templates' || path.startsWith('/v1/policy-templates/')) {
+    return method === 'GET' || method === 'HEAD'
+  }
+  return false
 }
 
 export async function lookupAdminToken(db: DB, plaintext: string): Promise<Actor | null> {
@@ -174,9 +183,11 @@ const adminAuthImpl: FastifyPluginAsync<AuthPluginOptions> = async (fastify, opt
     }
 
     if (actor.scope === 'zone') {
-      const reqZone = zoneFromUrl(req.url)
-      if (!reqZone || reqZone !== actor.zoneId) {
-        return reply.code(403).send({ error: 'admin_token_zone_mismatch' })
+      if (!isGlobalReadPath(req.method, req.url)) {
+        const reqZone = zoneFromUrl(req.url)
+        if (reqZone === INVALID_ZONE_ID || reqZone !== actor.zoneId) {
+          return reply.code(403).send({ error: 'admin_token_zone_mismatch' })
+        }
       }
     }
 

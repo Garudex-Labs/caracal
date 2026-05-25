@@ -33,6 +33,12 @@ const DEFAULT_REFRESH_FLOOR_MS = 30_000
 const DEFAULT_MAX_ZONES = 1024
 const DEFAULT_NEGATIVE_TTL_MS = 30_000
 
+const ZONE_ID_PATTERN = /^[A-Za-z0-9._:-]{1,128}$/
+
+function isValidZoneId(zoneId: string): boolean {
+  return ZONE_ID_PATTERN.test(zoneId)
+}
+
 interface NegativeEntry {
   expiresAt: number
 }
@@ -62,6 +68,7 @@ export class Authenticator {
     const peek = decodePayload(token)
     const zoneId = typeof peek['zone_id'] === 'string' ? (peek['zone_id'] as string) : ''
     if (!zoneId) throw new AuthError('missing zone_id')
+    if (!isValidZoneId(zoneId)) throw new AuthError('invalid zone_id')
 
     const keySet = await this.keySet(zoneId, false)
     let payload

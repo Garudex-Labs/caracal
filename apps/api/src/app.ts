@@ -7,6 +7,7 @@ import Fastify from 'fastify'
 import swagger from '@fastify/swagger'
 import swaggerUI from '@fastify/swagger-ui'
 import { randomUUID } from 'node:crypto'
+import { timingSafeEqual } from 'node:crypto'
 import { hostname } from 'node:os'
 import pino from 'pino'
 import { ZodError } from 'zod'
@@ -174,7 +175,14 @@ export async function buildApp({ cfg, db, redis, isDraining }: AppDeps) {
   await app.register(zoneEventsRoutes, { prefix: '/v1' })
 
   app.get('/health', async () => ({ ok: true }))
-  app.get('/metrics', async (_req, reply) => {
+  app.get('/metrics', async (req, reply) => {
+    if (cfg.metricsBearer) {
+      const auth = req.headers.authorization
+      const expected = `Bearer ${cfg.metricsBearer}`
+      if (typeof auth !== 'string' || auth.length !== expected.length || !timingSafeEqual(Buffer.from(auth), Buffer.from(expected))) {
+        return reply.code(401).send({ error: 'unauthorized' })
+      }
+    }
     reply.type('text/plain; version=0.0.4')
     return renderObservabilityMetrics()
   })
