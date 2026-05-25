@@ -34,6 +34,9 @@ func CanonicalizeStream(stream string, values map[string]any) []byte {
 	b.WriteString(stream)
 	b.WriteByte('\n')
 	for _, k := range keys {
+		if values[k] == nil {
+			continue
+		}
 		b.WriteString(k)
 		b.WriteByte('=')
 		b.WriteString(fmt.Sprint(values[k]))

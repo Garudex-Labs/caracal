@@ -44,3 +44,60 @@ func TestGenerateP256Key(t *testing.T) {
 		t.Fatalf("generated key is incomplete: %#v", key)
 	}
 }
+
+func TestCanonicalizeStreamSkipsNilValues(t *testing.T) {
+	got := string(CanonicalizeStream("s", map[string]any{
+		"action":   "transfer",
+		"metadata": nil,
+	}))
+	want := "s\naction=transfer\n"
+	if got != want {
+		t.Fatalf("nil value not skipped:\ngot:  %q\nwant: %q", got, want)
+	}
+}
+
+func TestCanonicalizeStreamSkipsSigField(t *testing.T) {
+	got := string(CanonicalizeStream("s", map[string]any{
+		"action": "transfer",
+		"_sig":   "deadbeef",
+	}))
+	want := "s\naction=transfer\n"
+	if got != want {
+		t.Fatalf("_sig field not excluded:\ngot:  %q\nwant: %q", got, want)
+	}
+}
+
+func TestCanonicalizeStreamDeterministicOrder(t *testing.T) {
+	values := map[string]any{"z": "1", "a": "2", "m": "3"}
+	want := "s\na=2\nm=3\nz=1\n"
+	// Run multiple times to catch map-ordering flakiness.
+	for i := 0; i < 50; i++ {
+		if got := string(CanonicalizeStream("s", values)); got != want {
+			t.Fatalf("iteration %d: key order unstable:\ngot:  %q\nwant: %q", i, got, want)
+		}
+	}
+}
+
+func TestSignVerifyRoundTrip(t *testing.T) {
+	key := []byte("00112233445566778899aabbccddeeff")
+	values := map[string]any{"action": "transfer", "amount": "100"}
+	sig := SignStream(key, "s", values)
+	if sig == "" {
+		t.Fatal("SignStream returned empty signature")
+	}
+	values[StreamSigField] = sig
+	if !VerifyStream(key, "s", values) {
+		t.Fatal("VerifyStream rejected its own signature")
+	}
+}
+
+func TestSignVerifyWithNilField(t *testing.T) {
+	key := []byte("00112233445566778899aabbccddeeff")
+	values := map[string]any{"action": "transfer", "metadata": nil}
+	sig := SignStream(key, "s", values)
+	values[StreamSigField] = sig
+	if !VerifyStream(key, "s", values) {
+		t.Fatal("VerifyStream rejected signature for payload with nil field")
+	}
+}
+

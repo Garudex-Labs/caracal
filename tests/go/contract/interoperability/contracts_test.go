@@ -6,12 +6,15 @@
 package interoperability_test
 
 import (
+	"encoding/hex"
 	"encoding/json"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/garudex-labs/caracal/packages/core/go/crypto"
 )
 
 type jwtClaims struct {
@@ -115,3 +118,35 @@ func TestAgentConnectorManifestLabelsEnforcement(t *testing.T) {
 		t.Fatalf("agent connectors must label enforcement mode: %#v", manifest["audit"])
 	}
 }
+
+func TestStreamSigCanonicalizeVectors(t *testing.T) {
+	type vector struct {
+		Description       string         `json:"description"`
+		Stream            string         `json:"stream"`
+		Values            map[string]any `json:"values"`
+		ExpectedCanonical string         `json:"expected_canonical"`
+		HmacKeyHex        string         `json:"hmac_key_hex"`
+		ExpectedSigHex    string         `json:"expected_sig_hex"`
+	}
+
+	vectors := readFixture[[]vector](t, "stream-sig-canonicalize.vectors.json")
+
+	for _, v := range vectors {
+		t.Run(v.Description, func(t *testing.T) {
+			got := string(crypto.CanonicalizeStream(v.Stream, v.Values))
+			if got != v.ExpectedCanonical {
+				t.Fatalf("canonical mismatch:\ngot:  %q\nwant: %q", got, v.ExpectedCanonical)
+			}
+
+			key, err := hex.DecodeString(v.HmacKeyHex)
+			if err != nil {
+				t.Fatalf("bad hmac key hex: %v", err)
+			}
+			sig := crypto.SignStream(key, v.Stream, v.Values)
+			if sig != v.ExpectedSigHex {
+				t.Fatalf("sig mismatch:\ngot:  %s\nwant: %s", sig, v.ExpectedSigHex)
+			}
+		})
+	}
+}
+

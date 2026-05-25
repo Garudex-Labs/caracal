@@ -7,6 +7,7 @@ import { describe, expect, it } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { signStream } from '@caracalai/core'
 
 type Json = null | boolean | number | string | Json[] | { [key: string]: Json }
 type Schema = {
@@ -172,4 +173,28 @@ describe('public interoperability schemas', () => {
       baggage: expect.stringContaining('caracal.agent_session='),
     })
   })
+})
+
+describe('stream-sig canonicalization vectors', () => {
+  interface Vector {
+    description: string
+    stream: string
+    values: Record<string, string | null>
+    expected_canonical: string
+    hmac_key_hex: string
+    expected_sig_hex: string
+  }
+
+  const vectors = JSON.parse(
+    readFileSync(resolve(fixtureDir, 'stream-sig-canonicalize.vectors.json'), 'utf8'),
+  ) as Vector[]
+
+  it.each(vectors.map((v) => [v.description, v] as const))(
+    '%s',
+    (_desc, vector) => {
+      const key = Buffer.from(vector.hmac_key_hex, 'hex')
+      const sig = signStream(key, vector.stream, vector.values)
+      expect(sig).toBe(vector.expected_sig_hex)
+    },
+  )
 })

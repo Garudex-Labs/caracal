@@ -1,0 +1,34 @@
+[
+  {
+    "description": "basic fields, no nulls",
+    "stream": "audit:events",
+    "values": { "action": "transfer", "amount": "100" },
+    "expected_canonical": "audit:events\naction=transfer\namount=100\n",
+    "hmac_key_hex": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+    "expected_sig_hex": "c06ccc579e026c31a97a04f203981b236a3c88041712e9b46242e8762da23d75"
+  },
+  {
+    "description": "null field must be skipped",
+    "stream": "audit:events",
+    "values": { "action": "transfer", "metadata": null },
+    "expected_canonical": "audit:events\naction=transfer\n",
+    "hmac_key_hex": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+    "expected_sig_hex": "93c82e377fc1ff7f1430549aa20cd20971150173b5996308ab84cb48d6f2683d"
+  },
+  {
+    "description": "_sig field excluded from canonical form",
+    "stream": "audit:events",
+    "values": { "action": "transfer", "_sig": "deadbeef" },
+    "expected_canonical": "audit:events\naction=transfer\n",
+    "hmac_key_hex": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+    "expected_sig_hex": "93c82e377fc1ff7f1430549aa20cd20971150173b5996308ab84cb48d6f2683d"
+  },
+  {
+    "description": "boolean and numeric values serialize correctly",
+    "stream": "audit:events",
+    "values": { "active": "true", "count": "0", "name": "" },
+    "expected_canonical": "audit:events\nactive=true\ncount=0\nname=\n",
+    "hmac_key_hex": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+    "expected_sig_hex": "dd36b85d880107b52155410569f95436acd8b5a656bba83e37c4b0196fb32ae1"
+  }
+]
