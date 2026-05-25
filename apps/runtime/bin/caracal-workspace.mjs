@@ -4,9 +4,10 @@
 //
 // Workspace entry: locates the repo root, stamps a dev runtime identity, then delegates to the workspace shell.
 
-import { execFileSync } from 'child_process'
+import { execFileSync, execSync } from 'child_process'
 import { existsSync, readdirSync, statSync } from 'fs'
 import { dirname, join } from 'path'
+import { pathToFileURL } from 'url'
 
 function findRepoRoot(start) {
   let dir = start
@@ -68,7 +69,7 @@ const staleBuilds = [
 if (tsBuilds.some((path) => !existsSync(join(root, path))) || staleBuilds.some(([source, output]) => sourceIsNewer(source, output))) {
   process.stderr.write('caracal: building TypeScript workspace packages…\n')
   try {
-    execFileSync('pnpm', ['run', 'build:typescript'], { cwd: root, stdio: 'inherit' })
+    execSync('pnpm run build:typescript', { cwd: root, stdio: 'inherit' })
   } catch (err) {
     process.stderr.write(`caracal: failed to build TypeScript workspace packages: ${err?.message ?? err}\n`)
     process.exit(1)
@@ -87,7 +88,7 @@ try {
   process.exit(1)
 }
 
-import(join(root, 'apps/runtime/bin/caracal.mjs')).catch((err) => {
+import(pathToFileURL(join(root, 'apps/runtime/bin/caracal.mjs')).href).catch((err) => {
   process.stderr.write(`caracal: ${err?.message ?? err}\n`)
   process.exit(1)
 })
