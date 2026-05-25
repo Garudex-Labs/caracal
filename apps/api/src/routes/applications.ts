@@ -12,6 +12,7 @@ import { ZoneIdParams, ZoneParams, parseParams } from './params.js'
 import { zoneExists } from '../zone-guard.js'
 import { appendKeysetCondition, parseListPagination, setNextLink } from './list-pagination.js'
 import { activePolicyReferencesApp } from '../policy-invariants.js'
+import { validateTraits } from '../traits.js'
 
 const AppBody = z.object({
   name: z.string().min(1),
@@ -69,6 +70,8 @@ export const applicationsRoutes: FastifyPluginAsync = async (fastify) => {
       return reply.code(404).send({ error: 'zone_not_found' })
     }
     const body = AppBody.parse(req.body)
+    const traitErr = validateTraits(body.traits, req.actor)
+    if (traitErr) return reply.code(403).send(traitErr)
     const id = uuidv7()
     const secretHash = body.client_secret ? await hashClientSecret(body.client_secret) : null
     const { rows } = await fastify.db.query(
@@ -84,6 +87,8 @@ export const applicationsRoutes: FastifyPluginAsync = async (fastify) => {
     const params = parseParams(ZoneIdParams, req, reply)
     if (!params) return
     const body = AppBody.partial().parse(req.body)
+    const traitErr = validateTraits(body.traits, req.actor)
+    if (traitErr) return reply.code(403).send(traitErr)
     if (body.credential_type === 'public' && await activePolicyReferencesApp(fastify.db, params.zoneId, params.id)) {
       return reply.code(409).send({ error: 'app_referenced_by_active_policy' })
     }
@@ -122,6 +127,8 @@ export const applicationsRoutes: FastifyPluginAsync = async (fastify) => {
     const params = parseParams(ZoneParams, req, reply)
     if (!params) return
     const body = DCRBody.parse(req.body)
+    const traitErr = validateTraits(body.traits, req.actor)
+    if (traitErr) return reply.code(403).send(traitErr)
 
     const rlKey = `rl:dcr:${params.zoneId}`
     await fastify.redis.set(rlKey, 0, 'EX', 1, 'NX')
