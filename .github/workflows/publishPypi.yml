@@ -9,19 +9,26 @@ on:
   workflow_dispatch:
     inputs:
       package:
-        description: 'Package to publish.'
+        description: 'Package selection.'
         required: true
-        default: all
+        default: changed
         type: choice
         options:
+          - changed
           - all
           - core
+          - oauth
           - identity
           - revocation
           - sdk
           - transport-mcp
           - fastmcp
           - redis
+      baseRef:
+        description: 'Optional git diff base. Empty uses the latest reachable release tag.'
+        required: false
+        default: ''
+        type: string
 
 permissions:
   contents: read
@@ -31,6 +38,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
+  NODE_VERSION: '24'
   PYTHON_VERSION: '3.14'
 
 jobs:
@@ -41,27 +49,35 @@ jobs:
     outputs:
       matrix: ${{ steps.matrix.outputs.matrix }}
     steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
       - id: matrix
         shell: bash
+        env:
+          PACKAGE: ${{ inputs.package }}
+          BASE_REF: ${{ inputs.baseRef }}
         run: |
           set -euo pipefail
-          all='[
-            {"name":"core","dir":"packages/core/python","pypiName":"caracalai-core"},
-            {"name":"identity","dir":"packages/identity/python","pypiName":"caracalai-identity"},
-            {"name":"revocation","dir":"packages/revocation/python","pypiName":"caracalai-revocation"},
-            {"name":"sdk","dir":"packages/sdk/python","pypiName":"caracalai-sdk"},
-            {"name":"transport-mcp","dir":"packages/transport/mcp/python","pypiName":"caracalai-transport-mcp"},
-            {"name":"fastmcp","dir":"packages/connectors/fastmcp/python","pypiName":"caracalai-mcp-fastmcp"},
-            {"name":"redis","dir":"packages/connectors/redis/python","pypiName":"caracalai-revocation-redis"}
-          ]'
-          if [[ '${{ inputs.package }}' == 'all' ]]; then
-            selected="$all"
-          else
-            selected="$(jq -c --arg name '${{ inputs.package }}' '[.[] | select(.name == $name)]' <<< "$all")"
+          args=(--ecosystem pypi --format github-matrix)
+          if [[ "$PACKAGE" == 'all' ]]; then
+            args+=(--all)
+          elif [[ -n "$BASE_REF" ]]; then
+            args+=(--base "$BASE_REF")
           fi
+          if [[ "$PACKAGE" != 'all' && "$PACKAGE" != 'changed' ]]; then
+            args+=(--package "$PACKAGE")
+          fi
+          selected="$(node scripts/detectChangedPackages.mjs "${args[@]}")"
           {
             echo 'matrix<<JSON'
-            jq -c '{include: .}' <<< "$selected"
+            printf '%s\n' "$selected"
             echo JSON
           } >> "$GITHUB_OUTPUT"
 
@@ -73,7 +89,7 @@ jobs:
     timeout-minutes: 15
     environment:
       name: pypi
-      url: https://pypi.org/project/${{ matrix.pypiName }}
+      url: https://pypi.org/project/${{ matrix.name }}
     permissions:
       contents: read
       id-token: write

@@ -98,6 +98,7 @@ jobs:
           for (const [kind, value] of Object.entries(manifest.binaries)) {
             if (value !== version) throw new Error(`binary ${kind} version ${value} does not match ${version}`);
           }
+          if (manifest.runtimeImage !== version) throw new Error(`runtime image version ${manifest.runtimeImage} does not match ${version}`);
           for (const [name, value] of Object.entries(manifest.containers)) {
             if (value !== version) throw new Error(`container ${name} version ${value} does not match ${version}`);
           }
@@ -286,7 +287,6 @@ jobs:
           subject-path: |
             release-dist/caracal-shell-*
             release-dist/caracal-console-*
-            release-dist/caracal-console-*
 
   images:
     name: Build and push container images
@@ -410,7 +410,7 @@ jobs:
       - id: meta
         uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5
         with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/caracal-console
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/caracal-runtime
           tags: |
             type=raw,value=${{ github.ref_name }},enable=${{ github.event_name == 'push' }}
             type=raw,value=latest,enable=${{ github.event_name == 'push' }}

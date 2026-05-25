@@ -163,9 +163,7 @@ jobs:
 
       - run: bash scripts/postRelease/validateShellBinaries.sh
 
-      - run: bash scripts/postRelease/validateCliBinaries.sh
-
-      - run: bash scripts/postRelease/validateTuiBinaries.sh
+      - run: bash scripts/postRelease/validateConsoleBinaries.sh
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
