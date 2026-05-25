@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "caracalai-revocation"
-version = "0.1.1"
+version = "0.1.3rc1"
 description = "Revocation lookup interface and in-memory default for Caracal resource servers"
 license = "Apache-2.0"
 license-files = ["LICENSE"]

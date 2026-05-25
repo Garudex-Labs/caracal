@@ -9,7 +9,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "lynx-capital"
-version = "0.1.1"
+version = "0.1.3rc1"
 requires-python = ">=3.14"
 dependencies = [
     "fastapi>=0.136",
@@ -30,7 +30,7 @@ dependencies = [
     "grpcio>=1.80",
     "protobuf>=6.33,<7",
     "python-dotenv>=1.2",
-    "caracalai-sdk>=0.1.1",
+    "caracalai-sdk==0.1.3rc1",
     "redis>=5.2",
 ]
 

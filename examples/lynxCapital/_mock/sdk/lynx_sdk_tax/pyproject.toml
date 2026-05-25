@@ -1,6 +1,6 @@
 [project]
 name = "lynx-sdk-tax"
-version = "0.1.1"
+version = "0.1.3rc1"
 description = "Internal tax-rules SDK shim used by LynxCapital"
 requires-python = ">=3.14"
 dependencies = ["httpx>=0.28", "idna>=3.15"]
