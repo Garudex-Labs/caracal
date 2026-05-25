@@ -112,7 +112,7 @@ Use dev builds only for development:
 ```bash
 pnpm --dir apps/runtime build:release                          # stamp dev + build local images + bun compile (all targets)
 pnpm --dir apps/console build:release                          # stamp dev + bun compile (all targets)
-dBIN="$(pwd)/apps/runtime/dist/caracal-<os>-<arch>"                 # absolute path; survives cd
+BIN="$(pwd)/apps/runtime/dist/caracal-<os>-<arch>"                 # absolute path; survives cd
 CONSOLE="$(pwd)/apps/console/dist/caracal-console-<os>-<arch>"         # Console binary; same OS/arch matrix
 pnpm caracal down                                          # Stop dev before testing
 "$BIN" --version                                           # → caracal 2026.05.14-dev.sha<sha> [dev (sha <sha>)]
