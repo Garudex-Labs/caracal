@@ -1,0 +1,13 @@
+# Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+# Caracal, a product of Garudex Labs
+#
+# Release-candidate Helm values for validation clusters.
+
+global:
+  mode: rc
+  evaluation: false
+  imagePullPolicy: IfNotPresent
+
+networkPolicy:
+  allowOpenDns: false
+  allowOpenHttps: false

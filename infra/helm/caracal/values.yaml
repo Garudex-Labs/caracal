@@ -8,6 +8,7 @@ global:
   tag: "0.1.2"
   imagePullPolicy: IfNotPresent
   mode: stable
+  evaluation: false
   otelExporterOtlpEndpoint: ""
   logLevel: info
   podLabels: {}
@@ -49,11 +50,13 @@ migrations:
 
 networkPolicy:
   enabled: true
-  # When extraEgress is empty, the policy allows: DNS (53), Postgres ({{ .secrets.database.port }}),
-  # Redis ({{ .secrets.redis.port }}), and OTLP (4317/4318). Platform teams should set extraEgress
-  # to named peers or CIDRs for provider APIs, object stores, identity providers, and other upstreams.
+  # When extraEgress is empty, the policy allows Postgres ({{ .secrets.database.port }}),
+  # Redis ({{ .secrets.redis.port }}), and OTLP (4317/4318). Platform teams should set dnsEgress
+  # and extraEgress to named peers or CIDRs for DNS, provider APIs, object stores, identity providers,
+  # and other upstreams.
   allowOpenHttps: false
-  allowOpenDns: true
+  allowOpenDns: false
+  dnsEgress: []
   extraEgress: []
 
 replayPersistence:
@@ -72,6 +75,7 @@ alertRules:
   labels: {}
   stsMaxPolicyAgeSeconds: 300
   auditDlqSize: 0
+  auditDlqGrowth: 0
   auditConsumerLag: 1000
   gatewayStsExchangeErrors: 0
   dbPoolInUseRatio: 0.9

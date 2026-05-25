@@ -1,0 +1,25 @@
+# Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+# Caracal, a product of Garudex Labs
+#
+# Development Helm values for local and disposable Caracal clusters.
+
+global:
+  mode: dev
+  evaluation: true
+  imagePullPolicy: IfNotPresent
+
+networkPolicy:
+  allowOpenDns: true
+  allowOpenHttps: true
+
+services:
+  sts:
+    replicas: 1
+  gateway:
+    replicas: 1
+  api:
+    replicas: 1
+  coordinator:
+    replicas: 1
+  audit:
+    replicas: 1

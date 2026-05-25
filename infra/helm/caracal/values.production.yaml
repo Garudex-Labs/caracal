@@ -1,0 +1,18 @@
+# Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+# Caracal, a product of Garudex Labs
+#
+# Production Helm values for hardened Caracal deployments.
+
+global:
+  mode: stable
+  evaluation: false
+  imagePullPolicy: IfNotPresent
+
+secrets:
+  create: false
+
+networkPolicy:
+  allowOpenDns: false
+  allowOpenHttps: false
+  dnsEgress: []
+  extraEgress: []
