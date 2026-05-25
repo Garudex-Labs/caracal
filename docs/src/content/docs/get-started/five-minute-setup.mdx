@@ -4,14 +4,77 @@ description: Start the local stack, protect one HTTP resource, call it through t
 pageType: workflow
 ---
 
-This page no longer documents standalone management command examples. Human-facing management now runs through the Console.
+This path starts a local authority plane, creates one protected resource from the Console, calls it through Gateway, and verifies audit evidence.
 
-Open the interface with:
+## Prerequisites
+
+- Docker with Compose v2
+- Node 24, pnpm 11.1.1, Bun 1.3.14
+- Go 1.26 and Python 3.14 if you plan to run the full test suite
+
+Install dependencies:
 
 ```bash
-caracal console
+corepack enable
+corepack prepare pnpm@11.1.1 --activate
+pnpm install --frozen-lockfile --prefer-offline
 ```
 
-Use the matching view for the workflow covered by this page. For automation, enable the Control API from the Console Control menu and call the authenticated HTTP surface.
+## Start the stack
 
-Runtime lifecycle commands (`caracal up`, `caracal down`, `caracal status`, `caracal purge`) and workload execution (`caracal run -- <command>`) remain documented in [Runtime and Console](/runtime-console/).
+```bash
+pnpm caracal up
+pnpm caracal status --ready
+```
+
+`status --ready` must return success before you configure resources. If it fails, inspect `pnpm caracal status --ready --json` and the service logs from Docker Compose.
+
+## Configure the first resource
+
+Open the Console:
+
+```bash
+pnpm caracal-console
+```
+
+In the Console:
+
+1. Create a zone for local development.
+2. Create a confidential application for the local runner.
+3. Create a resource named `local-http` with upstream `http://host.docker.internal:18080`.
+4. Create or activate a policy set that allows the local runner application to call `local-http`.
+5. Copy the generated zone ID, application ID, and client secret before leaving the result view.
+
+## Write `caracal.toml`
+
+```bash
+mkdir -p ~/.config/caracal
+cp caracal.toml.example ~/.config/caracal/caracal.toml
+chmod 600 ~/.config/caracal/caracal.toml
+```
+
+Edit the copied file with the values from the Console. Keep `RESOURCE_TOKEN` mapped to `resource://local-http`.
+
+## Run a local upstream
+
+```bash
+python3 -m http.server 18080
+```
+
+In another shell, call the protected resource with injected credentials:
+
+```bash
+pnpm caracal run -- sh -c 'curl -fsS \
+  -H "Authorization: Bearer $RESOURCE_TOKEN" \
+  http://localhost:8081/local-http/'
+```
+
+## Verify audit
+
+Return to the Console Audit view and filter by the local application or resource. The request should show the decision, request ID, resource ID, and determining policy.
+
+## Shut down
+
+```bash
+pnpm caracal down
+```

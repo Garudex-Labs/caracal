@@ -1,17 +1,84 @@
 ---
 title: Local Setup
-description: Toolchains, package managers, and one-command bootstrap for Caracal development.
+description: Toolchains, package managers, stack startup, smoke tests, and debugging for Caracal contributors.
 pageType: workflow
 ---
 
-This page no longer documents standalone management command examples. Human-facing management now runs through the Console.
+Use this path for repository development. Runtime shell commands manage the local stack; product management happens in the Console.
 
-Open the interface with:
+## Toolchains
+
+| Tool | Version |
+| --- | --- |
+| Node.js | 24 |
+| pnpm | 11.1.1 |
+| Bun | 1.3.14 |
+| Go | 1.26 |
+| Python | 3.14 |
+| PostgreSQL | 18 |
+
+The workflow files are the source of truth for CI versions. Keep local versions aligned before investigating test failures.
+
+## Bootstrap
 
 ```bash
-caracal console
+git clone https://github.com/Garudex-Labs/caracal.git
+cd caracal
+corepack enable
+corepack prepare pnpm@11.1.1 --activate
+pnpm install --frozen-lockfile --prefer-offline
+pnpm --filter @caracalai/engine sync-embedded
 ```
 
-Use the matching view for the workflow covered by this page. For automation, enable the Control API from the Console Control menu and call the authenticated HTTP surface.
+## Start local services
 
-Runtime lifecycle commands (`caracal up`, `caracal down`, `caracal status`, `caracal purge`) and workload execution (`caracal run -- <command>`) remain documented in [Runtime and Console](/runtime-console/).
+```bash
+pnpm caracal up
+pnpm caracal status --ready --json
+pnpm caracal-console
+```
+
+Use the Console to create a local zone, application, resource, policy set, and runner credential. Copy the generated values into `~/.config/caracal/caracal.toml` from `caracal.toml.example`, then run `chmod 600 ~/.config/caracal/caracal.toml`.
+
+## Smoke test
+
+```bash
+pnpm caracal run -- node -e "console.log(Boolean(process.env.RESOURCE_TOKEN))"
+```
+
+The command should print `true` when the configured resource token is injected.
+
+## Targeted validation
+
+```bash
+pnpm run build:typescript
+pnpm -r --if-present lint
+pnpm -r --if-present typecheck
+pnpm run test:typescript
+pnpm run test:go
+pnpm run test:python
+bash infra/postgres/scripts/validateMigrations.sh
+bash infra/helm/caracal/scripts/validate.sh
+pnpm --dir docs build
+```
+
+Run the narrowest relevant command while iterating, then run the affected suite before opening a PR.
+
+## Common failures
+
+| Symptom | Fix |
+| --- | --- |
+| `caracal.toml not found` | Create `~/.config/caracal/caracal.toml` or set `CARACAL_CONFIG` to an existing file. |
+| `config_permissions` | Run `chmod 600 ~/.config/caracal/caracal.toml`; explicit secret mounts must not be group/world writable. |
+| Stack readiness timeout | Check Docker memory/CPU, then inspect `pnpm caracal status --ready --json` for the failing service. |
+| Control endpoint disabled | Open the Console Control menu, mount Control, then enable the endpoint. |
+| Postgres migration failure | Run `bash infra/postgres/scripts/validateMigrations.sh` against a clean PostgreSQL 18 database. |
+
+## Stop or reset
+
+```bash
+pnpm caracal down
+pnpm caracal purge
+```
+
+Use `purge` only when you intentionally want to remove runtime data, logs, cached release assets, and local generated state.

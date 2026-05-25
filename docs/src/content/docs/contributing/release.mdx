@@ -227,12 +227,26 @@ sh install-console.sh --version v2026.05.12 --require-provenance
 
 For a critical fix on an already-released version:
 
-1. Branch from the release tag: `git checkout -b hotfix-jti v2026.05.12`
+1. Branch from the release tag: `git checkout -b hotfix-jti v2026.05.12`.
 2. Apply the fix and open a PR against `main`.
-3. Merge after review; cherry-pick to `main` if needed.
-4. Tag the hotfix: `git tag v2026.05.12.1 && git push origin v2026.05.12.1`.
+3. Merge after review; cherry-pick to `main` if the fix landed elsewhere first.
+4. Run `scripts/release.sh --dry-run` from updated `main`.
+5. Cut the recut tag with `scripts/release.sh`; same-day releases use `vYYYY.MM.DD.N`.
+6. Promote only after `release-approval` and release validation pass.
 
-Tags must point to commits reachable from `main`.
+Tags must point to commits reachable from `main`. The release script validates a clean tree, fast-forward remote state, missing remote tag, stamped manifest and Helm metadata, then pushes `main` and the tag atomically. If the atomic push fails, verify branch protection, tag protection, and whether the tag appeared remotely before retrying.
+
+## Rollback policy
+
+| Artifact | Rollback path |
+| --- | --- |
+| Binaries | Reinstall a prior immutable version with `install-console.sh --version vYYYY.MM.DD` or `install-console.ps1 -Version vYYYY.MM.DD`. |
+| Containers | Pin workloads back to the prior immutable `vYYYY.MM.DD` image tag; do not rely on `latest` during rollback. |
+| Helm | Use `helm rollback` only when migration status allows it; after a migration completes, schema reversal requires Postgres restore. |
+| npm | Published versions are immutable; deprecate a bad version and publish a higher patch version after approval. |
+| PyPI | Published versions are immutable; yank only with approval and publish a higher patch version for recovery. |
+
+Rollback notes must be present in release notes whenever a release includes migrations, policy contract changes, persisted data changes, or operator action.
 
 ---
 

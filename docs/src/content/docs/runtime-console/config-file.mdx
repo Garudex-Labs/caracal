@@ -1,17 +1,81 @@
 ---
 title: Configuration File
-description: "caracal.toml: full schema, lookup order, environment variable overrides, and credential injection configuration."
+description: caracal.toml schema, lookup order, permission rules, and credential injection configuration.
 pageType: config
 ---
 
-This page no longer documents standalone management command examples. Human-facing management now runs through the Console.
+`caracal.toml` configures runtime credential injection for `caracal run`. It contains application credentials, so keep it in the user config directory or a secret mount, not in a project repository.
 
-Open the interface with:
+## Lookup order
+
+1. `CARACAL_CONFIG`, when set and the file exists.
+2. `$XDG_CONFIG_HOME/caracal/caracal.toml`.
+3. `~/.config/caracal/caracal.toml`.
+
+The runtime intentionally does not read `./caracal.toml` from the current working directory because the file contains `app_client_secret`.
+
+## Permissions
+
+On POSIX systems, the default config path must be owner-only:
 
 ```bash
-caracal console
+chmod 600 ~/.config/caracal/caracal.toml
 ```
 
-Use the matching view for the workflow covered by this page. For automation, enable the Control API from the Console Control menu and call the authenticated HTTP surface.
+Explicit `CARACAL_CONFIG` paths may be read-only secret mounts, but they must not be group- or world-writable.
 
-Runtime lifecycle commands (`caracal up`, `caracal down`, `caracal status`, `caracal purge`) and workload execution (`caracal run -- <command>`) remain documented in [Runtime and Console](/runtime-console/).
+## Schema
+
+| Field | Required | Meaning |
+| --- | --- | --- |
+| `zone_url` | yes | STS zone URL used for OAuth token exchange. Local default is `http://localhost:8080`. |
+| `zone_id` | yes | Zone created in the Console. |
+| `application_id` | yes | Confidential application used by the runner. |
+| `app_client_secret` | yes | One-time secret copied from the Console when the application credential is created. |
+| `continue_on_failure` | no | Continue when optional credential acquisition fails. Defaults to `false`. |
+| `credentials[]` | no | Required resource tokens to inject into the subprocess. |
+| `optional_credentials[]` | no | Optional resource tokens with per-entry failure behavior. |
+| `mcp_governance.mode` | no | `block` or `log` when the subprocess command references MCP server binaries. |
+
+Credential entries use:
+
+| Field | Required | Meaning |
+| --- | --- | --- |
+| `env` | yes | Environment variable name that receives the access token. |
+| `resource` | yes | Resource identifier registered in Caracal. |
+| `on_failure` | optional | Optional credentials only: `warn` or `error`. |
+
+## Example
+
+```toml
+zone_url = "http://localhost:8080"
+zone_id = "zone_from_console"
+application_id = "app_from_console"
+app_client_secret = "secret_from_console"
+continue_on_failure = false
+
+[[credentials]]
+env = "RESOURCE_TOKEN"
+resource = "resource://local-http"
+
+[[optional_credentials]]
+env = "OPTIONAL_RESOURCE_TOKEN"
+resource = "resource://optional-http"
+on_failure = "warn"
+
+[mcp_governance]
+mode = "block"
+```
+
+The same example is checked in at `caracal.toml.example`.
+
+## CI and secret mounts
+
+For CI, mount a generated config file and point `CARACAL_CONFIG` to it:
+
+```bash
+export CARACAL_CONFIG="$RUNNER_TEMP/caracal.toml"
+install -m 600 caracal.toml.example "$CARACAL_CONFIG"
+```
+
+Replace secrets through the CI secret store before running `caracal run`.

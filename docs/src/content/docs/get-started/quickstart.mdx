@@ -1,17 +1,38 @@
 ---
 title: "Quickstart: Run Caracal Locally"
-description: Bring up the complete Caracal authority plane with one local command.
+description: Bring up the complete Caracal authority plane and launch the Console.
 pageType: workflow
 ---
 
-This page no longer documents standalone management command examples. Human-facing management now runs through the Console.
-
-Open the interface with:
+The quickest local path is: install dependencies, start the stack, verify readiness, then use the Console for product setup.
 
 ```bash
-caracal console
+corepack enable
+corepack prepare pnpm@11.1.1 --activate
+pnpm install --frozen-lockfile --prefer-offline
+pnpm caracal up
+pnpm caracal status --ready
+pnpm caracal-console
 ```
 
-Use the matching view for the workflow covered by this page. For automation, enable the Control API from the Console Control menu and call the authenticated HTTP surface.
+Use the Console to create the first zone, application, resource, and policy. When you need credential injection for a local process, copy `caracal.toml.example` to `~/.config/caracal/caracal.toml`, set owner-only permissions, and fill in the values produced by the Console:
 
-Runtime lifecycle commands (`caracal up`, `caracal down`, `caracal status`, `caracal purge`) and workload execution (`caracal run -- <command>`) remain documented in [Runtime and Console](/runtime-console/).
+```bash
+mkdir -p ~/.config/caracal
+cp caracal.toml.example ~/.config/caracal/caracal.toml
+chmod 600 ~/.config/caracal/caracal.toml
+```
+
+Then run protected workloads with:
+
+```bash
+pnpm caracal run -- <command>
+```
+
+Stop the stack with:
+
+```bash
+pnpm caracal down
+```
+
+Use [Five-Minute Setup](./five-minute-setup/) for the full protected HTTP request and audit verification flow.
