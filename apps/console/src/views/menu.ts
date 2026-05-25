@@ -3,7 +3,7 @@
 //
 // Top-level menu listing every resource the Console can navigate.
 
-import type { AdminClient, Zone } from '@caracalai/admin'
+import type { AdminClient, Application, Zone } from '@caracalai/admin'
 import {
   applyControlLifecycleAction,
   authorizeControlManagementAccess,
@@ -47,7 +47,6 @@ import {
   auditView,
   delegationsView,
   grantsView,
-  applicationPicker,
   policiesView,
   policySetsView,
   providersView,
@@ -71,11 +70,13 @@ interface Entry {
 function credentialConfig(ctx: Ctx, values: Record<string, string>): RuntimeConfig {
   const applicationId = values.application_id
   if (!applicationId) throw new Error('application is required')
+  const clientSecret = values.app_client_secret
+  if (!clientSecret) throw new Error('client secret is required')
   return {
     zone_url: process.env.CARACAL_STS_URL ?? resolveServiceUrl('CARACAL_ZONE_URL', DEFAULT_ZONE_URL),
     zone_id: ctx.zoneId,
     application_id: applicationId,
-    app_client_secret: values.app_client_secret ?? '',
+    app_client_secret: clientSecret,
   }
 }
 
@@ -173,6 +174,20 @@ function controlKeyPicker(client: AdminClient, zoneId: string): Field['pick'] {
   )
 }
 
+function confidentialApplicationPicker(ctx: Ctx): Field['pick'] {
+  return pickFromList<Application>(
+    'pick confidential application',
+    async () => (await ctx.client.applications.list(ctx.zoneId)).filter((row) => row.credential_type !== 'public'),
+    [
+      { header: 'name', width: 24, value: (row) => row.name },
+      { header: 'credential', width: 12, value: (row) => row.credential_type },
+      { header: 'traits', value: (row) => (row.traits ?? []).join(',') || '-' },
+    ],
+    (row) => row.id,
+    (row) => row.name,
+  )
+}
+
 function controlPermissionPicker(): Field['pick'] {
   return pickFromList(
     'pick control permission',
@@ -244,8 +259,8 @@ class CredentialMenuView implements View {
   private readForm(): View {
     const fields: Field[] = [
       { key: 'resource', label: 'resource', kind: 'text', required: true, pick: resourceIdentifierPicker(this.ctx) },
-      { key: 'application_id', label: 'application', kind: 'text', required: true, pick: applicationPicker(this.ctx) },
-      { key: 'app_client_secret', label: 'client secret', kind: 'secret', hint: 'required for confidential apps; leave blank for public apps' },
+      { key: 'application_id', label: 'application', kind: 'text', required: true, pick: confidentialApplicationPicker(this.ctx) },
+      { key: 'app_client_secret', label: 'client secret', kind: 'secret', hint: 'paste the one-time secret from create or rotate' },
     ]
     return new FormView({
       title: 'credential read',

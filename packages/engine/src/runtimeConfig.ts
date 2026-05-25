@@ -232,6 +232,9 @@ function isLocalHostname(hostname: string): boolean {
 }
 
 function readSecretFile(path: string, source: string): string {
+  if (path.startsWith('cs_')) {
+    failConfig(source, `secret file path looks like a client secret; write the secret to a 0600 file and set CARACAL_APP_CLIENT_SECRET_FILE to that path, or use CARACAL_APP_CLIENT_SECRET for inline local development`);
+  }
   if (!existsSync(path)) failConfig(source, `secret file does not exist: ${path}`);
   assertSecretFileSecure(path, source);
   const value = readFileSync(path, 'utf8').trim();

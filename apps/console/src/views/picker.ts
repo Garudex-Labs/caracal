@@ -90,7 +90,7 @@ export class EntityPickerView<T> implements View {
   }
 
   hints(): string[] {
-    return ['↑/↓:move', 'type:search', 'enter:select', 'V:reveal-id', 'N:copy-name', 'I:copy-id', 'r:reload', 'esc:back']
+    return ['↑/↓:move', 'type:search', 'enter:select', 'V:reveal-id', 'N:copy-name', 'I:copy-id', 'esc:back']
   }
 
   async init(app: App): Promise<void> {
@@ -153,13 +153,12 @@ export class EntityPickerView<T> implements View {
   async onKey(key: Key, ctx: ViewContext): Promise<void> {
     const filtered = this.filtered()
     const last = Math.max(0, filtered.length - 1)
-    if (key === 'up' || key === 'k') { this.cursor = Math.max(0, this.cursor - 1); return }
-    if (key === 'down' || key === 'j') { this.cursor = Math.min(last, this.cursor + 1); return }
+    if (key === 'up') { this.cursor = Math.max(0, this.cursor - 1); return }
+    if (key === 'down') { this.cursor = Math.min(last, this.cursor + 1); return }
     if (key === 'pgup') { this.cursor = Math.max(0, this.cursor - 10); return }
     if (key === 'pgdn') { this.cursor = Math.min(last, this.cursor + 10); return }
-    if (key === 'home' || key === 'g') { this.cursor = 0; return }
-    if (key === 'end' || key === 'G') { this.cursor = last; return }
-    if (key === 'r') return this.reload()
+    if (key === 'home') { this.cursor = 0; return }
+    if (key === 'end') { this.cursor = last; return }
     if (key === 'V') { this.showIds = !this.showIds; return }
     if (key === 'N') { this.copyName(ctx.app); return }
     if (key === 'I') { this.copyId(ctx.app); return }
