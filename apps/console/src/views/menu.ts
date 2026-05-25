@@ -29,6 +29,7 @@ import {
 import { readFileSync } from 'node:fs'
 import { parse } from 'smol-toml'
 import {
+  assertRuntimeConfigFileSecure,
   DEFAULT_ZONE_URL,
   resolveRuntimeConfigPath,
   resolveServiceUrl,
@@ -73,6 +74,7 @@ interface Entry {
 function loadRuntimeConfig(): RuntimeConfig | undefined {
   const path = resolveRuntimeConfigPath()
   if (!path) return undefined
+  assertRuntimeConfigFileSecure(path)
   return parse(readFileSync(path, 'utf8')) as unknown as RuntimeConfig
 }
 

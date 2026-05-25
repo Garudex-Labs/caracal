@@ -30,6 +30,8 @@ The `--` separator is optional but recommended when the subprocess accepts flags
 
 Each credential exchange posts to `{zone_url}/oauth/2/token` using `zone_id`, `application_id`, and `app_client_secret` from `caracal.toml`. Tokens are injected under the `env` names declared in the credential blocks.
 
+The runtime resolves `caracal.toml` from `CARACAL_CONFIG` first, then `~/.config/caracal/caracal.toml`. It does not load project-local files from the current working directory because `app_client_secret` is a secret. On POSIX systems, the file must be owner-only, for example `chmod 600 ~/.config/caracal/caracal.toml`.
+
 ### Minimal configuration
 
 ```toml

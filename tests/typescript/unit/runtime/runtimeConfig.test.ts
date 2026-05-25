@@ -3,12 +3,14 @@
 //
 // Unit tests for runtime config path precedence and production service URL strictness.
 
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
   DEFAULT_API_URL,
+  RuntimeConfigPermissionError,
+  assertRuntimeConfigFileSecure,
   defaultRuntimeConfigPath,
   ServiceUrlMissingError,
   resolveRuntimeConfigPath,
@@ -43,7 +45,7 @@ describe('resolveRuntimeConfigPath', () => {
     expect(resolveRuntimeConfigPath()).toBe(explicit)
   })
 
-  it('checks cwd before PWD and INIT_CWD', () => {
+  it('does not load project-local config from cwd, PWD, or INIT_CWD', () => {
     const cwdDir = join(root, 'cwd')
     const pwdDir = join(root, 'pwd')
     const initDir = join(root, 'init')
@@ -58,10 +60,10 @@ describe('resolveRuntimeConfigPath', () => {
     writeFileSync(join(pwdDir, 'caracal.toml'), 'zone_id = "pwd"\n')
     writeFileSync(join(initDir, 'caracal.toml'), 'zone_id = "init"\n')
 
-    expect(resolveRuntimeConfigPath()).toBe(join(cwdDir, 'caracal.toml'))
+    expect(resolveRuntimeConfigPath()).toBeUndefined()
   })
 
-  it('falls back to XDG config path when project-level files are absent', () => {
+  it('falls back to XDG config path when explicit config is absent', () => {
     const cwdDir = join(root, 'cwd')
     const xdg = join(root, 'xdg')
     const xdgConfig = join(xdg, 'caracal', 'caracal.toml')
@@ -89,15 +91,37 @@ describe('resolveRuntimeConfigPath', () => {
     expect(resolveRuntimeConfigPath()).toBeUndefined()
   })
 
-  it('ignores missing explicit config and continues to project-level config', () => {
+  it('does not fall back when explicit config is missing', () => {
     const cwdDir = join(root, 'cwd')
+    const xdg = join(root, 'xdg')
     mkdirSync(cwdDir, { recursive: true })
+    mkdirSync(join(xdg, 'caracal'), { recursive: true })
     process.chdir(cwdDir)
     process.env.CARACAL_CONFIG = join(root, 'missing.toml')
+    process.env.XDG_CONFIG_HOME = xdg
     const cwdConfig = join(cwdDir, 'caracal.toml')
+    const xdgConfig = join(xdg, 'caracal', 'caracal.toml')
     writeFileSync(cwdConfig, 'zone_id = "cwd"\n')
+    writeFileSync(xdgConfig, 'zone_id = "xdg"\n')
 
-    expect(resolveRuntimeConfigPath()).toBe(cwdConfig)
+    expect(resolveRuntimeConfigPath()).toBeUndefined()
+  })
+
+  it('rejects group-readable runtime config files on POSIX platforms', () => {
+    if (process.platform === 'win32') return
+    const path = join(root, 'caracal.toml')
+    writeFileSync(path, 'zone_id = "z1"\n')
+    chmodSync(path, 0o640)
+
+    expect(() => assertRuntimeConfigFileSecure(path)).toThrow(RuntimeConfigPermissionError)
+  })
+
+  it('accepts owner-only runtime config files', () => {
+    const path = join(root, 'caracal.toml')
+    writeFileSync(path, 'zone_id = "z1"\n')
+    if (process.platform !== 'win32') chmodSync(path, 0o600)
+
+    expect(() => assertRuntimeConfigFileSecure(path)).not.toThrow()
   })
 })
 

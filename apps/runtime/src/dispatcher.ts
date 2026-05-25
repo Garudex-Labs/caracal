@@ -6,7 +6,7 @@
 import { COMMAND_NAME_PATTERN, type CommandGroup } from '@caracalai/engine/commands'
 import { parse } from 'smol-toml'
 import { readFileSync } from 'node:fs'
-import { resolveRuntimeConfigPath } from '@caracalai/engine/runtime-config'
+import { assertRuntimeConfigFileSecure, resolveRuntimeConfigPath } from '@caracalai/engine/runtime-config'
 import { formatVersionOutput } from '@caracalai/engine'
 import { style, printError } from './style.ts'
 import type { CommandRegistry } from './registry.ts'
@@ -47,6 +47,7 @@ function loadConfig(required: boolean): RuntimeConfig | undefined {
     throw new LoadConfigError('caracal.toml not found; open `caracal console` to create a zone and confidential runner app, then pass CARACAL_CONFIG to a file containing zone_id, application_id, and app_client_secret.')
   }
   try {
+    assertRuntimeConfigFileSecure(path)
     return parse(readFileSync(path, 'utf8')) as unknown as RuntimeConfig
   } catch (err) {
     const reason = err instanceof Error ? err.message : String(err)
