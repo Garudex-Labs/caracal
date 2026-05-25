@@ -20,9 +20,9 @@ describe('MemoryReplay', () => {
     expect(await r.mark('expired', past)).toBe(false)
   })
 
-  it('treats an empty jti as a passthrough', async () => {
+  it('rejects an empty jti so unsigned replays cannot pass', async () => {
     const r = new MemoryReplay(60_000)
-    expect(await r.mark('', undefined)).toBe(true)
-    expect(await r.mark('', undefined)).toBe(true)
+    expect(await r.mark('', undefined)).toBe(false)
+    expect(await r.mark('', undefined)).toBe(false)
   })
 })

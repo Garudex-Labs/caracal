@@ -58,6 +58,8 @@ func TestSTSClientSignsGatewayExchange(t *testing.T) {
 			r.Header.Get(corests.GatewayTimestampHeader),
 			r.Header.Get(corests.GatewayRequestHeader),
 			r.Header.Get(corests.GatewaySignatureHeader),
+			r.Method,
+			r.URL.EscapedPath(),
 			[]byte(r.PostForm.Encode()),
 		); err != nil {
 			t.Fatalf("gateway exchange signature invalid: %v", err)
