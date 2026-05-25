@@ -1,6 +1,6 @@
 {
   "name": "@caracalai/revocation-redis",
-  "version": "0.1.2",
+  "version": "0.1.3-rc.1",
   "description": "Caracal Redis-backed revocation connector.",
   "license": "Apache-2.0",
   "homepage": "https://github.com/Garudex-Labs/caracal",
@@ -41,8 +41,8 @@
     "prepublishOnly": "tsc"
   },
   "dependencies": {
-    "@caracalai/core": "0.1.2",
-    "@caracalai/revocation": "0.1.2"
+    "@caracalai/core": "0.1.3-rc.1",
+    "@caracalai/revocation": "0.1.3-rc.1"
   },
   "devDependencies": {
     "@types/node": "^24.12.2",

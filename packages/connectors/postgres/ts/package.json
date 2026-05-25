@@ -1,6 +1,6 @@
 {
   "name": "@caracalai/tokenstate-postgres",
-  "version": "0.1.2",
+  "version": "0.1.3-rc.1",
   "description": "Caracal Postgres-backed token state connector.",
   "license": "Apache-2.0",
   "homepage": "https://github.com/Garudex-Labs/caracal",
