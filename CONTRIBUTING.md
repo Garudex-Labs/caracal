@@ -23,8 +23,8 @@
 |                       | Dev                                                      | RC                                                          | Stable                                                     |
 | --------------------- | -------------------------------------------------------- | ----------------------------------------------------------- | ---------------------------------------------------------- |
 | Purpose               | Development builds                                      | rc builds                                                   | Released production versions                               |
-| Version               | `2026.05.14-dev.sha<sha>`                                | `2026.05.14-rc.sha<sha>` / `1.4.2-rc.1`                    | `2026.05.14` / `1.4.2`                                    |
-| Container images      | `localhost/caracal-{svc}:2026.05.14-dev.sha<sha>`        | `ghcr.io/garudex-labs/caracal-{svc}:v2026.05.14-rc.sha<sha>` | `ghcr.io/garudex-labs/caracal-{svc}:v2026.05.14`        |
+| Version               | `2026.05.26-dev.sha<sha>`                                | `2026.05.26-rc.1` / `0.1.3-rc.1`                          | `2026.05.26` / `0.1.3`                                    |
+| Container images      | `localhost/caracal-{svc}:2026.05.26-dev.sha<sha>`        | `ghcr.io/garudex-labs/caracal-{svc}:v2026.05.26-rc.1`      | `ghcr.io/garudex-labs/caracal-{svc}:v2026.05.26`          |
 
 </details>
 
@@ -125,8 +125,8 @@ pnpm --dir apps/console build:release                          # stamp dev + bun
 BIN="$(pwd)/apps/runtime/dist/caracal-<os>-<arch>"                 # absolute path; survives cd
 CONSOLE="$(pwd)/apps/console/dist/caracal-console-<os>-<arch>"         # Console binary; same OS/arch matrix
 pnpm caracal down                                          # Stop dev before testing
-"$BIN" --version                                           # → caracal 2026.05.14-dev.sha<sha> [dev (sha <sha>)]
-"$CONSOLE" --version                                           # → caracal-console 2026.05.14-dev.sha<sha> [dev (sha <sha>)]
+"$BIN" --version                                           # → caracal 2026.05.26-dev.sha<sha> [dev (sha <sha>)]
+"$CONSOLE" --version                                           # → caracal-console 2026.05.26-dev.sha<sha> [dev (sha <sha>)]
 (cd /tmp && "$BIN" up && "$BIN" status && "$CONSOLE" && "$BIN" down)
 ```
 
@@ -137,10 +137,10 @@ The local `build:release` stamps the binary with `CARACAL_VERSION=<base>-dev.sha
 Use rc when a downstream project must consume Caracal exactly like a third-party dependency before stable:
 
 ```bash
-scripts/rc.sh prepare                         # write manifest and stamp Helm/package metadata to rc versions
-git add -A && git commit -m "rc: vYYYY.MM.DD-rc.sha<sha>"
-git tag -a vYYYY.MM.DD-rc.sha<sha> -m vYYYY.MM.DD-rc.sha<sha>
-git push origin HEAD && git push origin vYYYY.MM.DD-rc.sha<sha>
+scripts/rc.sh prepare --base-version 2026.05.26 --suffix rc.1
+git add -A && git commit -m "rc: v2026.05.26-rc.1"
+git tag -a v2026.05.26-rc.1 -m v2026.05.26-rc.1
+git push origin HEAD && git push origin v2026.05.26-rc.1
 ```
 
 ### Create and publish stable
@@ -159,7 +159,7 @@ Pushing the tag triggers `.github/workflows/release.yml`. Stable GitHub Release 
 Reproduce one area locally:
 
 ```bash
-CARACAL_RELEASE=v2026.05.14 FINDINGS_DIR=/tmp/findings \
+CARACAL_RELEASE=v2026.05.26-rc.1 FINDINGS_DIR=/tmp/findings \
   bash scripts/postRelease/validateRegistryMetadata.sh
 ```
 

@@ -24,7 +24,7 @@ pip install \
   -e _mock/sdk/lynx_sdk_tax
 ```
 
-The `caracalai-sdk>=0.1.1` pin lives in `pyproject.toml`.
+The `caracalai-sdk==0.1.3rc1` pin lives in `pyproject.toml`.
 
 ### 2: Configure environment
 
