@@ -58,6 +58,9 @@ const tsBuilds = [
   'packages/engine/dist/stack.js',
 ]
 const staleBuilds = [
+  ['packages/core/ts/src', 'packages/core/ts/dist/index.js'],
+  ['packages/oauth/ts/src', 'packages/oauth/ts/dist/index.js'],
+  ['packages/admin/ts/src', 'packages/admin/ts/dist/index.js'],
   ['packages/engine/src', 'packages/engine/dist/index.js'],
   ['packages/engine/src', 'packages/engine/dist/controlState.js'],
   ['packages/engine/src', 'packages/engine/dist/stack.js'],

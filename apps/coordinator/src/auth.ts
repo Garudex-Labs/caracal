@@ -67,6 +67,7 @@ const PUBLIC_PATHS = new Set(['/health', '/ready', '/v1/verify'])
 const OPERATOR_TOKEN_PATHS = new Set(['/metrics', '/stats'])
 const BEARER_PREFIX = 'Bearer '
 const MAX_BEARER_BYTES = 4096
+const OPERATOR_SUBJECT = 'caracal-operator'
 
 function classifyError(err: unknown): string {
   const code = err && typeof err === 'object' && 'code' in err ? err.code : undefined
@@ -88,6 +89,24 @@ function matchesOperatorToken(token: string): boolean {
   return actual.length === expected.length && timingSafeEqual(actual, expected)
 }
 
+function operatorZone(method: string, path: string): string | undefined {
+  const parts = path.split('/').filter(Boolean)
+  if (parts[0] !== 'zones' || !parts[1] || !CoordinatorIdPattern.test(parts[1])) return undefined
+  if (parts[2] === 'agents') {
+    if (method === 'GET' && (parts.length === 3 || parts.length === 4)) return parts[1]
+    if (method === 'GET' && parts.length === 5 && (parts[4] === 'children' || parts[4] === 'effective-authority')) return parts[1]
+    if (method === 'PATCH' && parts.length === 5 && (parts[4] === 'suspend' || parts[4] === 'resume')) return parts[1]
+    if (method === 'DELETE' && parts.length === 4) return parts[1]
+  }
+  if (parts[2] === 'delegations') {
+    if (method === 'GET' && parts.length === 4 && parts[3] === 'active') return parts[1]
+    if (method === 'GET' && parts.length === 5 && (parts[3] === 'inbound' || parts[3] === 'outbound')) return parts[1]
+    if (method === 'GET' && parts.length === 5 && (parts[4] === 'traverse' || parts[4] === 'impact')) return parts[1]
+    if (method === 'PATCH' && parts.length === 5 && parts[4] === 'revoke') return parts[1]
+  }
+  return undefined
+}
+
 export async function verifyBearer(req: FastifyRequest, reply: FastifyReply): Promise<void> {
   const path = pathOnly(req.url)
   if (PUBLIC_PATHS.has(path)) return
@@ -102,7 +121,19 @@ export async function verifyBearer(req: FastifyRequest, reply: FastifyReply): Pr
     reply.code(401).send({ error: 'missing_token' })
     return
   }
-  if (OPERATOR_TOKEN_PATHS.has(path) && matchesOperatorToken(token)) return
+  if (matchesOperatorToken(token)) {
+    if (OPERATOR_TOKEN_PATHS.has(path)) return
+    const zoneId = operatorZone(req.method, path)
+    if (zoneId) {
+      req.caracalAuth = {
+        zoneId,
+        scopes: [cfg.requiredScope, 'coordinator.admin'],
+        subject: OPERATOR_SUBJECT,
+        clientId: OPERATOR_SUBJECT,
+      }
+      return
+    }
+  }
   let payload: Awaited<ReturnType<typeof jwtVerify>>['payload']
   let tokenZone: string
   try {

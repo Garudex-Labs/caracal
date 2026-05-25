@@ -5,7 +5,7 @@
 
 import { existsSync, readFileSync } from 'node:fs';
 import { homedir, platform } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 
 export function readEnvFile(path: string): Record<string, string> {
   if (!existsSync(path)) return {};
@@ -46,9 +46,23 @@ export interface DiscoverTokenOptions {
   preferGenerated?: boolean;
 }
 
+function repoRoot(): string | undefined {
+  if (process.env.CARACAL_REPO_ROOT) return process.env.CARACAL_REPO_ROOT;
+  let dir = process.cwd();
+  while (true) {
+    if (existsSync(join(dir, 'pnpm-workspace.yaml')) && existsSync(join(dir, 'infra', 'secrets', 'files'))) {
+      return dir;
+    }
+    const parent = dirname(dir);
+    if (parent === dir) return undefined;
+    dir = parent;
+  }
+}
+
 function readGeneratedSecret(fileName: string): string | undefined {
-  if (process.env.CARACAL_REPO_ROOT) {
-    const dev = readSecretFile(join(process.env.CARACAL_REPO_ROOT, 'infra', 'secrets', 'files', fileName));
+  const root = repoRoot();
+  if (root) {
+    const dev = readSecretFile(join(root, 'infra', 'secrets', 'files', fileName));
     if (dev) return dev;
   }
   return readSecretFile(join(installedHome(), 'secrets', fileName));
