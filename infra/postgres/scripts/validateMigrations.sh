@@ -61,4 +61,4 @@ WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'caracal_audit_ci');
 \gexec
 GRANT caracalAudit TO caracal_audit_ci;
 SQL
-DATABASE_URL="${DATABASE_URL}" AUDIT_DATABASE_URL="${AUDIT_DATABASE_URL}" "${ROOT}/infra/postgres/scripts/verify.sh"
+DATABASE_URL="${DATABASE_URL}" AUDIT_DATABASE_URL="${AUDIT_DATABASE_URL}" bash "${ROOT}/infra/postgres/scripts/verify.sh"

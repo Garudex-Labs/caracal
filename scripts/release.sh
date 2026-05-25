@@ -45,6 +45,10 @@ fi
 git fetch --tags --quiet origin
 if [[ "$mode" == "release" ]]; then
     git pull --ff-only origin main
+    if [[ "$(git rev-parse HEAD)" != "$(git rev-parse origin/main)" ]]; then
+        say_error "release: local main does not match origin/main after pull"
+        exit 1
+    fi
 fi
 
 today="$(date -u +%Y.%m.%d)"
@@ -64,6 +68,10 @@ else
     tag="${prefix}.$((max_suffix + 1))"
 fi
 version="${tag#v}"
+if git ls-remote --exit-code --tags origin "refs/tags/${tag}" >/dev/null 2>&1; then
+    say_error "release: remote tag already exists: ${tag}"
+    exit 1
+fi
 
 pending="$(find .changeset -maxdepth 1 -name '*.md' ! -name 'README.md' 2>/dev/null | wc -l | tr -d ' ')"
 
@@ -177,6 +185,25 @@ writeFileSync(out, `${JSON.stringify(manifest, null, 2)}\n`);
 NODE
 }
 
+assertReleaseCommit() {
+    local files
+    test -f "releases/$tag/manifest.json" || { say_error "release: manifest missing for ${tag}"; exit 1; }
+    node scripts/validateReleaseManifest.mjs "releases/$tag/manifest.json"
+    files="$(git diff-tree --no-commit-id --name-only -r HEAD)"
+    grep -Fx "releases/$tag/manifest.json" <<<"$files" >/dev/null || {
+        say_error "release: release commit must include releases/$tag/manifest.json"
+        exit 1
+    }
+    grep -Fx "infra/helm/caracal/Chart.yaml" <<<"$files" >/dev/null || {
+        say_error "release: release commit must include stamped Helm Chart.yaml"
+        exit 1
+    }
+    grep -Fx "infra/helm/caracal/values.yaml" <<<"$files" >/dev/null || {
+        say_error "release: release commit must include stamped Helm values.yaml"
+        exit 1
+    }
+}
+
 if [[ "$mode" == "dryrun" ]]; then
     if [[ "$pending" != "0" ]]; then
         pnpm changeset status
@@ -206,11 +233,15 @@ git add -A
 if ! git diff --cached --quiet; then
     git commit -m "release: ${tag}"
 fi
+assertReleaseCommit
 git tag -a "${tag}" -m "${tag}"
-git push origin main
-git push origin "${tag}"
+if ! git push --atomic origin main "refs/tags/${tag}"; then
+    say_error "release: atomic push failed; main and ${tag} were not both accepted"
+    say_info "Check branch protection, tag protection, and whether ${tag} appeared remotely before retrying."
+    exit 1
+fi
 
 say_success "pushed ${tag}"
 say_info "GitHub Actions will publish GHCR images, release archives, and the GitHub Release"
-say_info "Publish npm and PyPI packages with scripts/publishNpm.sh and .github/workflows/publishPypi.yml"
+say_info "Publish npm and PyPI packages with protected publishNpm.yml and publishPypi.yml workflows"
 say_label "monitor at https://github.com/Garudex-Labs/caracal/actions"
