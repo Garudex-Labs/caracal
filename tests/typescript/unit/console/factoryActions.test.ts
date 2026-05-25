@@ -225,6 +225,8 @@ describe('resources actions', () => {
     const body = list.render({ app, size: { rows: 20, cols: 100 }, status: '' }).join('\n')
 
     expect(body).toContain('demo-api')
+    expect(body).toContain('Demo API')
+    expect(body).not.toContain('res-demo')
     expect(body).not.toContain('caracal-control')
   })
 
@@ -328,6 +330,29 @@ describe('policySets actions', () => {
 })
 
 describe('grants actions', () => {
+  it('renders application and resource names instead of internal IDs', async () => {
+    const { client, ctx } = newCtx()
+    client.grants.list.mockResolvedValueOnce([
+      { id: 'g1', application_id: 'app-1', user_id: 'u', resource_id: 'res-1', scopes: ['read'], status: 'active' },
+    ])
+    client.applications.list.mockResolvedValueOnce([
+      { id: 'app-1', name: 'GitHub OAuth Client', registration_method: 'managed', credential_type: 'token', traits: [] },
+    ])
+    client.resources.list.mockResolvedValueOnce([
+      { id: 'res-1', identifier: 'payments', name: 'Payments API', scopes: ['read'] },
+    ])
+    const list = grantsView(ctx as unknown as Parameters<typeof grantsView>[0]) as ListView<unknown>
+    const app = fakeApp()
+
+    await list.init(app)
+    const body = list.render({ app, size: { rows: 20, cols: 120 }, status: '' }).join('\n')
+
+    expect(body).toContain('GitHub OAuth Client')
+    expect(body).toContain('Payments API')
+    expect(body).not.toContain('app-1')
+    expect(body).not.toContain('res-1')
+  })
+
   it('n opens grant form with pickers for application and resource references', async () => {
     const { ctx } = newCtx()
     const list = grantsView(ctx as unknown as Parameters<typeof grantsView>[0]) as ListView<unknown>

@@ -35,7 +35,7 @@ import {
   resolveServiceUrl,
   type RuntimeConfig,
 } from '@caracalai/engine/runtime-config'
-import { pad, truncate, ui } from '../ansi.ts'
+import { pad, ui } from '../ansi.ts'
 import { explainError, maskSecretField } from '../errors.ts'
 import type { Key } from '../keys.ts'
 import type { App, View, ViewContext } from '../screen.ts'
@@ -43,7 +43,7 @@ import type { ConsoleStateStore } from '../state.ts'
 import { DetailView } from './detail.ts'
 import { DoctorView } from './doctor.ts'
 import { ConfirmView, FormView, type Field } from './form.ts'
-import { appendCsv, pickFromList } from './picker.ts'
+import { appendCsv, EntityPickerView, pickFromList } from './picker.ts'
 import {
   agentsView,
   applicationsView,
@@ -162,12 +162,11 @@ function zoneFieldPicker(client: AdminClient): Field['pick'] {
     'pick zone',
     () => client.zones.list(),
     [
-      { header: 'slug', width: 20, value: (row) => row.slug },
       { header: 'name', width: 24, value: (row) => row.name },
-      { header: 'id', value: (row) => row.id },
+      { header: 'slug', width: 20, value: (row) => row.slug },
     ],
     (row) => row.id,
-    (row) => row.slug,
+    (row) => row.name,
   )
 }
 
@@ -750,12 +749,14 @@ export class MenuView implements View {
   private readonly client: AdminClient
   private readonly state?: ConsoleStateStore | undefined
   private zoneId: string | undefined
+  private zoneLabel: string | undefined
   private cursor = 0
 
   constructor(client: AdminClient, zoneId: string | undefined, state?: ConsoleStateStore) {
     this.client = client
     this.state = state
     this.zoneId = zoneId
+    this.zoneLabel = state?.selectedZoneSlug()
     this.cursor = state?.menuCursor() ?? 0
   }
 
@@ -783,6 +784,7 @@ export class MenuView implements View {
 
   setZone(id: string, slug: string | undefined, app: App): void {
     this.zoneId = id
+    this.zoneLabel = slug ?? id
     this.state?.setSelectedZone(id, slug)
     app.setStatus(`zone set to ${slug ?? id}`)
     app.invalidate()
@@ -792,7 +794,7 @@ export class MenuView implements View {
     const lines: string[] = []
     lines.push('')
     lines.push(' ' + ui.title('Caracal') + '  ' + ui.muted('Inspect and manage identity resources.'))
-    const zone = this.zoneId ? ui.success(this.zoneId) : ui.warn('no zone selected')
+    const zone = this.zoneId ? ui.success(this.zoneLabel ?? this.zoneId) : ui.warn('no zone selected')
     lines.push(' ' + ui.muted('zone') + '  ' + zone)
     lines.push(' ' + ui.muted('Use arrow keys or hotkeys. Press z to choose a zone.'))
     lines.push('')
@@ -845,54 +847,20 @@ export class MenuView implements View {
     try {
       const zones = await this.client.zones.list()
       if (zones.length === 0) { app.setStatus('no zones: open Zones (n) to create one', 'error'); return }
-      app.push(new ZonePickerView(zones, (id, slug) => this.setZone(id, slug, app)))
+      app.push(new EntityPickerView<Zone>({
+        title: 'select zone',
+        load: async () => zones,
+        rows: zones,
+        value: (row) => row.id,
+        label: (row) => row.name,
+        description: (row) => `slug:${row.slug}`,
+        onPick: (id) => {
+          const zone = zones.find((row) => row.id === id)
+          this.setZone(id, zone?.slug, app)
+        },
+      }))
     } catch (err) {
       app.setStatus(`zone list: ${explainError(err)}`, 'error')
     }
-  }
-}
-
-class ZonePickerView implements View {
-  readonly title = 'select zone'
-  private cursor = 0
-  private offset = 0
-  private readonly zones: Zone[]
-  private readonly pick: (id: string, slug: string) => void
-
-  constructor(zones: Zone[], pick: (id: string, slug: string) => void) {
-    this.zones = zones
-    this.pick = pick
-  }
-
-  hints(): string[] { return ['↑/↓:move', 'enter:select', 'esc:back'] }
-
-  render(ctx: ViewContext): string[] {
-    const lines: string[] = ['', ' ' + ui.title('Pick a zone to administer'), '']
-    const visible = Math.max(1, ctx.size.rows - 2)
-    if (this.cursor < this.offset) this.offset = this.cursor
-    if (this.cursor >= this.offset + visible) this.offset = this.cursor - visible + 1
-    for (let i = this.offset; i < Math.min(this.zones.length, this.offset + visible); i++) {
-      const z = this.zones[i]!
-      const mark = i === this.cursor ? ui.accent('>') : ' '
-      const text = `${pad(z.slug, 20)} ${ui.muted(z.id)}  ${truncate(z.name ?? '', Math.max(10, ctx.size.cols - 60))}`
-      lines.push(` ${mark} ${text}`)
-    }
-    return lines
-  }
-
-  onKey(key: Key, ctx: ViewContext): void {
-    if (key === 'up' || key === 'k') { this.cursor = Math.max(0, this.cursor - 1); return }
-    if (key === 'down' || key === 'j') { this.cursor = Math.min(this.zones.length - 1, this.cursor + 1); return }
-    if (key === 'pgup') { this.cursor = Math.max(0, this.cursor - 10); return }
-    if (key === 'pgdn') { this.cursor = Math.min(this.zones.length - 1, this.cursor + 10); return }
-    if (key === 'home' || key === 'g') { this.cursor = 0; return }
-    if (key === 'end' || key === 'G') { this.cursor = this.zones.length - 1; return }
-    if (key === 'enter') {
-      const z = this.zones[this.cursor]!
-      this.pick(z.id, z.slug)
-      ctx.app.pop()
-      return
-    }
-    if (key === 'left' || key === 'esc') ctx.app.pop()
   }
 }

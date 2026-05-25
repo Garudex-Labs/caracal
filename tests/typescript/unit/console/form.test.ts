@@ -139,8 +139,8 @@ describe('FormView list field', () => {
 
 describe('FormView picker fields', () => {
   it('opens focused field picker with right arrow and lets it set the value', async () => {
-    const pick = vi.fn((_app: App, setValue: (value: string) => void) => {
-      setValue('picked-id')
+    const pick = vi.fn((_app: App, setValue: (value: string, label?: string) => void) => {
+      setValue('picked-id', 'Payments API')
     })
     const view = new FormView({
       title: 't',
@@ -152,6 +152,31 @@ describe('FormView picker fields', () => {
     expect(pick).toHaveBeenCalled()
     expect(view.values_().application_id).toBe('picked-id')
     expect(view.hints()).toContain('→:pick')
+    const lines = view.render({ app, size: { rows: 10, cols: 80 }, status: '' }).join('\n')
+    expect(lines).toContain('Payments API')
+    expect(lines).toContain('id:hidden')
+    expect(lines).not.toContain('picked-id')
+  })
+
+  it('reveals picker IDs only when requested', async () => {
+    const view = new FormView({
+      title: 't',
+      fields: [{
+        key: 'resource_id',
+        label: 'resource',
+        kind: 'text',
+        default: 'res-1',
+        pick: vi.fn(),
+        resolve: async () => 'Payments API',
+      }],
+      onSubmit: async () => {},
+    })
+    const app = fakeApp()
+    await view.init(app)
+    await view.onKey('V', { app, size: { rows: 10, cols: 80 }, status: '' })
+    const lines = view.render({ app, size: { rows: 10, cols: 80 }, status: '' }).join('\n')
+    expect(lines).toContain('Payments API')
+    expect(lines).toContain('res-1')
   })
 })
 

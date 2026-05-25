@@ -6,6 +6,7 @@
 import { describe, it, expect, vi } from 'vitest'
 import { ListView } from '../../../../apps/console/src/views/list.ts'
 import { DetailView } from '../../../../apps/console/src/views/detail.ts'
+import { EntityPickerView } from '../../../../apps/console/src/views/picker.ts'
 import type { App } from '../../../../apps/console/src/screen.ts'
 import type { ConsoleStateStore } from '../../../../apps/console/src/state.ts'
 
@@ -79,6 +80,24 @@ describe('ListView', () => {
     expect(lines[1]).toContain('a')
     expect(lines[1]).toContain('Alpha')
     expect(lines[2]).toContain('b')
+  })
+
+  it('hides row IDs until reveal is requested', async () => {
+    const app = fakeApp()
+    const view = new ListView<{ id: string; name: string }>({
+      title: 'things',
+      columns: [{ header: 'name', value: (r) => r.name }],
+      load: async () => [{ id: 'res-1', name: 'Payments API' }],
+      rowId: (row) => row.id,
+      rowName: (row) => row.name,
+    })
+    await view.init(app)
+    let lines = view.render({ app, size: { rows: 10, cols: 80 }, status: '' }).join('\n')
+    expect(lines).toContain('Payments API')
+    expect(lines).not.toContain('res-1')
+    await view.onKey('V', { app, size: { rows: 10, cols: 80 }, status: '' })
+    lines = view.render({ app, size: { rows: 10, cols: 80 }, status: '' }).join('\n')
+    expect(lines).toContain('res-1')
   })
 
   it('moves cursor with j/k and triggers onEnter on enter', async () => {
@@ -157,6 +176,34 @@ describe('ListView', () => {
       await view.onKey(k, ctx)
       expect((view as unknown as { cursor: number }).cursor).toBe(0)
     }
+  })
+})
+
+describe('EntityPickerView', () => {
+  it('searches by name and selects the hidden internal value', async () => {
+    const app = fakeApp()
+    const picked: string[] = []
+    const view = new EntityPickerView<{ id: string; name: string; description: string }>({
+      title: 'pick resource',
+      rows: [
+        { id: 'res-1', name: 'Payments API', description: 'prod' },
+        { id: 'res-2', name: 'Billing API', description: 'dev' },
+      ],
+      load: async () => [],
+      value: (row) => row.id,
+      label: (row) => row.name,
+      description: (row) => row.description,
+      onPick: (value) => { picked.push(value) },
+    })
+
+    await view.onKey('B', { app, size: { rows: 10, cols: 80 }, status: '' })
+    const body = view.render({ app, size: { rows: 10, cols: 80 }, status: '' }).join('\n')
+    expect(body).toContain('Billing API')
+    expect(body).not.toContain('Payments API')
+    expect(body).toContain('id:hidden')
+
+    await view.onKey('enter', { app, size: { rows: 10, cols: 80 }, status: '' })
+    expect(picked).toEqual(['res-2'])
   })
 })
 

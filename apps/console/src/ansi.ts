@@ -3,6 +3,8 @@
 //
 // ANSI escape sequences and a minimal screen abstraction for the Console.
 
+import { Buffer } from 'node:buffer'
+
 const ESC = '\u001b['
 
 export const ansi = {
@@ -46,6 +48,10 @@ export function visibleLength(s: string): number {
 
 export function sanitizeAnsi(s: string): string {
   return s.replace(CONTROL_PATTERN, '')
+}
+
+export function copyToClipboard(text: string): void {
+  process.stdout.write(`\u001b]52;c;${Buffer.from(text, 'utf8').toString('base64')}\u0007`)
 }
 
 export function pad(s: string, width: number): string {
