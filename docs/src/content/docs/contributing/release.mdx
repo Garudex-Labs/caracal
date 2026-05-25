@@ -23,7 +23,7 @@ Git tags use a leading `v`:
 - stable: `vYYYY.MM.DD[.N]`
 - rc: `vYYYY.MM.DD[.N]-rc.<number>` or `vYYYY.MM.DD[.N]-rc.sha<gitsha>`
 
-The tag drives binaries, OCI image tags, GitHub Releases, and release manifests. Package metadata drives npm and PyPI publishing.
+The tag drives binaries, OCI image tags, GitHub Releases, Helm `appVersion`/image values, and release manifests. Package metadata drives npm and PyPI publishing.
 
 ---
 
@@ -40,7 +40,7 @@ git push origin HEAD
 git push origin vYYYY.MM.DD-rc.sha<gitsha>
 ```
 
-`scripts/rc.sh prepare` writes `releases/<rc-tag>/manifest.json`, stamps npm package versions as `<base>-rc.sha<gitsha>`, and stamps PyPI versions as `<base>rc0+sha<gitsha>`. Use `scripts/rc.sh version` only when you need to preview the manifest without stamping package metadata. Pushing the rc tag runs the release workflow, publishes GHCR images, and creates a GitHub Release for rc.
+`scripts/rc.sh prepare` writes `releases/<rc-tag>/manifest.json`, stamps Helm metadata, stamps npm package versions as `<base>-rc.sha<gitsha>`, and stamps PyPI versions as `<base>rc0+sha<gitsha>`. Use `scripts/rc.sh version` only when you need to preview the manifest without stamping package or Helm metadata. Pushing the rc tag runs the release workflow, publishes GHCR images, and creates a GitHub Release for rc.
 
 Publish packages after `prepare`:
 
@@ -71,14 +71,34 @@ scripts/release.sh
 scripts/release.sh --dry-run
 ```
 
-The script applies pending changesets, writes `releases/<tag>/manifest.json`, tags the release, and pushes `main` plus the tag. The tag triggers `release.yml` in GitHub Actions. The stable pipeline:
+The script applies pending changesets, stamps Helm metadata, writes `releases/<tag>/manifest.json`, tags the release, and pushes `main` plus the tag. The tag triggers `release.yml` in GitHub Actions. The stable pipeline:
 
 1. Verifies the pushing actor is listed in `.github/MAINTAINERS`.
 2. Builds runtime/console binaries and container images in parallel.
-3. Pushes images to GHCR with SLSA provenance and SBOM.
-4. Creates a GitHub Release with generated release notes, binaries, checksums, and provenance attestations.
+3. Pushes immutable image tags to GHCR with SLSA provenance and SBOM.
+4. Waits for the protected `release-approval` environment.
+5. Creates a GitHub Release with generated release notes, binaries, checksums, and provenance attestations.
+6. Runs release validation for rc and stable tags.
+7. Promotes stable images to the `vYYYY.MM` series tag and `latest` only after validation passes.
 
 Only maintainers cut stable releases. Do not push CalVer tags from feature branches.
+
+### Release approval and repository protection
+
+Stable releases are production changes. The `release-approval` environment must require at least one approving maintainer who did not push the release tag. The approval confirms that the tag points to a commit reachable from `main`, the manifest is present under `releases/<tag>/manifest.json`, pending changesets have been applied, and release notes describe migrations, compatibility changes, and rollback constraints.
+
+Configure repository protection with:
+
+| Control | Required setting |
+| --- | --- |
+| Stable release environment | `release-approval` with required reviewers |
+| RC release environment | `rc-release`; reviewer protection is optional |
+| PyPI publish environment | `pypi` with required reviewers |
+| npm publish environment | `npm-publish` with required reviewers |
+| Protected tags | `v*`; block deletion and force-push |
+| Release branches | `main` requires pull request review and required status checks |
+
+The actor who pushes a stable tag must not approve the `release-approval`, `pypi`, or `npm-publish` environment for that release. If an emergency requires bypassing a protection rule, record the reason in the release notes and run the full validation workflow before announcing the release as stable.
 
 ---
 
@@ -94,7 +114,7 @@ The shell (`caracal`) and Console (`caracal-console`) are compiled to self-conta
 | `darwin-arm64` | `caracal-shell-darwin-arm64-vYYYY.MM.DD.tar.gz` | `caracal-console-darwin-arm64-vYYYY.MM.DD.tar.gz` |
 | `windows-amd64` | `caracal-shell-windows-amd64-vYYYY.MM.DD.zip` | `caracal-console-windows-amd64-vYYYY.MM.DD.zip` |
 
-Archives are attached to the GitHub Release with a `SHA256SUMS` file and SLSA provenance attestations. rc tags create GitHub Releases for rc; stable tags create GitHub Releases for stable.
+Archives are attached to the GitHub Release with `manifest.json`, release installer copies, a `SHA256SUMS` file covering all release assets, and SLSA provenance attestations. rc tags create GitHub Releases for rc; stable tags create GitHub Releases for stable.
 
 ### Install
 
@@ -108,7 +128,7 @@ curl -fsSL https://raw.githubusercontent.com/Garudex-Labs/caracal/main/install-c
 iwr -useb https://raw.githubusercontent.com/Garudex-Labs/caracal/main/install-console.ps1 | iex
 ```
 
-The installers detect OS and architecture, resolve the latest release tag from the GitHub API (or accept `--version`/`-Version`), download the matching shell and selected tool archives, verify them against `SHA256SUMS`, extract them, and place the binaries on `PATH`.
+The installers detect OS and architecture, resolve the latest release tag from the GitHub API (or accept `--version`/`-Version`), download the matching shell and selected tool archives, verify them against `SHA256SUMS`, optionally verify GitHub artifact provenance, extract them, and place the binaries on `PATH`.
 
 ### Upgrade
 
@@ -138,19 +158,43 @@ Runtime and service container images are published to GitHub Container Registry 
 | `ghcr.io/garudex-labs/caracal-postgres` | PostgreSQL image |
 | `ghcr.io/garudex-labs/caracal-redis` | Redis image |
 
-All images are multi-arch (`linux/amd64`, `linux/arm64`) and are tagged with the CalVer version, the `vYYYY.MM` series, and `latest`.
+All images are multi-arch (`linux/amd64`, `linux/arm64`). The release workflow pushes the immutable CalVer tag first. Stable releases promote the same image manifests to the `vYYYY.MM` series and `latest` tags only after `release-approval` and release validation pass. rc releases never move `latest`.
+
+---
+
+## Helm chart metadata
+
+The Helm chart uses SemVer-compatible `Chart.yaml` versions and CalVer application versions. Release automation stamps:
+
+| Field | Stable example | Meaning |
+| --- | --- | --- |
+| `Chart.yaml version` | `2026.5.14` | Helm package version; numeric components are normalized for SemVer compatibility |
+| `Chart.yaml appVersion` | `2026.05.14` | Caracal release version without the leading `v` |
+| `values.yaml global.tag` | `2026.05.14` | Image tag suffix; templates render images as `v<global.tag>` |
+| `manifest.json helm.imageTag` | `2026.05.14` | Source of truth for Helm image alignment |
+
+Do not edit chart versions by hand during a release. `scripts/release.sh` and `scripts/rc.sh prepare` stamp the chart and manifest from the same release identity. The release workflow rejects tags when `Chart.yaml`, `values.yaml`, and `manifest.json` disagree.
+
+Validate committed manifests locally:
+
+```sh
+node scripts/validateReleaseManifest.mjs
+```
 
 ---
 
 ## npm and PyPI packages
 
-npm and PyPI packages are published from a maintainer workstation using the scripts in `scripts/`. Each script diffs the current `HEAD` against the latest reachable release tag and selects only changed publishable package directories by default. Use `--base <ref>` to override the diff base, `--select` to manually narrow the detected set, or `--all` only for an intentional full-package publish. The scripts prompt for the registry token, build the selected packages, upload them, and skip versions already present on the registry. npm rc versions publish with the `rc` dist-tag; stable versions publish with `latest`.
+npm and PyPI package publishing must run through protected release automation for stable releases. The local scripts in `scripts/` are maintainer tools for package selection, local dry-runs, and emergency recovery; they must not be the normal stable publishing path. Each protected publish workflow diffs the current `HEAD` against the latest reachable release tag and selects only changed publishable package directories by default. Use `--base <ref>` to override the diff base, `--select` to manually narrow the detected set, or `--all` only for an intentional full-package publish. npm rc versions publish with the `rc` dist-tag; stable versions publish with `latest`.
 
 ```sh
-./scripts/publishNpm.sh
-./scripts/publishPypi.sh             # PyPI
-./scripts/publishPypi.sh --testpypi  # TestPyPI
+gh workflow run publishNpm.yml -f package=changed -f dryRun=true
+gh workflow run publishNpm.yml -f package=changed
+gh workflow run publishPypi.yml -f package=changed -f dryRun=true
+gh workflow run publishPypi.yml -f package=changed
 ```
+
+The local scripts refuse stable publishing unless `CARACAL_ALLOW_LOCAL_STABLE_PUBLISH=1` is set. Use that override only for approved emergency recovery after recording the reason in the release notes.
 
 **npm packages** (`@caracalai/*`): `core`, `oauth`, `admin`, `identity`, `revocation`, `sdk`, `transport-mcp`, `transport-a2a`, `mcp-express`, `mcp-fastmcp`, `tokenstate-postgres`, `revocation-redis`. Browse at [npmjs.com/~caracal-run](https://www.npmjs.com/~caracal-run).
 
@@ -164,6 +208,17 @@ The release pipeline generates SLSA Level 3 provenance attestations for binaries
 
 ```sh
 gh attestation verify caracal-console-linux-amd64-v2026.05.12.tar.gz --repo garudex-labs/caracal
+```
+
+High-assurance installs fail closed when provenance cannot be verified:
+
+```sh
+curl -fsSLO https://github.com/Garudex-Labs/caracal/releases/download/v2026.05.12/install-console.sh
+sh install-console.sh --version v2026.05.12 --require-provenance
+```
+
+```powershell
+.\install-console.ps1 -Version v2026.05.12 -RequireProvenance
 ```
 
 ---
@@ -185,11 +240,12 @@ Tags must point to commits reachable from `main`.
 
 Every release tag has a directory under `caracal/releases/<tag>/` that owns all of its metadata:
 
-- `manifest.json`: pins every artifact (binaries, containers, PyPI, npm) to a mode and version, committed alongside the changeset version bump or rc preparation commit.
+- `manifest.json`: pins every artifact (binaries, containers, Helm metadata, PyPI, npm) to a mode and version, committed alongside the changeset version bump or rc preparation commit.
+- `../schema/manifest.schema.json`: documents the manifest shape required for new releases.
 - `validation.md`: the aggregated post-release validation report.
 - `findings/*.jsonl`: raw per-area findings.
 
-The `.github/workflows/postReleaseValidation.yml` workflow triggers after `release.yml` completes successfully for a release tag, or via `workflow_dispatch`, and opens a PR that adds `validation.md` and `findings/` to that directory.
+The `.github/workflows/postReleaseValidation.yml` workflow runs inside `release.yml` for rc and stable tags, or independently via `workflow_dispatch`, and opens a PR that adds `validation.md` and `findings/` to that directory. Blocker findings fail release validation and prevent stable image promotion.
 
 Run a single check locally:
 

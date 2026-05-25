@@ -8,11 +8,11 @@ This page describes the supported upgrade path for self-hosted Caracal. Follow i
 
 ## Versioning
 
-Caracal releases follow `vYYYY.MM.DD` tags. The Helm chart and container images share the same tag. Service images are built reproducibly from a single commit; mixing tags across services is not supported.
+Caracal releases follow `vYYYY.MM.DD` tags. The release manifest pins the Helm chart metadata, the chart `appVersion`, and the image tag together. Service images are built from a single commit and use `v<appVersion>` tags; mixing tags across services is not supported.
 
 Before an upgrade, verify:
 
-- Source tag is the one you intend to deploy: `helm show chart caracal/caracal --version <new>`.
+- Source tag is the one you intend to deploy: compare `helm show chart caracal/caracal --version <chart-version>` with `releases/<tag>/manifest.json`.
 - All currently running services report the same `appVersion` via `caracal status --json`.
 - A current Postgres backup exists (see [Backup and Retention](../backup-retention/)).
 
@@ -38,7 +38,7 @@ Every check must be `ok` or `warn`. A `fail` means the new release will refuse t
 
 The Helm chart runs migrations through a `pre-upgrade` hook Job before any service Pod is updated. The Job uses a Postgres advisory lock so concurrent runners (e.g. blue-green or canary) serialize automatically.
 
-Schema migrations are forward-only. Caracal does not ship `down` migrations; rollback after a migration has applied is by data restore, not schema reverse.
+Schema migrations are forward-only in production. Checked-in `*.down.sql` files are developer-local reset aids only; Compose, Helm, CI release paths, and the migration Job do not call them. Rollback after a migration has applied is by data restore, not schema reverse.
 
 The Job is configured via:
 
@@ -93,6 +93,8 @@ Use the Console Doctor view to inspect failing checks.
 
 Expect empty output. Then run a synthetic request through Gateway end-to-end (see [Failure Modes](../failure-modes/) for the canonical curl). If anything fails, treat as an incident and follow rollback.
 
+Release CI runs `infra/postgres/scripts/validateMigrations.sh` against PostgreSQL 18 for every migration change. The gate applies all migrations, re-runs them to prove idempotency, starts concurrent migrators to exercise advisory locking, verifies schema invariants, and fails if production tooling references a `*.down.sql` file.
+
 ## Rollback boundaries
 
 | Situation | Rollback path |
@@ -101,7 +103,7 @@ Expect empty output. Then run a synthetic request through Gateway end-to-end (se
 | Migration Job completed, services failing to start | `helm rollback` reverts images. The new schema is **forward-compatible by design**: the prior `appVersion` reads the new schema cleanly. Investigate root cause before re-attempting. |
 | Migration Job completed, new schema is incompatible with prior services in your environment | Restore Postgres from the pre-upgrade backup (see [Backup and Retention](../backup-retention/)). This is the only path that reverses schema. RPO = time since last backup. |
 
-Caracal explicitly does not provide reverse migrations. Operators relying on quick schema reversal must hold a current pre-upgrade base backup; without one, the only recovery is replay from S3 audit export plus operator data re-entry.
+Caracal explicitly does not provide production reverse migrations. Operators relying on quick schema reversal must hold a current pre-upgrade base backup; without one, the only recovery is replay from S3 audit export plus operator data re-entry.
 
 ## Canary upgrades
 

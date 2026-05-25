@@ -12,6 +12,15 @@ Migrations are at `infra/postgres/migrations/` and numbered from `0001` upward. 
 
 Migrations run in sequence. Do not skip or reorder them. To apply migrations outside Compose or Helm, run the Postgres image entrypoint `/usr/local/bin/caracal-migrate` with `PGHOST`, `PGPORT`, `PGUSER`, `PGDATABASE`, and `PGPASSWORD_FILE` or `PGPASSFILE`.
 
+Production migrations are forward-only. Files ending in `.down.sql` are developer-local reset aids only and are not referenced by Compose, Helm, or release CI. After an applied production migration, schema rollback requires restoring Postgres from backup.
+
+Validate migration changes before review:
+
+```bash
+PGHOST=localhost PGPORT=5432 PGUSER=caracal PGDATABASE=caracal PGPASSWORD=caracal \
+  bash infra/postgres/scripts/validateMigrations.sh
+```
+
 Current migration range: `0001_init` → `0025_admin_token_argon2`.
 
 ---

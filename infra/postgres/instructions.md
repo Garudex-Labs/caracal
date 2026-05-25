@@ -10,17 +10,18 @@
 
 ## Required
 - Must use PostgreSQL 18 and port 5432.
-- Must add new migrations as paired `NNNN_*.up.sql` and `NNNN_*.down.sql` files.
+- Must add production schema changes as forward-only `NNNN_*.up.sql` files.
+- Must keep `NNNN_*.down.sql` files as developer-local reset aids only.
 - Must keep committed migrations immutable after merge.
 - Must preserve audit append-only behavior and policy-version immutability.
 - Must store secrets only as ciphertext with nonce and DEK metadata.
 
 ## Forbidden
 - Must not edit a committed migration in place.
+- Must not reference `*.down.sql` from production tooling, Helm, Compose, or CI release paths.
 - Must not grant UPDATE or DELETE on append-only audit records.
 - Must not store plaintext private keys, credentials, tokens, or subject claims.
 - Must not place service query code in this directory.
 
 ## Validation
 - Validate migration changes with the Postgres scripts in `infra/postgres/scripts/`.
-
