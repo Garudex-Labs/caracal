@@ -23,9 +23,9 @@ Pick the session you want to inspect and copy its session ID.
 Open **`audit`** under the `observe` group. Filter events by `agent_session_id` to scope the ledger to one run. The ledger records, in order:
 
 1. `authorization.requested` / `authorization.allowed` / `authorization.denied` — one entry per STS exchange. Includes the resource, the requested scopes, the determining policy set version, and the policy ID that produced the decision.
-2. `action.executed` — one entry per Gateway-mediated call or connector-verified call. Includes status, latency, auth mode, and revocation interruption state.
+2. `action.executed` — one entry per Gateway-mediated call, or per connector-verified call when the protected service emits result audit. Includes status, latency, auth mode, and revocation interruption state.
 
-A run that touched one resource typically produces one authorization event and one action-result event per call. If you see authorization events without matching action results, either the call never reached the upstream or the connector did not write its audit event — both are worth investigating.
+A Gateway-mediated run that touched one resource typically produces one authorization event and one action-result event per call. If you see authorization events without matching action results, either the call never reached the upstream or the service boundary did not write result audit — both are worth investigating.
 
 ## 3. Explain a single decision
 

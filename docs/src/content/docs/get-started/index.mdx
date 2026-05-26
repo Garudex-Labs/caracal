@@ -20,6 +20,14 @@ Other provider flows fit into three buckets: connector-verified services you own
 
 For a first integration, keep the mental model simple: use Console guided setup to create the zone, agent app, protected resource, policy, and runtime profile; use the SDK or `caracal run` to run the workload; send protected calls through Gateway. SDK middleware is for propagating already-verified context, not for replacing the Gateway enforcement boundary.
 
+## Choose the path for your role
+
+| Role | Start here | What to avoid at first |
+| --- | --- | --- |
+| Application developer | [Quickstart](./quickstart/) → [Five-Minute Setup](./five-minute-setup/) → [First Integration](./first-integration/) | Manual Control API calls, connector packages, and provider adapters before the Gateway path works. |
+| Platform team | [Installation](./installation/) → [CLI and Console](/runtime-console/cli-and-console/) → [Configuration File](/runtime-console/config-file/) | Treating `caracal.toml` as product state; it is runtime input for workloads and SDKs. |
+| Security or operator | [What Caracal Does](./what-caracal-does/) → [Author a Rego Policy](/guides/author-policy/) → [Observability](/runtime-console/observability/) | Approving a direct connector or application-managed provider call without mandate verification, revocation, and result-audit evidence. |
+
 ## In this section
 
 | Page | What you will do |

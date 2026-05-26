@@ -4,7 +4,7 @@ description: A FastAPI and LangGraph multi-agent swarm that processes a weekly i
 pageType: workflow
 ---
 
-The Lynx Capital example is a complete Python application at `examples/lynxCapital/` that runs a realistic weekly payout cycle: 4,200 invoices, 5 geographic regions, approximately $8.5M USD in payments, multi-currency settlement, regional tax compliance, vendor contract verification, and threshold-based routing across banking rails. Caracal is real in this example: the Python SDK, STS token exchange, coordinator sessions, gateway resource routing, Console, and control API are the actual integration path. Local provider fixtures are isolated under `_mock/`; application code treats providers through normal clients and transports.
+The Lynx Capital example is a complete Python reference lab at `examples/lynxCapital/` that runs a realistic weekly payout cycle: 4,200 invoices, 5 geographic regions, approximately $8.5M USD in payments, multi-currency settlement, regional tax compliance, vendor contract verification, and threshold-based routing across banking rails. Caracal is real in this example: the Python SDK, STS token exchange, coordinator sessions, gateway resource routing, Console, and control API are the actual integration path. Local provider fixtures are isolated under `_mock/`; application code treats providers through normal clients and transports.
 
 The application is not a tutorial scaffold. It is a production-pattern reference that demonstrates how Caracal's authorization model maps to real enterprise workloads: specifically the patterns of hierarchical agent spawning, delegation scope enforcement, ephemeral single-operation agents, and application-level provider clients across REST, gRPC, MCP, and SSE fixtures.
 
@@ -88,8 +88,8 @@ Install the released Runtime and Console, then start the Caracal stack:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Garudex-Labs/caracal/main/install-console.sh | sh
-curl -fsSL https://raw.githubusercontent.com/Garudex-Labs/caracal/main/install-console.sh | sh
 caracal up
+caracal status --ready
 caracal-console
 ```
 
@@ -101,20 +101,9 @@ In the Console, open **Control**, confirm **enable endpoint**, then create or in
 | Control key | `lynx-control` | Real application credential used by Lynx as `application_id` + `app_client_secret` |
 | Resources | `lynx/<provider>` | One protected resource per provider in `config/company.yaml` |
 
-After creating the Lynx zone, control key, and resources in the Console, write
-the control key secret to an owner-only file, then write
-`~/.config/caracal/caracal.toml` from the Console values. The config includes
-SDK resource bindings:
+After creating the Lynx zone, control key, and resources in the Console, use the Console-generated runtime profile contract. Enable **write files** when you want the Console to create the profile and one-time secret file locally; otherwise write the control key secret to an owner-only file and write `~/.config/caracal/caracal.toml` from the Console values. Add one SDK resource binding per Lynx provider:
 
 ```toml
-zone_url = "http://127.0.0.1:8080"
-sts_url = "http://127.0.0.1:8080"
-coordinator_url = "http://127.0.0.1:4000"
-gateway_url = "http://127.0.0.1:8081"
-zone_id = "<zone id from Console>"
-application_id = "<control key client_id>"
-app_client_secret_file = "/home/me/.config/caracal/lynx-client-secret"
-
 [[credentials]]
 env = "LYNX_MERCURY_BANK_TOKEN"
 resource = "lynx/mercury-bank"
@@ -130,9 +119,7 @@ protocol providers use their own local endpoints, such as
 
 ### Start local providers
 
-All 14 external providers run through local fixtures in Docker. The provider
-network joins `caracalData` so the real Caracal gateway can forward REST
-resource calls to provider aliases such as `mercury-bank.mock`:
+All 14 external providers run through deterministic local fixtures in Docker. They are reference-lab fixtures, not Caracal product defaults. The provider network joins `caracalData` so the real Caracal Gateway can forward REST resource calls to provider aliases such as `mercury-bank.mock`:
 
 ```bash
 docker compose -f _mock/docker-compose.yml up -d --build --wait
