@@ -40,6 +40,7 @@ import type { ConsoleStateStore } from '../state.ts'
 import { DetailView } from './detail.ts'
 import { DoctorView } from './doctor.ts'
 import { ConfirmView, FormView, type Field } from './form.ts'
+import { firstSetupView } from './setup.ts'
 import { appendCsv, EntityPickerView, pickFromList } from './picker.ts'
 import {
   agentsView,
@@ -108,6 +109,7 @@ function splitList(list: string): string[] {
 }
 
 const BASE_ENTRIES: Entry[] = [
+  { key: 'f', label: 'first-setup', group: 'start', description: 'Create the first agent app, resource, policy, and runtime profile', needsZone: false, open: firstSetupView },
   { key: '1', label: 'zone',       group: 'manage', description: 'Manage zones', needsZone: false, open: zonesView },
   { key: '2', label: 'app',        group: 'manage', description: 'Manage applications', needsZone: true, open: applicationsView },
   { key: '3', label: 'resource',   group: 'manage', description: 'Manage protected resources', needsZone: true, open: resourcesView },
@@ -137,7 +139,7 @@ function auditExplainEntry(ctx: Ctx): View {
       app.pop()
       app.push(new DetailView({
         title: `audit / ${v.request_id}`,
-        load: () => ctx.client.audit.byRequest(ctx.zoneId, v.request_id!),
+        load: () => ctx.client.audit.explain(ctx.zoneId, v.request_id!),
       }))
     },
   })

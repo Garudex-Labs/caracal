@@ -38,8 +38,8 @@ function fakeApp(): App {
 
 describe('audit explain entry', () => {
   it('submits request_id and pushes a populated DetailView', async () => {
-    const byRequest = vi.fn(async () => ({ request_id: 'req-42', decision: 'allow' }))
-    const client = { audit: { byRequest } } as unknown as AdminClient
+    const explain = vi.fn(async () => ({ request_id: 'req-42', decision: 'allow' }))
+    const client = { audit: { explain } } as unknown as AdminClient
     const menu = new MenuView(client, 'z1')
     const app = fakeApp()
     await menu.onKey('x', { app, size: { rows: 25, cols: 80 }, status: '' })
@@ -57,7 +57,7 @@ describe('audit explain entry', () => {
     expect(body).toContain('req-42')
     expect(body).toContain('Decision')
     expect(body).toContain('allow')
-    expect(byRequest).toHaveBeenCalledWith('z1', 'req-42')
+    expect(explain).toHaveBeenCalledWith('z1', 'req-42')
   })
 
   it('opens audit filters before tailing events', async () => {
