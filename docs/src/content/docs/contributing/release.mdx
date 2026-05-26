@@ -27,6 +27,35 @@ The tag drives binaries, OCI images, GitHub Releases, Helm, and manifests. npm a
 
 ---
 
+## Source of truth
+
+Every published version comes from `release.config.json`. The file pins:
+
+- `product.version` — the CalVer used for binaries, containers, Helm, and the GitHub tag.
+- `packages.npm[].version` — the human-pinned SemVer for each TypeScript package.
+- `packages.pypi[].version` — always derived from the matching npm pin via the PEP 440 converter; never hand-edited.
+- `packages.go[]` — Go modules (currently unpublished; `publish: false`).
+
+Each package entry carries a `tier` (`core`, `sdk`, `connector`, `runtime`, `internal`, `dev`) and a `publish` flag. Publishers filter by `publish !== false`; internal services and `packages/engine` are excluded.
+
+The stamper is the only writer:
+
+```sh
+pnpm release:stamp         # propagate config to package.json, pyproject.toml, Helm
+pnpm release:stamp:check   # CI gate; fails if any artifact disagrees with config
+```
+
+The Changesets ignore list is generated, never hand-maintained:
+
+```sh
+pnpm release:changesets-ignore         # regenerate .changeset/config.json ignore
+pnpm release:changesets-ignore:check   # CI gate
+```
+
+Both `stamp --check` and `changesets-ignore --check` run on every PR via `test.yml`.
+
+---
+
 ## rc workflow
 
 Use rc for downstream testing before stable. Consumers change only versions and registry/index endpoints.
@@ -84,6 +113,27 @@ The script applies pending changesets, stamps Helm metadata, writes `releases/<t
 8. Promotes stable images to the `vYYYY.MM` series tag and `latest` only after validation passes.
 
 Only maintainers cut stable releases. Do not push CalVer tags from feature branches.
+
+### Promotion from rc
+
+Stable releases re-tag a validated rc's container digests rather than rebuild. `release.mjs promote --from v2026.05.26-rc.3` reads the rc manifest, strips the `-rc.N` suffix, and writes `releases/<stableTag>/manifest.json` pointing at the same image references. The workflow then retags those digests in the registry; npm and PyPI publish the final SemVer.
+
+```sh
+node scripts/release.mjs promote --from v2026.05.26-rc.3
+```
+
+A promotion is rejected if the source rc tag's manifest is missing, in non-rc mode, or does not match the requested rc.
+
+### Pre-tag gate
+
+Every release run validates locally before any tag is pushed. The `context` job in `release.yml` enforces:
+
+- `release.mjs stamp --check` — no drift between `release.config.json` and stamped artifacts.
+- `generateChangesetsIgnore.mjs --check` — ignore list matches config.
+- `pnpm changeset status` — no orphan or missing changesets.
+- `validateReleaseManifest.mjs` — manifest schema and shape.
+
+The reusable `preReleaseGate.yml` workflow exposes the same checks for external callers.
 
 ### Release approval and repository protection
 
@@ -191,7 +241,7 @@ npm and PyPI stable publishing must use protected workflows. `release.config.jso
 
 ```sh
 pnpm release:plan --since v2026.05.14
-pnpm release:sync-packages --check
+pnpm release:stamp:check
 gh workflow run publishNpm.yml -f package=changed -f dryRun=true -f runner=ubuntu-24.04
 gh workflow run publishNpm.yml -f package=changed -f runner=ubuntu-24.04
 gh workflow run publishPypi.yml -f package=changed -f dryRun=true -f runner=ubuntu-24.04

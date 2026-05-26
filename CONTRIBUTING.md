@@ -174,7 +174,7 @@ CARACAL_RELEASE=v2026.05.26-rc.1 FINDINGS_DIR=/tmp/findings \
 
 ```bash
 pnpm release:plan --since v2026.05.14
-pnpm release:sync-packages --check
+pnpm release:stamp:check
 gh workflow run publishNpm.yml -f package=changed -f dryRun=true -f runner=ubuntu-24.04
 gh workflow run publishNpm.yml -f package=changed -f runner=ubuntu-24.04
 gh workflow run publishPypi.yml -f package=changed -f dryRun=true -f runner=ubuntu-24.04

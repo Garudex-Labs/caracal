@@ -9,6 +9,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, wri
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { productArchiveTargets, productContainers, releaseInventory } from './releaseInventory.mjs'
+import { applyStamp, computeStamp } from './lib/stamp.mjs'
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const inventory = releaseInventory()
@@ -43,7 +44,7 @@ function parseArgs(argv) {
     const arg = argv[i]
     if (!arg.startsWith('--')) die(`unexpected positional argument: ${arg}`)
     const key = arg.slice(2)
-    if (['base-version', 'manifest', 'npm-registry', 'pypi-index', 'oci-registry', 'github-release-base', 'suffix', 'ref'].includes(key)) {
+    if (['base-version', 'manifest', 'npm-registry', 'pypi-index', 'oci-registry', 'github-release-base', 'suffix', 'ref', 'from', 'to'].includes(key)) {
       args.values[key] = argv[++i]
       if (!args.values[key]) die(`--${key} requires a value`)
     } else {
@@ -515,6 +516,82 @@ function clean(options) {
   say(`cleaned: ${manifest.release}`)
 }
 
+function stamp(options) {
+  const diff = computeStamp()
+  if (options.flags.has('check')) {
+    if (diff.length === 0) {
+      say('no drift')
+      return
+    }
+    for (const change of diff) say(`drift: ${change.path}`)
+    process.exit(1)
+  }
+  if (diff.length === 0) {
+    say('already in sync')
+    return
+  }
+  applyStamp(diff)
+  for (const change of diff) say(`stamped: ${change.path}`)
+}
+
+function stableTagFromRc(rcTag) {
+  const match = rcTag.match(/^(v[0-9]{4}\.[0-9]{2}\.[0-9]{2}(?:\.[0-9]+)?)-rc\.(?:sha[0-9A-Za-z]+|[0-9]+)$/)
+  if (!match) die(`not an rc tag: ${rcTag}`)
+  return match[1]
+}
+
+function stripNpmRc(version) {
+  return version.replace(/-rc\.(?:sha[0-9A-Za-z]+|[0-9]+)$/, '')
+}
+
+function promote(options) {
+  const fromTag = options.values.from ?? die('--from <rc-tag> required')
+  const stableTag = options.values.to ?? stableTagFromRc(fromTag)
+  const stableVersion = stableTag.replace(/^v/, '')
+  const rcManifestPath = join(repoRoot, 'releases', fromTag, 'manifest.json')
+  if (!existsSync(rcManifestPath)) die(`rc manifest not found: ${rcManifestPath}`)
+  const rcManifest = JSON.parse(readFileSync(rcManifestPath, 'utf8'))
+  if (rcManifest.mode !== 'rc') die(`source manifest is not rc: ${rcManifest.mode}`)
+  if (rcManifest.release !== fromTag) die(`manifest release ${rcManifest.release} does not match ${fromTag}`)
+  const reg = registries(options)
+  const npm = Object.fromEntries(Object.entries(rcManifest.npm ?? {}).map(([name, ver]) => [name, stripNpmRc(ver)]))
+  const pypi = Object.fromEntries(Object.entries(npm).map(([name, ver]) => {
+    const pyName = name.replace(/^@caracalai\//, 'caracalai-')
+    return [pyName, stripNpmRc(rcManifest.pypi?.[pyName] ?? ver).replace(/rc[0-9]+(\+sha[0-9A-Za-z]+)?$/, '')]
+  }))
+  const manifest = {
+    release: stableTag,
+    mode: 'stable',
+    publishedAt: currentDate(),
+    version: stableVersion,
+    baseVersion: stableVersion,
+    sha: rcManifest.sha,
+    generatedAt: new Date().toISOString(),
+    promotedFrom: fromTag,
+    registries: reg,
+    binaries: { shell: stableVersion, console: stableVersion },
+    runtimeImage: stableVersion,
+    containers: Object.fromEntries(Object.keys(rcManifest.containers ?? {}).map((name) => [name, stableVersion])),
+    helm: { chartVersion: helmChartVersion(stableVersion), appVersion: stableVersion, imageTag: stableVersion },
+    images: Object.fromEntries(Object.keys(rcManifest.images ?? {}).map((name) => [name, `${reg.oci.replace(/\/$/, '')}/caracal-${name}:${stableTag}`])),
+    sourceImages: rcManifest.images,
+    npm,
+    pypi,
+    packages: {
+      published: { npm, pypi },
+      unchanged: { npm: {}, pypi: {} },
+    },
+    githubRelease: {
+      tag: stableTag,
+      assets: `${reg.githubReleases.replace(/\/$/, '')}/${stableTag}`,
+    },
+  }
+  const outPath = writeManifest(manifest)
+  say(`promoted: ${fromTag} -> ${stableTag}`)
+  say(outPath)
+  say('next: retag images via CI, then push tag')
+}
+
 function main() {
   const raw = process.argv.slice(2)
   const normalized = raw[0] === 'rc' && !['-h', '--help', undefined].includes(raw[1]) ? [`rc-${raw[1]}`, ...raw.slice(2)] : raw
@@ -531,6 +608,12 @@ Commands:
       break
     case 'stable':
       stable(options)
+      break
+    case 'stamp':
+      stamp(options)
+      break
+    case 'promote':
+      promote(options)
       break
     case 'rc-version':
       printVersion(options)
@@ -551,6 +634,8 @@ Commands:
 
 Commands:
   stable [--dry-run]      Prepare or publish stable.
+  stamp [--check]         Stamp artifact files from release.config.json.
+  promote --from TAG      Promote an rc tag to stable (retag, no rebuild).
   rc dry-run              Queue release.yml without publishing.
   rc version              Write an rc manifest.
   rc prepare              Write manifest and stamp rc metadata.
@@ -558,6 +643,8 @@ Commands:
 
 Options:
   --base-version VER      Base version. Default: UTC CalVer.
+  --from TAG              Source rc tag for promote.
+  --to TAG                Override target stable tag for promote.
   --suffix VALUE          rc suffix. Default: rc.sha<gitsha>.
   --ref REF               Dry-run ref. Default: current branch.
   --manifest PATH|TAG     rc manifest path or tag.
