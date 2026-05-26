@@ -118,6 +118,22 @@ func TestApplyRevocationSnapshotMarksAllAuthorityAnchors(t *testing.T) {
 	}
 }
 
+func TestRevocationSnapshotFreshness(t *testing.T) {
+	store := newRevocationStore(zerolog.New(io.Discard))
+	now := time.Now()
+	if store.SnapshotFresh(now) {
+		t.Fatal("snapshot must not be fresh before first successful reload")
+	}
+	store.markSnapshotFresh(now.Add(-snapshotStaleAfter + time.Second))
+	if !store.SnapshotFresh(now) {
+		t.Fatal("snapshot inside freshness window must be fresh")
+	}
+	store.markSnapshotFresh(now.Add(-snapshotStaleAfter - time.Second))
+	if store.SnapshotFresh(now) {
+		t.Fatal("snapshot outside freshness window must be stale")
+	}
+}
+
 func TestProcessRevocationMessageDeadLettersPoisonMessage(t *testing.T) {
 	store := newRevocationStore(zerolog.New(io.Discard))
 	redis := &fakeRevocationRedis{verify: true}

@@ -220,6 +220,7 @@ type stubDB struct {
 	sessErr       error
 	secrets       []SecretRow
 	secretsErr    error
+	insertedKey   *SecretRow
 }
 
 func (s *stubDB) Ping(_ context.Context) error { return nil }
@@ -296,6 +297,11 @@ func (s *stubDB) ConsumeStepUpChallenge(_ context.Context, _ ConsumeStepUpParams
 }
 func (s *stubDB) EnsureZoneSigningKeySecret(_ context.Context, _ string, _, _ []byte) (*SecretRow, error) {
 	return nil, errors.New("stub")
+}
+func (s *stubDB) InsertZoneSigningKeySecret(_ context.Context, _ string, ciphertext, nonce []byte) (*SecretRow, error) {
+	row := &SecretRow{ID: "kid-rotated", Ciphertext: ciphertext, Nonce: nonce, DEKID: "zoneKek"}
+	s.insertedKey = row
+	return row, nil
 }
 func (s *stubDB) GetZoneSigningKeySecret(_ context.Context, _ string) (*SecretRow, error) {
 	if s.secretsErr != nil {

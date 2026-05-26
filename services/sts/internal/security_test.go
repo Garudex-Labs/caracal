@@ -8,8 +8,10 @@ package internal
 
 import (
 	"context"
+	"crypto/ecdsa"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"net"
 	"net/http"
@@ -20,6 +22,14 @@ import (
 
 	"github.com/jackc/pgx/v5"
 )
+
+func testKEK(fill byte) []byte {
+	kek := make([]byte, 32)
+	for i := range kek {
+		kek[i] = fill
+	}
+	return kek
+}
 
 func TestResolveKEKRejectsEmpty(t *testing.T) {
 	t.Setenv("ZONE_KEK", "")
@@ -47,6 +57,61 @@ func TestResolveKEKRejectsWrongLength(t *testing.T) {
 	t.Setenv("ZONE_KEK", hex.EncodeToString(make([]byte, 16)))
 	if _, err := resolveKEK("local"); err == nil {
 		t.Fatal("expected length error")
+	}
+}
+
+func TestRotateZoneSigningKeyEndpointRequiresAdmin(t *testing.T) {
+	srv := &Server{}
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodPost, "/internal/zones/z1/signing-key/rotate", nil)
+	r.SetPathValue("zoneID", "z1")
+	srv.handleRotateZoneSigningKey(w, r)
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("disabled endpoint status = %d, want 404", w.Code)
+	}
+
+	srv.cfg.AdminToken = "secret"
+	w = httptest.NewRecorder()
+	srv.handleRotateZoneSigningKey(w, r)
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("unauthorized status = %d, want 401", w.Code)
+	}
+}
+
+func TestRotateZoneSigningKeyEndpointCreatesKeyAndInvalidatesCache(t *testing.T) {
+	db := &stubDB{}
+	srv := &Server{
+		cfg:  Config{AdminToken: "secret"},
+		db:   db,
+		keys: newKeyCache(db, testKEK(1)),
+	}
+	cached := map[string]*ecdsa.PublicKey{}
+	srv.keys.entries["z1"] = &zoneCacheEntry{expiresAt: time.Now().Add(time.Hour)}
+	srv.keys.pubKeysCache["z1"] = &publicKeysCacheEntry{keys: cached, expiresAt: time.Now().Add(time.Hour)}
+
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodPost, "/internal/zones/z1/signing-key/rotate", nil)
+	r.SetPathValue("zoneID", "z1")
+	r.Header.Set("Authorization", "Bearer secret")
+	srv.handleRotateZoneSigningKey(w, r)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", w.Code, w.Body.String())
+	}
+	if db.insertedKey == nil || len(db.insertedKey.Ciphertext) == 0 || len(db.insertedKey.Nonce) == 0 {
+		t.Fatal("rotation did not insert encrypted signing key")
+	}
+	if _, ok := srv.keys.entries["z1"]; ok {
+		t.Fatal("private key cache was not invalidated")
+	}
+	if _, ok := srv.keys.pubKeysCache["z1"]; ok {
+		t.Fatal("public key cache was not invalidated")
+	}
+	var body map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body["kid"] != "kid-rotated" || body["zone_id"] != "z1" {
+		t.Fatalf("unexpected response: %#v", body)
 	}
 }
 
