@@ -444,10 +444,12 @@ function dryRun(options) {
   say(`rc dry-run: ${manifest.release}`)
   say(`workflow ref: ${ref}`)
   say('publishing: off')
-  if (manifest.source.dirty) say(`warning: dirty tree; Actions uses remote ${ref}`)
   if (options.flags.has('print-command')) {
     say(`gh ${args.map(shellArg).join(' ')}`)
     return
+  }
+  if (manifest.source.dirty && !options.flags.has('allow-dirty')) {
+    die(`dirty tree; commit/stash, use --local, or pass --allow-dirty`)
   }
   const remote = remoteSha(ref)
   if (!remote) die(`origin ref not found: ${ref}`)
@@ -563,6 +565,7 @@ Options:
   --github-release-base   GitHub asset base.
   --local                 Print local simulation.
   --print-command         Print gh command.
+  --allow-dirty           Dispatch even with local changes.
   --allow-stale-ref       Allow remote/local ref drift.`)
       break
     default:

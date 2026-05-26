@@ -35,6 +35,7 @@ defaults:
 
 env:
   NODE_VERSION: '24'
+  PYTHON_VERSION: '3.14'
   PNPM_VERSION: '11.1.1'
   UV_VERSION: '0.11.14'
   POETRY_VERSION: '2.4.1'
@@ -75,7 +76,6 @@ jobs:
     env:
       CARACAL_RELEASE: ${{ inputs.release }}
       PM: ${{ matrix.pm }}
-      PY: ${{ env.PYTHON_VERSION }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -122,7 +122,6 @@ jobs:
     env:
       CARACAL_RELEASE: ${{ inputs.release }}
       PM: ${{ matrix.pm }}
-      NODE_V: ${{ env.NODE_VERSION }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:

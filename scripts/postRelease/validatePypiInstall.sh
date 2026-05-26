@@ -11,7 +11,7 @@ source "$HERE/lib/common.sh"
 
 readonly AREA="pypiInstall"
 readonly PM="${PM:-pip}"
-readonly PY="${PY:-3.12}"
+readonly PY="${PY:-3.14}"
 
 runProbe() {
   local pkg="$1" mod="$2" ver="$3" dir="$4"
