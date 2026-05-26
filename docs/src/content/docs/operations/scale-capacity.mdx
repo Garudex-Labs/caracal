@@ -39,12 +39,12 @@ Use this table during capacity reviews and incidents. Scale the bottlenecked com
 
 | Path | Bottleneck signal | Safe first action | Do not do |
 | --- | --- | --- | --- |
-| Gateway routing | Rising Gateway latency with healthy upstreams, `caracal_gateway_sts_exchange_errors_total`, stale revocation snapshot | Add Gateway replicas, verify STS and Redis health, reduce upstream timeout variance | Increase Gateway replicas while STS or Redis is failing |
-| STS exchange | Token-exchange latency, OPA policy age, provider refresh sharing, Postgres pool pressure | Add STS replicas, reduce policy bundle complexity, keep provider refreshes coalesced | Increase policy rollout frequency while bundle age is rising |
+| Gateway routing | Rising Gateway latency with healthy upstreams, `caracal_gateway_sts_exchange_errors_total`, `caracal_gateway_sts_circuit_open=1`, stale revocation snapshot | Add Gateway replicas only after STS and Redis are healthy, reduce upstream timeout variance, and confirm the STS circuit returns to closed | Increase Gateway replicas while STS or Redis is failing |
+| STS exchange | Token-exchange latency, OPA policy age, provider refresh sharing, `caracal_sts_provider_refresh_waited_total`, Postgres pool pressure | Add STS replicas, reduce policy bundle complexity, keep provider refreshes coalesced with Redis lease coordination | Increase policy rollout frequency while bundle age is rising |
 | Policy evaluation | OPA compile errors, large bundle activation, slow simulations | Split policy sets by zone/resource boundary and test bundle activation before rollout | Treat invalid policy as partial success; STS must fail closed |
-| Revocation | `caracal_gateway_revocation_snapshot_fresh=0`, revocation stream lag, stale snapshot age | Restore Postgres/Redis, confirm snapshot reload, then resume access changes | Rely on Gateway decisions until freshness returns |
+| Revocation | `caracal_gateway_revocation_snapshot_fresh=0`, revocation stream lag, pending-entry replay growth, stale snapshot age | Restore Postgres/Redis, force a snapshot reload through the internal admin endpoint, confirm stream propagation, then resume access changes | Rely on Gateway decisions until freshness returns |
 | API control plane | `caracal_api_outbox_pending_total`, `caracal_api_outbox_dead_total`, DB pool ratio | Recover Redis stream writes, reconcile dead rows, throttle automation bursts | Continue large policy/resource imports while outbox is dead or aging |
-| Audit ingest | Consumer lag, DLQ growth, Postgres write latency, export backlog | Scale Audit only if Redis/Postgres are healthy; otherwise recover dependencies first | Increase producers while audit lag or DLQ growth is increasing |
+| Audit ingest | Consumer lag, DLQ growth, replay-file bytes or oldest replay age, Postgres write latency, export backlog | Scale Audit only if Redis/Postgres are healthy; otherwise recover dependencies first and drain replay files | Increase producers while audit lag or replay backlog is increasing |
 | Audit export | `caracal_audit_export_backlog_hours`, object-store latency | Confirm object-store write path and run exporter catch-up before extending retention | Delete or manually edit export watermarks |
 | Postgres | Pool ratio, slow queries, storage I/O, partition age | Tune pools, add indexes/partitions through migrations, increase DB capacity | Add service replicas beyond database connection headroom |
 | Redis | Stream memory, consumer lag, eviction, persistence latency | Increase memory/persistence capacity and validate stream trimming settings | Raise stream retention without memory headroom |
@@ -107,6 +107,33 @@ CPU is a useful first signal, but it is not sufficient on its own.
 | Audit | Consumer lag and CPU | DLQ size, tamper mismatch counters, Postgres write latency, export backlog |
 | Coordinator | Queue depth and CPU | Outbox dead rows, active invocation count |
 | API | CPU during automation bursts | Postgres pool saturation, admin auth failure rate, outbox pending/dead rows |
+
+## Reliability metrics to alert on
+
+These metrics expose the fleet-scale failure modes that are hardest to diagnose from request logs alone.
+
+| Area | Metric | Meaning |
+| --- | --- | --- |
+| Gateway to STS | `caracal_gateway_sts_circuit_open` | Gateway is fast-failing STS exchange calls after repeated STS-unavailable responses. |
+| Gateway to STS | `caracal_gateway_sts_circuit_fast_fail_total` | Requests rejected while the STS circuit was open. |
+| Revocation | `caracal_gateway_revocation_pending_replayed_total` | Pending Redis stream messages reclaimed after another consumer stalled or crashed. |
+| Revocation | `caracal_gateway_revocation_reload_errors_total` | Snapshot reload failures from Postgres. |
+| Revocation | `caracal_gateway_revocation_propagation_seconds` | Age of the most recent applied revocation stream message. |
+| STS provider refresh | `caracal_sts_provider_refresh_leased_total` | Provider refresh calls that acquired the Redis refresh lease. |
+| STS provider refresh | `caracal_sts_provider_refresh_waited_total` | Provider refresh calls that reused or waited for another replica's refresh result. |
+| Audit replay | `caracal_gateway_audit_replay_oldest_age_seconds`, `caracal_sts_audit_replay_oldest_age_seconds` | Oldest local audit replay file waiting to drain after sink recovery. |
+
+## Forced revocation reload
+
+When Redis or Postgres recovery leaves Gateway with a stale snapshot, reload the snapshot after dependencies are healthy. The endpoint is disabled unless `CARACAL_ADMIN_TOKEN` or `CARACAL_ADMIN_TOKEN_FILE` is configured for Gateway.
+
+```bash
+curl -fsS -X POST \
+  -H "Authorization: Bearer $CARACAL_ADMIN_TOKEN" \
+  http://gateway.internal:8081/internal/revocations/reload
+```
+
+Use this as a recovery action after restoring the dependency, not as a substitute for healthy revocation stream processing. Confirm `caracal_gateway_revocation_snapshot_fresh=1` and that `caracal_gateway_revocation_propagation_seconds` returns to the expected window.
 
 ## SLO examples
 

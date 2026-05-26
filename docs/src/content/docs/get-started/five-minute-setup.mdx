@@ -50,6 +50,22 @@ The token environment variable in the generated profile is derived from the reso
 
 Return to the Console **audit** view after the first request. Select the request and open **explain** with its request ID. The explanation should show the created application, protected resource, scopes, policy version, policy set version, Gateway result, and final decision. If the request failed, use the same explanation to identify whether the next correction belongs in runtime config, policy, resource routing, or the upstream service.
 
+## Validate the path repeatably
+
+Use the repository validator when you need a CI-friendly first-success check for a real environment. The validator checks STS and Gateway readiness, sends a real mandate through Gateway to the resource path you provide, and confirms the Gateway success counter advanced. It does not create objects, mint tokens, or substitute a demo upstream.
+
+```bash
+CARACAL_TOKEN="$(cat ./runtime-token.txt)" \
+node scripts/validateFirstSuccess.mjs \
+  --gateway-url http://localhost:8081 \
+  --sts-url http://localhost:8080 \
+  --resource "$RESOURCE_ID" \
+  --token-env CARACAL_TOKEN \
+  --path /real/protected/path
+```
+
+Run it after Console guided setup or after your automation has created the zone, application, resource binding, active policy set, and short-lived mandate. Keep the token in your local shell or CI secret store; do not pass long-lived secrets in command history.
+
 ## Shut down
 
 ```bash
