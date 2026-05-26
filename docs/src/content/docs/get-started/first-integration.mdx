@@ -68,7 +68,7 @@ Minimal example: spawn an agent run and call a resource through the Gateway:
 ```typescript
 import { Caracal, AgentKind } from "@caracalai/sdk";
 
-const caracal = Caracal.fromEnv();
+const caracal = Caracal.connect();
 
 await caracal.spawn(async () => {
   const ctx = caracal.current();
@@ -87,7 +87,7 @@ await caracal.spawn(async () => {
 }, { kind: AgentKind.Ephemeral });
 ```
 
-`Caracal.fromEnv()` requires the base Coordinator, zone, and application variables plus either `CARACAL_SUBJECT_TOKEN` or `CARACAL_APP_CLIENT_SECRET` with `CARACAL_STS_URL`. Use client-secret mode for long-running local services that should refresh authority automatically.
+`Caracal.connect()` auto-detects credentials: when a `caracal.toml` is present it loads from there (Python only); otherwise it dispatches to `fromEnv()`, which requires the base Coordinator, zone, and application variables plus either `CARACAL_SUBJECT_TOKEN` or `CARACAL_APP_CLIENT_SECRET` with `CARACAL_STS_URL`. Use client-secret mode for long-running services that should refresh authority automatically. See [Configuration precedence](/reference/config-precedence/) for the full resolution order.
 
 ### Context propagation in Express
 
@@ -102,7 +102,7 @@ import express from "express";
 import { Caracal } from "@caracalai/sdk";
 
 const app = express();
-const caracal = Caracal.fromEnv();
+const caracal = Caracal.connect();
 
 app.use(caracal.middleware());
 
@@ -129,7 +129,7 @@ Minimal example using `async with` spawn:
 import asyncio
 from caracalai_sdk import Caracal, AgentKind
 
-caracal = Caracal.from_env()
+caracal = Caracal.connect()
 
 async def main():
     async with caracal.spawn(kind=AgentKind.EPHEMERAL) as ctx:
@@ -159,7 +159,7 @@ from fastapi import FastAPI
 from caracalai_sdk import Caracal
 
 app = FastAPI()
-caracal = Caracal.from_env()
+caracal = Caracal.connect()
 
 app.add_middleware(caracal.middleware())
 
@@ -195,7 +195,7 @@ import (
 )
 
 func main() {
-    c, err := caracal.FromEnv()
+    c, err := caracal.Connect()
     if err != nil {
         panic(err)
     }
@@ -237,7 +237,7 @@ import (
     "github.com/garudex-labs/caracal/packages/connectors/nethttp/go"
 )
 
-c, _ := caracal.FromEnv()
+c, _ := caracal.Connect()
 
 mux := http.NewServeMux()
 mux.HandleFunc("/tool", func(w http.ResponseWriter, r *http.Request) {

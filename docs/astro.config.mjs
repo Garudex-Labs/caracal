@@ -301,6 +301,7 @@ export default defineConfig({
             { label: 'Glossary', link: '/reference/glossary/' },
             { label: 'Error Reference', link: '/reference/errors/' },
             { label: 'Configuration Reference', link: '/reference/configuration/' },
+            { label: 'Configuration Precedence', link: '/reference/config-precedence/' },
             { label: 'Defaults and Limits', link: '/reference/defaults-and-limits/' },
             { label: 'Runtime Exit Codes', link: '/reference/runtime-exit-codes/' },
             { label: 'Compatibility Matrix', link: '/reference/compatibility/' },
