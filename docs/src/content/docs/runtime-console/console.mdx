@@ -1,10 +1,10 @@
 ---
 title: Console
-description: "Navigate caracal-console: launch, screen layout, key bindings, views, and live audit streaming."
+description: "Navigate caracal-console: launch, guided setup, key bindings, views, and audit explanation."
 pageType: reference
 ---
 
-`caracal-console` is the Console for inspecting and managing Caracal entities without leaving the shell. It fetches from the control-plane API and renders into a full-screen Console buffer with keyboard navigation.
+`caracal-console` is the Console for setting up and operating protected agent access without leaving the shell. It fetches from the management API and renders into a full-screen Console buffer with keyboard navigation.
 
 ---
 
@@ -53,18 +53,19 @@ The main menu is the root view. Navigate with arrow keys or number shortcuts:
 
 | Key | View | Zone required |
 | --- | --- | --- |
+| `f` | Guided setup | No |
 | `1` | Zones | No |
 | `2` | Applications | Yes |
-| `3` | Resources | Yes |
+| `3` | Protected resources | Yes |
 | `4` | Providers | Yes |
-| `5` | Policies | Yes |
-| `6` | Policy-sets | Yes |
-| `7` | Grants | Yes |
-| `8` | Sessions | Yes |
-| `9` | Audit (live) | Yes |
-| `0` | Agents | Yes + Coordinator token |
+| `5` | Access policies | Yes |
+| `6` | Policy sets | Yes |
+| `7` | Access grants | Yes |
+| `8` | Authority sessions | Yes |
+| `9` | Audit | Yes |
+| `0` | Agent runs | Yes + Coordinator token |
 
-For views that require a zone, press `z` to open the zone picker before navigating.
+For views that require a zone, press `z` to open the zone picker before navigating. New users should start with guided setup, which can create the first zone and then generate the application, resource, policy, and runtime profile from real values.
 
 ---
 
@@ -116,8 +117,8 @@ Each entity type opens its own list view with fixed-width columns and an expandi
 | View | Columns |
 | --- | --- |
 | Zones | `slug` (18), `name` (24), `login_flow` (12), `dcr` (5), `pkce` (5), `id` |
-| Applications | `name` (24), `method` (8), `cred` (12), `traits` (24), `id` |
-| Resources | `identifier` (32), `name` (18), `upstream` (32), `scopes` |
+| Applications | `name` (24), `method` (8), `credential` (12), `traits` (24), `id` |
+| Protected resources | `identifier` (32), `name` (18), `upstream` (32), `scopes` |
 | Providers | `identifier` (24), `name` (24), `kind` (10), `owner` (10), `id` |
 | Policies | `name` (28), `owner` (10), `description` (32), `id` |
 | Policy-sets | `name` (24), `active_version` (36), `description` |
@@ -131,7 +132,7 @@ Text that exceeds a column's width is truncated with `…`.
 
 ## Detail views
 
-Press `enter` on any list row to open the detail view for that entity. The detail view renders the full API response as pretty-printed JSON.
+Press `enter` on any list row to open the detail view for that object. The detail view renders structured fields and masks secret-shaped values until you explicitly reveal them.
 
 **Navigation in detail view:**
 

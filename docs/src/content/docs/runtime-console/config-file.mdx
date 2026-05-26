@@ -4,7 +4,7 @@ description: Runtime configuration sources, caracal.toml compatibility, permissi
 pageType: config
 ---
 
-`caracal run` loads workload credential-injection settings from platform environment variables or from an explicit runtime profile. Use the Console first-setup flow to generate the first profile from real zone, application, resource, policy, and secret-file values. `caracal.toml` is a compatibility format for humans and SDKs that need a readable file; it is not Console state and it does not create, select, or manage zones.
+`caracal run` loads workload credential-injection settings from platform environment variables or from an explicit runtime profile. Use Console guided setup to generate the first profile from real zone, application, resource, policy, and secret-file values. `caracal.toml` is a compatibility format for humans and SDKs that need a readable file; it is not Console state and it does not create, select, or manage zones.
 
 The runtime validates configuration before token exchange. Unknown fields are rejected, credential environment names must be safe process environment keys, and non-local `http://` STS endpoints are rejected outside development unless `CARACAL_ALLOW_INSECURE_CONFIG_URLS=true` is set explicitly.
 
@@ -77,7 +77,7 @@ Credential entries use:
 
 ### Generated profiles
 
-The Console first-setup result shows a complete profile with real values. Copy that generated profile to the profile path shown by Console, store the one-time client secret in the shown secret-file path, and set owner-only permissions on both files. The checked-in `caracal.toml.example` is a reference schema, not an onboarding profile.
+The Console guided setup result shows a complete profile with real values. Copy that generated profile to the profile path shown by Console, store the one-time client secret in the shown secret-file path, and set owner-only permissions on both files. The checked-in `caracal.toml.example` is a reference schema, not an onboarding profile.
 
 ## CI and secret mounts
 
