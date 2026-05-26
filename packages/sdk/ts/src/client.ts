@@ -6,6 +6,10 @@
  */
 
 import { bind, fromEnvelope, toEnvelope, current, type CaracalContext } from "./context.js";
+import { existsSync, readFileSync, statSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
+import { parse } from "smol-toml";
 import {
   decodeEnvelope,
   toHeaders,
@@ -85,13 +89,14 @@ export interface ClientSecretOptions {
   zoneId: string;
   applicationId: string;
   clientSecret: string;
-  resources: string[] | ResourceBinding[];
+  resources: Array<string | ResourceBinding>;
   gatewayUrl?: string;
   scope?: string;
 }
 
 export interface ConnectOptions {
   env?: NodeJS.ProcessEnv;
+  configPath?: string;
   clientSecret?: Partial<ClientSecretOptions>;
 }
 
@@ -109,10 +114,7 @@ export class Caracal {
   }
 
   /**
-   * Builds a Caracal client by auto-detecting available credentials. Pass
-   * `clientSecret` to override env discovery with explicit values. Otherwise
-   * dispatches to `fromEnv()`, which selects between subject-token and
-   * client-secret modes based on which `CARACAL_*` variables are set.
+   * Builds a Caracal client from explicit values, a generated profile, or env.
    */
   static connect(opts: ConnectOptions = {}): Caracal {
     if (opts.clientSecret && Object.keys(opts.clientSecret).length > 0) {
@@ -130,7 +132,11 @@ export class Caracal {
       }
       return Caracal.fromClientSecret(cs as ClientSecretOptions);
     }
-    return Caracal.fromEnv(opts.env);
+    const env = opts.env ?? process.env;
+    if (opts.configPath) return Caracal.fromConfig(opts.configPath, env);
+    const path = resolveProfilePath(env);
+    if (path) return Caracal.fromConfig(path, env);
+    return Caracal.fromEnv(env);
   }
 
   static fromEnv(env: NodeJS.ProcessEnv = process.env): Caracal {
@@ -138,7 +144,7 @@ export class Caracal {
     const zoneId = env.CARACAL_ZONE_ID;
     const applicationId = env.CARACAL_APPLICATION_ID;
     const subjectToken = env.CARACAL_SUBJECT_TOKEN;
-    const clientSecret = env.CARACAL_APP_CLIENT_SECRET;
+    const clientSecret = clientSecretFromEnv(env);
     const stsUrl = env.CARACAL_STS_URL;
     const gatewayUrl = env.CARACAL_GATEWAY_URL;
     const missing = [
@@ -149,7 +155,8 @@ export class Caracal {
     if (missing.length) {
       throw new Error(`Caracal.fromEnv: missing ${missing.join(", ")}`);
     }
-    const resources = parseResourceBindings(env.CARACAL_RESOURCES);
+    const profileResources = resourcesFromEnv(env);
+    const resources = profileResources.bindings;
     if (clientSecret) {
       if (!stsUrl) throw new Error("Caracal.fromEnv: CARACAL_APP_CLIENT_SECRET requires CARACAL_STS_URL");
       return Caracal.fromClientSecret({
@@ -158,7 +165,7 @@ export class Caracal {
         zoneId: zoneId!,
         applicationId: applicationId!,
         clientSecret,
-        resources: resourceIdsFromEnv(env.CARACAL_APP_RESOURCES, resources),
+        resources: resourceIdsFromEnv(env.CARACAL_APP_RESOURCES, profileResources.resources),
         gatewayUrl,
       });
     }
@@ -179,16 +186,37 @@ export class Caracal {
   static fromClientSecret(opts: ClientSecretOptions): Caracal {
     const resourceIds = opts.resources.map((value) => typeof value === "string" ? value : value.resourceId);
     if (!resourceIds.length) throw new Error("Caracal.fromClientSecret requires at least one resource");
-    const bindings = opts.resources.every((value) => typeof value !== "string")
-      ? opts.resources as ResourceBinding[]
-      : undefined;
+    const bindings = opts.resources.filter((value): value is ResourceBinding => typeof value !== "string");
     return new Caracal({
       coordinator: { baseUrl: opts.coordinatorUrl },
       zoneId: opts.zoneId,
       applicationId: opts.applicationId,
       tokenSource: createClientSecretTokenSource(opts.stsUrl, opts.zoneId, opts.applicationId, opts.clientSecret, resourceIds, opts.scope),
       gatewayUrl: opts.gatewayUrl,
-      resources: bindings,
+      resources: bindings.length ? bindings : undefined,
+    });
+  }
+
+  static fromConfig(path = defaultProfilePath(), env: NodeJS.ProcessEnv = process.env): Caracal {
+    if (!existsSync(path)) throw new Error(`Caracal.fromConfig: profile not found: ${path}`);
+    assertProfileFileSecure(path);
+    const value = parse(readFileSync(path, "utf8"));
+    if (!isRecord(value)) throw new Error("Caracal.fromConfig: profile must be a TOML table");
+    const zoneId = requiredString(value, "zone_id", path);
+    const applicationId = requiredString(value, "application_id", path);
+    const stsUrl = stringValue(value, "sts_url") ?? stringValue(value, "zone_url") ?? env.CARACAL_STS_URL;
+    if (!stsUrl) throw new Error("Caracal.fromConfig: sts_url or zone_url is required");
+    const coordinatorUrl = stringValue(value, "coordinator_url") ?? env.CARACAL_COORDINATOR_URL;
+    if (!coordinatorUrl) throw new Error("Caracal.fromConfig: coordinator_url is required");
+    const resources = resourcesFromProfile(value, path);
+    return Caracal.fromClientSecret({
+      coordinatorUrl,
+      stsUrl,
+      zoneId,
+      applicationId,
+      clientSecret: clientSecretFromProfile(value, path),
+      resources: resources.resources,
+      gatewayUrl: stringValue(value, "gateway_url") ?? env.CARACAL_GATEWAY_URL,
     });
   }
 
@@ -404,7 +432,7 @@ export class Caracal {
    * Binds Caracal context after a verifier boundary. This does not verify JWT
    * signatures, audience, scopes, token use, or revocation.
    */
-  middleware(opts: RootOptions = {}) {
+  contextMiddleware(opts: RootOptions = {}) {
     return (
       req: { headers: Record<string, string | string[] | undefined> },
       _res: unknown,
@@ -426,6 +454,174 @@ export class Caracal {
     if (this.config.subjectToken) return this.config.subjectToken;
     throw new Error("Caracal client has no subject token source");
   }
+}
+
+interface ProfileResources {
+  resources: Array<string | ResourceBinding>;
+  bindings?: ResourceBinding[];
+}
+
+interface CredentialEntry {
+  resource: string;
+  upstream_prefix?: string;
+}
+
+function defaultProfilePath(env: NodeJS.ProcessEnv = process.env): string {
+  const xdg = env.XDG_CONFIG_HOME && env.XDG_CONFIG_HOME.length > 0
+    ? env.XDG_CONFIG_HOME
+    : join(homedir(), ".config");
+  return join(xdg, "caracal", "caracal.toml");
+}
+
+function resolveProfilePath(env: NodeJS.ProcessEnv): string | undefined {
+  if (env.CARACAL_CONFIG) {
+    if (!existsSync(env.CARACAL_CONFIG)) throw new Error(`Caracal.connect: profile not found: ${env.CARACAL_CONFIG}`);
+    return env.CARACAL_CONFIG;
+  }
+  const path = defaultProfilePath(env);
+  return existsSync(path) ? path : undefined;
+}
+
+function assertProfileFileSecure(path: string): void {
+  if (process.platform === "win32") return;
+  const mode = statSync(path).mode & 0o777;
+  if ((mode & 0o022) !== 0) throw new Error(`Caracal.fromConfig: profile permissions are too broad: ${path}`);
+}
+
+function assertSecretFileSecure(path: string): void {
+  if (process.platform === "win32") return;
+  const mode = statSync(path).mode & 0o777;
+  if ((mode & 0o022) !== 0) throw new Error(`Caracal profile secret file permissions are too broad: ${path}`);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function stringValue(record: Record<string, unknown>, key: string): string | undefined {
+  const value = record[key];
+  if (value === undefined) return undefined;
+  if (typeof value !== "string" || value.length === 0) throw new Error(`Caracal profile: ${key} must be a non-empty string`);
+  return value;
+}
+
+function requiredString(record: Record<string, unknown>, key: string, source: string): string {
+  const value = stringValue(record, key);
+  if (!value) throw new Error(`${source}: ${key} is required`);
+  return value;
+}
+
+function clientSecretFromProfile(record: Record<string, unknown>, source: string): string {
+  const inline = stringValue(record, "app_client_secret");
+  const file = stringValue(record, "app_client_secret_file");
+  if (inline && file) throw new Error(`${source}: set only one of app_client_secret or app_client_secret_file`);
+  if (inline) return inline;
+  if (!file) throw new Error(`${source}: app_client_secret_file is required`);
+  return readSecretFile(file);
+}
+
+function clientSecretFromEnv(env: NodeJS.ProcessEnv): string | undefined {
+  if (env.CARACAL_APP_CLIENT_SECRET && env.CARACAL_APP_CLIENT_SECRET_FILE) {
+    throw new Error("Caracal.fromEnv: set only one of CARACAL_APP_CLIENT_SECRET or CARACAL_APP_CLIENT_SECRET_FILE");
+  }
+  if (env.CARACAL_APP_CLIENT_SECRET_FILE) return readSecretFile(env.CARACAL_APP_CLIENT_SECRET_FILE);
+  return env.CARACAL_APP_CLIENT_SECRET;
+}
+
+function readSecretFile(path: string): string {
+  if (!existsSync(path)) throw new Error(`Caracal profile secret file does not exist: ${path}`);
+  assertSecretFileSecure(path);
+  const secret = readFileSync(path, "utf8").trim();
+  if (!secret) throw new Error(`Caracal profile secret file is empty: ${path}`);
+  return secret;
+}
+
+function resourcesFromProfile(record: Record<string, unknown>, source: string): ProfileResources {
+  const credentials = [
+    ...credentialEntries(record.credentials, `${source}.credentials`),
+    ...credentialEntries(record.optional_credentials, `${source}.optional_credentials`),
+  ];
+  const resources = resourcesFromCredentials(credentials);
+  if (!resources.resources.length) throw new Error(`${source}: at least one credentials or optional_credentials entry is required`);
+  return resources;
+}
+
+function resourcesFromEnv(env: NodeJS.ProcessEnv): ProfileResources {
+  const credentials = credentialManifestFromEnv(env);
+  const envBindings = [
+    ...resourceBindingsFromFile(env.CARACAL_RESOURCES_FILE),
+    ...(parseResourceBindings(env.CARACAL_RESOURCES) ?? []),
+  ];
+  const resources = resourcesFromCredentials(credentials);
+  const byResource = new Map<string, string | ResourceBinding>();
+  for (const item of resources.resources) byResource.set(typeof item === "string" ? item : item.resourceId, item);
+  for (const binding of envBindings) byResource.set(binding.resourceId, binding);
+  const values = [...byResource.values()];
+  return { resources: values, bindings: values.filter((value): value is ResourceBinding => typeof value !== "string") };
+}
+
+function resourceBindingsFromFile(path: string | undefined): ResourceBinding[] {
+  if (!path) return [];
+  const parsed = JSON.parse(readFileSync(path, "utf8")) as unknown;
+  if (Array.isArray(parsed)) {
+    return parsed.map((entry, index) => {
+      if (!isRecord(entry)) throw new Error(`CARACAL_RESOURCES_FILE[${index}] must be an object`);
+      const resourceId = stringValue(entry, "resource_id");
+      const upstreamPrefix = stringValue(entry, "upstream_prefix");
+      if (!resourceId || !upstreamPrefix) throw new Error(`CARACAL_RESOURCES_FILE[${index}] requires resource_id and upstream_prefix`);
+      return { resourceId, upstreamPrefix };
+    });
+  }
+  if (isRecord(parsed)) {
+    return Object.entries(parsed).map(([resourceId, upstreamPrefix]) => {
+      if (typeof upstreamPrefix !== "string" || !upstreamPrefix) {
+        throw new Error(`CARACAL_RESOURCES_FILE.${resourceId} must be a non-empty string`);
+      }
+      return { resourceId, upstreamPrefix };
+    });
+  }
+  throw new Error("CARACAL_RESOURCES_FILE must contain an object or array");
+}
+
+function credentialManifestFromEnv(env: NodeJS.ProcessEnv): CredentialEntry[] {
+  const file = env.CARACAL_RUN_CREDENTIALS_FILE;
+  const inline = env.CARACAL_RUN_CREDENTIALS;
+  if (file && inline) throw new Error("Caracal.fromEnv: set only one of CARACAL_RUN_CREDENTIALS or CARACAL_RUN_CREDENTIALS_FILE");
+  if (!file && !inline) return [];
+  const raw = file ? readSecretFile(file) : inline!;
+  const parsed = JSON.parse(raw) as unknown;
+  const manifest = Array.isArray(parsed) ? { credentials: parsed } : parsed;
+  if (!isRecord(manifest)) throw new Error("Caracal.fromEnv: credential manifest must be an array or object");
+  return [
+    ...credentialEntries(manifest.credentials, "CARACAL_RUN_CREDENTIALS.credentials"),
+    ...credentialEntries(manifest.optional_credentials, "CARACAL_RUN_CREDENTIALS.optional_credentials"),
+  ];
+}
+
+function credentialEntries(value: unknown, source: string): CredentialEntry[] {
+  if (value === undefined) return [];
+  if (!Array.isArray(value)) throw new Error(`${source} must be an array`);
+  return value.map((entry, index) => {
+    if (!isRecord(entry)) throw new Error(`${source}[${index}] must be an object`);
+    const resource = stringValue(entry, "resource");
+    if (!resource) throw new Error(`${source}[${index}].resource is required`);
+    const upstreamPrefix = stringValue(entry, "upstream_prefix");
+    return upstreamPrefix ? { resource, upstream_prefix: upstreamPrefix } : { resource };
+  });
+}
+
+function resourcesFromCredentials(credentials: CredentialEntry[]): ProfileResources {
+  const values: Array<string | ResourceBinding> = [];
+  const seen = new Set<string>();
+  for (const credential of credentials) {
+    if (seen.has(credential.resource)) continue;
+    seen.add(credential.resource);
+    values.push(credential.upstream_prefix
+      ? { resourceId: credential.resource, upstreamPrefix: credential.upstream_prefix }
+      : credential.resource);
+  }
+  const bindings = values.filter((value): value is ResourceBinding => typeof value !== "string");
+  return { resources: values, bindings };
 }
 
 function sameOrigin(a: URL, b: string): boolean {
@@ -482,11 +678,11 @@ function parseResourceBindings(raw: string | undefined): ResourceBinding[] | und
   return out.length ? sortBindingsLongestFirst(out) : undefined;
 }
 
-function resourceIdsFromEnv(raw: string | undefined, bindings: ResourceBinding[] | undefined): string[] {
+function resourceIdsFromEnv(raw: string | undefined, resources: Array<string | ResourceBinding> | undefined): Array<string | ResourceBinding> {
   const explicit = raw?.split(",").map((value) => value.trim()).filter(Boolean);
   if (explicit?.length) return explicit;
-  if (bindings?.length) return bindings.map((binding) => binding.resourceId);
-  throw new Error("Caracal.fromEnv: client-secret mode requires resources via CARACAL_APP_RESOURCES or CARACAL_RESOURCES");
+  if (resources?.length) return resources;
+  throw new Error("Caracal.fromEnv: client-secret mode requires resources via CARACAL_APP_RESOURCES, CARACAL_RUN_CREDENTIALS, or CARACAL_RESOURCES");
 }
 
 function createClientSecretTokenSource(

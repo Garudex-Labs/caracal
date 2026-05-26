@@ -53,7 +53,7 @@ from .coordinator import (
 )
 from .primitives import LifecycleHook, delegate, spawn
 from .client import Caracal, CaracalConfig, ResourceBinding
-from .http import CaracalASGIMiddleware
+from .http import CaracalContextASGIMiddleware
 
 __all__ = [
     "HEADER_AUTHORIZATION",
@@ -102,5 +102,5 @@ __all__ = [
     "Caracal",
     "CaracalConfig",
     "ResourceBinding",
-    "CaracalASGIMiddleware",
+    "CaracalContextASGIMiddleware",
 ]

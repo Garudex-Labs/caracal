@@ -7,6 +7,7 @@ Caracal: drop-in bound client wrapping zone, application, subject token, and coo
 
 from __future__ import annotations
 
+import json
 import os
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
@@ -30,7 +31,7 @@ from .json_types import JsonObject
 from .primitives import LifecycleHook, delegate, delegate_to_spawn, spawn
 
 if TYPE_CHECKING:
-    from .http import ASGIApp, CaracalASGIMiddleware
+    from .http import ASGIApp, CaracalContextASGIMiddleware
 
 
 @dataclass
@@ -255,6 +256,16 @@ def _default_config_path():
     return Path(xdg) / "caracal" / "caracal.toml"
 
 
+def _default_config_path_for(env: Mapping[str, str]):
+    from pathlib import Path
+
+    explicit = env.get("CARACAL_CONFIG")
+    if explicit:
+        return Path(explicit)
+    xdg = env.get("XDG_CONFIG_HOME") or str(Path.home() / ".config")
+    return Path(xdg) / "caracal" / "caracal.toml"
+
+
 def _required_str(cfg: dict, key: str) -> str:
     v = cfg.get(key)
     if not isinstance(v, str) or not v:
@@ -285,6 +296,91 @@ def _client_secret_from_config(cfg: dict) -> str:
             raise RuntimeError(f"caracal.toml secret file is empty: {path}")
         return secret
     return _required_str(cfg, "app_client_secret")
+
+
+def _client_secret_from_env(env: Mapping[str, str]) -> str | None:
+    from pathlib import Path
+
+    value = env.get("CARACAL_APP_CLIENT_SECRET")
+    file_value = env.get("CARACAL_APP_CLIENT_SECRET_FILE")
+    if value and file_value:
+        raise RuntimeError(
+            "Caracal.from_env must set only one of CARACAL_APP_CLIENT_SECRET or "
+            "CARACAL_APP_CLIENT_SECRET_FILE"
+        )
+    if file_value:
+        path = Path(file_value)
+        if not path.exists():
+            raise RuntimeError(f"Caracal.from_env secret file does not exist: {path}")
+        if os.name != "nt" and path.stat().st_mode & 0o022:
+            raise RuntimeError(
+                f"Caracal.from_env secret file is group/world writable: {path}"
+            )
+        secret = path.read_text().strip()
+        if not secret:
+            raise RuntimeError(f"Caracal.from_env secret file is empty: {path}")
+        return secret
+    return value
+
+
+def _credential_entries(value: object, *, source: str) -> list[dict[str, str]]:
+    if value is None:
+        return []
+    if not isinstance(value, list):
+        raise RuntimeError(f"{source} must be an array")
+    entries: list[dict[str, str]] = []
+    for idx, entry in enumerate(value):
+        if not isinstance(entry, dict):
+            raise RuntimeError(f"{source}[{idx}] must be a table")
+        resource = entry.get("resource")
+        if not isinstance(resource, str) or not resource:
+            raise RuntimeError(f"{source}[{idx}].resource is required")
+        upstream = entry.get("upstream_prefix")
+        record = {"resource": resource}
+        if isinstance(upstream, str) and upstream:
+            record["upstream_prefix"] = upstream
+        entries.append(record)
+    return entries
+
+
+def _resource_bindings_from_credentials(credentials: list[dict[str, str]]) -> tuple[list[str], list[ResourceBinding]]:
+    ids: list[str] = []
+    bindings: list[ResourceBinding] = []
+    seen: set[str] = set()
+    for credential in credentials:
+        resource = credential["resource"]
+        if resource in seen:
+            continue
+        seen.add(resource)
+        ids.append(resource)
+        upstream = credential.get("upstream_prefix")
+        if upstream:
+            bindings.append(ResourceBinding(resource, upstream))
+    return ids, bindings
+
+
+def _credential_manifest_from_env(env: Mapping[str, str]) -> list[dict[str, str]]:
+    file_value = env.get("CARACAL_RUN_CREDENTIALS_FILE")
+    inline = env.get("CARACAL_RUN_CREDENTIALS")
+    if file_value and inline:
+        raise RuntimeError(
+            "Caracal.from_env must set only one of CARACAL_RUN_CREDENTIALS or "
+            "CARACAL_RUN_CREDENTIALS_FILE"
+        )
+    if not file_value and not inline:
+        return []
+    if file_value:
+        with open(file_value, encoding="utf-8") as fh:
+            data = json.load(fh)
+    else:
+        data = json.loads(inline or "")
+    manifest = {"credentials": data} if isinstance(data, list) else data
+    if not isinstance(manifest, dict):
+        raise RuntimeError("Caracal.from_env credential manifest must be an array or object")
+    return (
+        _credential_entries(manifest.get("credentials"), source="CARACAL_RUN_CREDENTIALS.credentials")
+        + _credential_entries(manifest.get("optional_credentials"), source="CARACAL_RUN_CREDENTIALS.optional_credentials")
+    )
 
 
 def _validate_subject_token(token: str) -> None:
@@ -323,7 +419,10 @@ class Caracal:
         """
         if config_path is not None:
             return cls.from_config(config_path)
-        default = _default_config_path()
+        e = env if env is not None else os.environ
+        default = _default_config_path_for(e)
+        if e.get("CARACAL_CONFIG") and not default.exists():
+            raise RuntimeError(f"Caracal config not found at {default}")
         if default.exists():
             return cls.from_config(default)
         return cls.from_env(env)
@@ -356,10 +455,15 @@ class Caracal:
         if missing:
             raise RuntimeError(f"Caracal.from_env: missing {', '.join(missing)}")
 
-        bindings = _resolve_bindings(None, e, cfg_source="env")
+        credential_ids, credential_bindings = _resource_bindings_from_credentials(
+            _credential_manifest_from_env(e)
+        )
+        bindings = sort_bindings_longest_first(
+            credential_bindings + _resolve_bindings(None, e, cfg_source="env")
+        )
         gateway_url = e.get("CARACAL_GATEWAY_URL") or None
 
-        client_secret = e.get("CARACAL_APP_CLIENT_SECRET")
+        client_secret = _client_secret_from_env(e)
         sts_url = e.get("CARACAL_STS_URL")
         subject_token = e.get("CARACAL_SUBJECT_TOKEN")
 
@@ -369,6 +473,8 @@ class Caracal:
                     "Caracal.from_env: CARACAL_APP_CLIENT_SECRET requires CARACAL_STS_URL"
                 )
             resources = _resource_ids_from_env(e, bindings)
+            if credential_ids:
+                resources = list(dict.fromkeys(credential_ids + resources))
             exchanger = ClientSecretExchanger(
                 sts_url=sts_url,
                 zone_id=zone_id,
@@ -413,7 +519,7 @@ class Caracal:
         zone_id: str,
         application_id: str,
         client_secret: str,
-        resources: list[str] | list[ResourceBinding],
+        resources: list[str | ResourceBinding],
         gateway_url: str | None = None,
         scope: str = "agent:lifecycle",
     ) -> Caracal:
@@ -494,15 +600,26 @@ class Caracal:
             )
         gateway_url = cfg.get("gateway_url") or os.environ.get("CARACAL_GATEWAY_URL")
 
-        bindings = _resolve_bindings(
-            cfg.get("credentials") or [], os.environ, cfg_source=str(cfg_path),
+        credential_ids, credential_bindings = _resource_bindings_from_credentials(
+            _credential_entries(cfg.get("credentials"), source=f"{cfg_path}.credentials")
+            + _credential_entries(cfg.get("optional_credentials"), source=f"{cfg_path}.optional_credentials")
         )
-        resource_ids = [b.resource_id for b in bindings]
+        bindings = sort_bindings_longest_first(
+            credential_bindings + _resolve_bindings([], os.environ, cfg_source=str(cfg_path))
+        )
+        resource_ids = list(
+            dict.fromkeys(credential_ids + [b.resource_id for b in bindings])
+        )
         if not resource_ids:
             raise RuntimeError(
                 "Caracal.from_config: at least one resource binding is required via "
                 "caracal.toml credentials, CARACAL_RESOURCES, or CARACAL_RESOURCES_FILE"
             )
+        binding_by_resource = {b.resource_id: b for b in bindings}
+        resources: list[str | ResourceBinding] = [
+            binding_by_resource.get(resource_id, resource_id)
+            for resource_id in resource_ids
+        ]
 
         return cls.from_client_secret(
             coordinator_url=coordinator_url,
@@ -510,7 +627,7 @@ class Caracal:
             zone_id=zone_id,
             application_id=application_id,
             client_secret=client_secret,
-            resources=bindings or resource_ids,
+            resources=resources,
             gateway_url=gateway_url,
         )
 
@@ -702,7 +819,7 @@ class Caracal:
         """Release the coordinator's HTTP client. Idempotent."""
         await self.config.coordinator.close()
 
-    def middleware(self, *, allow_root: bool = False) -> Callable[[ASGIApp], CaracalASGIMiddleware]:
+    def context_middleware(self, *, allow_root: bool = False) -> Callable[[ASGIApp], CaracalContextASGIMiddleware]:
         """ASGI context-propagation middleware factory.
 
         This binds an existing Caracal envelope into request context after a
@@ -715,14 +832,14 @@ class Caracal:
 
             caracal = Caracal.from_env()
             app = FastAPI()
-            app.add_middleware(caracal.middleware())
+            app.add_middleware(caracal.context_middleware())
         """
-        from .http import CaracalASGIMiddleware
+        from .http import CaracalContextASGIMiddleware
 
         outer = self
 
-        def factory(app: ASGIApp) -> CaracalASGIMiddleware:
-            return CaracalASGIMiddleware(app, outer, allow_root=allow_root)
+        def factory(app: ASGIApp) -> CaracalContextASGIMiddleware:
+            return CaracalContextASGIMiddleware(app, outer, allow_root=allow_root)
 
         return factory
 

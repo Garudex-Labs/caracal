@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -47,13 +48,18 @@ type ResourceBinding struct {
 	UpstreamPrefix string
 }
 
-// Connect builds a Caracal client by auto-detecting available credentials.
-// Pass a ClientSecretOptions to force explicit client-secret mode; otherwise
-// dispatches to FromEnv, which selects between subject-token and client-secret
-// modes based on which CARACAL_* variables are set.
+// Connect builds a Caracal client from explicit values, a generated profile, or env.
 func Connect(opts ...ClientSecretOptions) (*Caracal, error) {
 	if len(opts) > 0 {
 		return FromClientSecret(opts[0])
+	}
+	if path := os.Getenv("CARACAL_CONFIG"); path != "" {
+		return FromConfig(path)
+	}
+	if path := defaultProfilePath(); path != "" {
+		if _, err := os.Stat(path); err == nil {
+			return FromConfig(path)
+		}
 	}
 	return FromEnv()
 }
@@ -65,7 +71,10 @@ func FromEnv() (*Caracal, error) {
 	zone := os.Getenv("CARACAL_ZONE_ID")
 	app := os.Getenv("CARACAL_APPLICATION_ID")
 	tok := os.Getenv("CARACAL_SUBJECT_TOKEN")
-	clientSecret := os.Getenv("CARACAL_APP_CLIENT_SECRET")
+	clientSecret, err := clientSecretFromEnv()
+	if err != nil {
+		return nil, err
+	}
 	stsURL := os.Getenv("CARACAL_STS_URL")
 	missing := []string{}
 	for k, v := range map[string]string{
@@ -84,18 +93,29 @@ func FromEnv() (*Caracal, error) {
 	if err != nil {
 		return nil, err
 	}
+	fileBindings, err := resourceBindingsFromFile(os.Getenv("CARACAL_RESOURCES_FILE"))
+	if err != nil {
+		return nil, err
+	}
+	bindings = append(fileBindings, bindings...)
+	credentialIDs, credentialBindings, err := credentialManifestFromEnv()
+	if err != nil {
+		return nil, err
+	}
+	bindings = sortBindingsLongestFirst(append(credentialBindings, bindings...))
 	if clientSecret != "" {
 		if stsURL == "" {
-			return nil, fmt.Errorf("caracal: CARACAL_APP_CLIENT_SECRET requires CARACAL_STS_URL")
+			return nil, fmt.Errorf("caracal: client-secret env mode requires CARACAL_STS_URL")
 		}
 		return FromClientSecret(ClientSecretOptions{
-			CoordinatorURL: url,
-			STSURL:         stsURL,
-			ZoneID:         zone,
-			ApplicationID:  app,
-			ClientSecret:   clientSecret,
-			Resources:      resourceIDsFromEnv(os.Getenv("CARACAL_APP_RESOURCES"), bindings),
-			GatewayURL:     os.Getenv("CARACAL_GATEWAY_URL"),
+			CoordinatorURL:   url,
+			STSURL:           stsURL,
+			ZoneID:           zone,
+			ApplicationID:    app,
+			ClientSecret:     clientSecret,
+			Resources:        resourceIDsFromEnv(os.Getenv("CARACAL_APP_RESOURCES"), credentialIDs, bindings),
+			ResourceBindings: bindings,
+			GatewayURL:       os.Getenv("CARACAL_GATEWAY_URL"),
 		})
 	}
 	if tok == "" {
@@ -116,14 +136,15 @@ func FromEnv() (*Caracal, error) {
 
 // ClientSecretOptions configures an SDK client backed by STS client-secret exchange.
 type ClientSecretOptions struct {
-	CoordinatorURL string
-	STSURL         string
-	ZoneID         string
-	ApplicationID  string
-	ClientSecret   string
-	Resources      []string
-	GatewayURL     string
-	Scope          string
+	CoordinatorURL   string
+	STSURL           string
+	ZoneID           string
+	ApplicationID    string
+	ClientSecret     string
+	Resources        []string
+	ResourceBindings []ResourceBinding
+	GatewayURL       string
+	Scope            string
 }
 
 // FromClientSecret returns a Caracal client that refreshes its application subject token through STS.
@@ -137,7 +158,45 @@ func FromClientSecret(opts ClientSecretOptions) (*Caracal, error) {
 		ApplicationID: opts.ApplicationID,
 		TokenSource:   clientSecretTokenSource(opts),
 		GatewayURL:    opts.GatewayURL,
+		Resources:     sortBindingsLongestFirst(opts.ResourceBindings),
 	}, nil
+}
+
+// FromConfig constructs a Caracal client from a generated runtime profile.
+func FromConfig(path string) (*Caracal, error) {
+	cfg, err := parseProfile(path)
+	if err != nil {
+		return nil, err
+	}
+	stsURL := cfg["sts_url"]
+	if stsURL == "" {
+		stsURL = cfg["zone_url"]
+	}
+	if stsURL == "" {
+		return nil, fmt.Errorf("caracal: %s requires sts_url or zone_url", path)
+	}
+	coordinatorURL := cfg["coordinator_url"]
+	if coordinatorURL == "" {
+		return nil, fmt.Errorf("caracal: %s requires coordinator_url", path)
+	}
+	secret, err := clientSecretFromProfile(path, cfg)
+	if err != nil {
+		return nil, err
+	}
+	resourceIDs, bindings := resourceIDsFromProfile(cfg)
+	if len(resourceIDs) == 0 {
+		return nil, fmt.Errorf("caracal: %s requires at least one credentials entry", path)
+	}
+	return FromClientSecret(ClientSecretOptions{
+		CoordinatorURL:   coordinatorURL,
+		STSURL:           stsURL,
+		ZoneID:           cfg["zone_id"],
+		ApplicationID:    cfg["application_id"],
+		ClientSecret:     secret,
+		Resources:        resourceIDs,
+		ResourceBindings: bindings,
+		GatewayURL:       cfg["gateway_url"],
+	})
 }
 
 func clientSecretTokenSource(opts ClientSecretOptions) TokenSource {
@@ -247,7 +306,43 @@ func parseResourceBindings(raw string) ([]ResourceBinding, error) {
 	return out, nil
 }
 
-func resourceIDsFromEnv(raw string, bindings []ResourceBinding) []string {
+func resourceBindingsFromFile(path string) ([]ResourceBinding, error) {
+	if path == "" {
+		return nil, nil
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	var array []struct {
+		ResourceID     string `json:"resource_id"`
+		UpstreamPrefix string `json:"upstream_prefix"`
+	}
+	if err := json.Unmarshal(data, &array); err == nil {
+		out := make([]ResourceBinding, 0, len(array))
+		for _, entry := range array {
+			if entry.ResourceID == "" || entry.UpstreamPrefix == "" {
+				return nil, fmt.Errorf("caracal: CARACAL_RESOURCES_FILE requires resource_id and upstream_prefix")
+			}
+			out = append(out, ResourceBinding{ResourceID: entry.ResourceID, UpstreamPrefix: entry.UpstreamPrefix})
+		}
+		return out, nil
+	}
+	var object map[string]string
+	if err := json.Unmarshal(data, &object); err != nil {
+		return nil, err
+	}
+	out := make([]ResourceBinding, 0, len(object))
+	for resourceID, upstreamPrefix := range object {
+		if resourceID == "" || upstreamPrefix == "" {
+			return nil, fmt.Errorf("caracal: CARACAL_RESOURCES_FILE requires non-empty resource ids and upstream prefixes")
+		}
+		out = append(out, ResourceBinding{ResourceID: resourceID, UpstreamPrefix: upstreamPrefix})
+	}
+	return out, nil
+}
+
+func resourceIDsFromEnv(raw string, first []string, bindings []ResourceBinding) []string {
 	if raw != "" {
 		out := []string{}
 		for _, value := range strings.Split(raw, ",") {
@@ -260,9 +355,253 @@ func resourceIDsFromEnv(raw string, bindings []ResourceBinding) []string {
 			return out
 		}
 	}
-	out := make([]string, 0, len(bindings))
+	out := append([]string(nil), first...)
 	for _, binding := range bindings {
 		out = append(out, binding.ResourceID)
+	}
+	return compactStrings(out)
+}
+
+func defaultProfilePath() string {
+	xdg := os.Getenv("XDG_CONFIG_HOME")
+	if xdg == "" {
+		home, err := os.UserHomeDir()
+		if err != nil || home == "" {
+			return ""
+		}
+		xdg = filepath.Join(home, ".config")
+	}
+	return filepath.Join(xdg, "caracal", "caracal.toml")
+}
+
+func readSecretFile(path string) (string, error) {
+	info, err := os.Stat(path)
+	if err != nil {
+		return "", fmt.Errorf("caracal: secret file is not readable: %w", err)
+	}
+	if info.Mode().Perm()&0o022 != 0 {
+		return "", fmt.Errorf("caracal: secret file permissions are too broad: %s", path)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", err
+	}
+	secret := strings.TrimSpace(string(data))
+	if secret == "" {
+		return "", fmt.Errorf("caracal: secret file is empty: %s", path)
+	}
+	return secret, nil
+}
+
+func clientSecretFromEnv() (string, error) {
+	value := os.Getenv("CARACAL_APP_CLIENT_SECRET")
+	fileValue := os.Getenv("CARACAL_APP_CLIENT_SECRET_FILE")
+	if value != "" && fileValue != "" {
+		return "", fmt.Errorf("caracal: set only one of CARACAL_APP_CLIENT_SECRET or CARACAL_APP_CLIENT_SECRET_FILE")
+	}
+	if fileValue != "" {
+		return readSecretFile(fileValue)
+	}
+	return value, nil
+}
+
+func clientSecretFromProfile(path string, cfg map[string]string) (string, error) {
+	value := cfg["app_client_secret"]
+	fileValue := cfg["app_client_secret_file"]
+	if value != "" && fileValue != "" {
+		return "", fmt.Errorf("caracal: %s sets both app_client_secret and app_client_secret_file", path)
+	}
+	if value != "" {
+		return value, nil
+	}
+	if fileValue == "" {
+		return "", fmt.Errorf("caracal: %s requires app_client_secret_file", path)
+	}
+	return readSecretFile(fileValue)
+}
+
+func parseProfile(path string) (map[string]string, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	if info, err := os.Stat(path); err == nil && info.Mode().Perm()&0o022 != 0 {
+		return nil, fmt.Errorf("caracal: profile permissions are too broad: %s", path)
+	}
+	out := map[string]string{}
+	section := ""
+	credentialIndex := -1
+	for lineNo, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(stripTomlComment(line))
+		if line == "" {
+			continue
+		}
+		if line == "[[credentials]]" || line == "[[optional_credentials]]" {
+			section = strings.Trim(line, "[]")
+			credentialIndex++
+			continue
+		}
+		if strings.HasPrefix(line, "[") {
+			section = strings.Trim(line, "[]")
+			continue
+		}
+		idx := strings.Index(line, "=")
+		if idx <= 0 {
+			return nil, fmt.Errorf("caracal: invalid profile line %d", lineNo+1)
+		}
+		key := strings.TrimSpace(line[:idx])
+		value := strings.TrimSpace(line[idx+1:])
+		parsed, ok := parseTomlString(value)
+		if !ok {
+			return nil, fmt.Errorf("caracal: profile line %d must use string values", lineNo+1)
+		}
+		if section == "credentials" || section == "optional_credentials" {
+			out[fmt.Sprintf("%s.%d.%s", section, credentialIndex, key)] = parsed
+			continue
+		}
+		out[key] = parsed
+	}
+	for _, key := range []string{"zone_id", "application_id"} {
+		if out[key] == "" {
+			return nil, fmt.Errorf("caracal: %s requires %s", path, key)
+		}
+	}
+	return out, nil
+}
+
+func stripTomlComment(line string) string {
+	inString := false
+	escaped := false
+	for i, r := range line {
+		if escaped {
+			escaped = false
+			continue
+		}
+		if r == '\\' {
+			escaped = true
+			continue
+		}
+		if r == '"' {
+			inString = !inString
+			continue
+		}
+		if r == '#' && !inString {
+			return line[:i]
+		}
+	}
+	return line
+}
+
+func parseTomlString(value string) (string, bool) {
+	if len(value) < 2 || value[0] != '"' || value[len(value)-1] != '"' {
+		return "", false
+	}
+	var out string
+	if err := json.Unmarshal([]byte(value), &out); err != nil {
+		return "", false
+	}
+	return out, true
+}
+
+func resourceIDsFromProfile(cfg map[string]string) ([]string, []ResourceBinding) {
+	ids := []string{}
+	bindings := []ResourceBinding{}
+	seen := map[string]bool{}
+	counts := credentialCounts(cfg)
+	for _, prefix := range []string{"credentials", "optional_credentials"} {
+		count := counts[prefix]
+		for i := 0; i < count; i++ {
+			resource := cfg[fmt.Sprintf("%s.%d.resource", prefix, i)]
+			if resource == "" || seen[resource] {
+				continue
+			}
+			seen[resource] = true
+			ids = append(ids, resource)
+			if upstream := cfg[fmt.Sprintf("%s.%d.upstream_prefix", prefix, i)]; upstream != "" {
+				bindings = append(bindings, ResourceBinding{ResourceID: resource, UpstreamPrefix: upstream})
+			}
+		}
+	}
+	return ids, sortBindingsLongestFirst(bindings)
+}
+
+func credentialCounts(cfg map[string]string) map[string]int {
+	counts := map[string]int{"credentials": 0, "optional_credentials": 0}
+	for key := range cfg {
+		for prefix := range counts {
+			start := prefix + "."
+			if !strings.HasPrefix(key, start) {
+				continue
+			}
+			rest := strings.TrimPrefix(key, start)
+			idx := strings.Index(rest, ".")
+			if idx <= 0 {
+				continue
+			}
+			var n int
+			if _, err := fmt.Sscanf(rest[:idx], "%d", &n); err == nil && n+1 > counts[prefix] {
+				counts[prefix] = n + 1
+			}
+		}
+	}
+	return counts
+}
+
+func credentialManifestFromEnv() ([]string, []ResourceBinding, error) {
+	fileValue := os.Getenv("CARACAL_RUN_CREDENTIALS_FILE")
+	inline := os.Getenv("CARACAL_RUN_CREDENTIALS")
+	if fileValue != "" && inline != "" {
+		return nil, nil, fmt.Errorf("caracal: set only one of CARACAL_RUN_CREDENTIALS or CARACAL_RUN_CREDENTIALS_FILE")
+	}
+	if fileValue == "" && inline == "" {
+		return nil, nil, nil
+	}
+	raw := []byte(inline)
+	if fileValue != "" {
+		data, err := os.ReadFile(fileValue)
+		if err != nil {
+			return nil, nil, err
+		}
+		raw = data
+	}
+	type credentialEntry struct {
+		Resource       string `json:"resource"`
+		UpstreamPrefix string `json:"upstream_prefix"`
+	}
+	var entries []credentialEntry
+	if err := json.Unmarshal(raw, &entries); err != nil {
+		var manifest struct {
+			Credentials         []credentialEntry `json:"credentials"`
+			OptionalCredentials []credentialEntry `json:"optional_credentials"`
+		}
+		if err := json.Unmarshal(raw, &manifest); err != nil {
+			return nil, nil, err
+		}
+		entries = append(manifest.Credentials, manifest.OptionalCredentials...)
+	}
+	ids := []string{}
+	bindings := []ResourceBinding{}
+	for _, entry := range entries {
+		if entry.Resource == "" {
+			continue
+		}
+		ids = append(ids, entry.Resource)
+		if entry.UpstreamPrefix != "" {
+			bindings = append(bindings, ResourceBinding{ResourceID: entry.Resource, UpstreamPrefix: entry.UpstreamPrefix})
+		}
+	}
+	return ids, bindings, nil
+}
+
+func compactStrings(values []string) []string {
+	out := []string{}
+	seen := map[string]bool{}
+	for _, value := range values {
+		if value == "" || seen[value] {
+			continue
+		}
+		seen[value] = true
+		out = append(out, value)
 	}
 	return out
 }
