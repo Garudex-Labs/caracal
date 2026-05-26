@@ -189,6 +189,7 @@ services:
       GATEWAY_STS_HMAC_KEY_FILE: /run/secrets/gatewayStsHmacKey
       ZONE_KEK_PROVIDER: local
       ISSUER_URL: ${CARACAL_STS_ISSUER_URL:-http://localhost:8080}
+      STS_ADMIN_TOKEN: ${STS_ADMIN_TOKEN:-}
       PORT: 8080
     ports:
       - "127.0.0.1:8080:8080"
@@ -305,6 +306,7 @@ services:
       DATABASE_URL_FILE: /run/secrets/databaseUrl
       REDIS_URL_FILE: /run/secrets/redisUrl
       AUDIT_HMAC_KEY_FILE: /run/secrets/auditHmacKey
+      AUDIT_ADMIN_TOKEN: ${AUDIT_ADMIN_TOKEN:-}
       AUDIT_EXPORT_S3_ENDPOINT: ${AUDIT_EXPORT_S3_ENDPOINT:-}
       AUDIT_EXPORT_S3_BUCKET: ${AUDIT_EXPORT_S3_BUCKET:-}
       AUDIT_EXPORT_S3_REGION: ${AUDIT_EXPORT_S3_REGION:-us-east-1}

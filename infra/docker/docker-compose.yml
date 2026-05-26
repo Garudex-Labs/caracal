@@ -274,6 +274,7 @@ services:
       GATEWAY_STS_HMAC_KEY_FILE: /run/secrets/gatewayStsHmacKey
       ZONE_KEK_PROVIDER: local
       ISSUER_URL: ${CARACAL_STS_ISSUER_URL:-http://sts:8080}
+      STS_ADMIN_TOKEN: ${STS_ADMIN_TOKEN:-}
       OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
       OTEL_EXPORTER_OTLP_PROTOCOL: http/protobuf
       OTEL_SERVICE_NAME: caracal-sts
@@ -422,6 +423,7 @@ services:
       DATABASE_URL_FILE: /run/secrets/databaseUrl
       REDIS_URL_FILE: /run/secrets/redisUrl
       AUDIT_HMAC_KEY_FILE: /run/secrets/auditHmacKey
+      AUDIT_ADMIN_TOKEN: ${AUDIT_ADMIN_TOKEN:-}
       AUDIT_EXPORT_S3_ENDPOINT: ${AUDIT_EXPORT_S3_ENDPOINT:-}
       AUDIT_EXPORT_S3_BUCKET: ${AUDIT_EXPORT_S3_BUCKET:-}
       AUDIT_EXPORT_S3_REGION: ${AUDIT_EXPORT_S3_REGION:-us-east-1}
