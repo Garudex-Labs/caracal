@@ -4,10 +4,10 @@
   "version": "2026.05.27-rc.1",
   "baseVersion": "2026.05.27",
   "suffix": "rc.1",
-  "sha": "cec60b5d",
-  "generatedAt": "2026-05-26T18:50:10.292Z",
+  "sha": "2cef6b41",
+  "generatedAt": "2026-05-26T18:52:01.655Z",
   "source": {
-    "gitSha": "cec60b5d",
+    "gitSha": "2cef6b41",
     "dirty": false
   },
   "registries": {
