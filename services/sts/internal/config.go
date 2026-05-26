@@ -27,10 +27,11 @@ type Config struct {
 	GatewayHMACKey     []byte
 	OPAPollSeconds     int
 	MetricsBearer      string
+	AdminToken         string
 }
 
 func loadConfig() (Config, error) {
-	config.ResolveFileSecrets("DATABASE_URL", "REDIS_URL", "ZONE_KEK", "AUDIT_HMAC_KEY", "STREAMS_HMAC_KEY", "GATEWAY_STS_HMAC_KEY")
+	config.ResolveFileSecrets("DATABASE_URL", "REDIS_URL", "ZONE_KEK", "AUDIT_HMAC_KEY", "STREAMS_HMAC_KEY", "GATEWAY_STS_HMAC_KEY", "STS_ADMIN_TOKEN")
 	if missing := config.MissingRequired("PORT", "DATABASE_URL", "REDIS_URL", "ISSUER_URL"); len(missing) > 0 {
 		return Config{}, fmt.Errorf("required env vars missing: %s", strings.Join(missing, ", "))
 	}
@@ -59,6 +60,7 @@ func loadConfig() (Config, error) {
 		GatewayHMACKey:     gatewayKey,
 		OPAPollSeconds:     opaPollSeconds,
 		MetricsBearer:      os.Getenv("METRICS_BEARER"),
+		AdminToken:         os.Getenv("STS_ADMIN_TOKEN"),
 	}, nil
 }
 

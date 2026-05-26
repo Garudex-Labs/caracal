@@ -64,6 +64,7 @@ type DBQuerier interface {
 	SatisfyStepUpChallenge(ctx context.Context, id string) error
 	ConsumeStepUpChallenge(ctx context.Context, p ConsumeStepUpParams) error
 	EnsureZoneSigningKeySecret(ctx context.Context, zoneID string, ciphertext, nonce []byte) (*SecretRow, error)
+	InsertZoneSigningKeySecret(ctx context.Context, zoneID string, ciphertext, nonce []byte) (*SecretRow, error)
 	GetZoneSigningKeySecret(ctx context.Context, zoneID string) (*SecretRow, error)
 	GetZoneSigningKeySecrets(ctx context.Context, zoneID string) ([]SecretRow, error)
 	GetActivePolicySetBinding(ctx context.Context, zoneID string) (*PolicySetBinding, error)
@@ -518,6 +519,39 @@ func (d *DB) EnsureZoneSigningKeySecret(ctx context.Context, zoneID string, ciph
 		if current, getErr := d.GetZoneSigningKeySecret(ctx, zoneID); getErr == nil {
 			return current, nil
 		}
+		return nil, err
+	}
+	return &s, nil
+}
+
+func (d *DB) InsertZoneSigningKeySecret(ctx context.Context, zoneID string, ciphertext, nonce []byte) (*SecretRow, error) {
+	id, err := uuid.NewV7()
+	if err != nil {
+		return nil, err
+	}
+	tx, err := d.pool.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtext($1))`, "zone_signing_key:"+zoneID); err != nil {
+		return nil, err
+	}
+	var s SecretRow
+	err = tx.QueryRow(ctx,
+		`WITH next AS (
+		   SELECT COALESCE(MAX(version), 0) + 1 AS version
+		   FROM secrets WHERE zone_id = $1 AND entity_id = $1 AND name = 'zone_signing_key'
+		 )
+		 INSERT INTO secrets (id, zone_id, entity_id, name, type, ciphertext, nonce, dek_id, version)
+		 SELECT $2, $1, $1, 'zone_signing_key', 'token', $3, $4, 'zoneKek', next.version FROM next
+		 RETURNING id, ciphertext, nonce, dek_id`,
+		zoneID, id.String(), ciphertext, nonce,
+	).Scan(&s.ID, &s.Ciphertext, &s.Nonce, &s.DEKID)
+	if err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(ctx); err != nil {
 		return nil, err
 	}
 	return &s, nil

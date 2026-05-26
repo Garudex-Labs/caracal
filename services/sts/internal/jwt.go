@@ -90,23 +90,47 @@ func (k *KeyCache) getKeyAndKid(ctx context.Context, zoneID string) (*ecdsa.Priv
 }
 
 func (k *KeyCache) generateZoneSigningKey(ctx context.Context, zoneID string) (*SecretRow, error) {
+	ciphertext, nonce, err := k.sealZoneSigningKey()
+	if err != nil {
+		return nil, err
+	}
+	return k.db.EnsureZoneSigningKeySecret(ctx, zoneID, ciphertext, nonce)
+}
+
+func (k *KeyCache) RotateZoneSigningKey(ctx context.Context, zoneID string) (*SecretRow, error) {
+	if zoneID == "" {
+		return nil, errors.New("zone_id required")
+	}
+	ciphertext, nonce, err := k.sealZoneSigningKey()
+	if err != nil {
+		return nil, err
+	}
+	secret, err := k.db.InsertZoneSigningKeySecret(ctx, zoneID, ciphertext, nonce)
+	if err != nil {
+		return nil, err
+	}
+	k.Invalidate(zoneID)
+	return secret, nil
+}
+
+func (k *KeyCache) sealZoneSigningKey() ([]byte, []byte, error) {
 	priv, err := sharedcrypto.GenerateP256Key()
 	if err != nil {
-		return nil, fmt.Errorf("generate signing key: %w", err)
+		return nil, nil, fmt.Errorf("generate signing key: %w", err)
 	}
 	der, err := x509.MarshalECPrivateKey(priv)
 	if err != nil {
-		return nil, fmt.Errorf("marshal signing key: %w", err)
+		return nil, nil, fmt.Errorf("marshal signing key: %w", err)
 	}
 	keyBytes := pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: der})
 	if len(keyBytes) == 0 {
-		return nil, fmt.Errorf("encode signing key")
+		return nil, nil, fmt.Errorf("encode signing key")
 	}
 	ciphertext, nonce, err := sharedcrypto.Seal(k.zek, keyBytes)
 	if err != nil {
-		return nil, fmt.Errorf("seal signing key: %w", err)
+		return nil, nil, fmt.Errorf("seal signing key: %w", err)
 	}
-	return k.db.EnsureZoneSigningKeySecret(ctx, zoneID, ciphertext, nonce)
+	return ciphertext, nonce, nil
 }
 
 func (k *KeyCache) getPublicKeyAndKid(ctx context.Context, zoneID string) (*ecdsa.PublicKey, string, error) {
