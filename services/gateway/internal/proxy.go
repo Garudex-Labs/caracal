@@ -17,6 +17,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	sharederr "github.com/garudex-labs/caracal/packages/core/go/errors"
@@ -29,6 +30,11 @@ import (
 const preflightWindow = 35 * time.Second
 
 const maxBearerBytes = 4096
+
+const (
+	stsCircuitFailureLimit = 3
+	stsCircuitOpenFor      = 10 * time.Second
+)
 
 // proxy implements the gateway's reverse-proxy handler.
 type proxy struct {
@@ -43,6 +49,9 @@ type proxy struct {
 	revocations revocationChecker
 	metrics     *GatewayMetrics
 	audit       auditEmitter
+	circuitMu   sync.Mutex
+	stsFailures int
+	stsOpenUntil time.Time
 }
 
 type tokenVerifier interface {
@@ -225,10 +234,20 @@ func (p *proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if p.stsCircuitOpen() {
+		writeErr(w, requestID, http.StatusServiceUnavailable, sharederr.STSUnavailable, "sts unavailable")
+		p.metrics.RequestsDenied.Add(1)
+		p.metrics.STSExchangeErrors.Add(1)
+		p.metrics.STSCircuitFastFail.Add(1)
+		logger.Warn().Int("status", http.StatusServiceUnavailable).Msg("sts circuit open")
+		return
+	}
 	stsCtx, cancel := context.WithTimeout(r.Context(), p.sts.client.Timeout)
 	out := p.sts.Exchange(stsCtx, bearer, bind, resource, requestID)
 	cancel()
+	p.metrics.STSExchangeLatencyMs.Store(uint64(out.Latency / time.Millisecond))
 	if out.ClientErr != nil {
+		p.recordSTSFailure(out)
 		writeErr(w, requestID, out.Status, out.ClientErr.Code, out.ClientErr.Description)
 		p.metrics.RequestsDenied.Add(1)
 		p.metrics.STSExchangeErrors.Add(1)
@@ -239,6 +258,7 @@ func (p *proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			Msg("sts exchange failed")
 		return
 	}
+	p.recordSTSSuccess()
 	res := out.Result
 
 	upstreamURL, err := p.guard.Check(res.Upstream.URL)
@@ -356,6 +376,39 @@ func (p *proxy) emitActionAudit(input gatewayAuditInput) {
 	emitGatewayActionAudit(p.audit, func(err error) {
 		p.log.Error().Err(err).Str("request_id", input.RequestID).Str("zone_id", input.ZoneID).Msg("gateway audit event creation failed")
 	}, input)
+}
+
+func (p *proxy) stsCircuitOpen() bool {
+	p.circuitMu.Lock()
+	defer p.circuitMu.Unlock()
+	if time.Now().Before(p.stsOpenUntil) {
+		p.metrics.STSCircuitOpen.Store(1)
+		return true
+	}
+	p.metrics.STSCircuitOpen.Store(0)
+	return false
+}
+
+func (p *proxy) recordSTSSuccess() {
+	p.circuitMu.Lock()
+	defer p.circuitMu.Unlock()
+	p.stsFailures = 0
+	p.stsOpenUntil = time.Time{}
+	p.metrics.STSCircuitOpen.Store(0)
+}
+
+func (p *proxy) recordSTSFailure(out exchangeOutcome) {
+	if out.ClientErr == nil || out.ClientErr.Code != sharederr.STSUnavailable || out.Status < http.StatusInternalServerError {
+		return
+	}
+	p.circuitMu.Lock()
+	defer p.circuitMu.Unlock()
+	p.stsFailures++
+	if p.stsFailures >= stsCircuitFailureLimit {
+		p.stsOpenUntil = time.Now().Add(stsCircuitOpenFor)
+		p.metrics.STSCircuitOpen.Store(1)
+		p.metrics.STSCircuitOpened.Add(1)
+	}
 }
 
 // buildUpstreamRequest constructs the outbound request with safe headers, joined path,

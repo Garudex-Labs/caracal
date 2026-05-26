@@ -7,11 +7,13 @@ package internal
 
 import (
 	"context"
+	"crypto/subtle"
 	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/garudex-labs/caracal/packages/core/go/audit"
@@ -109,10 +111,10 @@ func (s *Server) Run(ctx context.Context) error {
 	auditCtx, stopAudit := context.WithCancel(context.Background())
 	defer stopAudit()
 	s.audit.Start(auditCtx)
-	if err := startRevocationConsumer(ctx, s.redis, s.revocations, s.log); err != nil {
+	if err := startRevocationConsumer(ctx, s.redis, s.revocations, s.metrics, s.log); err != nil {
 		return err
 	}
-	startRevocationSnapshotPolling(ctx, s.pool, s.revocations, s.log)
+	startRevocationSnapshotPolling(ctx, s.pool, s.revocations, s.metrics, s.log)
 	p := newProxy(s.sts, s.jwks, s.guard, s.log, s.cfg.MaxRequestBytes, s.cfg.UpstreamTimeout, s.bindings, s.tracker, s.revocations, s.metrics, s.audit)
 
 	mux := http.NewServeMux()
@@ -120,6 +122,7 @@ func (s *Server) Run(ctx context.Context) error {
 	mux.HandleFunc("/ready", s.handleReady)
 	mux.HandleFunc("/metrics", s.handleMetrics)
 	mux.HandleFunc("/metrics.json", s.handleMetricsJSON)
+	mux.HandleFunc("POST /internal/revocations/reload", s.handleRevocationReload)
 	mux.Handle("/", p)
 
 	handler := telemetry.HTTPHandler("caracal.gateway.http", requestIDMiddleware(mux))
@@ -251,11 +254,25 @@ func (s *Server) handleMetrics(w http.ResponseWriter, _ *http.Request) {
 		{Name: "caracal_gateway_denials_revoked_total", Help: "Gateway denials caused by revoked sessions or delegations", Type: coremetrics.Counter, Value: float64(snap.DenialsRevoked)},
 		{Name: "caracal_gateway_denials_binding_total", Help: "Gateway denials caused by missing Gateway bindings", Type: coremetrics.Counter, Value: float64(snap.DenialsBinding)},
 		{Name: "caracal_gateway_sts_exchange_errors_total", Help: "Gateway STS token exchange failures", Type: coremetrics.Counter, Value: float64(snap.STSExchangeErrors)},
+		{Name: "caracal_gateway_sts_exchange_latency_ms", Help: "Latency of the most recent Gateway STS token exchange", Type: coremetrics.Gauge, Value: float64(snap.STSExchangeLatencyMs)},
+		{Name: "caracal_gateway_sts_circuit_open", Help: "Whether Gateway is currently fast-failing STS exchange calls", Type: coremetrics.Gauge, Value: float64(snap.STSCircuitOpen)},
+		{Name: "caracal_gateway_sts_circuit_opened_total", Help: "Times Gateway opened its STS exchange circuit breaker", Type: coremetrics.Counter, Value: float64(snap.STSCircuitOpened)},
+		{Name: "caracal_gateway_sts_circuit_fast_fail_total", Help: "Gateway requests rejected while the STS exchange circuit was open", Type: coremetrics.Counter, Value: float64(snap.STSCircuitFastFail)},
 		{Name: "caracal_gateway_upstream_errors_total", Help: "Gateway upstream request failures", Type: coremetrics.Counter, Value: float64(snap.UpstreamErrors)},
+		{Name: "caracal_gateway_audit_replay_files", Help: "Gateway audit replay files waiting on disk", Type: coremetrics.Gauge, Value: float64(snap.AuditReplayFiles)},
+		{Name: "caracal_gateway_audit_replay_bytes", Help: "Gateway audit replay bytes waiting on disk", Type: coremetrics.Gauge, Value: float64(snap.AuditReplayBytes)},
+		{Name: "caracal_gateway_audit_replay_oldest_age_seconds", Help: "Age of the oldest Gateway audit replay file on disk", Type: coremetrics.Gauge, Value: float64(snap.AuditReplayOldestAge)},
 		{Name: "caracal_gateway_bindings_loaded", Help: "Gateway resource bindings loaded in memory", Type: coremetrics.Gauge, Value: float64(snap.BindingsLoaded)},
 		{Name: "caracal_gateway_revocations_active", Help: "Gateway revocation anchors loaded in memory", Type: coremetrics.Gauge, Value: float64(snap.RevocationsActive)},
 		{Name: "caracal_gateway_revocation_snapshot_age_seconds", Help: "Seconds since the last successful Gateway revocation snapshot reload", Type: coremetrics.Gauge, Value: float64(snap.RevocationSnapshotAgeSeconds)},
 		{Name: "caracal_gateway_revocation_snapshot_fresh", Help: "Whether the Gateway revocation snapshot is fresh enough for readiness", Type: coremetrics.Gauge, Value: float64(snap.RevocationSnapshotFresh)},
+		{Name: "caracal_gateway_revocation_messages_total", Help: "Valid revocation stream messages applied by Gateway", Type: coremetrics.Counter, Value: float64(snap.RevocationMessages)},
+		{Name: "caracal_gateway_revocation_pending_replayed_total", Help: "Pending revocation stream messages reclaimed by Gateway", Type: coremetrics.Counter, Value: float64(snap.RevocationPendingReplayed)},
+		{Name: "caracal_gateway_revocation_dead_letters_total", Help: "Poison revocation stream messages dead-lettered by Gateway", Type: coremetrics.Counter, Value: float64(snap.RevocationDeadLetters)},
+		{Name: "caracal_gateway_revocation_invalid_signatures_total", Help: "Revocation stream messages rejected because their origin signature failed", Type: coremetrics.Counter, Value: float64(snap.RevocationInvalidSignatures)},
+		{Name: "caracal_gateway_revocation_reloads_total", Help: "Gateway revocation snapshot reloads completed successfully", Type: coremetrics.Counter, Value: float64(snap.RevocationReloads)},
+		{Name: "caracal_gateway_revocation_reload_errors_total", Help: "Gateway revocation snapshot reload attempts that failed", Type: coremetrics.Counter, Value: float64(snap.RevocationReloadErrors)},
+		{Name: "caracal_gateway_revocation_propagation_seconds", Help: "Age of the most recent applied revocation stream message", Type: coremetrics.Gauge, Value: float64(snap.RevocationPropagationSeconds)},
 	}
 	if s.pool != nil {
 		stat := s.pool.Stat()
@@ -298,6 +315,42 @@ func (s *Server) refreshMetricGauges() {
 			s.metrics.RevocationSnapshotFresh.Store(0)
 		}
 	}
+	if s.audit != nil {
+		audit := s.audit.Snapshot()
+		s.metrics.AuditReplayFiles.Store(audit.ReplayFiles)
+		s.metrics.AuditReplayBytes.Store(audit.ReplayBytes)
+		s.metrics.AuditReplayOldestAge.Store(audit.ReplayOldestAgeSeconds)
+	}
+}
+
+func (s *Server) handleRevocationReload(w http.ResponseWriter, r *http.Request) {
+	if !s.adminAuthorized(r) {
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+	if err := reloadRevocationSnapshot(ctx, s.pool, s.revocations); err != nil {
+		s.metrics.RevocationReloadErrors.Add(1)
+		s.log.Error().Err(err).Msg("forced revocation snapshot reload failed")
+		writeReadyFailure(w, "revocation_reload_failed")
+		return
+	}
+	s.metrics.RevocationReloads.Add(1)
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "revocations": s.revocations.Size()})
+}
+
+func (s *Server) adminAuthorized(r *http.Request) bool {
+	if s.cfg.AdminToken == "" {
+		return false
+	}
+	auth := strings.TrimSpace(r.Header.Get("Authorization"))
+	expected := "Bearer " + s.cfg.AdminToken
+	if len(auth) != len(expected) {
+		return false
+	}
+	return subtle.ConstantTimeCompare([]byte(auth), []byte(expected)) == 1
 }
 
 // requestIDMiddleware ensures every request has a server-assigned UUID in its context

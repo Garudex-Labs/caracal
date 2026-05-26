@@ -331,6 +331,7 @@ func (s *Server) handleMetrics(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
+	s.auditBuffer.RefreshReplayStats(time.Now())
 	sts := s.metrics.Snapshot()
 	opa := s.opa.MetricsSnapshot()
 	auditDropped := s.auditBuffer.Dropped()
@@ -340,10 +341,17 @@ func (s *Server) handleMetrics(w http.ResponseWriter, r *http.Request) {
 		{Name: "caracal_sts_graph_traversal_errors_total", Help: "STS delegation graph traversal failures", Type: coremetrics.Counter, Value: float64(sts.GraphTraversalErrors)},
 		{Name: "caracal_sts_audit_dropped_total", Help: "STS audit events dropped before persistence", Type: coremetrics.Counter, Value: float64(sts.AuditDropped + auditDropped)},
 		{Name: "caracal_sts_audit_replay_pending", Help: "STS audit events pending replay", Type: coremetrics.Gauge, Value: float64(sts.AuditReplayPending)},
+		{Name: "caracal_sts_audit_replay_files", Help: "STS audit replay files waiting on disk", Type: coremetrics.Gauge, Value: float64(sts.AuditReplayFiles)},
+		{Name: "caracal_sts_audit_replay_bytes", Help: "STS audit replay bytes waiting on disk", Type: coremetrics.Gauge, Value: float64(sts.AuditReplayBytes)},
+		{Name: "caracal_sts_audit_replay_oldest_age_seconds", Help: "Age of the oldest STS audit replay file on disk", Type: coremetrics.Gauge, Value: float64(sts.AuditReplayOldestAge)},
 		{Name: "caracal_sts_audit_replay_replayed_total", Help: "STS audit events replayed after sink recovery", Type: coremetrics.Counter, Value: float64(sts.AuditReplayReplayed)},
 		{Name: "caracal_sts_audit_sink_errors_total", Help: "STS audit sink publish errors", Type: coremetrics.Counter, Value: float64(sts.AuditSinkErrors)},
 		{Name: "caracal_sts_jwks_invalid_keys_total", Help: "STS signing keys skipped because JWKS validation failed", Type: coremetrics.Counter, Value: float64(sts.JWKSInvalidKeys)},
 		{Name: "caracal_sts_provider_refresh_shared_total", Help: "STS provider credential refresh calls served by a shared in-process result", Type: coremetrics.Counter, Value: float64(sts.ProviderRefreshShared)},
+		{Name: "caracal_sts_provider_refresh_leased_total", Help: "STS provider credential refresh calls that acquired the distributed refresh lease", Type: coremetrics.Counter, Value: float64(sts.ProviderRefreshLeased)},
+		{Name: "caracal_sts_provider_refresh_waited_total", Help: "STS provider credential refresh calls that waited for a distributed peer result", Type: coremetrics.Counter, Value: float64(sts.ProviderRefreshWaited)},
+		{Name: "caracal_sts_provider_refresh_errors_total", Help: "STS provider credential refresh distributed coordination errors", Type: coremetrics.Counter, Value: float64(sts.ProviderRefreshErrors)},
+		{Name: "caracal_sts_provider_circuit_open_total", Help: "STS provider refresh attempts rejected because the provider circuit was open", Type: coremetrics.Counter, Value: float64(sts.ProviderCircuitOpen)},
 		{Name: "caracal_sts_opa_eval_total", Help: "STS OPA policy evaluations", Type: coremetrics.Counter, Value: float64(opa.EvalTotal)},
 		{Name: "caracal_sts_opa_eval_errors_total", Help: "STS OPA policy evaluation errors", Type: coremetrics.Counter, Value: float64(opa.EvalErrors)},
 		{Name: "caracal_sts_opa_eval_duration_seconds_total", Help: "STS cumulative OPA policy evaluation duration", Type: coremetrics.Counter, Value: float64(opa.EvalDurationNs) / float64(time.Second)},
@@ -360,6 +368,7 @@ func (s *Server) handleMetricsJSON(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
+	s.auditBuffer.RefreshReplayStats(time.Now())
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
 		"sts":           s.metrics.Snapshot(),
