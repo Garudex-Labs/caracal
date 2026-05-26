@@ -20,7 +20,7 @@ usage() {
 Usage: $0 --release vYYYY.MM.DD [--category <list>] [--report-out <path>] [--only <list>] [--dry-run]
 
 Categories: registryMetadata, pypiInstall, npmInstall, shellBinaries, consoleBinaries,
-            installers, containers, provenance, examples, all
+            installers, containers, provenance, all
 EOF
 }
 
@@ -57,7 +57,7 @@ export MANIFEST
 
 declare -a CATS
 if [[ "$CATEGORY" == "all" ]]; then
-  CATS=(registryMetadata pypiInstall npmInstall shellBinaries consoleBinaries installers containers provenance examples)
+  CATS=(registryMetadata pypiInstall npmInstall shellBinaries consoleBinaries installers containers provenance)
 else
   IFS=',' read -r -a CATS <<< "$CATEGORY"
 fi
