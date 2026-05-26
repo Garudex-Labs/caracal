@@ -44,14 +44,15 @@ type Server struct {
 	redis        *redis.Client
 	log          zerolog.Logger
 
-	inserts      atomic.Int64
-	exportEvents atomic.Int64
-	exportErrors atomic.Int64
-	exportDurMs  atomic.Int64
-	consumerLag  atomic.Int64
-	pelOldestAge atomic.Int64
-	dlqSize      atomic.Int64
-	dlqOldestAge atomic.Int64
+	inserts       atomic.Int64
+	exportEvents  atomic.Int64
+	exportErrors  atomic.Int64
+	exportDurMs   atomic.Int64
+	exportBacklog atomic.Int64
+	consumerLag   atomic.Int64
+	pelOldestAge  atomic.Int64
+	dlqSize       atomic.Int64
+	dlqOldestAge  atomic.Int64
 }
 
 func New(ctx context.Context) (*Server, error) {
@@ -99,6 +100,7 @@ func New(ctx context.Context) (*Server, error) {
 			s.exportErrors.Add(1)
 		}
 	}
+	exp.onBacklog = func(hours int64) { s.exportBacklog.Store(hours) }
 	if len(cfg.AuditHMACKey) == 0 {
 		log.Warn().Msg("AUDIT_HMAC_KEY not set: chain HMAC disabled and producer signatures not verified")
 	}
@@ -121,6 +123,7 @@ func (s *Server) Run(ctx context.Context) error {
 	mux.HandleFunc("GET /metrics", s.handleMetrics)
 	mux.HandleFunc("GET /metrics.json", s.handleMetricsJSON)
 	mux.HandleFunc("GET /api/audit/search", s.handleSearch)
+	mux.HandleFunc("POST /api/audit/dlq/replay", s.handleDLQReplay)
 
 	srv := &http.Server{
 		Addr:              ":" + s.cfg.Port,
@@ -197,6 +200,7 @@ func (s *Server) handleMetrics(w http.ResponseWriter, _ *http.Request) {
 		{Name: "caracal_audit_export_events_total", Help: "Audit events exported to archive storage", Type: coremetrics.Counter, Value: float64(snap.ExportEventsTotal)},
 		{Name: "caracal_audit_export_errors_total", Help: "Audit export failures", Type: coremetrics.Counter, Value: float64(snap.ExportErrorsTotal)},
 		{Name: "caracal_audit_export_duration_seconds", Help: "Most recent audit export duration", Type: coremetrics.Gauge, Value: float64(snap.ExportDurationMs) / 1000},
+		{Name: "caracal_audit_export_backlog_hours", Help: "Completed audit hours waiting for Parquet export", Type: coremetrics.Gauge, Value: float64(snap.ExportBacklogHours)},
 		{Name: "caracal_audit_consumer_lag", Help: "Audit stream pending entry count", Type: coremetrics.Gauge, Value: float64(snap.ConsumerLag)},
 		{Name: "caracal_audit_consumer_pel_oldest_seconds", Help: "Oldest audit pending entry age", Type: coremetrics.Gauge, Value: float64(snap.ConsumerPELOldestSecs)},
 		{Name: "caracal_audit_dlq_size", Help: "Audit dead-letter stream size", Type: coremetrics.Gauge, Value: float64(snap.DLQSize)},
@@ -227,14 +231,7 @@ func (s *Server) handleMetricsJSON(w http.ResponseWriter, _ *http.Request) {
 // handleSearch serves GET /api/audit/search for operator forensics queries.
 // The endpoint is disabled (404) when AUDIT_ADMIN_TOKEN is not configured.
 func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
-	if s.cfg.AdminToken == "" {
-		http.NotFound(w, r)
-		return
-	}
-	auth := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
-	if subtle.ConstantTimeCompare([]byte(auth), []byte(s.cfg.AdminToken)) != 1 {
-		w.Header().Set("WWW-Authenticate", `Bearer realm="caracal-audit"`)
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
+	if !s.authorizeAdmin(w, r) {
 		return
 	}
 
@@ -302,11 +299,107 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func (s *Server) handleDLQReplay(w http.ResponseWriter, r *http.Request) {
+	if !s.authorizeAdmin(w, r) {
+		return
+	}
+	limit := 100
+	if l := r.URL.Query().Get("limit"); l != "" {
+		n, err := strconv.Atoi(l)
+		if err != nil || n <= 0 {
+			http.Error(w, "limit must be a positive integer", http.StatusBadRequest)
+			return
+		}
+		limit = n
+	}
+	if limit > 1000 {
+		limit = 1000
+	}
+
+	summary, err := s.replayDLQ(r.Context(), int64(limit))
+	if err != nil {
+		s.log.Error().Err(err).Msg("audit dlq replay failed")
+		http.Error(w, "dlq replay failed", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(summary)
+}
+
+func (s *Server) authorizeAdmin(w http.ResponseWriter, r *http.Request) bool {
+	if s.cfg.AdminToken == "" {
+		http.NotFound(w, r)
+		return false
+	}
+	auth := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
+	if subtle.ConstantTimeCompare([]byte(auth), []byte(s.cfg.AdminToken)) != 1 {
+		w.Header().Set("WWW-Authenticate", `Bearer realm="caracal-audit"`)
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return false
+	}
+	return true
+}
+
+type dlqReplaySummary struct {
+	Scanned  int64 `json:"scanned"`
+	Replayed int64 `json:"replayed"`
+	Skipped  int64 `json:"skipped"`
+}
+
+func (s *Server) replayDLQ(ctx context.Context, limit int64) (dlqReplaySummary, error) {
+	var summary dlqReplaySummary
+	if s.redis == nil {
+		return summary, errors.New("redis unavailable")
+	}
+	msgs, err := s.redis.XRangeN(ctx, auditDLQStream, "-", "+", limit).Result()
+	if err != nil {
+		return summary, err
+	}
+	for _, msg := range msgs {
+		summary.Scanned++
+		fields, ok := dlqReplayFields(msg.Values)
+		if !ok {
+			summary.Skipped++
+			continue
+		}
+		if err := s.redis.XAdd(ctx, &redis.XAddArgs{Stream: auditStream, Values: fields}).Err(); err != nil {
+			return summary, err
+		}
+		if err := s.redis.XDel(ctx, auditDLQStream, msg.ID).Err(); err != nil {
+			return summary, err
+		}
+		summary.Replayed++
+	}
+	return summary, nil
+}
+
+func dlqReplayFields(values map[string]any) (map[string]any, bool) {
+	reason, _ := values["reason"].(string)
+	if !dlqReplayableReason(reason) {
+		return nil, false
+	}
+	data, ok := values["src_data"].(string)
+	if !ok || strings.TrimSpace(data) == "" {
+		return nil, false
+	}
+	fields := map[string]any{"data": data}
+	if sig, ok := values["src_sig"].(string); ok && strings.TrimSpace(sig) != "" {
+		fields["sig"] = sig
+	}
+	return fields, true
+}
+
+func dlqReplayableReason(reason string) bool {
+	return strings.HasPrefix(reason, "transient_exceeded_max_deliveries:") ||
+		strings.HasPrefix(reason, "pg_permanent_error:")
+}
+
 type auditMetricsSnapshot struct {
 	InsertsTotal          int64 `json:"inserts_total"`
 	ExportEventsTotal     int64 `json:"export_events_total"`
 	ExportErrorsTotal     int64 `json:"export_errors_total"`
 	ExportDurationMs      int64 `json:"export_duration_ms"`
+	ExportBacklogHours    int64 `json:"export_backlog_hours"`
 	ConsumerLag           int64 `json:"consumer_lag"`
 	ConsumerPELOldestSecs int64 `json:"consumer_pel_oldest_secs"`
 	DLQSize               int64 `json:"dlq_size"`
@@ -334,6 +427,7 @@ func (s *Server) metricsSnapshot() auditMetricsSnapshot {
 		ExportEventsTotal:     s.exportEvents.Load(),
 		ExportErrorsTotal:     s.exportErrors.Load(),
 		ExportDurationMs:      s.exportDurMs.Load(),
+		ExportBacklogHours:    s.exportBacklog.Load(),
 		ConsumerLag:           s.consumerLag.Load(),
 		ConsumerPELOldestSecs: s.pelOldestAge.Load(),
 		DLQSize:               s.dlqSize.Load(),

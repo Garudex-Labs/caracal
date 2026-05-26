@@ -48,6 +48,7 @@ func TestMetricsExposeAuditBacklogFields(t *testing.T) {
 		retentLead:   &Leader{},
 	}
 	s.consumerLag.Store(7)
+	s.exportBacklog.Store(2)
 	s.pelOldestAge.Store(30)
 	s.dlqSize.Store(3)
 	s.dlqOldestAge.Store(60)
@@ -60,6 +61,7 @@ func TestMetricsExposeAuditBacklogFields(t *testing.T) {
 	}
 	for _, want := range []string{
 		"caracal_audit_consumer_lag 7",
+		"caracal_audit_export_backlog_hours 2",
 		"caracal_audit_dlq_size 3",
 		"caracal_audit_dlq_oldest_age_seconds 60",
 	} {
@@ -78,6 +80,7 @@ func TestMetricsJSONPreservesCompatibilityFields(t *testing.T) {
 		retentLead:   &Leader{},
 	}
 	s.consumerLag.Store(7)
+	s.exportBacklog.Store(2)
 	s.dlqSize.Store(3)
 	s.dlqOldestAge.Store(60)
 
@@ -87,7 +90,7 @@ func TestMetricsJSONPreservesCompatibilityFields(t *testing.T) {
 	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
 		t.Fatal(err)
 	}
-	if body["consumer_lag"] != float64(7) || body["dlq_size"] != float64(3) || body["dlq_oldest_age_secs"] != float64(60) {
+	if body["consumer_lag"] != float64(7) || body["export_backlog_hours"] != float64(2) || body["dlq_size"] != float64(3) || body["dlq_oldest_age_secs"] != float64(60) {
 		t.Fatalf("missing backlog metrics: %#v", body)
 	}
 }
@@ -135,5 +138,40 @@ func TestSearchRejectsMissingZoneID(t *testing.T) {
 	s.handleSearch(w, req)
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d, want 400", w.Code)
+	}
+}
+
+func TestDLQReplayDisabledWithoutAdminToken(t *testing.T) {
+	s := searchServer("")
+	w := httptest.NewRecorder()
+	s.handleDLQReplay(w, httptest.NewRequest(http.MethodPost, "/api/audit/dlq/replay", nil))
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404", w.Code)
+	}
+}
+
+func TestDLQReplayFieldsRestoresAuditMessage(t *testing.T) {
+	fields, ok := dlqReplayFields(map[string]any{
+		"reason":   "transient_exceeded_max_deliveries:connection refused",
+		"src_data": `{"id":"event-1","zone_id":"zone-1"}`,
+		"src_sig":  "abc123",
+	})
+	if !ok {
+		t.Fatal("expected replayable DLQ entry")
+	}
+	if fields["data"] != `{"id":"event-1","zone_id":"zone-1"}` || fields["sig"] != "abc123" {
+		t.Fatalf("unexpected fields: %#v", fields)
+	}
+}
+
+func TestDLQReplayFieldsSkipsMalformedEntry(t *testing.T) {
+	if _, ok := dlqReplayFields(map[string]any{"reason": "missing_data_field"}); ok {
+		t.Fatal("malformed DLQ entry must not be replayable")
+	}
+	if _, ok := dlqReplayFields(map[string]any{
+		"reason":   "hmac_verify_failed",
+		"src_data": `{"id":"event-1","zone_id":"zone-1"}`,
+	}); ok {
+		t.Fatal("HMAC failure must stay in DLQ for forensic review")
 	}
 }
