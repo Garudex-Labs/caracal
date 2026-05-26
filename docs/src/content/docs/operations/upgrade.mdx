@@ -13,8 +13,11 @@ Caracal releases follow `vYYYY.MM.DD` tags. The release manifest pins the Helm c
 Before an upgrade, verify:
 
 - Source tag is the one you intend to deploy: compare `helm show chart caracal/caracal --version <chart-version>` with `releases/<tag>/manifest.json`.
-- All currently running services report the same `appVersion` via `caracal status --json`.
+- All currently running services report the same product release through `/metrics`, `/metrics.json`, or `caracal status --json`.
 - A current Postgres backup exists (see [Backup and Retention](../backup-retention/)).
+- `caracal_api_outbox_dead_total` is zero, `caracal_audit_dlq_size` is zero, `caracal_gateway_revocation_snapshot_fresh` is `1`, and all pods are Ready.
+
+Do not start an upgrade while control-plane events, audit evidence, or revocation snapshots are degraded. A rollout that begins from a degraded baseline makes rollback evidence ambiguous.
 
 ## Pre-flight
 
@@ -70,8 +73,9 @@ helm upgrade caracal caracal/caracal \
 Roll order:
 
 1. Migration Job (pre-upgrade).
-2. STS, API, Audit, Coordinator (rolling update; `PodDisruptionBudget` keeps at least 50% available).
-3. Gateway last so it never proxies to a control-plane older than STS.
+2. STS and Audit first, so signing, policy, revocation, and evidence paths are healthy before traffic moves.
+3. API and Coordinator next, so control-plane writes publish against the new event contract.
+4. Gateway last, so it never proxies to a control-plane older than STS.
 
 Watch the rollout:
 
@@ -91,7 +95,7 @@ After `helm upgrade` reports success:
 Use the Console Doctor view to inspect failing checks.
 ```
 
-Expect empty output. Then run a synthetic request through Gateway end-to-end (see [Failure Modes](../failure-modes/) for the canonical curl). If anything fails, treat as an incident and follow rollback.
+Expect empty output. Then run a synthetic request through Gateway end-to-end (see [Failure Modes](../failure-modes/) for the canonical curl), confirm the same request ID is present in Audit, and verify outbox, DLQ, and revocation freshness alerts remain clear. If anything fails, treat as an incident and follow rollback.
 
 Release CI runs `infra/postgres/scripts/validateMigrations.sh` against PostgreSQL 18 for every migration change. The gate applies all migrations, re-runs them to prove idempotency, starts concurrent migrators to exercise advisory locking, verifies schema invariants, and fails if production tooling references a `*.down.sql` file.
 
@@ -102,8 +106,20 @@ Release CI runs `infra/postgres/scripts/validateMigrations.sh` against PostgreSQ
 | Helm upgrade fails before migration Job completes | `helm rollback caracal <prev-revision>`: no schema change happened. |
 | Migration Job completed, services failing to start | `helm rollback` reverts images. The new schema is **forward-compatible by design**: the prior `appVersion` reads the new schema cleanly. Investigate root cause before re-attempting. |
 | Migration Job completed, new schema is incompatible with prior services in your environment | Restore Postgres from the pre-upgrade backup (see [Backup and Retention](../backup-retention/)). This is the only path that reverses schema. RPO = time since last backup. |
+| Rollback completes but event delivery or audit evidence is degraded | Keep the previous release pinned, reconcile API outbox dead rows and Audit DLQ, and do not retry the upgrade until synthetic Gateway traffic has matching audit evidence. |
 
 Caracal explicitly does not provide production reverse migrations. Operators relying on quick schema reversal must hold a current pre-upgrade base backup; without one, the only recovery is replay from S3 audit export plus operator data re-entry.
+
+## Version-skew guardrails
+
+Keep all Caracal services on one product release except during the rolling-update window. The only supported skew is the previous release plus the target release while Kubernetes is replacing pods. After the rollout:
+
+1. Query each service metrics or diagnostic endpoint and confirm the reported release matches the Helm chart `appVersion`.
+2. Confirm all running container image tags match the release manifest.
+3. Confirm SDK and connector package upgrades are held until the runtime stack is healthy.
+4. Roll back immediately if Gateway, STS, API, or Audit disagree on release train after rollout completion.
+
+Mixed RC/stable runtime services are unsupported. Promote an RC to stable by digest promotion, not by rebuilding or mixing containers from different manifests.
 
 ## Canary upgrades
 

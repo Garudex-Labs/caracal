@@ -25,9 +25,9 @@ Readiness fails when a service cannot safely serve its role:
 
 | Service | Readiness dependencies |
 | --- | --- |
-| API | Postgres connectivity, required secret files, and management schema availability |
+| API | Postgres connectivity, Redis connectivity, required secret files, management schema availability, and transactional-outbox health |
 | STS | Postgres, Redis invalidation stream, active policy bundle, required signing/HMAC keys |
-| Gateway | STS exchange path, resource binding cache, replay buffer availability, required HMAC keys |
+| Gateway | STS exchange path, resource binding cache, replay buffer availability, fresh revocation snapshot, required HMAC keys |
 | Audit | Redis stream consumption, Postgres write path, audit HMAC key, replay/DLQ health |
 | Coordinator | Postgres, Redis, outbox worker health, coordinator token |
 | Control | local state directory, runtime socket/API reachability, auth state |
@@ -38,7 +38,8 @@ Readiness fails when a service cannot safely serve its role:
 | --- | --- |
 | Policy | `caracal_sts_opa_compile_errors_total`, `caracal_sts_opa_max_policy_age_seconds` |
 | Audit | `caracal_audit_dlq_size`, `caracal_audit_consumer_lag`, tamper mismatch counters |
-| Gateway | `caracal_gateway_sts_exchange_errors_total`, request latency and denial counters |
+| API | `caracal_api_outbox_pending_total`, `caracal_api_outbox_dead_total`, oldest outbox age gauges |
+| Gateway | `caracal_gateway_sts_exchange_errors_total`, `caracal_gateway_revocation_snapshot_fresh`, `caracal_gateway_revocation_snapshot_age_seconds`, request latency and denial counters |
 | Database | `caracal_db_pool_in_use_ratio`, query latency, migration Job status |
 | Platform | Kubernetes readiness changes, restarts, CPU throttling, OOM kills |
 
@@ -60,3 +61,7 @@ kubectl -n caracal rollout status deployment/caracal-caracal-api
 ```
 
 Run an end-to-end synthetic request through Gateway, then confirm the same request ID appears in Audit. A rollout is not healthy until both the client response and audit evidence are present.
+
+Gateway readiness fails with `revocation_snapshot_stale` when no successful revocation snapshot has been loaded or the last snapshot is older than the freshness window. Track `caracal_gateway_revocation_snapshot_age_seconds` and `caracal_gateway_revocation_snapshot_fresh` with the revocation stream lag metric; a stale snapshot means Gateway may miss revoked grants and must be treated as an access-safety incident.
+
+The API exposes transactional-outbox delivery gauges on `/metrics`: `caracal_api_outbox_pending_total`, `caracal_api_outbox_dead_total`, `caracal_api_outbox_oldest_pending_age_seconds`, and `caracal_api_outbox_oldest_dead_age_seconds`. `/ready` returns `503 outbox_dead_messages` when abandoned rows exceed `API_READY_OUTBOX_DEAD_MAX`, which defaults to zero so Redis stream delivery failures become visible before control-plane changes silently stop reaching dependent services.

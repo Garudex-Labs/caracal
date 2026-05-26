@@ -33,6 +33,32 @@ Use these formulas for first-pass planning. Replace the values with measured num
 
 Use an index multiplier of `2` until you have table-specific storage measurements. Use at least 20% maintenance headroom for database connections.
 
+## Bottleneck map
+
+Use this table during capacity reviews and incidents. Scale the bottlenecked component only after its dependencies still have headroom.
+
+| Path | Bottleneck signal | Safe first action | Do not do |
+| --- | --- | --- | --- |
+| Gateway routing | Rising Gateway latency with healthy upstreams, `caracal_gateway_sts_exchange_errors_total`, stale revocation snapshot | Add Gateway replicas, verify STS and Redis health, reduce upstream timeout variance | Increase Gateway replicas while STS or Redis is failing |
+| STS exchange | Token-exchange latency, OPA policy age, provider refresh sharing, Postgres pool pressure | Add STS replicas, reduce policy bundle complexity, keep provider refreshes coalesced | Increase policy rollout frequency while bundle age is rising |
+| Policy evaluation | OPA compile errors, large bundle activation, slow simulations | Split policy sets by zone/resource boundary and test bundle activation before rollout | Treat invalid policy as partial success; STS must fail closed |
+| Revocation | `caracal_gateway_revocation_snapshot_fresh=0`, revocation stream lag, stale snapshot age | Restore Postgres/Redis, confirm snapshot reload, then resume access changes | Rely on Gateway decisions until freshness returns |
+| API control plane | `caracal_api_outbox_pending_total`, `caracal_api_outbox_dead_total`, DB pool ratio | Recover Redis stream writes, reconcile dead rows, throttle automation bursts | Continue large policy/resource imports while outbox is dead or aging |
+| Audit ingest | Consumer lag, DLQ growth, Postgres write latency, export backlog | Scale Audit only if Redis/Postgres are healthy; otherwise recover dependencies first | Increase producers while audit lag or DLQ growth is increasing |
+| Audit export | `caracal_audit_export_backlog_hours`, object-store latency | Confirm object-store write path and run exporter catch-up before extending retention | Delete or manually edit export watermarks |
+| Postgres | Pool ratio, slow queries, storage I/O, partition age | Tune pools, add indexes/partitions through migrations, increase DB capacity | Add service replicas beyond database connection headroom |
+| Redis | Stream memory, consumer lag, eviction, persistence latency | Increase memory/persistence capacity and validate stream trimming settings | Raise stream retention without memory headroom |
+
+## Scale gates
+
+Advance rollout stages only when these gates are true for the target environment under measured load:
+
+| Gate | Requirement |
+| --- | --- |
+| Pilot | All `/ready` endpoints stay green, audit DLQ stays zero, and backup/restore has been exercised. |
+| Limited production | Gateway revocation freshness stays `1`, API outbox dead rows stay zero, p95 STS and Gateway SLOs are met, and rollback has been rehearsed. |
+| Broad production | Capacity formulas are replaced with measured values, Redis/Postgres failover behavior is documented, and alert runbooks have been used in at least one drill. |
+
 ## Evaluation profiles
 
 These profiles are starting points for pilots, not validated production claims. Publish your measured p95/p99 latency, throughput, Redis backlog, audit lag, and Postgres connection use alongside any production sizing decision.
@@ -76,11 +102,11 @@ CPU is a useful first signal, but it is not sufficient on its own.
 
 | Service | Primary HPA signal | Guardrail signal |
 | --- | --- | --- |
-| Gateway | CPU and request latency | Upstream 5xx/timeout rate, revocation cache errors |
-| STS | CPU and token-exchange latency | OPA compile/eval errors, signing-key cache misses |
-| Audit | Consumer lag and CPU | DLQ size, tamper mismatch counters, Postgres write latency |
+| Gateway | CPU and request latency | Upstream 5xx/timeout rate, revocation snapshot freshness, STS exchange errors |
+| STS | CPU and token-exchange latency | OPA compile/eval errors, policy age, provider refresh sharing |
+| Audit | Consumer lag and CPU | DLQ size, tamper mismatch counters, Postgres write latency, export backlog |
 | Coordinator | Queue depth and CPU | Outbox dead rows, active invocation count |
-| API | CPU during automation bursts | Postgres pool saturation and admin auth failure rate |
+| API | CPU during automation bursts | Postgres pool saturation, admin auth failure rate, outbox pending/dead rows |
 
 ## SLO examples
 
