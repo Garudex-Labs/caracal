@@ -279,6 +279,20 @@ async with caracal.spawn():
         resp = await client.get('http://inventory:8080/items')
 ```
 
+### `gateway_request(resource_id, path="/")`
+
+Builds an explicit Gateway target for a registered resource. Use this when the call should go through Gateway even when the upstream URL is not known to the SDK as an `upstream_prefix`. The returned headers include `X-Caracal-Resource`; use the returned URL with `transport()` so authorization and trace headers are still injected from the active Caracal context.
+
+```python
+request = caracal.gateway_request("resource://payments", "/charge")
+async with caracal.transport() as client:
+    response = await client.post(
+        request.url,
+        headers=request.headers,
+        json=payload,
+    )
+```
+
 ### `headers(*, allow_root=False)`
 
 Returns the current envelope as `dict[str, str]`. Use for manual header injection.

@@ -221,6 +221,24 @@ func (c *Caracal) Transport(base *http.Client, opts ...RootOptions) *http.Client
 
 The returned client injects headers by reading the context on each `Do` call: the request must have a context bound via `http.NewRequestWithContext`. Pass `sdk.RootOptions{AllowRoot: true}` only when the call intentionally uses the application session mandate.
 
+### `GatewayRequest(resourceID, path)`
+
+Builds an explicit Gateway target for a registered resource. Use this when the call should go through Gateway even when the upstream URL is not known to the SDK as an `UpstreamPrefix`. The returned header includes `X-Caracal-Resource`; use the returned URL with `Transport()` so authorization and trace headers are still injected from the request context.
+
+```go
+target, err := c.GatewayRequest("resource://payments", "/charge")
+if err != nil {
+    return err
+}
+req, err := http.NewRequestWithContext(ctx, http.MethodPost, target.URL, body)
+if err != nil {
+    return err
+}
+req.Header = target.Header.Clone()
+req.Header.Set("Content-Type", "application/json")
+resp, err := c.Transport(nil).Do(req)
+```
+
 ### `BindFromRequest(ctx, r)`
 
 Reads the Caracal envelope from `r`'s headers and returns a child context with the envelope bound. Use in HTTP handlers to propagate inbound agent identity:

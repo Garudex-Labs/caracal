@@ -28,9 +28,11 @@ The default profile path is `$XDG_CONFIG_HOME/caracal/caracal.toml`, otherwise `
 
 `caracal run` reads validated runtime config from platform environment variables or an explicit runtime profile, exchanges credentials with the STS, and injects tokens under the configured environment variable names.
 
-Use `caracal run` for scripts that read the token environment variable generated in the Console runtime profile. For Gateway-routed resources, use the generated first-success request from Console: it sends the injected token as `Authorization: Bearer` and sets `X-Caracal-Resource` to the resource identifier from the setup result.
+Use `caracal run` for scripts that read the token environment variable generated in the Console runtime profile. For SDK processes, prefer `transport()` with either a configured upstream binding or the explicit Gateway helper. The helper returns the Gateway URL and `X-Caracal-Resource` header; `transport()` still injects `Authorization`, `traceparent`, and `baggage` from the active Caracal context.
 
 For SDK processes, use `Caracal.connect()` with the same generated profile. See the language-specific SDK pages for complete environment setup.
+
+Set `CARACAL_RESOURCE_ID` to the resource identifier from guided setup and `CARACAL_RESOURCE_PATH` to the real path on that protected resource that this integration should call.
 
 ## TypeScript
 
@@ -40,24 +42,26 @@ Install the SDK:
 npm install @caracalai/sdk
 ```
 
-Minimal example: spawn an agent run and call the real upstream URL you configured in guided setup. `transport()` routes matching resources through the Gateway and injects the Caracal access headers.
+Minimal example: spawn an agent run and call the real resource path you configured in guided setup.
 
 ```typescript
 import { Caracal, AgentKind } from "@caracalai/sdk";
 
 const caracal = Caracal.connect();
-const protectedResourceUrl = process.env.CARACAL_PROTECTED_URL;
-if (!protectedResourceUrl) throw new Error("CARACAL_PROTECTED_URL is required");
+const resourceId = process.env.CARACAL_RESOURCE_ID;
+const resourcePath = process.env.CARACAL_RESOURCE_PATH;
+if (!resourceId) throw new Error("CARACAL_RESOURCE_ID is required");
+if (!resourcePath) throw new Error("CARACAL_RESOURCE_PATH is required");
 
 await caracal.spawn(async () => {
   const ctx = caracal.current();
   console.log("Agent session:", ctx?.agentSessionId);
 
-  // All calls through transport() carry the Caracal access headers.
+  const request = caracal.gatewayRequest(resourceId, resourcePath);
   const client = caracal.transport();
-  const response = await client(protectedResourceUrl, {
+  const response = await client(request.url, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { ...request.headers, "Content-Type": "application/json" },
     body: JSON.stringify({}),
   });
 
@@ -84,16 +88,19 @@ import os
 from caracalai_sdk import Caracal, AgentKind
 
 caracal = Caracal.connect()
-protected_resource_url = os.environ["CARACAL_PROTECTED_URL"]
+resource_id = os.environ["CARACAL_RESOURCE_ID"]
+resource_path = os.environ["CARACAL_RESOURCE_PATH"]
 
 async def main():
     async with caracal.spawn(kind=AgentKind.EPHEMERAL) as ctx:
         print("Agent session:", ctx.agent_session_id)
 
         # transport() returns an httpx.AsyncClient pre-configured with Caracal access headers.
+        request = caracal.gateway_request(resource_id, resource_path)
         async with caracal.transport() as client:
             response = await client.post(
-                protected_resource_url,
+                request.url,
+                headers=request.headers,
                 json={},
             )
             print(response.json())
@@ -120,6 +127,7 @@ import (
     "context"
     "fmt"
     "io"
+    "net/http"
     "os"
 
     caracal "github.com/garudex-labs/caracal/packages/sdk/go"
@@ -130,22 +138,27 @@ func main() {
     if err != nil {
         panic(err)
     }
-    protectedResourceURL := os.Getenv("CARACAL_PROTECTED_URL")
-    if protectedResourceURL == "" {
-        panic("CARACAL_PROTECTED_URL is required")
+    resourceID := os.Getenv("CARACAL_RESOURCE_ID")
+    resourcePath := os.Getenv("CARACAL_RESOURCE_PATH")
+    if resourceID == "" || resourcePath == "" {
+        panic("CARACAL_RESOURCE_ID and CARACAL_RESOURCE_PATH are required")
     }
 
     err = c.Spawn(context.Background(), func(ctx context.Context) error {
         cc, _ := c.Current(ctx)
         fmt.Println("Agent session:", cc.AgentSessionID)
 
-        // Transport injects Caracal access headers on every request.
-        client := c.Transport(nil)
-        resp, err := client.Post(
-            protectedResourceURL,
-            "application/json",
-            nil,
-        )
+        target, err := c.GatewayRequest(resourceID, resourcePath)
+        if err != nil {
+            return err
+        }
+        req, err := http.NewRequestWithContext(ctx, http.MethodPost, target.URL, nil)
+        if err != nil {
+            return err
+        }
+        req.Header = target.Header.Clone()
+        req.Header.Set("Content-Type", "application/json")
+        resp, err := c.Transport(nil).Do(req)
         if err != nil {
             return err
         }

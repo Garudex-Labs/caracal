@@ -200,6 +200,19 @@ transport(opts?: { allowRoot?: boolean }): typeof fetch
 
 Calls made without a bound `CaracalContext` fail by default. Pass `{ allowRoot: true }` only when the call intentionally uses the application session mandate.
 
+### `gatewayRequest(resourceId, path?)`
+
+Builds an explicit Gateway target for a registered resource. Use this when the call should go through Gateway even when the upstream URL is not known to the SDK as an `upstreamPrefix`. The returned headers include `X-Caracal-Resource`; use the returned URL with `transport()` so authorization and trace headers are still injected from the active Caracal context.
+
+```typescript
+const request = caracal.gatewayRequest("resource://payments", "/charge");
+const response = await caracal.transport()(request.url, {
+  method: "POST",
+  headers: { ...request.headers, "Content-Type": "application/json" },
+  body: JSON.stringify(payload),
+});
+```
+
 ### `headers()`
 
 Returns the current envelope as a plain `Record<string, string>`. Use this to inject context headers manually into non-`fetch` calls:
