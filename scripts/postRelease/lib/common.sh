@@ -45,6 +45,7 @@ fi
 
 PYPI_NAMES=()
 PYPI_VERS=()
+PYPI_MODULES=()
 NPM_NAMES=()
 NPM_VERS=()
 CONTAINER_NAMES=()
@@ -53,12 +54,21 @@ RUNTIME_IMAGE_VER=""
 SHELL_VER=""
 CONSOLE_VER=""
 
-eval "$("$CARACAL_PYTHON" - "$MANIFEST" "$CARACAL_RELEASE" <<'PY'
-import json, shlex, sys
+eval "$("$CARACAL_PYTHON" - "$MANIFEST" "$CARACAL_RELEASE" "$REPO_ROOT/release.config.json" <<'PY'
+import json, os, shlex, sys
 m = json.load(open(sys.argv[1]))
 release = sys.argv[2]
 if m.get("release") != release:
     raise SystemExit(f"manifest release {m.get('release')!r} does not match {release!r}")
+config_path = sys.argv[3]
+modules = {}
+if os.path.exists(config_path):
+    config = json.load(open(config_path))
+    modules = {pkg["name"]: pkg["module"] for pkg in config.get("packages", {}).get("pypi", []) if "module" in pkg}
+packages = m.get("packages", {})
+published = packages.get("published", {}) if isinstance(packages, dict) else {}
+pypi = published.get("pypi", m.get("pypi", {}))
+npm = published.get("npm", m.get("npm", {}))
 print(f'SHELL_VER={shlex.quote(m["binaries"]["shell"])}')
 print(f'CONSOLE_VER={shlex.quote(m["binaries"]["console"])}')
 if m.get("runtimeImage"):
@@ -66,10 +76,11 @@ if m.get("runtimeImage"):
 for k, v in m["containers"].items():
     print(f'CONTAINER_NAMES+=({shlex.quote(k)})')
     print(f'CONTAINER_VERS+=({shlex.quote(v)})')
-for k, v in m["pypi"].items():
+for k, v in pypi.items():
     print(f'PYPI_NAMES+=({shlex.quote(k)})')
     print(f'PYPI_VERS+=({shlex.quote(v)})')
-for k, v in m["npm"].items():
+    print(f'PYPI_MODULES+=({shlex.quote(modules.get(k, k.replace("-", "_")))})')
+for k, v in npm.items():
     print(f'NPM_NAMES+=({shlex.quote(k)})')
     print(f'NPM_VERS+=({shlex.quote(v)})')
 PY

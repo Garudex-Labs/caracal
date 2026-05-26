@@ -65,8 +65,10 @@ for (( i = 0; i < ${#NPM_NAMES[@]}; i++ )); do
   fi
 done
 if (( ${#specs[@]} == 0 )); then
+  logFinding "$AREA" "npm-packages" "manifest" "$PM" "node$NODE_V" "$SEV_INFO" "$STATUS_PASS" "no npm packages" "read releases/$CARACAL_RELEASE/manifest.json"
   rm -rf "$dir"
-  exit 0
+  exitForFindings
+  exit $?
 fi
 if prepareProject "$dir" "${specs[@]}" >"$dir/install.log" 2>&1; then
   installOk=1

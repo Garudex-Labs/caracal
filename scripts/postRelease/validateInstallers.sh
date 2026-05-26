@@ -18,7 +18,7 @@ validateShellConsole() {
   local dir; dir="$(mktemp -d)"
   if CARACAL_INSTALL_DIR="$dir/bin" runOrEcho bash "$REPO_ROOT/install-console.sh" --version "$CARACAL_RELEASE" >"$dir/out" 2>&1; then
     if [[ "$DRY_RUN" == "1" ]]; then
-      logFinding "$AREA" "install-console.sh" "$PLAT" "shell" "-" "$SEV_INFO" "$STATUS_PASS" "dry-run: would run bash install-console.sh --version $CARACAL_RELEASE" "bash install-console.sh --version $CARACAL_RELEASE"
+      logFinding "$AREA" "install-console.sh" "$PLAT" "shell" "-" "$SEV_INFO" "$STATUS_PASS" "dry-run install" "bash install-console.sh --version $CARACAL_RELEASE"
     else
       local evidence="installer placed caracal-console on PATH"
       [[ -x "$dir/bin/caracal" ]] && evidence="installer placed caracal and caracal-console on PATH"
@@ -42,7 +42,7 @@ validatePwshInstaller() {
     return 0
   fi
   if [[ "${DRY_RUN:-0}" == "1" ]]; then
-    logFinding "$AREA" "$script" "$PLAT" "pwsh" "-" "$SEV_INFO" "$STATUS_PASS" "dry-run: would run pwsh $script -Version $CARACAL_RELEASE" "pwsh -File $script -Version $CARACAL_RELEASE"
+    logFinding "$AREA" "$script" "$PLAT" "pwsh" "-" "$SEV_INFO" "$STATUS_PASS" "dry-run install" "pwsh -File $script -Version $CARACAL_RELEASE"
     return 0
   fi
   if ! command -v pwsh >/dev/null 2>&1; then

@@ -13,27 +13,6 @@ readonly AREA="pypiInstall"
 readonly PM="${PM:-pip}"
 readonly PY="${PY:-3.12}"
 
-IMPORT_PKGS=(
-  caracalai-core
-  caracalai-oauth
-  caracalai-identity
-  caracalai-revocation
-  caracalai-sdk
-  caracalai-transport-mcp
-  caracalai-mcp-fastmcp
-  caracalai-revocation-redis
-)
-IMPORT_MODS=(
-  caracalai_core
-  caracalai_oauth
-  caracalai_identity
-  caracalai_revocation
-  caracalai_sdk
-  caracalai_transport_mcp
-  caracalai_mcp_fastmcp
-  caracalai_revocation_redis
-)
-
 runProbe() {
   local pkg="$1" mod="$2" ver="$3" dir="$4"
   case "$PM" in
@@ -88,7 +67,10 @@ validateOne() {
   rm -rf "$dir"
 }
 
-for (( i = 0; i < ${#IMPORT_PKGS[@]}; i++ )); do
-  validateOne "${IMPORT_PKGS[$i]}" "${IMPORT_MODS[$i]}"
+if (( ${#PYPI_NAMES[@]} == 0 )); then
+  logFinding "$AREA" "pypi-packages" "manifest" "$PM" "py$PY" "$SEV_INFO" "$STATUS_PASS" "no PyPI packages" "read releases/$CARACAL_RELEASE/manifest.json"
+fi
+for (( i = 0; i < ${#PYPI_NAMES[@]}; i++ )); do
+  validateOne "${PYPI_NAMES[$i]}" "${PYPI_MODULES[$i]}"
 done
 exitForFindings
