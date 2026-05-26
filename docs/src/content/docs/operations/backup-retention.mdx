@@ -64,15 +64,16 @@ For MinIO or other S3-compatible stores, set `AUDIT_EXPORT_S3_ENDPOINT` to the c
 
 **Export behavior:**
 
-- Exports the most recently completed whole hour of `ingested_at` data.
+- Exports completed whole hours of `ingested_at` data.
 - On fresh deployment, exports only the most recent complete hour (no historical catch-up).
-- After the first export, tracks a watermark in `audit_export_watermark` and catches up hour-by-hour if the exporter was down.
-- Each export run emits `caracal_audit_export_events_total`, `caracal_audit_export_errors_total`, `caracal_audit_export_duration_seconds`, and `caracal_audit_is_export_leader` metrics.
+- After the first export, tracks a watermark in `audit_export_watermark` and catches up through all completed hours while the export leader is running.
+- The exporter writes Parquet rows in bounded batches so high-volume hours do not require holding every event row in memory before upload.
+- Each export run emits `caracal_audit_export_events_total`, `caracal_audit_export_errors_total`, `caracal_audit_export_duration_seconds`, `caracal_audit_export_backlog_hours`, and `caracal_audit_is_export_leader` metrics.
 
 **Verifying export health:**
 
 ```bash
-curl http://localhost:9090/metrics | grep -E 'caracal_audit_(export_events_total|export_errors_total|is_export_leader)'
+curl http://localhost:9090/metrics | grep -E 'caracal_audit_(export_events_total|export_errors_total|export_backlog_hours|is_export_leader)'
 ```
 
 If `caracal_audit_export_errors_total` is increasing and `caracal_audit_export_events_total` is not, check S3 connectivity and credentials.
@@ -82,10 +83,10 @@ If `caracal_audit_export_errors_total` is increasing and `caracal_audit_export_e
 ```sql
 SELECT last_exported_hour, updated_at
 FROM   audit_export_watermark
-WHERE  name = 'default';
+WHERE  name = 'parquet-hourly';
 ```
 
-If `last_exported_hour` is significantly behind `now()`, the exporter has fallen behind. This can happen after an extended outage or if the Audit service was stopped. The exporter will catch up automatically when restarted, processing one hour per run.
+If `last_exported_hour` is significantly behind `now()`, the exporter has fallen behind. This can happen after an extended outage or if the Audit service was stopped. The export leader catches up automatically while it is running; monitor `caracal_audit_export_backlog_hours` until it returns to zero.
 
 ---
 

@@ -110,6 +110,7 @@ Application services read `REDIS_URL`. Redis provisioning scripts use `REDIS_HOS
 | `API_V1_RATE_LIMIT_PER_MIN` | `600` | Rate limit for `/v1/*` routes per source IP per minute (0 to disable) |
 | `ADMIN_AUTH_FAIL_LIMIT_PER_MIN` | `60` | Rate limit for failed admin-token attempts per source IP per minute (0 to disable) |
 | `ADMIN_TOKEN_LAST_USED_DEBOUNCE_SEC` | `60` | Minimum seconds between persisted admin-token last-used updates |
+| `API_MAX_RESOURCES_PER_ZONE` | `100000` | Maximum active resources allowed in one zone (0 to disable) |
 
 ---
 

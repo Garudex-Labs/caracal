@@ -90,7 +90,7 @@ Authorization decision events from the STS. Every token exchange attempt produce
 
 **Retention:** `MAXLEN ~ 1,000,000`
 
-**Dead-letter queue:** `caracal.audit.events.dlq` (up to 100 000 entries)
+**Dead-letter queue:** `caracal.audit.events.dlq` (up to 100 000 entries). Operators can requeue replayable ingest-failure entries after correcting the underlying Postgres or Audit service issue with `POST /api/audit/dlq/replay?limit=100` on the Audit service. The endpoint requires `AUDIT_ADMIN_TOKEN`, restores the original `data` and `sig` fields to `caracal.audit.events`, and leaves malformed, HMAC-failed, or tamper-evidence entries in place for forensic review.
 
 ---
 
