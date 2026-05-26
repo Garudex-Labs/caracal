@@ -72,6 +72,7 @@ type Client struct {
 	persisted  atomic.Uint64
 	drained    atomic.Uint64
 	sinkErrors atomic.Uint64
+	done       chan struct{}
 }
 
 // Metrics captures a stable snapshot of audit client counters.
@@ -192,7 +193,20 @@ func (c *Client) Ready() error {
 // Start launches the background flush loop. Caller must invoke ReplayPending
 // before Start so persisted events drain ahead of live traffic.
 func (c *Client) Start(ctx context.Context) {
+	c.done = make(chan struct{})
 	go c.run(ctx)
+}
+
+func (c *Client) Close(ctx context.Context) error {
+	if c == nil || c.done == nil {
+		return nil
+	}
+	select {
+	case <-c.done:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 // ReplayPending streams persisted batches back to the stream. Files are removed
@@ -278,12 +292,20 @@ func (c *Client) persistBatch(batch []Event) {
 		c.cfg.Logger.Error().Err(err).Msg("audit replay file flush")
 		return
 	}
+	if err := f.Sync(); err != nil {
+		c.cfg.Logger.Error().Err(err).Str("path", path).Msg("audit replay file sync")
+		return
+	}
 	if err := f.Close(); err != nil {
 		closed = true
 		c.cfg.Logger.Error().Err(err).Str("path", path).Msg("audit replay file close")
 		return
 	}
 	closed = true
+	if err := syncReplayDir(c.cfg.ReplayDir); err != nil {
+		c.cfg.Logger.Error().Err(err).Str("dir", c.cfg.ReplayDir).Msg("audit replay dir sync")
+		return
+	}
 	if c.cfg.Metrics.OnReplayPersisted != nil {
 		c.cfg.Metrics.OnReplayPersisted(uint64(len(batch)))
 	}
@@ -323,6 +345,7 @@ func (c *Client) replayFile(ctx context.Context, path string) error {
 }
 
 func (c *Client) run(ctx context.Context) {
+	defer close(c.done)
 	ticker := time.NewTicker(c.cfg.FlushTTL)
 	defer ticker.Stop()
 	batch := make([]Event, 0, c.cfg.FlushBatch)
@@ -369,4 +392,13 @@ func (c *Client) run(ctx context.Context) {
 			return
 		}
 	}
+}
+
+func syncReplayDir(dir string) error {
+	f, err := os.Open(dir)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	return f.Sync()
 }

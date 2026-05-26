@@ -47,6 +47,7 @@ type AuditBuffer struct {
 	auditHMACKey []byte
 	replayDir    string
 	metrics      *STSMetrics
+	done         chan struct{}
 }
 
 func newAuditBuffer(redis *RedisClient, log zerolog.Logger, production bool, replayDir string, metrics *STSMetrics) (*AuditBuffer, error) {
@@ -183,12 +184,20 @@ func (a *AuditBuffer) persistBatch(batch []AuditEvent) {
 		a.log.Error().Err(err).Msg("audit replay file flush")
 		return
 	}
+	if err := f.Sync(); err != nil {
+		a.log.Error().Err(err).Str("path", path).Msg("audit replay file sync")
+		return
+	}
 	if err := f.Close(); err != nil {
 		closed = true
 		a.log.Error().Err(err).Str("path", path).Msg("audit replay file close")
 		return
 	}
 	closed = true
+	if err := syncReplayDir(a.replayDir); err != nil {
+		a.log.Error().Err(err).Str("dir", a.replayDir).Msg("audit replay dir sync")
+		return
+	}
 	if a.metrics != nil {
 		a.metrics.AuditReplayPending.Add(uint64(len(batch)))
 	}
@@ -258,7 +267,9 @@ func (a *AuditBuffer) replayFile(ctx context.Context, path string) error {
 // start launches the background flusher goroutine. The caller must invoke
 // replayPending separately before start so pending events drain before live writes.
 func (a *AuditBuffer) start(ctx context.Context) {
+	a.done = make(chan struct{})
 	go func() {
+		defer close(a.done)
 		ticker := time.NewTicker(auditFlushTTL)
 		defer ticker.Stop()
 		batch := make([]AuditEvent, 0, auditFlushN)
@@ -305,4 +316,25 @@ func (a *AuditBuffer) start(ctx context.Context) {
 			}
 		}
 	}()
+}
+
+func (a *AuditBuffer) Close(ctx context.Context) error {
+	if a == nil || a.done == nil {
+		return nil
+	}
+	select {
+	case <-a.done:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+func syncReplayDir(dir string) error {
+	f, err := os.Open(dir)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	return f.Sync()
 }

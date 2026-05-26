@@ -106,7 +106,9 @@ func New(ctx context.Context) (*Server, error) {
 func (s *Server) Run(ctx context.Context) error {
 	go s.bindings.StartPolling(ctx)
 	s.audit.ReplayPending(ctx)
-	s.audit.Start(ctx)
+	auditCtx, stopAudit := context.WithCancel(context.Background())
+	defer stopAudit()
+	s.audit.Start(auditCtx)
 	if err := startRevocationConsumer(ctx, s.redis, s.revocations, s.log); err != nil {
 		return err
 	}
@@ -162,6 +164,13 @@ func (s *Server) Run(ctx context.Context) error {
 		if err := srv.Shutdown(shutCtx); err != nil {
 			s.log.Error().Err(err).Msg("graceful shutdown failed; forcing close")
 			_ = srv.Close()
+			return err
+		}
+		stopAudit()
+		auditFlushCtx, cancelAuditFlush := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancelAuditFlush()
+		if err := s.audit.Close(auditFlushCtx); err != nil {
+			s.log.Error().Err(err).Msg("audit client flush failed")
 			return err
 		}
 		return nil

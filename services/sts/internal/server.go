@@ -106,7 +106,9 @@ func New(ctx context.Context) (*Server, error) {
 // Run starts the HTTP server and all background workers; blocks until ctx is cancelled.
 func (s *Server) Run(ctx context.Context) error {
 	s.auditBuffer.replayPending(ctx)
-	s.auditBuffer.start(ctx)
+	auditCtx, stopAudit := context.WithCancel(context.Background())
+	defer stopAudit()
+	s.auditBuffer.start(auditCtx)
 	go s.startConsumers(ctx)
 	go s.opa.StartPGPolling(ctx)
 	go s.opa.SeedZones(ctx)
@@ -141,9 +143,19 @@ func (s *Server) Run(ctx context.Context) error {
 
 	select {
 	case <-ctx.Done():
-		shutCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-		return srv.Shutdown(shutCtx)
+		shutCtx, cancelShutdown := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancelShutdown()
+		shutErr := srv.Shutdown(shutCtx)
+		stopAudit()
+		auditFlushCtx, cancelAuditFlush := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancelAuditFlush()
+		if err := s.auditBuffer.Close(auditFlushCtx); err != nil {
+			s.log.Error().Err(err).Msg("audit buffer flush failed")
+			if shutErr == nil {
+				return err
+			}
+		}
+		return shutErr
 	case err := <-errc:
 		return err
 	}
