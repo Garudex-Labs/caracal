@@ -6,6 +6,9 @@
  */
 
 import { describe, it, expect, vi } from "vitest";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   Caracal,
   AgentKind,
@@ -84,11 +87,11 @@ describe("Caracal.headers", () => {
   });
 });
 
-describe("middleware + bindFromHeaders", () => {
+describe("contextMiddleware + bindFromHeaders", () => {
   it("binds inbound W3C envelope and exposes claims through Caracal.current()", async () => {
     const c = new Caracal(dummyConfig);
     let seen = "";
-    const mw = c.middleware();
+    const mw = c.contextMiddleware();
     await new Promise<void>((resolve, reject) => {
       mw(
         {
@@ -133,6 +136,76 @@ describe("middleware + bindFromHeaders", () => {
   it("rejects inbound requests without a bearer token by default", async () => {
     const c = new Caracal(dummyConfig);
     await expect(c.bindFromHeaders({}, async () => undefined)).rejects.toThrow(/missing a bearer token/);
+  });
+});
+
+describe("Caracal.fromConfig", () => {
+  it("loads the generated runtime profile contract", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "caracal-sdk-"));
+    const secretPath = join(dir, "secret");
+    const profilePath = join(dir, "caracal.toml");
+    writeFileSync(secretPath, "secret\n", { mode: 0o600 });
+    writeFileSync(profilePath, `
+zone_url = "http://sts"
+coordinator_url = "http://coord"
+gateway_url = "https://gateway.example.com/proxy"
+zone_id = "z"
+application_id = "app"
+app_client_secret_file = "${secretPath}"
+
+[[credentials]]
+env = "CALENDAR_TOKEN"
+resource = "calendar"
+
+[[credentials]]
+env = "BILLING_TOKEN"
+resource = "billing"
+upstream_prefix = "https://billing.example.com"
+`, { mode: 0o600 });
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ access_token: "fresh-root", expires_in: 900 }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const c = Caracal.fromConfig(profilePath);
+    await c.headersAsync({ allowRoot: true });
+
+    const body = fetchMock.mock.calls[0][1].body as URLSearchParams;
+    expect(body.get("client_secret")).toBe("secret");
+    expect(body.getAll("resource").sort()).toEqual(["billing", "calendar"]);
+  });
+
+  it("loads the default generated profile before env fallback", () => {
+    const dir = mkdtempSync(join(tmpdir(), "caracal-sdk-"));
+    const configDir = join(dir, "caracal");
+    mkdirSync(configDir);
+    const secretPath = join(dir, "secret");
+    writeFileSync(secretPath, "secret\n", { mode: 0o600 });
+    writeFileSync(join(configDir, "caracal.toml"), `
+sts_url = "http://sts"
+coordinator_url = "http://coord"
+zone_id = "z"
+application_id = "app"
+app_client_secret_file = "${secretPath}"
+
+[[credentials]]
+resource = "calendar"
+`, { mode: 0o600 });
+
+    const c = Caracal.connect({
+      env: {
+        XDG_CONFIG_HOME: dir,
+        CARACAL_COORDINATOR_URL: "http://ignored",
+        CARACAL_ZONE_ID: "ignored",
+        CARACAL_APPLICATION_ID: "ignored",
+        CARACAL_SUBJECT_TOKEN: "ignored",
+      } as NodeJS.ProcessEnv,
+    });
+
+    expect(c.config.zoneId).toBe("z");
+    expect(c.config.applicationId).toBe("app");
   });
 });
 

@@ -14,7 +14,7 @@ import httpx
 
 from caracalai_sdk import (
     Caracal,
-    CaracalASGIMiddleware,
+    CaracalContextASGIMiddleware,
     CaracalConfig,
     ResourceBinding,
 )
@@ -256,7 +256,7 @@ class AsgiMiddlewareTests(unittest.IsolatedAsyncioTestCase):
             captured["agent"] = ctx.agent_session_id or ""
             captured["hop"] = str(ctx.hop)
 
-        mw = CaracalASGIMiddleware(app, c)
+        mw = CaracalContextASGIMiddleware(app, c)
         scope = {
             "type": "http",
             "headers": [
@@ -289,7 +289,7 @@ class AsgiMiddlewareTests(unittest.IsolatedAsyncioTestCase):
         async def app(scope, receive, send):
             raise AssertionError("app should not run")
 
-        mw = CaracalASGIMiddleware(app, c)
+        mw = CaracalContextASGIMiddleware(app, c)
         scope = {"type": "http", "headers": []}
 
         async def receive() -> dict[str, Any]:

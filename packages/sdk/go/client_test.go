@@ -11,6 +11,9 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 
@@ -76,9 +79,77 @@ func TestFromEnvClientSecretTokenSource(t *testing.T) {
 	if gotSecret != "secret" {
 		t.Fatalf("expected client secret, got %q", gotSecret)
 	}
-	if len(gotResources) != 2 || gotResources[0] != "calendar" || gotResources[1] != "billing" {
+	if strings.Join(compactSorted(gotResources), ",") != "billing,calendar" {
 		t.Fatalf("unexpected resources: %#v", gotResources)
 	}
+}
+
+func TestFromConfigGeneratedProfile(t *testing.T) {
+	var gotResources []string
+	var gotSecret string
+	sts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := r.ParseForm(); err != nil {
+			t.Fatal(err)
+		}
+		gotResources = r.Form["resource"]
+		gotSecret = r.Form.Get("client_secret")
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"access_token":"fresh-root","token_type":"Bearer","expires_in":3600}`))
+	}))
+	defer sts.Close()
+	dir := t.TempDir()
+	secretPath := filepath.Join(dir, "secret")
+	if err := os.WriteFile(secretPath, []byte("secret\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	profilePath := filepath.Join(dir, "caracal.toml")
+	profile := `coordinator_url = "http://coord"
+sts_url = "` + sts.URL + `"
+gateway_url = "https://gateway.example.com/proxy"
+zone_id = "z"
+application_id = "app"
+app_client_secret_file = "` + secretPath + `"
+
+[[credentials]]
+resource = "calendar"
+
+[[credentials]]
+resource = "billing"
+upstream_prefix = "https://billing.example.com"
+`
+	if err := os.WriteFile(profilePath, []byte(profile), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	c, err := sdk.FromConfig(profilePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.Headers(context.Background(), sdk.RootOptions{AllowRoot: true}); err != nil {
+		t.Fatal(err)
+	}
+	if gotSecret != "secret" {
+		t.Fatalf("expected secret file value, got %q", gotSecret)
+	}
+	if strings.Join(compactSorted(gotResources), ",") != "billing,calendar" {
+		t.Fatalf("unexpected resources: %#v", gotResources)
+	}
+	if len(c.Resources) != 1 || c.Resources[0].ResourceID != "billing" {
+		t.Fatalf("unexpected bindings: %#v", c.Resources)
+	}
+}
+
+func compactSorted(values []string) []string {
+	out := []string{}
+	seen := map[string]bool{}
+	for _, value := range values {
+		if value == "" || seen[value] {
+			continue
+		}
+		seen[value] = true
+		out = append(out, value)
+	}
+	sort.Strings(out)
+	return out
 }
 
 func TestHeadersRequiresRootOptIn(t *testing.T) {
@@ -100,7 +171,7 @@ func TestHeadersRequiresRootOptIn(t *testing.T) {
 
 func TestMiddlewareRejectsMissingBearer(t *testing.T) {
 	c := &sdk.Caracal{ZoneID: "z", ApplicationID: "a", SubjectToken: "fallback"}
-	handler := c.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := c.ContextMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		t.Fatal("handler should not run")
 	}))
 	req := httptest.NewRequest("GET", "/", nil)
@@ -117,7 +188,7 @@ func TestMiddlewareRejectsMissingBearer(t *testing.T) {
 func TestMiddlewareBindsContext(t *testing.T) {
 	c := &sdk.Caracal{ZoneID: "z", ApplicationID: "a", SubjectToken: "fallback"}
 	var seen string
-	handler := c.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := c.ContextMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		cur, ok := sdk.Current(r.Context())
 		if !ok {
 			t.Errorf("no context")
