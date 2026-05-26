@@ -20,11 +20,10 @@ on:
         type: string
 
 permissions:
-  contents: write
+  contents: read
   packages: read
   attestations: read
   id-token: write
-  pull-requests: write
 
 concurrency:
   group: post-release-${{ inputs.release }}
@@ -287,6 +286,9 @@ jobs:
   aggregate:
     name: Aggregate report
     runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      pull-requests: write
     needs:
       - registryMetadata
       - pypiInstall

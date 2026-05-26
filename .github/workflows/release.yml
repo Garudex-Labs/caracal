@@ -1,15 +1,7 @@
 # Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 # Caracal, a product of Garudex Labs
 #
-# Release pipeline: builds runtime and Console binaries, pushes immutable images to GHCR, and creates stable or rc GitHub Releases. Stable floating image tags are promoted only after release approval.
-#
-# Triggers:
-# - Tag push vYYYY.MM.DD[.N]: stable release (binaries → GitHub Release, immutable images → GHCR, approval-gated latest/series image promotion, attestations), then postReleaseValidation.
-# - Tag push vYYYY.MM.DD[.N]-rc.*: rc (immutable artifact destinations, GitHub Release marked as rc), then postReleaseValidation.
-# - workflow_dispatch with releaseVersion: rc/stable dry-run (binary artifact upload, image builds with buildx, release asset verification; no GHCR push, no GitHub Release).
-# - workflow_dispatch without releaseVersion: build-only validation (binary artifact upload; images built with buildx: no GHCR push). No GitHub Release.
-#   Use ref to checkout a branch or tag; leave empty to use the caller's default ref.
-# - dryRun is required for dispatch releaseVersion runs; publishing is gated on tag push only.
+# Unified release pipeline for rc and stable Caracal artifacts.
 
 name: release
 
@@ -23,17 +15,17 @@ on:
   workflow_dispatch:
     inputs:
       ref:
-        description: 'Git ref to build (branch or tag); empty = workflow ref'
-        required: false
-        default: ''
-      releaseVersion:
-        description: 'Optional release tag for dry-run builds, such as v2026.05.26-rc.1. Dispatch never publishes.'
+        description: 'Git ref to build; empty = workflow ref'
         required: false
         default: ''
         type: string
+      releaseVersion:
+        description: 'Release tag to dry-run, such as v2026.05.26-rc.1'
+        required: true
+        type: string
       dryRun:
-        description: 'Note: publishing only happens on tag push; dispatch never publishes'
-        required: false
+        description: 'Dispatch release runs must stay dry-run only'
+        required: true
         type: boolean
         default: true
 
@@ -41,13 +33,12 @@ permissions:
   contents: read
 
 concurrency:
-  group: release-${{ github.ref }}
+  group: release-${{ github.event_name == 'workflow_dispatch' && github.event.inputs.releaseVersion || github.ref }}
   cancel-in-progress: false
 
 env:
   NODE_VERSION: '24'
   PNPM_VERSION: '11.1.1'
-  # Pin Bun for reproducible `bun build --compile` artifacts (bump intentionally on upgrade).
   BUN_VERSION: '1.3.14'
   GO_VERSION: '1.26'
   PYTHON_VERSION: '3.14'
@@ -56,10 +47,20 @@ env:
   IMAGE_OWNER: garudex-labs
 
 jobs:
-  check-maintainer:
-    name: Verify release actor is a maintainer
+  context:
+    name: Release context
     if: github.repository == 'Garudex-Labs/caracal'
     runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      checkoutRef: ${{ steps.resolve.outputs.checkoutRef }}
+      releaseTag: ${{ steps.resolve.outputs.releaseTag }}
+      version: ${{ steps.resolve.outputs.version }}
+      channel: ${{ steps.resolve.outputs.channel }}
+      publish: ${{ steps.resolve.outputs.publish }}
+      dryRun: ${{ steps.resolve.outputs.dryRun }}
+      promoteStable: ${{ steps.resolve.outputs.promoteStable }}
+      sha: ${{ steps.resolve.outputs.sha }}
     permissions:
       contents: read
     steps:
@@ -68,7 +69,7 @@ jobs:
           ref: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.ref != '' && github.event.inputs.ref || github.ref }}
           persist-credentials: false
 
-      - name: Check actor against MAINTAINERS
+      - name: Authorize release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -77,43 +78,70 @@ jobs:
           maintainers="$(mktemp)"
           gh api "repos/${GITHUB_REPOSITORY}/contents/.github/MAINTAINERS?ref=${{ github.event.repository.default_branch }}" --jq '.content' | base64 -d > "$maintainers"
           if ! grep -Eo '@[[:alnum:]_-]+' "$maintainers" | sed 's/^@//' | grep -qiFx "$actor"; then
-            echo "::error::$actor is not listed in .github/MAINTAINERS on ${{ github.event.repository.default_branch }} and cannot trigger a release."
-            exit 1
-          fi
-          echo "$actor is an authorised maintainer."
-
-      - name: Validate dispatch dry-run request
-        if: github.event_name == 'workflow_dispatch' && github.event.inputs.releaseVersion != ''
-        run: |
-          set -euo pipefail
-          if [ "${{ github.event.inputs.dryRun }}" != "true" ]; then
-            echo "::error::workflow_dispatch releaseVersion runs must keep dryRun=true because dispatch never publishes."
+            echo "::error::$actor is not listed in .github/MAINTAINERS on ${{ github.event.repository.default_branch }} and cannot run releases."
             exit 1
           fi
 
-      - name: Validate tag format
-        if: github.event_name == 'push' || github.event.inputs.releaseVersion != ''
+      - name: Resolve release context
+        id: resolve
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          DISPATCH_REF: ${{ github.event.inputs.ref }}
+          DISPATCH_RELEASE: ${{ github.event.inputs.releaseVersion }}
+          DISPATCH_DRY_RUN: ${{ github.event.inputs.dryRun }}
         run: |
           set -euo pipefail
-          release_ref="${{ github.event_name == 'push' && github.ref_name || github.event.inputs.releaseVersion }}"
-          if ! echo "${release_ref}" | grep -qE '^v[0-9]{4}\.[0-9]{2}\.[0-9]{2}(\.[0-9]+)?(-rc\.(sha[0-9A-Za-z]+|[0-9]+))?$'; then
-            echo "::error::Tag '${release_ref}' does not match vYYYY.MM.DD[.N], vYYYY.MM.DD[.N]-rc.<number>, or vYYYY.MM.DD[.N]-rc.sha<gitsha>"
+          checkout_ref="${DISPATCH_REF:-${GITHUB_REF}}"
+          if [ "$EVENT_NAME" = "push" ]; then
+            release_tag="${GITHUB_REF_NAME}"
+            publish="true"
+            dry_run="false"
+          else
+            if [ -z "$DISPATCH_RELEASE" ]; then
+              echo "::error::workflow_dispatch requires releaseVersion."
+              exit 1
+            fi
+            if [ "$DISPATCH_DRY_RUN" != "true" ]; then
+              echo "::error::workflow_dispatch release runs must keep dryRun=true."
+              exit 1
+            fi
+            release_tag="$DISPATCH_RELEASE"
+            publish="false"
+            dry_run="true"
+          fi
+          if ! echo "$release_tag" | grep -qE '^v[0-9]{4}\.[0-9]{2}\.[0-9]{2}(\.[0-9]+)?(-rc\.(sha[0-9A-Za-z]+|[0-9]+))?$'; then
+            echo "::error::Release tag '${release_tag}' must match vYYYY.MM.DD[.N], vYYYY.MM.DD[.N]-rc.<number>, or vYYYY.MM.DD[.N]-rc.sha<gitsha>."
             exit 1
           fi
+          channel="stable"
+          promote_stable="$publish"
+          if [[ "$release_tag" == *"-rc."* ]]; then
+            channel="rc"
+            promote_stable="false"
+          fi
+          {
+            echo "checkoutRef=${checkout_ref}"
+            echo "releaseTag=${release_tag}"
+            echo "version=${release_tag#v}"
+            echo "channel=${channel}"
+            echo "publish=${publish}"
+            echo "dryRun=${dry_run}"
+            echo "promoteStable=${promote_stable}"
+            echo "sha=$(git rev-parse --short HEAD)"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Validate release manifest
-        if: github.event_name == 'push' || github.event.inputs.releaseVersion != ''
+        env:
+          RELEASE_TAG: ${{ steps.resolve.outputs.releaseTag }}
         run: |
           set -euo pipefail
-          release_ref="${{ github.event_name == 'push' && github.ref_name || github.event.inputs.releaseVersion }}"
-          manifest="releases/${release_ref}/manifest.json"
-          version="${release_ref#v}"
+          manifest="releases/${RELEASE_TAG}/manifest.json"
           test -f "$manifest" || { echo "::error::Missing release manifest: $manifest"; exit 1; }
           CARACAL_VALIDATE_HELM_FILES=1 node scripts/validateReleaseManifest.mjs "$manifest"
 
-  binaries:
-    name: Build runtime and Console binaries
-    needs: check-maintainer
+  archives:
+    name: Build archives
+    needs: context
     if: github.repository == 'Garudex-Labs/caracal'
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -124,7 +152,7 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          ref: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.ref != '' && github.event.inputs.ref || github.ref }}
+          ref: ${{ needs.context.outputs.checkoutRef }}
           persist-credentials: false
 
       - uses: pnpm/action-setup@f40ffcd9367d9f12939873eb1018b921a783ffaa # v4
@@ -141,71 +169,50 @@ jobs:
         with:
           bun-version: ${{ env.BUN_VERSION }}
 
-      - name: Toolchain versions
-        run: |
-          node --version
-          pnpm --version
-          bun --version
-
       - name: Install dependencies
         run: pnpm install --frozen-lockfile --prefer-offline
 
-      - name: Build TypeScript packages
+      - name: Build TypeScript
         run: pnpm run build:typescript
 
-      - name: Resolve release version
-        id: ver
-        run: |
-          set -euo pipefail
-          if [ "${{ github.event_name }}" = "push" ]; then
-            VERSION="${GITHUB_REF_NAME#v}"
-          elif [ -n "${{ github.event.inputs.releaseVersion }}" ]; then
-            VERSION="${{ github.event.inputs.releaseVersion }}"
-            VERSION="${VERSION#v}"
-          else
-            SHA="$(git rev-parse --short HEAD)"
-            VERSION="$(date -u +%Y.%m.%d)-dev.sha${SHA}"
-          fi
-          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
-          echo "Resolved version: ${VERSION}"
-
-      - name: Stamp runtime version
+      - name: Stamp runtime
         env:
-          CARACAL_RELEASE_VERSION: ${{ steps.ver.outputs.version }}
+          CARACAL_RELEASE_VERSION: ${{ needs.context.outputs.version }}
+          CARACAL_DEV_SHA: ${{ needs.context.outputs.sha }}
         run: |
           set -euo pipefail
           node apps/runtime/scripts/stampRelease.mjs
-          jq --arg v "${CARACAL_RELEASE_VERSION}" '.version = $v' apps/runtime/package.json > apps/runtime/package.json.tmp
+          jq --arg v "$CARACAL_RELEASE_VERSION" '.version = $v' apps/runtime/package.json > apps/runtime/package.json.tmp
           mv apps/runtime/package.json.tmp apps/runtime/package.json
-          echo "Stamped version ${CARACAL_RELEASE_VERSION} into runtime"
 
-      - name: Build runtime binaries
+      - name: Build runtime
         env:
-          CARACAL_RELEASE_VERSION: ${{ steps.ver.outputs.version }}
+          CARACAL_RELEASE_VERSION: ${{ needs.context.outputs.version }}
+          CARACAL_DEV_SHA: ${{ needs.context.outputs.sha }}
         run: pnpm --dir apps/runtime build
 
-      - name: Stamp Console version
+      - name: Stamp Console
         env:
-          CARACAL_RELEASE_VERSION: ${{ steps.ver.outputs.version }}
+          CARACAL_RELEASE_VERSION: ${{ needs.context.outputs.version }}
+          CARACAL_DEV_SHA: ${{ needs.context.outputs.sha }}
         run: |
           set -euo pipefail
           node apps/console/scripts/stampRelease.mjs
-          jq --arg v "${CARACAL_RELEASE_VERSION}" '.version = $v' apps/console/package.json > apps/console/package.json.tmp
+          jq --arg v "$CARACAL_RELEASE_VERSION" '.version = $v' apps/console/package.json > apps/console/package.json.tmp
           mv apps/console/package.json.tmp apps/console/package.json
-          echo "Stamped version ${CARACAL_RELEASE_VERSION} into Console"
 
-      - name: Build Console binaries
+      - name: Build Console
         env:
-          CARACAL_RELEASE_VERSION: ${{ steps.ver.outputs.version }}
+          CARACAL_RELEASE_VERSION: ${{ needs.context.outputs.version }}
+          CARACAL_DEV_SHA: ${{ needs.context.outputs.sha }}
         run: pnpm --dir apps/console build
 
-      - name: Package release archives
+      - name: Package archives
         env:
-          VERSION: ${{ steps.ver.outputs.version }}
+          RELEASE_TAG: ${{ needs.context.outputs.releaseTag }}
         run: |
           set -euo pipefail
           mkdir -p release-dist
-          tag="v${VERSION}"
           source_date_epoch="$(git log -1 --format=%ct)"
           targets='shell:linux:amd64:x64 shell:linux:arm64:arm64 shell:darwin:amd64:x64 shell:darwin:arm64:arm64 shell:windows:amd64:x64 console:linux:amd64:x64 console:linux:arm64:arm64 console:darwin:amd64:x64 console:darwin:arm64:arm64 console:windows:amd64:x64'
           for entry in $targets; do
@@ -224,7 +231,7 @@ jobs:
             cp "$src" "${stage}/${binName}${ext}"
             chmod +x "${stage}/${binName}${ext}" 2>/dev/null || true
             touch -d "@${source_date_epoch}" "${stage}/${binName}${ext}"
-            name="caracal-${kind}-${os}-${arch}-${tag}"
+            name="caracal-${kind}-${os}-${arch}-${RELEASE_TAG}"
             if [ "$os" = windows ]; then
               (cd "$stage" && TZ=UTC zip -X -q "${name}.zip" "${binName}${ext}")
               mv "${stage}/${name}.zip" release-dist/
@@ -233,17 +240,15 @@ jobs:
             fi
             rm -rf "$stage"
           done
-          cp "releases/${tag}/manifest.json" release-dist/manifest.json
+          cp "releases/${RELEASE_TAG}/manifest.json" release-dist/manifest.json
           cp install-console.sh install-console.ps1 release-dist/
-          echo "Packaged archives:"
           ls -la release-dist/
 
-      - name: Verify archive reproducibility
+      - name: Verify reproducibility
         env:
-          VERSION: ${{ steps.ver.outputs.version }}
+          RELEASE_TAG: ${{ needs.context.outputs.releaseTag }}
         run: |
           set -euo pipefail
-          tag="v${VERSION}"
           source_date_epoch="$(git log -1 --format=%ct)"
           for entry in shell:apps/runtime/dist:caracal console:apps/console/dist:caracal-console; do
             IFS=: read -r kind srcDir binName <<EOF
@@ -254,44 +259,36 @@ jobs:
             cp "$src" "${stage}/${binName}"
             chmod +x "${stage}/${binName}"
             touch -d "@${source_date_epoch}" "${stage}/${binName}"
-            archive="${stage}/caracal-${kind}-linux-amd64-${tag}.tar.gz"
+            archive="${stage}/caracal-${kind}-linux-amd64-${RELEASE_TAG}.tar.gz"
             tar --sort=name --owner=0 --group=0 --numeric-owner --mtime="@${source_date_epoch}" -C "$stage" -cf - "${binName}" | gzip -n -9 > "$archive"
-            cmp "$archive" "release-dist/caracal-${kind}-linux-amd64-${tag}.tar.gz"
+            cmp "$archive" "release-dist/caracal-${kind}-linux-amd64-${RELEASE_TAG}.tar.gz"
             rm -rf "$stage"
           done
 
-      - name: Smoke test linux-amd64 archives
+      - name: Smoke test archives
         env:
-          VERSION: ${{ steps.ver.outputs.version }}
+          RELEASE_TAG: ${{ needs.context.outputs.releaseTag }}
         run: |
           set -euo pipefail
-          tag="v${VERSION}"
           work="$(mktemp -d)"
-
-          tar -xzf "release-dist/caracal-shell-linux-amd64-${tag}.tar.gz" -C "$work"
+          tar -xzf "release-dist/caracal-shell-linux-amd64-${RELEASE_TAG}.tar.gz" -C "$work"
           "${work}/caracal" --help
-          echo "Shell smoke test passed"
-
-          tar -xzf "release-dist/caracal-console-linux-amd64-${tag}.tar.gz" -C "$work"
+          tar -xzf "release-dist/caracal-console-linux-amd64-${RELEASE_TAG}.tar.gz" -C "$work"
           "${work}/caracal-console" --help
           console_exit=0
           "${work}/caracal-console" 2>/tmp/console-stderr || console_exit=$?
           console_msg="$(cat /tmp/console-stderr)"
-          [ "${console_exit}" = "1" ] || { echo "::error::Console exited with code ${console_exit} (expected 1)"; exit 1; }
-          echo "${console_msg}" | grep -q "not a TTY" || { echo "::error::Console missing expected no-TTY message; got: ${console_msg}"; exit 1; }
-          echo "Console smoke test passed"
+          [ "$console_exit" = "1" ] || { echo "::error::Console exited with code ${console_exit} (expected 1)"; exit 1; }
+          echo "$console_msg" | grep -q "not a TTY" || { echo "::error::Console missing expected no-TTY message; got: ${console_msg}"; exit 1; }
 
       - name: Generate checksums
         working-directory: release-dist
-        run: |
-          set -euo pipefail
-          sha256sum caracal-shell-*.tar.gz caracal-shell-*.zip caracal-console-*.tar.gz caracal-console-*.zip manifest.json install-console.sh install-console.ps1 > SHA256SUMS
-          echo "Generated SHA256SUMS:"
-          cat SHA256SUMS
+        run: sha256sum caracal-shell-*.tar.gz caracal-shell-*.zip caracal-console-*.tar.gz caracal-console-*.zip manifest.json install-console.sh install-console.ps1 > SHA256SUMS
 
-      - name: Verify checksums
-        working-directory: release-dist
-        run: sha256sum --check SHA256SUMS
+      - name: Verify assets
+        env:
+          RELEASE_TAG: ${{ needs.context.outputs.releaseTag }}
+        run: node scripts/verifyReleaseAssets.mjs "$RELEASE_TAG" release-dist
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
@@ -300,33 +297,16 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
-      - name: Job summary
-        run: |
-          {
-            echo "## Runtime / Console release build"
-            echo ""
-            echo "| | |"
-            echo "|--|--|"
-            echo "| Version | \`${{ steps.ver.outputs.version }}\` |"
-            echo "| Event | \`${{ github.event_name }}\` |"
-            echo "| Ref | \`${{ github.ref_name }}\` |"
-            echo ""
-            echo "### Archives"
-            echo "\`\`\`"
-            ls -la release-dist/ || true
-            echo "\`\`\`"
-          } >> "$GITHUB_STEP_SUMMARY"
-
       - uses: actions/attest-build-provenance@96b4a1ef7235a096b17240c259729fdd70c83d45 # v2
-        if: github.event_name == 'push'
+        if: needs.context.outputs.publish == 'true'
         with:
           subject-path: |
             release-dist/caracal-shell-*
             release-dist/caracal-console-*
 
-  images:
-    name: Build and push container images
-    needs: check-maintainer
+  serviceImages:
+    name: Build service images
+    needs: context
     if: github.repository == 'Garudex-Labs/caracal'
     runs-on: ubuntu-latest
     timeout-minutes: 40
@@ -381,7 +361,7 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          ref: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.ref != '' && github.event.inputs.ref || github.ref }}
+          ref: ${{ needs.context.outputs.checkoutRef }}
           persist-credentials: false
 
       - uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3
@@ -389,7 +369,7 @@ jobs:
       - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
 
       - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
-        if: github.event_name == 'push'
+        if: needs.context.outputs.publish == 'true'
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
@@ -399,10 +379,7 @@ jobs:
         uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/caracal-${{ matrix.name }}
-          tags: |
-            type=raw,value=${{ github.ref_name }},enable=${{ github.event_name == 'push' }}
-            type=raw,value=${{ github.event.inputs.releaseVersion }},enable=${{ github.event_name == 'workflow_dispatch' && github.event.inputs.releaseVersion != '' }}
-            type=raw,value=dispatch-${{ github.run_id }},enable=${{ github.event_name == 'workflow_dispatch' && github.event.inputs.releaseVersion == '' }}
+          tags: type=raw,value=${{ needs.context.outputs.releaseTag }}
 
       - uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
@@ -410,7 +387,7 @@ jobs:
           file: ${{ matrix.dockerfile }}
           build-args: ${{ matrix.build_args }}
           platforms: linux/amd64,linux/arm64
-          push: ${{ github.event_name == 'push' }}
+          push: ${{ needs.context.outputs.publish == 'true' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           provenance: true
@@ -419,8 +396,8 @@ jobs:
           cache-to: type=gha,mode=max,scope=${{ matrix.name }}
 
   runtimeImage:
-    name: Build and push runtime container image
-    needs: check-maintainer
+    name: Build runtime image
+    needs: context
     if: github.repository == 'Garudex-Labs/caracal'
     runs-on: ubuntu-latest
     timeout-minutes: 40
@@ -432,7 +409,7 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          ref: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.ref != '' && github.event.inputs.ref || github.ref }}
+          ref: ${{ needs.context.outputs.checkoutRef }}
           persist-credentials: false
 
       - uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3
@@ -440,7 +417,7 @@ jobs:
       - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
 
       - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
-        if: github.event_name == 'push'
+        if: needs.context.outputs.publish == 'true'
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
@@ -450,25 +427,7 @@ jobs:
         uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/caracal-runtime
-          tags: |
-            type=raw,value=${{ github.ref_name }},enable=${{ github.event_name == 'push' }}
-            type=raw,value=${{ github.event.inputs.releaseVersion }},enable=${{ github.event_name == 'workflow_dispatch' && github.event.inputs.releaseVersion != '' }}
-            type=raw,value=dispatch-${{ github.run_id }},enable=${{ github.event_name == 'workflow_dispatch' && github.event.inputs.releaseVersion == '' }}
-
-      - name: Resolve runtime image version
-        id: ver
-        run: |
-          set -euo pipefail
-          if [ "${{ github.event_name }}" = "push" ]; then
-            VERSION="${GITHUB_REF_NAME#v}"
-          elif [ -n "${{ github.event.inputs.releaseVersion }}" ]; then
-            VERSION="${{ github.event.inputs.releaseVersion }}"
-            VERSION="${VERSION#v}"
-          else
-            VERSION=""
-          fi
-          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
-          echo "sha=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+          tags: type=raw,value=${{ needs.context.outputs.releaseTag }}
 
       - uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
@@ -476,9 +435,9 @@ jobs:
           file: apps/runtime/Dockerfile
           platforms: linux/amd64,linux/arm64
           build-args: |
-            CARACAL_RELEASE_VERSION=${{ steps.ver.outputs.version }}
-            CARACAL_DEV_SHA=${{ steps.ver.outputs.sha }}
-          push: ${{ github.event_name == 'push' }}
+            CARACAL_RELEASE_VERSION=${{ needs.context.outputs.version }}
+            CARACAL_DEV_SHA=${{ needs.context.outputs.sha }}
+          push: ${{ needs.context.outputs.publish == 'true' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           provenance: true
@@ -486,22 +445,18 @@ jobs:
           cache-from: type=gha,scope=runtime-image
           cache-to: type=gha,mode=max,scope=runtime-image
 
-  publish:
-    name: Create GitHub Release
-    needs: [binaries, images, runtimeImage]
-    if: github.repository == 'Garudex-Labs/caracal' && github.event_name == 'push'
+  verifyAssets:
+    name: Verify assets
+    needs: [context, archives]
+    if: github.repository == 'Garudex-Labs/caracal'
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    environment:
-      name: ${{ contains(github.ref_name, '-rc.') && 'rc-release' || 'release-approval' }}
-      url: https://github.com/${{ github.repository }}/releases/tag/${{ github.ref_name }}
     permissions:
-      contents: write
-      actions: write
+      contents: read
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          ref: ${{ github.ref }}
+          ref: ${{ needs.context.outputs.checkoutRef }}
           persist-credentials: false
 
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
@@ -509,48 +464,31 @@ jobs:
           name: release-archives
           path: dist
 
-      - name: Verify installer scripts
-        run: |
-          set -euo pipefail
-          test -f install-console.sh
-          test -f install-console.ps1
-          test -x install-console.sh || chmod +x install-console.sh
-
       - name: Verify release assets
-        run: |
-          set -euo pipefail
-          echo "Release assets:"
-          ls -la dist/
-          tag="${GITHUB_REF_NAME}"
-          for asset in \
-            "dist/caracal-shell-linux-amd64-${tag}.tar.gz" \
-            "dist/caracal-shell-linux-arm64-${tag}.tar.gz" \
-            "dist/caracal-shell-darwin-amd64-${tag}.tar.gz" \
-            "dist/caracal-shell-darwin-arm64-${tag}.tar.gz" \
-            "dist/caracal-shell-windows-amd64-${tag}.zip" \
-            "dist/caracal-console-linux-amd64-${tag}.tar.gz" \
-            "dist/caracal-console-linux-arm64-${tag}.tar.gz" \
-            "dist/caracal-console-darwin-amd64-${tag}.tar.gz" \
-            "dist/caracal-console-darwin-arm64-${tag}.tar.gz" \
-            "dist/caracal-console-windows-amd64-${tag}.zip" \
-            "dist/manifest.json" \
-            "dist/install-console.sh" \
-            "dist/install-console.ps1" \
-            "dist/SHA256SUMS"
-          do
-            [ -f "${asset}" ] || { echo "::error::Missing release asset: ${asset}"; exit 1; }
-          done
-          echo "All release assets present"
+        run: node scripts/verifyReleaseAssets.mjs "${{ needs.context.outputs.releaseTag }}" dist
 
-      - name: Verify checksums
-        working-directory: dist
-        run: sha256sum --check SHA256SUMS
-
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
+  githubRelease:
+    name: Publish GitHub Release
+    needs: [context, verifyAssets, serviceImages, runtimeImage]
+    if: github.repository == 'Garudex-Labs/caracal' && needs.context.outputs.publish == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment:
+      name: ${{ needs.context.outputs.channel == 'rc' && 'rc-release' || 'release-approval' }}
+      url: https://github.com/${{ github.repository }}/releases/tag/${{ needs.context.outputs.releaseTag }}
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
+          name: release-archives
+          path: dist
+
+      - uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
+        with:
+          tag_name: ${{ needs.context.outputs.releaseTag }}
           generate_release_notes: true
-          prerelease: ${{ contains(github.ref_name, '-rc.') }}
+          prerelease: ${{ needs.context.outputs.channel == 'rc' }}
           fail_on_unmatched_files: true
           files: |
             dist/caracal-shell-*
@@ -560,60 +498,35 @@ jobs:
             dist/install-console.sh
             dist/install-console.ps1
 
-  publishDryRun:
-    name: Verify release assets without publishing
-    needs: [binaries, images, runtimeImage]
-    if: github.repository == 'Garudex-Labs/caracal' && github.event_name == 'workflow_dispatch' && github.event.inputs.releaseVersion != ''
+  dryRunSummary:
+    name: Dry-run summary
+    needs: [context, verifyAssets, serviceImages, runtimeImage]
+    if: github.repository == 'Garudex-Labs/caracal' && needs.context.outputs.dryRun == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 5
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          ref: ${{ github.event.inputs.ref != '' && github.event.inputs.ref || github.ref }}
-          persist-credentials: false
+      - run: |
+          {
+            echo "## Release dry-run"
+            echo ""
+            echo "| Field | Value |"
+            echo "|---|---|"
+            echo "| Release | \`${{ needs.context.outputs.releaseTag }}\` |"
+            echo "| Channel | \`${{ needs.context.outputs.channel }}\` |"
+            echo "| Published | \`false\` |"
+            echo ""
+            echo "Built archives and container images, verified release assets, and skipped GitHub Release creation, GHCR pushes, post-release validation, and stable promotion."
+          } >> "$GITHUB_STEP_SUMMARY"
 
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
-        with:
-          name: release-archives
-          path: dist
-
-      - name: Verify release assets
-        env:
-          RELEASE_REF: ${{ github.event.inputs.releaseVersion }}
-        run: |
-          set -euo pipefail
-          echo "Dry-run release assets:"
-          ls -la dist/
-          for asset in \
-            "dist/caracal-shell-linux-amd64-${RELEASE_REF}.tar.gz" \
-            "dist/caracal-shell-linux-arm64-${RELEASE_REF}.tar.gz" \
-            "dist/caracal-shell-darwin-amd64-${RELEASE_REF}.tar.gz" \
-            "dist/caracal-shell-darwin-arm64-${RELEASE_REF}.tar.gz" \
-            "dist/caracal-shell-windows-amd64-${RELEASE_REF}.zip" \
-            "dist/caracal-console-linux-amd64-${RELEASE_REF}.tar.gz" \
-            "dist/caracal-console-linux-arm64-${RELEASE_REF}.tar.gz" \
-            "dist/caracal-console-darwin-amd64-${RELEASE_REF}.tar.gz" \
-            "dist/caracal-console-darwin-arm64-${RELEASE_REF}.tar.gz" \
-            "dist/caracal-console-windows-amd64-${RELEASE_REF}.zip" \
-            "dist/manifest.json" \
-            "dist/install-console.sh" \
-            "dist/install-console.ps1" \
-            "dist/SHA256SUMS"
-          do
-            [ -f "${asset}" ] || { echo "::error::Missing release asset: ${asset}"; exit 1; }
-          done
-          sha256sum --check dist/SHA256SUMS
-          echo "Release dry-run verified assets for ${RELEASE_REF}; no GitHub Release was created."
-
-  validateRelease:
-    name: Validate release artifacts
-    needs: publish
-    if: github.repository == 'Garudex-Labs/caracal' && github.event_name == 'push'
+  postValidate:
+    name: Validate published release
+    needs: [context, githubRelease]
+    if: github.repository == 'Garudex-Labs/caracal' && needs.context.outputs.publish == 'true'
     uses: ./.github/workflows/postReleaseValidation.yml
     with:
-      release: ${{ github.ref_name }}
+      release: ${{ needs.context.outputs.releaseTag }}
     permissions:
       contents: write
       packages: read
@@ -622,10 +535,10 @@ jobs:
       pull-requests: write
     secrets: inherit
 
-  promoteImages:
-    name: Promote stable image tags
-    needs: validateRelease
-    if: github.repository == 'Garudex-Labs/caracal' && github.event_name == 'push' && !contains(github.ref_name, '-rc.')
+  promoteStable:
+    name: Promote stable tags
+    needs: [context, postValidate]
+    if: github.repository == 'Garudex-Labs/caracal' && needs.context.outputs.promoteStable == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -640,15 +553,17 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Promote stable image tags
+      - name: Promote images
+        env:
+          RELEASE_TAG: ${{ needs.context.outputs.releaseTag }}
         run: |
           set -euo pipefail
-          series="${GITHUB_REF_NAME:0:8}"
+          series="${RELEASE_TAG:0:8}"
           images=(api coordinator control audit gateway sts postgres redis runtime)
           for name in "${images[@]}"; do
             image="${REGISTRY}/${IMAGE_OWNER}/caracal-${name}"
             docker buildx imagetools create \
               -t "${image}:${series}" \
               -t "${image}:latest" \
-              "${image}:${GITHUB_REF_NAME}"
+              "${image}:${RELEASE_TAG}"
           done
