@@ -33,19 +33,6 @@ The default product path is intentionally small: register an **agent app**, run 
 
 -----
 
-## Start Here
-
-For a basic OSS integration, follow the docs path:
-
-1. [Install Caracal](docs/src/content/docs/get-started/installation.mdx)
-2. [Run the local stack](docs/src/content/docs/get-started/quickstart.mdx)
-3. [Ship a first Gateway-backed integration](docs/src/content/docs/get-started/first-integration.mdx)
-4. [Configure runtime credential injection](docs/src/content/docs/runtime-console/config-file.mdx) with platform env/secret files or an explicit runtime profile
-
-Use the Gateway path first. SDK middleware binds already-verified Caracal context for propagation; protected inbound routes should use Gateway or a verifier connector.
-
------
-
 ## Community
 
 <div align="center">
