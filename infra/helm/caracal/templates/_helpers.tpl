@@ -69,3 +69,17 @@ secret:
     - key: caracalCoordinatorToken
       path: caracalCoordinatorToken
 {{- end -}}
+
+{{- define "caracal.validateProduction" -}}
+{{- if eq .Values.global.mode "stable" -}}
+{{- if .Values.secrets.create -}}
+{{- fail "secrets.create=true is forbidden when global.mode=stable; use an operator-managed Secret" -}}
+{{- end -}}
+{{- if eq .Values.secrets.database.host "postgres.default.svc.cluster.local" -}}
+{{- fail "stable deployments must set secrets.database.host to an externally managed HA Postgres endpoint" -}}
+{{- end -}}
+{{- if eq .Values.secrets.redis.host "redis.default.svc.cluster.local" -}}
+{{- fail "stable deployments must set secrets.redis.host to an externally managed HA Redis endpoint" -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}

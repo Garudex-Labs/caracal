@@ -54,6 +54,9 @@ networkPolicy:
   # Redis ({{ .secrets.redis.port }}), and OTLP (4317/4318). Platform teams should set dnsEgress
   # and extraEgress to named peers or CIDRs for DNS, provider APIs, object stores, identity providers,
   # and other upstreams.
+  # extraIngress is the only supported way to admit traffic from outside Caracal pods.
+  # For Gateway ingress controllers, add a rule with an explicit from selector and port 8081.
+  extraIngress: []
   allowOpenHttps: false
   allowOpenDns: false
   dnsEgress: []
