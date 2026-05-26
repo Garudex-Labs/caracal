@@ -34,16 +34,7 @@ The runtime first resolves platform configuration from `CARACAL_STS_URL`, `CARAC
 
 ### Minimal configuration
 
-```toml
-zone_url = "http://localhost:8080"
-zone_id = "zone_abc123"
-application_id = "app_def456"
-app_client_secret_file = "/run/secrets/caracal-app-client-secret"
-
-[[credentials]]
-env = "RESOURCE_TOKEN"
-resource = "resource://my-api"
-```
+Generate the first runtime profile from Console **first-setup**. The generated profile includes the STS URL, zone ID, application ID, secret-file path, and resource token entries created from real onboarding values.
 
 ```bash
 caracal run -- python3 agent.py

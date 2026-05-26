@@ -1,17 +1,47 @@
 ---
 title: Define Resources and Providers
-description: Register upstream resources with scopes and optional credential providers in a Caracal zone using the Console.
+description: Register protected upstream resources and optional provider credentials from the Console.
 pageType: workflow
 ---
 
-This page no longer documents standalone management command examples. Human-facing management now runs through the Console.
+Resources describe what an application can request through Caracal. Providers describe where Caracal can obtain provider credentials when a protected resource needs them. Start with a resource; add a provider only when the upstream service needs an external credential source.
 
-Open the interface with:
+## Guided first setup
+
+Open the Console and choose **first-setup**:
 
 ```bash
 caracal console
 ```
 
-Use the matching view for the workflow covered by this page. For automation, enable the Control API from the Console Control menu and call the authenticated HTTP surface.
+The guided setup creates the required production objects in one path:
 
-Runtime lifecycle commands (`caracal up`, `caracal down`, `caracal status`, `caracal purge`) and workload execution (`caracal run -- <command>`) remain documented in [Runtime and Console](/runtime-console/).
+1. A zone, or the selected zone if one is already active.
+2. A confidential agent application with a one-time client secret.
+3. A protected resource with the scopes you enter.
+4. An active policy that only allows the created application to request that resource.
+5. A runtime profile that uses the real zone, application, resource, and secret-file path.
+
+Optional fields can be left blank. Leave **upstream URL** blank when the resource is not Gateway-routed yet. Leave **provider ID** blank when the resource does not need a provider credential. Turn off **activate policy** only when your platform team will attach an existing policy set.
+
+## Resource fields
+
+| Field | Required | Meaning |
+| --- | --- | --- |
+| Resource ID | Yes | Stable resource identifier used by STS, policies, runtime profiles, SDKs, and audit. |
+| Resource name | No | Human-readable display name in the Console. |
+| Scopes | Yes | Actions the resource accepts. Keep the first set narrow and add more scopes only when the upstream needs them. |
+| Upstream URL | No | Enables a Gateway route for the resource. Use the real upstream endpoint reachable from Gateway. |
+| Provider ID | No | Existing provider credential source for resources that need provider-side credentials. |
+
+When an upstream URL is set, the Console binds the resource to the created confidential application so Gateway can validate the request and exchange authority before proxying. Without an upstream URL, the resource still exists for token exchange and direct SDK use, but Gateway routing is not configured.
+
+## Provider setup
+
+Create a provider only after the resource path is clear. In the Console, open **identity-provider** and register the real provider metadata supplied by your platform or identity team. Then edit the resource and set **provider ID** to that provider.
+
+Provider credentials should come from the platform secret store, vault, or orchestrator. Do not copy temporary credentials into resource definitions. The Console records provider configuration and identifiers; secret material should remain in the provider integration path.
+
+## Verify with audit
+
+After the first real request, open **audit** in the Console and select the request. Use **explain** with the request ID to see the policy version, policy set version, resource, application, Gateway outcome, and decision reason. Treat this audit explanation as the completion signal for onboarding.

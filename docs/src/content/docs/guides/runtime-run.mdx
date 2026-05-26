@@ -1,17 +1,44 @@
 ---
 title: Run an Agent with caracal run
-description: Use caracal run to inject scoped Caracal access tokens into a subprocess.
+description: Use a generated runtime profile to inject scoped Caracal access tokens into a subprocess.
 pageType: workflow
 ---
 
-This page no longer documents standalone management command examples. Human-facing management now runs through the Console.
+`caracal run` starts your command with resource tokens that were exchanged from a confidential Caracal application. The simplest path is to let the Console generate the runtime profile after first setup, then store the one-time client secret in the secret file named by that profile.
 
-Open the interface with:
+## Generate the profile
+
+Open the Console and choose **first-setup**:
 
 ```bash
 caracal console
 ```
 
-Use the matching view for the workflow covered by this page. For automation, enable the Control API from the Console Control menu and call the authenticated HTTP surface.
+Keep **runtime profile** enabled. The result view shows:
 
-Runtime lifecycle commands (`caracal up`, `caracal down`, `caracal status`, `caracal purge`) and workload execution (`caracal run -- <command>`) remain documented in [Runtime and Console](/runtime-console/).
+- the profile path
+- the secret-file path
+- the generated TOML profile
+- the token environment variable derived from your resource ID
+- the one-time application client secret, masked by default
+
+The Console does not write files or persist secrets for you. Copy the generated profile to the shown profile path. Write the client secret to the shown secret-file path with owner-only permissions.
+
+## Run the workload
+
+Set `CARACAL_CONFIG` to the generated profile path, then run the command you normally use for the workload after `caracal run --`.
+
+At runtime, Caracal reads the profile, exchanges each configured resource credential through STS, and injects each access token into the environment variable shown in the Console result. Your process reads that variable and sends the token to the protected service or Gateway.
+
+## Gateway-routed resources
+
+If first setup included an upstream URL, send requests through Gateway with:
+
+- `Authorization: Bearer` followed by the injected resource token
+- `X-Caracal-Resource` set to the resource ID from the Console result
+
+Gateway verifies the token, checks revocation, evaluates the active policy set, proxies to the configured upstream, and writes audit evidence for the request.
+
+## Finish with audit explanation
+
+After the first successful protected call, open **audit** in the Console. Select the request and use **explain** with its request ID. The explanation should show the application, resource, scopes, active policy version, policy set version, and final decision. If the call fails, use the same explanation path to identify whether the failure came from token exchange, policy, Gateway routing, or upstream response.

@@ -29,8 +29,8 @@ const revocations = new InMemoryRevocationStore();
 
 app.use(
   caracalAuth({
-    issuer: process.env.CARACAL_STS_URL!,       // e.g. http://sts:8080
-    audience: 'resource://my-api',
+    issuer: process.env.CARACAL_STS_URL!,
+    audience: process.env.CARACAL_RESOURCE_ID!,
     zoneId: process.env.CARACAL_ZONE_ID!,
     requiredScopes: ['api:read'],
     revocations,
@@ -79,7 +79,7 @@ import { revocations } from './revocations';
 
 const baseAuth = {
   issuer: process.env.CARACAL_STS_URL!,
-  audience: 'resource://my-api',
+  audience: process.env.CARACAL_RESOURCE_ID!,
   revocations,
 };
 
@@ -137,7 +137,7 @@ const revocations = new InMemoryRevocationStore();
 const auth = (scopes: string[]) =>
   caracalAuth({
     issuer: process.env.CARACAL_STS_URL!,
-    audience: 'resource://inventory',
+    audience: process.env.CARACAL_RESOURCE_ID!,
     zoneId: process.env.CARACAL_ZONE_ID!,
     revocations,
     requiredScopes: scopes,
