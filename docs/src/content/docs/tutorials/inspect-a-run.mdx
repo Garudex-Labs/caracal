@@ -1,0 +1,54 @@
+---
+title: Inspect a Run
+description: Trace one agent run end-to-end through authorization decisions and action results.
+pageType: workflow
+---
+
+This tutorial traces a single agent run through the Caracal audit surface. You will find the run, list its authorization decisions and action results, and explain why each call was allowed or denied.
+
+The flow assumes you have completed [Protect an API](../protect-an-api/) and [Connect an agent](../connect-an-agent/) so there is at least one run to inspect.
+
+## 1. Find the agent session
+
+Open the Console (`caracal console`). The menu groups under `agents` and `observe` own this workflow:
+
+- **`agent`** — lists agent sessions for the zone. Filter by application or start time. The session ID is the anchor for everything else.
+- **`session`** — lists the underlying STS execution sessions. Useful when you want the parent session of a delegated run.
+- **`delegation`** — lists delegation edges. Use this to follow authority from a parent run into a child.
+
+Pick the session you want to inspect and copy its session ID.
+
+## 2. List the authorization decisions
+
+Open **`audit`** under the `observe` group. Filter events by `agent_session_id` to scope the ledger to one run. The ledger records, in order:
+
+1. `authorization.requested` / `authorization.allowed` / `authorization.denied` — one entry per STS exchange. Includes the resource, the requested scopes, the determining policy set version, and the policy ID that produced the decision.
+2. `action.executed` — one entry per Gateway-mediated call or connector-verified call. Includes status, latency, auth mode, and revocation interruption state.
+
+A run that touched one resource typically produces one authorization event and one action-result event per call. If you see authorization events without matching action results, either the call never reached the upstream or the connector did not write its audit event — both are worth investigating.
+
+## 3. Explain a single decision
+
+Pick one authorization event and copy its `request_id`. From the menu, choose **`explain`** under `observe`, paste the ID, and confirm. The Console returns:
+
+- The principal (application) and execution session.
+- The resource and requested scopes.
+- The policy set version and the specific rules that matched.
+- The decision (allow / deny) and any diagnostics returned by Rego.
+- The delegation edge that constrained the request, if any.
+
+`audit explain` is the single source of truth for "why did this call get this answer." If the documented policy disagrees with the explanation, the active policy set is wrong, not the documentation.
+
+## 4. Follow delegation if the run had children
+
+If the run delegated authority, **`delegation`** under `agents` lists the edges it created. Each edge records the source session, target session, scope, TTL, hop, and constraints. From the edge you can jump back into `audit` filtered by the child session to repeat steps 2–3 for the descendant.
+
+Revocation of any edge in the chain terminates the descendants immediately and records `revoked` audit events; the action-result ledger flags any call interrupted in flight.
+
+## 5. Export the trail (optional)
+
+For SIEM ingestion or long-term retention, the Console **Audit** view streams the ledger through Redis Streams using the audit-exporter manifest. See [Tail and Query the Audit Stream](/guides/audit-stream/) for the consumer contract.
+
+## Wrap-up
+
+You can now name every Caracal surface a single run touches: the application that started it, the policy set that allowed it, the resources it called, the action results it produced, and the delegation edges it created. The audit ledger answers "what happened and why" without replaying the run.

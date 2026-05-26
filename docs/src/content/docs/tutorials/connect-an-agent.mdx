@@ -1,0 +1,110 @@
+---
+title: Connect an Agent
+description: Wire an agent app through the SDK so its tool calls are authority-checked and audited.
+pageType: workflow
+---
+
+This tutorial wires an agent app through Caracal so every tool call presents a short-lived mandate, propagates trace context, and lands in the audit ledger. The example uses the resource you created in [Protect an API](../protect-an-api/); any registered resource works.
+
+## 1. Confirm the application is registered
+
+In the Console **Application** view, confirm the application exists in the zone and has a client secret. The client secret is what the SDK exchanges for short-lived authority. Save the `zone_id`, `application_id`, and `client_secret` returned by the create form — the SDK reads them from environment variables, a `caracal.toml` file, or both.
+
+If you are still on a static bootstrap subject token, the SDK accepts it via `CARACAL_SUBJECT_TOKEN`; client-secret mode is preferred for long-running services because the SDK refreshes authority on demand.
+
+## 2. Install the SDK and call `connect()`
+
+`Caracal.connect()` is the single entry point. It auto-detects credentials: explicit config first, then `caracal.toml` (Python only), then environment variables. The full resolution order is documented in [Configuration Precedence](/reference/config-precedence/).
+
+### TypeScript
+
+```sh
+npm install @caracalai/sdk
+```
+
+```typescript
+import { Caracal, AgentKind } from "@caracalai/sdk";
+
+const caracal = Caracal.connect();
+
+await caracal.spawn(async () => {
+  const ctx = caracal.current();
+  console.log("Agent session:", ctx?.agentSessionId);
+
+  const client = caracal.transport();
+  const response = await client("https://gateway.example.com/billing-api/charge", {
+    method: "POST",
+    body: JSON.stringify({ amount: 1200 }),
+    headers: { "Content-Type": "application/json" },
+  });
+  console.log(await response.json());
+}, { kind: AgentKind.Ephemeral });
+```
+
+### Python
+
+```sh
+pip install caracalai-sdk
+```
+
+```python
+import asyncio
+from caracalai_sdk import Caracal, AgentKind
+
+caracal = Caracal.connect()
+
+async def main():
+    async with caracal.spawn(kind=AgentKind.EPHEMERAL) as ctx:
+        async with caracal.transport() as client:
+            r = await client.post(
+                "https://gateway.example.com/billing-api/charge",
+                json={"amount": 1200},
+            )
+            print(r.json())
+
+asyncio.run(main())
+```
+
+### Go
+
+```sh
+go get github.com/garudex-labs/caracal/packages/sdk/go
+```
+
+```go
+c, err := caracal.Connect()
+if err != nil { panic(err) }
+
+err = c.Spawn(context.Background(), func(ctx context.Context) error {
+    client := c.Transport(nil)
+    resp, err := client.Post(
+        "https://gateway.example.com/billing-api/charge",
+        "application/json",
+        strings.NewReader(`{"amount":1200}`),
+    )
+    if err != nil { return err }
+    defer resp.Body.Close()
+    return nil
+})
+```
+
+`spawn()` opens an agent run, exchanges a short-lived Caracal mandate, and tears the run down when the function returns. `transport()` injects the mandate and trace context on outbound requests; for upstreams that match a configured resource binding, it rewrites the URL through the Gateway and replaces the `Authorization` header with the mandate.
+
+## 3. Delegate to a child agent (optional)
+
+If the agent app spawns subordinate agents, narrow the authority handed to each child with `delegate()` or `delegateToSpawn()`. Constraints (scope, TTL, hop, resource, policy) are applied at issuance and recorded in the delegation edge.
+
+See [Implement Multi-Agent Delegation](/guides/delegation/) for the contract.
+
+## 4. Verify the call landed in audit
+
+Open the Console **Audit** view. Each call produced two events:
+
+- An authorization event from the STS (allow or deny, with the policy that decided it).
+- An action-result event from the Gateway or connector (status, latency, result class).
+
+If either event is missing for an accepted call, the enforcement boundary is incomplete — re-check the resource binding and the connector's revocation hook.
+
+## Next step
+
+Move on to [Inspect a run](../inspect-a-run/) to follow one agent run through the audit ledger and explain its decisions.

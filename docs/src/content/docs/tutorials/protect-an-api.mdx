@@ -1,0 +1,60 @@
+---
+title: Protect an API
+description: Put a Caracal-enforced boundary in front of a service you own.
+pageType: workflow
+---
+
+This tutorial puts a Caracal-enforced boundary in front of a service you control. By the end, every call to the service either presents a verified Caracal mandate or is rejected, and every accepted call writes an action-result audit row.
+
+There are two production patterns. Pick the one that fits your service:
+
+- **Gateway-mediated** — the Gateway verifies the mandate and brokers provider credentials before forwarding to your upstream. Use this when the upstream API is third-party or when you do not own the request path.
+- **Connector-verified** — your service verifies the mandate itself using an SDK connector at the request boundary. Use this when you own the service and want enforcement inside the same process.
+
+The Gateway-mediated pattern is the product default because it keeps provider secrets out of agent code, centralizes revocation, and writes action-result audit unconditionally. See [What Caracal Does](/get-started/what-caracal-does/) for the rationale.
+
+## 1. Register the resource
+
+In the Console, open the **Resource** view (`identity-provider` and `resource` are both under the `manage` group). Create a resource with:
+
+- A stable resource ID (for example, `resource://billing-api`).
+- The scopes your service understands.
+- For Gateway-mediated mode, an upstream URL prefix the Gateway will route to.
+
+The Console returns the resource ID. Hold onto it; the SDK and policy reference it by that string.
+
+## 2. Activate a policy that allows the agent
+
+Caracal denies by default. Under **Policy** in the Console, register a Rego policy that returns `decision = "allow"` when a permitted agent app requests the resource. Then activate it as a policy set for the zone.
+
+See [Author a Rego Policy](/guides/author-policy/) and [Activate a Policy Set](/guides/activate-policy-set/) for the policy authoring contract.
+
+## 3. Pick the enforcement boundary
+
+### Gateway-mediated
+
+Bind a Gateway route in the Console **Provider** flow. The Gateway will verify mandates, check replay and revocation, broker provider credentials, and write action-result audit on every call. The SDK's `transport()` automatically rewrites matching outbound URLs through the Gateway when `CARACAL_GATEWAY_URL` is set and `CARACAL_RESOURCES` declares the upstream prefix. See [API Gateway Behavior](/api/gateway/).
+
+### Connector-verified
+
+If you own the service, mount a connector at the request boundary:
+
+- TypeScript / Express → [Protect an Express App](/guides/protect-express/)
+- Python / FastMCP → [Protect a FastMCP App](/guides/protect-fastmcp/)
+- Go / `net/http` → [Protect a Go net/http Service](/guides/protect-nethttp/)
+- MCP servers (any language) → [Protect an MCP Server](/guides/protect-mcp/)
+
+Each connector verifies the mandate signature against the zone key, checks replay and revocation, and emits the matching action-result audit event. A connector is a production boundary only when those four checks are wired end to end.
+
+## 4. Verify the boundary
+
+From an agent app configured with `Caracal.connect()`, call the resource. Two outcomes are valid:
+
+1. Policy allows → the call reaches the upstream and the audit ledger gains one authorization event plus one action-result event.
+2. Policy denies → the STS returns HTTP 403 and the audit ledger records the denial with the determining policies.
+
+Open the Console **Audit** view and confirm both events appear. Use **Explain** to confirm the policy that decided the call.
+
+## Next step
+
+You have a Caracal-enforced boundary. Move on to [Connect an agent](../connect-an-agent/) to wire an agent app through the SDK, or [Inspect a run](../inspect-a-run/) to trace what the boundary recorded.
