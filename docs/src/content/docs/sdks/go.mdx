@@ -4,7 +4,7 @@ description: "Complete API reference for github.com/garudex-labs/caracal/package
 pageType: reference
 ---
 
-The Go SDK propagates Caracal identity through standard `context.Context`. There is no goroutine-local storage; context flows explicitly through function parameters as idiomatic Go requires. `FromEnv()` constructs the client from environment variables. `Spawn` and `Delegate` pass a child `context.Context` to their callback functions, making the bound context available to any downstream function that accepts a `context.Context`.
+The Go SDK propagates Caracal identity through standard `context.Context`. There is no goroutine-local storage; context flows explicitly through function parameters as idiomatic Go requires. `Connect()` reads the generated profile first, then falls back to environment variables. `Spawn` and `Delegate` pass a child `context.Context` to their callback functions, making the bound context available to any downstream function that accepts a `context.Context`.
 
 ## Install
 
@@ -12,19 +12,22 @@ The Go SDK propagates Caracal identity through standard `context.Context`. There
 go get github.com/garudex-labs/caracal/packages/sdk/go
 ```
 
-## Environment variables
+## Configuration
+
+`Connect()` reads `CARACAL_CONFIG`, then the shared generated profile at `$XDG_CONFIG_HOME/caracal/caracal.toml` or `~/.config/caracal/caracal.toml`, then environment variables.
 
 | Variable | Required | Description |
 | -------- | -------- | ----------- |
 | `CARACAL_COORDINATOR_URL` | Yes | Coordinator base URL (e.g., `http://coordinator:4000`) |
 | `CARACAL_ZONE_ID` | Yes | Zone identifier |
 | `CARACAL_APPLICATION_ID` | Yes | Registered application ID |
-| `CARACAL_SUBJECT_TOKEN` | Token mode | Session mandate |
-| `CARACAL_APP_CLIENT_SECRET` | Client-secret mode | Application secret used to refresh session mandates through STS |
+| `CARACAL_APP_CLIENT_SECRET_FILE` | Preferred | Application secret file used to refresh session authority through STS |
+| `CARACAL_APP_CLIENT_SECRET` | Local development | Application secret used to refresh session authority through STS |
 | `CARACAL_STS_URL` | Client-secret mode | STS base URL |
 | `CARACAL_APP_RESOURCES` | Client-secret mode if `CARACAL_RESOURCES` is unset | Comma-separated resource IDs for token exchange |
 | `CARACAL_GATEWAY_URL` | No | Gateway base URL for resource-routed calls |
 | `CARACAL_RESOURCES` | No | Comma-separated `resourceId=https://upstream/prefix` pairs |
+| `CARACAL_RESOURCES_FILE` | No | JSON resource-binding file |
 
 ## `Caracal` struct
 
@@ -54,12 +57,28 @@ type ResourceBinding struct {
 }
 ```
 
+### `Connect()`
+
+Loads the generated profile first, then falls back to `FromEnv()`.
+
+```go
+func Connect(opts ...ClientSecretOptions) (*Caracal, error)
+```
+
 ### `FromEnv()`
 
-Reads all `CARACAL_*` environment variables and returns a `*Caracal`. Static-token mode uses `CARACAL_SUBJECT_TOKEN`; client-secret mode uses `CARACAL_APP_CLIENT_SECRET`, `CARACAL_STS_URL`, and resource IDs from `CARACAL_APP_RESOURCES` or `CARACAL_RESOURCES`.
+Reads `CARACAL_*` environment variables and returns a `*Caracal`.
 
 ```go
 func FromEnv() (*Caracal, error)
+```
+
+### `FromConfig(path)`
+
+Reads the shared generated profile contract.
+
+```go
+func FromConfig(path string) (*Caracal, error)
 ```
 
 ### `FromClientSecret(opts)`
@@ -210,12 +229,12 @@ Reads the Caracal envelope from `r`'s headers and returns a child context with t
 func (c *Caracal) BindFromRequest(ctx context.Context, r *http.Request, opts ...RootOptions) (context.Context, error)
 ```
 
-### `Middleware(next)`
+### `ContextMiddleware(next)`
 
 Returns an `http.Handler` that calls `BindFromRequest` on every request before calling `next`:
 
 ```go
-func (c *Caracal) Middleware(next http.Handler, opts ...RootOptions) http.Handler
+func (c *Caracal) ContextMiddleware(next http.Handler, opts ...RootOptions) http.Handler
 ```
 
 ## Lifecycle hooks
