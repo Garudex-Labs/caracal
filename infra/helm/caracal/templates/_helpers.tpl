@@ -42,6 +42,14 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- .Values.secrets.runtimeSecretName -}}
 {{- end -}}
 
+{{- define "caracal.stsAdminTokenSecretName" -}}
+{{- if .Values.secrets.stsAdminToken.secretName -}}
+{{- .Values.secrets.stsAdminToken.secretName -}}
+{{- else if and .Values.secrets.create .Values.secrets.plaintext.stsAdminToken -}}
+{{- include "caracal.runtimeSecretName" . -}}
+{{- end -}}
+{{- end -}}
+
 {{- define "caracal.image" -}}
 {{- $root := index . "root" -}}
 {{- $image := index . "image" -}}

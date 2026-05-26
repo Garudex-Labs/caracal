@@ -27,8 +27,13 @@ function makeCfg(overrides: Partial<Config> = {}): Config {
     v1RateLimitPerMin: 0,
     adminAuthFailLimitPerMin: 0,
     lastUsedDebounceSec: 0,
+    maxResourcesPerZone: 100_000,
+    readyOutboxDeadMax: 0,
     trustProxy: false,
     enableDocs: false,
+    stsUrl: 'http://localhost:8080',
+    gatewayStsHmacKey: null,
+    metricsBearer: null,
     ...overrides,
   }
 }
@@ -125,6 +130,7 @@ describe('/metrics endpoint', () => {
     expect(res.headers['content-type']).toMatch(/text\/plain/)
     expect(res.body).toContain('caracal_log_emitted_total')
     expect(res.body).toContain('# TYPE caracal_log_emitted_total counter')
+    expect(res.body).toContain('caracal_api_outbox_dead_total')
     await app.close()
   })
 })
@@ -148,6 +154,32 @@ describe('/ready endpoint', () => {
 
     expect(res.statusCode).toBe(503)
     expect(res.json()).toMatchObject({ ok: false, error: 'postgres_unreachable', dependency: 'postgres' })
+    await app.close()
+  })
+
+  it('returns 503 when abandoned outbox rows exceed the readiness limit', async () => {
+    const cfg = makeCfg({ readyOutboxDeadMax: 0 })
+    const db = {
+      query: vi.fn()
+        .mockResolvedValueOnce({ rows: [{ '?column?': 1 }], rowCount: 1 })
+        .mockResolvedValueOnce({
+          rows: [{
+            pending_count: 0,
+            dead_count: 1,
+            oldest_pending_age_seconds: 0,
+            oldest_dead_age_seconds: 30,
+          }],
+          rowCount: 1,
+        }),
+      connect: vi.fn(),
+      end: vi.fn(),
+    } as unknown as DB
+    const app = await buildApp({ cfg, db, redis: makeRedis() })
+
+    const res = await app.inject({ method: 'GET', url: '/ready' })
+
+    expect(res.statusCode).toBe(503)
+    expect(res.json()).toMatchObject({ ok: false, error: 'outbox_dead_messages', deadCount: 1, limit: 0 })
     await app.close()
   })
 })

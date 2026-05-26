@@ -26,6 +26,7 @@ secrets:
     postgresPassword: ""
     redisPassword: ""
     caracalAdminToken: ""
+    stsAdminToken: ""
     caracalCoordinatorToken: ""
     zoneKek: ""
     auditHmacKey: ""
@@ -43,6 +44,9 @@ secrets:
     host: redis.default.svc.cluster.local
     port: 6379
     database: 0
+  stsAdminToken:
+    secretName: ""
+    key: stsAdminToken
 
 migrations:
   enabled: true
@@ -80,7 +84,10 @@ alertRules:
   auditDlqSize: 0
   auditDlqGrowth: 0
   auditConsumerLag: 1000
+  apiOutboxDead: 0
+  apiOutboxPendingAgeSeconds: 300
   gatewayStsExchangeErrors: 0
+  gatewayRevocationSnapshotFresh: 0
   dbPoolInUseRatio: 0.9
   readinessFlapsPer10m: 4
 
