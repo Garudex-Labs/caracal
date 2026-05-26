@@ -63,20 +63,19 @@ jobs:
           retention-days: 14
 
   pypiInstall:
-    name: PyPI (${{ matrix.os }}, ${{ matrix.pm }}, Python ${{ matrix.py }})
+    name: PyPI (${{ matrix.os }}, ${{ matrix.pm }})
     runs-on: ${{ matrix.os }}
     needs: registryMetadata
     timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-24.04]
+        os: [ubuntu-24.04, macos-15, windows-2022]
         pm: [pip, uv]
-        py: ['3.14']
     env:
       CARACAL_RELEASE: ${{ inputs.release }}
       PM: ${{ matrix.pm }}
-      PY: ${{ matrix.py }}
+      PY: ${{ env.PYTHON_VERSION }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -84,7 +83,7 @@ jobs:
 
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
-          python-version: ${{ matrix.py }}
+          python-version: ${{ env.PYTHON_VERSION }}
 
       - if: matrix.pm == 'uv' || matrix.pm == 'poetry'
         uses: astral-sh/setup-uv@ed21f2f24f8dd64503750218de024bcf64c7250a # v7.1.5
@@ -105,26 +104,25 @@ jobs:
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always()
         with:
-          name: findings-pypi-${{ matrix.os }}-${{ matrix.pm }}-${{ matrix.py }}
+          name: findings-pypi-${{ matrix.os }}-${{ matrix.pm }}
           path: findings/*.jsonl
           if-no-files-found: error
           retention-days: 14
 
   npmInstall:
-    name: npm (${{ matrix.os }}, ${{ matrix.pm }}, Node ${{ matrix.node }})
+    name: npm (${{ matrix.os }}, ${{ matrix.pm }})
     runs-on: ${{ matrix.os }}
     needs: registryMetadata
     timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-24.04]
+        os: [ubuntu-24.04, macos-15, windows-2022]
         pm: [npm, pnpm]
-        node: ['24']
     env:
       CARACAL_RELEASE: ${{ inputs.release }}
       PM: ${{ matrix.pm }}
-      NODE_V: ${{ matrix.node }}
+      NODE_V: ${{ env.NODE_VERSION }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -132,7 +130,7 @@ jobs:
 
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
-          node-version: ${{ matrix.node }}
+          node-version: ${{ env.NODE_VERSION }}
 
       - if: matrix.pm == 'pnpm'
         uses: pnpm/action-setup@f40ffcd9367d9f12939873eb1018b921a783ffaa # v4
@@ -147,7 +145,7 @@ jobs:
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always()
         with:
-          name: findings-npm-${{ matrix.os }}-${{ matrix.pm }}-${{ matrix.node }}
+          name: findings-npm-${{ matrix.os }}-${{ matrix.pm }}
           path: findings/*.jsonl
           if-no-files-found: error
           retention-days: 14
@@ -159,7 +157,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-24.04, ubuntu-24.04-arm, macos-15-intel, macos-15, windows-2022]
+        os: [ubuntu-24.04, macos-15, windows-2022]
     env:
       CARACAL_RELEASE: ${{ inputs.release }}
     steps:
@@ -188,7 +186,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-24.04, windows-2022]
+        os: [ubuntu-24.04, macos-15, windows-2022]
     env:
       CARACAL_RELEASE: ${{ inputs.release }}
     steps:

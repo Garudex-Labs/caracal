@@ -113,7 +113,7 @@ scripts/testCi.sh --smoke | --go | --py | --ts
 
 ## Releases
 
-Release artifacts share one CalVer: `vYYYY.MM.DD` (suffix `.N` for same-day re-cuts). Only maintainers listed in `.github/MAINTAINERS` may cut releases. Stable release publication is gated by the protected `release-approval` GitHub Environment and must be approved by a maintainer other than the actor who pushed the tag.
+Release artifacts share one CalVer: `vYYYY.MM.DD` (`.N` for same-day re-cuts). Only `.github/MAINTAINERS` can cut releases. Stable releases require `release-approval` from a different maintainer.
 
 ### Create dev builds
 
@@ -130,14 +130,14 @@ pnpm caracal down                                          # Stop dev before tes
 (cd /tmp && "$BIN" up && "$BIN" status && "$CONSOLE" && "$BIN" down)
 ```
 
-The local `build:release` stamps the binary with `CARACAL_VERSION=<base>-dev.sha<sha>` and `CARACAL_REGISTRY=localhost/`, then runs `docker compose build` to produce matching `localhost/caracal-{svc}:<base>-dev.sha<sha>` images. This path is not for downstream third-party consumption.
+`build:release` stamps dev binaries and local `localhost/caracal-{svc}:<base>-dev.sha<sha>` images. Do not use dev builds downstream.
 
 ### Create and publish rc
 
-Use rc when a downstream project must consume Caracal exactly like a third-party dependency before stable:
+Use rc for downstream testing before stable:
 
 ```bash
-scripts/release.sh rc dry-run --base-version 2026.05.26 --suffix rc.1  # run release.yml as a non-publishing rc dry-run
+scripts/release.sh rc dry-run --base-version 2026.05.26 --suffix rc.1
 scripts/release.sh rc prepare --base-version 2026.05.26 --suffix rc.1
 git add -A && git commit -m "rc: v2026.05.26-rc.1"
 git tag -a v2026.05.26-rc.1 -m v2026.05.26-rc.1
@@ -153,7 +153,7 @@ scripts/release.sh stable --dry-run   # preview stable without tagging
 
 ### Post-release validation
 
-`postReleaseValidation.yml` runs automatically after `release.yml` publishes a real rc or stable release. It exercises registries, archives, installers, containers, and provenance, then opens a PR with `releases/<tag>/validation.md`.
+`postReleaseValidation.yml` checks registries, archives, installers, containers, and provenance. npm, PyPI, binary, and installer checks cover Ubuntu, macOS, and Windows.
 
 Reproduce one area locally:
 
@@ -165,13 +165,15 @@ CARACAL_RELEASE=v2026.05.26-rc.1 FINDINGS_DIR=/tmp/findings \
 ### Publishing to npm and PyPI
 
 ```bash
-gh workflow run publishNpm.yml -f package=changed -f dryRun=true
-gh workflow run publishNpm.yml -f package=changed
-gh workflow run publishPypi.yml -f package=changed -f dryRun=true
-gh workflow run publishPypi.yml -f package=changed
+pnpm release:plan --since v2026.05.14
+pnpm release:sync-packages --check
+gh workflow run publishNpm.yml -f package=changed -f dryRun=true -f runner=ubuntu-24.04
+gh workflow run publishNpm.yml -f package=changed -f runner=ubuntu-24.04
+gh workflow run publishPypi.yml -f package=changed -f dryRun=true -f runner=ubuntu-24.04
+gh workflow run publishPypi.yml -f package=changed -f runner=ubuntu-24.04
 ```
 
-Protected workflows are the normal release path. They diff the current `HEAD` against the latest reachable release tag and select only changed publishable package directories. Use `baseRef` to override the diff base or `package=all` only for an intentional full-package publish. Local scripts remain available for RC publishing and emergency recovery, but stable local publishing requires `CARACAL_ALLOW_LOCAL_STABLE_PUBLISH=1` after release approval.
+Protected workflows are the normal path. They read `release.config.json`, ignore `examples/**`, publish changed packages, include exact-pin dependents, preflight Ubuntu/macOS/Windows, and publish from the selected `runner`. Use `baseRef` to override the diff base and `package=all` only for deliberate full publishes. Local stable publishing requires approval and `CARACAL_ALLOW_LOCAL_STABLE_PUBLISH=1`.
 
 ### Published artifacts
 

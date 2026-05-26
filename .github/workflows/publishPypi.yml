@@ -1,7 +1,7 @@
 # Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 # Caracal, a product of Garudex Labs
 #
-# Publishes selected Python packages to PyPI with trusted publishing.
+# Publishes selected Python packages to PyPI from a protected CI environment.
 
 name: publishPypi
 
@@ -34,9 +34,22 @@ on:
         required: false
         default: false
         type: boolean
+      runner:
+        description: 'Publish runner.'
+        required: true
+        default: ubuntu-24.04
+        type: choice
+        options:
+          - ubuntu-24.04
+          - macos-15
+          - windows-2022
 
 permissions:
   contents: read
+
+defaults:
+  run:
+    shell: bash
 
 concurrency:
   group: publish-pypi-${{ inputs.package }}
@@ -53,6 +66,7 @@ jobs:
     timeout-minutes: 5
     outputs:
       matrix: ${{ steps.matrix.outputs.matrix }}
+      preflightMatrix: ${{ steps.matrix.outputs.preflightMatrix }}
       hasPackages: ${{ steps.matrix.outputs.hasPackages }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -100,25 +114,62 @@ jobs:
           fi
           selected="$(node scripts/releasePlan.mjs "${args[@]}")"
           hasPackages="$(node -e "const m = JSON.parse(process.argv[1]); console.log(m.include.length > 0 ? 'true' : 'false')" "$selected")"
+          preflight="$(node -e "const m = JSON.parse(process.argv[1]); const os = ['ubuntu-24.04', 'macos-15', 'windows-2022']; console.log(JSON.stringify({ include: m.include.flatMap((pkg) => os.map((runner) => ({ ...pkg, runner }))) }));" "$selected")"
           {
             echo 'matrix<<JSON'
             printf '%s\n' "$selected"
             echo JSON
+            echo 'preflightMatrix<<JSON'
+            printf '%s\n' "$preflight"
+            echo JSON
             echo "hasPackages=$hasPackages"
           } >> "$GITHUB_OUTPUT"
+
+  preflight:
+    name: Check ${{ matrix.name }} on ${{ matrix.runner }}
+    if: github.repository == 'Garudex-Labs/caracal' && needs.select.outputs.hasPackages == 'true'
+    needs: select
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.select.outputs.preflightMatrix) }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Build distribution
+        working-directory: ${{ matrix.dir }}
+        run: |
+          set -euo pipefail
+          ver="$(awk -F'"' '/^version = /{print $2; exit}' pyproject.toml)"
+          if [[ "$ver" == *"dev.sha"* || "$ver" == *"dev."* ]]; then
+            echo "::error::Dev version blocked: ${ver}"
+            exit 1
+          fi
+          python -m pip install --require-hashes --requirement "$GITHUB_WORKSPACE/scripts/publishPypiRequirements.lock"
+          rm -rf dist build *.egg-info
+          python -m build
+          python -m twine check dist/*
 
   publish:
     name: Publish ${{ matrix.name }}
     if: github.repository == 'Garudex-Labs/caracal' && needs.select.outputs.hasPackages == 'true'
-    needs: select
-    runs-on: ubuntu-latest
+    needs: [select, preflight]
+    runs-on: ${{ inputs.runner }}
     timeout-minutes: 15
     environment:
       name: pypi
       url: https://pypi.org/project/${{ matrix.name }}
     permissions:
       contents: read
-      id-token: write
     strategy:
       fail-fast: false
       matrix: ${{ fromJson(needs.select.outputs.matrix) }}
@@ -137,19 +188,24 @@ jobs:
           set -euo pipefail
           ver="$(awk -F'"' '/^version = /{print $2; exit}' pyproject.toml)"
           if [[ "$ver" == *"dev.sha"* || "$ver" == *"dev."* ]]; then
-            echo "::error::Refusing to publish dev-stamped version ${ver} from ${{ matrix.dir }}"
+            echo "::error::Dev version blocked: ${ver}"
             exit 1
           fi
           python -m pip install --require-hashes --requirement "$GITHUB_WORKSPACE/scripts/publishPypiRequirements.lock"
           rm -rf dist build *.egg-info
           python -m build
-          twine check dist/*
+          python -m twine check dist/*
 
-      - uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b # release/v1
+      - name: Publish package
         if: inputs.dryRun != true
-        with:
-          packages-dir: ${{ matrix.dir }}/dist
-          skip-existing: true
+        working-directory: ${{ matrix.dir }}
+        env:
+          TWINE_USERNAME: __token__
+          TWINE_PASSWORD: ${{ secrets.PYPI_API_TOKEN }}
+          TWINE_NON_INTERACTIVE: '1'
+        run: |
+          set -euo pipefail
+          python -m twine upload --skip-existing dist/*
 
       - name: Verify published package
         if: inputs.dryRun != true
