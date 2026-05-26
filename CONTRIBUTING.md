@@ -23,8 +23,8 @@
 |                       | Dev                                                      | RC                                                          | Stable                                                     |
 | --------------------- | -------------------------------------------------------- | ----------------------------------------------------------- | ---------------------------------------------------------- |
 | Purpose               | Development builds                                      | rc builds                                                   | Released production versions                               |
-| Version               | `2026.05.26-dev.sha<sha>`                                | `2026.05.26-rc.1` / `0.1.3-rc.1`                          | `2026.05.26` / `0.1.3`                                    |
-| Container images      | `localhost/caracal-{svc}:2026.05.26-dev.sha<sha>`        | `ghcr.io/garudex-labs/caracal-{svc}:v2026.05.26-rc.1`      | `ghcr.io/garudex-labs/caracal-{svc}:v2026.05.26`          |
+| Version               | `2026.05.27-dev.sha<sha>`                                | `2026.05.27-rc.1` / `0.1.3-rc.1`                          | `2026.05.27` / `0.1.3`                                    |
+| Container images      | `localhost/caracal-{svc}:2026.05.27-dev.sha<sha>`        | `ghcr.io/garudex-labs/caracal-{svc}:v2026.05.27-rc.1`      | `ghcr.io/garudex-labs/caracal-{svc}:v2026.05.27`          |
 
 </details>
 
@@ -125,8 +125,8 @@ pnpm --dir apps/console build:release                          # stamp dev + bun
 BIN="$(pwd)/apps/runtime/dist/caracal-<os>-<arch>"                 # absolute path; survives cd
 CONSOLE="$(pwd)/apps/console/dist/caracal-console-<os>-<arch>"         # Console binary; same OS/arch matrix
 pnpm caracal down                                          # Stop dev before testing
-"$BIN" --version                                           # → caracal 2026.05.26-dev.sha<sha> [dev (sha <sha>)]
-"$CONSOLE" --version                                           # → caracal-console 2026.05.26-dev.sha<sha> [dev (sha <sha>)]
+    "$BIN" --version                                           # → caracal 2026.05.27-dev.sha<sha> [dev (sha <sha>)]
+    "$CONSOLE" --version                                           # → caracal-console 2026.05.27-dev.sha<sha> [dev (sha <sha>)]
 (cd /tmp && "$BIN" up && "$BIN" status && "$CONSOLE" && "$BIN" down)
 ```
 
@@ -138,19 +138,19 @@ Use the same flow for rc and stable: plan, dry-run, publish, validate. rc proves
 
 | Step | rc | stable |
 | --- | --- | --- |
-| Prepare | `scripts/release.sh rc prepare --base-version 2026.05.26 --suffix rc.1` | `scripts/release.sh stable --dry-run` |
+| Prepare | `scripts/release.sh rc prepare --base-version 2026.05.27 --suffix rc.1` | `scripts/release.sh stable --dry-run` |
 | Review | Commit the generated manifest and metadata. | Review the stable diff and generated version. |
-| Dry-run | `scripts/release.sh rc dry-run --base-version 2026.05.26 --suffix rc.1 --local` for local simulation; remote dry-run requires the rc commit on the selected ref. | `scripts/release.sh stable --dry-run` |
-| Publish | Tag and push `v2026.05.26-rc.1`. | `scripts/release.sh stable` |
+| Dry-run | `scripts/release.sh rc dry-run --base-version 2026.05.27 --suffix rc.1 --local` for local simulation; remote dry-run requires the rc commit on the selected ref. | `scripts/release.sh stable --dry-run` |
+| Publish | Tag and push `v2026.05.27-rc.1`. | `scripts/release.sh stable` |
 | Validate | `postReleaseValidation.yml` runs after release. | `postReleaseValidation.yml` gates stable promotion. |
 
 ```bash
 # rc
-scripts/release.sh rc prepare --base-version 2026.05.26 --suffix rc.1
-git add -A && git commit -m "rc: v2026.05.26-rc.1"
-scripts/release.sh rc dry-run --base-version 2026.05.26 --suffix rc.1 --local
-git tag -a v2026.05.26-rc.1 -m v2026.05.26-rc.1
-git push origin HEAD && git push origin v2026.05.26-rc.1
+scripts/release.sh rc prepare --base-version 2026.05.27 --suffix rc.1
+git add -A && git commit -m "rc: v2026.05.27-rc.1"
+scripts/release.sh rc dry-run --base-version 2026.05.27 --suffix rc.1 --local
+git tag -a v2026.05.27-rc.1 -m v2026.05.27-rc.1
+git push origin HEAD && git push origin v2026.05.27-rc.1
 
 # stable
 scripts/release.sh stable --dry-run
@@ -166,7 +166,7 @@ Remote rc dry-runs dispatch `release.yml` without publishing. They only read the
 Reproduce one area locally:
 
 ```bash
-CARACAL_RELEASE=v2026.05.26-rc.1 FINDINGS_DIR=/tmp/findings \
+CARACAL_RELEASE=v2026.05.27-rc.1 FINDINGS_DIR=/tmp/findings \
   bash scripts/postRelease/validateRegistryMetadata.sh
 ```
 
