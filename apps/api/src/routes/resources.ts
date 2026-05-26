@@ -48,6 +48,19 @@ async function applicationExists(fastify: FastifyInstance, zoneId: string, appli
   return rows.length > 0
 }
 
+async function resourceQuotaExceeded(fastify: FastifyInstance, zoneId: string): Promise<boolean> {
+  const maxResources = fastify.cfg?.maxResourcesPerZone ?? 0
+  if (maxResources <= 0) return false
+  const { rows } = await fastify.db.query(
+    `SELECT count(*)::bigint AS resource_count
+     FROM resources
+     WHERE zone_id = $1 AND archived_at IS NULL`,
+    [zoneId],
+  )
+  const count = Number(rows[0]?.resource_count ?? 0)
+  return count >= maxResources
+}
+
 function validateGatewayBinding(upstreamURL: string | null | undefined, gatewayApplicationID: string | null | undefined): string | null {
   if (upstreamURL && !gatewayApplicationID) return 'gateway_application_required'
   if (!upstreamURL && gatewayApplicationID) return 'gateway_application_requires_upstream'
@@ -171,6 +184,9 @@ export const resourcesRoutes: FastifyPluginAsync = async (fastify) => {
     if (gatewayError) return reply.code(400).send({ error: gatewayError })
     if (body.gateway_application_id && !(await applicationExists(fastify, params.zoneId, body.gateway_application_id))) {
       return reply.code(404).send({ error: 'gateway_application_not_found' })
+    }
+    if (await resourceQuotaExceeded(fastify, params.zoneId)) {
+      return reply.code(409).send({ error: 'resource_quota_exceeded' })
     }
     const id = uuidv7()
     if (!body.gateway_application_id) {

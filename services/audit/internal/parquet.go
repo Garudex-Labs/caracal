@@ -24,15 +24,17 @@ import (
 const (
 	exportWatermarkName = "parquet-hourly"
 	exportLockKey       = int64(0x4341524130303031) // "CARA0001"
+	exportWriteBatch    = 1000
 )
 
 type ParquetExporter struct {
-	pg       *PGWriter
-	s3Client *s3.Client
-	bucket   string
-	log      zerolog.Logger
-	leader   *Leader
-	onExport func(events int64, durMs int64, failed bool)
+	pg        *PGWriter
+	s3Client  *s3.Client
+	bucket    string
+	log       zerolog.Logger
+	leader    *Leader
+	onExport  func(events int64, durMs int64, failed bool)
+	onBacklog func(hours int64)
 }
 
 func newParquetExporter(pg *PGWriter, cfg Config, leader *Leader, log zerolog.Logger) (*ParquetExporter, error) {
@@ -95,6 +97,13 @@ func (e *ParquetExporter) tick(ctx context.Context) {
 	} else {
 		start = wm.UTC().Add(time.Hour)
 	}
+	backlog := int64(0)
+	if !start.After(target) {
+		backlog = int64(target.Sub(start)/time.Hour) + 1
+	}
+	if e.onBacklog != nil {
+		e.onBacklog(backlog)
+	}
 	for hour := start; !hour.After(target); hour = hour.Add(time.Hour) {
 		if ctx.Err() != nil {
 			return
@@ -121,21 +130,37 @@ func (e *ParquetExporter) exportHour(ctx context.Context, hour time.Time) (int64
 	since := hour
 	until := hour.Add(time.Hour)
 
-	// Streaming collect into a slice; parquet-go writes in-memory but we cap by hour.
-	var batch []OCSFEvent
+	var buf bytes.Buffer
+	writer := parquet.NewGenericWriter[OCSFEvent](&buf)
+	batch := make([]OCSFEvent, 0, exportWriteBatch)
+	var count int64
+	flush := func() error {
+		if len(batch) == 0 {
+			return nil
+		}
+		n, err := writer.Write(batch)
+		count += int64(n)
+		batch = batch[:0]
+		return err
+	}
 	err := e.pg.QuerySinceFn(ctx, since, until, true, func(r EventRow) error {
 		batch = append(batch, toOCSF(r.Event, r.ContentSHA256, r.ChainHMAC, r.ChainSeq))
-		return nil
+		if len(batch) < exportWriteBatch {
+			return nil
+		}
+		return flush()
 	})
 	if err != nil {
 		return 0, err
 	}
-	if len(batch) == 0 {
-		return 0, nil
-	}
-	var buf bytes.Buffer
-	if err := parquet.Write(&buf, batch); err != nil {
+	if err := flush(); err != nil {
 		return 0, err
+	}
+	if err := writer.Close(); err != nil {
+		return 0, err
+	}
+	if count == 0 {
+		return 0, nil
 	}
 	key := fmt.Sprintf("audit/%s/%s.parquet",
 		hour.Format("2006/01/02"), hour.Format("2006-01-02T15"))
@@ -149,11 +174,11 @@ func (e *ParquetExporter) exportHour(ctx context.Context, hour time.Time) (int64
 	if err != nil {
 		if isS3PreconditionFailed(err) {
 			e.log.Warn().Str("key", key).Msg("export: object already exists; skipping")
-			return int64(len(batch)), nil
+			return count, nil
 		}
 		return 0, err
 	}
-	return int64(len(batch)), nil
+	return count, nil
 }
 
 func isS3PreconditionFailed(err error) bool {
