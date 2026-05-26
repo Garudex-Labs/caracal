@@ -71,7 +71,13 @@ jobs:
           persist-credentials: false
 
       - name: Fetch default branch
-        run: git fetch --no-tags origin "${{ github.event.repository.default_branch }}:${{ github.event.repository.default_branch }}"
+        run: |
+          set -euo pipefail
+          default_branch="${{ github.event.repository.default_branch }}"
+          git fetch --no-tags origin "${default_branch}:refs/remotes/origin/${default_branch}"
+          if [[ "$(git branch --show-current)" != "$default_branch" ]]; then
+            git branch --force "$default_branch" "origin/${default_branch}"
+          fi
 
       - name: Authorize release
         env:
