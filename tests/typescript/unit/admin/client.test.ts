@@ -90,7 +90,7 @@ describe('AdminClient', () => {
   })
 
   it('routes coordinator calls to the coordinator base with its token', async () => {
-    const f = fetchOk([])
+    const f = fetchOk({ items: [], next_cursor: null })
     const c = new AdminClient({
       apiUrl: 'http://api',
       coordinatorUrl: 'http://coord',
@@ -102,6 +102,46 @@ describe('AdminClient', () => {
     const [url, init] = (f as unknown as { mock: { calls: [string, RequestInit][] } }).mock.calls[0]
     expect(url).toBe('http://coord/zones/z1/agents')
     expect((init.headers as Record<string, string>).Authorization).toBe('Bearer jwt')
+  })
+
+  it('unwraps coordinator agent list pages', async () => {
+    const f = fetchOk({
+      items: [{
+        agent_session_id: 'agent-1',
+        zone_id: 'z1',
+        application_id: 'app-1',
+        parent_id: null,
+        subject_session_id: 'subject-1',
+        status: 'active',
+        depth: 0,
+        spawned_at: '2026-01-01T00:00:00Z',
+        terminated_at: null,
+      }],
+      next_cursor: null,
+    })
+    const c = new AdminClient({
+      apiUrl: 'http://api',
+      coordinatorUrl: 'http://coord',
+      adminToken: 'a',
+      coordinatorToken: 'jwt',
+      fetchImpl: f,
+    })
+
+    await expect(c.agents.list('z1')).resolves.toEqual([
+      expect.objectContaining({ agent_session_id: 'agent-1' }),
+    ])
+  })
+
+  it('rejects malformed coordinator agent list responses', async () => {
+    const c = new AdminClient({
+      apiUrl: 'http://api',
+      coordinatorUrl: 'http://coord',
+      adminToken: 'a',
+      coordinatorToken: 'jwt',
+      fetchImpl: fetchOk({ next_cursor: null }),
+    })
+
+    await expect(c.agents.list('z1')).rejects.toThrow(/agents response missing items/)
   })
 
   it('marks coordinator response errors with the coordinator target', async () => {

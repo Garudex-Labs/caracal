@@ -32,7 +32,7 @@ describe('buildAdminClient', () => {
       CARACAL_COORDINATOR_URL: 'http://coordinator.test',
     }
     delete process.env.CARACAL_COORDINATOR_TOKEN
-    const fetchMock = vi.fn(async () => new Response('[]', {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ items: [], next_cursor: null }), {
       status: 200,
       headers: { 'content-type': 'application/json' },
     }))
@@ -63,7 +63,7 @@ describe('buildAdminClient', () => {
       CARACAL_API_URL: 'http://localhost:3000',
       CARACAL_COORDINATOR_URL: 'http://localhost:4000',
     }
-    const fetchMock = vi.fn(async () => new Response('[]', {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ items: [], next_cursor: null }), {
       status: 200,
       headers: { 'content-type': 'application/json' },
     }))

@@ -519,6 +519,29 @@ describe('grants actions', () => {
 })
 
 describe('agents actions', () => {
+  it('loads agents from the Coordinator without requiring application lookups', async () => {
+    const { client, ctx } = newCtx()
+    client.agents.list.mockResolvedValueOnce([{
+      agent_session_id: 'ag1',
+      zone_id: 'z1',
+      application_id: 'app1',
+      parent_id: null,
+      subject_session_id: 'subject1',
+      status: 'active',
+      depth: 0,
+      spawned_at: 'now',
+      terminated_at: null,
+    }])
+    client.applications.list.mockRejectedValueOnce(new Error('api unavailable'))
+    const list = agentsView(ctx as unknown as Parameters<typeof agentsView>[0]) as ListView<unknown>
+
+    await list.init(fakeApp())
+    const lines = list.render({ app: fakeApp(), size: { rows: 20, cols: 80 }, status: '' })
+
+    expect(lines.join('\n')).toContain('app1')
+    expect(client.applications.list).not.toHaveBeenCalled()
+  })
+
   it('s/r/t open ConfirmView for suspend/resume/terminate', async () => {
     const cases = [
       ['s', 'suspend'],
