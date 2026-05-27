@@ -1,17 +1,46 @@
 ---
 title: Issue Grants and Invitations
-description: Bind applications and users to resource scopes with grants, and invite new members into a zone with invitations.
-pageType: workflow
+description: Bind applications and users to resource scopes, and invite new members into a zone.
 ---
 
-This page no longer documents standalone management command examples. Human-facing management now runs through the Console.
+Grants authorize an application and user to request resource scopes. Invitations bring people into a zone so they can administer, review, or approve work.
 
-Open the interface with:
+## Create a grant
 
-```bash
-caracal console
-```
+1. Open `caracal console`.
+2. Select `grant`.
+3. Choose the zone, application, subject or user, resource, and scopes.
+4. Save the grant.
+5. Run a token exchange or Gateway request that asks for those scopes.
+6. Inspect `audit` or `explain` to confirm the grant was considered.
 
-Use the matching view for the workflow covered by this page. For automation, enable the Control API from the Console Control menu and call the authenticated HTTP surface.
+## Create an invitation
 
-Runtime lifecycle commands (`caracal up`, `caracal down`, `caracal status`, `caracal purge`) and workload execution (`caracal run -- <command>`) remain documented in [Runtime and Console](/runtime-console/).
+Use invitations when a new operator or reviewer needs zone access.
+
+| Field | Meaning |
+| --- | --- |
+| Email | Person being invited. |
+| Role | Zone role or team role being assigned. |
+| Invited by | Subject ID of the inviter. |
+| Expiration | Optional expiry; defaults to the service-defined invite window when omitted. |
+
+The Admin API exposes invitation list, create, and cancel endpoints for automation. The Console should be the default human workflow.
+
+## Grant design rules
+
+- Grant only the scopes needed by the application and subject.
+- Keep grants resource-specific instead of granting broad cross-resource access.
+- Use policy to express context-sensitive rules, not oversized grants.
+- Revoke grants when a subject leaves a workflow or an application no longer needs a resource.
+
+## Troubleshooting
+
+| Symptom | Check |
+| --- | --- |
+| Exchange is denied | Confirm the grant matches application, subject, resource, and scopes. |
+| Scope missing | Confirm the resource defines the scope and the grant includes it. |
+| Policy still denies | Use `explain`; grants are only one policy input. |
+| Access continues after revocation | Confirm revocation consumers are running on resource servers. |
+
+Related pages: [Resource and Grant](/concepts/resource-grant/), [Policy](/concepts/policy/), and [Sessions and Revocation](/concepts/sessions-revocation/).

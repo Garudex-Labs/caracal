@@ -1,58 +1,60 @@
 ---
 title: Policy Deployment Runbook
-description: "End-to-end production workflow for shipping a policy change safely: author, version, simulate, activate, verify, roll back."
+description: Safely validate, activate, observe, and roll back Caracal policy changes.
 pageType: workflow
 ---
 
-This page no longer documents standalone management command examples. Human-facing management now runs through the Console.
+Policy changes affect STS decisions and Gateway access. Treat them as production changes with simulation, activation, audit review, and rollback readiness.
 
-Open the interface with:
+## Deployment sequence
 
-```bash
-caracal console
+```mermaid
+sequenceDiagram
+  participant Author
+  participant Console as Console/Admin API
+  participant API
+  participant Redis
+  participant STS
+  participant Audit
+  Author->>Console: create policy version
+  Console->>API: validate and store version
+  Author->>Console: simulate policy set
+  Console->>API: activate policy set version
+  API->>Redis: publish policy invalidate
+  STS->>Redis: consume invalidate
+  STS->>Audit: emit decisions using current bundle
 ```
 
-Use the matching view for the workflow covered by this page. For automation, enable the Control API from the Console Control menu and call the authenticated HTTP surface.
+## Pre-deployment
 
-Runtime lifecycle commands (`caracal up`, `caracal down`, `caracal status`, `caracal purge`) and workload execution (`caracal run -- <command>`) remain documented in [Runtime and Console](/runtime-console/).
+1. Confirm the policy uses current resource IDs, scopes, and canonical terminology.
+2. Validate syntax and invariants through Console or Admin API.
+3. Simulate expected allow and deny cases.
+4. Confirm STS readiness and policy age metrics are healthy.
+5. Prepare rollback policy-set version.
 
-## Rollout confirmation
+## Activation
 
-Policy activation is not complete just because the API accepted the activation request. A safe rollout confirms three separate facts:
+Use Console `policy` and `policy set` views or Admin SDK/API automation. Do not use top-level `caracal` runtime commands for policy management.
 
-1. The database binding points at the intended policy set version.
-2. The policy invalidation outbox row was dispatched to Redis.
-3. STS has loaded the intended policy set version through its runtime policy engine.
+## Verification
 
-After activating a policy set version, keep the returned `outbox_id` and poll the activation status endpoint from your automation or Console-backed workflow:
-
-```bash
-curl -fsS \
-  -H "Authorization: Bearer $CARACAL_ADMIN_TOKEN" \
-  "$CARACAL_API_URL/v1/zones/$ZONE_ID/policy-sets/$POLICY_SET_ID/activation-status?version_id=$POLICY_SET_VERSION_ID&outbox_id=$OUTBOX_ID"
-```
-
-The rollout is ready for protected traffic when:
-
-| Field | Expected value |
+| Check | Expected |
 | --- | --- |
-| `active` | `true` |
-| `outbox.state` | `dispatched` |
-| `sts.state` | `loaded` |
-| `sts.policy_set_version_id` | the activated policy set version |
-| `propagation_status` | `loaded` |
+| API activation response | New policy-set version is active. |
+| Redis `caracal.policy.invalidate` | STS consumers receive invalidation. |
+| STS policy age | Returns under alert threshold. |
+| Audit decisions | Expected allow/deny records appear for canary requests. |
+| Gateway behavior | Protected upstream access follows the new decision. |
 
-If `propagation_status` is `waiting_for_outbox`, inspect `caracal_api_outbox_pending_total`, `caracal_api_outbox_oldest_pending_age_seconds`, Redis health, and API outbox logs. If it is `waiting_for_sts`, inspect STS readiness, `caracal_sts_opa_compile_errors_total`, `caracal_sts_opa_max_policy_age_seconds`, and the policy invalidation stream. If it is `failed`, stop the rollout and reconcile the outbox or policy contract before activating another version.
+## Rollback
 
-The STS status check confirms the STS service path reachable through `STS_URL`. In Kubernetes, keep the policy-age and compile-error alerts enabled so replica-level drift also becomes visible through metrics.
+Activate the last known-good policy-set version. Then verify STS policy freshness, canary decisions, audit records, and Gateway behavior.
 
-## Rollback confirmation
+## Troubleshooting
 
-Rollback is the same workflow with the previous known-good policy set version:
-
-1. Activate the previous version.
-2. Poll `activation-status` with the rollback activation's `outbox_id`.
-3. Run a policy simulation for the expected allow and deny cases.
-4. Run one real Gateway request and confirm the request appears in Audit.
-
-Do not close the rollback until activation status is `loaded` and the real Gateway request produces audit evidence with the expected policy set version.
+| Symptom | Check |
+| --- | --- |
+| Activation succeeds but decisions do not change | Policy invalidation stream, STS policy age, and STS logs. |
+| Simulation differs from live decisions | Input shape, active grants, resource IDs, subject/session claims, and step-up state. |
+| Policy fails closed unexpectedly | Rego compile errors, missing scope/resource, or invalid grant. |

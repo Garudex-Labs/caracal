@@ -1,148 +1,66 @@
 ---
 title: PostgreSQL
-description: Schema overview, migrations, database roles, pool sizing, partition management, and advisory lock behavior.
-pageType: config
+description: Operate the durable Caracal control-plane database.
+pageType: workflow
 ---
 
-All five core Caracal services store durable state in a single Postgres database, each under a dedicated role with minimum necessary permissions. The database uses table partitioning for the audit log, immutability triggers for policy versions, advisory locks for distributed coordination, and row-level security on zone tables.
+Postgres stores Caracal control-plane state: zones, providers, applications, resources, grants, sessions, policies, audit events, agent sessions, delegation edges, outboxes, gateway bindings, admin tokens, and step-up challenges.
+
+## Storage model
+
+```mermaid
+flowchart TB
+  API[API writes product state] --> PG[(Postgres)]
+  Coordinator[Coordinator writes agents and delegation] --> PG
+  Audit[Audit ingests audit events] --> PG
+  STS[STS reads policy, grants, keys, sessions] --> PG
+  Gateway[Gateway reads bindings and revocation snapshots] --> PG
+  PG --> Outbox[event_outbox and caracal_outbox]
+```
 
 ## Migrations
 
-Migrations are at `infra/postgres/migrations/` and numbered from `0001` upward. Compose runs them through the `dbMigrate` one-shot service, and the Helm chart runs them through a pre-install/pre-upgrade migration Job. Migration execution is idempotent: re-running the migration entrypoint against an up-to-date schema is safe.
+The migration runner:
 
-Migrations run in sequence. Do not skip or reorder them. To apply migrations outside Compose or Helm, run the Postgres image entrypoint `/usr/local/bin/caracal-migrate` with `PGHOST`, `PGPORT`, `PGUSER`, `PGDATABASE`, and `PGPASSWORD_FILE` or `PGPASSFILE`.
-
-Production migrations are forward-only. Files ending in `.down.sql` are developer-local reset aids only and are not referenced by Compose, Helm, or release CI. After an applied production migration, schema rollback requires restoring Postgres from backup.
-
-Validate migration changes before review:
+- applies `/migrations/*.up.sql` files in sorted order;
+- records versions in `schema_migrations`;
+- serializes concurrent runners with a Postgres advisory lock;
+- rejects unsafe migration filenames;
+- is used by Compose `dbMigrate` and Helm pre-install/pre-upgrade Job.
 
 ```bash
-PGHOST=localhost PGPORT=5432 PGUSER=caracal PGDATABASE=caracal PGPASSWORD=caracal \
-  bash infra/postgres/scripts/validateMigrations.sh
+PGHOST=localhost PGPORT=5432 PGUSER=caracal PGDATABASE=caracal \
+PGPASSWORD_FILE=infra/secrets/files/postgresPassword \
+bash infra/postgres/scripts/migrate.sh
 ```
 
-Current migration range: `0001_init` → `0025_admin_token_argon2`.
+Production tooling is forward-only and does not reference down migrations.
 
----
+## Verification
 
-## Database roles
+```bash
+bash infra/postgres/scripts/validateMigrations.sh
+```
 
-Each service connects with a dedicated Postgres role scoped to its minimum required permissions:
+The validation script checks migration idempotency, concurrent migrators, expected tables, append-only audit permissions, immutable policy-version trigger, fail-closed row-level security, and the rolling audit partition window.
 
-| Role | Permissions |
+## Capacity controls
+
+| Area | Settings |
 | --- | --- |
-| `caracalSts` | SELECT on zones, applications, providers, resources, policies, policy versions/sets; SELECT+INSERT+UPDATE on sessions, delegated\_grants, secrets, step\_up\_challenges |
-| `caracalApi` | SELECT+INSERT+UPDATE+DELETE on zones, applications, providers, resources, delegated\_grants, secrets, invitations, teams; SELECT+INSERT on policy\_versions, policy\_set\_versions; full access to policy\_set\_bindings; SELECT on sessions |
-| `caracalAudit` | SELECT+INSERT on audit\_events and audit\_ingest\_alerts; SELECT+INSERT+UPDATE on audit\_export\_watermark |
-| `caracalCoordinator` | SELECT+INSERT+UPDATE on agent\_sessions, agent\_topology, delegation\_graph\_epochs, caracal\_outbox, delegation\_edges, agent\_services, agent\_invocations; SELECT on zones, applications |
-| `caracalGateway` | SELECT on zones, applications, resources, providers |
+| Compose Postgres | `POSTGRES_MAX_CONNECTIONS`, `POSTGRES_SHARED_BUFFERS`, `POSTGRES_EFFECTIVE_CACHE_SIZE`, `POSTGRES_WORK_MEM`, `POSTGRES_LOG_MIN_DURATION_MS` |
+| Service pools | `DB_POOL_MAX`, statement timeout, idle-in-transaction timeout, connection timeout, idle timeout |
+| Helm | Use managed Postgres sizing plus service resource requests/limits. |
 
-Create these roles before starting any service. The `0002` migration creates them and grants permissions.
+## Backup and restore
 
----
+Back up the whole database. Audit events are append-only and partitioned; restore must preserve audit tables, admin audit tables, outboxes, agent/delegation state, gateway bindings, and key material references.
 
-## Key tables
+## Troubleshooting
 
-### `sessions`
-
-Tracks all active user and application sessions. Indexed on `(zone_id, subject_id, status)` and `(expires_at) WHERE status='active'` for efficient expiry sweeps.
-
-### `delegation_edges`
-
-One row per directed delegation authority edge. Includes `edge_version` for optimistic locking and `constraints_json` for typed constraint enforcement. Indexed on source, target, resource, and expiry.
-
-### `policy_versions`
-
-**Immutable.** The `policy_versions_immutable` trigger prevents UPDATE and DELETE on this table. Policy content can never be changed after creation: only new versions can be added.
-
-### `audit_events`
-
-**Range-partitioned by `occurred_at`.** The Audit service pre-creates monthly partitions for the current month and three future months. Partitions older than `AUDIT_RETENTION_DAYS` are dropped by the retention rotator.
-
-Append-only in practice. Each event includes:
-- `chain_seq`: monotonic sequence per zone for ordering
-- `content_sha256`, `prev_content_sha256`: payload hashes for chain linkage
-- `chain_hmac`: HMAC of the chain linkage (keyed with `AUDIT_HMAC_KEY`)
-- `ingest_signature`: signature added at ingest time
-
-### `caracal_outbox` and `event_outbox`
-
-Transactional outbox tables. Rows are written atomically with the operation they represent and dispatched to Redis streams by background workers. `caracal_outbox` is used by the Coordinator; `event_outbox` by the API.
-
-Both use `FOR UPDATE SKIP LOCKED` for concurrent-safe dispatch without contention.
-
-### `step_up_challenges`
-
-Tracks step-up authentication challenges. Indexed on `(session_id)` and `(id) WHERE consumed_at IS NOT NULL` (unique). A `UNIQUE` partial index prevents the same challenge being satisfied twice.
-
-### `secrets`
-
-Stores encrypted credential material (tokens, passwords). Ciphertext encrypted with ChaCha20 keyed from `ZONE_KEK`. Nonce stored alongside ciphertext. The `dek_id` field tracks which key version was used for rotation tracking.
-
----
-
-## Connection pool sizing
-
-The API and Coordinator manage `pg.Pool` instances. The Go services open pgx-backed connections or pools appropriate to their service. Default TypeScript pool size is 20 connections per service replica. Adjust `DB_POOL_MAX` based on `max_connections` in your Postgres instance.
-
-Rule of thumb: `(replicas × pool_max) + overhead < max_connections`. With 3 replicas of API (pool 20), 2 of Coordinator (pool 20), and STS + Gateway + Audit connecting without pools, target at least `100 to 120` Postgres connections.
-
-Statement timeouts prevent runaway queries:
-
-| Variable | Default | Purpose |
+| Phase | Symptom | First check |
 | --- | --- | --- |
-| `DB_STATEMENT_TIMEOUT_MS` | `15000` | Kills queries running longer than 15 s |
-| `DB_IDLE_IN_TX_TIMEOUT_MS` | `30000` | Kills idle-in-transaction connections after 30 s |
-| `DB_CONNECTION_TIMEOUT_MS` | `5000` | Fails connection acquisition after 5 s |
-| `DB_IDLE_TIMEOUT_MS` | `30000` | Returns idle pool connections after 30 s |
-
----
-
-## Advisory locks
-
-Two distributed coordination mechanisms use Postgres advisory locks:
-
-**Audit chain head locks (transactional):**
-`pg_advisory_xact_lock()` serializes writes to the per-zone audit chain. These locks are released automatically when the transaction commits or rolls back. High audit event volume on a single zone can cause contention here: spread load across zones to reduce it.
-
-**Audit leader election (session-level):**
-
-The Audit service uses session-level advisory locks to elect a single export leader and a single retention leader across replicas:
-
-| Lock key | Holder | Function |
-| --- | --- | --- |
-| `0x4341524130303031` | Export leader | Runs hourly Parquet export to S3 |
-| `0x4341524130303032` | Retention leader | Manages partition creation and drop |
-
-`pg_try_advisory_lock()` returns false immediately if another replica holds the lock. The losing replica skips the job. If the leader crashes, the lock is released when the connection closes and another replica acquires it on the next cycle.
-
----
-
-## Partition management
-
-The `audit_events` table uses `RANGE` partitioning on `occurred_at` with one partition per calendar month plus a default partition for overflow. The Audit service's retention rotator:
-
-- Pre-creates partitions for the current month and 3 future months on every run.
-- Drops partitions whose entire range falls before the retention cutoff (`now() - AUDIT_RETENTION_DAYS`).
-- Runs every 6 hours, leader-elected.
-
-Check current partitions:
-
-```sql
-SELECT relname, pg_size_pretty(pg_relation_size(oid))
-FROM pg_class
-WHERE relname LIKE 'audit_events_%'
-ORDER BY relname;
-```
-
----
-
-## Replication and backup
-
-Caracal does not manage Postgres replication. Use standard Postgres tooling:
-
-- Enable WAL archiving (`wal_level=replica`) for point-in-time recovery.
-- Take daily base backups with `pg_basebackup` or a managed backup tool.
-- Test restores to a separate instance before relying on them.
-
-The `audit_events` table is the most write-intensive table and the most critical to retain. Ensure its partition data is included in any backup.
+| Bootstrap | Migration Job fails | Database secret, host, port, user, database, SSL mode, and advisory-lock connectivity. |
+| Operations | API outbox grows | Redis reachability, outbox dispatcher logs, DB pool saturation, and `event_outbox` dead rows. |
+| Performance | Audit queries slow | Partition health, indexes, retention, and query time windows. |
+| Access control | RLS errors | Confirm service role and zone context handling before widening permissions. |

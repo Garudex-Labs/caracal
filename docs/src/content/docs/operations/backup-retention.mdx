@@ -1,223 +1,55 @@
 ---
 title: Backup and Retention
-description: Audit event partition lifecycle, S3 Parquet export, chain HMAC tamper detection, and disaster recovery posture.
-pageType: config
+description: Back up and retain Caracal database, secrets, audit evidence, and replay state.
+pageType: workflow
 ---
 
-The audit ledger is the most critical durable store in Caracal. This page covers how audit data is retained in Postgres, exported to S3 in Parquet format, verified for tamper-evidence, and how to approach disaster recovery.
+Backups must preserve both access state and evidence state. A restore that loses audit, revocation, keys, or delegation data can produce unsafe or unauditable behavior.
 
-## Audit data model
+## What to protect
 
-Audit events are stored in the `audit_events` table, which is range-partitioned on `occurred_at` with one partition per calendar month. The table schema includes chain linkage fields for tamper detection:
-
-| Column | Purpose |
+| Asset | Why it matters |
 | --- | --- |
-| `id` | Event identifier |
-| `zone_id` | Zone that generated the event |
-| `chain_seq` | Monotonic per-zone sequence number |
-| `content_sha256` | SHA-256 hash of the event payload |
-| `prev_content_sha256` | Hash of the preceding event in the chain |
-| `chain_hmac` | HMAC-SHA256 linking this event to its predecessor |
-| `ingest_signature` | Signature added at ingest time |
-| `occurred_at` | Event timestamp (partition key) |
-| `ingested_at` | Time of database insertion |
+| Postgres database | Product state, policies, grants, sessions, audit events, agents, delegations, outboxes, gateway bindings. |
+| Runtime secrets | Database/Redis credentials, admin token, Coordinator token, zone KEK, HMAC keys, service exchange keys. |
+| STS/Gateway replay volumes | Audit replay files during Redis/Audit outages. |
+| Redis snapshot or managed backup | Optional operational recovery for stream pending entries; Postgres remains authoritative. |
+| Audit exports | Long-term evidence and SIEM/compliance integration. |
 
-The chain fields make any deletion or modification of an existing event detectable by the tamper sweeper.
+## Backup flow
 
----
-
-## Retention policy
-
-`AUDIT_RETENTION_DAYS` (default: 365) controls how long audit events are retained. The Audit service's retention rotator runs every 6 hours (leader-elected via advisory lock `0x4341524130303032`) and:
-
-1. Pre-creates monthly Postgres partitions for the current month and 3 future months.
-2. Identifies partitions whose entire date range falls before `now() - AUDIT_RETENTION_DAYS`.
-3. Drops those partitions.
-
-**Partition drop is irreversible.** Data in dropped partitions is gone permanently unless it was exported to S3 before the partition was dropped. Configure S3 export before data reaches its retention cutoff if long-term archival is required.
-
-Check active partitions:
-
-```sql
-SELECT relname,
-       pg_size_pretty(pg_relation_size(oid)) AS size
-FROM   pg_class
-WHERE  relname LIKE 'audit_events_%'
-ORDER  BY relname;
+```mermaid
+flowchart LR
+  PG[(Postgres)] --> Backup[Encrypted backup]
+  Secrets[Secret manager] --> Backup
+  Replay[Replay volumes] --> Backup
+  Audit[Audit export] --> Archive[Immutable archive]
+  Backup --> RestoreTest[Scheduled restore test]
 ```
 
----
+## Retention controls
 
-## Parquet export to S3
-
-When `AUDIT_EXPORT_S3_BUCKET` is set, the Audit service exports completed hours of audit events to S3 in OCSF v1.7.0 Parquet format. The export runs hourly, leader-elected via advisory lock `0x4341524130303031`.
-
-**Configuration:**
-
-```bash
-AUDIT_EXPORT_S3_ENDPOINT=https://s3.amazonaws.com   # Or MinIO endpoint
-AUDIT_EXPORT_S3_BUCKET=my-audit-archive
-AUDIT_EXPORT_S3_REGION=us-east-1                    # default
-```
-
-For MinIO or other S3-compatible stores, set `AUDIT_EXPORT_S3_ENDPOINT` to the custom endpoint URL.
-
-**Export behavior:**
-
-- Exports completed whole hours of `ingested_at` data.
-- On fresh deployment, exports only the most recent complete hour (no historical catch-up).
-- After the first export, tracks a watermark in `audit_export_watermark` and catches up through all completed hours while the export leader is running.
-- The exporter writes Parquet rows in bounded batches so high-volume hours do not require holding every event row in memory before upload.
-- Each export run emits `caracal_audit_export_events_total`, `caracal_audit_export_errors_total`, `caracal_audit_export_duration_seconds`, `caracal_audit_export_backlog_hours`, and `caracal_audit_is_export_leader` metrics.
-
-**Verifying export health:**
-
-```bash
-curl http://localhost:9090/metrics | grep -E 'caracal_audit_(export_events_total|export_errors_total|export_backlog_hours|is_export_leader)'
-```
-
-If `caracal_audit_export_errors_total` is increasing and `caracal_audit_export_events_total` is not, check S3 connectivity and credentials.
-
-**Check the watermark:**
-
-```sql
-SELECT last_exported_hour, updated_at
-FROM   audit_export_watermark
-WHERE  name = 'parquet-hourly';
-```
-
-If `last_exported_hour` is significantly behind `now()`, the exporter has fallen behind. This can happen after an extended outage or if the Audit service was stopped. The export leader catches up automatically while it is running; monitor `caracal_audit_export_backlog_hours` until it returns to zero.
-
----
-
-## Tamper detection
-
-The Audit service runs a continuous tamper sweeper that verifies the chain integrity of audit events using the `AUDIT_HMAC_KEY`. The sweeper checks:
-
-1. `content_sha256` matches the actual payload hash.
-2. `chain_hmac` is a valid HMAC of this event linked to `prev_content_sha256`.
-3. `chain_seq` is strictly monotonic per zone.
-
-Tamper metrics from `GET /metrics` on the Audit service:
-
-| Metric | Meaning |
+| Area | Controls |
 | --- | --- |
-| `caracal_audit_tamper_checked_total` | Events verified by the sweeper |
-| `caracal_audit_tamper_mismatch_total` | Events where hash or HMAC does not match |
-| `caracal_audit_tamper_chain_breaks_total` | Chain sequence breaks detected |
-| `caracal_audit_tamper_hmac_failures_total` | HMAC verification failures |
-| `caracal_audit_tamper_last_sweep_unix` | Unix timestamp of the last rolling sweep |
-| `caracal_audit_tamper_last_full_unix` | Unix timestamp of the last full sweep |
+| Audit database | `AUDIT_RETENTION_DAYS`, partitions, audit export watermarks. |
+| Coordinator data | `DELEGATION_RETENTION_DAYS`, `OUTBOX_RETENTION_DAYS`, sweeper intervals. |
+| Redis streams | Provisioner intended max lengths and managed Redis retention. |
+| Backups | Platform backup policy and legal/compliance requirements. |
 
-`caracal_audit_tamper_mismatch_total > 0` or `caracal_audit_tamper_chain_breaks_total > 0` indicates that audit event data has been modified after ingest. This is a security event: see [Incident Response](./incident-response/).
+## Restore validation
 
-Tamper alerts are also written to the `audit_ingest_alerts` table:
+1. Restore Postgres into an isolated environment.
+2. Restore required secrets into the environment secret store.
+3. Run migration verification.
+4. Start services and verify `/ready`.
+5. Confirm audit query, policy-set activation state, Gateway bindings, sessions, agents, and delegation records.
+6. Run a canary token exchange and protected Gateway request.
 
-```sql
-SELECT kind, detail, zone_id, observed_at
-FROM   audit_ingest_alerts
-ORDER  BY observed_at DESC
-LIMIT  20;
-```
+## Troubleshooting
 
----
-
-## Audit DLQ
-
-`caracal.audit.events.dlq` receives audit events that failed delivery more than `AUDIT_MAX_DELIVERIES` (default 8) times. Events in the DLQ are not inserted into Postgres.
-
-Monitor DLQ depth:
-
-```bash
-redis-cli -a $REDIS_PASSWORD XLEN caracal.audit.events.dlq
-```
-
-Growing DLQ depth means events are being generated faster than the Audit service can persist them, or the Audit service has a database write error. Investigate Audit service logs and Postgres connectivity.
-
----
-
-## Disaster recovery posture
-
-Caracal does not provide built-in backup orchestration beyond the S3 Parquet export. For full disaster recovery:
-
-**PostgreSQL:**
-
-- Enable continuous WAL archiving (`wal_level=replica`, `archive_mode=on`).
-- Take daily base backups with `pg_basebackup` to durable object storage.
-- Test point-in-time recovery to a separate instance at least monthly.
-- Target a recovery point objective (RPO) consistent with your audit and compliance requirements.
-- The `audit_events` partitioned table is the highest-priority data to protect.
-
-**Redis:**
-
-- The `redisData` volume holds the AOF log (`appendonly yes`, `appendfsync everysec`). On crash, the worst-case data loss is 1 second of writes.
-- For production, use Redis persistence (`AOF + RDB`) and back up the `redisData` volume.
-- Redis stream data is also in Postgres via the transactional outbox: if Redis is lost, in-flight outbox rows will be re-delivered on restart. Events already acknowledged by consumers are gone, but those were already persisted.
-
-**Recovery order:**
-
-Restore and start services in this order:
-1. Postgres (restore backup, apply WAL)
-2. Redis (restore AOF/RDB, or start fresh and let outbox re-deliver)
-3. Redis entrypoint stream provisioning and the `dbMigrate` job
-4. STS → API → Audit → Coordinator → Gateway
-
----
-
-## Postgres backup runbook
-
-The previous section describes the posture; this section is the concrete operator path. Caracal does not ship a Postgres operator; pick one of the paths below and own it.
-
-### Path A: Managed operator (recommended)
-
-For self-hosted clusters running Caracal in Kubernetes, use a Postgres operator that handles base backups, WAL archiving, and PITR out of the box:
-
-- **CloudNativePG**: `cluster.backup` resource configures S3 archiving and `barmanObjectStore`. Point-in-time recovery via `Cluster.spec.bootstrap.recovery.recoveryTarget`.
-- **Zalando postgres-operator**: `postgresql.spec.backup` configures WAL-E/WAL-G to S3. Clone-and-restore flow via `postgresql.spec.clone.uid`.
-
-The Caracal Helm chart expects `services.<svc>.secrets.database.host` to point at the cluster's primary; operator failover updates DNS without service restarts.
-
-### Path B: Manual `pg_basebackup` + WAL archiving
-
-Use this only when an operator is not available. Required `postgresql.conf` settings:
-
-```ini
-wal_level            = replica
-archive_mode         = on
-archive_command      = 'aws s3 cp %p s3://my-caracal-wal/%f'
-archive_timeout      = 60
-max_wal_senders      = 4
-wal_keep_size        = 1GB
-```
-
-Daily base backup, run from an operator host with the `caracal` role's read permissions:
-
-```bash
-pg_basebackup \
-  --host="$PGHOST" --username=postgres --pgdata=/backup/$(date +%F) \
-  --format=tar --gzip --progress --wal-method=stream \
-  --checkpoint=fast --label="caracal-$(date +%F)"
-aws s3 sync /backup/$(date +%F) s3://my-caracal-base/$(date +%F)/
-```
-
-Retain at least 7 daily base backups plus all WAL segments between the oldest base and now. Verify base backup integrity with `pg_verifybackup` before deleting older copies.
-
-### Restore drill (run monthly)
-
-A backup that has never been restored is not a backup. Run this drill against a separate Postgres instance:
-
-1. **Provision** a Postgres instance at the same major version as production. Do not point any Caracal service at it.
-2. **Restore base**: `tar xzf base.tar.gz -C $PGDATA`. Write `recovery.signal` and a `postgresql.auto.conf` with `restore_command = 'aws s3 cp s3://my-caracal-wal/%f %p'` and a `recovery_target_time` 30 minutes before drill start.
-3. **Start Postgres** and wait for `select pg_is_in_recovery();` → `f`.
-4. **Verify chain integrity**: connect with the `caracalAudit` role and run the tamper check the Audit service runs at startup:
-   ```sql
-   SELECT zone_id, count(*) AS rows,
-          count(*) FILTER (WHERE chain_hmac IS NULL) AS missing_hmac
-   FROM   audit_events
-   WHERE  occurred_at > now() - interval '30 minutes'
-   GROUP  BY zone_id;
-   ```
-   Expect `missing_hmac = 0` for every zone. Then run the Audit service against this instance with `AUDIT_TAMPER_SWEEP_ON_START=true` and confirm exit code 0.
-5. **Record** RTO (time from step 1 to step 4 passing) and RPO (oldest data lost). File against your DR runbook. Tear the instance down.
-
-If any step fails, treat as a sev-2 incident: backups are not currently usable for recovery.
+| Symptom | Check |
+| --- | --- |
+| Restored STS cannot decrypt keys | `ZONE_KEK` does not match the database secrets. |
+| Audit chain verification fails | Missing audit rows, wrong `AUDIT_HMAC_KEY`, or partial restore. |
+| Gateway cannot route | Missing gateway binding rows or stale binding revision. |
+| Revocation state is incomplete | Restore Postgres revocation/session state and replay Redis revocation events where needed. |

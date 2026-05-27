@@ -1,152 +1,67 @@
 ---
 title: Scale and Capacity Guidance
-description: Practical sizing formulas, benchmark procedure, and rollout profiles for Caracal services.
-pageType: config
+description: Size Caracal services, storage, and queues for production traffic.
+pageType: reference
 ---
 
-Caracal scales across five services with different bottlenecks. Start with the small profile, measure the path you plan to use, and scale only the component whose readiness, latency, or backlog signal is under pressure.
+Scale Caracal around three bottlenecks: token exchange and policy evaluation in STS, upstream proxying in Gateway, and durable writes in Postgres/Audit.
 
-## Sizing model
+## Scaling levers
 
-| Component | Primary driver | First scaling action |
-| --- | --- | --- |
-| Gateway | Protected-resource request rate, upstream latency, streaming duration | Add Gateway replicas and keep upstream timeouts bounded |
-| STS | Token exchanges per second, OPA bundle complexity, signing throughput | Add STS replicas and keep policy bundles small and deterministic |
-| Audit | Event rate, event size, export latency, DLQ volume | Increase Audit replicas only after Redis/Postgres capacity is healthy |
-| Coordinator | Agent session creation, delegation traversal depth, outbox sweeps | Tune pool sizes and add replicas for lifecycle-heavy workloads |
-| API | Operator and automation calls, policy rollout activity | Keep API operator-only and scale for admin automation bursts |
-| Redis | Stream backlog, revocation propagation, rate-limit state | Increase memory and persistence capacity before increasing stream retention |
-| Postgres | Transaction rate, partitions, connection pools, retention | Size max connections and storage before adding service replicas |
-
-## Capacity formulas
-
-Use these formulas for first-pass planning. Replace the values with measured numbers from your environment after the first load run.
-
-| Resource | Formula |
+| Component | Primary levers |
 | --- | --- |
-| Redis stream memory | `event_rate_per_second × average_event_bytes × outage_window_seconds × 1.5` |
-| Audit storage growth | `event_rate_per_second × average_event_bytes × retention_seconds × index_multiplier` |
-| Postgres max connections | `sum(service_replicas × service_pool_max) + admin_connections + maintenance_headroom` |
-| STS replicas | `ceil(target_exchange_rps ÷ measured_single_replica_rps_at_p95_slo)` |
-| Gateway replicas | `ceil(target_gateway_rps ÷ measured_single_replica_rps_at_p95_slo)` |
-| Audit export buffer | `export_lag_seconds × event_rate_per_second × average_event_bytes × 1.5` |
+| API | Replicas, `DB_POOL_MAX`, outbox batch/interval settings, request rate limits. |
+| STS | Replicas, OPA policy age, Redis invalidation health, `MAX_GRANT_TTL_SECONDS`, replay persistence. |
+| Gateway | Replicas, `MAX_REQUEST_BYTES`, `STS_TIMEOUT`, `UPSTREAM_TIMEOUT`, upstream allowlist, revocation snapshot health. |
+| Audit | Replicas, Postgres write capacity, DLQ thresholds, retention, S3 export settings. |
+| Coordinator | Replicas, DB pool, sweeper intervals, outbox batch, service-agent leases. |
+| Postgres | Connection limits, indexes, partitions, storage IOPS, backup windows. |
+| Redis | Stream memory, pending entries, consumer lag, persistence, network latency. |
 
-Use an index multiplier of `2` until you have table-specific storage measurements. Use at least 20% maintenance headroom for database connections.
+## Helm defaults
 
-## Bottleneck map
+The chart defaults to two replicas for API, STS, Gateway, Audit, and Coordinator. Gateway has a higher maximum HPA ceiling because protected traffic fans through it.
 
-Use this table during capacity reviews and incidents. Scale the bottlenecked component only after its dependencies still have headroom.
+| Service | Default port | Default max HPA replicas |
+| --- | --- | --- |
+| API | `3000` | `8` |
+| STS | `8080` | `8` |
+| Gateway | `8081` | `16` |
+| Audit | `9090` | `8` |
+| Coordinator | `4000` | `8` |
 
-| Path | Bottleneck signal | Safe first action | Do not do |
-| --- | --- | --- | --- |
-| Gateway routing | Rising Gateway latency with healthy upstreams, `caracal_gateway_sts_exchange_errors_total`, `caracal_gateway_sts_circuit_open=1`, stale revocation snapshot | Add Gateway replicas only after STS and Redis are healthy, reduce upstream timeout variance, and confirm the STS circuit returns to closed | Increase Gateway replicas while STS or Redis is failing |
-| STS exchange | Token-exchange latency, OPA policy age, provider refresh sharing, `caracal_sts_provider_refresh_waited_total`, Postgres pool pressure | Add STS replicas, reduce policy bundle complexity, keep provider refreshes coalesced with Redis lease coordination | Increase policy rollout frequency while bundle age is rising |
-| Policy evaluation | OPA compile errors, large bundle activation, slow simulations | Split policy sets by zone/resource boundary and test bundle activation before rollout | Treat invalid policy as partial success; STS must fail closed |
-| Revocation | `caracal_gateway_revocation_snapshot_fresh=0`, revocation stream lag, pending-entry replay growth, stale snapshot age | Restore Postgres/Redis, force a snapshot reload through the internal admin endpoint, confirm stream propagation, then resume access changes | Rely on Gateway decisions until freshness returns |
-| API control plane | `caracal_api_outbox_pending_total`, `caracal_api_outbox_dead_total`, DB pool ratio | Recover Redis stream writes, reconcile dead rows, throttle automation bursts | Continue large policy/resource imports while outbox is dead or aging |
-| Audit ingest | Consumer lag, DLQ growth, replay-file bytes or oldest replay age, Postgres write latency, export backlog | Scale Audit only if Redis/Postgres are healthy; otherwise recover dependencies first and drain replay files | Increase producers while audit lag or replay backlog is increasing |
-| Audit export | `caracal_audit_export_backlog_hours`, object-store latency | Confirm object-store write path and run exporter catch-up before extending retention | Delete or manually edit export watermarks |
-| Postgres | Pool ratio, slow queries, storage I/O, partition age | Tune pools, add indexes/partitions through migrations, increase DB capacity | Add service replicas beyond database connection headroom |
-| Redis | Stream memory, consumer lag, eviction, persistence latency | Increase memory/persistence capacity and validate stream trimming settings | Raise stream retention without memory headroom |
+## Capacity signals
 
-## Scale gates
-
-Advance rollout stages only when these gates are true for the target environment under measured load:
-
-| Gate | Requirement |
+| Signal | Meaning |
 | --- | --- |
-| Pilot | All `/ready` endpoints stay green, audit DLQ stays zero, and backup/restore has been exercised. |
-| Limited production | Gateway revocation freshness stays `1`, API outbox dead rows stay zero, p95 STS and Gateway SLOs are met, and rollback has been rehearsed. |
-| Broad production | Capacity formulas are replaced with measured values, Redis/Postgres failover behavior is documented, and alert runbooks have been used in at least one drill. |
+| Postgres pool ratio near `0.9` | Service pool saturation; inspect queries and pool size. |
+| Audit consumer lag | Audit ingestion cannot keep up with Redis stream input. |
+| Audit replay backlog age | STS/Gateway cannot emit audit events to Redis/Audit promptly. |
+| Gateway STS circuit open | Gateway is fast-failing because STS exchange is unhealthy. |
+| Revocation propagation lag | Access-safety state is not reaching Gateway within the expected window. |
+| Readiness flapping | Pods or dependencies are unstable under current load. |
 
-## Evaluation profiles
+## Scale procedure
 
-These profiles are starting points for pilots, not validated production claims. Publish your measured p95/p99 latency, throughput, Redis backlog, audit lag, and Postgres connection use alongside any production sizing decision.
+1. Identify the bottleneck from metrics and logs.
+2. Scale stateless service replicas first when storage is healthy.
+3. Increase Postgres and Redis capacity before raising service pools.
+4. Verify readiness, lag, replay backlog, and DLQ after each change.
+5. Document the new limit and alert threshold.
 
-| Profile | Typical use | Starting shape |
+## Worked escalation patterns
+
+| Signal | First action | Expected outcome |
 | --- | --- | --- |
-| Small pilot | One protected service, one team, synthetic and low-risk traffic | 2 replicas each for Gateway, STS, API, Audit; 1 Coordinator; managed Postgres and Redis |
-| Department pilot | Several resources, CI/CD policy rollout, moderate agent volume | 3+ Gateway and STS replicas; 2+ Audit and Coordinator replicas; dedicated Redis and Postgres sizing |
-| Production rollout | Multiple teams, compliance retention, on-call ownership | HPA on Gateway/STS/Audit; partitioned audit tables; tested backup/restore; alert-to-runbook mapping |
+| Postgres pool ratio stays near `0.9` | Inspect slow queries, then raise storage capacity or service pool size one step. | `/ready` stabilizes and pool saturation falls before replicas increase further. |
+| Gateway STS circuit opens | Check STS readiness and exchange latency, then scale STS or reduce Gateway fan-in. | Gateway stops fast-failing protected requests and audit evidence resumes. |
+| Audit consumer lag grows | Check Postgres write IOPS, partition health, and Audit replicas before extending retention or exports. | Redis pending entries and DLQ growth stop increasing. |
+| Revocation propagation lags | Check Redis latency, stream consumers, and Gateway snapshot freshness. | Gateway denial decisions reflect current revocation state. |
 
-## Benchmark procedure
+## Troubleshooting
 
-Use a repeatable benchmark before changing replica counts or HPA thresholds.
-
-1. Deploy the Helm chart with external Postgres and Redis.
-2. Activate the policy set and resource bindings you plan to use in production.
-3. Warm up for at least 5 seconds, then measure for at least 30 seconds.
-4. Run one scenario at a time: STS exchange, Gateway proxy, Audit ingest, Coordinator lifecycle.
-5. Record p50, p95, p99, error rate, Redis memory, stream lag, Audit DLQ, and Postgres connections.
-6. Repeat after each resource or replica change.
-
-The repository includes a portable HTTP harness that works with STS, Gateway, API, Audit, and mock upstream endpoints:
-
-```bash
-node scripts/benchEnterprise.mjs \
-  --url http://gateway.internal/v1/protected \
-  --method POST \
-  --headers-file headers.json \
-  --body-file request.json \
-  --duration 60 \
-  --warmup 10 \
-  --concurrency 32 \
-  --json
-```
-
-Keep credentials out of command arguments. Put authorization headers in `headers.json` or use a short-lived test token injected by your CI secret store.
-
-## HPA signals
-
-CPU is a useful first signal, but it is not sufficient on its own.
-
-| Service | Primary HPA signal | Guardrail signal |
-| --- | --- | --- |
-| Gateway | CPU and request latency | Upstream 5xx/timeout rate, revocation snapshot freshness, STS exchange errors |
-| STS | CPU and token-exchange latency | OPA compile/eval errors, policy age, provider refresh sharing |
-| Audit | Consumer lag and CPU | DLQ size, tamper mismatch counters, Postgres write latency, export backlog |
-| Coordinator | Queue depth and CPU | Outbox dead rows, active invocation count |
-| API | CPU during automation bursts | Postgres pool saturation, admin auth failure rate, outbox pending/dead rows |
-
-## Reliability metrics to alert on
-
-These metrics expose the fleet-scale failure modes that are hardest to diagnose from request logs alone.
-
-| Area | Metric | Meaning |
-| --- | --- | --- |
-| Gateway to STS | `caracal_gateway_sts_circuit_open` | Gateway is fast-failing STS exchange calls after repeated STS-unavailable responses. |
-| Gateway to STS | `caracal_gateway_sts_circuit_fast_fail_total` | Requests rejected while the STS circuit was open. |
-| Revocation | `caracal_gateway_revocation_pending_replayed_total` | Pending Redis stream messages reclaimed after another consumer stalled or crashed. |
-| Revocation | `caracal_gateway_revocation_reload_errors_total` | Snapshot reload failures from Postgres. |
-| Revocation | `caracal_gateway_revocation_propagation_seconds` | Age of the most recent applied revocation stream message. |
-| STS provider refresh | `caracal_sts_provider_refresh_leased_total` | Provider refresh calls that acquired the Redis refresh lease. |
-| STS provider refresh | `caracal_sts_provider_refresh_waited_total` | Provider refresh calls that reused or waited for another replica's refresh result. |
-| Audit replay | `caracal_gateway_audit_replay_oldest_age_seconds`, `caracal_sts_audit_replay_oldest_age_seconds` | Oldest local audit replay file waiting to drain after sink recovery. |
-
-## Forced revocation reload
-
-When Redis or Postgres recovery leaves Gateway with a stale snapshot, reload the snapshot after dependencies are healthy. The endpoint is disabled unless `CARACAL_ADMIN_TOKEN` or `CARACAL_ADMIN_TOKEN_FILE` is configured for Gateway.
-
-```bash
-curl -fsS -X POST \
-  -H "Authorization: Bearer $CARACAL_ADMIN_TOKEN" \
-  http://gateway.internal:8081/internal/revocations/reload
-```
-
-Use this as a recovery action after restoring the dependency, not as a substitute for healthy revocation stream processing. Confirm `caracal_gateway_revocation_snapshot_fresh=1` and that `caracal_gateway_revocation_propagation_seconds` returns to the expected window.
-
-## SLO examples
-
-Set SLOs that match your adoption stage. A pilot can tolerate stricter rate limits and lower throughput than production.
-
-| Path | Example SLO |
+| Symptom | First check |
 | --- | --- |
-| STS token exchange | 99.9% success, p95 under 150 ms for warmed policies |
-| Gateway proxy decision | 99.9% success excluding upstream failures, p95 policy/binding overhead under 50 ms |
-| Revocation propagation | p95 under 5 seconds from revoke command to Gateway denial |
-| Audit ingest | p95 stream-to-Postgres lag under 10 seconds, DLQ size zero |
-| Readiness | `/ready` reflects dependency outage within one probe interval |
-
-## What not to claim
-
-Do not present illustrative demos as validated scale. High-agent-count examples are useful for showing architectural intent, but they are production claims only after the same benchmark procedure has been run with published environment details, policy complexity, event size, storage profile, and failure-mode behavior.
+| Higher replicas make failures worse | Postgres connection pressure or Redis latency. |
+| Gateway latency spikes | STS exchange latency, upstream timeout, JWKS cache, and private upstream egress. |
+| Audit cannot catch up | Postgres write IOPS, partition health, Audit replicas, and Redis pending entries. |

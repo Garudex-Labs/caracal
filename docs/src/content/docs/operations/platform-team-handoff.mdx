@@ -1,71 +1,34 @@
 ---
 title: Platform-Team Handoff
-description: How a platform team stands Caracal up once and onboards many application teams via self-service.
-pageType: workflow
+description: Handoff checklist for teams operating Caracal in production.
+pageType: reference
 ---
 
-This page is for the platform team that owns Caracal for a wider organization. Its job is to translate the install-and-operate work covered elsewhere in this section into a repeatable handoff to application teams, so each new team can land their first protected run without first learning the full access-control model.
+Use this checklist before a platform team accepts production ownership of a Caracal environment.
 
-For rollout catalogs, approved Control API automation recipes, and multi-team readiness gates, use the [Platform Rollout Kit](./platform-rollout-kit/) alongside this handoff.
+## Handoff checklist
 
-The handoff is organized around three outcomes the platform team delivers to its consumers. Each outcome names the Caracal surfaces involved and the verification step that proves the outcome is met.
-
-## Outcome 1: A zone an application team can adopt
-
-The platform team owns zone creation and the signing-key lifecycle. Application teams should receive a zone that is already populated with the policies, identity provider bindings, and audit export the platform requires, so the team's only remaining task is registering their application.
-
-| Step | Surface | Reference |
-| --- | --- | --- |
-| Create the zone | Console `manage` group or Control API | [Cloud-Native Deployment Profiles](./cloud-native-profiles/) |
-| Bind zone signing keys to the platform KMS | Operations | [Key Management and Rotation](./key-management/) |
-| Pre-load the default policy set for the zone | Console `manage` group | [Policy Deployment Runbook](./policy-deployment/) |
-| Wire the zone's audit export to the platform SIEM | Operations | [Compliance and Audit Integration](./compliance-audit-integration/) |
-| Document the zone's identity providers | Console `manage` group | [Define Resources and Providers](/guides/resources-providers/) |
-
-**Verification.** A consuming team can complete [Protect an API](/tutorials/protect-an-api/) in the zone without filing a platform ticket.
-
-## Outcome 2: A self-service path for application registration
-
-Application teams should not need platform-team intervention to register an application, attach a resource, or activate a grant. The platform team's job is to make those Console workflows safe to use unattended.
-
-| Capability | Mechanism |
+| Area | Evidence |
 | --- | --- |
-| Application registration | Control API or Console `manage` group, scoped to the application team's zone. |
-| Resource registration | Same surface, restricted to resources the team owns. |
-| Grant issuance | Time-boxed grants the team can issue and revoke without platform intervention. |
-| Audit visibility | Each team can read its own audit slice through the Console `observe` group. |
-| Revocation | Each team can revoke its own sessions and delegation edges. |
+| Ownership | Service owner, on-call rotation, escalation path, security owner. |
+| Versioning | Image tags, chart values, release notes, rollback revision. |
+| Secrets | Secret inventory, storage location, rotation owner, last rotation date. |
+| Storage | Postgres backup/restore proof, Redis stream verification, retention policy. |
+| Network | Ingress, NetworkPolicy, DNS, TLS, upstream egress, provider endpoints. |
+| Observability | Dashboards, ServiceMonitor, PrometheusRule or equivalent alerts, log access. |
+| Runbooks | Deployment, upgrade, incident, backup, restore, policy deployment, failure recovery. |
+| Access | Console/Admin access, Control API credentials, audit access, break-glass policy. |
+| Compliance | Audit export path, evidence retention, tamper-response plan. |
 
-Permission boundaries are enforced by the policy set bound to the zone, not by hiding Console menus. See [Author a Rego Policy](/guides/author-policy/) for the contract.
+## Day-2 operations
 
-**Verification.** A consuming team can complete [Connect an Agent](/tutorials/connect-an-agent/) and [Inspect a Run](/tutorials/inspect-a-run/) using only their team's credentials.
+| Cadence | Action |
+| --- | --- |
+| Daily | Check readiness, critical alerts, audit DLQ, outbox health, and revocation freshness. |
+| Weekly | Review capacity, backups, policy changes, and pending stream entries. |
+| Monthly | Rotate or review secrets, restore test, audit export review, dependency updates. |
+| Per release | Render diff, migration review, rollout gates, rollback compatibility check. |
 
-## Outcome 3: A predictable upgrade and compliance posture
+## Escalation package
 
-Application teams should not need to track Caracal releases or audit-export status; the platform team owns both. The platform team's contract is that upgrades, rotations, and audit retention are invisible to consuming teams except when a behavior change is intentional.
-
-| Concern | Owner | Reference |
-| --- | --- | --- |
-| Caracal release upgrades | Platform team | [Upgrade Procedure](./upgrade/) |
-| Zone signing key rotation | Platform team | [Key Management and Rotation](./key-management/) |
-| Audit retention and export | Platform team | [Backup and Retention](./backup-retention/) |
-| SIEM ingestion contract | Platform team | [Compliance and Audit Integration](./compliance-audit-integration/) |
-| Incident response | Platform team | [Incident Response](./incident-response/) |
-| Failure mode response | Platform team | [Failure Modes and Recovery](./failure-modes/) |
-
-**Verification.** A scheduled upgrade or key rotation runs to completion without producing a support ticket from a consuming team.
-
-## Multi-team layout
-
-When the platform team supports multiple business units, the recommended layout is one zone per business unit, signed by independent zone keys, with a shared policy-pack source the platform team curates. Cross-zone delegation is not supported by Caracal; a mandate issued in one zone is not valid in another. Treat the zone boundary as the unit of multi-tenancy.
-
-The platform team's responsibilities scale with the number of zones, not the number of applications inside each zone. Self-service application onboarding (Outcome 2) is what keeps the platform team's load flat as consuming teams grow.
-
-## Where this page is not enough
-
-This page does not cover deployment topology choice, secret storage, or compliance regime mapping. Those decisions live in:
-
-- [Deployment with Docker Compose](./docker-compose/) and [Kubernetes with Helm](./kubernetes-helm/) for topology.
-- [TLS and Production Hardening](./tls-hardening/) for transport and SSRF posture.
-- [Threat Model](/security/threat-model/) and [Hardening Checklist](/security/hardening/) for the security baseline.
-- [Compliance and Audit Integration](./compliance-audit-integration/) for the audit export contract.
+When escalating, include environment, version, recent changes, readiness output, alert names, request IDs, audit explanations, Redis stream status, migration status, and whether any access-safety guarantee is degraded.

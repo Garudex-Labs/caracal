@@ -1,228 +1,82 @@
 ---
 title: Kubernetes with Helm
-description: Deploy Caracal with the reference Helm chart for production-adaptable clusters, managed data stores, probes, autoscaling, persistent replay, and operator-owned secrets.
-pageType: config
+description: Deploy Caracal on Kubernetes with the repository Helm chart.
+pageType: workflow
 ---
 
-The Helm chart in `infra/helm/caracal` is the reference Kubernetes path for the open-source stack. It keeps the local default simple (`caracal up`) while giving platform teams a GitOps-friendly shape for clusters, managed Postgres, managed Redis, external secret operators, Prometheus, persistent replay buffers, and ingress.
+The Helm chart in `infra/helm/caracal` renders production-shaped Kubernetes resources for API, STS, Gateway, Audit, Coordinator, and optional Control.
 
-**Maturity label:** implemented production-adaptable reference deployment. The chart ships secure defaults for service accounts, probes, NetworkPolicy, HPA/PDB, and STS/Gateway replay persistence. Production teams still own datastore backup/restore, ingress identity, TLS/mTLS, secret-manager sync, object-store policy, and measured capacity baselines.
+## Rendered resources
 
-## What the chart deploys
+| Resource | Purpose |
+| --- | --- |
+| Deployment | API, Audit, Coordinator, and Control when enabled. |
+| StatefulSet | STS and Gateway when replay persistence is enabled. |
+| Job | Pre-install/pre-upgrade Postgres migrations. |
+| Service | ClusterIP service per enabled component. |
+| Ingress | Optional external API and Gateway endpoints. |
+| NetworkPolicy | Default-deny with explicit internal, storage, DNS, OTLP, HTTPS, and custom egress controls. |
+| PDB/HPA | Availability and scaling controls per service. |
+| ServiceMonitor/PrometheusRule | Metrics scraping and built-in alert recipes. |
 
-| Component | Kubernetes object | Default exposure |
-| --- | --- | --- |
-| STS | StatefulSet, Service, HPA, PDB, per-replica replay PVC | Internal Service |
-| API | Deployment, Service, HPA, PDB | Internal Service; optional operator ingress |
-| Gateway | StatefulSet, Service, HPA, PDB, per-replica replay PVC | Internal Service; optional protected ingress |
-| Audit | Deployment, Service, HPA, PDB | Internal Service |
-| Coordinator | Deployment, Service, HPA, PDB | Internal Service |
-| Control | Optional Deployment and Service | Disabled by default |
-| Migrations | Helm pre-install/pre-upgrade Job | Internal only |
-| Monitoring | Optional ServiceMonitor | Prometheus Operator installations |
-| Alerting | Optional PrometheusRule | Prometheus Operator installations |
-| Network controls | NetworkPolicy | Enabled by default |
-
-Postgres and Redis are not installed by the chart. Use managed services, platform-owned StatefulSets, or an existing database/Redis operator. This keeps Caracal portable and avoids forcing a database ownership model onto enterprise teams.
-
-When `global.mode=stable`, the chart rejects the built-in `postgres.default.svc.cluster.local` and `redis.default.svc.cluster.local` host defaults. Set `secrets.database.host` and `secrets.redis.host` to the platform-owned HA endpoints before rendering a production release.
-
-## Secret model
-
-By default, the chart expects an existing Kubernetes Secret named `caracal-runtime`:
-
-```yaml
-apiVersion: v1
-kind: Secret
-metadata:
-  name: caracal-runtime
-type: Opaque
-stringData:
-  databaseUrl: postgres://caracal:REDACTED@postgres.example.com:5432/caracal?sslmode=require
-  redisUrl: redis://:REDACTED@redis.example.com:6379/0
-  postgresPassword: REDACTED
-  redisPassword: REDACTED
-  caracalAdminToken: REDACTED
-  caracalCoordinatorToken: REDACTED
-  zoneKek: REDACTED
-  auditHmacKey: REDACTED
-  streamsHmacKey: REDACTED
-  gatewayStsHmacKey: REDACTED
-```
-
-Each service mounts the Secret at `/run/secrets` and uses the existing `*_FILE` environment variables. This matches the Compose runtime and works with External Secrets Operator, Sealed Secrets, SOPS, Vault CSI, cloud secret managers, or a platform-controlled Secret pipeline.
-
-STS operator endpoints use a separate token from the API bootstrap token. Mount that token from a dedicated Secret when you need signing-key rotation:
-
-```yaml
-secrets:
-  stsAdminToken:
-    secretName: caracal-sts-admin
-    key: stsAdminToken
-```
-
-Audit DLQ triage endpoints (`GET /api/audit/dlq`, `GET /api/audit/dlq/{id}`, `POST /api/audit/dlq/replay`) are disabled unless `AUDIT_ADMIN_TOKEN` is configured. Mount from a dedicated Secret:
-
-```yaml
-secrets:
-  auditAdminToken:
-    secretName: caracal-audit-admin
-    key: auditAdminToken
-```
-
-Without this, those routes return 404. Set it once; rotate it as a standard secret rotation with no service restart required once the new token file is written.
-
-For disposable evaluations only, set `secrets.create=true` and provide `secrets.plaintext.*` values. The chart rejects plaintext Secret creation when `global.mode=stable`; rc renders require `global.evaluation=true` before plaintext Secret creation is allowed. Do not commit plaintext secret values to Git.
-
-## Install path
-
-Create or sync the runtime Secret, then install:
+## Minimal install shape
 
 ```bash
-helm upgrade --install caracal ./infra/helm/caracal \
+helm upgrade --install caracal infra/helm/caracal \
   --namespace caracal \
   --create-namespace \
-  --set global.tag=2026.05.26-rc.1 \
-  --set global.mode=rc \
-  --set secrets.runtimeSecretName=caracal-runtime
+  --values infra/helm/caracal/values.production.yaml
 ```
 
-Check rollout:
+Before installing, provide the runtime Secret named by `secrets.runtimeSecretName` or set `secrets.create=true` with plaintext values only for a controlled evaluation environment.
+
+## Service ports
+
+| Component | Port |
+| --- | --- |
+| API | `3000` |
+| STS | `8080` |
+| Gateway | `8081` |
+| Audit | `9090` |
+| Coordinator | `4000` |
+| Control | `8087` when enabled |
+
+## Production values to review
+
+| Area | Values |
+| --- | --- |
+| Images | `global.registry`, `global.tag`, `global.imagePullPolicy`, `global.mode` |
+| Secrets | `secrets.runtimeSecretName`, `secrets.database.*`, `secrets.redis.*`, token secret refs |
+| Network | `networkPolicy.*`, `ingress.gateway.*`, `ingress.api.*` |
+| Reliability | `services.<name>.replicas`, `pdb`, `hpa`, resource requests/limits |
+| Replay | `replayPersistence.enabled`, `storageClassName`, `size` |
+| Observability | `serviceMonitor.enabled`, `alertRules.enabled`, `global.otelExporterOtlpEndpoint` |
+
+## Validation flow
 
 ```bash
-kubectl -n caracal rollout status statefulset/caracal-caracal-sts
-kubectl -n caracal rollout status statefulset/caracal-caracal-gateway
-kubectl -n caracal get pods,svc,hpa,pdb
+helm lint infra/helm/caracal
+helm template caracal infra/helm/caracal --values infra/helm/caracal/values.production.yaml >/tmp/caracal.yaml
+kubectl -n caracal rollout status deploy/caracal-api
+kubectl -n caracal get pods,svc
 ```
 
-If you use the release name `caracal`, objects are named `caracal-caracal-*` by Helm's default fullname convention. Override with `fullnameOverride` only if your GitOps naming policy requires it.
+Run readiness probes through the Service or Ingress endpoints after rollout.
 
-## Values to review first
-
-| Value | Why it matters |
-| --- | --- |
-| `global.registry`, `global.tag` | Pins the image source and release version |
-| `secrets.runtimeSecretName` | Integrates with your secret-management system |
-| `secrets.stsAdminToken.secretName` | Enables STS operator endpoints from a token separate from the API bootstrap admin token |
-| `secrets.auditAdminToken.secretName` | Enables Audit DLQ browse, detail, and replay endpoints; without it those routes return 404 |
-| `secrets.database.*` | Lets the migration Job connect to managed Postgres |
-| `services.*.replicas` | Sets baseline availability per component |
-| `services.*.resources` | Controls scheduling and capacity planning |
-| `services.*.hpa` | Enables CPU-based autoscaling for evaluation |
-| `replayPersistence.*` | Keeps STS and Gateway audit replay buffers across pod restarts |
-| `networkPolicy.enabled` | Adds namespace-level ingress/egress guardrails |
-| `networkPolicy.extraIngress` | Allows explicit ingress-controller or mesh peers to reach Gateway/API |
-| `networkPolicy.extraEgress` | Allows explicit external endpoints such as object storage, identity providers, or provider APIs |
-| `serviceMonitor.enabled` | Publishes scrape targets for Prometheus Operator |
-| `alertRules.enabled` | Publishes baseline Prometheus alerts mapped to failure-mode recovery |
-| `alertRules.auditReplayOldestAgeSeconds` | Sets the maximum acceptable age for local STS/Gateway replay files before operators investigate evidence lag |
-| `alertRules.gatewayRevocationPropagationSeconds` | Sets the revocation propagation safety window for Gateway stream processing |
-| `alertRules.gatewayStsCircuitOpen` | Alerts when Gateway is fast-failing STS exchanges after repeated STS-unavailable failures |
-| `alertRules.stsProviderRefreshErrors` | Alerts on distributed provider refresh coordination failures |
-| `ingress.gateway.*` | Exposes only the Gateway to protected clients |
-| `ingress.api.*` | Optional operator-only API ingress |
-
-Keep the Gateway as the default external entry point. Expose the API only to operators through your existing private ingress, VPN, identity-aware proxy, or bastion model.
-
-Use the checked-in profiles as starting points. For the full OSS install kit around these profiles, including External Secrets, ingress, mTLS, SIEM, backup/restore, capacity, post-install validation, and local-to-cluster promotion, see [Enterprise Install Kit](./enterprise-install-kit/).
-
-| Profile | Purpose |
-| --- | --- |
-| `values.dev.yaml` | Disposable local/dev clusters |
-| `values.rc.yaml` | Release-candidate validation clusters |
-| `values.production.yaml` | Hardened production baseline |
-
-## Replay persistence
-
-STS and Gateway write failed audit emissions to `/var/lib/caracal/audit-replay` and replay them when Redis or Audit recovers. The chart deploys those components as StatefulSets when `replayPersistence.enabled=true` so each replica gets a stable volume claim named `replay`.
-
-```yaml
-replayPersistence:
-  enabled: true
-  storageClassName: ""
-  accessModes:
-    - ReadWriteOnce
-  size: 1Gi
-```
-
-Disable replay persistence only for disposable environments. A pod backed by `emptyDir` can lose buffered audit evidence if it restarts during a Redis or Audit outage.
-
-## Network and service-account posture
-
-The default NetworkPolicy permits Caracal pods to call each other plus Postgres, Redis, and OTLP. It does not admit arbitrary Gateway traffic from the namespace. Add explicit `networkPolicy.extraIngress` entries for ingress controllers, service mesh gateways, or namespace-local Gateway clients.
-
-Gateway ingress-controller example:
-
-```yaml
-networkPolicy:
-  extraIngress:
-    - from:
-        - namespaceSelector:
-            matchLabels:
-              kubernetes.io/metadata.name: ingress-nginx
-          podSelector:
-            matchLabels:
-              app.kubernetes.io/name: ingress-nginx
-      ports:
-        - protocol: TCP
-          port: 8081
-```
-
-Open DNS and HTTPS egress are disabled by default for production; add explicit `networkPolicy.dnsEgress` and `networkPolicy.extraEgress` entries for CoreDNS, provider APIs, S3-compatible object stores, identity providers, or other external destinations required by your deployment.
-
-CoreDNS-scoped example:
-
-```yaml
-networkPolicy:
-  dnsEgress:
-    - to:
-        - namespaceSelector:
-            matchLabels:
-              kubernetes.io/metadata.name: kube-system
-          podSelector:
-            matchLabels:
-              k8s-app: kube-dns
-      ports:
-        - protocol: UDP
-          port: 53
-        - protocol: TCP
-          port: 53
-```
-
-Validate chart guardrails locally:
+## Rollback
 
 ```bash
-bash infra/helm/caracal/scripts/validate.sh
+helm -n caracal history caracal
+helm -n caracal rollback caracal <revision>
 ```
 
-Service account tokens are not mounted into pods by default (`serviceAccount.automountToken=false`) because Caracal services do not need Kubernetes API access. Enable token mounting only when a platform integration explicitly requires it.
+Migrations are forward-only. Rollbacks must use application versions compatible with the already-applied schema.
 
-## Probes and metrics
+## Troubleshooting
 
-Every Caracal service uses:
-
-| Probe | Path | Meaning |
-| --- | --- | --- |
-| Liveness | `/health` | Process is running |
-| Readiness | `/ready` | Dependencies and service-specific replay/binding state are usable |
-| Metrics | `/metrics` | Prometheus metrics |
-
-The Go services also expose `/metrics.json` for operator diagnostics. Treat Prometheus `/metrics` as the monitoring surface and JSON metrics as Console/doctor/debug support.
-
-## Operational boundaries
-
-This chart deliberately preserves the core Caracal security model:
-
-1. Agents and clients call protected resources through Gateway by default.
-2. Gateway exchanges authority through STS and emits action audit.
-3. STS evaluates the active policy set and fails closed when policy cannot produce a complete decision.
-4. API remains an operator/control-plane surface, not a public application endpoint.
-5. Provider credentials remain behind Gateway or verified adapter boundaries.
-
-## What is not bundled
-
-The chart does not install Postgres, Redis, cert-manager, external-dns, service mesh, External Secrets Operator, an OpenTelemetry Collector, Grafana dashboards, object storage, or backup controllers. Those are platform-owned dependencies in most enterprises. Use your existing implementations and wire Caracal through standard Services, Secrets, NetworkPolicies, and scrape targets.
-
-See [Cloud-Native Deployment Profiles](./cloud-native-profiles/) for shared Gateway, sidecar, verified adapter, and SPIFFE/mTLS guidance.
-
-See [Failure Modes and Recovery](./failure-modes/) for the alert-to-runbook matrix behind the optional Prometheus rules.
+| Symptom | Check |
+| --- | --- |
+| Migration Job fails | Check database host, port, user, database name, password key, and `sslMode`. |
+| Pods fail readiness | Inspect dependency readiness, mounted secrets, and service-specific required env vars. |
+| Gateway Ingress works but upstream calls fail | Check NetworkPolicy egress and upstream allowlist configuration. |
+| STS or Gateway loses audit replay | Ensure replay persistence is enabled and PVCs are not deleted during rollouts. |

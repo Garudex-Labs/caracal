@@ -1,157 +1,66 @@
 ---
 title: Platform Rollout Kit
-description: Generic OSS patterns for policy catalogs, provider catalogs, app-team handoff, approved Control API automation, and multi-team readiness checks.
+description: Plan, gate, execute, and roll back Caracal platform rollouts.
 pageType: workflow
 ---
 
-The platform rollout kit helps a platform team onboard many application teams without forcing every team to learn Caracal internals first. It is intentionally generic: it defines catalog shapes, ownership boundaries, and validation gates. It does not include organization-bound policy packs, provider integrations, tenant data, or enterprise-edition managed workflows.
+Use this runbook for version upgrades, configuration changes, chart changes, secret rotations, ingress changes, and policy rollout waves.
 
-Use this kit after the [Enterprise Install Kit](./enterprise-install-kit/) is deployed and validated.
+## Rollout gates
 
-## Rollout model
-
-The platform team owns the shared Caracal operating model. Application teams own their applications, protected resources, workload profiles, and first validated request.
-
-| Layer | Owner | Caracal surface |
-| --- | --- | --- |
-| Install and runtime | Platform team | Helm profiles, secrets, ingress, mTLS, Postgres, Redis, audit export |
-| Zone baseline | Platform team | zones, signing keys, baseline policy sets, audit visibility |
-| Catalogs | Platform team | approved policy and provider patterns |
-| Application onboarding | Application team, with platform guardrails | application, resource, scopes, runtime profile |
-| Validation | Joint | first protected request and audit explanation |
-
-Do not use catalog entries as hidden product behavior. A catalog entry is a reviewed pattern that operators apply through Console or approved automation; the live product object must still be visible as a zone, application, resource, policy, provider, grant, and audit event.
-
-## Policy template catalog patterns
-
-Keep the OSS catalog minimal. Start with a small set of reviewed patterns that cover the access shape, not the business domain.
-
-| Pattern | Use when | Required inputs | Review gate |
-| --- | --- | --- | --- |
-| Application-scoped resource access | One application can request one resource with an approved scope set. | application ID, resource ID, allowed scopes | Policy simulation allows only the intended application/resource/scope tuple. |
-| Delegated agent access | A parent agent may delegate narrower authority to a child agent. | source application, target application, resource IDs, allowed scopes, maximum depth, maximum TTL | Simulation proves delegation cannot exceed parent authority. |
-| Gateway-routed upstream access | A resource is reached through Gateway and requires action-result audit. | resource ID, Gateway application ID, upstream binding, allowed scopes | Gateway request emits both authorization and action-result audit. |
-| Break-glass deny-by-default | Emergency path that blocks a resource or scope until reactivated. | resource ID or scope selector, approver identity, expiry or rollback condition | Activation is time-boxed and linked to an incident record. |
-| Read-only observer access | Automation or operators can inspect limited metadata without mutation. | principal or application identity, read-only scope set, zone boundary | Simulation denies every write/action scope. |
-
-Catalog entry contract:
-
-| Field | Meaning |
+| Gate | Pass condition |
 | --- | --- |
-| `name` | Stable operator-facing catalog name. |
-| `purpose` | Short description of the access pattern. |
-| `inputs` | Values the platform or app team must supply. |
-| `policy_source` | Reviewed Rego source stored under change control. |
-| `simulation_cases` | Allow and deny cases that must pass before activation. |
-| `audit_expectation` | Event types and explanation fields expected after the first request. |
-| `rollback` | Previous active policy set or explicit disable path. |
+| Source verification | Values, env vars, ports, and secrets match current chart and service config. |
+| Render validation | `helm lint` and `helm template` succeed with environment values. |
+| Migration safety | Migrations are forward-only and complete before service rollout. |
+| Readiness | API, STS, Gateway, Audit, and Coordinator `/ready` endpoints pass. |
+| Event health | Redis streams, outbox dispatch, audit ingestion, revocation propagation, and replay backlog are healthy. |
+| Rollback plan | Previous image tag, chart revision, values, and compatible schema plan are documented. |
 
-Avoid broad policy templates that accept arbitrary predicates or raw Rego fragments from application teams. If a team needs a policy shape outside the catalog, treat it as a platform review, not a self-service onboarding step.
+## Rollout sequence
 
-## Provider catalog patterns
+```mermaid
+sequenceDiagram
+  participant Owner as Release owner
+  participant Helm as Helm
+  participant DB as Postgres
+  participant Pods as Caracal pods
+  participant Obs as Observability
+  Owner->>Helm: render and diff
+  Helm->>DB: run migration Job
+  Helm->>Pods: roll services
+  Pods->>Obs: expose health, readiness, metrics
+  Owner->>Obs: confirm gates
+```
 
-Provider catalog entries describe how Caracal obtains or brokers provider-side credentials. They should not embed secret material or provider-bound assumptions in the docs or chart.
+## Execution
 
-| Pattern | Use when | Required inputs | Operational gate |
-| --- | --- | --- | --- |
-| No provider credential | The resource accepts Caracal resource mandates directly. | resource ID, accepted scopes | Gateway verifies and emits audit, or a connector-verified service verifies the mandate and emits service-side result audit. |
-| External credential broker | Gateway or a verified adapter exchanges Caracal authority for an external credential. | provider identifier, credential source reference, resource binding, audit mapping | Secret reference resolves through the platform secret manager; provider credentials never reach agents. |
-| OIDC-backed provider | Provider accepts tokens from a trusted issuer. | issuer metadata, audience, resource binding, rotation owner | JWKS/issuer metadata is monitored and rotation is tested. |
-| API-key-backed provider | Provider only supports static credentials. | secret reference, owner, rotation period, resource binding | Credential is stored in the platform secret manager and rotated by runbook. |
-| Workload-identity provider | Provider trusts platform workload identity. | workload identity selector, resource binding, mTLS/SVID policy | Workload identity maps to the Caracal application and zone boundary. |
+```bash
+helm -n caracal diff upgrade caracal infra/helm/caracal -f values.production.yaml
+helm -n caracal upgrade caracal infra/helm/caracal -f values.production.yaml
+kubectl -n caracal rollout status deploy/caracal-api
+kubectl -n caracal rollout status deploy/caracal-audit
+kubectl -n caracal rollout status deploy/caracal-coordinator
+```
 
-Provider catalog entry contract:
+When replay persistence is enabled, STS and Gateway render as StatefulSets:
 
-| Field | Meaning |
-| --- | --- |
-| `identifier` | Stable provider identifier visible in Console. |
-| `kind` | Provider credential family: OIDC, OAuth2, API key, workload identity, or no provider credential. |
-| `owner` | Team responsible for rotation and incident response. |
-| `secret_source` | Secret-manager or workload-identity reference, never inline secret data. |
-| `resources` | Resource IDs that may use this provider. |
-| `audit_mapping` | Fields the platform expects in audit for credential brokerage. |
-| `rotation_runbook` | Link to the owner-approved rotation process. |
+```bash
+kubectl -n caracal rollout status statefulset/caracal-sts
+kubectl -n caracal rollout status statefulset/caracal-gateway
+```
 
-Keep the first provider catalog small. A large provider menu increases learning curve and makes teams choose infrastructure before they understand the resource path.
+## Stop conditions
 
-## App-team onboarding handoff
+Stop the rollout when any of these occur:
 
-Give each application team one concise handoff packet. The packet should contain target-environment values and ownership expectations, not internal architecture.
+- Migration Job fails.
+- STS or Gateway cannot prove readiness.
+- Audit DLQ grows or replay backlog ages.
+- Gateway revocation snapshot becomes stale.
+- API outbox dead messages appear.
+- Postgres pool saturation or Redis memory pressure persists.
 
-| Handoff item | Provided by | Application team action |
-| --- | --- | --- |
-| Zone and environment | Platform team | Confirm the target environment for development, validation, or production. |
-| Approved policy pattern | Platform team | Choose the closest catalog pattern or request review for a different shape. |
-| Provider pattern, if required | Platform team | Confirm whether the resource needs provider-side credentials. |
-| Application name | Application team | Register through Console guided setup or approved automation. |
-| Resource ID and scopes | Application team | Define the resource contract the workload will request. |
-| Runtime profile location | Platform team | Mount or reference the generated profile through the workload secret path. |
-| First validation command | Application team | Run the real workload path that should be protected. |
-| Audit explanation | Joint | Attach the first allowed request explanation to the team onboarding record. |
+## Rollback
 
-Recommended handoff sequence:
-
-1. Platform team confirms the zone, baseline policy catalog, provider catalog, and audit export are ready.
-2. Application team opens Console guided setup in the target environment.
-3. Application team creates the application and resource from real values.
-4. Platform team reviews or activates the selected policy pattern.
-5. Runtime profile and client secret are stored through the application team's secret path.
-6. Application team deploys the workload in its language SDK or `caracal run` path.
-7. Both teams verify the first protected request with audit explanation.
-
-The handoff is complete only when the application team can repeat the run and read the audit explanation without platform-team intervention.
-
-## Approved Control API automation recipes
-
-Use Control API automation only for repeatable, reviewed workflows. Human exploration and first-time onboarding should stay in Console until the team understands the resulting product objects.
-
-| Recipe | Automates | Required approval |
-| --- | --- | --- |
-| Zone bootstrap | Creates a zone and attaches the platform baseline policy set. | Platform security owner approves zone naming, key ownership, and audit export. |
-| Application registration | Registers a managed application and returns a one-time secret to the secret pipeline. | Team owner approves application identity and secret destination. |
-| Resource registration | Creates or updates a protected resource with approved scopes. | Resource owner approves scope contract and upstream binding. |
-| Policy activation | Publishes a reviewed policy version and activates a policy set. | Policy reviewer confirms simulation cases and rollback target. |
-| Runtime profile generation | Produces a profile for a registered application/resource pair. | Secret manager receives the client secret and profile file. |
-| Audit verification | Queries audit by request ID and records explanation evidence. | Release owner confirms policy decision and resource/action match. |
-
-Automation guardrails:
-
-1. Issue Control invocation tokens with the narrowest scope required for the recipe.
-2. Keep token TTL short enough for one pipeline run.
-3. Reject recipes that accept raw policy text, provider secrets, or unreviewed upstream URLs from untrusted inputs.
-4. Make every mutation idempotent by resolving existing objects before creating new ones.
-5. Record the resulting object IDs and request IDs in the deployment record.
-6. End every recipe with audit verification.
-
-The Control API is an automation surface for approved product workflows. It is not a replacement for policy review, provider ownership, or audit evidence.
-
-## Multi-team readiness checks
-
-These checks are part of the OSS operating model. Managed catalog distribution, organization-wide entitlement workflows, cross-business-unit approvals, and turnkey readiness dashboards may belong in a separate enterprise edition or platform implementation.
-
-| Area | OSS readiness check |
-| --- | --- |
-| Zones | Each team or business unit has a clear zone boundary and signing-key owner. |
-| Applications | Every workload identity maps to one registered application and secret-management destination. |
-| Resources | Resource IDs are stable, owner-approved, and visible to the team that operates the upstream. |
-| Scopes | Scope names are narrow enough to audit and broad enough to avoid policy sprawl. |
-| Policies | Every active policy set has simulation cases, activation history, and rollback target. |
-| Providers | Every provider has an owner, secret source, rotation runbook, and audit expectation. |
-| Languages | TypeScript, Python, and Go teams all use the same generated profile contract. |
-| Runtime | Local and cluster runs use regenerated environment-specific profiles, not copied local files. |
-| Audit | Each team can find the first allowed request and its explanation. |
-| Revocation | Platform team has tested grant/session/delegation revocation for every onboarding pattern. |
-| Capacity | Gateway, STS, Audit, Coordinator, Postgres, and Redis have measured headroom for the next rollout wave. |
-| Support | Application teams know the first escalation path for denied requests, missing credentials, and audit gaps. |
-
-Rollout readiness gate:
-
-1. One team completes guided setup and first integration in the target cluster.
-2. One policy catalog entry is activated through the approved review path.
-3. One provider catalog entry is exercised only if the first wave requires provider credentials.
-4. One TypeScript, Python, or Go workload uses the generated profile contract.
-5. One denied request and one allowed request are explained through audit.
-6. One revocation test proves the Gateway or verified connector denies subsequent access.
-7. One backup/restore or audit-export verification run is attached to the rollout record.
-
-If a check requires centralized catalog publishing, tenant entitlement workflows, or managed cross-team dashboards that are not present in OSS, keep the check as a platform requirement and do not simulate it with local data.
+Use `helm rollback` only after confirming the previous app version is compatible with the current database schema. If schema compatibility is uncertain, roll forward with a corrected app image instead of applying down migrations.
