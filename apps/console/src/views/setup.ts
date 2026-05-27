@@ -57,6 +57,7 @@ interface SetupValues {
   provider_allowed_token_hosts?: string
   provider_auth_scheme?: string
   provider_forward_caracal_identity?: string
+  policy_mode?: string
   activate_policy?: string
   generate_profile?: string
   write_files?: string
@@ -109,7 +110,7 @@ export function firstSetupView(ctx: Ctx): View {
   return new FirstSetupWizardView(ctx)
 }
 
-type SetupStepKey = 'zone' | 'application' | 'provider' | 'resource' | 'review'
+type SetupStepKey = 'zone' | 'application' | 'provider' | 'resource' | 'policy' | 'review'
 
 interface SetupStep {
   key: SetupStepKey
@@ -127,6 +128,7 @@ class FirstSetupWizardView implements View {
     application_mode: 'create',
     provider_mode: 'create',
     resource_mode: 'create',
+    policy_mode: 'create',
     activate_policy: 'true',
     generate_profile: 'true',
     write_files: 'false',
@@ -238,6 +240,11 @@ class FirstSetupWizardView implements View {
         title: 'Resource',
         explanation: 'Create or select the protected API, OAuth audience, gRPC service, MCP server, or SDK capability.',
       },
+      policy: {
+        key: 'policy',
+        title: 'Access policy',
+        explanation: 'Choose whether setup should create the starter least-privilege allow-list policy.',
+      },
       review: {
         key: 'review',
         title: 'Review and create',
@@ -250,7 +257,7 @@ class FirstSetupWizardView implements View {
   private steps(): SetupStepKey[] {
     const steps: SetupStepKey[] = []
     if (!this.selectedZone) steps.push('zone')
-    steps.push('application', 'provider', 'resource')
+    steps.push('application', 'provider', 'resource', 'policy')
     steps.push('review')
     return steps
   }
@@ -277,6 +284,7 @@ class FirstSetupWizardView implements View {
     if (step === 'application') return this.selectedApplication ? `${this.selectedApplication.name} selected` : trimmed(this.values.agent_app_name) ? `${this.values.agent_app_name} will be created` : ui.muted('open page')
     if (step === 'provider') return this.providerReviewLabel()
     if (step === 'resource') return this.selectedResource ? `${resourceLabel(this.selectedResource)} selected` : trimmed(this.values.resource_name) ? `${this.values.resource_name} will be created` : ui.muted('open page')
+    if (step === 'policy') return bool(this.values.activate_policy) ? 'create starter allow-list' : 'skip; no access allowed yet'
     return this.validateReady() ? ui.muted('complete required pages first') : 'ready'
   }
 
@@ -351,6 +359,7 @@ class FirstSetupWizardView implements View {
     else if (this.step === 'application') this.openApplicationPage(app)
     else if (this.step === 'provider') this.openProviderPage(app)
     else if (this.step === 'resource') this.openResourcePage(app)
+    else if (this.step === 'policy') this.openPolicyPage(app)
   }
 
   private openZonePage(app: App): void {
@@ -492,6 +501,23 @@ class FirstSetupWizardView implements View {
           this.values.selected_resource_id = ''
         }
         formApp.pop()
+        this.step = 'policy'
+      },
+    }))
+  }
+
+  private openPolicyPage(app: App): void {
+    app.push(new FormView({
+      title: 'guided setup / access policy',
+      submitLabel: 'save policy choice',
+      info: guidedInfo('Access policy setup', 'The starter policy is a real deny-by-default allow-list for the selected app, resource, and Caracal scopes.', 'Allow payments-worker to request payments.read on payments-api.', 'Choose create for first success or skip when a security team will author policy separately.', 'Console creates the policy only after this page is saved with create selected.'),
+      fields: [
+        { key: 'policy_mode', label: 'policy action', kind: 'select', options: ['create', 'skip'], default: bool(this.values.activate_policy) ? 'create' : 'skip', info: guidedInfo('Policy action', 'Choose whether guided setup should create the first access rule.', 'create for a least-privilege starter allow-list', 'create or skip', 'Create activates a real policy set; skip leaves access denied until a policy is added later.') },
+      ],
+      onSubmit: async (raw, formApp) => {
+        this.values.policy_mode = raw.policy_mode
+        this.values.activate_policy = raw.policy_mode === 'skip' ? 'false' : 'true'
+        formApp.pop()
         this.step = 'review'
       },
     }))
@@ -504,7 +530,6 @@ class FirstSetupWizardView implements View {
       submitLabel: 'save',
       info: guidedInfo('Guided setup advanced', 'Optional final setup controls stay separate from object-building pages.', 'Disable profile generation for CI-only setup.', 'Every field can keep its default unless you need a non-standard setup.', 'Saving updates the final create behavior without changing the object pages.'),
       fields: [
-        { key: 'activate_policy', label: 'activate policy', kind: 'bool', default: values.activate_policy ?? 'true', info: guidedInfo('Activate policy', 'Create and activate the first real allow-list policy.', 'Enabled for first setup.', 'Boolean toggle.', 'When enabled, Console creates a deny-by-default Rego policy and active policy set.') },
         { key: 'generate_profile', label: 'runtime profile', kind: 'bool', default: values.generate_profile ?? 'true', info: guidedInfo('Runtime profile', 'Generate a runnable local profile from the selected zone, app, and resource.', 'Enabled for local first run.', 'Boolean toggle.', 'The result page shows profile content and setup commands.') },
         { key: 'write_files', label: 'write profile files', kind: 'bool', default: values.write_files ?? 'false', dependsOn: { generate_profile: 'true' }, info: guidedInfo('Write profile files', 'Write the generated profile and secret file locally.', 'Enable on a trusted workstation.', 'Boolean toggle.', 'Console writes owner-only files instead of only showing copy commands.') },
         { key: 'existing_app_client_secret', label: 'existing app secret', kind: 'text', default: values.existing_app_client_secret ?? '', visible: () => Boolean(this.selectedApplication), required: (current) => current.write_files === 'true', dependsOn: { generate_profile: 'true', write_files: 'true' }, info: guidedInfo('Existing app secret', 'Required only when writing files for a selected existing app.', 'cs_live_...', 'Existing client secret from your secure store.', 'Console writes this value to the generated secret file.') },
@@ -965,7 +990,7 @@ async function createFirstPolicy(
 ): Promise<SetupResult['policy']> {
   const policy = await ctx.client.policies.create(zoneId, {
     name: 'Guided setup access policy',
-    description: 'Real Rego allow-list approved during guided setup. Allows only the configured agent app to request the configured protected resource with the configured Caracal scopes.',
+    description: 'Starter Rego allow-list explicitly approved during guided setup. Allows only the configured agent app to request the configured protected resource with the configured Caracal scopes.',
     content: firstAccessPolicy(applicationId, resourceIdentifier, scopes),
   })
   const policySet = await ctx.client.policySets.create(zoneId, 'Guided setup access policy set', 'Active policy set approved during guided setup.')
@@ -1032,12 +1057,10 @@ function setupSummary(result: SetupResult): Record<string, unknown> {
   const summary: Record<string, unknown> = {
     outcome: result.policy ? 'ready for first protected run' : 'objects created; activate a policy before requesting access',
     zone: {
-      id: result.zone.id,
       name: result.zone.name,
       status: result.zoneCreated ? 'created' : 'selected',
     },
     agent_app: {
-      id: result.application.id,
       name: result.application.name,
       status: result.applicationCreated ? 'created' : 'selected',
       ...(result.clientSecret
@@ -1050,29 +1073,18 @@ function setupSummary(result: SetupResult): Record<string, unknown> {
           }),
     },
     protected_resource: {
-      id: result.resource.id,
-      identifier: result.resource.identifier,
+      name: result.resource.name || result.resource.identifier,
       status: result.resourceCreated ? 'created' : result.resourceUpdated ? 'selected and updated' : 'selected',
       scopes: result.resource.scopes,
       gateway_route: result.resource.gateway_application_id ? 'enabled' : 'not configured',
+      ...(result.resource.upstream_url ? { upstream: result.resource.upstream_url } : {}),
     },
   }
   if (result.policy) {
     summary.access_policy = {
       status: 'created and activated',
-      kind: 'real Rego allow-list policy',
-      why_created: 'Guided setup creates this only when approved so the first protected call has an active authorization rule.',
-      rules: [
-        'deny by default',
-        'allow only the selected agent app',
-        'allow only the selected resource identifier',
-        'allow only requested Caracal scopes that are in the configured scope list',
-      ],
-      policy_id: result.policy.id,
-      policy_name: result.policy.name,
-      policy_version_id: result.policy.version.id,
-      policy_set_id: result.policy.policy_set_id,
-      active_policy_set_version_id: result.policy.policy_set_version_id,
+      kind: 'starter least-privilege allow-list',
+      summary: 'Denies by default and allows only the selected app to request the selected resource scopes.',
     }
   } else {
     summary.access_policy = {
@@ -1083,36 +1095,36 @@ function setupSummary(result: SetupResult): Record<string, unknown> {
   if (result.profile) {
     const profile = result.profile
     const runtimeProfile: Record<string, unknown> = {
-      path: profile.path,
+      profile_path: profile.path,
       secret_file: profile.secretPath,
       token_env: profile.credentialEnv,
-      content: profile.content,
-      local_profile_setup: {
-        posix: posixSetupCommands(profile),
-        powershell: powershellSetupCommands(profile),
-        secret_file_rule: result.fileWrite?.status === 'written'
-          ? 'Console wrote the one-time client secret to secret_file.'
-          : result.clientSecret
-            ? 'Paste the revealed agent_app.client_secret as the only line in secret_file and keep the file owner-readable only.'
-            : 'Paste the selected app client secret as the only line in secret_file and keep the file owner-readable only.',
-      },
       first_success: {
-        run_command_prefix: `CARACAL_CONFIG=${shellQuote(profile.path)} caracal run --`,
-        workload_command: 'Append the real command that starts this workload.',
-        sdk_process: `Set CARACAL_CONFIG=${profile.path} before calling Caracal.connect() from TypeScript, Python, or Go.`,
-        gateway_request: result.resource.gateway_application_id
-          ? gatewayRequest(result, profile)
-          : 'Gateway routing was not configured because no upstream URL was provided.',
+        run: `CARACAL_CONFIG=${profile.path} caracal run -- <your workload command>`,
+        sdk: `Set CARACAL_CONFIG=${profile.path} before connecting from a Caracal SDK.`,
+        gateway: result.resource.gateway_application_id
+          ? `Use ${profile.credentialEnv} as the bearer token for Gateway requests.`
+          : 'Gateway routing was not configured.',
       },
       next_steps: [
         result.fileWrite?.status === 'written'
           ? 'Use the written runtime profile and secret file for local runs.'
-          : 'Create the profile and secret files with the local_profile_setup commands.',
-        'Run the real workload through caracal run with CARACAL_CONFIG set to the profile path.',
-        'Use the injected token_env value on Gateway or SDK-managed requests for this resource.',
+          : 'Enable write profile files in Advanced next time when you want Console to write local files.',
+        'Run the real workload with CARACAL_CONFIG set to the profile path.',
       ],
     }
-    if (result.fileWrite) runtimeProfile.file_write = result.fileWrite
+    if (result.fileWrite) {
+      runtimeProfile.file_write = {
+        status: result.fileWrite.status,
+        ...(result.fileWrite.status === 'written'
+          ? {
+              profile_path: result.fileWrite.profile_path,
+              secret_file: result.fileWrite.secret_file,
+              note: 'Console wrote the profile and one-time client secret with owner-only file permissions.',
+            }
+          : {}),
+        ...(result.fileWrite.status === 'failed' ? { error: result.fileWrite.error } : {}),
+      }
+    }
     summary.runtime_profile = runtimeProfile
   }
   summary.audit_explanation = {
@@ -1120,16 +1132,6 @@ function setupSummary(result: SetupResult): Record<string, unknown> {
     if_no_event: 'Re-check the active policy, resource identifier, Gateway route, and runtime profile before retrying.',
   }
   return summary
-}
-
-function posixSetupCommands(profile: NonNullable<SetupResult['profile']>): string[] {
-  const dirs = Array.from(new Set([dirname(profile.path), dirname(profile.secretPath)]))
-  return [
-    `mkdir -p -- ${dirs.map(shellQuote).join(' ')}`,
-    `umask 077; : > ${shellQuote(profile.secretPath)}`,
-    `cat > ${shellQuote(profile.path)} <<'CARACAL_PROFILE'\n${profile.content}CARACAL_PROFILE`,
-    `chmod 600 -- ${shellQuote(profile.path)} ${shellQuote(profile.secretPath)}`,
-  ]
 }
 
 function profileTarget(values: SetupValues, agentAppName: string, resourceIdentifier: string): ProfileTarget {
@@ -1203,28 +1205,6 @@ function isMissingPath(err: unknown): boolean {
   return typeof err === 'object' && err !== null && (err as { code?: unknown }).code === 'ENOENT'
 }
 
-function powershellSetupCommands(profile: NonNullable<SetupResult['profile']>): string[] {
-  const dirs = Array.from(new Set([dirname(profile.path), dirname(profile.secretPath)]))
-  return [
-    `New-Item -ItemType Directory -Force -Path ${dirs.map(powershellQuote).join(', ')} | Out-Null`,
-    `New-Item -ItemType File -Force -Path ${powershellQuote(profile.secretPath)} | Out-Null`,
-    `Set-Content -NoNewline -Path ${powershellQuote(profile.path)} -Value @'\n${profile.content}'@`,
-  ]
-}
-
-function gatewayRequest(result: SetupResult, profile: NonNullable<SetupResult['profile']>): string | Record<string, string> {
-  if (!result.requestPath) {
-    return {
-      gateway_url: profile.gatewayUrl,
-      resource_header: `X-Caracal-Resource: ${result.resource.identifier}`,
-      authorization_header: `Authorization: Bearer $${profile.credentialEnv}`,
-      request_path: 'Set first request path during guided setup to generate an exact curl command.',
-    }
-  }
-  const url = `${profile.gatewayUrl.replace(/\/+$/, '')}${result.requestPath}`
-  return `curl -fsS ${shellQuote(url)} -H "Authorization: Bearer \$${profile.credentialEnv}" -H ${shellQuote(`X-Caracal-Resource: ${result.resource.identifier}`)}`
-}
-
 function normalizeRequestPath(value: string | undefined): string | undefined {
   const path = trimmed(value)
   if (!path) return undefined
@@ -1261,14 +1241,6 @@ function quoteRego(value: string): string {
 
 function quoteToml(value: string): string {
   return JSON.stringify(value)
-}
-
-function shellQuote(value: string): string {
-  return `'${value.replace(/'/g, `'\\''`)}'`
-}
-
-function powershellQuote(value: string): string {
-  return `'${value.replace(/'/g, `''`)}'`
 }
 
 function safeName(value: string): string {

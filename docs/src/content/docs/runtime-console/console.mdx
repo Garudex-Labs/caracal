@@ -70,7 +70,7 @@ The main menu is the root view. Navigate with arrow keys or number shortcuts:
 | `d` | Diagnostics | No |
 | `c` | Credential tools | No |
 
-For views that require a zone, press `z` to open the zone picker before navigating. New users should start with guided setup, which opens real guided pages for the zone, agent app, provider, and protected resource before review. Provider setup comes before resource setup so external OAuth/OIDC, API-key, and workload identity details are available before the resource is linked. Each page has picker-backed fields, adaptive required fields, and `?` info popups with examples; direct resources can choose no provider. Policy skipping, local file writes, profile paths, and final runtime output controls stay in Advanced settings so the object setup remains focused.
+For views that require a zone, press `z` to open the zone picker before navigating. New users should start with guided setup, which opens real guided pages for the zone, agent app, provider, protected resource, and access policy before review. Provider setup comes before resource setup so external OAuth/OIDC, API-key, and workload identity details are available before the resource is linked. The access policy page explicitly asks whether to create the starter deny-by-default allow-list or skip policy creation for a security team to author later. Each page has picker-backed fields, adaptive required fields, and `?` info popups with examples; direct resources can choose no provider. Local file writes, profile paths, and final runtime output controls stay in Advanced settings so the object setup remains focused.
 
 ---
 

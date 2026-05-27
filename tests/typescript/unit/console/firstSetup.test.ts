@@ -161,6 +161,7 @@ async function completeMainPath(view: View, app: App): Promise<void> {
   await openAndSubmit(view, app, { agent_app_name: 'agent-app-name' })
   await openAndSubmit(view, app, { provider_mode: 'none' })
   await openAndSubmit(view, app, { resource_name: 'resource-name', resource_scopes: 'scope-name' })
+  await openAndSubmit(view, app, { policy_mode: 'create' })
   await view.onKey('enter', ctx(app))
 }
 
@@ -177,7 +178,9 @@ describe('first setup workflow', () => {
     expect(body).toContain('Step 1')
     expect(body).toContain('Agent app')
     expect(body).toContain('Provider')
+    expect(body).toContain('Access policy')
     expect(body.indexOf('Provider')).toBeLessThan(body.indexOf('Resource'))
+    expect(body.indexOf('Resource')).toBeLessThan(body.indexOf('Access policy'))
     expect(body).not.toContain('Choose or create a zone')
     expect(body).not.toContain('resource identifier')
     expect(body).not.toContain('profile path')
@@ -241,10 +244,18 @@ describe('first setup workflow', () => {
     expect(body).toContain('caracal run --')
     expect(body).toContain('Gateway routing was not configured')
     expect(body).toContain('Audit Explanation')
-    expect(body).toContain('real Rego allow-list policy')
-    expect(body).toContain('deny by default')
+    expect(body).toContain('starter least-privilege allow-list')
+    expect(body).toContain('Denies by default')
     expect(body).toContain('••••')
     expect(body).not.toContain('cs_')
+    expect(body).not.toContain('zone_url')
+    expect(body).not.toContain('application_id')
+    expect(body).not.toContain('Policy ID')
+    expect(body).not.toContain('Policy Version ID')
+    expect(body).not.toContain('Policy Set ID')
+    expect(body).not.toContain('Content')
+    expect(body).not.toContain('Local Profile Setup')
+    expect(body).not.toContain('Powershell')
   })
 
   it('adds provider setup to the guided Gateway path and links the resource to the provider', async () => {
@@ -267,6 +278,7 @@ describe('first setup workflow', () => {
       resource_scopes: 'scope-name',
       upstream_url: 'https://api.example.com',
     })
+    await openAndSubmit(view, app, { policy_mode: 'create' })
     await view.onKey('enter', ctx(app))
 
     expect(client.providers.create).toHaveBeenCalledWith('zone-1', expect.objectContaining({
@@ -298,6 +310,7 @@ describe('first setup workflow', () => {
     await openAndSubmit(view, app, { application_mode: 'select', selected_agent_app_id: 'app-1' })
     await openAndSubmit(view, app, { provider_mode: 'none' })
     await openAndSubmit(view, app, { resource_mode: 'select', selected_resource_id: 'res-1', resource_scopes: 'scope-name' })
+    await openAndSubmit(view, app, { policy_mode: 'create' })
     await view.onKey('enter', ctx(app))
 
     expect(client.zones.create).not.toHaveBeenCalled()
@@ -314,7 +327,7 @@ describe('first setup workflow', () => {
     expect(body).not.toContain('Client Secret          ••••')
   })
 
-  it('lets optional policy, profile, and Gateway setup be skipped from advanced settings', async () => {
+  it('lets optional policy and profile setup be skipped explicitly', async () => {
     const client = makeClient()
     const app = fakeApp()
     const view = firstSetupView({
@@ -322,14 +335,12 @@ describe('first setup workflow', () => {
       zoneId: 'zone-1',
     })
     await view.init?.(app)
-    Object.assign((view as unknown as { values: Record<string, string> }).values, {
-      activate_policy: 'false',
-      generate_profile: 'false',
-    })
+    Object.assign((view as unknown as { values: Record<string, string> }).values, { generate_profile: 'false' })
 
     await openAndSubmit(view, app, { agent_app_name: 'agent-app-name' })
     await openAndSubmit(view, app, { provider_mode: 'none' })
     await openAndSubmit(view, app, { resource_name: 'resource-name', resource_scopes: 'scope-name' })
+    await openAndSubmit(view, app, { policy_mode: 'skip' })
     await view.onKey('enter', ctx(app))
 
     expect(client.zones.create).not.toHaveBeenCalled()
@@ -365,6 +376,7 @@ describe('first setup workflow', () => {
     await openAndSubmit(view, app, { agent_app_name: 'agent-app-name' })
     await openAndSubmit(view, app, { provider_mode: 'none' })
     await openAndSubmit(view, app, { resource_name: 'resource-name', resource_scopes: 'scope-name', upstream_url: 'https://upstream-url' })
+    await openAndSubmit(view, app, { policy_mode: 'create' })
     await view.onKey('enter', ctx(app))
 
     const profile = await readFile(profilePath, 'utf8')
@@ -381,7 +393,9 @@ describe('first setup workflow', () => {
     const body = detail.render(ctx(app)).join('\n')
     expect(body).toContain('File Write')
     expect(body).toContain('written')
-    expect(body).toContain('Console wrote the one-time client secret')
+    expect(body).toContain('owner-only file permissions')
+    expect(body).not.toContain('Local Profile Setup')
+    expect(body).not.toContain('cat >')
     expect(body).not.toContain(secret.trim())
   })
 
@@ -405,6 +419,7 @@ describe('first setup workflow', () => {
     await openAndSubmit(view, app, { agent_app_name: 'agent-app-name' })
     await openAndSubmit(view, app, { provider_mode: 'none' })
     await openAndSubmit(view, app, { resource_name: 'resource-name', resource_scopes: 'scope-name' })
+    await openAndSubmit(view, app, { policy_mode: 'create' })
     await view.onKey('enter', ctx(app))
 
     expect(app.setStatus).toHaveBeenCalledWith(expect.stringContaining('refusing to overwrite existing setup file'), 'error')
