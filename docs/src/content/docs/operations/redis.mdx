@@ -1,151 +1,66 @@
 ---
 title: Redis Streams
-description: Stream provisioning, consumer groups, persistence configuration, MAXLEN values, database assignments, and retention behavior.
-pageType: config
+description: Operate Redis Streams for Caracal events, invalidation, revocation, and coordination.
+pageType: workflow
 ---
 
-Caracal uses Redis as the message bus between services via a transactional outbox pattern. All inter-service events transit through Redis streams before being persisted or acted on. Redis also holds rate-limit state and step-up challenge records.
+Redis Streams move operational events between Caracal services. Redis is not the durable source of product state; Postgres remains authoritative.
 
-## Redis configuration
+## Streams and groups
 
-The custom image at `infra/redis/` starts Redis 8 with `redis-server /etc/caracal/redis.conf`. Key configuration:
-
-```ini
-bind 0.0.0.0
-port 6379
-protected-mode yes
-
-# Persistence
-appendonly yes
-appendfsync everysec
-save 3600 1
-
-# Eviction: noeviction protects stream data from silent drops
-maxmemory-policy noeviction
-
-tcp-keepalive 60
-timeout 0
-```
-
-`maxmemory-policy noeviction` is required. Any other policy risks silently dropping stream messages under memory pressure, which would cause audit events, revocation signals, or agent lifecycle events to be lost permanently.
-
-`appendonly yes` with `appendfsync everysec` gives a worst-case data loss window of 1 second on crash.
-
----
-
-## Database assignments
-
-Redis uses two logical databases:
-
-| Database | Contents |
+| Stream | Consumer groups |
 | --- | --- |
-| `db 0` | All Redis streams and outbox messages |
-| `db 1` | Rate-limit keys (`rl:{zone_id}:{provider_id}:{user_id}`), step-up challenge records (`chal:{id}`) |
+| `caracal.audit.events` | `audit-ingestor`, `siem-export` |
+| `caracal.audit.events.dlq` | `audit-dlq-observer` |
+| `caracal.policy.invalidate` | `opa-engine` |
+| `caracal.sessions.revoke` | `sts-revocation` |
+| `caracal.keys.invalidate` | `sts-keys` |
+| `caracal.agents.lifecycle` | `coordinator-relay` |
+| `caracal.invocations.lifecycle` | `invocations-observer` |
+| `caracal.delegations.invalidate` | `delegations-observer` |
+| `caracal.providers.ratelimit` | initialized as a one-entry stream |
 
-The split allows different memory policies to be applied to db 1 if needed, since rate-limit and challenge data can tolerate eviction.
-
----
-
-## Streams and consumer groups
-
-`infra/redis/provision-streams.sh` creates all streams and consumer groups idempotently using `XGROUP CREATE ... MKSTREAM`. Run it (or let the `init` container run it) before starting any service.
-
-| Stream | MAXLEN | Consumer group(s) | Published by |
-| --- | --- | --- | --- |
-| `caracal.audit.events` | 1,000,000 | `audit-ingestor`, `siem-export` | API outbox |
-| `caracal.audit.events.dlq` | 100,000 | `audit-dlq-observer` | Audit service (on delivery failure) |
-| `caracal.policy.invalidate` | 10,000 | `opa-engine` | API outbox |
-| `caracal.sessions.revoke` | 10,000 | `sts-revocation`, `resource-revocation` | Coordinator outbox |
-| `caracal.keys.invalidate` | 10,000 | `sts-keys` | API outbox |
-| `caracal.agents.lifecycle` | None | `coordinator-relay` | Coordinator outbox |
-| `caracal.invocations.lifecycle` | None | `invocations-observer` | Coordinator outbox |
-| `caracal.delegations.invalidate` | None | `delegations-observer` | Coordinator outbox |
-| `caracal.providers.ratelimit` | ~1 (approximate) | None | API (direct XADD) |
-
-`MAXLEN ~` uses approximate trimming (stream is trimmed lazily). This is safe for all streams where the consumer group is caught up: old entries are not needed after delivery.
-
----
-
-## Transactional outbox
-
-Neither the API nor the Coordinator writes to Redis streams directly from request handlers. All stream publishes go through a transactional outbox:
-
-1. The handler writes an outbox row inside the same database transaction as the business operation.
-2. A background dispatcher (`OutboxDispatcher` in the API, `OutboxPublisher` in the Coordinator) polls for pending rows, publishes to Redis, and marks rows as `published`.
-3. If Redis is temporarily unavailable, rows accumulate in the outbox and are delivered on recovery.
-
-This guarantees at-least-once delivery without distributed transaction coordination. Consumers must handle duplicate messages.
-
-**API outbox dispatcher tuning:**
-
-| Variable | Default | Effect |
-| --- | --- | --- |
-| `OUTBOX_POLL_MS` | `250` | How often the dispatcher checks for pending rows |
-| `OUTBOX_BATCH_SIZE` | `32` | Rows acquired per poll cycle |
-| `OUTBOX_LOCK_SEC` | `30` | How long a row is locked before another dispatcher can claim it |
-| `OUTBOX_MAX_ATTEMPTS` | `100` | After this many failed deliveries, the row is marked `dead` |
-| `OUTBOX_STREAM_MAXLEN` | `100000` | XADD MAXLEN applied to all outbox-published streams |
-
-**Coordinator outbox publisher tuning:**
-
-| Variable | Default | Effect |
-| --- | --- | --- |
-| `OUTBOX_INTERVAL_MS` | `1000` | Poll interval |
-| `OUTBOX_BATCH_SIZE` | `50` | Rows per poll cycle |
-| `OUTBOX_MAX_ATTEMPTS` | `10` | Max attempts before `dead` |
-
----
-
-## Stream message signing
-
-When `STREAMS_HMAC_KEY` is set, every outbox message written to Redis is signed with an HMAC-SHA256 signature stored in the `_sig` field. Consumers that have `streamHmacKey` configured verify this signature using `timingSafeEqual` before processing. Messages with invalid or missing signatures are skipped and acknowledged.
-
-Set `STREAMS_HMAC_KEY` on all services that publish or consume streams in production. A missing key does not prevent operation but removes origin verification for stream messages.
-
----
-
-## Revocation stream
-
-`caracal.sessions.revoke` carries revocation events from the Coordinator (via outbox) to all services that verify mandates. The STS has a built-in consumer group (`sts-revocation`). External services using `@caracalai/revocation-redis` or `caracalai-revocation-redis` use the `resource-revocation` group.
-
-The revocation stream must be provisioned before the STS starts. Each consumer instance must use a unique consumer name within its group to avoid split-brain delivery.
-
----
-
-## Dead-letter queue
-
-`caracal.audit.events.dlq` receives audit events that exceeded `AUDIT_MAX_DELIVERIES` delivery attempts. Monitor this stream for sustained delivery failures. High DLQ volume indicates a database write problem in the Audit service.
-
-Check DLQ depth:
+## Provision
 
 ```bash
-redis-cli -a $REDIS_PASSWORD XLEN caracal.audit.events.dlq
+REDIS_HOST=localhost REDIS_PORT=6379 \
+REDIS_PASSWORD_FILE=infra/secrets/files/redisPassword \
+bash infra/redis/provision-streams.sh
 ```
 
----
+The provisioner is idempotent, creates consumer groups with `MKSTREAM`, and warns when an existing stream length exceeds the intended bound.
 
-## PEL (Pending Entry List) monitoring
-
-Each consumer group maintains a PEL of delivered-but-unacknowledged messages. A growing PEL indicates a consumer is processing messages but not acknowledging them (or has crashed mid-processing).
-
-Check PEL size for the audit ingestor:
+## Verify
 
 ```bash
-redis-cli -a $REDIS_PASSWORD XPENDING caracal.audit.events audit-ingestor - + 10
+REDIS_HOST=localhost REDIS_PORT=6379 \
+REDIS_PASSWORD_FILE=infra/secrets/files/redisPassword \
+bash infra/redis/scripts/verify.sh
 ```
 
-The Audit service's `AUDIT_CLAIM_IDLE_SECS` (default 30) controls how long a PEL entry sits before another consumer can reclaim and retry it.
+Verification checks stream existence, consumer group existence, and provisioner idempotency.
 
----
+## Event path
 
-## Memory sizing
-
-`caracal.audit.events` with MAXLEN 1,000,000 can consume significant memory depending on event payload size. At ~1 KB per message, 1M entries is ~1 GB. Size your Redis instance to accommodate the maximum expected backlog before the Audit service catches up, plus headroom for all other streams.
-
-Monitor Redis memory:
-
-```bash
-redis-cli -a $REDIS_PASSWORD INFO memory
+```mermaid
+flowchart LR
+  API[API transaction] --> Outbox[event_outbox]
+  Outbox --> Redis[Redis Streams]
+  Coordinator[Coordinator outbox] --> Redis
+  STS --> Redis
+  Gateway --> Redis
+  Redis --> Audit[Audit ingestor]
+  Redis --> STSConsumers[STS invalidation/revocation]
+  Redis --> GatewayConsumers[Gateway revocation]
 ```
 
-If `used_memory` approaches `maxmemory`, investigate consumer lag. With `noeviction`, Redis will start rejecting writes rather than dropping data: which will surface as errors in the outbox dispatcher.
+Stream messages are signed with `STREAMS_HMAC_KEY` in published modes.
+
+## Troubleshooting
+
+| Symptom | Check |
+| --- | --- |
+| Audit DLQ grows | HMAC failures, malformed producers, Redis memory pressure, and Audit database writes. |
+| Policy changes do not take effect | `caracal.policy.invalidate` group health and STS policy age metrics. |
+| Revocation is delayed | `caracal.sessions.revoke` pending entries and Gateway/STS consumer health. |
+| Provisioner warns about length | Plan an explicit stream retention/reset; provisioning does not rewrite stream policy silently. |

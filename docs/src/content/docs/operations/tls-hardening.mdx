@@ -1,143 +1,56 @@
 ---
 title: TLS and Production Hardening
-description: Gateway TLS configuration, runtime-mode safety checks, SSRF defenses, upstream allowlisting, and production deployment controls.
-pageType: config
+description: Harden network exposure, secrets, service processes, and upstream access for production Caracal.
+pageType: workflow
 ---
 
-The Gateway is the Caracal service intended to sit on the protected resource boundary. It verifies inbound mandates, exchanges a fresh resource mandate, blocks unsafe upstream targets, and can serve HTTPS directly when certificate files are configured.
-
-Use `CARACAL_MODE=stable` for stable deployments, `CARACAL_MODE=rc` for rc deployments, and `CARACAL_MODE=dev` for development. rc and stable enable safety checks in service code; they do not replace network-level hardening, TLS termination, secret management, or private service networking.
-
----
-
-## TLS configuration
-
-The Gateway serves HTTPS when both certificate files are set:
-
-```bash
-TLS_CERT_FILE=/etc/caracal/tls/server.crt
-TLS_KEY_FILE=/etc/caracal/tls/server.key
-```
-
-Both variables must be set together. Setting only one causes startup to fail:
-
-```text
-TLS_CERT_FILE and TLS_KEY_FILE must both be set
-```
-
-When neither variable is set, the Gateway listens over plain HTTP. That is acceptable for the local Docker Compose stack and for deployments where a trusted load balancer or ingress terminates TLS before traffic reaches the Gateway. If the Gateway is exposed directly, configure `TLS_CERT_FILE` and `TLS_KEY_FILE`.
-
-**Minimum TLS version:** TLS 1.2, enforced by `tls.Config{MinVersion: tls.VersionTLS12}` when Gateway TLS is enabled. Cipher suite selection uses Go's defaults for TLS 1.2 and TLS 1.3.
-
-**Certificate format:** Standard PEM. Include the leaf certificate and any required intermediates in `TLS_CERT_FILE`.
-
----
-
-## Mode
-
-`CARACAL_MODE` accepts exactly three values:
-
-| Value | Use |
-| --- | --- |
-| `dev` | Development |
-| `rc` | rc |
-| `stable` | stable |
-
-If unset, Go service configuration defaults to `stable`; the local compose stack sets `CARACAL_MODE=dev`.
-
-rc and stable enforce these Gateway checks at startup:
-
-| Check | rc and stable behavior |
-| --- | --- |
-| `JTI_FAIL_OPEN` | Must not be `true` |
-| `PORT` | Must be `8081` |
-| `REDIS_URL` | Required |
-| `STREAMS_HMAC_KEY` | Required |
-| `AUDIT_HMAC_KEY` | Required |
-| `GATEWAY_STS_HMAC_KEY` | Required |
-| `UPSTREAM_HOST_ALLOWLIST` | Required when `ALLOW_PRIVATE_UPSTREAMS=true` |
-| `STS_URL` | Must be absolute; HTTP is allowed only for internal hosts such as `sts`, `localhost`, or loopback |
-
-Any value other than `dev` or `runtime` is rejected.
-
----
-
-## Development escape hatches
-
-Two flags exist for local development compatibility:
-
-Plain HTTP should be limited to private service networks or local development. For public ingress, terminate TLS before traffic reaches the Gateway or configure `TLS_CERT_FILE` and `TLS_KEY_FILE` directly.
-
----
-
-## SSRF defenses
-
-The Gateway proxies requests to upstream resource URLs loaded from Postgres. To prevent server-side request forgery:
-
-**Private upstream blocking (default):**
-
-`ALLOW_PRIVATE_UPSTREAMS=false` prevents forwarding to private IP ranges and loopback addresses. Requests to blocked upstreams fail before proxying.
-
-**Private upstream allowlist:**
-
-If the Gateway must reach internal upstream services, set:
-
-```bash
-ALLOW_PRIVATE_UPSTREAMS=true
-UPSTREAM_HOST_ALLOWLIST=api.internal.company.com,payments.internal.company.com
-```
-
-When `CARACAL_MODE=rc` or `CARACAL_MODE=stable` and private upstreams are allowed, `UPSTREAM_HOST_ALLOWLIST` is required. Requests to hosts outside the allowlist are rejected.
-
-**Path traversal protection:**
-
-Gateway upstream URL validation rejects paths containing traversal sequences before proxying.
-
----
-
-## JTI replay protection
-
-The Gateway tracks JWT IDs (`jti` claims) in Redis to prevent replay of intercepted mandates. Redis is required at startup.
-
-| Setting | Behavior |
-| --- | --- |
-| `JTI_FAIL_OPEN=false` | Reject requests if Redis JTI lookup fails; default |
-| `JTI_FAIL_OPEN=true` | Allow requests through when Redis JTI lookup fails; forbidden when `CARACAL_MODE=rc` or `CARACAL_MODE=stable` |
-
----
-
-## Request size and timeout controls
-
-| Variable | Default | Description |
-| --- | --- | --- |
-| `MAX_REQUEST_BYTES` | `10485760` | Maximum request body size; larger requests are rejected with 413 |
-| `STS_TIMEOUT` | `5s` | Timeout for STS token exchange calls |
-| `UPSTREAM_TIMEOUT` | `30s` | Timeout for proxied upstream requests |
-| `READ_HEADER_TIMEOUT` | `5s` | Time allowed to read request headers |
-| `READ_TIMEOUT` | `45s` | Time allowed to read the full request; must exceed `STS_TIMEOUT + UPSTREAM_TIMEOUT` |
-| `WRITE_TIMEOUT` | `60s` | Time allowed to write the response |
-| `IDLE_TIMEOUT` | `120s` | Keep-alive idle timeout |
-
-Tune `UPSTREAM_TIMEOUT` to the protected service's P99 response time. A timeout below expected upstream latency causes false 504 responses.
-
----
+Production Caracal should run in `CARACAL_MODE=stable` or `rc`, use TLS at external boundaries, and keep stateful dependencies private.
 
 ## Hardening checklist
 
-- Set `CARACAL_MODE=stable`.
-- Provide `TLS_CERT_FILE` and `TLS_KEY_FILE`, or terminate TLS at a trusted ingress before traffic reaches the Gateway.
-- Keep `JTI_FAIL_OPEN` unset or explicitly `false`.
-- Set `STREAMS_HMAC_KEY`, `AUDIT_HMAC_KEY`, and `GATEWAY_STS_HMAC_KEY` to 32-byte hex secrets.
-- Keep `ALLOW_PRIVATE_UPSTREAMS=false` unless the Gateway must reach private upstreams.
-- Set `UPSTREAM_HOST_ALLOWLIST` when private upstreams are enabled.
-- Keep API, STS, Coordinator, Audit, Postgres, and Redis on private networks.
-- Expose only the Gateway or its fronting ingress to external callers.
-- Rotate TLS certificates before expiry and rotate shared secrets through your secret manager.
+| Area | Required stance |
+| --- | --- |
+| External TLS | Terminate TLS at ingress, load balancer, service mesh, or Gateway TLS files. |
+| Internal services | Prefer private ClusterIP or bridge-network traffic. |
+| Secrets | Use mounted secret files, not inline env vars. |
+| Containers | Drop Linux capabilities, set no-new-privileges, use read-only filesystems where supported. |
+| NetworkPolicy | Admit only required ingress and egress. |
+| Gateway upstreams | Keep private upstreams disabled unless explicitly allowed and allowlisted. |
+| Runtime shell | Do not expose product management as top-level shell commands. |
 
----
+## Gateway upstream safety
 
-## Inter-service communication
+Gateway protects against unsafe upstream routing. In `rc` and `stable`, private upstreams require both:
 
-In the Docker Compose stack, services communicate over Docker's internal network using container names such as `http://sts:8080` and `http://api:3000`. The Gateway connects directly to STS, Postgres, and Redis; inter-service traffic does not pass through the Gateway.
+```bash
+ALLOW_PRIVATE_UPSTREAMS=true
+UPSTREAM_HOST_ALLOWLIST=internal-api.example.svc,provider.example.com
+```
 
-In production orchestration, keep service-to-service traffic on private networks and enforce network policy or mTLS at the platform layer where required.
+Do not enable broad private upstream access for production. Prefer exact hosts.
+
+## HMAC and signing keys
+
+Published modes require production-grade keys:
+
+| Key | Used for |
+| --- | --- |
+| `AUDIT_HMAC_KEY` | Audit event integrity. |
+| `STREAMS_HMAC_KEY` | Redis stream message signatures. |
+| `GATEWAY_STS_HMAC_KEY` | Gateway-to-STS service exchange. |
+| `ZONE_KEK` | Zone secret/key encryption. |
+
+HMAC keys must be hex-encoded and at least 32 bytes where validated.
+
+## Kubernetes controls
+
+The Helm chart sets non-root pods, RuntimeDefault seccomp, dropped capabilities, read-only root filesystem for service containers, optional NetworkPolicy, PDBs, HPAs, and optional Ingress TLS.
+
+## Troubleshooting
+
+| Symptom | Check |
+| --- | --- |
+| Published-mode startup fails | Missing or short HMAC key, unsafe URL, forbidden fail-open setting, or wrong service port. |
+| Gateway cannot reach upstream | NetworkPolicy egress, DNS egress, HTTPS egress, and upstream allowlist. |
+| Metrics endpoint denied | Confirm `METRICS_BEARER` and scraper configuration. |
+| TLS works externally but clients fail token validation | Confirm STS `ISSUER_URL` matches the URL clients use for JWKS and token issuer checks. |

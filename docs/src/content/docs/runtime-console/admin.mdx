@@ -1,10 +1,10 @@
 ---
 title: Management Workflows
-description: Manage zones, applications, resources, providers, policies, grants, and sessions through the Console.
+description: Manage zones, applications, providers, resources, policies, grants, sessions, and Control through the Console.
 pageType: reference
 ---
 
-The Console is the only supported human-facing surface for Caracal product management. Launch it with:
+The Console is the supported human interface for product management. Launch it with:
 
 ```bash
 caracal console
@@ -16,38 +16,41 @@ or:
 caracal-console
 ```
 
----
+## Management flow
 
-## Zones and applications
+```text
+zone -> application -> provider -> resource -> policy -> policy set -> grant -> session/audit
+```
 
-Use **Zones** to create, inspect, select, rename, and delete zones. Use **Applications** inside the selected zone to register applications, generate confidential client secrets, update consent settings, and remove applications.
+Console `guided setup` walks the first version of that flow and can write a runtime profile for `caracal run` and SDKs.
 
-Client secrets are shown once when generated. Store them in `caracal.toml` or the appropriate secret manager before leaving the result view.
+## Menu workflows
 
----
+| Menu label | What it manages |
+| --- | --- |
+| `zone` | Zone records and active zone selection. |
+| `application` | Confidential agent applications and one-time client secrets. |
+| `provider` | Provider credential sources for OAuth2, OIDC, API-key, and workload-backed upstreams. |
+| `resource` | Protected resource identifiers, scopes, upstream URLs, and provider links. |
+| `policy` | Policy content and versions. |
+| `policy set` | Policy-set composition, simulation, activation, and shadow evaluation. |
+| `grant` | Application/subject access grants. |
+| `session` | Active authority-session records. |
+| `control` | Control API exposure and Control credentials. |
 
-## Resources and providers
+## Secrets and credentials
 
-Use **Resources** to register protected resources, scopes, upstream URLs, and Gateway application bindings. Use **Providers** to configure direct credential material, external provider plugins, or OIDC-backed provider credentials.
+Application client secrets are shown once when created. Store them in a secret manager, mounted secret file, or Console-generated local profile before leaving the result screen. The Console masks secret-shaped fields and error output.
 
-Secret provider fields are masked in the interface and in error output.
+## Automation handoff
 
----
+Use the Console `control` menu when management needs to move from interactive operations to automation. Control API calls are authenticated and audited. They use the same product-management boundary as the Console; they are not exposed as top-level runtime shell commands.
 
-## Policies and policy sets
+## Troubleshooting
 
-Use **Policies** to create policy versions from Rego content, inspect existing versions, and remove obsolete policies. Use **Policy sets** to assemble policy versions, simulate candidate inputs, activate validated versions, and configure shadow evaluation.
-
-Activation is a management mutation and should be performed only after reviewing simulation output and any expected audit impact.
-
----
-
-## Grants and sessions
-
-Use **Grants** to create and revoke resource access for applications and subjects. Use **Sessions** to inspect active and expired authority. Session records are read-only from the Console; revoke access by revoking the underlying grant or Control key.
-
----
-
-## Control API handoff
-
-When management must be automated, enable and configure the Control API from the Console. Control API requests are authenticated, audited, and dispatched through the same engine management path as interactive operations.
+| Symptom | Check |
+| --- | --- |
+| A view says a zone is required | Press `z` to select a zone before opening zone-scoped views. |
+| A created client secret is no longer visible | Generate or rotate a new secret; one-time secrets are not recoverable. |
+| Policy activation fails | Run simulation, inspect validation errors, and confirm the policy set references the intended policy versions. |
+| Control API calls fail | Confirm Control is enabled from the Console `control` menu and the automation token targets the Control resource. |

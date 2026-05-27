@@ -1,17 +1,66 @@
 ---
 title: Implement Multi-Agent Delegation
-description: Open child agent sessions, attach typed constraints, traverse the delegation graph, and trigger cascade revocation using the SDK and Console.
-pageType: workflow
+description: Spawn child agents, attach typed constraints, inspect graph impact, and revoke safely.
 ---
 
-This page no longer documents standalone management command examples. Human-facing management now runs through the Console.
+Use delegation when one agent needs to hand a narrower slice of authority to another agent. The SDK creates the edge and carries the context; the Console shows the graph and impact.
 
-Open the interface with:
+## Implementation flow
 
-```bash
-caracal console
+```mermaid
+flowchart LR
+  Parent["Parent agent session"] --> Spawn["Spawn child"]
+  Spawn --> Edge["Create delegation edge"]
+  Edge --> Child["Run child with delegated context"]
+  Child --> Exchange["Exchange for resource mandate"]
+  Exchange --> Audit["Inspect audit and graph"]
 ```
 
-Use the matching view for the workflow covered by this page. For automation, enable the Control API from the Console Control menu and call the authenticated HTTP surface.
+## TypeScript example
 
-Runtime lifecycle commands (`caracal up`, `caracal down`, `caracal status`, `caracal purge`) and workload execution (`caracal run -- <command>`) remain documented in [Runtime and Console](/runtime-console/).
+```ts
+import { Caracal } from "@caracalai/sdk";
+
+const caracal = Caracal.connect();
+
+await caracal.spawn(async () => {
+  await caracal.delegateToSpawn({
+    resourceId: "https://api.example.com/tickets",
+    scopes: ["tickets:read"],
+    constraints: { maxHops: 1, budget: 5 },
+    delegationTtlSeconds: 600,
+  }, async () => {
+    const headers = await caracal.headersAsync();
+    await fetch("https://api.example.com/tickets", { headers });
+  });
+});
+```
+
+## Review the graph
+
+1. Open `caracal console`.
+2. Select `delegation`.
+3. Inspect active edges, inbound edges, outbound edges, and traversal.
+4. Use impact before revoking an edge.
+5. Check `audit` for the delegated exchange and resource decision.
+
+## Safe constraints
+
+| Constraint | Good default |
+| --- | --- |
+| Scopes | Small subset of parent authority. |
+| TTL | Minutes, not days. |
+| Hop count | `1` unless a deeper graph is intentional. |
+| Budget | Explicit request or work limit. |
+| Resource | Single resource whenever possible. |
+
+## Troubleshooting
+
+| Symptom | Check |
+| --- | --- |
+| `Delegate requires an active agent session` | Call delegation inside `spawn()` or a bound Caracal context. |
+| Resource denies delegated request | Confirm policy accepts the edge constraints and required scopes. |
+| Chain validation fails | Confirm the expected application appears in the delegation path. |
+| Revocation did not affect child | Confirm cascade revocation and resource-server revocation consumers. |
+
+Related pages: [Delegation Graph](/concepts/delegation/) and [Typed Delegation Constraints](/concepts/constraint/).

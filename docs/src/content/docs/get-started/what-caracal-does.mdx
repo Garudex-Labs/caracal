@@ -1,82 +1,87 @@
 ---
 title: What Caracal Does
-description: Gateway-first access control, credential brokering, audit, and revocation for AI agents.
+description: How Caracal issues authority, enforces protected calls, records audit, and supports revocation.
 pageType: concept
 ---
 
-You have already brought up the stack, registered an app, and issued a Caracal token. This page explains what that token actually represents, what the Gateway did with it, and where audit recorded the result. Read it after [First Integration](./first-integration/) once you have a real run to compare against.
+Read this after the quickstart or first integration. It explains what happened when your agent asked for authority and called a protected resource.
 
-## What just happened
+## What happened during the first run
 
-When your agent called the SDK and then the Gateway, six things happened in order:
+1. The SDK or `caracal run` authenticated the agent app to the STS.
+2. The STS evaluated the active policy set for the requested resource and scopes.
+3. On allow, the STS signed a short-lived mandate and wrote authorization audit.
+4. The agent presented that mandate to the Gateway.
+5. The Gateway verified the token, checked replay and revocation, resolved the resource route, and called the upstream.
+6. The Gateway wrote action-result audit with status, latency, auth mode, and result class.
 
-1. The SDK presented your app's client secret to the Caracal token service.
-2. Caracal evaluated the active policy set for the requested resource and scopes.
-3. On allow, Caracal signed a short-lived access token (a **mandate**) and emitted an authorization audit event.
-4. The Gateway verified the mandate, checked replay and revocation, and resolved the upstream provider route.
-5. The Gateway credential broker substituted the provider OAuth token or API key onto the upstream request — your agent never saw it.
-6. The Gateway forwarded the call and emitted an action-execution audit event with status, latency, and result class.
+```mermaid
+sequenceDiagram
+  participant Agent
+  participant STS
+  participant Gateway
+  participant Resource
+  participant Audit
 
-The rest of this page expands each of those steps so that the next time you read an audit row you know which surface produced it.
+  Agent->>STS: request scoped mandate
+  STS->>STS: evaluate active policy set
+  STS-->>Audit: authorization allow or deny
+  STS-->>Agent: mandate on allow
+  Agent->>Gateway: protected request
+  Gateway->>Gateway: verify, replay, revocation, route
+  Gateway->>Resource: upstream call
+  Gateway-->>Audit: action result
+```
 
-## The core problem
+## The problem Caracal solves
 
-AI agents and autonomous workflows need access to tools, APIs, and data. Giving them long-lived credentials causes two problems: you cannot know what the agent will do with them before it acts, and you cannot revoke access granularly once something goes wrong.
+AI agents need access to tools, APIs, SaaS providers, and data. Long-lived provider credentials in agent code make that access hard to scope, revoke, and explain.
 
-Caracal addresses both problems by giving the agent a short-lived, scoped Caracal access token only after policy allows the requested action. The token expires quickly, can be revoked by multiple authority anchors, and never contains provider-native credentials.
+Caracal separates provider credentials from agent authority. Agents receive Caracal mandates. The Gateway or a verified service enforces those mandates and handles provider credentials only inside the trusted boundary.
 
 ## The authority-plane model
 
-Caracal's product model is small: an **agent app** starts an **agent run**, asks for a **mandate**, uses it against a **resource**, and may grant a narrower **delegated permission** to another run. The reference model underneath those names is principal, execution session, mandate, resource, delegation edge, policy decision, and audit event.
+Caracal's product model is intentionally small:
 
-The system issues authority, narrows it, traces it, and revokes it. Gateway routing, SDK context propagation, MCP helpers, and provider credential brokering are implementation surfaces that preserve that model at execution boundaries.
+| Product object | Role |
+| --- | --- |
+| Agent app | The workload identity requesting authority. |
+| Agent run | One tracked execution of that workload. |
+| Mandate | The short-lived scoped credential issued after policy allows access. |
+| Resource | The protected target being accessed. |
+| Delegated permission | A narrowed authority path from one run to another. |
+| Audit event | Evidence for authorization decisions, actions, revocation, and diagnostics. |
 
-Caracal is not trying to wrap every provider SDK, scheduler, prompt router, or protocol abstraction. If an integration path cannot preserve mandate verification, revocation, policy context, and audit, it should stay outside the protected access path until it has a clear enforcement boundary.
+SDK helpers, connectors, Gateway routing, MCP transport, and provider credential brokering exist to preserve this model at execution boundaries.
 
-## The golden path
+## The STS decides before execution
 
-The default path is:
+The STS is the only place a mandate is born. Before signing one, it:
 
-```text
-agent app
-  → Caracal SDK opens an agent run
-  → agent calls the Gateway
-  → Caracal issues only scoped access tokens
-  → Gateway resolves provider credentials inside the protected boundary
-  → Gateway forwards the upstream call
-  → audit records the decision and action result
-```
-
-This is the path new integrations should use. It gives the strongest default security boundary: agents never see provider OAuth tokens or API keys, the Gateway checks revocation before and during requests, and every proxied action has an execution audit event.
-
-## The enforcement point
-
-The Caracal token service issues short-lived access tokens. It does not return provider-native credentials to agent-facing callers. Before signing a token, it:
-
-1. Receives an exchange request carrying the agent identity and requested tool/provider resource.
+1. Receives the authenticated app and requested resource/scopes.
 2. Loads the active policy set for the zone.
-3. Evaluates OPA with the agent, resource, requested scopes, session state, delegation state, and trace context.
-4. Signs a token only when policy returns `decision = "allow"` and `evaluation_status = "complete"`.
-5. Emits an authorization audit event for every resource decision.
+3. Evaluates policy with app, resource, scopes, run state, delegation state, and trace context.
+4. Signs a mandate only when policy returns an allow decision.
+5. Writes audit for both allows and denies.
 
-If no policy set is active in the zone, the STS installs a deny-all fallback: no agent can exchange credentials until a policy is activated. There is no default-allow state.
+If no policy set is active, access is denied. There is no default-allow state.
 
-## The Gateway
+## The Gateway enforces at the resource boundary
 
-When an agent calls a tool, MCP server, REST API, or provider endpoint through the Gateway, the Gateway:
+For Gateway-routed calls, the Gateway:
 
-1. Verifies the Caracal token signature against the zone key.
-2. Checks replay and revocation anchors.
-3. Resolves the provider route for the requested resource.
-4. Calls the Gateway credential broker when provider credentials are needed.
-5. Substitutes the provider OAuth token or API key only on the upstream request.
-6. Emits an action execution audit event with status, latency, result class, auth mode, and revocation interruption state.
+1. Verifies the mandate signature against the zone key.
+2. Checks replay protection and revocation anchors.
+3. Resolves the resource route and upstream URL.
+4. Brokers provider credentials when the route requires them.
+5. Forwards the request.
+6. Emits action-result audit.
 
-The agent presents a Caracal access token; the Gateway handles the credential the upstream expects.
+The agent never receives the provider-native credential in this path.
 
-## Delegation
+## Delegation narrows authority
 
-An agent can grant a narrower delegated permission to another agent. The invariant is:
+Delegation lets one agent run give another run narrower permission. The invariant is:
 
 ```text
 source = delegator
@@ -84,50 +89,37 @@ target = receiver
 receiver uses the delegated permission
 ```
 
-Parenthood alone does not grant access. Each delegated permission narrows authority through explicit scope, resource, TTL, hop, and policy constraints. The source cannot use the receiver's delegated permission, unrelated agents cannot use it, and revocation terminates downstream authority.
+Parenthood does not automatically grant access. Each delegated permission narrows authority through resource, scope, TTL, hop, budget, and policy constraints. Revoking an edge terminates downstream authority.
 
-Delegation is a same-zone runtime contract. Cross-zone federation and cross-zone delegation are deliberately not part of the current model; the priority is making same-zone authority issuance, narrowing, tracing, and revocation excellent before adding federation semantics.
+## Audit explains what happened and why
 
-## The audit ledger
+Authorization audit answers:
 
-Every authorization decision produces an append-only audit event. Gateway-proxied calls also produce action execution audit events. Together they answer:
+- Was the requested mandate allowed or denied?
+- Which app, resource, scopes, policy, and policy set were involved?
+- Which delegation edge constrained the request?
 
-- Was the call allowed or denied?
-- Which policy and template version determined the outcome?
-- Which agent run and delegated permission were involved?
-- Which provider route and auth mode were used?
-- Did the upstream call succeed, fail, or stop because revocation arrived?
+Action-result audit answers:
 
-Nothing is ever updated or deleted in the audit table. Query the trail through the Console and Console (`audit tail`, `explain`).
+- Did the protected call reach the upstream?
+- Which route and auth mode were used?
+- Did the upstream succeed, fail, or get interrupted by revocation?
 
-## What this is not
+Use the Console **audit** view to search events and **explain** to inspect a request ID. The Console is the product surface for audit inspection; the runtime shell does not expose product-management audit commands.
 
-Caracal does not replace your LLM framework, agent scheduler, or prompt router. It sits alongside those systems as the access-control and audit boundary. Caracal does not inspect or filter tool-call content; it enforces whether the call may happen, which credential is used, how it is audited, and how quickly it can be revoked.
+## What Caracal is not
+
+Caracal does not replace your LLM framework, prompt router, agent scheduler, or provider SDK. It does not inspect prompts or tool-call content. It controls whether a protected action may happen, which credential is used at the boundary, how the action is audited, and how quickly authority can be revoked.
 
 ## Provider flow patterns
-
-Use the Gateway path by default. The full product surface collapses into four patterns:
 
 | Pattern | Status | Enforcement meaning |
 | --- | --- | --- |
 | Gateway-mediated HTTP | Implemented default | Gateway verifies the mandate, checks replay and revocation, brokers provider credentials, proxies the call, and writes action-result audit. |
-| Connector-verified service/tool | Supported pattern | The connector verifies mandates and revocation at your service boundary; your service or adapter owns replay protection where applicable and result audit. Use this when you own the boundary. |
-| Application-managed external provider call | Supported attribution pattern | Your application calls the provider directly and attaches Caracal context for traceability. The provider call is not Caracal-enforced unless your code performs the same checks. |
-| Native broker plugins | Future direction | A plugin contract may later move provider-specific credential brokering behind a native Caracal boundary. This is not current runtime behavior. |
-
-Connector and application-managed paths are not production boundaries merely because a package exists. They are production boundaries only when mandate verification, revocation checks, replay protection where the transport requires it, and action-result audit are implemented end to end.
-
-## Status labels
-
-The docs use these labels intentionally:
-
-| Label | Meaning |
-| --- | --- |
-| Implemented behavior | Runtime behavior available in the OSS stack. |
-| Supported pattern | A documented path with a clear enforcement contract that operators can adopt when they meet the requirements. |
-| Example-only pattern | Reference-application code that illustrates usage but is not a production integration contract. |
-| Future direction | Product direction that is not current runtime behavior. |
+| Connector-verified service/tool | Supported pattern | Your service verifies mandates and revocation at its boundary and emits service-side result audit. |
+| Application-managed external provider call | Supported attribution pattern | Your application calls the provider directly and attaches Caracal context for traceability; the provider call is not Caracal-enforced unless your code performs the same checks. |
+| Native broker plugins | Future direction | Provider credential brokering may move behind a plugin contract. |
 
 ## Next step
 
-Read [Key Ideas at a Glance](./key-ideas/) for the compact product vocabulary, or jump into [Concepts](/concepts/) for the full reference model.
+Read [Key Ideas at a Glance](./key-ideas/) for the compact vocabulary, or continue to [Tutorials](/tutorials/) for outcome-based walkthroughs.

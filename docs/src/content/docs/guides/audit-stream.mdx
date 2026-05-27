@@ -1,17 +1,56 @@
 ---
 title: Tail and Query the Audit Stream
-description: Stream live audit events from the Console, filter by decision or event type, and inspect full diagnostics for a specific request ID.
-pageType: workflow
+description: Filter audit events, inspect diagnostics, and explain a specific request ID.
 ---
 
-This page no longer documents standalone management command examples. Human-facing management now runs through the Console.
+Use audit when a request is denied, step-up is triggered, delegation behaves unexpectedly, or an operator needs evidence for a run.
 
-Open the interface with:
+## Console workflow
 
-```bash
-caracal console
+1. Open `caracal console`.
+2. Select `audit`.
+3. Filter by zone, decision, event type, or request ID.
+4. Open the event detail to inspect metadata, determining policies, and diagnostics.
+5. Select `explain` and provide the request ID for a decision trace.
+
+## Automation workflow
+
+```ts
+import { AdminClient } from "@caracalai/admin";
+
+const admin = new AdminClient({
+  apiUrl: process.env.CARACAL_API_URL!,
+  adminToken: process.env.CARACAL_ADMIN_TOKEN!,
+});
+
+const events = await admin.audit.list(process.env.CARACAL_ZONE_ID!, {
+  decision: "deny",
+  limit: 25,
+});
+
+const trace = await admin.audit.explain(process.env.CARACAL_ZONE_ID!, events[0].request_id!);
+console.log(trace.final_decision, trace.denied);
 ```
 
-Use the matching view for the workflow covered by this page. For automation, enable the Control API from the Console Control menu and call the authenticated HTTP surface.
+## Useful filters
 
-Runtime lifecycle commands (`caracal up`, `caracal down`, `caracal status`, `caracal purge`) and workload execution (`caracal run -- <command>`) remain documented in [Runtime and Console](/runtime-console/).
+| Filter | Use it for |
+| --- | --- |
+| Request ID | Stitch together STS, Gateway, connector, and explain events. |
+| Decision | Find denies, allows, or partial decisions. |
+| Event type | Focus on policy, session, delegation, step-up, or admin changes. |
+| Time window | Investigate a run, incident, or rollout. |
+
+## What to capture in incidents
+
+- request ID;
+- zone ID;
+- application ID;
+- resource identifier;
+- requested scopes;
+- final decision;
+- determining policies;
+- diagnostics;
+- session or delegation edge IDs when present.
+
+Related page: [Audit Ledger](/concepts/audit-ledger/).

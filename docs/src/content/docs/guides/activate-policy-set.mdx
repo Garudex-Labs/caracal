@@ -1,17 +1,66 @@
 ---
 title: Activate a Policy Set
-description: Create a Rego policy, version it, bundle it into a policy set, and promote the version to active using the Caracal Console.
-pageType: workflow
+description: Version policies, bundle them into a policy set, simulate the result, and promote the version to active.
 ---
 
-This page no longer documents standalone management command examples. Human-facing management now runs through the Console.
+The STS evaluates the active policy-set version for a zone. Activation is explicit so policy changes can be reviewed, simulated, and rolled out without mutating old versions.
 
-Open the interface with:
+## Activation flow
 
-```bash
-caracal console
+```mermaid
+flowchart LR
+  Policy["Create policy"] --> Version["Create immutable policy version"]
+  Version --> Set["Add policy-set version"]
+  Set --> Simulate["Simulate"]
+  Simulate --> Activate["Activate"]
+  Activate --> Audit["Audit policy decisions"]
 ```
 
-Use the matching view for the workflow covered by this page. For automation, enable the Control API from the Console Control menu and call the authenticated HTTP surface.
+## Console workflow
 
-Runtime lifecycle commands (`caracal up`, `caracal down`, `caracal status`, `caracal purge`) and workload execution (`caracal run -- <command>`) remain documented in [Runtime and Console](/runtime-console/).
+1. Open `caracal console`.
+2. Select `policy` and create or update the Rego policy.
+3. Select `policy set` and create a set for the zone.
+4. Add the policy version to a new policy-set version.
+5. Simulate the version with a representative input.
+6. Activate the version when the simulated decision matches the intended behavior.
+7. Use `audit` and `explain` after the first real request.
+
+## Automation workflow
+
+```ts
+import { AdminClient } from "@caracalai/admin";
+
+const admin = new AdminClient({
+  apiUrl: process.env.CARACAL_API_URL!,
+  adminToken: process.env.CARACAL_ADMIN_TOKEN!,
+});
+
+const policy = await admin.policies.create(process.env.CARACAL_ZONE_ID!, {
+  name: "payments-read",
+  content: policySource,
+});
+
+const set = await admin.policySets.create(process.env.CARACAL_ZONE_ID!, "payments");
+const version = await admin.policySets.addVersion(process.env.CARACAL_ZONE_ID!, set.id, [
+  { policy_version_id: policy.version.id },
+]);
+
+const simulation = await admin.policySets.simulate(process.env.CARACAL_ZONE_ID!, set.id, version.id, sampleInput);
+if (!simulation.would_activate) {
+  throw new Error(simulation.explanation.reason);
+}
+
+await admin.policySets.activate(process.env.CARACAL_ZONE_ID!, set.id, version.id);
+```
+
+## Validation checklist
+
+| Check | Expected result |
+| --- | --- |
+| Policy validation | `valid: true` and no blocking warnings. |
+| Simulation | Representative input returns the intended decision. |
+| Activation | Zone has the expected active policy-set version. |
+| First exchange | Audit shows the new policy as a determining policy. |
+
+If activation changes expected access, keep the old policy-set version ID in the rollout notes so you can promote it again if needed.

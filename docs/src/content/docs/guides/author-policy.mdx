@@ -1,17 +1,78 @@
 ---
 title: Author a Rego Policy
-description: Write a Caracal-compatible Rego policy, understand the full OPA input schema, output the required result structure, and avoid forbidden builtins.
-pageType: workflow
+description: Write a Caracal-compatible Rego policy and validate its decision contract before activation.
 ---
 
-This page no longer documents standalone management command examples. Human-facing management now runs through the Console.
+Caracal policies run inside the STS during token exchange. A policy must return the Caracal `result` object from `package caracal.authz`.
 
-Open the interface with:
+## Prerequisites
 
-```bash
-caracal console
+- A zone, application, resource, and grant.
+- Access to the Console or Admin API.
+- The resource identifier and scopes you want to allow.
+
+## Start from the contract
+
+```text
+package caracal.authz
+
+import rego.v1
+
+default result := {
+  "decision": "deny",
+  "evaluation_status": "complete",
+  "determining_policies": [],
+  "diagnostics": [],
+}
+
+result := {
+  "decision": "allow",
+  "evaluation_status": "complete",
+  "determining_policies": [{"policy": "payments-read"}],
+  "diagnostics": [],
+} if {
+  input.resource.identifier == "https://api.example.com/payments"
+  every scope in input.context.requested_scopes {
+    scope == "payments:read"
+  }
+}
 ```
 
-Use the matching view for the workflow covered by this page. For automation, enable the Control API from the Console Control menu and call the authenticated HTTP surface.
+## Use the important inputs
 
-Runtime lifecycle commands (`caracal up`, `caracal down`, `caracal status`, `caracal purge`) and workload execution (`caracal run -- <command>`) remain documented in [Runtime and Console](/runtime-console/).
+| Input | Use it for |
+| --- | --- |
+| `input.principal` | User, service, or agent identity checks. |
+| `input.application` | Application registration and trait checks. |
+| `input.resource` | Resource identifier and resource metadata checks. |
+| `input.context.requested_scopes` | Scope allowlists. |
+| `input.grant` | Grant-aware decisions. |
+| `input.delegation_edge` | Delegation constraints and graph proof. |
+
+## Validate before versioning
+
+Use the Console policy workflow to paste the Rego and run validation. For automation, validate through the Admin API or `@caracalai/admin`:
+
+```ts
+import { AdminClient } from "@caracalai/admin";
+
+const admin = new AdminClient({
+  apiUrl: process.env.CARACAL_API_URL!,
+  adminToken: process.env.CARACAL_ADMIN_TOKEN!,
+});
+
+const validation = await admin.policies.validate(policySource);
+if (!validation.valid) {
+  throw new Error(validation.warnings.join("\n"));
+}
+```
+
+## Keep policies reviewable
+
+- Default to deny.
+- Return diagnostics for denies and step-up triggers.
+- Keep resource identifiers stable and scopes action-oriented.
+- Avoid broad tables that duplicate grants; use policy for decision logic and grants for assignments.
+- Split policies by ownership only when separate review or activation is useful.
+
+Next, [activate the policy in a policy set](/guides/activate-policy-set/).
