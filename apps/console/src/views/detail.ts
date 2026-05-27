@@ -7,17 +7,20 @@ import { pad, sanitizeAnsi, ui } from '../ansi.ts'
 import { explainError } from '../errors.ts'
 import type { Key } from '../keys.ts'
 import type { App, View, ViewContext } from '../screen.ts'
+import { actionInfo, openInfo, type InfoPage } from './info.ts'
 
 export interface DetailOptions {
   title: string
   load: () => Promise<unknown>
   mask?: (value: unknown, path: string[]) => string | undefined
+  info?: InfoPage
 }
 
 export class DetailView implements View {
   readonly title: string
   private readonly loader: () => Promise<unknown>
   private readonly mask?: (value: unknown, path: string[]) => string | undefined
+  private readonly info: InfoPage
   private data: unknown
   private body: string[] = [' loading…']
   private offset = 0
@@ -31,10 +34,11 @@ export class DetailView implements View {
     this.title = opts.title
     this.loader = opts.load
     this.mask = opts.mask
+    this.info = opts.info ?? actionInfo(opts.title, 'This view shows the latest structured record data from the API.')
   }
 
   hints(): string[] {
-    const base = ['↑/↓:scroll', 'r:reload', 'esc:back']
+    const base = ['↑/↓:scroll', 'r:reload', '?:info', 'esc:back']
     if (this.mask) base.push(this.revealed ? 'v:mask' : 'v:reveal')
     return base
   }
@@ -89,6 +93,10 @@ export class DetailView implements View {
     if (key === 'home' || key === 'g') { this.offset = 0; return }
     if (key === 'end' || key === 'G') { this.offset = max; return }
     if (key === 'r') return this.reload()
+    if (key === '?') {
+      openInfo(ctx.app, this.info)
+      return
+    }
     if (key === 'v' && this.mask) {
       this.revealed = !this.revealed
       this.rebuild()

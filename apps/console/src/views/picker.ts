@@ -9,6 +9,7 @@ import type { Key } from '../keys.ts'
 import type { App } from '../screen.ts'
 import type { View, ViewContext } from '../screen.ts'
 import type { Field } from './form.ts'
+import { actionInfo, openInfo, type InfoPage } from './info.ts'
 import type { Column } from './list.ts'
 
 export interface EntityOption {
@@ -29,6 +30,7 @@ export interface EntityPickerOptions<T> {
   icon?: (row: T) => string | undefined
   merge?: (current: string, picked: string) => string
   onPick: (value: string, label?: string) => void | Promise<void>
+  info?: InfoPage
 }
 
 const PAGE_SIZE = 100
@@ -65,6 +67,7 @@ export class EntityPickerView<T> implements View {
   private readonly description?: (row: T) => string | undefined
   private readonly icon?: (row: T) => string | undefined
   private readonly pick: (value: string, label?: string) => void | Promise<void>
+  private readonly info: InfoPage
   private options: EntityOption[] = []
   private cursor = 0
   private offset = 0
@@ -83,6 +86,7 @@ export class EntityPickerView<T> implements View {
     this.description = opts.description
     this.icon = opts.icon
     this.pick = opts.onPick
+    this.info = opts.info ?? actionInfo(opts.title, 'Selecting a row fills the parent field with the hidden internal value while showing the readable label.')
     if (opts.rows) {
       this.options = this.buildOptions(opts.rows)
       this.loading = false
@@ -90,7 +94,7 @@ export class EntityPickerView<T> implements View {
   }
 
   hints(): string[] {
-    return ['↑/↓:move', 'type:search', 'enter:select', 'V:reveal-id', 'N:copy-name', 'I:copy-id', 'esc:back']
+    return ['↑/↓:move', 'type:search', 'enter:select', '?:info', 'V:reveal-id', 'N:copy-name', 'I:copy-id', 'esc:back']
   }
 
   async init(app: App): Promise<void> {
@@ -162,6 +166,7 @@ export class EntityPickerView<T> implements View {
     if (key === 'V') { this.showIds = !this.showIds; return }
     if (key === 'N') { this.copyName(ctx.app); return }
     if (key === 'I') { this.copyId(ctx.app); return }
+    if (key === '?') { this.openInfo(ctx.app); return }
     if (key === 'backspace') {
       this.query = this.query.slice(0, -1)
       this.cursor = Math.min(this.cursor, Math.max(0, this.filtered().length - 1))
@@ -202,6 +207,19 @@ export class EntityPickerView<T> implements View {
     if (!option) return
     copyToClipboard(option.value)
     app.setStatus(`copied id for ${option.label}`)
+  }
+
+  private openInfo(app: App): void {
+    const option = this.filtered()[this.cursor]
+    openInfo(app, {
+      ...this.info,
+      title: option ? `${this.title}: ${option.label}` : this.info.title,
+      example: option ? option.label : this.info.example,
+      valid: 'Use search text to narrow results; press enter to select the highlighted row.',
+      after: option
+        ? `The parent field stores the internal ID for ${option.label}, with the ID hidden unless you reveal it.`
+        : this.info.after,
+    })
   }
 
   private disambiguate(options: EntityOption[]): EntityOption[] {

@@ -18,6 +18,7 @@ import { maskSecretField, scrubTokens } from '../errors.ts'
 import type { App, View, ViewContext } from '../screen.ts'
 import { DetailView } from './detail.ts'
 import { FormView, type Field } from './form.ts'
+import { infoPage, openInfo } from './info.ts'
 import { EntityPickerView } from './picker.ts'
 import type { Ctx } from './factory.ts'
 
@@ -158,9 +159,9 @@ class FirstSetupWizardView implements View {
 
   hints(): string[] {
     if (this.submitting) return []
-    if (this.step === 'review') return ['enter:create', 'left:back', 'A:advanced', 'esc:cancel']
+    if (this.step === 'review') return ['enter:create', 'left:back', 'A:advanced', '?:info', 'esc:cancel']
     const step = this.currentStep()
-    const hints = ['enter:next', 'left:back', 'A:advanced', 'esc:cancel']
+    const hints = ['enter:next', 'left:back', 'A:advanced', '?:info', 'esc:cancel']
     if (step.kind === 'bool') hints.unshift('space:toggle')
     else hints.unshift('type:answer')
     if (step.picker) hints.push('→:select')
@@ -195,6 +196,10 @@ class FirstSetupWizardView implements View {
     }
     if (key === 'A') {
       this.openAdvanced(ctx.app)
+      return
+    }
+    if (key === '?') {
+      this.openStepInfo(ctx.app)
       return
     }
     if (key === 'left' || key === 'up') {
@@ -504,6 +509,17 @@ class FirstSetupWizardView implements View {
         Object.assign(this.values, raw)
         advancedApp.pop()
       },
+    }))
+  }
+
+  private openStepInfo(app: App): void {
+    const step = this.currentStep()
+    openInfo(app, infoPage({
+      title: step.question,
+      meaning: step.explanation,
+      when: step.key === 'review' ? 'Use this after checking the plan and advanced settings.' : 'Use this step to give Console the smallest value needed for the first working setup.',
+      valid: step.kind === 'bool' ? 'Toggle yes or no.' : step.picker ? 'Select an existing object or type a name to create one.' : 'Plain text; comma-separated where the prompt asks for scopes.',
+      after: step.key === 'review' ? 'Console creates only missing objects, activates the selected policy path, and shows setup output.' : 'Console carries this value forward and resolves internal IDs in the background.',
     }))
   }
 

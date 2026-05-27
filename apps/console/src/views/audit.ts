@@ -9,6 +9,7 @@ import { explainError } from '../errors.ts'
 import type { Key } from '../keys.ts'
 import type { App, View, ViewContext } from '../screen.ts'
 import { DetailView } from './detail.ts'
+import { infoPage, openInfo } from './info.ts'
 
 const POLL_MS = 2_000
 const MAX_ROWS = 500
@@ -45,6 +46,7 @@ export class AuditTailView implements View {
       'd:cycle-decision',
       'enter:explain',
       'r:reload',
+      '?:info',
       'esc:back',
     ]
   }
@@ -162,6 +164,17 @@ export class AuditTailView implements View {
       return
     }
     if (key === 'r') { await this.fetchInitial(); return }
+    if (key === '?') {
+      openInfo(ctx.app, infoPage({
+        title: 'Audit event',
+        meaning: 'Audit rows show authorization and Gateway decisions as they happen.',
+        when: 'Use this view to confirm whether a request was allowed, denied, partial, or missing.',
+        example: 'deny token_exchange req_123',
+        valid: 'Move to an event, cycle the decision filter, or press enter on a request ID.',
+        after: 'Opening an event loads the full explanation for the selected request.',
+      }))
+      return
+    }
     if (key === 'enter') {
       const ev = this.events[this.cursor]
       if (ev?.request_id) {
