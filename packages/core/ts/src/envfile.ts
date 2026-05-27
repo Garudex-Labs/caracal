@@ -46,7 +46,7 @@ export interface DiscoverTokenOptions {
   preferGenerated?: boolean;
 }
 
-function repoRoot(): string | undefined {
+export function discoverRepoRoot(): string | undefined {
   if (process.env.CARACAL_REPO_ROOT) return process.env.CARACAL_REPO_ROOT;
   let dir = process.cwd();
   while (true) {
@@ -60,10 +60,10 @@ function repoRoot(): string | undefined {
 }
 
 function readGeneratedSecret(fileName: string): string | undefined {
-  const root = repoRoot();
+  const root = discoverRepoRoot();
   const installedPath = join(installedHome(), 'secrets', fileName);
   const devPath = root ? join(root, 'infra', 'secrets', 'files', fileName) : undefined;
-  const preferDev = process.env.CARACAL_MODE === 'dev' || (!process.env.CARACAL_HOME && process.env.CARACAL_REPO_ROOT !== undefined);
+  const preferDev = process.env.CARACAL_MODE === 'dev' || (!process.env.CARACAL_HOME && root !== undefined);
   const paths = preferDev ? [devPath, installedPath] : [installedPath, devPath];
   for (const path of paths) {
     if (!path) continue;

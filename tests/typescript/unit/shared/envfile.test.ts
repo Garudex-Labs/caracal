@@ -7,7 +7,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { discoverAdminToken, discoverCoordinatorToken, installedHome, readEnvFile } from '../../../../packages/core/ts/src/envfile.js'
+import { discoverAdminToken, discoverCoordinatorToken, discoverRepoRoot, installedHome, readEnvFile } from '../../../../packages/core/ts/src/envfile.js'
 
 describe('installedHome', () => {
   const saved = { ...process.env }
@@ -62,6 +62,33 @@ describe('readEnvFile', () => {
 
     expect(readEnvFile(join(dir, 'missing.env'))).toEqual({})
     expect(readEnvFile(file)).toEqual({ GOOD: 'value' })
+  })
+})
+
+describe('discoverRepoRoot', () => {
+  let dir: string
+  let cwd: string
+  const saved = { ...process.env }
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), 'caracal-repo-root-'))
+    cwd = process.cwd()
+    process.chdir(dir)
+    process.env = { ...saved }
+    delete process.env.CARACAL_REPO_ROOT
+  })
+
+  afterEach(() => {
+    process.env = { ...saved }
+    process.chdir(cwd)
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  it('finds the current workspace when CARACAL_REPO_ROOT is not set', () => {
+    writeFileSync(join(dir, 'pnpm-workspace.yaml'), 'packages: []\n')
+    mkdirSync(join(dir, 'infra', 'secrets', 'files'), { recursive: true })
+
+    expect(discoverRepoRoot()).toBe(dir)
   })
 })
 

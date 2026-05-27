@@ -7,7 +7,7 @@ import { existsSync, readFileSync } from 'node:fs'
 import { connect } from 'node:net'
 import { X509Certificate } from 'node:crypto'
 import { join } from 'node:path'
-import { installedHome } from '@caracalai/core'
+import { discoverRepoRoot, installedHome } from '@caracalai/core'
 
 export interface PreflightCheck {
   check: string
@@ -42,10 +42,14 @@ function readSecret(path: string): string | undefined {
 }
 
 function secretDirs(): string[] {
+  const root = discoverRepoRoot()
+  const devDir = root ? join(root, 'infra', 'secrets', 'files') : undefined
+  const installedDir = join(installedHome(), 'secrets')
+  const preferDev = process.env.CARACAL_MODE === 'dev' || (!process.env.CARACAL_HOME && root !== undefined)
+  const generatedDirs = preferDev ? [devDir, installedDir] : [installedDir, devDir]
   const dirs = [
     process.env.CARACAL_SECRETS_DIR,
-    process.env.CARACAL_REPO_ROOT ? join(process.env.CARACAL_REPO_ROOT, 'infra', 'secrets', 'files') : undefined,
-    join(installedHome(), 'secrets'),
+    ...generatedDirs,
   ].filter((dir): dir is string => Boolean(dir))
   return [...new Set(dirs)]
 }
@@ -60,7 +64,7 @@ function managedSecret(name: string): ResolvedValue | undefined {
   return undefined
 }
 
-function fileBacked(name: string): ResolvedValue | undefined {
+function explicitValue(name: string): ResolvedValue | undefined {
   const direct = process.env[name]
   if (direct) return { value: direct, source: 'env' }
   const filePath = process.env[`${name}_FILE`]
@@ -73,17 +77,38 @@ function fileBacked(name: string): ResolvedValue | undefined {
       throw new Error(`${name}_FILE unreadable: ${(err as Error).message}`)
     }
   }
-  return managedSecret(name)
+  return undefined
 }
 
-function localPostgresUrl(): ResolvedValue | undefined {
-  const explicit = fileBacked('DATABASE_URL')
-  if (explicit && explicit.source !== 'managed') return explicit
-  if (explicit) {
-    const url = new URL(explicit.value)
+function fileBacked(name: string): ResolvedValue | undefined {
+  return explicitValue(name) ?? managedSecret(name)
+}
+
+function localServiceUrl(name: string, internalHost: string): ResolvedValue | undefined {
+  const explicit = explicitValue(name)
+  const managed = managedSecret(name)
+  if (managed && preferManagedLocalUrl(explicit, internalHost)) {
+    const url = new URL(managed.value)
     url.hostname = '127.0.0.1'
     return { value: url.toString(), source: 'managed' }
   }
+  return explicit ?? managed
+}
+
+function preferManagedLocalUrl(explicit: ResolvedValue | undefined, internalHost: string): boolean {
+  if (!explicit) return true
+  if (process.env.CARACAL_MODE === 'dev') return true
+  try {
+    const host = new URL(explicit.value).hostname
+    return host === '127.0.0.1' || host === 'localhost' || host === internalHost
+  } catch {
+    return false
+  }
+}
+
+function localPostgresUrl(): ResolvedValue | undefined {
+  const explicit = localServiceUrl('DATABASE_URL', 'postgres')
+  if (explicit) return explicit
   const password = fileBacked('POSTGRES_PASSWORD') ?? managedSecret('POSTGRES_PASSWORD')
   if (!password) return undefined
   const user = process.env.POSTGRES_USER ?? 'caracal'
@@ -96,13 +121,8 @@ function localPostgresUrl(): ResolvedValue | undefined {
 }
 
 function localRedisUrl(): ResolvedValue | undefined {
-  const explicit = fileBacked('REDIS_URL')
-  if (explicit && explicit.source !== 'managed') return explicit
-  if (explicit) {
-    const url = new URL(explicit.value)
-    url.hostname = '127.0.0.1'
-    return { value: url.toString(), source: 'managed' }
-  }
+  const explicit = localServiceUrl('REDIS_URL', 'redis')
+  if (explicit) return explicit
   const password = fileBacked('REDIS_PASSWORD') ?? managedSecret('REDIS_PASSWORD')
   if (!password) return undefined
   const url = new URL('redis://127.0.0.1:6379')
