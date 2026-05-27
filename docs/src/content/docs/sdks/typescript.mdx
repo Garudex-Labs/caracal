@@ -1,10 +1,9 @@
 ---
 title: TypeScript SDK
-description: "Complete API reference for @caracalai/sdk: the Caracal client for Node services."
-pageType: reference
+description: Public API reference for @caracalai/sdk.
 ---
 
-`@caracalai/sdk` is the primary integration point for TypeScript and JavaScript services on Node. It manages agent session lifecycle via `AsyncLocalStorage`, propagates identity across async boundaries without explicit threading, and provides a `fetch`-compatible transport that injects W3C envelope headers on every outbound call.
+`@caracalai/sdk` is the main TypeScript package for agent lifecycle, delegation, Gateway routing, and Caracal context propagation.
 
 ## Install
 
@@ -12,326 +11,64 @@ pageType: reference
 npm install @caracalai/sdk
 ```
 
-## Configuration
+The package is ESM-only and targets Node `>=24`.
 
-`Caracal.connect()` reads the shared generated profile contract first, then falls back to environment variables. The profile path can be passed explicitly with `configPath`, set with `CARACAL_CONFIG`, or placed at `$XDG_CONFIG_HOME/caracal/caracal.toml` or `~/.config/caracal/caracal.toml`.
+## Configuration entry points
 
-| Variable | Required | Description |
-| -------- | -------- | ----------- |
-| `CARACAL_COORDINATOR_URL` | Yes | Coordinator base URL (e.g., `http://coordinator:4000`) |
-| `CARACAL_ZONE_ID` | Yes | Zone identifier |
-| `CARACAL_APPLICATION_ID` | Yes | Registered application ID |
-| `CARACAL_APP_CLIENT_SECRET_FILE` | Preferred | Application secret file used to refresh session authority through STS |
-| `CARACAL_APP_CLIENT_SECRET` | Local development | Application secret used to refresh session authority through STS |
-| `CARACAL_STS_URL` | Client-secret mode | STS base URL |
-| `CARACAL_APP_RESOURCES` | Client-secret mode if `CARACAL_RESOURCES` is unset | Comma-separated resource IDs for token exchange |
-| `CARACAL_GATEWAY_URL` | No | Gateway base URL for resource-routed calls |
-| `CARACAL_RESOURCES` | No | Comma-separated `resourceId=upstreamPrefix` pairs |
-| `CARACAL_RESOURCES_FILE` | No | JSON resource-binding file |
+| API | Use it when |
+| --- | --- |
+| `Caracal.connect()` | You want auto-detection from explicit options, `CARACAL_CONFIG`, the default profile, or environment variables. |
+| `Caracal.fromEnv()` | You want environment-only startup. |
+| `Caracal.fromConfig(path)` | You want to load a generated runtime profile. |
+| `Caracal.fromClientSecret(options)` | You want service-root token refresh through STS client-secret exchange. |
 
-## `Caracal` class
+```ts
+import { Caracal } from "@caracalai/sdk";
 
-### Constructor
-
-```typescript
-import { Caracal } from '@caracalai/sdk';
-
-new Caracal(config: CaracalConfig)
+const caracal = Caracal.connect();
 ```
 
-```typescript
-interface CaracalConfig {
-  coordinator: { baseUrl: string; fetchImpl?: typeof fetch };
-  zoneId: string;
-  applicationId: string;
-  subjectToken?: string;
-  tokenSource?: () => string | Promise<string>;
-  gatewayUrl?: string;
-  resources?: ResourceBinding[];       // [{ resourceId: string; upstreamPrefix: string }]
-  defaultKind?: AgentKind;             // default: 'instance'
-  defaultTtlSeconds?: number;
-}
-```
+## Core methods
 
-### `Caracal.connect(opts?)`
+| Method | Purpose |
+| --- | --- |
+| `spawn(fn, options?)` | Create an agent session and bind context while `fn` runs. |
+| `delegate(options, fn)` | Create a delegation edge to an existing agent session. |
+| `delegateToSpawn(options, fn)` | Spawn a child agent and create the delegation edge before running `fn`. |
+| `headers(options?)` | Project the current bound context into HTTP headers synchronously. |
+| `headersAsync(options?)` | Project headers when a root token may require async refresh. |
+| `bindFromHeaders(headers, fn, options?)` | Bind inbound Caracal envelope headers to the current async context. |
+| `transport(options?)` | Return a fetch-compatible function that injects Caracal headers and Gateway routing. |
+| `gatewayRequest(resourceId, path?)` | Build a Gateway URL and `X-Caracal-Resource` header. |
+| `current()` | Return the currently bound `CaracalContext`, if present. |
 
-Loads explicit client-secret options, a generated profile, or environment variables.
+## Delegation options
 
-```typescript
-static connect(opts?: { configPath?: string; env?: NodeJS.ProcessEnv; clientSecret?: Partial<ClientSecretOptions> }): Caracal
-```
-
-### `Caracal.fromEnv(env?)`
-
-Reads `CARACAL_*` environment variables and constructs a `Caracal` instance.
-
-```typescript
-static fromEnv(env?: NodeJS.ProcessEnv): Caracal
-```
-
-### `Caracal.fromConfig(path?)`
-
-Reads the shared generated profile contract.
-
-```typescript
-static fromConfig(path?: string, env?: NodeJS.ProcessEnv): Caracal
-```
-
-### `Caracal.fromClientSecret(opts)`
-
-Builds a client with an SDK-managed token source. The token source uses STS token exchange, caches through the OAuth client, and refreshes before expiry.
-
-```typescript
-static fromClientSecret(opts: {
-  coordinatorUrl: string;
-  stsUrl: string;
-  zoneId: string;
-  applicationId: string;
-  clientSecret: string;
-  resources: string[] | ResourceBinding[];
-  gatewayUrl?: string;
-  scope?: string; // default: agent:lifecycle
-}): Caracal
-```
-
-## Agent session methods
-
-### `spawn(fn, opts?)`
-
-Opens an agent session on the Coordinator, binds it to the current async context via `AsyncLocalStorage`, runs `fn`, then terminates the session when `fn` returns or throws. Session state is unavailable outside the callback.
-
-```typescript
-spawn<T>(fn: () => Promise<T>, opts?: SpawnOptions): Promise<T>
-
-interface SpawnOptions {
-  kind?: AgentKind;             // 'service' | 'instance' | 'ephemeral'
-  ttlSeconds?: number;
-  subjectSessionId?: string;    // Explicit subject session ID; inferred if omitted
-  parentId?: string;            // Parent agent session ID for nested spawns
-  metadata?: Record<string, unknown>;
-  traceId?: string;
-}
-
-type AgentKind = 'service' | 'instance' | 'ephemeral';
-```
-
-The Coordinator enforces: max depth 10, max children per session 10, max 50 active sessions per application per zone, max 200 active sessions per application across all zones.
-
-### `delegate(opts, fn)`
-
-Creates a delegation edge from the current agent session to a target session. The edge authorizes `opts.toApplicationId` to request the listed scopes. `fn` runs under the delegated context; `current()` inside `fn` returns the delegated `CaracalContext`.
-
-```typescript
-delegate<T>(opts: DelegateOptions, fn: () => Promise<T>): Promise<T>
-
-interface DelegateOptions {
-  to: string;                   // Target agent session ID
-  toApplicationId: string;      // Application owning the target session
-  resourceId?: string;          // Optional resource restriction
-  scopes: string[];
-  ttlSeconds?: number;
-  constraints?: {               // All fields optional
-    resources?: string[];       // Restrict edge to these resource identifiers
-    maxDepth?: number;          // Max further delegation hops
-    maxHops?: number;
-    ttlSeconds?: number;
-    budget?: number;
-    policyApproved?: boolean;
-    expiresAt?: string;         // ISO 8601 hard expiry
-    broadReason?: string;
-  };
-}
-```
-
-### `delegateToSpawn(opts, fn)`
-
-Atomically spawns a child agent session and records a parent-to-child delegation edge before `fn` runs. Use this at fan-out boundaries where the parent may stop interacting before the child can issue its first call.
-
-```typescript
-delegateToSpawn<T>(opts: DelegateToSpawnOptions, fn: () => Promise<T>): Promise<T>
-
-interface DelegateToSpawnOptions {
-  resourceId?: string;
-  scopes: string[];
-  constraints?: DelegationConstraints;
-  delegationTtlSeconds?: number;
-  kind?: AgentKind;
-  ttlSeconds?: number;
-  metadata?: Record<string, unknown>;
-  traceId?: string;
-}
-```
-
-### `current()`
-
-Returns the `CaracalContext` bound to the current `AsyncLocalStorage` slot, or `undefined` if called outside a `spawn()` or `delegate()` callback.
-
-```typescript
-current(): CaracalContext | undefined
-
-interface CaracalContext {
-  subjectToken: string;
-  zoneId: string;
-  clientId: string;             // Application ID
-  agentSessionId?: string;
-  delegationEdgeId?: string;
-  parentEdgeId?: string;
-  sessionId?: string;
-  traceId?: string;
-  hop: number;                  // 0 at root, incremented on each delegate()
-}
-```
-
-## Transport and headers
-
-### `transport()`
-
-Returns a `fetch`-compatible function that reads the current `CaracalContext` from `AsyncLocalStorage` and injects three headers on every call:
-
-- `Authorization: Bearer <subjectToken>`
-- `traceparent: 00-{traceId}-{spanId}-01`
-- `baggage: caracal.agent_session=…,caracal.delegation_edge=…,caracal.hop=N`
-
-If `gatewayUrl` and `resources` are configured, URLs matching a known resource prefix are rewritten to route through the Gateway.
-
-```typescript
-transport(opts?: { allowRoot?: boolean }): typeof fetch
-```
-
-Calls made without a bound `CaracalContext` fail by default. Pass `{ allowRoot: true }` only when the call intentionally uses the application session mandate.
-
-### `gatewayRequest(resourceId, path?)`
-
-Builds an explicit Gateway target for a registered resource. Use this when the call should go through Gateway even when the upstream URL is not known to the SDK as an `upstreamPrefix`. The returned headers include `X-Caracal-Resource`; use the returned URL with `transport()` so authorization and trace headers are still injected from the active Caracal context.
-
-```typescript
-const request = caracal.gatewayRequest("resource://payments", "/charge");
-const response = await caracal.transport()(request.url, {
-  method: "POST",
-  headers: { ...request.headers, "Content-Type": "application/json" },
-  body: JSON.stringify(payload),
+```ts
+await caracal.delegateToSpawn({
+  resourceId: "https://api.example.com/tickets",
+  scopes: ["tickets:read"],
+  constraints: {
+    maxHops: 1,
+    budget: 5,
+    policyApproved: true,
+  },
+  delegationTtlSeconds: 600,
+}, async () => {
+  await fetch("https://api.example.com/tickets", {
+    headers: await caracal.headersAsync(),
+  });
 });
 ```
 
-### `headers()`
+`DelegationConstraints` uses camelCase fields: `resources`, `maxDepth`, `maxHops`, `ttlSeconds`, `budget`, `policyApproved`, `expiresAt`, and `broadReason`.
 
-Returns the current envelope as a plain `Record<string, string>`. Use this to inject context headers manually into non-`fetch` calls:
+## Root identity safety
 
-```typescript
-headers(opts?: { allowRoot?: boolean }): Record<string, string>
-```
+Header and transport helpers refuse to fall back to the application root token unless you pass `{ allowRoot: true }`. Use that option only for trusted service-root ingress or setup calls. Normal agent work should run inside `spawn()`, `delegate()`, `delegateToSpawn()`, or `bindFromHeaders()`.
 
-Clients backed by an async token source should use `headersAsync({ allowRoot: true })` for root headers.
+## Related pages
 
-### `bindFromHeaders(headers, fn)`
-
-Reads the Caracal envelope from inbound HTTP headers and binds the resulting context for the duration of `fn`. Use this after Gateway or a verifier connector has authenticated the request, so server handlers can propagate the calling agent's identity:
-
-```typescript
-bindFromHeaders<T>(
-  headers: Record<string, string | string[] | undefined> | HeaderGetter,
-  fn: () => Promise<T>,
-  opts?: { allowRoot?: boolean }
-): Promise<T>
-```
-
-### `contextMiddleware()`
-
-Returns an Express/Connect-compatible request handler that calls `bindFromHeaders` on every request:
-
-```typescript
-contextMiddleware(opts?: { allowRoot?: boolean }): (req: IncomingMessage, res: ServerResponse, next: () => void) => void
-```
-
-This is context propagation only. It does not verify JWT signatures, audience, scopes, token use, or revocation. Use the Gateway path or [`@caracalai/mcp-express`](../../guides/protect-express/) for protected inbound routes.
-
-## Lifecycle hooks
-
-```typescript
-onAgentStart(cb: (ctx: CaracalContext) => void | Promise<void>): void
-onAgentEnd(cb: (ctx: CaracalContext) => void | Promise<void>): void
-```
-
-Both hooks fire synchronously within the `spawn()` call: `onAgentStart` before `fn` runs, `onAgentEnd` after `fn` completes (including on throw).
-
-## Advanced API
-
-Import from `@caracalai/sdk/advanced` for low-level primitives:
-
-```typescript
-import {
-  current,            // Get CaracalContext from AsyncLocalStorage directly
-  bind,               // Synchronously bind a context and run a fn: bind(ctx, fn) → T
-  abind,              // Async bind: await abind(ctx, promise) → T
-  withOverrides,      // Patch current context fields: withOverrides({ hop: 2 })
-  Envelope,           // Wire envelope type
-  encodeEnvelope,     // Serialize Envelope to header map
-  decodeEnvelope,     // Parse Envelope from header map
-  toHeaders,          // Envelope → { Authorization, traceparent, baggage }
-  fromHeaders,        // Header map → Envelope
-  HEADER_AUTHORIZATION,
-  HEADER_TRACEPARENT,
-  HEADER_BAGGAGE,
-  BAGGAGE_AGENT_SESSION,
-  BAGGAGE_DELEGATION_EDGE,
-  BAGGAGE_PARENT_EDGE,
-  BAGGAGE_HOP,
-  MAX_HOP,            // 32
-} from '@caracalai/sdk/advanced';
-```
-
-### `Envelope` type
-
-```typescript
-interface Envelope {
-  subjectToken?: string;
-  agentSessionId?: string;
-  delegationEdgeId?: string;
-  parentEdgeId?: string;
-  traceId?: string;
-  hop: number;
-}
-```
-
-### Wire header encoding
-
-```
-Authorization: Bearer {subjectToken}
-traceparent:   00-{32-hex-traceId}-{16-hex-spanId}-01
-baggage:       caracal.agent_session={agentSessionId},
-               caracal.delegation_edge={delegationEdgeId},
-               caracal.parent_edge={parentEdgeId},
-               caracal.hop={hop}
-```
-
-Hop is capped at `MAX_HOP = 32`. The span ID is regenerated on each hop from `crypto.getRandomValues`.
-
-## `ResourceBinding` and Gateway routing
-
-When `resources` is set in the config, `transport()` rewrites any request URL that starts with a known `upstreamPrefix` to route through the Gateway, injecting the mandate as the `Authorization` header:
-
-```typescript
-interface ResourceBinding {
-  resourceId: string;       // e.g., 'resource://inventory'
-  upstreamPrefix: string;   // e.g., 'http://inventory:8080'
-}
-```
-
-A call to `http://inventory:8080/items` becomes `{gatewayUrl}/items` with the appropriate mandate headers and the resource target embedded.
-
-## `CoordinatorClient` options
-
-```typescript
-interface CoordinatorClient {
-  baseUrl: string;
-  fetchImpl?: typeof fetch;   // Custom fetch for testing
-}
-```
-
-## Error behavior
-
-- `spawn()` throws if the Coordinator is unreachable or rejects the session creation (e.g., limits exceeded).
-- `delegate()` throws if no current session exists, or if the Coordinator rejects the edge (e.g., cycle detected).
-- `delegateToSpawn()` throws if no active parent session exists, if child spawn fails, or if delegation creation fails.
-- `transport()` passes fetch errors through unchanged.
-- `fromEnv()` throws synchronously if any required env var is missing.
+- [Integrate the TypeScript SDK](/guides/sdk-typescript/)
+- [Delegation Graph](/concepts/delegation/)
+- [A2A Transport](/sdks/transport-a2a/)

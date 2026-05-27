@@ -1,79 +1,33 @@
 ---
 title: Connectors
-description: Framework-specific packages and adapter requirements for Caracal connector-verified integrations.
-pageType: landing
+description: Framework and storage adapters for Caracal-protected resource servers.
 ---
 
-Connectors wrap the primitive transport and revocation packages and expose framework-native interfaces: middleware functions, callable auth classes, and backend implementations. They are for connector-verified services and enforcement adapters. For a new provider or tool integration, use the Gateway first unless the transport cannot be proxied safely.
+Connectors adapt the lower-level identity, MCP transport, revocation, and token-state packages to common frameworks and backing services.
 
-Connectors are not a promise that Caracal natively governs every protocol. They are boundary helpers: use a connector in production only when the full service boundary verifies mandates, checks revocation anchors, preserves trace context, enforces resource/scope requirements, and emits or forwards action-result audit.
+## Connector map
 
-Choose the connector for your framework. If your framework is not listed, use the transport packages directly. The TypeScript [`@caracalai/transport-mcp`](../transport-mcp/) package and Python [`caracalai_transport_mcp`](../transport-mcp/) package call `authenticate()` without any framework dependency.
-
-## Available connectors
-
-| Package | Language | Framework | Purpose |
-| --- | --- | --- | --- |
-| [`@caracalai/mcp-express`](./express/) | TypeScript | Express | `caracalAuth()` middleware: attaches verified `Claims` to `req.caracalClaims` |
-| [`caracalai-mcp-fastmcp`](./fastmcp/) | Python | FastMCP | `CaracalAuth` callable: verifies bearer token and returns `Claims` |
-| [`github.com/garudex-labs/caracal/packages/connectors/nethttp/go`](./nethttp/) | Go | `net/http` | `Middleware()`: wraps any `http.Handler`; attaches claims to request context |
-| [`@caracalai/tokenstate-postgres`](./postgres/) | TypeScript | Any | `PostgresBackend`: persists MCP token state to a Postgres table |
-| [`@caracalai/revocation-redis`](./redis/) | TypeScript | Any | Redis-backed `RevocationStore` and stream consumer |
-| [`caracalai-revocation-redis`](./redis/) | Python | Any | Python equivalent with synchronous `poll_once()` |
-
-## Flow status matrix
-
-| Integration style | Status | Required boundary |
+| Connector | Package | Use it for |
 | --- | --- | --- |
-| Gateway-mediated HTTP, REST, or MCP-over-HTTP | Implemented default | Gateway verifies Caracal token, brokers provider credential, and emits action audit. |
-| Express, FastMCP, Go `net/http` services you own | Supported connector pattern | Connector verifies token and revocation; the service or adapter emits result audit when action proof is required. |
-| Application-managed external provider calls | Supported attribution pattern | Application attaches Caracal context for traceability; Caracal is not the provider enforcement boundary unless the application performs equivalent checks. |
-| gRPC, queues, webhooks, external MCP servers you cannot modify | Adapter-required supported pattern | Adapter acts as the Caracal-enforced boundary before provider execution. It must verify mandates, check revocation, preserve trace context, and emit result audit. |
-| Workload-identity credential minting and native broker plugins | Future direction | Registration can describe the provider, but automatic assertion minting is not implemented in the OSS runtime. |
+| [Express](/sdks/connectors/express/) | `@caracalai/mcp-express` | Protecting Express 5 routes with Caracal mandate verification. |
+| [FastMCP](/sdks/connectors/fastmcp/) | `@caracalai/mcp-fastmcp`, `caracalai-mcp-fastmcp` | Verifying FastMCP bearer tokens before tool execution. |
+| [Go net/http](/sdks/connectors/nethttp/) | `github.com/garudex-labs/caracal/packages/connectors/nethttp/go` | Protecting Go HTTP handlers. |
+| [Postgres Token State](/sdks/connectors/postgres/) | `@caracalai/tokenstate-postgres` | Persisting token state for TypeScript services. |
+| [Redis Token State](/sdks/connectors/redis/) | `@caracalai/revocation-redis`, `caracalai-revocation-redis`, Go Redis connector | Shared revocation state and revocation stream consumption. |
 
-## Relationship to transport packages
+## Choosing a verification layer
 
-The connector packages call the transport packages internally. The data flow for verification is:
-
-```
-inbound request
-  → connector middleware (extracts bearer, calls authenticate())
-    → @caracalai/transport-mcp or caracalai_transport_mcp
-      → @caracalai/identity or caracalai_identity (JWKS verify)
-      → RevocationStore (isRevoked check)
-  → claims attached to framework context
-  → handler executes
-```
-
-The Redis and Postgres connectors sit on a separate axis: they are storage backends consumed by the verification path, not middleware themselves.
-
-## Adapter enforcement requirements
-
-Provider SDKs often hide their HTTP, gRPC, queue, or streaming transport. If a provider SDK cannot call the Gateway directly, wrap it with an adapter that preserves the Caracal enforcement contract before using it in production. Such an adapter must:
-
-- acquire Caracal access tokens through the SDK or Gateway path instead of holding provider-native credentials in agent code;
-- attach Caracal authorization and trace context to every provider operation it controls;
-- verify Caracal tokens and revocation when it acts as a direct resource rather than a Gateway-proxied resource;
-- emit or forward action-result audit events with request ID, resource, provider or grant ID when brokered, provider operation, auth mode, status, latency, result class, and revocation interruption state;
-- avoid forwarding Caracal identity tokens to third-party providers unless the resource is explicitly configured as a trusted sidecar.
-
-The safe default is to route provider SDK traffic through the Gateway. Direct adapters are for transports the Gateway cannot proxy or for trusted internal services that can enforce the same verification, revocation, and audit boundaries. Do not describe an adapter as production-supported until those checks are automated and tested.
-
-## Transport enforcement contracts
-
-Different transports need different boundaries. Do not pretend one universal proxy model covers every provider.
-
-| Transport | Enforcement contract |
+| Need | Use |
 | --- | --- |
-| HTTP / REST / MCP-over-HTTP | Route through Gateway by default. Gateway owns exchange, replay, revocation, provider brokering, streaming checks, and action audit. |
-| gRPC | Use a Gateway-compatible HTTP/2 route only when request metadata can carry Caracal headers safely; otherwise use an adapter that verifies metadata, checks revocation before and during streams, and emits action audit. |
-| Queues and background jobs | Put the Caracal envelope in message headers, not in the body. Consumers must re-bind the authority context, reject expired or revoked authority before execution, and write execution audit for the job result. |
-| Provider SDKs | Prefer a custom HTTP client/transport that still calls Gateway. If the SDK hides transport, wrap it with an enforcement adapter and never pass provider-native credentials to agent code. |
-| Local tools | Treat the tool runner as the resource. It must verify or receive a Gateway-approved mandate, enforce scopes locally, and emit a result event. |
-| External MCP servers | If you control the server, use Gateway or a connector-verified service. If you do not, place a Caracal adapter in front of it and keep identity forwarding off unless explicitly trusted. |
+| Framework-neutral verification | [MCP Transport](/sdks/transport-mcp/) |
+| Express route middleware | [Express Connector](/sdks/connectors/express/) |
+| FastMCP tool/server authentication | [FastMCP Connector](/sdks/connectors/fastmcp/) |
+| Go HTTP middleware | [Go net/http Connector](/sdks/connectors/nethttp/) |
+| Shared revocation store | [Redis Token State](/sdks/connectors/redis/) |
 
-## Production revocation
+## Related guides
 
-The in-memory `RevocationStore` from `@caracalai/revocation` or `caracalai-revocation` is not appropriate for production multi-replica deployments. Replace it with `RedisRevocationStore` from the Redis connector. Pair it with `RedisRevocationConsumer` to automatically populate the store from the `caracal.sessions.revoke` stream.
-
-See the [Redis connector reference](./redis/) for the full setup, including stream consumer configuration and HMAC signature verification.
+- [Protect an MCP Server](/guides/protect-mcp/)
+- [Protect an Express App](/guides/protect-express/)
+- [Protect a FastMCP App](/guides/protect-fastmcp/)
+- [Protect a Go net/http Service](/guides/protect-nethttp/)

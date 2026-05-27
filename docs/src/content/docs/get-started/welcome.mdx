@@ -1,62 +1,62 @@
 ---
 title: Welcome to Caracal
-description: Orient yourself before you install or integrate.
+description: Learn what Caracal is, who it is for, and how the onboarding path is organized.
 pageType: landing
 ---
 
-This page tells you who Caracal is for, the default path to value, and where to start depending on your role.
+Caracal helps teams run AI agents in real environments without handing long-lived provider credentials to agent code. An agent asks Caracal for scoped authority, policy decides before the action happens, the Gateway or a verified service enforces the result, and audit records the evidence.
 
-## Who this is for
+## Who Caracal is for
 
-Caracal is built for teams that run AI agents, autonomous workflows, or multi-service integrations that need scoped, revocable, auditable access to tools, APIs, SaaS providers, or data. It is a good fit if you need to answer questions like:
+Caracal is built for teams that need to answer these questions:
 
-- Which agent was allowed to call this API, and under what policy?
-- If an agent misbehaves, can I revoke its access without restarting anything?
-- Can I delegate narrow authority from one agent to a child without copying credentials?
-- How do I enforce that no agent acts outside its declared scope before it acts?
+- Which agent app was allowed to call this resource?
+- Which policy allowed or denied the request?
+- Which run, delegation edge, and resource were involved?
+- Can access be revoked without restarting the whole platform?
+- Can a child agent receive narrower permission without copying secrets?
 
-Caracal is not an LLM framework, a prompt router, or an agent scheduler. It is the access boundary between agent code and the tools or APIs those agents call.
+Caracal is not an LLM framework, prompt router, agent scheduler, or provider SDK wrapper. It is the authority and audit boundary between agent code and protected tools, APIs, providers, or data.
 
-## The golden path
-
-The simplest safe path is:
+## The default path
 
 ```text
-agent app → Caracal SDK → Gateway → tool/provider
-                 │          │
-                 └─ audit + revocation + scoped access
+agent app -> SDK or caracal run -> Gateway -> protected resource
+                         |             |
+                         |             +-> action-result audit
+                         +-> STS policy decision + mandate
 ```
 
-In that path, agent code receives short-lived Caracal access tokens, not provider secrets. The Gateway verifies the token, checks revocation, brokers the provider credential only inside the trusted boundary, forwards the request, and records the action outcome.
+In the default path:
 
-## What background helps
+1. A confidential agent app exchanges its app secret for a short-lived Caracal access token.
+2. The STS evaluates the active policy set before signing the token.
+3. The agent calls the Gateway with the mandate and resource identifier.
+4. The Gateway verifies the mandate, checks replay and revocation, routes to the upstream, and emits action-result audit.
+5. Operators use the Console **audit** and **explain** flows to understand the decision.
 
-You do not need to understand all of Caracal upfront. The following background helps, but the onboarding path avoids requiring you to reason about every internal object:
+Use this path first. Move to connector-verified services only when you own the protected service boundary and can preserve mandate verification, revocation, replay protection where needed, and result audit there.
 
-- A general sense of what a reverse proxy does: the Gateway is the default execution plane
-- Basic understanding of scoped access tokens: Caracal issues short-lived signed tokens
-- Familiarity with policy-as-code if you plan to customize policy templates
-- Comfort with Docker Compose for running the local stack
+## What you need to know first
 
-The [Key Ideas at a Glance](./key-ideas/) page covers the domain model in one concise reference if you want a conceptual map before diving in.
+You can complete onboarding without learning every internal object. The useful first vocabulary is small:
 
-## How to read these docs depending on your role
+| Term | Meaning |
+| --- | --- |
+| Agent app | The workload identity registered in Caracal. |
+| Agent run | One tracked execution of that workload. |
+| Mandate | The short-lived signed authority Caracal issues after policy allows access. |
+| Resource | The protected tool, API, provider, or data target. |
+| Delegated permission | A narrowed authority path from one agent run to another. |
 
-**I want to run the stack and see it work**
-: Start with [Installation](./installation/) → [Quickstart](./quickstart/). Skip the conceptual pages for now and come back to [Concepts](/concepts/) once the stack is running.
+The reference pages use precise terms such as principal, execution session, delegation edge, policy set, and audit event. [Key Ideas at a Glance](./key-ideas/) maps those terms when you need them.
 
-**I want to integrate my application with the SDK**
-: Read [What Caracal Does](./what-caracal-does/) to understand the Gateway path, then jump to [First Integration](./first-integration/) and the relevant [SDK page](/sdks/).
+## Where to go next
 
-**I want to write authorization policies**
-: Read [What Caracal Does](./what-caracal-does/), then [Policy](/concepts/policy/) in Concepts, then [Author a Rego Policy](/guides/author-policy/) in Guides.
-
-**I want to deploy to production**
-: Follow the quickstart locally first, then read [Deployment with Docker Compose](/operations/docker-compose/) and [TLS and Production Hardening](/operations/tls-hardening/) in Operations.
-
-**I want to contribute to Caracal**
-: Read the [Contributing](/contributing/) section and [Local Setup](/contributing/setup/).
-
-## Terminology note
-
-Onboarding docs use product terms first: **agent run**, **tool/provider resource**, **provider route**, **delegated permission**, and **short-lived mandate**. Reference docs use the precise internal terms, such as mandate, execution session, delegation edge, typed constraint, and Gateway binding.
+| Goal | Next page |
+| --- | --- |
+| Install the released tools | [Installation](./installation/) |
+| Start the stack immediately | [Quickstart: Released Product](./quickstart/) |
+| See a protected call end to end | [Five-Minute Setup](./five-minute-setup/) |
+| Add Caracal to application code | [First Integration](./first-integration/) |
+| Work on the repository itself | [Contributor Quickstart](./contributor-quickstart/) |

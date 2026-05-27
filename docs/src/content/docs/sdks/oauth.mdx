@@ -1,197 +1,64 @@
 ---
 title: OAuth Package
-description: API reference for the Caracal OAuth token-exchange packages across TypeScript, Python, and Go.
-pageType: reference
+description: RFC 8693 token exchange clients for Caracal STS.
 ---
 
-The OAuth packages implement RFC 8693 token exchange. They exchange a long-lived session mandate, client secret, or delegated context for a short-lived per-resource mandate, cache the result by the full exchange context, and surface step-up challenges as typed errors where the language surface supports it. The main SDKs use these packages internally; install them directly only when building custom exchange logic or tools that call STS directly.
+The OAuth packages exchange existing subject authority for resource mandates through the STS `/oauth/2/token` endpoint.
 
 ## Install
 
-| Language | Package | Install |
-| --- | --- | --- |
-| TypeScript | `@caracalai/oauth` | `npm install @caracalai/oauth` |
-| Python | `caracalai-oauth` | `pip install caracalai-oauth` |
-| Go | `github.com/garudex-labs/caracal/packages/oauth/go` | `go get github.com/garudex-labs/caracal/packages/oauth/go` |
+| Ecosystem | Package |
+| --- | --- |
+| TypeScript | `npm install @caracalai/oauth` |
+| Python | `pip install caracalai-oauth` |
+| Go | `go get github.com/garudex-labs/caracal/packages/oauth/go` |
 
-### TypeScript
+## Exchange inputs
 
-```bash
-npm install @caracalai/oauth
-```
+| Option | Meaning |
+| --- | --- |
+| Subject token | Existing user, service, agent, or application authority. |
+| Resource | Resource identifier or audience requested from STS. |
+| Client secret or assertion | Application authentication for client-secret flows. |
+| Actor token | Optional actor authority for delegated exchanges. |
+| Session ID | Subject session anchor. |
+| Agent session ID | Agent execution anchor. |
+| Delegation edge ID | Delegated authority anchor. |
+| Scopes | Requested resource scopes. |
+| TTL seconds | Requested mandate lifetime. |
 
-## `OAuthClient`
+## TypeScript example
 
-### Constructor
+```ts
+import { OAuthClient, InteractionRequiredError } from "@caracalai/oauth";
 
-```typescript
-import { OAuthClient, InMemoryTokenCache } from '@caracalai/oauth';
+const oauth = new OAuthClient(stsUrl, zoneId, applicationId);
 
-new OAuthClient(
-  stsUrl: string,           // STS base URL; exchange at {stsUrl}/oauth/2/token
-  zoneId: string,
-  applicationId: string,
-  cache?: TokenCache        // defaults to new InMemoryTokenCache()
-)
-```
-
-### `exchange(subjectToken, resource, opts?)`
-
-Exchanges `subjectToken` for a resource mandate scoped to `resource`. Returns a cached response if a valid, non-expired token exists for the same exchange context.
-
-```typescript
-async exchange(
-  subjectToken: string,
-  resource: string,
-  opts?: ExchangeOptions
-): Promise<TokenExchangeResponse>
-
-interface ExchangeOptions {
-  clientSecret?: string;
-  clientAssertion?: string;
-  clientAssertionType?: string;       // e.g., 'urn:ietf:params:oauth:client-assertion-type:jwt-bearer'
-  actorToken?: string;
-  sessionId?: string;
-  agentSessionId?: string;
-  delegationEdgeId?: string;
-  scopes?: string[];                  // Normalized: deduped and sorted before caching
-  timeoutMs?: number;                 // Default: 30000
-  retries?: number;                   // Default: 3
-  ttlSeconds?: number;
-}
-
-interface TokenExchangeResponse {
-  accessToken: string;
-  tokenType: 'Bearer';
-  expiresIn: number;                  // Seconds
-  issuedAt: number;                   // Unix timestamp (seconds)
-}
-```
-
-The request is sent to `POST {stsUrl}/oauth/2/token` as `application/x-www-form-urlencoded` with:
-
-```
-grant_type=urn:ietf:params:oauth:grant-type:token-exchange
-subject_token={subjectToken}
-subject_token_type=urn:ietf:params:oauth:token-type:access_token
-resource={resource}
-zone_id={zoneId}
-application_id={applicationId}
-[additional fields from opts]
-```
-
-## `InteractionRequiredError`
-
-Thrown when the STS responds with `error: "interaction_required"` (step-up authentication required):
-
-```typescript
-class InteractionRequiredError extends Error {
-  readonly code = 'interaction_required';
-  readonly challengeId: string;       // Challenge ID; pass to the satisfaction endpoint
-  readonly resource?: string;
-  readonly acrValues?: string;        // Authentication context requirement
-}
-```
-
-Catch it to initiate the external step-up flow:
-
-```typescript
 try {
-  const result = await client.exchange(subjectToken, resource, { clientSecret });
-} catch (err) {
-  if (err instanceof InteractionRequiredError) {
-    // err.challengeId identifies the challenge to satisfy
-    await waitForChallengeSatisfaction(err.challengeId);
+  const token = await oauth.exchange(subjectToken, "https://api.example.com/tickets", {
+    scopes: ["tickets:read"],
+    clientSecret: process.env.CARACAL_APP_CLIENT_SECRET,
+  });
+  console.log(token.accessToken, token.expiresIn);
+} catch (error) {
+  if (error instanceof InteractionRequiredError) {
+    console.log("step-up required", error.challengeId);
+  } else {
+    throw error;
   }
 }
 ```
 
-The current OAuth clients expose only the challenge ID. They do not expose `challenge_secret` and do not accept `challenge_response`, so they cannot complete the atomic step-up consumption retry by themselves. For a complete step-up flow, make the initial challenge-producing request and the retry directly against `POST {stsUrl}/oauth/2/token`.
+## Behavior
 
-## Token cache
+- Successful responses are validated for `access_token`, `token_type`, and `expires_in`.
+- Token responses are cached by identity, resource, scopes, TTL, and credential context.
+- Concurrent identical exchanges share in-flight work.
+- Transient HTTP statuses are retried with bounded backoff.
+- STS `interaction_required` responses surface as `InteractionRequiredError`.
 
-### `TokenCache` interface
+## Related pages
 
-```typescript
-interface TokenCache {
-  get(subjectToken: string, resource: string): TokenExchangeResponse | undefined
-  set(subjectToken: string, resource: string, token: TokenExchangeResponse): void
-}
-```
-
-The cache key is computed as a SHA-256 hash of the full exchange context: not just `subjectToken + resource`, but also `actorToken`, `sessionId`, `agentSessionId`, `delegationEdgeId`, `clientAssertion`, and the normalized scope list. This means two exchanges for the same resource with different agent sessions or delegation edges produce separate cache entries.
-
-### Cache validity
-
-A cached entry is returned only if the token has at least `timeoutMs/1000 + 30` seconds remaining. This preflight window prevents returning a token that would expire before the downstream service can use it.
-
-### `InMemoryTokenCache`
-
-```typescript
-new InMemoryTokenCache(opts?: { maxEntries?: number })   // default: 10,000
-```
-
-LRU-ordered: on overflow, the oldest entry is evicted. Entries are not actively garbage-collected: expired entries are only removed when fetched.
-
-### Concurrent request deduplication
-
-When multiple concurrent calls exchange the same (subject, resource) pair, `OAuthClient` coalesces them into a single inflight request. All waiters receive the same response when it completes.
-
-## Retry behavior
-
-`exchange` retries automatically on transient HTTP errors:
-
-| Status | Behavior |
-| ------ | -------- |
-| 408, 425, 429, 5xx | Retry after backoff |
-| 401 | Single automatic retry; no backoff |
-| 400 | Not retried; parse and throw immediately |
-
-Backoff formula (when no `Retry-After` header): `min(250ms × 2^attempt, 5000ms) / 2 + random(base/2)`.
-
-If the server sends a `Retry-After` header, that value overrides the computed backoff.
-
-The `timeoutMs` limit applies per attempt, not across all retries. An `AbortController` enforces it.
-
----
-
-## Python: `caracalai-oauth`
-
-```python
-from caracalai_oauth import ExchangeOptions, OAuthClient
-
-client = OAuthClient("https://sts.example.com", "zone1", "app1")
-
-token = await client.exchange(
-    subject_token,
-    "resource://api",
-    ExchangeOptions(client_secret="client-secret", scopes=["read"]),
-)
-```
-
-The Python client validates successful STS responses before caching them. Cache keys include the session mandate, actor token, session and delegation context, scopes, TTL, and client authentication context. The default cache is in-memory and process-local.
-
-Close the underlying HTTP client when the OAuth client owns it:
-
-```python
-await client.aclose()
-```
-
----
-
-## Go: `github.com/garudex-labs/caracal/packages/oauth/go`
-
-```go
-client := oauth.NewClient("https://sts.example.com", "zone1", "app1", nil)
-
-token, err := client.Exchange(ctx, subjectToken, "resource://api", oauth.ExchangeOptions{
-    ClientSecret: "client-secret",
-    Scopes:       []string{"read"},
-})
-if err != nil {
-    return err
-}
-_ = token.AccessToken
-```
-
-Pass `nil` as the cache to use the default bounded in-memory cache. Use `ExchangeResources` when one exchange must request a mandate for more than one resource audience.
+- [Step-Up Re-Authentication](/guides/step-up/)
+- [Mandate](/concepts/mandate/)
+- [STS API](/api/sts/)

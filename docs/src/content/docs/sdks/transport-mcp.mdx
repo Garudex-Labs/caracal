@@ -1,219 +1,55 @@
 ---
 title: MCP Transport
-description: "Server-side mandate verification for MCP tool servers: TypeScript and Python packages with authenticate(), extractBearer(), and typed error codes."
-pageType: reference
+description: Framework-neutral MCP authentication primitives for bearer parsing, mandate verification, and revocation checks.
 ---
 
-The MCP transport packages verify Caracal mandates on the server side of an MCP connection. Every MCP tool call arrives with an `Authorization: Bearer <mandate>` header. The transport verifies the ES256 signature against the zone JWKS, checks the revocation store, and enforces scope and delegation requirements. The result is either a typed `Claims` object (success) or a typed error code (failure).
+The MCP transport packages verify Caracal mandates without tying the check to Express, FastMCP, or Go net/http. Framework connectors build on this layer.
 
-## TypeScript: `@caracalai/transport-mcp`
+## Install
 
-```bash
-npm install @caracalai/transport-mcp @caracalai/revocation
-```
+| Ecosystem | Package |
+| --- | --- |
+| TypeScript | `npm install @caracalai/transport-mcp` |
+| Python | `pip install caracalai-transport-mcp` |
+| Go | `go get github.com/garudex-labs/caracal/packages/transport/mcp/go` |
 
-### `authenticate(token, deps)`
+## Core APIs
 
-```typescript
-import { authenticate, extractBearer } from '@caracalai/transport-mcp';
+| API | Purpose |
+| --- | --- |
+| `extractBearer` / `extract_bearer` / `ExtractBearer` | Parse a bearer token from an `Authorization` header. |
+| `authenticate` / `Authenticate` | Verify identity claims and revocation anchors. |
+| `checkActiveAuthority` / `check_active_authority` / `CheckActiveAuthority` | Check expiry and revoked anchors for verified claims. |
 
-async function authenticate(
-  token: string,
-  deps: AuthDeps
-): Promise<AuthResult>
-```
+## TypeScript example
 
-Verification steps (in order):
-1. Validate `token` as a non-empty string.
-2. Fetch zone JWKS and verify ES256 signature.
-3. Check `iss`, `aud`, `exp`, and optionally `zone_id`.
-4. Check all authority revocation anchors: `sid`, `root_sid`, `agent_session_id`, and `delegation_edge_id`.
-5. Enforce resource mandate use by default, plus `requiredScopes`, `requiredTargets`, `requireAgent`, `requireDelegation`, `requireChainContains`, `maxHopCount`, and active-execution expiry.
+```ts
+import { authenticate, extractBearer } from "@caracalai/transport-mcp";
+import { InMemoryRevocationStore } from "@caracalai/revocation";
 
-Never throws. Always returns an `AuthResult`.
-
-### `AuthDeps`
-
-```typescript
-interface AuthDeps {
-  issuer: string;                       // JWKS at {issuer}/.well-known/jwks.json
-  audience: string;                     // Must match 'aud' claim
-  zoneId?: string;                      // If set, 'zone_id' must match
-  requiredScopes?: string[];
-  requiredTargets?: string[];
-  requiredUse?: string;                 // Default: 'resource'
-  requireAgent?: boolean;
-  requireDelegation?: boolean;
-  requireChainContains?: string[];
-  maxHopCount?: number;                 // Default: 10
-  revocations: RevocationStore;
-}
-```
-
-### `AuthResult`
-
-```typescript
-type AuthResult =
-  | { ok: true; principal: Claims }
-  | { ok: false; error: AuthError }
-
-interface AuthError {
-  code: ErrorCode;
-  description: string;
-}
-
-type ErrorCode =
-  | 'missing_token'
-  | 'invalid_token'
-  | 'invalid_zone'
-  | 'insufficient_scope'
-  | 'session_revoked'
-  | 'agent_required'
-  | 'delegation_required'
-  | 'chain_mismatch'
-  | 'hop_count_exceeded';
-```
-
-`Claims` is the same type exported by `@caracalai/identity`: see [Identity Package](../identity/).
-
-### `extractBearer(authHeader)`
-
-```typescript
-function extractBearer(authHeader: string | undefined): string | null
-```
-
-Returns the token portion of an `Authorization: Bearer <token>` header, or `null` if the header is absent or not in Bearer format.
-
-### HTTP status mapping
-
-```typescript
-function errorToStatus(code: ErrorCode): 401 | 403 {
-  switch (code) {
-    case 'missing_token':
-    case 'invalid_token':
-    case 'invalid_zone':
-      return 401;
-    default:
-      return 403;
-  }
-}
-```
-
----
-
-## Python: `caracalai-transport-mcp`
-
-```bash
-pip install caracalai-transport-mcp caracalai-revocation
-```
-
-### `authenticate(token, ...)`
-
-```python
-from caracalai_transport_mcp import authenticate, extract_bearer
-
-async def authenticate(
-    token: str,
-    issuer: str,
-    audience: str,
-    required_scopes: list[str] | None,
-    expected_zone_id: str | None,
-    revocations: RevocationStore,
-    require_agent: bool = False,
-    require_delegation: bool = False,
-    require_chain_contains: list[str] | None = None,
-    max_hop_count: int | None = None,
-    required_targets: list[str] | None = None,
-    required_use: str | None = "resource",
-) -> AuthResult: ...
-```
-
-Never raises. Returns `AuthResult`.
-
-### `AuthResult`
-
-```python
-@dataclass(frozen=True)
-class AuthResult:
-    principal: Claims | None    # populated when ok is True
-    error: AuthError | None     # populated when ok is False
-
-    @property
-    def ok(self) -> bool: ...
-
-@dataclass(frozen=True)
-class AuthError:
-    code: str           # one of the error codes listed above
-    description: str
-```
-
-`Claims` is from `caracalai_identity`: see [Identity Package](../identity/).
-
-### `extract_bearer(auth_header)`
-
-```python
-def extract_bearer(auth_header: str | None) -> str | None: ...
-```
-
-### Error codes (same set as TypeScript)
-
-`missing_token`, `invalid_token`, `invalid_zone`, `insufficient_scope`, `session_revoked`, `agent_required`, `delegation_required`, `chain_mismatch`, `hop_count_exceeded`.
-
----
-
-## Usage pattern
-
-Both packages are designed to be called in a request handler or middleware. The typical pattern:
-
-**TypeScript:**
-```typescript
-const token = extractBearer(req.headers.get('Authorization') ?? undefined);
-if (!token) {
-  return Response.json({ error: 'missing_token' }, { status: 401 });
-}
-
-const result = await authenticate(token, {
-  issuer: process.env.CARACAL_STS_URL!,
-  audience: 'resource://my-mcp-server',
-  requiredScopes: ['tool:call'],
+const token = extractBearer(req.headers.authorization);
+const result = await authenticate(token ?? "", {
+  issuer: "https://sts.example.com",
+  audience: "https://mcp.example.com",
+  zoneId: "zone_prod",
+  requiredScopes: ["mcp:tool:call"],
+  requiredTargets: ["https://mcp.example.com"],
+  revocations: new InMemoryRevocationStore(),
   requireAgent: true,
-  revocations,
 });
 
 if (!result.ok) {
-  const status = ['missing_token', 'invalid_token', 'invalid_zone'].includes(result.error.code)
-    ? 401
-    : 403;
-  return Response.json({ error: result.error.code }, { status });
+  throw new Error(result.error.code);
 }
-
-const claims = result.principal;
-// proceed with tool execution
 ```
 
-**Python:**
-```python
-token = extract_bearer(request.headers.get('Authorization'))
-if not token:
-    return JSONResponse({'error': 'missing_token'}, status_code=401)
+## Error codes
 
-result = await authenticate(
-    token,
-    issuer=os.environ['CARACAL_STS_URL'],
-    audience='resource://my-mcp-server',
-    required_scopes=['tool:call'],
-    expected_zone_id=os.environ['CARACAL_ZONE_ID'],
-    revocations=revocations,
-    require_agent=True,
-)
+`authenticate` normalizes failures into transport error codes: `missing_token`, `invalid_token`, `invalid_zone`, `insufficient_scope`, `session_revoked`, `agent_required`, `delegation_required`, `chain_mismatch`, and `hop_count_exceeded`.
 
-if not result.ok:
-    status = 401 if result.error.code in ('missing_token', 'invalid_token', 'invalid_zone') else 403
-    return JSONResponse({'error': result.error.code}, status_code=status)
+## Related pages
 
-claims = result.principal
-```
-
-## Relationship to connector packages
-
-The MCP transport packages are the primitive layer: they expose `authenticate()` and `extractBearer()` for use in any request handler. The connector packages (`@caracalai/mcp-express`, `caracalai-mcp-fastmcp`) call these primitives internally and expose framework-native middleware interfaces. Use the transport packages when a connector does not exist for your framework, or when you need fine-grained control over the verification logic.
+- [Protect an MCP Server](/guides/protect-mcp/)
+- [Express Connector](/sdks/connectors/express/)
+- [FastMCP Connector](/sdks/connectors/fastmcp/)
+- [Go net/http Connector](/sdks/connectors/nethttp/)

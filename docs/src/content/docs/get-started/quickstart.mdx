@@ -1,40 +1,67 @@
 ---
 title: "Quickstart: Released Product"
-description: Install the released Caracal tools, start the local stack, and launch guided setup.
+description: Start the local Caracal stack and open Console guided setup.
 pageType: workflow
 ---
 
-Use this path when you installed the released `caracal` and `caracal-console` binaries. It keeps the first run focused on product workflows instead of repository tooling.
+Use this path after installing the released `caracal` and `caracal-console` tools. It starts the local stack and hands product setup to the Console.
 
-## Prerequisites
-
-- Docker 24+ with the Compose v2 plugin
-- `caracal` and `caracal-console` installed from [Installation](../installation/)
-
-## Start Caracal
+## Start the stack
 
 ```bash
 caracal up
 caracal status --ready
+```
+
+`caracal up` starts the local services. `caracal status --ready` waits for the stack to become usable. If readiness fails, run:
+
+```bash
+caracal status --ready --json
+```
+
+The JSON output shows which service is not ready. Fix runtime issues before creating product objects.
+
+## Open the Console
+
+```bash
 caracal console
 ```
 
-`status --ready` must pass before setup. If it fails, run `caracal status --ready --json` and check the local stack logs.
+The Console is the product-management surface. Inside it, use arrow keys or number shortcuts to navigate and press `?` for in-app help.
 
-## Create the first protected path
+For the first run, choose **guided setup**. The wizard walks through:
 
-In the Console, choose **guided setup**. Enter the real zone name, agent application name, protected resource ID, scopes, and upstream URL you want to protect. Keep **advanced options** closed for the first run unless you need a provider ID, custom profile path, custom token environment variable, skipped policy activation, or overwrite behavior.
+| Step | What you choose |
+| --- | --- |
+| Zone | Create or select the isolation boundary. |
+| Agent app | Create or select the workload identity. |
+| Provider | Create or select the credential source when the resource needs one. |
+| Resource | Create or select the protected API, service, provider target, or tool. |
+| Access policy | Create and activate the starter least-privilege policy. |
+| Review | Confirm the objects, runtime profile, secret file, and first-success commands. |
 
-The result view gives you the real zone ID, application ID, resource ID, client secret, policy set, generated runtime profile, local file setup commands, and first-success commands. Turn on **write files** during guided setup when you want Console to create the profile and secret files on this machine. Console refuses to replace existing files unless **overwrite files** is explicitly enabled.
+Keep advanced options closed unless you need a custom resource identifier, first request path, custom profile path, skipped policy activation, or explicit overwrite behavior.
 
-When **write files** is off, use the local setup commands from the result view; paste the revealed one-time client secret as the only line in the secret file and keep both files owner-readable only.
+## Save the generated runtime profile
 
-Use the generated `CARACAL_CONFIG=... caracal run --` command prefix with the real command that starts your workload. Do not use copied placeholder profiles for onboarding; generate a profile from the objects you just created.
+Guided setup can write the runtime profile and secret file for you. Enable **write profile files** when you want the Console to create them on the current machine. If you leave file writing off, copy the generated TOML profile and one-time app client secret from the result view into the paths the Console shows.
 
-Stop the stack with:
+The profile is the source of runtime configuration for:
+
+- `CARACAL_CONFIG=... caracal run -- <command>`
+- `Caracal.connect()` in TypeScript and Python.
+- `caracal.Connect()` in Go.
+
+Do not start onboarding from `caracal.toml.example`; generate a real profile from the objects you just created.
+
+## Stop the stack
 
 ```bash
 caracal down
 ```
 
-Use [Five-Minute Setup](../five-minute-setup/) for the full protected HTTP request and audit explanation flow. Use [Contributor Quickstart](../contributor-quickstart/) only when you are working from the source tree.
+Use `caracal purge` only when you intentionally want to remove local containers, volumes, config, runtime state, and caches.
+
+## Next step
+
+Continue with [Five-Minute Setup](./five-minute-setup/) to protect one resource, make a Gateway-routed request, and explain the audit trail.

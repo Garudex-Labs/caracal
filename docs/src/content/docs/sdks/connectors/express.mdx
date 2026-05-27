@@ -1,182 +1,56 @@
 ---
 title: Express Connector
-description: "caracalAuth() middleware reference: MiddlewareOptions, CaracalRequest, claims attachment, and error response behavior."
-pageType: reference
+description: Express 5 middleware for Caracal mandate verification.
 ---
 
-`@caracalai/mcp-express` provides `caracalAuth()`, an Express `RequestHandler` that verifies Caracal mandates on every inbound request. It extracts the bearer token from the `Authorization` header, verifies the ES256 signature and revocation status, and attaches the verified `Claims` to the request object. Requests that fail verification receive a JSON error response and are not forwarded to downstream handlers.
+`@caracalai/mcp-express` protects Express routes by parsing the bearer token, verifying the mandate through `@caracalai/transport-mcp`, and attaching Caracal claims to the request.
 
 ## Install
 
 ```bash
-npm install @caracalai/mcp-express @caracalai/revocation
+npm install @caracalai/mcp-express
 ```
 
-## `caracalAuth(opts)`
+The connector has an Express `^5.0.0` peer dependency and targets Node `>=24`.
 
-```typescript
-import { caracalAuth } from '@caracalai/mcp-express';
+## Middleware
 
-function caracalAuth(opts: MiddlewareOptions): RequestHandler
-```
-
-Returns an Express middleware function. Attach it globally on the router or per-route.
-
-### `MiddlewareOptions`
-
-`MiddlewareOptions` extends `AuthDeps` from `@caracalai/transport-mcp` with one additional field:
-
-```typescript
-interface MiddlewareOptions extends AuthDeps {
-  bindContext?: boolean;           // Bind verified identity to SDK async context; default: true
-}
-
-// AuthDeps fields (all required unless marked optional):
-interface AuthDeps {
-  issuer: string;                  // STS base URL; JWKS at {issuer}/.well-known/jwks.json
-  audience: string;                // Must match 'aud' claim
-  zoneId?: string;                 // If set, 'zone_id' claim must match
-  requiredScopes?: string[];
-  requireAgent?: boolean;
-  requireDelegation?: boolean;
-  requireChainContains?: string[];
-  maxHopCount?: number;            // Default: 10
-  revocations: RevocationStore;
-}
-```
-
-`bindContext: true` (the default) binds the verified identity into the SDK's `AsyncLocalStorage` context, making `caracal.current()` available inside the handler. Set `bindContext: false` to skip this: useful when you only need `req.caracalClaims` without SDK context propagation.
-
----
-
-### `CaracalRequest`
-
-The middleware augments the Express `Request` type. Import the extended type for TypeScript access:
-
-```typescript
-import type { CaracalRequest } from '@caracalai/mcp-express';
-
-app.get('/tool', caracalAuth(opts), (req: CaracalRequest, res) => {
-  const claims = req.caracalClaims!;   // Claims from @caracalai/identity
-  const ctx    = req.caracalContext;   // CaracalContext (set when bindContext is true)
-});
-```
-
-**Attached fields:**
-
-```typescript
-interface CaracalRequest extends Request {
-  caracalClaims?: Claims;         // Verified identity claims (always set on success)
-  caracalContext?: CaracalContext; // SDK context (set when bindContext is true)
-}
-
-interface CaracalContext {
-  subjectToken: string;
-  zoneId: string;
-  clientId: string;
-  agentSessionId?: string;
-  delegationEdgeId?: string;
-  parentEdgeId?: string;
-  sessionId?: string;
-  traceId?: string;
-  hop?: number;
-}
-```
-
-`Claims` is the same type exported by `@caracalai/identity`: see [Identity Package](../../identity/).
-
----
-
-## Error responses
-
-Failed verification produces a JSON response and halts the middleware chain. The handler is never called.
-
-| Error code | HTTP status | Condition |
-| --- | --- | --- |
-| `missing_token` | 401 | No `Authorization` header or not in Bearer format |
-| `invalid_token` | 401 | Signature invalid, expired, or malformed JWT |
-| `invalid_zone` | 401 | `zone_id` claim does not match `opts.zoneId` |
-| `session_revoked` | 401 | Session is in the revocation store |
-| `insufficient_scope` | 403 | Missing a required scope |
-| `agent_required` | 403 | `requireAgent` is true but `agent_session_id` absent |
-| `delegation_required` | 403 | `requireDelegation` is true but `delegation_edge_id` absent |
-| `chain_mismatch` | 403 | Required application not in delegation chain |
-| `hop_count_exceeded` | 403 | Hop count exceeds `maxHopCount` |
-
-Response body:
-
-```json
-{
-  "error": "insufficient_scope",
-  "error_description": "Missing required scope: tool:call"
-}
-```
-
----
-
-## Usage
-
-**Global middleware:**
-
-```typescript
-import express from 'express';
-import { caracalAuth } from '@caracalai/mcp-express';
-import { InMemoryRevocationStore } from '@caracalai/revocation';
-
-const revocations = new InMemoryRevocationStore();
+```ts
+import express from "express";
+import { caracalAuth } from "@caracalai/mcp-express";
+import { RedisRevocationStore } from "@caracalai/revocation-redis";
 
 const app = express();
-app.use(express.json());
 
-app.use(
-  caracalAuth({
-    issuer: process.env.CARACAL_STS_URL!,
-    audience: 'resource://my-mcp-server',
-    requiredScopes: ['tool:call'],
-    revocations,
-  }),
-);
+app.use("/mcp", caracalAuth({
+  issuer: "https://sts.example.com",
+  audience: "https://mcp.example.com",
+  zoneId: "zone_prod",
+  requiredScopes: ["mcp:tool:call"],
+  requiredTargets: ["https://mcp.example.com"],
+  requireAgent: true,
+  revocations: new RedisRevocationStore(redis),
+}));
+```
 
-app.post('/tool/search', (req: CaracalRequest, res) => {
-  const { sub, scope } = req.caracalClaims!;
-  res.json({ ok: true, subject: sub });
+## Request shape
+
+The middleware attaches Caracal claims to `req.caracal` when verification succeeds. Use the exported `CaracalRequest` type when a handler needs typed access.
+
+```ts
+import type { CaracalRequest } from "@caracalai/mcp-express";
+
+app.post("/mcp/tools/search", (req: CaracalRequest, res) => {
+  res.json({ subject: req.caracal?.sub });
 });
 ```
 
-**Per-route scope enforcement:**
+## Failure behavior
 
-```typescript
-app.post(
-  '/tool/admin',
-  caracalAuth({
-    issuer: process.env.CARACAL_STS_URL!,
-    audience: 'resource://my-mcp-server',
-    requiredScopes: ['tool:call', 'admin:write'],
-    revocations,
-  }),
-  handler,
-);
-```
+Failed verification returns an MCP transport error code such as `missing_token`, `invalid_token`, `insufficient_scope`, or `session_revoked`. Pair the connector with a shared revocation store when multiple resource-server instances serve the same resource.
 
-**Production Redis revocation:**
+## Related pages
 
-```typescript
-import { RedisRevocationStore, RedisRevocationConsumer } from '@caracalai/revocation-redis';
-import { createClient } from 'redis';
-
-const redis = createClient({ url: process.env.REDIS_URL });
-await redis.connect();
-
-const revocations = new RedisRevocationStore(redis);
-const consumer = new RedisRevocationConsumer(redis, revocations, {
-  consumer: `mcp-server-${process.env.INSTANCE_ID}`,
-});
-await consumer.ensureGroup();
-
-// Poll in background
-setInterval(() => consumer.pollOnce(), 1000);
-
-app.use(caracalAuth({ issuer, audience, revocations }));
-```
-
-See the [Redis connector reference](../redis/) for full consumer configuration.
+- [Protect an Express App](/guides/protect-express/)
+- [MCP Transport](/sdks/transport-mcp/)
+- [Redis Token State](/sdks/connectors/redis/)
