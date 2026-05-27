@@ -1,74 +1,69 @@
 ---
 title: Observability and Health
-description: Health, readiness, metrics, logs, and traces for operating Caracal services.
-pageType: config
+description: Monitor Caracal health, readiness, metrics, audit flow, and runtime diagnostics.
+pageType: workflow
 ---
 
-Caracal exposes separate liveness, readiness, metrics, and logs for every service. Treat readiness as the release and rollout gate; liveness only tells Kubernetes whether the process should be restarted.
+Every service exposes health/readiness endpoints; most services also expose metrics. Use readiness for automation gates and health for liveness.
 
-## Endpoints
+## Endpoint map
 
-| Service | Liveness | Readiness | Metrics | Diagnostic metrics |
-| --- | --- | --- | --- | --- |
-| API | `/health` | `/ready` | `/metrics` | `/metrics.json` |
-| STS | `/health` | `/ready` | `/metrics` | `/metrics.json` |
-| Gateway | `/health` | `/ready` | `/metrics` | `/metrics.json` |
-| Audit | `/health` | `/ready` | `/metrics` | `/metrics.json` |
-| Coordinator | `/health` | `/ready` | `/metrics` | `/metrics.json` |
-| Control | `/health` | `/ready` | `/metrics` | `/metrics.json` |
+| Service | Health | Readiness | Metrics |
+| --- | --- | --- | --- |
+| API | `/health` | `/ready` | `/metrics` |
+| STS | `/health` | `/ready` | `/metrics`, `/metrics.json` |
+| Gateway | `/health` | `/ready` | `/metrics`, `/metrics.json` |
+| Audit | `/health` | `/ready` | `/metrics`, `/metrics.json` |
+| Coordinator | `/health` | `/ready` | `/metrics` |
+| Control | `/health` | `/ready` | Not primary operator surface |
 
-`/metrics` is the Prometheus surface. Restrict it to your monitoring namespace through NetworkPolicy or service mesh policy. `/metrics.json` is for Console Doctor and operator diagnostics; do not expose it publicly.
+## Readiness ladder
 
-## Readiness semantics
+```mermaid
+flowchart TB
+  Health[Process health] --> Storage[Postgres and Redis]
+  Storage --> Streams[Streams, outbox, revocation, policy invalidation]
+  Streams --> Service[Service-specific readiness]
+  Service --> Smoke[End-to-end smoke test]
+```
 
-Readiness fails when a service cannot safely serve its role:
+| Rung | What it proves | User-facing impact when it fails |
+| --- | --- | --- |
+| Process health | The service process can answer liveness. | Restart loops or dead containers. |
+| Postgres and Redis | Durable state and stream/cache dependencies are reachable. | Management writes, token exchange, audit, or revocation can fail. |
+| Streams and outbox | Event delivery paths are draining. | Decisions may succeed while evidence or invalidation lags. |
+| Service readiness | Service-specific invariants are met. | That service should not receive production traffic. |
+| End-to-end smoke test | API, STS, Gateway, Audit, and Coordinator work together. | User workflows may fail even when individual services look healthy. |
 
-| Service | Readiness dependencies |
-| --- | --- |
-| API | Postgres connectivity, Redis connectivity, required secret files, management schema availability, and transactional-outbox health |
-| STS | Postgres, Redis invalidation stream, active policy bundle, required signing/HMAC keys |
-| Gateway | STS exchange path, resource binding cache, replay buffer availability, fresh revocation snapshot, required HMAC keys |
-| Audit | Redis stream consumption, Postgres write path, audit HMAC key, replay/DLQ health |
-| Coordinator | Postgres, Redis, outbox worker health, coordinator token |
-| Control | local state directory, runtime socket/API reachability, auth state |
+## Local checks
 
-## Metrics to watch
+```bash
+caracal status
+caracal status --ready
+bash infra/scripts/smokeTest.sh
+```
 
-| Area | Signals |
-| --- | --- |
-| Policy | `caracal_sts_opa_compile_errors_total`, `caracal_sts_opa_max_policy_age_seconds` |
-| Provider refresh | `caracal_sts_provider_refresh_leased_total`, `caracal_sts_provider_refresh_waited_total`, `caracal_sts_provider_refresh_errors_total`, `caracal_sts_provider_circuit_open_total` |
-| Audit | `caracal_audit_dlq_size`, `caracal_audit_consumer_lag`, STS/Gateway replay file age and bytes, tamper mismatch counters |
-| API | `caracal_api_outbox_pending_total`, `caracal_api_outbox_dead_total`, oldest outbox age gauges |
-| Gateway | `caracal_gateway_sts_exchange_errors_total`, `caracal_gateway_sts_circuit_open`, `caracal_gateway_revocation_snapshot_fresh`, `caracal_gateway_revocation_snapshot_age_seconds`, revocation propagation/replay counters, request latency and denial counters |
-| Database | `caracal_db_pool_in_use_ratio`, query latency, migration Job status |
-| Platform | Kubernetes readiness changes, restarts, CPU throttling, OOM kills |
+`smokeTest.sh` probes API `/ready` and `/live`, Gateway `/ready`, STS `/ready`, Audit `/ready`, and Coordinator `/ready`.
 
-## Logs and trace correlation
-
-All services should include request ID, zone ID where available, service name, release version, and deployment mode in structured logs. Gateway, STS, and Audit should carry the same request ID across mandate exchange, policy decision, upstream dispatch, and audit write.
-
-Use `OTEL_EXPORTER_OTLP_ENDPOINT` through `global.otelExporterOtlpEndpoint` to send traces to a platform-owned collector. Keep collector egress explicit in `networkPolicy.extraEgress`.
-
-## Smoke tests
-
-Check rollout and probes:
+## Kubernetes checks
 
 ```bash
 kubectl -n caracal get pods
-kubectl -n caracal rollout status statefulset/caracal-caracal-sts
-kubectl -n caracal rollout status statefulset/caracal-caracal-gateway
-kubectl -n caracal rollout status deployment/caracal-caracal-api
+kubectl -n caracal get servicemonitor,prometheusrule
+kubectl -n caracal logs deploy/caracal-api
 ```
 
-Run an end-to-end synthetic request through Gateway, then confirm the same request ID appears in Audit. A rollout is not healthy until both the client response and audit evidence are present.
+Enable `serviceMonitor.enabled` when using Prometheus Operator. Keep chart alert rules enabled or provide equivalent alerts.
 
-Gateway readiness fails with `revocation_snapshot_stale` when no successful revocation snapshot has been loaded or the last snapshot is older than the freshness window. Track `caracal_gateway_revocation_snapshot_age_seconds` and `caracal_gateway_revocation_snapshot_fresh` with the revocation stream lag metric; a stale snapshot means Gateway may miss revoked grants and must be treated as an access-safety incident.
+## Operator diagnostics
 
-The API exposes transactional-outbox delivery gauges on `/metrics`: `caracal_api_outbox_pending_total`, `caracal_api_outbox_dead_total`, `caracal_api_outbox_oldest_pending_age_seconds`, and `caracal_api_outbox_oldest_dead_age_seconds`. `/ready` returns `503 outbox_dead_messages` when abandoned rows exceed `API_READY_OUTBOX_DEAD_MAX`, which defaults to zero so Redis stream delivery failures become visible before control-plane changes silently stop reaching dependent services.
+Use Console `diagnostics` for API health, readiness, zone diagnostics, and local preflight checks. Use Console `audit`, `explain`, and `credential` views for decision and token investigation.
 
-STS and Gateway expose local audit replay watermarks: replay file count, bytes, and oldest file age. These metrics should stay at zero during normal operation. If they rise, preserve the replay volumes, recover Redis/Audit, and confirm the files drain before closing the incident.
+## Troubleshooting
 
-Audit exposes operator-only DLQ browse and detail endpoints when `AUDIT_ADMIN_TOKEN` is configured. Use `GET /api/audit/dlq` to list reason, replayability, source stream ID, event ID, zone, request ID, and age; use `GET /api/audit/dlq/{id}` for the parsed source event and original DLQ fields. Use `POST /api/audit/dlq/replay` only after classifying entries.
-
-Set `secrets.plaintext.auditAdminToken` in Helm values (or `secrets.auditAdminToken.secretName` to reference an operator-managed secret) to provision this token. Without it, the DLQ endpoints return 404 and are disabled.
+| Symptom | Check |
+| --- | --- |
+| Health passes but readiness fails | Dependency, stream, outbox, policy, revocation, or audit readiness. |
+| Metrics scrape returns unauthorized | Match scraper bearer token to `METRICS_BEARER`. |
+| Readiness flaps | CPU throttling, OOM, Postgres/Redis latency, probe timeouts, or dependency restarts. |
+| Smoke test fails only for API `/live` | Confirm the API exposes `/live` in the deployment shape being tested. |

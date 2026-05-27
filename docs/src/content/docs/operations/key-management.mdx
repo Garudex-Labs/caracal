@@ -1,41 +1,58 @@
 ---
 title: Key Management and Rotation
-description: ZONE_KEK derivation, zone signing keys, ChaCha20 encryption at rest, JWKS publication behavior, and the key rotation procedure.
-pageType: config
+description: Manage Caracal secret material, signing keys, HMAC keys, and rotation evidence.
+pageType: workflow
 ---
 
-Caracal uses a zone key-encryption key (`ZONE_KEK`) to encrypt zone signing keys before they are stored in Postgres. The STS decrypts the active signing key in memory, issues ES256 mandates with its `kid`, and publishes the active key plus the prior rotation key through JWKS while the grace window is open.
+Caracal uses secret material for zone encryption, mandate signing, audit integrity, stream signatures, service exchange, admin access, Coordinator access, database access, and Redis access.
 
-## Required key material
+## Key inventory
 
-| Key | Owner | Requirement |
-| --- | --- | --- |
-| `ZONE_KEK` | Platform secret manager | 32-byte hex key. Required for STS and services that encrypt or decrypt zone secrets. |
-| `AUDIT_HMAC_KEY` | Platform secret manager | 32-byte hex key shared by STS and Audit for audit event integrity. |
-| `STREAMS_HMAC_KEY` | Platform secret manager | 32-byte hex key for Redis stream origin verification. |
-| `GATEWAY_STS_HMAC_KEY` | Platform secret manager | 32-byte hex key for signed Gateway/API calls into STS. |
-| `STS_ADMIN_TOKEN` | Platform secret manager | Bearer token for STS operator endpoints. When unset, operator endpoints are disabled. Helm deployments should mount it from `secrets.stsAdminToken.secretName`, separate from `CARACAL_ADMIN_TOKEN`. |
+| Material | Purpose |
+| --- | --- |
+| `ZONE_KEK` | Encrypts zone secrets and signing material. |
+| Zone signing keys | Sign mandates exposed through STS JWKS. |
+| `AUDIT_HMAC_KEY` | Signs/verifies audit evidence. |
+| `STREAMS_HMAC_KEY` | Signs Redis stream messages. |
+| `GATEWAY_STS_HMAC_KEY` | Authenticates Gateway exchanges to STS. |
+| `CARACAL_ADMIN_TOKEN` | Bootstrap/operator API access. |
+| `CARACAL_COORDINATOR_TOKEN` | Coordinator agent/delegation management. |
+| Postgres and Redis passwords | Storage access. |
 
-Use the file-backed variables (`*_FILE`) in production so key material is mounted from the platform secret manager and never embedded in manifests.
+## Rotation principles
 
-## Zone signing-key rotation
+- Rotate one class of material at a time.
+- Keep old verification material available until existing tokens, stream messages, or audit replay windows drain.
+- Verify `/ready`, audit ingestion, revocation propagation, and Gateway exchange after each rotation.
+- Record who rotated, when, why, new secret location, and rollback window.
 
-Rotate a zone signing key from a trusted operator network path:
+## Suggested rotation order
 
-```bash
-curl -X POST \
-  -H "Authorization: Bearer ${STS_ADMIN_TOKEN}" \
-  "https://sts.example.internal/internal/zones/${ZONE_ID}/signing-key/rotate"
+```mermaid
+flowchart LR
+  Prepare[Prepare new secret] --> Deploy[Deploy secret and config]
+  Deploy --> Roll[Roll dependent service]
+  Roll --> Verify[Verify readiness, audit, JWKS, and revocation]
+  Verify --> Retire[Retire old material after safety window]
 ```
 
-The response returns the new `kid`. The STS immediately signs new mandates with the rotated key and invalidates its local key caches. JWKS continues to publish the previous key during the 24-hour grace window so already-issued mandates remain verifiable until they expire.
+## Rotation checklist
 
-After rotation:
+| Key | Services to roll | Verify |
+| --- | --- | --- |
+| `ZONE_KEK` | API and STS after coordinated key plan. | Zone secrets decrypt and STS can read active signing material. |
+| Zone signing key | STS, then verifiers after JWKS cache windows. | JWKS exposes expected key IDs and old mandates expire or verify during overlap. |
+| `AUDIT_HMAC_KEY` | Producers and Audit verifier: API, STS, Gateway, Audit, Control. | Audit ingestion accepts new events and rejects mismatched signatures. |
+| `STREAMS_HMAC_KEY` | Producers and consumers: API, STS, Gateway, Coordinator, Audit. | Consumers accept new stream messages and pending entries drain. |
+| `GATEWAY_STS_HMAC_KEY` | API, STS, and Gateway. | Gateway exchange succeeds and failed HMAC attempts are denied. |
+| `CARACAL_ADMIN_TOKEN` | API, Console/Control clients, Control service. | Old token fails; Console and automation authenticate with the replacement. |
+| `CARACAL_COORDINATOR_TOKEN` | Coordinator and Console/operator clients. | Agent/delegation views load and old token fails. |
 
-1. Confirm `/.well-known/jwks.json?zone_id=${ZONE_ID}` contains the new `kid`.
-2. Confirm new token exchanges return mandates whose JWT header uses the new `kid`.
-3. Keep the previous key in Postgres through the grace window; do not delete historical key rows manually.
+## Troubleshooting
 
-## KEK rotation boundary
-
-`ZONE_KEK_PROVIDER=local` is the supported provider in this repository. Rotating `ZONE_KEK` requires a controlled re-encryption workflow for stored zone secrets before the old key is removed. Do not change `ZONE_KEK` in-place on running services without re-encrypting existing rows, because the STS will fail closed when it cannot decrypt signing keys.
+| Symptom | Check |
+| --- | --- |
+| JWKS clients reject mandates after rotation | Issuer URL, JWKS cache age, key overlap window, and STS JWKS health. |
+| Audit DLQ grows | Producer and Audit `AUDIT_HMAC_KEY` mismatch. |
+| Stream consumers reject messages | Producer and consumer `STREAMS_HMAC_KEY` mismatch. |
+| Gateway exchange fails | `GATEWAY_STS_HMAC_KEY` mismatch between Gateway and STS. |

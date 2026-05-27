@@ -1,241 +1,75 @@
 ---
 title: Environment Variables
-description: All required and optional environment variables for each Caracal service, with defaults and constraints.
-pageType: config
+description: Operational environment variables for Caracal services and runtime workloads.
+pageType: reference
 ---
 
-Every Caracal service is configured entirely through environment variables. This page lists all variables grouped by service. Variables marked **required** will cause the service to fail at startup if absent. Variables with defaults are optional.
+Caracal services load configuration from environment variables and `*_FILE` secret variants. Use file-backed secrets in `rc` and `stable` modes.
 
-## Shared secrets
+## Mode requirements
 
-Manual environment-driven deployments must provide the shared secrets required by the services they run before startup. Generate each with `openssl rand -hex 32`.
+| Mode | Expectation |
+| --- | --- |
+| `dev` | Local development defaults may generate or relax some settings. |
+| `rc` | Published-mode validation applies; file-backed secrets are expected. |
+| `stable` | Published-mode validation applies; do not run with test-only or fail-open settings. |
 
-The installed local stack created by `caracal up` generates file-backed equivalents under `$CARACAL_HOME/secrets/` and passes them to services through the matching `*_FILE` variables.
+Published modes require valid HMAC keys, deny unsafe Gateway fail-open settings, and reject incomplete service configuration before readiness succeeds.
 
-For service deployments, prefer the `*_FILE` form for sensitive values so the secret is mounted from a secret store instead of placed directly in the process environment.
+## Shared service variables
 
-| Variable | Services that use it | Description |
-| --- | --- | --- |
-| `ZONE_KEK` | STS, API | 32-byte hex-encoded key encryption key. Encrypts zone signing key material at rest. Must not be all zeros. |
-| `AUDIT_HMAC_KEY` | STS, Audit, Gateway, Control | 32-byte hex-encoded key for audit event chain HMAC. Required when `CARACAL_MODE=rc` or `CARACAL_MODE=stable` on services that verify or emit protected audit events. |
-| `STREAMS_HMAC_KEY` | STS, API, Gateway, Coordinator, coordinator relay | 32-byte hex-encoded key for signing or verifying Redis stream messages. Required by Gateway; required by STS, API, Coordinator, and relay when `CARACAL_MODE=rc` or `CARACAL_MODE=stable`. |
-| `GATEWAY_STS_HMAC_KEY` | STS, Gateway, API | 32-byte hex-encoded key for signed internal Gateway/API calls to STS. Required by STS and Gateway when `CARACAL_MODE=rc` or `CARACAL_MODE=stable`; optional on API for signed policy simulation. |
+| Variable | Mode | Used by | Meaning |
+| --- | --- | --- | --- |
+| `CARACAL_MODE` | all | All services | `dev`, `rc`, or `stable`. |
+| `PORT` | all | HTTP services | Fixed service port: API `3000`, STS `8080`, Gateway `8081`, Audit `9090`, Coordinator `4000`, Control `8087`. |
+| `HOST` | all | TypeScript services | Bind host; defaults to `0.0.0.0` in published modes. |
+| `LOG_LEVEL` | all | Services | Log verbosity. |
+| `DATABASE_URL` / `DATABASE_URL_FILE` | all | API, STS, Gateway, Audit, Coordinator | Postgres connection. |
+| `REDIS_URL` / `REDIS_URL_FILE` | all | API, STS, Gateway, Audit, Coordinator | Redis connection. |
+| `STREAMS_HMAC_KEY` / `STREAMS_HMAC_KEY_FILE` | rc+stable | API, STS, Gateway, Coordinator | Signs Redis stream messages. |
+| `AUDIT_HMAC_KEY` / `AUDIT_HMAC_KEY_FILE` | rc+stable | API, STS, Gateway, Audit, Control | Signs or verifies audit events. |
+| `METRICS_BEARER` / `METRICS_BEARER_FILE` | optional | STS, Gateway, API | Metrics endpoint bearer token. |
 
----
+## Service-specific variables
 
-## Mode
+| Service | Variables |
+| --- | --- |
+| API | `CARACAL_ADMIN_TOKEN`, `ZONE_KEK`, `GATEWAY_STS_HMAC_KEY`, `STS_URL`, `API_BODY_LIMIT_BYTES`, `API_V1_RATE_LIMIT_PER_MIN`, `API_READY_OUTBOX_DEAD_MAX`, `TRUST_PROXY` |
+| STS | `ISSUER_URL`, `ZONE_KEK`, `ZONE_KEK_PROVIDER`, `GATEWAY_STS_HMAC_KEY`, `STS_ADMIN_TOKEN`, `MAX_GRANT_TTL_SECONDS`, `OPA_POLL_SECONDS`, `AUDIT_REPLAY_DIR` |
+| Gateway | `STS_URL`, `GATEWAY_STS_HMAC_KEY`, `ALLOW_PRIVATE_UPSTREAMS`, `UPSTREAM_HOST_ALLOWLIST`, `TLS_CERT_FILE`, `TLS_KEY_FILE`, `MAX_REQUEST_BYTES`, `JTI_FAIL_OPEN`, `AUDIT_REPLAY_DIR` |
+| Audit | `AUDIT_ADMIN_TOKEN`, `AUDIT_RETENTION_DAYS`, `AUDIT_MAX_DELIVERIES`, `AUDIT_CLAIM_IDLE_SECS`, `AUDIT_TAMPER_ROLLING_HOURS`, `AUDIT_EXPORT_S3_*`, readiness thresholds |
+| Coordinator | `ISSUER_URL`, `STS_URL`, `AGENT_COORDINATOR_SCOPE`, `CARACAL_COORDINATOR_TOKEN`, sweep intervals, retention windows, rate limits |
+| Control | `STS_JWKS_URL`, `STS_ISSUER_URL`, `CONTROL_AUDIENCE`, `CONTROL_REDIS_URL`, `CONTROL_API_TOKEN`, `CARACAL_API_URL`, rate and replay controls |
 
-| Variable | Default | Description |
-| --- | --- | --- |
-| `CARACAL_MODE` | `stable` in service code; `dev` in local Docker Compose | `dev`, `rc`, or `stable`. rc and stable enable startup safety checks and require signed stream/audit keys on protected paths. |
+## Runtime workload variables
 
----
+These variables belong to `caracal run` and SDK profile loading, not to service deployment:
 
-## Postgres
+| Variable | Meaning |
+| --- | --- |
+| `CARACAL_CONFIG` | Explicit runtime profile path. |
+| `CARACAL_STS_URL` or `CARACAL_ZONE_URL` | STS URL for token exchange. |
+| `CARACAL_GATEWAY_URL` | Gateway URL for SDK transports. |
+| `CARACAL_ZONE_ID` | Zone identifier. |
+| `CARACAL_APPLICATION_ID` | Confidential application ID. |
+| `CARACAL_APP_CLIENT_SECRET_FILE` | Preferred workload secret file. |
+| `CARACAL_RUN_CREDENTIALS_FILE` | JSON credential manifest. |
 
-| Variable | Default | Description |
-| --- | --- | --- |
-| `POSTGRES_USER` | `caracal` | Database user |
-| `POSTGRES_PASSWORD` | None | **Required.** Database password |
-| `POSTGRES_DB` | `caracal` | Database name |
+## Published-mode rules
 
-Application services read `DATABASE_URL`. The Docker/engine tooling uses the individual `POSTGRES_*` variables to initialize Postgres and generate the `DATABASE_URL` secret mounted into services.
+Before a published deployment becomes ready:
 
----
+1. `GATEWAY_STS_HMAC_KEY` must be hex-encoded and at least 32 bytes for STS and Gateway.
+2. `AUDIT_HMAC_KEY` must be present for Audit, Gateway, and Control.
+3. Gateway must not run with `JTI_FAIL_OPEN=true`.
+4. Gateway must set `UPSTREAM_HOST_ALLOWLIST` when private upstreams are allowed.
+5. STS caps `OPA_POLL_SECONDS` at `300`.
 
-## Redis
+## Troubleshooting
 
-| Variable | Default | Description |
-| --- | --- | --- |
-| `REDIS_PASSWORD` | None | **Required.** Redis auth password |
-| `REDIS_HOST` | `localhost` | Redis host (used when REDIS_URL is absent) |
-| `REDIS_PORT` | `6379` | Redis port |
-
-Application services read `REDIS_URL`. Redis provisioning scripts use `REDIS_HOST`, `REDIS_PORT`, and `REDIS_PASSWORD` when creating streams and consumer groups.
-
----
-
-## STS
-
-| Variable | Default | Description |
-| --- | --- | --- |
-| `DATABASE_URL` | None | **Required.** Postgres connection string |
-| `REDIS_URL` | None | **Required.** Redis connection string |
-| `ZONE_KEK` | None | **Required.** 32-byte hex-encoded KEK |
-| `AUDIT_HMAC_KEY` | None | Required when `CARACAL_MODE=rc` or `CARACAL_MODE=stable`. 32-byte hex-encoded HMAC key |
-| `ISSUER_URL` | None | **Required.** Absolute URL of the STS (e.g., `http://localhost:8080`). Written into JWT `iss` claim. |
-| `PORT` | None | **Required.** Listen port. Must be `8080`. |
-| `ZONE_KEK_PROVIDER` | `local` | KEK provider. Currently only `local` is supported. |
-| `STREAMS_HMAC_KEY` | None | Required when `CARACAL_MODE=rc` or `CARACAL_MODE=stable`. 32-byte hex-encoded key for signing Redis stream messages |
-| `GATEWAY_STS_HMAC_KEY` | None | Required when `CARACAL_MODE=rc` or `CARACAL_MODE=stable`. 32-byte hex-encoded key for verifying signed internal Gateway/API calls |
-| `STS_ADMIN_TOKEN` / `STS_ADMIN_TOKEN_FILE` | None | Bearer token for STS operator endpoints such as signing-key rotation. When unset, those endpoints return 404. |
-| `METRICS_BEARER` / `METRICS_BEARER_FILE` | None | Bearer token for the STS `/metrics` and `/metrics.json` endpoints. When unset, metrics are accessible without authentication. Set this in any environment where Prometheus scraping is network-restricted. |
-| `AUDIT_REPLAY_DIR` | `/var/lib/caracal/audit-replay` | Directory where STS spools audit events when the Redis sink is unavailable. Must be writable and persistent across restarts. |
-| `MAX_GRANT_TTL_SECONDS` | `3600` | Maximum persisted provider-grant token lifetime in seconds |
-| `OPA_POLL_SECONDS` | `60` | Interval (seconds) between OPA policy bundle polls |
-| `LOG_LEVEL` | `info` | Log verbosity (`debug`, `info`, `warn`, `error`) |
-
----
-
-## API
-
-| Variable | Default | Description |
-| --- | --- | --- |
-| `DATABASE_URL` | None | **Required.** Postgres connection string |
-| `REDIS_URL` | None | **Required.** Redis connection string |
-| `STS_URL` | None | **Required.** STS base URL (e.g., `http://sts:8080`) |
-| `ZONE_KEK` | None | **Required.** 32-byte hex-encoded KEK |
-| `CARACAL_ADMIN_TOKEN` / `CARACAL_ADMIN_TOKEN_FILE` | None | Bootstrap admin token. Seeded into the database on first startup. Prefer the file-backed form. Local Console prefers generated localhost secrets over stale exported token values. |
-| `PORT` | `3000` | Listen port |
-| `HOST` | `0.0.0.0` in rc or stable, `127.0.0.1` otherwise | Listen host |
-| `WORKER_ID` | Derived from hostname and process ID | Outbox worker identifier |
-| `STREAMS_HMAC_KEY` | None | Required when `CARACAL_MODE=rc` or `CARACAL_MODE=stable`. 32-byte hex-encoded key for signing outbox stream messages |
-| `GATEWAY_STS_HMAC_KEY` | None | Optional. Enables signed STS policy simulation calls; must be 32-byte hex when set. |
-| `LOG_LEVEL` | `info` | Log verbosity |
-| `SHUTDOWN_GRACE_MS` | `15000` | Graceful shutdown window in milliseconds |
-| `API_BODY_LIMIT_BYTES` | `1048576` | Request body size limit (1 MB) |
-| `REQUEST_TIMEOUT_MS` | `30000` | HTTP request timeout |
-| `TRUST_PROXY` | `false` | Trust proxy headers for client IP detection |
-| `API_ENABLE_DOCS` | `true` | Enable OpenAPI and Swagger documentation routes |
-| **Database pool** | | |
-| `DB_POOL_MAX` | `20` | Maximum Postgres connection pool size |
-| `DB_STATEMENT_TIMEOUT_MS` | `15000` | Per-statement timeout |
-| `DB_IDLE_IN_TX_TIMEOUT_MS` | `30000` | Idle-in-transaction timeout |
-| `DB_CONNECTION_TIMEOUT_MS` | `5000` | Connection acquisition timeout |
-| `DB_IDLE_TIMEOUT_MS` | `30000` | Idle connection eviction timeout |
-| **Outbox dispatcher** | | |
-| `OUTBOX_POLL_MS` | `250` | Outbox poll interval in milliseconds |
-| `OUTBOX_BATCH_SIZE` | `32` | Messages to lock per poll cycle |
-| `OUTBOX_LOCK_SEC` | `30` | Advisory lock duration for outbox rows |
-| `OUTBOX_MAX_ATTEMPTS` | `100` | Max delivery attempts before a message is marked `dead` |
-| `OUTBOX_STREAM_MAXLEN` | `100000` | XADD MAXLEN for all outbox-published streams |
-| `READY_RATE_LIMIT_PER_MIN` | `120` | Rate limit for `/ready` health probe per source IP per minute (0 to disable) |
-| `API_V1_RATE_LIMIT_PER_MIN` | `600` | Rate limit for `/v1/*` routes per source IP per minute (0 to disable) |
-| `ADMIN_AUTH_FAIL_LIMIT_PER_MIN` | `60` | Rate limit for failed admin-token attempts per source IP per minute (0 to disable) |
-| `ADMIN_TOKEN_LAST_USED_DEBOUNCE_SEC` | `60` | Minimum seconds between persisted admin-token last-used updates |
-| `API_MAX_RESOURCES_PER_ZONE` | `100000` | Maximum active resources allowed in one zone (0 to disable) |
-| `API_READY_OUTBOX_DEAD_MAX` | `0` | Maximum abandoned transactional-outbox rows allowed before `/ready` returns `503 outbox_dead_messages` |
-
----
-
-## Gateway
-
-| Variable | Default | Description |
-| --- | --- | --- |
-| `DATABASE_URL` | None | **Required.** Postgres connection string |
-| `REDIS_URL` | None | **Required.** Redis connection string |
-| `STS_URL` | None | **Required.** STS base URL with scheme (http or https) |
-| `CARACAL_MODE` | `stable` | `dev`, `rc`, or `stable`; controls safety checks |
-| `STREAMS_HMAC_KEY` | None | **Required.** 32-byte hex-encoded key for verifying stream signatures |
-| `AUDIT_HMAC_KEY` | None | Required when `CARACAL_MODE=rc` or `CARACAL_MODE=stable` |
-| `GATEWAY_STS_HMAC_KEY` | None | Required when `CARACAL_MODE=rc` or `CARACAL_MODE=stable`. 32-byte hex-encoded key for signing Gateway-to-STS exchanges. |
-| `CARACAL_ADMIN_TOKEN` / `CARACAL_ADMIN_TOKEN_FILE` | None | Bearer token for the Gateway `/internal/revocations/reload` operator endpoint. When unset, the endpoint returns `401 unauthorized`. Prefer the file-backed form. |
-| `METRICS_BEARER` / `METRICS_BEARER_FILE` | None | Bearer token for the Gateway `/metrics` and `/metrics.json` endpoints. When unset, metrics are accessible without authentication. |
-| `AUDIT_REPLAY_DIR` | `/var/lib/caracal/audit-replay` | Directory where Gateway spools audit events when the Redis sink is unavailable. Must be writable and persistent across restarts. |
-| `PORT` | `8081` | Must be `8081`. Enforced at startup; any other value panics. |
-| `ALLOW_PRIVATE_UPSTREAMS` | `false` | Allow proxying to private/loopback upstream URLs |
-| `UPSTREAM_HOST_ALLOWLIST` | None | Comma-separated upstream host allowlist. Required when `CARACAL_MODE=rc` or `CARACAL_MODE=stable` and `ALLOW_PRIVATE_UPSTREAMS=true`. |
-| `JTI_FAIL_OPEN` | `false` | Skip JTI replay check on Redis error. Forbidden when `CARACAL_MODE=rc` or `CARACAL_MODE=stable`. |
-| `STS_TIMEOUT` | `5s` | STS request timeout (duration format, e.g., `5s`, `500ms`) |
-| `UPSTREAM_TIMEOUT` | `30s` | Upstream proxy timeout |
-| `READ_HEADER_TIMEOUT` | `5s` | HTTP read header timeout |
-| `READ_TIMEOUT` | `45s` | HTTP read timeout. Must exceed `STS_TIMEOUT + UPSTREAM_TIMEOUT`. |
-| `WRITE_TIMEOUT` | `60s` | HTTP write timeout |
-| `IDLE_TIMEOUT` | `120s` | HTTP keep-alive idle timeout |
-| `MAX_REQUEST_BYTES` | `10485760` | Maximum request body size (10 MB) |
-| `LOG_LEVEL` | `info` | Log verbosity |
-
----
-
-## Audit
-
-| Variable | Default | Description |
-| --- | --- | --- |
-| `DATABASE_URL` | None | **Required.** Postgres connection string |
-| `REDIS_URL` | None | **Required.** Redis connection string |
-| `AUDIT_HMAC_KEY` | None | Required when `CARACAL_MODE=rc` or `CARACAL_MODE=stable`. 32-byte hex-encoded HMAC key for audit chain verification |
-| `AUDIT_ADMIN_TOKEN` / `AUDIT_ADMIN_TOKEN_FILE` | None | Bearer token for the Audit DLQ triage endpoints (`GET /api/audit/dlq`). When unset, those endpoints return 404. Prefer the file-backed form for Helm deployments. |
-| `PORT` | None | **Must be `9090`.** |
-| `AUDIT_RETENTION_DAYS` | `365` | Number of days to retain audit events. Older monthly partitions are dropped. |
-| `AUDIT_MAX_DELIVERIES` | `8` | Max delivery attempts for an audit event before DLQ routing |
-| `AUDIT_CLAIM_IDLE_SECS` | `30` | Seconds before an unclaimed PEL entry is reclaimed by another consumer |
-| `AUDIT_TAMPER_ROLLING_HOURS` | `4` | Rolling window for tamper detection sweep |
-| `AUDIT_READY_DLQ_MAX` | `0` | Maximum DLQ entries allowed before `/ready` returns `503`. `0` disables the check. |
-| `AUDIT_READY_LAG_MAX` | `0` | Maximum consumer group lag allowed before `/ready` returns `503`. `0` disables the check. |
-| `AUDIT_READY_PEL_OLDEST_SECS_MAX` | `0` | Maximum PEL entry age in seconds allowed before `/ready` returns `503`. `0` disables the check. |
-| `AUDIT_EXPORT_S3_ENDPOINT` | None | S3-compatible endpoint URL for Parquet export (e.g., MinIO) |
-| `AUDIT_EXPORT_S3_BUCKET` | None | S3 bucket name for Parquet export. Leave empty to disable export. |
-| `AUDIT_EXPORT_S3_REGION` | `us-east-1` | AWS region for S3 export |
-| `HOSTNAME` | `audit-worker-0` | Consumer name for the audit stream consumer group |
-| `LOG_LEVEL` | `info` | Log verbosity |
-
----
-
-## Coordinator
-
-| Variable | Default | Description |
-| --- | --- | --- |
-| `DATABASE_URL` | None | **Required.** Postgres connection string |
-| `REDIS_URL` | None | **Required.** Redis connection string |
-| `STS_URL` | None | **Required.** STS base URL |
-| `ISSUER_URL` | None | **Required.** STS issuer URL (same as `ISSUER_URL` in STS). Also the required `aud` claim on bearer JWTs. |
-| `AGENT_COORDINATOR_SCOPE` | None | **Required.** Required scope for coordinator calls (e.g., `agent:lifecycle`) |
-| `PORT` | `4000` | Listen port |
-| `HOST` | `0.0.0.0` in rc or stable, `127.0.0.1` otherwise | Listen host |
-| `STREAMS_HMAC_KEY` | None | Required when `CARACAL_MODE=rc` or `CARACAL_MODE=stable`. 32-byte hex-encoded key for signing outbox stream messages |
-| **Database pool** | | |
-| `DB_POOL_MAX` | `20` | Maximum Postgres connection pool size |
-| `DB_STATEMENT_TIMEOUT_MS` | `10000` | Per-statement timeout |
-| `DB_CONNECTION_TIMEOUT_MS` | `5000` | Connection acquisition timeout |
-| `DB_IDLE_TIMEOUT_MS` | `30000` | Idle connection eviction timeout |
-| **Outbox publisher** | | |
-| `OUTBOX_INTERVAL_MS` | `1000` | Outbox poll interval |
-| `OUTBOX_BATCH_SIZE` | `50` | Messages to lock per poll cycle |
-| `OUTBOX_MAX_ATTEMPTS` | `10` | Max delivery attempts before `dead` status |
-| `STREAMS_MAXLEN` | `100000` | XADD MAXLEN for coordinator-published streams |
-| **Background jobs** | | |
-| `TTL_SWEEP_INTERVAL_MS` | `60000` | Interval between agent session TTL sweeps |
-| `SERVICE_LEASE_SWEEP_INTERVAL_MS` | `30000` | Interval between service-agent heartbeat lease sweeps |
-| `SERVICE_AGENT_LEASE_SECONDS` | `120` | Service-agent heartbeat lease length |
-| `DEADLINE_SWEEP_INTERVAL_MS` | `5000` | Interval between invocation deadline enforcement sweeps |
-| `SWEEPER_BATCH_SIZE` | `500` | Rows processed per sweep batch |
-| `RETENTION_CLEANUP_INTERVAL_MS` | `900000` | Interval between delegation/outbox retention cleanup runs (15 min) |
-| `RETENTION_CLEANUP_BATCH_SIZE` | `500` | Rows deleted per cleanup batch |
-| `DELEGATION_RETENTION_DAYS` | `90` | Days to retain completed delegation edges |
-| `OUTBOX_RETENTION_DAYS` | `7` | Days to retain published/dead outbox rows |
-| `SHUTDOWN_GRACE_MS` | `15000` | Graceful shutdown window |
-| `REQUEST_TIMEOUT_MS` | `30000` | HTTP request timeout |
-| `VERIFY_RATE_LIMIT_PER_MIN` | `60` | Token verify rate limit per client per minute (minimum 0) |
-| `INVOCATION_RATE_LIMIT_PER_MIN` | `120` | Invocation mutation rate limit per application per zone per minute (minimum 0) |
-| `V1_RATE_LIMIT_PER_MIN` | `300` | V1 façade (begin/end/exchange) rate limit per source IP per minute (0 to disable) |
-| `COORDINATOR_RATE_LIMIT_PER_MIN` | `600` | Global coordinator rate limit per source IP per minute (0 to disable) |
-| `READY_RATE_LIMIT_PER_MIN` | `120` | Coordinator readiness probe rate limit per source IP per minute (0 to disable) |
-| `RELAY_DEDUPE_WINDOW_SEC` | `3600` | Window for relay deduplication (Go relay) |
-| `JWKS_CACHE_MAX` | `256` | Maximum JWKS cache entries |
-| `TRUST_PROXY` | `false` | Trust proxy headers for client IP detection |
-| `LOG_LEVEL` | `info` | Log verbosity |
-
----
-
-## Optional Control service
-
-The control service is unmounted by default and managed through the authenticated interactive Console Control flow or the Console Control menu. The variables below are consumed by the managed service after the engine starts the optional Control runtime.
-
-| Variable | Default | Description |
-| --- | --- | --- |
-| `CARACAL_CONTROL_ENABLED` | managed by the runtime | Must be `true` inside the Control service; the runtime/console lifecycle sets this through the managed runtime definition |
-| `CONTROL_GATE_FILE` | `/run/caracal-control/enabled` | Local gate file checked by the Control service before readiness and invoke requests |
-| `CARACAL_CONTROL_STATE_DIR` | managed by the runtime | Host directory mounted read-only into the Control container so runtime/console can open or close the endpoint gate |
-| `CONTROL_PORT` | `8087` | Listen port |
-| `CONTROL_HOST` | `127.0.0.1` (dev), `0.0.0.0` (rc/stable) | Listen address |
-| `STS_JWKS_URL` | None | **Required.** STS JWKS URL used to verify bearer tokens (`?zone_id=…` is appended per token) |
-| `STS_ISSUER_URL` | None | **Required.** Expected issuer for control bearer tokens |
-| `CONTROL_AUDIENCE` | None | **Required.** Expected audience for control bearer tokens |
-| `CARACAL_API_URL` | None | **Required.** Admin API base URL the engine dispatches to (e.g. `http://api:3000`) |
-| `CONTROL_API_TOKEN` / `CONTROL_API_TOKEN_FILE` | None | **Required.** Admin token used by the engine when calling the API. Prefer the file-backed form. |
-| `CONTROL_REDIS_URL` | None | Replay cache and audit sink Redis URL. Required when `CARACAL_MODE=rc` or `CARACAL_MODE=stable`; optional in dev mode |
-| `AUDIT_HMAC_KEY` | None | Hex-encoded ≥32-byte key for HMAC-SHA256 signing of audit rows. Required when `CARACAL_MODE=rc` or `CARACAL_MODE=stable` |
-| `CONTROL_RATE_CAPACITY` | `60` | Per-subject token-bucket capacity |
-| `CONTROL_RATE_WINDOW_SEC` | `60` | Per-subject token-bucket refill window |
-| `CONTROL_REPLAY_TTL_SEC` | `3600` | Maximum JTI replay retention; bounded further by the token's `exp` |
-| `LOG_LEVEL` | `info` | Fastify logger level |
+| Symptom | Check |
+| --- | --- |
+| A service starts locally but fails in Helm | Published modes require stricter HMAC, URL, and secret validation. |
+| File secret is ignored | Confirm the variable uses the `*_FILE` suffix supported by that service. |
+| Wrong port error | Use the fixed port for the service; several services reject arbitrary `PORT` values. |
+| Runtime workload cannot find config | Use [Configuration File](/runtime-console/config-file/) rather than service env vars. |

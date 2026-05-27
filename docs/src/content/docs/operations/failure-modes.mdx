@@ -1,134 +1,46 @@
 ---
 title: Failure Modes and Recovery
-description: Detection, impact, recovery, and verification steps for core Caracal production failure modes.
-pageType: reference
+description: Recover Caracal from storage, stream, policy, Gateway, STS, audit, and Coordinator failures.
+pageType: workflow
 ---
 
-## Postgres unavailable
+Caracal is designed to fail closed for access-safety boundaries. Recovery should restore evidence, revocation, and policy freshness before reopening risky traffic.
 
-**Detection:** API, STS, Audit, Coordinator, and migration readiness fail; `CaracalPostgresPoolSaturation` may fire before total outage.
+## Failure matrix
 
-**Impact:** management operations, policy lookups, audit writes, and migrations can fail. Gateway requests may fail if STS cannot exchange authority.
+| Failure | User impact | Recovery |
+| --- | --- | --- |
+| Postgres unavailable | API/STS/Gateway/Audit/Coordinator readiness fails or degrades. | Restore Postgres, confirm migrations, check pools, replay outboxes. |
+| Redis unavailable | Streams, revocation, policy invalidation, audit ingestion, and coordination lag. | Restore Redis, verify streams/groups, watch pending entries and replay backlog. |
+| STS unavailable | Token exchange and Gateway exchanges fail. | Restore STS readiness, policy bundle freshness, JWKS, and HMAC config. |
+| Gateway unhealthy | Protected upstream traffic fails before provider dispatch. | Check bindings, STS exchange, revocation snapshot, upstream allowlist, and audit replay. |
+| Audit unhealthy | Evidence ingestion delayed; DLQ or replay grows. | Recover Audit/Postgres/Redis, replay DLQ, verify tamper chain. |
+| Coordinator unhealthy | Agent/delegation views and lifecycle management fail. | Restore Coordinator readiness, token, DB, Redis, and sweeper health. |
+| Control unhealthy | Automation dispatch unavailable. | Use Console/Admin SDK directly if appropriate; restore Control gate, token, JWKS, Redis, and API reachability. |
 
-**Recovery:** restore the managed Postgres service or primary endpoint first. Do not restart every Caracal pod unless connection pools fail to recover. Re-run the migration Job only if the outage happened during upgrade.
+## Recovery order
 
-**Verification:** `infra/postgres/scripts/verify.sh` passes, service readiness is green, and a synthetic Gateway request produces an audit event.
-
-## Redis unavailable
-
-**Detection:** policy invalidation stalls, audit consumer lag rises, Coordinator dispatch slows, and STS bundle age can increase.
-
-**Impact:** policy changes may not propagate quickly and audit replay can lag. Existing active decisions remain bounded by STS readiness behavior.
-
-**Recovery:** restore Redis, confirm no eviction or stream truncation, and watch Audit plus STS catch up. Scale consumers only after Redis is stable.
-
-**Verification:** STS policy age drops, audit lag clears, and Redis stream consumer groups are active.
-
-## STS unavailable
-
-**Detection:** STS readiness fails, `CaracalGatewaySTSExchangeErrors` fires, and Gateway may report `CaracalGatewaySTSCircuitOpen` after repeated STS-unavailable failures.
-
-**Impact:** Gateway cannot mint/exchange mandates for protected requests. Existing upstream calls that require fresh authority fail closed.
-
-**Recovery:** check STS logs for policy compile, database, Redis, and key-file errors. Restart only unhealthy replicas after dependency recovery.
-
-**Verification:** STS `/ready` returns success, `caracal_gateway_sts_circuit_open` returns to `0`, and Gateway synthetic requests succeed.
-
-## Provider refresh outage
-
-**Detection:** `CaracalSTSProviderRefreshErrors` or `CaracalSTSProviderCircuitOpen`.
-
-**Impact:** Provider-backed resources can fail closed during token refresh. Caracal-issued authority remains bounded; stale provider credentials are not served as a fallback.
-
-**Recovery:** identify the provider from STS logs, verify provider endpoint reachability and client secret rotation state, restore Redis refresh coordination if errors reference lease/result publishing, and slow large provider-backed agent launches until refreshes stabilize.
-
-**Verification:** provider refresh errors stop increasing, provider circuit-open increments stop, and a controlled request for the affected provider-backed resource succeeds through Gateway.
-
-## Gateway upstream failure
-
-**Detection:** Gateway readiness may remain green while upstream-specific 5xx responses rise.
-
-**Impact:** protected resources behind the failing upstream are unavailable; other resources can continue.
-
-**Recovery:** verify resource binding, upstream DNS, TLS, and route policy. If a rollout changed Gateway config, roll back the Helm revision.
-
-**Verification:** the resource-specific synthetic request succeeds and emits an audit event with the expected resource ID.
-
-## Audit DLQ growth
-
-**Detection:** `CaracalAuditDLQGrowth` or `CaracalAuditDLQNonEmpty`.
-
-**Impact:** evidence is delayed and may become incomplete if replay storage is lost.
-
-**Recovery:** freeze rollouts, recover Audit dependencies, preserve Redis streams and pod replay volumes, then browse `/api/audit/dlq` with `AUDIT_ADMIN_TOKEN` to classify failures. Replay only entries marked replayable; HMAC and tamper rows stay in DLQ for forensic review.
-
-**Verification:** DLQ size reaches zero and recent Gateway events appear in `audit_events`.
-
-## Audit replay backlog aging
-
-**Detection:** `CaracalGatewayAuditReplayBacklogOld` or `CaracalSTSAuditReplayBacklogOld`.
-
-**Impact:** STS or Gateway has audit evidence buffered on local replay storage. Evidence is durable while the replay volume is preserved, but operators should treat aged replay files as incomplete downstream evidence until they drain.
-
-**Recovery:** preserve replay PVCs, restore Redis and Audit, keep the affected pods running so replay drains, and avoid audit HMAC key rotation while old replay files are pending.
-
-**Verification:** replay file and replay byte metrics return to zero and recent STS/Gateway actions appear in Audit.
-
-## Coordinator unavailable
-
-**Detection:** Coordinator readiness fails, outbox lag rises, or agent lifecycle updates stop.
-
-**Impact:** agent coordination and asynchronous management operations lag. Gateway and STS can continue serving existing protected requests.
-
-**Recovery:** inspect database connectivity, Redis connectivity, outbox worker errors, and resource pressure. Restart only unhealthy Coordinator pods.
-
-**Verification:** outbox lag drains and new agent session lifecycle events are processed.
-
-## OPA policy compile failure
-
-**Detection:** `CaracalSTSOPACompileErrors`.
-
-**Impact:** affected policy loads fail closed; prior active bundle remains the safe path when available.
-
-**Recovery:** pause policy rollout, fix Rego/schema input, and validate with Console simulation before activating again.
-
-**Verification:** compile-error counter stops increasing and the changed policy simulates successfully.
-
-## Revocation propagation delay
-
-**Detection:** `CaracalGatewayRevocationPropagationLag`, `CaracalGatewayRevocationReloadErrors`, or `CaracalGatewayRevocationSnapshotStale`.
-
-**Impact:** Gateway cannot prove revoked sessions, agent sessions, or delegation edges are being applied inside the expected safety window. Treat this as an access-safety incident.
-
-**Recovery:** restore Redis consumer group health and Postgres revocation query health. After Postgres is healthy, force a snapshot reload through the Gateway internal endpoint:
-
-```bash
-curl -fsS -X POST \
-  -H "Authorization: Bearer $CARACAL_ADMIN_TOKEN" \
-  "$CARACAL_GATEWAY_URL/internal/revocations/reload"
+```mermaid
+flowchart TD
+  Freeze[Freeze risky rollouts] --> Storage[Restore Postgres and Redis]
+  Storage --> Services[Restore STS, API, Gateway, Audit, Coordinator]
+  Services --> Evidence[Drain audit replay, DLQ, outboxes]
+  Evidence --> Safety[Confirm revocation and policy freshness]
+  Safety --> Resume[Resume traffic or rollout]
 ```
 
-**Verification:** snapshot freshness returns to `1`, propagation lag returns below the threshold, and a newly revoked grant is denied by every Gateway replica.
+## Data-flow reconciliation
 
-## High database pool saturation
+1. Check Postgres migrations and expected tables.
+2. Check Redis stream groups and pending entries.
+3. Check API and Coordinator outbox tables.
+4. Check Audit DLQ and audit replay directories.
+5. Check Gateway revocation snapshot freshness.
 
-**Detection:** `CaracalPostgresPoolSaturation`.
+## Troubleshooting
 
-**Impact:** latency rises and services can begin failing readiness when pools exhaust.
-
-**Recovery:** inspect long-running queries, DB CPU/I/O, and connection leaks. Reduce traffic or scale database capacity before increasing service replicas.
-
-**Verification:** pool ratio stays below threshold and p95 latency returns to baseline.
-
-## Synthetic request
-
-Use a known protected test resource and include a unique request ID:
-
-```bash
-curl -fsS \
-  -H "Authorization: Bearer $CARACAL_TEST_TOKEN" \
-  -H "X-Request-ID: recovery-$(date +%s)" \
-  "$CARACAL_PROTECTED_HEALTH_URL"
-```
-
-Then verify the request ID exists in Audit through the Console Audit view or the operator-only API.
+| Symptom | Action |
+| --- | --- |
+| Requests fail closed after outage | Confirm STS policy freshness, revocation snapshot, and audit replay drain. |
+| Events appear duplicated | Verify idempotent consumers and dedupe keys before manual cleanup. |
+| Rollback does not restore service | Schema may have moved forward; roll forward with a compatible fix. |

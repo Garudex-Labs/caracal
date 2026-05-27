@@ -1,78 +1,46 @@
 ---
 title: Compliance and Audit Integration
-description: The contract for exporting Caracal audit events into a SIEM or compliance archive without weakening the tamper-evident chain.
+description: Export, verify, and preserve Caracal audit evidence for compliance workflows.
 pageType: workflow
 ---
 
-Caracal's audit ledger is the source of truth for "who asked for authority, who got it, what they did with it, and why." This page covers how to extend that ledger into a SIEM, compliance archive, or long-term retention store while preserving the chain HMAC tamper-evidence that makes the ledger defensible.
+Caracal audit records provide decision evidence for STS, Gateway, Coordinator, policy evaluation, Control, and administrative activity. Treat audit as a protected evidence pipeline.
 
-The integration contract has four parts: the canonical event schema, the export path, the SIEM ingestion expectations, and the verification step that proves the integration is intact.
+## Evidence path
 
-## Canonical event schema
+```mermaid
+flowchart LR
+  Producer[API, STS, Gateway, Coordinator, Control] --> Redis[caracal.audit.events]
+  Redis --> Audit[Audit service]
+  Audit --> PG[(audit_events)]
+  Audit --> DLQ[caracal.audit.events.dlq]
+  Audit --> Export[S3-compatible export]
+  Export --> SIEM[SIEM or archive]
+```
 
-Every exported event must conform to the audit event schema. SIEM mappings, retention rules, and compliance queries reference these fields by their schema names; renaming or flattening fields breaks downstream verification.
+Audit events are HMAC-protected in published modes. Audit storage includes tamper checks and append-only permission validation.
 
-| Element | Reference |
+## Integration points
+
+| Need | Surface |
 | --- | --- |
-| Event schema | [`caracal-audit-event`](/schemas/caracal-audit-event-2026-05-21.schema.json) |
-| Chain linkage fields (`chain_seq`, `content_sha256`, `prev_content_sha256`, `chain_hmac`) | [Backup and Retention](./backup-retention/) |
-| Standards profile | [Interoperability Contracts](/reference/interoperability-contracts/) |
+| Search recent events | Console `audit` or Audit API search. |
+| Explain one request | Console `explain` or API request ID lookup. |
+| SIEM export | `caracal.audit.events` consumer or Audit export path. |
+| Evidence archive | Postgres backup plus object-store export. |
+| Tamper response | `CaracalAuditTamperDetected` alert and incident runbook. |
 
-The chain HMAC fields make tampering with an exported event detectable by any consumer that re-verifies the chain. A SIEM that drops these fields loses tamper-evidence and must not be treated as the authoritative archive.
+## Operational controls
 
-## Export paths
+- Monitor Audit DLQ, consumer lag, tamper metrics, and export watermarks.
+- Preserve audit HMAC keys according to retention requirements.
+- Keep audit partitions and backup retention aligned with legal hold requirements.
+- Do not manually mutate `audit_events`; verification expects append-only behavior.
 
-Caracal supports two export paths. They are not alternatives — most production deployments use both.
+## Troubleshooting
 
-| Path | Purpose | Reference |
-| --- | --- | --- |
-| Redis Streams | Real-time fan-out to SIEM ingesters, alert pipelines, and live dashboards. | [Tail and Query the Audit Stream](/guides/audit-stream/) |
-| S3 Parquet | Long-term archival in OCSF v1.7.0 format for compliance retention beyond the Postgres partition window. | [Backup and Retention](./backup-retention/) |
-
-The Audit service is the only producer for both paths. SIEM ingesters subscribe to the Redis stream; compliance archives index the S3 prefix.
-
-## SIEM ingester contract
-
-A SIEM ingester is a separately deployed process that consumes the Redis audit stream and writes to the SIEM. To qualify as a production integration, an ingester must:
-
-1. Consume the stream as a named consumer group so checkpoints survive restart.
-2. Preserve every field in the canonical schema, including the chain linkage fields.
-3. Re-verify the chain HMAC before forwarding, and emit a tamper alert when verification fails.
-4. Acknowledge messages only after the downstream SIEM has confirmed durable receipt.
-5. Surface its own backlog and failure metrics on a `/metrics` endpoint the platform team can alert on.
-
-An ingester that meets these conditions is a supported integration. An ingester that drops fields, acknowledges before downstream durability, or skips chain verification is example-only — useful for development, not for compliance evidence.
-
-## Standardized exporter manifest
-
-The audit-exporter manifest schema declares a destination, its credentials, and its retention contract in a form the platform team can review and audit. Use it for every exporter the platform team operates.
-
-| Element | Reference |
+| Symptom | Check |
 | --- | --- |
-| Exporter manifest schema | [`caracal-audit-exporter-manifest`](/schemas/caracal-audit-exporter-manifest-2026-05-21.schema.json) |
-| Manifest disambiguation | [Glossary](/reference/glossary/#manifests) |
-| Stream consumer contract | [Tail and Query the Audit Stream](/guides/audit-stream/) |
-
-The manifest is the agreement between the platform team and the consuming SIEM. Store it under change control; revoke it when an integration is decommissioned.
-
-## Compliance posture
-
-Caracal's audit chain produces the primary evidence required by control families that ask "who authorized this action, who acted on it, and can it be tampered with?" The platform team is responsible for mapping that evidence onto its specific compliance regime; Caracal does not pre-bind to any single regime.
-
-The platform team's checklist:
-
-- Confirm retention duration matches the regime's required minimum (see `AUDIT_RETENTION_DAYS` in [Environment Variables](./env-vars/)).
-- Confirm the S3 export is enabled before any partition reaches the retention cutoff.
-- Confirm the SIEM ingester verifies the chain HMAC and alerts on failure.
-- Confirm key rotation procedure is documented for the audit HMAC and the zone signing keys.
-- Confirm the incident response runbook covers an audit-tamper alert.
-
-## Verification
-
-A working compliance integration produces three observable signals when an audit event is generated:
-
-1. The event lands in Postgres `audit_events`.
-2. The event appears on the Redis audit stream with its chain HMAC intact.
-3. The SIEM ingester writes the event to the SIEM, including the chain HMAC, within its declared latency budget.
-
-If any of these signals is missing for an event that should have been produced, the integration is broken. Treat that as an incident, not a backlog item; the compliance posture depends on all three signals being continuous.
+| SIEM is missing events | Redis group lag, export watermark, Audit readiness, and network egress. |
+| DLQ has HMAC failures | Producer key mismatch or corrupted stream payload. |
+| Request explanation missing | Confirm request ID, zone, retention window, and that the protected request reached Caracal. |

@@ -1,333 +1,52 @@
 ---
 title: Enterprise Install Kit
-description: OSS Helm install kit for platform-owned secrets, ingress, mTLS, SIEM export, backup, capacity, post-install validation, and local-to-cluster promotion.
+description: Package and hand off production Caracal installation materials without crossing product boundaries.
 pageType: workflow
 ---
 
-The open-source Caracal install kit is a production-adaptable Helm path, not an enterprise platform bundle. It gives platform teams enough structure to deploy and operate Caracal with their existing cluster services while keeping enterprise-only automation, managed onboarding, and organization-specific policy catalogs outside the OSS chart.
+Use the enterprise install kit pattern when a platform team needs a controlled bundle of Caracal deployment assets, values, secrets instructions, verification steps, and rollback guidance. Keep the open-source and enterprise products isolated: do not import, copy, or depend on files across product roots.
 
-Use this page with the Helm chart in `infra/helm/caracal` and one of the checked-in values profiles:
+## Kit contents
 
-| Profile | Use |
+| Artifact | Purpose |
 | --- | --- |
-| `values.dev.yaml` | Disposable local or development clusters. |
-| `values.rc.yaml` | Release-candidate validation clusters. |
-| `values.production.yaml` | Hardened OSS production baseline. |
+| Release version | Exact Caracal image tag and chart version. |
+| Helm values | Environment-specific overrides for registry, tag, secrets, network policy, ingress, resources, replay persistence, and observability. |
+| Secret manifest | Required keys and where the platform secret manager stores them. |
+| Runbook | Install, verify, rollback, backup, restore, and incident steps. |
+| Evidence checklist | Rendered manifest, migration result, readiness output, smoke test, alert wiring, backup proof, and owner sign-off. |
 
-The kit deliberately does not ship runnable tenant data, provider definitions, secrets, or application payloads. Every value that identifies a zone, application, resource, hostname, secret path, SIEM destination, backup store, or capacity target must come from the deploying organization.
+## Required boundaries
 
-## Installation inputs
+- Keep OSS local ports and enterprise local ports non-overlapping in examples.
+- Do not reference private source paths from open-source docs or configs.
+- Share behavior only through documented deployment contracts: images, chart values, APIs, event topics, and secrets.
+- Keep customer-specific values outside the repository.
 
-Collect these values before rendering Helm. Store them in your platform inventory or GitOps overlay, not in the Caracal repository.
+## Installation sequence
 
-| Input | Source of truth | Used by |
-| --- | --- | --- |
-| Release namespace and release name | Cluster platform standard | Helm release, NetworkPolicy, ServiceMonitor |
-| Product version | Release/package/runtime version map | `global.tag`, image promotion |
-| Runtime Secret name | Secret-management platform | `secrets.runtimeSecretName` |
-| Postgres endpoint and database | Managed database or database operator | API, STS, Gateway, Audit, Coordinator, migrations |
-| Redis endpoint and database | Managed Redis or Redis operator | revocation, outbox, rate limits, audit streams |
-| Gateway hostname | Ingress or load-balancer inventory | `ingress.gateway.host` |
-| API operator hostname, if exposed | Private operator access model | `ingress.api.host` |
-| TLS or mesh policy | Platform security baseline | ingress annotations, service mesh policy, Gateway TLS files |
-| SIEM ingestion path | Security operations platform | Audit stream consumer, S3 Parquet archive |
-| Backup targets and retention | Database and object-storage platform | Postgres WAL/base backups, audit archive |
-| Capacity profile | Measured rollout target | replicas, HPA, resource requests, pool sizing |
-
-Do not render the chart with literal substitution markers. Treat any `<required-value>` marker in this page as a required operator substitution.
-
-## Helm profile overlay
-
-Start from the production profile and layer only organization-owned values on top:
-
-```bash
-helm upgrade --install <release-name> ./infra/helm/caracal \
-  --namespace <caracal-namespace> \
-  --create-namespace \
-  --values infra/helm/caracal/values.production.yaml \
-  --values <platform-overlay-file> \
-  --set global.tag=<caracal-version>
+```mermaid
+flowchart LR
+  Package[Package kit] --> Review[Security and platform review]
+  Review --> Secrets[Create runtime secrets]
+  Secrets --> Render[Render Helm manifests]
+  Render --> Install[Install or upgrade]
+  Install --> Verify[Readiness, smoke, alerts, backups]
+  Verify --> Handoff[Operations handoff]
 ```
 
-The overlay should contain cluster integration only. Do not put zones, applications, resources, policies, providers, profile files, or application secrets in Helm values. Those are product objects and workload credentials, not chart configuration.
+## Verification evidence
 
-Minimum overlay shape:
-
-```yaml
-global:
-  tag: "<caracal-version>"
-  mode: stable
-  otelExporterOtlpEndpoint: "<otlp-collector-endpoint>"
-
-secrets:
-  create: false
-  runtimeSecretName: "<runtime-secret-name>"
-  database:
-    host: "<postgres-service-hostname>"
-    port: 5432
-    name: "<caracal-database-name>"
-    sslMode: require
-  redis:
-    host: "<redis-service-hostname>"
-    port: 6379
-    database: <redis-database-index>
-
-ingress:
-  gateway:
-    enabled: true
-    className: "<ingress-class>"
-    host: "<gateway-hostname>"
-    tlsSecretName: "<gateway-tls-secret-name>"
-  api:
-    enabled: <operator-api-ingress-enabled>
-    className: "<private-ingress-class>"
-    host: "<operator-api-hostname>"
-    tlsSecretName: "<operator-api-tls-secret-name>"
-```
-
-Set `ingress.api.enabled=false` unless operators have a private ingress, VPN, identity-aware proxy, or bastion path. The Gateway is the default external product boundary.
-
-## External Secrets
-
-Caracal expects an existing runtime Secret mounted as files. Use External Secrets Operator, CSI Secret Store, Sealed Secrets, SOPS, or another platform-owned mechanism to create that Secret. The Helm chart only needs the Secret name.
-
-External Secrets shape:
-
-```yaml
-apiVersion: external-secrets.io/v1beta1
-kind: ExternalSecret
-metadata:
-  name: <runtime-secret-name>
-  namespace: <caracal-namespace>
-spec:
-  refreshInterval: <refresh-interval>
-  secretStoreRef:
-    kind: <secret-store-kind>
-    name: <secret-store-name>
-  target:
-    name: <runtime-secret-name>
-    creationPolicy: Owner
-  data:
-    - secretKey: databaseUrl
-      remoteRef:
-        key: <database-url-secret-ref>
-    - secretKey: redisUrl
-      remoteRef:
-        key: <redis-url-secret-ref>
-    - secretKey: caracalAdminToken
-      remoteRef:
-        key: <admin-token-secret-ref>
-    - secretKey: caracalCoordinatorToken
-      remoteRef:
-        key: <coordinator-token-secret-ref>
-    - secretKey: zoneKek
-      remoteRef:
-        key: <zone-kek-secret-ref>
-    - secretKey: auditHmacKey
-      remoteRef:
-        key: <audit-hmac-secret-ref>
-    - secretKey: streamsHmacKey
-      remoteRef:
-        key: <streams-hmac-secret-ref>
-    - secretKey: gatewayStsHmacKey
-      remoteRef:
-        key: <gateway-sts-hmac-secret-ref>
-```
-
-Secret values must be generated and rotated by the platform secret manager. Do not commit the rendered Secret, decrypted SOPS output, or development secret files.
-
-## Ingress and mTLS
-
-Expose only the Gateway by default. If API ingress is required, bind it to an operator-only access path and keep admin-token authentication enabled.
-
-Ingress overlay shape:
-
-```yaml
-ingress:
-  gateway:
-    enabled: true
-    className: "<ingress-class>"
-    host: "<gateway-hostname>"
-    tlsSecretName: "<gateway-tls-secret-name>"
-    annotations:
-      <ingress-annotation-key>: "<ingress-annotation-value>"
-  api:
-    enabled: <operator-api-ingress-enabled>
-    className: "<private-ingress-class>"
-    host: "<operator-api-hostname>"
-    tlsSecretName: "<operator-api-tls-secret-name>"
-    annotations:
-      <private-ingress-annotation-key>: "<private-ingress-annotation-value>"
-```
-
-For mTLS, prefer platform controls around the chart rather than custom Caracal-specific identity logic:
-
-| Layer | OSS install-kit guidance |
+| Check | Evidence |
 | --- | --- |
-| North-south TLS | Terminate at the ingress/load balancer or configure Gateway TLS files through mounted secrets. |
-| Service-to-service mTLS | Use the cluster service mesh, SPIFFE/SPIRE, or platform TLS policy. |
-| Gateway to STS | Keep traffic private and mTLS-protected when the platform supports it. |
-| Authorization evidence | Keep Caracal mandates as the resource-authorization proof. mTLS identifies workloads; it does not replace policy decisions. |
+| Version pin | Image tags and chart values match the release approval. |
+| Secrets | Runtime Secret contains database, Redis, admin, Coordinator, zone KEK, audit HMAC, stream HMAC, and Gateway-STS HMAC material. |
+| Network | NetworkPolicy admits only required ingress and egress. |
+| Storage | Postgres migrations complete; Redis streams and groups exist. |
+| Runtime | `/ready` passes for API, STS, Gateway, Audit, and Coordinator. |
+| Observability | ServiceMonitor and PrometheusRule are installed or equivalent alerts exist. |
+| Recovery | Backup and restore runbook has been tested for Postgres and runtime secrets. |
 
-## SIEM and audit export
+## Handoff package
 
-Caracal emits audit events to the audit ledger, Redis stream, and optional S3 Parquet export. SIEM integration should be a platform-owned consumer, not a Helm subchart inside this OSS deployment.
-
-Required SIEM contract:
-
-| Requirement | Why it matters |
-| --- | --- |
-| Consume with a named Redis stream consumer group | Preserves checkpoints across restarts. |
-| Preserve chain fields | Keeps tamper evidence defensible outside Postgres. |
-| Verify `chain_hmac` before forwarding | Detects ledger or transport tampering. |
-| Acknowledge after SIEM durability | Prevents silent evidence loss. |
-| Publish consumer lag and failure metrics | Makes audit-export health observable. |
-
-Enable the S3 Parquet archive through the Audit service environment owned by your deployment overlay or secret manager:
-
-```yaml
-global:
-  podAnnotations:
-    <annotation-key-for-audit-export-identity>: "<annotation-value>"
-```
-
-Use the concrete Audit service environment variables from [Backup and Retention](./backup-retention/). The archive bucket, prefix, region, endpoint, and credentials must be owned by the platform; do not add object-store credentials to Helm values.
-
-## Backup and restore
-
-Back up Caracal at the platform layer:
-
-| Data | Required protection |
-| --- | --- |
-| Postgres | Base backups, WAL archiving, and tested point-in-time recovery. |
-| Redis | Persistence and restore plan for streams, revocation, replay, and rate-limit state. |
-| Audit archive | S3-compatible immutable or retention-protected storage when compliance requires retention beyond Postgres. |
-| Runtime secrets | Versioned secret-manager records with rotation runbooks. |
-| Helm overlays | GitOps history without decrypted secret material. |
-
-Before production traffic, complete one restore drill against a separate environment and confirm:
-
-1. Postgres restores to a valid schema version.
-2. Audit chain verification reports no missing HMAC fields.
-3. Redis stream consumers resume or intentionally rebuild from Postgres/outbox state.
-4. Caracal services become ready after restore.
-5. A new validation run writes fresh audit evidence.
-
-## Capacity overlay
-
-Start with measured targets rather than generic replica counts. The production profile enables PDBs, HPAs, replay persistence, and conservative service resources; your overlay should tune only the values proven by load tests.
-
-```yaml
-services:
-  gateway:
-    replicas: <gateway-min-replicas>
-    hpa:
-      enabled: true
-      minReplicas: <gateway-min-replicas>
-      maxReplicas: <gateway-max-replicas>
-    resources:
-      requests:
-        cpu: "<gateway-request-cpu>"
-        memory: "<gateway-request-memory>"
-      limits:
-        cpu: "<gateway-limit-cpu>"
-        memory: "<gateway-limit-memory>"
-  sts:
-    replicas: <sts-min-replicas>
-    hpa:
-      enabled: true
-      minReplicas: <sts-min-replicas>
-      maxReplicas: <sts-max-replicas>
-```
-
-Record the measurement that justified every capacity value: request rate, policy complexity, event size, p95/p99 latency, Redis backlog, Audit lag, and Postgres connection use. See [Scale and Capacity Guidance](./scale-capacity/) for the formulas and benchmark process.
-
-## Post-install validation
-
-Validation must create real Caracal product objects in the target environment and prove that audit evidence exists for the resulting access path. Do not validate with unowned zones, throwaway provider names, or a toy architecture that application teams will not use.
-
-### 1. Check cluster readiness
-
-```bash
-kubectl -n <caracal-namespace> rollout status statefulset/<release-fullname>-sts
-kubectl -n <caracal-namespace> rollout status statefulset/<release-fullname>-gateway
-kubectl -n <caracal-namespace> rollout status deployment/<release-fullname>-api
-kubectl -n <caracal-namespace> rollout status deployment/<release-fullname>-audit
-kubectl -n <caracal-namespace> rollout status deployment/<release-fullname>-coordinator
-kubectl -n <caracal-namespace> get pods,svc,hpa,pdb
-```
-
-Use the actual Helm fullname shown by `helm status <release-name> --namespace <caracal-namespace>`.
-
-### 2. Launch Console against the cluster
-
-```bash
-export CARACAL_API_URL=<operator-api-url>
-export CARACAL_ADMIN_TOKEN_FILE=<admin-token-file>
-export CARACAL_COORDINATOR_URL=<coordinator-url>
-export CARACAL_COORDINATOR_TOKEN_FILE=<coordinator-token-file>
-caracal console
-```
-
-Open **guided setup** and enter the real validation inputs approved by the platform team:
-
-| Field | Required source |
-| --- | --- |
-| Zone name | Target operating boundary for the team or platform validation lane. |
-| Agent application name | Real application or release-pipeline identity that will call the resource. |
-| Protected resource ID | Real resource identifier owned by the team validating Caracal. |
-| Resource scopes | Scopes the application is expected to use. |
-| Upstream URL | Real protected endpoint when Gateway routing is part of the install. |
-| Policy activation | A policy that allows only the validation application and required scopes. |
-| Runtime profile path | Secret-managed or operator-owned location for the generated profile. |
-| Client-secret file path | Secret-managed path synced to the validation workload. |
-
-Guided setup creates the zone, application, resource, policy, active policy set, and generated profile from those values. Optional provider and Gateway fields can remain empty when they are not part of the target path.
-
-### 3. Run the validation workload
-
-Use the generated profile or equivalent environment variables with the actual workload command:
-
-```bash
-CARACAL_CONFIG=<generated-profile-path> caracal run -- <validation-command>
-```
-
-The command must call the protected resource path that the installation is expected to support. If the first protected resource is not ready yet, use a real platform-owned validation endpoint with the same ingress, Gateway, STS, policy, and audit path that application teams will use.
-
-### 4. Verify audit
-
-In Console, open **Audit** and verify an event for the validation request. Use **audit explain** for the request ID and confirm:
-
-| Evidence | Expected result |
-| --- | --- |
-| Policy decision | The request is allowed only by the activated validation policy. |
-| Application identity | The generated application ID matches the validation workload. |
-| Resource | The protected resource ID matches the product object created during guided setup. |
-| Scope | The scope set matches the profile and policy. |
-| Audit chain | The event is present in the audit ledger and includes chain linkage fields. |
-
-The install is not complete until the first successful access path ends with an audit explanation that an operator can read and defend.
-
-## Local-to-cluster promotion
-
-Promote the product shape, not local runtime data.
-
-| Local artifact | Promotion rule |
-| --- | --- |
-| Zone/application/resource names | Recreate or provision equivalent objects in the target cluster. IDs are target-environment values. |
-| Rego policy | Promote through policy review, simulation, and activation in the target zone. |
-| Runtime profile | Regenerate for the target cluster; do not reuse local profile files or local client secrets. |
-| Client secret | Store a target-generated secret in the platform secret manager. |
-| Upstream URL | Replace with the target cluster service, ingress, or Gateway route. |
-| Audit evidence | Re-run validation and keep the target audit explanation with the deployment record. |
-
-Promotion sequence:
-
-1. Deploy Caracal with the target Helm profile and platform overlay.
-2. Run Console guided setup or the approved Control API automation against the target API.
-3. Store the target profile and client secret through External Secrets or the workload secret pipeline.
-4. Deploy the workload with `CARACAL_CONFIG` or equivalent platform environment variables.
-5. Send one real validation request through the target Gateway or verified connector.
-6. Attach the audit explanation to the release record.
-
-This keeps local setup useful for learning while preventing local-only IDs, secrets, unapproved upstreams, or development policy shortcuts from reaching a cluster.
+Include links to [Kubernetes with Helm](/operations/kubernetes-helm/), [Environment Variables](/operations/env-vars/), [Backup and Retention](/operations/backup-retention/), [Alerting Recipes](/operations/alerts/), and [Incident Response](/operations/incident-response/).

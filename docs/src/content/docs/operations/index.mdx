@@ -1,59 +1,61 @@
 ---
 title: Operations
-description: Deploy, configure, monitor, and maintain Caracal in production environments.
+description: Operator runbooks for deploying, securing, scaling, observing, and recovering Caracal.
 pageType: landing
 ---
 
-This section covers everything needed to run Caracal reliably in production: deployment topology, service configuration, database and Redis management, TLS, key management, capacity planning, observability, audit retention, and incident response.
+Use Operations when Caracal is running as infrastructure: Docker Compose for self-hosted installs, Helm for Kubernetes, managed Postgres and Redis, production secrets, rollout gates, observability, incident handling, and upgrades.
 
-## What you are operating
+## Operating model
 
-Caracal consists of five core services sharing two infrastructure dependencies:
+```mermaid
+flowchart LR
+  Operator[Operator or platform team] --> Runtime[Runtime surface]
+  Runtime --> Compose[Docker Compose]
+  Runtime --> Helm[Helm release]
+  Runtime --> Secrets[Runtime secrets]
+  Runtime --> Checks[Health, readiness, smoke tests]
+  Checks --> Services[API, STS, Gateway, Audit, Coordinator]
+  Services --> Postgres[(PostgreSQL)]
+  Services --> Redis[(Redis Streams)]
+```
 
-| Service | Role | Port |
+## First pages by role
+
+| Role | Start with |
+| --- | --- |
+| Local or self-hosted operator | [Deployment with Docker Compose](/operations/docker-compose/) |
+| Kubernetes platform team | [Kubernetes with Helm](/operations/kubernetes-helm/) |
+| Security reviewer | [TLS and Production Hardening](/operations/tls-hardening/) and [Key Management and Rotation](/operations/key-management/) |
+| SRE/on-call | [Observability and Health](/operations/observability/), [Alerting Recipes](/operations/alerts/), and [Failure Modes and Recovery](/operations/failure-modes/) |
+| Release owner | [Platform Rollout Kit](/operations/platform-rollout-kit/), [Policy Deployment Runbook](/operations/policy-deployment/), and [Upgrade Procedure](/operations/upgrade/) |
+
+## Deployment choices
+
+| Environment | Recommended path | Notes |
 | --- | --- | --- |
-| STS | Issues and verifies ES256 mandates; serves JWKS; evaluates OPA policy | 8080 |
-| API | Control-plane REST; manages zones, applications, policies, grants | 3000 |
-| Gateway | Proxies inbound requests; enforces mandates; revocation-aware | 8081 |
-| Coordinator | Agent session lifecycle; delegation graph; invocation tracking | 4000 |
-| Audit | Consumes audit event stream; persists to Postgres; Parquet export | 9090 |
-| Postgres | Primary durable store for all five services (separate DB roles) | 5432 |
-| Redis | Transactional outbox relay, revocation stream, rate limits | 6379 |
+| Local development | `caracal up` / `infra/docker/docker-compose.yml` | Builds local images, binds service ports to `127.0.0.1`, and writes local secrets. |
+| Self-hosted runtime | `infra/docker/runtime-compose.yml` | Uses versioned GHCR images and mounted secrets. |
+| Kubernetes | `infra/helm/caracal` | Uses Deployments/StatefulSets, pre-install/pre-upgrade migration Job, ClusterIP Services, optional Ingress, NetworkPolicy, PDBs, HPAs, ServiceMonitor, and PrometheusRule. |
 
-Each service writes to Postgres under a dedicated role with minimum necessary permissions. Redis carries the transactional outbox (streams) and ephemeral rate-limit state. No service has direct access to another service's tables.
+## Core operational invariants
+
+- Postgres is the durable control-plane store.
+- Redis Streams move audit, policy invalidation, session revocation, key invalidation, agent, invocation, and delegation events.
+- STS and Gateway keep audit replay directories so audit emission can drain after Redis/Audit recovery.
+- Published modes are `rc` and `stable`; they require production-grade HMAC keys and reject unsafe fallbacks.
+- Product-management operations happen through Console, Admin SDK, or Control API; the top-level runtime shell only manages local lifecycle and `caracal run`.
 
 ## Section map
 
-| Page | What it covers |
+| Need | Page |
 | --- | --- |
-| [Deployment with Docker Compose](./docker-compose/) | Reference `docker-compose.yml`, startup order, volume strategy, first-run procedure |
-| [Enterprise Install Kit](./enterprise-install-kit/) | Helm profile overlays, External Secrets, ingress, mTLS, SIEM, backup, capacity, validation, and promotion |
-| [Platform Rollout Kit](./platform-rollout-kit/) | Policy/provider catalog patterns, app-team handoff, approved Control API recipes, and multi-team readiness checks |
-| [Environment Variables](./env-vars/) | All required and optional env vars, grouped by service, with defaults |
-| [Cloud-Native Deployment Profiles](./cloud-native-profiles/) | Local, shared Gateway, sidecar, Kubernetes, and SPIFFE/SPIRE deployment profiles |
-| [PostgreSQL](./postgres/) | Schema overview, migrations, pool sizing, partitioning, advisory locks |
-| [Redis Streams](./redis/) | Stream provisioning, consumer groups, persistence config, retention |
-| [TLS and Production Hardening](./tls-hardening/) | TLS certificate setup, INSECURE flags, SSRF defenses, production constraints |
-| [Key Management and Rotation](./key-management/) | ZONE_KEK, zone signing keys, JWKS, rotation procedure |
-| [Scale and Capacity Guidance](./scale-capacity/) | Sizing formulas, benchmark procedure, HPA signals, SLO examples |
-| [Observability and Health](./observability/) | `/health`, `/ready`, `/metrics` endpoints and what each check covers |
-| [Operator Debugging](./debugging/) | Decision tracing, Mermaid authority flow, token inspection, policy simulation, and component debugging paths |
-| [Alerting Recipes](./alerts/) | PromQL recipes for the production alerts that should always be on |
-| [Failure Modes and Recovery](./failure-modes/) | Operator-focused detect → recover → verify matrix for production failure modes |
-| [Policy Deployment Runbook](./policy-deployment/) | End-to-end create → simulate → activate → verify → roll back sequence |
-| [Backup and Retention](./backup-retention/) | Audit partition lifecycle, S3 Parquet export, tamper detection |
-| [Compliance and Audit Integration](./compliance-audit-integration/) | Audit export contract, SIEM ingester requirements, compliance posture checklist |
-| [Platform-Team Handoff](./platform-team-handoff/) | How a platform team stands Caracal up once and onboards many application teams via self-service |
-| [Incident Response](./incident-response/) | Revocation playbook, key compromise, audit alerts, escalation |
-
-## Prerequisites
-
-Before deploying services with environment variables or your own secret manager, generate the three HMAC/encryption secrets the stack requires:
-
-```bash
-openssl rand -hex 32   # ZONE_KEK
-openssl rand -hex 32   # AUDIT_HMAC_KEY
-openssl rand -hex 32   # STREAMS_HMAC_KEY
-```
-
-These must be set in the environment before any manually deployed service starts. The installed local stack created by `caracal up` generates file-backed secrets automatically under `$CARACAL_HOME/secrets/`. Changing production secret values after initial deployment requires a key rotation procedure: see [Key Management and Rotation](./key-management/).
+| Compose deployment | [Deployment with Docker Compose](/operations/docker-compose/) |
+| Helm deployment | [Kubernetes with Helm](/operations/kubernetes-helm/) |
+| Runtime profiles | [Environment Variables](/operations/env-vars/) and [Cloud-Native Deployment Profiles](/operations/cloud-native-profiles/) |
+| Storage | [PostgreSQL](/operations/postgres/) and [Redis Streams](/operations/redis/) |
+| Hardening | [TLS and Production Hardening](/operations/tls-hardening/) |
+| Rotation | [Key Management and Rotation](/operations/key-management/) |
+| Scaling | [Scale and Capacity Guidance](/operations/scale-capacity/) |
+| Observability | [Observability and Health](/operations/observability/) and [Alerting Recipes](/operations/alerts/) |
+| Recovery | [Failure Modes and Recovery](/operations/failure-modes/), [Backup and Retention](/operations/backup-retention/), and [Incident Response](/operations/incident-response/) |

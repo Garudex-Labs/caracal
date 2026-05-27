@@ -1,17 +1,50 @@
 ---
 title: Operator Debugging
-description: A practical runbook for tracing Caracal decisions, authority flow, tokens, policy simulation, and component health from the operator environment.
+description: Diagnose Caracal deployment, configuration, token exchange, Gateway, audit, and delegation issues.
 pageType: workflow
 ---
 
-This page no longer documents standalone management command examples. Human-facing management now runs through the Console.
+Debug from the boundary inward: runtime lifecycle, readiness, storage, streams, service config, then request-specific audit evidence.
 
-Open the interface with:
+## Triage flow
 
-```bash
-caracal console
+```mermaid
+flowchart TD
+  Symptom[Symptom] --> Ready[caracal status --ready or Kubernetes readiness]
+  Ready --> Storage[Postgres and Redis]
+  Storage --> Streams[Redis streams and outboxes]
+  Streams --> Service[Service logs and metrics]
+  Service --> Audit[Audit/explain request evidence]
+  Audit --> Fix[Apply focused remediation]
 ```
 
-Use the matching view for the workflow covered by this page. For automation, enable the Control API from the Console Control menu and call the authenticated HTTP surface.
+## Commands
 
-Runtime lifecycle commands (`caracal up`, `caracal down`, `caracal status`, `caracal purge`) and workload execution (`caracal run -- <command>`) remain documented in [Runtime and Console](/runtime-console/).
+| Environment | Commands |
+| --- | --- |
+| Local | `caracal status --ready`, `docker compose ps`, `docker compose logs <service>` |
+| Helm | `kubectl -n caracal get pods,svc,jobs`, `kubectl -n caracal describe pod <pod>`, `kubectl -n caracal logs <pod>` |
+| Storage | `infra/postgres/scripts/validateMigrations.sh`, `infra/redis/scripts/verify.sh` |
+| App-level | Console `diagnostics`, `audit`, `explain`, and `credential` |
+
+## Common cases
+
+| Symptom | Likely area |
+| --- | --- |
+| `401` or `403` from API | Admin token, scope, Control token, or Console credential source. |
+| STS exchange fails | Zone ID, application ID, grant, policy, client secret, step-up, or STS readiness. |
+| Gateway fails before upstream | Mandate verification, STS exchange, binding, revocation snapshot, or upstream allowlist. |
+| Agent views fail | Coordinator URL/token, selected zone, or Coordinator readiness. |
+| Audit event missing | Redis stream health, Audit readiness, DLQ, replay backlog, or request never reaching protected boundary. |
+
+## Request investigation
+
+1. Capture request ID, zone ID, subject, resource, and timestamp.
+2. Open Console `audit` or `explain`.
+3. Confirm policy decision, scopes, target resource, session, agent session, and delegation edge.
+4. Compare token claims with resource-server verifier settings.
+5. Check revocation and step-up state when authority appears valid but access fails.
+
+## Escalation bundle
+
+Include readiness output, relevant logs, service versions, Helm values diff, Redis stream status, Postgres migration status, request ID, audit explanation, and any recent secret or policy changes.

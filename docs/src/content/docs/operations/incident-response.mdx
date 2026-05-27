@@ -1,76 +1,66 @@
 ---
 title: Incident Response
-description: Production incident roles, triage, evidence collection, containment, recovery, and postmortem steps for Caracal.
-pageType: config
+description: Respond to Caracal access-safety, audit-integrity, and platform incidents.
+pageType: workflow
 ---
 
-Use this page when an alert has user impact, security impact, audit integrity impact, or repeated recovery failure.
+Treat incidents involving audit tamper evidence, stale revocation state, STS/Gateway fail-open risk, secret exposure, or policy corruption as security incidents.
 
-## Severity levels
+## Severity triggers
 
-| Severity | Criteria | Response |
-| --- | --- | --- |
-| SEV-1 | Audit tamper, key compromise, data loss risk, or broad authorization failure | Page incident commander and security owner immediately; freeze releases. |
-| SEV-2 | Gateway/STS/API outage, growing audit DLQ, failed upgrade with customer impact | Page service owner; start incident channel; preserve logs. |
-| SEV-3 | Degraded latency, non-growing DLQ, isolated readiness flapping | Assign owner; resolve during business-hours on-call. |
+| Trigger | Severity |
+| --- | --- |
+| `CaracalAuditTamperDetected` | Critical security incident. |
+| Gateway revocation snapshot stale or propagation lag | Critical access-safety incident. |
+| Gateway STS circuit open during protected traffic | Critical availability/access incident. |
+| Audit DLQ growth or replay backlog aging | Critical evidence pipeline incident when sustained. |
+| Secret exposure | Critical until rotated and blast radius is understood. |
+| Policy activation causes unexpected broad allow | Critical authorization incident. |
 
-## Triage checklist
+## Response flow
 
-1. Identify the first failing component from alerts, pod readiness, and recent release activity.
-2. Freeze rollouts when Audit, STS, Gateway, or migration alerts are active.
-3. Capture evidence before restarting pods: alert graph, pod logs, events, recent Git SHA, Helm revision, and `releases/<tag>/manifest.json`.
-4. Check dependency health in this order: Postgres, Redis, STS, Audit, Gateway, API, Coordinator.
-5. Record whether audit evidence is complete for the incident window.
-
-## Evidence commands
-
-```bash
-kubectl -n caracal get pods,deploy,statefulset,job,events --sort-by=.lastTimestamp
-kubectl -n caracal logs -l app.kubernetes.io/name=caracal --since=30m --all-containers
-kubectl -n caracal describe pod -l app.kubernetes.io/name=caracal
-helm -n caracal history caracal
-helm -n caracal get values caracal --all
+```mermaid
+flowchart TD
+  Detect[Detect alert or report] --> Contain[Contain risky traffic and freeze rollouts]
+  Contain --> Preserve[Preserve logs, audit, DB, Redis, and config evidence]
+  Preserve --> Diagnose[Diagnose root cause]
+  Diagnose --> Recover[Recover service and safety invariants]
+  Recover --> Validate[Validate readiness, audit, revocation, and policy]
+  Validate --> Review[Post-incident review]
 ```
 
-For database incidents, capture `pg_stat_activity`, migration status, backup timestamp, and the current `schema_migrations` rows before making changes.
+## First-hour runbook
 
-## Key compromise
+| Symptom | Severity | Contain | Preserve | Validate recovery |
+| --- | --- | --- | --- | --- |
+| Audit tamper alert | Critical | Freeze changes and stop destructive cleanup. | Audit tables, exports, DLQ, service logs. | Tamper sweep result, audit ingestion, and timeline are recorded. |
+| Revocation stale | Critical | Fail closed at Gateway or resource servers. | Redis streams, revocation snapshots, session IDs. | Revoked sessions are denied and readiness is stable. |
+| Bad policy allow | Critical | Activate last known-good policy set. | Policy set version, request IDs, audit/explain output. | Canary allow/deny decisions match expected policy. |
+| Secret exposure | Critical | Rotate exposed material and invalidate affected sessions. | Secret location, key IDs, affected services, audit records. | Old material no longer authenticates. |
 
-1. Freeze releases and disable new Console sessions.
-2. Rotate the affected Kubernetes Secret through the platform secret manager.
-3. Restart only the workloads that mount the changed key.
-4. Revoke affected sessions or tokens from the Console.
-5. Verify Gateway requests use the rotated key and old tokens fail.
+## Evidence to preserve
 
-Escalate to SEV-1 if `ZONE_KEK`, audit HMAC, streams HMAC, or Gateway/STS HMAC is exposed.
+- Alert name, firing time, and labels.
+- Request IDs, zone IDs, resource IDs, policy-set versions, agent session IDs, delegation edge IDs.
+- Console audit/explain output.
+- Service logs for API, STS, Gateway, Audit, Coordinator, and Control.
+- Redis stream status, pending entries, and DLQ contents.
+- Postgres backup or snapshot before manual remediation.
+- Helm values or Compose config diff.
 
-## Audit tamper or HMAC failure
+## Containment actions
 
-1. Treat `CaracalAuditTamperDetected` as SEV-1.
-2. Stop manual repair attempts and preserve Postgres plus Redis evidence.
-3. Snapshot the affected database before any restore or replay.
-4. Identify the first failing chain sequence and the last known-good event.
-5. Rotate compromised keys only after evidence is preserved.
-6. Restore from backup if the chain was modified in-place.
+| Incident | Containment |
+| --- | --- |
+| Audit tamper | Freeze changes, preserve database and audit exports, rotate only after evidence capture. |
+| Revocation stale | Fail closed at resource servers or Gateway, restore Redis/Postgres consumers, verify snapshot freshness. |
+| Bad policy allow | Activate last known-good policy set, verify canary denies/allows, inspect audit impact. |
+| Secret exposure | Rotate exposed material, roll dependent services, invalidate sessions/grants as needed. |
 
-Recovery is complete only when new audit events validate, the affected chain range is documented, and security review approves closure.
+## Recovery complete when
 
-## Service outage
-
-1. Confirm whether the outage is dependency-led or service-led.
-2. If Postgres or Redis is unavailable, recover that dependency before restarting Caracal services.
-3. If one service is unhealthy, inspect readiness output and restart only the affected replica.
-4. If a rollout caused the outage, use `helm rollback caracal <revision>` after confirming migration status.
-5. Run a synthetic Gateway request and verify a matching audit event.
-
-## Policy failure
-
-1. Pause policy activation.
-2. Keep the last known-good policy set active.
-3. Use Console simulation to reproduce the failing decision.
-4. Fix the policy bundle and validate compilation before activation.
-5. Confirm STS policy age and compile-error alerts clear.
-
-## Postmortem
-
-Every SEV-1 and SEV-2 needs a postmortem that includes timeline, detection gap, customer impact, audit completeness, recovery commands, data restore status, and follow-up owners.
+- Relevant `/ready` endpoints pass.
+- Audit DLQ/replay/outbox backlogs are understood or drained.
+- Revocation and policy freshness metrics are healthy.
+- Canary token exchange and Gateway requests match expected decisions.
+- Evidence and timeline are preserved for review.

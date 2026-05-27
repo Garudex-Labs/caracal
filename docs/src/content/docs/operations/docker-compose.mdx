@@ -1,17 +1,90 @@
 ---
 title: Deployment with Docker Compose
-description: "The reference docker-compose.yml: service definitions, startup order, volumes, first-run procedure, and local vs production considerations."
-pageType: config
+description: Run and verify the local or self-hosted Caracal stack with Docker Compose.
+pageType: workflow
 ---
 
-This page no longer documents standalone management command examples. Human-facing management now runs through the Console.
+Caracal ships two Compose shapes:
 
-Open the interface with:
+| File | Purpose |
+| --- | --- |
+| `infra/docker/docker-compose.yml` | Local development stack that builds repository images. |
+| `infra/docker/runtime-compose.yml` | Self-hosted runtime stack using versioned GHCR images. |
 
-```bash
-caracal console
+Both stacks run Postgres, Redis, migrations, STS, API, Gateway, Audit, Coordinator, and optional Control.
+
+## Topology
+
+```mermaid
+flowchart TB
+  User[Operator or workload] --> API[API :3000]
+  User --> STS[STS :8080]
+  User --> Gateway[Gateway :8081]
+  User --> Coordinator[Coordinator :4000]
+  Console[Console] --> API
+  Console --> Coordinator
+  API --> Postgres[(Postgres :5432)]
+  STS --> Postgres
+  Gateway --> Postgres
+  Audit[Audit :9090] --> Postgres
+  API --> Redis[(Redis :6379)]
+  STS --> Redis
+  Gateway --> Redis
+  Coordinator --> Redis
+  Audit --> Redis
 ```
 
-Use the matching view for the workflow covered by this page. For automation, enable the Control API from the Console Control menu and call the authenticated HTTP surface.
+Local ports are bound to `127.0.0.1` so the OSS stack does not expose services externally by default.
 
-Runtime lifecycle commands (`caracal up`, `caracal down`, `caracal status`, `caracal purge`) and workload execution (`caracal run -- <command>`) remain documented in [Runtime and Console](/runtime-console/).
+## Prerequisites
+
+- Docker with Compose support.
+- Generated runtime secrets under the expected secrets directory.
+- For the self-hosted runtime file, `CARACAL_VERSION` and optional `CARACAL_REGISTRY`.
+
+## Local development flow
+
+```bash
+pnpm secrets:init
+caracal up
+caracal status --ready
+bash infra/scripts/smokeTest.sh
+```
+
+`caracal up` builds local images in development mode. `caracal status --ready` checks dependency readiness, and `smokeTest.sh` probes `/ready` or `/live` for API, Gateway, STS, Audit, and Coordinator.
+
+## Self-hosted runtime flow
+
+```bash
+export CARACAL_VERSION=2026.05.27-rc.1
+docker compose -f infra/docker/runtime-compose.yml up -d
+docker compose -f infra/docker/runtime-compose.yml ps
+bash infra/scripts/smokeTest.sh
+```
+
+The runtime compose file expects secrets under `./secrets/` relative to the compose file. Keep secret files owner-readable only and never place inline secrets in the compose file.
+
+## Control profile
+
+The Control service is behind the `control` Compose profile and a runtime gate. Enable it only when the Console or platform automation is ready to manage Control exposure and credentials.
+
+```bash
+docker compose -f infra/docker/runtime-compose.yml --profile control up -d control
+```
+
+## Rollback
+
+1. Stop the stack with `caracal down` or `docker compose ... down`.
+2. Restore the previous `CARACAL_VERSION`.
+3. Start the stack and wait for readiness.
+4. Confirm audit replay and outbox queues drain before reopening high-risk traffic.
+
+## Troubleshooting
+
+| Symptom | Check |
+| --- | --- |
+| Postgres or Redis never becomes healthy | Check secret files, mounted volumes, and host port conflicts on `5432` or `6379`. |
+| API ready fails | Confirm migrations completed and `DATABASE_URL_FILE`, `REDIS_URL_FILE`, and `CARACAL_ADMIN_TOKEN_FILE` resolve. |
+| STS or Gateway fails in `rc`/`stable` | Confirm `AUDIT_HMAC_KEY`, `STREAMS_HMAC_KEY`, and `GATEWAY_STS_HMAC_KEY` are hex-encoded and at least 32 bytes. |
+| Gateway rejects upstreams | In published modes, configure `UPSTREAM_HOST_ALLOWLIST` when private upstreams are allowed. |
+| Audit gaps appear after Redis outage | Keep STS and Gateway replay volumes intact and wait for replay metrics to drain. |
