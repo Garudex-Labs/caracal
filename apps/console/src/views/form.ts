@@ -12,6 +12,9 @@ import type { App, View, ViewContext } from '../screen.ts'
 import { actionInfo, fieldInfo, infoPage, openInfo, type InfoPage } from './info.ts'
 
 type FieldKind = 'text' | 'multiline' | 'secret' | 'bool' | 'list' | 'file' | 'select'
+type FormRow =
+  | { kind: 'field'; field: Field }
+  | { kind: 'advanced' }
 
 export interface Field {
   key: string
@@ -33,6 +36,7 @@ export interface Field {
 export interface FormOpts {
   title: string
   fields: Field[]
+  initialValues?: Record<string, string>
   submitLabel?: string
   onSubmit: (vals: Record<string, string>, app: App) => Promise<void>
   onCancel?: (app: App) => void
@@ -72,16 +76,18 @@ export class FormView implements View {
   private revealedIds = new Set<string>()
   private multilineMode = false
   private submitting = false
-  private showAdvanced = false
   private readonly info: InfoPage
 
   constructor(opts: FormOpts) {
     this.title = opts.title
-    this.fields = opts.fields
+    this.fields = opts.fields.map((field) => field.advanced ? { ...field, required: false } : field)
     this.submitLabel = opts.submitLabel ?? 'submit'
     this.submit = opts.onSubmit
     this.cancel = opts.onCancel
-    this.values = Object.fromEntries(opts.fields.map((f) => [f.key, f.default ?? '']))
+    this.values = {
+      ...Object.fromEntries(opts.fields.map((f) => [f.key, f.default ?? ''])),
+      ...(opts.initialValues ?? {}),
+    }
     this.info = opts.info ?? actionInfo(this.submitLabel)
   }
 
@@ -89,8 +95,9 @@ export class FormView implements View {
     if (this.multilineMode) return ['esc:done', 'enter:newline']
     this.clampFocus()
     const base = ['tab/↑/↓:next', 'enter:advance/submit', '?:info', 'esc:cancel']
-    if (this.hasAdvanced()) base.push(this.showAdvanced ? 'A:hide-advanced' : 'A:advanced')
-    const field = this.visibleFields()[this.focus]
+    const row = this.visibleRows()[this.focus]
+    if (row?.kind === 'advanced') base.push('→:advanced')
+    const field = row?.kind === 'field' ? row.field : undefined
     if (field?.pick) base.push('→:pick')
     else if (field?.kind === 'select') base.push('→:options')
     else if (field?.kind === 'file') base.push('→:file')
@@ -107,19 +114,23 @@ export class FormView implements View {
   }
 
   render(ctx: ViewContext): string[] {
-    const fields = this.visibleFields()
-    this.clampFocus(fields)
+    const rows = this.visibleRows()
+    this.clampFocus(rows)
     const lines: string[] = ['']
     lines.push(' ' + ui.title(this.title))
     lines.push(' ' + ui.muted('Type or paste into fields. Required fields are marked *.'))
-    if (this.hasAdvanced()) {
-      const count = this.advancedCount()
-      lines.push(' ' + ui.muted(this.showAdvanced ? `Advanced fields visible (${count}). Press A to hide.` : `Common path shown. Press A for ${count} advanced field${count === 1 ? '' : 's'}.`))
-    }
     lines.push('')
     let section = ''
-    for (let i = 0; i < fields.length; i++) {
-      const f = fields[i]!
+    for (let i = 0; i < rows.length; i++) {
+      const row = rows[i]!
+      if (row.kind === 'advanced') {
+        const focused = i === this.focus
+        const cursorMark = focused ? '> ' : '  '
+        const text = ` ${focused ? ui.accent(cursorMark) : cursorMark}${ui.muted(pad('Advanced options', 18))}${ui.input('open optional settings')}`
+        lines.push(truncate(text, ctx.size.cols))
+        continue
+      }
+      const f = row.field
       if (f.section && f.section !== section) {
         section = f.section
         lines.push(' ' + ui.accent(section))
@@ -133,20 +144,10 @@ export class FormView implements View {
         : ` ${cursorMark}${ui.muted(label)}${display}`
       const styled = truncate(text, ctx.size.cols)
       lines.push(styled)
-      if (focused) {
-        const hints = [
-          f.hint,
-          f.pick ? 'right arrow opens a searchable picker' : undefined,
-          f.kind === 'select' ? 'right arrow opens an options picker' : undefined,
-          'press ? for field info',
-          f.pick && (this.values[f.key] ?? '').trim() ? 'V reveals ID · N copies name · I copies ID' : undefined,
-        ].filter((hint): hint is string => Boolean(hint))
-        if (hints.length > 0) lines.push('   ' + ui.muted('hint: ' + hints.join(' · ')))
-      }
     }
     lines.push('')
-    const submitMark = this.focus === fields.length ? ansi.invert : ''
-    const reset = this.focus === fields.length ? ansi.reset : ''
+    const submitMark = this.focus === rows.length ? ansi.invert : ''
+    const reset = this.focus === rows.length ? ansi.reset : ''
     lines.push(' ' + submitMark + ` [${this.submitLabel}] ` + reset)
     if (this.submitting) lines.push(' ' + ui.muted('submitting...'))
     return lines
@@ -174,9 +175,10 @@ export class FormView implements View {
 
   async onKey(key: Key, ctx: ViewContext): Promise<void> {
     if (this.submitting) return
-    const fields = this.visibleFields()
-    this.clampFocus(fields)
-    const f = fields[this.focus]
+    const rows = this.visibleRows()
+    this.clampFocus(rows)
+    const row = rows[this.focus]
+    const f = row?.kind === 'field' ? row.field : undefined
     if (this.multilineMode && f) {
       if (key === 'esc') { this.multilineMode = false; return }
       if (key === 'enter') { this.values[f.key] = (this.values[f.key] ?? '') + '\n'; return }
@@ -198,14 +200,10 @@ export class FormView implements View {
       return
     }
     if (key === '?' && !this.multilineMode) {
-      openInfo(ctx.app, this.focus === fields.length ? this.info : this.fieldInfo(f))
+      openInfo(ctx.app, this.focus === rows.length ? this.info : this.rowInfo(row))
       return
     }
-    if (key === 'A' && this.hasAdvanced()) {
-      this.showAdvanced = !this.showAdvanced
-      this.clampFocus()
-      return
-    }
+    if (key === 'right' && row?.kind === 'advanced') { this.openAdvanced(ctx.app); return }
     if (f?.pick && key === 'V' && (this.values[f.key] ?? '').trim()) {
       if (this.revealedIds.has(f.key)) this.revealedIds.delete(f.key)
       else this.revealedIds.add(f.key)
@@ -249,7 +247,7 @@ export class FormView implements View {
       return
     }
     if (key === 'tab' || key === 'down') {
-      this.focus = Math.min(fields.length, this.focus + 1)
+      this.focus = Math.min(rows.length, this.focus + 1)
       return
     }
     if (key === 'up') {
@@ -257,16 +255,17 @@ export class FormView implements View {
       return
     }
     if (key === 'enter') {
-      if (this.focus === fields.length) return this.trySubmit(ctx.app)
+      if (this.focus === rows.length) return this.trySubmit(ctx.app)
+      if (row?.kind === 'advanced') { this.openAdvanced(ctx.app); return }
       if (f && f.kind === 'bool') {
         this.values[f.key] = this.values[f.key] === 'true' ? 'false' : 'true'
         return
       }
       if (f && f.kind === 'select') {
-        this.focus = Math.min(fields.length, this.focus + 1)
+        this.focus = Math.min(rows.length, this.focus + 1)
         return
       }
-      if (this.focus === fields.length - 1) return this.trySubmit(ctx.app)
+      if (this.focus === rows.length - 1) return this.trySubmit(ctx.app)
       this.focus++
       return
     }
@@ -353,27 +352,68 @@ export class FormView implements View {
   }
 
   private visibleFields(): Field[] {
-    return this.fields.filter((field) => {
-      if (field.advanced && !this.showAdvanced) return false
-      return field.visible ? field.visible(this.values) : true
-    })
+    return this.visibleRows()
+      .filter((row): row is { kind: 'field'; field: Field } => row.kind === 'field')
+      .map((row) => row.field)
   }
 
-  private clampFocus(fields = this.visibleFields()): void {
-    this.focus = Math.min(this.focus, fields.length)
+  private visibleRows(): FormRow[] {
+    const common = this.fields
+      .filter((field) => !field.advanced)
+      .filter((field) => field.visible ? field.visible(this.values) : true)
+      .map((field): FormRow => ({ kind: 'field', field }))
+    const advanced = this.advancedFields()
+    if (advanced.length === 0) return common
+    return [...common, { kind: 'advanced' }]
   }
 
-  private hasAdvanced(): boolean {
-    return this.fields.some((field) => field.advanced && (!field.visible || field.visible(this.values)))
+  private clampFocus(rows = this.visibleRows()): void {
+    this.focus = Math.min(this.focus, rows.length)
   }
 
-  private advancedCount(): number {
-    return this.fields.filter((field) => field.advanced && (!field.visible || field.visible(this.values))).length
+  private advancedFields(): Field[] {
+    return this.fields.filter((field) => field.advanced && (!field.visible || field.visible(this.values)))
+  }
+
+  private rowInfo(row: FormRow | undefined): InfoPage | undefined {
+    if (row?.kind === 'advanced') {
+      return infoPage({
+        title: 'Advanced options',
+        meaning: 'Optional settings open on their own page so the common form stays short.',
+        when: 'Open this only when the common path does not express the setup you need.',
+        example: 'Manual identifier, raw config JSON, shadow version, or overwrite flag.',
+        valid: 'Every advanced field can be left blank or unchanged unless the field info says it is needed for your chosen scenario.',
+        after: 'Saving returns to this form. Blank advanced fields keep the safe inferred defaults; filled values override the common path.',
+      })
+    }
+    return this.fieldInfo(row?.field)
   }
 
   private fieldInfo(field: Field | undefined): InfoPage | undefined {
     if (!field) return this.info
     return field.info ?? fieldInfo(field.label, field.kind, field.hint)
+  }
+
+  private openAdvanced(app: App): void {
+    const fields = this.advancedFields().map((field) => ({ ...field, advanced: false, required: false }))
+    app.push(new FormView({
+      title: `${this.title} / advanced options`,
+      fields,
+      initialValues: this.values,
+      submitLabel: 'save advanced options',
+      info: infoPage({
+        title: 'Advanced options',
+        meaning: 'These optional settings override inferred defaults for uncommon cases.',
+        when: 'Use them for manual identifiers, raw config, shadow versions, provider binding, or enterprise-specific routing.',
+        example: 'Set a manual resource identifier only when another system already depends on it.',
+        valid: 'Leave fields blank to keep the parent form defaults.',
+        after: 'Saving stores the values on the parent form and returns to the common path.',
+      }),
+      onSubmit: async (values, advancedApp) => {
+        for (const field of fields) this.values[field.key] = values[field.key] ?? ''
+        advancedApp.pop()
+      },
+    }))
   }
 }
 

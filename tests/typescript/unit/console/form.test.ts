@@ -80,28 +80,40 @@ describe('FormView input UX', () => {
     expect(view.values_().name).toBe('Ryan\'s Workflow')
   })
 
-  it('hides advanced fields until requested and opens focused info', async () => {
+  it('opens advanced fields on a separate page and keeps them optional', async () => {
+    const submit = vi.fn(async () => {})
     const view = new FormView({
       title: 't',
       fields: [
         { key: 'name', label: 'name', kind: 'text' },
-        { key: 'identifier', label: 'identifier', kind: 'text', advanced: true },
+        { key: 'identifier', label: 'identifier', kind: 'text', advanced: true, required: true },
       ],
-      onSubmit: async () => {},
+      onSubmit: submit,
     })
     const app = fakeApp()
     const ctx = { app, size: { rows: 10, cols: 80 }, status: '' }
 
     let lines = view.render(ctx).join('\n')
-    expect(lines).toContain('Common path shown')
+    expect(lines).toContain('Advanced options')
+    expect(lines).toContain('open optional settings')
     expect(lines).not.toContain('identifier')
 
     await view.onKey('?', ctx)
     expect(app.push).toHaveBeenCalled()
 
-    await view.onKey('A', ctx)
-    lines = view.render(ctx).join('\n')
+    await view.onKey('down', ctx)
+    await view.onKey('right', ctx)
+    const advanced = vi.mocked(app.push).mock.calls.at(-1)![0] as FormView
+    expect(advanced).toBeInstanceOf(FormView)
+    lines = advanced.render(ctx).join('\n')
     expect(lines).toContain('identifier')
+    expect(lines).not.toContain('identifier *')
+
+    ;(advanced as unknown as { focus: number }).focus = 1
+    await advanced.onKey('enter', ctx)
+    ;(view as unknown as { focus: number }).focus = 2
+    await view.onKey('enter', ctx)
+    expect(submit).toHaveBeenCalledWith({ name: '', identifier: '' }, expect.anything())
   })
 
   it('keeps select fields bounded to options and opens an option picker with right arrow', async () => {
