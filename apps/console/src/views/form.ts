@@ -9,6 +9,7 @@ import { ansi, copyToClipboard, pad, sanitizeAnsi, truncate, ui } from '../ansi.
 import { scrubTokens } from '../errors.ts'
 import type { Key } from '../keys.ts'
 import type { App, View, ViewContext } from '../screen.ts'
+import { actionInfo, fieldInfo, infoPage, openInfo, type InfoPage } from './info.ts'
 
 type FieldKind = 'text' | 'multiline' | 'secret' | 'bool' | 'list' | 'file' | 'select'
 
@@ -21,8 +22,11 @@ export interface Field {
   options?: string[]
   validate?: (v: string) => string | undefined
   visible?: (values: Readonly<Record<string, string>>) => boolean
+  advanced?: boolean
+  section?: string
   hint?: string
-  pick?: (app: App, setValue: (value: string, label?: string) => void | Promise<void>, currentValue: string) => void | Promise<void>
+  info?: InfoPage
+  pick?: (app: App, setValue: (value: string, label?: string) => void | Promise<void>, currentValue: string, values: Readonly<Record<string, string>>) => void | Promise<void>
   resolve?: (value: string) => string | undefined | Promise<string | undefined>
 }
 
@@ -32,6 +36,7 @@ export interface FormOpts {
   submitLabel?: string
   onSubmit: (vals: Record<string, string>, app: App) => Promise<void>
   onCancel?: (app: App) => void
+  info?: InfoPage
 }
 
 const BRACKETED_PASTE_PATTERN = /\u001b\[(?:200|201)~/g
@@ -67,6 +72,8 @@ export class FormView implements View {
   private revealedIds = new Set<string>()
   private multilineMode = false
   private submitting = false
+  private showAdvanced = false
+  private readonly info: InfoPage
 
   constructor(opts: FormOpts) {
     this.title = opts.title
@@ -75,12 +82,14 @@ export class FormView implements View {
     this.submit = opts.onSubmit
     this.cancel = opts.onCancel
     this.values = Object.fromEntries(opts.fields.map((f) => [f.key, f.default ?? '']))
+    this.info = opts.info ?? actionInfo(this.submitLabel)
   }
 
   hints(): string[] {
     if (this.multilineMode) return ['esc:done', 'enter:newline']
     this.clampFocus()
-    const base = ['tab/↑/↓:next', 'enter:advance/submit', 'esc:cancel']
+    const base = ['tab/↑/↓:next', 'enter:advance/submit', '?:info', 'esc:cancel']
+    if (this.hasAdvanced()) base.push(this.showAdvanced ? 'A:hide-advanced' : 'A:advanced')
     const field = this.visibleFields()[this.focus]
     if (field?.pick) base.push('→:pick')
     else if (field?.kind === 'select') base.push('→:options')
@@ -103,9 +112,18 @@ export class FormView implements View {
     const lines: string[] = ['']
     lines.push(' ' + ui.title(this.title))
     lines.push(' ' + ui.muted('Type or paste into fields. Required fields are marked *.'))
+    if (this.hasAdvanced()) {
+      const count = this.advancedCount()
+      lines.push(' ' + ui.muted(this.showAdvanced ? `Advanced fields visible (${count}). Press A to hide.` : `Common path shown. Press A for ${count} advanced field${count === 1 ? '' : 's'}.`))
+    }
     lines.push('')
+    let section = ''
     for (let i = 0; i < fields.length; i++) {
       const f = fields[i]!
+      if (f.section && f.section !== section) {
+        section = f.section
+        lines.push(' ' + ui.accent(section))
+      }
       const focused = i === this.focus
       const display = this.displayValue(f)
       const label = pad(f.required ? `${f.label} *` : f.label, 18)
@@ -120,6 +138,7 @@ export class FormView implements View {
           f.hint,
           f.pick ? 'right arrow opens a searchable picker' : undefined,
           f.kind === 'select' ? 'right arrow opens an options picker' : undefined,
+          'press ? for field info',
           f.pick && (this.values[f.key] ?? '').trim() ? 'V reveals ID · N copies name · I copies ID' : undefined,
         ].filter((hint): hint is string => Boolean(hint))
         if (hints.length > 0) lines.push('   ' + ui.muted('hint: ' + hints.join(' · ')))
@@ -178,6 +197,15 @@ export class FormView implements View {
       ctx.app.pop()
       return
     }
+    if (key === '?' && !this.multilineMode) {
+      openInfo(ctx.app, this.focus === fields.length ? this.info : this.fieldInfo(f))
+      return
+    }
+    if (key === 'A' && this.hasAdvanced()) {
+      this.showAdvanced = !this.showAdvanced
+      this.clampFocus()
+      return
+    }
     if (f?.pick && key === 'V' && (this.values[f.key] ?? '').trim()) {
       if (this.revealedIds.has(f.key)) this.revealedIds.delete(f.key)
       else this.revealedIds.add(f.key)
@@ -200,13 +228,13 @@ export class FormView implements View {
         if (label) this.displayLabels[f.key] = label
         else await this.resolveLabel(f, ctx.app)
         this.revealedIds.delete(f.key)
-      }, this.values[f.key] ?? '')
+      }, this.values[f.key] ?? '', this.values)
       return
     }
     if (key === 'right' && f?.kind === 'select') {
       ctx.app.push(new OptionPickerView(f.label, f.options ?? [], this.values[f.key] ?? '', (value) => {
         this.values[f.key] = value
-      }))
+      }, f.info ?? fieldInfo(f.label, f.kind, f.hint)))
       return
     }
     if (key === 'right' && f?.kind === 'secret') {
@@ -325,11 +353,27 @@ export class FormView implements View {
   }
 
   private visibleFields(): Field[] {
-    return this.fields.filter((field) => field.visible ? field.visible(this.values) : true)
+    return this.fields.filter((field) => {
+      if (field.advanced && !this.showAdvanced) return false
+      return field.visible ? field.visible(this.values) : true
+    })
   }
 
   private clampFocus(fields = this.visibleFields()): void {
     this.focus = Math.min(this.focus, fields.length)
+  }
+
+  private hasAdvanced(): boolean {
+    return this.fields.some((field) => field.advanced && (!field.visible || field.visible(this.values)))
+  }
+
+  private advancedCount(): number {
+    return this.fields.filter((field) => field.advanced && (!field.visible || field.visible(this.values))).length
+  }
+
+  private fieldInfo(field: Field | undefined): InfoPage | undefined {
+    if (!field) return this.info
+    return field.info ?? fieldInfo(field.label, field.kind, field.hint)
   }
 }
 
@@ -353,6 +397,7 @@ export interface ConfirmOpts {
   message: string
   onConfirm: (app: App) => Promise<void> | void
   onCancel?: (app: App) => void
+  info?: InfoPage
 }
 
 export class ConfirmView implements View {
@@ -361,15 +406,24 @@ export class ConfirmView implements View {
   private readonly message: string
   private readonly confirm: ConfirmOpts['onConfirm']
   private readonly cancel?: ConfirmOpts['onCancel']
+  private readonly info: InfoPage
   private busy = false
 
   constructor(opts: ConfirmOpts) {
     this.message = opts.message
     this.confirm = opts.onConfirm
     this.cancel = opts.onCancel
+    this.info = opts.info ?? infoPage({
+      title: 'Confirm action',
+      meaning: 'This prompt protects a change that can alter or remove a Console object.',
+      when: 'Use yes only after checking the target name and revealing the ID if needed.',
+      example: 'delete resource payments-api',
+      valid: 'Press y to continue, n or esc to cancel.',
+      after: 'Console runs the action and shows an API error if the operation is rejected.',
+    })
   }
 
-  hints(): string[] { return ['y:yes', 'n/esc:no'] }
+  hints(): string[] { return ['y:yes', 'n/esc:no', '?:info'] }
 
   dispose(): void { /* no resources to release */ }
 
@@ -393,6 +447,10 @@ export class ConfirmView implements View {
       }
       return
     }
+    if (key === '?') {
+      openInfo(ctx.app, this.info)
+      return
+    }
     if (key === 'n' || key === 'N' || key === 'esc') {
       this.cancel?.(ctx.app)
       ctx.app.pop()
@@ -405,18 +463,20 @@ class OptionPickerView implements View {
   readonly isTextEntry = true
   private readonly options: string[]
   private readonly pick: (value: string) => void
+  private readonly info: InfoPage
   private cursor = 0
   private query = ''
 
-  constructor(label: string, options: string[], currentValue: string, pick: (value: string) => void) {
+  constructor(label: string, options: string[], currentValue: string, pick: (value: string) => void, info: InfoPage) {
     this.title = `${label} options`
     this.options = options
     this.pick = pick
+    this.info = info
     const index = options.indexOf(currentValue)
     if (index >= 0) this.cursor = index
   }
 
-  hints(): string[] { return ['↑/↓:move', 'type:search', 'enter:select', 'esc:back'] }
+  hints(): string[] { return ['↑/↓:move', 'type:search', 'enter:select', '?:info', 'esc:back'] }
 
   dispose(): void { /* no resources to release */ }
 
@@ -456,6 +516,15 @@ class OptionPickerView implements View {
       return
     }
     if (key === 'esc' || key === 'left') { ctx.app.pop(); return }
+    if (key === '?') {
+      const value = filtered[this.cursor]
+      openInfo(ctx.app, {
+        ...this.info,
+        title: value ? `${this.info.title}: ${value || '<empty>'}` : this.info.title,
+        after: `Selecting this option sets ${this.info.title} to ${value || '<empty>'}.`,
+      })
+      return
+    }
     if (key === 'enter') {
       const value = filtered[this.cursor]
       if (value === undefined) return
@@ -503,8 +572,8 @@ class FilePickerView implements View {
   }
 
   hints(): string[] {
-    if (this.absolutePrompt !== undefined) return ['enter:open', 'esc:cancel']
-    return ['j/k:move', 'enter:open/pick', 'h/bs:up', ':abs', 'esc:cancel']
+    if (this.absolutePrompt !== undefined) return ['enter:open', '?:info', 'esc:cancel']
+    return ['j/k:move', 'enter:open/pick', 'h/bs:up', ':abs', '?:info', 'esc:cancel']
   }
 
   dispose(): void { /* nothing to release */ }
@@ -546,6 +615,10 @@ class FilePickerView implements View {
 
   onKey(key: Key, ctx: ViewContext): void {
     if (this.absolutePrompt !== undefined) {
+      if (key === '?') {
+        openInfo(ctx.app, fileInfo())
+        return
+      }
       if (key === 'esc') { this.absolutePrompt = undefined; return }
       if (key === 'enter') {
         const path = this.absolutePrompt.trim()
@@ -563,6 +636,10 @@ class FilePickerView implements View {
       if (text !== undefined) {
         this.absolutePrompt += text
       }
+      return
+    }
+    if (key === '?') {
+      openInfo(ctx.app, fileInfo())
       return
     }
     if (key === 'esc') { ctx.app.pop(); return }
@@ -597,4 +674,15 @@ class FilePickerView implements View {
       ctx.app.pop()
     }
   }
+}
+
+function fileInfo(): InfoPage {
+  return infoPage({
+    title: 'File picker',
+    meaning: 'Choose a local file for policy content or provider JSON.',
+    when: 'Use it when the source is maintained outside the Console.',
+    example: '/home/team/policies/payments.rego',
+    valid: 'Pick a file under the current directory, or press : and enter an absolute path.',
+    after: 'The selected path is placed into the form; submit reads the file content once.',
+  })
 }

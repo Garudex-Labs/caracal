@@ -35,8 +35,9 @@ import { DEFAULT_CONTROL_AUDIENCE, generateClientSecret } from '@caracalai/engin
 import { AuditTailView } from './audit.ts'
 import { DetailView } from './detail.ts'
 import { ConfirmView, FormView, type Field } from './form.ts'
+import { infoPage, openInfo } from './info.ts'
 import { ListView } from './list.ts'
-import { appendCsv, pickFromList } from './picker.ts'
+import { appendCsv, EntityPickerView, pickFromList } from './picker.ts'
 
 export interface Ctx {
   client: AdminClient
@@ -64,6 +65,33 @@ function splitList(s: string): string[] {
   return s.split(',').map((x) => x.trim()).filter((x) => x.length > 0)
 }
 
+function slugValue(value: string): string {
+  return value.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'item'
+}
+
+function resourceIdentifierFromName(name: string): string {
+  const text = name.trim()
+  return text.startsWith('resource://') ? text : `resource://${slugValue(text)}`
+}
+
+function providerIdentifierFromValues(values: Record<string, string>): string {
+  const explicit = values.identifier?.trim()
+  if (explicit) return explicit
+  const base = values.name?.trim() || `${providerKind(values.kind)} provider`
+  return slugValue(base)
+}
+
+function inferredTokenHosts(endpoint: string | undefined): string {
+  const value = endpoint?.trim()
+  if (!value) return ''
+  try {
+    const url = new URL(value)
+    return url.protocol === 'https:' ? url.host : ''
+  } catch {
+    return ''
+  }
+}
+
 function bool(v: string | undefined): boolean | undefined {
   if (v === undefined || v === '') return undefined
   return v === 'true'
@@ -82,6 +110,13 @@ type DelegationRow = DelegationEdge & { resource_name?: string | undefined }
 function readFileOrInline(filePath: string, inline: string): string {
   if (filePath && filePath.length > 0) return readFileSync(filePath, 'utf8')
   return inline
+}
+
+function readPolicyContent(values: Record<string, string>): string {
+  const source = values.source || (values.file ? 'file' : 'paste')
+  return source === 'file'
+    ? readFileOrInline(values.file ?? '', '')
+    : values.content ?? ''
 }
 
 function parseJsonObject(input: string): JsonObject {
@@ -111,7 +146,7 @@ function providerConfigFromValues(values: Record<string, string>, requireConfig:
   mergeConfigText(config, 'issuer', values.issuer)
   mergeConfigText(config, 'authorization_endpoint', values.authorization_endpoint)
   mergeConfigText(config, 'token_endpoint', values.token_endpoint || values.workload_token_endpoint)
-  mergeConfigList(config, 'allowed_token_hosts', values.allowed_token_hosts || values.workload_allowed_token_hosts)
+  mergeConfigList(config, 'allowed_token_hosts', values.allowed_token_hosts || values.workload_allowed_token_hosts || inferredTokenHosts(values.token_endpoint || values.workload_token_endpoint))
   mergeConfigList(config, 'upstream_oauth_scopes', values.upstream_oauth_scopes)
   mergeConfigText(config, 'header_name', values.api_key_header)
   mergeConfigText(config, 'auth_scheme', values.auth_scheme)
@@ -434,6 +469,35 @@ function policySetVersionPicker(ctx: Ctx, policySet: PolicySet): Field['pick'] {
   )
 }
 
+function grantScopePicker(ctx: Ctx): Field['pick'] {
+  return (app, setValue, current, values) => {
+    const resourceId = values.resource_id?.trim()
+    if (!resourceId) {
+      app.setStatus('choose a resource before picking grant scopes', 'error')
+      return
+    }
+    app.push(new EntityPickerView<string>({
+      title: 'pick grant scope',
+      load: async () => {
+        const resource = await ctx.client.resources.get(ctx.zoneId, resourceId)
+        return resource.scopes ?? []
+      },
+      value: (scope) => scope,
+      label: (scope) => scope,
+      description: () => 'scope on selected resource',
+      onPick: (scope) => setValue(appendCsv(current, scope)),
+      info: infoPage({
+        title: 'Grant scope',
+        meaning: 'A grant scope is a subset of the selected resource scopes.',
+        when: 'Use it to narrow what the selected application may request for this subject.',
+        example: 'read',
+        valid: 'Choose one of the scopes defined on the selected resource.',
+        after: 'The selected scope is added to the grant; policies can narrow it further.',
+      }),
+    }))
+  }
+}
+
 export function zonesView(ctx: Ctx): View {
   const list: ListView<Zone> = new ListView<Zone>({
     title: 'zones',
@@ -667,23 +731,24 @@ export function resourcesView(ctx: Ctx): View {
       {
         key: 'n', label: 'new', build: () => new FormView({
           title: 'create resource',
+          submitLabel: 'create resource',
           fields: [
-            { key: 'identifier', label: 'identifier', kind: 'text', required: true },
+            { key: 'name', label: 'resource name', kind: 'text', required: true, hint: 'human-readable name; identifier is generated when blank' },
             { key: 'scopes', label: 'Caracal scopes', kind: 'list', required: true, hint: 'comma-separated authorization scopes for this resource' },
-            { key: 'name', label: 'name', kind: 'text' },
             { key: 'upstream_url', label: 'upstream URL', kind: 'text' },
-            { key: 'gateway_application_id', label: 'gateway app', kind: 'text', pick: applicationPicker(ctx), resolve: applicationResolver(ctx) },
-            { key: 'prefix', label: 'prefix match', kind: 'bool', default: 'false' },
-            { key: 'credential_provider_id', label: 'credential provider', kind: 'text', pick: providerPicker(ctx), resolve: providerResolver(ctx), hint: 'only when the upstream service needs provider-side credentials' },
+            { key: 'identifier', label: 'identifier', kind: 'text', advanced: true, hint: 'optional; generated as resource://resource-name when blank' },
+            { key: 'gateway_application_id', label: 'gateway app', kind: 'text', advanced: true, pick: applicationPicker(ctx), resolve: applicationResolver(ctx), hint: 'only when Gateway should exchange as a specific app' },
+            { key: 'prefix', label: 'prefix match', kind: 'bool', default: 'true', advanced: true, hint: 'enabled by default for Gateway-routed API, gRPC, and MCP paths' },
+            { key: 'credential_provider_id', label: 'credential provider', kind: 'text', advanced: true, pick: providerPicker(ctx), resolve: providerResolver(ctx), hint: 'only when the upstream service needs provider-side credentials' },
           ],
           onSubmit: async (v, app) => {
             await ctx.client.resources.create(ctx.zoneId, {
-              identifier: v.identifier!,
+              identifier: v.identifier || resourceIdentifierFromName(v.name!),
               scopes: splitList(v.scopes ?? ''),
-              name: v.name || undefined,
+              name: v.name,
               upstream_url: v.upstream_url || undefined,
               gateway_application_id: v.gateway_application_id || undefined,
-              prefix: bool(v.prefix),
+              prefix: v.upstream_url ? bool(v.prefix) : undefined,
               credential_provider_id: v.credential_provider_id || undefined,
             })
             await popAndReload(app, list as unknown as ListView<unknown>)
@@ -757,28 +822,29 @@ export function providersView(ctx: Ctx): View {
       {
         key: 'n', label: 'new', build: () => new FormView({
           title: 'create provider',
+          submitLabel: 'create provider',
           fields: [
-            { key: 'identifier', label: 'identifier', kind: 'text', required: true },
-            { key: 'name', label: 'name', kind: 'text' },
-            { key: 'kind', label: 'kind', kind: 'select', options: PROVIDER_KINDS, default: 'oauth2' },
-            { key: 'client_id', label: 'client ID', kind: 'text' },
+            { key: 'name', label: 'provider name', kind: 'text', hint: 'human-readable name; identifier is generated when blank' },
+            { key: 'kind', label: 'provider type', kind: 'select', options: PROVIDER_KINDS, default: 'oauth2' },
             { key: 'issuer', label: 'issuer', kind: 'text', visible: issuerProviderVisible, hint: 'required for OIDC and workload providers' },
-            { key: 'authorization_endpoint', label: 'authorization endpoint', kind: 'text', visible: oauthProviderVisible },
             { key: 'token_endpoint', label: 'token endpoint', kind: 'text', visible: oauthProviderVisible, required: true },
-            { key: 'allowed_token_hosts', label: 'allowed token hosts', kind: 'list', visible: oauthProviderVisible, required: true, hint: 'comma-separated HTTPS token endpoint host allowlist' },
             { key: 'upstream_oauth_scopes', label: 'upstream OAuth scopes', kind: 'list', visible: oauthProviderVisible, hint: 'provider-side scopes, separate from Caracal resource scopes' },
             { key: 'api_key_header', label: 'API key header', kind: 'text', visible: apiKeyProviderVisible, required: true },
-            { key: 'auth_scheme', label: 'auth scheme', kind: 'text', visible: apiKeyProviderVisible, hint: 'optional; leave blank when the upstream expects the raw token' },
             { key: 'workload_audience', label: 'audience', kind: 'text', visible: workloadProviderVisible, required: true },
             { key: 'workload_token_endpoint', label: 'token endpoint', kind: 'text', visible: workloadProviderVisible, required: true },
-            { key: 'workload_allowed_token_hosts', label: 'allowed token hosts', kind: 'list', visible: workloadProviderVisible, required: true },
-            { key: 'forward_caracal_identity', label: 'forward Caracal identity', kind: 'bool', default: 'false' },
-            { key: 'config_file', label: 'provider config file', kind: 'file', hint: 'JSON object merged with the structured fields' },
-            { key: 'config_json', label: 'advanced provider JSON', kind: 'multiline', hint: 'paste a JSON object; multiline paste is preserved; provider-specific keys are validated' },
+            { key: 'identifier', label: 'identifier', kind: 'text', advanced: true, hint: 'optional; generated from provider name when blank' },
+            { key: 'client_id', label: 'client ID', kind: 'text', advanced: true },
+            { key: 'authorization_endpoint', label: 'authorization endpoint', kind: 'text', visible: oauthProviderVisible, advanced: true },
+            { key: 'allowed_token_hosts', label: 'allowed token hosts', kind: 'list', visible: oauthProviderVisible, advanced: true, hint: 'optional; inferred from token endpoint when blank' },
+            { key: 'auth_scheme', label: 'auth scheme', kind: 'text', visible: apiKeyProviderVisible, advanced: true, hint: 'optional; leave blank when the upstream expects the raw token' },
+            { key: 'workload_allowed_token_hosts', label: 'allowed token hosts', kind: 'list', visible: workloadProviderVisible, advanced: true, hint: 'optional; inferred from token endpoint when blank' },
+            { key: 'forward_caracal_identity', label: 'forward Caracal identity', kind: 'bool', default: 'false', advanced: true },
+            { key: 'config_file', label: 'provider config file', kind: 'file', advanced: true, hint: 'JSON object merged with the structured fields' },
+            { key: 'config_json', label: 'advanced provider JSON', kind: 'multiline', advanced: true, hint: 'paste a JSON object; multiline paste is preserved; provider-specific keys are validated' },
           ],
           onSubmit: async (v, app) => {
             await ctx.client.providers.create(ctx.zoneId, {
-              identifier: v.identifier!,
+              identifier: providerIdentifierFromValues(v),
               name: v.name || undefined,
               kind: providerKind(v.kind),
               client_id: v.client_id || undefined,
@@ -851,14 +917,16 @@ export function policiesView(ctx: Ctx): View {
       {
         key: 'n', label: 'new', build: () => new FormView({
           title: 'create policy',
+          submitLabel: 'validate and create policy',
           fields: [
             { key: 'name', label: 'name', kind: 'text', required: true },
-            { key: 'description', label: 'description', kind: 'text' },
-            { key: 'file', label: 'file', kind: 'file' },
-            { key: 'content', label: 'content', kind: 'multiline' },
+            { key: 'source', label: 'source', kind: 'select', options: ['paste', 'file'], default: 'paste' },
+            { key: 'content', label: 'policy content', kind: 'multiline', visible: (values) => (values.source || 'paste') === 'paste' },
+            { key: 'file', label: 'policy file', kind: 'file', visible: (values) => values.source === 'file' },
+            { key: 'description', label: 'description', kind: 'text', advanced: true },
           ],
           onSubmit: async (v, app) => {
-            const content = readFileOrInline(v.file ?? '', v.content ?? '')
+            const content = readPolicyContent(v)
             if (!content) throw new Error('file or content required')
             await ctx.client.policies.create(ctx.zoneId, {
               name: v.name!,
@@ -872,12 +940,14 @@ export function policiesView(ctx: Ctx): View {
       {
         key: 'c', label: 'validate', build: () => new FormView({
           title: 'validate policy',
+          submitLabel: 'validate policy',
           fields: [
-            { key: 'file', label: 'file', kind: 'file' },
-            { key: 'content', label: 'content', kind: 'multiline' },
+            { key: 'source', label: 'source', kind: 'select', options: ['paste', 'file'], default: 'paste' },
+            { key: 'content', label: 'policy content', kind: 'multiline', visible: (values) => (values.source || 'paste') === 'paste' },
+            { key: 'file', label: 'policy file', kind: 'file', visible: (values) => values.source === 'file' },
           ],
           onSubmit: async (v, app) => {
-            const content = readFileOrInline(v.file ?? '', v.content ?? '')
+            const content = readPolicyContent(v)
             if (!content) throw new Error('file or content required')
             const result = await ctx.client.policies.validate(content)
             app.pop()
@@ -890,12 +960,14 @@ export function policiesView(ctx: Ctx): View {
           if (!row) throw new Error('no row selected')
           return new FormView({
             title: `version ${row.name}`,
+            submitLabel: 'add policy version',
             fields: [
-              { key: 'file', label: 'file', kind: 'file' },
-              { key: 'content', label: 'content', kind: 'multiline' },
+              { key: 'source', label: 'source', kind: 'select', options: ['paste', 'file'], default: 'paste' },
+              { key: 'content', label: 'policy content', kind: 'multiline', visible: (values) => (values.source || 'paste') === 'paste' },
+              { key: 'file', label: 'policy file', kind: 'file', visible: (values) => values.source === 'file' },
             ],
             onSubmit: async (v, app) => {
-              const content = readFileOrInline(v.file ?? '', v.content ?? '')
+              const content = readPolicyContent(v)
               if (!content) throw new Error('file or content required')
               await ctx.client.policies.addVersion(ctx.zoneId, row.id, content)
               await popAndReload(app, list as unknown as ListView<unknown>)
@@ -940,12 +1012,20 @@ export function policySetsView(ctx: Ctx): View {
       {
         key: 'n', label: 'new', build: () => new FormView({
           title: 'create policy set',
+          submitLabel: 'create policy set',
           fields: [
             { key: 'name', label: 'name', kind: 'text', required: true },
-            { key: 'description', label: 'description', kind: 'text' },
+            { key: 'policy_versions', label: 'policy versions', kind: 'list', pick: policyVersionPicker(ctx), resolve: policyVersionResolver(ctx), hint: 'right arrow adds latest or selected policy versions' },
+            { key: 'activate_now', label: 'activate now', kind: 'bool', default: 'true' },
+            { key: 'description', label: 'description', kind: 'text', advanced: true },
           ],
           onSubmit: async (v, app) => {
-            await ctx.client.policySets.create(ctx.zoneId, v.name!, v.description || undefined)
+            const policySet = await ctx.client.policySets.create(ctx.zoneId, v.name!, v.description || undefined)
+            const manifest = splitList(v.policy_versions ?? '').map((policy_version_id) => ({ policy_version_id }))
+            if (manifest.length > 0) {
+              const version = await ctx.client.policySets.addVersion(ctx.zoneId, policySet.id, manifest)
+              if (bool(v.activate_now)) await ctx.client.policySets.activate(ctx.zoneId, policySet.id, version.id)
+            }
             await popAndReload(app, list as unknown as ListView<unknown>)
           },
         }),
@@ -973,7 +1053,7 @@ export function policySetsView(ctx: Ctx): View {
             title: `activate ${row.name}`,
             fields: [
               { key: 'version_id', label: 'version', kind: 'text', required: true, pick: policySetVersionPicker(ctx, row), resolve: policySetVersionResolver(ctx, row) },
-              { key: 'shadow_version_id', label: 'shadow version', kind: 'text', pick: policySetVersionPicker(ctx, row), resolve: policySetVersionResolver(ctx, row) },
+              { key: 'shadow_version_id', label: 'shadow version', kind: 'text', advanced: true, pick: policySetVersionPicker(ctx, row), resolve: policySetVersionResolver(ctx, row) },
             ],
             onSubmit: async (v, app) => {
               await ctx.client.policySets.activate(ctx.zoneId, row.id, v.version_id!, v.shadow_version_id || undefined)
@@ -1028,7 +1108,7 @@ export function grantsView(ctx: Ctx): View {
     title: 'grants',
     columns: [
       { header: 'app', width: 28, value: (r) => r.application_name },
-      { header: 'user', width: 36, value: (r) => r.user_id },
+      { header: 'subject', width: 36, value: (r) => r.user_id },
       { header: 'resource', width: 28, value: (r) => r.resource_name },
       { header: 'status', width: 10, value: (r) => r.status },
       { header: 'Caracal scopes', value: (r) => (r.scopes ?? []).join(' ') || '-' },
@@ -1045,11 +1125,12 @@ export function grantsView(ctx: Ctx): View {
       {
         key: 'n', label: 'new', build: () => new FormView({
           title: 'create grant',
+          submitLabel: 'create grant',
           fields: [
-            { key: 'application_id', label: 'application', kind: 'text', required: true, pick: applicationPicker(ctx), resolve: applicationResolver(ctx) },
-            { key: 'user_id', label: 'subject', kind: 'text', required: true },
             { key: 'resource_id', label: 'resource', kind: 'text', required: true, pick: resourcePicker(ctx), resolve: resourceResolver(ctx) },
-            { key: 'scopes', label: 'Caracal scopes', kind: 'list', required: true, hint: 'comma-separated subset of the resource Caracal scopes' },
+            { key: 'application_id', label: 'application', kind: 'text', required: true, pick: applicationPicker(ctx), resolve: applicationResolver(ctx) },
+            { key: 'user_id', label: 'subject ID', kind: 'text', required: true, hint: 'opaque subject such as user:alice@example.com or service:billing-worker' },
+            { key: 'scopes', label: 'Caracal scopes', kind: 'list', required: true, pick: grantScopePicker(ctx), hint: 'choose from the selected resource scopes or enter comma-separated scopes' },
           ],
           onSubmit: async (v, app) => {
             await ctx.client.grants.create(ctx.zoneId, {
@@ -1139,7 +1220,7 @@ class DelegationMenuView implements View {
   private readonly ctx: Ctx
   constructor(ctx: Ctx) { this.ctx = ctx }
 
-  hints(): string[] { return ['↑/↓:select', 'enter:open', 'esc:back'] }
+  hints(): string[] { return ['↑/↓:select', 'enter:open', '?:info', 'esc:back'] }
 
   render(): string[] {
     const lines = ['', ' Delegations', '']
@@ -1154,6 +1235,18 @@ class DelegationMenuView implements View {
     if (key === 'up' || key === 'k') { this.cursor = Math.max(0, this.cursor - 1); return }
     if (key === 'down' || key === 'j') { this.cursor = Math.min(this.items.length - 1, this.cursor + 1); return }
     if (key === 'left' || key === 'esc') { ctx.app.pop(); return }
+    if (key === '?') {
+      const item = this.items[this.cursor]
+      if (item) openInfo(ctx.app, infoPage({
+        title: `Delegation ${item.label}`,
+        meaning: 'Delegation views inspect or revoke edges between authority sessions.',
+        when: 'Use this when delegated agent authority must be traced, audited, or revoked.',
+        example: item.label,
+        valid: 'Choose a delegation action, then pick a session or edge from the searchable picker.',
+        after: 'Console opens the selected delegation view or mutation flow.',
+      }))
+      return
+    }
     const direct = this.items.findIndex((item) => item.key === key)
     if (direct >= 0) { ctx.app.push(this.items[direct]!.build()); return }
     if (key === 'enter') ctx.app.push(this.items[this.cursor]!.build())
