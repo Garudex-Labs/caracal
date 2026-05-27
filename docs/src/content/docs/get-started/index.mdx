@@ -1,50 +1,63 @@
 ---
 title: Get Started
-description: Install Caracal, run the released product, and ship your first integration.
+description: Install Caracal, run the local stack, create a protected resource, and make your first audited agent call.
 pageType: landing
 ---
 
-Caracal is a self-hosted execution boundary for AI agents. Run agents through Caracal, give them scoped access to tools and providers, and get enforceable audit and revocation without exposing provider secrets to agent code.
+Caracal is an authority plane for AI agents and autonomous workflows. It gives each agent app short-lived, scoped access to tools, APIs, providers, and data only after policy allows the request, then records the authorization decision and the action result.
 
-The default product path is intentionally narrow:
+Start here if you want the fastest path from a clean machine to a real protected call.
 
-1. Create a zone.
-2. Register an agent app.
-3. Register a protected resource with scopes and an upstream URL when Gateway routing is needed.
-4. Activate an access policy.
-5. Run the workload through the SDK or `caracal run`.
-6. Send protected calls through the Gateway.
-7. Explain the first audit decision and action result.
+## The first successful path
 
-Other provider flows fit into three buckets: connector-verified services you own, application-managed external provider calls that keep Caracal context for attribution, and future native broker plugins. Start with the Gateway path unless you know which bucket applies.
+```mermaid
+flowchart LR
+  Install[Install tools]
+  Stack[Start local stack]
+  Setup[Console guided setup]
+  Run[Run agent or workload]
+  Gateway[Gateway-protected call]
+  Audit[Explain audit trail]
 
-For a first integration, keep the mental model simple: use Console guided setup to create the zone, agent app, protected resource, policy, and runtime profile; use the SDK or `caracal run` to run the workload; send protected calls through Gateway. SDK middleware is for propagating already-verified context, not for replacing the Gateway enforcement boundary.
+  Install --> Stack --> Setup --> Run --> Gateway --> Audit
+```
 
-## Choose the path for your role
+The onboarding path deliberately keeps product management in the Console and local runtime lifecycle in the `caracal` shell:
 
-| Role | Start here | What to avoid at first |
+1. Install `caracal` and `caracal-console`.
+2. Start the local stack with `caracal up`.
+3. Open the Console with `caracal console`.
+4. Use **guided setup** to create or select a zone, agent app, provider, resource, policy, and runtime profile.
+5. Run a workload with the SDK or with `CARACAL_CONFIG=... caracal run --`.
+6. Call the protected resource through the Gateway.
+7. Open **audit** and **explain** in the Console to see why access was allowed or denied.
+
+## Pick your route
+
+| If you are... | Read these pages first | You will end with |
 | --- | --- | --- |
-| Application developer | [Quickstart](./quickstart/) → [Five-Minute Setup](./five-minute-setup/) → [First Integration](./first-integration/) | Manual Control API calls, connector packages, and provider adapters before the Gateway path works. |
-| Platform team | [Installation](./installation/) → [CLI and Console](/runtime-console/cli-and-console/) → [Configuration File](/runtime-console/config-file/) | Treating `caracal.toml` as product state; it is runtime input for workloads and SDKs. |
-| Security or operator | [What Caracal Does](./what-caracal-does/) → [Author a Rego Policy](/guides/author-policy/) → [Observability](/runtime-console/observability/) | Approving a direct connector or application-managed provider call without mandate verification, revocation, and result-audit evidence. |
+| Evaluating Caracal locally | [Installation](./installation/) → [Quickstart](./quickstart/) → [Five-Minute Setup](./five-minute-setup/) | A local stack, a protected resource, and an audit explanation. |
+| Integrating an app or agent | [Welcome](./welcome/) → [First Integration](./first-integration/) → [Tutorials](/tutorials/) | SDK code that opens an agent run and calls a Gateway-protected resource. |
+| Owning policy or operations | [What Caracal Does](./what-caracal-does/) → [Key Ideas](./key-ideas/) → [Runtime and Console](/runtime-console/) | A clear map of STS, Gateway, Coordinator, Audit, policies, and Console workflows. |
+| Contributing to Caracal | [Contributor Quickstart](./contributor-quickstart/) → [Contributing](/contributing/) | A source-tree stack using workspace commands. |
 
-## In this section
+## Pages in this section
 
-| Page | What you will do |
-| ---- | ---------------- |
-| [Welcome](./welcome/) | Understand the product promise and where to start |
-| [Installation](./installation/) | Install the Console, runtime shell, and SDK packages |
-| [Quickstart: Released Product](./quickstart/) | Bring up Caracal using installed release commands |
-| [Five-Minute Setup](./five-minute-setup/) | Protect a resource and explain the first audit result |
-| [First Integration](./first-integration/) | Run an agent and call a provider through the Gateway |
-| [Key Ideas at a Glance](./key-ideas/) | Review the simplified mental model and terminology |
-| [What Caracal Does](./what-caracal-does/) | Learn the execution model after you have a real run |
-| [Contributor Quickstart](./contributor-quickstart/) | Run Caracal from the source tree with pnpm |
+| Page | Use it when |
+| --- | --- |
+| [Welcome](./welcome/) | You want the short product orientation before installing anything. |
+| [Installation](./installation/) | You need the released binaries, SDK packages, platform support, or source-tree prerequisites. |
+| [Quickstart: Released Product](./quickstart/) | You have installed the tools and want to start the local stack. |
+| [Five-Minute Setup](./five-minute-setup/) | You want to protect one resource and verify the first Gateway call. |
+| [First Integration](./first-integration/) | You are wiring TypeScript, Python, or Go agent code through Caracal. |
+| [Key Ideas at a Glance](./key-ideas/) | You want the vocabulary and model in one page. |
+| [What Caracal Does](./what-caracal-does/) | You want to understand the system after seeing one run. |
+| [Contributor Quickstart](./contributor-quickstart/) | You are running Caracal from this repository. |
 
 ## Prerequisites
 
-- **Docker** 24+ with the Compose v2 plugin
-- **curl** or **wget** (required by the shell install script)
-- A POSIX shell (Linux or macOS) or PowerShell 7+ (Windows)
+- Docker 24+ with the Compose v2 plugin.
+- `curl` or `wget` on Linux/macOS, or PowerShell on Windows.
+- Node.js, Python, or Go only when you install an SDK for your application.
 
-SDK requirements depend on language. See [Installation](./installation/) for details.
+If you are not sure where to begin, go straight to [Installation](./installation/).

@@ -1,138 +1,55 @@
 ---
 title: Postgres Token State
-description: "PostgresBackend class reference: constructor, migrate(), upsert(), get(), delete(), and mcp_token_state table schema."
-pageType: reference
+description: TypeScript Postgres backend for persisted token state.
 ---
 
-`@caracalai/tokenstate-postgres` provides `PostgresBackend`, a class that persists MCP token state to a Postgres table. It is a storage backend for MCP session token records: not a `RevocationStore` and not a `TokenCache`. Use it when you need durable, queryable token state across restarts or replicas.
+`@caracalai/tokenstate-postgres` stores token-state rows in Postgres for TypeScript services that need durable mandate state.
 
 ## Install
 
 ```bash
-npm install @caracalai/tokenstate-postgres pg
-npm install --save-dev @types/pg
+npm install @caracalai/tokenstate-postgres
 ```
 
-## `PostgresBackend`
+The package targets Node `>=24`.
 
-### Constructor
+## Schema
 
-```typescript
-import { PostgresBackend } from '@caracalai/tokenstate-postgres';
-import { Pool } from 'pg';
-
-const pool = new Pool({ connectionString: process.env.DATABASE_URL });
-const backend = new PostgresBackend(pool);
-```
-
-The constructor accepts a `pg.Pool` instance. `PostgresBackend` does not manage the pool lifecycle: create and close the pool in your application startup/shutdown code.
-
----
-
-## Table schema
-
-`PostgresBackend` stores token state in the `mcp_token_state` table. Call `migrate()` once at startup to create the table if it does not exist.
+The package exports `MCP_TOKEN_STATE_DDL`, which creates:
 
 ```sql
 CREATE TABLE IF NOT EXISTS mcp_token_state (
-  zone_id    TEXT        NOT NULL,
-  sub        TEXT        NOT NULL,
-  scope      TEXT        NOT NULL,
+  zone_id TEXT NOT NULL,
+  sub TEXT NOT NULL,
+  scope TEXT NOT NULL,
   expires_at TIMESTAMPTZ NOT NULL,
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  PRIMARY KEY (zone_id, sub)
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  PRIMARY KEY (zone_id, sub, scope)
 );
 ```
 
-The primary key is `(zone_id, sub)`: one active token state row per subject per zone.
+## Backend
 
----
+```ts
+import { MCP_TOKEN_STATE_DDL, PostgresBackend } from "@caracalai/tokenstate-postgres";
 
-## Methods
+await pool.query(MCP_TOKEN_STATE_DDL);
 
-### `migrate()`
-
-```typescript
-async migrate(): Promise<void>
-```
-
-Executes the DDL to create `mcp_token_state`. Safe to call on every startup: the `IF NOT EXISTS` clause makes it idempotent. Throws if the database connection fails.
-
-### `upsert(zoneId, sub, scope, expiresAt)`
-
-```typescript
-async upsert(
-  zoneId: string,
-  sub: string,
-  scope: string,
-  expiresAt: Date,
-): Promise<void>
-```
-
-Inserts or updates the token state row for `(zoneId, sub)`. Sets `updated_at` to the current database time. Use this when a new mandate is issued for a subject.
-
-### `get(zoneId, sub)`
-
-```typescript
-async get(zoneId: string, sub: string): Promise<TokenState | null>
-```
-
-Returns the `TokenState` for `(zoneId, sub)`, or `null` if no row exists.
-
-```typescript
-interface TokenState {
-  zoneId: string;
-  sub: string;
-  scope: string;
-  expiresAt: Date;
-  updatedAt: Date;
-}
-```
-
-### `delete(zoneId, sub)`
-
-```typescript
-async delete(zoneId: string, sub: string): Promise<void>
-```
-
-Deletes the token state row for `(zoneId, sub)`. No-op if the row does not exist.
-
----
-
-## Usage
-
-```typescript
-import { PostgresBackend } from '@caracalai/tokenstate-postgres';
-import { Pool } from 'pg';
-
-const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 const backend = new PostgresBackend(pool);
-
-// Run once at startup
-await backend.migrate();
-
-// Store token state after issuing a mandate
-await backend.upsert(
-  claims.zoneId,
-  claims.sub,
-  claims.scope,
-  new Date(Date.now() + expiresIn * 1000),
-);
-
-// Read back during a session check
-const state = await backend.get(claims.zoneId, claims.sub);
-if (!state || state.expiresAt < new Date()) {
-  // Token not found or expired
-}
-
-// Delete on logout or revocation
-await backend.delete(claims.zoneId, claims.sub);
+await backend.set({
+  zone_id: "zone_prod",
+  sub: "agent_123",
+  scope: "tickets:read",
+  expires_at: new Date(Date.now() + 60_000).toISOString(),
+});
 ```
 
----
+## Use cases
 
-## Notes
+- Persisting active token state across service restarts.
+- Sharing token-state reads across multiple TypeScript resource-server instances.
+- Building custom resource-server controls that need a small `(zone_id, sub, scope)` state table.
 
-`PostgresBackend` does not implement `RevocationStore`. It stores token state (scope, expiry) for your application's session management: it does not participate in the mandate verification pipeline directly. Mandate verification remains the responsibility of `@caracalai/transport-mcp` or `@caracalai/mcp-express`.
+## Boundary
 
-For revocation store functionality, use `@caracalai/revocation` (in-memory) or `@caracalai/revocation-redis` (production). See the [Redis connector reference](./redis/).
+This package is a token-state backend. It is not the revocation stream consumer. Use [Redis Token State](/sdks/connectors/redis/) when you need to consume `caracal.sessions.revoke`.

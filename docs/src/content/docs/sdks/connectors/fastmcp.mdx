@@ -1,151 +1,67 @@
 ---
 title: FastMCP Connector
-description: FastMCP authentication helpers for verifying Caracal mandates in Python and TypeScript FastMCP servers.
-pageType: reference
+description: FastMCP token verifiers for TypeScript and Python servers.
 ---
 
-Caracal provides FastMCP connector packages for two integration styles:
+FastMCP connectors expose small verifier APIs that delegate to the MCP transport packages. Use them when your FastMCP integration needs to authenticate a bearer token before running a tool.
 
-| Language | Package | Use |
-| --- | --- | --- |
-| Python | `caracalai-mcp-fastmcp` | FastMCP `auth` callable that returns verified Caracal claims |
-| TypeScript | `@caracalai/mcp-fastmcp` | Token verification helper that delegates to `@caracalai/transport-mcp` |
+## Install
 
-Both packages verify inbound Caracal mandates. They do not issue tokens, subscribe to revocation streams, or manage Redis. Production servers should pair them with a shared revocation store such as the Redis connector.
+| Ecosystem | Package |
+| --- | --- |
+| TypeScript | `npm install @caracalai/mcp-fastmcp` |
+| Python | `pip install caracalai-mcp-fastmcp` |
 
----
+## TypeScript verifier
 
-## Python: `caracalai-mcp-fastmcp`
+```ts
+import { extractBearer, verifyFastMcpToken } from "@caracalai/mcp-fastmcp";
 
-```bash
-pip install caracalai-mcp-fastmcp caracalai-revocation
+const token = extractBearer(request.headers.get("authorization") ?? "");
+if (!token) throw new Error("missing bearer token");
+
+const context = await verifyFastMcpToken(token, {
+  issuer: "https://sts.example.com",
+  audience: "https://mcp.example.com",
+  zoneId: "zone_prod",
+  requiredScopes: ["mcp:tool:call"],
+  requiredTargets: ["https://mcp.example.com"],
+  requireAgent: true,
+  revocations,
+});
+
+console.log(context.sub, context.zoneId, context.scope);
 ```
 
-### `CaracalAuth`
+`verifyFastMcpToken()` returns `{ sub, zoneId, scope }` or throws `FastMcpAuthError`.
 
-`CaracalAuth` is a callable class passed to FastMCP as the server's `auth` handler. FastMCP calls it with each inbound bearer token. On success it returns a `Claims` object from `caracalai_identity`; on failure it raises `CaracalAuthError`.
+## Python verifier
 
 ```python
-from caracalai_mcp_fastmcp import CaracalAuth
+from caracalai_mcp_fastmcp import CaracalAuth, CaracalAuthError
 
 auth = CaracalAuth(
-    issuer="http://sts:8080",
-    audience="resource://my-mcp-server",
-    revocations=revocations,
-    required_scopes=["tool:call"],
-    expected_zone_id="zone-123",
+    issuer="https://sts.example.com",
+    audience="https://mcp.example.com",
+    zone_id="zone_prod",
+    required_scopes=["mcp:tool:call"],
+    required_targets=["https://mcp.example.com"],
     require_agent=True,
-    require_delegation=False,
-    require_chain_contains=None,
-    max_hop_count=8,
+    revocations=revocations,
 )
 
-claims = await auth(token)
+try:
+    context = await auth.verify_token(token)
+except CaracalAuthError as exc:
+    raise RuntimeError(exc.code) from exc
 ```
 
-| Parameter | Required | Description |
-| --- | --- | --- |
-| `issuer` | Yes | STS base URL; JWKS are read from `{issuer}/.well-known/jwks.json` |
-| `audience` | Yes | Expected JWT `aud` claim |
-| `revocations` | Yes | Revocation store checked on every call |
-| `required_scopes` | No | All listed scopes must be present |
-| `required_targets` | No | All listed resource identifiers must be present in the `target` claim |
-| `required_use` | No | Token `use` claim; defaults to `resource` |
-| `expected_zone_id` | No | Reject tokens from other zones |
-| `require_agent` | No | Reject tokens without `agent_session_id` |
-| `require_delegation` | No | Reject tokens without `delegation_edge_id` |
-| `require_chain_contains` | No | Require all listed application IDs in the delegation chain |
-| `max_hop_count` | No | Reject tokens whose `hop_count` exceeds the limit |
+## Boundary
 
-### Basic FastMCP setup
+The connector verifies tokens; it does not create agent sessions or delegation edges. Use the [Python SDK](/sdks/python/) or [TypeScript SDK](/sdks/typescript/) to create Caracal context before making outbound calls.
 
-```python
-import os
+## Related pages
 
-from fastmcp import FastMCP
-from caracalai_mcp_fastmcp import CaracalAuth
-from caracalai_revocation import InMemoryRevocationStore
-
-revocations = InMemoryRevocationStore()
-
-auth = CaracalAuth(
-    issuer=os.environ["CARACAL_STS_URL"],
-    audience="resource://my-mcp-server",
-    revocations=revocations,
-    required_scopes=["tool:call"],
-    require_agent=True,
-)
-
-mcp = FastMCP("my-server", auth=auth)
-
-@mcp.tool()
-async def search(query: str) -> list[str]:
-    return []
-
-if __name__ == "__main__":
-    mcp.run()
-```
-
-FastMCP owns how the verified auth result is exposed to tool handlers. Check the FastMCP version you run for the correct context API. The object Caracal returns is the `Claims` value from `CaracalAuth.__call__`.
-
-### Errors
-
-`CaracalAuthError` exposes `code` and `description`. Codes mirror the MCP transport verification errors:
-
-`missing_token`, `invalid_token`, `invalid_zone`, `insufficient_scope`, `session_revoked`, `agent_required`, `delegation_required`, `chain_mismatch`, `hop_count_exceeded`.
-
----
-
-## TypeScript: `@caracalai/mcp-fastmcp`
-
-```bash
-npm install @caracalai/mcp-fastmcp @caracalai/revocation
-```
-
-### `verifyFastMcpToken(token, opts)`
-
-`verifyFastMcpToken` verifies one bearer token using the same dependency shape as `@caracalai/transport-mcp`.
-
-```typescript
-import { verifyFastMcpToken, FastMcpAuthError } from '@caracalai/mcp-fastmcp';
-import { InMemoryRevocationStore } from '@caracalai/revocation';
-
-const revocations = new InMemoryRevocationStore();
-
-try {
-  const context = await verifyFastMcpToken(token, {
-    issuer: 'http://sts:8080',
-    audience: 'resource://my-mcp-server',
-    revocations,
-    requiredScopes: ['tool:call'],
-    requireAgent: true,
-  });
-
-  console.log(context.sub, context.zoneId, context.scope);
-} catch (err) {
-  if (err instanceof FastMcpAuthError) {
-    console.error(err.code, err.message);
-  }
-  throw err;
-}
-```
-
-Return shape:
-
-```typescript
-interface FastMcpContext {
-  sub: string;
-  zoneId: string;
-  scope: string;
-}
-```
-
-The package also re-exports `extractBearer` for framework adapters that need to parse `Authorization: Bearer <token>` before verification.
-
----
-
-## Production revocation
-
-The in-memory revocation stores are process-local and suitable for tests or single-process development. In multi-replica deployments, use the Redis revocation connector and run a stream consumer for `caracal.sessions.revoke` so every verifier rejects revoked sessions.
-
-See the [Redis connector reference](../redis/) for the TypeScript and Python Redis-backed stores and consumers.
+- [Protect a FastMCP App](/guides/protect-fastmcp/)
+- [MCP Transport](/sdks/transport-mcp/)
+- [Sessions and Revocation](/concepts/sessions-revocation/)

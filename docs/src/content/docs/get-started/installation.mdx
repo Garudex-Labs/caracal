@@ -1,152 +1,111 @@
 ---
 title: Installation
-description: Install the Console, run the OSS stack with Docker, or pull SDK packages.
+description: Install the Caracal runtime shell, Console, and SDK packages.
 pageType: workflow
 ---
 
-This page covers installing the `caracal` runtime shell, the `caracal-console` Console UI, and the SDK packages for TypeScript, Python, and Go.
+Install the released tools when you want to run Caracal as a product. Install SDK packages only in the applications that need to request or propagate Caracal authority.
 
-## Install the runtime shell or Console
+## Install the released tools
 
-The runtime shell and Console are distributed as self-contained binaries for Linux, macOS, and Windows. The Console installer installs `caracal-console` and installs the thin `caracal` shell when the matching shell archive is available.
+The installer downloads release archives from GitHub, verifies each archive against `SHA256SUMS`, and installs:
+
+- `caracal`: the local runtime shell for `up`, `down`, `status`, `purge`, `run`, and `console`.
+- `caracal-console`: the interactive Console for zones, applications, resources, providers, policies, grants, sessions, agents, audit, diagnostics, and Control workflows.
 
 ### Linux and macOS
 
 ```sh
+curl -fsSL https://raw.githubusercontent.com/Garudex-Labs/caracal/main/install-console.sh | sh
+```
+
+Optional hardening and pinning:
+
+```sh
 curl -fsSL https://raw.githubusercontent.com/Garudex-Labs/caracal/main/install-console.sh | \
-  sh -s -- --version v2026.05.27-rc.1 --require-provenance
+  sh -s -- --version vYYYY.MM.DD --require-provenance
 ```
 
-Each script:
-
-1. Detects your OS and CPU architecture.
-2. Downloads the matching `caracal-console` binary and the `caracal` shell when the shell archive is available.
-3. Verifies each binary against the published `SHA256SUMS` file.
-4. Installs binaries to `~/.local/bin` by default.
-
-Supported platforms:
-
-| OS | Architectures |
-| -- | ------------- |
-| Linux | `x64`, `arm64` |
-| macOS | `x64`, `arm64` |
-| Windows | `x64` |
-
-**Environment variables that affect the install script:**
-
-| Variable | Default | Description |
-| -------- | ------- | ----------- |
-| `CARACAL_VERSION` | `latest` | Specific release tag to download, e.g. `v2026.05.27-rc.1` |
-| `CARACAL_INSTALL_DIR` | `~/.local/bin` | Directory to install binaries into |
-
-After installation, ensure `~/.local/bin` is on your `PATH`:
-
-```sh
-export PATH="$HOME/.local/bin:$PATH"
-```
-
-Verify the binaries you installed:
-
-```sh
-caracal --version
-caracal-console --version
-```
+By default the installer writes to `~/.local/bin`. Override with `--install-dir /path/to/bin` or `CARACAL_INSTALL_DIR=/path/to/bin`.
 
 ### Windows
 
 ```powershell
 $installer = "$env:TEMP\install-console.ps1"
-irm https://raw.githubusercontent.com/Garudex-Labs/caracal/main/install-console.ps1 -OutFile $installer
-powershell -ExecutionPolicy Bypass -File $installer -Version v2026.05.27-rc.1 -RequireProvenance
+iwr -UseBasicParsing https://raw.githubusercontent.com/Garudex-Labs/caracal/main/install-console.ps1 -OutFile $installer
+powershell -ExecutionPolicy Bypass -File $installer
 ```
 
-Binaries are placed in `%LOCALAPPDATA%\Programs\caracal` by default. Set `$env:CARACAL_INSTALL_DIR` to override. Only `x64` is available on Windows.
+Optional hardening and pinning:
 
-### Build from source
+```powershell
+powershell -ExecutionPolicy Bypass -File $installer -Version vYYYY.MM.DD -RequireProvenance
+```
 
-If you prefer to build from the repository:
+The Windows installer writes to `%LOCALAPPDATA%\Programs\caracal` by default and adds that directory to the user `Path`. Open a new shell after installation.
+
+### Supported release platforms
+
+| Platform | Architectures | Notes |
+| --- | --- | --- |
+| Linux | `amd64`, `arm64` | Requires `curl` or `wget`, `tar`, and `sha256sum` or `shasum`. |
+| macOS | `amd64`, `arm64` | If Gatekeeper quarantines the binary, remove quarantine from the installed file. |
+| Windows | `amd64` | Use the PowerShell installer. |
+
+## Verify the tools
 
 ```sh
-git clone https://github.com/Garudex-Labs/caracal.git
-cd caracal
-pnpm install
-pnpm --filter @caracalai/runtime build
-# Output: apps/runtime/dist/caracal-<os>-<arch>
+caracal --version
+caracal-console --version
+caracal status --help
 ```
 
-Building requires [Bun](https://bun.sh/) and pnpm 11.1.1.
+Use `caracal` for local lifecycle and workload execution only. Use `caracal console` or `caracal-console` for product management.
 
----
+## Local stack prerequisite
 
-## Install SDK packages
-
-Install only the packages your application uses.
-
-### TypeScript
-
-```sh
-npm install @caracalai/sdk
-# or
-pnpm add @caracalai/sdk
-```
-
-Additional packages for specific use cases:
-
-```sh
-# MCP server protection
-npm install @caracalai/transport-mcp
-
-# Express middleware
-npm install @caracalai/sdk @caracalai/mcp-express
-
-# Admin API access (for provisioning scripts)
-npm install @caracalai/admin
-```
-
-All `@caracalai/*` packages require **Node.js 24+**.
-
-### Python
-
-```sh
-pip install caracalai-sdk
-```
-
-For FastMCP integration:
-
-```sh
-pip install caracalai-sdk caracalai-mcp-fastmcp
-```
-
-All `caracalai-*` packages require **Python 3.14+**.
-
-### Go
-
-```sh
-go get github.com/garudex-labs/caracal/packages/sdk/go
-```
-
-For the net/http middleware connector:
-
-```sh
-go get github.com/garudex-labs/caracal/packages/connectors/nethttp/go
-```
-
-Requires **Go 1.26+**.
-
----
-
-## Stack prerequisites
-
-Running the Caracal OSS stack locally requires Docker 24+ with the Compose v2 plugin. Check your version:
+Running the OSS stack locally requires Docker 24+ with the Compose v2 plugin:
 
 ```sh
 docker compose version
 ```
 
-The stack uses PostgreSQL 18 and Redis 8. Both are included as pre-built images in the Docker Compose configuration: you do not need to install them separately.
+The local stack includes PostgreSQL and Redis containers; you do not need to install those databases separately for the quickstart.
 
----
+## Install SDK packages
+
+Install the SDK for the language your application uses.
+
+| Language | Install command | Runtime requirement |
+| --- | --- | --- |
+| TypeScript | `npm install @caracalai/sdk` or `pnpm add @caracalai/sdk` | Node.js 24+ |
+| Python | `pip install caracalai-sdk` | Python 3.14+ |
+| Go | `go get github.com/garudex-labs/caracal/packages/sdk/go` | Go 1.26+ |
+
+Additional packages are available for connector-specific work:
+
+| Use case | Package |
+| --- | --- |
+| MCP transport | `@caracalai/transport-mcp` |
+| Express connector | `@caracalai/mcp-express` |
+| FastMCP connector | `caracalai-mcp-fastmcp` |
+| Go `net/http` connector | `github.com/garudex-labs/caracal/packages/connectors/nethttp/go` |
+| Admin API automation | `@caracalai/admin` |
+
+## Build from source
+
+Use the source tree only when contributing to Caracal:
+
+```sh
+git clone https://github.com/Garudex-Labs/caracal.git
+cd caracal
+corepack enable
+corepack prepare pnpm@11.1.1 --activate
+pnpm install --frozen-lockfile
+```
+
+Source-tree runtime commands are covered in [Contributor Quickstart](./contributor-quickstart/).
 
 ## Next step
 
-Once the Console is installed, go to [Quickstart: Released Product](./quickstart/) to bring up the full stack. Use [Contributor Quickstart](./contributor-quickstart/) only when working from the source tree.
+Continue with [Quickstart: Released Product](./quickstart/) to start the local stack and open the Console.

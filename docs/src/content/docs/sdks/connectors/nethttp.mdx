@@ -1,10 +1,9 @@
 ---
 title: Go net/http Connector
-description: "Middleware() function reference: Options struct, ClaimsFromContext(), error response format, and context key behavior."
-pageType: reference
+description: Go middleware for protecting HTTP handlers with Caracal mandate verification.
 ---
 
-`github.com/garudex-labs/caracal/packages/connectors/nethttp/go` provides a Go `net/http`-compatible middleware that verifies Caracal mandates on inbound requests. It wraps any `http.Handler`, extracts the bearer token from the `Authorization` header, verifies the ES256 signature and revocation status using `transport/mcp`, and attaches the verified `identity.Claims` to the request context. Requests that fail verification receive a JSON error response and the wrapped handler is not called.
+The Go net/http connector wraps handlers with MCP transport verification and stores verified claims in the request context.
 
 ## Install
 
@@ -12,177 +11,46 @@ pageType: reference
 go get github.com/garudex-labs/caracal/packages/connectors/nethttp/go
 ```
 
-## `Middleware(opts)`
-
-```go
-import mcpnethttp "github.com/garudex-labs/caracal/packages/connectors/nethttp/go"
-
-func Middleware(opts Options) func(http.Handler) http.Handler
-```
-
-Returns a middleware function that wraps an `http.Handler`. Compatible with standard `net/http` and any router that accepts `func(http.Handler) http.Handler` (Chi, Gorilla Mux, etc.).
-
-### `Options`
-
-```go
-type Options struct {
-    Issuer               string
-    Audience             string
-    ZoneID               string
-    RequiredScopes       []string
-    RequiredTargets      []string
-    RequiredUse          string
-    RequireAgent         bool
-    RequireDelegation    bool
-    RequireChainContains []string
-    MaxHopCount          int              // 0 uses DefaultMaxHopCount (10)
-    Revocations          revocation.Store // Required
-}
-```
-
-| Field | Description |
-| --- | --- |
-| `Issuer` | STS base URL; JWKS fetched from `{Issuer}/.well-known/jwks.json` |
-| `Audience` | Must appear in the `aud` claim |
-| `ZoneID` | If non-empty, `zone_id` claim must match |
-| `RequiredScopes` | All listed scopes must be present in the `scope` claim |
-| `RequiredTargets` | All listed resource identifiers must be present in the `target` claim |
-| `RequiredUse` | Token `use` claim; defaults to `resource` |
-| `RequireAgent` | Reject tokens without `agent_session_id` |
-| `RequireDelegation` | Reject tokens without `delegation_edge_id` |
-| `RequireChainContains` | All listed application IDs must appear in the delegation chain |
-| `MaxHopCount` | Reject tokens with `hop_count` above this value |
-| `Revocations` | `revocation.Store` checked on every request (required) |
-
----
-
-## `ClaimsFromContext(ctx)`
+## Middleware
 
 ```go
 import (
-    mcpnethttp "github.com/garudex-labs/caracal/packages/connectors/nethttp/go"
-    "github.com/garudex-labs/caracal/packages/identity/go"
+	"net/http"
+
+	nethttp "github.com/garudex-labs/caracal/packages/connectors/nethttp/go"
+	transportmcp "github.com/garudex-labs/caracal/packages/transport/mcp/go"
 )
 
-func ClaimsFromContext(ctx context.Context) (identity.Claims, bool)
-```
-
-Retrieves the `identity.Claims` attached by the middleware. Returns `(claims, true)` if claims are present, or `(identity.Claims{}, false)` if the middleware did not run or failed.
-
-Call this inside any handler that runs after the middleware:
-
-```go
-func myHandler(w http.ResponseWriter, r *http.Request) {
-    claims, ok := mcpnethttp.ClaimsFromContext(r.Context())
-    if !ok {
-        http.Error(w, "no claims", http.StatusInternalServerError)
-        return
-    }
-    // use claims.Sub, claims.Scope, etc.
-}
-```
-
----
-
-## Error responses
-
-The middleware writes a JSON error response and returns when verification fails. The wrapped handler is not called.
-
-| Error code | HTTP status |
-| --- | --- |
-| `missing_token` | 401 |
-| `invalid_token` | 401 |
-| `invalid_zone` | 401 |
-| `session_revoked` | 401 |
-| `agent_required` | 401 |
-| `delegation_required` | 401 |
-| `chain_mismatch` | 401 |
-| `hop_count_exceeded` | 401 |
-| `insufficient_scope` | 403 |
-
-Response body:
-
-```json
-{
-  "error": "missing_token",
-  "error_description": "Authorization header missing or not in Bearer format"
-}
-```
-
----
-
-## Usage
-
-**Standard `net/http`:**
-
-```go
-package main
-
-import (
-    "context"
-    "encoding/json"
-    "net/http"
-    "os"
-
-    mcpnethttp "github.com/garudex-labs/caracal/packages/connectors/nethttp/go"
-    "github.com/garudex-labs/caracal/packages/revocation/go"
-)
-
-func main() {
-    revocations := revocation.NewInMemoryStore()
-
-    mw := mcpnethttp.Middleware(mcpnethttp.Options{
-        Issuer:         os.Getenv("CARACAL_STS_URL"),
-        Audience:       "resource://my-mcp-server",
-        RequiredScopes: []string{"tool:call"},
-        Revocations:    revocations,
-    })
-
-    mux := http.NewServeMux()
-    mux.HandleFunc("/tool/search", searchHandler)
-
-    http.ListenAndServe(":8080", mw(mux))
-}
-
-func searchHandler(w http.ResponseWriter, r *http.Request) {
-    claims, _ := mcpnethttp.ClaimsFromContext(r.Context())
-    json.NewEncoder(w).Encode(map[string]string{"sub": claims.Sub})
-}
-```
-
-**With Chi router:**
-
-```go
-import (
-    "github.com/go-chi/chi/v5"
-    mcpnethttp "github.com/garudex-labs/caracal/packages/connectors/nethttp/go"
-)
-
-r := chi.NewRouter()
-r.Use(mcpnethttp.Middleware(mcpnethttp.Options{
-    Issuer:      os.Getenv("CARACAL_STS_URL"),
-    Audience:    "resource://my-mcp-server",
-    Revocations: revocations,
+handler := nethttp.Middleware(transportmcp.Options{
+	Issuer:          "https://sts.example.com",
+	Audience:        "https://api.example.com",
+	ZoneID:          "zone_prod",
+	RequiredScopes:  []string{"tickets:read"},
+	RequiredTargets: []string{"https://api.example.com/tickets"},
+	RequireAgent:    true,
+})(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	claims, ok := nethttp.ClaimsFromContext(r.Context())
+	if !ok {
+		http.Error(w, "missing claims", http.StatusUnauthorized)
+		return
+	}
+	_, _ = w.Write([]byte(claims.Sub))
 }))
 ```
 
-**Per-route with different scope requirements:**
+## APIs
 
-```go
-adminMiddleware := mcpnethttp.Middleware(mcpnethttp.Options{
-    Issuer:         os.Getenv("CARACAL_STS_URL"),
-    Audience:       "resource://my-mcp-server",
-    RequiredScopes: []string{"tool:call", "admin:write"},
-    Revocations:    revocations,
-})
+| API | Purpose |
+| --- | --- |
+| `Middleware(opts)` | Return middleware that verifies the bearer token and rejects failed requests. |
+| `ClaimsFromContext(ctx)` | Retrieve verified Caracal claims inside a handler. |
 
-r.With(adminMiddleware).Post("/tool/admin", adminHandler)
-```
+## Failure behavior
 
----
+The middleware maps MCP transport auth errors to HTTP failures before the handler runs. Use a shared revocation store through `transportmcp.Options` in production so revoked sessions are rejected consistently across service instances.
 
-## Relationship to the identity package
+## Related pages
 
-The middleware calls `identity.Verify()` from `github.com/garudex-labs/caracal/packages/identity/go` internally, using all fields from `Options` as the `identity.Config`. `ClaimsFromContext` returns the `identity.Claims` struct populated by that call. For non-HTTP contexts (for example, verifying a token in a background job or a gRPC handler) call `identity.Verify()` directly rather than threading an HTTP request through the middleware.
-
-See the [Identity Package reference](../../identity/#go) for the full `Claims` type and error values.
+- [Protect a Go net/http Service](/guides/protect-nethttp/)
+- [Go SDK](/sdks/go/)
+- [MCP Transport](/sdks/transport-mcp/)
