@@ -21,6 +21,7 @@ import (
 	"strings"
 	"time"
 
+	sharedcrypto "github.com/garudex-labs/caracal/packages/core/go/crypto"
 	sharederr "github.com/garudex-labs/caracal/packages/core/go/errors"
 	"github.com/google/uuid"
 	"github.com/redis/go-redis/v9"
@@ -79,7 +80,7 @@ func (s *Server) tryRefreshBrokeredGrant(ctx context.Context, zoneID, userID, re
 	if userID == "" {
 		return nil
 	}
-	grant, err := s.db.GetDelegatedGrant(ctx, zoneID, userID, resourceID, providerID)
+	grant, err := s.db.GetProviderGrant(ctx, zoneID, userID, resourceID, providerID)
 	if err != nil {
 		return nil
 	}
@@ -95,7 +96,7 @@ func (s *Server) tryRefreshBrokeredGrant(ctx context.Context, zoneID, userID, re
 }
 
 func (s *Server) refreshExpiredBrokeredGrant(ctx context.Context, zoneID, userID, resourceID string, providerID *string) *sharederr.CaracalError {
-	grant, err := s.db.GetDelegatedGrant(ctx, zoneID, userID, resourceID, providerID)
+	grant, err := s.db.GetProviderGrant(ctx, zoneID, userID, resourceID, providerID)
 	if err != nil {
 		return nil
 	}
@@ -109,14 +110,20 @@ func (s *Server) refreshExpiredBrokeredGrant(ctx context.Context, zoneID, userID
 	if err != nil {
 		return sharederr.New(sharederr.CredentialExpired, "credential_expired_not_renewable")
 	}
-	if kind := derefStr(provider.ProviderKind); kind != "" && kind != "oauth2" {
+	if kind := derefStr(provider.ProviderKind); kind != "oauth2_authorization_code" {
 		return sharederr.New(sharederr.CredentialExpired, "credential_expired_not_renewable")
 	}
 	var provCfg struct {
 		TokenEndpoint     string   `json:"token_endpoint"`
+		ClientID          string   `json:"client_id"`
+		ClientAuthMethod  string   `json:"client_auth_method"`
 		AllowedTokenHosts []string `json:"allowed_token_hosts"`
 	}
-	if err := json.Unmarshal(provider.ConfigJSON, &provCfg); err != nil || provCfg.TokenEndpoint == "" {
+	if err := json.Unmarshal(provider.ConfigJSON, &provCfg); err != nil || provCfg.TokenEndpoint == "" || provCfg.ClientID == "" {
+		return sharederr.New(sharederr.CredentialExpired, "credential_expired_not_renewable")
+	}
+	secretConfig, err := openProviderSecretConfig(s.keys.zek, provider)
+	if err != nil {
 		return sharederr.New(sharederr.CredentialExpired, "credential_expired_not_renewable")
 	}
 	tokenEndpoint, err := validateTokenEndpoint(provCfg.TokenEndpoint, provCfg.AllowedTokenHosts)
@@ -132,7 +139,7 @@ func (s *Server) refreshExpiredBrokeredGrant(ctx context.Context, zoneID, userID
 	}
 	defer clear(refreshToken)
 	form := url.Values{"grant_type": {"refresh_token"}, "refresh_token": {string(refreshToken)}}
-	body, err := s.refreshProviderToken(ctx, provider.ID, tokenEndpoint, form)
+	body, err := s.refreshProviderToken(ctx, provider.ID, tokenEndpoint, form, provCfg.ClientID, secretConfig.ClientSecret, provCfg.ClientAuthMethod)
 	if err != nil {
 		return sharederr.New(sharederr.CredentialExpired, "credential_expired_not_renewable")
 	}
@@ -286,7 +293,7 @@ func (s *Server) readRefreshResult(ctx context.Context, key string) (*sharederr.
 	return sharederr.New(result.Code, result.Description), true, nil
 }
 
-func refreshGrantKey(zoneID, userID, resourceID string, providerID *string, grant *DelegatedGrant) string {
+func refreshGrantKey(zoneID, userID, resourceID string, providerID *string, grant *ProviderGrant) string {
 	if grant != nil && grant.ID != "" {
 		return "grant\x00" + grant.ID
 	}
@@ -295,6 +302,37 @@ func refreshGrantKey(zoneID, userID, resourceID string, providerID *string, gran
 		provider = *providerID
 	}
 	return zoneID + "\x00" + userID + "\x00" + resourceID + "\x00" + provider
+}
+
+type providerSecretConfig struct {
+	ClientSecret string `json:"client_secret"`
+	APIKey       string `json:"api_key"`
+	BearerToken  string `json:"bearer_token"`
+}
+
+func openProviderSecretConfig(zek []byte, provider *ProviderConfig) (providerSecretConfig, error) {
+	var cfg providerSecretConfig
+	if len(provider.SecretConfigCt) == 0 {
+		return cfg, nil
+	}
+	plaintext, err := sharedcrypto.Open(zek, provider.SecretConfigNonce, provider.SecretConfigCt)
+	if err != nil {
+		return cfg, err
+	}
+	defer clear(plaintext)
+	if err := json.Unmarshal(plaintext, &cfg); err != nil {
+		return cfg, err
+	}
+	return cfg, nil
+}
+
+func normalizeOAuthClientAuthMethod(method string) string {
+	switch strings.TrimSpace(method) {
+	case "client_secret_post", "none":
+		return method
+	default:
+		return "client_secret_basic"
+	}
 }
 
 // capGrantTTL bounds the provider-returned lifetime to STS's configured maximum
@@ -315,20 +353,20 @@ func capGrantTTL(providerSeconds, maxSeconds int) time.Duration {
 func (s *Server) persistRefreshedGrant(
 	ctx context.Context,
 	zoneID, userID, resourceID string,
-	grant *DelegatedGrant,
+	grant *ProviderGrant,
 	accessCt, refreshCt []byte,
 	expiresAt time.Time,
 ) error {
 	expectedVersion := grant.RefreshTokenVersion
 	for attempt := 0; attempt < grantPersistAttempts; attempt++ {
-		err := s.db.UpdateGrantTokens(ctx, grant.ID, expectedVersion, accessCt, refreshCt, expiresAt)
+		err := s.db.UpdateProviderGrantTokens(ctx, grant.ID, expectedVersion, accessCt, refreshCt, expiresAt)
 		if err == nil {
 			return nil
 		}
 		if !errors.Is(err, ErrConcurrentGrantUpdate) {
 			return err
 		}
-		latest, readErr := s.db.GetDelegatedGrant(ctx, zoneID, userID, resourceID, grant.ProviderID)
+		latest, readErr := s.db.GetProviderGrant(ctx, zoneID, userID, resourceID, grant.ProviderID)
 		if readErr != nil {
 			return readErr
 		}
@@ -454,7 +492,20 @@ func safeHTTPClient(timeout time.Duration) *http.Client {
 	}
 }
 
-func (s *Server) refreshProviderToken(ctx context.Context, providerID string, endpoint *url.URL, form url.Values) ([]byte, error) {
+func (s *Server) refreshProviderToken(ctx context.Context, providerID string, endpoint *url.URL, form url.Values, clientID, clientSecret, clientAuthMethod string) ([]byte, error) {
+	method := normalizeOAuthClientAuthMethod(clientAuthMethod)
+	if clientID == "" {
+		return nil, errors.New("provider oauth client_id missing")
+	}
+	if method != "none" && clientSecret == "" {
+		return nil, errors.New("provider oauth client_secret missing")
+	}
+	if method == "client_secret_post" {
+		form.Set("client_id", clientID)
+		form.Set("client_secret", clientSecret)
+	} else if method == "none" {
+		form.Set("client_id", clientID)
+	}
 	client := safeHTTPClient(providerRefreshTimeout)
 	var lastErr error
 	for attempt := 0; attempt < providerRefreshAttempts; attempt++ {
@@ -470,6 +521,9 @@ func (s *Server) refreshProviderToken(ctx context.Context, providerID string, en
 			return nil, err
 		}
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		if method == "client_secret_basic" {
+			req.SetBasicAuth(clientID, clientSecret)
+		}
 		resp, err := client.Do(req)
 		if err != nil {
 			lastErr = err

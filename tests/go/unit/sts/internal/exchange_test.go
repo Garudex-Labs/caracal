@@ -23,6 +23,15 @@ func strPtr(value string) *string {
 	return &value
 }
 
+func testProviderSecret(t *testing.T, zek []byte, config string) ([]byte, []byte) {
+	t.Helper()
+	ct, nonce, err := sharedcrypto.Seal(zek, []byte(config))
+	if err != nil {
+		t.Fatalf("seal provider secret: %v", err)
+	}
+	return ct, nonce
+}
+
 func TestDerefStr(t *testing.T) {
 	s := "hello"
 	if got := derefStr(&s); got != "hello" {
@@ -197,7 +206,7 @@ type stubDB struct {
 	appErr        error
 	resource      *Resource
 	resErr        error
-	grant         *DelegatedGrant
+	grant         *ProviderGrant
 	grantErr      error
 	provider      *ProviderConfig
 	session       *Session
@@ -222,7 +231,7 @@ func (s *stubDB) GetApplicationByID(_ context.Context, _, _ string) (*Applicatio
 func (s *stubDB) GetResourceByIdentifier(_ context.Context, _, _ string) (*Resource, error) {
 	return s.resource, s.resErr
 }
-func (s *stubDB) GetDelegatedGrant(_ context.Context, _, _, _ string, providerID *string) (*DelegatedGrant, error) {
+func (s *stubDB) GetProviderGrant(_ context.Context, _, _, _ string, providerID *string) (*ProviderGrant, error) {
 	if s.grantErr != nil {
 		return nil, s.grantErr
 	}
@@ -234,7 +243,7 @@ func (s *stubDB) GetDelegatedGrant(_ context.Context, _, _, _ string, providerID
 	}
 	return nil, errors.New("stub")
 }
-func (s *stubDB) UpdateGrantTokens(_ context.Context, _ string, _ int, _, _ []byte, _ time.Time) error {
+func (s *stubDB) UpdateProviderGrantTokens(_ context.Context, _ string, _ int, _, _ []byte, _ time.Time) error {
 	return nil
 }
 func (s *stubDB) GetProvider(_ context.Context, _ string) (*ProviderConfig, error) {
@@ -399,8 +408,8 @@ func TestBuildUpstreamDirectiveIncludesProviderTokenOnlyForGateway(t *testing.T)
 	expiresAt := time.Now().Add(time.Minute)
 	srv := &Server{
 		db: &stubDB{
-			grant:    &DelegatedGrant{ProviderID: &providerID, AccessTokenCt: token, ExpiresAt: &expiresAt},
-			provider: &ProviderConfig{ID: providerID, ProviderKind: strPtr("oauth2")},
+			grant:    &ProviderGrant{ProviderID: &providerID, AccessTokenCt: token, ExpiresAt: &expiresAt},
+			provider: &ProviderConfig{ID: providerID, ProviderKind: strPtr("oauth2_authorization_code")},
 		},
 		keys: &KeyCache{zek: zek},
 	}
@@ -429,7 +438,7 @@ func TestBuildUpstreamDirectiveBindsGrantToConfiguredProvider(t *testing.T) {
 		t.Fatalf("seal provider token: %v", err)
 	}
 	srv := &Server{
-		db:   &stubDB{grant: &DelegatedGrant{ProviderID: &otherProviderID, AccessTokenCt: token}},
+		db:   &stubDB{grant: &ProviderGrant{ProviderID: &otherProviderID, AccessTokenCt: token}},
 		keys: &KeyCache{zek: zek},
 	}
 	if _, err := srv.buildUpstreamDirective(context.Background(), "zone1", map[string]any{"sub": "user1"}, resource, true); err == nil {
@@ -447,17 +456,15 @@ func TestBuildUpstreamDirectiveSupportsAPIKeyProviderShape(t *testing.T) {
 		CredentialProviderID: &providerID,
 	}
 	zek := []byte("12345678901234567890123456789012")
-	token, err := sealZEK(zek, []byte("api-key-value"))
-	if err != nil {
-		t.Fatalf("seal provider token: %v", err)
-	}
+	secretCt, secretNonce := testProviderSecret(t, zek, `{"api_key":"api-key-value"}`)
 	srv := &Server{
 		db: &stubDB{
-			grant: &DelegatedGrant{ProviderID: &providerID, AccessTokenCt: token},
 			provider: &ProviderConfig{
-				ID:           providerID,
-				ProviderKind: strPtr("apikey"),
-				ConfigJSON:   []byte(`{"header_name":"X-Api-Key"}`),
+				ID:                providerID,
+				ProviderKind:      strPtr("api_key"),
+				ConfigJSON:        []byte(`{"header_name":"X-Api-Key"}`),
+				SecretConfigCt:    secretCt,
+				SecretConfigNonce: secretNonce,
 			},
 		},
 		keys: &KeyCache{zek: zek},
@@ -481,17 +488,15 @@ func TestBuildUpstreamDirectiveReadsIdentityForwardingOptIn(t *testing.T) {
 		CredentialProviderID: &providerID,
 	}
 	zek := []byte("12345678901234567890123456789012")
-	token, err := sealZEK(zek, []byte("api-key-value"))
-	if err != nil {
-		t.Fatalf("seal provider token: %v", err)
-	}
+	secretCt, secretNonce := testProviderSecret(t, zek, `{"api_key":"api-key-value"}`)
 	srv := &Server{
 		db: &stubDB{
-			grant: &DelegatedGrant{ProviderID: &providerID, AccessTokenCt: token},
 			provider: &ProviderConfig{
-				ID:           providerID,
-				ProviderKind: strPtr("apikey"),
-				ConfigJSON:   []byte(`{"header_name":"X-Api-Key","forward_caracal_identity":true}`),
+				ID:                providerID,
+				ProviderKind:      strPtr("api_key"),
+				ConfigJSON:        []byte(`{"header_name":"X-Api-Key","forward_caracal_identity":true}`),
+				SecretConfigCt:    secretCt,
+				SecretConfigNonce: secretNonce,
 			},
 		},
 		keys: &KeyCache{zek: zek},
@@ -515,17 +520,15 @@ func TestBuildUpstreamDirectiveRejectsAPIKeyWithoutHeader(t *testing.T) {
 		CredentialProviderID: &providerID,
 	}
 	zek := []byte("12345678901234567890123456789012")
-	token, err := sealZEK(zek, []byte("api-key-value"))
-	if err != nil {
-		t.Fatalf("seal provider token: %v", err)
-	}
+	secretCt, secretNonce := testProviderSecret(t, zek, `{"api_key":"api-key-value"}`)
 	srv := &Server{
 		db: &stubDB{
-			grant: &DelegatedGrant{ProviderID: &providerID, AccessTokenCt: token},
 			provider: &ProviderConfig{
-				ID:           providerID,
-				ProviderKind: strPtr("apikey"),
-				ConfigJSON:   []byte(`{}`),
+				ID:                providerID,
+				ProviderKind:      strPtr("api_key"),
+				ConfigJSON:        []byte(`{}`),
+				SecretConfigCt:    secretCt,
+				SecretConfigNonce: secretNonce,
 			},
 		},
 		keys: &KeyCache{zek: zek},
@@ -551,10 +554,10 @@ func TestBuildUpstreamDirectiveRejectsMalformedProviderConfig(t *testing.T) {
 	}
 	srv := &Server{
 		db: &stubDB{
-			grant: &DelegatedGrant{ProviderID: &providerID, AccessTokenCt: token},
+			grant: &ProviderGrant{ProviderID: &providerID, AccessTokenCt: token},
 			provider: &ProviderConfig{
 				ID:           providerID,
-				ProviderKind: strPtr("oauth2"),
+				ProviderKind: strPtr("oauth2_authorization_code"),
 				ConfigJSON:   []byte(`{bad json`),
 			},
 		},

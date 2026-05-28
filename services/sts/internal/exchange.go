@@ -12,6 +12,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -281,35 +282,38 @@ func (s *Server) exchange(ctx context.Context, req TokenExchangeRequest, request
 		}
 
 		if resource.CredentialProviderID != nil {
-			userID, _ := subjectClaims["sub"].(string)
-			if userID == "" {
-				// Provider-credentialed resources require a user-bound grant;
-				// application-principal exchanges (no subject_token) cannot
-				// produce a usable upstream credential.
-				if auditErr := s.emitAuditEvent(requestID, zoneID, "deny", "credential_not_provisioned", &OPAResult{},
-					mergeAuditMeta(appMeta, map[string]any{"resource": resource.Identifier, "reason": "no_user_principal"})); auditErr != nil {
+			provider, perr := s.db.GetProvider(ctx, *resource.CredentialProviderID)
+			if perr != nil {
+				if auditErr := s.emitAuditEvent(requestID, zoneID, "deny", "provider_unavailable", &OPAResult{},
+					mergeAuditMeta(appMeta, map[string]any{"resource": resource.Identifier, "reason": "provider_not_found"})); auditErr != nil {
 					return nil, nil, http.StatusInternalServerError, auditErr
 				}
 				continue
 			}
-			if rerr := s.tryRefreshBrokeredGrant(ctx, zoneID, userID, resource.ID, resource.CredentialProviderID); rerr != nil {
-				if auditErr := s.emitAuditEvent(requestID, zoneID, "deny", "credential_refresh_failed", &OPAResult{},
-					mergeAuditMeta(appMeta, map[string]any{"resource": resource.Identifier, "reason": string(rerr.Code)})); auditErr != nil {
-					return nil, nil, http.StatusInternalServerError, auditErr
+			if providerRequiresUserGrant(provider) {
+				userID, _ := subjectClaims["sub"].(string)
+				if userID == "" {
+					if auditErr := s.emitAuditEvent(requestID, zoneID, "deny", "credential_not_provisioned", &OPAResult{},
+						mergeAuditMeta(appMeta, map[string]any{"resource": resource.Identifier, "reason": "no_user_principal"})); auditErr != nil {
+						return nil, nil, http.StatusInternalServerError, auditErr
+					}
+					continue
 				}
-				continue
-			}
-			// Confirm we actually have a usable provider AT before letting
-			// OPA approve. Without this, the directive build downstream
-			// would silently fall back to caracal_jwt mode and the provider
-			// would reject the request with no clear deny signal.
-			grant, gerr := s.db.GetDelegatedGrant(ctx, zoneID, userID, resource.ID, resource.CredentialProviderID)
-			if gerr != nil || grant == nil || len(grant.AccessTokenCt) == 0 {
-				if auditErr := s.emitAuditEvent(requestID, zoneID, "deny", "credential_not_provisioned", &OPAResult{},
-					mergeAuditMeta(appMeta, map[string]any{"resource": resource.Identifier, "reason": "no_grant"})); auditErr != nil {
-					return nil, nil, http.StatusInternalServerError, auditErr
+				if rerr := s.tryRefreshBrokeredGrant(ctx, zoneID, userID, resource.ID, resource.CredentialProviderID); rerr != nil {
+					if auditErr := s.emitAuditEvent(requestID, zoneID, "deny", "credential_refresh_failed", &OPAResult{},
+						mergeAuditMeta(appMeta, map[string]any{"resource": resource.Identifier, "reason": string(rerr.Code)})); auditErr != nil {
+						return nil, nil, http.StatusInternalServerError, auditErr
+					}
+					continue
 				}
-				continue
+				grant, gerr := s.db.GetProviderGrant(ctx, zoneID, userID, resource.ID, resource.CredentialProviderID)
+				if gerr != nil || grant == nil || len(grant.AccessTokenCt) == 0 {
+					if auditErr := s.emitAuditEvent(requestID, zoneID, "deny", "credential_not_provisioned", &OPAResult{},
+						mergeAuditMeta(appMeta, map[string]any{"resource": resource.Identifier, "reason": "no_provider_grant"})); auditErr != nil {
+						return nil, nil, http.StatusInternalServerError, auditErr
+					}
+					continue
+				}
 			}
 		}
 
@@ -514,34 +518,42 @@ func (s *Server) buildUpstreamDirective(ctx context.Context, zoneID string, subj
 	if !gatewayAuthenticated || resource.CredentialProviderID == nil {
 		return directive, nil
 	}
-	userID, _ := subjectClaims["sub"].(string)
-	if userID == "" {
-		return directive, fmt.Errorf("provider directive requires subject")
-	}
-	grant, err := s.db.GetDelegatedGrant(ctx, zoneID, userID, resource.ID, resource.CredentialProviderID)
-	if err != nil || grant == nil || len(grant.AccessTokenCt) == 0 {
-		return directive, fmt.Errorf("provider grant unavailable")
-	}
-	if grant.ProviderID == nil {
-		return directive, fmt.Errorf("provider grant missing provider")
-	}
-	provider, err := s.db.GetProvider(ctx, *grant.ProviderID)
+	provider, err := s.db.GetProvider(ctx, *resource.CredentialProviderID)
 	if err != nil {
 		return directive, fmt.Errorf("provider unavailable")
-	}
-	at, err := openZEK(s.keys.zek, grant.AccessTokenCt)
-	if err != nil {
-		return directive, fmt.Errorf("provider grant decrypt failed")
 	}
 	if err := applyProviderDirective(provider, &directive); err != nil {
 		return directive, err
 	}
-	directive.ProviderToken = string(at)
 	directive.ProviderID = provider.ID
-	directive.GrantID = grant.ID
-	if grant.ExpiresAt != nil {
-		directive.ExpiresAt = grant.ExpiresAt.Unix()
+	if providerRequiresUserGrant(provider) {
+		userID, _ := subjectClaims["sub"].(string)
+		if userID == "" {
+			return directive, fmt.Errorf("provider directive requires subject")
+		}
+		grant, err := s.db.GetProviderGrant(ctx, zoneID, userID, resource.ID, resource.CredentialProviderID)
+		if err != nil || grant == nil || len(grant.AccessTokenCt) == 0 {
+			return directive, fmt.Errorf("provider grant unavailable")
+		}
+		if grant.ProviderID == nil || *grant.ProviderID != provider.ID {
+			return directive, fmt.Errorf("provider grant missing provider")
+		}
+		at, err := openZEK(s.keys.zek, grant.AccessTokenCt)
+		if err != nil {
+			return directive, fmt.Errorf("provider grant decrypt failed")
+		}
+		directive.ProviderToken = string(at)
+		directive.GrantID = grant.ID
+		if grant.ExpiresAt != nil {
+			directive.ExpiresAt = grant.ExpiresAt.Unix()
+		}
+		return directive, nil
 	}
+	token, err := s.providerServiceToken(ctx, provider)
+	if err != nil {
+		return directive, err
+	}
+	directive.ProviderToken = token
 	return directive, nil
 }
 
@@ -552,7 +564,7 @@ func applyProviderDirective(provider *ProviderConfig, directive *UpstreamDirecti
 	}
 	directive.ForwardCaracalIdentity = cfg.ForwardCaracalIdentity
 	switch derefStr(provider.ProviderKind) {
-	case "apikey":
+	case "api_key":
 		header := strings.TrimSpace(cfg.AuthHeader)
 		if header == "" {
 			header = strings.TrimSpace(cfg.HeaderName)
@@ -563,7 +575,18 @@ func applyProviderDirective(provider *ProviderConfig, directive *UpstreamDirecti
 		directive.AuthMode = UpstreamAuthProviderAPIKey
 		directive.AuthHeader = header
 		directive.AuthScheme = strings.TrimSpace(cfg.AuthScheme)
-	case "", "oauth2":
+	case "bearer_token":
+		directive.AuthMode = UpstreamAuthProviderOAuth
+		if header := strings.TrimSpace(cfg.AuthHeader); header != "" {
+			if !validProviderHeaderName(header) {
+				return fmt.Errorf("provider auth header invalid")
+			}
+			directive.AuthHeader = header
+		}
+		if scheme := strings.TrimSpace(cfg.AuthScheme); scheme != "" {
+			directive.AuthScheme = scheme
+		}
+	case "oauth2_authorization_code", "oauth2_client_credentials":
 		directive.AuthMode = UpstreamAuthProviderOAuth
 		if header := strings.TrimSpace(cfg.AuthHeader); header != "" {
 			if !validProviderHeaderName(header) {
@@ -578,6 +601,64 @@ func applyProviderDirective(provider *ProviderConfig, directive *UpstreamDirecti
 		return fmt.Errorf("provider kind unsupported")
 	}
 	return nil
+}
+
+func providerRequiresUserGrant(provider *ProviderConfig) bool {
+	return derefStr(provider.ProviderKind) == "oauth2_authorization_code"
+}
+
+func (s *Server) providerServiceToken(ctx context.Context, provider *ProviderConfig) (string, error) {
+	secretConfig, err := openProviderSecretConfig(s.keys.zek, provider)
+	if err != nil {
+		return "", fmt.Errorf("provider secret decrypt failed")
+	}
+	switch derefStr(provider.ProviderKind) {
+	case "api_key":
+		if secretConfig.APIKey == "" {
+			return "", fmt.Errorf("provider api key missing")
+		}
+		return secretConfig.APIKey, nil
+	case "bearer_token":
+		if secretConfig.BearerToken == "" {
+			return "", fmt.Errorf("provider bearer token missing")
+		}
+		return secretConfig.BearerToken, nil
+	case "oauth2_client_credentials":
+		var cfg struct {
+			TokenEndpoint     string   `json:"token_endpoint"`
+			ClientID          string   `json:"client_id"`
+			ClientAuthMethod  string   `json:"client_auth_method"`
+			AllowedTokenHosts []string `json:"allowed_token_hosts"`
+			Scopes            []string `json:"scopes"`
+		}
+		if err := json.Unmarshal(provider.ConfigJSON, &cfg); err != nil || cfg.TokenEndpoint == "" || cfg.ClientID == "" {
+			return "", fmt.Errorf("provider oauth2 config invalid")
+		}
+		tokenEndpoint, err := validateTokenEndpoint(cfg.TokenEndpoint, cfg.AllowedTokenHosts)
+		if err != nil {
+			return "", err
+		}
+		if s.providerCircuitOpen(ctx, provider.ID) {
+			return "", fmt.Errorf("provider token circuit open")
+		}
+		form := url.Values{"grant_type": {"client_credentials"}}
+		if len(cfg.Scopes) > 0 {
+			form.Set("scope", strings.Join(cfg.Scopes, " "))
+		}
+		body, err := s.refreshProviderToken(ctx, provider.ID, tokenEndpoint, form, cfg.ClientID, secretConfig.ClientSecret, cfg.ClientAuthMethod)
+		if err != nil {
+			return "", err
+		}
+		var tokenResp struct {
+			AccessToken string `json:"access_token"`
+		}
+		if err := json.Unmarshal(body, &tokenResp); err != nil || tokenResp.AccessToken == "" {
+			return "", fmt.Errorf("provider token response invalid")
+		}
+		return tokenResp.AccessToken, nil
+	default:
+		return "", fmt.Errorf("provider kind unsupported")
+	}
 }
 
 type providerForwardingConfig struct {
