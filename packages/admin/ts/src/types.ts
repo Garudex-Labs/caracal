@@ -69,7 +69,6 @@ export interface Resource {
   identifier: string
   upstream_url: string | null
   gateway_application_id: string | null
-  prefix: boolean
   scopes: string[]
   credential_provider_id: string | null
   created_at: string
@@ -79,11 +78,10 @@ export interface Resource {
 export interface ResourceInput {
   name?: string
   identifier: string
-  upstream_url?: string
-  gateway_application_id?: string
-  prefix?: boolean
+  upstream_url?: string | null
+  gateway_application_id?: string | null
   scopes: string[]
-  credential_provider_id?: string
+  credential_provider_id?: string | null
 }
 
 export type ProviderKind = 'oauth2' | 'apikey'

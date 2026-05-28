@@ -166,7 +166,6 @@ export const MANAGEMENT_COMMANDS: readonly CommandDescriptor[] = Object.freeze([
         { name: '--upstream-url', summary: 'Upstream URL' },
         { name: '--gateway-application-id', summary: 'Gateway application for upstream routing' },
         { name: '--provider', summary: 'Provider ID' },
-        { name: '--prefix', summary: 'Treat identifier as prefix' },
       ],
       patch: [
         { name: '--identifier', summary: 'Resource identifier' },
@@ -175,7 +174,6 @@ export const MANAGEMENT_COMMANDS: readonly CommandDescriptor[] = Object.freeze([
         { name: '--upstream-url', summary: 'Upstream URL' },
         { name: '--gateway-application-id', summary: 'Gateway application for upstream routing' },
         { name: '--provider', summary: 'Provider ID' },
-        { name: '--prefix', summary: 'Treat identifier as prefix (=true|false)' },
       ],
     },
   },

@@ -91,6 +91,12 @@ function getStr(flags: FlagMap | undefined, key: string): string | undefined {
   return typeof v === 'string' ? v : undefined
 }
 
+function getNullableStr(flags: FlagMap | undefined, key: string): string | null | undefined {
+  const v = flags?.[key]
+  if (v === null) return null
+  return typeof v === 'string' ? v : undefined
+}
+
 function mustStr(flags: FlagMap | undefined, key: string): string {
   const v = getStr(flags, key)
   if (!v) invalid(`flag "${key}" is required`)
@@ -212,16 +218,14 @@ const resourceHandler = bySubcommand({
     upstream_url: getStr(flags, 'upstream-url'),
     gateway_application_id: getStr(flags, 'gateway-application-id'),
     credential_provider_id: getStr(flags, 'provider'),
-    prefix: getBool(flags, 'prefix'),
   } as never),
   patch: ({ principal, flags, ctx }) => ctx.admin.resources.patch(requireZone(principal), mustStr(flags, 'id'), {
     identifier: getStr(flags, 'identifier'),
     name: getStr(flags, 'name'),
     scopes: getList(flags, 'scopes'),
-    upstream_url: getStr(flags, 'upstream-url'),
-    gateway_application_id: getStr(flags, 'gateway-application-id'),
-    prefix: getBool(flags, 'prefix'),
-    credential_provider_id: getStr(flags, 'provider'),
+    upstream_url: getNullableStr(flags, 'upstream-url'),
+    gateway_application_id: getNullableStr(flags, 'gateway-application-id'),
+    credential_provider_id: getNullableStr(flags, 'provider'),
   } as never),
   delete: ({ principal, flags, ctx }) => ctx.admin.resources.delete(requireZone(principal), mustStr(flags, 'id')),
 })
