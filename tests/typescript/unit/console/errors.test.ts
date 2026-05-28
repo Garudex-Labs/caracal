@@ -23,6 +23,12 @@ describe('explainError', () => {
     )
   })
 
+  it('explains DCR shutdown infrastructure failures', () => {
+    expect(explainError(new AdminApiError(503, 'dcr_shutdown_unavailable', {}))).toBe(
+      'DCR shutdown cannot revoke runtime state: run database migrations and restart the API',
+    )
+  })
+
   it('formats AdminApiError 404', () => {
     expect(explainError(new AdminApiError(404, 'not_found', {}))).toMatch(/not found/)
   })

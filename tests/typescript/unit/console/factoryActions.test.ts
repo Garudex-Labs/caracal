@@ -17,9 +17,10 @@ import {
   zonesView,
 } from '../../../../apps/console/src/views/factory.ts'
 import { DetailView } from '../../../../apps/console/src/views/detail.ts'
-import { ConfirmView, FormView } from '../../../../apps/console/src/views/form.ts'
+import { ChoiceConfirmView, ConfirmView, FormView } from '../../../../apps/console/src/views/form.ts'
 import { ListView } from '../../../../apps/console/src/views/list.ts'
 import type { App } from '../../../../apps/console/src/screen.ts'
+import { AdminApiError } from '../../../../packages/admin/ts/src/errors.ts'
 
 function fakeApp(): App {
   const pushed: unknown[] = []
@@ -43,6 +44,7 @@ function makeClient() {
     zones: {
       list: vi.fn(async () => []),
       get: vi.fn(async () => ({})),
+      dcrStatus: vi.fn(async () => ({ id: 'z1', dcr_enabled: false, live_dcr_applications: 0 })),
       create: vi.fn(async () => ({})),
       patch: vi.fn(async () => ({})),
       delete: vi.fn(async () => undefined),
@@ -169,6 +171,128 @@ describe('zones actions', () => {
     expect(pushed).toBeInstanceOf(ConfirmView)
     await pushed.onKey('y', { app, size: { rows: 20, cols: 80 }, status: '' })
     expect(client.zones.delete).toHaveBeenCalledWith('z1')
+  })
+
+  it('asks how to handle listed live DCR apps before disabling dynamic clients', async () => {
+    const { client, ctx } = newCtx()
+    client.applications.list.mockResolvedValueOnce([
+      {
+        id: 'app-dcr',
+        zone_id: 'z1',
+        name: 'spawned agent',
+        registration_method: 'dcr',
+        expires_at: '2999-01-01T00:00:00.000Z',
+        created_at: '2026-05-28T00:00:00.000Z',
+      },
+    ])
+    const list = zonesView(ctx as unknown as Parameters<typeof zonesView>[0]) as ListView<unknown>
+    setRows(list, [{ id: 'z1', slug: 'sl', name: 'n', dcr_enabled: true }])
+    const app = fakeApp()
+    const form = await pressKey(list, 'e', app) as FormView
+    ;(form as unknown as { values: Record<string, string> }).values = {
+      name: 'n',
+      slug: 'sl',
+      dcr_enabled: 'false',
+    }
+    ;(form as unknown as { focus: number }).focus = 3
+
+    const pending = form.onKey('enter', { app, size: { rows: 20, cols: 100 }, status: '' })
+    await Promise.resolve()
+    await Promise.resolve()
+    const pushed = (app as unknown as { _pushed: unknown[] })._pushed
+    const choice = pushed[pushed.length - 1] as ChoiceConfirmView
+    expect(choice).toBeInstanceOf(ChoiceConfirmView)
+    await choice.onKey('k', { app, size: { rows: 20, cols: 100 }, status: '' })
+    await pending
+
+    expect(client.zones.patch).toHaveBeenCalledOnce()
+    expect(client.zones.patch).toHaveBeenCalledWith('z1', {
+      name: 'n',
+      slug: 'sl',
+      dcr_enabled: false,
+      dcr_shutdown: 'keep_live',
+    })
+  })
+
+  it('can revoke live DCR apps left behind after dynamic clients are already disabled', async () => {
+    const { client, ctx } = newCtx()
+    client.applications.list.mockResolvedValueOnce([
+      {
+        id: 'app-dcr',
+        zone_id: 'z1',
+        name: 'spawned agent',
+        registration_method: 'dcr',
+        expires_at: '2999-01-01T00:00:00.000Z',
+        created_at: '2026-05-28T00:00:00.000Z',
+      },
+    ])
+    const list = zonesView(ctx as unknown as Parameters<typeof zonesView>[0]) as ListView<unknown>
+    setRows(list, [{ id: 'z1', slug: 'sl', name: 'n', dcr_enabled: false }])
+    const app = fakeApp()
+    const form = await pressKey(list, 'e', app) as FormView
+    ;(form as unknown as { values: Record<string, string> }).values = {
+      name: 'n',
+      slug: 'sl',
+      dcr_enabled: 'false',
+    }
+    ;(form as unknown as { focus: number }).focus = 3
+
+    const pending = form.onKey('enter', { app, size: { rows: 20, cols: 100 }, status: '' })
+    await Promise.resolve()
+    await Promise.resolve()
+    const pushed = (app as unknown as { _pushed: unknown[] })._pushed
+    const choice = pushed[pushed.length - 1] as ChoiceConfirmView
+    expect(choice).toBeInstanceOf(ChoiceConfirmView)
+    await choice.onKey('r', { app, size: { rows: 20, cols: 100 }, status: '' })
+    await pending
+
+    expect(client.zones.patch).toHaveBeenCalledWith('z1', {
+      name: 'n',
+      slug: 'sl',
+      dcr_enabled: false,
+      dcr_shutdown: 'revoke_live',
+    })
+  })
+
+  it('asks how to handle live DCR apps when the API requires a shutdown choice', async () => {
+    const { client, ctx } = newCtx()
+    client.zones.patch.mockRejectedValueOnce(new AdminApiError(409, 'dcr_shutdown_required', {
+      error: 'dcr_shutdown_required',
+      live_dcr_applications: 2,
+    }))
+    const list = zonesView(ctx as unknown as Parameters<typeof zonesView>[0]) as ListView<unknown>
+    setRows(list, [{ id: 'z1', slug: 'sl', name: 'n', dcr_enabled: true }])
+    const app = fakeApp()
+    const form = await pressKey(list, 'e', app) as FormView
+    ;(form as unknown as { values: Record<string, string> }).values = {
+      name: 'n',
+      slug: 'sl',
+      dcr_enabled: 'false',
+    }
+    ;(form as unknown as { focus: number }).focus = 3
+
+    const pending = form.onKey('enter', { app, size: { rows: 20, cols: 100 }, status: '' })
+    await Promise.resolve()
+    await Promise.resolve()
+    await Promise.resolve()
+    const pushed = (app as unknown as { _pushed: unknown[] })._pushed
+    const choice = pushed[pushed.length - 1] as ChoiceConfirmView
+    expect(choice).toBeInstanceOf(ChoiceConfirmView)
+    await choice.onKey('r', { app, size: { rows: 20, cols: 100 }, status: '' })
+    await pending
+
+    expect(client.zones.dcrStatus).not.toHaveBeenCalled()
+    expect(client.zones.patch).toHaveBeenNthCalledWith(1, 'z1', {
+      name: 'n',
+      slug: 'sl',
+      dcr_enabled: false,
+    })
+    expect(client.zones.patch).toHaveBeenNthCalledWith(2, 'z1', {
+      name: 'n',
+      slug: 'sl',
+      dcr_enabled: false,
+      dcr_shutdown: 'revoke_live',
+    })
   })
 })
 

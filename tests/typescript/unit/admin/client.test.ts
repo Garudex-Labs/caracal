@@ -57,6 +57,20 @@ describe('AdminClient', () => {
     expect(JSON.parse(init.body as string)).toEqual({ slug: 'new', display_name: 'New Zone' })
   })
 
+  it('requests DCR zone status and sends shutdown mode on zone patch', async () => {
+    const f = fetchOk({ id: 'z1', dcr_enabled: false, live_dcr_applications: 2 })
+    const c = new AdminClient({ apiUrl: 'http://api', adminToken: 't', fetchImpl: f })
+
+    await c.zones.dcrStatus('z1')
+    await c.zones.patch('z1', { dcr_enabled: false, dcr_shutdown: 'revoke_live' })
+
+    const calls = (f as unknown as { mock: { calls: [string, RequestInit][] } }).mock.calls
+    expect(calls[0][0]).toBe('http://api/v1/zones/z1/dcr-status')
+    expect(calls[1][0]).toBe('http://api/v1/zones/z1')
+    expect(calls[1][1].method).toBe('PATCH')
+    expect(JSON.parse(calls[1][1].body as string)).toEqual({ dcr_enabled: false, dcr_shutdown: 'revoke_live' })
+  })
+
   it('returns undefined for 204 / expectEmpty', async () => {
     const f = vi.fn().mockResolvedValue({ ok: true, status: 204, statusText: 'No Content', text: async () => '', json: async () => undefined }) as unknown as typeof fetch
     const c = new AdminClient({ apiUrl: 'http://api', adminToken: 't', fetchImpl: f })
