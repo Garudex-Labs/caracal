@@ -67,6 +67,7 @@ function paths(mode: StackPaths['mode'], envFiles: string[]): StackPaths {
     envFiles,
     cwd: dir,
     mode,
+    secretsDir: join(dir, 'secrets'),
   }
 }
 

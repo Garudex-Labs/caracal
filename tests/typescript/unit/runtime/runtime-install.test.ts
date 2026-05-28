@@ -18,6 +18,7 @@ describe('runtime installer', () => {
       const paths = runtimePaths()
       expect(paths.home).toBe(home)
       expect(paths.composeFile).toBe(join(home, 'compose.yml'))
+      expect(paths.secretsDir).toBe(join(home, 'secrets'))
       expect(paths.overrideEnvFile).toBe(join(home, 'caracal.env'))
     } finally {
       if (saved === undefined) delete process.env.CARACAL_HOME
@@ -102,7 +103,7 @@ describe('runtime installer', () => {
     expect(rc).not.toBe(stable)
   })
 
-  it('bootstraps secret files under home/secrets with 0o444 mode', () => {
+  it('bootstraps secret files under home/secrets with owner-only mode', () => {
     const home = mkdtempSync(join(tmpdir(), 'caracal-runtime-'))
     const result = installRuntimeAssets(runtimePaths(home))
     expect(result.filesCreated.length).toBeGreaterThan(0)

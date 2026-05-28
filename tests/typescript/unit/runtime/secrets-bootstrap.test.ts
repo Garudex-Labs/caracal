@@ -10,6 +10,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
   bootstrapSecrets,
   devBootstrapPaths,
+  prepareDevSecrets,
   runtimeBootstrapPaths,
   SECRET_FILES,
 } from '../../../../packages/engine/src/secrets.ts'
@@ -25,7 +26,7 @@ afterEach(() => {
 })
 
 describe('bootstrapSecrets', () => {
-  it('generates every declared secret file with mode 0o444', () => {
+  it('generates every declared secret file with owner-only mode', () => {
     const report = bootstrapSecrets({ secretsDir: dir })
     expect(report.filesCreated.length).toBeGreaterThanOrEqual(SECRET_FILES.length)
     for (const spec of SECRET_FILES) {
@@ -82,13 +83,47 @@ describe('bootstrapSecrets', () => {
   it('devBootstrapPaths and runtimeBootstrapPaths resolve to distinct directories', () => {
     const repo = '/tmp/repo'
     const home = '/tmp/home'
-    expect(devBootstrapPaths(repo).secretsDir).toBe('/tmp/repo/infra/secrets/files')
-    expect(runtimeBootstrapPaths(home).secretsDir).toBe('/tmp/home/secrets')
+    const current = process.env.CARACAL_HOME
+    try {
+      process.env.CARACAL_HOME = home
+      expect(devBootstrapPaths(repo).secretsDir).toBe('/tmp/home/dev-secrets')
+      expect(runtimeBootstrapPaths(home).secretsDir).toBe('/tmp/home/secrets')
+    } finally {
+      if (current === undefined) delete process.env.CARACAL_HOME
+      else process.env.CARACAL_HOME = current
+    }
   })
 
   it('every generated value is unique across files', () => {
     bootstrapSecrets({ secretsDir: dir })
     const values = SECRET_FILES.map((s) => readFileSync(join(dir, s.fileName), 'utf8').trim())
     expect(new Set(values).size).toBe(values.length)
+  })
+
+  it('moves dev infrastructure secrets out of the workspace while rotating operator tokens', () => {
+    const repo = mkdtempSync(join(tmpdir(), 'caracal-repo-'))
+    const secretHome = join(dir, 'dev-secrets')
+    const current = process.env.CARACAL_DEV_SECRETS_DIR
+    try {
+      process.env.CARACAL_DEV_SECRETS_DIR = secretHome
+      const legacy = join(repo, 'infra', 'secrets', 'files')
+      mkdirSync(legacy, { recursive: true })
+      writeFileSync(join(legacy, 'postgresPassword'), 'postgres-pass\n')
+      writeFileSync(join(legacy, 'redisPassword'), 'redis-pass\n')
+      writeFileSync(join(legacy, 'caracalAdminToken'), 'legacy-admin\n')
+      writeFileSync(join(legacy, 'caracalCoordinatorToken'), 'legacy-coordinator\n')
+
+      const paths = prepareDevSecrets(repo)
+      bootstrapSecrets(paths)
+
+      expect(readFileSync(join(secretHome, 'postgresPassword'), 'utf8')).toBe('postgres-pass\n')
+      expect(readFileSync(join(secretHome, 'redisPassword'), 'utf8')).toBe('redis-pass\n')
+      expect(readFileSync(join(secretHome, 'caracalAdminToken'), 'utf8')).not.toBe('legacy-admin\n')
+      expect(readFileSync(join(secretHome, 'caracalCoordinatorToken'), 'utf8')).not.toBe('legacy-coordinator\n')
+    } finally {
+      if (current === undefined) delete process.env.CARACAL_DEV_SECRETS_DIR
+      else process.env.CARACAL_DEV_SECRETS_DIR = current
+      rmSync(repo, { recursive: true, force: true })
+    }
   })
 })

@@ -4,6 +4,9 @@
 // Runtime run command unit tests for credential injection and child process exit propagation.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import type { RuntimeConfig } from '../../../../apps/runtime/src/config.js'
 
 const spawnMock = vi.hoisted(() => vi.fn())
@@ -24,10 +27,13 @@ const cfg: RuntimeConfig = {
 describe('runCommand', () => {
   let stderr = ''
   let stdout = ''
+  let runAllow: string | undefined
 
   beforeEach(() => {
     stderr = ''
     stdout = ''
+    runAllow = process.env.CARACAL_RUN_ALLOW_WORKSPACE_SECRETS
+    process.env.CARACAL_RUN_ALLOW_WORKSPACE_SECRETS = 'true'
     vi.spyOn(process.stderr, 'write').mockImplementation((chunk: string | Uint8Array) => {
       stderr += chunk.toString()
       return true
@@ -50,13 +56,17 @@ describe('runCommand', () => {
   afterEach(() => {
     vi.restoreAllMocks()
     spawnMock.mockReset()
+    if (runAllow === undefined) delete process.env.CARACAL_RUN_ALLOW_WORKSPACE_SECRETS
+    else process.env.CARACAL_RUN_ALLOW_WORKSPACE_SECRETS = runAllow
   })
 
   it('injects exchanged credentials into child process env', async () => {
     let childEnv: Record<string, string> = {}
     const originalAdminToken = process.env.CARACAL_ADMIN_TOKEN
+    const originalDockerHost = process.env.DOCKER_HOST
     const originalPath = process.env.PATH
     process.env.CARACAL_ADMIN_TOKEN = 'admin-token'
+    process.env.DOCKER_HOST = 'unix:///var/run/docker.sock'
     process.env.PATH = '/usr/bin'
     try {
       spawnMock.mockImplementationOnce((_cmd: string, _args: string[], opts: { env: Record<string, string> }) => {
@@ -82,10 +92,13 @@ describe('runCommand', () => {
       expect(spawnMock).toHaveBeenCalledWith('node', ['tool.js'], expect.objectContaining({ stdio: 'inherit' }))
       expect(childEnv.RESOURCE_TOKEN).toBe('resource-token')
       expect(childEnv.CARACAL_ADMIN_TOKEN).toBeUndefined()
+      expect(childEnv.DOCKER_HOST).toBeUndefined()
       expect(childEnv.PATH).toBe('/usr/bin')
     } finally {
       if (originalAdminToken === undefined) delete process.env.CARACAL_ADMIN_TOKEN
       else process.env.CARACAL_ADMIN_TOKEN = originalAdminToken
+      if (originalDockerHost === undefined) delete process.env.DOCKER_HOST
+      else process.env.DOCKER_HOST = originalDockerHost
       if (originalPath === undefined) delete process.env.PATH
       else process.env.PATH = originalPath
     }
@@ -164,6 +177,28 @@ describe('runCommand', () => {
     expect(stderr).toContain('blocked_credential_env:NODE_OPTIONS')
     expect(fetchMock).not.toHaveBeenCalled()
     expect(spawnMock).not.toHaveBeenCalled()
+  })
+
+  it('blocks workloads when legacy workspace operator secrets are present', async () => {
+    const cwd = process.cwd()
+    const repo = mkdtempSync(join(tmpdir(), 'caracal-run-repo-'))
+    try {
+      delete process.env.CARACAL_RUN_ALLOW_WORKSPACE_SECRETS
+      writeFileSync(join(repo, 'pnpm-workspace.yaml'), 'packages: []\n')
+      writeFileSync(join(repo, 'package.json'), '{"private":true}\n')
+      mkdirSync(join(repo, 'infra', 'secrets', 'files'), { recursive: true })
+      writeFileSync(join(repo, 'infra', 'secrets', 'files', 'caracalAdminToken'), 'admin\n')
+      process.chdir(repo)
+      vi.stubGlobal('fetch', vi.fn())
+
+      await expect(runCommand(['node', 'tool.js'], cfg)).rejects.toThrow('exit:1')
+
+      expect(stderr).toContain('refusing to run workload while legacy workspace operator secrets are present')
+      expect(spawnMock).not.toHaveBeenCalled()
+    } finally {
+      process.chdir(cwd)
+      rmSync(repo, { recursive: true, force: true })
+    }
   })
 
 })

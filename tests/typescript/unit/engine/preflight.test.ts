@@ -48,6 +48,7 @@ describe('runPreflightChecks', () => {
     home = mkdtempSync(join(tmpdir(), 'caracal-preflight-home-'))
     process.chdir(repoRoot)
     writeFileSync(join(repoRoot, 'pnpm-workspace.yaml'), 'packages: []\n')
+    writeFileSync(join(repoRoot, 'package.json'), '{"private":true}\n')
 
     const postgresPort = await listen(createServer((socket) => {
       socket.end()
@@ -61,7 +62,7 @@ describe('runPreflightChecks', () => {
       })
     }))
 
-    writeSecrets(join(repoRoot, 'infra', 'secrets', 'files'), redisPort, 'dev-pass', postgresPort)
+    writeSecrets(join(home, 'dev-secrets'), redisPort, 'dev-pass', postgresPort)
     writeSecrets(join(home, 'secrets'), redisPort, 'stale-pass', postgresPort)
     process.env = {
       ...savedEnv,
@@ -86,7 +87,7 @@ describe('runPreflightChecks', () => {
     rmSync(home, { recursive: true, force: true })
   })
 
-  it('prefers current workspace secrets over stale local env values for dev preflight checks', async () => {
+  it('prefers operator-local dev secrets over stale local env values for dev preflight checks', async () => {
     const checks = await runPreflightChecks()
     const redis = checks.find((check) => check.check === 'Redis')
 
