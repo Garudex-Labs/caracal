@@ -48,9 +48,25 @@ const (
 type AuthError struct {
 	Code        ErrorCode
 	Description string
+	Hint        string
 }
 
 func (e *AuthError) Error() string { return e.Description }
+
+// Verifier reuses secure defaults across requests and accepts per-route requirements.
+type Verifier struct {
+	defaults Options
+}
+
+// NewVerifier creates a reusable mandate verifier.
+func NewVerifier(defaults Options) *Verifier {
+	return &Verifier{defaults: defaults}
+}
+
+// Defaults returns the verifier's base options.
+func (v *Verifier) Defaults() Options {
+	return v.defaults
+}
 
 // ExtractBearer pulls a non-empty bearer token from an Authorization header value, or returns false.
 func ExtractBearer(authHeader string) (string, bool) {
@@ -67,8 +83,17 @@ func ExtractBearer(authHeader string) (string, bool) {
 
 // Authenticate verifies a token against identity and revocation, returning typed claims or an AuthError.
 func Authenticate(token string, opts Options) (identity.Claims, *AuthError) {
+	return NewVerifier(opts).Authenticate(token)
+}
+
+// Authenticate verifies a token using reusable defaults and optional route requirements.
+func (v *Verifier) Authenticate(token string, overrides ...Options) (identity.Claims, *AuthError) {
+	opts := v.defaults
+	for _, override := range overrides {
+		opts = mergeOptions(opts, override)
+	}
 	if token == "" {
-		return identity.Claims{}, &AuthError{Code: ErrMissingToken, Description: "Missing bearer token"}
+		return identity.Claims{}, authError(ErrMissingToken, "")
 	}
 	requiredUse := opts.RequiredUse
 	if requiredUse == "" {
@@ -92,26 +117,26 @@ func Authenticate(token string, opts Options) (identity.Claims, *AuthError) {
 		var chainErr *identity.ChainMismatchError
 		switch {
 		case errors.As(err, &scopeErr):
-			return identity.Claims{}, &AuthError{Code: ErrInsufficientScope, Description: "Missing scope: " + scopeErr.Scope}
+			return identity.Claims{}, authError(ErrInsufficientScope, "Missing scope: "+scopeErr.Scope)
 		case errors.Is(err, identity.ErrZoneInvalid):
-			return identity.Claims{}, &AuthError{Code: ErrInvalidZone, Description: "Token zone validation failed"}
+			return identity.Claims{}, authError(ErrInvalidZone, "")
 		case errors.Is(err, identity.ErrAgentIdentityRequired):
-			return identity.Claims{}, &AuthError{Code: ErrAgentRequired, Description: "Agent identity required"}
+			return identity.Claims{}, authError(ErrAgentRequired, "")
 		case errors.Is(err, identity.ErrDelegationRequired):
-			return identity.Claims{}, &AuthError{Code: ErrDelegationRequired, Description: "Delegation required"}
+			return identity.Claims{}, authError(ErrDelegationRequired, "")
 		case errors.As(err, &chainErr):
-			return identity.Claims{}, &AuthError{Code: ErrChainMismatch, Description: "Delegation chain missing application: " + chainErr.ApplicationID}
+			return identity.Claims{}, authError(ErrChainMismatch, "Delegation chain missing application: "+chainErr.ApplicationID)
 		case errors.Is(err, identity.ErrHopCountExceeded):
-			return identity.Claims{}, &AuthError{Code: ErrHopCountExceeded, Description: "Hop count exceeded"}
+			return identity.Claims{}, authError(ErrHopCountExceeded, "")
 		default:
-			return identity.Claims{}, &AuthError{Code: ErrInvalidToken, Description: "Token validation failed"}
+			return identity.Claims{}, authError(ErrInvalidToken, "")
 		}
 	}
 	if opts.Revocations == nil {
-		return identity.Claims{}, &AuthError{Code: ErrInvalidToken, Description: "Revocation store required"}
+		return identity.Claims{}, authError(ErrInvalidToken, "Revocation store required")
 	}
 	if claims.Sid == "" {
-		return identity.Claims{}, &AuthError{Code: ErrInvalidToken, Description: "Token validation failed"}
+		return identity.Claims{}, authError(ErrInvalidToken, "")
 	}
 	if authErr := CheckActiveAuthority(claims, opts.Revocations, time.Now()); authErr != nil {
 		return identity.Claims{}, authErr
@@ -119,23 +144,71 @@ func Authenticate(token string, opts Options) (identity.Claims, *AuthError) {
 	return claims, nil
 }
 
-// CheckActiveAuthority validates expiry and all revocation anchors for active direct execution.
+// Authorization extracts and verifies a bearer mandate from an Authorization header value.
+func (v *Verifier) Authorization(authHeader string, overrides ...Options) (identity.Claims, *AuthError) {
+	token, _ := ExtractBearer(authHeader)
+	return v.Authenticate(token, overrides...)
+}
+
+// Require returns a verifier with extra route requirements layered onto the defaults.
+func (v *Verifier) Require(overrides Options) *Verifier {
+	return NewVerifier(mergeOptions(v.defaults, overrides))
+}
+
+// CheckActiveAuthority validates expiry and all revocation anchors during resource execution.
 func CheckActiveAuthority(claims identity.Claims, revocations revocation.Store, now time.Time) *AuthError {
 	if claims.Sid == "" {
-		return &AuthError{Code: ErrInvalidToken, Description: "Token validation failed"}
+		return authError(ErrInvalidToken, "")
 	}
 	if claims.ExpiresAt > 0 && claims.ExpiresAt <= now.Unix() {
-		return &AuthError{Code: ErrInvalidToken, Description: "Token expired during execution"}
+		return authError(ErrInvalidToken, "Token expired during execution")
 	}
 	if revocations == nil {
-		return &AuthError{Code: ErrInvalidToken, Description: "Revocation store required"}
+		return authError(ErrInvalidToken, "Revocation store required")
 	}
 	for _, anchor := range revocationAnchors(claims) {
 		if revocations.IsRevoked(anchor) {
-			return &AuthError{Code: ErrSessionRevoked, Description: "Session revoked"}
+			return authError(ErrSessionRevoked, "")
 		}
 	}
 	return nil
+}
+
+func mergeOptions(base Options, override Options) Options {
+	if override.Issuer != "" {
+		base.Issuer = override.Issuer
+	}
+	if override.Audience != "" {
+		base.Audience = override.Audience
+	}
+	if override.ZoneID != "" {
+		base.ZoneID = override.ZoneID
+	}
+	if override.RequiredScopes != nil {
+		base.RequiredScopes = override.RequiredScopes
+	}
+	if override.RequiredTargets != nil {
+		base.RequiredTargets = override.RequiredTargets
+	}
+	if override.RequiredUse != "" {
+		base.RequiredUse = override.RequiredUse
+	}
+	if override.RequireAgent {
+		base.RequireAgent = true
+	}
+	if override.RequireDelegation {
+		base.RequireDelegation = true
+	}
+	if override.RequireChainContains != nil {
+		base.RequireChainContains = override.RequireChainContains
+	}
+	if override.MaxHopCount > 0 {
+		base.MaxHopCount = override.MaxHopCount
+	}
+	if override.Revocations != nil {
+		base.Revocations = override.Revocations
+	}
+	return base
 }
 
 func revocationAnchors(claims identity.Claims) []string {
@@ -149,4 +222,57 @@ func revocationAnchors(claims identity.Claims) []string {
 		out = append(out, anchor)
 	}
 	return out
+}
+
+func authError(code ErrorCode, description string) *AuthError {
+	if description == "" {
+		description = defaultDescription(code)
+	}
+	return &AuthError{Code: code, Description: description, Hint: defaultHint(code)}
+}
+
+func defaultDescription(code ErrorCode) string {
+	switch code {
+	case ErrMissingToken:
+		return "Missing bearer token"
+	case ErrInvalidZone:
+		return "Token zone validation failed"
+	case ErrInsufficientScope:
+		return "Required scope is missing"
+	case ErrSessionRevoked:
+		return "Session revoked"
+	case ErrAgentRequired:
+		return "Agent identity required"
+	case ErrDelegationRequired:
+		return "Delegation required"
+	case ErrChainMismatch:
+		return "Delegation chain validation failed"
+	case ErrHopCountExceeded:
+		return "Hop count exceeded"
+	default:
+		return "Token validation failed"
+	}
+}
+
+func defaultHint(code ErrorCode) string {
+	switch code {
+	case ErrMissingToken:
+		return "Send Authorization: Bearer <Caracal mandate>."
+	case ErrInvalidZone:
+		return "Check the configured zone ID and the mandate zone_id claim."
+	case ErrInsufficientScope:
+		return "Request a mandate that includes every required scope for this route."
+	case ErrSessionRevoked:
+		return "Refresh the mandate or start a new authorized session."
+	case ErrAgentRequired:
+		return "Use an agent-issued resource mandate for this endpoint."
+	case ErrDelegationRequired:
+		return "Use a mandate produced by a delegated grant flow."
+	case ErrChainMismatch:
+		return "Check RequireChainContains and the mandate delegation chain."
+	case ErrHopCountExceeded:
+		return "Reduce delegation depth or raise MaxHopCount deliberately."
+	default:
+		return "Check issuer, audience, signature, expiry, token use, scopes, and targets."
+	}
 }

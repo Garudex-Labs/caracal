@@ -478,6 +478,33 @@ func TestBuildUpstreamDirectiveSupportsAPIKeyProviderShape(t *testing.T) {
 	}
 }
 
+func TestBuildUpstreamDirectiveSupportsCaracalMandateProviderShape(t *testing.T) {
+	providerID := "provider1"
+	upstreamURL := "https://upstream.example"
+	resource := &Resource{
+		ID:                   "res1",
+		Identifier:           "resource://api",
+		UpstreamURL:          &upstreamURL,
+		CredentialProviderID: &providerID,
+	}
+	srv := &Server{
+		db: &stubDB{
+			provider: &ProviderConfig{
+				ID:           providerID,
+				ProviderKind: strPtr("caracal_mandate"),
+				ConfigJSON:   []byte(`{}`),
+			},
+		},
+	}
+	directive, err := srv.buildUpstreamDirective(context.Background(), "zone1", map[string]any{"sub": "user1"}, resource, true)
+	if err != nil {
+		t.Fatalf("gateway directive should support Caracal mandate provider shape: %v", err)
+	}
+	if directive.AuthMode != UpstreamAuthCaracalJWT || directive.AuthHeader != "Authorization" || directive.AuthScheme != "Bearer" || directive.ProviderToken != "" {
+		t.Fatalf("unexpected Caracal mandate directive: %#v", directive)
+	}
+}
+
 func TestBuildUpstreamDirectiveReadsIdentityForwardingOptIn(t *testing.T) {
 	providerID := "provider1"
 	upstreamURL := "https://upstream.example"

@@ -281,7 +281,7 @@ func (s *Server) exchange(ctx context.Context, req TokenExchangeRequest, request
 			continue
 		}
 
-		if resource.CredentialProviderID != nil {
+		if req.GatewayAuthenticated && resource.CredentialProviderID != nil {
 			provider, perr := s.db.GetProvider(ctx, *resource.CredentialProviderID)
 			if perr != nil {
 				if auditErr := s.emitAuditEvent(requestID, zoneID, "deny", "provider_unavailable", &OPAResult{},
@@ -409,6 +409,10 @@ func (s *Server) exchange(ctx context.Context, req TokenExchangeRequest, request
 		return nil, nil, http.StatusForbidden, sharederr.New(sharederr.AccessDenied, "policy denied")
 	}
 
+	if req.SubjectToken != "" && !req.GatewayAuthenticated {
+		return nil, nil, http.StatusForbidden, sharederr.New(sharederr.AccessDenied, "resource exchanges must use the Gateway")
+	}
+
 	sid, err := uuid.NewV7()
 	if err != nil {
 		return nil, nil, http.StatusInternalServerError, sharederr.New(sharederr.Internal, "generate session id")
@@ -433,9 +437,9 @@ func (s *Server) exchange(ctx context.Context, req TokenExchangeRequest, request
 	if sessionType == "user" {
 		subType = SubTypeUser
 	}
-	// Resource mandates are the default enforcement credential. Exchanges minted
-	// without a subject_token bootstrap a session mandate so the application can
-	// re-present it to STS for resource-scoped narrowing.
+	// Gateway exchanges mint resource mandates. Exchanges minted without a
+	// subject_token bootstrap a session mandate that the application presents to
+	// Gateway for resource-scoped narrowing.
 	use := UseResource
 	if req.SubjectToken == "" && !controlKeyExchange {
 		use = UseSession
@@ -485,14 +489,14 @@ func (s *Server) exchange(ctx context.Context, req TokenExchangeRequest, request
 		return nil, nil, http.StatusInternalServerError, sharederr.New(sharederr.Internal, "token issuance failed")
 	}
 
-	// Build per-resource upstream directives so the gateway can substitute the
-	// provider-native credential where the resource expects one.
-	for _, identifier := range grantedResources {
-		directive, err := s.buildUpstreamDirective(ctx, zoneID, subjectClaims, grantedResourceRows[identifier], req.GatewayAuthenticated)
-		if err != nil {
-			return nil, nil, http.StatusInternalServerError, sharederr.New(sharederr.Internal, "upstream directive build failed")
+	if req.GatewayAuthenticated {
+		for _, identifier := range grantedResources {
+			directive, err := s.buildUpstreamDirective(ctx, zoneID, subjectClaims, grantedResourceRows[identifier], req.GatewayAuthenticated)
+			if err != nil {
+				return nil, nil, http.StatusInternalServerError, sharederr.New(sharederr.Internal, "upstream directive build failed")
+			}
+			grantedDirectives[identifier] = directive
 		}
-		grantedDirectives[identifier] = directive
 	}
 
 	return &TokenResponse{
@@ -526,6 +530,9 @@ func (s *Server) buildUpstreamDirective(ctx context.Context, zoneID string, subj
 		return directive, err
 	}
 	directive.ProviderID = provider.ID
+	if derefStr(provider.ProviderKind) == "caracal_mandate" {
+		return directive, nil
+	}
 	if providerRequiresUserGrant(provider) {
 		userID, _ := subjectClaims["sub"].(string)
 		if userID == "" {
@@ -564,6 +571,10 @@ func applyProviderDirective(provider *ProviderConfig, directive *UpstreamDirecti
 	}
 	directive.ForwardCaracalIdentity = cfg.ForwardCaracalIdentity
 	switch derefStr(provider.ProviderKind) {
+	case "caracal_mandate":
+		directive.AuthMode = UpstreamAuthCaracalJWT
+		directive.AuthHeader = "Authorization"
+		directive.AuthScheme = "Bearer"
 	case "api_key":
 		header := strings.TrimSpace(cfg.AuthHeader)
 		if header == "" {
