@@ -24,7 +24,7 @@ Redis Streams move operational events between Caracal services. Redis is not the
 
 ```bash
 REDIS_HOST=localhost REDIS_PORT=6379 \
-REDIS_PASSWORD_FILE=infra/secrets/files/redisPassword \
+REDIS_PASSWORD_FILE="${CARACAL_SECRETS_DIR:-${CARACAL_HOME:-$HOME/.local/share/caracal}/secrets}/redisPassword" \
 bash infra/redis/provision-streams.sh
 ```
 
@@ -34,7 +34,7 @@ The provisioner is idempotent, creates consumer groups with `MKSTREAM`, and warn
 
 ```bash
 REDIS_HOST=localhost REDIS_PORT=6379 \
-REDIS_PASSWORD_FILE=infra/secrets/files/redisPassword \
+REDIS_PASSWORD_FILE="${CARACAL_SECRETS_DIR:-${CARACAL_HOME:-$HOME/.local/share/caracal}/secrets}/redisPassword" \
 bash infra/redis/scripts/verify.sh
 ```
 

@@ -30,7 +30,7 @@ The migration runner:
 
 ```bash
 PGHOST=localhost PGPORT=5432 PGUSER=caracal PGDATABASE=caracal \
-PGPASSWORD_FILE=infra/secrets/files/postgresPassword \
+PGPASSWORD_FILE="${CARACAL_SECRETS_DIR:-${CARACAL_HOME:-$HOME/.local/share/caracal}/secrets}/postgresPassword" \
 bash infra/postgres/scripts/migrate.sh
 ```
 

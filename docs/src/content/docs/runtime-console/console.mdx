@@ -29,7 +29,7 @@ The Console requires an interactive TTY. In non-interactive environments, use th
 | `CARACAL_COORDINATOR_URL` | Coordinator URL for `agent run` and `delegation`. |
 | `CARACAL_COORDINATOR_TOKEN` or `CARACAL_COORDINATOR_TOKEN_FILE` | Coordinator token for agent and delegation views. |
 
-For default local services, generated secret files from `caracal up` are preferred over exported token values so local reset cycles do not keep stale shell credentials.
+For default local services, generated secret files from `caracal up` are preferred over exported token values so local reset cycles do not keep stale shell credentials. Those files live outside the source workspace by default and must not be mounted into agent workspaces.
 
 ## Screen model
 

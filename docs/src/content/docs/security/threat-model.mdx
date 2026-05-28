@@ -42,6 +42,7 @@ Enterprise-only code and customer deployments outside the provided deployment mo
 | Gateway forwards unsafely | Per-request STS exchange, upstream bindings, SSRF guard, header stripping, timeouts, replay and revocation checks. |
 | Agent/delegation state races | Transactions, locks, outbox events, dedupe, bounded relay retry. |
 | Secrets leak | File-secret resolution, redaction, no plaintext key material in responses/logs/audit/examples. |
+| Agent reads operator secrets | Operator secrets outside source workspaces, private operator directories, no secret mounts in agent containers, workload-only token injection, and separate users/containers for untrusted agents. |
 | Audit evidence is missing or forgeable | Append-only audit role, HMAC signing, DLQ, replay, tamper checks. |
 | Stream messages are forged or replayed | HMAC signatures, dedupe, pending-entry reclaim, ack only after durable handling. |
 | Control becomes unsafe command execution | Gate file, JWT auth, scope checks, engine dispatch only, no shelling out, audit. |

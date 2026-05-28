@@ -19,6 +19,12 @@ Caracal uses secret material for zone encryption, mandate signing, audit integri
 | `CARACAL_COORDINATOR_TOKEN` | Coordinator agent/delegation management. |
 | Postgres and Redis passwords | Storage access. |
 
+## Storage boundary
+
+Generated operator secrets are file-backed inside a private operator directory. Local development stores them outside the repository; released self-hosted runtimes store them under `$CARACAL_HOME/secrets` unless `CARACAL_SECRETS_DIR` points to another operator-managed directory. Cloud deployments should use the platform secret manager and mount secrets into services through `*_FILE` paths or `CARACAL_SECRETS_DIR`.
+
+Never mount operator secrets into agent workspaces or containers. Agents should receive only application client secrets at provisioning time or short-lived resource mandates from `caracal run`.
+
 ## Rotation principles
 
 - Rotate one class of material at a time.

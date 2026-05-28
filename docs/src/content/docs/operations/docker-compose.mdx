@@ -51,7 +51,7 @@ caracal status --ready
 bash infra/scripts/smokeTest.sh
 ```
 
-`caracal up` builds local images in development mode. `caracal status --ready` checks dependency readiness, and `smokeTest.sh` probes `/ready` or `/live` for API, Gateway, STS, Audit, and Coordinator.
+`caracal up` builds local images in development mode. It writes operator secrets outside the repository under the managed dev secret directory, exports `CARACAL_SECRETS_DIR` to Compose, and keeps the host directory private so only the operator account can mount those files into services. `caracal status --ready` checks dependency readiness, and `smokeTest.sh` probes `/ready` or `/live` for API, Gateway, STS, Audit, and Coordinator.
 
 ## Self-hosted runtime flow
 
@@ -62,7 +62,19 @@ docker compose -f infra/docker/runtime-compose.yml ps
 bash infra/scripts/smokeTest.sh
 ```
 
-The runtime compose file expects secrets under `./secrets/` relative to the compose file. Keep secret files owner-readable only and never place inline secrets in the compose file.
+The runtime compose file expects secrets under `./secrets/` relative to the compose file unless `CARACAL_SECRETS_DIR` points at a platform-managed secret mount. Keep the secret directory private to the operator account and never place inline secrets in the compose file.
+
+## Operator secret boundary
+
+Admin, Coordinator, database, Redis, HMAC, and KEK material are operator secrets. Do not place those files in a source workspace, agent workspace, MCP tool workspace, or any directory mounted into untrusted agent containers.
+
+| Deployment | Secret location |
+| --- | --- |
+| Local development through `caracal up` | Managed dev secret directory outside the repository; passed to Compose as `CARACAL_SECRETS_DIR`. |
+| Released self-hosted runtime | `$CARACAL_HOME/secrets` or an explicit `CARACAL_SECRETS_DIR`. |
+| Cloud or orchestrated deployment | Cloud/Kubernetes secret mount or secret-manager projection passed as `CARACAL_SECRETS_DIR` or service-specific `*_FILE` paths. |
+
+Run agents with workload credentials only. If an agent must execute untrusted code, run it as a separate OS user, container, VM, or sandbox that cannot read `CARACAL_SECRETS_DIR`, `$CARACAL_HOME/secrets`, Docker socket credentials, or repository control-plane files.
 
 ## Control profile
 
