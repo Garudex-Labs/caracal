@@ -64,12 +64,13 @@ type OPAInput struct {
 }
 
 type OPAPrincipal struct {
-	Type           string   `json:"type"`
-	ID             string   `json:"id"`
-	ZoneID         string   `json:"zone_id"`
-	AgentSessionID string   `json:"agent_session_id,omitempty"`
-	AgentKind      string   `json:"agent_kind,omitempty"`
-	Capabilities   []string `json:"capabilities,omitempty"`
+	Type               string   `json:"type"`
+	ID                 string   `json:"id"`
+	ZoneID             string   `json:"zone_id"`
+	RegistrationMethod string   `json:"registration_method,omitempty"`
+	AgentSessionID     string   `json:"agent_session_id,omitempty"`
+	AgentKind          string   `json:"agent_kind,omitempty"`
+	Capabilities       []string `json:"capabilities,omitempty"`
 }
 
 type OPAResource struct {

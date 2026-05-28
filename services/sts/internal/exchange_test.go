@@ -733,6 +733,31 @@ func TestAgentSessionMetadataIsPolicyAndAuditInput(t *testing.T) {
 	}
 }
 
+func TestApplicationMetadataIsPolicyAndAuditInput(t *testing.T) {
+	input := OPAInput{
+		Principal: OPAPrincipal{
+			Type:               "Application",
+			ID:                 "app-dcr",
+			ZoneID:             "zone-1",
+			RegistrationMethod: "dcr",
+		},
+	}
+	if input.Principal.RegistrationMethod != "dcr" {
+		t.Fatalf("registration method missing from policy input: %#v", input.Principal)
+	}
+	meta := applicationAuditMeta(&Application{ID: "app-dcr", Name: "Fiona", RegistrationMethod: "dcr"})
+	if meta["application_registration_method"] != "dcr" || meta["application_id"] != "app-dcr" {
+		t.Fatalf("application audit metadata missing identity: %#v", meta)
+	}
+	merged := mergeAuditMeta(meta, map[string]any{"resource": "api"})
+	if _, exists := meta["resource"]; exists {
+		t.Fatalf("mergeAuditMeta mutated original metadata: %#v", meta)
+	}
+	if merged["application_name"] != "Fiona" || merged["resource"] != "api" {
+		t.Fatalf("merged metadata incomplete: %#v", merged)
+	}
+}
+
 func TestEffectiveTokenTTLCapsAtDelegationExpiry(t *testing.T) {
 	now := time.Now()
 	ttl, err := effectiveTokenTTL(10*time.Minute, &delegationProof{
