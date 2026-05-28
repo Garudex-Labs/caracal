@@ -5,7 +5,7 @@
 
 import { jwtVerify } from 'jose'
 import { CaracalError, hasScope } from '@caracalai/core'
-import { getKeySet } from './jwks.js'
+import { getKeySet, type JwksCache } from './jwks.js'
 import { DEFAULT_MAX_HOP_COUNT, MANDATE_USE_RESOURCE, MANDATE_USE_SESSION, type ChainHop, type Claims, type JwtConfig } from './types.js'
 
 const REQUIRED_CLAIMS = ['exp', 'iat', 'jti', 'sub', 'client_id', 'sid', 'root_sid', 'use', 'sub_type']
@@ -123,10 +123,10 @@ function readChain(raw: unknown): ChainHop[] | undefined {
   return out.length === 0 ? undefined : out
 }
 
-export async function verify(token: string, config: JwtConfig): Promise<Claims> {
+export async function verify(token: string, config: JwtConfig & { jwksCache?: JwksCache }): Promise<Claims> {
   let payload
   try {
-    const keySet = await getKeySet(config.issuer)
+    const keySet = config.jwksCache ? await config.jwksCache.getKeySet(config.issuer) : await getKeySet(config.issuer)
     ;({ payload } = await jwtVerify(token, keySet, {
       issuer: config.issuer,
       audience: config.audience,

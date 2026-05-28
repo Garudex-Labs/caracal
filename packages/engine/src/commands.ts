@@ -185,13 +185,13 @@ export const MANAGEMENT_COMMANDS: readonly CommandDescriptor[] = Object.freeze([
       create: [
         { name: '--name', summary: 'Provider name' },
         { name: '--identifier', summary: 'Provider identifier' },
-        { name: '--kind', summary: 'Provider kind (oauth2_authorization_code, oauth2_client_credentials, api_key, bearer_token)' },
+        { name: '--kind', summary: 'Provider kind (caracal_mandate, oauth2_authorization_code, oauth2_client_credentials, api_key, bearer_token)' },
         { name: '--config', summary: 'Inline config JSON' },
       ],
       patch: [
         { name: '--identifier', summary: 'Provider identifier' },
         { name: '--name', summary: 'Provider name' },
-        { name: '--kind', summary: 'Provider kind (oauth2_authorization_code, oauth2_client_credentials, api_key, bearer_token)' },
+        { name: '--kind', summary: 'Provider kind (caracal_mandate, oauth2_authorization_code, oauth2_client_credentials, api_key, bearer_token)' },
         { name: '--config', summary: 'Inline config JSON' },
       ],
     },

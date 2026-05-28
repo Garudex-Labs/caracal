@@ -21,6 +21,7 @@ export type AuthErrorCode =
 export interface AuthError {
   code: AuthErrorCode
   description: string
+  hint?: string
 }
 
 export type AuthResult =
