@@ -5,6 +5,8 @@
 
 import { describe, it, expect, vi } from 'vitest'
 import { visibleLength, pad, sanitizeAnsi, truncate } from '../../../../apps/console/src/ansi.ts'
+import { actions, composeActions, renderActionFooter } from '../../../../apps/console/src/actions.ts'
+import { formatDateTime, formatDateTimeOrValue } from '../../../../apps/console/src/format.ts'
 import { parseKey } from '../../../../apps/console/src/keys.ts'
 import { App, type View } from '../../../../apps/console/src/screen.ts'
 
@@ -57,6 +59,44 @@ describe('ansi sanitizeAnsi', () => {
     expect(out.includes('\u001b')).toBe(false)
     expect(out.includes('\u0007')).toBe(false)
     expect(out).toContain('legit')
+  })
+})
+
+describe('action footer', () => {
+  it('groups actions and drops utility commands first under narrow widths', () => {
+    const footer = renderActionFooter(composeActions([
+      actions.open,
+      actions.new,
+      actions.edit,
+      actions.delete,
+      actions.reload,
+      actions.info,
+      actions.copyName,
+      actions.revealId,
+      actions.back,
+      actions.quit,
+    ], { selection: 'single' }), { width: 72 })
+    const plain = stripSgr(footer)
+
+    expect(plain).toContain('enter  open')
+    expect(plain).toContain('n  new')
+    expect(plain).toContain('|')
+    expect(plain).not.toContain('copy-name')
+    expect(visibleLength(footer)).toBeLessThanOrEqual(72)
+  })
+})
+
+describe('datetime formatting', () => {
+  it('renders ISO timestamps as readable UTC values with source labels', () => {
+    expect(formatDateTime('2026-05-28T04:48:55.460Z')).toBe('28 May 2026, 04:48:55 UTC (ISO 8601)')
+  })
+
+  it('uses compact readable timestamps for narrow table columns', () => {
+    expect(formatDateTimeOrValue('2026-05-28T04:48:55.460Z', { compact: true })).toBe('28 May, 04:48 UTC (ISO)')
+  })
+
+  it('preserves explicit timezone offsets', () => {
+    expect(formatDateTime('2026-05-28T10:18:55+05:30')).toBe('28 May 2026, 10:18:55 UTC+05:30 (ISO 8601)')
   })
 })
 
@@ -151,3 +191,7 @@ describe('App key dispatch', () => {
     expect(seen).toEqual(['q'])
   })
 })
+
+function stripSgr(value: string): string {
+  return value.replace(/\u001b\[[0-9;?]*[A-Za-z]/g, '')
+}

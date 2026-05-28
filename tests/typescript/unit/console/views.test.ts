@@ -59,6 +59,7 @@ describe('AuditTailView', () => {
     const lines = view.render(ctx).join('\n')
     // Only the SGR escapes that the renderer itself emits (e.g. invert/fg) may
     // appear; injected ESC bytes from event_type / request_id must be gone.
+    expect(lines).toContain('1 Jan, 00:00 UTC (ISO)')
     expect(lines).not.toContain('evil\u001b[2J')
     expect(lines).not.toContain('\u001b]')
     expect(lines).not.toContain('\u0007')
@@ -177,6 +178,69 @@ describe('ListView', () => {
       expect((view as unknown as { cursor: number }).cursor).toBe(0)
     }
   })
+
+  it('shows only collection-safe footer actions when the table is empty', async () => {
+    const app = fakeApp()
+    const view = new ListView<{ id: string }>({
+      title: 'zones',
+      columns: [{ header: 'id', value: (r) => r.id }],
+      load: async () => [],
+      onEnter: () => {},
+      actions: [
+        { key: 'n', label: 'new', requiresSelection: false, build: () => fakeView() },
+        { key: 'e', label: 'edit', build: () => fakeView() },
+        { key: 'd', label: 'delete', build: () => fakeView() },
+      ],
+    })
+    await view.init(app)
+
+    const ids = view.footerActions({ app, size: { rows: 10, cols: 80 }, status: '' }).map((item) => item.id)
+
+    expect(ids).toEqual(['new', 'reload', 'back'])
+  })
+
+  it('prioritizes row workflows and hides utility identity actions by default', async () => {
+    const app = fakeApp()
+    const view = new ListView<{ id: string; name: string }>({
+      title: 'zones',
+      columns: [{ header: 'name', value: (r) => r.name }],
+      load: async () => [{ id: 'z1', name: 'prod' }],
+      onEnter: () => {},
+      rowId: (row) => row.id,
+      rowName: (row) => row.name,
+      actions: [
+        { key: 'n', label: 'new', requiresSelection: false, build: () => fakeView() },
+        { key: 'e', label: 'edit', build: () => fakeView() },
+        { key: 'd', label: 'delete', build: () => fakeView() },
+      ],
+    })
+    await view.init(app)
+
+    const ids = view.footerActions({ app, size: { rows: 10, cols: 80 }, status: '' }).map((item) => item.id)
+
+    expect(ids).toEqual(['open', 'new', 'edit', 'delete', 'move', 'reload', 'back'])
+  })
+
+  it('removes actions blocked by readonly and entity capability flags', async () => {
+    const app = fakeApp()
+    const view = new ListView<{ id: string; name: string; protected: boolean }>({
+      title: 'resources',
+      columns: [{ header: 'name', value: (r) => r.name }],
+      load: async () => [{ id: 'r1', name: 'control', protected: true }],
+      onEnter: () => {},
+      readonly: true,
+      entityFlags: (row) => row.protected ? ['protected_entity'] : [],
+      actions: [
+        { key: 'e', label: 'edit', hiddenWhen: ['loading', 'readonly'], build: () => fakeView() },
+        { key: 'd', label: 'delete', hiddenWhen: ['loading', 'readonly', 'protected_entity'], build: () => fakeView() },
+      ],
+    })
+    await view.init(app)
+
+    const ids = view.footerActions({ app, size: { rows: 10, cols: 80 }, status: '' }).map((item) => item.id)
+
+    expect(ids).toEqual(['open', 'move', 'reload', 'back'])
+  })
 })
 
 describe('EntityPickerView', () => {
@@ -227,6 +291,15 @@ describe('EntityPickerView', () => {
   })
 })
 
+function fakeView() {
+  return {
+    title: 'fake',
+    hints: () => [],
+    render: () => [],
+    onKey: () => {},
+  }
+}
+
 describe('DetailView', () => {
   it('renders structured detail fields', async () => {
     const app = fakeApp()
@@ -241,6 +314,17 @@ describe('DetailView', () => {
     expect(joined).toContain('Status')
     expect(joined).not.toContain('"name"')
     expect(joined).not.toContain('{')
+  })
+
+  it('renders ISO date fields as readable timestamps in details', async () => {
+    const app = fakeApp()
+    const view = new DetailView({ title: 'x', load: async () => ({ created_at: '2026-05-28T04:48:55.460Z' }) })
+    await view.init(app)
+
+    const joined = view.render({ app, size: { rows: 10, cols: 100 }, status: '' }).join('\n')
+
+    expect(joined).toContain('28 May 2026, 04:48:55 UTC (ISO 8601)')
+    expect(joined).not.toContain('2026-05-28T04:48:55.460Z')
   })
 
   it('groups nested detail data without JSON punctuation', async () => {

@@ -59,13 +59,14 @@ interface DateParts {
 
 function renderDateTime(parts: DateParts, opts: DateTimeFormatOptions): string {
   const month = MONTHS[parts.month - 1] ?? String(parts.month).padStart(2, '0')
+  const zone = opts.compact ? compactZone(parts.zone) : parts.zone
   const time = opts.compact
     ? `${two(parts.hour)}:${two(parts.minute)}`
     : `${two(parts.hour)}:${two(parts.minute)}:${two(parts.second)}`
   const date = opts.compact
     ? `${parts.day} ${month}`
     : `${parts.day} ${month} ${parts.year}`
-  return `${date}, ${time} ${parts.zone} (${parts.source})`
+  return `${date}, ${time} ${zone} (${parts.source})`
 }
 
 function zoneText(zone: string | undefined): string | undefined {
@@ -76,4 +77,8 @@ function zoneText(zone: string | undefined): string | undefined {
 
 function two(value: number): string {
   return String(value).padStart(2, '0')
+}
+
+function compactZone(zone: string): string {
+  return zone.startsWith('UTC+') || zone.startsWith('UTC-') ? zone.slice(3) : zone
 }
