@@ -231,11 +231,23 @@ export class EntityPickerView<T> implements View {
     openInfo(app, {
       ...this.info,
       title: option ? `${this.title}: ${option.label}` : this.info.title,
+      impact: option
+        ? 'Picking this row stores its raw internal value in the parent field while the form may show a readable label.'
+        : this.info.impact,
       example: option ? option.label : this.info.example,
       valid: 'Use search text to narrow results; press enter to select the highlighted row.',
       after: option
         ? `The parent field stores the internal ID for ${option.label}, with the ID hidden unless you reveal it.`
         : this.info.after,
+      context: option ? [
+        ...(this.info.context ?? []),
+        { label: 'Selected', value: option.label },
+        { label: 'Matches', value: `${this.filtered().length}` },
+      ] : this.info.context,
+      terms: option ? [
+        ...(this.info.terms ?? []),
+        { label: 'Internal ID', value: 'The stable backend value saved in the form, even when Console displays a friendly name.' },
+      ] : this.info.terms,
     })
   }
 

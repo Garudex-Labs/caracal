@@ -401,9 +401,11 @@ export class FormView implements View {
         title: 'Advanced options',
         meaning: 'Optional settings open on their own page so the common form stays short.',
         when: 'Open this only when the common path does not express the setup you need.',
+        impact: 'Advanced values override generated defaults and can affect identifiers, routing, provider behavior, or activation behavior.',
         example: 'Manual identifier, raw config JSON, shadow version, or overwrite flag.',
         valid: 'Every advanced field can be left blank or unchanged unless the field info says it is needed for your chosen scenario.',
         after: 'Saving returns to this form. Blank advanced fields keep the safe inferred defaults; filled values override the common path.',
+        notes: ['Prefer picker-backed fields over manual IDs when available.', 'Leave raw JSON blank unless structured fields cannot express the provider or resource config.'],
       })
     }
     return this.fieldInfo(row?.field)
@@ -475,9 +477,11 @@ export class FormView implements View {
         title: 'Advanced options',
         meaning: 'These optional settings override inferred defaults for uncommon cases.',
         when: 'Use them for manual identifiers, raw config, shadow versions, provider binding, or enterprise-specific routing.',
+        impact: 'Submitted advanced values are sent to the same API request as common fields and can change runtime behavior.',
         example: 'Set a manual resource identifier only when another system already depends on it.',
         valid: 'Leave fields blank to keep the parent form defaults.',
         after: 'Saving stores the values on the parent form and returns to the common path.',
+        notes: ['Advanced options are not hidden features; they are implemented fields kept out of the common path to reduce noise.'],
       }),
       onSubmit: async (values, advancedApp) => {
         for (const field of fields) this.values[field.key] = values[field.key] ?? ''
@@ -527,9 +531,11 @@ export class ConfirmView implements View {
       title: 'Confirm action',
       meaning: 'This prompt protects a change that can alter or remove a Console object.',
       when: 'Use yes only after checking the target name and revealing the ID if needed.',
+      impact: 'Confirming sends the state-changing request; canceling leaves backend state unchanged.',
       example: 'delete resource payments-api',
       valid: 'Press y to continue, n or esc to cancel.',
-      after: 'Console runs the action and shows an API error if the operation is rejected.',
+      after: 'Console sends the request and shows an API error if the operation is rejected.',
+      notes: ['For destructive changes, open the detail page first and use copy-page if you need a raw JSON record.'],
     })
   }
 
@@ -791,8 +797,13 @@ function fileInfo(): InfoPage {
     title: 'File picker',
     meaning: 'Choose a local file for policy content or provider JSON.',
     when: 'Use it when the source is maintained outside the Console.',
+    impact: 'The selected file is read at submit time and its contents are sent to the current workflow.',
     example: '/home/team/policies/payments.rego',
     valid: 'Pick a file under the current directory, or press : and enter an absolute path.',
     after: 'The selected path is placed into the form; submit reads the file content once.',
+    terms: [
+      { label: 'Policy file', value: 'Rego source that is validated or saved as a policy version.' },
+      { label: 'Provider JSON', value: 'Structured provider-specific configuration merged with form fields.' },
+    ],
   })
 }

@@ -248,8 +248,13 @@ export class ListView<T> implements View {
     return {
       ...this.info,
       title: row ? `${this.title}: ${name}` : this.info.title,
+      context: row ? [
+        ...(this.info.context ?? []),
+        { label: 'Selected', value: name },
+        { label: 'Rows', value: `${this.rows.length}` },
+      ] : this.info.context,
       after: row
-        ? 'Press enter for details, use action keys for changes, or reveal/copy the internal ID only when another system needs it.'
+        ? 'Press enter for the full detail page, where complete entity pages can copy raw JSON with copy-page.'
         : this.info.after,
     }
   }

@@ -161,9 +161,8 @@ export class App {
   }
 
   private statusLine(sz: Size): string {
-    if (!this.status) return pad(ui.muted(' ready'), sz.cols)
-    const color = this.statusKind === 'error' ? ui.error : ui.info
-    return color(pad(truncate(' ' + this.status, sz.cols), sz.cols))
+    if (!this.status) return ui.success(pad(' ready', sz.cols))
+    return statusColor(this.status, this.statusKind)(pad(truncate(' ' + this.status, sz.cols), sz.cols))
   }
 
   private hintsLine(view: View, sz: Size): string {
@@ -225,4 +224,12 @@ export class App {
     this.renderFrame()
     await new Promise<void>(() => { /* loop forever; exit() terminates */ })
   }
+}
+
+function statusColor(text: string, kind: 'info' | 'error'): (value: string) => string {
+  if (kind === 'error') return ui.error
+  const status = text.trim().toLowerCase()
+  if (status === 'ready') return ui.success
+  if (status.includes('unhealthy')) return ui.error
+  return ui.info
 }
