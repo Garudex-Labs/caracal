@@ -15,6 +15,8 @@ import { appendKeysetCondition, parseListPagination, setNextLink } from './list-
 import { validateTraits } from '../traits.js'
 
 const APPLICATION_INTERNALS_HEADER = 'x-caracal-application-internals'
+const DCR_DEFAULT_LIFETIME_SECONDS = 3600
+const DCR_MAX_LIFETIME_SECONDS = 3600
 
 const AppBody = z.object({
   name: z.string().min(1),
@@ -24,8 +26,7 @@ const AppBody = z.object({
 
 const DCRBody = z.object({
   name: z.string().min(1),
-  traits: z.array(z.string()).optional(),
-  expires_in: z.number().int().positive().optional(),
+  expires_in: z.number().int().positive().max(DCR_MAX_LIFETIME_SECONDS).default(DCR_DEFAULT_LIFETIME_SECONDS),
 }).strict()
 
 const PatchBody = z.object({
@@ -150,10 +151,8 @@ export const applicationsRoutes: FastifyPluginAsync = async (fastify) => {
     const parsed = DCRBody.safeParse(req.body)
     if (!parsed.success) return reply.code(400).send({ error: 'invalid_application' })
     const body = parsed.data
-    const traitErr = validateTraits(body.traits, req.actor)
-    if (traitErr) return reply.code(403).send(traitErr)
 
-    const rlKey = `rl:dcr:${params.zoneId}`
+    const rlKey = `rl:dcr:${params.zoneId}:${req.actor.id}`
     await fastify.redis.set(rlKey, 0, 'EX', 1, 'NX')
     const rlCount = await fastify.redis.incr(rlKey)
     if (rlCount > 10) {
@@ -161,9 +160,7 @@ export const applicationsRoutes: FastifyPluginAsync = async (fastify) => {
     }
 
     const id = uuidv7()
-    const expiresAt = body.expires_in
-      ? new Date(Date.now() + body.expires_in * 1000)
-      : null
+    const expiresAt = new Date(Date.now() + body.expires_in * 1000)
     const client = await fastify.db.connect()
     try {
       await client.query('BEGIN')
@@ -196,7 +193,7 @@ export const applicationsRoutes: FastifyPluginAsync = async (fastify) => {
         `INSERT INTO applications (id, zone_id, name, registration_method, credential_type, client_secret_hash, traits, expires_at)
          VALUES ($1, $2, $3, 'dcr', $4, $5, $6, $7)
          RETURNING id, zone_id, name, registration_method, expires_at, created_at`,
-        [id, params.zoneId, body.name, 'token', dcrSecretHash, body.traits ?? [], expiresAt],
+        [id, params.zoneId, body.name, 'token', dcrSecretHash, [], expiresAt],
       )
       await client.query('COMMIT')
       return reply.code(201).send({ ...rows[0], client_secret: clientSecret })

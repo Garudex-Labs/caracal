@@ -47,7 +47,6 @@ export interface ApplicationPatchInput {
 
 export interface DCRInput {
   name: string
-  traits?: string[]
   expires_in?: number
 }
 

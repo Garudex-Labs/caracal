@@ -149,7 +149,7 @@ export const MANAGEMENT_COMMANDS: readonly CommandDescriptor[] = Object.freeze([
       ],
       dcr: [
         { name: '--name', summary: 'Application name' },
-        { name: '--expires-in', summary: 'Client lifetime seconds' },
+        { name: '--expires-in', summary: 'Client lifetime seconds (1-3600)' },
       ],
     },
   },

@@ -837,15 +837,20 @@ export function applicationsView(ctx: Ctx): View {
               key: 'expires_in',
               label: 'client lifetime seconds',
               kind: 'text',
+              default: '3600',
               dependsOn: { registration_method: 'dcr' },
-              validate: (v) => v && !/^[1-9]\d*$/.test(v.trim()) ? 'client lifetime must be a positive integer' : undefined,
+              validate: (v) => {
+                if (v && !/^[1-9]\d*$/.test(v.trim())) return 'client lifetime must be a positive integer'
+                if (v && Number.parseInt(v.trim(), 10) > 3600) return 'client lifetime must be 3600 seconds or less'
+                return undefined
+              },
               info: infoPage({
                 title: 'Client lifetime seconds',
-                meaning: 'Optional DCR client lifetime expressed as seconds from creation time.',
-                when: 'Use this for ephemeral or high-churn DCR clients that should stop authenticating after a bounded lifetime. Leave it blank only when the dynamically registered client should remain active until manually deleted.',
+                meaning: 'DCR client lifetime expressed as seconds from creation time.',
+                when: 'Use this to keep ephemeral DCR clients short-lived. The default is one hour and the API caps DCR clients at one hour.',
                 impact: 'The DCR API stores an expires_at timestamp. Expired applications are hidden from active references, denied by STS token authentication, and later archived by DCR cleanup.',
                 example: '3600',
-                valid: 'Optional for this path. Leave blank for no DCR expiry, or enter a positive integer number of seconds.',
+                valid: 'Required for this path. Enter a positive integer from 1 to 3600 seconds.',
                 after: 'After submit, Console sends expires_in to the DCR endpoint and shows the generated client secret once.',
                 terms: [
                   { label: 'DCR', value: 'Dynamic Client Registration for self-service or ephemeral application identities.' },

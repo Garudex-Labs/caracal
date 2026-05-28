@@ -97,11 +97,16 @@ export const agentsRoutes: FastifyPluginAsync = async (fastify) => {
       }
       const { rows: refs } = await client.query(
         `SELECT
-           EXISTS (
-             SELECT 1 FROM applications
+           (
+             SELECT registration_method FROM applications
              WHERE id = $2 AND zone_id = $1 AND archived_at IS NULL
                AND (expires_at IS NULL OR expires_at > now())
-           ) AS application_exists,
+           ) AS registration_method,
+           EXISTS (
+              SELECT 1 FROM applications
+              WHERE id = $2 AND zone_id = $1 AND archived_at IS NULL
+                AND (expires_at IS NULL OR expires_at > now())
+            ) AS application_exists,
            EXISTS (
               SELECT 1 FROM sessions
               WHERE id = $3 AND zone_id = $1 AND status = 'active' AND expires_at > now()
@@ -111,6 +116,10 @@ export const agentsRoutes: FastifyPluginAsync = async (fastify) => {
       if (!refs[0]?.application_exists) {
         await client.query('ROLLBACK')
         return reply.code(404).send({ error: 'application_not_found' })
+      }
+      if (refs[0].registration_method === 'dcr' && body.kind !== 'ephemeral') {
+        await client.query('ROLLBACK')
+        return reply.code(409).send({ error: 'dcr_requires_ephemeral_agent' })
       }
       if (!refs[0].session_exists) {
         await client.query('ROLLBACK')
@@ -131,6 +140,10 @@ export const agentsRoutes: FastifyPluginAsync = async (fastify) => {
       if (parseInt(cnt[0].zone_n, 10) >= MAX_PER_ZONE) {
         await client.query('ROLLBACK')
         return reply.code(429).send({ error: 'agent_zone_limit_exceeded' })
+      }
+      if (refs[0].registration_method === 'dcr' && parseInt(cnt[0].app_n, 10) > 0) {
+        await client.query('ROLLBACK')
+        return reply.code(409).send({ error: 'dcr_application_already_bound' })
       }
       if (parseInt(cnt[0].app_n, 10) >= MAX_PER_APP) {
         await client.query('ROLLBACK')
