@@ -7,7 +7,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { discoverAdminToken, discoverCoordinatorToken, discoverRepoRoot, installedHome, readEnvFile } from '../../../../packages/core/ts/src/envfile.js'
+import { devSecretsHome, discoverAdminToken, discoverCoordinatorToken, discoverRepoRoot, installedHome, managedSecretDirs, readEnvFile } from '../../../../packages/core/ts/src/envfile.js'
 
 describe('installedHome', () => {
   const saved = { ...process.env }
@@ -31,6 +31,28 @@ describe('installedHome', () => {
     process.env.XDG_DATA_HOME = '/tmp/caracal-xdg-data'
 
     expect(installedHome()).toBe('/tmp/caracal-xdg-data/caracal')
+  })
+})
+
+describe('managedSecretDirs', () => {
+  const saved = { ...process.env }
+  afterEach(() => {
+    process.env = { ...saved }
+  })
+
+  it('uses an operator-local dev secret home outside the current workspace', () => {
+    process.env.CARACAL_HOME = '/tmp/caracal-test-home'
+    expect(devSecretsHome()).toBe('/tmp/caracal-test-home/dev-secrets')
+    expect(managedSecretDirs({ preferDev: true }).slice(0, 2)).toEqual([
+      '/tmp/caracal-test-home/dev-secrets',
+      '/tmp/caracal-test-home/secrets',
+    ])
+  })
+
+  it('honours an explicit secret directory first', () => {
+    process.env.CARACAL_HOME = '/tmp/caracal-test-home'
+    process.env.CARACAL_SECRETS_DIR = '/tmp/operator-secrets'
+    expect(managedSecretDirs({ preferDev: true })[0]).toBe('/tmp/operator-secrets')
   })
 })
 
@@ -86,7 +108,7 @@ describe('discoverRepoRoot', () => {
 
   it('finds the current workspace when CARACAL_REPO_ROOT is not set', () => {
     writeFileSync(join(dir, 'pnpm-workspace.yaml'), 'packages: []\n')
-    mkdirSync(join(dir, 'infra', 'secrets', 'files'), { recursive: true })
+    writeFileSync(join(dir, 'package.json'), '{"private":true}\n')
 
     expect(discoverRepoRoot()).toBe(dir)
   })
@@ -106,6 +128,10 @@ describe('discoverAdminToken', () => {
     delete process.env.CARACAL_ADMIN_TOKEN_FILE
     delete process.env.CARACAL_ENV_FILE
     delete process.env.CARACAL_REPO_ROOT
+    delete process.env.CARACAL_MODE
+    delete process.env.CARACAL_SECRETS_DIR
+    delete process.env.CARACAL_DEV_SECRETS_DIR
+    delete process.env.CARACAL_ALLOW_WORKSPACE_SECRETS
   })
 
   afterEach(() => {
@@ -135,12 +161,24 @@ describe('discoverAdminToken', () => {
     expect(discoverAdminToken()).toBe('installed-token')
   })
 
-  it('reads development secret files from the current workspace', () => {
+  it('reads development secret files from the operator-local dev secret home', () => {
     process.env.CARACAL_HOME = dir
+    mkdirSync(join(dir, 'dev-secrets'), { recursive: true })
+    writeFileSync(join(dir, 'dev-secrets', 'caracalAdminToken'), 'dev-token\n')
+    process.env.CARACAL_MODE = 'dev'
+    expect(discoverAdminToken()).toBe('dev-token')
+  })
+
+  it('ignores workspace secret files unless explicitly allowed', () => {
+    process.env.CARACAL_HOME = dir
+    process.env.CARACAL_REPO_ROOT = cwd
     writeFileSync(join(cwd, 'pnpm-workspace.yaml'), 'packages: []\n')
     mkdirSync(join(cwd, 'infra', 'secrets', 'files'), { recursive: true })
-    writeFileSync(join(cwd, 'infra', 'secrets', 'files', 'caracalAdminToken'), 'dev-token\n')
-    expect(discoverAdminToken()).toBe('dev-token')
+    writeFileSync(join(cwd, 'infra', 'secrets', 'files', 'caracalAdminToken'), 'workspace-token\n')
+    expect(discoverAdminToken()).toBeUndefined()
+
+    process.env.CARACAL_ALLOW_WORKSPACE_SECRETS = 'true'
+    expect(discoverAdminToken()).toBe('workspace-token')
   })
 
   it('ignores cwd .env in installed mode', () => {
@@ -188,14 +226,14 @@ describe('discoverAdminToken', () => {
     expect(discoverAdminToken(undefined, { preferGenerated: true })).toBe('installed-token')
   })
 
-  it('uses workspace admin tokens in dev mode', () => {
+  it('uses operator-local dev admin tokens in dev mode', () => {
     process.env.CARACAL_HOME = dir
     process.env.CARACAL_REPO_ROOT = cwd
     process.env.CARACAL_MODE = 'dev'
     mkdirSync(join(dir, 'secrets'), { recursive: true })
-    mkdirSync(join(cwd, 'infra', 'secrets', 'files'), { recursive: true })
+    mkdirSync(join(dir, 'dev-secrets'), { recursive: true })
     writeFileSync(join(dir, 'secrets', 'caracalAdminToken'), 'installed-token\n')
-    writeFileSync(join(cwd, 'infra', 'secrets', 'files', 'caracalAdminToken'), 'dev-token\n')
+    writeFileSync(join(dir, 'dev-secrets', 'caracalAdminToken'), 'dev-token\n')
 
     expect(discoverAdminToken(undefined, { preferGenerated: true })).toBe('dev-token')
   })
@@ -223,6 +261,10 @@ describe('discoverCoordinatorToken', () => {
     delete process.env.CARACAL_COORDINATOR_TOKEN_FILE
     delete process.env.CARACAL_ENV_FILE
     delete process.env.CARACAL_REPO_ROOT
+    delete process.env.CARACAL_MODE
+    delete process.env.CARACAL_SECRETS_DIR
+    delete process.env.CARACAL_DEV_SECRETS_DIR
+    delete process.env.CARACAL_ALLOW_WORKSPACE_SECRETS
   })
 
   afterEach(() => {
@@ -259,14 +301,14 @@ describe('discoverCoordinatorToken', () => {
     expect(discoverCoordinatorToken(undefined, { preferGenerated: true })).toBe('installed-token')
   })
 
-  it('uses workspace coordinator tokens in dev mode', () => {
+  it('uses operator-local dev coordinator tokens in dev mode', () => {
     process.env.CARACAL_HOME = dir
     process.env.CARACAL_REPO_ROOT = cwd
     process.env.CARACAL_MODE = 'dev'
     mkdirSync(join(dir, 'secrets'), { recursive: true })
-    mkdirSync(join(cwd, 'infra', 'secrets', 'files'), { recursive: true })
+    mkdirSync(join(dir, 'dev-secrets'), { recursive: true })
     writeFileSync(join(dir, 'secrets', 'caracalCoordinatorToken'), 'installed-token\n')
-    writeFileSync(join(cwd, 'infra', 'secrets', 'files', 'caracalCoordinatorToken'), 'dev-token\n')
+    writeFileSync(join(dir, 'dev-secrets', 'caracalCoordinatorToken'), 'dev-token\n')
     expect(discoverCoordinatorToken(undefined, { preferGenerated: true })).toBe('dev-token')
   })
 
@@ -281,12 +323,12 @@ describe('discoverCoordinatorToken', () => {
     expect(discoverCoordinatorToken(undefined, { preferGenerated: true })).toBe('installed-token')
   })
 
-  it('prefers current workspace coordinator tokens over stale env values', () => {
+  it('prefers operator-local dev coordinator tokens over stale env values', () => {
     process.env.CARACAL_HOME = dir
+    process.env.CARACAL_MODE = 'dev'
     process.env.CARACAL_COORDINATOR_TOKEN = 'stale-env-token'
-    writeFileSync(join(cwd, 'pnpm-workspace.yaml'), 'packages: []\n')
-    mkdirSync(join(cwd, 'infra', 'secrets', 'files'), { recursive: true })
-    writeFileSync(join(cwd, 'infra', 'secrets', 'files', 'caracalCoordinatorToken'), 'dev-token\n')
+    mkdirSync(join(dir, 'dev-secrets'), { recursive: true })
+    writeFileSync(join(dir, 'dev-secrets', 'caracalCoordinatorToken'), 'dev-token\n')
     expect(discoverCoordinatorToken(undefined, { preferGenerated: true })).toBe('dev-token')
   })
 })

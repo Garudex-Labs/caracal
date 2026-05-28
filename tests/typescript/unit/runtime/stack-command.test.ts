@@ -47,6 +47,7 @@ describe('stack commands', () => {
       composeFile: '/tmp/caracal/docker-compose.yml',
       envFiles: [],
       cwd: '/tmp/caracal',
+      secretsDir: '/tmp/caracal-secrets',
     })
     engineMocks.stackDown.mockReturnValue({ dispose: vi.fn(), exitCode: Promise.resolve(0) })
     engineMocks.stackUp.mockReturnValue({ dispose: vi.fn(), exitCode: Promise.resolve(0) })

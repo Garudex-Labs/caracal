@@ -15,6 +15,7 @@ function repoFixture(): string {
   mkdirSync(dockerDir, { recursive: true })
   writeFileSync(join(dockerDir, 'docker-compose.yml'), 'name: caracal\n')
   writeFileSync(join(dockerDir, 'dev.env'), 'CARACAL_MODE=dev\n')
+  vi.stubEnv('CARACAL_DEV_SECRETS_DIR', join(repoRoot, '.caracal', 'dev-secrets'))
   return repoRoot
 }
 
@@ -33,6 +34,7 @@ describe('resolvePaths', () => {
 
     expect(paths.mode).toBe('dev')
     expect(paths.cwd).toBe(repoRoot)
+    expect(paths.secretsDir).toContain('dev-secrets')
   })
 
   it('uses dev mode and points envFiles at dev.env when no local.env exists', () => {
@@ -57,7 +59,7 @@ describe('resolvePaths', () => {
 
     expect(paths.mode).toBe('dev')
     for (const name of ['postgresPassword', 'redisPassword', 'caracalAdminToken', 'zoneKek', 'auditHmacKey', 'streamsHmacKey']) {
-      const file = join(repoRoot, 'infra', 'secrets', 'files', name)
+      const file = join(paths.secretsDir, name)
       expect(existsSync(file)).toBe(true)
       expect(readFileSync(file, 'utf8').trim().length).toBeGreaterThan(0)
     }
@@ -102,6 +104,7 @@ describe('resolvePaths', () => {
 
     expect(paths.mode).toBe('stable')
     expect(paths.cwd).toBe(home)
+    expect(paths.secretsDir).toBe(join(home, 'secrets'))
     expect(paths.composeFile).toBe(join(home, 'compose.yml'))
     expect(paths.envFiles).toEqual([join(home, 'caracal.env')])
     expect(existsSync(join(home, 'caracal.env'))).toBe(true)
@@ -145,6 +148,7 @@ describe('resolvePaths', () => {
 
     expect(paths.mode).toBe('rc')
     expect(paths.envFiles).toEqual([join(home, 'caracal.env')])
+    expect(paths.secretsDir).toBe(join(home, 'secrets'))
   })
 
   it('exits when CARACAL_MODE is invalid', () => {

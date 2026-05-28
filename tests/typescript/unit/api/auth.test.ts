@@ -231,7 +231,8 @@ describe('seedBootstrapAdminToken', () => {
         .mockResolvedValueOnce({ rows: [{ id: 'existing', token_hash: ARGON_HASHES.tok }] }),
     } as unknown as DB
     await seedBootstrapAdminToken(db, { envToken: 'tok', log: () => {} })
-    expect(db.query).toHaveBeenCalledTimes(1)
+    expect(db.query).toHaveBeenCalledTimes(2)
+    expect(db.query).toHaveBeenNthCalledWith(2, expect.stringContaining('created_by = \'env-bootstrap\''), expect.any(Array))
   })
   it('fills missing verifier hash for the bootstrap token', async () => {
     const queries: string[] = []
@@ -244,6 +245,7 @@ describe('seedBootstrapAdminToken', () => {
     } as unknown as DB
     await seedBootstrapAdminToken(db, { envToken: 'tok', log: () => {} })
     expect(queries.some((s) => s.startsWith('UPDATE admin_tokens SET token_hash'))).toBe(true)
+    expect(queries.some((s) => s.includes('token_sha256 <> $1'))).toBe(true)
   })
   it('inserts when missing', async () => {
     const inserts: string[] = []
@@ -256,5 +258,6 @@ describe('seedBootstrapAdminToken', () => {
     } as unknown as DB
     await seedBootstrapAdminToken(db, { envToken: 'tok', log: () => {} })
     expect(inserts.some((s) => s.startsWith('INSERT INTO admin_tokens'))).toBe(true)
+    expect(inserts.some((s) => s.includes('token_sha256 <> $1'))).toBe(true)
   })
 })
