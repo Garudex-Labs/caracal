@@ -63,7 +63,7 @@ function rawExplain(err: unknown): string {
     }
     if (err.status === 401) return `unauthorized: check CARACAL_ADMIN_TOKEN matches the API`
     if (err.status === 403 && err.code === 'dcr_disabled') {
-      return 'this zone does not support DCR: enable dynamic clients on the zone, or choose managed registration'
+      return 'This zone does not support DCR: enable dynamic clients on the zone'
     }
     if (err.status === 403) return `forbidden (${err.code}): token lacks required scope`
     if (err.status === 404) return `not found: resource may have been deleted`

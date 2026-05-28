@@ -19,7 +19,7 @@ describe('explainError', () => {
 
   it('explains DCR disabled as a zone capability issue', () => {
     expect(explainError(new AdminApiError(403, 'dcr_disabled', {}))).toBe(
-      'this zone does not support DCR: enable dynamic clients on the zone, or choose managed registration',
+      'This zone does not support DCR: enable dynamic clients on the zone',
     )
   })
 
