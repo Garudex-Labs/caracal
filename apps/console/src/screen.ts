@@ -3,7 +3,8 @@
 //
 // Screen and App: alt-buffer rendering, key dispatch, and view stack management.
 
-import { ansi, frame, hintText, pad, size, truncate, ui, visibleLength, type Size } from './ansi.ts'
+import { ansi, frame, pad, size, truncate, ui, visibleLength, type Size } from './ansi.ts'
+import { actions, footerActionsFromHints, renderActionFooter, type FooterAction } from './actions.ts'
 import { explainError } from './errors.ts'
 import { parseKey, type Key } from './keys.ts'
 
@@ -16,6 +17,7 @@ export interface ViewContext {
 export interface View {
   title: string
   hints(): string[]
+  footerActions?(ctx: ViewContext): readonly FooterAction[]
   render(ctx: ViewContext): string[]
   onKey(key: Key, ctx: ViewContext): void | Promise<void>
   init?(app: App): void | Promise<void>
@@ -165,9 +167,13 @@ export class App {
   }
 
   private hintsLine(view: View, sz: Size): string {
-    const hints = view.hints().concat(['q:quit'])
-    const text = ' ' + hints.map(hintText).join('  ')
-    return pad(truncate(text, sz.cols), sz.cols)
+    const ctx = { app: this, size: sz, status: this.status }
+    const footerActions = view.footerActions
+      ? [...view.footerActions(ctx)]
+      : footerActionsFromHints(view.hints())
+    if (!view.isTextEntry) footerActions.push({ ...actions.quit, disabled: false })
+    if (footerActions.length === 0) return pad('', sz.cols)
+    return renderActionFooter(footerActions, { width: sz.cols })
   }
 
   private async dispatchKey(key: Key): Promise<void> {

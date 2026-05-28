@@ -6,6 +6,7 @@
 import type { AdminClient, AuditEvent, AuditQuery } from '@caracalai/admin'
 import { ansi, pad, sanitizeAnsi, truncate, ui } from '../ansi.ts'
 import { explainError } from '../errors.ts'
+import { formatDateTimeOrValue } from '../format.ts'
 import type { Key } from '../keys.ts'
 import type { App, View, ViewContext } from '../screen.ts'
 import { DetailView } from './detail.ts'
@@ -136,7 +137,7 @@ export class AuditTailView implements View {
     for (let i = this.offset; i < Math.min(this.events.length, this.offset + visible); i++) {
       const ev = this.events[i]!
       const cells = [
-        sanitizeAnsi(ev.occurred_at ?? '-'),
+        sanitizeAnsi(ev.occurred_at ? formatDateTimeOrValue(ev.occurred_at, { compact: true }) : '-'),
         sanitizeAnsi(ev.event_type ?? '-'),
         colorDecision(ev.decision),
         sanitizeAnsi(ev.evaluation_status ?? '-'),

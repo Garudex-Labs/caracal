@@ -31,6 +31,7 @@ import { readFileSync } from 'node:fs'
 import type { App, View } from '../screen.ts'
 import type { ConsoleStateStore } from '../state.ts'
 import { maskSecretField } from '../errors.ts'
+import { formatDateTimeOrValue } from '../format.ts'
 import { DEFAULT_CONTROL_AUDIENCE, generateClientSecret } from '@caracalai/engine'
 import { AuditTailView } from './audit.ts'
 import { DetailView } from './detail.ts'
@@ -1158,7 +1159,7 @@ export function sessionsView(ctx: Ctx): View {
       { header: 'subject', width: 36, value: (r) => r.subject_id },
       { header: 'type', width: 10, value: (r) => r.session_type },
       { header: 'status', width: 10, value: (r) => r.status },
-      { header: 'expires_at', width: 24, value: (r) => r.expires_at },
+      { header: 'expires_at', width: 24, value: (r) => formatDateTimeOrValue(r.expires_at, { compact: true }) },
     ],
     load: () => ctx.client.sessions.list(ctx.zoneId, filters),
     state: ctx.state,
@@ -1367,7 +1368,7 @@ export function agentsView(ctx: Ctx): View {
       { header: 'parent', width: 36, value: (r) => r.parent_id ?? '-' },
       { header: 'status', width: 10, value: (r) => r.status },
       { header: 'depth', width: 6, value: (r) => String(r.depth) },
-      { header: 'spawned_at', width: 24, value: (r) => r.spawned_at },
+      { header: 'spawned_at', width: 24, value: (r) => formatDateTimeOrValue(r.spawned_at, { compact: true }) },
     ],
     load: () => loadAgents(ctx),
     state: ctx.state,
