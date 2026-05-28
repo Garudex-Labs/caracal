@@ -84,7 +84,7 @@ export interface ResourceInput {
   credential_provider_id?: string | null
 }
 
-export type ProviderKind = 'oauth2_authorization_code' | 'oauth2_client_credentials' | 'api_key' | 'bearer_token'
+export type ProviderKind = 'caracal_mandate' | 'oauth2_authorization_code' | 'oauth2_client_credentials' | 'api_key' | 'bearer_token'
 
 export interface Provider {
   id: string

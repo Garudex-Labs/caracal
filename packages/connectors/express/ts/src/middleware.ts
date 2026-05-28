@@ -5,7 +5,14 @@
 
 import type { NextFunction, Request, RequestHandler, Response } from 'express'
 import type { Claims } from '@caracalai/identity'
-import { authenticate, extractBearer, type AuthDeps, type AuthError } from '@caracalai/transport-mcp'
+import {
+  authenticate,
+  extractBearer,
+  type AuthDeps,
+  type AuthError,
+  type AuthOverrides,
+  type MandateVerifier,
+} from '@caracalai/transport-mcp'
 import {
   bind,
   fromHeaders,
@@ -16,32 +23,42 @@ export interface MiddlewareOptions extends AuthDeps {
   bindContext?: boolean
 }
 
+export interface VerifierMiddlewareOptions {
+  verifier: MandateVerifier
+  bindContext?: boolean
+}
+
 export interface CaracalRequest extends Request {
+  caracal?: Claims
   caracalClaims?: Claims
   caracalContext?: CaracalContext
 }
 
-export function caracalAuth(opts: MiddlewareOptions): RequestHandler {
+export function caracalAuth(opts: MiddlewareOptions | VerifierMiddlewareOptions, route: AuthOverrides = {}): RequestHandler {
   return async (req: CaracalRequest, res: Response, next: NextFunction): Promise<void> => {
     const token = extractBearer(req.headers['authorization'])
     if (!token) {
-      res.status(401).json({ error: 'invalid_token', error_description: 'Missing bearer token' })
+      const { status, body } = mapError({ code: 'missing_token', description: 'Missing bearer token' })
+      res.status(status).json(body)
       return
     }
 
-    const result = await authenticate(token, opts)
+    const result = 'verifier' in opts
+      ? await opts.verifier.authenticate(token, route)
+      : await authenticate(token, { ...opts, ...route })
     if (!result.ok) {
       const { status, body } = mapError(result.error)
       res.status(status).json(body)
       return
     }
 
+    req.caracal = result.principal
     req.caracalClaims = result.principal
 
     const env = fromHeaders(req.headers as Record<string, string | string[] | undefined>)
     const baseCtx: CaracalContext = {
       subjectToken: token,
-      zoneId: result.principal.zoneId ?? opts.zoneId ?? '',
+      zoneId: result.principal.zoneId ?? middlewareZone(opts) ?? '',
       clientId: result.principal.clientId ?? '',
       agentSessionId: env.agentSessionId ?? result.principal.agentSessionId,
       delegationEdgeId: env.delegationEdgeId ?? result.principal.delegationEdgeId,
@@ -63,12 +80,24 @@ export function caracalAuth(opts: MiddlewareOptions): RequestHandler {
   }
 }
 
-function mapError(err: AuthError): { status: number; body: { error: string; error_description: string } } {
+function mapError(err: AuthError): { status: number; body: { error: string; error_description: string; error_hint?: string } } {
   if (err.code === 'insufficient_scope') {
-    return { status: 403, body: { error: 'insufficient_scope', error_description: err.description } }
+    return { status: 403, body: errorBody(err) }
   }
   if (err.code === 'agent_required' || err.code === 'delegation_required') {
-    return { status: 403, body: { error: err.code, error_description: err.description } }
+    return { status: 403, body: errorBody(err) }
   }
-  return { status: 401, body: { error: 'invalid_token', error_description: err.description } }
+  return { status: 401, body: errorBody(err) }
+}
+
+function errorBody(err: AuthError): { error: string; error_description: string; error_hint?: string } {
+  return {
+    error: err.code,
+    error_description: err.description,
+    ...(err.hint ? { error_hint: err.hint } : {}),
+  }
+}
+
+function middlewareZone(opts: MiddlewareOptions | VerifierMiddlewareOptions): string | undefined {
+  return 'verifier' in opts ? opts.verifier.defaults.zoneId : opts.zoneId
 }

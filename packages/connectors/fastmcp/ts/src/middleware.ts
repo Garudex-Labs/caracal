@@ -4,10 +4,10 @@
 // FastMCP token verifier that delegates to @caracalai/transport-mcp.
 
 import { authenticate, extractBearer } from '@caracalai/transport-mcp'
-import type { AuthDeps, AuthErrorCode } from '@caracalai/transport-mcp'
+import type { AuthDeps, AuthErrorCode, AuthOverrides, MandateVerifier } from '@caracalai/transport-mcp'
 import { CaracalError } from '@caracalai/core'
 
-export type FastMcpAuthOptions = AuthDeps
+export type FastMcpAuthOptions = AuthDeps | MandateVerifier
 
 export interface FastMcpContext {
   sub: string
@@ -25,8 +25,11 @@ export class FastMcpAuthError extends CaracalError {
 export async function verifyFastMcpToken(
   token: string,
   opts: FastMcpAuthOptions,
+  route: AuthOverrides = {},
 ): Promise<FastMcpContext> {
-  const result = await authenticate(token, opts)
+  const result = 'authenticate' in opts && 'defaults' in opts
+    ? await opts.authenticate(token, route)
+    : await authenticate(token, { ...opts, ...route })
   if (!result.ok) throw new FastMcpAuthError(result.error.code, result.error.description)
   const claims = result.principal
   return { sub: claims.sub, zoneId: claims.zoneId, scope: claims.scope }
