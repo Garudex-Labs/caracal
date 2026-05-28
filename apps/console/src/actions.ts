@@ -79,6 +79,7 @@ export const actions = {
   reveal: defineAction({ id: 'reveal', key: 'v', label: 'reveal', priority: 'utility', group: 'utility' }),
   mask: defineAction({ id: 'mask', key: 'v', label: 'mask', priority: 'utility', group: 'utility' }),
   copyId: defineAction({ id: 'copy-id', key: 'I', label: 'copy-id', priority: 'secondary', group: 'secondary', requiresSelection: true }),
+  copyPage: defineAction({ id: 'copy-page', key: 'Y', label: 'copy-page', priority: 'secondary', group: 'secondary' }),
   copyName: defineAction({ id: 'copy-name', key: 'N', label: 'copy-name', priority: 'utility', group: 'utility', requiresSelection: true }),
   filter: defineAction({ id: 'filter', key: 'f', label: 'filter', priority: 'primary', group: 'workflow', hiddenWhen: ['loading'] }),
   back: defineAction({ id: 'back', key: 'esc', label: 'back', priority: 'secondary', group: 'navigation' }),

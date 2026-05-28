@@ -490,6 +490,7 @@ class ControlMenuView implements View {
           title: `control / ${v.id}`,
           load: () => controlKeyGet(client, zoneId, v.id!),
           mask: maskSecretField,
+          copyPage: true,
         }))
       },
     })

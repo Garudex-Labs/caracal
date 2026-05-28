@@ -4,6 +4,7 @@
 // ListView and DetailView behavior tests against a fake App.
 
 import { describe, it, expect, vi } from 'vitest'
+import { Buffer } from 'node:buffer'
 import { ListView } from '../../../../apps/console/src/views/list.ts'
 import { DetailView } from '../../../../apps/console/src/views/detail.ts'
 import { EntityPickerView } from '../../../../apps/console/src/views/picker.ts'
@@ -325,6 +326,46 @@ describe('DetailView', () => {
 
     expect(joined).toContain('28 May 2026, 04:48:55 UTC')
     expect(joined).not.toContain('2026-05-28T04:48:55.460Z')
+  })
+
+  it('copies raw page JSON without rendered transformations', async () => {
+    const app = fakeApp()
+    const data = {
+      id: 'z1',
+      created_at: '2026-05-28T04:48:55.460Z',
+      enabled: true,
+      nested_value: { ids: ['a', 'b'] },
+    }
+    const view = new DetailView({ title: 'zone', load: async () => data, copyPage: true })
+    const write = vi.spyOn(process.stdout, 'write').mockImplementation(() => true)
+    try {
+      await view.init(app)
+
+      const ids = view.footerActions().map((action) => action.id)
+      expect(ids).toContain('copy-page')
+      expect(ids).not.toContain('copy-id')
+
+      await view.onKey('Y', { app, size: { rows: 10, cols: 100 }, status: '' })
+      const payload = String(write.mock.calls.at(-1)?.[0] ?? '')
+      const encoded = payload.match(/\u001b\]52;c;([^\u0007]+)\u0007/)?.[1]
+      expect(Buffer.from(encoded ?? '', 'base64').toString('utf8')).toBe(JSON.stringify(data, null, 2))
+      expect(Buffer.from(encoded ?? '', 'base64').toString('utf8')).toContain('2026-05-28T04:48:55.460Z')
+    } finally {
+      write.mockRestore()
+    }
+  })
+
+  it('hides reveal when the page has no hidden content', async () => {
+    const app = fakeApp()
+    const view = new DetailView({
+      title: 'plain',
+      load: async () => ({ id: 'z1', name: 'zone' }),
+      mask: (_value, path) => path[path.length - 1] === 'access_token' ? '••••' : undefined,
+    })
+    await view.init(app)
+
+    expect(view.footerActions().map((action) => action.id)).not.toContain('reveal')
+    expect(view.hints()).not.toContain('v:reveal')
   })
 
   it('groups nested detail data without JSON punctuation', async () => {

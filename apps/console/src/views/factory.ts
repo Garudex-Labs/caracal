@@ -56,8 +56,12 @@ function userResources(resources: Resource[]): Resource[] {
   return resources.filter((resource) => resource.identifier !== audience)
 }
 
-function detail(title: string, load: () => Promise<unknown>): DetailView {
-  return new DetailView({ title, load, mask: maskSecretField })
+function detail(title: string, load: () => Promise<unknown>, copyPage = false): DetailView {
+  return new DetailView({ title, load, mask: maskSecretField, copyPage })
+}
+
+function entityDetail(title: string, load: () => Promise<unknown>): DetailView {
+  return detail(title, load, true)
 }
 
 function open(app: App, view: View): void { app.push(view) }
@@ -500,7 +504,7 @@ export function zonesView(ctx: Ctx): View {
     onEnter: (app, row) => {
       ctx.onZoneSelect?.(row.id, row.slug)
       app.setStatus(`zone set to ${row.name}`)
-      open(app, detail(`zone / ${row.name}`, () => ctx.client.zones.get(row.id)))
+      open(app, entityDetail(`zone / ${row.name}`, () => ctx.client.zones.get(row.id)))
     },
     actions: [
       {
@@ -571,7 +575,7 @@ export function applicationsView(ctx: Ctx): View {
     rowKey: (row) => row.id,
     rowId: (row) => row.id,
     rowName: (row) => row.name,
-    onEnter: (app, row) => open(app, detail(`app / ${row.name}`, () => ctx.client.applications.get(ctx.zoneId, row.id))),
+    onEnter: (app, row) => open(app, entityDetail(`app / ${row.name}`, () => ctx.client.applications.get(ctx.zoneId, row.id))),
     actions: [
       {
         key: 'n', label: 'new', build: () => new FormView({
@@ -705,7 +709,7 @@ export function resourcesView(ctx: Ctx): View {
     rowKey: (row) => row.id,
     rowId: (row) => row.id,
     rowName: named,
-    onEnter: (app, row) => open(app, detail(`resource / ${named(row)}`, () => ctx.client.resources.get(ctx.zoneId, row.id))),
+    onEnter: (app, row) => open(app, entityDetail(`resource / ${named(row)}`, () => ctx.client.resources.get(ctx.zoneId, row.id))),
     actions: [
       {
         key: 'n', label: 'new', build: () => new FormView({
@@ -798,7 +802,7 @@ export function providersView(ctx: Ctx): View {
     rowKey: (row) => row.id,
     rowId: (row) => row.id,
     rowName: named,
-    onEnter: (app, row) => open(app, detail(`provider / ${named(row)}`, () => ctx.client.providers.get(ctx.zoneId, row.id))),
+    onEnter: (app, row) => open(app, entityDetail(`provider / ${named(row)}`, () => ctx.client.providers.get(ctx.zoneId, row.id))),
     actions: [
       {
         key: 'n', label: 'new', build: () => new FormView({
@@ -896,7 +900,7 @@ export function policiesView(ctx: Ctx): View {
     rowKey: (row) => row.id,
     rowId: (row) => row.id,
     rowName: (row) => row.name,
-    onEnter: (app, row) => open(app, detail(`policy / ${row.name}`, () => ctx.client.policies.get(ctx.zoneId, row.id))),
+    onEnter: (app, row) => open(app, entityDetail(`policy / ${row.name}`, () => ctx.client.policies.get(ctx.zoneId, row.id))),
     actions: [
       {
         key: 'n', label: 'new', build: () => new FormView({
@@ -991,7 +995,7 @@ export function policySetsView(ctx: Ctx): View {
     rowKey: (row) => row.id,
     rowId: (row) => row.id,
     rowName: (row) => row.name,
-    onEnter: (app, row) => open(app, detail(`policy set / ${row.name}`, () => ctx.client.policySets.get(ctx.zoneId, row.id))),
+    onEnter: (app, row) => open(app, entityDetail(`policy set / ${row.name}`, () => ctx.client.policySets.get(ctx.zoneId, row.id))),
     actions: [
       {
         key: 'n', label: 'new', build: () => new FormView({
@@ -1105,7 +1109,7 @@ export function grantsView(ctx: Ctx): View {
     rowKey: (row) => row.id,
     rowId: (row) => row.id,
     rowName: (row) => `${row.application_name} → ${row.resource_name}`,
-    onEnter: (app, row) => open(app, detail(`grant / ${row.id}`, () => ctx.client.grants.get(ctx.zoneId, row.id))),
+    onEnter: (app, row) => open(app, entityDetail(`grant / ${row.id}`, () => ctx.client.grants.get(ctx.zoneId, row.id))),
     actions: [
       {
         key: 'n', label: 'new', build: () => new FormView({
@@ -1288,7 +1292,7 @@ function delegationActiveView(ctx: Ctx): ListView<DelegationRow> {
     rowKey: (row) => row.id,
     rowId: (row) => row.id,
     rowName: (row) => `${row.source_session_id} → ${row.target_session_id}`,
-    onEnter: (app, row) => open(app, detail(`delegation / ${row.id}`, async () => row)),
+    onEnter: (app, row) => open(app, entityDetail(`delegation / ${row.id}`, async () => row)),
   })
 }
 
@@ -1310,7 +1314,7 @@ function delegationEdgesView(ctx: Ctx, kind: 'inbound' | 'outbound', sessionId: 
     rowKey: (row) => row.id,
     rowId: (row) => row.id,
     rowName: (row) => `${row.source_session_id} → ${row.target_session_id}`,
-    onEnter: (app, row) => open(app, detail(`delegation / ${row.id}`, async () => row)),
+    onEnter: (app, row) => open(app, entityDetail(`delegation / ${row.id}`, async () => row)),
     actions: [
       {
         key: 't', label: 'traverse', build: (row) => {
@@ -1350,7 +1354,7 @@ function delegationTraverseView(ctx: Ctx, id: string): ListView<TraverseNode> {
     rowKey: (row) => row.id,
     rowId: (row) => row.id,
     rowName: (row) => `${row.source_session_id} → ${row.target_session_id}`,
-    onEnter: (app, row) => open(app, detail(`delegation-node / ${row.id}`, async () => row)),
+    onEnter: (app, row) => open(app, entityDetail(`delegation-node / ${row.id}`, async () => row)),
   })
 }
 
@@ -1371,7 +1375,7 @@ export function agentsView(ctx: Ctx): View {
     rowKey: (row) => row.agent_session_id,
     rowId: (row) => row.agent_session_id,
     rowName: (row) => row.application_name,
-    onEnter: (app, row) => open(app, detail(`agent / ${row.agent_session_id}`, () => ctx.client.agents.get(ctx.zoneId, row.agent_session_id))),
+    onEnter: (app, row) => open(app, entityDetail(`agent / ${row.agent_session_id}`, () => ctx.client.agents.get(ctx.zoneId, row.agent_session_id))),
     actions: [
       {
         key: 's', label: 'suspend', build: (row) => {

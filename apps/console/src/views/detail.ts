@@ -15,6 +15,7 @@ export interface DetailOptions {
   title: string
   load: () => Promise<unknown>
   mask?: (value: unknown, path: string[]) => string | undefined
+  copyPage?: boolean
   info?: InfoPage
 }
 
@@ -22,6 +23,7 @@ export class DetailView implements View {
   readonly title: string
   private readonly loader: () => Promise<unknown>
   private readonly mask?: (value: unknown, path: string[]) => string | undefined
+  private readonly copyPage: boolean
   private readonly info: InfoPage
   private data: unknown
   private body: string[] = [' loading…']
@@ -30,19 +32,21 @@ export class DetailView implements View {
   private error: string | undefined
   private aborted = false
   private revealed = false
+  private hasHidden = false
   private app: App | undefined
 
   constructor(opts: DetailOptions) {
     this.title = opts.title
     this.loader = opts.load
     this.mask = opts.mask
+    this.copyPage = opts.copyPage === true
     this.info = opts.info ?? actionInfo(opts.title, 'This view shows the latest structured record data from the API.')
   }
 
   hints(): string[] {
     const base = ['↑/↓:scroll', 'r:reload', '?:info', 'esc:back']
-    if (this.mask) base.push(this.revealed ? 'v:mask' : 'v:reveal')
-    if (this.recordId()) base.push('I:copy-id')
+    if (this.canReveal()) base.push(this.revealed ? 'v:mask' : 'v:reveal')
+    if (this.canCopyPage()) base.push('Y:copy-page')
     return base
   }
 
@@ -50,12 +54,12 @@ export class DetailView implements View {
     const definitions = [
       actions.scroll,
       actions.reload,
-      this.recordId() ? actions.copyId : undefined,
-      this.mask ? (this.revealed ? actions.mask : actions.reveal) : undefined,
+      this.canCopyPage() ? actions.copyPage : undefined,
+      this.canReveal() ? (this.revealed ? actions.mask : actions.reveal) : undefined,
       actions.back,
     ].filter((item): item is NonNullable<typeof item> => Boolean(item))
     return composeActions(definitions, {
-      selection: this.recordId() ? 'single' : 'none',
+      selection: this.canCopyPage() ? 'single' : 'none',
       flags: this.loading ? ['loading'] : this.error ? ['error'] : undefined,
     })
   }
@@ -74,6 +78,8 @@ export class DetailView implements View {
       const data = await this.loader()
       if (this.aborted) return
       this.data = data
+      this.hasHidden = this.mask ? hasMaskedContent(data, this.mask) : false
+      if (!this.hasHidden) this.revealed = false
       this.rebuild()
       this.offset = 0
     } catch (err) {
@@ -110,15 +116,15 @@ export class DetailView implements View {
     if (key === 'home' || key === 'g') { this.offset = 0; return }
     if (key === 'end' || key === 'G') { this.offset = max; return }
     if (key === 'r') return this.reload()
-    if (key === 'I') {
-      this.copyId(ctx.app)
+    if (key === 'Y' && this.canCopyPage()) {
+      this.copyPageJson(ctx.app)
       return
     }
     if (key === '?') {
       openInfo(ctx.app, this.info)
       return
     }
-    if (key === 'v' && this.mask) {
+    if (key === 'v' && this.canReveal()) {
       this.revealed = !this.revealed
       this.rebuild()
       ctx.app.invalidate()
@@ -127,17 +133,22 @@ export class DetailView implements View {
     if (key === 'left' || key === 'esc') ctx.app.pop()
   }
 
-  private recordId(): string | undefined {
-    if (!this.data || typeof this.data !== 'object' || Array.isArray(this.data)) return undefined
-    const id = (this.data as Record<string, unknown>).id
-    return typeof id === 'string' && id.length > 0 ? id : undefined
+  private canCopyPage(): boolean {
+    return !this.loading && !this.error && this.copyPage && this.data !== undefined && this.data !== null && typeof this.data === 'object' && !Array.isArray(this.data)
   }
 
-  private copyId(app: App): void {
-    const id = this.recordId()
-    if (!id) return
-    copyToClipboard(id)
-    app.setStatus(`copied id ${id}`)
+  private canReveal(): boolean {
+    return !this.loading && !this.error && this.hasHidden
+  }
+
+  private copyPageJson(app: App): void {
+    const json = JSON.stringify(this.data, null, 2)
+    if (json === undefined) {
+      app.setStatus('page cannot be serialized', 'error')
+      return
+    }
+    copyToClipboard(json)
+    app.setStatus(`copied page JSON`)
   }
 }
 
@@ -271,6 +282,13 @@ function isScalar(value: unknown): boolean {
 function maskedValue(value: unknown, path: string[], mask: DetailMask | undefined, revealed: boolean): string | undefined {
   if (!mask || revealed) return undefined
   return mask(value, path)
+}
+
+function hasMaskedContent(value: unknown, mask: DetailMask, path: string[] = []): boolean {
+  if (mask(value, path) !== undefined) return true
+  if (!value || typeof value !== 'object' || value instanceof Date) return false
+  if (Array.isArray(value)) return value.some((item, index) => hasMaskedContent(item, mask, [...path, String(index)]))
+  return Object.entries(value as Record<string, unknown>).some(([key, child]) => hasMaskedContent(child, mask, [...path, key]))
 }
 
 function section(title: string, depth: number): string[] {
