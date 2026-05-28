@@ -563,7 +563,7 @@ func applyProviderDirective(provider *ProviderConfig, directive *UpstreamDirecti
 		directive.AuthMode = UpstreamAuthProviderAPIKey
 		directive.AuthHeader = header
 		directive.AuthScheme = strings.TrimSpace(cfg.AuthScheme)
-	case "", "oauth2", "oidc":
+	case "", "oauth2":
 		directive.AuthMode = UpstreamAuthProviderOAuth
 		if header := strings.TrimSpace(cfg.AuthHeader); header != "" {
 			if !validProviderHeaderName(header) {

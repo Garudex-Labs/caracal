@@ -109,7 +109,7 @@ func (s *Server) refreshExpiredBrokeredGrant(ctx context.Context, zoneID, userID
 	if err != nil {
 		return sharederr.New(sharederr.CredentialExpired, "credential_expired_not_renewable")
 	}
-	if kind := derefStr(provider.ProviderKind); kind != "" && kind != "oauth2" && kind != "oidc" {
+	if kind := derefStr(provider.ProviderKind); kind != "" && kind != "oauth2" {
 		return sharederr.New(sharederr.CredentialExpired, "credential_expired_not_renewable")
 	}
 	var provCfg struct {
