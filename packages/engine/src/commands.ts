@@ -142,27 +142,16 @@ export const MANAGEMENT_COMMANDS: readonly CommandDescriptor[] = Object.freeze([
     flags: {
       create: [
         { name: '--name', summary: 'Application name' },
-        { name: '--credential-type', summary: 'Credential type' },
         { name: '--client-secret', summary: 'Client secret' },
-        { name: '--method', summary: 'Auth method' },
-        { name: '--traits', summary: 'Comma-separated application traits' },
-        { name: '--consent', summary: 'Require consent' },
-        { name: '--expires-in', summary: 'Token expiry seconds' },
       ],
       patch: [
         { name: '--name', summary: 'Application name' },
-        { name: '--credential-type', summary: 'Credential type' },
         { name: '--client-secret', summary: 'Client secret' },
-        { name: '--traits', summary: 'Comma-separated application traits' },
-        { name: '--consent', summary: 'Require consent (=true|false)' },
-        { name: '--expires-in', summary: 'Token expiry seconds' },
       ],
       dcr: [
         { name: '--name', summary: 'Application name' },
-        { name: '--credential-type', summary: 'Credential type' },
         { name: '--client-secret', summary: 'Client secret to register' },
-        { name: '--traits', summary: 'Comma-separated application traits' },
-        { name: '--expires-in', summary: 'Token expiry seconds' },
+        { name: '--expires-in', summary: 'Client lifetime seconds' },
       ],
     },
   },

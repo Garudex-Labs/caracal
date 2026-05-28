@@ -152,7 +152,6 @@ export async function controlKeyCreate(
       ...(maxTtlSeconds ? [`${CONTROL_MAX_TTL_TRAIT_PREFIX}${maxTtlSeconds}`] : []),
       ...(expiresAt ? [`${CONTROL_EXPIRES_TRAIT_PREFIX}${expiresAt}`] : []),
     ],
-    consent: false,
   })
   return { application, clientSecret, resource, allowedScopes, maxTtlSeconds, expiresAt }
 }

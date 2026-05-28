@@ -107,7 +107,9 @@ func (d *DB) GetApplicationByID(ctx context.Context, id, zoneID string) (*Applic
 	var a Application
 	err := d.pool.QueryRow(ctx,
 		`SELECT id, zone_id, name, registration_method, credential_type, client_secret_hash, traits
-		 FROM applications WHERE id = $1 AND zone_id = $2`, id, zoneID,
+		 FROM applications
+		 WHERE id = $1 AND zone_id = $2 AND archived_at IS NULL
+		   AND (expires_at IS NULL OR expires_at > now())`, id, zoneID,
 	).Scan(&a.ID, &a.ZoneID, &a.Name, &a.RegistrationMethod, &a.CredentialType, &a.ClientSecretHash, &a.Traits)
 	if err != nil {
 		return nil, err
