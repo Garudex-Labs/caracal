@@ -185,6 +185,25 @@ describe('FormView input UX', () => {
     expect(help).toContain('Upstream values affect where Gateway sends protected traffic')
   })
 
+  it('uses operational field help instead of generic boilerplate', async () => {
+    const view = new FormView({
+      title: 'create object',
+      fields: [{ key: 'name', label: 'name', kind: 'text', required: true }],
+      onSubmit: async () => {},
+    })
+    const app = fakeApp()
+    const ctx = { app, size: { rows: 12, cols: 100 }, status: '' }
+
+    await view.onKey('?', ctx)
+
+    const info = vi.mocked(app.push).mock.calls.at(-1)![0] as { render: FormView['render'] }
+    const help = info.render(ctx).join('\n')
+    expect(help).toContain('operator-facing label')
+    expect(help).toContain('operators should recognize')
+    expect(help).not.toContain('form needs a concrete value')
+    expect(help).not.toContain('supplies the value used by the current Console workflow')
+  })
+
   it('marks fields that control conditional fields and explains affected fields', async () => {
     const view = new FormView({
       title: 'conditional',

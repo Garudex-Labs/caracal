@@ -42,8 +42,8 @@ export function fieldInfo(label: string, kind: string, hint?: string, opts: Fiel
   const required = opts.required ? 'Required for this path.' : 'Optional for this path.'
   return {
     title,
-    meaning: hint ? sentence(hint) : `${title} supplies the value used by the current Console workflow.`,
-    when: whenFor(kind, opts),
+    meaning: hint ? sentence(hint) : meaningFor(kind, title),
+    when: whenFor(kind, title, opts),
     impact: impactFor(kind, title),
     example: exampleFor(kind, title, opts.options),
     valid: `${required} ${validFor(kind, opts.options)}`,
@@ -171,13 +171,62 @@ function sentence(value: string): string {
   return /[.!?]$/.test(text) ? text : `${text}.`
 }
 
-function whenFor(kind: string, opts: FieldInfoOpts): string {
+function meaningFor(kind: string, title: string): string {
+  const label = title.toLowerCase()
+  if (label.includes('name')) return `${title} is the operator-facing label shown in lists, pickers, details, and setup output.`
+  if (label.includes('identifier')) return `${title} is a stable API-facing value used by clients, policy input, tokens, and audit records.`
+  if (label.includes('scope')) return `${title} defines named permissions that requests, grants, and policies evaluate.`
+  if (label.includes('subject')) return `${title} identifies the user, workload, or actor receiving authority.`
+  if (label.includes('secret') || kind === 'secret') return `${title} is sensitive credential material used to authenticate an application or upstream integration.`
+  if (label.includes('token endpoint')) return `${title} is the upstream endpoint used for OAuth token exchange or refresh.`
+  if (label.includes('authorization endpoint')) return `${title} is the browser-facing OAuth URL used when an upstream provider needs authorization redirects.`
+  if (label.includes('issuer')) return `${title} is the authority URL that signs or describes identity tokens.`
+  if (label.includes('upstream') || label.includes('url')) return `${title} points Console or Gateway at the external service endpoint for this workflow.`
+  if (label.includes('audience')) return `${title} is the audience value expected by the provider or protected service.`
+  if (label.includes('path')) return `${title} is a local file path or request path used by the generated workflow output.`
+  if (label.includes('env')) return `${title} names the environment variable shown in generated runtime commands.`
+  if (label.includes('mode') || label.includes('action') || kind === 'select') return `${title} chooses the workflow branch and determines which fields or API path apply.`
+  if (kind === 'bool') return `${title} toggles a specific behavior in the request being built.`
+  if (kind === 'list') return `${title} is a comma-separated set of values sent as a structured list.`
+  if (kind === 'file') return `${title} is read once and sent as content when the form is submitted.`
+  if (kind === 'multiline') return `${title} is multi-line content saved or validated for the selected object.`
+  return `${title} is the value Console sends for this field in the current API request.`
+}
+
+function whenFor(kind: string, title: string, opts: FieldInfoOpts): string {
+  const label = title.toLowerCase()
   if (opts.advanced) return 'Use this only when the inferred default or standard picker does not match an enterprise or non-standard setup.'
-  if (opts.picker) return 'Use the picker when the object already exists; type only when the flow accepts a new value.'
-  if (kind === 'select') return 'Choose the option that matches the integration path you are configuring.'
-  if (kind === 'file') return 'Use this when the content already exists in a local file.'
-  if (kind === 'multiline') return 'Use this when the content is easier to paste or author directly in Console.'
-  return 'Use this when the form needs a concrete value before it can continue.'
+  if (opts.picker) return `Pick an existing ${entityName(label)} when reusing configured state; type only when the flow accepts a new value.`
+  if (label.includes('name')) return 'Enter the name operators should recognize later in lists, pickers, grants, audit views, and setup output.'
+  if (label.includes('identifier')) return 'Set this only when clients, policies, or automation need a stable identifier that differs from the generated default.'
+  if (label.includes('scope')) return 'Use the scopes that the application will request and that grants or policies should be able to authorize.'
+  if (label.includes('subject')) return 'Use the subject identity that should receive or be inspected for authority in this zone.'
+  if (label.includes('secret') || kind === 'secret') return 'Paste this only while registering, rotating, or writing a credential that Console cannot retrieve later.'
+  if (label.includes('token endpoint')) return 'Use the exact HTTPS endpoint exposed by the upstream provider for token exchange.'
+  if (label.includes('authorization endpoint')) return 'Use this only for provider flows that require browser authorization redirects.'
+  if (label.includes('issuer')) return 'Use the issuer URL from the upstream identity provider or workload trust configuration.'
+  if (label.includes('upstream') || label.includes('url')) return 'Use this when Gateway or provider integration must call a concrete external endpoint.'
+  if (label.includes('audience')) return 'Use the audience expected by the target service or identity provider.'
+  if (label.includes('path')) return 'Use this when generated output should point to a specific file location or first request route.'
+  if (label.includes('env')) return 'Use this when generated commands should expose the token under a predictable environment variable.'
+  if (label.includes('mode') || label.includes('action') || kind === 'select') return 'Choose the branch that matches the operational path; dependent fields below may change.'
+  if (kind === 'bool') return 'Toggle this only when you want the corresponding request behavior to change.'
+  if (kind === 'file') return 'Use this when the source is maintained as a local file instead of pasted into Console.'
+  if (kind === 'multiline') return 'Use this when policy, JSON, or other structured content is easier to paste or author directly.'
+  if (kind === 'list') return 'Use this when the API field expects multiple values rather than one string.'
+  return 'Fill this when the API request needs this value to create, update, filter, or inspect the selected object.'
+}
+
+function entityName(label: string): string {
+  if (label.includes('zone')) return 'zone'
+  if (label.includes('app')) return 'application'
+  if (label.includes('resource')) return 'resource'
+  if (label.includes('provider')) return 'provider'
+  if (label.includes('policy set')) return 'policy set'
+  if (label.includes('policy')) return 'policy'
+  if (label.includes('grant')) return 'grant'
+  if (label.includes('session')) return 'session'
+  return 'object'
 }
 
 function impactFor(kind: string, title: string): string {
@@ -189,7 +238,7 @@ function impactFor(kind: string, title: string): string {
   if (label.includes('upstream')) return 'Upstream values affect where Gateway sends protected traffic.'
   if (kind === 'bool') return 'This toggles behavior in the API request; leave unchanged unless you intend that behavior change.'
   if (kind === 'file') return 'Console reads the file once at submit time; later file edits do not change the saved object.'
-  return 'This value is sent as part of the API request for the current workflow.'
+  return 'Console sends this value in the API request for the selected object.'
 }
 
 function termsFor(title: string): InfoPair[] | undefined {

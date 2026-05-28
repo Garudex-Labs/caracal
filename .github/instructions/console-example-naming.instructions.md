@@ -36,3 +36,4 @@ applyTo: "{apps/console/**,tests/typescript/unit/console/**}"
 - Prefer slugged identifiers only where the backend/API value is specifically being illustrated.
 - Match the entity type: use an AI name for an Application/agent, a product name for a Resource, a company name for a Zone or organization-like boundary, and a person name for a user/session subject.
 - Use reserved example domains only when a URL is required, with the approved brand in the host, such as `https://api.pipernet.example` or `https://login.hooli.example/oauth/token`.
+- Do not use generic help boilerplate such as "Use this when the form needs a concrete value before it can continue" or "supplies the value used by the current workflow"; explain the field's operational purpose and downstream impact.

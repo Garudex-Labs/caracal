@@ -837,7 +837,7 @@ function fileInfo(): InfoPage {
     title: 'File picker',
     meaning: 'Choose a local file for policy content or provider JSON.',
     when: 'Use it when the source is maintained outside the Console.',
-    impact: 'The selected file is read at submit time and its contents are sent to the current workflow.',
+    impact: 'The selected file is read at submit time and its contents are sent for the selected object.',
     example: '/home/richard/pied-piper/policies/pipernet.rego',
     valid: 'Pick a file under the current directory, or press : and enter an absolute path.',
     after: 'The selected path is placed into the form; submit reads the file content once.',
