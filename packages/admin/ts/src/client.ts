@@ -9,6 +9,7 @@ import type {
   AgentSession,
   Application,
   ApplicationInput,
+  ApplicationPatchInput,
   AuditDetail,
   AuditEvent,
   AuditQuery,
@@ -67,6 +68,7 @@ const DEFAULT_TIMEOUT_MS = 30_000
 const DEFAULT_RETRIES = 3
 const MAX_RETRY_AFTER_MS = 30_000
 const CONTROL_RESOURCE_HEADER = 'x-caracal-control-resource'
+const APPLICATION_INTERNALS_HEADER = 'x-caracal-application-internals'
 
 function jitterBackoff(attempt: number): number {
   const base = Math.min(2 ** attempt * 250, 5_000)
@@ -192,11 +194,17 @@ export class AdminClient {
 
   // Applications
   applications = {
-    list: (zoneId: string) => this.request<Application[]>(`/v1/zones/${zoneId}/applications`),
-    get: (zoneId: string, id: string) => this.request<Application>(`/v1/zones/${zoneId}/applications/${id}`),
+    list: (zoneId: string, opts?: { applicationInternals?: boolean }) =>
+      this.request<Application[]>(`/v1/zones/${zoneId}/applications`, {
+        headers: opts?.applicationInternals ? { [APPLICATION_INTERNALS_HEADER]: 'control' } : undefined,
+      }),
+    get: (zoneId: string, id: string, opts?: { applicationInternals?: boolean }) =>
+      this.request<Application>(`/v1/zones/${zoneId}/applications/${id}`, {
+        headers: opts?.applicationInternals ? { [APPLICATION_INTERNALS_HEADER]: 'control' } : undefined,
+      }),
     create: (zoneId: string, input: ApplicationInput) =>
       this.request<Application>(`/v1/zones/${zoneId}/applications`, { method: 'POST', body: input }),
-    patch: (zoneId: string, id: string, input: Partial<ApplicationInput>) =>
+    patch: (zoneId: string, id: string, input: ApplicationPatchInput) =>
       this.request<Application>(`/v1/zones/${zoneId}/applications/${id}`, { method: 'PATCH', body: input }),
     delete: (zoneId: string, id: string) =>
       this.request<void>(`/v1/zones/${zoneId}/applications/${id}`, { method: 'DELETE', expectEmpty: true }),

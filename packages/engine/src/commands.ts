@@ -142,7 +142,6 @@ export const MANAGEMENT_COMMANDS: readonly CommandDescriptor[] = Object.freeze([
     flags: {
       create: [
         { name: '--name', summary: 'Application name' },
-        { name: '--client-secret', summary: 'Client secret' },
       ],
       patch: [
         { name: '--name', summary: 'Application name' },
@@ -150,7 +149,6 @@ export const MANAGEMENT_COMMANDS: readonly CommandDescriptor[] = Object.freeze([
       ],
       dcr: [
         { name: '--name', summary: 'Application name' },
-        { name: '--client-secret', summary: 'Client secret to register' },
         { name: '--expires-in', summary: 'Client lifetime seconds' },
       ],
     },

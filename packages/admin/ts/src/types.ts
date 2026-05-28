@@ -21,31 +21,32 @@ export interface ZoneInput {
 }
 
 export type RegistrationMethod = 'managed' | 'dcr'
-export type CredentialType = 'token' | 'password' | 'public-key' | 'url' | 'public'
 
 export interface Application {
   id: string
   zone_id: string
   name: string
   registration_method: RegistrationMethod
-  credential_type: CredentialType
-  traits: string[]
+  traits?: string[]
   expires_at?: string | null
+  client_secret?: string
   created_at: string
 }
 
 export interface ApplicationInput {
   name: string
   registration_method: 'managed'
-  credential_type?: 'token'
+  traits?: string[]
+}
+
+export interface ApplicationPatchInput {
+  name?: string
   client_secret?: string
   traits?: string[]
 }
 
 export interface DCRInput {
   name: string
-  credential_type?: 'token'
-  client_secret?: string
   traits?: string[]
   expires_in?: number
 }
