@@ -1,9 +1,10 @@
 // Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 // Caracal, a product of Garudex Labs
 //
-// Provider CRUD routes for upstream OAuth2 and API-key credential sources.
+// Provider CRUD routes for upstream provider-native credential sources.
 
 import type { FastifyPluginAsync } from 'fastify'
+import { loadZoneKek, seal } from '@caracalai/core'
 import { z } from 'zod'
 import { v7 as uuidv7 } from 'uuid'
 import { buildPatchUpdate, patchColumn, patchExpression } from './patch.js'
@@ -11,8 +12,10 @@ import { ZoneIdParams, ZoneParams, parseParams } from './params.js'
 import { zoneExists } from '../zone-guard.js'
 import { appendKeysetCondition, parseListPagination, setNextLink } from './list-pagination.js'
 
-const ProviderKind = z.enum(['oauth2', 'apikey'])
+const ProviderKind = z.enum(['oauth2_authorization_code', 'oauth2_client_credentials', 'api_key', 'bearer_token'])
 type ProviderKind = z.infer<typeof ProviderKind>
+const OAuthClientAuthMethod = z.enum(['client_secret_basic', 'client_secret_post', 'none'])
+type OAuthClientAuthMethod = z.infer<typeof OAuthClientAuthMethod>
 
 const ProviderCreateBody = z.object({
   name: z.string().min(1).optional(),
@@ -23,9 +26,38 @@ const ProviderCreateBody = z.object({
 
 const ProviderPatchBody = ProviderCreateBody.partial()
 
-const PROVIDER_CONFIG_KEYS: Record<ProviderKind, ReadonlySet<string>> = {
-  oauth2: new Set(['token_endpoint', 'allowed_token_hosts', 'auth_header', 'auth_scheme', 'forward_caracal_identity']),
-  apikey: new Set(['header_name', 'auth_scheme', 'forward_caracal_identity']),
+const PUBLIC_PROVIDER_CONFIG_KEYS: Record<ProviderKind, ReadonlySet<string>> = {
+  oauth2_authorization_code: new Set([
+    'authorization_endpoint',
+    'token_endpoint',
+    'redirect_uri',
+    'client_id',
+    'client_auth_method',
+    'scopes',
+    'allowed_token_hosts',
+    'auth_header',
+    'auth_scheme',
+    'forward_caracal_identity',
+  ]),
+  oauth2_client_credentials: new Set([
+    'token_endpoint',
+    'client_id',
+    'client_auth_method',
+    'scopes',
+    'allowed_token_hosts',
+    'auth_header',
+    'auth_scheme',
+    'forward_caracal_identity',
+  ]),
+  api_key: new Set(['header_name', 'auth_scheme', 'forward_caracal_identity']),
+  bearer_token: new Set(['auth_header', 'auth_scheme', 'forward_caracal_identity']),
+}
+
+const SECRET_PROVIDER_CONFIG_KEYS: Record<ProviderKind, ReadonlySet<string>> = {
+  oauth2_authorization_code: new Set(['client_secret']),
+  oauth2_client_credentials: new Set(['client_secret']),
+  api_key: new Set(['api_key']),
+  bearer_token: new Set(['bearer_token']),
 }
 
 function requireString(config: Record<string, unknown>, key: string, message: string): void {
@@ -47,21 +79,71 @@ function requireOptionalBoolean(config: Record<string, unknown>, key: string, me
   if (config[key] !== undefined && typeof config[key] !== 'boolean') throw new Error(message)
 }
 
-function validateProviderConfig(kind: ProviderKind, input: Record<string, unknown> | undefined): Record<string, unknown> {
+function requireOptionalStringList(config: Record<string, unknown>, key: string, message: string): void {
+  if (config[key] !== undefined) requireStringList(config, key, message)
+}
+
+function requireOptionalOAuthClientAuthMethod(config: Record<string, unknown>): OAuthClientAuthMethod {
+  const method = config.client_auth_method
+  if (method === undefined) return 'client_secret_basic'
+  const parsed = OAuthClientAuthMethod.safeParse(method)
+  if (!parsed.success) throw new Error('oauth2 provider config client_auth_method is invalid')
+  return parsed.data
+}
+
+function splitProviderConfig(kind: ProviderKind, input: Record<string, unknown> | undefined, requireSecrets: boolean): {
+  publicConfig: Record<string, unknown>
+  secretConfig: Record<string, string>
+  secretKeys: string[]
+} {
   const config = input ?? {}
-  const allowed = PROVIDER_CONFIG_KEYS[kind]
+  const publicAllowed = PUBLIC_PROVIDER_CONFIG_KEYS[kind]
+  const secretAllowed = SECRET_PROVIDER_CONFIG_KEYS[kind]
+  const allowed = new Set([...publicAllowed, ...secretAllowed])
   const unknown = Object.keys(config).filter((key) => !allowed.has(key))
   if (unknown.length > 0) throw new Error(`${kind} provider config has unsupported keys: ${unknown.join(', ')}`)
-  if (kind === 'apikey') {
-    requireString(config, 'header_name', 'apikey provider config requires header_name')
-  } else {
-    requireString(config, 'token_endpoint', 'oauth2 provider config requires token_endpoint')
-    requireStringList(config, 'allowed_token_hosts', 'oauth2 provider config requires allowed_token_hosts')
-    requireOptionalString(config, 'auth_header', 'oauth2 provider config auth_header must be a string')
+
+  const publicConfig: Record<string, unknown> = {}
+  const secretConfig: Record<string, string> = {}
+  for (const [key, value] of Object.entries(config)) {
+    if (secretAllowed.has(key)) {
+      if (typeof value !== 'string' || value.trim().length === 0) throw new Error(`${kind} provider config ${key} must be a non-empty string`)
+      secretConfig[key] = value
+    } else {
+      publicConfig[key] = value
+    }
   }
-  requireOptionalString(config, 'auth_scheme', `${kind} provider config auth_scheme must be a string`)
-  requireOptionalBoolean(config, 'forward_caracal_identity', `${kind} provider config forward_caracal_identity must be a boolean`)
-  return config
+
+  if (kind === 'api_key') {
+    requireString(publicConfig, 'header_name', 'api_key provider config requires header_name')
+    if (requireSecrets && !secretConfig.api_key) throw new Error('api_key provider config requires api_key')
+  } else if (kind === 'bearer_token') {
+    if (requireSecrets && !secretConfig.bearer_token) throw new Error('bearer_token provider config requires bearer_token')
+    requireOptionalString(publicConfig, 'auth_header', 'bearer_token provider config auth_header must be a string')
+  } else {
+    requireString(publicConfig, 'token_endpoint', `${kind} provider config requires token_endpoint`)
+    requireString(publicConfig, 'client_id', `${kind} provider config requires client_id`)
+    requireStringList(publicConfig, 'allowed_token_hosts', `${kind} provider config requires allowed_token_hosts`)
+    requireOptionalStringList(publicConfig, 'scopes', `${kind} provider config scopes must be a list of strings`)
+    requireOptionalString(publicConfig, 'auth_header', `${kind} provider config auth_header must be a string`)
+    const clientAuthMethod = requireOptionalOAuthClientAuthMethod(publicConfig)
+    publicConfig.client_auth_method = clientAuthMethod
+    if (kind === 'oauth2_authorization_code') {
+      requireString(publicConfig, 'authorization_endpoint', 'oauth2_authorization_code provider config requires authorization_endpoint')
+      requireString(publicConfig, 'redirect_uri', 'oauth2_authorization_code provider config requires redirect_uri')
+    }
+    if (requireSecrets && clientAuthMethod !== 'none' && !secretConfig.client_secret) {
+      throw new Error(`${kind} provider config requires client_secret`)
+    }
+  }
+  requireOptionalString(publicConfig, 'auth_scheme', `${kind} provider config auth_scheme must be a string`)
+  requireOptionalBoolean(publicConfig, 'forward_caracal_identity', `${kind} provider config forward_caracal_identity must be a boolean`)
+  return { publicConfig, secretConfig, secretKeys: Object.keys(secretConfig).sort() }
+}
+
+function sealSecretConfig(secretConfig: Record<string, string>): { ciphertext: Buffer, nonce: Buffer } | null {
+  if (Object.keys(secretConfig).length === 0) return null
+  return seal(loadZoneKek(), Buffer.from(JSON.stringify(secretConfig), 'utf8'))
 }
 
 interface ProviderRow {
@@ -71,12 +153,13 @@ interface ProviderRow {
   identifier: string
   kind: string
   config_json: unknown
+  secret_config_keys: string[]
   created_at: string
   updated_at: string
 }
 
 const RETURNING = `id, zone_id, name, identifier, provider_kind AS kind,
-                  config_json, created_at, updated_at`
+                  config_json, secret_config_keys, created_at, updated_at`
 
 export const providersRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.get('/zones/:zoneId/providers', async (req, reply) => {
@@ -120,15 +203,17 @@ export const providersRoutes: FastifyPluginAsync = async (fastify) => {
     if (!parsed.success) return reply.code(400).send({ error: 'invalid_provider' })
     const body = parsed.data
     const id = uuidv7()
-    let config: Record<string, unknown>
+    let config: ReturnType<typeof splitProviderConfig>
     try {
-      config = validateProviderConfig(body.kind, body.config_json)
+      config = splitProviderConfig(body.kind, body.config_json, true)
     } catch (err) {
       return reply.code(400).send({ error: 'invalid_provider_config', message: err instanceof Error ? err.message : String(err) })
     }
+    const sealed = sealSecretConfig(config.secretConfig)
     const { rows } = await fastify.db.query<ProviderRow>(
-      `INSERT INTO providers (id, zone_id, name, identifier, provider_kind, config_json)
-       VALUES ($1, $2, $3, $4, $5, $6::jsonb)
+      `INSERT INTO providers (id, zone_id, name, identifier, provider_kind, config_json,
+                              secret_config_ct, secret_config_nonce, secret_config_keys)
+       VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8, $9)
        RETURNING ${RETURNING}`,
       [
         id,
@@ -136,7 +221,10 @@ export const providersRoutes: FastifyPluginAsync = async (fastify) => {
         body.name ?? body.identifier,
         body.identifier,
         body.kind,
-        JSON.stringify(config),
+        JSON.stringify(config.publicConfig),
+        sealed?.ciphertext ?? null,
+        sealed?.nonce ?? null,
+        config.secretKeys,
       ],
     )
     return reply.code(201).send(rows[0])
@@ -152,7 +240,8 @@ export const providersRoutes: FastifyPluginAsync = async (fastify) => {
     if (body.kind !== undefined && body.config_json === undefined) {
       return reply.code(400).send({ error: 'provider_config_required' })
     }
-    let config: Record<string, unknown> | undefined
+    let config: ReturnType<typeof splitProviderConfig> | undefined
+    let sealed: { ciphertext: Buffer, nonce: Buffer } | null = null
     if (body.config_json !== undefined) {
       let kind = body.kind
       if (!kind) {
@@ -164,20 +253,25 @@ export const providersRoutes: FastifyPluginAsync = async (fastify) => {
         kind = rows[0].kind
       }
       try {
-        config = validateProviderConfig(kind, body.config_json)
+        config = splitProviderConfig(kind, body.config_json, body.kind !== undefined)
+        sealed = sealSecretConfig(config.secretConfig)
       } catch (err) {
         return reply.code(400).send({ error: 'invalid_provider_config', message: err instanceof Error ? err.message : String(err) })
       }
     }
 
+    const clearSecrets = body.kind !== undefined && config !== undefined && sealed === null
     const update = buildPatchUpdate([params.id, params.zoneId], [
       patchColumn('name', body.name),
       patchColumn('identifier', body.identifier),
       patchColumn('provider_kind', body.kind),
       patchExpression(
-        config ? JSON.stringify(config) : undefined,
+        config ? JSON.stringify(config.publicConfig) : undefined,
         (placeholder) => `config_json = ${placeholder}::jsonb`,
       ),
+      patchColumn('secret_config_ct', sealed?.ciphertext ?? (clearSecrets ? null : undefined)),
+      patchColumn('secret_config_nonce', sealed?.nonce ?? (clearSecrets ? null : undefined)),
+      patchColumn('secret_config_keys', config && (sealed || clearSecrets) ? config.secretKeys : undefined),
     ])
     if (!update) return reply.code(400).send({ error: 'no_fields' })
     const { rows } = await fastify.db.query<ProviderRow>(

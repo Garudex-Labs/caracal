@@ -928,11 +928,11 @@ function menuHelp(label: string): Pick<InfoPage, 'meaning' | 'when' | 'impact' |
       }
     case 'provider':
       return {
-        meaning: 'Providers describe upstream credential and identity systems that Caracal can call.',
-        when: 'Use this before Gateway or credential flows that need upstream OAuth2 refresh or API-key forwarding.',
-        impact: 'Provider config controls token refresh endpoints, allow-listed token hosts, and upstream credential headers.',
+        meaning: 'Providers describe upstream credential systems that Caracal can call.',
+        when: 'Use this before Gateway flows that need OAuth2 authorization-code, OAuth2 client-credentials, API-key, or bearer-token upstream auth.',
+        impact: 'Provider config controls token endpoints, sealed credential material, allow-listed token hosts, and upstream credential headers.',
         example: 'Hooli OAuth2',
-        terms: [{ label: 'Token endpoint', value: 'The upstream HTTPS endpoint used to refresh OAuth2 provider tokens.' }],
+        terms: [{ label: 'Token endpoint', value: 'The upstream HTTPS endpoint used to issue or refresh OAuth2 provider tokens.' }],
       }
     case 'resource':
       return {

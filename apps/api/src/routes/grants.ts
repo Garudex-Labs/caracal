@@ -4,6 +4,7 @@
 // Delegated grant CRUD routes: creation and revocation with session invalidation.
 
 import type { FastifyPluginAsync } from 'fastify'
+import { loadZoneKek, seal } from '@caracalai/core'
 import { z } from 'zod'
 import { v7 as uuidv7 } from 'uuid'
 import { scopesAllowed } from '@caracalai/core'
@@ -28,6 +29,21 @@ const GrantBody = z.object({
   resource_id: z.string().min(1),
   scopes: z.array(Scope).min(1).max(64),
 })
+
+const ProviderGrantBody = z.object({
+  user_id: z.string().min(1),
+  resource_id: z.string().min(1),
+  provider_id: z.string().min(1),
+  scopes: z.array(Scope).min(1).max(64),
+  access_token: z.string().min(1),
+  refresh_token: z.string().min(1).optional(),
+  expires_at: z.string().datetime().optional(),
+})
+
+function sealText(value: string): Buffer {
+  const sealed = seal(loadZoneKek(), Buffer.from(value, 'utf8'))
+  return Buffer.concat([sealed.nonce, sealed.ciphertext])
+}
 
 export const grantsRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.get('/zones/:zoneId/grants', async (req, reply) => {
@@ -93,6 +109,51 @@ export const grantsRoutes: FastifyPluginAsync = async (fastify) => {
        VALUES ($1, $2, $3, $4, $5, $6, 'active')
        RETURNING id, zone_id, application_id, user_id, resource_id, scopes, status, created_at`,
       [id, params.zoneId, body.application_id, body.user_id, body.resource_id, body.scopes],
+    )
+    return reply.code(201).send(rows[0])
+  })
+
+  fastify.post('/zones/:zoneId/provider-grants', async (req, reply) => {
+    const params = parseParams(ZoneParams, req, reply)
+    if (!params) return
+    if (!(await zoneExists(fastify.db, params.zoneId))) {
+      return reply.code(404).send({ error: 'zone_not_found' })
+    }
+    const parsed = ProviderGrantBody.safeParse(req.body)
+    if (!parsed.success) return reply.code(400).send({ error: 'invalid_provider_grant' })
+    const body = parsed.data
+    const { rows: refs } = await fastify.db.query<{
+      provider_kind: string | null
+      resource_scopes: string[] | null
+      resource_provider_id: string | null
+    }>(
+      `SELECT
+         (SELECT provider_kind FROM providers WHERE id = $2 AND zone_id = $1 AND archived_at IS NULL) AS provider_kind,
+         (SELECT scopes FROM resources WHERE id = $3 AND zone_id = $1 AND archived_at IS NULL) AS resource_scopes,
+         (SELECT credential_provider_id FROM resources WHERE id = $3 AND zone_id = $1 AND archived_at IS NULL) AS resource_provider_id`,
+      [params.zoneId, body.provider_id, body.resource_id],
+    )
+    const refsRow = refs[0]
+    if (!refsRow?.provider_kind) return reply.code(404).send({ error: 'provider_not_found' })
+    if (refsRow.provider_kind !== 'oauth2_authorization_code') {
+      return reply.code(400).send({ error: 'provider_grant_unsupported', detail: 'only oauth2_authorization_code providers use delegated provider grants' })
+    }
+    if (!refsRow.resource_scopes) return reply.code(404).send({ error: 'resource_not_found' })
+    if (refsRow.resource_provider_id !== body.provider_id) {
+      return reply.code(400).send({ error: 'provider_resource_mismatch' })
+    }
+    if (!scopesAllowed(body.scopes, refsRow.resource_scopes)) {
+      return reply.code(403).send({ error: 'grant_scopes_exceed_resource' })
+    }
+    const id = uuidv7()
+    const accessTokenCt = sealText(body.access_token)
+    const refreshTokenCt = body.refresh_token ? sealText(body.refresh_token) : null
+    const { rows } = await fastify.db.query(
+      `INSERT INTO provider_grants (id, zone_id, user_id, resource_id, provider_id, scopes,
+                                   access_token_ct, refresh_token_ct, expires_at, status)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'active')
+       RETURNING id, zone_id, user_id, resource_id, provider_id, scopes, status, expires_at, created_at`,
+      [id, params.zoneId, body.user_id, body.resource_id, body.provider_id, body.scopes, accessTokenCt, refreshTokenCt, body.expires_at ?? null],
     )
     return reply.code(201).send(rows[0])
   })
