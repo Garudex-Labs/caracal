@@ -86,16 +86,14 @@ export interface ResourceInput {
   credential_provider_id?: string
 }
 
-export type ProviderKind = 'oauth2' | 'oidc' | 'apikey' | 'workload'
+export type ProviderKind = 'oauth2' | 'apikey'
 
 export interface Provider {
   id: string
   zone_id: string
   name: string
   identifier: string
-  kind: ProviderKind | null
-  owner_type: string
-  client_id: string | null
+  kind: ProviderKind
   config_json: JsonObject
   created_at: string
   updated_at: string
@@ -104,10 +102,8 @@ export interface Provider {
 export interface ProviderInput {
   name?: string
   identifier: string
-  kind?: ProviderKind
-  owner_type?: string
-  client_id?: string
-  config_json?: JsonObject
+  kind: ProviderKind
+  config_json: JsonObject
 }
 
 export interface Policy {

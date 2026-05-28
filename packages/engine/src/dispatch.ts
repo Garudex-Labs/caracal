@@ -97,6 +97,20 @@ function mustStr(flags: FlagMap | undefined, key: string): string {
   return v
 }
 
+function getJsonObject(flags: FlagMap | undefined, key: string): Record<string, unknown> | undefined {
+  const raw = getStr(flags, key)
+  if (!raw) return undefined
+  const parsed = JSON.parse(raw) as unknown
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) invalid(`flag "${key}" must be a JSON object`)
+  return parsed as Record<string, unknown>
+}
+
+function mustJsonObject(flags: FlagMap | undefined, key: string): Record<string, unknown> {
+  const value = getJsonObject(flags, key)
+  if (!value) invalid(`flag "${key}" is required`)
+  return value
+}
+
 function getNum(flags: FlagMap | undefined, key: string): number | undefined {
   const v = flags?.[key]
   if (typeof v === 'number') return v
@@ -218,15 +232,14 @@ const providerHandler = bySubcommand({
   create: ({ principal, flags, ctx }) => ctx.admin.providers.create(requireZone(principal), {
     name: mustStr(flags, 'name'),
     identifier: mustStr(flags, 'identifier'),
-    kind: mustStr(flags, 'kind'),
-    client_id: getStr(flags, 'client-id'),
-    owner_type: getStr(flags, 'owner-type'),
-    config: getStr(flags, 'config'),
+    kind: mustStr(flags, 'kind') as never,
+    config_json: mustJsonObject(flags, 'config'),
   } as never),
   patch: ({ principal, flags, ctx }) => ctx.admin.providers.patch(requireZone(principal), mustStr(flags, 'id'), {
     name: getStr(flags, 'name'),
-    client_id: getStr(flags, 'client-id'),
-    config: getStr(flags, 'config'),
+    identifier: getStr(flags, 'identifier'),
+    kind: getStr(flags, 'kind') as never,
+    config_json: getJsonObject(flags, 'config'),
   } as never),
   delete: ({ principal, flags, ctx }) => ctx.admin.providers.delete(requireZone(principal), mustStr(flags, 'id')),
 })
