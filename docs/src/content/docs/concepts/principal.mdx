@@ -27,7 +27,7 @@ Applications represent software that can participate in Caracal flows:
 - a connector-protected resource server;
 - a managed or dynamically registered client.
 
-Applications have registration metadata, credential type, traits, and consent behavior. They are created from the Console or Admin API.
+Applications have registration metadata, a credential type, optional runtime traits, and optional DCR expiry. Managed applications are operator-provisioned for known durable software; dynamically registered applications are created through the zone DCR endpoint for self-service, high-churn, or ephemeral clients.
 
 ## Sessions bind identity to time
 
