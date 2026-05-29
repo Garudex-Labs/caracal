@@ -20,7 +20,7 @@ const PROVIDER_IDENTIFIER_PREFIX = 'provider://'
 const PROVIDER_IDENTIFIER_PATTERN = /^provider:\/\/[a-z0-9]+(?:-[a-z0-9]+)*$/
 const HEADER_TOKEN_PATTERN = /^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/
 const AUTH_SCHEME_PATTERN = /^[A-Za-z][A-Za-z0-9-]*$/
-const OAUTH_AUTHORIZATION_PARAM_PATTERN = /^[A-Za-z0-9._~-]+$/
+const OAUTH_PARAM_PATTERN = /^[A-Za-z0-9._~-]+$/
 const RESERVED_OAUTH_AUTHORIZATION_PARAMS = new Set([
   'client_id',
   'code_challenge',
@@ -29,6 +29,16 @@ const RESERVED_OAUTH_AUTHORIZATION_PARAMS = new Set([
   'response_type',
   'scope',
   'state',
+])
+const RESERVED_OAUTH_TOKEN_PARAMS = new Set([
+  'client_id',
+  'client_secret',
+  'code',
+  'code_verifier',
+  'grant_type',
+  'redirect_uri',
+  'refresh_token',
+  'scope',
 ])
 const OptionalText = z.preprocess(
   (value) => typeof value === 'string' && value.trim().length === 0 ? undefined : value,
@@ -76,6 +86,7 @@ const PUBLIC_PROVIDER_CONFIG_KEYS: Record<ProviderKind, ReadonlySet<string>> = {
     'scopes',
     'allowed_token_hosts',
     'authorization_params',
+    'token_params',
     'auth_header',
     'auth_scheme',
     'forward_caracal_identity',
@@ -88,6 +99,7 @@ const PUBLIC_PROVIDER_CONFIG_KEYS: Record<ProviderKind, ReadonlySet<string>> = {
     'audience',
     'resource',
     'allowed_token_hosts',
+    'token_params',
     'auth_header',
     'auth_scheme',
     'forward_caracal_identity',
@@ -168,15 +180,15 @@ function requireOptionalText(config: Record<string, unknown>, key: string, messa
   config[key] = value.trim()
 }
 
-function requireOptionalStringRecord(config: Record<string, unknown>, key: string, message: string): void {
+function requireOptionalStringRecord(config: Record<string, unknown>, key: string, reserved: ReadonlySet<string>, message: string): void {
   const value = config[key]
   if (value === undefined) return
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error(message)
   const params = value as Record<string, string>
   for (const [name, item] of Object.entries(value)) {
     if (
-      RESERVED_OAUTH_AUTHORIZATION_PARAMS.has(name)
-      || !OAUTH_AUTHORIZATION_PARAM_PATTERN.test(name)
+      reserved.has(name)
+      || !OAUTH_PARAM_PATTERN.test(name)
       || typeof item !== 'string'
       || item.trim().length === 0
     ) {
@@ -232,6 +244,7 @@ function splitProviderConfig(kind: ProviderKind, input: Record<string, unknown> 
     requireString(publicConfig, 'client_id', `${kind} provider config requires client_id`)
     requireStringList(publicConfig, 'allowed_token_hosts', `${kind} provider config requires allowed_token_hosts`)
     requireOptionalStringList(publicConfig, 'scopes', `${kind} provider config scopes must be a list of strings`)
+    requireOptionalStringRecord(publicConfig, 'token_params', RESERVED_OAUTH_TOKEN_PARAMS, `${kind} provider config token_params must be non-reserved string key/value pairs`)
     requireOptionalHeaderName(publicConfig, 'auth_header', `${kind} provider config auth_header must be an HTTP header name`)
     if (kind === 'oauth2_client_credentials') {
       requireOptionalText(publicConfig, 'audience', 'oauth2_client_credentials provider config audience must be a non-empty string')
@@ -242,7 +255,7 @@ function splitProviderConfig(kind: ProviderKind, input: Record<string, unknown> 
     if (kind === 'oauth2_authorization_code') {
       requireHttpsUrl(publicConfig, 'authorization_endpoint', 'oauth2_authorization_code provider config authorization_endpoint must be an HTTPS URL')
       requireAbsoluteUri(publicConfig, 'redirect_uri', 'oauth2_authorization_code provider config redirect_uri must be an absolute URI')
-      requireOptionalStringRecord(publicConfig, 'authorization_params', 'oauth2_authorization_code provider config authorization_params must be non-reserved string key/value pairs')
+      requireOptionalStringRecord(publicConfig, 'authorization_params', RESERVED_OAUTH_AUTHORIZATION_PARAMS, 'oauth2_authorization_code provider config authorization_params must be non-reserved string key/value pairs')
     }
     if (requireSecrets && clientAuthMethod !== 'none' && !secretConfig.client_secret) {
       throw new Error(`${kind} provider config requires client_secret`)

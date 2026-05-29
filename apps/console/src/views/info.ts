@@ -349,13 +349,15 @@ function actionNotes(normalized: string): string[] | undefined {
 }
 
 function exampleFor(kind: string, label: string, options?: readonly string[]): string {
+  const normalized = label.toLowerCase()
   if (kind === 'bool') return 'yes'
+  if (kind === 'list' && normalized.includes('authorization params')) return 'access_type=offline,prompt=consent'
+  if (kind === 'list' && normalized.includes('token params')) return 'tenant=hooli'
   if (kind === 'list') return 'read,write'
   if (kind === 'secret') return '••••'
   if (kind === 'file') return '/home/richard/pied-piper/policies/pipernet.rego'
   if (kind === 'select') return options?.find((option) => option.length > 0) ?? 'Choose one of the listed options.'
-  if (isNumericLabel(label.toLowerCase())) return numericExampleFor(label.toLowerCase())
-  const normalized = label.toLowerCase()
+  if (isNumericLabel(normalized)) return numericExampleFor(normalized)
   if (normalized.includes('forward') && normalized.includes('caracal identity')) return 'no'
   if (normalized.includes('authorization endpoint')) return 'https://login.hooli.example/oauth/authorize'
   if (normalized.includes('token endpoint')) return 'https://login.hooli.example/oauth/token'
