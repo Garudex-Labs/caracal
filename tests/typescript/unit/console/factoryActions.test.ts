@@ -791,6 +791,37 @@ describe('providers actions', () => {
     }))
   })
 
+  it('creates bearer token providers with optional upstream forwarding settings', async () => {
+    const { client, ctx } = newCtx()
+    const list = providersView(ctx as unknown as Parameters<typeof providersView>[0]) as ListView<unknown>
+    const app = fakeApp()
+    const pushed = await pressKey(list, 'n', app) as FormView
+    ;(pushed as unknown as { values: Record<string, string> }).values = {
+      identifier: 'provider://hooli-bearer',
+      name: 'Hooli Bearer',
+      kind: 'bearer_token',
+      bearer_token: 'provider-token',
+      auth_header: 'X-Provider-Authorization',
+      auth_scheme: 'Token',
+      forward_caracal_identity: 'true',
+      api_key_header: 'X-Api-Key',
+    }
+    ;(pushed as unknown as { focus: number }).focus = 99
+
+    await pushed.onKey('enter', { app, size: { rows: 20, cols: 80 }, status: '' })
+
+    expect(client.providers.create).toHaveBeenCalledWith('z1', expect.objectContaining({
+      identifier: 'provider://hooli-bearer',
+      kind: 'bearer_token',
+      config_json: {
+        bearer_token: 'provider-token',
+        auth_header: 'X-Provider-Authorization',
+        auth_scheme: 'Token',
+        forward_caracal_identity: true,
+      },
+    }))
+  })
+
   it('generates provider identifiers from provider names when identifier is blank', async () => {
     const { client, ctx } = newCtx()
     const list = providersView(ctx as unknown as Parameters<typeof providersView>[0]) as ListView<unknown>

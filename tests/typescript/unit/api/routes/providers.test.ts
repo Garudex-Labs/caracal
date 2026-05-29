@@ -202,6 +202,71 @@ describe('POST /v1/zones/:zoneId/providers', () => {
     }
   })
 
+  it('stores bearer token provider routing config and sealed secrets', async () => {
+    const { app, db } = buildRouteApp(providersRoutes)
+    db.query
+      .mockResolvedValueOnce({ rows: [{ '?column?': 1 }] })
+      .mockResolvedValueOnce({
+        rows: [{ id: 'provider-1', zone_id: 'z1', identifier: 'provider://hooli-bearer', kind: 'bearer_token' }],
+      })
+
+    await app.ready()
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/zones/z1/providers',
+      payload: {
+        identifier: 'provider://hooli-bearer',
+        kind: 'bearer_token',
+        config_json: {
+          bearer_token: 'hooli-provider-token',
+          auth_header: 'Authorization',
+          auth_scheme: 'Bearer',
+          forward_caracal_identity: true,
+        },
+      },
+    })
+
+    const values = db.query.mock.calls[1][1] as unknown[]
+    expect(res.statusCode).toBe(201)
+    expect(JSON.parse(res.body)).toMatchObject({ id: 'provider-1', kind: 'bearer_token' })
+    expect(JSON.parse(values[5] as string)).toEqual({
+      auth_header: 'Authorization',
+      auth_scheme: 'Bearer',
+      forward_caracal_identity: true,
+    })
+    expect(values[8]).toEqual(['bearer_token'])
+  })
+
+  it('rejects bearer token providers with unsupported or malformed forwarding config', async () => {
+    const { app, db } = buildRouteApp(providersRoutes)
+    db.query.mockResolvedValue({ rows: [{ '?column?': 1 }] })
+
+    await app.ready()
+    const invalidConfigs: Array<Record<string, unknown>> = [
+      {
+        bearer_token: 'hooli-provider-token',
+        header_name: 'Authorization',
+      },
+      {
+        bearer_token: 'hooli-provider-token',
+        auth_header: 'Authorization Header',
+      },
+      {
+        bearer_token: 'hooli-provider-token',
+        auth_scheme: 'Bearer Token',
+      },
+    ]
+    for (const config of invalidConfigs) {
+      const res = await app.inject({
+        method: 'POST',
+        url: '/v1/zones/z1/providers',
+        payload: { identifier: 'provider://hooli-bearer', kind: 'bearer_token', config_json: config },
+      })
+      expect(res.statusCode).toBe(400)
+      expect(JSON.parse(res.body)).toMatchObject({ error: 'invalid_provider_config' })
+    }
+  })
+
   it('generates provider identifiers from provider names when omitted', async () => {
     const { app, db } = buildRouteApp(providersRoutes)
     db.query
